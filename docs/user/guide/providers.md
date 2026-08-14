@@ -4,9 +4,9 @@ English | [中文](providers.zh.md)
 
 This guide assumes you started the Web UI through the [root README](../../../README.md#run). Model changes take effect on the next request without restarting the server.
 
-## Configure DeepSeek
+## Configure the optional native DeepSeek adapter
 
-Open **Settings → Models**. The DeepSeek card exposes one API-key field; enter the key and save it.
+When the deployment explicitly enables the `llm-deepseek` row, open **Settings → Models**. The DeepSeek card exposes one API-key field; enter the key and save it.
 
 ![The Models page: the DeepSeek card, with Add provider and Add a custom provider below it](providers-models-page.png)
 

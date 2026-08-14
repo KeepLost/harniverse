@@ -27,7 +27,9 @@ describe('dsh-base bundle', () => {
     )
     expect(Array.isArray(parsed)).toBe(true)
     // The base layer is one insert list over the empty profile root.
-    const rows = (parsed as { insert?: { id?: string; config?: Record<string, unknown> }[] }[]).flatMap(
+    const rows = (parsed as {
+      insert?: { id?: string; name?: string; disabled?: unknown; config?: Record<string, unknown> }[]
+    }[]).flatMap(
       patch => patch.insert ?? [],
     )
     expect(rows.length).toBeGreaterThan(50)
@@ -39,6 +41,14 @@ describe('dsh-base bundle', () => {
     expect(rows.filter(row => row.id === 'subagent-claude-code')).toHaveLength(0)
     expect(manifest.dependencies).not.toHaveProperty('@deepseek-ai/dsh-subagent-codex')
     expect(manifest.dependencies).not.toHaveProperty('@deepseek-ai/dsh-subagent-claude-code')
+    expect(rows.find(row => row.id === 'llm-pi-ai')).toMatchObject({
+      name: '@deepseek-ai/dsh-llm-pi-ai',
+    })
+    expect(rows.find(row => row.id === 'llm-pi-ai')).not.toHaveProperty('disabled')
+    expect(rows.find(row => row.id === 'llm-deepseek')).toMatchObject({
+      name: '@deepseek-ai/dsh-llm-deepseek',
+      disabled: true,
+    })
   })
 
   it('gates each shell stack by platform with a symmetric disabled expression', () => {

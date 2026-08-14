@@ -6,6 +6,8 @@
 # apps/web/tests/scaffold.ts.
 - id: directory-picker
   disabled: true
+- id: llm-deepseek
+  disabled: false
 - insert:
     - id: directory-picker-browse
       name: '@deepseek-ai/dsh-host-directory-picker-browse'

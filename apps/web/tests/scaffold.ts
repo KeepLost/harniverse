@@ -227,12 +227,6 @@ export interface LaunchOptions {
    * remain reconstructable without making the tools a product default.
    */
   cordisTools?: boolean
-  /**
-   * Keep the shipped DeepSeek adapter mounted while masking the process
-   * environment's DEEPSEEK_API_KEY for this scaffold lifetime. This is the
-   * keyless first-run configuration lane; the default disables the adapter.
-   */
-  deepSeekMissingCredential?: boolean
   /** Leave the current welcome notice pending; ordinary scenarios pre-acknowledge it before browser boot. */
   welcomeNoticePending?: boolean
   /**
@@ -302,21 +296,6 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       throw new Error('web e2e record mode needs DEEPSEEK_API_KEY (env or repo-root .env)')
     }
   }
-  if (mode === 'record' && options.deepSeekMissingCredential === true) {
-    throw new Error('deepSeekMissingCredential is a keyless replay/refresh option')
-  }
-  const maskDeepSeekCredential = mode !== 'record' && options.deepSeekMissingCredential === true
-  const originalDeepSeekCredential = process.env.DEEPSEEK_API_KEY
-  let credentialEnvironmentRestored = false
-  const restoreCredentialEnvironment = (): void => {
-    if (credentialEnvironmentRestored || !maskDeepSeekCredential) return
-    credentialEnvironmentRestored = true
-    if (originalDeepSeekCredential === undefined) {
-      Reflect.deleteProperty(process.env, 'DEEPSEEK_API_KEY')
-    } else {
-      process.env.DEEPSEEK_API_KEY = originalDeepSeekCredential
-    }
-  }
   const workspaceCwd = await realpath(await mkdtemp(join(tmpdir(), 'dsh-web-e2e-ws-')))
   // Isolated harness home: the settings/credentials rows resolve $DSH_HOME
   // paths at load, and an in-process boot must NEVER touch the developer's
@@ -360,8 +339,6 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     if (failures.length > 1) throw new AggregateError(failures, 'web scaffold temp-root setup failed')
     throw error
   }
-  if (maskDeepSeekCredential) Reflect.deleteProperty(process.env, 'DEEPSEEK_API_KEY')
-
   // The include patch set — the same layer stack the profile boot composes
   // (bundle patches in dsh.profile.bundles order), applied over the SAME empty root (a
   // patch id that stops matching a row fails the boot sweep loudly instead of
@@ -485,8 +462,8 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
           baseURL: options.deepSeekSearch.baseURL,
         },
       }],
-    ...mode === 'record' || options.deepSeekMissingCredential === true
-      ? []
+    ...mode === 'record'
+      ? [{ id: 'llm-deepseek', disabled: false }]
       : [{ id: 'llm-deepseek', disabled: true }],
   ]
 
@@ -544,7 +521,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     port = boundPort
 
     // Fill the open llm seam on the settled root ctx. Ordinary keyless modes
-    // disable llm-deepseek; the first-run lane keeps it mounted but has no
+    // disable llm-deepseek; adapter-specific lanes re-enable it but have no
     // replay fixture and never streams. The direct install, unlike the plugin
     // row, returns the ReplayHandle for the teardown consumption check.
     if (mode !== 'record' && options.replayFixture !== undefined) {
@@ -555,7 +532,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
         ...(options.replayChildFixtures === undefined ? {} : { childFiles: options.replayChildFixtures }),
         ...(options.paceMs === undefined ? {} : { paceMs: options.paceMs }),
       })
-    } else if (mode !== 'record' && options.deepSeekMissingCredential !== true) {
+    } else if (mode !== 'record') {
       // No fixture and no shipped adapter would leave the tree with ZERO
       // provider routes — a state no product composition has, and one the
       // composer refuses to type into. Register the same routes
@@ -569,7 +546,6 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   } catch (error) {
     if (process.cwd() !== originalCwd) process.chdir(originalCwd)
     const cleanupFailures = await cleanupScaffoldWorld(ctx, workspaceCwd, persistenceRoot)
-    restoreCredentialEnvironment()
     restoreSkillRootEnvironment()
     if (cleanupFailures.length > 0) {
       throw new AggregateError([error, ...cleanupFailures], 'web scaffold setup failed and cleanup was incomplete')
@@ -617,7 +593,6 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       try {
         failures.push(...await cleanupScaffoldWorld(ctx, workspaceCwd, persistenceRoot))
       } finally {
-        restoreCredentialEnvironment()
         restoreSkillRootEnvironment()
       }
       if (failures.length > 0) throw new AggregateError(failures, 'web scaffold teardown failed')

@@ -1,0 +1,4 @@
+# Tests that exercise the optional native adapter re-enable its production row
+# explicitly instead of changing the provider-neutral base composition.
+- id: llm-deepseek
+  disabled: false

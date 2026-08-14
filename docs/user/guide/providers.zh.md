@@ -4,9 +4,9 @@
 
 本指南假定你已按照[根 README](../../../README.md#run)启动 Web UI。模型变更会在下一次请求时生效，不需要重启服务器。
 
-## 配置 DeepSeek
+## 配置可选的原生 DeepSeek 适配器
 
-打开**设置 → 模型**。DeepSeek 卡片提供一个 API 密钥字段；输入密钥并保存。
+部署显式启用 `llm-deepseek` 行后，打开**设置 → 模型**。DeepSeek 卡片提供一个 API 密钥字段；输入密钥并保存。
 
 ![模型页：DeepSeek 卡片，以及添加提供方与添加自定义提供方两个入口](providers-models-page.zh.png)
 

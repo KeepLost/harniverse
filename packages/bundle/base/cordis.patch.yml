@@ -85,7 +85,7 @@
     - id: credentials
       name: '@deepseek-ai/dsh-credentials-local'
 
-    # The pi-ai multi-provider twin, mounted dormant: zero routes (and no extra
+    # The default multi-provider adapter. It starts with zero routes (and no extra
     # models in the picker) until a `llm-pi-ai:` settings section supplies provider
     # profiles — then those routes register live, keys resolving per request
     # through their apiKeyEnv references, and drop again when the section empties.
@@ -443,9 +443,11 @@
     - id: fs-sandbox
       name: '@deepseek-ai/dsh-fs-sandbox'
 
-    # The native DeepSeek adapter. No key or endpoint is inlined: both resolve per
-    # request from the `llm-deepseek:` settings section over this entry, with the
+    # The optional native DeepSeek adapter. A profile can re-enable this row; no
+    # key or endpoint is inlined, and both resolve per request from the
+    # `llm-deepseek:` settings section over this entry, with the
     # key coming from the credential store below. Thinking defaults are a deployment
     # choice.
     - id: llm-deepseek
       name: '@deepseek-ai/dsh-llm-deepseek'
+      disabled: true

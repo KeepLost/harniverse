@@ -28,6 +28,7 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { REPO_ROOT, connectFreshWorkspace, newEnglishPage, probeFreePort, requireDist, saveFailureShot } from './support.ts'
 
 const WEB_SURFACE_PROMPT = fileURLToPath(new URL('./snapshots/web-runtime-context/web-surface-prompt.expected.md', import.meta.url))
+const ENABLE_DEEPSEEK_OVERLAY = fileURLToPath(new URL('./enable-deepseek.overlay.yml', import.meta.url))
 
 function waitForReadyLine(child: ChildProcess): Promise<string> {
   return new Promise((resolveReady, reject) => {
@@ -226,7 +227,10 @@ describe('dsh web keyless CLI smoke', () => {
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
     const child = spawn(
       process.execPath,
-      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', '0'],
+      [
+        '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web',
+        '--patch', ENABLE_DEEPSEEK_OVERLAY, '--port', '0',
+      ],
       {
         cwd: workspace,
         env: {
@@ -339,7 +343,10 @@ describe('dsh web keyless CLI smoke', () => {
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
     const child = spawn(
       process.execPath,
-      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', '0'],
+      [
+        '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web',
+        '--patch', ENABLE_DEEPSEEK_OVERLAY, '--port', '0',
+      ],
       {
         cwd: workspace,
         env: {
@@ -421,7 +428,10 @@ describe('dsh web keyless CLI smoke', () => {
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
     const child = spawn(
       process.execPath,
-      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', '0'],
+      [
+        '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web',
+        '--patch', ENABLE_DEEPSEEK_OVERLAY, '--port', '0',
+      ],
       {
         cwd: workspace,
         env: {
