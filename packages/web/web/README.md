@@ -9,6 +9,7 @@ This package owns the Service Definition role of the web capability. Unlike shel
 | Package | Role |
 |---|---|
 | `@deepseek-ai/dsh-web` (this) | Service Definition: the service, provider registries, selection policy, request/result vocabulary, the `WebError` taxonomy |
+| `@deepseek-ai/dsh-web-search-deepseek` | Search provider: DeepSeek official search |
 | `@deepseek-ai/dsh-web-search-exa` | Search provider: Exa |
 | `@deepseek-ai/dsh-web-search-perplexity` | Search provider: Perplexity |
 | `@deepseek-ai/dsh-web-fetch-http` | Fetch provider: anonymous public HTTP(S) |
@@ -28,7 +29,7 @@ Providers register **capabilities**, not tools. `dsh-tool-web` is the only owner
 
 ## Selection
 
-Selection never depends on registration, config, or HMR order. A capability has an explicit provider id (config `searchProvider`/`fetchProvider`, or env `$DSH_WEB_SEARCH_PROVIDER`/`$DSH_WEB_FETCH_PROVIDER` feeding the same fields), or auto-selects when exactly one usable provider is registered. `search()`/`fetch()` resolve the provider at execution time:
+Selection never depends on registration, config, or HMR order. A capability has an explicit provider id (config `searchProvider`/`fetchProvider`, or env `$DSH_WEB_SEARCH_PROVIDER`/`$DSH_WEB_FETCH_PROVIDER` feeding the same fields), or auto-selects when exactly one usable provider is registered. `WebRuntime` registers a live `web` settings section containing only `searchProvider`; `fetchProvider` remains composition-only. `search()` snapshots the live search selection at operation entry, while `fetch()` uses its composed selection:
 
 | Situation | Execution |
 |---|---|
@@ -39,7 +40,7 @@ Selection never depends on registration, config, or HMR order. A capability has 
 | no id, no usable provider | `WEB_PROVIDER_UNAVAILABLE` |
 | no id, multiple usable providers | `WEB_PROVIDER_AMBIGUOUS` |
 
-The failure branches throw `WebError`, whose structured code (plus message detail — the missing id, the ambiguous candidate set) is the direct callers route on. A provider's own `available()` is a cheap local check (credential presence, parseable config) that feeds this execution-time selection and **must not make network calls**; `dsh-tool-web` never calls it — the tool executes through `ctx.web.search()`/`fetch()` and routes on the thrown codes, so provider selection has one owner.
+The failure branches throw `WebError`, whose structured code (plus message detail — the missing id, the ambiguous candidate set) is the direct callers route on. A provider's own synchronous `available()` is a cheap local check that **must not make network calls** and cannot prove that an asynchronous credential store contains a key. The shipped composition therefore explicitly selects one of its three mounted official providers and never switches based on which keys exist; a selected keyless provider fails only when its search resolves the missing credential. `dsh-tool-web` never calls `available()` — the tool executes through `ctx.web.search()`/`fetch()` and routes on the thrown codes, so provider selection has one owner.
 
 ## Vocabulary
 

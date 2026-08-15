@@ -6,7 +6,7 @@
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SecretField, ValueField } from '../src/client/fields.tsx'
+import { SecretField, SelectField, ValueField } from '../src/client/fields.tsx'
 
 afterEach(cleanup)
 
@@ -83,6 +83,67 @@ describe('ValueField', () => {
 
     expect(screen.getByLabelText('Command timeout')).toHaveProperty('disabled', true)
     expect(screen.getByRole('button', { name: 'Reset to default' })).toHaveProperty('disabled', true)
+  })
+})
+
+describe('SelectField', () => {
+  it('renders staged options and reports selection without writing', () => {
+    const onEdit = vi.fn()
+    render(
+      <SelectField
+        {...frame}
+        text="exa"
+        options={[
+          { value: 'deepseek-official', label: 'DeepSeek' },
+          { value: 'exa', label: 'Exa' },
+          { value: 'perplexity', label: 'Perplexity' },
+        ]}
+        onEdit={onEdit}
+        onReset={vi.fn()}
+      />,
+    )
+
+    const select = screen.getByLabelText('Command timeout')
+    expect(select).toHaveProperty('value', 'exa')
+    expect(screen.getAllByRole('option')).toHaveLength(3)
+
+    fireEvent.change(select, { target: { value: 'perplexity' } })
+
+    expect(onEdit).toHaveBeenCalledWith('perplexity')
+  })
+
+  it('offers the staged reset and respects read-only state', () => {
+    const onReset = vi.fn()
+    render(
+      <SelectField
+        {...frame}
+        disabled
+        overridden
+        text="exa"
+        options={[{ value: 'exa', label: 'Exa' }]}
+        onEdit={vi.fn()}
+        onReset={onReset}
+      />,
+    )
+
+    expect(screen.getByLabelText('Command timeout')).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: 'Reset to default' })).toHaveProperty('disabled', true)
+  })
+
+  it('marks an invalid staged option and explains why it cannot be saved', () => {
+    render(
+      <SelectField
+        {...frame}
+        invalid
+        text="other"
+        options={[{ value: 'exa', label: 'Exa' }]}
+        onEdit={vi.fn()}
+        onReset={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByLabelText('Command timeout').getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByText('Enter a number.')).toBeTruthy()
   })
 })
 

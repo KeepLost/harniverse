@@ -393,23 +393,26 @@
         thresholds: [3, 5, 8]
         argumentsPreviewChars: 500
 
-    # Every mode enables the stable model-facing web_search tool. DeepSeek search
-    # resolves the same DEEPSEEK_API_KEY credential the Models page manages for
-    # chat, at each search; its Messages endpoint is separate from the
-    # chat-completions endpoint, so it takes its own base-URL override. Fetch stays
-    # disabled and no fetch provider is mounted: that provider defers SSRF
-    # protection and the model would choose the request target. Search is a full
-    # auxiliary model request with server-side retrieval, so this shipped DeepSeek
-    # route gets 60s while the provider-neutral tool default remains 30s.
+    # Every mode enables the stable model-facing web_search tool and mounts all
+    # official providers. DeepSeek remains the default unless the launch
+    # environment explicitly selects another provider; later patch layers can
+    # still replace this config. Fetch stays disabled and no fetch provider is
+    # mounted because model-selected targets still require an SSRF policy.
     - id: web
       name: '@deepseek-ai/dsh-web'
       config:
-        searchProvider: deepseek-official
+        searchProvider: !!js process.env.DSH_WEB_SEARCH_PROVIDER ?? 'deepseek-official'
 
     - id: web-search-deepseek
       name: '@deepseek-ai/dsh-web-search-deepseek'
       config:
         apiKeyEnv: DEEPSEEK_API_KEY
+
+    - id: web-search-exa
+      name: '@deepseek-ai/dsh-web-search-exa'
+
+    - id: web-search-perplexity
+      name: '@deepseek-ai/dsh-web-search-perplexity'
 
     - id: tool-web
       name: '@deepseek-ai/dsh-tool-web'

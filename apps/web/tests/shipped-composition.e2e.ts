@@ -126,6 +126,24 @@ it('assembles the shipped Web catalog, file-reference guidance, and confined acc
   }
 }, 120_000)
 
+it.each(['deepseek-official', 'exa', 'perplexity'] as const)(
+  'mounts the shipped %s search row without requiring a credential at boot',
+  async (provider) => {
+    scaffold = await launchWebScaffold({
+      webSearch: {
+        provider,
+        baseURL: 'http://127.0.0.1:9',
+        apiKeyEnv: `DSH_WEB_SEARCH_MISSING_${provider.toUpperCase().replace('-', '_')}`,
+      },
+    })
+
+    await expect(scaffold.ctx.web.search({ query: 'registration probe', maxResults: 1 })).rejects.toMatchObject({
+      code: 'WEB_PROVIDER_CREDENTIAL_MISSING',
+    })
+  },
+  120_000,
+)
+
 it('lets a preset producer reach the background-job registry', async () => {
   scaffold = await launchWebScaffold()
   const ctx = scaffold.ctx

@@ -183,6 +183,19 @@ export interface WebScaffold {
   close(): Promise<void>
 }
 
+/** Official search-provider ids mounted by the shipped base composition. */
+export type OfficialWebSearchProviderId = 'deepseek-official' | 'exa' | 'perplexity'
+
+/** Deterministic provider endpoint and credential reference for one search scenario. */
+export interface WebSearchTestConfig {
+  /** Provider selected on the real shipped `web` row. */
+  provider: OfficialWebSearchProviderId
+  /** Provider endpoint base; the selected provider appends its operation path. */
+  baseURL: string
+  /** Credential reference resolved through the shipped credentials service. */
+  apiKeyEnv: string
+}
+
 /** Options for {@link launchWebScaffold}. */
 export interface LaunchOptions {
   /**
@@ -240,6 +253,11 @@ export interface LaunchOptions {
     /** Credential reference resolved by the shipped search provider. */
     apiKeyEnv: string
   }
+  /**
+   * Select and deterministically configure one official provider while keeping
+   * all three shipped provider rows mounted.
+   */
+  webSearch?: WebSearchTestConfig
   /**
    * Replace the roster the scaffold mounts by default (the shipped directory
    * at `system` trust, default `standard`). Supply this only to change WHICH
@@ -353,6 +371,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     surfaceContext?: boolean
   } | undefined
   const surfaceContext = webRuntimeConfig?.surfaceContext !== false
+  const webSearch = options.webSearch ?? (options.deepSeekSearch === undefined
+    ? undefined
+    : { provider: 'deepseek-official', ...options.deepSeekSearch } as const)
   const patches: PatchOptions[] = [
     ...basePatches,
     ...surfacePatches,
@@ -453,15 +474,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
         { id: 'tool-cordis', name: '@deepseek-ai/dsh-tool-cordis' },
       ] }]
       : [],
-    ...options.deepSeekSearch === undefined
-      ? []
-      : [{
-        id: 'web-search-deepseek',
-        config: {
-          apiKeyEnv: options.deepSeekSearch.apiKeyEnv,
-          baseURL: options.deepSeekSearch.baseURL,
-        },
-      }],
+    ...webSearchPatches(webSearch),
     ...mode === 'record'
       ? [{ id: 'llm-deepseek', disabled: false }]
       : [{ id: 'llm-deepseek', disabled: true }],
@@ -598,6 +611,47 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       if (failures.length > 0) throw new AggregateError(failures, 'web scaffold teardown failed')
     },
   }
+}
+
+/** Build complete replacement configs for the selected shipped search rows. */
+function webSearchPatches(config: WebSearchTestConfig | undefined): PatchOptions[] {
+  if (config === undefined) return []
+  const selector: PatchOptions = { id: 'web', config: { searchProvider: config.provider } }
+  if (config.provider === 'deepseek-official') {
+    return [selector, {
+      id: 'web-search-deepseek',
+      config: {
+        apiKeyEnv: config.apiKeyEnv,
+        baseURL: config.baseURL,
+        model: 'deepseek-v4-flash',
+        apiVersion: '2023-06-01',
+        maxTokens: 4096,
+        maxUses: 5,
+      },
+    }]
+  }
+  if (config.provider === 'exa') {
+    return [selector, {
+      id: 'web-search-exa',
+      config: {
+        apiKeyEnv: config.apiKeyEnv,
+        baseURL: config.baseURL,
+        searchType: 'neural',
+        numResults: 8,
+        highlightsPerResult: 2,
+      },
+    }]
+  }
+  return [selector, {
+    id: 'web-search-perplexity',
+    config: {
+      apiKeyEnv: config.apiKeyEnv,
+      baseURL: config.baseURL,
+      model: 'sonar-test',
+      maxTokens: 321,
+      searchRecency: 'week',
+    },
+  }]
 }
 
 /**

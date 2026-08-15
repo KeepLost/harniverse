@@ -33,6 +33,41 @@
           - text: Agent 循环 Agent 如何派发工具调用。
           - img
       - listitem:
-        - 'button "展开设置: 网页搜索"':
-          - text: 网页搜索 DeepSeek 搜索提供方。
+        - 'button "收起设置: 网页搜索" [expanded]':
+          - text: 网页搜索 选择并配置当前使用的搜索提供方。
           - img
+        - text: 搜索提供方
+        - combobox "搜索提供方":
+          - option "DeepSeek" [selected]
+          - option "Exa"
+          - option "Perplexity"
+        - paragraph: 新的网页搜索将使用这个提供方。
+        - text: DeepSeek API Key 未配置密钥；配置之前搜索不可用。
+        - textbox "DeepSeek API Key"
+        - paragraph: 不写入设置文件。留空表示保持当前密钥。
+        - text: 接口地址
+        - textbox "接口地址":
+          - /placeholder: ""
+        - paragraph: 留空则使用提供方默认地址。
+        - text: 模型
+        - textbox "模型":
+          - /placeholder: ""
+          - text: deepseek-v4-flash
+        - paragraph: 搜索使用的 Anthropic 兼容模型。
+        - text: API 版本
+        - textbox "API 版本":
+          - /placeholder: ""
+          - text: 2023-06-01
+        - paragraph: 随 anthropic-version 请求头发送的值。
+        - text: 回答 token 上限
+        - textbox "回答 token 上限":
+          - /placeholder: ""
+          - text: "4096"
+        - paragraph: 单次搜索回答最多生成多少 token。
+        - text: 单次请求最多搜索次数
+        - textbox "单次请求最多搜索次数":
+          - /placeholder: ""
+          - text: "5"
+        - paragraph: 一次请求在作答前最多可以搜索多少次。
+        - button "放弃修改" [disabled]
+        - button "保存" [disabled]

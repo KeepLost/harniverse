@@ -74,7 +74,11 @@ dsh web --help
 
 ## 共享部署行为
 
-基础组合包挂载原生 DeepSeek 适配器、settings 与凭据提供方、稳定的 `web_search` 和已禁用的会话遥测。提供方凭据依次从继承环境、`$DSH_HOME/.credentials.yaml`、调用目录的 `.env` 和 `$DSH_HOME/.env` 解析；受管文档从不物化进 `process.env`，而两个 `.env` 文件都是普通启动环境层。搜索使用 `DEEPSEEK_API_KEY` 并接受 `DEEPSEEK_SEARCH_BASE_URL`；只有 patch 层插入提供方并启用 `web_fetch` 后，该工具才可用。
+基础组合包挂载原生 DeepSeek 适配器、settings 与凭据提供方、稳定的 `web_search`、全部三个官方搜索提供方，以及已禁用的会话遥测。搜索提供方 id 与凭据引用分别为默认的 `deepseek-official`／`DEEPSEEK_API_KEY`、`exa`／`EXA_API_KEY` 和 `perplexity`／`PERPLEXITY_API_KEY`。三者均可在没有密钥时挂载；只有选中的提供方执行搜索时，缺少凭据才会导致失败。同步 `available()` 无法证明异步凭据存储中存在密钥，因此选择绝不会根据已有密钥自动切换。提供方凭据依次从继承环境、`$DSH_HOME/.credentials.yaml`、调用目录的 `.env` 和 `$DSH_HOME/.env` 解析；受管文档从不物化进 `process.env`，而两个 `.env` 文件都是普通启动环境层。DeepSeek 搜索还接受 `DEEPSEEK_SEARCH_BASE_URL`。`web_fetch` 保持禁用，且不挂载抓取提供方。
+
+`DSH_WEB_SEARCH_PROVIDER` 会更改未经改动的随附默认值。后续显式的 `web.config.searchProvider` patch 会替换该行的完整配置，因此优先级更高。`WebRuntime` 会暴露一个只包含 `searchProvider` 的实时 `web` settings 分节；浏览器覆盖从下一次搜索开始生效，清除后恢复组装选择。`fetchProvider` 仍只能通过组装配置，每次搜索都会在操作入口对其选择生成快照。
+
+Host 将 `web`、`web-search-deepseek`、`web-search-exa` 与 `web-search-perplexity` 列入白名单。一张浏览器 Web 搜索卡片绑定全部四个 settings scope，暂存选择器与所有提供方表单，并保留隐藏提供方的草稿。卡片公开每个提供方的只写密钥与专属字段：DeepSeek 的 `baseURL`、`model`、`apiVersion`、`maxTokens` 和 `maxUses`；Exa 的 `baseURL`、`searchType`、`numResults` 和 `highlightsPerResult`；Perplexity 的 `baseURL`、`model`、`maxTokens` 和 `searchRecency`。一次保存会按顺序、以非事务方式写入四个命名空间：成功的写入会结算，每个失败表单则保留自己的草稿。每个提供方都会在每次搜索时读取实时设置与凭据，在操作入口一次性快照完整选项；挂载的凭据服务具有最终权威。
 
 会话遥测默认留在本地。`DSH_TELEMETRY_MODE=FULL` 将每条已投影会话事件作为 OTLP/HTTP 日志流式发送，`DSH_TELEMETRY_MODE=FEEDBACK_ONLY` 则仅在记录反馈时上传会话日志后缀。`DSH_TELEMETRY_OTLP_URL` 选择其他 collector。任何非空的 `DSH_TELEMETRY_DISABLED` 都是具有最终效力的遥测强制关闭开关。随附基础配置没有遥测脱敏规则，因此显式启用的导出可能包含消息文本、工具参数和结果，以及 workspace 路径；相关部署决策见[默认关闭 Agent Note](../../../.agents/notes/implemented/feature/2026-08-10-telemetry-default-off.md)。
 

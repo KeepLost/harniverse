@@ -87,6 +87,59 @@ export function ValueField(props: FieldProps & {
   )
 }
 
+/** One option rendered by a staged select control. */
+export interface SelectFieldOption {
+  /** Stored value staged when selected. */
+  value: string
+  /** Visible option copy. */
+  label: string
+}
+
+/**
+ * A staged enumeration field. Selection only reports draft text; the card owns writes.
+ * @param props - the field's copy, options, staged value, and edit actions.
+ * @returns the labelled select control.
+ */
+export function SelectField(props: FieldProps & { options: readonly SelectFieldOption[] }) {
+  return (
+    <div className={css.field}>
+      <div className={css.head}>
+        <label className={css.label} htmlFor={props.id}>{props.label}</label>
+        {props.overridden
+          ? (
+            <span className={css.badges}>
+              <span className={css.badge}>{props.overriddenLabel}</span>
+              <button
+                type="button"
+                className={css.reset}
+                disabled={props.disabled}
+                onClick={props.onReset}
+              >
+                {props.resetLabel}
+              </button>
+            </span>
+          )
+          : null}
+      </div>
+      <select
+        id={props.id}
+        className={props.invalid ? css.inputInvalid : css.input}
+        {...props.invalid ? { 'aria-invalid': true } : {}}
+        value={props.text}
+        disabled={props.disabled}
+        onChange={(event) => { props.onEdit(event.target.value) }}
+      >
+        {props.options.map(option => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+      <p className={props.invalid ? css.invalid : css.hint}>
+        {props.invalid ? props.invalidLabel : props.hint}
+      </p>
+    </div>
+  )
+}
+
 /**
  * A write-only credential control. The value never rides a response, so the
  * control reports only whether one is configured and starts blank; a blank

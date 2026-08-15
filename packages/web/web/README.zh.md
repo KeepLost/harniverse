@@ -9,6 +9,7 @@
 | 包 | 职责 |
 |---|---|
 | `@deepseek-ai/dsh-web`（本包） | Service Definition：服务、提供方注册表、选择策略、请求／结果词汇、`WebError` 分类体系 |
+| `@deepseek-ai/dsh-web-search-deepseek` | 搜索提供方：DeepSeek 官方搜索 |
 | `@deepseek-ai/dsh-web-search-exa` | 搜索提供方：Exa |
 | `@deepseek-ai/dsh-web-search-perplexity` | 搜索提供方：Perplexity |
 | `@deepseek-ai/dsh-web-fetch-http` | 抓取提供方：匿名公共 HTTP(S) |
@@ -28,7 +29,7 @@
 
 ## 选择
 
-选择绝不依赖注册、配置或 HMR（热模块替换）顺序。能力要么具有显式提供方 id（配置 `searchProvider`／`fetchProvider`，或由环境变量 `$DSH_WEB_SEARCH_PROVIDER`／`$DSH_WEB_FETCH_PROVIDER` 提供相同字段），要么在恰好只注册一个可用提供方时自动选择。`search()`／`fetch()` 会在执行时解析提供方：
+选择绝不依赖注册、配置或 HMR（热模块替换）顺序。能力要么具有显式提供方 id（配置 `searchProvider`／`fetchProvider`，或由环境变量 `$DSH_WEB_SEARCH_PROVIDER`／`$DSH_WEB_FETCH_PROVIDER` 提供相同字段），要么在恰好只注册一个可用提供方时自动选择。`WebRuntime` 会注册一个只包含 `searchProvider` 的实时 `web` settings 分节；`fetchProvider` 仍只能通过组装配置。`search()` 会在操作入口对实时搜索选择生成快照，`fetch()` 则使用组装的选择：
 
 | 情况 | 执行 |
 |---|---|
@@ -39,7 +40,7 @@
 | 无 id，没有可用提供方 | `WEB_PROVIDER_UNAVAILABLE` |
 | 无 id，多个可用提供方 | `WEB_PROVIDER_AMBIGUOUS` |
 
-失败分支会抛出 `WebError`；调用方按其结构化 code（加消息细节：缺失 id、歧义候选集合）路由。提供方自身的 `available()` 是便宜的局部检查（凭据是否存在、配置是否可解析），供执行时选择使用，且**禁止发起网络调用**；`dsh-tool-web` 永远不会调用它。工具通过 `ctx.web.search()`／`fetch()` 执行，并按抛出的 code 路由，因此提供方选择只有一个归属方。
+失败分支会抛出 `WebError`；调用方按其结构化 code（加消息细节：缺失 id、歧义候选集合）路由。提供方自身的同步 `available()` 是便宜的局部检查，**禁止发起网络调用**，也无法证明异步凭据存储中存在密钥。因此，随附组合会在挂载的三个官方提供方中显式选择一个，绝不会根据现有密钥自动切换；选中无密钥的提供方后，只有在搜索解析缺失凭据时才会失败。`dsh-tool-web` 永远不会调用 `available()`；工具通过 `ctx.web.search()`／`fetch()` 执行，并按抛出的 code 路由，因此提供方选择只有一个归属方。
 
 ## 词汇
 

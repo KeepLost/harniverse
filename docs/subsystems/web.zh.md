@@ -195,5 +195,5 @@ async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearch
 async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>
 ```
 
-Source: [`packages/web/web/src/index.ts:74`](../../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:89`](../../packages/web/web/src/index.ts)
 <!-- END GENERATED cordis-surface -->

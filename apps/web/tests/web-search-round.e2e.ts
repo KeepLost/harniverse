@@ -61,6 +61,7 @@ const RESULT_ORDINALS = Array.from({ length: PROVIDER_RESULT_COUNT }, (_value, i
 interface CapturedSearchRequest {
   path: string
   apiKey: string | undefined
+  authorization: string | undefined
   body: unknown
 }
 
@@ -74,6 +75,7 @@ async function startSearchServer(captured: CapturedSearchRequest[]): Promise<{ s
       captured.push({
         path: request.url ?? '',
         apiKey: typeof request.headers['x-api-key'] === 'string' ? request.headers['x-api-key'] : undefined,
+        authorization: typeof request.headers.authorization === 'string' ? request.headers.authorization : undefined,
         body: JSON.parse(body) as unknown,
       })
       response.writeHead(200, { 'content-type': 'application/json' })
@@ -99,6 +101,37 @@ async function startSearchServer(captured: CapturedSearchRequest[]): Promise<{ s
           },
         ],
       }))
+    })
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject)
+      resolve()
+    })
+  })
+  const address = server.address() as AddressInfo
+  return { server, baseURL: `http://127.0.0.1:${address.port}` }
+}
+
+/** Start a deterministic JSON provider double for the Exa/Perplexity assembled rounds. */
+async function startJsonSearchServer(
+  captured: CapturedSearchRequest[],
+  responseBody: unknown,
+): Promise<{ server: Server; baseURL: string }> {
+  const server = createServer((request, response) => {
+    let body = ''
+    request.setEncoding('utf8')
+    request.on('data', (chunk: string) => { body += chunk })
+    request.on('end', () => {
+      captured.push({
+        path: request.url ?? '',
+        apiKey: typeof request.headers['x-api-key'] === 'string' ? request.headers['x-api-key'] : undefined,
+        authorization: typeof request.headers.authorization === 'string' ? request.headers.authorization : undefined,
+        body: JSON.parse(body) as unknown,
+      })
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify(responseBody))
     })
   })
   await new Promise<void>((resolve, reject) => {
@@ -296,3 +329,175 @@ describe('web e2e: shipped default web search', () => {
     await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'ui.expected.md'])
   })
 })
+
+const ADDITIONAL_PROVIDER_SCENARIOS = [
+  {
+    provider: 'exa' as const,
+    credentialRef: credentialRef('DSH_WEB_SEARCH_EXA_E2E_KEY'),
+    credential: 'snapshot-exa-key',
+    response: {
+      results: [
+        {
+          url: 'https://exa.example.test/primary',
+          title: 'Exa Primary',
+          highlights: ['  ', 'Exa highlight from the deterministic local response.'],
+          publishedDate: '2026-08-01',
+        },
+        {
+          url: 'https://exa.example.test/no-highlight',
+          title: 'Exa result without a portable snippet',
+        },
+      ],
+    },
+    expectedPath: '/search',
+    expectedBody: {
+      query: QUERY,
+      type: 'neural',
+      contents: { highlights: { highlightsPerUrl: 2 } },
+      numResults: WEB_SEARCH_MAX_RESULTS,
+    },
+    expectedText: [
+      'Sources:',
+      '- [Exa Primary](https://exa.example.test/primary) — Exa highlight from the deterministic local response. (2026-08-01)',
+      '',
+      'Cite the relevant URLs above as markdown links in your answer.',
+    ].join('\n'),
+    expectedMeta: {
+      sources: [{
+        url: 'https://exa.example.test/primary',
+        title: 'Exa Primary',
+        snippet: 'Exa highlight from the deterministic local response.',
+        publishedAt: '2026-08-01',
+      }],
+      truncated: false,
+    },
+  },
+  {
+    provider: 'perplexity' as const,
+    credentialRef: credentialRef('DSH_WEB_SEARCH_PERPLEXITY_E2E_KEY'),
+    credential: 'snapshot-perplexity-key',
+    response: {
+      choices: [{ message: { content: 'Perplexity synthesized answer from the local response.' } }],
+      search_results: [
+        {
+          url: 'https://perplexity.example.test/answer',
+          title: 'Perplexity Answer Source',
+          snippet: 'Perplexity returns generated content and a structured source.',
+          date: '2026-08-02',
+        },
+      ],
+    },
+    expectedPath: '/chat/completions',
+    expectedBody: {
+      model: 'sonar-test',
+      max_tokens: 321,
+      messages: [{ role: 'user', content: QUERY }],
+      search_recency_filter: 'week',
+    },
+    expectedText: [
+      'Perplexity synthesized answer from the local response.',
+      '',
+      'Sources:',
+      '- [Perplexity Answer Source](https://perplexity.example.test/answer) — Perplexity returns generated content and a structured source. (2026-08-02)',
+      '',
+      'Cite the relevant URLs above as markdown links in your answer.',
+    ].join('\n'),
+    expectedMeta: {
+      sources: [{
+        url: 'https://perplexity.example.test/answer',
+        title: 'Perplexity Answer Source',
+        snippet: 'Perplexity returns generated content and a structured source.',
+        publishedAt: '2026-08-02',
+      }],
+      truncated: false,
+      answer: 'Perplexity synthesized answer from the local response.',
+    },
+  },
+]
+
+describe.skipIf(MODE === 'record').each(ADDITIONAL_PROVIDER_SCENARIOS)(
+  'web e2e: shipped $provider search composition',
+  (scenario) => {
+    let scaffold: WebScaffold
+    let browser: Browser
+    let page: Page
+    let searchServer: Server | undefined
+    let tripwire: ReturnType<typeof watchConsole>
+    const searchRequests: CapturedSearchRequest[] = []
+    const sessionEvents: SessionEvent[] = []
+
+    beforeAll(async () => {
+      const search = await startJsonSearchServer(searchRequests, scenario.response)
+      searchServer = search.server
+      scaffold = await launchWebScaffold({
+        webSearch: {
+          provider: scenario.provider,
+          baseURL: search.baseURL,
+          apiKeyEnv: scenario.credentialRef,
+        },
+        replayFixture: FIXTURE,
+        paceMs: 15,
+      })
+      await scaffold.ctx.credentials.set(scenario.credentialRef, scenario.credential)
+      scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
+      browser = await chromium.launch()
+      page = await newEnglishPage(browser)
+      tripwire = watchConsole(page)
+      await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+      await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      await connectFreshWorkspace(page, scaffold.workspaceCwd)
+    }, 120_000)
+
+    afterAll(async () => {
+      await browser?.close()
+      await scaffold?.close()
+      await new Promise<void>((resolve, reject) => {
+        if (searchServer === undefined) {
+          resolve()
+          return
+        }
+        searchServer.close((error) => {
+          if (error === undefined) resolve()
+          else reject(error)
+        })
+      })
+    })
+
+    it('pins the provider wire request and durable model-visible result', async () => {
+      onTestFailed(() => saveFailureShot(page, `web-e2e-search-${scenario.provider}`))
+      expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
+      const input = page.locator('textarea').first()
+      await input.waitFor({ timeout: 10_000 })
+      const settled = scaffold.whenTurnSettled()
+      await input.fill(PROMPT)
+      await input.press('Enter')
+      await settled
+
+      expect(searchRequests).toEqual([{
+        path: scenario.expectedPath,
+        apiKey: undefined,
+        authorization: `Bearer ${scenario.credential}`,
+        body: scenario.expectedBody,
+      }])
+      const searchCall = sessionEvents.find(
+        (event): event is Extract<SessionEvent, { type: 'tool/call' }> =>
+          event.type === 'tool/call' && event.data.name === 'web_search',
+      )
+      if (searchCall === undefined) throw new Error('the replayed turn did not call web_search')
+      const searchResult = sessionEvents.find(
+        (event): event is Extract<SessionEvent, { type: 'tool/result' }> =>
+          event.type === 'tool/result' && event.data.message.source.callId === searchCall.data.callId,
+      )
+      if (searchResult === undefined) throw new Error('web_search produced no durable result')
+      expect(searchResult.data.message.content).toEqual([{
+        type: 'tool-result',
+        toolCallId: searchCall.data.callId,
+        isError: false,
+        content: [{ type: 'text', text: scenario.expectedText }],
+      }])
+      expect(searchResult.data.meta).toEqual(scenario.expectedMeta)
+      expect(tripwire.pageErrors).toEqual([])
+      expect(tripwire.warnings).toEqual([])
+    }, 200_000)
+  },
+)

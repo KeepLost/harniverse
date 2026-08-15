@@ -353,12 +353,22 @@ describe('settings domain', () => {
     ctx.settings.register(settingsNamespace('web-search-deepseek'), z.object({
       baseURL: z.string(),
     }))
+    ctx.settings.register(settingsNamespace('web'), z.object({
+      searchProvider: z.string(),
+    }))
+    ctx.settings.register(settingsNamespace('web-search-exa'), z.object({
+      baseURL: z.string(),
+    }))
+    ctx.settings.register(settingsNamespace('web-search-perplexity'), z.object({
+      baseURL: z.string(),
+    }))
     const api = createApiProxy(ctx, DEFAULTS)
 
     const value = expectOk(await api.settings.describe(request({})))
     expect(value.namespaces.map(view => view.ns)).toEqual([
       'llm-deepseek', 'permission', 'ui-theme', 'locale', 'ui-conversation',
-      'shell', 'agent-loop', 'web-search-deepseek',
+      'shell', 'agent-loop', 'web-search-deepseek', 'web', 'web-search-exa',
+      'web-search-perplexity',
     ])
     const permission = expectOk(await api.settings.mutate(request({
       ns: 'permission',
@@ -395,6 +405,17 @@ describe('settings domain', () => {
       ops: [{ op: 'set', path: ['baseURL'], value: 'https://search.test/v1' }],
     })))
     expect(webSearch.value).toEqual({ baseURL: 'https://search.test/v1' })
+    for (const [ns, field, value] of [
+      ['web', 'searchProvider', 'exa'],
+      ['web-search-exa', 'baseURL', 'https://exa.test/v1'],
+      ['web-search-perplexity', 'baseURL', 'https://perplexity.test/v1'],
+    ] as const) {
+      const view = expectOk(await api.settings.mutate(request({
+        ns,
+        ops: [{ op: 'set', path: [field], value }],
+      })))
+      expect(view.value).toEqual({ [field]: value })
+    }
 
     for (const response of [
       await api.settings.update(request({ ns: 'some-other-plugin', patch: { secretPath: '/etc/shadow' } })),

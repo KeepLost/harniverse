@@ -49,6 +49,27 @@ describe('dsh-base bundle', () => {
       name: '@deepseek-ai/dsh-llm-deepseek',
       disabled: true,
     })
+    expect(rows.filter(row => row.id === 'web-search-deepseek')).toEqual([expect.objectContaining({
+      name: '@deepseek-ai/dsh-web-search-deepseek',
+    })])
+    expect(rows.filter(row => row.id === 'web-search-exa')).toEqual([expect.objectContaining({
+      name: '@deepseek-ai/dsh-web-search-exa',
+    })])
+    expect(rows.filter(row => row.id === 'web-search-perplexity')).toEqual([expect.objectContaining({
+      name: '@deepseek-ai/dsh-web-search-perplexity',
+    })])
+    expect(manifest.dependencies).toMatchObject({
+      '@deepseek-ai/dsh-web-search-deepseek': 'workspace:^',
+      '@deepseek-ai/dsh-web-search-exa': 'workspace:^',
+      '@deepseek-ai/dsh-web-search-perplexity': 'workspace:^',
+    })
+    const searchProviderExpression = (rows.find(row => row.id === 'web')?.config?.['searchProvider'] as {
+      __jsExpr?: string
+    } | undefined)?.__jsExpr
+    if (searchProviderExpression === undefined) throw new Error('web.searchProvider must be a !!js expression')
+    expect(evaluate({ process: { env: {} } }, searchProviderExpression)).toBe('deepseek-official')
+    expect(evaluate({ process: { env: { DSH_WEB_SEARCH_PROVIDER: 'exa' } } }, searchProviderExpression)).toBe('exa')
+    expect(evaluate({ process: { env: { DSH_WEB_SEARCH_PROVIDER: 'perplexity' } } }, searchProviderExpression)).toBe('perplexity')
   })
 
   it('gates each shell stack by platform with a symmetric disabled expression', () => {

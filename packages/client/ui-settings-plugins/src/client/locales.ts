@@ -9,8 +9,24 @@ export type PluginsSettingsLocaleKey =
   | 'bashMaxOutputBytes' | 'bashMaxOutputBytesHint'
   | 'agentLoopTitle' | 'agentLoopDescription' | 'agentLoopMaxParallel' | 'agentLoopMaxParallelHint'
   | 'webSearchTitle' | 'webSearchDescription'
-  | 'webSearchApiKey' | 'webSearchApiKeyHint' | 'webSearchApiKeySet' | 'webSearchApiKeyUnset'
-  | 'webSearchBaseUrl' | 'webSearchBaseUrlHint' | 'webSearchMaxUses' | 'webSearchMaxUsesHint'
+  | 'webSearchProvider' | 'webSearchProviderHint' | 'webSearchProviderUnavailable'
+  | 'webSearchProviderDeepSeek' | 'webSearchProviderExa' | 'webSearchProviderPerplexity'
+  | 'webSearchApiKeyHint' | 'webSearchApiKeySet' | 'webSearchApiKeyUnset'
+  | 'webSearchBaseUrl' | 'webSearchBaseUrlHint'
+  | 'webSearchDeepSeekApiKey' | 'webSearchDeepSeekModel' | 'webSearchDeepSeekModelHint'
+  | 'webSearchDeepSeekApiVersion' | 'webSearchDeepSeekApiVersionHint'
+  | 'webSearchDeepSeekMaxTokens' | 'webSearchDeepSeekMaxTokensHint'
+  | 'webSearchDeepSeekMaxUses' | 'webSearchDeepSeekMaxUsesHint'
+  | 'webSearchExaApiKey' | 'webSearchExaSearchType' | 'webSearchExaSearchTypeHint'
+  | 'webSearchExaSearchTypeAuto' | 'webSearchExaSearchTypeKeyword' | 'webSearchExaSearchTypeNeural'
+  | 'webSearchExaNumResults' | 'webSearchExaNumResultsHint'
+  | 'webSearchExaHighlightsPerResult' | 'webSearchExaHighlightsPerResultHint'
+  | 'webSearchPerplexityApiKey' | 'webSearchPerplexityModel' | 'webSearchPerplexityModelHint'
+  | 'webSearchPerplexityMaxTokens' | 'webSearchPerplexityMaxTokensHint'
+  | 'webSearchPerplexitySearchRecency' | 'webSearchPerplexitySearchRecencyHint'
+  | 'webSearchPerplexitySearchRecencyAny' | 'webSearchPerplexitySearchRecencyDay'
+  | 'webSearchPerplexitySearchRecencyWeek' | 'webSearchPerplexitySearchRecencyMonth'
+  | 'webSearchPerplexitySearchRecencyYear'
 
 /** English copy. */
 export const en: Record<PluginsSettingsLocaleKey, string> = {
@@ -42,15 +58,49 @@ export const en: Record<PluginsSettingsLocaleKey, string> = {
   agentLoopMaxParallel: 'Parallel tool calls',
   agentLoopMaxParallelHint: 'Upper bound on parallel-safe calls running at once within one step.',
   webSearchTitle: 'Web search',
-  webSearchDescription: 'The DeepSeek search provider.',
-  webSearchApiKey: 'API key',
+  webSearchDescription: 'Select and configure the active search provider.',
+  webSearchProvider: 'Search provider',
+  webSearchProviderHint: 'The provider used for new Web searches.',
+  webSearchProviderUnavailable: 'This provider is not available in the deployment.',
+  webSearchProviderDeepSeek: 'DeepSeek',
+  webSearchProviderExa: 'Exa',
+  webSearchProviderPerplexity: 'Perplexity',
   webSearchApiKeyHint: 'Stored outside the settings file. Leave blank to keep the current key.',
   webSearchApiKeySet: 'A key is configured.',
   webSearchApiKeyUnset: 'No key is configured; search is unavailable until one is.',
   webSearchBaseUrl: 'Endpoint',
   webSearchBaseUrlHint: 'Leave blank to use the provider default.',
-  webSearchMaxUses: 'Max searches per request',
-  webSearchMaxUsesHint: 'How many times one request may search before it must answer.',
+  webSearchDeepSeekApiKey: 'DeepSeek API key',
+  webSearchDeepSeekModel: 'Model',
+  webSearchDeepSeekModelHint: 'Anthropic-compatible model used for search.',
+  webSearchDeepSeekApiVersion: 'API version',
+  webSearchDeepSeekApiVersionHint: 'Value sent in the anthropic-version header.',
+  webSearchDeepSeekMaxTokens: 'Max answer tokens',
+  webSearchDeepSeekMaxTokensHint: 'Upper bound on generated tokens for one search response.',
+  webSearchDeepSeekMaxUses: 'Max searches per request',
+  webSearchDeepSeekMaxUsesHint: 'How many searches one request may perform before answering.',
+  webSearchExaApiKey: 'Exa API key',
+  webSearchExaSearchType: 'Search type',
+  webSearchExaSearchTypeHint: 'How Exa chooses and ranks retrieval results.',
+  webSearchExaSearchTypeAuto: 'Automatic',
+  webSearchExaSearchTypeKeyword: 'Keyword',
+  webSearchExaSearchTypeNeural: 'Neural',
+  webSearchExaNumResults: 'Default result count',
+  webSearchExaNumResultsHint: 'Results returned when a request does not set its own limit.',
+  webSearchExaHighlightsPerResult: 'Highlights per result',
+  webSearchExaHighlightsPerResultHint: 'Highlight sentences requested for each result.',
+  webSearchPerplexityApiKey: 'Perplexity API key',
+  webSearchPerplexityModel: 'Model',
+  webSearchPerplexityModelHint: 'Perplexity model used for search answers.',
+  webSearchPerplexityMaxTokens: 'Max answer tokens',
+  webSearchPerplexityMaxTokensHint: 'Upper bound on generated answer tokens.',
+  webSearchPerplexitySearchRecency: 'Search recency',
+  webSearchPerplexitySearchRecencyHint: 'Optional age limit for search results.',
+  webSearchPerplexitySearchRecencyAny: 'Any time',
+  webSearchPerplexitySearchRecencyDay: 'Past day',
+  webSearchPerplexitySearchRecencyWeek: 'Past week',
+  webSearchPerplexitySearchRecencyMonth: 'Past month',
+  webSearchPerplexitySearchRecencyYear: 'Past year',
 }
 
 /** Simplified Chinese copy. */
@@ -83,13 +133,47 @@ export const zh: Record<PluginsSettingsLocaleKey, string> = {
   agentLoopMaxParallel: '并行工具调用数',
   agentLoopMaxParallelHint: '同一步内最多同时运行多少个可并行的调用。',
   webSearchTitle: '网页搜索',
-  webSearchDescription: 'DeepSeek 搜索提供方。',
-  webSearchApiKey: 'API Key',
+  webSearchDescription: '选择并配置当前使用的搜索提供方。',
+  webSearchProvider: '搜索提供方',
+  webSearchProviderHint: '新的网页搜索将使用这个提供方。',
+  webSearchProviderUnavailable: '本部署未提供该搜索提供方。',
+  webSearchProviderDeepSeek: 'DeepSeek',
+  webSearchProviderExa: 'Exa',
+  webSearchProviderPerplexity: 'Perplexity',
   webSearchApiKeyHint: '不写入设置文件。留空表示保持当前密钥。',
   webSearchApiKeySet: '已配置密钥。',
   webSearchApiKeyUnset: '未配置密钥；配置之前搜索不可用。',
   webSearchBaseUrl: '接口地址',
   webSearchBaseUrlHint: '留空则使用提供方默认地址。',
-  webSearchMaxUses: '单次请求最多搜索次数',
-  webSearchMaxUsesHint: '一次请求在必须作答前最多可以搜索多少次。',
+  webSearchDeepSeekApiKey: 'DeepSeek API Key',
+  webSearchDeepSeekModel: '模型',
+  webSearchDeepSeekModelHint: '搜索使用的 Anthropic 兼容模型。',
+  webSearchDeepSeekApiVersion: 'API 版本',
+  webSearchDeepSeekApiVersionHint: '随 anthropic-version 请求头发送的值。',
+  webSearchDeepSeekMaxTokens: '回答 token 上限',
+  webSearchDeepSeekMaxTokensHint: '单次搜索回答最多生成多少 token。',
+  webSearchDeepSeekMaxUses: '单次请求最多搜索次数',
+  webSearchDeepSeekMaxUsesHint: '一次请求在作答前最多可以搜索多少次。',
+  webSearchExaApiKey: 'Exa API Key',
+  webSearchExaSearchType: '搜索类型',
+  webSearchExaSearchTypeHint: 'Exa 选择和排序检索结果的方式。',
+  webSearchExaSearchTypeAuto: '自动',
+  webSearchExaSearchTypeKeyword: '关键词',
+  webSearchExaSearchTypeNeural: '语义',
+  webSearchExaNumResults: '默认结果数',
+  webSearchExaNumResultsHint: '请求未指定数量时返回多少条结果。',
+  webSearchExaHighlightsPerResult: '每条结果的高亮数',
+  webSearchExaHighlightsPerResultHint: '每条结果请求多少个高亮句子。',
+  webSearchPerplexityApiKey: 'Perplexity API Key',
+  webSearchPerplexityModel: '模型',
+  webSearchPerplexityModelHint: '生成搜索回答所用的 Perplexity 模型。',
+  webSearchPerplexityMaxTokens: '回答 token 上限',
+  webSearchPerplexityMaxTokensHint: '回答最多生成多少 token。',
+  webSearchPerplexitySearchRecency: '搜索时效',
+  webSearchPerplexitySearchRecencyHint: '可选的搜索结果时间范围。',
+  webSearchPerplexitySearchRecencyAny: '不限时间',
+  webSearchPerplexitySearchRecencyDay: '过去一天',
+  webSearchPerplexitySearchRecencyWeek: '过去一周',
+  webSearchPerplexitySearchRecencyMonth: '过去一月',
+  webSearchPerplexitySearchRecencyYear: '过去一年',
 }

@@ -49,7 +49,7 @@ function runBuiltWeb(cwd: string, args: string[] = [
   '127.0.0.1',
   '--port',
   '0',
-]): Promise<{ stdout: string; stderr: string; code: number }> {
+], searchProvider?: 'exa' | 'perplexity'): Promise<{ stdout: string; stderr: string; code: number }> {
   return new Promise((resolveRun, rejectRun) => {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
@@ -57,6 +57,10 @@ function runBuiltWeb(cwd: string, args: string[] = [
       DSH_HOME: join(cwd, '.dsh'),
     }
     delete env.DEEPSEEK_BASE_URL
+    delete env.EXA_API_KEY
+    delete env.PERPLEXITY_API_KEY
+    if (searchProvider === undefined) delete env.DSH_WEB_SEARCH_PROVIDER
+    else env.DSH_WEB_SEARCH_PROVIDER = searchProvider
     delete env.NODE_OPTIONS
     delete env.NODE_NO_WARNINGS
     const child = spawn(process.execPath, [
@@ -144,4 +148,20 @@ describe.skipIf(!requireBuiltArtifacts)('built CLI lazy-search startup', () => {
       await rm(cwd, { recursive: true, force: true })
     }
   }, 70_000)
+
+  it.each(['exa', 'perplexity'] as const)(
+    'boots with the shipped %s selection and no provider credential',
+    async (searchProvider) => {
+      const cwd = await mkdtemp(join(tmpdir(), `dsh-cli-web-search-${searchProvider}-`))
+      try {
+        const result = await runBuiltWeb(cwd, undefined, searchProvider)
+        expect(result.stdout).toMatch(/dsh web: http:\/\/127\.0\.0\.1:\d+/u)
+        expect(result.code).toBe(0)
+        expect(result.stderr).not.toContain('WEB_PROVIDER_CREDENTIAL_MISSING')
+      } finally {
+        await rm(cwd, { recursive: true, force: true })
+      }
+    },
+    70_000,
+  )
 })

@@ -76,12 +76,16 @@ describe('web e2e: plugin configuration section', () => {
     const dialog = await openPlugins()
 
     // Every card the shipped web composition exposes: the shell executor, the
-    // agent loop, and the DeepSeek search provider.
+    // agent loop, and one aggregate Web search provider card.
     await dialog.getByText('终端', { exact: true }).waitFor({ timeout: 10_000 })
     expect(await dialog.getByText('Agent 循环', { exact: true }).count()).toBe(1)
     expect(await dialog.getByText('网页搜索', { exact: true }).count()).toBe(1)
     // Collapsed: a card's fields appear only once it is expanded.
     expect(await dialog.getByLabel('命令超时（毫秒）').count()).toBe(0)
+    await dialog.getByText('网页搜索', { exact: true }).click()
+    await dialog.getByLabel('搜索提供方').waitFor({ timeout: 10_000 })
+    expect(await dialog.getByLabel('搜索提供方').inputValue()).toBe('deepseek-official')
+    expect(await dialog.getByLabel('DeepSeek API Key').count()).toBe(1)
 
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(SECTION_EXPECTED, snapshot, MODE)
@@ -169,6 +173,36 @@ describe('web e2e: plugin configuration section', () => {
       .toBe(false)
     expect(await timeout.inputValue()).toBe('60000')
     expect(await dialog.getByText('已覆盖').count()).toBe(0)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
+  it('stages and saves an Exa selection through the real settings wire', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-plugin-config-exa'))
+    const dialog = await openPlugins()
+    if (await dialog.getByLabel('搜索提供方').count() === 0) {
+      await dialog.getByText('网页搜索', { exact: true }).click()
+    }
+    const provider = dialog.getByLabel('搜索提供方')
+    await provider.waitFor({ timeout: 10_000 })
+    expect(await provider.inputValue()).toBe('deepseek-official')
+
+    await provider.selectOption('exa')
+
+    await dialog.getByLabel('Exa API Key').waitFor({ timeout: 10_000 })
+    expect(await dialog.getByLabel('搜索类型').count()).toBe(1)
+    expect(await dialog.getByLabel('DeepSeek API Key').count()).toBe(0)
+    expect(await dialog.getByLabel('API 版本').count()).toBe(0)
+    expect(await settingsDocument()).not.toContain('searchProvider')
+
+    const save = dialog.getByRole('button', { name: '保存', exact: true })
+    await expect.poll(() => save.isEnabled(), { timeout: 5_000 }).toBe(true)
+    await save.click()
+
+    await expect.poll(async () => (await settingsDocument()).includes('web:\n  searchProvider: exa'), {
+      timeout: 10_000,
+    }).toBe(true)
+    expect(await settingsDocument()).not.toContain('web-search-exa:')
+    expect(await provider.inputValue()).toBe('exa')
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 

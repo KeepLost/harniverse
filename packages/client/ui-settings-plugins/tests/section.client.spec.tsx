@@ -332,14 +332,31 @@ describe('AgentLoopCard', () => {
 })
 
 describe('WebSearchCard', () => {
+  const deepseekState = () => ({
+    ...settled,
+    apiKey: field(''), apiKeyConfigured: false, apiKeyWritable: true,
+    baseURL: field(''), model: field('deepseek-v4-flash'), apiVersion: field('2023-06-01'),
+    maxTokens: field('4096'), maxUses: field('5'),
+  })
+  const exaState = () => ({
+    ...settled,
+    apiKey: field(''), apiKeyConfigured: false, apiKeyWritable: true,
+    baseURL: field(''), searchType: field('auto'), numResults: field(''), highlightsPerResult: field('1'),
+  })
+  const perplexityState = () => ({
+    ...settled,
+    apiKey: field(''), apiKeyConfigured: false, apiKeyWritable: true,
+    baseURL: field(''), model: field('sonar'), maxTokens: field('1024'), searchRecency: field(''),
+  })
+
   function renderWebSearch(state: Partial<WebSearchCardState> = {}) {
     const store = createSnapshotStore<WebSearchCardState>({
       ...settled,
-      baseURL: field(''),
-      maxUses: field('5'),
-      apiKey: field(''),
-      apiKeyConfigured: false,
-      apiKeyWritable: true,
+      selectedProvider: 'deepseek-official',
+      selector: { ...settled, searchProvider: field('deepseek-official') },
+      deepseek: deepseekState(),
+      exa: exaState(),
+      perplexity: perplexityState(),
       ...state,
     })
     const actions = cardActions()
@@ -348,54 +365,109 @@ describe('WebSearchCard', () => {
     return actions
   }
 
-  it('reports whether a key is configured without ever showing one', () => {
-    renderWebSearch({ apiKeyConfigured: true })
+  it('renders all three provider options and only DeepSeek fields initially', () => {
+    renderWebSearch()
     fireEvent.click(screen.getByText(en.webSearchTitle))
 
-    expect(screen.getByText(en.webSearchApiKeySet)).toBeTruthy()
-    expect(screen.getByLabelText(en.webSearchApiKey)).toHaveProperty('type', 'password')
+    expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual([
+      en.webSearchProviderDeepSeek, en.webSearchProviderExa, en.webSearchProviderPerplexity,
+    ])
+    expect(screen.getByLabelText(en.webSearchDeepSeekModel)).toBeTruthy()
+    expect(screen.getByLabelText(en.webSearchDeepSeekApiVersion)).toBeTruthy()
+    expect(screen.getByLabelText(en.webSearchDeepSeekMaxTokens)).toBeTruthy()
+    expect(screen.getByLabelText(en.webSearchDeepSeekMaxUses)).toBeTruthy()
+    expect(screen.queryByLabelText(en.webSearchExaSearchType)).toBeNull()
+    expect(screen.queryByLabelText(en.webSearchPerplexitySearchRecency)).toBeNull()
   })
 
-  it('keeps the key control usable while the settings document is read-only', () => {
-    const actions = renderWebSearch({ writable: false })
-    fireEvent.click(screen.getByText(en.webSearchTitle))
-
-    const key = screen.getByLabelText(en.webSearchApiKey)
-    expect(key).toHaveProperty('disabled', false)
-    expect(screen.getByLabelText(en.webSearchBaseUrl)).toHaveProperty('disabled', true)
-
-    fireEvent.change(key, { target: { value: 'ds-secret' } })
-
-    expect(actions.edit).toHaveBeenCalledWith('apiKey', 'ds-secret')
-  })
-
-  it('disables the key control when the reference itself is not writable', () => {
-    // A key coming from the process environment: the settings document is
-    // writable, the credential is not.
-    renderWebSearch({ apiKeyConfigured: true, apiKeyWritable: false })
-    fireEvent.click(screen.getByText(en.webSearchTitle))
-
-    expect(screen.getByLabelText(en.webSearchApiKey)).toHaveProperty('disabled', true)
-    expect(screen.getByLabelText(en.webSearchBaseUrl)).toHaveProperty('disabled', false)
-  })
-
-  it('stages the endpoint, the search budget, and their resets', () => {
+  it('routes provider selection and DeepSeek controls with scoped addresses', () => {
     const actions = renderWebSearch({
-      baseURL: field('https://search.test/v1', { overridden: true }),
-      maxUses: field('3', { overridden: true }),
+      selector: { ...settled, searchProvider: field('deepseek-official', { overridden: true }) },
+      deepseek: {
+        ...deepseekState(),
+        apiKey: field(''),
+        baseURL: field('https://deepseek.test', { overridden: true }),
+      },
     })
     fireEvent.click(screen.getByText(en.webSearchTitle))
 
-    fireEvent.change(screen.getByLabelText(en.webSearchBaseUrl), { target: { value: 'https://other.test' } })
-    fireEvent.change(screen.getByLabelText(en.webSearchMaxUses), { target: { value: '4' } })
+    fireEvent.change(screen.getByLabelText(en.webSearchProvider), { target: { value: 'exa' } })
+    fireEvent.change(screen.getByLabelText(en.webSearchDeepSeekModel), { target: { value: 'deepseek-search' } })
+    fireEvent.change(screen.getByLabelText(en.webSearchDeepSeekApiKey), { target: { value: 'ds-secret' } })
     const resets = screen.getAllByRole('button', { name: en.reset })
-    expect(resets).toHaveLength(2)
-    for (const reset of resets) fireEvent.click(reset)
+    fireEvent.click(resets[0]!)
+    fireEvent.click(resets[1]!)
 
     expect(actions.edit.mock.calls).toEqual([
-      ['baseURL', 'https://other.test'],
-      ['maxUses', '4'],
+      ['selector.searchProvider', 'exa'],
+      ['deepseek.model', 'deepseek-search'],
+      ['deepseek.apiKey', 'ds-secret'],
     ])
-    expect(actions.resetField.mock.calls).toEqual([['baseURL'], ['maxUses']])
+    expect(actions.resetField.mock.calls).toEqual([
+      ['selector.searchProvider'],
+      ['deepseek.baseURL'],
+    ])
+  })
+
+  it('renders only Exa fields when Exa is selected', () => {
+    const actions = renderWebSearch({
+      selectedProvider: 'exa',
+      exa: { ...exaState(), searchType: field('keyword', { overridden: true }) },
+    })
+    fireEvent.click(screen.getByText(en.webSearchTitle))
+
+    expect(screen.getByLabelText(en.webSearchExaSearchType)).toBeTruthy()
+    expect(screen.getByLabelText(en.webSearchExaNumResults)).toBeTruthy()
+    expect(screen.getByLabelText(en.webSearchExaHighlightsPerResult)).toBeTruthy()
+    expect(screen.queryByLabelText(en.webSearchDeepSeekModel)).toBeNull()
+    expect(screen.queryByLabelText(en.webSearchPerplexityModel)).toBeNull()
+    fireEvent.change(screen.getByLabelText(en.webSearchExaSearchType), { target: { value: 'neural' } })
+    fireEvent.click(screen.getByRole('button', { name: en.reset }))
+    expect(actions.edit).toHaveBeenCalledWith('exa.searchType', 'neural')
+    expect(actions.resetField).toHaveBeenCalledWith('exa.searchType')
+  })
+
+  it('renders only Perplexity fields and respects provider writability', () => {
+    const base = {
+      ...settled,
+      writable: false,
+      apiKey: field(''), apiKeyConfigured: true, apiKeyWritable: false,
+      baseURL: field(''), model: field('sonar'), maxTokens: field('1024'), searchRecency: field('week'),
+    }
+    renderWebSearch({ selectedProvider: 'perplexity', perplexity: base })
+    fireEvent.click(screen.getByText(en.webSearchTitle))
+
+    expect(screen.getByLabelText(en.webSearchProvider)).toHaveProperty('disabled', false)
+    expect(screen.getByLabelText(en.webSearchPerplexityApiKey)).toHaveProperty('disabled', true)
+    expect(screen.getByLabelText(en.webSearchPerplexityModel)).toHaveProperty('disabled', true)
+    expect(screen.getByLabelText(en.webSearchPerplexitySearchRecency)).toBeTruthy()
+    expect(screen.queryByLabelText(en.webSearchExaSearchType)).toBeNull()
+  })
+
+  it('routes Perplexity recency edits and resets', () => {
+    const actions = renderWebSearch({
+      selectedProvider: 'perplexity',
+      perplexity: { ...perplexityState(), searchRecency: field('week', { overridden: true }) },
+    })
+    fireEvent.click(screen.getByText(en.webSearchTitle))
+
+    fireEvent.change(screen.getByLabelText(en.webSearchPerplexitySearchRecency), { target: { value: 'month' } })
+    fireEvent.click(screen.getByRole('button', { name: en.reset }))
+
+    expect(actions.edit).toHaveBeenCalledWith('perplexity.searchRecency', 'month')
+    expect(actions.resetField).toHaveBeenCalledWith('perplexity.searchRecency')
+  })
+
+  it.each([
+    ['deepseek-official', 'deepseek'],
+    ['exa', 'exa'],
+    ['perplexity', 'perplexity'],
+  ] as const)('keeps the selector visible when %s settings are unavailable', (selectedProvider, key) => {
+    const provider = key === 'deepseek' ? deepseekState() : key === 'exa' ? exaState() : perplexityState()
+    renderWebSearch({ selectedProvider, [key]: { ...provider, available: false } })
+    fireEvent.click(screen.getByText(en.webSearchTitle))
+
+    expect(screen.getByLabelText(en.webSearchProvider)).toBeTruthy()
+    expect(screen.getByText(en.webSearchProviderUnavailable)).toBeTruthy()
   })
 })

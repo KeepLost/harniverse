@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import WebRuntime, {
   WebError,
@@ -24,6 +24,13 @@ function makeFetchProvider(id: string, available: boolean, result: WebFetchResul
 
 const available = true
 const unavailable = false
+
+const originalSearchProvider = process.env.DSH_WEB_SEARCH_PROVIDER
+
+afterEach(() => {
+  if (originalSearchProvider === undefined) delete process.env.DSH_WEB_SEARCH_PROVIDER
+  else process.env.DSH_WEB_SEARCH_PROVIDER = originalSearchProvider
+})
 
 function searchResult(marker: string, overrides: Partial<WebSearchResult> = {}): WebSearchResult {
   return { content: marker, sources: [], truncated: false, ...overrides }
@@ -110,6 +117,24 @@ describe('WebRuntime execution resolution', () => {
     const { web } = await mountWeb({ searchProvider: 'perplexity' })
     web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
     web.registerSearchProvider(makeSearchProvider('perplexity', available, () => Promise.resolve(searchResult('perplexity'))))
+    await expect(web.search({ query: 'q' })).resolves.toMatchObject({ content: 'perplexity' })
+  })
+
+  it('uses DSH_WEB_SEARCH_PROVIDER when composition omits searchProvider', async () => {
+    process.env.DSH_WEB_SEARCH_PROVIDER = 'exa'
+    const { web } = await mountWeb()
+    web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
+    web.registerSearchProvider(makeSearchProvider('perplexity', available, () => Promise.resolve(searchResult('perplexity'))))
+
+    await expect(web.search({ query: 'q' })).resolves.toMatchObject({ content: 'exa' })
+  })
+
+  it('keeps explicit composition selection ahead of DSH_WEB_SEARCH_PROVIDER', async () => {
+    process.env.DSH_WEB_SEARCH_PROVIDER = 'exa'
+    const { web } = await mountWeb({ searchProvider: 'perplexity' })
+    web.registerSearchProvider(makeSearchProvider('exa', available, () => Promise.resolve(searchResult('exa'))))
+    web.registerSearchProvider(makeSearchProvider('perplexity', available, () => Promise.resolve(searchResult('perplexity'))))
+
     await expect(web.search({ query: 'q' })).resolves.toMatchObject({ content: 'perplexity' })
   })
 

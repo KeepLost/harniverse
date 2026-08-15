@@ -8,6 +8,8 @@ The patch gates both shell stacks by platform on its own rows: `bash-sandbox`/`t
 
 The row set and its rationale are documented inline in the patch file; the [generated composition graph](../../../apps/cli/composition.md) renders it.
 
+The shipped Web rows mount `web_search` plus all three official search providers: `deepseek-official` (the default), `exa`, and `perplexity`, using `DEEPSEEK_API_KEY`, `EXA_API_KEY`, and `PERPLEXITY_API_KEY` respectively. Every provider may mount without a key; missing credentials fail only when a search selects and executes that provider. `$DSH_WEB_SEARCH_PROVIDER` changes the untouched shipped default, while a later patch of the `web` row wins because it replaces the complete config. The browser's live `web.searchProvider` user setting overrides that composition for the next search, and clearing it restores the composed value. `web_fetch` remains disabled and the bundle mounts no fetch provider.
+
 ## Model Experience
 
 Indirectly, through the inserted rows: this bundle selects the shipped persona-less prompt base, tool set, and multi-provider adapter that mode bundles specialize, and contributes no model-visible text of its own.

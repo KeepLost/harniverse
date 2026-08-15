@@ -24,6 +24,12 @@
       "path": "../web"
     },
     {
+      "path": "../../credentials/credentials"
+    },
+    {
+      "path": "../../settings/settings"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     }
   ]

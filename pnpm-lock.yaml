@@ -1208,6 +1208,12 @@ importers:
       '@deepseek-ai/dsh-web-search-deepseek':
         specifier: workspace:^
         version: link:../../web/web-search-deepseek
+      '@deepseek-ai/dsh-web-search-exa':
+        specifier: workspace:^
+        version: link:../../web/web-search-exa
+      '@deepseek-ai/dsh-web-search-perplexity':
+        specifier: workspace:^
+        version: link:../../web/web-search-perplexity
       '@deepseek-ai/dsh-workflow-worker-thread':
         specifier: workspace:^
         version: link:../../workflow/workflow-worker-thread
@@ -8026,6 +8032,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-settings':
+        specifier: workspace:^
+        version: link:../../settings/settings
 
   packages/web/web-fetch-http:
     dependencies:

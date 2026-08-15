@@ -1,192 +1,399 @@
-/**
- * The web-search card's staged form over the `web-search-deepseek` settings
- * namespace.
- *
- * The key is the one control that does not live in the section: its literal
- * never rides a response, so the card learns only whether one is configured
- * and writes it through the credentials domain, addressed by the reference the
- * section names. It is still staged with the rest of the form, so one save
- * covers everything the card shows.
- */
+/** Aggregate staged form for the Web search selector and its three providers. */
 
 import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
-import type { SettingsScope, SettingsScopeSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, type SettingsScope, type SettingsScopeSnapshot, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  CardForm, numberField, textField,
+  CardForm, positiveIntegerField, selectField, textField,
   type CardActions, type CardFieldState, type CardShell,
 } from './card-form.ts'
 
-/**
- * Namespace of the DeepSeek search provider. Spelled here rather than
- * imported: a client package must not depend on a Host package.
- */
-export const WEB_SEARCH_NS = 'web-search-deepseek'
+/** Provider-neutral selector namespace. */
+export const WEB_NS = 'web'
+/** DeepSeek provider settings namespace. */
+export const WEB_SEARCH_DEEPSEEK_NS = 'web-search-deepseek'
+/** Exa provider settings namespace. */
+export const WEB_SEARCH_EXA_NS = 'web-search-exa'
+/** Perplexity provider settings namespace. */
+export const WEB_SEARCH_PERPLEXITY_NS = 'web-search-perplexity'
 
-/** Credential reference the provider resolves when the section names none. */
-const DEFAULT_API_KEY_REF = 'DEEPSEEK_API_KEY'
+/** Provider ids accepted by the Web runtime selector. */
+export const WEB_SEARCH_PROVIDER_IDS = ['deepseek-official', 'exa', 'perplexity'] as const
+/** A selectable Web search provider id. */
+export type WebSearchProviderId = typeof WEB_SEARCH_PROVIDER_IDS[number]
 
-/** Form field the credential control stages under. */
 const API_KEY_FIELD = 'apiKey'
 
-/** The search-provider fields this card edits. */
-export interface WebSearchSettings {
-  /** Credential reference naming the environment key. */
+/** Live Web selector settings. */
+export interface WebSettings { searchProvider?: string }
+
+/** Live DeepSeek Web search settings. */
+export interface DeepSeekWebSearchSettings {
   apiKeyEnv?: string
-  /** Provider endpoint; blank inherits the provider default. */
   baseURL?: string
-  /** Maximum searches served within one request. */
+  model?: string
+  apiVersion?: string
+  maxTokens?: number
   maxUses?: number
 }
 
-/** What the credentials domain last reported, and for which reference. */
-interface CredentialState {
-  /** Reference this answer describes; a stale response for another one is dropped. */
-  ref: string
-  /** Whether any layer supplies a value for it. */
-  configured: boolean
-  /** Whether `credentials.set` can affect it; false disables the control. */
-  writable: boolean
+/** Live Exa Web search settings. */
+export interface ExaWebSearchSettings {
+  apiKeyEnv?: string
+  baseURL?: string
+  searchType?: 'auto' | 'keyword' | 'neural'
+  numResults?: number
+  highlightsPerResult?: number
 }
 
-/** What the web-search card renders. */
-export interface WebSearchCardState extends CardShell {
-  /** Provider endpoint. */
-  baseURL: CardFieldState
-  /** Searches allowed per request. */
-  maxUses: CardFieldState
-  /** The staged credential, which starts blank on every load. */
+/** Live Perplexity Web search settings. */
+export interface PerplexityWebSearchSettings {
+  apiKeyEnv?: string
+  baseURL?: string
+  model?: string
+  maxTokens?: number
+  searchRecency?: 'day' | 'week' | 'month' | 'year'
+}
+
+interface CredentialState {
+  ref: string
+  configured: boolean
+  writable: boolean
+  generation: number
+}
+
+interface ProviderCredentialState extends CardShell {
   apiKey: CardFieldState
-  /** Whether the Host reports a credential configured for the referenced key. */
   apiKeyConfigured: boolean
-  /** Whether the credentials domain accepts a write for it; false disables the control. */
   apiKeyWritable: boolean
 }
 
-/** The registration-side face the web-search card's slot entry injects. */
-export interface WebSearchCardFace extends CardActions {
-  hooks: {
-    /** Card snapshot bound by the renderer as useWebSearchCard. */
-    webSearchCard: SnapshotStore<WebSearchCardState>
-  }
+/** Selector form projected into the aggregate card. */
+export interface WebSearchSelectorState extends CardShell { searchProvider: CardFieldState }
+
+/** DeepSeek provider form projected into the aggregate card. */
+export interface DeepSeekWebSearchState extends ProviderCredentialState {
+  baseURL: CardFieldState
+  model: CardFieldState
+  apiVersion: CardFieldState
+  maxTokens: CardFieldState
+  maxUses: CardFieldState
 }
 
-/** Bridges the `web-search-deepseek` scope and the credentials domain onto the card. */
+/** Exa provider form projected into the aggregate card. */
+export interface ExaWebSearchState extends ProviderCredentialState {
+  baseURL: CardFieldState
+  searchType: CardFieldState
+  numResults: CardFieldState
+  highlightsPerResult: CardFieldState
+}
+
+/** Perplexity provider form projected into the aggregate card. */
+export interface PerplexityWebSearchState extends ProviderCredentialState {
+  baseURL: CardFieldState
+  model: CardFieldState
+  maxTokens: CardFieldState
+  searchRecency: CardFieldState
+}
+
+/** Complete state rendered by the single Web search card. */
+export interface WebSearchCardState extends CardShell {
+  selectedProvider: WebSearchProviderId
+  selector: WebSearchSelectorState
+  deepseek: DeepSeekWebSearchState
+  exa: ExaWebSearchState
+  perplexity: PerplexityWebSearchState
+}
+
+/** The registration-side face injected into the Web search card. */
+export interface WebSearchCardFace extends CardActions {
+  hooks: { webSearchCard: SnapshotStore<WebSearchCardState> }
+}
+
+/** Four settings scopes aggregated by the Web search card. */
+export interface WebSearchScopes {
+  selector: SettingsScope<WebSettings>
+  deepseek: SettingsScope<DeepSeekWebSearchSettings>
+  exa: SettingsScope<ExaWebSearchSettings>
+  perplexity: SettingsScope<PerplexityWebSearchSettings>
+}
+
+/** Owns the selector, all provider drafts, and provider credential reads. */
 export class WebSearchCardController {
-  private readonly form: CardForm<WebSearchSettings>
+  private readonly selectorForm: CardForm<WebSettings>
+  private readonly deepseekForm: CardForm<DeepSeekWebSearchSettings>
+  private readonly exaForm: CardForm<ExaWebSearchSettings>
+  private readonly perplexityForm: CardForm<PerplexityWebSearchSettings>
   private readonly store: SnapshotStore<WebSearchCardState>
-  private credential: CredentialState = { ref: '', configured: false, writable: true }
+  private readonly credentials: Record<WebSearchProviderId, CredentialState> = {
+    'deepseek-official': credential('DEEPSEEK_API_KEY'),
+    exa: credential('EXA_API_KEY'),
+    perplexity: credential('PERPLEXITY_API_KEY'),
+  }
+  private saving = false
 
   /**
-   * @param scope - the bound settings scope for the `web-search-deepseek` namespace.
-   * @param api - wire face used for the credential the section references.
+   * @param scopes - the selector and three provider settings scopes.
+   * @param api - wire face used for write-only provider credentials.
    */
   constructor(
-    private readonly scope: SettingsScope<WebSearchSettings>,
+    private readonly scopes: WebSearchScopes,
     private readonly api: Pick<IApiClient, 'credentials'>,
   ) {
-    this.form = new CardForm(
-      scope,
-      [textField('baseURL'), numberField('maxUses')],
-      [{ field: API_KEY_FIELD, write: text => this.writeKey(text) }],
+    this.selectorForm = new CardForm(scopes.selector, [
+      selectField('searchProvider', WEB_SEARCH_PROVIDER_IDS),
+    ])
+    this.deepseekForm = new CardForm(
+      scopes.deepseek,
+      [
+        textField('baseURL'), textField('model'), textField('apiVersion'),
+        positiveIntegerField('maxTokens'), positiveIntegerField('maxUses'),
+      ],
+      [{ field: API_KEY_FIELD, write: value => this.writeKey('deepseek-official', value) }],
     )
-    this.store = this.form.bind(() => this.projection())
-    scope.subscribe(() => { void this.readCredential() })
-    void this.readCredential()
+    this.exaForm = new CardForm(
+      scopes.exa,
+      [
+        textField('baseURL'), selectField('searchType', ['auto', 'keyword', 'neural']),
+        positiveIntegerField('numResults'), positiveIntegerField('highlightsPerResult'),
+      ],
+      [{ field: API_KEY_FIELD, write: value => this.writeKey('exa', value) }],
+    )
+    this.perplexityForm = new CardForm(
+      scopes.perplexity,
+      [
+        textField('baseURL'), textField('model'), positiveIntegerField('maxTokens'),
+        selectField('searchRecency', ['day', 'week', 'month', 'year']),
+      ],
+      [{ field: API_KEY_FIELD, write: value => this.writeKey('perplexity', value) }],
+    )
+
+    this.store = createSnapshotStore(this.projection())
+    for (const form of this.forms()) form.subscribe(() => { this.publish() })
+    for (const provider of WEB_SEARCH_PROVIDER_IDS) {
+      this.scope(provider).subscribe(() => { void this.readCredential(provider) })
+      void this.readCredential(provider)
+    }
+  }
+
+  /**
+   * Build the face injected into the card slot.
+   * @returns the aggregate snapshot and staged actions.
+   */
+  inject(): WebSearchCardFace {
+    return {
+      hooks: { webSearchCard: this.store },
+      edit: (address, text) => { this.addressActions(address).edit(addressField(address), text) },
+      resetField: (address) => { this.addressActions(address).resetField(addressField(address)) },
+      save: () => { void this.save() },
+      discard: () => {
+        for (const form of this.forms()) form.actions().discard()
+      },
+    }
+  }
+
+  /**
+   * Save selector and provider forms in fixed order. Writes are non-transactional:
+   * successful forms settle while each failed form retains its own drafts.
+   * @returns settlement after all four forms have attempted their writes.
+   */
+  async save(): Promise<void> {
+    const shells = this.forms().map(form => form.shell())
+    if (this.saving || shells.every(shell => !shell.dirty) || shells.some(shell => shell.invalid)) return
+    this.saving = true
+    this.publish()
+    try {
+      for (const form of this.forms()) await form.save()
+    } finally {
+      this.saving = false
+      this.publish()
+    }
+  }
+
+  /**
+   * Refresh providers currently addressing a changed credential reference.
+   * @param ref - credential reference reported by the Host.
+   */
+  refreshCredential(ref: string): void {
+    for (const provider of WEB_SEARCH_PROVIDER_IDS) {
+      if (this.ref(provider) === ref) void this.readCredential(provider)
+    }
   }
 
   private projection(): WebSearchCardState {
+    const selector = this.selectorState()
+    const selectedProvider = providerId(selector.searchProvider.text)
+    const deepseek = this.deepseekState()
+    const exa = this.exaState()
+    const perplexity = this.perplexityState()
+    const selected = selectedProvider === 'deepseek-official'
+      ? deepseek
+      : selectedProvider === 'exa' ? exa : perplexity
+    const forms = [selector, deepseek, exa, perplexity]
     return {
-      ...this.form.shell(),
-      baseURL: this.form.field('baseURL'),
-      maxUses: this.form.field('maxUses'),
-      apiKey: this.form.field(API_KEY_FIELD),
-      apiKeyConfigured: this.credential.configured,
-      apiKeyWritable: this.credential.writable,
+      available: selector.available,
+      writable: selector.writable || (selected.available && (selected.writable || selected.apiKeyWritable)),
+      dirty: forms.some(form => form.dirty),
+      invalid: forms.some(form => form.invalid),
+      saving: this.saving,
+      failed: forms.some(form => form.failed),
+      selectedProvider,
+      selector,
+      deepseek,
+      exa,
+      perplexity,
     }
   }
 
-  /**
-   * Ask the credentials domain about the reference the section currently names.
-   *
-   * The answer is stored with the reference it describes: `apiKeyEnv` can
-   * change between the request and its response, and two reads can settle out
-   * of order, so a response is published only while it still answers for the
-   * reference in force.
-   */
-  private async readCredential(): Promise<void> {
-    const ref = refOf(this.scope.getSnapshot())
-    if (ref !== this.credential.ref) {
-      // A new reference knows nothing yet; keeping the old answer would claim
-      // the key is configured under a name nobody has checked.
-      this.credential = { ref, configured: false, writable: true }
-      this.store.set(this.projection())
+  private selectorState(): WebSearchSelectorState {
+    return { ...this.selectorForm.shell(), searchProvider: this.selectorForm.field('searchProvider') }
+  }
+
+  private deepseekState(): DeepSeekWebSearchState {
+    return {
+      ...this.providerShell('deepseek-official', this.deepseekForm),
+      baseURL: this.deepseekForm.field('baseURL'),
+      model: this.deepseekForm.field('model'),
+      apiVersion: this.deepseekForm.field('apiVersion'),
+      maxTokens: this.deepseekForm.field('maxTokens'),
+      maxUses: this.deepseekForm.field('maxUses'),
     }
+  }
+
+  private exaState(): ExaWebSearchState {
+    return {
+      ...this.providerShell('exa', this.exaForm),
+      baseURL: this.exaForm.field('baseURL'),
+      searchType: this.exaForm.field('searchType'),
+      numResults: this.exaForm.field('numResults'),
+      highlightsPerResult: this.exaForm.field('highlightsPerResult'),
+    }
+  }
+
+  private perplexityState(): PerplexityWebSearchState {
+    return {
+      ...this.providerShell('perplexity', this.perplexityForm),
+      baseURL: this.perplexityForm.field('baseURL'),
+      model: this.perplexityForm.field('model'),
+      maxTokens: this.perplexityForm.field('maxTokens'),
+      searchRecency: this.perplexityForm.field('searchRecency'),
+    }
+  }
+
+  private providerShell<T>(provider: WebSearchProviderId, form: CardForm<T>): ProviderCredentialState {
+    const state = this.credentials[provider]
+    return {
+      ...form.shell(),
+      apiKey: form.field(API_KEY_FIELD),
+      apiKeyConfigured: state.configured,
+      apiKeyWritable: state.writable,
+    }
+  }
+
+  private forms(): readonly [
+    CardForm<WebSettings>, CardForm<DeepSeekWebSearchSettings>,
+    CardForm<ExaWebSearchSettings>, CardForm<PerplexityWebSearchSettings>,
+  ] {
+    return [this.selectorForm, this.deepseekForm, this.exaForm, this.perplexityForm]
+  }
+
+  private addressActions(address: string): CardActions {
+    const prefix = addressPrefix(address)
+    if (prefix === 'selector') return this.selectorForm.actions()
+    if (prefix === 'deepseek') return this.deepseekForm.actions()
+    if (prefix === 'exa') return this.exaForm.actions()
+    if (prefix === 'perplexity') return this.perplexityForm.actions()
+    throw new Error(`web search card has no form ${prefix}`)
+  }
+
+  private scope(provider: WebSearchProviderId): SettingsScope<{ apiKeyEnv?: string }> {
+    if (provider === 'deepseek-official') {
+      return this.scopes.deepseek
+    }
+    if (provider === 'exa') return this.scopes.exa
+    return this.scopes.perplexity
+  }
+
+  private ref(provider: WebSearchProviderId): string {
+    return refOf(this.scope(provider).getSnapshot(), defaultRef(provider))
+  }
+
+  private async readCredential(provider: WebSearchProviderId): Promise<void> {
+    const ref = this.ref(provider)
+    const previous = this.credentials[provider]
+    const generation = previous.generation + 1
+    this.credentials[provider] = {
+      ref,
+      configured: previous.ref === ref ? previous.configured : false,
+      writable: previous.ref === ref ? previous.writable : true,
+      generation,
+    }
+    if (previous.ref !== ref) this.publish()
+
     let response: Awaited<ReturnType<IApiClient['credentials']['describe']>>
     try {
       response = await this.api.credentials.describe({ refs: [ref] })
     } catch (_credentialReadFailure) {
-      // The card stays usable without this: the key control simply reports the
-      // last state it knew, and a write still reaches the Host.
       return
     }
-    if (!response.result.ok || ref !== refOf(this.scope.getSnapshot())) return
+    const current = this.credentials[provider]
+    if (!response.result.ok || current.generation !== generation || current.ref !== ref || this.ref(provider) !== ref) return
     const view = response.result.value.credentials[ref]
-    const next: CredentialState = {
+    this.credentials[provider] = {
       ref,
       configured: view?.configured ?? false,
-      // An unknown reference is treated as writable: the control stays usable
-      // and the Host is what refuses, rather than the card guessing a refusal.
       writable: view?.writable ?? true,
+      generation,
     }
-    if (next.configured === this.credential.configured && next.writable === this.credential.writable) return
-    this.credential = next
-    this.store.set(this.projection())
+    this.publish()
   }
 
-  /**
-   * Re-read after the Host reports a change to the reference this card watches.
-   *
-   * A key can be written from somewhere else — the Models page addresses the
-   * same reference — and the settings section does not change when it is, so
-   * without this the badge keeps reporting a state the Host already replaced.
-   * @param ref - the reference the Host reports as changed.
-   */
-  refreshCredential(ref: string): void {
-    if (ref !== this.credential.ref) return
-    void this.readCredential()
-  }
-
-  /**
-   * Build the face the card's slot registration injects.
-   * @returns the card's snapshot and its form actions.
-   */
-  inject(): WebSearchCardFace {
-    return { hooks: { webSearchCard: this.store }, ...this.form.actions() }
-  }
-
-  /**
-   * Write the staged key, then re-read whether the Host now holds one.
-   * @param value - the staged credential literal.
-   * @returns whether the Host reports a configured credential afterwards.
-   */
-  private async writeKey(value: string): Promise<boolean> {
+  private async writeKey(provider: WebSearchProviderId, value: string): Promise<boolean> {
+    const ref = this.ref(provider)
+    let accepted = false
     try {
-      await this.api.credentials.set({ ref: refOf(this.scope.getSnapshot()), value })
+      const response = await this.api.credentials.set({ ref, value })
+      accepted = response.result.ok
     } catch (_credentialWriteFailure) {
-      // Refusals surface through the re-read below: the Host is the only
-      // authority on whether the key now exists.
+      // A refresh still publishes the authoritative status after transport failure.
     }
-    await this.readCredential()
-    return this.credential.configured
+    await this.readCredential(provider)
+    const state = this.credentials[provider]
+    return accepted && state.ref === ref && state.configured
+  }
+
+  private publish(): void {
+    this.store.set(this.projection())
   }
 }
 
-/**
- * The credential reference the section names, or the provider's default.
- * @param snapshot - the current scope snapshot.
- * @returns the reference to address.
- */
-function refOf(snapshot: SettingsScopeSnapshot<WebSearchSettings>): string {
+function credential(ref: string): CredentialState {
+  return { ref, configured: false, writable: true, generation: 0 }
+}
+
+function defaultRef(provider: WebSearchProviderId): string {
+  if (provider === 'deepseek-official') return 'DEEPSEEK_API_KEY'
+  if (provider === 'exa') return 'EXA_API_KEY'
+  return 'PERPLEXITY_API_KEY'
+}
+
+function refOf(snapshot: SettingsScopeSnapshot<{ apiKeyEnv?: string }>, fallback: string): string {
   const declared = snapshot.value?.apiKeyEnv
-  return declared !== undefined && declared.length > 0 ? declared : DEFAULT_API_KEY_REF
+  return declared !== undefined && declared.length > 0 ? declared : fallback
+}
+
+function providerId(value: string): WebSearchProviderId {
+  return WEB_SEARCH_PROVIDER_IDS.find(provider => provider === value) ?? 'deepseek-official'
+}
+
+function addressPrefix(address: string): string {
+  const separator = address.indexOf('.')
+  if (separator <= 0 || separator === address.length - 1) {
+    throw new Error(`web search field address is ambiguous: ${address}`)
+  }
+  return address.slice(0, separator)
+}
+
+function addressField(address: string): string {
+  addressPrefix(address)
+  return address.slice(address.indexOf('.') + 1)
 }

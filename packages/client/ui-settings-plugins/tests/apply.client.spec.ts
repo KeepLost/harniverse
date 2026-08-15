@@ -26,15 +26,16 @@ async function bench() {
   // forwarded Host events reach it through the same `$dispatch` handoff the
   // connection sink makes.
   new TestRemote(ctx)
+  const describeSettings = vi.fn(() => Promise.resolve({ rpcId: 's', result: { ok: false, error: {} } }))
   ctx.provide('connection', {
     isLoopback: true,
     api: {
-      settings: { describe: vi.fn(() => Promise.resolve({ rpcId: 's', result: { ok: false, error: {} } })) },
+      settings: { describe: describeSettings },
       credentials: { describe: describeCredentials },
     },
   } as never)
   await ctx.plugin(SettingsScopeBinder).await()
-  return { ctx, slots: ctx.get('slots') as SlotRegistry, describeCredentials }
+  return { ctx, slots: ctx.get('slots') as SlotRegistry, describeCredentials, describeSettings }
 }
 
 function declareRoot(slots: SlotRegistry): () => void {
@@ -74,6 +75,16 @@ describe('ui-settings-plugins apply', () => {
 
     expect(slots.entries('settings.plugin.item').map(entry => entry.options.id))
       .toEqual(['bash', 'agent-loop', 'web-search'])
+  })
+
+  it('binds the selector and all three provider scopes while keeping one web-search card', async () => {
+    const { ctx, slots, describeSettings } = await bench()
+    declareRoot(slots)
+
+    await ctx.plugin({ inject: [...inject], apply }).await()
+
+    await vi.waitFor(() => { expect(describeSettings).toHaveBeenCalledTimes(6) })
+    expect(slots.entries('settings.plugin.item').filter(entry => entry.options.id === 'web-search')).toHaveLength(1)
   })
 
   it('injects a live tab projection, a card count, and one business face per card', async () => {
@@ -119,6 +130,19 @@ describe('ui-settings-plugins apply', () => {
     ctx.remote.$dispatch('credentials/updated', ['DEEPSEEK_API_KEY'])
 
     await vi.waitFor(() => { expect(describeCredentials).toHaveBeenCalledTimes(1) })
+  })
+
+  it.each(['EXA_API_KEY', 'PERPLEXITY_API_KEY'])('invalidates the matching %s credential only', async (ref) => {
+    const { ctx, slots, describeCredentials } = await bench()
+    declareRoot(slots)
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    await vi.waitFor(() => { expect(describeCredentials).toHaveBeenCalled() })
+    describeCredentials.mockClear()
+
+    ctx.remote.$dispatch('credentials/updated', [ref])
+
+    await vi.waitFor(() => { expect(describeCredentials).toHaveBeenCalledTimes(1) })
+    expect(describeCredentials).toHaveBeenCalledWith({ refs: [ref] })
   })
 
   it('ignores a credential change for a reference no card watches', async () => {

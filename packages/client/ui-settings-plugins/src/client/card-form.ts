@@ -129,6 +129,27 @@ export function numberField(field: string): CardFieldSpec {
 }
 
 /**
+ * A positive whole-number field. Empty clears the field; zero, negative,
+ * fractional, and non-numeric drafts block the save.
+ * @param field - field name inside the namespace section.
+ * @returns the field's conversion spec.
+ */
+export function positiveIntegerField(field: string): CardFieldSpec {
+  return {
+    field,
+    format: value => typeof value === 'number' ? String(value) : '',
+    parse: (text) => {
+      const trimmed = text.trim()
+      if (trimmed === '') return { kind: 'clear' }
+      const parsed = Number(trimmed)
+      return Number.isSafeInteger(parsed) && parsed > 0
+        ? { kind: 'set', value: parsed }
+        : undefined
+    },
+  }
+}
+
+/**
  * A free-text field. An empty draft clears the field, so emptying the control
  * and saving is the same gesture as resetting it.
  * @param field - field name inside the namespace section.
@@ -142,6 +163,23 @@ export function textField(field: string): CardFieldSpec {
       const trimmed = text.trim()
       return trimmed === '' ? { kind: 'clear' } : { kind: 'set', value: trimmed }
     },
+  }
+}
+
+/**
+ * A string field restricted to a fixed set of values.
+ * @param field - field name inside the namespace section.
+ * @param values - accepted stored and staged values.
+ * @returns the field's conversion spec.
+ */
+export function selectField(field: string, values: readonly string[]): CardFieldSpec {
+  const accepted = new Set(values)
+  return {
+    field,
+    format: value => typeof value === 'string' ? value : '',
+    parse: text => text === ''
+      ? { kind: 'clear' }
+      : accepted.has(text) ? { kind: 'set', value: text } : undefined,
   }
 }
 
@@ -182,8 +220,18 @@ export class CardForm<T> {
    */
   bind<S>(project: () => S): SnapshotStore<S> {
     const store = createSnapshotStore(project())
-    this.listeners.add(() => { store.set(project()) })
+    this.subscribe(() => { store.set(project()) })
     return store
+  }
+
+  /**
+   * Observe scope and draft changes published by this form.
+   * @param listener - invoked after the form projection changes.
+   * @returns the disposer removing this listener.
+   */
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => { this.listeners.delete(listener) }
   }
 
   /**

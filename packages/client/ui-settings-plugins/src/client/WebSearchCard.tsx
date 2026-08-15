@@ -1,30 +1,30 @@
-/**
- * The web-search provider's card: its endpoint, its per-request search budget,
- * and the key — which is written through the credentials domain, never into
- * the settings section, so the literal never rides a response.
- */
+/** Pure presentation for the Web search selector and selected provider form. */
 
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { SecretField, ValueField } from './fields.tsx'
+import { SecretField, SelectField, ValueField } from './fields.tsx'
 import { PluginCard } from './PluginCard.tsx'
-import type { WebSearchCardFace } from './web-search-card-controller.ts'
+import type {
+  DeepSeekWebSearchState, ExaWebSearchState, PerplexityWebSearchState,
+  WebSearchCardFace,
+} from './web-search-card-controller.ts'
+import type { CardFieldState } from './card-form.ts'
+import type { PluginsSettingsLocaleKey } from './locales.ts'
 import type {} from './slot-contract.ts'
 
-/** Props the renderer binds for the web-search card. */
+/** Props the renderer binds for the Web search card. */
 export type WebSearchCardProps =
   PropsRuntime<'settings.plugin.item'>
   & PropsLocale<'settings.plugins'>
   & InjectFace<WebSearchCardFace>
 
 /**
- * Render the web-search card.
- * @param props - locale copy, the card snapshot, and its form actions.
- * @returns the card.
+ * Render the selector and only the selected provider's controls.
+ * @param props - locale copy, aggregate snapshot, and staged form actions.
+ * @returns the single Web search card.
  */
 export function WebSearchCard(props: WebSearchCardProps) {
   const { t } = props
   const state = props.useWebSearchCard(snapshot => snapshot)
-  const disabled = !state.writable
   return (
     <PluginCard
       t={t}
@@ -34,45 +34,176 @@ export function WebSearchCard(props: WebSearchCardProps) {
       onSave={props.save}
       onDiscard={props.discard}
     >
-      <SecretField
-        id="plugin-config-web-search-key"
-        label={t('webSearchApiKey')}
-        hint={t('webSearchApiKeyHint')}
-        // The credentials domain accepts a key even when the settings document
-        // itself is read-only; they are separate stores with separate refusals.
-        // Its own writability is what disables this control — a key sourced
-        // from the process environment cannot be written from here.
-        disabled={!state.apiKeyWritable}
-        text={state.apiKey.text}
-        configured={state.apiKeyConfigured}
-        stateLabel={state.apiKeyConfigured ? t('webSearchApiKeySet') : t('webSearchApiKeyUnset')}
-        onEdit={(text) => { props.edit('apiKey', text) }}
+      <SelectField
+        {...fieldFrame(t)}
+        id="plugin-config-web-search-provider"
+        label={t('webSearchProvider')}
+        hint={t('webSearchProviderHint')}
+        disabled={!state.selector.writable}
+        {...state.selector.searchProvider}
+        options={[
+          { value: 'deepseek-official', label: t('webSearchProviderDeepSeek') },
+          { value: 'exa', label: t('webSearchProviderExa') },
+          { value: 'perplexity', label: t('webSearchProviderPerplexity') },
+        ]}
+        onEdit={(text) => { props.edit('selector.searchProvider', text) }}
+        onReset={() => { props.resetField('selector.searchProvider') }}
       />
-      <ValueField
-        id="plugin-config-web-search-endpoint"
-        label={t('webSearchBaseUrl')}
-        hint={t('webSearchBaseUrlHint')}
-        overriddenLabel={t('overridden')}
-        resetLabel={t('reset')}
-        invalidLabel={t('invalidNumber')}
-        disabled={disabled}
-        {...state.baseURL}
-        onEdit={(text) => { props.edit('baseURL', text) }}
-        onReset={() => { props.resetField('baseURL') }}
-      />
-      <ValueField
-        id="plugin-config-web-search-max-uses"
-        label={t('webSearchMaxUses')}
-        hint={t('webSearchMaxUsesHint')}
-        overriddenLabel={t('overridden')}
-        resetLabel={t('reset')}
-        invalidLabel={t('invalidNumber')}
-        numeric
-        disabled={disabled}
-        {...state.maxUses}
-        onEdit={(text) => { props.edit('maxUses', text) }}
-        onReset={() => { props.resetField('maxUses') }}
-      />
+      {state.selectedProvider === 'deepseek-official'
+        ? <DeepSeekFields t={t} state={state.deepseek} edit={props.edit} reset={props.resetField} />
+        : state.selectedProvider === 'exa'
+          ? <ExaFields t={t} state={state.exa} edit={props.edit} reset={props.resetField} />
+          : <PerplexityFields t={t} state={state.perplexity} edit={props.edit} reset={props.resetField} />}
     </PluginCard>
+  )
+}
+
+type T = (key: PluginsSettingsLocaleKey) => string
+type Edit = (address: string, text: string) => void
+type Reset = (address: string) => void
+
+function fieldFrame(t: T) {
+  return {
+    overriddenLabel: t('overridden'),
+    resetLabel: t('reset'),
+    invalidLabel: t('invalidNumber'),
+  }
+}
+
+function ProviderValue(props: {
+  t: T
+  id: string
+  label: PluginsSettingsLocaleKey
+  hint: PluginsSettingsLocaleKey
+  state: CardFieldState
+  address: string
+  disabled: boolean
+  numeric?: boolean
+  edit: Edit
+  reset: Reset
+}) {
+  return (
+    <ValueField
+      {...fieldFrame(props.t)}
+      id={props.id}
+      label={props.t(props.label)}
+      hint={props.t(props.hint)}
+      disabled={props.disabled}
+      {...props.numeric === true ? { numeric: true } : {}}
+      {...props.state}
+      onEdit={(text) => { props.edit(props.address, text) }}
+      onReset={() => { props.reset(props.address) }}
+    />
+  )
+}
+
+function ProviderSecret(props: {
+  t: T
+  id: string
+  label: PluginsSettingsLocaleKey
+  state: { apiKey: CardFieldState; apiKeyConfigured: boolean; apiKeyWritable: boolean }
+  address: string
+  edit: Edit
+}) {
+  return (
+    <SecretField
+      id={props.id}
+      label={props.t(props.label)}
+      hint={props.t('webSearchApiKeyHint')}
+      disabled={!props.state.apiKeyWritable}
+      text={props.state.apiKey.text}
+      configured={props.state.apiKeyConfigured}
+      stateLabel={props.t(props.state.apiKeyConfigured ? 'webSearchApiKeySet' : 'webSearchApiKeyUnset')}
+      onEdit={(text) => { props.edit(props.address, text) }}
+    />
+  )
+}
+
+function ProviderUnavailable({ t }: { t: T }) {
+  return <p role="status">{t('webSearchProviderUnavailable')}</p>
+}
+
+function DeepSeekFields(props: { t: T; state: DeepSeekWebSearchState; edit: Edit; reset: Reset }) {
+  if (!props.state.available) return <ProviderUnavailable t={props.t} />
+  const common = { t: props.t, disabled: !props.state.writable, edit: props.edit, reset: props.reset }
+  return (
+    <>
+      <ProviderSecret
+        t={props.t} id="plugin-config-web-search-deepseek-key"
+        label="webSearchDeepSeekApiKey" state={props.state}
+        address="deepseek.apiKey" edit={props.edit}
+      />
+      <ProviderValue {...common} id="plugin-config-web-search-deepseek-base-url" label="webSearchBaseUrl" hint="webSearchBaseUrlHint" state={props.state.baseURL} address="deepseek.baseURL" />
+      <ProviderValue {...common} id="plugin-config-web-search-deepseek-model" label="webSearchDeepSeekModel" hint="webSearchDeepSeekModelHint" state={props.state.model} address="deepseek.model" />
+      <ProviderValue {...common} id="plugin-config-web-search-deepseek-api-version" label="webSearchDeepSeekApiVersion" hint="webSearchDeepSeekApiVersionHint" state={props.state.apiVersion} address="deepseek.apiVersion" />
+      <ProviderValue {...common} numeric id="plugin-config-web-search-deepseek-max-tokens" label="webSearchDeepSeekMaxTokens" hint="webSearchDeepSeekMaxTokensHint" state={props.state.maxTokens} address="deepseek.maxTokens" />
+      <ProviderValue {...common} numeric id="plugin-config-web-search-deepseek-max-uses" label="webSearchDeepSeekMaxUses" hint="webSearchDeepSeekMaxUsesHint" state={props.state.maxUses} address="deepseek.maxUses" />
+    </>
+  )
+}
+
+function ExaFields(props: { t: T; state: ExaWebSearchState; edit: Edit; reset: Reset }) {
+  if (!props.state.available) return <ProviderUnavailable t={props.t} />
+  const common = { t: props.t, disabled: !props.state.writable, edit: props.edit, reset: props.reset }
+  return (
+    <>
+      <ProviderSecret
+        t={props.t} id="plugin-config-web-search-exa-key"
+        label="webSearchExaApiKey" state={props.state}
+        address="exa.apiKey" edit={props.edit}
+      />
+      <ProviderValue {...common} id="plugin-config-web-search-exa-base-url" label="webSearchBaseUrl" hint="webSearchBaseUrlHint" state={props.state.baseURL} address="exa.baseURL" />
+      <SelectField
+        {...fieldFrame(props.t)}
+        id="plugin-config-web-search-exa-search-type"
+        label={props.t('webSearchExaSearchType')}
+        hint={props.t('webSearchExaSearchTypeHint')}
+        disabled={!props.state.writable}
+        {...props.state.searchType}
+        options={[
+          { value: 'auto', label: props.t('webSearchExaSearchTypeAuto') },
+          { value: 'keyword', label: props.t('webSearchExaSearchTypeKeyword') },
+          { value: 'neural', label: props.t('webSearchExaSearchTypeNeural') },
+        ]}
+        onEdit={(text) => { props.edit('exa.searchType', text) }}
+        onReset={() => { props.reset('exa.searchType') }}
+      />
+      <ProviderValue {...common} numeric id="plugin-config-web-search-exa-num-results" label="webSearchExaNumResults" hint="webSearchExaNumResultsHint" state={props.state.numResults} address="exa.numResults" />
+      <ProviderValue {...common} numeric id="plugin-config-web-search-exa-highlights" label="webSearchExaHighlightsPerResult" hint="webSearchExaHighlightsPerResultHint" state={props.state.highlightsPerResult} address="exa.highlightsPerResult" />
+    </>
+  )
+}
+
+function PerplexityFields(props: { t: T; state: PerplexityWebSearchState; edit: Edit; reset: Reset }) {
+  if (!props.state.available) return <ProviderUnavailable t={props.t} />
+  const common = { t: props.t, disabled: !props.state.writable, edit: props.edit, reset: props.reset }
+  return (
+    <>
+      <ProviderSecret
+        t={props.t} id="plugin-config-web-search-perplexity-key"
+        label="webSearchPerplexityApiKey" state={props.state}
+        address="perplexity.apiKey" edit={props.edit}
+      />
+      <ProviderValue {...common} id="plugin-config-web-search-perplexity-base-url" label="webSearchBaseUrl" hint="webSearchBaseUrlHint" state={props.state.baseURL} address="perplexity.baseURL" />
+      <ProviderValue {...common} id="plugin-config-web-search-perplexity-model" label="webSearchPerplexityModel" hint="webSearchPerplexityModelHint" state={props.state.model} address="perplexity.model" />
+      <ProviderValue {...common} numeric id="plugin-config-web-search-perplexity-max-tokens" label="webSearchPerplexityMaxTokens" hint="webSearchPerplexityMaxTokensHint" state={props.state.maxTokens} address="perplexity.maxTokens" />
+      <SelectField
+        {...fieldFrame(props.t)}
+        id="plugin-config-web-search-perplexity-recency"
+        label={props.t('webSearchPerplexitySearchRecency')}
+        hint={props.t('webSearchPerplexitySearchRecencyHint')}
+        disabled={!props.state.writable}
+        {...props.state.searchRecency}
+        options={[
+          { value: '', label: props.t('webSearchPerplexitySearchRecencyAny') },
+          { value: 'day', label: props.t('webSearchPerplexitySearchRecencyDay') },
+          { value: 'week', label: props.t('webSearchPerplexitySearchRecencyWeek') },
+          { value: 'month', label: props.t('webSearchPerplexitySearchRecencyMonth') },
+          { value: 'year', label: props.t('webSearchPerplexitySearchRecencyYear') },
+        ]}
+        onEdit={(text) => { props.edit('perplexity.searchRecency', text) }}
+        onReset={() => { props.reset('perplexity.searchRecency') }}
+      />
+    </>
   )
 }
