@@ -28,7 +28,7 @@ Status: implemented
 
 **卡片暂存修改，保存时才写入。** 控件不持有自己的草稿：暂存文本归卡片的表单所有，所有控件渲染的都是它，只有**保存**才把它变成文档变更。Web 搜索卡片绑定四个 scope，暂存选择器与全部三个提供方表单，并在提供方字段隐藏时保留其草稿。一次保存会按顺序、以非事务方式写入 `web`、DeepSeek、Exa 与 Perplexity；成功的表单会结算，每个失败表单则保留自己的草稿。settings 写入是持久且带 revision 栅栏的，因此「失焦即提交」的控件会为用户尚未决定存储、也无从预览的值花掉一个 revision；重置同样只是暂存组装默认值。schema 表达不了的约束归 Host 的校验器所有，所以每个表单在写入后回读自己的分节，并报告没有落盘的保存，而不是自行预测结果。每个提供方密钥都通过 credentials 领域以只写方式处理，并与其提供方字段一起暂存。
 
-**随附组合会显式选择搜索提供方。** base 会无密钥挂载 `deepseek-official`、`exa` 与 `perplexity`，分别使用 `DEEPSEEK_API_KEY`、`EXA_API_KEY` 与 `PERPLEXITY_API_KEY`；除非 `DSH_WEB_SEARCH_PROVIDER` 更改未经改动的配置行，否则选中 `deepseek-official`。后续 `web.config.searchProvider` patch 会替换完整配置，因此优先级更高。不存在按密钥自动切换：同步 `available()` 无法证明异步凭据存储中存在密钥，所以只有选中的搜索执行时，缺少凭据才会导致失败。`web_fetch` 保持禁用，且不挂载抓取提供方。
+**随附组合会显式选择一个休眠的搜索提供方。** base 会无密钥挂载 `deepseek-official`、`exa` 与 `perplexity`，分别使用 `DEEPSEEK_API_KEY`、`EXA_API_KEY` 与 `PERPLEXITY_API_KEY`；除非 `DSH_WEB_SEARCH_PROVIDER` 更改未经改动的配置行，否则选中 `deepseek-official`。其 `tool-web` 行会禁用两个模型工具；启用覆盖层将使用已选提供方。后续 `web.config.searchProvider` patch 会替换完整配置，因此优先级更高。不存在按密钥自动切换：同步 `available()` 无法证明异步凭据存储中存在密钥，所以只有启用的搜索执行时，缺少凭据才会导致失败。组合不挂载抓取提供方。
 
 ## 备选方案
 

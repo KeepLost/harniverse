@@ -8,7 +8,7 @@ patch 在自身上按平台门控两个 shell 栈：`bash-sandbox`/`tool-bash` �
 
 行集合及其设计依据以行内注释写在 patch 文件里；[生成的组合图](../../../apps/cli/composition.md)负责渲染它。
 
-随附的 Web 配置行会挂载 `web_search` 及全部三个官方搜索提供方：默认的 `deepseek-official`、`exa` 与 `perplexity`，分别使用 `DEEPSEEK_API_KEY`、`EXA_API_KEY` 与 `PERPLEXITY_API_KEY`。每个提供方都可以在没有密钥时挂载；只有搜索选中并执行该提供方时，缺少凭据才会导致失败。`$DSH_WEB_SEARCH_PROVIDER` 会更改未经改动的随附默认值；后续针对 `web` 行的 patch 会替换完整配置，因此优先级更高。浏览器中的实时 `web.searchProvider` 用户设置会从下一次搜索开始覆盖该组装值，清除后恢复组装值。`web_fetch` 保持禁用，且该组合包不挂载抓取提供方。
+随附的 Web 配置行会挂载 `ctx.web` 服务及全部三个官方搜索提供方：被选为默认值的 `deepseek-official`、`exa` 与 `perplexity`，分别使用 `DEEPSEEK_API_KEY`、`EXA_API_KEY` 与 `PERPLEXITY_API_KEY`。`tool-web` 行把 `search` 与 `fetch` 都设为 `false`，因此共享 base 不会向任何模型请求贡献 `web_search` 或 `web_fetch`。部署在选定自己的路由策略后，可以替换完整的 `tool-web` 配置来启用搜索；届时 `$DSH_WEB_SEARCH_PROVIDER`、浏览器中的实时 `web.searchProvider` 设置及无密钥挂载提供方仍保留各自的提供方选择行为。该组合包不挂载抓取提供方。
 
 ## 模型体验
 

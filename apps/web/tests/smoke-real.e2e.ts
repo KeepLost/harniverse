@@ -283,11 +283,7 @@ describe('dsh web keyless CLI smoke', () => {
       `)
       expect(captured.tools?.map(tool => tool.function?.name)
         .filter(name => name === 'web_search' || name === 'web_fetch'))
-        .toMatchInlineSnapshot(`
-          [
-            "web_search",
-          ]
-        `)
+        .toEqual([])
     } finally {
       const closed = child.exitCode === null
         ? new Promise<void>((resolveClose) => { child.once('close', () => { resolveClose() }) })

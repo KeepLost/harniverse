@@ -70,6 +70,10 @@ describe('dsh-base bundle', () => {
     expect(evaluate({ process: { env: {} } }, searchProviderExpression)).toBe('deepseek-official')
     expect(evaluate({ process: { env: { DSH_WEB_SEARCH_PROVIDER: 'exa' } } }, searchProviderExpression)).toBe('exa')
     expect(evaluate({ process: { env: { DSH_WEB_SEARCH_PROVIDER: 'perplexity' } } }, searchProviderExpression)).toBe('perplexity')
+    expect(rows.find(row => row.id === 'tool-web')?.config).toMatchObject({
+      search: false,
+      fetch: false,
+    })
   })
 
   it('gates each shell stack by platform with a symmetric disabled expression', () => {

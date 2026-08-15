@@ -23,7 +23,7 @@
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
 // assertConsumed for the teardown fixture-consumption check).
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -374,6 +374,26 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   const webSearch = options.webSearch ?? (options.deepSeekSearch === undefined
     ? undefined
     : { provider: 'deepseek-official', ...options.deepSeekSearch } as const)
+  let presetRoot = SHIPPED_PRESET_DIR
+  try {
+    if (webSearch !== undefined) {
+      presetRoot = join(workspaceCwd, '.search-enabled-presets')
+      await cp(SHIPPED_PRESET_DIR, presetRoot, { recursive: true })
+      const standardPreset = join(presetRoot, 'standard', 'agent.cordis.yml')
+      const source = await readFile(standardPreset, 'utf8')
+      const disabled = '  config:\n    search: false\n    fetch: false\n    searchTimeoutMs: 60000'
+      const enabled = '  config:\n    search: true\n    fetch: false\n    searchTimeoutMs: 60000'
+      if (!source.includes(disabled)) throw new Error('standard preset Web tool config no longer matches the search opt-in fixture')
+      await writeFile(standardPreset, source.replace(disabled, enabled), 'utf8')
+    }
+  } catch (error) {
+    const failures: unknown[] = [error]
+    await rm(workspaceCwd, { recursive: true, force: true }).catch((cleanupError: unknown) => failures.push(cleanupError))
+    await rm(persistenceRoot, { recursive: true, force: true }).catch((cleanupError: unknown) => failures.push(cleanupError))
+    restoreSkillRootEnvironment()
+    if (failures.length > 1) throw new AggregateError(failures, 'web scaffold preset setup failed and cleanup was incomplete')
+    throw error
+  }
   const patches: PatchOptions[] = [
     ...basePatches,
     ...surfacePatches,
@@ -390,7 +410,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       id: 'agent-presets',
       config: {
         default: 'standard',
-        roots: [{ path: SHIPPED_PRESET_DIR, trust: 'system' }],
+        roots: [{ path: presetRoot, trust: 'system' }],
         includeUserRoot: false,
       },
     },
@@ -613,12 +633,16 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   }
 }
 
-/** Build complete replacement configs for the selected shipped search rows. */
+/** Build complete replacement configs that opt a search scenario into the dormant shipped rows. */
 function webSearchPatches(config: WebSearchTestConfig | undefined): PatchOptions[] {
   if (config === undefined) return []
   const selector: PatchOptions = { id: 'web', config: { searchProvider: config.provider } }
+  const tool: PatchOptions = {
+    id: 'tool-web',
+    config: { search: true, fetch: false, searchTimeoutMs: 60000 },
+  }
   if (config.provider === 'deepseek-official') {
-    return [selector, {
+    return [selector, tool, {
       id: 'web-search-deepseek',
       config: {
         apiKeyEnv: config.apiKeyEnv,
@@ -631,7 +655,7 @@ function webSearchPatches(config: WebSearchTestConfig | undefined): PatchOptions
     }]
   }
   if (config.provider === 'exa') {
-    return [selector, {
+    return [selector, tool, {
       id: 'web-search-exa',
       config: {
         apiKeyEnv: config.apiKeyEnv,
@@ -642,7 +666,7 @@ function webSearchPatches(config: WebSearchTestConfig | undefined): PatchOptions
       },
     }]
   }
-  return [selector, {
+  return [selector, tool, {
     id: 'web-search-perplexity',
     config: {
       apiKeyEnv: config.apiKeyEnv,

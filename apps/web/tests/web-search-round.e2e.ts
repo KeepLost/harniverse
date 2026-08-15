@@ -1,4 +1,4 @@
-// Web e2e scenario for the shipped default search composition. A real browser
+// Web e2e scenario for an explicit search-enabled overlay. A real browser
 // drives `web_search`; the model stream is replayed while the real DeepSeek
 // provider calls a deterministic local Anthropic-compatible endpoint through
 // the real credentials service.
@@ -145,7 +145,7 @@ async function startJsonSearchServer(
   return { server, baseURL: `http://127.0.0.1:${address.port}` }
 }
 
-describe('web e2e: shipped default web search', () => {
+describe('web e2e: opt-in DeepSeek web search', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
@@ -416,7 +416,7 @@ const ADDITIONAL_PROVIDER_SCENARIOS = [
 ]
 
 describe.skipIf(MODE === 'record').each(ADDITIONAL_PROVIDER_SCENARIOS)(
-  'web e2e: shipped $provider search composition',
+  'web e2e: opt-in $provider search composition',
   (scenario) => {
     let scaffold: WebScaffold
     let browser: Browser

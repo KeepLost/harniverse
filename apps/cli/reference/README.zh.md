@@ -74,7 +74,7 @@ dsh web --help
 
 ## 共享部署行为
 
-基础组合包挂载原生 DeepSeek 适配器、settings 与凭据提供方、稳定的 `web_search`、全部三个官方搜索提供方，以及已禁用的会话遥测。搜索提供方 id 与凭据引用分别为默认的 `deepseek-official`／`DEEPSEEK_API_KEY`、`exa`／`EXA_API_KEY` 和 `perplexity`／`PERPLEXITY_API_KEY`。三者均可在没有密钥时挂载；只有选中的提供方执行搜索时，缺少凭据才会导致失败。同步 `available()` 无法证明异步凭据存储中存在密钥，因此选择绝不会根据已有密钥自动切换。提供方凭据依次从继承环境、`$DSH_HOME/.credentials.yaml`、调用目录的 `.env` 和 `$DSH_HOME/.env` 解析；受管文档从不物化进 `process.env`，而两个 `.env` 文件都是普通启动环境层。DeepSeek 搜索还接受 `DEEPSEEK_SEARCH_BASE_URL`。`web_fetch` 保持禁用，且不挂载抓取提供方。
+基础组合包挂载原生 DeepSeek 适配器、settings 与凭据提供方、全部三个官方搜索提供方，以及已禁用的会话遥测。其 `tool-web` 行同时禁用 `web_search` 与 `web_fetch`，因此后续 patch 替换该行的完整配置以前，不会出现面向模型的 Web 工具。搜索提供方 id 与凭据引用分别为被选为默认值的 `deepseek-official`／`DEEPSEEK_API_KEY`、`exa`／`EXA_API_KEY` 和 `perplexity`／`PERPLEXITY_API_KEY`。三者均可在没有密钥时挂载；只有启用的搜索选择该提供方时，缺少凭据才会导致失败。同步 `available()` 无法证明异步凭据存储中存在密钥，因此选择绝不会根据已有密钥自动切换。提供方凭据依次从继承环境、`$DSH_HOME/.credentials.yaml`、调用目录的 `.env` 和 `$DSH_HOME/.env` 解析；受管文档从不物化进 `process.env`，而两个 `.env` 文件都是普通启动环境层。DeepSeek 搜索还接受 `DEEPSEEK_SEARCH_BASE_URL`；组合包不挂载抓取提供方。
 
 `DSH_WEB_SEARCH_PROVIDER` 会更改未经改动的随附默认值。后续显式的 `web.config.searchProvider` patch 会替换该行的完整配置，因此优先级更高。`WebRuntime` 会暴露一个只包含 `searchProvider` 的实时 `web` settings 分节；浏览器覆盖从下一次搜索开始生效，清除后恢复组装选择。`fetchProvider` 仍只能通过组装配置，每次搜索都会在操作入口对其选择生成快照。
 

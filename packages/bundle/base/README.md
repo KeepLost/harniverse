@@ -8,7 +8,7 @@ The patch gates both shell stacks by platform on its own rows: `bash-sandbox`/`t
 
 The row set and its rationale are documented inline in the patch file; the [generated composition graph](../../../apps/cli/composition.md) renders it.
 
-The shipped Web rows mount `web_search` plus all three official search providers: `deepseek-official` (the default), `exa`, and `perplexity`, using `DEEPSEEK_API_KEY`, `EXA_API_KEY`, and `PERPLEXITY_API_KEY` respectively. Every provider may mount without a key; missing credentials fail only when a search selects and executes that provider. `$DSH_WEB_SEARCH_PROVIDER` changes the untouched shipped default, while a later patch of the `web` row wins because it replaces the complete config. The browser's live `web.searchProvider` user setting overrides that composition for the next search, and clearing it restores the composed value. `web_fetch` remains disabled and the bundle mounts no fetch provider.
+The shipped Web rows mount the `ctx.web` service and all three official search providers: `deepseek-official` (the selected default), `exa`, and `perplexity`, using `DEEPSEEK_API_KEY`, `EXA_API_KEY`, and `PERPLEXITY_API_KEY` respectively. The `tool-web` row sets both `search` and `fetch` to `false`, so the shared base contributes neither `web_search` nor `web_fetch` to any model request. A deployment may replace the complete `tool-web` config to enable search after choosing its routing policy; `$DSH_WEB_SEARCH_PROVIDER`, the browser's live `web.searchProvider` setting, and keyless provider mounting then retain their provider-selection behavior. The bundle mounts no fetch provider.
 
 ## Model Experience
 
