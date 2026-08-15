@@ -1,0 +1,23 @@
+# Keyless replay mounts the provider with no endpoint. This keeps the complete
+# model request header comparable while package composition tests own HTTP wire
+# behavior.
+- id: base
+  name: '@deepseek-ai/cordis-plugin-include'
+  config:
+    path: ./cordis.snapshot.yml
+    patches:
+      - insert:
+          - id: notification-storage
+            name: '@deepseek-ai/dsh-storage'
+          - id: notification-storage-json
+            name: '@deepseek-ai/dsh-storage-json'
+            config:
+              root: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT + '/notification-storage'
+          - id: notification-storage-domain
+            name: '@deepseek-ai/dsh-storage-domain'
+            config:
+              backend: json
+          - id: notification-http
+            name: '@deepseek-ai/dsh-notification-http'
+            config:
+              endpoints: []

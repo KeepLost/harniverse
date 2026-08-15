@@ -34,6 +34,12 @@ export { deriveEventMessage, foldSurface, isAppendSurfaceEvent, isReplacementSur
 export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 export { KNOWN_SESSION_EVENT_TYPES } from './known-event-types.ts'
 
+/** Identity retained by the owner of one successfully completed explicit close. */
+export interface SessionClosedEvent {
+  readonly sessionId: SessionId
+  readonly parentSessionId?: SessionId
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     sessions: SessionStore
@@ -62,6 +68,14 @@ declare module '@deepseek-ai/cordis' {
      * @mode emit
      */
     'session/disposed'(this: Scoped<Session>, session: Session): void
+    /**
+     * Emitted after an explicit session-close owner successfully drains, flushes,
+     * and detaches the agent and session. This is distinct from generic disposal.
+     * Listener failures are logged and contained after the close commit point.
+     * @param event - retained session identity from immediately before detach.
+     * @mode emit
+     */
+    'session/closed'(event: SessionClosedEvent): void
     /**
      * Post-commit, fire-and-forget append feed. The listener snapshot resolves
      * before the log push, but callbacks run after it; observer failures are
@@ -381,7 +395,7 @@ function collectSessionCallbacks(ctx: Context, args: unknown[]): SessionCallback
 /** Invoke one resolved observe-only listener snapshot with per-listener containment. */
 function invokeContainedSessionObservers(
   ctx: Context,
-  name: 'session/event' | 'session/disposed',
+  name: 'session/event' | 'session/disposed' | 'session/closed',
   id: SessionId,
   args: unknown[],
   callbacks: SessionCallback[],
@@ -1003,6 +1017,21 @@ export class SessionStore extends Service {
       invokeContainedSessionObservers(this.ctx, 'session/disposed', entry.id, callbackArgs, callbacks)
     } catch (error: unknown) {
       this.ctx.logger.warn(`session "${entry.id}": session/disposed dispatch threw: ${String(error)}`)
+    }
+  }
+
+  /**
+   * Publish one successfully completed explicit close with per-listener
+   * containment. The close owner calls this only after detach succeeds.
+   * @param event - session identity retained before detach.
+   */
+  emitClosed(event: SessionClosedEvent): void {
+    const callbackArgs: unknown[] = [event]
+    try {
+      const callbacks = collectSessionCallbacks(this.ctx, [this.ctx, 'session/closed', event])
+      invokeContainedSessionObservers(this.ctx, 'session/closed', event.sessionId, callbackArgs, callbacks)
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`session "${event.sessionId}": session/closed dispatch threw: ${String(error)}`)
     }
   }
 

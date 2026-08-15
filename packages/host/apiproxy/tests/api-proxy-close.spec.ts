@@ -44,6 +44,11 @@ const defaults = {
 describe('session.close', () => {
   it('drains descendants, reaches quiescence, and reports detach without durable removal', async () => {
     const { ctx, drain } = await harness()
+    const lifecycle: string[] = []
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    ctx.on('session/disposed', () => { lifecycle.push('detached') })
+    ctx.on('session/closed', () => { throw new Error('observer failed') })
+    ctx.on('session/closed', () => { lifecycle.push('closed') })
     const sessionId = SessionId('close-me')
     const handle = await ctx.agents.create({ sessionId, agentOptions: { provider: 'mock', model: 'mock' } })
     const api = createApiProxy(ctx, defaults)
@@ -57,6 +62,8 @@ describe('session.close', () => {
     expect(drain).toHaveBeenCalledWith([handle.agent])
     expect(ctx.agents.get(sessionId)).toBeUndefined()
     expect(ctx.sessions.get(sessionId)).toBeUndefined()
+    expect(lifecycle).toEqual(['detached', 'closed'])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('session/closed listener threw'))
     await expect(nextFrame).resolves.toMatchObject({
       value: { payload: { type: 'host/session-status', sessionId, running: false } },
     })
@@ -67,6 +74,8 @@ describe('session.close', () => {
 
   it('joins concurrent closes and rejects missing or session-backed subagent identities', async () => {
     const { ctx, drain } = await harness()
+    const closed = vi.fn()
+    ctx.on('session/closed', closed)
     const api = createApiProxy(ctx, defaults)
     const ordinaryId = SessionId('close-twice')
     await ctx.agents.create({ sessionId: ordinaryId, agentOptions: { provider: 'mock', model: 'mock' } })
@@ -78,9 +87,12 @@ describe('session.close', () => {
     expect(first.result).toEqual({ ok: true, value: { closed: true } })
     expect(second.result).toEqual({ ok: true, value: { closed: true } })
     expect(drain).toHaveBeenCalledTimes(1)
+    expect(closed).toHaveBeenCalledOnce()
+    expect(closed).toHaveBeenCalledWith({ sessionId: ordinaryId })
 
     const missing = await api.sessions.close(request({ sessionId: SessionId('missing') }))
     expect(missing.result).toMatchObject({ ok: false, error: { code: 'session-not-found' } })
+    expect(closed).toHaveBeenCalledOnce()
 
     const childId = SessionId('session-backed-child')
     await ctx.agents.create({
@@ -91,6 +103,7 @@ describe('session.close', () => {
     const refused = await api.sessions.close(request({ sessionId: childId }))
     expect(refused.result).toMatchObject({ ok: false, error: { code: 'agent-busy' } })
     expect(ctx.agents.get(childId)).toBeDefined()
+    expect(closed).toHaveBeenCalledOnce()
     await ctx.fiber.dispose()
   })
 

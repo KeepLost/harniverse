@@ -702,6 +702,13 @@ enter(session: Session): () => void
 announce(session: Session): void
 
 /**
+ * Publish one successfully completed explicit close with per-listener
+ * containment. The close owner calls this only after detach succeeds.
+ * @param event - session identity retained before detach.
+ */
+emitClosed(event: SessionClosedEvent): void
+
+/**
  * Dispatch the awaited `session/flush` durability checkpoint for `session`,
  * with the carrier captured at {@link enter}. THE flush entry point: the
  * store owns the carrier, so callers (the checkpoint policy's per-request
@@ -748,11 +755,30 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](persistence.md) · [PrepareSessionOptions](persistence.md) · [SessionId](core.md)
 
-Source: [`packages/core/session/src/index.ts:792`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:806`](../../packages/core/session/src/index.ts)
 
 <a id="session-events"></a>
 
 ### `session/*` events
+
+<a id="sessionclosed--emit"></a>
+
+#### `session/closed` — emit
+
+Emitted after an explicit session-close owner successfully drains, flushes, and detaches the agent and session. This is distinct from generic disposal. Listener failures are logged and contained after the close commit point.
+
+```ts cordis-catalog
+/**
+ * Emitted after an explicit session-close owner successfully drains, flushes,
+ * and detaches the agent and session. This is distinct from generic disposal.
+ * Listener failures are logged and contained after the close commit point.
+ * @param event - retained session identity from immediately before detach.
+ * @mode emit
+ */
+'session/closed'(event: SessionClosedEvent): void
+```
+
+Source: [`packages/core/session/src/index.ts:78`](../../packages/core/session/src/index.ts)
 
 <a id="sessioncreated--emit"></a>
 
@@ -777,7 +803,7 @@ Creation announcement during session publication. A synchronous throw vetoes and
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/session/src/index.ts:54`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:60`](../../packages/core/session/src/index.ts)
 
 <a id="sessiondisposed--emit"></a>
 
@@ -800,7 +826,7 @@ Emitted once when an announced session leaves the store, including publication r
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/session/src/index.ts:64`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:70`](../../packages/core/session/src/index.ts)
 
 <a id="sessionevent--emit"></a>
 
@@ -825,7 +851,7 @@ Post-commit, fire-and-forget append feed. The listener snapshot resolves before 
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/session/src/index.ts:76`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:90`](../../packages/core/session/src/index.ts)
 
 <a id="sessionflush--parallel"></a>
 
@@ -847,5 +873,5 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/session/src/index.ts:85`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:99`](../../packages/core/session/src/index.ts)
 <!-- END GENERATED cordis-surface -->

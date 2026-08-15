@@ -37,6 +37,7 @@ const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import
 const WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../agent-instructions.cordis.yml', import.meta.url))
 const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
 const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
+const NOTIFICATION_HTTP_CONFIG = fileURLToPath(new URL('../notification-http.cordis.yml', import.meta.url))
 const SESSION_QUERY_CONFIG = fileURLToPath(new URL('../session-query.cordis.yml', import.meta.url))
 const IMAGE_CONFIG = fileURLToPath(new URL('../image.cordis.yml', import.meta.url))
 const IMAGE_TEXT_ROUTE_CONFIG = fileURLToPath(new URL('../image-text-route.cordis.yml', import.meta.url))
@@ -136,6 +137,12 @@ const SCENARIOS: Scenario[] = [
   // text-turn is the default header pin and owns the prompt and tool-schema
   // sidecars reused by alternate classes with identical component sequences.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
+  {
+    name: 'notification-http',
+    hasModelTurn: true,
+    recorded: false,
+    configPath: NOTIFICATION_HTTP_CONFIG,
+  },
   // Product-subagent scenarios are authored schema-isolation fixtures: they
   // reuse the stable text-turn transcript so only Loader-composed headers and
   // tool sidecars vary. Model output and usage are not evidence here, so record

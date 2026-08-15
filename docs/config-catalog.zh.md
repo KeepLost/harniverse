@@ -1297,6 +1297,92 @@ export interface Config {
 
 来源：[`packages/feedback/message-feedback/src/index.ts:49`](../packages/feedback/message-feedback/src/index.ts)
 
+<a id="deepseek-aidsh-notification-http"></a>
+
+## `@deepseek-ai/dsh-notification-http`
+
+需要：`sessions` · `storageDomain`
+
+```ts config-catalog
+/** HTTP notification provider configuration. */
+export interface Config {
+  /** Independently delivered destinations; an empty list performs no HTTP work. */
+  endpoints?: NotificationEndpointConfig[]
+  /** HTTP drain deadline before active requests are aborted; Storage settlement remains mandatory. */
+  shutdownTimeoutMs?: number
+  /** Durable terminal-record retention policy. */
+  outbox?: NotificationOutboxConfig
+}
+
+/** One independently ordered HTTP destination. */
+export interface NotificationEndpointConfig {
+  /** Unique diagnostic identifier. */
+  id: string
+  /** Complete HTTP or HTTPS callback URL. */
+  url: string
+  /** Non-empty exact subscription list. */
+  subscriptions: NotificationSubscriptionConfig[]
+  /** Per-attempt request timeout. */
+  timeoutMs?: number
+  /** Retry policy. */
+  retry?: NotificationRetryConfig
+  /** Queue admission policy. */
+  queue?: NotificationQueueConfig
+}
+
+/** Retention policy for terminal deduplication tombstones. */
+export interface NotificationOutboxConfig {
+  /** How long successful deliveries suppress duplicate endpoint/event pairs. */
+  deliveredRetentionMs?: number
+  /** How long dead deliveries remain available for diagnosis and deduplication. */
+  deadRetentionMs?: number
+}
+
+/** One exact event subscription with optional event-specific filters. */
+export interface NotificationSubscriptionConfig {
+  /** Stable external event name. */
+  event: HttpNotificationEventType
+  /** Exact turn reasons; valid only for `session.turn-settled`. */
+  reasons?: NotificationTurnReasonKind[] | undefined
+  /** Exact tool names; valid only for `tool.called` and `tool.settled`. */
+  toolNames?: string[] | undefined
+}
+
+/** Retry policy for one endpoint. */
+export interface NotificationRetryConfig {
+  /** Total attempts including the initial request. */
+  maxAttempts?: number
+  /** Delay before the first retry. */
+  initialDelayMs?: number
+  /** Upper bound for exponential retry delays. */
+  maxDelayMs?: number
+}
+
+/** Pending-delivery admission bound for one endpoint. */
+export interface NotificationQueueConfig {
+  /** Maximum accepted deliveries, including the active request. */
+  maxPending?: number
+}
+
+/** Version-one events implemented by this provider's filters and durable schema. */
+export type HttpNotificationEventType =
+  | 'session.turn-settled'
+  | 'session.closed'
+  | 'session.detached'
+  | 'agent.status-changed'
+  | 'approval.requested'
+  | 'approval.decided'
+  | 'tool.called'
+  | 'tool.settled'
+
+/** Supported reason filter values for `session.turn-settled`. */
+export type NotificationTurnReasonKind = NotificationTurnReason['kind']
+```
+
+依赖：[`NotificationTurnReason`](../packages/notification/notification/src/index.ts)
+
+来源：[`packages/notification/notification-http/src/index.ts:50`](../packages/notification/notification-http/src/index.ts)
+
 <a id="deepseek-aidsh-permission-presets"></a>
 
 ## `@deepseek-ai/dsh-permission-presets`
@@ -3110,6 +3196,7 @@ export interface Config {
 - `@deepseek-ai/dsh-fs` — 抽象 `FileSystem`（[`packages/fs/fs/src/index.ts`](../packages/fs/fs/src/index.ts)）
 - `@deepseek-ai/dsh-host-directory-picker` — 抽象 `DirectoryPicker`（[`packages/host/directory-picker/src/index.ts`](../packages/host/directory-picker/src/index.ts)）
 - `@deepseek-ai/dsh-jobs` — 抽象 `JobRegistry`（[`packages/jobs/jobs/src/index.ts`](../packages/jobs/jobs/src/index.ts)）
+- `@deepseek-ai/dsh-notification` — 抽象 `NotificationBackend`（[`packages/notification/notification/src/index.ts`](../packages/notification/notification/src/index.ts)）
 - `@deepseek-ai/dsh-sandbox` — 抽象 `SandboxProvider`（[`packages/sandbox/sandbox/src/index.ts`](../packages/sandbox/sandbox/src/index.ts)）
 - `@deepseek-ai/dsh-session-persistence` — 抽象 `SessionPersistence`（[`packages/session/session-persistence/src/index.ts`](../packages/session/session-persistence/src/index.ts)）
 - `@deepseek-ai/dsh-session-query` — 抽象 `SessionQueryEngine`（[`packages/session-query/session-query/src/index.ts`](../packages/session-query/session-query/src/index.ts)）

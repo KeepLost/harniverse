@@ -913,6 +913,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'notification',
+    summary: 'Loadable notification backend.',
+    description: 'Loadable notification backend. The final emit path validates and snapshots every event before provider-specific queueing.',
+    methods: [
+      {
+        signature: 'emit(event: NotificationEnvelope): void',
+        description: 'Validate and copy one event, then hand it to the provider without I/O.',
+        parameters: [{ name: 'event', description: 'projected event; caller retains no ownership after return.' }],
+      },
+      {
+        signature: 'abstract shutdown(): Promise<void>',
+        description: 'Stop admission and reach provider-defined delivery quiescence.',
+        parameters: [],
+        returns: 'resolution after accepted work has reached the provider\'s shutdown policy.',
+      },
+    ],
+  },
+  {
     key: 'permissionPresets',
     summary: 'Owns the deployment\'s permission presets and their write path.',
     description: 'Owns the deployment\'s permission presets and their write path. Requires a confining `ctx.shell` executor and `ctx.approval`; unmatched knob values are reported as CUSTOM_PRESET, not an error.',
@@ -1312,6 +1330,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Emit `session/created` exactly once for an entered session (with the carrier enter captured). Separate from enter so the caller can yield the detach disposer first (rollback safety — see enter).',
         parameters: [{ name: 'session', description: 'the entered session to announce to listeners.' }],
         throws: ['if the session is not live or its announcement already began, including a reentrant call from a creation listener.'],
+      },
+      {
+        signature: 'emitClosed(event: SessionClosedEvent): void',
+        description: 'Publish one successfully completed explicit close with per-listener containment. The close owner calls this only after detach succeeds.',
+        parameters: [{ name: 'event', description: 'session identity retained before detach.' }],
       },
       {
         signature: 'async flush(session: Session): Promise<boolean>',
@@ -2440,6 +2463,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'record', description: 'the candidate record, already the coordinator\'s own deep copy; listeners return a (possibly new) record and must not mutate it.' }],
   },
   {
+    name: 'session/closed',
+    mode: 'emit',
+    signature: '\'session/closed\'(event: SessionClosedEvent): void',
+    summary: 'Emitted after an explicit session-close owner successfully drains, flushes, and detaches the agent and session.',
+    description: 'Emitted after an explicit session-close owner successfully drains, flushes, and detaches the agent and session. This is distinct from generic disposal. Listener failures are logged and contained after the close commit point.',
+    parameters: [{ name: 'event', description: 'retained session identity from immediately before detach.' }],
+  },
+  {
     name: 'session/created',
     mode: 'emit',
     signature: '\'session/created\'(this: Scoped<Session>, session: Session): void',
@@ -2684,6 +2715,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type AgentStatus = \'idle\' | \'running\';',
   },
   {
+    name: 'AgentStatusChangedData',
+    declaration: 'export interface AgentStatusChangedData {\n    status: \'running\' | \'idle\';\n}',
+  },
+  {
+    name: 'ApprovalDecidedData',
+    declaration: 'export interface ApprovalDecidedData {\n    approvalId: ApprovalRequestId;\n    outcome: ApprovalOutcome;\n    turn: number;\n    seq: number;\n}',
+  },
+  {
     name: 'ApprovalOutcome',
     declaration: 'export type ApprovalOutcome = \'allowed-once\' | \'rejected\' | \'cancelled\' | \'unavailable\';',
   },
@@ -2694,6 +2733,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ApprovalRequest',
     declaration: 'export interface ApprovalRequest {\n    readonly agent: Agent;\n    readonly toolName: string;\n    readonly callId?: CallId;\n    readonly reason?: string;\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'ApprovalRequestedData',
+    declaration: 'export interface ApprovalRequestedData {\n    approvalId: ApprovalRequestId;\n    toolName: string;\n    callId?: CallId;\n    turn: number;\n    seq: number;\n}',
   },
   {
     name: 'ApprovalService',
@@ -3500,6 +3543,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ModelModalityMap {\n    text: \'text\';\n    image: \'image\';\n}',
   },
   {
+    name: 'NotificationEnvelope',
+    declaration: 'export type NotificationEnvelope<K extends NotificationEventType = NotificationEventType> = {\n    [P in K]: {\n        specVersion: 1;\n        eventId: NotificationEventId;\n        type: P;\n        occurredAt: string;\n        subject: NotificationSubject;\n        data: NotificationEventMap[P];\n    };\n}[K];',
+  },
+  {
+    name: 'NotificationErrorDetail',
+    declaration: 'export interface NotificationErrorDetail {\n    name: string;\n    code: string;\n}',
+  },
+  {
+    name: 'NotificationEventId',
+    declaration: 'export type NotificationEventId = Branded<\'NotificationEventId\'>;',
+  },
+  {
+    name: 'NotificationEventMap',
+    declaration: 'export interface NotificationEventMap {\n    \'session.turn-settled\': SessionTurnSettledData;\n    \'session.closed\': SessionClosedData;\n    \'session.detached\': SessionDetachedData;\n    \'agent.status-changed\': AgentStatusChangedData;\n    \'approval.requested\': ApprovalRequestedData;\n    \'approval.decided\': ApprovalDecidedData;\n    \'tool.called\': ToolCalledData;\n    \'tool.settled\': ToolSettledData;\n}',
+  },
+  {
+    name: 'NotificationEventType',
+    declaration: 'export type NotificationEventType = Extract<keyof NotificationEventMap, string>;',
+  },
+  {
+    name: 'NotificationSubject',
+    declaration: 'export interface NotificationSubject {\n    sessionId?: SessionId;\n    parentSessionId?: SessionId;\n}',
+  },
+  {
+    name: 'NotificationTurnReason',
+    declaration: 'export type NotificationTurnReason = {\n    kind: \'completed\';\n} | {\n    kind: \'aborted\';\n    cause: \'user\' | \'parent\' | \'hook\' | \'disposed\' | \'legacy\';\n} | {\n    kind: \'blocked\';\n} | {\n    kind: \'error\';\n    error: {\n        code: string;\n    };\n} | {\n    kind: \'max-tokens\';\n} | {\n    kind: \'interrupted\';\n} | {\n    kind: \'unknown\';\n};',
+  },
+  {
     name: 'ObjectJsonSchema',
     declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
   },
@@ -3760,6 +3831,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SessionAvailability = \'live\' | \'persisted\';',
   },
   {
+    name: 'SessionClosedData',
+    declaration: 'export type SessionClosedData = Record<string, never>;',
+  },
+  {
+    name: 'SessionClosedEvent',
+    declaration: 'export interface SessionClosedEvent {\n    readonly sessionId: SessionId;\n    readonly parentSessionId?: SessionId;\n}',
+  },
+  {
+    name: 'SessionDetachedData',
+    declaration: 'export type SessionDetachedData = Record<string, never>;',
+  },
+  {
     name: 'SessionEvent',
     declaration: 'export type SessionEvent<T extends SessionEventType = SessionEventType> = {\n    [K in SessionEventType]: {\n        type: K;\n        seq: number;\n        time: number;\n        data: SessionEventMap[K];\n        ignorable?: true;\n    } & (K extends SurfaceEventType ? {\n        sourceEventSeqs?: number[];\n        surfaceOp?: SurfaceOp;\n    } : object);\n}[T];',
   },
@@ -3986,6 +4069,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionTitleUserMessage',
     declaration: 'export interface SessionTitleUserMessage {\n    readonly seq: number;\n    readonly text: string;\n}',
+  },
+  {
+    name: 'SessionTurnSettledData',
+    declaration: 'export interface SessionTurnSettledData {\n    turn: number;\n    seq: number;\n    reason: NotificationTurnReason;\n}',
   },
   {
     name: 'SettingsApplies',
@@ -4376,6 +4463,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TokenUsage {\n    inputTokens: number;\n    outputTokens: number;\n    cacheReadTokens?: number;\n    cacheWriteTokens?: number;\n    reasoningTokens?: number;\n}',
   },
   {
+    name: 'ToolCalledData',
+    declaration: 'export interface ToolCalledData {\n    callId: CallId;\n    toolName: string;\n    turn: number;\n    step: number;\n    seq: number;\n}',
+  },
+  {
     name: 'ToolCallKind',
     declaration: 'export type ToolCallKind = \'read\' | \'edit\' | \'delete\' | \'move\' | \'search\' | \'execute\' | \'fetch\' | \'other\';',
   },
@@ -4482,6 +4573,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ToolSchema',
     declaration: 'export interface ToolSchema {\n    name: string;\n    description: string;\n    parameters: Record<string, unknown>;\n}',
+  },
+  {
+    name: 'ToolSettledData',
+    declaration: 'export interface ToolSettledData {\n    callId: CallId;\n    toolName: string;\n    turn: number;\n    step: number;\n    seq: number;\n    ok: boolean;\n    error?: NotificationErrorDetail;\n}',
   },
   {
     name: 'TurnEndCancelCause',

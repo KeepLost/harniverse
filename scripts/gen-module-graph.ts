@@ -37,6 +37,7 @@ const GROUP_ORDER = [
   'session-persistence',
   'session-query',
   'session-title',
+  'notification',
   'support',
   'acp',
   'ui',

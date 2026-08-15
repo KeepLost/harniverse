@@ -2891,6 +2891,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (hasSubagentOwner(agent.session, agent)) {
           return err(request, subagentOwnershipError(sessionId))
         }
+        const parentSessionId = agent.session.header.parentSession
         let closing = sessionClosures.get(sessionId)
         if (closing === undefined) {
           closing = (async () => {
@@ -2902,6 +2903,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             if (!await ctx.agents.close(sessionId)) {
               throw new Error(`agent "${sessionId}" detached before close acquired its lifecycle`)
             }
+            ctx.sessions.emitClosed({
+              sessionId,
+              ...(parentSessionId === undefined ? {} : { parentSessionId }),
+            })
           })()
           sessionClosures.set(sessionId, closing)
           void closing.finally(() => {

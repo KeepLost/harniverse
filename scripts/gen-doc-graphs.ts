@@ -88,6 +88,7 @@ const GROUP_ORDER = [
   'session-query',
   'session-title',
   'telemetry',
+  'notification',
   'storage',
   'workspace',
   'support',
@@ -198,6 +199,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The seam captures, redacts, and hands session records to one backend; nothing else consumes the service — its output leaves the process.',
   },
   {
+    key: 'notification',
+    pkg: 'notification',
+    title: 'Outbound notification seam',
+    mode: 'seam',
+    implementations: ['notification-http'],
+    consumers: [],
+    note: 'The seam projects selected lifecycle metadata into a stable external protocol; the opt-in HTTP provider persists endpoint deliveries and sends them outside the process.',
+  },
+  {
     key: 'storage',
     pkg: 'storage',
     title: 'Non-session storage hub',
@@ -211,7 +221,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'storage-domain',
     title: 'Domain data facility',
     mode: 'core',
-    consumers: ['workspace', 'message-feedback'],
+    consumers: ['workspace', 'message-feedback', 'notification-http'],
     note: 'Waits for every configured backend, then publishes the domain form as one lifecycle-bound service for typed durable state.',
   },
   {

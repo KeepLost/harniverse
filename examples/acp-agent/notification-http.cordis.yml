@@ -1,0 +1,29 @@
+# Opt-in outbound notifications. The deployment owns the endpoint; event data
+# never supplies or overrides this URL.
+- id: base
+  name: '@deepseek-ai/cordis-plugin-include'
+  config:
+    path: ./cordis.yml
+    patches:
+      - insert:
+          - id: notification-storage
+            name: '@deepseek-ai/dsh-storage'
+          - id: notification-storage-json
+            name: '@deepseek-ai/dsh-storage-json'
+            config:
+              root: !!js process.env.DSH_NOTIFICATION_STORAGE_ROOT ?? './.notification-storage'
+          - id: notification-storage-domain
+            name: '@deepseek-ai/dsh-storage-domain'
+            config:
+              backend: json
+          - id: notification-http
+            name: '@deepseek-ai/dsh-notification-http'
+            config:
+              endpoints:
+                - id: orchestrator
+                  url: !!js process.env.DSH_NOTIFICATION_HTTP_URL
+                  subscriptions:
+                    - event: session.turn-settled
+                      reasons: [completed, error, aborted]
+                    - event: approval.requested
+                    - event: tool.settled
