@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-浏览器真实载体为两类下行流各开一条独立 WebSocket：`/api/events.mux` 只发送 `MuxFrame`，`/api/events.host` 只发送 `HostFrame`。每条文本消息是一份完整的 `ServerRequest` JSON；客户端继续先校验信封，再按路径校验具体 frame union，并把窄形 `RpcRequest<Frame>` 交给既有 `ConnectionController`。两条流保持独立生命周期和无跨流顺序保证，任一条结束仍使整个 connection generation 失败并按既有退避策略重建。
+浏览器真实载体为两类下行流各开一条独立 WebSocket：`/api/events.mux` 只发送 `MuxFrame`，`/api/events.host` 只发送 `HostFrame`。每条文本消息是一份完整的 `ServerRequest` JSON；客户端继续先校验信封，再按路径校验具体 frame union，并把窄形 `RpcRequest<Frame>` 交给既有 `ConnectionController`。mux URL 上可选的 `since` JSON 查询携带每个常驻 Session 最后一个连续持久 seq；系统在 upgrade 前解析并校验它，而 socket 仍保持只下行。两条流保持独立生命周期和无跨流顺序保证，任一条结束仍使整个 connection generation 失败并按既有退避策略重建。
 
 WebSocket 只承担 host→browser 下行。所有 client→host unary 调用和对 server request 的 `respond` 继续使用既有 `POST /api/*`；不在 WebSocket 上接收任何客户端业务消息。`WebApiClient` 因而同时持有 HTTP `fetch` 上行与 WebSocket 下行，而 fixture（测试前置数据）和 `InProcessApiClient(toFetchHandler(api))` 继续实现同一 `IApiClient` 双流抽象。进程内 fetch 载体保留 SSE 编解码来检验通道无关的协议同构，但网络上对 `/api/events.*` 的 GET 请求只返回 upgrade required，不作为浏览器兼容回退。
 

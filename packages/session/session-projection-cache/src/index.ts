@@ -75,6 +75,8 @@ export class SessionProjectionCache extends Service {
 
   private table?: KvTable<SessionId, CheckpointRecord>
   private readonly dirty = new Map<Session, DirtyState>()
+  /** Log identities whose cache rows were explicitly deleted. */
+  private readonly deletedIdentities = new Map<SessionId, CheckpointIdentity>()
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'sessionProjectionCache')
@@ -99,6 +101,8 @@ export class SessionProjectionCache extends Service {
    * @returns the identity-matching record, or `undefined` (absent or unrelated).
    */
   private recordFor(id: SessionId, expected: CheckpointIdentity): CheckpointRecord | undefined {
+    const deleted = this.deletedIdentities.get(id)
+    if (deleted !== undefined && identityMatches(deleted, expected)) return undefined
     const record = this.requireTable().get(id)
     if (record === undefined) return undefined
     return identityMatches(record.identity, expected) ? record : undefined
@@ -149,6 +153,17 @@ export class SessionProjectionCache extends Service {
     // any residual overreach is caught by the cold read's anchored floor.
     if (this.ctx.sessions.get(session.id) === session) await this.ctx.sessions.flush(session)
     await this.put(session.id, identityOf(session.header), rows)
+  }
+
+  /**
+   * Remove one lifecycle's derived checkpoint and fence its delayed write-backs.
+   * A later lifecycle under the same id has a different identity and may write.
+   * @param meta - immutable identity of the deleted session log.
+   */
+  async delete(meta: SessionHeader): Promise<void> {
+    const identity = identityOf(meta)
+    this.deletedIdentities.set(meta.id, identity)
+    await this.requireTable().delete(meta.id)
   }
 
   /**
@@ -264,6 +279,13 @@ export class SessionProjectionCache extends Service {
 
   /** Replace one session's stored record with its log identity and a detached snapshot of `rows`. */
   private async put(id: SessionId, identity: CheckpointIdentity, rows: ProjectionCheckpoint): Promise<void> {
+    const deleted = this.deletedIdentities.get(id)
+    if (deleted !== undefined) {
+      if (identityMatches(deleted, identity)) {
+        throw new Error(`cannot write projection checkpoint for deleted session lifecycle "${id}"`)
+      }
+      this.deletedIdentities.delete(id)
+    }
     const detached = snapshotJsonValue(rows)
     if (detached === undefined) {
       throw new TypeError('projection checkpoint is not losslessly JSON-serializable (a unit state violates the plain-JSON contract)')

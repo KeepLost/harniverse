@@ -504,9 +504,24 @@ export class AgentLoop extends Service implements AgentFactory {
         // to drop the agent, so nothing should still hold it.
         if (machine === undefined) await machineReady.promise
         if (machine !== undefined) {
+          machine.beginDispose()
           machine.cancel({ kind: 'disposed' })
           await machine.whenIdle()
-          await machine.scope.dispose()
+          const failures: unknown[] = []
+          try {
+            await machine.scope.dispose()
+          } catch (error: unknown) {
+            failures.push(error)
+          }
+          if (loopCtx.sessions.get(id) === session) {
+            try {
+              await loopCtx.sessions.flush(session)
+            } catch (error: unknown) {
+              failures.push(error)
+            }
+          }
+          if (failures.length === 1) throw failures[0]
+          if (failures.length > 1) throw new AggregateError(failures, `agent "${id}" teardown failed`)
         }
       } finally {
         try {
@@ -556,7 +571,7 @@ export class AgentLoop extends Service implements AgentFactory {
         publish: (source) => {
           assertLive()
           detachSession = agent.ctx.sessions.enter(session)
-          detachAgent = loopCtx.agents.enter(agent, ownerCtx.agent)
+          detachAgent = loopCtx.agents.enter(agent, ownerCtx.agent, dispose)
           agent.ctx.sessions.announce(session)
           assertLive()
           loopCtx.agents.announce(agent)

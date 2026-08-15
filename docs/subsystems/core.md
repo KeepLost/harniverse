@@ -29,9 +29,10 @@ Source: [`packages/core/agent/src/index.ts`](../../packages/core/agent/src/index
 /**
  * An owned agent plus its disposer, returned by {@link AgentRegistry.create} /
  * {@link AgentRegistry.resume}. The disposer is a CAPABILITY: among consumers,
- * only the holder can tear this agent down. The registered factory provider is
- * also a structural owner because the scoped agent depends on that provider's
- * service API; provider unload stops and drains every live handle it made.
+ * only the holder and the owning registry can tear this agent down. The
+ * registered factory provider is also a structural owner because the scoped
+ * agent depends on that provider's service API; provider unload stops and
+ * drains every live handle it made.
  * `dispose()` stops the loop, awaits its exit, unregisters the agent, removes
  * its session from the store, and finally unwinds its scoped world.
  *
@@ -95,7 +96,8 @@ interface Agent {
    * inbox until the task settles, while public status stays `idle`.
    * `whenIdle()` follows both the task and any waking work released behind it.
    * @param task - operation whose fulfillment or rejection is preserved, with a signal aborted by {@link cancel}.
-   * @throws synchronously when turn-driving or another maintenance task already owns the agent.
+   * @throws synchronously when the Agent is closing, or turn-driving or
+   *   another maintenance task already owns it.
    * @returns the task promise.
    */
   runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>
@@ -110,6 +112,7 @@ interface Agent {
    * @param message - identified content and the source that supplied it.
    * @param target - the preferred next-turn or next-step inbox boundary.
    * @param wakeup - whether delivery may wake the driver.
+   * @throws when explicit lifecycle closure has stopped admission.
    */
   send(message: UserMessage, target: InboxTarget, wakeup: boolean): void
 
@@ -643,6 +646,16 @@ async create(options: CreateAgentOptions): Promise<AgentHandle>
 async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 
 /**
+ * Close one live factory-owned Agent through its exact lifecycle disposer.
+ * Concurrent callers join the same quiescence boundary. Externally
+ * registered Agents have no teardown capability and reject.
+ * @param id - live Agent identity to close.
+ * @returns `false` when no live Agent has that identity, otherwise `true`
+ *   after its Agent and Session have detached.
+ */
+async close(id: SessionId): Promise<boolean>
+
+/**
  * Register a live agent. Throws if an agent with the same id is already
  * registered. Emits `agent/created` on registration and `agent/disposed`
  * when the calling fiber is disposed — both with the agent's scope carrier
@@ -672,12 +685,14 @@ register(agent: Agent): () => void
  * @param owner - live agent whose scoped context created this agent, or
  *   undefined for a top-level runtime root. This is runtime ownership, not
  *   the resumed session's durable parent lineage.
+ * @param close - factory-owned quiescent teardown capability, when this
+ *   registry must support explicit lifecycle closure.
  * @returns an idempotent closure that removes this exact entry and emits
  *   `agent/disposed` with listener failures contained. When called from a
  *   synchronous `agent/created` listener, removal and disposal wait until
  *   that creation dispatch unwinds.
  */
-enter(agent: Agent, owner: Agent | undefined): () => void
+enter(agent: Agent, owner: Agent | undefined, close?: () => Promise<void>): () => void
 
 /**
  * Announce an agent previously inserted with {@link enter}.
@@ -720,7 +735,7 @@ list(): Agent[]
 roots(): Agent[]
 ```
 
-Source: [`packages/core/agent/src/index.ts:256`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:259`](../../packages/core/agent/src/index.ts)
 
 <a id="agent-events"></a>
 
@@ -748,7 +763,7 @@ A fully configured agent and live session were published. Setup is composition-o
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:159`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:161`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentdisposed--emit"></a>
 
@@ -770,7 +785,7 @@ An agent left the registry; AgentLoop emits this after driver quiescence and sco
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:168`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:170`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agenterror--emit"></a>
 
@@ -794,7 +809,7 @@ A step or turn errored. The machine reports a failure here even when the error h
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:290`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:292`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentinboxclaimed--emit"></a>
 
@@ -818,7 +833,7 @@ One message left the inbox inside its open turn. If the proposed step is rejecte
 
 Types: [Scoped](scope.md) · [UserMessage](session.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:197`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:199`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentinboxdiscarded--emit"></a>
 
@@ -839,7 +854,7 @@ One message was discarded from the live inbox.
 
 Types: [Scoped](scope.md) · [UserMessage](session.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:205`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:207`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentinboxinserted--emit"></a>
 
@@ -860,7 +875,7 @@ One message entered the live inbox.
 
 Types: [Scoped](scope.md) · [UserMessage](session.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:186`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:188`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentpre-step--waterfall"></a>
 
@@ -885,7 +900,7 @@ Reject a proposed step or replace the messages that enter it. Calling `next()` p
 
 Types: [Scoped](scope.md) · [UserMessage](session.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:231`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:233`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentrequest--waterfall"></a>
 
@@ -911,7 +926,7 @@ Replace the frozen call configuration. `await next()` yields the config the mach
 
 Types: [LlmCallConfig](llm-streaming.md) · [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:244`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:246`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentrequest-error--waterfall"></a>
 
@@ -940,7 +955,7 @@ Handle one failed model-request attempt before the loop retries or closes its st
 
 Types: [LlmFailure](llm-streaming.md) · [ResolvedRetryPolicy](llm-streaming.md) · [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:260`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:262`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentsession-start--emit"></a>
 
@@ -964,7 +979,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:217`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:219`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentstatus--emit"></a>
 
@@ -987,7 +1002,7 @@ Agent status changed (`idle` ⇄ `running`). A waking delivery enters `running` 
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:178`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:180`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentturn-stopping--serial"></a>
 
@@ -1018,7 +1033,7 @@ The turn is about to close: the model owes no response (no live tool calls, no f
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:278`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:280`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agent-loop-events"></a>
 

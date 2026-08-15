@@ -428,5 +428,26 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         await dispose()
       }
     })
+
+    it('deletes one materialized session idempotently and permits a new lifecycle under the id', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const original = meta('deleted')
+        await persistence.create(original)
+        await persistence.append(original.id, oneTurnLog())
+
+        await expect(persistence.delete(original.id)).resolves.toBe(true)
+        await expect(persistence.delete(original.id)).resolves.toBe(false)
+        await expect(persistence.load(original.id)).rejects.toThrow('not found')
+        expect((await persistence.list()).some(header => header.id === original.id)).toBe(false)
+
+        const replacement = { ...original, createdAt: original.createdAt + 1 }
+        await persistence.create(replacement)
+        await persistence.append(replacement.id, oneTurnLog())
+        expect((await persistence.load(replacement.id)).meta.createdAt).toBe(replacement.createdAt)
+      } finally {
+        await dispose()
+      }
+    })
   })
 }

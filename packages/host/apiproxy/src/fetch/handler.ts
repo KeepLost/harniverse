@@ -18,6 +18,8 @@ import { clientRequestSchema, clientResponseSchema } from '../api/rpc.schema.ts'
 import {
   sessionCancelRequestSchema,
   sessionAttachmentRequestSchema,
+  sessionCloseRequestSchema,
+  sessionDeleteRequestSchema,
   sessionCreateRequestSchema,
   sessionForkRequestSchema,
   sessionHistoryRequestSchema,
@@ -28,7 +30,9 @@ import {
   sessionSearchRequestSchema,
   sessionSelectModelRequestSchema,
   sessionUpdateQueueRequestSchema,
+  sessionWorkStatusRequestSchema,
 } from '../api/sessions.schema.ts'
+import { sessionStatusRequestSchema } from '../api/session-status.schema.ts'
 import {
   hostCreateDirectoryRequestSchema, hostDescribeRequestSchema,
   hostListDirectoryRequestSchema, hostOpenPathRequestSchema,
@@ -70,6 +74,7 @@ import {
   subagentListRequestSchema,
   subagentPromptRequestSchema,
 } from '../api/subagents.schema.ts'
+import { eventsMuxRequestSchema } from '../api/events.schema.ts'
 
 /**
  * Unary dispatch table, keyed by (and compiler-locked to) RpcMethodMap: a map row without a
@@ -92,6 +97,8 @@ const UNARY_ROUTES: UnaryRoutes = {
   'session.search': { schema: sessionSearchRequestSchema, invoke: (api, r, signal) => api.sessions.search(r, signal) },
   'session.create': { schema: sessionCreateRequestSchema, invoke: (api, r) => api.sessions.create(r) },
   'session.history': { schema: sessionHistoryRequestSchema, invoke: (api, r) => api.sessions.history(r) },
+  'session.status': { schema: sessionStatusRequestSchema, invoke: (api, r) => api.sessions.status(r) },
+  'session.workStatus': { schema: sessionWorkStatusRequestSchema, invoke: (api, r) => api.sessions.workStatus(r) },
   'session.models': { schema: sessionModelsRequestSchema, invoke: (api, r) => api.sessions.models(r) },
   'session.selectModel': { schema: sessionSelectModelRequestSchema, invoke: (api, r) => api.sessions.selectModel(r) },
   'session.rename': { schema: sessionRenameRequestSchema, invoke: (api, r) => api.sessions.rename(r) },
@@ -100,6 +107,8 @@ const UNARY_ROUTES: UnaryRoutes = {
   'session.attachment': { schema: sessionAttachmentRequestSchema, invoke: (api, r) => api.sessions.attachment(r) },
   'session.updateQueue': { schema: sessionUpdateQueueRequestSchema, invoke: (api, r) => api.sessions.updateQueue(r) },
   'session.cancel': { schema: sessionCancelRequestSchema, invoke: (api, r) => api.sessions.cancel(r) },
+  'session.close': { schema: sessionCloseRequestSchema, invoke: (api, r) => api.sessions.close(r) },
+  'session.delete': { schema: sessionDeleteRequestSchema, invoke: (api, r) => api.sessions.delete(r) },
   'subagent.list': { schema: subagentListRequestSchema, invoke: (api, r, signal) => api.subagents.list(r, signal) },
   'subagent.history': { schema: subagentHistoryRequestSchema, invoke: (api, r, signal) => api.subagents.history(r, signal) },
   'subagent.prompt': { schema: subagentPromptRequestSchema, invoke: (api, r, signal) => api.subagents.prompt(r, signal) },
@@ -252,7 +261,20 @@ export function toFetchHandler(api: ApiProxy): { fetch: typeof fetch } {
       // No-envelope read channels (SSE GET streams + host-only download):
       // physical routes that answer directly, without a wire envelope.
       if (path === '/api/events.mux' && req.method === 'GET') {
-        return sseResponse(api.events.mux({ rpcId: RpcId(randomUUID()), payload: {} }, req.signal))
+        const values = url.searchParams.getAll('since')
+        let decoded: unknown = undefined
+        try {
+          if (values.length > 1) throw new Error('duplicate since')
+          if (values[0] !== undefined) decoded = JSON.parse(values[0])
+        } catch {
+          return new Response('invalid since query parameter', { status: 400 })
+        }
+        const parsed = eventsMuxRequestSchema.safeParse(decoded === undefined ? {} : { since: decoded })
+        if (!parsed.success) return new Response('invalid since query parameter', { status: 400 })
+        // JSON has no undefined-valued record entries; collapse Wire<> to the
+        // exact payload after the schema has validated every key and value.
+        const payload = parsed.data as Parameters<ApiProxy['events']['mux']>[0]['payload']
+        return sseResponse(api.events.mux({ rpcId: RpcId(randomUUID()), payload }, req.signal))
       }
       if (path === '/api/events.host' && req.method === 'GET') {
         return sseResponse(api.events.host({ rpcId: RpcId(randomUUID()), payload: {} }, req.signal))

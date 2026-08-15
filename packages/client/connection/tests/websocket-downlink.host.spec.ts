@@ -76,6 +76,40 @@ async function acceptedSocket(downlinks: WebSocketDownlinks): Promise<WebSocket>
 }
 
 describe('WebSocket downlinks', () => {
+  it('passes validated mux resume cursors into the stream request', async () => {
+    let payload: unknown
+    const proxy = api(idle, idle)
+    proxy.events.mux = (request, signal) => {
+      payload = request.payload
+      return idle(signal)
+    }
+    const downlinks = new WebSocketDownlinks(proxy)
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const since = encodeURIComponent(JSON.stringify({ 'session-one': 9 }))
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}?since=${since}`)
+    await once(socket, 'open')
+    expect(payload).toEqual({ since: { 'session-one': 9 } })
+    socket.close()
+    await once(socket, 'close')
+  })
+
+  it('rejects malformed mux resume cursors before WebSocket negotiation', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}?since=%7B%22session-one%22%3A-2%7D`)
+    const status = await new Promise<number>((resolve, reject) => {
+      socket.once('unexpected-response', (_request, response) => {
+        response.resume()
+        resolve(response.statusCode ?? 0)
+      })
+      socket.once('open', () => { reject(new Error('malformed cursor was upgraded')) })
+      socket.once('error', () => undefined)
+    })
+    expect(status).toBe(400)
+  })
+
   it('carries mux and host over independent downstream sockets and cancels each source on close', async () => {
     let muxAborted = false
     let hostAborted = false

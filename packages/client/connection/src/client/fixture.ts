@@ -1546,7 +1546,9 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 75]])
   let nextSession = 1
   let nextRpc = 1
-  let attachedSessions = options.empty ? 0 : 1
+  const attachedSessionIds = new Set<SessionId>(options.empty ? [] : [sid('fx-alpha')])
+  let attachedSessions = attachedSessionIds.size
+  const fixtureBootId = 'fixture-boot' as never
   // Workspace entities mirroring the host registry: the fixture sessions all
   // live under one workspace, whose account carries them in attach order.
   const wid = (raw: string): WorkspaceId => raw as WorkspaceId
@@ -2267,6 +2269,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           sessionId: requestedId ?? sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, blank: true, cwd,
         }
         sessions.push(created)
+        attachedSessionIds.add(created.sessionId)
         modelSelections.set(created.sessionId, { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
         attachedSessions += 1
         const emitSession = (): void => {
@@ -2375,6 +2378,54 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         if (doomed) throw new Error('fixture: simulated history transport failure')
         return ok(request, { ...page, ...projections === undefined ? {} : { projections } })
       },
+      status: (request) => {
+        const summary = summaryOf(request.payload.sessionId)
+        if (summary === undefined) {
+          return err(request, {
+            code: 'session-not-found',
+            message: `no session ${request.payload.sessionId}`,
+            details: { sessionId: request.payload.sessionId },
+          })
+        }
+        const log = logs.get(summary.sessionId) ?? []
+        return ok(request, {
+          sessionId: summary.sessionId,
+          bootId: fixtureBootId,
+          attached: attachedSessionIds.has(summary.sessionId),
+          running: summary.running,
+          closing: false,
+          lastSeq: log.at(-1)?.seq ?? -1,
+          queue: [],
+          jobs: [],
+          interactions: [],
+        })
+      },
+      workStatus: (request) => {
+        const log = logs.get(request.payload.sessionId) ?? []
+        const admitted = log.find(event => event.type === 'user/message'
+          && event.data.id === request.payload.messageId)
+        if (admitted === undefined) {
+          return Promise.resolve(ok(request, {
+            messageId: request.payload.messageId,
+            status: { state: 'unknown' as const },
+          }))
+        }
+        const turnStart = log.findLast(event => event.seq < admitted.seq && event.type === 'turn/start')
+        const turn = turnStart?.type === 'turn/start' ? turnStart.data.turn : undefined
+        if (turn === undefined) {
+          return Promise.resolve(ok(request, {
+            messageId: request.payload.messageId,
+            status: { state: 'unknown' as const },
+          }))
+        }
+        const end = log.find(event => event.type === 'turn/end' && event.data.turn === turn)
+        return Promise.resolve(ok(request, {
+          messageId: request.payload.messageId,
+          status: end?.type === 'turn/end'
+            ? { state: 'settled' as const, turn, reason: end.data.reason }
+            : { state: 'claimed' as const, turn },
+        }))
+      },
       models: request => ok(request, {
         current: modelSelections.get(request.payload.sessionId)
           ?? { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
@@ -2429,10 +2480,11 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           attachments.set(String(attachment.attachmentId), { attachment, data: block.data })
           return { type: 'image', attachment }
         })
+        const message = userMessage(durable)
         if (mode === 'steer' && replays.has(id)) {
           // Steering: the durable user/message lands inside the current turn; the replay continues.
-          append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(durable) })
-          return ok(request, { accepted: true as const })
+          append(id, { type: 'user/message', surfaceOp: 'append', data: message })
+          return ok(request, { accepted: true as const, messageId: message.id })
         }
         const turn = nextTurn.get(id) ?? 0
         nextTurn.set(id, turn + 1)
@@ -2444,7 +2496,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         if (plan.wanted !== null && plan.wanted !== plan.active) {
           append(id, { type: 'plan/mode', data: { active: plan.wanted } })
         }
-        append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(durable) })
+        append(id, { type: 'user/message', surfaceOp: 'append', data: message })
         // Capacity parallel of the host token-meter's request/context record:
         // log-only, appended inside the open turn, and deduplicated against the
         // route already recorded (the fixture never varies contextWindow).
@@ -2468,7 +2520,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
               })()
               : `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`,
         )
-        return ok(request, { accepted: true as const })
+        return ok(request, { accepted: true as const, messageId: message.id })
       },
       attachment: (request) => {
         const stored = attachments.get(String(request.payload.attachmentId))
@@ -2506,6 +2558,65 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         }
         return ok(request, { accepted: true as const })
       },
+      close: (request) => {
+        const summary = summaryOf(request.payload.sessionId)
+        if (summary === undefined) {
+          return err(request, {
+            code: 'session-not-found',
+            message: `no session ${request.payload.sessionId}`,
+            details: { sessionId: request.payload.sessionId },
+          })
+        }
+        const replay = replays.get(request.payload.sessionId)
+        if (replay !== undefined) {
+          clearTimeout(replay.timer)
+          replay.finish(true)
+        } else {
+          setRunning(request.payload.sessionId, false)
+        }
+        attachedSessionIds.delete(request.payload.sessionId)
+        attachedSessions = Math.max(0, attachedSessions - 1)
+        return ok(request, { closed: true as const })
+      },
+      delete: (request) => {
+        const id = request.payload.sessionId
+        const at = sessions.findIndex(session => session.sessionId === id)
+        if (at === -1) {
+          return err(request, {
+            code: 'session-not-found',
+            message: `no session ${id}`,
+            details: { sessionId: id },
+          })
+        }
+        if (attachedSessionIds.has(id)) {
+          return err(request, {
+            code: 'agent-busy',
+            message: `session ${id} is live`,
+            details: { reason: 'SESSION_MUST_BE_CLOSED' },
+          })
+        }
+        const childSessionIds = sessions
+          .filter(session => session.parentSessionId === id)
+          .map(session => session.sessionId)
+        if (childSessionIds.length > 0) {
+          return err(request, {
+            code: 'session-has-children',
+            message: `session ${id} has descendants`,
+            details: { sessionId: id, childSessionIds },
+          })
+        }
+        sessions.splice(at, 1)
+        attachedSessionIds.delete(id)
+        logs.delete(id)
+        modelSelections.delete(id)
+        const archivedAt = archivedSessionIds.indexOf(id)
+        if (archivedAt !== -1) archivedSessionIds.splice(archivedAt, 1)
+        for (const workspace of workspaces) {
+          workspace.sessionIds = workspace.sessionIds.filter(sessionId => sessionId !== id)
+        }
+        emitHost({ type: 'host/session-removed', sessionId: id })
+        return ok(request, { deleted: true as const, attachmentsRetained: true as const })
+      },
     },
     subagents: {
       list: request => ok(request, { entries: [], parentAvailable: true }),
@@ -2523,6 +2634,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     },
     host: {
       describe: request => ok(request, {
+        bootId: fixtureBootId,
         version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions, canOpenPath: true,
       }),
       // Deterministic native pick: the keyless lanes drive the full
@@ -3081,6 +3193,8 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.search': return this.api.sessions.search(request, signal)
       case 'session.create': return this.api.sessions.create(request)
       case 'session.history': return this.api.sessions.history(request)
+      case 'session.status': return this.api.sessions.status(request)
+      case 'session.workStatus': return this.api.sessions.workStatus(request)
       case 'session.models': return this.api.sessions.models(request)
       case 'session.selectModel': return this.api.sessions.selectModel(request)
       case 'session.rename': return this.api.sessions.rename(request)
@@ -3089,6 +3203,8 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.attachment': return this.api.sessions.attachment(request)
       case 'session.updateQueue': return this.api.sessions.updateQueue(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
+      case 'session.close': return this.api.sessions.close(request)
+      case 'session.delete': return this.api.sessions.delete(request)
       case 'subagent.list': return this.api.subagents.list(request)
       case 'subagent.history': return this.api.subagents.history(request)
       case 'subagent.prompt': return this.api.subagents.prompt(request, signal)

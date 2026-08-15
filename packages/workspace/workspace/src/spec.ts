@@ -46,12 +46,15 @@ const workspacePendingMutation = z.discriminatedUnion('operation', [
  * the registry-global archive set layered over workspace accounting: an
  * archived session keeps its `sessionIds` slot (unarchiving must restore the
  * position), so the set never participates in the one-owner accounting
- * invariant. Defaulted so records written before the field parse unchanged.
+ * invariant. `pendingSessionDeletionIds` is the recovery journal for
+ * authoritative Session deletion followed by derived-reference cleanup.
+ * Archive state is defaulted so records written before the field parse unchanged.
  */
 export const workspaceDomainState = z.object({
   initialized: z.boolean(),
   workspaceIds: z.array(workspaceId),
   archivedSessionIds: z.array(z.string().transform(SessionId)).default([]),
+  pendingSessionDeletionIds: z.array(z.string().transform(SessionId)).optional(),
   pendingMutation: workspacePendingMutation.optional(),
 })
 
@@ -66,7 +69,7 @@ export type WorkspaceDomainState = z.infer<typeof workspaceDomainState>
  */
 export const workspaceDomainSpec = defineDomain({
   name: 'workspace',
-  version: 2,
+  version: 3,
   global: {
     schema: workspaceDomainState,
     initial: { initialized: false, workspaceIds: [], archivedSessionIds: [] },

@@ -17,7 +17,7 @@ import WorkspaceRegistry, {
 } from '../src/index.ts'
 import type { WorkspaceDomainState, WorkspaceRecord } from '../src/index.ts'
 
-const DOMAIN_VERSION = 2
+const DOMAIN_VERSION = 3
 
 const header = (id: string, cwd?: string, createdAt = 0): SessionHeader => ({
   version: 0,
@@ -940,5 +940,37 @@ describe('registry-global session archive', () => {
     )
     const upgraded = await harness({ pool: legacy })
     expect(upgraded.registry.archivedSessionIds).toEqual([])
+  })
+
+  it('removes a deleted session from workspace accounting and the archive set', async () => {
+    const dir = await makeDir('deleted-session')
+    const result = await harness({ sessions: [header('deleted', dir, 100), header('kept', dir, 200)] })
+    const workspace = result.registry.list()[0]!
+    await result.registry.archiveSession(SessionId('deleted'))
+
+    await result.registry.removeSessionReferences(SessionId('deleted'))
+
+    expect(workspace.sessionIds).toEqual(['kept'])
+    expect(result.registry.archivedSessionIds).toEqual([])
+    expect(storedRecord(result.pool, workspace.id).sessionIds).toEqual(['kept'])
+    expect(storedState(result.pool).archivedSessionIds).toEqual([])
+  })
+
+  it('persists an idempotent Session-deletion recovery marker until cleanup completes', async () => {
+    const pool = new MemoryMediaPool()
+    const first = await harness({ pool })
+    await first.registry.beginSessionDeletion(SessionId('deleting'))
+    await first.registry.beginSessionDeletion(SessionId('deleting'))
+    const workspace = await first.registry.create(await makeDir('during-session-delete'))
+    await first.registry.delete(workspace.id)
+    expect(first.registry.pendingSessionDeletionIds).toEqual(['deleting'])
+    await first.fiber.dispose()
+
+    const second = await harness({ pool })
+    expect(second.registry.pendingSessionDeletionIds).toEqual(['deleting'])
+    await second.registry.completeSessionDeletion(SessionId('deleting'))
+    await second.registry.completeSessionDeletion(SessionId('deleting'))
+    expect(second.registry.pendingSessionDeletionIds).toEqual([])
+    expect(storedState(pool).pendingSessionDeletionIds).toBeUndefined()
   })
 })

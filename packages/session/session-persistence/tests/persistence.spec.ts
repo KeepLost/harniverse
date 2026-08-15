@@ -101,6 +101,10 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     return this.coordinator.append(id, events)
   }
 
+  delete(id: SessionId): Promise<boolean> {
+    return this.coordinator.delete(id)
+  }
+
   override prepare(id: SessionId, signal?: AbortSignal): ReturnType<PersistenceCoordinator['prepare']> {
     return this.coordinator.prepare(id, signal)
   }
@@ -159,6 +163,10 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     /* v8 ignore next -- commitRepair only runs for a materialized (stored) session */
     if (!entry) return
     if (closers.length > 0) entry.events.push(...structuredClone(closers) as SessionEvent[])
+  }
+
+  async deleteStored(id: SessionId): Promise<boolean> {
+    return this.store.delete(id)
   }
 
   async list(signal?: AbortSignal): Promise<SessionHeader[]> {
@@ -226,6 +234,10 @@ class ControlledBackend implements PersistenceBackend<never> {
     this.repairAttempts += 1
     const entry = this.store.get(m.id)
     if (entry !== undefined) entry.events.push(...structuredClone(closers) as SessionEvent[])
+  }
+
+  async deleteStored(id: SessionId): Promise<boolean> {
+    return this.store.delete(id)
   }
 
   async list(): Promise<SessionHeader[]> {

@@ -6,6 +6,8 @@
 
 对于每条可到达本地根 Agent 或可继续子 Agent 的提示词，运行时都会采样浏览器当前的 `Intl.DateTimeFormat().resolvedOptions().timeZone`，并只把该值附加到这一次 Session 或 subagent 提示词 RPC。该值既不缓存，也不包含在 Session 创建或 fork 状态中，因此旅行与并发标签页都能保留消息本地的来源信息。浏览器若无法提供非空时区，会在本地拒绝该提示词，而不会悄然使用部署状态代替。
 
+每个已打开的普通 `Session` 保留一段连续、权威的事件窗口，并只把该窗口尾部暴露为重连游标（已打开的空日志为 `-1`）。连接 generation 把这些游标交给 `events.mux`；回放从各游标之后追加，重复 seq 被忽略。实时缺口通过前向 `session.history` 页面修复，且不会替换已经加载的更早事件。重连会保留已打开窗口，而属于失效 generation 的 loading/error 操作会重新启动；当 `session/subscribed.lastSeq` 低于本地尾部时，可证明 Host 已重启或回滚，runtime 会强制执行持久化支持的重新建基。按地址访问的 subagent 窗口仍使用尾页修复，因为 `subagent.history` 没有前向模式。
+
 `bindSettingsScope` 面向单个由领域持有的 namespace，是 Host 侧 settings owner seam 的浏览器镜像。它在开始非阻塞初始读取前建立订阅，发布 uSES 快照（状态、分节值、组装 `base` 层与原始 `user` 层、revision、可写性、host／内存模式），使用已知最新 namespace revision 串行执行 `set` 与 `unset` 写入，抑制陈旧发布，并在最新写入被拒时从 Host 状态恢复；插件释放时，它会达到完全停稳。默认解码器会对照该 namespace 自身的序列化 wire schema（经 dsh-client-schema-form 还原）校验每个分节，因此领域只有在需要比该 schema 进一步收窄时才添加解码器。回环页面使用 Host settings API，远程页面则停留在内存模式。字段是否被覆盖，取决于它是否**出现**在 `user` 中——与组装默认值相同的覆盖仍然是覆盖，比较值是看不出来的——而 `unset` 就是表单把某个字段清回 `base` 的方式。namespace schema、默认值与实时服务归领域包所有，而非把产品政策放入运行时。
 
 ## Slot 声明注入

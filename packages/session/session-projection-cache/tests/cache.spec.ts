@@ -363,6 +363,19 @@ describe('SessionProjectionCache cold read', () => {
     expect(cache.cachedSnapshot(headerOf(SessionId('never-cached')))).toBeUndefined()
   })
 
+  it('deletes one lifecycle checkpoint and refuses its late write-back', async () => {
+    const { cache, pool, ctx } = await harness()
+    const session = ctx.sessions.create(SessionId('deleted-cache'), { meta: { createdAt: 10 } })
+    mark(session, ['before'])
+    await cache.write(session)
+    expect(storedRecord(pool, session.id)).toBeDefined()
+
+    await cache.delete(session.header)
+    expect(storedRecord(pool, session.id)).toBeUndefined()
+    await expect(cache.write(session)).rejects.toThrow('deleted session lifecycle')
+    expect(storedRecord(pool, session.id)).toBeUndefined()
+  })
+
   it('holds the not-found contract with zero registered units, and dates the empty cut for a present log', async () => {
     // Same composition minus any registered unit: restoreFloor is undefined,
     // yet coldSnapshot must still reject for an absent log (probe read) and

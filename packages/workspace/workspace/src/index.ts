@@ -234,6 +234,42 @@ export class WorkspaceRegistry extends Service {
     return this.requireState().archivedSessionIds
   }
 
+  /** Session ids whose authoritative deletion has begun but whose derived cleanup may need retry. */
+  get pendingSessionDeletionIds(): readonly SessionId[] {
+    return this.requireState().pendingSessionDeletionIds ?? []
+  }
+
+  /**
+   * Durably mark one Session deletion before its authoritative log commit.
+   * @param sessionId - Session whose cross-store deletion is starting.
+   * @returns resolution after the recovery marker is durable.
+   */
+  beginSessionDeletion(sessionId: SessionId): Promise<void> {
+    return this.enqueueOperation(async () => {
+      const state = this.requireState()
+      if (state.pendingSessionDeletionIds?.includes(sessionId) === true) return
+      await this.setState({
+        ...state,
+        pendingSessionDeletionIds: [...state.pendingSessionDeletionIds ?? [], sessionId],
+      })
+    })
+  }
+
+  /**
+   * Clear one Session deletion marker after every workspace/archive reference is gone.
+   * @param sessionId - Session whose derived cleanup committed.
+   * @returns resolution after the marker is durably cleared.
+   */
+  completeSessionDeletion(sessionId: SessionId): Promise<void> {
+    return this.enqueueOperation(async () => {
+      const state = this.requireState()
+      if (state.pendingSessionDeletionIds?.includes(sessionId) !== true) return
+      const next = state.pendingSessionDeletionIds.filter(id => id !== sessionId)
+      const { pendingSessionDeletionIds: _pending, ...base } = state
+      await this.setState(next.length === 0 ? base : { ...base, pendingSessionDeletionIds: next })
+    })
+  }
+
   /**
    * Archive one session durably. The session must exist (live or in session
    * persistence); its workspace accounting — or lack of one — is irrelevant.
@@ -251,6 +287,27 @@ export class WorkspaceRegistry extends Service {
       }
       const state = this.requireState()
       await this.setState({ ...state, archivedSessionIds: [...state.archivedSessionIds, sessionId] })
+    })
+  }
+
+  /**
+   * Remove one deleted session from every workspace account and the archive set.
+   * The operation is idempotent; the caller commits authoritative Session
+   * deletion first so a failed metadata write can converge on retry.
+   * @param sessionId - deleted session identity.
+   */
+  removeSessionReferences(sessionId: SessionId): Promise<void> {
+    return this.enqueueOperation(async () => {
+      this.headers.delete(sessionId)
+      this.sessionPaths.delete(sessionId)
+      this.invalidSessionPaths.delete(sessionId)
+      for (const entity of this.entities.values()) await entity.detachSession(sessionId)
+      const state = this.requireState()
+      if (!state.archivedSessionIds.includes(sessionId)) return
+      await this.setState({
+        ...state,
+        archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId),
+      })
     })
   }
 
@@ -327,10 +384,11 @@ export class WorkspaceRegistry extends Service {
     }
 
     try {
+      const { pendingMutation: _pending, ...settledState } = state
       await this.setState({
+        ...settledState,
         initialized: true,
         workspaceIds: [id, ...state.workspaceIds],
-        archivedSessionIds: state.archivedSessionIds,
       })
     } catch (error) {
       this.entities.delete(id)
@@ -359,10 +417,11 @@ export class WorkspaceRegistry extends Service {
     const entity = this.entities.get(id)
     if (entity === undefined) return false
     const state = this.requireState()
+    const { pendingMutation: _pending, ...settledState } = state
     const nextState = {
+      ...settledState,
       initialized: true,
       workspaceIds: state.workspaceIds.filter(workspaceId => workspaceId !== id),
-      archivedSessionIds: state.archivedSessionIds,
     }
     await this.setState({
       ...nextState,
@@ -416,10 +475,11 @@ export class WorkspaceRegistry extends Service {
       )
     }
     await this.requireTable().delete(pending.workspaceId)
+    const { pendingMutation: _pending, ...settledState } = state
     await this.setState({
+      ...settledState,
       initialized: state.initialized,
       workspaceIds: state.workspaceIds,
-      archivedSessionIds: state.archivedSessionIds,
     })
   }
 
@@ -502,9 +562,9 @@ export class WorkspaceRegistry extends Service {
       .map(([id]) => id)
 
     if (!sameIds(state.workspaceIds, workspaceIds)) {
-      await this.setState({ initialized: false, workspaceIds, archivedSessionIds: state.archivedSessionIds })
+      await this.setState({ ...state, initialized: false, workspaceIds })
     }
-    await this.setState({ initialized: true, workspaceIds, archivedSessionIds: state.archivedSessionIds })
+    await this.setState({ ...state, initialized: true, workspaceIds })
   }
 
   private validateStoredState(state: WorkspaceDomainState): void {

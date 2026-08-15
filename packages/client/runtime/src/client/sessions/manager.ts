@@ -896,16 +896,30 @@ export class SessionManager {
       if (kept.length === 0) this.pendingBuffers.delete(sessionId)
       else this.pendingBuffers.set(sessionId, kept)
     }
+    for (const session of this.sessions.values()) session.handleDisconnected()
   }
 
-  /** After each connection generation: refresh the session baseline and rebuild opened windows. */
+  /**
+   * Last contiguous durable seq for every resident ordinary Session with an authoritative window.
+   * @returns the per-Session cursors to resume a mux generation.
+   */
+  muxSince(): Record<SessionId, number> {
+    const since = {} as Record<SessionId, number>
+    for (const session of this.sessions.values()) {
+      const cursor = session.syncCursor()
+      if (cursor !== undefined) since[session.sessionId] = cursor
+    }
+    return since
+  }
+
+  /** After each connection generation: refresh catalogs and recover interrupted opens. */
   handleConnected(): void {
     void this.refreshList()
     const selectedAddress = this.selected === undefined ? undefined : this.addresses.get(this.selected)
     if (selectedAddress !== undefined) void this.refreshSubagents(selectedAddress.parentSessionId)
     if (this.selected !== undefined) void this.refreshSubagents(this.selected)
     for (const parentSessionId of this.openCatalogs) void this.refreshSubagents(parentSessionId)
-    for (const session of this.sessions.values()) void session.resync()
+    for (const session of this.sessions.values()) void session.recoverAfterReconnect()
   }
 
   /** Debounce membership refetches while one parent catalog is selected or open. */

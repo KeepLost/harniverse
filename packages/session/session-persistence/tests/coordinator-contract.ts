@@ -1422,6 +1422,44 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
+    it('refuses deletion while the exact session identity is live', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const session = ctx.sessions.create(SessionId('delete-live'), { meta: { cwd: WORK } })
+        send(session, oneTurnLog())
+        await ctx.sessions.flush(session)
+
+        await expect(ctx.sessionPersistence.delete(session.id))
+          .rejects.toThrow(`cannot delete session "${session.id}" while it is live`)
+        expect((await ctx.sessionPersistence.load(session.id)).events).toHaveLength(6)
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('refuses deletion while an unpublished resume preparation owns the identity', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const stored = meta('delete-prepared', WORK)
+        await ctx.sessionPersistence.create(stored)
+        await ctx.sessionPersistence.append(stored.id, oneTurnLog())
+        const preparation = await ctx.sessionPersistence.prepare(stored.id)
+
+        await expect(ctx.sessionPersistence.delete(stored.id))
+          .rejects.toThrow('persisted preparation is reserved')
+        expect((await ctx.sessionPersistence.list()).some(header => header.id === stored.id)).toBe(true)
+
+        preparation[Symbol.dispose]()
+        await expect(ctx.sessionPersistence.delete(stored.id)).resolves.toBe(true)
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
     // --- crash-tail repair THROUGH the coordinator (real storage torn tail) ---
 
     it('torn-tail load: a never-committed tail is truncated and the open turn closed during load (commitRepair w/ tornMarker)', async () => {

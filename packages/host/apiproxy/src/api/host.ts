@@ -4,6 +4,19 @@
  */
 
 import type { RpcRequest, RpcResponse } from './rpc.ts'
+import type { Branded } from '@deepseek-ai/dsh-brand'
+
+/** Identity of one running Host process, stable until that process restarts. */
+export type HostBootId = Branded<'HostBootId'>
+
+/**
+ * Brand a validated or locally generated Host boot identity.
+ * @param value - non-empty identity generated once for one Host boot.
+ * @returns the branded Host boot identity.
+ */
+export function HostBootId(value: string): HostBootId {
+  return value as HostBootId
+}
 
 /** One directory row of a listing: a child entry or a breadcrumb ancestor. */
 export interface DirectoryEntry {
@@ -36,7 +49,8 @@ export interface DirectoryListing {
 export interface HostApi {
   /**
    * One-shot host snapshot. Empty payload uses the literal `{}` (extend in place when fields arrive).
-   * version = the host app's (apps/cli) package.json version; cwd = the host process working
+   * bootId = one API Proxy process lifetime, stable across reconnects; version = the host
+   * app's (apps/cli) package.json version; cwd = the host process working
    * directory (root for session persistence and tool execution); provider/model = the defaults
    * applied when a new agent doesn't specify them explicitly, absent when the host configures
    * no explicit default (the adapter falls back internally);
@@ -44,6 +58,7 @@ export interface HostApi {
    * canOpenPath = whether this deployment can hand a path to a user-visible native desktop.
    */
   describe(request: RpcRequest<{}>): Promise<RpcResponse<{
+    bootId: HostBootId
     version: string
     cwd: string
     provider?: string

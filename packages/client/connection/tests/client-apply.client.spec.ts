@@ -260,9 +260,13 @@ describe('connection client apply', () => {
     ;(globalThis as WebSocketGlobal).WebSocket = FakeWebSocket as unknown as typeof WebSocket
     const client = (await mount()).api
     const abort = new AbortController()
-    const iterator = client.events.mux({}, abort.signal)[Symbol.asyncIterator]()
+    const iterator = client.events.mux({ since: { ['session-secure' as never]: 7 } }, abort.signal)[Symbol.asyncIterator]()
     const pending = iterator.next()
-    await vi.waitFor(() => { expect(sockets[0]?.url).toBe('wss://harness.example/api/events.mux') })
+    await vi.waitFor(() => {
+      const url = new URL(sockets[0]?.url ?? 'ws://invalid')
+      expect(`${url.protocol}//${url.host}${url.pathname}`).toBe('wss://harness.example/api/events.mux')
+      expect(JSON.parse(url.searchParams.get('since') ?? '')).toEqual({ 'session-secure': 7 })
+    })
     abort.abort()
     await expect(pending).resolves.toMatchObject({ done: true })
   })

@@ -5,14 +5,19 @@
  */
 
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
+import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-questions/types'
+import type { ApprovalRequestId } from '@deepseek-ai/dsh-user-approval/types'
 import type { AttachmentIdType, ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
+import type { CallId } from '@deepseek-ai/dsh-llm/brand'
+import type { SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session/types'
 // The pure-type outlet: api/ is browser-importable, and the package root's
 // cordis Context merge (via dsh-agent) must not enter client aggregates.
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { RpcId, RpcRequest, RpcResponse } from './rpc.ts'
-import type { ToolEventView } from './events.ts'
+import type { HostBootId } from './host.ts'
+import type { JobView } from './jobs.ts'
+import type { QueuedInboxItem, ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
@@ -64,6 +69,58 @@ declare module '@deepseek-ai/dsh-llm' {
 export interface HistoryEntry {
   event: SessionEvent
   view?: ToolEventView
+}
+
+/** Durable lifecycle of one admitted prompt message. */
+export type SessionWorkStatus =
+  | { state: 'unknown' }
+  | { state: 'queued' }
+  | { state: 'claimed'; turn: number }
+  | { state: 'settled'; turn: number; reason: TurnEndReason }
+  | { state: 'discarded' }
+
+/** Immediate receipt carrying the exact durable inbox identity. */
+export interface PromptReceipt {
+  accepted: true
+  messageId: MessageId
+}
+
+/** Backward message pages for display, or forward event pages for synchronization. */
+export type SessionHistoryRequest =
+  | { sessionId: SessionId; beforeSeq?: number; maxMessages?: number; afterSeq?: never; maxEvents?: never }
+  | { sessionId: SessionId; afterSeq: number; maxEvents: number; beforeSeq?: never; maxMessages?: never }
+
+/** One answerable process-local interaction, preserving the rpcId required by `respond`. */
+export type SessionPendingInteraction = RpcRequest<
+  | { type: 'question/requested'; sessionId: SessionId; questions: AskUserQuestionItem[] }
+  | {
+    type: 'approval/requested'
+    sessionId: SessionId
+    approvalId: ApprovalRequestId
+    toolName: string
+    callId?: CallId
+    reason?: string
+  }
+>
+
+/** One boot-fenced point-in-time view of a Session's durable cursor and live control state. */
+export interface SessionStatusSnapshot {
+  sessionId: SessionId
+  bootId: HostBootId
+  /** Whether the Session is currently present in the live Session registry. */
+  attached: boolean
+  /** Current Agent activity; false when no exact Agent owns the attached Session. */
+  running: boolean
+  /** Whether an explicit `session.close` currently owns admission for this identity. */
+  closing: boolean
+  /** Last durable event seq in the sampled Session prefix, or -1 for an empty log. */
+  lastSeq: number
+  /** Complete process-local inbox projection; empty for a cold Session. */
+  queue: QueuedInboxItem[]
+  /** Complete visible background-job set; empty for a cold Session or absent jobs service. */
+  jobs: JobView[]
+  /** Complete answerable question/approval set for this Session in this Host boot. */
+  interactions: SessionPendingInteraction[]
 }
 
 /**
@@ -277,10 +334,24 @@ export interface SessionsApi {
    * loadOlder (the only beforeSeq path) is the only path that never needs one.
    * A deployment without the registry serves histories without the block.
    * Reading history uses an attached Session or persistence inspection and
-   * never resumes or publishes an Agent.
+   * never resumes or publishes an Agent. The mutually exclusive forward mode
+   * returns at most `maxEvents` raw events whose seq is greater than
+   * `afterSeq`; it carries no projection baseline and is intended for gap
+   * repair rather than display pagination.
    */
-  history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
+  history(request: RpcRequest<SessionHistoryRequest>):
   Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; projections?: SessionProjectionsBlock }>>
+
+  /** Reads one boot-fenced durable/live control snapshot without resuming a cold Session. */
+  status(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<SessionStatusSnapshot>>
+
+  /**
+   * Derives one admitted message's durable lifecycle without resuming a cold
+   * session. `settled` identifies the turn boundary that consumed the work; it
+   * does not attribute that turn's assistant output to this message.
+   */
+  workStatus(request: RpcRequest<{ sessionId: SessionId; messageId: MessageId }>):
+  Promise<RpcResponse<{ messageId: MessageId; status: SessionWorkStatus }>>
 
   /**
    * Reads a fresh advisory model directory for an ordinary session. Provider
@@ -313,14 +384,6 @@ export interface SessionsApi {
   Promise<RpcResponse<{ title: string; seq: number }>>
 
   /**
-   * Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer.
-   * A prompt whose content is exactly one text block starting with '/' is a slash command: the host
-   * executes it through the command registry (mode-agnostic) and it is never sent to the model. A
-   * successful command returns ok with the command slot (its success text, when the command produced
-   * one — carried for future rendering; the state change is the feedback). A usage/state error is an
-   * RPC error with code command-error; an unrecognized name is an RPC error with code unknown-command.
-   */
-  /**
    * Forks a new session from a completed-turn prefix of the source. `atSeq`
    * anchors the cut: the boundary is the first `turn/end` at or after it
    * (a message's fork button passes the message seq, so the fork includes
@@ -342,7 +405,8 @@ export interface SessionsApi {
    * Browser callers attach their current IANA zone;
    * the Host validates, canonicalizes, and records it on that exact user message. Omission remains
    * valid for non-browser callers. Session-backed subagents reject with `agent-busy` and use
-   * `subagent.prompt`.
+   * `subagent.prompt`. The response identifies the exact admitted inbox message;
+   * slash commands use the separate command API and never enter this method.
    */
   prompt(request: RpcRequest<{
     sessionId: SessionId
@@ -350,7 +414,7 @@ export interface SessionsApi {
     content: PromptContentPart[]
     clientTimeZone?: string
   }>):
-  Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
+  Promise<RpcResponse<PromptReceipt>>
 
   /** Reads one durable image after proving that this session's log references its id. */
   attachment(request: RpcRequest<{ sessionId: SessionId; attachmentId: AttachmentIdType }>):
@@ -369,5 +433,22 @@ export interface SessionsApi {
    * subagents reject with `agent-busy`.
    */
   cancel(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ accepted: true }>>
+
+  /**
+   * Stops admission, drains continuable descendants, cancels the ordinary
+   * Agent, flushes its Session, and detaches both live objects. Durable history
+   * remains available for a later resume. Session-backed subagents reject.
+   */
+  close(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ closed: true }>>
+
+  /**
+   * Permanently deletes one cold leaf Session. The operation journals recovery,
+   * fences projection write-back, commits the authoritative log deletion, then
+   * removes workspace/archive references and clears the journal. Shared
+   * content-addressed attachments are retained for global garbage collection.
+   * A live Session must be closed first, and a Session with descendants is refused.
+   */
+  delete(request: RpcRequest<{ sessionId: SessionId }>):
+  Promise<RpcResponse<{ deleted: true; attachmentsRetained: true }>>
 
 }

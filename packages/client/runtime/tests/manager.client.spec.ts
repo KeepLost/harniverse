@@ -878,7 +878,7 @@ describe('remaining branches', () => {
 })
 
 describe('connected generation', () => {
-  it('refreshes the list and resyncs only opened instances', async () => {
+  it('refreshes catalogs without rebuilding already-open contiguous windows', async () => {
     const api = new FakeApiClient()
     api.onHistory = () => Promise.resolve(ok({
       events: entries(plainTurn(0, 0, 'a', 'b')) as never[],
@@ -893,9 +893,9 @@ describe('connected generation', () => {
     manager.handleConnected()
     await vi.waitFor(() => {
       expect(api.callsOf('session.list').length).toBe(1)
-      // Only the opened instance repulls history; the cold one stays silent.
-      expect(api.callsOf('session.history').length).toBe(historyCallsBefore + 1)
+      expect(api.callsOf('session.history').length).toBe(historyCallsBefore)
     })
+    expect(manager.muxSince()).toEqual({ [S1]: 5 })
   })
 
   it('reloads the durable parent address for a restored child selection', async () => {

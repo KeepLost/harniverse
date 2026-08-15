@@ -56,6 +56,34 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           result: { ok: false, error: { code: 'session-not-found', message: 'nope', details: { sessionId: request.payload.sessionId } } },
         }
       },
+      async workStatus(request) {
+        return {
+          rpcId: request.rpcId,
+          result: {
+            ok: true,
+            value: { messageId: request.payload.messageId, status: { state: 'queued' as const } },
+          },
+        }
+      },
+      async status(request) {
+        return {
+          rpcId: request.rpcId,
+          result: {
+            ok: true,
+            value: {
+              sessionId: request.payload.sessionId,
+              bootId: 'test-boot' as never,
+              attached: true,
+              running: false,
+              closing: false,
+              lastSeq: -1,
+              queue: [],
+              jobs: [],
+              interactions: [],
+            },
+          },
+        }
+      },
       async models(request) {
         return {
           rpcId: request.rpcId,
@@ -94,7 +122,10 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-fork' as never } } }
       },
       async prompt(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { accepted: true as const, messageId: 'message-1' as never } },
+        }
       },
       async attachment(request) {
         return {
@@ -107,6 +138,15 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       },
       async cancel(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
+      },
+      async close(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { closed: true as const } } }
+      },
+      async delete(request) {
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { deleted: true as const, attachmentsRetained: true as const } },
+        }
       },
     },
     subagents: {
@@ -143,7 +183,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           rpcId: request.rpcId,
           result: {
             ok: true,
-            value: { version: 'v', cwd: '/w', attachedSessions: 0, canOpenPath: true },
+            value: { bootId: 'test-boot' as never, version: 'v', cwd: '/w', attachedSessions: 0, canOpenPath: true },
           },
         }
       },
@@ -330,7 +370,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     if (!response.result.ok) expect(response.result.error.code).toBe('session-not-found')
   })
 
-  it('covers create/prompt/updateQueue/cancel/describe passthrough', async () => {
+  it('covers create/prompt/updateQueue/cancel/close/describe passthrough', async () => {
     const c = client()
     expect((await c.sessions.search({ query: 'fixture' })).result).toEqual({
       ok: true,
@@ -357,6 +397,10 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const renamed = await c.sessions.rename({ sessionId: 's' as never, title: 'named' })
     expect(renamed.result).toMatchObject({ ok: true, value: { title: 'named', seq: 0 } })
     expect((await c.sessions.prompt({ sessionId: 's' as never, mode: 'queue', content: [{ type: 'text', text: 'x' }] })).result.ok).toBe(true)
+    expect((await c.sessions.workStatus({ sessionId: 's' as never, messageId: 'message-1' as never })).result)
+      .toEqual({ ok: true, value: { messageId: 'message-1', status: { state: 'queued' } } })
+    expect((await c.sessions.status({ sessionId: 's' as never })).result)
+      .toMatchObject({ ok: true, value: { bootId: 'test-boot', lastSeq: -1 } })
     expect((await c.sessions.attachment({ sessionId: 's' as never, attachmentId: 'a' as never })).result.ok).toBe(true)
     expect((await c.sessions.updateQueue({
       sessionId: 's' as never,
@@ -364,6 +408,10 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       action: { kind: 'remove' },
     })).result.ok).toBe(true)
     expect((await c.sessions.cancel({ sessionId: 's' as never })).result.ok).toBe(true)
+    expect((await c.sessions.close({ sessionId: 's' as never })).result)
+      .toEqual({ ok: true, value: { closed: true } })
+    expect((await c.sessions.delete({ sessionId: 's' as never })).result)
+      .toEqual({ ok: true, value: { deleted: true, attachmentsRetained: true } })
     expect((await c.host.describe({})).result.ok).toBe(true)
   })
 
@@ -647,6 +695,30 @@ describe('handler carrier-layer statuses', () => {
 })
 
 describe('SSE streams through the carrier', () => {
+  it('carries mux resume cursors through the query string', async () => {
+    const api = fakeApi()
+    let payload: unknown
+    api.events.mux = (request, signal) => {
+      payload = request.payload
+      return (async function * (): AsyncGenerator<RpcRequest<MuxFrame>> {
+        if (!signal.aborted) {
+          yield { rpcId: RpcId('cursor-frame'), payload: { type: 'session/subscribed', sessionId: 's1' as never, lastSeq: 4 } }
+        }
+      })()
+    }
+
+    await collect(client(api).events.mux({ since: { ['s1' as never]: 4 } }, new AbortController().signal))
+    expect(payload).toEqual({ since: { s1: 4 } })
+  })
+
+  it('rejects malformed mux resume cursors before opening the stream', async () => {
+    const response = await toFetchHandler(fakeApi()).fetch(new Request(
+      'http://x/api/events.mux?since=%7B%22s1%22%3A-2%7D',
+      { method: 'GET' },
+    ))
+    expect(response.status).toBe(400)
+  })
+
   it('yields mux frames as ServerRequest narrow forms and completes', async () => {
     const ac = new AbortController()
     const frames = await collect(client().events.mux({}, ac.signal))

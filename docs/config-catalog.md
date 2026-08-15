@@ -750,10 +750,12 @@ export interface Config {
    * @default 1024
    */
   coldBlankProbeMaxBytes?: number
+  /** Maximum retained frames per live stream before it fails for resumable reconnect. @default 1024 */
+  streamQueueMaxFrames?: number
 }
 ```
 
-Source: [`packages/host/apiproxy/src/index.ts:41`](../packages/host/apiproxy/src/index.ts)
+Source: [`packages/host/apiproxy/src/index.ts:43`](../packages/host/apiproxy/src/index.ts)
 
 <a id="deepseek-aidsh-host-directory-picker-browse"></a>
 

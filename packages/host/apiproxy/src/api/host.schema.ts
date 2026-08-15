@@ -3,15 +3,19 @@
  */
 
 import { z } from 'zod'
-import type { DirectoryEntry } from './host.ts'
+import type { DirectoryEntry, HostBootId } from './host.ts'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 
 /** host.describe request payload (empty object literal). */
 export const hostDescribeRequestSchema = z.object({}) satisfies z.ZodType<Wire<RequestPayload<'host.describe'>>>
 
+/** HostBootId: one brand cast after non-empty string validation. */
+export const hostBootIdSchema = z.string().min(1) as unknown as z.ZodType<HostBootId>
+
 /** host.describe response value. */
 export const hostDescribeValueSchema = z.object({
+  bootId: hostBootIdSchema,
   version: z.string(),
   cwd: z.string(),
   provider: z.string().optional(),

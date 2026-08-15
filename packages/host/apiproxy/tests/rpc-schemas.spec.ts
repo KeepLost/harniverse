@@ -6,14 +6,17 @@ import {
 } from '../src/api/rpc.schema.ts'
 import { z } from 'zod'
 import {
-  contentBlockSchema, sessionCancelRequestSchema, sessionCancelValueSchema, sessionCreateRequestSchema,
+  contentBlockSchema, sessionCancelRequestSchema, sessionCancelValueSchema, sessionCloseRequestSchema,
+  sessionCloseValueSchema, sessionCreateRequestSchema, sessionDeleteRequestSchema, sessionDeleteValueSchema,
   sessionCreateValueSchema, sessionEventSchema, sessionHistoryRequestSchema, sessionHistoryValueSchema,
   sessionIdSchema, sessionListRequestSchema, sessionListValueSchema, sessionModelsRequestSchema,
   sessionModelsValueSchema, sessionPromptRequestSchema, sessionPromptValueSchema,
   sessionSearchRequestSchema, sessionSearchValueSchema, sessionSelectModelRequestSchema,
   sessionSelectModelValueSchema, sessionSummarySchema,
   sessionUpdateQueueRequestSchema, sessionUpdateQueueValueSchema,
+  sessionWorkStatusRequestSchema, sessionWorkStatusValueSchema,
 } from '../src/api/sessions.schema.ts'
+import { sessionStatusRequestSchema, sessionStatusValueSchema } from '../src/api/session-status.schema.ts'
 import {
   hostCreateDirectoryRequestSchema, hostCreateDirectoryValueSchema,
   hostDescribeRequestSchema, hostDescribeValueSchema,
@@ -32,7 +35,9 @@ import { skillEntrySchema, skillListRequestSchema, skillListValueSchema } from '
 import {
   agentPresetEntrySchema, agentPresetListValueSchema, agentPresetOpenDocumentValueSchema,
 } from '../src/api/agent-presets.schema.ts'
-import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../src/api/events.schema.ts'
+import {
+  hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema, eventsMuxRequestSchema,
+} from '../src/api/events.schema.ts'
 import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/api/approvals.schema.ts'
 import { askUserQuestionAnswerSchema, questionResponsePayloadSchema } from '../src/api/questions.schema.ts'
 import { goalEditRequestSchema } from '../src/api/goals.schema.ts'
@@ -198,6 +203,16 @@ describe('sessions domain schemas', () => {
     expect(sessionCreateValueSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionHistoryRequestSchema.parse({ sessionId: 's1', beforeSeq: 3, maxMessages: 5 }).beforeSeq).toBe(3)
     expect(() => sessionHistoryRequestSchema.parse({ sessionId: 's1', maxMessages: 0 })).toThrow()
+    expect(sessionHistoryRequestSchema.parse({ sessionId: 's1', afterSeq: -1, maxEvents: 5 }).afterSeq).toBe(-1)
+    for (const invalid of [
+      { sessionId: 's1', afterSeq: -2, maxEvents: 5 },
+      { sessionId: 's1', afterSeq: 0.5, maxEvents: 5 },
+      { sessionId: 's1', afterSeq: 0 },
+      { sessionId: 's1', maxEvents: 5 },
+      { sessionId: 's1', afterSeq: 0, maxEvents: 0 },
+      { sessionId: 's1', afterSeq: 0, maxEvents: 5, beforeSeq: 4 },
+      { sessionId: 's1', afterSeq: 0, maxEvents: 5, maxMessages: 2 },
+    ]) expect(() => sessionHistoryRequestSchema.parse(invalid)).toThrow()
     expect(sessionHistoryValueSchema.parse({
       events: [],
       hasMore: false,
@@ -266,13 +281,45 @@ describe('sessions domain schemas', () => {
       sessionId: 's1', mode: 'queue', content: [],
     }).clientTimeZone).toBeUndefined()
     expect(() => sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'inject', content: [] })).toThrow()
-    expect(sessionPromptValueSchema.parse({ accepted: true }).accepted).toBe(true)
-    // The command slot appears only when the prompt dispatched a slash command.
-    const dispatched = sessionPromptValueSchema.parse({ accepted: true, command: { kind: 'success', text: 'Goal set' } })
-    expect(dispatched.command?.text).toBe('Goal set')
-    expect(sessionPromptValueSchema.parse({ accepted: true, command: { kind: 'success' } }).command).toEqual({ kind: 'success' })
-    expect(() => sessionPromptValueSchema.parse({ accepted: true, command: { kind: 'failure' } })).toThrow()
+    expect(sessionPromptValueSchema.parse({ accepted: true, messageId: 'm1' })).toEqual({ accepted: true, messageId: 'm1' })
+    expect(() => sessionPromptValueSchema.parse({ accepted: true })).toThrow()
+    expect(() => sessionPromptValueSchema.parse({
+      accepted: true, command: { kind: 'success', text: 'Goal set' },
+    })).toThrow()
+    expect(sessionWorkStatusRequestSchema.parse({ sessionId: 's1', messageId: 'm1' }))
+      .toEqual({ sessionId: 's1', messageId: 'm1' })
+    expect(sessionWorkStatusValueSchema.parse({
+      messageId: 'm1',
+      status: { state: 'settled', turn: 2, reason: { kind: 'completed' } },
+    })).toEqual({
+      messageId: 'm1',
+      status: { state: 'settled', turn: 2, reason: { kind: 'completed' } },
+    })
+    expect(() => sessionWorkStatusValueSchema.parse({
+      messageId: 'm1', status: { state: 'claimed', turn: -1 },
+    })).toThrow()
+    expect(sessionStatusRequestSchema.parse({ sessionId: 's1' })).toEqual({ sessionId: 's1' })
+    const status = sessionStatusValueSchema.parse({
+      sessionId: 's1', bootId: 'boot-1', attached: true, running: false,
+      closing: true, lastSeq: -1, queue: [], jobs: [],
+      interactions: [{
+        rpcId: 'question-1',
+        payload: {
+          type: 'question/requested',
+          sessionId: 's1',
+          questions: [{ id: 'q1', question: 'Continue?' }],
+        },
+      }],
+    })
+    expect(status).toMatchObject({ bootId: 'boot-1', closing: true, lastSeq: -1 })
+    expect(() => sessionStatusValueSchema.parse({ ...status, bootId: '' })).toThrow()
+    expect(() => sessionStatusValueSchema.parse({ ...status, lastSeq: -2 })).toThrow()
     expect(sessionCancelRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
+    expect(sessionCloseRequestSchema.parse({ sessionId: 's1' })).toEqual({ sessionId: 's1' })
+    expect(sessionCloseValueSchema.parse({ closed: true })).toEqual({ closed: true })
+    expect(sessionDeleteRequestSchema.parse({ sessionId: 's1' })).toEqual({ sessionId: 's1' })
+    expect(sessionDeleteValueSchema.parse({ deleted: true, attachmentsRetained: true }))
+      .toEqual({ deleted: true, attachmentsRetained: true })
     expect(sessionUpdateQueueRequestSchema.parse({
       sessionId: 's1',
       itemId: 'i1',
@@ -312,11 +359,11 @@ describe('host domain schemas', () => {
   it('validates describe request/value', () => {
     expect(hostDescribeRequestSchema.parse({})).toEqual({})
     const value = hostDescribeValueSchema.parse({
-      version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2, canOpenPath: true,
+      bootId: 'boot-1', version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2, canOpenPath: true,
     })
-    expect(value).toMatchObject({ provider: 'p', model: 'm', attachedSessions: 2, canOpenPath: true })
+    expect(value).toMatchObject({ bootId: 'boot-1', provider: 'p', model: 'm', attachedSessions: 2, canOpenPath: true })
     expect(hostDescribeValueSchema.parse({
-      version: '1', cwd: '/x', attachedSessions: 0, canOpenPath: false,
+      bootId: 'boot-1', version: '1', cwd: '/x', attachedSessions: 0, canOpenPath: false,
     }).provider).toBeUndefined()
     expect(() => hostDescribeValueSchema.parse({
       version: '1', cwd: '/x', attachedSessions: 0,
@@ -437,6 +484,17 @@ describe('goals domain schemas', () => {
 })
 
 describe('events frame schemas', () => {
+  it('validates mux resume cursors', () => {
+    expect(eventsMuxRequestSchema.parse({ since: { s1: -1, s2: 4 } })).toEqual({ since: { s1: -1, s2: 4 } })
+    expect(eventsMuxRequestSchema.parse({})).toEqual({})
+    for (const invalid of [
+      { since: { s1: -2 } },
+      { since: { s1: 0.5 } },
+      { since: { '': 0 } },
+      { since: [] },
+    ]) expect(() => eventsMuxRequestSchema.parse(invalid)).toThrow()
+  })
+
   it('accepts every mux frame branch', () => {
     const frames = [
       { type: 'session/event', sessionId: 's', event: { type: 't', seq: 0, time: 1, data: null } },

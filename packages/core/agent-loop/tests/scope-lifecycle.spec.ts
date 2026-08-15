@@ -989,6 +989,47 @@ describe('agent scope lifecycle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('closes a factory-owned agent by id, rejects later admission, and flushes before detach', async () => {
+    const ctx = await harness()
+    const sessionId = SessionId('registry-close')
+    const cleanupStarted = Promise.withResolvers<undefined>()
+    const cleanupGate = Promise.withResolvers<undefined>()
+    const handle = await ctx.agents.create({
+      sessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+      setup(agentCtx) {
+        agentCtx.effect(() => async () => {
+          cleanupStarted.resolve(undefined)
+          await cleanupGate.promise
+        })
+      },
+    })
+    const flushes: Array<{ agentLive: boolean; sessionLive: boolean }> = []
+    ctx.on('session/flush', (session) => {
+      if (session.id !== sessionId) return
+      flushes.push({
+        agentLive: ctx.agents.get(sessionId) === handle.agent,
+        sessionLive: ctx.sessions.get(sessionId) === session,
+      })
+    })
+
+    const first = ctx.agents.close(sessionId)
+    const second = ctx.agents.close(sessionId)
+    await cleanupStarted.promise
+    expect(() => {
+      handle.agent.followup(createUserMessage({ content: text('late'), source: { kind: 'user' } }))
+    })
+      .toThrow('agent "registry-close" is closing')
+    expect(ctx.agents.get(sessionId)).toBe(handle.agent)
+    cleanupGate.resolve(undefined)
+
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true])
+    expect(flushes).toEqual([{ agentLive: true, sessionLive: true }])
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
+    expect(ctx.sessions.get(sessionId)).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
   it('owner unload after handle-first teardown follows the same in-flight boundary', async () => {
     const ctx = await harness()
     const gate = Promise.withResolvers<undefined>()

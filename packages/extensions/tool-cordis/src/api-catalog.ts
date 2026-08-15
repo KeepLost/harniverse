@@ -261,15 +261,21 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the handle after setup, rollback-covered publication, and loop start complete.',
       },
       {
+        signature: 'async close(id: SessionId): Promise<boolean>',
+        description: 'Close one live factory-owned Agent through its exact lifecycle disposer. Concurrent callers join the same quiescence boundary. Externally registered Agents have no teardown capability and reject.',
+        parameters: [{ name: 'id', description: 'live Agent identity to close.' }],
+        returns: '`false` when no live Agent has that identity, otherwise `true` after its Agent and Session have detached.',
+      },
+      {
         signature: 'register(agent: Agent): () => void',
         description: 'Register a live agent. Throws if an agent with the same id is already registered. Emits `agent/created` on registration and `agent/disposed` when the calling fiber is disposed — both with the agent\'s scope carrier (`scopeTarget(agent, agent)`): the subject is the agent in hand, so the emits are scope-filtered regardless of which context invoked `register` (calling through `agent.ctx` scopes EFFECTS; dispatch scoping always requires passing the carrier). Returns the disposer.',
         parameters: [{ name: 'agent', description: 'the already-constructed agent to record in the store.' }],
         returns: 'the EXACT Cordis effect disposer (single-shot; a repeat call returns undefined without awaiting an in-flight teardown). Exact identity is load-bearing: a composite (generator) effect that owns a teardown ORDER — the agent factory\'s lifecycle chain — must yield THIS function so Cordis nests the unregistration at that yield position; yielding a wrapper would leave it disposing as a concurrent sibling on owner unload, unregistering the agent (and emitting `agent/disposed`) while its final turn is still draining.',
       },
       {
-        signature: 'enter(agent: Agent, owner: Agent | undefined): () => void',
+        signature: 'enter(agent: Agent, owner: Agent | undefined, close?: () => Promise<void>): () => void',
         description: 'Insert an already-constructed agent without announcing it. This is the advanced ordered-lifecycle primitive used by the async agent factory: it first completes setup while the agent is unpublished, then assigns the returned detach closure into its pre-installed composite teardown before calling announce. Ordinary callers use register.',
-        parameters: [{ name: 'agent', description: 'the prepared, unpublished agent.' }, { name: 'owner', description: 'live agent whose scoped context created this agent, or undefined for a top-level runtime root. This is runtime ownership, not the resumed session\'s durable parent lineage.' }],
+        parameters: [{ name: 'agent', description: 'the prepared, unpublished agent.' }, { name: 'owner', description: 'live agent whose scoped context created this agent, or undefined for a top-level runtime root. This is runtime ownership, not the resumed session\'s durable parent lineage.' }, { name: 'close', description: 'factory-owned quiescent teardown capability, when this registry must support explicit lifecycle closure.' }],
         returns: 'an idempotent closure that removes this exact entry and emits `agent/disposed` with listener failures contained. When called from a synchronous `agent/created` listener, removal and disposal wait until that creation dispatch unwinds.',
       },
       {
@@ -1039,6 +1045,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'id', description: 'the session the batch belongs to.' }, { name: 'events', description: 'the contiguous batch to persist, in seq order.' }],
       },
       {
+        signature: 'abstract delete(id: SessionId): Promise<boolean>',
+        description: 'Delete one cold materialized session. Implementations serialize deletion against reads, writes, repairs, and preparations for the same id; a live Session or an exclusive unpublished preparation rejects.',
+        parameters: [{ name: 'id', description: 'persisted session id to delete.' }],
+        returns: '`true` when durable storage was removed, `false` when absent.',
+      },
+      {
         signature: 'async prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation>',
         description: 'Prepare the exact unpublished Session used by resume. Implementations may reuse object graphs retained by an earlier inspect after confirming their durable revision is still current; disposal releases an unpublished reservation. Revision retries require the durable log to remain unchanged for one read/check round trip; continuous external writers may delay completion.',
         parameters: [{ name: 'id', description: 'persisted session to prepare.' }, { name: 'signal', description: 'optional cancellation for preparation work.' }],
@@ -1092,6 +1104,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Durably checkpoint one live session NOW (both mandatory points call this; tests and carriers may too). The registry cut is snapshotted at this boundary (states are live references), then the whole record is replaced. NOT fail-soft — callers on the fail-soft paths contain it.',
         parameters: [{ name: 'session', description: 'the live session to checkpoint.' }],
         returns: 'resolution after durability and event emission.',
+      },
+      {
+        signature: 'async delete(meta: SessionHeader): Promise<void>',
+        description: 'Remove one lifecycle\'s derived checkpoint and fence its delayed write-backs. A later lifecycle under the same id has a different identity and may write.',
+        parameters: [{ name: 'meta', description: 'immutable identity of the deleted session log.' }],
       },
       {
         signature: 'async coldSnapshot(id: SessionId, signal?: AbortSignal): Promise<ProjectionSnapshot>',
@@ -2140,10 +2157,27 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the complete committed workspace order.',
       },
       {
+        signature: 'beginSessionDeletion(sessionId: SessionId): Promise<void>',
+        description: 'Durably mark one Session deletion before its authoritative log commit.',
+        parameters: [{ name: 'sessionId', description: 'Session whose cross-store deletion is starting.' }],
+        returns: 'resolution after the recovery marker is durable.',
+      },
+      {
+        signature: 'completeSessionDeletion(sessionId: SessionId): Promise<void>',
+        description: 'Clear one Session deletion marker after every workspace/archive reference is gone.',
+        parameters: [{ name: 'sessionId', description: 'Session whose derived cleanup committed.' }],
+        returns: 'resolution after the marker is durably cleared.',
+      },
+      {
         signature: 'archiveSession(sessionId: SessionId): Promise<void>',
         description: 'Archive one session durably. The session must exist (live or in session persistence); its workspace accounting — or lack of one — is irrelevant. An already archived id resolves without writing.',
         parameters: [{ name: 'sessionId', description: 'The session to archive.' }],
         returns: 'resolution after durability.',
+      },
+      {
+        signature: 'removeSessionReferences(sessionId: SessionId): Promise<void>',
+        description: 'Remove one deleted session from every workspace account and the archive set. The operation is idempotent; the caller commits authoritative Session deletion first so a failed metadata write can converge on retry.',
+        parameters: [{ name: 'sessionId', description: 'deleted session identity.' }],
       },
       {
         signature: 'async resolveByPath(path: string): Promise<Workspace | undefined>',
@@ -3635,7 +3669,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RpcErrorDetailsMap',
-    declaration: 'export interface RpcErrorDetailsMap {\n    \'bad-request\': {\n        issues: ZodIssue[];\n    };\n    \'cancelled\': {};\n    \'session-not-found\': {\n        sessionId: SessionId;\n    };\n    \'model-unavailable\': {\n        provider: string;\n        model: string;\n    };\n    \'session-conflict\': {\n        sessionId: SessionId;\n        requestedCwd: string;\n        existingCwd?: string;\n    };\n    \'invalid-time-zone\': {\n        value: string;\n    };\n    \'workspace-attach-failed\': {\n        sessionId: SessionId;\n        workspaceId: string;\n    };\n    \'workspace-not-found\': {\n        workspaceId: string;\n    };\n    \'workspace-invalid-path\': {\n        path: string;\n    };\n    \'workspace-name-conflict\': {\n        name: string;\n    };\n    \'workspace-move-invalid\': {\n        workspaceId: string;\n        sessionId: SessionId;\n        beforeSessionId?: SessionId;\n    };\n    \'directory-unreadable\': {\n        path: string;\n    };\n    \'directory-exists\': {\n        path: string;\n    };\n    \'directory-create-failed\': {\n        path: string;\n    };\n    \'directory-picker-unavailable\': {\n        capability: string;\n    };\n    \'agent-preset-read-only\': {\n        agentPreset: string;\n        reason: string;\n    };\n    \'agent-preset-locked\': {\n        sessionId: SessionId;\n        agentPreset: string;\n    };\n    \'agent-preset-conflict\': {\n        sessionId: SessionId;\n        requestedPreset: string;\n        existingPreset?: string;\n    };\n    \'agent-preset-not-found\': {\n        agentPreset: string;\n      /* …truncated — full shape in source */',
+    declaration: 'export interface RpcErrorDetailsMap {\n    \'bad-request\': {\n        issues: ZodIssue[];\n    };\n    \'cancelled\': {};\n    \'session-not-found\': {\n        sessionId: SessionId;\n    };\n    \'model-unavailable\': {\n        provider: string;\n        model: string;\n    };\n    \'session-conflict\': {\n        sessionId: SessionId;\n        requestedCwd: string;\n        existingCwd?: string;\n    };\n    \'session-has-children\': {\n        sessionId: SessionId;\n        childSessionIds: SessionId[];\n    };\n    \'invalid-time-zone\': {\n        value: string;\n    };\n    \'workspace-attach-failed\': {\n        sessionId: SessionId;\n        workspaceId: string;\n    };\n    \'workspace-not-found\': {\n        workspaceId: string;\n    };\n    \'workspace-invalid-path\': {\n        path: string;\n    };\n    \'workspace-name-conflict\': {\n        name: string;\n    };\n    \'workspace-move-invalid\': {\n        workspaceId: string;\n        sessionId: SessionId;\n        beforeSessionId?: SessionId;\n    };\n    \'directory-unreadable\': {\n        path: string;\n    };\n    \'directory-exists\': {\n        path: string;\n    };\n    \'directory-create-failed\': {\n        path: string;\n    };\n    \'directory-picker-unavailable\': {\n        capability: string;\n    };\n    \'agent-preset-read-only\': {\n        agentPreset: string;\n        reason: string;\n    };\n    \'agent-preset-locked\': {\n        sessionId: SessionId;\n        agentPreset: string;\n    };\n    \'agent-preset-conflict\': {\n        sessionId: SessionId;\n        requestedPreset: string;\n  /* …truncated — full shape in source */',
   },
   {
     name: 'RpcId',

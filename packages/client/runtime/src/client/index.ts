@@ -202,6 +202,7 @@ export function apply(ctx: Context): void {
     'runtime: initial Workspace selection',
   )
   const loop = connection.start({
+    muxSince: () => sessions.muxSince(),
     onMuxEnvelope: (envelope) => {
       sessions.handleMuxEnvelope(envelope)
     },

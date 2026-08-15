@@ -158,9 +158,10 @@ export interface ResumeAgentOptions {
 /**
  * An owned agent plus its disposer, returned by {@link AgentRegistry.create} /
  * {@link AgentRegistry.resume}. The disposer is a CAPABILITY: among consumers,
- * only the holder can tear this agent down. The registered factory provider is
- * also a structural owner because the scoped agent depends on that provider's
- * service API; provider unload stops and drains every live handle it made.
+ * only the holder and the owning registry can tear this agent down. The
+ * registered factory provider is also a structural owner because the scoped
+ * agent depends on that provider's service API; provider unload stops and
+ * drains every live handle it made.
  * `dispose()` stops the loop, awaits its exit, unregisters the agent, removes
  * its session from the store, and finally unwinds its scoped world.
  *
@@ -225,6 +226,8 @@ interface AgentEntry {
   /** Runtime creator-agent ownership; independent of durable session lineage. */
   readonly owner: Agent | undefined
   readonly carrier: Scoped<Agent>
+  /** Factory-owned quiescent teardown, absent for externally registered agents. */
+  readonly close?: () => Promise<void>
   announced: boolean
   announcing: boolean
   detachRequested: boolean
@@ -430,6 +433,22 @@ export class AgentRegistry extends Service {
   }
 
   /**
+   * Close one live factory-owned Agent through its exact lifecycle disposer.
+   * Concurrent callers join the same quiescence boundary. Externally
+   * registered Agents have no teardown capability and reject.
+   * @param id - live Agent identity to close.
+   * @returns `false` when no live Agent has that identity, otherwise `true`
+   *   after its Agent and Session have detached.
+   */
+  async close(id: SessionId): Promise<boolean> {
+    const entry = this.store.get(id)
+    if (entry === undefined) return false
+    if (entry.close === undefined) throw new Error(`agent "${id}" is not factory-owned`)
+    await entry.close()
+    return true
+  }
+
+  /**
    * Register a live agent. Throws if an agent with the same id is already
    * registered. Emits `agent/created` on registration and `agent/disposed`
    * when the calling fiber is disposed — both with the agent's scope carrier
@@ -466,12 +485,14 @@ export class AgentRegistry extends Service {
    * @param owner - live agent whose scoped context created this agent, or
    *   undefined for a top-level runtime root. This is runtime ownership, not
    *   the resumed session's durable parent lineage.
+   * @param close - factory-owned quiescent teardown capability, when this
+   *   registry must support explicit lifecycle closure.
    * @returns an idempotent closure that removes this exact entry and emits
    *   `agent/disposed` with listener failures contained. When called from a
    *   synchronous `agent/created` listener, removal and disposal wait until
    *   that creation dispatch unwinds.
    */
-  enter(agent: Agent, owner: Agent | undefined): () => void {
+  enter(agent: Agent, owner: Agent | undefined, close?: () => Promise<void>): () => void {
     const id = agent.id
     if (id !== agent.session.id) {
       throw new Error(`agent id "${id}" does not match session id "${agent.session.id}"`)
@@ -485,6 +506,7 @@ export class AgentRegistry extends Service {
       agent,
       owner,
       carrier,
+      ...(close === undefined ? {} : { close }),
       announced: false,
       announcing: false,
       detachRequested: false,

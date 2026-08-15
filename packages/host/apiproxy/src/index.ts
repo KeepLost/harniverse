@@ -16,7 +16,9 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type { ApiProxy } from './api/index.ts'
-import { createApiProxy, DEFAULT_COLD_BLANK_PROBE_MAX_BYTES } from './api-proxy.ts'
+import {
+  createApiProxy, DEFAULT_COLD_BLANK_PROBE_MAX_BYTES, DEFAULT_STREAM_QUEUE_MAX_FRAMES,
+} from './api-proxy.ts'
 import {
   DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
   type SessionLogCompressionLevel,
@@ -59,6 +61,8 @@ export interface Config {
    * @default 1024
    */
   coldBlankProbeMaxBytes?: number
+  /** Maximum retained frames per live stream before it fails for resumable reconnect. @default 1024 */
+  streamQueueMaxFrames?: number
 }
 
 /**
@@ -77,6 +81,7 @@ export class ApiProxyService extends Service implements ApiProxy {
     sessionExportCompressionLevel: z.number().step(1).min(0).max(9)
       .default(DEFAULT_SESSION_LOG_COMPRESSION_LEVEL) as z<SessionLogCompressionLevel>,
     coldBlankProbeMaxBytes: z.natural().default(DEFAULT_COLD_BLANK_PROBE_MAX_BYTES),
+    streamQueueMaxFrames: z.natural().min(1).default(DEFAULT_STREAM_QUEUE_MAX_FRAMES),
   })
 
   readonly sessions: ApiProxy['sessions']
@@ -106,6 +111,9 @@ export class ApiProxyService extends Service implements ApiProxy {
       ...(config.coldBlankProbeMaxBytes === undefined
         ? {}
         : { coldBlankProbeMaxBytes: config.coldBlankProbeMaxBytes }),
+      ...(config.streamQueueMaxFrames === undefined
+        ? {}
+        : { streamQueueMaxFrames: config.streamQueueMaxFrames }),
     })
     this.sessions = api.sessions
     this.subagents = api.subagents

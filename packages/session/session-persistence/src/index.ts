@@ -143,6 +143,15 @@ export abstract class SessionPersistence extends Service {
   abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 
   /**
+   * Delete one cold materialized session. Implementations serialize deletion
+   * against reads, writes, repairs, and preparations for the same id; a live
+   * Session or an exclusive unpublished preparation rejects.
+   * @param id - persisted session id to delete.
+   * @returns `true` when durable storage was removed, `false` when absent.
+   */
+  abstract delete(id: SessionId): Promise<boolean>
+
+  /**
    * Prepare the exact unpublished Session used by resume. Implementations may
    * reuse object graphs retained by an earlier {@link inspect} after confirming
    * their durable revision is still current; disposal releases an unpublished

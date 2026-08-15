@@ -20,6 +20,8 @@ import {
 import {
   sessionCancelValueSchema,
   sessionAttachmentValueSchema,
+  sessionCloseValueSchema,
+  sessionDeleteValueSchema,
   sessionCreateValueSchema,
   sessionForkValueSchema,
   sessionHistoryValueSchema,
@@ -30,7 +32,9 @@ import {
   sessionSearchValueSchema,
   sessionSelectModelValueSchema,
   sessionUpdateQueueValueSchema,
+  sessionWorkStatusValueSchema,
 } from '../api/sessions.schema.ts'
+import { sessionStatusValueSchema } from '../api/session-status.schema.ts'
 import {
   workspaceArchiveSessionValueSchema,
   workspaceCreateValueSchema,
@@ -90,6 +94,8 @@ export interface IApiClient {
     search(payload: RequestPayload<'session.search'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.search'>>>
     create(payload: RequestPayload<'session.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.create'>>>
     history(payload: RequestPayload<'session.history'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.history'>>>
+    status(payload: RequestPayload<'session.status'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.status'>>>
+    workStatus(payload: RequestPayload<'session.workStatus'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.workStatus'>>>
     models(payload: RequestPayload<'session.models'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.models'>>>
     selectModel(payload: RequestPayload<'session.selectModel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.selectModel'>>>
     rename(payload: RequestPayload<'session.rename'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.rename'>>>
@@ -98,6 +104,8 @@ export interface IApiClient {
     attachment(payload: RequestPayload<'session.attachment'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.attachment'>>>
     updateQueue(payload: RequestPayload<'session.updateQueue'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.updateQueue'>>>
     cancel(payload: RequestPayload<'session.cancel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.cancel'>>>
+    close(payload: RequestPayload<'session.close'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.close'>>>
+    delete(payload: RequestPayload<'session.delete'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.delete'>>>
   }
   subagents: {
     list(payload: RequestPayload<'subagent.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.list'>>>
@@ -174,6 +182,8 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'session.search': sessionSearchValueSchema,
   'session.create': sessionCreateValueSchema,
   'session.history': sessionHistoryValueSchema,
+  'session.status': sessionStatusValueSchema,
+  'session.workStatus': sessionWorkStatusValueSchema,
   'session.models': sessionModelsValueSchema,
   'session.selectModel': sessionSelectModelValueSchema,
   'session.rename': sessionRenameValueSchema,
@@ -182,6 +192,8 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'session.attachment': sessionAttachmentValueSchema,
   'session.updateQueue': sessionUpdateQueueValueSchema,
   'session.cancel': sessionCancelValueSchema,
+  'session.close': sessionCloseValueSchema,
+  'session.delete': sessionDeleteValueSchema,
   'subagent.list': subagentListValueSchema,
   'subagent.history': subagentHistoryValueSchema,
   'subagent.prompt': subagentPromptValueSchema,
@@ -350,8 +362,12 @@ export abstract class AbstractApiClient implements IApiClient {
   }
 
   /** Mux stream opener; virtual for the same override reason as callUnary. */
-  protected openMux(_payload: Parameters<ApiProxy['events']['mux']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<MuxFrame>> {
-    return this.readSse('/api/events.mux', signal, muxFrameSchema, onOpen)
+  protected openMux(payload: Parameters<ApiProxy['events']['mux']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<MuxFrame>> {
+    const since = payload.since
+    const path = since === undefined || Object.keys(since).length === 0
+      ? '/api/events.mux'
+      : `/api/events.mux?${new URLSearchParams({ since: JSON.stringify(since) }).toString()}`
+    return this.readSse(path, signal, muxFrameSchema, onOpen)
   }
 
   /** Host stream opener; virtual. */
@@ -414,6 +430,8 @@ export abstract class AbstractApiClient implements IApiClient {
     search: (payload, signal) => this.callUnary('session.search', payload, signal),
     create: (payload, signal) => this.callUnary('session.create', payload, signal),
     history: (payload, signal) => this.callUnary('session.history', payload, signal),
+    status: (payload, signal) => this.callUnary('session.status', payload, signal),
+    workStatus: (payload, signal) => this.callUnary('session.workStatus', payload, signal),
     models: (payload, signal) => this.callUnary('session.models', payload, signal),
     selectModel: (payload, signal) => this.callUnary('session.selectModel', payload, signal),
     rename: (payload, signal) => this.callUnary('session.rename', payload, signal),
@@ -422,6 +440,8 @@ export abstract class AbstractApiClient implements IApiClient {
     attachment: (payload, signal) => this.callUnary('session.attachment', payload, signal),
     updateQueue: (payload, signal) => this.callUnary('session.updateQueue', payload, signal),
     cancel: (payload, signal) => this.callUnary('session.cancel', payload, signal),
+    close: (payload, signal) => this.callUnary('session.close', payload, signal),
+    delete: (payload, signal) => this.callUnary('session.delete', payload, signal),
   }
 
   readonly subagents: IApiClient['subagents'] = {

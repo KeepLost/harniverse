@@ -6,7 +6,7 @@
 
 import { z } from 'zod'
 import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-questions/types'
-import type { HostFrame, MuxFrame } from './events.ts'
+import type { EventsApi, HostFrame, MuxFrame } from './events.ts'
 import type { Wire } from './rpc.schema.ts'
 import { rpcErrorSchema, rpcIdSchema } from './rpc.schema.ts'
 import { approvalRequestIdSchema } from './approvals.schema.ts'
@@ -15,6 +15,11 @@ import {
 } from './sessions.schema.ts'
 import { taskViewSchema } from './jobs.schema.ts'
 import { workspaceIdSchema, workspaceViewSchema } from './workspace.schema.ts'
+
+/** events.mux payload, also used to validate the no-envelope query carrier. */
+export const eventsMuxRequestSchema = z.object({
+  since: z.record(z.string().min(1), z.number().int().min(-1)).optional(),
+}) as z.ZodType<Wire<Parameters<EventsApi['mux']>[0]['payload']>>
 
 /** Question fields validated strictly against core dsh-user-questions. */
 export const askUserQuestionItemSchema = z.object({
@@ -32,11 +37,18 @@ export const askUserQuestionItemSchema = z.object({
 }) satisfies z.ZodType<Wire<AskUserQuestionItem>>
 
 /** Unified message envelope carried by transient queue frames. */
-const messageSchema = z.object({
-  id: z.string().min(1),
+export const messageSchema = z.object({
+  id: messageIdSchema,
   role: z.union([z.literal('system'), z.literal('user'), z.literal('assistant')]),
   content: z.array(contentBlockSchema),
   source: z.looseObject({ kind: z.string() }),
+})
+
+/** One transient inbox item shared by mux frames and unary status snapshots. */
+export const queuedInboxItemSchema = z.object({
+  id: messageIdSchema,
+  placement: z.union([z.literal('queued'), z.literal('steering'), z.literal('context')]),
+  message: messageSchema,
 })
 
 /** MuxFrame union (payload slot of a mux-stream ServerRequest). */
@@ -53,11 +65,7 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('session/queue'),
     sessionId: sessionIdSchema,
-    items: z.array(z.object({
-      id: messageIdSchema,
-      placement: z.union([z.literal('queued'), z.literal('steering'), z.literal('context')]),
-      message: messageSchema,
-    })),
+    items: z.array(queuedInboxItemSchema),
   }),
   z.object({ type: z.literal('session/jobs'), sessionId: sessionIdSchema, jobs: z.array(taskViewSchema) }),
   // value stays wide: it already passed its unit's own schema on the host,

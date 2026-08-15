@@ -16,11 +16,15 @@ export class WebApiClient extends AbstractApiClient {
   }
 
   protected override openMux(
-    _payload: Parameters<ApiProxy['events']['mux']>[0]['payload'],
+    payload: Parameters<ApiProxy['events']['mux']>[0]['payload'],
     signal: AbortSignal,
     onOpen?: () => void,
   ): AsyncIterable<RpcRequest<MuxFrame>> {
-    return this.readWebSocket(MUX_EVENTS_PATH, signal, muxFrameSchema, onOpen)
+    const since = payload.since
+    const path = since === undefined || Object.keys(since).length === 0
+      ? MUX_EVENTS_PATH
+      : `${MUX_EVENTS_PATH}?${new URLSearchParams({ since: JSON.stringify(since) }).toString()}`
+    return this.readWebSocket(path, signal, muxFrameSchema, onOpen)
   }
 
   protected override openHost(

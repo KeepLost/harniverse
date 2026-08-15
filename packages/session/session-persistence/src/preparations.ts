@@ -44,6 +44,15 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
   }
 
   /**
+   * Observe the current preparation phase for deletion arbitration.
+   * @param id - session identity.
+   * @returns the phase, or `undefined` when no preparation exists.
+   */
+  phase(id: SessionId): 'loading' | 'ready' | 'committing' | 'reserved' | undefined {
+    return this.entries.get(id)?.phase
+  }
+
+  /**
    * Observe one prepared source, sharing an in-flight read for the same id.
    * @param id - session identity.
    * @param load - cold loader used when no entry exists.

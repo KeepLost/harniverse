@@ -28,7 +28,20 @@ async function composed(workspaces: readonly Workspace[] = []): Promise<Context>
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(UserQuestionService)
-  ctx.provide('workspaceRegistry', { list: () => workspaces } as never)
+  const pendingSessionDeletionIds = new Set<SessionId>()
+  ctx.provide('workspaceRegistry', {
+    list: () => workspaces,
+    get pendingSessionDeletionIds() { return [...pendingSessionDeletionIds] },
+    beginSessionDeletion: (id: SessionId) => {
+      pendingSessionDeletionIds.add(id)
+      return Promise.resolve()
+    },
+    completeSessionDeletion: (id: SessionId) => {
+      pendingSessionDeletionIds.delete(id)
+      return Promise.resolve()
+    },
+    removeSessionReferences: () => Promise.resolve(),
+  } as never)
   ctx.agents.setFactory({
     createAgent: async (ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle> => {
       const session = ctx.sessions.create(options.sessionId, {
@@ -196,6 +209,58 @@ describe('sessions.fork', () => {
       cwd: '/proj',
     })
     expect(ctx.sessions.get(response.result.value.sessionId)?.header.origin).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('lets an in-flight fork publish before delete performs its leaf check', async () => {
+    const ctx = await composed()
+    const sourceId = sid('session-fork-delete-race')
+    const header: SessionHeader = { version: 0, id: sourceId, createdAt: 1, cwd: '/proj' }
+    const events = [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+      {
+        type: 'user/message',
+        seq: 1,
+        time: 2,
+        data: createUserMessage({ content: [{ type: 'text', text: 'work' }], source: { kind: 'user' } }),
+        surfaceOp: 'append',
+      },
+      { type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
+    ] as SessionEvent[]
+    const records = [{ header, live: false, persisted: true }]
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve(records.filter(record => record.persisted).map(record => record.header)),
+      inspect: () => Promise.resolve({ meta: header, events }),
+      delete: vi.fn(() => Promise.resolve(true)),
+    } as never)
+    ctx.provide('sessionQuery', { listSessions: () => Promise.resolve(records) } as never)
+    ctx.provide('sessionProjectionCache', { delete: () => Promise.resolve() } as never)
+    const proxy = api(ctx)
+    const create = ctx.agents.create.bind(ctx.agents)
+    let releaseCreate!: () => void
+    const createGate = new Promise<void>((resolve) => { releaseCreate = resolve })
+    let enteredCreate!: () => void
+    const createEntered = new Promise<void>((resolve) => { enteredCreate = resolve })
+    vi.spyOn(ctx.agents, 'create').mockImplementation(async (options) => {
+      enteredCreate()
+      await createGate
+      const handle = await create(options)
+      records.push({ header: handle.agent.session.header, live: true, persisted: true })
+      return handle
+    })
+
+    const forking = proxy.sessions.fork(request({ sessionId: sourceId }))
+    await createEntered
+    const deleting = proxy.sessions.delete(request({ sessionId: sourceId }))
+    releaseCreate()
+
+    const forked = await forking
+    expect(forked.result.ok).toBe(true)
+    const deleted = await deleting
+    expect(deleted.result).toMatchObject({
+      ok: false,
+      error: { code: 'session-has-children' },
+    })
     await ctx.fiber.dispose()
   })
 

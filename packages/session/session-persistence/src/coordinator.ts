@@ -193,6 +193,13 @@ export interface PersistenceBackend<TornMarker = unknown> {
   commitRepair(meta: SessionHeader, tornMarker: TornMarker | undefined, closers: readonly SessionEvent[]): Promise<void>
 
   /**
+   * Remove one materialized identity from durable storage.
+   * @param id - session identity to remove.
+   * @returns whether an artifact or row existed.
+   */
+  deleteStored(id: SessionId): Promise<boolean>
+
+  /**
    * List all stored (materialized) sessions' metadata.
    * @param signal - optional cancellation for backend listing work.
    */
@@ -599,6 +606,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * same id, so writes for one session never interleave. Keyed by session id.
    */
   private chains = new Map<SessionId, Promise<unknown>>()
+  /** In-flight public deletions; also rejects new work for the same id. */
+  private deletions = new Map<SessionId, Promise<boolean>>()
   /** Resolved fixed write-batching window shared by per-session controllers. */
   private readonly writeBatchMaxDelayMs: number
 
@@ -639,6 +648,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     if (!Number.isSafeInteger(snapshot.createdAt) || snapshot.createdAt < 0) {
       return Promise.reject(new TypeError('session metadata createdAt must be a non-negative safe integer'))
     }
+    try {
+      this.assertNotDeleting(snapshot.id)
+    } catch (error: unknown) {
+      return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+    }
     return this.serialize(snapshot.id, () => this.createCore(snapshot))
   }
 
@@ -667,6 +681,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    *   as a detached lossless-JSON snapshot at call time.
    */
   async append(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
+    this.assertNotDeleting(id)
     // Validate and deep-snapshot the complete batch HERE, in one traversal,
     // before the op waits behind the per-session chain. A check followed by
     // structuredClone would reread accessors and could sanitize an exotic value
@@ -677,6 +692,44 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       throw new TypeError('session event batch is not losslessly JSON-serializable because it contains non-JSON-serializable data')
     }
     return this.serialize(id, () => this.appendCore(id, batch))
+  }
+
+  /**
+   * Delete one cold identity after prior same-id work and retirement settle.
+   * @param id - session identity to delete.
+   * @returns whether durable storage contained the identity.
+   */
+  delete(id: SessionId): Promise<boolean> {
+    const existing = this.deletions.get(id)
+    if (existing !== undefined) return existing
+    const operation = this.deleteCore(id)
+    this.deletions.set(id, operation)
+    void operation.then(() => {
+      if (this.deletions.get(id) === operation) this.deletions.delete(id)
+    }, () => {
+      if (this.deletions.get(id) === operation) this.deletions.delete(id)
+    })
+    return operation
+  }
+
+  private async deleteCore(id: SessionId): Promise<boolean> {
+    await this.waitForRetirement(id)
+    if (this.ctx.sessions.get(id) !== undefined) {
+      throw new Error(`cannot delete session "${id}" while it is live`)
+    }
+    return this.serialize(id, async () => {
+      if (this.ctx.sessions.get(id) !== undefined) {
+        throw new Error(`cannot delete session "${id}" while it is live`)
+      }
+      const phase = this.preparations.phase(id)
+      if (phase === 'committing' || phase === 'reserved') {
+        throw new Error(`cannot delete session "${id}" while its persisted preparation is ${phase}`)
+      }
+      this.preparations.invalidate(id)
+      const deleted = await this.backend.deleteStored(id)
+      this.states.delete(id)
+      return deleted
+    })
   }
 
   private async appendCore(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
@@ -719,6 +772,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    */
   async prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation> {
     for (;;) {
+      this.assertNotDeleting(id)
       await this.waitForRetirement(id, signal)
       if (this.ctx.sessions.get(id) !== undefined) {
         throw new Error(`cannot prepare session "${id}" while it is live`)
@@ -755,6 +809,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    */
   async load(id: SessionId): Promise<SessionInspection> {
     for (;;) {
+      this.assertNotDeleting(id)
       await this.waitForRetirement(id)
       const live = this.ctx.sessions.get(id)
       if (live !== undefined) return this.loadLiveSnapshot(live)
@@ -786,6 +841,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    */
   async inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection> {
     for (;;) {
+      this.assertNotDeleting(id)
       signal?.throwIfAborted()
       if (this.retirements.has(id)) await this.waitForRetirement(id, signal)
       const live = this.ctx.sessions.get(id)
@@ -832,6 +888,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     if (!Number.isSafeInteger(fromSeq) || fromSeq < 0) {
       return Promise.reject(new TypeError(`readFrom fromSeq must be a non-negative safe integer, got ${String(fromSeq)}`))
+    }
+    try {
+      this.assertNotDeleting(id)
+    } catch (error: unknown) {
+      return Promise.reject(error instanceof Error ? error : new Error(String(error)))
     }
     const retired = Promise.resolve(this.retirements.get(id))
     const waited = signal === undefined ? retired : observeQueuedAbort(retired, signal, () => false)
@@ -995,6 +1056,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     return signal === undefined
       ? retired
       : observeQueuedAbort(retired, signal, () => false)
+  }
+
+  private assertNotDeleting(id: SessionId): void {
+    if (this.deletions.has(id)) throw new Error(`session "${id}" is being deleted`)
   }
 
   // Listing is a direct backend read and needs no coordinator state.

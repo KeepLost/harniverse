@@ -246,6 +246,29 @@ describe('open', () => {
     // Overlapping seq-15 frame (== page tail turn/end) was dropped; 16 appended once.
     expect(seqs).toEqual([11, 13, 16])
   })
+
+  it('does not advance its reconnect cursor across a buffered history gap', async () => {
+    const { api, session } = makeSession()
+    const initial = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    const repair = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    let calls = 0
+    api.onHistory = () => ++calls === 1 ? initial.promise : repair.promise
+    const opening = session.open()
+    session.handleMuxEnvelope('r-gap' as never, {
+      type: 'session/event', sessionId: SID, event: ev.user(1, 'after missing zero'),
+    })
+    initial.resolve(ok({
+      events: [],
+      hasMore: false,
+      modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    }))
+    await opening
+    await vi.waitFor(() => { expect(calls).toBe(2) })
+    expect(session.syncCursor()).toBe(-1)
+
+    repair.resolve(ok({ events: entries([ev.turnStart(0, 1)]) as never[], hasMore: false }))
+    await vi.waitFor(() => { expect(session.syncCursor()).toBe(1) })
+  })
 })
 
 
@@ -263,6 +286,32 @@ describe('live event path', () => {
     session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.user(3, '重放') })
     await Promise.resolve()
     expect(session.getSnapshot().nodes).toEqual(before.nodes)
+  })
+
+  it('publishes only its contiguous ordinary-session cursor', async () => {
+    const { api, session } = makeSession()
+    expect(session.syncCursor()).toBeUndefined()
+    api.onHistory = () => histResponse([])
+    await session.open()
+    expect(session.syncCursor()).toBe(-1)
+    session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.user(0, 'first') })
+    expect(session.syncCursor()).toBe(0)
+    session.configureSubagent({ parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' })
+    expect(session.syncCursor()).toBeUndefined()
+  })
+
+  it('repairs before accepting seq one into an empty open window', async () => {
+    const { api, session } = await opened([])
+    api.onHistory = payload => payload.afterSeq === -1
+      ? histResponse([ev.turnStart(0, 1)])
+      : Promise.resolve(err({ code: 'internal', message: 'unexpected history mode', details: {} }))
+
+    session.handleMuxEnvelope('r-empty-gap' as never, {
+      type: 'session/event', sessionId: SID, event: ev.user(1, 'after missing zero'),
+    })
+
+    expect(session.syncCursor()).toBe(-1)
+    await vi.waitFor(() => { expect(session.syncCursor()).toBe(1) })
   })
 
   it('keeps the authoritative host blank bit across unrelated log events', async () => {
@@ -726,6 +775,33 @@ describe('remaining branches', () => {
     expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([1, 3, 7, 9])
   })
 
+  it('repulls an empty history when the subscribed baseline reports durable events', async () => {
+    const { api, session } = makeSession()
+    let call = 0
+    api.onHistory = () => histResponse(++call === 1 ? [] : [ev.turnStart(0, 1), ev.user(1, 'present')])
+    session.handleMuxEnvelope('rs-empty' as never, {
+      type: 'session/subscribed', sessionId: SID, lastSeq: 1,
+    })
+
+    await session.open()
+
+    expect(call).toBe(2)
+    expect(session.syncCursor()).toBe(1)
+  })
+
+  it('rebases an open window when the host subscription tail rolled back', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(6, 1, 'local', 'tail'))
+    await session.open()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'host', 'truth'))
+
+    session.handleMuxEnvelope('rollback' as never, {
+      type: 'session/subscribed', sessionId: SID, lastSeq: 5,
+    })
+
+    await vi.waitFor(() => { expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([1, 3]) })
+  })
+
   it('a failed second stitch pull keeps the first window and still opens', async () => {
     const { api, session } = makeSession()
     let call = 0
@@ -797,6 +873,52 @@ describe('remaining branches', () => {
     } finally {
       errorSpy.mockRestore()
     }
+  })
+
+  it('repairs an ordinary-session gap with exclusive forward event pages', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.open()
+    const later = plainTurn(6, 1, 'c', 'd')
+    api.onHistory = payload => payload.afterSeq === 5
+      ? histResponse(later)
+      : Promise.resolve(err({ code: 'internal', message: 'unexpected history mode', details: {} }))
+
+    session.handleMuxEnvelope('gap' as never, {
+      type: 'session/event', sessionId: SID, event: later.at(-1) as SessionEvent,
+    })
+
+    await vi.waitFor(() => {
+      expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([1, 3, 7, 9])
+    })
+    expect(api.callsOf('session.history').at(-1)).toEqual({
+      sessionId: SID, afterSeq: 5, maxEvents: 500,
+    })
+  })
+
+  it('continues forward repair when a second buffered gap appears in flight', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.open()
+    const firstRepair = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    let repairs = 0
+    api.onHistory = (payload) => {
+      repairs++
+      if (repairs === 1) return firstRepair.promise
+      expect(payload).toMatchObject({ afterSeq: 7, maxEvents: 500 })
+      return histResponse([ev.chunkStart(8, 2)])
+    }
+
+    session.handleMuxEnvelope('gap-one' as never, {
+      type: 'session/event', sessionId: SID, event: ev.user(7, 'after six'),
+    })
+    session.handleMuxEnvelope('gap-two' as never, {
+      type: 'session/event', sessionId: SID, event: ev.assistant(9, 2, 'after eight'),
+    })
+    firstRepair.resolve(ok({ events: entries([ev.turnStart(6, 2)]) as never[], hasMore: false }))
+
+    await vi.waitFor(() => { expect(session.syncCursor()).toBe(9) })
+    expect(repairs).toBe(2)
   })
 
   it('doOpen transport throw of a stale generation is swallowed (generation guard in catch)', async () => {

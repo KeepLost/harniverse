@@ -14,7 +14,7 @@ Status: implemented
 
 持久化是一个具有抽象 Service Definition 的**能力 seam**（[能力 seam](2026-06-13-capability-seams.md)，`dsh-shell` 模板），而非循环或核心逻辑：
 
-1. **接口**（`dsh-session-persistence`，`ctx.sessionPersistence`）：一个抽象的 `SessionPersistence` 服务，提供 `locate`/`create`/`append`/`prepare`/`load`/`inspect`/`readFrom`/`list`/`listSnapshots`。其持久化单元就是现有的 `SessionEvent`（`{ type, seq, time, data }`），原样复用，无转换类型。
+1. **接口**（`dsh-session-persistence`，`ctx.sessionPersistence`）：一个抽象的 `SessionPersistence` 服务，提供 `locate`/`create`/`append`/`delete`/`prepare`/`load`/`inspect`/`readFrom`/`list`/`listSnapshots`。其持久化单元就是现有的 `SessionEvent`（`{ type, seq, time, data }`），原样复用，无转换类型。
 2. **实现**（`dsh-session-persistence-jsonl`）：每个会话一个仅追加的逻辑 JSONL 日志：先是一行 `SessionHeader`，随后是无损表示连续 `SessionEvent` 流的存储记录。符合条件的 `assistant/chunk` 增量连续段默认使用打包行；[带校验和的 Zstandard 帧](2026-07-19-zstandard-jsonl-session-logs.md)是默认物理编码，也可通过配置使用原始行。
 
 长期有效、存在争议的关键选择：
@@ -24,13 +24,14 @@ Status: implemented
 - **文件后端为规范实现，数据库后端为经过验证的直接替换。** `SessionEvent` 1:1 映射到一行 `(session_id, seq, type, time, data)`：`append` 是 INSERT（在一个断言连续 seq 约定的事务中），读取使用 SELECT … ORDER BY seq。`dsh-session-persistence-sqlite` 正是如此：一个 `SessionPersistence` 子类，接口无变化（opencode 在 SQLite/WAL 上采用的正是这种接口形态），且通过与 JSONL 后端相同的 `runPersistenceContract` 测试套件。该约定以相同的语义约束两个后端（惰性物化、逻辑关闭中断轮次、修复只提交一次、连续 seq），一次表达在文件字节上，一次表达在数据库行上。其数据库拥有专用的 application id 与单调递增的 schema 版本。系统会在一个事务中为全新文件创建所有表并写入这两个 header 值；未版本化文件若带有任何用户定义的 schema 对象或应用标识、当前版本文件若带有外部应用标识，以及任何非当前版本文件，都会在修改日志模式之前被拒绝。
 - **元数据在日志之外。** 格式版本、cwd 和谱系是存储关注点，不是可回放的对话状态，因此它们存放在 `dsh-session` 拥有的 `SessionHeader` 中，并通过新的只读属性 `session.header` 附加到 `Session` 上——永远不进入 `SessionEventMap`，永远不到达 `deriveMessages()`。`createdAt` 是以 Unix epoch 毫秒表示的非负安全整数：运行时创建和持久化注册会拒绝小数值，JSONL 会验证解码后的 header，SQLite 则将其存入严格的 `INTEGER` 列。替代方案（一个可合并扩展的 `session/meta` 事件作为日志第 0 行）被否决：日志内事件会自然随 seed/fork 的会话携带，但元数据不是可回放状态，因此显式的日志外 header 边界是更清晰的取舍。（header 最初被拆分为不可变的 `SessionHeader` 加可变的 `SessionSummary`，二者的联合类型为 `SessionMeta`；可变 summary 后来因属于死状态而被移除——见 [移除可变会话摘要](../simplification/2026-06-19-drop-mutable-session-summary.md)。）
 - **`ctx.agents.create()` 和 `ctx.agents.resume()` 是异步工厂；恢复还跨越持久化边界。** `ctx.agents.resume({ resumeSessionId })` 通过 `ctx.sessionPersistence.prepare()` 取得精确的未发布 Session，以持久化 id 发布它，并继续其投影。[Session 准备阶段决策](2026-08-05-session-preparation.md)定义历史检查与恢复之间的复用。agent loop（智能体循环）不会硬注入 `sessionPersistence`（那样会让非持久化的演示永远挂起）；当它不存在时，`resume` 会以明确的错误拒绝。
+- **删除是冷状态下串行化的存储变更。**`SessionPersistence.delete(id)` 会加入并发删除、等待待处理 retirement、与该 id 的读写和修复串行化、使可复用 preparation 状态失效，并拒绝实时 Session 或被独占的未发布 preparation。随后后端删除一个权威身份：JSONL 只 unlink 已验证 transcript，并在 POSIX 上 `fsync` 所在目录；SQLite 删除 Session 行，并在一个事务中级联事件行。重建同一 id 属于不同生命周期。Workspace/archive 引用、投影 checkpoint、查询索引、子级谱系政策和共享附件归各自消费方所有，不属于此存储 seam。
 
 ## 曾考虑的替代方案
 
-上述每个关键选择都在陈述处记录了被否决的替代方案：**过滤分片的规范日志**（Codex 的 `policy.rs` 形式）破坏连续 seq 约定；**截断崩溃的轮次**会静默销毁长时间自主运行中的真实工作；**日志内 `session/meta` 事件作为第 0 行**——元数据不是可回放状态；**有限的非整数 `createdAt` 值**没有生产方，且与整数 Unix 毫秒存储及查询列不一致；**接受非全新的未版本化 SQLite 文件**可能覆盖无关对象或应用标识；**将 `sessionPersistence` 硬注入循环**会让非持久化的演示永远挂起。
+上述每个关键选择都在陈述处记录了被否决的替代方案：**过滤分片的规范日志**（Codex 的 `policy.rs` 形式）破坏连续 seq 约定；**截断崩溃的轮次**会静默销毁长时间自主运行中的真实工作；**日志内 `session/meta` 事件作为第 0 行**——元数据不是可回放状态；**有限的非整数 `createdAt` 值**没有生产方，且与整数 Unix 毫秒存储及查询列不一致；**接受非全新的未版本化 SQLite 文件**可能覆盖无关对象或应用标识；**将 `sessionPersistence` 硬注入循环**会让非持久化的演示永远挂起；**删除实时身份或绕过协调器 unlink**可能与 write-behind 或已保留发布竞争，使同一生命周期重新实体化或只被部分擦除。
 
 格式版本控制：header 携带一个 `version`；冷读取拒绝任何非当前版本。预发布阶段的会话格式仍固定为 `SESSION_FORMAT_VERSION = 0`，不承诺广泛兼容；当持久化用户数据确有需要时，协调器可以负责显式且范围受限的导入升级（[消息标识机制引入前的消息恢复](../bug-fix/2026-07-28-load-pre-identity-session-messages.md)）。仅追加 + 刷写对尾部的不完整写入具有健壮性（冷准备时可容忍），但无法抵御未使用 fsync 时在行写入中途断电；数据库/WAL 后端是该场景下更强的选项。
 
 ## 后果
 
-新增两个包，以及 `dsh-session` 中的元数据约定（`session.header`，`create(id?, options?)` 签名）。收益：持久恢复/fork、读取/回放路径、崩溃容忍，以及基于现有事件溯源日志的宿主侧会话访问，后端可在同一接口下替换。可复用的 `runPersistenceContract` 测试套件以相同的仅追加、连续 seq、惰性物化、逻辑恢复、整数元数据与可序列化语义约束每个后端。持久化完整的逻辑日志还确定了事件保真度：即使 JSONL 将多个 `assistant/chunk` 打包到一条存储行中，每个事件也会精确保留。SQLite 初始化要么提交完整的自有 schema 与 header 标识，要么不留下任何会使下次打开受阻的部分 schema。
+该 seam 带来持久恢复/fork、读取/回放、崩溃容忍、显式冷删除，以及基于同一事件溯源日志的 Host 侧 Session 访问，并允许在一个接口之后替换后端。可复用的 `runPersistenceContract` 测试套件以相同的仅追加、连续 seq、惰性物化、逻辑恢复、删除仲裁、整数元数据与可序列化语义约束每个后端。删除刻意止于日志：附件垃圾回收与跨领域产品政策保持独立，控制面调用方必须让自身派生清理围绕权威删除实现幂等收敛。

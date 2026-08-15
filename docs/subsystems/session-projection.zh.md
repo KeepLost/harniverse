@@ -132,6 +132,13 @@ cachedSnapshot(meta: SessionHeader): ProjectionSnapshot | undefined
 async write(session: Session): Promise<void>
 
 /**
+ * Remove one lifecycle's derived checkpoint and fence its delayed write-backs.
+ * A later lifecycle under the same id has a different identity and may write.
+ * @param meta - immutable identity of the deleted session log.
+ */
+async delete(meta: SessionHeader): Promise<void>
+
+/**
  * Cold-read one persisted session's projections with zero full-log load:
  * cached rows + a persistence `readFrom` tail from the registry's restore
  * floor, refolded by the registry and written back (fail-soft) so the next

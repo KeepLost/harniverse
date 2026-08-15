@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
+import { MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { ApiProxy, GoalRef, HostFrame, MuxFrame, RpcMessage, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy'
 import { InProcessApiClient, RpcId, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
@@ -43,6 +44,18 @@ function scriptedApi(overrides: {
         hasMore: false,
         modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       }),
+      status: r => ok(r, {
+        sessionId: r.payload.sessionId,
+        bootId: 'test-boot' as never,
+        attached: false,
+        running: false,
+        closing: false,
+        lastSeq: -1,
+        queue: [],
+        jobs: [],
+        interactions: [],
+      }),
+      workStatus: r => ok(r, { messageId: r.payload.messageId, status: { state: 'unknown' as const } }),
       models: r => ok(r, {
         current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
         routable: true,
@@ -54,13 +67,15 @@ function scriptedApi(overrides: {
       }),
       rename: r => ok(r, { title: 'renamed', seq: 0 }),
       fork: r => ok(r, { sessionId: sid('s-fork') }),
-      prompt: r => ok(r, { accepted: true as const }),
+      prompt: r => ok(r, { accepted: true as const, messageId: MessageId('m-prompt') }),
       attachment: r => ok(r, {
         attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
         data: 'AA==',
       }),
       updateQueue: r => ok(r, { accepted: true as const }),
       cancel: r => ok(r, { accepted: true as const }),
+      close: r => ok(r, { closed: true as const }),
+      delete: r => ok(r, { deleted: true as const, attachmentsRetained: true as const }),
       ...overrides.sessions,
     },
     subagents: {
@@ -72,7 +87,7 @@ function scriptedApi(overrides: {
     },
     host: {
       describe: r => ok(r, {
-        version: '0-test', cwd: '/t', attachedSessions: 0, canOpenPath: true,
+        bootId: 'test-boot' as never, version: '0-test', cwd: '/t', attachedSessions: 0, canOpenPath: true,
       }),
       pickDirectory: r => ok(r, { path: null }),
       listDirectory: r => ok(r, { path: '/t', home: '/t', crumbs: [], entries: [], truncated: false }),

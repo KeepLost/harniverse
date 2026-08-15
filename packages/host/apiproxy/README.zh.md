@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-所有客户端共用的 API 网关由三部分组成：TypeScript API 约定（`src/api/`，不依赖 Node，可从浏览器导入）、fetch 载体对（`src/fetch/`：宿主侧的 `toFetchHandler`，以及客户端侧的 `AbstractApiClient` 与平台子类）和宿主侧实现（`src/api-proxy.ts`：`createApiProxy` 加上默认导出的 `ApiProxyService` 网关插件，其配置为 `{nativeOpen?, sessionExportCompressionLevel?, coldBlankProbeMaxBytes?}`，提供 `ctx.apiProxy`）。该包不注册任何路由；HTTP 等载体自行包装 `ctx.apiProxy`。随发行版交付的 Web 组合位于 [`packages/bundle/web-app/cordis.patch.yml`](../../bundle/web-app/cordis.patch.yml)，其默认 Agent（智能体）模型选择属于 base 组合包中的 [`@deepseek-ai/dsh-agent-default-model`](../../core/agent-default-model/README.md)。
+所有客户端共用的 API 网关由三部分组成：TypeScript API 约定（`src/api/`，不依赖 Node，可从浏览器导入）、fetch 载体对（`src/fetch/`：宿主侧的 `toFetchHandler`，以及客户端侧的 `AbstractApiClient` 与平台子类）和宿主侧实现（`src/api-proxy.ts`：`createApiProxy` 加上默认导出的 `ApiProxyService` 网关插件，其配置为 `{nativeOpen?, sessionExportCompressionLevel?, coldBlankProbeMaxBytes?, streamQueueMaxFrames?}`，提供 `ctx.apiProxy`）。该包不注册任何路由；HTTP 等载体自行包装 `ctx.apiProxy`。随发行版交付的 Web 组合位于 [`packages/bundle/web-app/cordis.patch.yml`](../../bundle/web-app/cordis.patch.yml)，其默认 Agent（智能体）模型选择属于 base 组合包中的 [`@deepseek-ai/dsh-agent-default-model`](../../core/agent-default-model/README.md)。
 
 ## 共享 Agent 默认值（`agent-default-model` Settings 分节）
 
@@ -24,9 +24,11 @@ Settings 分节中的 `reasoningEffort` 在 agent-default-model 插件配置中�
 
 首个回答认领待处理请求之前，系统会对照该请求校验问题响应。多选题的回答项可以同时携带 `selected` 中的请求选项标签与非空 `custom` 文本；单选题的回答项必须二选一。标签重复、标签未知、id 不匹配、批次不完整以及自定义文本为空都会以 `bad-response` 拒绝。
 
-`session.history` 会读取已附加 Session 的内存状态，或通过持久化检查冷日志，而不会恢复或发布 agent，然后按追加来源的消息边界分页：`maxMessages` 统计以追加方式进入 surface 的 `user/message` 和 `assistant/message` 事件，因此仅供模型使用的替换副本不占用配额。每一页仍是一段连续的原始事件区间，从而让压缩（compaction）的仅日志 `compaction/summary` 记录与引用它的替换留在同一页。
+`session.history` 会读取已附加 Session 的内存状态，或通过持久化检查冷日志，而不会恢复或发布 agent。其后向模式按追加来源的消息边界分页：`maxMessages` 统计以追加方式进入 surface 的 `user/message` 和 `assistant/message` 事件，因此仅供模型使用的替换副本不占用配额。前向模式要求排他的 `afterSeq` 加正整数 `maxEvents`，返回下一段连续的原始事件区间且不携带投影。前向与后向字段不能混用。
 
 `session.history` 的尾页（不带 `beforeSeq`）额外携带一个可选的 `projections` 块——`ctx.sessionProjections`（`@deepseek-ai/dsh-session-projection`）上每个已注册单元的水位线快照，`asOfSeq` = 这些值共同反映到的最后一个事件 seq（空日志为 `-1`）。网关还订阅注册表的变更流，为每个状态发生变化的单元生成一个 `session/projection` mux 帧（`{sessionId, key, value, seq}`——实时推送状态，绝不入日志；客户端按 seq 高者胜维护一个按会话的通用值仓）。载体不持有其他领域的知识（每个值在注册表内部已过其单元自己的 schema；协议 schema 对 `values`/`value` 保持宽松）；loadOlder 页永不携带该块，未装注册表的组合则两个面都不提供。网关拥有两个单元：`sessionListMetadata` 缓存用于 `session.list` 的单调 blank→nonblank 转换与最新真人 prompt 时间；`imageLimits` 则把 prompt 准入时执行的 attachments 配置作为每次启动恒定的值发布（`apply` 保持状态引用不变，因此只靠基线携带、绝不产生变更帧），供客户端在提交前拒绝超限的加入并给上传入口标注上限，后者仅在注册表与 attachments 服务同时组合时激活。
+
+`events.mux({since})` 把每个值解释为该客户端已应用的最后一个连续持久事件 seq。Host 会先安装实时观察，再采样每个已附加 Session 的回放切点，并惰性产出 `session/subscribed` 与 `cursor < seq <= cut`，使启动历史不会填满有界实时队列，最后排空实时缓冲并丢弃重叠项；临时问题、审批、队列、任务和投影仍走各自的快照或实时路径。SSE 与 WebSocket 载体在 mux URL 中编码可选游标表，并在开始流传输前拒绝无效值。`streamQueueMaxFrames` 是每条 Host 流队列的正整数帧数上限（默认 `1024`）；溢出时先排空已接纳帧，再使流失败，让下一连接 generation 从已经推进的游标继续，而不是静默丢帧。
 
 会话日志导出是宿主侧的下载面，不是 RPC：`GET /api/session.export?sessionId=…&includeDescendants=true` 流式返回一个 ZIP，其中每个文件都是会话存储工件的逐字原文（持久化后端的 `readRaw`——按物理编码解码的确切持久化字节，绝非从解析后事件重建），根会话放在其原始基础文件名下，每个子代理后代放在 `subagents/<id>/` 下，每个被任何包含的日志引用的图片放在 `media/<attachmentId>.<ext>` 下（从附件存储读取并校验；共享图片只出现一次）。`HEAD` 会执行相同的根工件准备，并在没有响应 body 的情况下返回状态与响应头，使浏览器 Client 可以在把 GET 交给原生下载管理器前发现流式传输前的失败。每个实时根会话或后代都会在读取原始工件前立即通过权威的 `SessionStore.flush` 持久性屏障；冷会话没有需要 flush 的内存工作。压缩在宿主侧使用 fflate 流式 Zip API 和已验证的 `sessionExportCompressionLevel` 0–9（默认 6），使部署可以在 CPU／延迟与归档大小之间取舍；响应边生成边分块写出，宿主从不把整个归档放进单个缓冲区。响应队列达到 64 KiB 字节高水位后，生产会等待 Consumer pull 恢复正容量；fflate 的同步回调最多只会让该界限多出一次有界输入 push 的输出。请求中止或响应 body 取消会停止血缘与工件工作、终止活跃压缩器，并继续按取消传播，而不会变成 HTTP 500。它要求同时挂载持久化、session-query 与附件服务：任一缺失应答 500，持久化后端不提供每会话原始工件时应答 501，根会话缺失时应答 404，后代缺少存储工件或引用的图片无法读取则整个流失败（fail-loud，绝不静默少导出）。端点由传输层挂载，`ApiProxy.downloads.sessionLog` 实现它。
 
@@ -37,6 +39,10 @@ Settings 分节中的 `reasoningEffort` 在 agent-default-model 插件配置中�
 会话模型选择属于会话领域约定。`session.models` 将当前 `ModelSelection` 与按提供方分组的建议性模型、精确模型的推理元数据和逐提供方查询失败记录分开返回。该选择可能不在这些分组中，也绝不会作为合成行注入；客户端可以提示用户作出另一项选择，而无需把目录变成路由白名单。`session.selectModel` 校验由适配器持有的可选推理强度，并指定下次组装提示词时使用的完整选择。目录成员关系不构成校验：适配器可以解析未列出的模型，而不可用的提供方或不受支持的推理强度会返回 `model-unavailable`。`session.models` 还会报告 `routable`，即当前是否有适配器为所选提供方提供服务。该值刻意不从分组推导，因为适配器可以服务未公布的模型。`session.prompt` 会依据同一事实，在开启轮次之前以 `model-unavailable` 拒绝；客户端禁用 composer 只是提示性设计，这个方法始终可被调用。
 
 `session.prompt` 和 `subagent.prompt` 接受可选的请求本地 `clientTimeZone` 来源信息。若提供该值，Host 会在进入 Agent 前校验 `UTC` 或 IANA Area/Location 并将其规范化；无效输入以 `invalid-time-zone` 拒绝，规范值则与 `rpcId` 一起记录在这条确切的 `user-rpc` 消息上。该值不属于 Session、连接、create、resume 或 fork 状态；非浏览器调用方可以省略它。
+
+`session.prompt` 返回确切获准消息的 `MessageId`；斜杠命令使用独立的 command API，绝不会进入该方法。`session.workStatus({sessionId, messageId})` 从持久 inbox 与轮次记录折叠出 `unknown`、`queued`、`claimed`、`discarded` 或 `settled`；claimed/settled 值携带轮次，settled 还携带持久 `turn/end` 原因。这是工作生命周期关联，不是 assistant 输出归因：多条消息可以共用一个轮次，API 绝不会把某条 assistant 消息命名为某次 prompt 的结果。
+
+`host.describe.bootId` 每个 API Proxy 实例只生成一次，用于跨 Host 重启隔离进程本地观察。`session.status` 在同一个 Session 切点返回该 boot id、attached/running/closing 状态、最后持久 seq、队列、任务和可回答的待处理交互；冷 Session 通过持久化检查而不恢复 Agent，其进程本地集合为空。`session.close` 会停止准入、排空可续行后代并完成 AgentLoop 的完全停稳 scope+flush teardown，同时保留持久 Session 列表项。`session.delete` 只接受冷的持久叶子 Session；按 parent 串行化使进行中的 fork 必须先发布，再执行叶子检查。Workspace 域中的持久标记用于区分恢复与从未存在的 id。删除先拦截延迟投影写回，再提交权威日志删除，最后幂等移除 workspace/archive 引用并清除标记，因此 cleanup 失败或重启后可由重试收敛。cleanup 完成后发送 `host/session-removed`，并报告 `attachmentsRetained: true`；共享的内容寻址附件不属于 Session 删除。
 
 待处理的 queued 输入属于实时控制平面约定，而非对话历史。网关根据持久 `agent/inbox/spliced` 变更派生完整的 `next-turn` 队列，并在每次变更后及重连时广播权威 `session/queue` 快照；待处理的 `next-step` steering（中途引导）不进入此 Web 投影。在 `next-step` 内，用户来源的消息携带 `steering` placement，而注入上下文（审批通知、任务完成、附加快照）携带 `context`，领取前不对外呈现。面向单条消息的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知仍供生命周期观察方使用，但不用于构建队列视图。`session.updateQueue` 通过 `MessageId` 寻址单个项；编辑和移除经已挂载 Agent 的 `Inbox.splice()` 修改队列。认领操作的纯删除 splice 会在 pre-step 准入前赢得竞态，因此之后的操作返回 `queue-item-not-found`。`session.cancel` 仅中止活动轮次并保留待处理 inbox 工作；取消达到完全停稳且结束中的轮次完成 flush 后，AgentLoop 按 FIFO 顺序认领下一条可唤醒消息，浏览器绝不重发或提升它。队列操作绝不恢复冷会话，客户端也绝不根据轮次或状态事件推断某项已退出队列。
 
@@ -76,7 +82,8 @@ Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.cr
 
 - **转发的 Remote 事件寄居在这套 legacy 帧联合里**：`host/remote-event` 住在 `HostFrame` 中，是为了让投递路径复用现有宿主流、不必新开第三条下行通道，因此读起来像是本包拥有 Remote 事件契约。并非如此：名单归 `dsh-api-remotes`，消费端动词是 `ctx.remote.$on`。将来宿主流整体搬离本包时，该帧随之搬走，消费端契约不受影响（[原委](../../../.agents/notes/implemented/architecture/2026-08-10-remote-event-delivery.md)）。
 - **待处理交互状态位于宿主侧**：wire 使用 POST `/api/respond` 加 `RpcReceipt`；`src/api-proxy.ts` 中的表只处理问题，不包含审批条目。
-- **预留 seam 不进入 `RpcMethodMap`**：`prompt.mode: 'inject'`、`job.list` 和描述字段 `hostInstanceId` 都是已记录的预留项；模型发现使用 `llm.models`。未知方法会在信封解析时直接失败，而不会返回「尚未实现」错误码。
+- **预留 seam 不进入 `RpcMethodMap`**：`prompt.mode: 'inject'` 和 `job.list` 是已记录的预留项；模型发现使用 `llm.models`。未知方法会在信封解析时直接失败，而不会返回「尚未实现」错误码。
+- **Session 删除不是安全擦除**：它保留共享附件，派生查询索引中的字节也可能留到索引下一次对账持久状态。该操作拒绝实时 Session 和任何存在持久或实时子级的 Session，而不定义级联或孤儿语义。
 - **没有协议版本字段**：客户端与宿主一同发布；只有出现独立发布的客户端后，`host.describe` 才会增加版本协商字段。
 - **搜索失败会包含提供方诊断信息**：网关是单用户本地服务。将其暴露给多名用户的载体必须用可安全公开的诊断信息替代内部搜索细节。
 - **Linux 原生选择器依赖桌面工具**：在 `native` 能力下，Zenity 和 KDialog 均未安装时，`host.pickDirectory` 会给出包含解决建议的错误提示；组合层面的回退是 browse 后端（见 [native 后端 README](../directory-picker-native/README.md)）。

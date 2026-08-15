@@ -30,6 +30,8 @@ import { SessionQueueMirror } from './queue-mirror.ts'
 
 /** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
+/** Raw events requested per forward gap-repair page. */
+export const PAGE_EVENTS = 500
 
 /** Manager-owned observers of a Session object's local state edges. */
 export interface SessionOptions {
@@ -437,6 +439,28 @@ export class Session implements SessionFace {
     await this.open()
   }
 
+  /**
+   * Contiguous durable cursor offered to a new ordinary-session mux generation.
+   * @returns the last installed seq, `-1` for an open empty window, or undefined when no cursor is authoritative.
+   */
+  syncCursor(): number | undefined {
+    if (this.address !== undefined || this.openState !== 'open') return undefined
+    return this.windowTailSeq() ?? -1
+  }
+
+  /** Recover only an interrupted or failed open; a contiguous open window resumes through mux replay. */
+  async recoverAfterReconnect(): Promise<void> {
+    if (this.openState === 'loading' || this.openState === 'error') await this.resync()
+  }
+
+  /** Drop request identities owned by the dead stream generation without discarding durable history. */
+  handleDisconnected(): void {
+    if (this.pending.size === 0) return
+    this.pending.clear()
+    this.pendingRev++
+    this.notifier.markDirty()
+  }
+
   // ---- Subscription API (useSyncExternalStore direct wiring) ----
 
   /**
@@ -476,12 +500,16 @@ export class Session implements SessionFace {
         return
       }
       case 'session/subscribed': {
+        const localTail = this.windowTailSeq()
         this.subscribedLastSeq = frame.lastSeq
         // New mux-generation baseline: the host pushes this session's queue
         // snapshot AFTER the subscribed frame on the same stream, so the
         // stale mirror clears here — race-free against onConnected/resync
         // timing (clearing there could wipe a baseline that already landed).
         if (this.queueMirror.reset()) this.notifier.markDirty()
+        if (this.openState === 'open' && localTail !== null && localTail > frame.lastSeq) {
+          void this.resync()
+        }
         return
       }
       case 'approval/requested': {
@@ -625,13 +653,14 @@ export class Session implements SessionFace {
       }
       this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       // Gap detection: baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
-      const tailSeq = this.windowTailSeq()
-      if (this.subscribedLastSeq !== null && tailSeq !== null && this.subscribedLastSeq > tailSeq) {
+      const tailSeq = this.windowTailSeq() ?? -1
+      if (this.subscribedLastSeq !== null && this.subscribedLastSeq > tailSeq) {
         result = (await this.history({ maxMessages: PAGE_MESSAGES })).result
         if (generation !== this.openGeneration) return
         if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       }
       this.openState = 'open'
+      if (this.liveBuffer.length > 0) void this.repairGap()
     } catch (error) {
       if (generation !== this.openGeneration) return
       this.openState = 'error'
@@ -658,10 +687,26 @@ export class Session implements SessionFace {
     if (this.events.some(event => event.type === 'turn/start')) this.firstPromptPendingTurn = false
     this.conversation.replaceWindow(entries.map(conversationInput), hasMore)
     if (projections !== undefined) this.projections.seed(projections)
-    const buffered = this.liveBuffer
-    this.liveBuffer = []
-    for (const item of buffered) this.appendLive(item.event, item.view)
+    this.drainContiguousBuffer()
     this.notifier.markDirty()
+  }
+
+  /** Append only the buffered prefix adjacent to the installed window. */
+  private drainContiguousBuffer(): void {
+    const pending: typeof this.liveBuffer = []
+    let blocked = false
+    for (const item of this.liveBuffer) {
+      const tailSeq = this.windowTailSeq()
+      if (tailSeq !== null && item.event.seq <= tailSeq) continue
+      const expected = tailSeq === null ? 0 : tailSeq + 1
+      if (blocked || item.event.seq !== expected) {
+        blocked = true
+        pending.push(item)
+        continue
+      }
+      this.scheduleConversation(this.appendLive(item.event, item.view))
+    }
+    this.liveBuffer = pending
   }
 
   /** Seq-guarded append shared by stitching and the open-state live path. */
@@ -688,7 +733,7 @@ export class Session implements SessionFace {
     }
     if (this.openState !== 'open') return // cold/error: no window upkeep (history fully backfills on open)
     const tailSeq = this.windowTailSeq()
-    if (tailSeq !== null && event.seq > tailSeq + 1) {
+    if (event.seq > (tailSeq ?? -1) + 1) {
       this.liveBuffer.push({ event, view })
       void this.repairGap()
       return
@@ -710,16 +755,50 @@ export class Session implements SessionFace {
     if (this.stitching) return
     this.stitching = true
     const generation = this.openGeneration
+    let repeat = false
     try {
-      const { result } = await this.history({ maxMessages: PAGE_MESSAGES })
-      // Failure or superseded by a full resync: drop — the resync path rebuilds and clears the buffer itself.
-      if (result.ok && generation === this.openGeneration && this.openState === 'open') {
-        this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
+      if (this.address !== undefined) {
+        const { result } = await this.history({ maxMessages: PAGE_MESSAGES })
+        // Addressed history has no forward mode; retain its tail-window fallback.
+        if (result.ok && generation === this.openGeneration && this.openState === 'open') {
+          this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
+        }
+        return
+      }
+      let cursor = this.windowTailSeq() ?? -1
+      while (generation === this.openGeneration && this.openState === 'open') {
+        const { result } = await this.history({ afterSeq: cursor, maxEvents: PAGE_EVENTS })
+        if (!result.ok) return
+        const entries = result.value.events
+        if (entries.length === 0) return
+        if (entries[0]?.event.seq !== cursor + 1) {
+          const fallback = await this.history({ maxMessages: PAGE_MESSAGES })
+          // The request can outlive a disconnect even though TypeScript retains the loop's narrowing across await.
+          // oxlint-disable-next-line typescript/no-unnecessary-condition
+          if (fallback.result.ok && generation === this.openGeneration && this.openState === 'open') {
+            this.installWindow(
+              fallback.result.value.events,
+              fallback.result.value.hasMore,
+              fallback.result.value.projections,
+            )
+          }
+          return
+        }
+        for (const entry of entries) this.scheduleConversation(this.appendLive(entry.event, entry.view))
+        cursor = entries.at(-1)?.event.seq ?? cursor
+        if (!result.value.hasMore) break
+      }
+      if (generation === this.openGeneration && this.openState === 'open') {
+        this.drainContiguousBuffer()
+        repeat = this.liveBuffer.length > 0
       }
     } catch (error) {
       console.error('[web-runtime] gap repair failed:', error)
     } finally {
       this.stitching = false
+      if (repeat && generation === this.openGeneration && this.openState === 'open') {
+        void this.repairGap()
+      }
     }
   }
 
@@ -768,14 +847,21 @@ export class Session implements SessionFace {
   }
 
   /** Select ordinary or addressed history transport from the stored browser fact. */
-  private history(payload: { beforeSeq?: number; maxMessages?: number }): Promise<RpcResponse<{
+  private history(payload:
+    | { beforeSeq?: number; maxMessages?: number; afterSeq?: never; maxEvents?: never }
+    | { afterSeq: number; maxEvents: number; beforeSeq?: never; maxMessages?: never },
+  ): Promise<RpcResponse<{
     events: HistoryEntry[]
     hasMore: boolean
     projections?: ProjectionsBaseline
   }>> {
-    return this.address === undefined
-      ? this.api.sessions.history({ sessionId: this.sessionId, ...payload })
-      : this.api.subagents.history({ ...this.address, ...payload })
+    if (this.address === undefined) return this.api.sessions.history({ sessionId: this.sessionId, ...payload })
+    const { beforeSeq, maxMessages } = payload
+    return this.api.subagents.history({
+      ...this.address,
+      ...beforeSeq === undefined ? {} : { beforeSeq },
+      ...maxMessages === undefined ? {} : { maxMessages },
+    })
   }
 }
 

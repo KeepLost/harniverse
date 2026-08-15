@@ -8,6 +8,7 @@ import type {
   ApiProxy, HostFrame, MuxFrame, RpcRequest, ServerRequest,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { eventsMuxRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
 
 type Frame = MuxFrame | HostFrame
 
@@ -62,9 +63,25 @@ export class WebSocketDownlinks {
    * @param head - Bytes already read after the upgrade headers.
    */
   handleMux(req: IncomingMessage, socket: Duplex, head: Buffer): void {
+    const url = new URL(req.url ?? '/', 'http://dsh.internal')
+    const values = url.searchParams.getAll('since')
+    let decoded: unknown = undefined
+    try {
+      if (values.length > 1) throw new Error('duplicate since')
+      if (values[0] !== undefined) decoded = JSON.parse(values[0])
+    } catch {
+      rejectBadRequest(socket)
+      return
+    }
+    const parsed = eventsMuxRequestSchema.safeParse(decoded === undefined ? {} : { since: decoded })
+    if (!parsed.success) {
+      rejectBadRequest(socket)
+      return
+    }
+    const payload = parsed.data as Parameters<ApiProxy['events']['mux']>[0]['payload']
     this.upgrade(req, socket, head, signal => this.api.events.mux({
       rpcId: RpcId(randomUUID()),
-      payload: {},
+      payload,
     }, signal))
   }
 
@@ -135,6 +152,18 @@ export class WebSocketDownlinks {
       if (socket.readyState === WebSocket.OPEN) socket.close()
     }
   }
+}
+
+/** Reject a malformed stream query before WebSocket negotiation. */
+function rejectBadRequest(socket: Duplex): void {
+  socket.end([
+    'HTTP/1.1 400 Bad Request',
+    'Connection: close',
+    'Content-Type: text/plain; charset=utf-8',
+    'Content-Length: 11',
+    '',
+    'bad request',
+  ].join('\r\n'))
 }
 
 /**

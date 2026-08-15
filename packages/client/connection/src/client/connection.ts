@@ -42,6 +42,8 @@ export type ConnectionState = 'connected' | 'reconnecting'
 /** Frame sink callbacks: the Controller owns the physical streams; business dispatch belongs to
  *  SessionManager. */
 export interface ConnectionSinks {
+  /** Last contiguous durable seq per resident Session, sampled for each mux generation. */
+  muxSince?: () => Parameters<IApiClient['events']['mux']>[0]['since']
   onMuxEnvelope?: (envelope: RpcRequest<MuxFrame>) => void
   onHostEnvelope?: (envelope: RpcRequest<HostFrame>) => void
   /** After each connection generation is established (both streams open + describe succeeded), first connect included. */
@@ -125,7 +127,9 @@ export class ConnectionController {
           if (gen === this.generation && !ac.signal.aborted) ac.abort()
           resolve()
         }
-        void this.pumpStream(this.api.events.mux({}, ac.signal, muxOpened), this.sinks.onMuxEnvelope, settle)
+        const since = this.sinks.muxSince?.()
+        const muxPayload = since === undefined || Object.keys(since).length === 0 ? {} : { since }
+        void this.pumpStream(this.api.events.mux(muxPayload, ac.signal, muxOpened), this.sinks.onMuxEnvelope, settle)
         void this.pumpStream(this.api.events.host({}, ac.signal, hostOpened), this.sinks.onHostEnvelope, settle)
       })
 

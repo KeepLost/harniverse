@@ -230,12 +230,23 @@ describe('Agent.cancel()', () => {
     send(agent, 'active')
     await new Promise(resolve => setTimeout(resolve, 30))
 
-    // Dispose cancels with `{ kind: 'disposed' }`; a wake landing in the
-    // abort-to-idle window must not latch, so `whenIdle()` does not wait on
-    // a model turn over the session being torn down.
+    // Dispose closes admission before canceling with `{ kind: 'disposed' }`, so
+    // a wake attempted in the abort-to-idle window rejects instead of latching.
     const disposal = handle.dispose()
-    setTimeout(() => { send(agent, 'late wake') }, 10)
+    const lateWake = Promise.withResolvers<Error>()
+    setTimeout(() => {
+      try {
+        send(agent, 'late wake')
+        lateWake.reject(new Error('late wake was accepted during disposal'))
+      } catch (error: unknown) {
+        lateWake.resolve(error instanceof Error ? error : new Error(String(error)))
+      }
+    }, 10)
     await disposal
+    await expect(lateWake.promise).resolves.toHaveProperty(
+      'message',
+      'agent "dispose-window-wake" is closing',
+    )
 
     expect(adapter.requests).toHaveLength(1)
     expect(userTexts(agent)).toEqual(['active'])

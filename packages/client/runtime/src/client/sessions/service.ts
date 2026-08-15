@@ -461,7 +461,15 @@ export class SessionRuntime implements ISessions {
     this.manager.handleHostEnvelope(envelope)
   }
 
-  /** Rebuild the Session baseline and every opened window after connection. */
+  /**
+   * Durable resume cursors sampled immediately before each mux generation opens.
+   * @returns the current per-Session mux cursors.
+   */
+  muxSince(): ReturnType<SessionManager['muxSince']> {
+    return this.manager.muxSince()
+  }
+
+  /** Refresh reconnect baselines while preserving contiguous open windows. */
   handleConnected(): void {
     this.manager.handleConnected()
   }

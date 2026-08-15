@@ -94,6 +94,23 @@ describe('approval pending registry', () => {
     const asked = ctx.approval.request({ agent, toolName: 'bash', reason: 'sandbox escalation' })
     const requested = requestedOf(await mux.waitFor('approval/requested'))
     expect(requested).toMatchObject({ toolName: 'bash', reason: 'sandbox escalation', sessionId: agent.session.id })
+    const status = await api.sessions.status({
+      rpcId: mintRpcId('approval-status'),
+      payload: { sessionId: agent.session.id },
+    })
+    expect(status.result).toMatchObject({
+      ok: true,
+      value: {
+        interactions: [{
+          payload: {
+            type: 'approval/requested',
+            approvalId: requested.approvalId,
+            toolName: 'bash',
+            reason: 'sandbox escalation',
+          },
+        }],
+      },
+    })
 
     const envelope = mux.envelopes.find(e => e.payload.type === 'approval/requested') as RpcRequest<MuxFrame>
     const receipt = await api.respond(answer(envelope.rpcId, requested.sessionId, requested.approvalId, 'allowed-once'))

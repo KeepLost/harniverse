@@ -38,10 +38,12 @@ import type {} from '@deepseek-ai/dsh-tools'
 import type {
   ApiProxy, ConfigurableProviderView, CredentialView, GoalRef, HistoryEntry, HostFrame,
   ModelCatalogFailure, ModelProviderGroup,
-  ModelReasoning, MuxFrame, PromptContentPart, QuestionResponsePayload, SessionListMetadata, SessionProjectionsBlock, SessionSearchItem,
+  ModelReasoning, MuxFrame, PromptContentPart, PromptReceipt, QuestionResponsePayload,
+  SessionListMetadata, SessionProjectionsBlock, SessionSearchItem,
   QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, JobView, ToolEventView,
-  WorkspaceId, WorkspaceView,
+  SessionPendingInteraction, SessionStatusSnapshot, SessionWorkStatus, WorkspaceId, WorkspaceView,
 } from './api/index.ts'
+import { HostBootId } from './api/host.ts'
 import {
   DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
   flushLiveSessionLog,
@@ -83,7 +85,7 @@ import type { SettingsDescriptor, SettingsNamespace, SettingsPathOp } from '@dee
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 // Value edge: the rename impl narrows the title service's validation failure; the import also resolves `ctx.get('sessionTitle')`.
 import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
-import type { CallId } from '@deepseek-ai/dsh-llm/brand'
+import type { CallId, MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval'
 // Side-effect type import: resolves the `approval/request` waterfall and
@@ -113,6 +115,43 @@ import { canOpenNativePath, openNativePath, openNativeTextFile } from './native-
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
 
+/** Fold one message identity through the durable inbox and turn log. */
+function workStatusOf(events: readonly SessionEvent[], messageId: MessageId): SessionWorkStatus {
+  const pending: Record<'next-turn' | 'next-step', UserMessage[]> = {
+    'next-turn': [],
+    'next-step': [],
+  }
+  let status: SessionWorkStatus = { state: 'unknown' }
+  let openTurn: number | undefined
+
+  for (const event of events) {
+    if (event.type === 'turn/start') {
+      openTurn = event.data.turn
+      continue
+    }
+    if (event.type === 'turn/end') {
+      if (status.state === 'claimed' && status.turn === event.data.turn) {
+        return { state: 'settled', turn: event.data.turn, reason: event.data.reason }
+      }
+      if (openTurn === event.data.turn) openTurn = undefined
+      continue
+    }
+    if (event.type !== 'agent/inbox/spliced') continue
+
+    const inbox = pending[event.data.target]
+    const removed = inbox.slice(event.data.start, event.data.start + (event.data.removedCount ?? 0))
+    inbox.splice(event.data.start, event.data.removedCount ?? 0, ...event.data.inserted)
+    if (event.data.inserted.some(message => message.id === messageId)) {
+      status = { state: 'queued' }
+    } else if (removed.some(message => message.id === messageId)) {
+      status = event.data.outcome === 'canceled' || openTurn === undefined
+        ? { state: 'discarded' }
+        : { state: 'claimed', turn: openTurn }
+    }
+  }
+  return status
+}
+
 /**
  * Non-model settings namespaces intentionally served to the Web client. The
  * plugin-owned entries (`agent-loop`, `bash`, `web-search-deepseek`) are the
@@ -134,6 +173,8 @@ const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
 const COLD_SUMMARY_BATCH_SIZE = 16
 /** Default maximum artifact size eligible for one cold blankness read. */
 export const DEFAULT_COLD_BLANK_PROBE_MAX_BYTES = 1024
+/** Default number of frames retained for one slow stream consumer. */
+export const DEFAULT_STREAM_QUEUE_MAX_FRAMES = 1024
 
 /** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
@@ -312,6 +353,23 @@ function paginate(
   return { events: page, hasMore: cut > 0 }
 }
 
+/** Exclusive forward event pagination used by reconnect and gap repair. */
+function paginateForward(
+  events: readonly SessionEvent[],
+  afterSeq: number,
+  maxEvents: number,
+): { events: SessionEvent[]; hasMore: boolean } {
+  let low = 0
+  let high = events.length
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2)
+    if ((events[middle] as SessionEvent).seq <= afterSeq) low = middle + 1
+    else high = middle
+  }
+  const end = Math.min(low + maxEvents, events.length)
+  return { events: events.slice(low, end), hasMore: end < events.length }
+}
+
 /** Wrap an ok result echoing the request's rpcId. */
 function ok<T>(request: RpcRequest<unknown>, value: T): RpcResponse<T> {
   return { rpcId: request.rpcId, result: { ok: true, value } }
@@ -413,13 +471,30 @@ function presetFailure(request: RpcRequest<unknown>, error: unknown): RpcRespons
 /** Simple async queue: core callbacks push, the AsyncIterable pulls; abort/return cleans up. */
 class FrameQueue<F> {
   private buffer: F[] = []
+  private initial: Iterable<F> | undefined
   private waiter: (() => void) | undefined
   private done = false
+  private failure: Error | undefined
 
-  push(item: F): void {
-    if (this.done) return
+  constructor(private readonly maxFrames: number) {}
+
+  /** Install a lazy bootstrap source that does not occupy the bounded live buffer. */
+  seed(items: Iterable<F>): void {
+    if (this.initial !== undefined) throw new Error('stream frame queue bootstrap already installed')
+    this.initial = items
+  }
+
+  push(item: F): boolean {
+    if (this.done) return false
+    if (this.buffer.length >= this.maxFrames) {
+      this.done = true
+      this.failure = new Error(`stream frame queue overflow at ${String(this.maxFrames)} frames`)
+      this.waiter?.()
+      return false
+    }
     this.buffer.push(item)
     this.waiter?.()
+    return true
   }
 
   end(): void {
@@ -431,9 +506,17 @@ class FrameQueue<F> {
     const onAbort = (): void => { this.end() }
     signal.addEventListener('abort', onAbort, { once: true })
     try {
+      for (const item of this.initial ?? []) {
+        if (signal.aborted) return
+        yield item
+      }
+      this.initial = undefined
       while (true) {
         while (this.buffer.length > 0) yield this.buffer.shift() as F
-        if (this.done || signal.aborted) return
+        if (this.done || signal.aborted) {
+          if (!signal.aborted && this.failure !== undefined) throw this.failure
+          return
+        }
         await new Promise<void>((resolve) => { this.waiter = resolve })
         this.waiter = undefined
       }
@@ -659,6 +742,8 @@ export interface ApiProxyDefaults {
   sessionExportCompressionLevel?: SessionLogCompressionLevel
   /** Maximum artifact size eligible for one cold blankness read. */
   coldBlankProbeMaxBytes?: number
+  /** Maximum frames retained by one mux or host stream. */
+  streamQueueMaxFrames?: number
   /**
    * Whether handing a path to the native opener can work at all — the
    * `hasDocument` capability the preset roster reports, and the switch
@@ -687,7 +772,7 @@ interface PendingApproval {
 }
 
 /** Project a pending entry into its answerable mux frame (initial push and mux-open replay share it). */
-function requestedFrame(pending: PendingApproval): RpcRequest<MuxFrame> {
+function requestedFrame(pending: PendingApproval): RpcRequest<Extract<MuxFrame, { type: 'approval/requested' }>> {
   return {
     rpcId: pending.rpcId,
     payload: {
@@ -710,6 +795,20 @@ interface PendingQuestion {
   reject: (error: UserQuestionError) => void
   signal?: AbortSignal
   onAbort?: () => void
+}
+
+/** Project a pending question into the answerable request shared by mux and status snapshots. */
+function questionRequestedFrame(
+  pending: PendingQuestion,
+): RpcRequest<Extract<MuxFrame, { type: 'question/requested' }>> {
+  return {
+    rpcId: pending.rpcId,
+    payload: {
+      type: 'question/requested',
+      sessionId: pending.sessionId,
+      questions: pending.questions,
+    },
+  }
 }
 
 /** Validate one answer batch against the exact question request it resolves. */
@@ -808,8 +907,11 @@ function historyPage(
   beforeSeq: number | undefined,
   maxMessages: number | undefined,
   scope?: ScopeKey,
+  forward?: { afterSeq: number; maxEvents: number },
 ): { events: HistoryEntry[]; hasMore: boolean } {
-  const page = paginate(events, beforeSeq, maxMessages ?? DEFAULT_MAX_MESSAGES)
+  const page = forward === undefined
+    ? paginate(events, beforeSeq, maxMessages ?? DEFAULT_MAX_MESSAGES)
+    : paginateForward(events, forward.afterSeq, forward.maxEvents)
   return {
     events: page.events.map((event) => {
       const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId), scope)
@@ -1104,10 +1206,13 @@ function changedWorkspaceView(workspaceId: string, value: unknown): WorkspaceVie
  * @returns the ApiProxy implementation.
  */
 export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiProxy {
+  const bootId = HostBootId(randomUUID())
   const sessionExportCompressionLevel = defaults.sessionExportCompressionLevel
     ?? DEFAULT_SESSION_LOG_COMPRESSION_LEVEL
   const coldBlankProbeMaxBytes = defaults.coldBlankProbeMaxBytes
     ?? DEFAULT_COLD_BLANK_PROBE_MAX_BYTES
+  const streamQueueMaxFrames = defaults.streamQueueMaxFrames
+    ?? DEFAULT_STREAM_QUEUE_MAX_FRAMES
   /** The seed model each create/resume declares; re-read so it never goes stale. */
   const agentOptions = (): AgentOptions => {
     const { provider, model } = defaults.defaultModelSelection()
@@ -1123,6 +1228,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    * not enforcement: the wire is reachable directly.
    */
   const presetSwitches = new Map<SessionId, Promise<unknown>>()
+  /** Explicit close operations, also the admission fence for Host mutations. */
+  const sessionClosures = new Map<SessionId, Promise<void>>()
+  /** Durable delete operations, also the cold-resume/create admission fence. */
+  const sessionDeletions = new Map<SessionId, Promise<{ error?: RpcError }>>()
+  /** Parent-scoped fork/delete serialization preserves immutable lineage. */
+  const sessionLineageChains = new Map<SessionId, Promise<void>>()
   /** Client-chosen identity creation/resume, deduplicated across concurrent retries. */
   const sessionCreations = new Map<SessionId, Promise<Agent>>()
   /** Serializes path ownership and explicit title checks with Workspace mutations. */
@@ -1130,7 +1241,18 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   const pendingQuestions = new Map<RpcId, PendingQuestion>()
   const pendingApprovals = new Map<RpcId, PendingApproval>()
   const muxQueues = new Set<FrameQueue<RpcRequest<MuxFrame>>>()
+  const hostQueues = new Set<FrameQueue<RpcRequest<HostFrame>>>()
   const imageAdmissionChains = new WeakMap<Agent, Promise<void>>()
+
+  function serializeSessionLineage<T>(parentId: SessionId, operation: () => Promise<T>): Promise<T> {
+    const result = (sessionLineageChains.get(parentId) ?? Promise.resolve()).then(operation)
+    const tail = result.then(() => undefined, () => undefined)
+    sessionLineageChains.set(parentId, tail)
+    void tail.finally(() => {
+      if (sessionLineageChains.get(parentId) === tail) sessionLineageChains.delete(parentId)
+    })
+    return result
+  }
 
   /** Serialize image admission with model selection for one agent. */
   function serializeImageAdmission<T>(agent: Agent, operation: () => Promise<T>): Promise<T> {
@@ -1270,10 +1392,31 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       (await composeAgent(resolveSessionPreset({ header: meta, events }))).setup,
   })
 
+  /** Resolve a live ordinary mutation target while close/delete owns its id. */
+  async function activeAgentFor(sessionId: SessionId) {
+    const unavailable = (operation: 'closing' | 'being deleted'): { error: RpcError } => ({
+      error: {
+        code: 'agent-busy',
+        message: `session "${sessionId}" is ${operation}`,
+        details: { reason: operation === 'closing' ? 'SESSION_CLOSING' : 'SESSION_DELETING' },
+      },
+    })
+    if (sessionClosures.has(sessionId)) return unavailable('closing')
+    if (sessionDeletions.has(sessionId)) return unavailable('being deleted')
+    const found = await agentFor(sessionId)
+    if (sessionClosures.has(sessionId)) return unavailable('closing')
+    return sessionDeletions.has(sessionId) ? unavailable('being deleted') : found
+  }
+
   /** Send one transient frame to every connected mux consumer. */
   function broadcast(payload: MuxFrame): void {
     const envelope = frame(payload)
     for (const queue of muxQueues) queue.push(envelope)
+  }
+
+  function broadcastHost(payload: HostFrame): void {
+    const envelope = frame(payload)
+    for (const queue of hostQueues) queue.push(envelope)
   }
 
   // Projection change feed → session/projection push frames. The carrier
@@ -1347,6 +1490,34 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     ]
   }
 
+  /** Answerable process-local requests for one Session, preserving their response rpcIds. */
+  const pendingInteractions = (sessionId: SessionId): SessionPendingInteraction[] => [
+    ...[...pendingQuestions.values()]
+      .filter(pending => pending.sessionId === sessionId)
+      .map(questionRequestedFrame),
+    ...[...pendingApprovals.values()]
+      .filter(pending => pending.sessionId === sessionId)
+      .map(requestedFrame),
+  ]
+
+  /** Sample live fields synchronously so the returned values share one JavaScript turn. */
+  const attachedStatus = (session: Session): SessionStatusSnapshot => {
+    const agent = ctx.agents.get(session.id)
+    const exactAgent = agent?.session === session ? agent : undefined
+    const jobs = ctx.get('jobs')
+    return {
+      sessionId: session.id,
+      bootId,
+      attached: true,
+      running: exactAgent?.status === 'running',
+      closing: sessionClosures.has(session.id),
+      lastSeq: session.events.at(-1)?.seq ?? -1,
+      queue: exactAgent === undefined ? [] : queueItems(exactAgent),
+      jobs: exactAgent === undefined || jobs === undefined ? [] : jobViews(jobs.list(exactAgent)),
+      interactions: pendingInteractions(session.id),
+    }
+  }
+
   ctx.on('session/event', (session, event) => {
     if (event.type !== 'agent/inbox/spliced') return
     const agent = ctx.agents.get(session.id)
@@ -1387,10 +1558,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         pending.onAbort = onAbort
         pendingQuestions.set(rpcId, pending)
         request.signal?.addEventListener('abort', onAbort, { once: true })
-        const envelope: RpcRequest<MuxFrame> = {
-          rpcId,
-          payload: { type: 'question/requested', sessionId, questions: request.questions },
-        }
+        const envelope = questionRequestedFrame(pending)
         for (const queue of muxQueues) queue.push(envelope)
       })
     },
@@ -1621,6 +1789,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     checkPersistedIdentity: boolean,
     presetId?: string,
   ): Promise<Agent> {
+    if (sessionDeletions.has(sessionId)) {
+      throw new Error(`session "${sessionId}" is being deleted`)
+    }
     let creation = sessionCreations.get(sessionId)
     if (creation === undefined) {
       creation = (async () => {
@@ -1813,7 +1984,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     request: RpcRequest<{ sessionId: SessionId }>,
     mutation: (goals: NonNullable<ReturnType<typeof ctx.get<'goals'>>>, agent: Agent) => CoreGoalRef,
   ): Promise<RpcResponse<{ ref: GoalRef }>> {
-    const found = await agentFor(request.payload.sessionId)
+    const found = await activeAgentFor(request.payload.sessionId)
     if ('error' in found) return err(request, found.error)
     const goals = goalServiceFor(found.agent)
     if ('error' in goals) return err(request, goals.error)
@@ -1850,7 +2021,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   async function turnAgentFor<T>(
     request: RpcRequest<unknown>, sessionId: SessionId,
   ): Promise<{ agent: Agent } | { refused: RpcResponse<T> }> {
-    const found = await agentFor(sessionId)
+    const found = await activeAgentFor(sessionId)
     if ('error' in found) return { refused: err(request, found.error) }
     const agent = found.agent
     const selection = selectionFor(agent).current
@@ -2240,7 +2411,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async history(request) {
-        const { sessionId, beforeSeq, maxMessages } = request.payload
+        const { sessionId, beforeSeq, maxMessages, afterSeq, maxEvents } = request.payload
         try {
           const source = await historySourceFor(sessionId)
           // Both awaits happen BEFORE the cut. Ensuring the recorded
@@ -2250,8 +2421,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           // appending, so awaiting between the two reads would pair events cut
           // at N with a baseline folded to N+1.
           const scope = await presenterScopeFor(sessionId, sourceSession(source))
-          const cut = historyCutOf(source, beforeSeq === undefined)
-          const page = historyPage(ctx, cut.events, beforeSeq, maxMessages, scope)
+          const forward = afterSeq === undefined
+            ? undefined
+            : { afterSeq, maxEvents }
+          const cut = historyCutOf(source, forward === undefined && beforeSeq === undefined)
+          const page = historyPage(ctx, cut.events, beforeSeq, maxMessages, scope, forward)
           return ok(request, {
             events: page.events,
             hasMore: page.hasMore,
@@ -2269,9 +2443,64 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
       },
 
+      async status(request) {
+        const { sessionId } = request.payload
+        if (sessionDeletions.has(sessionId)) {
+          return err(request, {
+            code: 'agent-busy',
+            message: `session "${sessionId}" is being deleted`,
+            details: { reason: 'SESSION_DELETING' },
+          })
+        }
+        try {
+          const attached = ctx.sessions.get(sessionId)
+          if (attached !== undefined) return ok(request, attachedStatus(attached))
+          const source = await readSessionState(sessionId)
+          const resumed = ctx.sessions.get(sessionId)
+          if (resumed !== undefined) return ok(request, attachedStatus(resumed))
+          return ok(request, {
+            sessionId,
+            bootId,
+            attached: false,
+            running: false,
+            closing: false,
+            lastSeq: source.events.at(-1)?.seq ?? -1,
+            queue: [],
+            jobs: [],
+            interactions: [],
+          })
+        } catch (error: unknown) {
+          if (error instanceof SessionNotFound) {
+            return err(request, { code: 'session-not-found', message: error.message, details: { sessionId } })
+          }
+          return err(request, {
+            code: 'internal',
+            message: `status unavailable for session "${sessionId}": ${String(error)}`,
+            details: {},
+          })
+        }
+      },
+
+      async workStatus(request) {
+        const { sessionId, messageId } = request.payload
+        try {
+          const source = await readSessionState(sessionId)
+          return ok(request, { messageId, status: workStatusOf(source.events, messageId) })
+        } catch (error: unknown) {
+          if (error instanceof SessionNotFound) {
+            return err(request, { code: 'session-not-found', message: error.message, details: { sessionId } })
+          }
+          return err(request, {
+            code: 'internal',
+            message: `work status unavailable for session "${sessionId}": ${String(error)}`,
+            details: {},
+          })
+        }
+      },
+
       async models(request) {
         const { sessionId } = request.payload
-        const found = await agentFor(sessionId)
+        const found = await activeAgentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         const current = selectionFor(found.agent).current
         const { groups, failures } = await buildModelCatalog(ctx)
@@ -2281,7 +2510,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async selectModel(request) {
         const { sessionId, provider, model, reasoningEffort } = request.payload
-        const found = await agentFor(sessionId)
+        const found = await activeAgentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         return serializeImageAdmission(found.agent, async () => {
           try {
@@ -2332,7 +2561,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async rename(request) {
         const { sessionId, title } = request.payload
-        const found = await agentFor(sessionId)
+        const found = await activeAgentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         const titles = ctx.get('sessionTitle')
         if (titles === undefined) {
@@ -2362,100 +2591,109 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async fork(request) {
         const { sessionId, atSeq } = request.payload
-        let source: SessionReadState
-        try {
-          source = await readSessionState(sessionId)
-        } catch (error: unknown) {
-          if (error instanceof SessionNotFound) {
-            return err(request, { code: 'session-not-found', message: error.message, details: { sessionId } })
+        return serializeSessionLineage(sessionId, async () => {
+          if (sessionDeletions.has(sessionId)) {
+            return err(request, {
+              code: 'agent-busy',
+              message: `session "${sessionId}" is being deleted`,
+              details: { reason: 'SESSION_DELETING' },
+            })
           }
-          return err(request, {
-            code: 'internal',
-            message: `fork source unavailable for session "${sessionId}": ${String(error)}`,
-            details: {},
-          })
-        }
-        const events = source.events
-        // An in-log anchor belongs to the turn containing it and must never
-        // clip backward to an earlier completed turn. Omitted and past-end
-        // anchors retain the last-completed-turn shortcut.
-        const lastSeq = events.at(-1)?.seq ?? -1
-        const anchoredBoundary = atSeq === undefined
-          ? undefined
-          : events.find(e => e.type === 'turn/end' && e.seq >= atSeq)
-        const boundary = anchoredBoundary
+          let source: SessionReadState
+          try {
+            source = await readSessionState(sessionId)
+          } catch (error: unknown) {
+            if (error instanceof SessionNotFound) {
+              return err(request, { code: 'session-not-found', message: error.message, details: { sessionId } })
+            }
+            return err(request, {
+              code: 'internal',
+              message: `fork source unavailable for session "${sessionId}": ${String(error)}`,
+              details: {},
+            })
+          }
+          const events = source.events
+          // An in-log anchor belongs to the turn containing it and must never
+          // clip backward to an earlier completed turn. Omitted and past-end
+          // anchors retain the last-completed-turn shortcut.
+          const lastSeq = events.at(-1)?.seq ?? -1
+          const anchoredBoundary = atSeq === undefined
+            ? undefined
+            : events.find(e => e.type === 'turn/end' && e.seq >= atSeq)
+          const boundary = anchoredBoundary
           ?? (atSeq === undefined || atSeq > lastSeq
             ? events.findLast(e => e.type === 'turn/end')
             : undefined)
-        if (boundary === undefined) {
-          return err(request, {
-            code: 'fork-unavailable',
-            message: atSeq !== undefined && atSeq <= lastSeq
-              ? `session "${sessionId}" has not completed the turn containing event ${String(atSeq)}`
-              : `session "${sessionId}" has no completed turn to fork from`,
-            details: { sessionId },
-          })
-        }
-        // Extend the cut through trailing out-of-band appends (session/title,
-        // injections) up to the next turn/start: they are standalone events, so
-        // the seed stays balanced, and the child inherits a title generated
-        // right after the boundary turn.
-        let cut = boundary.seq + 1
-        while (cut < events.length && events[cut]?.type !== 'turn/start') cut++
-        let workspace: Workspace | undefined
-        try {
-          workspace = await forkWorkspace(source)
-        } catch (error: unknown) {
-          return err(request, {
-            code: 'internal',
-            message: `failed to resolve fork workspace for session "${sessionId}": ${String(error)}`,
-            details: {},
-          })
-        }
-        const childId = `session-${randomUUID()}` as SessionId
-        // The child inherits the parent's composition for the same reason a
-        // resumed session keeps its own: the seeded history was produced under
-        // those tools, and composing anything else would strand the tool calls
-        // it already carries. Now that no model-facing row sits in the host
-        // plane, composing nothing would leave the child with no tools at all.
-        const forkComposition = await composeAgent(resolveSessionPreset(source))
-        try {
-          await ctx.agents.create({
-            sessionId: childId,
-            seed: events.slice(0, cut),
-            meta: {
-              ...source.header.cwd === undefined ? {} : { cwd: source.header.cwd },
-              parentSession: source.id,
-              seedLength: cut,
-              ...forkComposition.agentPreset === undefined
-                ? {}
-                : { agentPreset: forkComposition.agentPreset },
-            },
-            agentOptions: agentOptions(),
-            setup: forkComposition.setup,
-          })
-        } catch (error: unknown) {
-          return err(request, {
-            code: 'internal',
-            message: `failed to fork session "${sessionId}": ${String(error)}`,
-            details: {},
-          })
-        }
-        // An ordinary source keeps its direct Workspace. A subagent source is
-        // not listed there, so its ordinary fork joins the nearest owning
-        // ancestor instead. The child is already published if attach fails.
-        if (workspace !== undefined) {
-          try {
-            await workspace.attachSession(childId)
-          } catch (error: unknown) {
+          if (boundary === undefined) {
             return err(request, {
-              code: 'workspace-attach-failed',
-              message: `session "${childId}" was forked but could not attach to workspace "${workspace.id}": ${String(error)}`,
-              details: { sessionId: childId, workspaceId: workspace.id },
+              code: 'fork-unavailable',
+              message: atSeq !== undefined && atSeq <= lastSeq
+                ? `session "${sessionId}" has not completed the turn containing event ${String(atSeq)}`
+                : `session "${sessionId}" has no completed turn to fork from`,
+              details: { sessionId },
             })
           }
-        }
-        return ok(request, { sessionId: childId })
+          // Extend the cut through trailing out-of-band appends (session/title,
+          // injections) up to the next turn/start: they are standalone events, so
+          // the seed stays balanced, and the child inherits a title generated
+          // right after the boundary turn.
+          let cut = boundary.seq + 1
+          while (cut < events.length && events[cut]?.type !== 'turn/start') cut++
+          let workspace: Workspace | undefined
+          try {
+            workspace = await forkWorkspace(source)
+          } catch (error: unknown) {
+            return err(request, {
+              code: 'internal',
+              message: `failed to resolve fork workspace for session "${sessionId}": ${String(error)}`,
+              details: {},
+            })
+          }
+          const childId = `session-${randomUUID()}` as SessionId
+          // The child inherits the parent's composition for the same reason a
+          // resumed session keeps its own: the seeded history was produced under
+          // those tools, and composing anything else would strand the tool calls
+          // it already carries. Now that no model-facing row sits in the host
+          // plane, composing nothing would leave the child with no tools at all.
+          const forkComposition = await composeAgent(resolveSessionPreset(source))
+          try {
+            await ctx.agents.create({
+              sessionId: childId,
+              seed: events.slice(0, cut),
+              meta: {
+                ...source.header.cwd === undefined ? {} : { cwd: source.header.cwd },
+                parentSession: source.id,
+                seedLength: cut,
+                ...forkComposition.agentPreset === undefined
+                  ? {}
+                  : { agentPreset: forkComposition.agentPreset },
+              },
+              agentOptions: agentOptions(),
+              setup: forkComposition.setup,
+            })
+          } catch (error: unknown) {
+            return err(request, {
+              code: 'internal',
+              message: `failed to fork session "${sessionId}": ${String(error)}`,
+              details: {},
+            })
+          }
+          // An ordinary source keeps its direct Workspace. A subagent source is
+          // not listed there, so its ordinary fork joins the nearest owning
+          // ancestor instead. The child is already published if attach fails.
+          if (workspace !== undefined) {
+            try {
+              await workspace.attachSession(childId)
+            } catch (error: unknown) {
+              return err(request, {
+                code: 'workspace-attach-failed',
+                message: `session "${childId}" was forked but could not attach to workspace "${workspace.id}": ${String(error)}`,
+                details: { sessionId: childId, workspaceId: workspace.id },
+              })
+            }
+          }
+          return ok(request, { sessionId: childId })
+        })
       },
 
       async prompt(request) {
@@ -2470,7 +2708,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: { value: clientTimeZone },
           })
         }
-        const resolved = await turnAgentFor<{ accepted: true }>(request, sessionId)
+        const resolved = await turnAgentFor<PromptReceipt>(request, sessionId)
         if ('refused' in resolved) return resolved.refused
         const agent = resolved.agent
         // Request identity and optional browser zone ride the exact durable user message.
@@ -2480,7 +2718,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           ...(canonicalTimeZone === undefined ? {} : { clientTimeZone: canonicalTimeZone }),
         }
         const hasImage = content.some(part => part.type === 'image')
-        const admit = async (): Promise<RpcResponse<{ accepted: true }>> => {
+        const admit = async (): Promise<RpcResponse<PromptReceipt>> => {
           try {
             if (hasImage) {
               const current = selectionFor(agent).current
@@ -2497,6 +2735,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             const message: UserMessage = createUserMessage({ content: durable, source })
             if (mode === 'steer') agent.steer(message)
             else agent.followup(message)
+            return ok(request, { accepted: true as const, messageId: message.id })
           } catch (error: unknown) {
             if (error instanceof AttachmentError) {
               return err(request, {
@@ -2511,7 +2750,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               details: { reason: String(error) },
             })
           }
-          return ok(request, { accepted: true as const })
         }
         return hasImage ? serializeImageAdmission(agent, admit) : admit()
       },
@@ -2567,6 +2805,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       updateQueue(request) {
         const { sessionId, itemId, action } = request.payload
+        if (sessionClosures.has(sessionId)) {
+          return Promise.resolve(err(request, {
+            code: 'agent-busy',
+            message: `session "${sessionId}" is closing`,
+            details: { reason: 'SESSION_CLOSING' },
+          }))
+        }
         if (action.kind === 'edit' && action.content.some(block => block.type !== 'text')) {
           return Promise.resolve(err(request, {
             code: 'attachment-error',
@@ -2630,6 +2875,131 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
         agent.cancel({ kind: 'user' }, { keepInbox: true })
         return Promise.resolve(ok(request, { accepted: true as const }))
+      },
+
+      async close(request) {
+        const { sessionId } = request.payload
+        const agent = ctx.agents.get(sessionId)
+        if (agent === undefined) {
+          return err(request, {
+            code: 'session-not-found',
+            message: `session "${sessionId}" not found (not attached)`,
+            details: { sessionId },
+          })
+        }
+        if (hasSubagentOwner(agent.session, agent)) {
+          return err(request, subagentOwnershipError(sessionId))
+        }
+        let closing = sessionClosures.get(sessionId)
+        if (closing === undefined) {
+          closing = (async () => {
+            await Promise.all([
+              presetSwitches.get(sessionId) ?? Promise.resolve(),
+              imageAdmissionChains.get(agent) ?? Promise.resolve(),
+            ])
+            await ctx.subagents.drainContinuableDescendants([agent])
+            if (!await ctx.agents.close(sessionId)) {
+              throw new Error(`agent "${sessionId}" detached before close acquired its lifecycle`)
+            }
+          })()
+          sessionClosures.set(sessionId, closing)
+          void closing.finally(() => {
+            if (sessionClosures.get(sessionId) === closing) sessionClosures.delete(sessionId)
+          }).catch(() => undefined)
+        }
+        try {
+          await closing
+          return ok(request, { closed: true as const })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'internal',
+            message: `failed to close session "${sessionId}": ${String(error)}`,
+            details: {},
+          })
+        }
+      },
+
+      async delete(request) {
+        const { sessionId } = request.payload
+        if (ctx.sessions.get(sessionId) !== undefined || sessionClosures.has(sessionId)) {
+          return err(request, {
+            code: 'agent-busy',
+            message: `session "${sessionId}" is live; close it before deletion`,
+            details: { reason: 'SESSION_MUST_BE_CLOSED' },
+          })
+        }
+        let deletion = sessionDeletions.get(sessionId)
+        if (deletion === undefined) {
+          deletion = serializeSessionLineage(sessionId, async (): Promise<{ error?: RpcError }> => {
+            try {
+              const records = await ctx.sessionQuery.listSessions()
+              const target = records.find(record => record.header.id === sessionId && record.persisted)
+              if (target === undefined) {
+                if (!ctx.workspaceRegistry.pendingSessionDeletionIds.includes(sessionId)) {
+                  return {
+                    error: {
+                      code: 'session-not-found',
+                      message: `session "${sessionId}" not found in persistence`,
+                      details: { sessionId },
+                    },
+                  }
+                }
+                await ctx.workspaceRegistry.removeSessionReferences(sessionId)
+                await ctx.workspaceRegistry.completeSessionDeletion(sessionId)
+                broadcastHost({ type: 'host/session-removed', sessionId })
+                return {}
+              }
+              const childSessionIds = records
+                .filter(record => record.header.parentSession === sessionId)
+                .map(record => record.header.id)
+              if (childSessionIds.length > 0) {
+                return {
+                  error: {
+                    code: 'session-has-children',
+                    message: `session "${sessionId}" has descendants and cannot be deleted`,
+                    details: { sessionId, childSessionIds },
+                  },
+                }
+              }
+              if (ctx.sessions.get(sessionId) !== undefined) {
+                return {
+                  error: {
+                    code: 'agent-busy',
+                    message: `session "${sessionId}" became live; close it before deletion`,
+                    details: { reason: 'SESSION_MUST_BE_CLOSED' },
+                  },
+                }
+              }
+              const persistence = ctx.get('sessionPersistence')
+              if (persistence === undefined) {
+                return { error: { code: 'internal', message: 'session deletion requires persistence', details: {} } }
+              }
+              await ctx.workspaceRegistry.beginSessionDeletion(sessionId)
+              await ctx.get('sessionProjectionCache')?.delete(target.header)
+              await persistence.delete(sessionId)
+              await ctx.workspaceRegistry.removeSessionReferences(sessionId)
+              await ctx.workspaceRegistry.completeSessionDeletion(sessionId)
+              broadcastHost({ type: 'host/session-removed', sessionId })
+              return {}
+            } catch (error: unknown) {
+              return {
+                error: {
+                  code: 'internal',
+                  message: `failed to delete session "${sessionId}": ${String(error)}`,
+                  details: {},
+                },
+              }
+            }
+          })
+          sessionDeletions.set(sessionId, deletion)
+          void deletion.finally(() => {
+            if (sessionDeletions.get(sessionId) === deletion) sessionDeletions.delete(sessionId)
+          }).catch(() => undefined)
+        }
+        const outcome = await deletion
+        return outcome.error === undefined
+          ? ok(request, { deleted: true as const, attachmentsRetained: true as const })
+          : err(request, outcome.error)
       },
     },
 
@@ -2925,6 +3295,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // TODO: version should read apps/cli's package.json; placeholder for now.
         const selection = defaults.defaultModelSelection()
         return Promise.resolve(ok(request, {
+          bootId,
           version: '0.0.1',
           // Same source as session.create's fallback: the UI's default project
           // must match where an unspecified-cwd session actually lands.
@@ -3045,7 +3416,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async clear(request) {
-        const found = await agentFor(request.payload.sessionId)
+        const found = await activeAgentFor(request.payload.sessionId)
         if ('error' in found) return err(request, found.error)
         const goals = goalServiceFor(found.agent)
         if ('error' in goals) return err(request, goals.error)
@@ -3093,7 +3464,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: { agentPreset, available: [] },
           })
         }
-        const found = await agentFor(sessionId)
+        const found = await activeAgentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         const { agent } = found
         const swap = async (): Promise<RpcResponse<{ agentPreset: string }>> => {
@@ -3427,84 +3798,86 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     },
 
     events: {
-      mux(_request, signal) {
-        const queue = new FrameQueue<RpcRequest<MuxFrame>>()
+      mux(request, signal) {
+        const queue = new FrameQueue<RpcRequest<MuxFrame>>(streamQueueMaxFrames)
         muxQueues.add(queue)
-        for (const session of ctx.sessions.list()) {
-          subscribeSession(queue, session)
-        }
-        for (const pending of pendingQuestions.values()) {
-          queue.push({
-            rpcId: pending.rpcId,
-            payload: {
-              type: 'question/requested', sessionId: pending.sessionId,
-              questions: pending.questions,
-            },
-          })
-        }
-        // Refresh recovery: still-pending approval questions replay with their
-        // stable rpcId so a reconnecting client can still answer them.
-        for (const pending of pendingApprovals.values()) queue.push(requestedFrame(pending))
-        // Queue snapshot baseline (pendingQuestions precedent): frames replayed
-        // in arrival order per session; a reconnecting client rebuilds its
-        // queue view from these alone.
-        for (const session of ctx.sessions.list()) {
-          const agent = ctx.agents.get(session.id)
-          if (agent?.session === session && agent.inbox.hasPending) {
-            queue.push(frame({ type: 'session/queue', sessionId: session.id, items: queueItems(agent) }))
-          }
-        }
-        // Background-task baseline. `ctx.agents.get` is the non-resuming read:
-        // a session with no live Agent owns no tasks, so it correctly sees only
-        // the unowned ones, and listing never revives a cold session. An empty
-        // set sends nothing — absence is how the client reads "no tasks".
         const jobs = ctx.get('jobs')
-        if (jobs !== undefined) {
-          for (const session of ctx.sessions.list()) {
-            const views = jobViews(jobs.list(ctx.agents.get(session.id)))
-            if (views.length > 0) {
-              queue.push(frame({ type: 'session/jobs', sessionId: session.id, jobs: views }))
-            }
-          }
-        }
         // Per-session open-call table for result-view pairing. Bounded by the
         // per-turn call count: entries clear on turn/end; a table miss (stream
         // opened mid-turn) backscans the session's in-memory events instead.
-        const openCalls = new Map<SessionId, Map<string, { name: string; args: unknown }>>()
+        const liveOpenCalls = new Map<SessionId, Map<string, { name: string; args: unknown }>>()
+        const replayCuts = new Map<SessionId, number>()
+        const bufferedEvents: Array<{ session: Session; event: SessionEvent }> = []
+        const createdDuringBootstrap: Session[] = []
+        let bootstrapping = true
+
+        const sessionEventFrame = (
+          session: Session,
+          event: SessionEvent,
+          openCalls: Map<SessionId, Map<string, { name: string; args: unknown }>>,
+        ): RpcRequest<MuxFrame> => {
+          if (event.type === 'tool/call') {
+            const data = event.data as ToolCallData
+            try {
+              let table = openCalls.get(session.id)
+              if (table === undefined) openCalls.set(session.id, table = new Map<string, { name: string; args: unknown }>())
+              table.set(data.callId, { name: data.name, args: JSON.parse(data.arguments) })
+            } catch {
+              // Unparseable model arguments: leave the table unset; the result view soft-falls.
+            }
+          } else if (event.type === 'turn/end') {
+            openCalls.delete(session.id)
+          }
+          const view = viewFor(
+            ctx, event,
+            callId => openCalls.get(session.id)?.get(callId) ?? backscanArgs(session.events, callId),
+            ctx.agents.get(session.id),
+          )
+          return frame({ type: 'session/event', sessionId: session.id, event, ...view === undefined ? {} : { view } })
+        }
+
+        const pushSessionEvent = (session: Session, event: SessionEvent): void => {
+          queue.push(sessionEventFrame(session, event, liveOpenCalls))
+        }
+
+        const subscribeWithReplay = (session: Session): void => {
+          const cut = session.seq - 1
+          replayCuts.set(session.id, cut)
+          subscribeSession(queue, session)
+          const cursor = request.payload.since?.[session.id]
+          if (cursor === undefined) return
+          for (const event of session.events) {
+            if (event.seq <= cursor || event.seq > cut) continue
+            pushSessionEvent(session, event)
+          }
+        }
+
+        const jobsFrame = (session: Session): RpcRequest<MuxFrame> | undefined => {
+          const views = jobs === undefined ? [] : jobViews(jobs.list(ctx.agents.get(session.id)))
+          return views.length === 0
+            ? undefined
+            : frame({ type: 'session/jobs', sessionId: session.id, jobs: views })
+        }
+
+        const pushJobs = (session: Session): void => {
+          const envelope = jobsFrame(session)
+          if (envelope !== undefined) queue.push(envelope)
+        }
+
         const disposers = [
           ctx.on('session/event', (session: Session, event: SessionEvent) => {
-            if (event.type === 'tool/call') {
-              const data = event.data as ToolCallData
-              try {
-                let table = openCalls.get(session.id)
-                if (table === undefined) openCalls.set(session.id, table = new Map<string, { name: string; args: unknown }>())
-                table.set(data.callId, { name: data.name, args: JSON.parse(data.arguments) })
-              } catch {
-                // Unparseable model arguments: leave the table unset; the result view soft-falls.
-              }
-            } else if (event.type === 'turn/end') {
-              openCalls.delete(session.id)
-            }
-            const view = viewFor(
-              ctx, event,
-              callId => openCalls.get(session.id)?.get(callId) ?? backscanArgs(session.events, callId),
-              ctx.agents.get(session.id),
-            )
-            queue.push(frame({ type: 'session/event', sessionId: session.id, event, ...view === undefined ? {} : { view } }))
+            if (bootstrapping) bufferedEvents.push({ session, event })
+            else pushSessionEvent(session, event)
           }),
           ctx.on('session/created', (session: Session) => {
-            subscribeSession(queue, session)
-            // The subscribe frame clears the client's task mirror, and a
-            // session born after the stream opened missed the baseline loop.
-            // Unowned tasks are visible to it from birth, so without this it
-            // would show none until the next registry change.
-            const views = jobs === undefined ? [] : jobViews(jobs.list(ctx.agents.get(session.id)))
-            if (views.length > 0) {
-              queue.push(frame({ type: 'session/jobs', sessionId: session.id, jobs: views }))
+            if (bootstrapping) createdDuringBootstrap.push(session)
+            else {
+              subscribeWithReplay(session)
+              pushJobs(session)
             }
           }),
           ctx.on('session/disposed', (session: Session) => {
-            openCalls.delete(session.id)
+            liveOpenCalls.delete(session.id)
           }),
           ...jobs === undefined ? [] : [jobs.onJobsChanged((owner) => {
             if (owner !== undefined) {
@@ -3525,6 +3898,49 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             }
           })],
         ]
+        const sessions = ctx.sessions.list()
+        const bootstrapSessions = new Set(sessions)
+        for (const session of sessions) replayCuts.set(session.id, session.seq - 1)
+        for (let index = 0; index < createdDuringBootstrap.length; index++) {
+          const session = createdDuringBootstrap[index] as Session
+          bootstrapSessions.add(session)
+          replayCuts.set(session.id, session.seq - 1)
+        }
+        const transientFrames: RpcRequest<MuxFrame>[] = []
+        for (const pending of pendingQuestions.values()) transientFrames.push(questionRequestedFrame(pending))
+        // Refresh recovery: still-pending approval questions replay with their
+        // stable rpcId so a reconnecting client can still answer them.
+        for (const pending of pendingApprovals.values()) transientFrames.push(requestedFrame(pending))
+        // Queue and background-job snapshots are process-local baselines; they
+        // replay on every open independently of durable event cursors.
+        for (const session of bootstrapSessions) {
+          const agent = ctx.agents.get(session.id)
+          if (agent?.session === session && agent.inbox.hasPending) {
+            transientFrames.push(frame({ type: 'session/queue', sessionId: session.id, items: queueItems(agent) }))
+          }
+          const envelope = jobsFrame(session)
+          if (envelope !== undefined) transientFrames.push(envelope)
+        }
+        bootstrapping = false
+        for (const buffered of bufferedEvents) {
+          if (buffered.event.seq > (replayCuts.get(buffered.session.id) ?? -1)) {
+            pushSessionEvent(buffered.session, buffered.event)
+          }
+        }
+        queue.seed((function* (): Generator<RpcRequest<MuxFrame>> {
+          const replayOpenCalls = new Map<SessionId, Map<string, { name: string; args: unknown }>>()
+          for (const session of bootstrapSessions) {
+            const cut = replayCuts.get(session.id) ?? -1
+            yield frame({ type: 'session/subscribed', sessionId: session.id, lastSeq: cut })
+            const cursor = request.payload.since?.[session.id]
+            if (cursor === undefined) continue
+            for (const event of session.events) {
+              if (event.seq <= cursor || event.seq > cut) continue
+              yield sessionEventFrame(session, event, replayOpenCalls)
+            }
+          }
+          yield* transientFrames
+        })())
         return queue.iterate(signal, () => {
           muxQueues.delete(queue)
           for (const dispose of disposers) dispose()
@@ -3532,7 +3948,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       host(_request, signal) {
-        const queue = new FrameQueue<RpcRequest<HostFrame>>()
+        const queue = new FrameQueue<RpcRequest<HostFrame>>(streamQueueMaxFrames)
         const committedWorkspaces = ctx.workspaceRegistry.list()
         const committedWorkspaceIds = new Set(
           committedWorkspaces.map(workspace => String(workspace.id)),
@@ -3555,7 +3971,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             }))
           }),
           ctx.on('session/disposed', (session: Session) => {
-            queue.push(frame({ type: 'host/session-removed', sessionId: session.id }))
+            queue.push(frame(sessionClosures.has(session.id)
+              ? { type: 'host/session-status', sessionId: session.id, running: false }
+              : { type: 'host/session-removed', sessionId: session.id }))
           }),
           ctx.on('agent/status', ({ agent, status }: { agent: Agent; status: AgentStatus }) => {
             queue.push(frame({ type: 'host/session-status', sessionId: agent.id, running: status === 'running' }))
@@ -3632,7 +4050,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             }),
           )),
         ]
-        return queue.iterate(signal, () => { for (const dispose of disposers) dispose() })
+        hostQueues.add(queue)
+        return queue.iterate(signal, () => {
+          hostQueues.delete(queue)
+          for (const dispose of disposers) dispose()
+        })
       },
     },
 

@@ -98,7 +98,8 @@ export interface Agent {
    * inbox until the task settles, while public status stays `idle`.
    * `whenIdle()` follows both the task and any waking work released behind it.
    * @param task - operation whose fulfillment or rejection is preserved, with a signal aborted by {@link cancel}.
-   * @throws synchronously when turn-driving or another maintenance task already owns the agent.
+   * @throws synchronously when the Agent is closing, or turn-driving or
+   *   another maintenance task already owns it.
    * @returns the task promise.
    */
   runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>
@@ -113,6 +114,7 @@ export interface Agent {
    * @param message - identified content and the source that supplied it.
    * @param target - the preferred next-turn or next-step inbox boundary.
    * @param wakeup - whether delivery may wake the driver.
+   * @throws when explicit lifecycle closure has stopped admission.
    */
   send(message: UserMessage, target: InboxTarget, wakeup: boolean): void
 

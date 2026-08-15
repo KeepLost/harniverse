@@ -50,8 +50,10 @@ export interface EventsApi {
    * attached session, then replays each session's still-pending approval/question requested
    * frames (rpcId reused verbatim — the refresh-recovery baseline). Session titles ride the
    * generic projection pair (history-tail projections block + session/projection frames).
-   * since: resume hook, unimplemented in v1 (ignored if passed); reconnection = reopen the
-   * stream + refetch history.
+   * `since` maps each attached Session to the last contiguous durable seq the
+   * caller applied. The stream emits that Session's later durable events up to
+   * its subscription cut before live delivery. Missing entries request no
+   * durable replay; transient baselines still replay on every open.
    */
   mux(request: RpcRequest<{ since?: Record<SessionId, number> }>, signal: AbortSignal): AsyncIterable<RpcRequest<MuxFrame>>
 

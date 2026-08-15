@@ -41,8 +41,9 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 - `ctx.agents.setFactory(factory: AgentFactory): () => void`：注册创建工厂（循环在构造时调用）。第二个工厂会导致抛出；dispose 时清空槽位。
 - `ctx.agents.create(options: CreateAgentOptions): Promise<AgentHandle>`：创建会话和 agent，在不发布的情况下等待可选 setup，然后通过最终的 `SessionStore.enter()` 与 `AgentRegistry.enter()` 检查发布。不支持并发创建同一 ID：多个操作可以进行准备，但只有一个能进入；每个失败方都会回滚其私有作用域／会话／驱动器。可选且只用于创建的 `signal` 会取消未发布的 setup，并在返回 handle 前分离；之后的取消使用 `handle.dispose()` 或 `agent.cancel()`。发布包含在回滚范围内，回滚期间每条已交付创建边都会成对处理。未注册工厂时拒绝。
 - `ctx.agents.resume(options: ResumeAgentOptions): Promise<AgentHandle>`：加载持久化会话（[会话持久化](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)），创建新的未发布 agent 作用域，等待可选 setup，并使用相同的最终进入发布序列。其可选 `signal` 同样只用于创建。未注册工厂或未配置会话持久化时拒绝。
+- `ctx.agents.close(id: SessionId): Promise<boolean>`：调用该实时 Agent 进入注册表时由工厂提供的确切记忆化 disposer。并发调用方加入同一个 disposer；id 不存在时返回 `false`，而没有工厂自有 close 能力的直接注册 Agent 会被拒绝，不会从裸注册表条目模拟 teardown。
 
-`AgentHandle = { agent: Agent; dispose(): Promise<void> }`。Disposer 是一项 **消费方能力**；仅持有裸注册表条目的观察方不能 teardown agent。调用方 fiber 和已注册工厂提供方是结构化共同拥有者：调用方卸载会强制结构化所有权，而工厂卸载必须停止旧实例，因为它们的作用域依赖范围属于该提供方。任意拥有者调用 `dispose()` 都会到达同一个记忆化完全停稳边界：它停止循环，等待循环退出，注销 agent，从存储中移除其会话，最后撤销其作用域世界。`ctx.agents.get(id)` 仍返回裸 `Agent`；ACP 桥接层与进程内 subagent 后端持有消费方 handle，而配置创建的 agent 已由循环 fiber 拥有。
+`AgentHandle = { agent: Agent; dispose(): Promise<void> }`。Disposer 是一项 **消费方能力**；持有裸 Agent 的观察方不能自行合成 teardown。调用方 fiber 与已注册工厂提供方是结构化共同拥有者，注册表只为按 id 控制保留工厂提供的确切 close 能力。每个拥有者都会到达同一个记忆化完全停稳边界：停止新准入、取消并等待循环、撤销其作用域世界、在确切 Session 仍附加时 flush，随后 detach Agent 和 Session。Scope 或 flush 失败会被汇总，但不会跳过 detach。`ctx.agents.get(id)` 仍返回裸 `Agent`；ACP 桥接层与进程内 subagent 后端持有消费方 handle，而配置创建的 agent 由循环 fiber 拥有。
 
 ### 实时事件
 

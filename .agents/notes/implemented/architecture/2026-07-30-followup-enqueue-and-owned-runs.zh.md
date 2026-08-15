@@ -16,6 +16,8 @@ Status: implemented
 
 底层 SDK 协议在入队成功后立即以 `{ messageId }` 响应 `session/prompt`。它通过 `session.event` 流式传输持久事实，通过 `session.status` 发布整个 agent 的状态转换，且不包含 `session.finished`。底层客户端可以观察该回执和之后的 idle，但不会收到提示词结果。
 
+Web BFF 采用同一规则：`session.prompt` 返回确切获准的 `MessageId`，`session.workStatus` 则从持久 inbox splice 与轮次边界折叠出 `queued`、`claimed`、`discarded` 或 `settled`。Claim 会记录哪个轮次领取了消息，settlement 会记录该轮次的结束原因，但两种状态都不标识 assistant 响应；多条消息可以由同一个共享轮次领取和结算。冷查询通过持久化检查，不恢复 Agent。
+
 只有明确拥有一个活动区间时，高层自动化 API 才返回 `RunResult`。TypeScript 和 Python SDK 的 `run()` 方法从已提交消息的持久 inbox 回执开始收集，直至整个 agent 下一次进入 `idle`；其最终响应是该区间内最后一条已提交的 assistant 消息，而不是按因果关系归属于已提交提示词的响应。Python SDK 还把根会话最后一个轮次的结束原因 kind 作为运行级 [`finish_reason`](../bug-fix/2026-08-11-owned-run-finish-reason.md) 返回，但不会将其归因于已提交的提示词。单次 CLI（命令行界面）拥有相应的 idle 到 idle 区间。隔离的子 agent 运行可以报告结果，因为调用方拥有完整的子级生命周期，任何 steering 都属于该运行。
 
 ACP（Agent Client Protocol）必须返回协议规定的 `stopReason`。其桥接层对每个 ACP 会话中的提示词进行串行处理，确保一次只有一个提示词正在处理，等待整个 agent 进入 idle，其他情况均报告通用的 `end_turn`。token 上限的轮次结束不归因于提示词：它们以 `end_turn` 结算。与该提示词关联的轮次上的模型错误会立即以该错误拒绝提示词（错误按其所属轮次归因），而无轮次的 slot（准入已丢弃提示词）会在 idle 时以 `cancelled` 结算，与显式 ACP 取消或 dispose（资源释放）并列。
@@ -24,7 +26,7 @@ Goal 续行只保留 `MessageId`，用于识别持久排队和已准入的 goal 
 
 ## 考虑过的替代方案
 
-**将 `MessageId` 映射到准入它的轮次。** 一个轮次可能使用 steering 和注入的上下文，还可能经过多个模型／工具步骤继续执行。该映射只能标识准入，不能确立结果输出或停止原因的因果归属。
+**把 `MessageId`→轮次映射用作提示词结果。** 该映射对于工作生命周期有效，并用于 `session.workStatus`；但一个轮次可能使用 steering 和注入上下文，还可能经过多个模型／工具步骤继续执行。它不能确立结果输出的因果归属。
 
 **返回按 follow-up 区分的完成句柄。** 这样的句柄暗示共享 agent 生命周期中存在并不实际成立的结果边界。它要么遗漏影响活动的工作，要么在不作说明的情况下吸收后续无关输入。
 
@@ -34,9 +36,10 @@ Goal 续行只保留 `MessageId`，用于识别持久排队和已准入的 goal 
 
 - Agent 与 inbox 测试固定 follow-up 仅入队、持久准入或取消以及整个 agent 的 idle 观测。
 - SDK 协议、TypeScript SDK 和 Python SDK 测试固定 `{ messageId }` 回执、`session.status`、不存在 `session.finished`，以及不含提示词级 `status` 或 `reason` 的回执到 idle `RunResult` 收集；Python SDK 测试另行固定其运行级 `finish_reason` 观测。
+- Web Host 测试固定获准 MessageId 回执，以及附加与冷 Session 的持久 queued/claimed/discarded/settled 折叠，包括同 id 替换且不恢复 Agent。
 - ACP、单次 CLI、goal 续行和 subagent 测试固定各集成实际拥有的不同活动边界。
 - 消费方测试固定生产集成都不会通过关联 `MessageId` 与 `turn/end` 来推导 follow-up 结果。
 
 ## 后果
 
-自有活动区间可以包含进入 idle 前提交的 steering、注入上下文或其他工作，因此其最终响应、结束原因和事件有意比初始消息涵盖更广。SDK 和 ACP 结果仍不包含提示词级模型错误和 token 上限分类；调用方可以检查运行级或持久事件事实，但不能声称这些事实具有因果归属。在同一会话上并发执行自动化操作时，必须采用显式串行或所有权策略，不能依赖隐式的按提示词结果。
+自有活动区间可以包含进入 idle 前提交的 steering、注入上下文或其他工作，因此其最终响应、结束原因和事件有意比初始消息涵盖更广。调用方可以用逐消息工作状态观察队列准入、领取、丢弃和轮次结算，但仍不存在提示词级 assistant 输出。在同一会话上并发执行自动化操作时，必须采用显式串行或所有权策略，不能依赖隐式的按提示词结果。

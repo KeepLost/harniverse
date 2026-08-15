@@ -204,6 +204,20 @@ delete(id: WorkspaceId): Promise<boolean>
 insertBefore(id: WorkspaceId, beforeId?: WorkspaceId): Promise<readonly WorkspaceId[]>
 
 /**
+ * Durably mark one Session deletion before its authoritative log commit.
+ * @param sessionId - Session whose cross-store deletion is starting.
+ * @returns resolution after the recovery marker is durable.
+ */
+beginSessionDeletion(sessionId: SessionId): Promise<void>
+
+/**
+ * Clear one Session deletion marker after every workspace/archive reference is gone.
+ * @param sessionId - Session whose derived cleanup committed.
+ * @returns resolution after the marker is durably cleared.
+ */
+completeSessionDeletion(sessionId: SessionId): Promise<void>
+
+/**
  * Archive one session durably. The session must exist (live or in session
  * persistence); its workspace accounting — or lack of one — is irrelevant.
  * An already archived id resolves without writing.
@@ -211,6 +225,14 @@ insertBefore(id: WorkspaceId, beforeId?: WorkspaceId): Promise<readonly Workspac
  * @returns resolution after durability.
  */
 archiveSession(sessionId: SessionId): Promise<void>
+
+/**
+ * Remove one deleted session from every workspace account and the archive set.
+ * The operation is idempotent; the caller commits authoritative Session
+ * deletion first so a failed metadata write can converge on retry.
+ * @param sessionId - deleted session identity.
+ */
+removeSessionReferences(sessionId: SessionId): Promise<void>
 
 /**
  * Resolve by canonical directory path without creating or mutating a

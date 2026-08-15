@@ -2,7 +2,7 @@
 // data source on a real clock; behavior tests need per-case responses and
 // deferred-controlled timing). Streams are hand pumps: pushMux/pushHost.
 import type {
-  ClientResponse, HostFrame, IApiClient, ModelSelection, MuxFrame,
+  ClientResponse, HostFrame, IApiClient, MessageId, ModelSelection, MuxFrame,
   RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SessionModels, SessionSearchItem, SkillEntry,
   WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
@@ -81,7 +81,7 @@ export class FakeApiClient implements IApiClient {
   readonly defaultModel: ModelSelection = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
   onRename: (payload: unknown) => Promise<RpcResponse<{ title: string; seq: number }>> = () => Promise.resolve(ok({ title: 'fk-renamed', seq: 0 }))
   onFork: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-fork' as SessionId }))
-  onHistory: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number })
+  onHistory: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number; afterSeq?: number; maxEvents?: number })
   => Promise<RpcResponse<{ events: never[]; hasMore: boolean }>> =
     () => Promise.resolve(ok({ events: [], hasMore: false }))
 
@@ -98,20 +98,22 @@ export class FakeApiClient implements IApiClient {
   onSelectModel: (payload: { provider: string; model: string }) =>
   Promise<RpcResponse<{ selected: ModelSelection }>> =
     payload => Promise.resolve(ok({ selected: { provider: payload.provider, model: payload.model } }))
-  onPrompt: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
+  onPrompt: (payload: unknown) => Promise<RpcResponse<{ accepted: true; messageId: never }>>
+    = () => Promise.resolve(ok({ accepted: true as const, messageId: 'fake-message' as never }))
   onAttachment: (payload: unknown) => Promise<RpcResponse<{ attachment: { attachmentId: never; mediaType: 'image/png'; bytes: number; width: number; height: number }; data: string }>> =
     () => Promise.resolve(ok({ attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 1, width: 1, height: 1 }, data: 'AA==' }))
   onUpdateQueue: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
   onCancel: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
 
   onDescribe: (payload: unknown) => Promise<RpcResponse<{
+    bootId: never
     version: string
     cwd: string
     attachedSessions: number
     canOpenPath: boolean
   }>> =
     () => Promise.resolve(ok({
-      version: '0-fake', cwd: '/f', attachedSessions: 0, canOpenPath: true,
+      bootId: 'fake-boot' as never, version: '0-fake', cwd: '/f', attachedSessions: 0, canOpenPath: true,
     }))
   onPickDirectory: (payload: unknown) => Promise<RpcResponse<{ path: string | null }>> =
     () => Promise.resolve(ok({ path: null }))
@@ -144,8 +146,23 @@ export class FakeApiClient implements IApiClient {
       return this.record('session.search', payload, this.onSearch(payload))
     },
     create: (payload: unknown) => this.record('session.create', payload, this.onCreate(payload)),
-    history: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number }) =>
+    history: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number; afterSeq?: number; maxEvents?: number }) =>
       this.record('session.history', payload, this.onHistory(payload)),
+    status: (payload: { sessionId: SessionId }) => this.record('session.status', payload, Promise.resolve(ok({
+      sessionId: payload.sessionId,
+      bootId: 'fake-boot' as never,
+      attached: false,
+      running: false,
+      closing: false,
+      lastSeq: -1,
+      queue: [],
+      jobs: [],
+      interactions: [],
+    }))),
+    workStatus: (payload: { sessionId: SessionId; messageId: MessageId }) => this.record('session.workStatus', payload, Promise.resolve(ok({
+      messageId: payload.messageId,
+      status: { state: 'unknown' as const },
+    }))),
     models: (payload: unknown) => this.record('session.models', payload, this.onModels(payload)),
     selectModel: (payload: { provider: string; model: string }) =>
       this.record('session.selectModel', payload, this.onSelectModel(payload)),
@@ -155,6 +172,11 @@ export class FakeApiClient implements IApiClient {
     attachment: (payload: unknown) => this.record('session.attachment', payload, this.onAttachment(payload)),
     updateQueue: (payload: unknown) => this.record('session.updateQueue', payload, this.onUpdateQueue(payload)),
     cancel: (payload: unknown) => this.record('session.cancel', payload, this.onCancel(payload)),
+    close: (payload: unknown) => this.record('session.close', payload, Promise.resolve(ok({ closed: true as const }))),
+    delete: (payload: unknown) => this.record('session.delete', payload, Promise.resolve(ok({
+      deleted: true as const,
+      attachmentsRetained: true as const,
+    }))),
   }
 
   onSubagentList: (payload: unknown) => Promise<RpcResponse<{ entries: never[]; parentAvailable: boolean }>>

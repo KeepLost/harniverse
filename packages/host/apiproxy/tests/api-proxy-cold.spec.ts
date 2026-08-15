@@ -214,6 +214,71 @@ describe('sessions.list cold merge', () => {
   })
 })
 
+describe('session work status', () => {
+  it('derives exact message lifecycle states from a cold durable log', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserQuestionService)
+    const sessionId = sid('session-work-status')
+    const meta = header('session-work-status', 1000)
+    const queued = createUserMessage({ content: [{ type: 'text', text: 'queued' }], source: { kind: 'user' } })
+    const discarded = createUserMessage({ content: [{ type: 'text', text: 'discarded' }], source: { kind: 'user' } })
+    const replaced = createUserMessage({ content: [{ type: 'text', text: 'before edit' }], source: { kind: 'user' } })
+    const settled = createUserMessage({ content: [{ type: 'text', text: 'settled' }], source: { kind: 'user' } })
+    const claimed = createUserMessage({ content: [{ type: 'text', text: 'claimed' }], source: { kind: 'user' } })
+    const events = [
+      { type: 'agent/inbox/spliced', seq: 0, time: 1, data: { target: 'next-turn', start: 0, inserted: [queued] } },
+      { type: 'agent/inbox/spliced', seq: 1, time: 2, data: { target: 'next-step', start: 0, inserted: [discarded] } },
+      { type: 'agent/inbox/spliced', seq: 2, time: 3, data: { target: 'next-step', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' } },
+      { type: 'agent/inbox/spliced', seq: 3, time: 4, data: { target: 'next-step', start: 0, inserted: [replaced] } },
+      { type: 'agent/inbox/spliced', seq: 4, time: 5, data: { target: 'next-step', start: 0, removedCount: 1, inserted: [{ ...replaced, content: [{ type: 'text', text: 'after edit' }] }], outcome: 'canceled' } },
+      { type: 'agent/inbox/spliced', seq: 5, time: 6, data: { target: 'next-step', start: 1, inserted: [settled] } },
+      { type: 'turn/start', seq: 6, time: 7, data: { turn: 1 } },
+      { type: 'agent/inbox/spliced', seq: 7, time: 8, data: { target: 'next-step', start: 0, removedCount: 2, inserted: [] } },
+      { type: 'turn/end', seq: 8, time: 9, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'agent/inbox/spliced', seq: 9, time: 10, data: { target: 'next-step', start: 0, inserted: [claimed] } },
+      { type: 'turn/start', seq: 10, time: 11, data: { turn: 2 } },
+      { type: 'agent/inbox/spliced', seq: 11, time: 12, data: { target: 'next-step', start: 0, removedCount: 1, inserted: [] } },
+    ] as SessionEvent[]
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([meta]),
+      inspect: () => Promise.resolve({ meta, events }),
+      locate: () => undefined,
+    } as never)
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+
+    const status = async (messageId: string) => {
+      const response = await api.sessions.workStatus(request({ sessionId, messageId: MessageId(messageId) }))
+      expect(response.result.ok).toBe(true)
+      if (!response.result.ok) throw new Error(response.result.error.message)
+      return response.result.value.status
+    }
+
+    await expect(status(queued.id)).resolves.toEqual({ state: 'queued' })
+    await expect(status(discarded.id)).resolves.toEqual({ state: 'discarded' })
+    await expect(status(replaced.id)).resolves.toEqual({ state: 'settled', turn: 1, reason: { kind: 'completed' } })
+    await expect(status(settled.id)).resolves.toEqual({ state: 'settled', turn: 1, reason: { kind: 'completed' } })
+    await expect(status(claimed.id)).resolves.toEqual({ state: 'claimed', turn: 2 })
+    await expect(status('missing')).resolves.toEqual({ state: 'unknown' })
+    const snapshot = await api.sessions.status(request({ sessionId }))
+    expect(snapshot.result).toMatchObject({
+      ok: true,
+      value: {
+        attached: false,
+        running: false,
+        closing: false,
+        lastSeq: 11,
+        queue: [],
+        jobs: [],
+        interactions: [],
+      },
+    })
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+})
+
 describe('attached updatedAt tracks human prompts', () => {
   it('ignores pickup and non-prompt work after the latest human message', async () => {
     const ctx = new Context()
@@ -284,6 +349,7 @@ describe('cold history recovery view', () => {
       ),
       appendBatch: () => Promise.resolve(),
       commitRepair: () => Promise.resolve(),
+      deleteStored: () => Promise.resolve(false),
       list: () => Promise.resolve([structuredClone(meta)]),
     }
     const coordinator = new PersistenceCoordinator(ctx, backend)

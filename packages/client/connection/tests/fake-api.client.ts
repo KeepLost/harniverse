@@ -2,7 +2,7 @@
 // data source on a real clock; behavior tests need per-case responses and
 // deferred-controlled timing). Streams are hand pumps: pushMux/pushHost.
 import type {
-  HostFrame, IApiClient, ModelSelection, MuxFrame,
+  HostFrame, IApiClient, MessageId, ModelSelection, MuxFrame,
   RpcRequest, RpcResponse, SessionId, SessionModels, SessionSearchItem, SkillEntry, WorkspaceId,
 } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
@@ -65,19 +65,21 @@ export class FakeApiClient implements IApiClient {
   onSelectModel: (payload: ModelSelection & { sessionId: SessionId })
   => Promise<RpcResponse<{ selected: ModelSelection }>> =
     payload => Promise.resolve(ok({ selected: { provider: payload.provider, model: payload.model } }))
-  onPrompt: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
+  onPrompt: (payload: unknown) => Promise<RpcResponse<{ accepted: true; messageId: never }>>
+    = () => Promise.resolve(ok({ accepted: true as const, messageId: 'fake-message' as never }))
   onAttachment: (payload: unknown) => Promise<RpcResponse<{ attachment: { attachmentId: never; mediaType: 'image/png'; bytes: number; width: number; height: number }; data: string }>> =
     () => Promise.resolve(ok({ attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 1, width: 1, height: 1 }, data: 'AA==' }))
   onUpdateQueue: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
   onCancel: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
   onDescribe: (payload: unknown) => Promise<RpcResponse<{
+    bootId: never
     version: string
     cwd: string
     attachedSessions: number
     canOpenPath: boolean
   }>> =
     () => Promise.resolve(ok({
-      version: '0-fake', cwd: '/f', attachedSessions: 0, canOpenPath: true,
+      bootId: 'fake-boot' as never, version: '0-fake', cwd: '/f', attachedSessions: 0, canOpenPath: true,
     }))
   onPickDirectory: (payload: unknown) => Promise<RpcResponse<{ path: string | null }>> =
     () => Promise.resolve(ok({ path: null }))
@@ -112,6 +114,21 @@ export class FakeApiClient implements IApiClient {
     create: (payload: unknown) => this.record('session.create', payload, this.onCreate(payload)),
     history: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number }) =>
       this.record('session.history', payload, this.onHistory(payload)),
+    status: (payload: { sessionId: SessionId }) => this.record('session.status', payload, Promise.resolve(ok({
+      sessionId: payload.sessionId,
+      bootId: 'fake-boot' as never,
+      attached: false,
+      running: false,
+      closing: false,
+      lastSeq: -1,
+      queue: [],
+      jobs: [],
+      interactions: [],
+    }))),
+    workStatus: (payload: { sessionId: SessionId; messageId: MessageId }) => this.record('session.workStatus', payload, Promise.resolve(ok({
+      messageId: payload.messageId,
+      status: { state: 'unknown' as const },
+    }))),
     models: (payload: unknown) => this.record('session.models', payload, this.onModels(payload)),
     selectModel: (payload: ModelSelection & { sessionId: SessionId }) =>
       this.record('session.selectModel', payload, this.onSelectModel(payload)),
@@ -121,6 +138,11 @@ export class FakeApiClient implements IApiClient {
     attachment: (payload: unknown) => this.record('session.attachment', payload, this.onAttachment(payload)),
     updateQueue: (payload: unknown) => this.record('session.updateQueue', payload, this.onUpdateQueue(payload)),
     cancel: (payload: unknown) => this.record('session.cancel', payload, this.onCancel(payload)),
+    close: (payload: unknown) => this.record('session.close', payload, Promise.resolve(ok({ closed: true as const }))),
+    delete: (payload: unknown) => this.record('session.delete', payload, Promise.resolve(ok({
+      deleted: true as const,
+      attachmentsRetained: true as const,
+    }))),
   }
 
   readonly subagents: IApiClient['subagents'] = {
@@ -239,8 +261,10 @@ export class FakeApiClient implements IApiClient {
   }
 
   readonly events: IApiClient['events'] = {
-    mux: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) =>
-      this.openStream(this.muxConns, signal, onOpen),
+    mux: (payload: unknown, signal: AbortSignal, onOpen?: () => void) => {
+      this.calls.push({ method: 'events.mux', payload })
+      return this.openStream(this.muxConns, signal, onOpen)
+    },
     host: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) =>
       this.openStream(this.hostConns, signal, onOpen),
   }

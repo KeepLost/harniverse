@@ -66,6 +66,10 @@ class TracePersistence extends SessionPersistence {
     return Promise.resolve()
   }
 
+  delete(id: SessionIdType): Promise<boolean> {
+    return Promise.resolve(TracePersistence.entries.delete(id))
+  }
+
   load(id: SessionIdType): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     return this.inspect(id)
   }

@@ -64,6 +64,7 @@ function requestProposal(header: EpochHeader): LlmCallConfig {
 export class ReactLoopAgent implements Agent {
   readonly inbox: Inbox
   private phase: Phase
+  private accepting = true
   private activityDone: Promise<void> = Promise.resolve()
 
   /** The agent-scoped registration boundary; the lifecycle owner unwinds it after the driver exits. */
@@ -110,7 +111,17 @@ export class ReactLoopAgent implements Agent {
     }
   }
 
+  /** Stop new work admission before lifecycle teardown begins. */
+  beginDispose(): void {
+    this.accepting = false
+  }
+
+  private assertAccepting(): void {
+    if (!this.accepting) throw new Error(`agent "${this.id}" is closing`)
+  }
+
   send(message: UserMessage, target: InboxTarget, wakeup: boolean): void {
+    this.assertAccepting()
     // Waking input cannot join an aborted activity, so it starts the next turn.
     // Captured before the insertion so a reentrant cancel from a splice observer cannot reclassify it.
     const wakingAfterAbort = wakeup && this.phase.kind !== 'idle' && this.phase.abort.signal.aborted
@@ -140,6 +151,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   runMaintenance<T>(job: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    this.assertAccepting()
     if (this.phase.kind !== 'idle') throw new Error(`agent "${this.id}" already has active work`)
     const done = Promise.withResolvers<void>()
     const maintenance: Phase = {

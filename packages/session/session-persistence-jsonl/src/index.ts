@@ -9,7 +9,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { readdirSync } from 'node:fs'
-import { open, mkdir, readFile, readdir, realpath, link, rm, stat, truncate } from 'node:fs/promises'
+import { open, mkdir, readFile, readdir, realpath, link, rm, stat, truncate, unlink } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { scheduler } from 'node:timers/promises'
@@ -179,6 +179,10 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
 
   append(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
     return this.coordinator.append(id, events)
+  }
+
+  delete(id: SessionId): Promise<boolean> {
+    return this.coordinator.delete(id)
   }
 
   override prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation> {
@@ -441,6 +445,22 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     if (tornMarker !== undefined) await this.repair(meta, tornMarker.truncateTo)
     const repairedEvents = [...(tornMarker?.recoveredEvents ?? []), ...closers]
     if (repairedEvents.length > 0) await this.appendLines(meta, repairedEvents)
+  }
+
+  /** Remove the exact validated log file; shared attachment objects are outside this backend. */
+  async deleteStored(id: SessionId): Promise<boolean> {
+    await this.ensureRootEncoding()
+    const path = await this.findLog(id)
+    if (path === undefined) return false
+    await this.readPrefix(path, id)
+    try {
+      await unlink(path)
+    } catch (error: unknown) {
+      if (isENOENT(error)) return false
+      throw error
+    }
+    if (process.platform !== 'win32') await this.syncDirPosix(dirname(path))
+    return true
   }
 
   /** List valid unique stored sessions' metadata (header line only — no full-log parse). */

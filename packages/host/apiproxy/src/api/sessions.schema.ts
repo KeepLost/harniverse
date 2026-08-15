@@ -13,6 +13,7 @@ import type { Wire } from './rpc.schema.ts'
 import type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
   ModelReasoningEffort, ModelSelection, SessionListMetadata, SessionProjectionsBlock, SessionSearchItem, SessionSummary,
+  SessionWorkStatus,
 } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
 import type { AttachmentIdType, ImageAttachmentLimits, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -138,12 +139,23 @@ export const sessionForkValueSchema = z.object({
   sessionId: sessionIdSchema,
 }) satisfies z.ZodType<Wire<ResponseValue<'session.fork'>>>
 
-/** session.history request payload (beforeSeq/maxMessages page backwards from the window tail). */
+/** session.history request payload: exclusive backward-display or forward-event mode. */
 export const sessionHistoryRequestSchema = z.object({
   sessionId: sessionIdSchema,
   beforeSeq: z.number().int().nonnegative().optional(),
   maxMessages: z.number().int().positive().optional(),
-}) satisfies z.ZodType<Wire<RequestPayload<'session.history'>>>
+  afterSeq: z.number().int().min(-1).optional(),
+  maxEvents: z.number().int().positive().optional(),
+}).superRefine((payload, issue) => {
+  const forward = payload.afterSeq !== undefined || payload.maxEvents !== undefined
+  if (!forward) return
+  if (payload.afterSeq === undefined || payload.maxEvents === undefined) {
+    issue.addIssue({ code: 'custom', message: 'forward history requires afterSeq and maxEvents' })
+  }
+  if (payload.beforeSeq !== undefined || payload.maxMessages !== undefined) {
+    issue.addIssue({ code: 'custom', message: 'forward and backward history fields are mutually exclusive' })
+  }
+}) as z.ZodType<Wire<RequestPayload<'session.history'>>>
 
 /** Complete provider/model selection. */
 export const modelSelectionSchema = z.object({
@@ -292,14 +304,35 @@ export const sessionPromptRequestSchema = z.object({
   clientTimeZone: z.string().optional(),
 }) as unknown as z.ZodType<RequestPayload<'session.prompt'>>
 
-/** session.prompt response value (the command slot appears only when the prompt dispatched a slash command). */
+/** session.prompt response value: the exact durable inbox identity. */
 export const sessionPromptValueSchema = z.object({
   accepted: z.literal(true),
-  command: z.object({
-    kind: z.literal('success'),
-    text: z.string().optional(),
-  }).optional(),
+  messageId: messageIdSchema,
 }) satisfies z.ZodType<Wire<ResponseValue<'session.prompt'>>>
+
+/** session.workStatus request payload. */
+export const sessionWorkStatusRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  messageId: messageIdSchema,
+}) satisfies z.ZodType<Wire<RequestPayload<'session.workStatus'>>>
+
+const sessionWorkStatusSchema = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('unknown') }),
+  z.object({ state: z.literal('queued') }),
+  z.object({ state: z.literal('claimed'), turn: z.number().int().nonnegative() }),
+  z.object({
+    state: z.literal('settled'),
+    turn: z.number().int().nonnegative(),
+    reason: z.looseObject({ kind: z.string().min(1) }),
+  }),
+  z.object({ state: z.literal('discarded') }),
+]) as unknown as z.ZodType<Wire<SessionWorkStatus>>
+
+/** session.workStatus response value. */
+export const sessionWorkStatusValueSchema = z.object({
+  messageId: messageIdSchema,
+  status: sessionWorkStatusSchema,
+}) satisfies z.ZodType<Wire<ResponseValue<'session.workStatus'>>>
 
 /** Opaque attachment id after string-shape validation. */
 export const attachmentIdSchema = z.string().min(1) as unknown as z.ZodType<AttachmentIdType>
@@ -351,3 +384,24 @@ export const sessionCancelRequestSchema = z.object({
 export const sessionCancelValueSchema = z.object({
   accepted: z.literal(true),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.cancel'>>>
+
+/** session.close request payload. */
+export const sessionCloseRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+}) satisfies z.ZodType<Wire<RequestPayload<'session.close'>>>
+
+/** session.close response value. */
+export const sessionCloseValueSchema = z.object({
+  closed: z.literal(true),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.close'>>>
+
+/** session.delete request payload. */
+export const sessionDeleteRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+}) satisfies z.ZodType<Wire<RequestPayload<'session.delete'>>>
+
+/** session.delete response value. */
+export const sessionDeleteValueSchema = z.object({
+  deleted: z.literal(true),
+  attachmentsRetained: z.literal(true),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.delete'>>>

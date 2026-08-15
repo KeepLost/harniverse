@@ -182,6 +182,10 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
     return this.coordinator.append(id, events)
   }
 
+  delete(id: SessionId): Promise<boolean> {
+    return this.coordinator.delete(id)
+  }
+
   override prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation> {
     return this.coordinator.prepare(id, signal)
   }
@@ -335,6 +339,13 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
       throw error
       /* v8 ignore stop */
     }
+  }
+
+  /** Delete one metadata row and its cascading event rows atomically. */
+  async deleteStored(id: SessionId): Promise<boolean> {
+    await this.ready
+    const result = this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
+    return result.changes > 0
   }
 
   /** List all materialized sessions' metadata (every row is a materialized session). */

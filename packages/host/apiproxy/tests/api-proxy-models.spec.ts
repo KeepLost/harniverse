@@ -168,6 +168,11 @@ describe('Web session model selection', () => {
       ],
     }))
     expect(result.result.ok).toBe(true)
+    if (result.result.ok && 'messageId' in result.result.value) {
+      expect(result.result.value.messageId).toBe((followup.mock.calls[0]?.[0] as UserMessage).id)
+    } else {
+      throw new Error('ordinary prompt did not return a message receipt')
+    }
     expect(validateImage.mock.calls.map(([input]) => [...input.data])).toEqual([[1], [2]])
     expect(saveImage.mock.calls.map(([input]) => [...input.data])).toEqual([[1], [2]])
     expect((followup.mock.calls[0]?.[0] as UserMessage).content).toEqual([

@@ -285,6 +285,95 @@ describe('mux live view computation', () => {
     expect(page.map(event => event.seq)).toEqual(page.map((_event, index) => third.seq + index))
   })
 
+  it('pages forward from an exclusive event cursor without a projection baseline', async () => {
+    const { ctx } = await harness()
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const session = ctx.sessions.create()
+    ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
+    session.append('turn/start', { turn: 1 })
+    appendUserText(session, 'one')
+    appendAssistantText(session, 'two', 1)
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    const response = await api.sessions.history({
+      rpcId: RpcId('t-hist-forward'),
+      payload: { sessionId: session.id, afterSeq: 0, maxEvents: 2 },
+    })
+    if (!response.result.ok) throw new Error('unreachable')
+    expect(response.result.value.events.map(entry => entry.event.seq)).toEqual([1, 2])
+    expect(response.result.value.hasMore).toBe(true)
+    expect(response.result.value.projections).toBeUndefined()
+
+    const end = await api.sessions.history({
+      rpcId: RpcId('t-hist-forward-end'),
+      payload: { sessionId: session.id, afterSeq: 3, maxEvents: 2 },
+    })
+    if (!end.result.ok) throw new Error('unreachable')
+    expect(end.result.value).toMatchObject({ events: [], hasMore: false })
+  })
+
+  it('replays durable events after the requested mux cursor', async () => {
+    const { ctx } = await harness()
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1 })
+    appendUserText(session, 'queued before reconnect')
+    const abort = new AbortController()
+
+    const frames = await collect(api.events.mux({
+      rpcId: RpcId('t-mux-replay'),
+      payload: { since: { [session.id]: 0 } },
+    }, abort.signal), 1, abort)
+
+    expect(frames[0]).toEqual({ type: 'session/subscribed', sessionId: session.id, lastSeq: 1 })
+    expect(frames[1]).toMatchObject({ type: 'session/event', sessionId: session.id, event: { seq: 1 } })
+  })
+
+  it('streams a replay larger than the live queue bound without reconnect livelock', async () => {
+    const { ctx } = await harness()
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
+      cwd: '/tmp',
+      streamQueueMaxFrames: 1,
+    })
+    const first = ctx.sessions.create('first' as SessionId)
+    const second = ctx.sessions.create('second' as SessionId)
+    for (const session of [first, second]) {
+      session.append('turn/start', { turn: 1 })
+      appendUserText(session, 'queued before reconnect')
+    }
+    const abort = new AbortController()
+
+    const frames = await collect(api.events.mux({
+      rpcId: RpcId('t-mux-small-bound'),
+      payload: { since: { [first.id]: -1, [second.id]: -1 } },
+    }, abort.signal), 4, abort)
+
+    expect(frames.filter(frame => frame.type === 'session/subscribed')).toHaveLength(2)
+    expect(frames.filter(frame => frame.type === 'session/event')).toHaveLength(4)
+  })
+
+  it('drains accepted frames and fails a stream when its queue overflows', async () => {
+    const { ctx } = await harness()
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
+      cwd: '/tmp',
+      streamQueueMaxFrames: 2,
+    })
+    const session = ctx.sessions.create()
+    const stream = api.events.mux({ rpcId: RpcId('t-mux-overflow'), payload: {} }, new AbortController().signal)
+    session.append('turn/start', { turn: 1 })
+    appendUserText(session, 'overflow')
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    const frames: MuxFrame[] = []
+    await expect(async () => {
+      for await (const envelope of stream) frames.push(envelope.payload)
+    }).rejects.toThrow(/queue.*overflow/i)
+    expect(frames).toHaveLength(3)
+    expect(frames.map(frame => frame.type)).toEqual(['session/subscribed', 'session/event', 'session/event'])
+  })
+
   it('drops a disposed session from the live open-call table (result after dispose gets no view)', async () => {
     const { ctx } = await harness()
     const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
