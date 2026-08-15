@@ -44,7 +44,12 @@ const jsExprType = new yaml.Type('tag:yaml.org,2002:js', {
 const configSchema = yaml.JSON_SCHEMA.extend(jsExprType)
 
 /** Boot the built Web CLI, wait for its settled URL, then dispose through SIGTERM. */
-function runBuiltWeb(cwd: string): Promise<{ stdout: string; stderr: string; code: number }> {
+function runBuiltWeb(cwd: string, args: string[] = [
+  '--host',
+  '127.0.0.1',
+  '--port',
+  '0',
+]): Promise<{ stdout: string; stderr: string; code: number }> {
   return new Promise((resolveRun, rejectRun) => {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
@@ -57,10 +62,7 @@ function runBuiltWeb(cwd: string): Promise<{ stdout: string; stderr: string; cod
     const child = spawn(process.execPath, [
       builtBin,
       'web',
-      '--host',
-      '127.0.0.1',
-      '--port',
-      '0',
+      ...args,
     ], {
       cwd,
       env,
@@ -120,6 +122,24 @@ describe.skipIf(!requireBuiltArtifacts)('built CLI lazy-search startup', () => {
       expect(result.stdout).toMatch(/dsh web: http:\/\/127\.0\.0\.1:\d+/u)
       expect(result.code).toBe(0)
       expect(result.stderr).not.toMatch(/ExperimentalWarning: SQLite/u)
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  }, 70_000)
+
+  it('binds all interfaces only after the explicit unauthenticated-access acknowledgement', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'dsh-cli-wildcard-host-'))
+    try {
+      const result = await runBuiltWeb(cwd, [
+        '--host',
+        '0.0.0.0',
+        '--port',
+        '0',
+        '--dangerously-skip-authentication',
+      ])
+      expect(result.stdout).toMatch(/dsh web: http:\/\/127\.0\.0\.1:\d+ \(LAN: http:\/\/[^:]+:\d+\)/u)
+      expect(result.code).toBe(0)
+      expect(result.stderr).not.toContain('requires --dangerously-skip-authentication')
     } finally {
       await rm(cwd, { recursive: true, force: true })
     }
