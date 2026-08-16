@@ -385,6 +385,41 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'authentication',
+    summary: 'Provider-neutral inbound network authentication service.',
+    description: 'Provider-neutral inbound network authentication service.',
+    methods: [
+      {
+        signature: 'abstract readonly mode: AuthenticationMode',
+        description: 'Active process authentication behavior.',
+        parameters: [],
+      },
+      {
+        signature: 'abstract authenticate(attempt: AuthenticationAttempt): Promise<AuthenticationDecision>',
+        description: 'Authenticate one HTTP or WebSocket admission attempt.',
+        parameters: [{ name: 'attempt', description: 'normalized headers, carrier, and direct peer.' }],
+        returns: 'accepted credential revision or a stable rejection reason.',
+      },
+      {
+        signature: 'abstract status(): Promise<AuthenticationStatus>',
+        description: 'Read process-wide admission state for the browser login gate.',
+        parameters: [],
+        returns: 'the active mode and whether authenticated admission has no tokens.',
+      },
+      {
+        signature: 'abstract createBrowserSession(token: string, peerAddress?: string): Promise<BrowserAuthenticationDecision>',
+        description: 'Verify one token and issue an in-memory browser session.',
+        parameters: [{ name: 'token', description: 'raw token value supplied by the browser login form.' }, { name: 'peerAddress', description: 'direct socket peer used only for the access record.' }],
+        returns: 'the issued session or a stable rejection reason.',
+      },
+      {
+        signature: 'abstract revokeBrowserSession(cookie?: string): void',
+        description: 'Revoke the browser session named by a raw Cookie header, when present.',
+        parameters: [{ name: 'cookie', description: 'raw Cookie header from the logout request.' }],
+      },
+    ],
+  },
+  {
     key: 'clientModules',
     summary: 'The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index tap.',
     description: 'The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index tap. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).',
@@ -2346,6 +2381,30 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'req', description: 'the pending decision (agent, tool identity, reason, signal).' }],
   },
   {
+    name: 'authentication/available',
+    mode: 'emit',
+    signature: '\'authentication/available\'(): void',
+    summary: 'Credential freshness was reconciled after an unavailable interval.',
+    description: 'Credential freshness was reconciled after an unavailable interval.',
+    parameters: [],
+  },
+  {
+    name: 'authentication/revoked',
+    mode: 'emit',
+    signature: '\'authentication/revoked\'(revocation: AuthenticationRevocation): void',
+    summary: 'A committed token registry change invalidated credential revisions.',
+    description: 'A committed token registry change invalidated credential revisions.',
+    parameters: [{ name: 'revocation', description: 'revisions that must lose browser and socket admission.' }],
+  },
+  {
+    name: 'authentication/unavailable',
+    mode: 'emit',
+    signature: '\'authentication/unavailable\'(): void',
+    summary: 'Credential freshness became unavailable; current sockets must close.',
+    description: 'Credential freshness became unavailable; current sockets must close.',
+    parameters: [],
+  },
+  {
     name: 'commands/change',
     mode: 'emit',
     signature: '\'commands/change\'(): void',
@@ -2802,6 +2861,42 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type AttachmentId = Branded<\'AttachmentId\'>;',
   },
   {
+    name: 'AuthenticationAttempt',
+    declaration: 'export interface AuthenticationAttempt {\n    channel: AuthenticationChannel;\n    authorization?: string;\n    cookie?: string;\n    peerAddress?: string;\n}',
+  },
+  {
+    name: 'AuthenticationChannel',
+    declaration: 'export type AuthenticationChannel = \'http-api\' | \'websocket-mux\' | \'websocket-host\';',
+  },
+  {
+    name: 'AuthenticationCredential',
+    declaration: 'export interface AuthenticationCredential {\n    tokenId: AuthenticationTokenId;\n    tokenName: AuthenticationTokenName;\n    generation: number;\n}',
+  },
+  {
+    name: 'AuthenticationDecision',
+    declaration: 'export type AuthenticationDecision = {\n    kind: \'accepted\';\n    credential?: AuthenticationCredential;\n} | {\n    kind: \'rejected\';\n    reason: \'missing-credential\' | \'invalid-credential\' | \'authentication-unavailable\';\n};',
+  },
+  {
+    name: 'AuthenticationMode',
+    declaration: 'export type AuthenticationMode = \'authenticated\' | \'bypass\';',
+  },
+  {
+    name: 'AuthenticationRevocation',
+    declaration: 'export interface AuthenticationRevocation {\n    credentials: AuthenticationCredential[];\n}',
+  },
+  {
+    name: 'AuthenticationStatus',
+    declaration: 'export interface AuthenticationStatus {\n    mode: AuthenticationMode;\n    sealed: boolean;\n}',
+  },
+  {
+    name: 'AuthenticationTokenId',
+    declaration: 'export type AuthenticationTokenId = Branded<\'AuthenticationTokenId\'>;',
+  },
+  {
+    name: 'AuthenticationTokenName',
+    declaration: 'export type AuthenticationTokenName = Branded<\'AuthenticationTokenName\'>;',
+  },
+  {
     name: 'BackendRegistry',
     declaration: 'export class BackendRegistry {\n    register(name: string, backend: StorageBackend): () => void;\n    get(name: string): StorageBackend;\n    names(): string[];\n}',
   },
@@ -2820,6 +2915,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'Branded',
     declaration: 'export type Branded<B extends string> = string & {\n    readonly [BRAND]: B;\n};',
+  },
+  {
+    name: 'BrowserAuthenticationDecision',
+    declaration: 'export type BrowserAuthenticationDecision = {\n    kind: \'accepted\';\n    session: BrowserAuthenticationSession;\n} | Extract<AuthenticationDecision, {\n    kind: \'rejected\';\n}>;',
+  },
+  {
+    name: 'BrowserAuthenticationSession',
+    declaration: 'export interface BrowserAuthenticationSession {\n    value: string;\n    expiresAt: string;\n    credential: AuthenticationCredential;\n}',
   },
   {
     name: 'CancelOptions',

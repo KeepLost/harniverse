@@ -340,6 +340,38 @@ export interface Config {
 
 Source: [`packages/attachment/attachment-local/src/index.ts:24`](../packages/attachment/attachment-local/src/index.ts)
 
+<a id="deepseek-aidsh-authentication-local"></a>
+
+## `@deepseek-ai/dsh-authentication-local`
+
+```ts config-catalog
+/** Local authentication plugin configuration. */
+export interface Config {
+  /** Harness home containing the registry, access log, and instance lease. */
+  dshHome?: string
+  /** Admission behavior; authenticated is the default. */
+  mode?: AuthenticationMode
+  /** Watch token management changes and publish targeted revocations. */
+  watch?: boolean
+  /** Watcher write-settle window in milliseconds. */
+  debounceMs?: number
+  /** Browser session lifetime in milliseconds. */
+  sessionTtlMs?: number
+  /** Maximum process-memory browser sessions retained at once. */
+  maxBrowserSessions?: number
+  /** Registry reconciliation interval backing up filesystem watch events. */
+  reconcileIntervalMs?: number
+  /** Maximum active access-log size before rotation. */
+  accessLogMaxBytes?: number
+  /** Number of rotated access-log files retained. */
+  accessLogMaxFiles?: number
+}
+```
+
+Depends on: [`AuthenticationMode`](../packages/auth/authentication/src/index.ts)
+
+Source: [`packages/auth/authentication-local/src/index.ts:41`](../packages/auth/authentication-local/src/index.ts)
+
 <a id="deepseek-aidsh-bash-local"></a>
 
 ## `@deepseek-ai/dsh-bash-local`
@@ -391,7 +423,7 @@ Source: [`packages/shell/bash-sandbox/src/index.ts:35`](../packages/shell/bash-s
 
 ## `@deepseek-ai/dsh-client-connection`
 
-Requires: `webServer`
+Requires: `webServer` · `authentication`
 
 ```ts config-catalog
 /** Plugin config: the deployment's non-loopback serving authorities. */
@@ -410,7 +442,7 @@ export interface ConnectionConfig {
 }
 ```
 
-Source: [`packages/client/connection/src/index.ts:50`](../packages/client/connection/src/index.ts)
+Source: [`packages/client/connection/src/index.ts:53`](../packages/client/connection/src/index.ts)
 
 <a id="deepseek-aidsh-client-hmr"></a>
 
@@ -3211,6 +3243,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 Abstract service classes — a deployment loads a concrete implementation package instead ([capability seams](../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)).
 
 - `@deepseek-ai/dsh-attachment` — abstract `AttachmentStore` ([`packages/attachment/attachment/src/index.ts`](../packages/attachment/attachment/src/index.ts))
+- `@deepseek-ai/dsh-authentication` — abstract `InboundAuthentication` ([`packages/auth/authentication/src/index.ts`](../packages/auth/authentication/src/index.ts))
 - `@deepseek-ai/dsh-code-runtime` — abstract `CodeRuntime` ([`packages/code-runtime/code-runtime/src/index.ts`](../packages/code-runtime/code-runtime/src/index.ts))
 - `@deepseek-ai/dsh-compaction` — abstract `CompactionEngine` ([`packages/compaction/compaction/src/index.ts`](../packages/compaction/compaction/src/index.ts))
 - `@deepseek-ai/dsh-credentials` — abstract `CredentialProvider` ([`packages/credentials/credentials/src/index.ts`](../packages/credentials/credentials/src/index.ts))

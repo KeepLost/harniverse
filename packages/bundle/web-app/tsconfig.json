@@ -24,6 +24,9 @@
       "path": "../../boot/cmdline"
     },
     {
+      "path": "../../auth/authentication"
+    },
+    {
       "path": "../../host/frontend-static"
     },
     {

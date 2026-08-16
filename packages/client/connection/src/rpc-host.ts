@@ -12,6 +12,7 @@ import {
   type ServerResponse as RpcServerResponse,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { bridge, type FetchHandler } from './http-bridge.ts'
+import { authenticateIncoming, rejectUnauthorized } from './inbound-auth.ts'
 import { isTrustedApiRequest } from './api-request-trust.ts'
 import { API_PATH } from './api-path.ts'
 import type {
@@ -103,6 +104,11 @@ export class HostConnectionService extends Service implements HostConnectionHand
         if (!isTrustedApiRequest(req, trustedHosts)) {
           res.writeHead(403)
           res.end('forbidden')
+          return
+        }
+        const decision = await authenticateIncoming(owner, req, 'http-api')
+        if (decision.kind === 'rejected') {
+          rejectUnauthorized(res)
           return
         }
         await bridge(req, res, fetchHandler)

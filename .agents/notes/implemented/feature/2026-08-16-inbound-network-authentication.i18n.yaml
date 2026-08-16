@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-16-inbound-network-authentication.md
+2026-08-16-inbound-network-authentication.md: 8d3b8ccbbbe8da5a360fb6660e830f93981eee5b
+2026-08-16-inbound-network-authentication.zh.md: 70770d93a996d8cc7cb5a0298b97acd3186591d4

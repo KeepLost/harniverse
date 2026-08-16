@@ -2,14 +2,17 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-attachment'
+import type {} from '@deepseek-ai/dsh-authentication'
 // Activates the webServer Context merge used below.
-import type { WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
+import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH } from './api-path.ts'
 import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
+import { authenticateIncoming, rejectUnauthorized } from './inbound-auth.ts'
 import { assertTrustedAuthority, isTrustedApiRequest } from './api-request-trust.ts'
+import { registerBrowserAuthenticationRoutes } from './browser-auth-routes.ts'
 import { HostConnectionService } from './rpc-host.ts'
-import { rejectWebSocketUpgrade, WebSocketDownlinks } from './websocket-downlink.ts'
+import { rejectUnauthorizedWebSocket, rejectWebSocketUpgrade, WebSocketDownlinks } from './websocket-downlink.ts'
 
 export type {
   ConnectionRpcAuthority,
@@ -44,7 +47,7 @@ function assertImageBodyCapacity(ctx: Context, maxRequestBodyBytes: number): voi
 }
 
 /** Services required before providing Connection; API Proxy is an optional `/api` fallback. */
-export const inject = ['webServer']
+export const inject = ['webServer', 'authentication']
 
 /** Plugin config: the deployment's non-loopback serving authorities. */
 export interface ConnectionConfig {
@@ -167,30 +170,43 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
         res.end('forbidden')
         return
       }
+      const decision = await authenticateIncoming(ctx, req, 'http-api')
+      if (decision.kind === 'rejected') {
+        rejectUnauthorized(res)
+        return
+      }
       await bridge(req, res, fetchHandler, maxRequestBodyBytes)
     },
   }
   ctx.effect(() => ctx.webServer.register(route), 'client-connection: /api route')
+  registerBrowserAuthenticationRoutes(ctx, trustedHosts)
   ctx.inject(['apiProxy'], (apiCtx) => {
     assertImageBodyCapacity(apiCtx, maxRequestBodyBytes)
     const downlinks = new WebSocketDownlinks(apiCtx.apiProxy)
-    const registerDownlink = (
-      path: string,
-      handle: WebUpgradeRoute['handler'],
-    ): void => {
+    const registerDownlink = (path: string): void => {
       apiCtx.effect(() => apiCtx.webServer.registerUpgrade({
         path,
-        handler: (req, socket, head) => {
+        handler: async (req, socket, head) => {
           if (!isTrustedApiRequest(req, trustedHosts)) {
             rejectWebSocketUpgrade(socket)
             return
           }
-          return handle(req, socket, head)
+          const channel = path === MUX_EVENTS_PATH ? 'websocket-mux' : 'websocket-host'
+          const decision = await authenticateIncoming(apiCtx, req, channel)
+          if (decision.kind === 'rejected') {
+            rejectUnauthorizedWebSocket(socket)
+            return
+          }
+          if (path === MUX_EVENTS_PATH) downlinks.handleMux(req, socket, head, decision.credential)
+          else downlinks.handleHost(req, socket, head, decision.credential)
         },
       }), `client-connection: ${path} WebSocket`)
     }
     apiCtx.effect(() => () => downlinks.close(), 'client-connection: WebSocket downlinks')
-    registerDownlink(MUX_EVENTS_PATH, (req, socket, head) => { downlinks.handleMux(req, socket, head) })
-    registerDownlink(HOST_EVENTS_PATH, (req, socket, head) => { downlinks.handleHost(req, socket, head) })
+    apiCtx.on('authentication/revoked', ({ credentials }) => { downlinks.revoke(credentials) })
+    apiCtx.on('authentication/unavailable', () => { downlinks.authenticationUnavailable() })
+    apiCtx.on('authentication/available', () => { downlinks.authenticationRecovered() })
+    registerDownlink(MUX_EVENTS_PATH)
+    registerDownlink(HOST_EVENTS_PATH)
   })
 }

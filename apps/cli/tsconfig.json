@@ -24,6 +24,9 @@
       "path": "../../packages/boot/cmdline"
     },
     {
+      "path": "../../packages/auth/authentication-local"
+    },
+    {
       "path": "../../packages/bundle/base"
     },
     {

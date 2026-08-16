@@ -1,7 +1,7 @@
 /**
  * The web app's command-line provider: it parses the `dsh --profile web` flag
- * family (`--host`, `--port`, `--trusted-host`, the unauthenticated-access
- * acknowledgement) and its `--help`
+ * family (`--host`, `--port`, `--trusted-host`, and the explicit
+ * authentication bypass) and its `--help`
  * text, then provides the immutable values as {@link WEB_STARTUP_SERVICE}.
  * Ordinary rows inject that service before reading it from lazy config.
  * @module @deepseek-ai/dsh-web-app/startup
@@ -10,6 +10,7 @@
 import { Command } from 'commander'
 import type { Context } from '@deepseek-ai/cordis'
 import { parseCmdline } from '@deepseek-ai/dsh-cmdline'
+import type { AuthenticationMode } from '@deepseek-ai/dsh-authentication'
 
 /** Stable Cordis plugin name. */
 export const name = 'web-startup'
@@ -28,6 +29,8 @@ export interface WebStartupValues {
   port?: number
   /** Explicit `--trusted-host` authorities, in argument order. */
   trustedHosts: string[]
+  /** Process-wide inbound authentication behavior. */
+  authenticationMode: AuthenticationMode
 }
 
 /** The web flag family, as commander parsed it. */
@@ -35,7 +38,7 @@ interface WebOptions {
   host?: string
   port?: string
   trustedHost?: string[]
-  /** Explicit acknowledgement required for an unauthenticated all-interface bind. */
+  /** Explicit authentication bypass for this network-serving process. */
   dangerouslySkipAuthentication?: boolean
 }
 
@@ -51,7 +54,7 @@ function webCommand(): Command {
     .option('--host <host>', 'bind host')
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
-    .option('--dangerously-skip-authentication', 'allow --host 0.0.0.0 despite the unauthenticated Web API')
+    .option('--dangerously-skip-authentication', 'bypass inbound authentication for this process (access remains logged)')
     .addHelpText('after', `
 Examples:
   dsh --profile web                          serve on the composed host and port
@@ -61,18 +64,14 @@ Examples:
 
 /**
  * Parse and provide the Web invocation as an ordinary Cordis service. The
- * command's action publishes the flags this invocation named; an unacknowledged
- * `--host 0.0.0.0` or a non-numeric `--port` is a usage error, so on rejection
- * (and on `--help`) nothing is provided.
+ * command's action publishes the flags this invocation named; a non-numeric
+ * `--port` is a usage error, so on rejection (and on `--help`) nothing is provided.
  * @param ctx - plugin context carrying the command line.
  */
 export function apply(ctx: Context): void {
   const program = webCommand()
   program.action(() => {
     const options = program.opts<WebOptions>()
-    if (options.host === '0.0.0.0' && options.dangerouslySkipAuthentication !== true) {
-      program.error('error: --host 0.0.0.0 requires --dangerously-skip-authentication because the Web API can execute agent tools without an authentication layer')
-    }
     if (options.port !== undefined && !/^\d+$/.test(options.port)) {
       program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
     }
@@ -80,6 +79,7 @@ export function apply(ctx: Context): void {
       ...options.host !== undefined && { host: options.host },
       ...options.port !== undefined && { port: Number(options.port) },
       trustedHosts: options.trustedHost ?? [],
+      authenticationMode: options.dangerouslySkipAuthentication === true ? 'bypass' : 'authenticated',
     } satisfies WebStartupValues)
   })
   parseCmdline(ctx, program)

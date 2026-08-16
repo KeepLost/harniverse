@@ -63,6 +63,7 @@ type EventReceiverKind = 'context' | 'agent-dispatch' | 'events-service'
 const GROUP_ORDER = [
   'util',
   'attachment',
+  'auth',
   'llm',
   'core',
   'typert',
@@ -97,6 +98,15 @@ const GROUP_ORDER = [
 ]
 
 const SERVICE_ROLES: ServiceRole[] = [
+  {
+    key: 'authentication',
+    pkg: 'authentication',
+    title: 'Inbound network authentication',
+    mode: 'seam',
+    implementations: ['authentication-local'],
+    consumers: ['client-connection'],
+    note: 'The provider owns admission state, token revisions, browser sessions, lease, and records; Connection owns HTTP and WebSocket protocol enforcement.',
+  },
   {
     key: 'attachments',
     pkg: 'attachment',

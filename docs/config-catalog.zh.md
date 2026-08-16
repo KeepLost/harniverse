@@ -342,6 +342,38 @@ export interface Config {
 
 来源：[`packages/attachment/attachment-local/src/index.ts:24`](../packages/attachment/attachment-local/src/index.ts)
 
+<a id="deepseek-aidsh-authentication-local"></a>
+
+## `@deepseek-ai/dsh-authentication-local`
+
+```ts config-catalog
+/** Local authentication plugin configuration. */
+export interface Config {
+  /** Harness home containing the registry, access log, and instance lease. */
+  dshHome?: string
+  /** Admission behavior; authenticated is the default. */
+  mode?: AuthenticationMode
+  /** Watch token management changes and publish targeted revocations. */
+  watch?: boolean
+  /** Watcher write-settle window in milliseconds. */
+  debounceMs?: number
+  /** Browser session lifetime in milliseconds. */
+  sessionTtlMs?: number
+  /** Maximum process-memory browser sessions retained at once. */
+  maxBrowserSessions?: number
+  /** Registry reconciliation interval backing up filesystem watch events. */
+  reconcileIntervalMs?: number
+  /** Maximum active access-log size before rotation. */
+  accessLogMaxBytes?: number
+  /** Number of rotated access-log files retained. */
+  accessLogMaxFiles?: number
+}
+```
+
+依赖：[`AuthenticationMode`](../packages/auth/authentication/src/index.ts)
+
+来源：[`packages/auth/authentication-local/src/index.ts:41`](../packages/auth/authentication-local/src/index.ts)
+
 <a id="deepseek-aidsh-bash-local"></a>
 
 ## `@deepseek-ai/dsh-bash-local`
@@ -393,7 +425,7 @@ export type Config = LocalConfig
 
 ## `@deepseek-ai/dsh-client-connection`
 
-需要：`webServer`
+需要：`webServer` · `authentication`
 
 ```ts config-catalog
 /** Plugin config: the deployment's non-loopback serving authorities. */
@@ -412,7 +444,7 @@ export interface ConnectionConfig {
 }
 ```
 
-来源：[`packages/client/connection/src/index.ts:50`](../packages/client/connection/src/index.ts)
+来源：[`packages/client/connection/src/index.ts:53`](../packages/client/connection/src/index.ts)
 
 <a id="deepseek-aidsh-client-hmr"></a>
 
@@ -3213,6 +3245,7 @@ export interface Config {
 抽象服务类——部署时应改为加载具体的实现包（参见[能力 seam](../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)）。
 
 - `@deepseek-ai/dsh-attachment` — 抽象 `AttachmentStore`（[`packages/attachment/attachment/src/index.ts`](../packages/attachment/attachment/src/index.ts)）
+- `@deepseek-ai/dsh-authentication` — 抽象 `InboundAuthentication`（[`packages/auth/authentication/src/index.ts`](../packages/auth/authentication/src/index.ts)）
 - `@deepseek-ai/dsh-code-runtime` — 抽象 `CodeRuntime`（[`packages/code-runtime/code-runtime/src/index.ts`](../packages/code-runtime/code-runtime/src/index.ts)）
 - `@deepseek-ai/dsh-compaction` — 抽象 `CompactionEngine`（[`packages/compaction/compaction/src/index.ts`](../packages/compaction/compaction/src/index.ts)）
 - `@deepseek-ai/dsh-credentials` — 抽象 `Credentials`（[`packages/credentials/credentials/src/index.ts`](../packages/credentials/credentials/src/index.ts)）

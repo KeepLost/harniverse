@@ -7,6 +7,7 @@ import WebSocket, { WebSocketServer } from 'ws'
 import type {
   ApiProxy, HostFrame, MuxFrame, RpcRequest, ServerRequest,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { AuthenticationCredential } from '@deepseek-ai/dsh-authentication'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { eventsMuxRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
 
@@ -44,6 +45,10 @@ function failureFrame(error: unknown): RpcRequest<Frame> {
   }
 }
 
+function credentialKey(credential: AuthenticationCredential): string {
+  return `${credential.tokenId}:${String(credential.generation)}`
+}
+
 /**
  * Owns WebSocket negotiation and frame pumping for the connection plugin's
  * two downlinks. Client messages are a protocol violation: upstream traffic
@@ -52,6 +57,9 @@ function failureFrame(error: unknown): RpcRequest<Frame> {
 export class WebSocketDownlinks {
   private readonly server = new WebSocketServer({ noServer: true })
   private readonly pumps = new Set<Promise<void>>()
+  private readonly credentials = new Map<WebSocket, AuthenticationCredential>()
+  private readonly revokedCredentials = new Map<string, number>()
+  private authenticationAvailable = true
 
   /** @param api - host API supplying the typed event streams. */
   constructor(private readonly api: ApiProxy) {}
@@ -61,8 +69,9 @@ export class WebSocketDownlinks {
    * @param req - HTTP upgrade request.
    * @param socket - Raw socket transferred by the HTTP server.
    * @param head - Bytes already read after the upgrade headers.
+   * @param credential - accepted token revision, absent in bypass mode.
    */
-  handleMux(req: IncomingMessage, socket: Duplex, head: Buffer): void {
+  handleMux(req: IncomingMessage, socket: Duplex, head: Buffer, credential?: AuthenticationCredential): void {
     const url = new URL(req.url ?? '/', 'http://dsh.internal')
     const values = url.searchParams.getAll('since')
     let decoded: unknown = undefined
@@ -82,7 +91,7 @@ export class WebSocketDownlinks {
     this.upgrade(req, socket, head, signal => this.api.events.mux({
       rpcId: RpcId(randomUUID()),
       payload,
-    }, signal))
+    }, signal), credential)
   }
 
   /**
@@ -90,12 +99,41 @@ export class WebSocketDownlinks {
    * @param req - HTTP upgrade request.
    * @param socket - Raw socket transferred by the HTTP server.
    * @param head - Bytes already read after the upgrade headers.
+   * @param credential - accepted token revision, absent in bypass mode.
    */
-  handleHost(req: IncomingMessage, socket: Duplex, head: Buffer): void {
+  handleHost(req: IncomingMessage, socket: Duplex, head: Buffer, credential?: AuthenticationCredential): void {
     this.upgrade(req, socket, head, signal => this.api.events.host({
       rpcId: RpcId(randomUUID()),
       payload: {},
-    }, signal))
+    }, signal), credential)
+  }
+
+  /**
+   * Close sockets admitted by any invalidated credential revision.
+   * @param credentials - exact token revisions invalidated by the registry commit.
+   */
+  revoke(credentials: readonly AuthenticationCredential[]): void {
+    const revoked = new Set(credentials.map(credentialKey))
+    for (const credential of credentials) {
+      const previous = this.revokedCredentials.get(credential.tokenId) ?? 0
+      this.revokedCredentials.set(credential.tokenId, Math.max(previous, credential.generation))
+    }
+    for (const [socket, credential] of this.credentials) {
+      if (revoked.has(credentialKey(credential))) {
+        socket.close(4001, 'credential revoked')
+      }
+    }
+  }
+
+  /** Close current sockets and reject upgrades until authentication recovers. */
+  authenticationUnavailable(): void {
+    this.authenticationAvailable = false
+    for (const socket of this.server.clients) socket.close(1012, 'authentication unavailable')
+  }
+
+  /** Admit upgrades again after the provider reconciles credential freshness. */
+  authenticationRecovered(): void {
+    this.authenticationAvailable = true
   }
 
   /**
@@ -118,11 +156,26 @@ export class WebSocketDownlinks {
     socket: Duplex,
     head: Buffer,
     open: (signal: AbortSignal) => AsyncIterable<RpcRequest<F>>,
+    credential?: AuthenticationCredential,
   ): void {
     this.server.handleUpgrade(req, socket, head, (websocket) => {
       const abort = new AbortController()
-      websocket.once('close', () => { abort.abort() })
-      websocket.once('error', () => { abort.abort() })
+      if (!this.authenticationAvailable) {
+        websocket.close(1012, 'authentication unavailable')
+        return
+      }
+      if (credential !== undefined
+        && (this.revokedCredentials.get(credential.tokenId) ?? 0) >= credential.generation) {
+        websocket.close(4001, 'credential revoked')
+        return
+      }
+      if (credential !== undefined) this.credentials.set(websocket, credential)
+      const cleanup = (): void => {
+        this.credentials.delete(websocket)
+        abort.abort()
+      }
+      websocket.once('close', cleanup)
+      websocket.once('error', cleanup)
       websocket.once('message', () => {
         websocket.close(1008, 'downlink only')
       })
@@ -178,5 +231,21 @@ export function rejectWebSocketUpgrade(socket: Duplex): void {
     'Content-Length: 9',
     '',
     'forbidden',
+  ].join('\r\n'))
+}
+
+/**
+ * Reject an unauthenticated upgrade before protocol negotiation.
+ * @param socket - raw HTTP socket that remains owned by the caller.
+ */
+export function rejectUnauthorizedWebSocket(socket: Duplex): void {
+  socket.end([
+    'HTTP/1.1 401 Unauthorized',
+    'Connection: close',
+    'Content-Type: text/plain; charset=utf-8',
+    'Content-Length: 12',
+    'WWW-Authenticate: Bearer realm="dsh"',
+    '',
+    'unauthorized',
   ].join('\r\n'))
 }

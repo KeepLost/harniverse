@@ -58,6 +58,7 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
     "    host: !!js ctx.webStartup.host ?? '127.0.0.1'",
     '    port: !!js ctx.webStartup.port ?? 3080',
     '    trustedHosts: !!js ctx.webStartup.trustedHosts',
+    '    authenticationMode: !!js ctx.webStartup.authenticationMode',
     '- id: provider',
     `  name: ${pathToFileURL(join(dir, 'provider.mjs')).href}`,
     '',
@@ -97,6 +98,7 @@ describe('web command-line provider', () => {
       host: '127.0.0.1',
       port: 8080,
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
+      authenticationMode: 'authenticated',
     })
     expect(observed.readerConfig).toEqual(values)
     expect(observed.exits).toEqual([])
@@ -104,11 +106,12 @@ describe('web command-line provider', () => {
 
   it('leaves deployment values to each consumer when flags omit them', async () => {
     const { values, observed } = await bootProvider([])
-    expect(values).toEqual({ trustedHosts: [] })
+    expect(values).toEqual({ trustedHosts: [], authenticationMode: 'authenticated' })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
       port: 3080,
       trustedHosts: [],
+      authenticationMode: 'authenticated',
     })
   })
 
@@ -130,12 +133,15 @@ describe('web command-line provider', () => {
     expect(observed.exits).toEqual([1])
   })
 
-  it('rejects an unacknowledged all-interfaces host before the consumer activates', async () => {
+  it('allows an authenticated all-interfaces host', async () => {
     const { values, observed } = await bootProvider(['--host', '0.0.0.0'])
-    expect(observed.out).toContain('--host 0.0.0.0 requires --dangerously-skip-authentication')
-    expect(values).toBeUndefined()
-    expect(observed.readerConfig).toBeUndefined()
-    expect(observed.exits).toEqual([1])
+    expect(values).toEqual({
+      host: '0.0.0.0', trustedHosts: [], authenticationMode: 'authenticated',
+    })
+    expect(observed.readerConfig).toEqual({
+      host: '0.0.0.0', port: 3080, trustedHosts: [], authenticationMode: 'authenticated',
+    })
+    expect(observed.exits).toEqual([])
   })
 
   it('publishes an explicitly acknowledged all-interfaces host', async () => {
@@ -143,11 +149,12 @@ describe('web command-line provider', () => {
       '--host', '0.0.0.0',
       '--dangerously-skip-authentication',
     ])
-    expect(values).toEqual({ host: '0.0.0.0', trustedHosts: [] })
+    expect(values).toEqual({ host: '0.0.0.0', trustedHosts: [], authenticationMode: 'bypass' })
     expect(observed.readerConfig).toEqual({
       host: '0.0.0.0',
       port: 3080,
       trustedHosts: [],
+      authenticationMode: 'bypass',
     })
     expect(observed.exits).toEqual([])
   })

@@ -43,6 +43,7 @@ import {
 import * as AppShell from './app-shell.ts'
 import { APP_SHELL_ID } from './app-shell.ts'
 import { AppRoot } from './AppRoot.tsx'
+import { waitForBrowserAuthentication } from './AuthenticationGate.tsx'
 import { getStaticModules } from './seed.ts'
 import { STATE_LABELS, createLoaderStatusStore, createSignal } from './loader-status.ts'
 import './base.css'
@@ -95,6 +96,8 @@ export class AppWebEntry {
    * @returns resolves once the UI settled or the failure report rendered.
    */
   async run(): Promise<void> {
+    this.root = createRoot(this.el)
+    await waitForBrowserAuthentication(this.root)
     this.manifest = parseBootManifest((globalThis as DshWindow).__DSH_BOOT__)
 
     this.modules = new ClientModuleSystem({
@@ -111,7 +114,6 @@ export class AppWebEntry {
     this.modules.registerStatic(MODULES_ID, ModulesClient)
     ;(globalThis as DshWindow).__DSH_MODULES__ = this.modules
 
-    this.root = createRoot(this.el)
     this.root.render(
       <AppRoot
         settled={this.settled}

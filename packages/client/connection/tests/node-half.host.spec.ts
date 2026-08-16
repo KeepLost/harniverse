@@ -8,6 +8,12 @@ import type { AddressInfo } from 'node:net'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
+import {
+  authenticationTokenId,
+  authenticationTokenName,
+  type AuthenticationDecision,
+  type InboundAuthentication,
+} from '@deepseek-ai/dsh-authentication'
 import { RpcId, type ClientRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { WebServer, WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
 import { API_PATH, apply, HOST_EVENTS_PATH, inject, MUX_EVENTS_PATH, type HostConnectionHandle } from '../src/index.ts'
@@ -34,34 +40,58 @@ function fakeHttpServer(
   }
 }
 
+function provideAuthentication(
+  ctx: Context,
+  decision: AuthenticationDecision = { kind: 'accepted' },
+  overrides: Partial<Pick<InboundAuthentication, 'status' | 'createBrowserSession' | 'revokeBrowserSession'>> = {},
+): void {
+  ctx.provide('authentication', {
+    mode: 'authenticated',
+    authenticate: () => Promise.resolve(decision),
+    status: () => Promise.resolve({ mode: 'authenticated', sealed: false }),
+    createBrowserSession: () => Promise.resolve({ kind: 'rejected', reason: 'invalid-credential' }),
+    revokeBrowserSession: () => {},
+    ...overrides,
+  } as unknown as InboundAuthentication)
+}
+
 /** Bodyless GET carrying the given headers (enough for the trust fence + bridge). */
 function fakeRequest(headers: Record<string, string>, url = `${API_PATH}/session.list`): IncomingMessage {
   const request = Readable.from([]) as unknown as IncomingMessage
-  Object.assign(request, { url, method: 'GET', headers })
+  Object.assign(request, { url, method: 'GET', headers, socket: { remoteAddress: '127.0.0.1' } })
   return request
 }
 
 /** JSON POST carrying a complete client-request envelope. */
 function fakePost(headers: Record<string, string>, url: string, body: unknown): IncomingMessage {
   const request = Readable.from([Buffer.from(JSON.stringify(body))]) as unknown as IncomingMessage
-  Object.assign(request, { url, method: 'POST', headers: { 'content-type': 'application/json', ...headers } })
+  Object.assign(request, {
+    url,
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    socket: { remoteAddress: '127.0.0.1' },
+  })
   return request
 }
 
 /** Raw POST for malformed-body and media-type boundary cases. */
 function fakeRawPost(headers: Record<string, string>, url: string, body: string): IncomingMessage {
   const request = Readable.from([Buffer.from(body)]) as unknown as IncomingMessage
-  Object.assign(request, { url, method: 'POST', headers })
+  Object.assign(request, { url, method: 'POST', headers, socket: { remoteAddress: '127.0.0.1' } })
   return request
 }
 
 /** Response recorder compatible with both the fence's short-circuit and the bridge. */
-function fakeResponse(): { response: ServerResponse; state: { status?: number; body?: unknown } } {
-  const state: { status?: number; body?: unknown } = {}
+function fakeResponse(): { response: ServerResponse; state: { status?: number; body?: unknown; headers?: Record<string, string> } } {
+  const state: { status?: number; body?: unknown; headers?: Record<string, string> } = {}
   const chunks: Buffer[] = []
   const response = Object.assign(new EventEmitter(), {
     writableEnded: false,
-    writeHead(value: number) { state.status = value; return this },
+    writeHead(value: number, headers?: Record<string, string>) {
+      state.status = value
+      if (headers !== undefined) state.headers = headers
+      return this
+    },
     write(value: string | Uint8Array) { chunks.push(Buffer.from(value)); return true },
     end(this: { writableEnded: boolean }, value?: unknown) {
       if (typeof value === 'string' || value instanceof Uint8Array) chunks.push(Buffer.from(value))
@@ -74,7 +104,11 @@ function fakeResponse(): { response: ServerResponse; state: { status?: number; b
   return { response, state }
 }
 
-async function mounted(config?: { trustedHosts?: string[] }): Promise<{
+async function mounted(
+  config?: { trustedHosts?: string[] },
+  decision: AuthenticationDecision = { kind: 'accepted' },
+  overrides: Partial<Pick<InboundAuthentication, 'status' | 'createBrowserSession' | 'revokeBrowserSession'>> = {},
+): Promise<{
   routes: WebRoute[]
   upgrades: WebUpgradeRoute[]
   dispose: () => Promise<void>
@@ -83,6 +117,7 @@ async function mounted(config?: { trustedHosts?: string[] }): Promise<{
   const routes: WebRoute[] = []
   const upgrades: WebUpgradeRoute[] = []
   ctx.provide('webServer', fakeHttpServer(routes, upgrades) as WebServer)
+  provideAuthentication(ctx, decision, overrides)
   ctx.provide('apiProxy', {} as unknown as ApiProxy)
   const fiber = ctx.plugin({ inject: [...inject], apply }, config)
   await fiber.await()
@@ -108,6 +143,7 @@ describe('connection node half', () => {
     const upgrades: WebUpgradeRoute[] = []
     const ctx = new Context()
     ctx.provide('webServer', fakeHttpServer(routes, upgrades) as WebServer)
+    provideAuthentication(ctx)
     ctx.provide('apiProxy', {} as unknown as ApiProxy)
     const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.internal/path'] })
     await expect(fiber).rejects.toThrow(/not a bare host\[:port\] authority/)
@@ -115,9 +151,9 @@ describe('connection node half', () => {
     expect(upgrades).toHaveLength(0)
   })
 
-  it('registers one HTTP route plus one upgrade route per downlink and removes all three with the fiber', async () => {
+  it('registers API and browser-authentication routes plus one upgrade route per downlink', async () => {
     const { routes, upgrades, dispose } = await mounted()
-    expect(routes).toHaveLength(1)
+    expect(routes).toHaveLength(4)
     expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
     expect(upgrades.map(route => route.path)).toEqual([MUX_EVENTS_PATH, HOST_EVENTS_PATH])
     await dispose()
@@ -158,6 +194,41 @@ describe('connection node half', () => {
     }), response)
     expect(state.status).toBe(403)
     expect(state.body).toBe('forbidden')
+    await dispose()
+  })
+
+  it('rejects an unauthenticated loopback API request', async () => {
+    const { routes, dispose } = await mounted(undefined, { kind: 'rejected', reason: 'missing-credential' })
+    const { response, state } = fakeResponse()
+    await routes[0]!.handler(fakeRequest({ host: '127.0.0.1:3080' }), response)
+    expect(state.status).toBe(401)
+    expect(state.body).toBe('unauthorized')
+    await dispose()
+  })
+
+  it('issues an HttpOnly strict browser cookie without exposing the token', async () => {
+    const credential = {
+      tokenId: authenticationTokenId('token-id'),
+      tokenName: authenticationTokenName('laptop'),
+      generation: 1,
+    }
+    const { routes, dispose } = await mounted(undefined, { kind: 'accepted' }, {
+      createBrowserSession: () => Promise.resolve({
+        kind: 'accepted',
+        session: {
+          value: 'browser-session-secret',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          credential,
+        },
+      }),
+    })
+    const route = routes.find(candidate => candidate.path === '/auth/login')!
+    const { response, state } = fakeResponse()
+    await route.handler(fakePost({ host: '127.0.0.1:3080' }, '/auth/login', { token: 'one-time-token' }), response)
+
+    expect(state.status).toBe(200)
+    expect(state.headers?.['set-cookie']).toContain('dsh_auth=browser-session-secret; Path=/; HttpOnly; SameSite=Strict')
+    expect(state.body).not.toContain('one-time-token')
     await dispose()
   })
 
@@ -217,9 +288,10 @@ describe('connection node half', () => {
     const ctx = new Context()
     const routes: WebRoute[] = []
     ctx.provide('webServer', fakeHttpServer(routes, []) as WebServer)
+    provideAuthentication(ctx)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    expect(routes).toHaveLength(1)
+    expect(routes).toHaveLength(4)
     expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
 
     const connection = ctx.get('connection') as HostConnectionHandle
@@ -254,7 +326,9 @@ describe('connection node half', () => {
       authority: 'trusted-host',
     })).toThrow(/duplicate route/)
     await remove()
-    expect(routes.map(candidate => candidate.path)).toEqual([API_PATH])
+    expect(routes.map(candidate => candidate.path)).toEqual([
+      API_PATH, '/auth/status', '/auth/login', '/auth/logout',
+    ])
     await fiber.dispose()
     expect(routes).toHaveLength(0)
   })
@@ -263,6 +337,7 @@ describe('connection node half', () => {
     const ctx = new Context()
     const routes: WebRoute[] = []
     ctx.provide('webServer', fakeHttpServer(routes, []) as WebServer)
+    provideAuthentication(ctx)
     ctx.provide('apiProxy', {} as unknown as ApiProxy)
     const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.example'] })
     await fiber.await()
@@ -341,6 +416,7 @@ describe('connection node half', () => {
     const ctx = new Context()
     const routes: WebRoute[] = []
     ctx.provide('webServer', fakeHttpServer(routes, []) as WebServer)
+    provideAuthentication(ctx)
     const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.example'] })
     await fiber.await()
     const connection = ctx.get('connection') as HostConnectionHandle

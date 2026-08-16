@@ -41,6 +41,7 @@ import {
   loadOverlayPatches,
 } from '@deepseek-ai/dsh-app-boot'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
+import { addAuthenticationToken } from '@deepseek-ai/dsh-authentication-local'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type {
@@ -177,6 +178,8 @@ export interface WebScaffold {
   persistenceRoot: string
   /** Isolated harness home the settings/credentials rows write ($DSH_HOME double). */
   harnessHome: string
+  /** One-time token for an authenticated-mode scenario; absent in bypass mode. */
+  authenticationToken?: string
   /** Await a settled turn end: in-process turn/end, then the agent's idle flip (which follows the persistence flush). */
   whenTurnSettled(timeoutMs?: number): Promise<SessionId>
   /** Tear everything down; asserts the replay fixture was fully consumed first (replay/refresh). */
@@ -198,6 +201,8 @@ export interface WebSearchTestConfig {
 
 /** Options for {@link launchWebScaffold}. */
 export interface LaunchOptions {
+  /** Admission mode for this scaffold; ordinary post-admission scenarios default to explicit bypass. */
+  authentication?: 'bypass' | 'token'
   /**
    * Optional product overlay applied after the shipped Web surface and before
    * the scaffold's hermetic test patches, matching the launcher's `--patch`
@@ -375,6 +380,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ? undefined
     : { provider: 'deepseek-official', ...options.deepSeekSearch } as const)
   let presetRoot = SHIPPED_PRESET_DIR
+  let authenticationToken: string | undefined
   try {
     if (webSearch !== undefined) {
       presetRoot = join(workspaceCwd, '.search-enabled-presets')
@@ -385,6 +391,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       const enabled = '  config:\n    search: true\n    fetch: false\n    searchTimeoutMs: 60000'
       if (!source.includes(disabled)) throw new Error('standard preset Web tool config no longer matches the search opt-in fixture')
       await writeFile(standardPreset, source.replace(disabled, enabled), 'utf8')
+    }
+    if (options.authentication === 'token') {
+      authenticationToken = (await addAuthenticationToken('browser-e2e', { dshHome: harnessHome })).token
     }
   } catch (error) {
     const failures: unknown[] = [error]
@@ -398,6 +407,13 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ...basePatches,
     ...surfacePatches,
     ...extraOverlayPatches,
+    // Existing browser scenarios exercise product behavior after admission.
+    // Select bypass explicitly; authentication itself has a dedicated composed
+    // browser scenario, while lease and access records remain active here.
+    {
+      id: 'authentication',
+      config: { mode: options.authentication === 'token' ? 'authenticated' : 'bypass', watch: false },
+    },
     // The roster's `roots` is an assembly fact AppCLIEntry resolves and patches
     // in, exactly like `distIndex` on the webserver row — the shipped preset
     // directory sits beside the composition that names it, and no config author
@@ -590,6 +606,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
 
   return {
     harnessHome,
+    ...(authenticationToken !== undefined && { authenticationToken }),
     mode,
     baseUrl: `http://${browserHost}:${port}`,
     ctx,

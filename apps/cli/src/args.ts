@@ -44,8 +44,13 @@ interface PluginInvocation {
   args: string[]
 }
 
+/** Manage one named inbound-authentication token without booting a profile. */
+export type AuthTokenInvocation =
+  | { mode: 'auth-token'; operation: 'add' | 'reset' | 'delete'; name: string }
+  | { mode: 'auth-token'; operation: 'list' }
+
 /** The resolved `dsh` invocation. Help, version, and errors exit inside {@link parseDshArgs}. */
-export type DshInvocation = ProfileInvocation | DumpConfigInvocation | PluginInvocation
+export type DshInvocation = ProfileInvocation | DumpConfigInvocation | PluginInvocation | AuthTokenInvocation
 
 /** Launcher flags shared by the default command and the `web` alias. */
 interface BootOptions {
@@ -179,6 +184,20 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
       if (args.length === 0) program.error('error: plugin needs pnpm arguments to forward (e.g. add <package>)')
       resolved = { mode: 'plugin', profile: options.profile, args }
     })
+
+  const auth = program.command('auth').description('manage inbound authentication')
+  const token = auth.command('token').description('manage named access tokens')
+  const namedTokenAction = (operation: 'add' | 'reset' | 'delete') => (name: string): void => {
+    rejectParentOptions('auth')
+    resolved = { mode: 'auth-token', operation, name }
+  }
+  token.command('add').argument('<name>').action(namedTokenAction('add'))
+  token.command('reset').argument('<name>').action(namedTokenAction('reset'))
+  token.command('delete').argument('<name>').action(namedTokenAction('delete'))
+  token.command('list').action(() => {
+    rejectParentOptions('auth')
+    resolved = { mode: 'auth-token', operation: 'list' }
+  })
 
   try {
     program.parse(argv, { from: 'user' })

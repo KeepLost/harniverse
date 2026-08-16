@@ -57,6 +57,17 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'plugin', profile: 'tui', args: ['add', '--save-dev', 'x'] })
   })
 
+  it('routes named authentication token management', () => {
+    expect(parse(['auth', 'token', 'add', 'laptop']))
+      .toEqual({ mode: 'auth-token', operation: 'add', name: 'laptop' })
+    expect(parse(['auth', 'token', 'reset', 'ci']))
+      .toEqual({ mode: 'auth-token', operation: 'reset', name: 'ci' })
+    expect(parse(['auth', 'token', 'delete', 'phone']))
+      .toEqual({ mode: 'auth-token', operation: 'delete', name: 'phone' })
+    expect(parse(['auth', 'token', 'list']))
+      .toEqual({ mode: 'auth-token', operation: 'list' })
+  })
+
   it('routes profile and web config dumps', () => {
     expect(parse(['--profile', 'web', '--dump-config']))
       .toEqual({ mode: 'dump-config', profile: 'web', defaultOnly: false, patches: [] })
@@ -96,6 +107,9 @@ describe('parseDshArgs', () => {
     expect(exitCode(['plugin', '--profile', 'tui'])).toBe(1) // nothing to forward
     expect(exitCode(['plugin', '--profile', ''])).toBe(1)
     expect(exitCode(['--profile', 'x', 'plugin', 'add', 'y'])).toBe(1)
+    expect(exitCode(['auth', 'token', 'add'])).toBe(1)
+    expect(exitCode(['auth', 'token', 'list', 'extra'])).toBe(1)
+    expect(exitCode(['--profile', 'x', 'auth', 'token', 'list'])).toBe(1)
   })
 
   it('keeps its own help for an invocation with no app to hand it to', () => {

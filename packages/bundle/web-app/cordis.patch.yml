@@ -109,12 +109,21 @@
 
     # ── layer 2: transport/service ──────────────────────────────────────────────
 
+    # Acquires the per-home network instance lease and validates the initial
+    # token registry before the WebServer row can bind. The dangerous flag
+    # selects bypass mode but does not remove lease or access-log ownership.
+    - id: authentication
+      name: '@deepseek-ai/dsh-authentication-local'
+      inject: [webStartup]
+      config:
+        mode: !!js ctx.webStartup.authenticationMode
+
     # Plain route-registration carrier; host and port come from the app's
     # webStartup provider, with these deployment fallbacks. The dist is served by
     # the web-runtime row below through the fallback seat.
     - id: webserver
       name: '@deepseek-ai/dsh-host-webserver'
-      inject: [webStartup]
+      inject: [webStartup, authentication]
       config:
         host: !!js ctx.webStartup.host ?? '127.0.0.1'
         port: !!js ctx.webStartup.port ?? 3080

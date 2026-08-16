@@ -8,7 +8,9 @@
   "files": [
     "src/api-path.ts",
     "src/api-request-trust.ts",
+    "src/browser-auth-routes.ts",
     "src/http-bridge.ts",
+    "src/inbound-auth.ts",
     "src/index.ts",
     "src/invariant.ts",
     "src/loopback-hostname.ts",
@@ -19,6 +21,9 @@
   "references": [
     {
       "path": "../../attachment/attachment"
+    },
+    {
+      "path": "../../auth/authentication"
     },
     {
       "path": "../../host/apiproxy"
