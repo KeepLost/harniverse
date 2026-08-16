@@ -24,7 +24,6 @@ import type {
 } from '@deepseek-ai/dsh-fs'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-observation-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
-import { STREAM_MIN_SIZE } from '../src/read.ts'
 import { formatReadOutput } from '../src/read-render.ts'
 import type { FileReadOutcome } from '../src/read-render.ts'
 import { sessionCwd } from '../src/session-cwd.ts'
@@ -274,6 +273,31 @@ describe('read tool', () => {
     expect(text(result)).toContain('file_path must be a non-empty string')
   })
 
+  it('continues within one UTF-8 line using the returned byte cursor', async () => {
+    const { ctx, fs } = await setup()
+    const prefix = 'a'.repeat(1999)
+    fs.files.set('key:unicode.txt', `${prefix}😀b`)
+
+    const first = await call(ctx, 'read', { file_path: 'unicode.txt', limit: 1 })
+    expect(first).toMatchObject({
+      isError: false,
+      value: {
+        lines: [{ number: 1, text: `${prefix}😀`, startByte: 0, endByte: 2003, complete: false }],
+        next: { offset: 1, lineByteOffset: 2003 },
+      },
+    })
+    const second = await call(ctx, 'read', {
+      file_path: 'unicode.txt', offset: 1, line_byte_offset: 2003, limit: 1,
+    })
+    expect(second).toMatchObject({
+      isError: false,
+      value: {
+        lines: [{ number: 1, text: 'b', startByte: 2003, endByte: 2004, complete: true }],
+      },
+    })
+    expect(second.isError || second.value).not.toHaveProperty('next')
+  })
+
   it('records observed state so a follow-up edit by the same session is authorized', async () => {
     const { ctx, fs } = await setup()
     const session = { header: {} }
@@ -300,12 +324,12 @@ describe('read tool', () => {
     expect(result.error).toMatchObject({ info: { code: 'FS_NOT_REGULAR_FILE' } })
   })
 
-  it('streams a large file (size at/above the cap) instead of reading whole', async () => {
+  it('always streams a file instead of reading it whole', async () => {
     const { ctx, fs } = await setup()
     fs.files.set('key:big.txt', 'alpha\nbeta')
     const readSpy = vi.spyOn(fs, 'readText')
     const streamSpy = vi.spyOn(fs, 'streamText')
-    fs.stat = async () => ({ version: FsVersion('v1'), type: 'file', size: STREAM_MIN_SIZE })
+    fs.stat = async () => ({ version: FsVersion('v1'), type: 'file', size: 10 })
     const result = await call(ctx, 'read', { file_path: 'big.txt' })
     expect(result.isError).toBe(false)
     expect(text(result)).toContain('1: alpha')
@@ -323,13 +347,14 @@ describe('read tool', () => {
     expect(streamSpy).toHaveBeenCalled()
   })
 
-  it('surfaces a byte-capped read as a truncated footer', async () => {
+  it('surfaces a byte-capped read with an explicit next cursor', async () => {
     const { ctx, fs } = await setup()
     // Many long lines so the window hits the byte cap before EOF.
     fs.files.set('key:big.txt', Array.from({ length: 2000 }, () => 'y'.repeat(100)).join('\n'))
     const result = await call(ctx, 'read', { file_path: 'big.txt' })
     expect(result.isError).toBe(false)
-    expect(text(result)).toContain('Output capped.')
+    expect(result).toMatchObject({ isError: false, value: { next: { lineByteOffset: 55 } } })
+    expect(text(result)).toContain('line_byte_offset=55')
   })
 
   it('attaches the structured window as presentation meta, and presentResult narrows it into a read card', async () => {
@@ -370,9 +395,9 @@ describe('read tool', () => {
 describe('formatReadOutput footer variants', () => {
   const base: FileReadOutcome = { offset: 1, lines: [{ number: 1, text: 'x' }], totalLines: 1 }
 
-  it('reports a byte-capped read', () => {
-    const out = formatReadOutput('/f', { ...base, totalLines: 99, truncatedByBytes: true })
-    expect(out).toContain('(Output capped. Showing lines 1-1. Use offset=2 to continue.)')
+  it('reports an explicit next-line cursor', () => {
+    const out = formatReadOutput('/f', { ...base, totalLines: 99, next: { offset: 2, lineByteOffset: 0 } })
+    expect(out).toContain('(Showing lines 1-1 of 99. Use offset=2 to continue.)')
   })
 
   it('reports a more-remaining page', () => {
@@ -545,6 +570,30 @@ describe('tool-owned presentation (pure presentCall)', () => {
     })).toBeUndefined()
   })
 
+  it('read: partial-line replay keeps byte ranges and continuation without a total line count', async () => {
+    const meta = {
+      path: '/tmp/huge.txt',
+      offset: 1,
+      lines: [{ number: 1, text: 'prefix', startByte: 0, endByte: 6, complete: false }],
+      next: { offset: 1, lineByteOffset: 6 },
+    }
+    expect(await presentResult('read', { file_path: 'huge.txt' }, {
+      content: [{
+        type: 'text',
+        text: '<path>/tmp/huge.txt</path>\n<type>file</type>\n<content>\n1 [bytes 0-6]: prefix\n</content>',
+      }],
+      isError: false,
+      meta,
+    })).toEqual({
+      card: 'read',
+      path: '/tmp/huge.txt',
+      offset: 1,
+      lines: meta.lines,
+      next: meta.next,
+      content: [{ type: 'text', text: '1 [bytes 0-6]: prefix' }],
+    })
+  })
+
   it('read: completed presentation declines errors and non-single-text content', async () => {
     const envelope = '<path>/tmp/a.txt</path>\n<type>file</type>\n<content>\nbody\n</content>'
     const meta = { path: '/tmp/a.txt', offset: 1, lines: [{ number: 1, text: 'body' }], totalLines: 1 }
@@ -715,7 +764,8 @@ describe('read caps are plugin config', () => {
     const { ctx, fs } = await setupWith({ readMaxLineLength: 4 })
     fs.files.set('key:a.txt', 'abcdefgh')
     const result = await call(ctx, 'read', { file_path: 'a.txt' })
-    expect(text(result)).toContain('1: abcd... (line truncated to 4 chars)')
+    expect(text(result)).toContain('1 [bytes 0-4]: abcd')
+    expect(text(result)).toContain('line_byte_offset=4')
   })
 
   it('a configured readMaxBytes caps the window at the configured bytes', async () => {
@@ -725,19 +775,9 @@ describe('read caps are plugin config', () => {
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected read success')
     expect(result.value).toMatchObject({ totalLines: 3 })
-    expect(text(result)).toContain('Output capped.')
+    expect(result.value).toMatchObject({ next: { offset: 3, lineByteOffset: 0 } })
+    expect(text(result)).toContain('Use offset=3')
     expect(text(result)).not.toContain('cccc')
-  })
-
-  it('a configured readStreamMinSize routes smaller files to the streaming path', async () => {
-    const { ctx, fs } = await setupWith({ readStreamMinSize: 5 })
-    fs.files.set('key:a.txt', 'alpha\nbeta')
-    const readSpy = vi.spyOn(fs, 'readText')
-    const streamSpy = vi.spyOn(fs, 'streamText')
-    const result = await call(ctx, 'read', { file_path: 'a.txt' })
-    expect(result.isError).toBe(false)
-    expect(streamSpy).toHaveBeenCalled()
-    expect(readSpy).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -745,7 +785,6 @@ describe('read caps are plugin config', () => {
     ['readLimit', { readLimit: 2.5 }],
     ['readMaxLineLength', { readMaxLineLength: -1 }],
     ['readMaxBytes', { readMaxBytes: Number.NaN }],
-    ['readStreamMinSize', { readStreamMinSize: 0 }],
   ] as const)('rejects a non-positive or fractional %s at load', async (name, config) => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)

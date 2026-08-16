@@ -11,7 +11,7 @@ import { FsError } from '@deepseek-ai/dsh-fs'
 export const READ_MAX_LINE_LENGTH = 2000
 
 /** Default maximum bytes returned for selected file lines (the `readMaxBytes` config). */
-export const READ_MAX_BYTES = 50 * 1024
+export const READ_MAX_BYTES = 40 * 1024
 
 /** Resolved read window. The consumer applies its defaults/caps before calling. */
 export interface ReadWindow {
@@ -23,6 +23,8 @@ export interface ReadWindow {
   maxLineLength: number
   /** Maximum bytes of selected output; overflow stops the scan and marks `truncatedByBytes`. */
   maxBytes: number
+  /** 0-based UTF-8 byte offset within the first selected logical line. */
+  lineByteOffset?: number
 }
 
 /** One line returned from a text file. */
@@ -31,16 +33,28 @@ export interface FileTextLine {
   number: number
   /** Line text without its trailing newline. */
   text: string
+  /** UTF-8 byte range, present when this is a partial logical line. */
+  startByte?: number
+  endByte?: number
+  complete?: boolean
+}
+
+/** Explicit continuation accepted by the next read call. */
+export interface ReadCursor {
+  offset: number
+  lineByteOffset: number
 }
 
 /** The windowed result {@link buildWindow} produces from a file's decoded text. */
 export interface WindowResult {
   /** Returned lines, already numbered. */
   lines: FileTextLine[]
-  /** Exact total line count in the file. */
-  totalLines: number
+  /** Exact total line count when this page reached EOF; omitted for an early partial-line page. */
+  totalLines?: number
   /** Whether selected output hit the byte cap. */
   truncatedByBytes: boolean
+  /** Exact next position when unread selected content remains. */
+  next?: ReadCursor
 }
 
 /** Outcome of a bounded text read — what {@link formatReadOutput} renders. */
@@ -49,10 +63,11 @@ export interface FileReadOutcome {
   offset: number
   /** Returned lines, already numbered. */
   lines: FileTextLine[]
-  /** Exact total line count in the file. */
-  totalLines: number
+  /** Exact total line count when known. */
+  totalLines?: number
   /** Whether selected output hit the byte cap. */
   truncatedByBytes?: true
+  next?: ReadCursor
 }
 
 interface WindowAccumulator {
@@ -60,49 +75,35 @@ interface WindowAccumulator {
   totalLines: number
   outputBytes: number
   truncatedByBytes: boolean
+  next?: ReadCursor
 }
 
 function newAccumulator(): WindowAccumulator {
   return { lines: [], totalLines: 0, outputBytes: 0, truncatedByBytes: false }
 }
 
-function truncateLine(line: string, maxLineLength: number): string {
-  return line.length > maxLineLength ? `${line.substring(0, maxLineLength)}... (line truncated to ${maxLineLength} chars)` : line
-}
-
-function lineByteSize(line: string, currentLineCount: number): number {
-  return Buffer.byteLength(line, 'utf8') + (currentLineCount > 0 ? 1 : 0)
-}
-
-function consumeLine(acc: WindowAccumulator, rawLine: string, request: ReadWindow): void {
-  acc.totalLines += 1
-  if (acc.truncatedByBytes || acc.totalLines < request.offset || acc.lines.length >= request.limit) return
-
-  const text = truncateLine(rawLine, request.maxLineLength)
-  const bytes = lineByteSize(text, acc.lines.length)
-  if (acc.outputBytes + bytes > request.maxBytes) {
-    acc.truncatedByBytes = true
-    return
-  }
-  acc.outputBytes += bytes
-  acc.lines.push({ number: acc.totalLines, text })
-}
-
-function stripCarriageReturn(line: string): string {
-  return line.endsWith('\r') ? line.slice(0, -1) : line
-}
-
 function finish(acc: WindowAccumulator, request: ReadWindow, displayPath: string): WindowResult {
   if (!acc.truncatedByBytes && request.offset > acc.totalLines && !(acc.totalLines === 0 && request.offset === 1)) {
     throw new FsError(`offset ${request.offset} is out of range for "${displayPath}" (${acc.totalLines} lines)`, 'FS_NOT_FOUND')
   }
-  return { lines: acc.lines, totalLines: acc.totalLines, truncatedByBytes: acc.truncatedByBytes }
+  if (acc.next === undefined) {
+    const last = acc.lines.at(-1)?.number
+    if (last !== undefined && last < acc.totalLines) acc.next = { offset: last + 1, lineByteOffset: 0 }
+  }
+  return {
+    lines: acc.lines,
+    totalLines: acc.totalLines,
+    truncatedByBytes: acc.truncatedByBytes,
+    ...acc.next === undefined ? {} : { next: acc.next },
+  }
 }
+
+const STOP_AFTER_PARTIAL_LINE = new Error('stop after partial line')
 
 /**
  * Build one window from streamed or whole-file chunks, enforcing line and byte caps while still
- * scanning to an exact total line count, and throwing `FS_NOT_FOUND` when the requested offset is
- * past EOF.
+ * scanning to an exact total line count when EOF is reached. A partial-line page stops as soon as
+ * its continuation is known and omits `totalLines` rather than scanning the unused remainder.
  * @param chunks - decoded text chunks in file order; chunk boundaries carry no meaning.
  * @param request - the resolved window; the caller has already applied its defaults and caps.
  * @param displayPath - the caller-facing path used in the offset-out-of-range error.
@@ -114,32 +115,150 @@ export async function buildWindow(
   displayPath: string,
 ): Promise<WindowResult> {
   const acc = newAccumulator()
-  // One char past the truncation point is enough to prove a line overflows.
-  const lineBufferCap = request.maxLineLength + 1
-  let lineBuffer = ''
+  const requestedByteOffset = request.lineByteOffset ?? 0
+  let currentLine = 1
+  let lineBytes = 0
+  let retainedText = ''
+  let retainedBytes = 0
+  let retainedChars = 0
+  let lineTruncated = false
+  let lineTruncatedByBytes = false
+  let pendingCarriageReturn = false
+  let pendingHighSurrogate = ''
 
-  function appendToLineBuffer(segment: string): void {
-    if (lineBuffer.length >= lineBufferCap) return
-    lineBuffer += segment
-    if (lineBuffer.length > lineBufferCap) lineBuffer = lineBuffer.slice(0, lineBufferCap)
+  const selected = (): boolean => currentLine >= request.offset && acc.lines.length < request.limit && acc.next === undefined
+  const cursorForLine = (): number => currentLine === request.offset ? requestedByteOffset : 0
+
+  function consumeCodePoint(codePoint: string): void {
+    const bytes = Buffer.byteLength(codePoint, 'utf8')
+    const cursor = cursorForLine()
+    if (currentLine === request.offset && lineBytes < cursor) {
+      if (lineBytes + bytes > cursor) throw new Error('line_byte_offset must be at a UTF-8 boundary')
+      lineBytes += bytes
+      return
+    }
+    if (selected() && !lineTruncated) {
+      const delimiter = acc.lines.length > 0 ? 1 : 0
+      if (retainedChars >= request.maxLineLength) {
+        lineTruncated = true
+      } else if (acc.outputBytes + delimiter + retainedBytes + bytes > request.maxBytes) {
+        lineTruncated = true
+        lineTruncatedByBytes = true
+      } else {
+        retainedText += codePoint
+        retainedBytes += bytes
+        retainedChars++
+      }
+      if (lineTruncated) {
+        if (retainedBytes === 0 && acc.lines.length === 0) {
+          throw new Error('readMaxBytes is too small to return one UTF-8 code point')
+        }
+        // A byte cap reached exactly between lines has no intra-line payload to
+        // return. Keep scanning for the exact line count and let flushLine emit
+        // the next-line cursor; early termination is reserved for a real
+        // partial-line page.
+        if (retainedBytes === 0) {
+          lineBytes += bytes
+          return
+        }
+        acc.lines.push({
+          number: currentLine,
+          text: retainedText,
+          startByte: cursor,
+          endByte: cursor + retainedBytes,
+          complete: false,
+        })
+        acc.outputBytes += delimiter + retainedBytes
+        acc.next = { offset: currentLine, lineByteOffset: cursor + retainedBytes }
+        acc.truncatedByBytes ||= lineTruncatedByBytes
+        throw STOP_AFTER_PARTIAL_LINE
+      }
+    }
+    lineBytes += bytes
   }
 
   function flushLine(): void {
-    consumeLine(acc, stripCarriageReturn(lineBuffer), request)
-    lineBuffer = ''
+    const cursor = cursorForLine()
+    if (currentLine === request.offset && cursor > lineBytes) {
+      throw new FsError(
+        `line_byte_offset ${cursor} is out of range for line ${currentLine} of "${displayPath}" (${lineBytes} bytes)`,
+        'FS_NOT_FOUND',
+      )
+    }
+    acc.totalLines++
+    if (selected()) {
+      const delimiter = acc.lines.length > 0 ? 1 : 0
+      if (lineTruncated) {
+        if (retainedBytes === 0 && acc.lines.length === 0) {
+          throw new Error('readMaxBytes is too small to return one UTF-8 code point')
+        }
+        if (retainedBytes > 0) {
+          acc.lines.push({
+            number: currentLine,
+            text: retainedText,
+            startByte: cursor,
+            endByte: cursor + retainedBytes,
+            complete: false,
+          })
+          acc.outputBytes += delimiter + retainedBytes
+        }
+        acc.next = { offset: currentLine, lineByteOffset: cursor + retainedBytes }
+        acc.truncatedByBytes ||= lineTruncatedByBytes
+      } else {
+        acc.lines.push(cursor > 0
+          ? { number: currentLine, text: retainedText, startByte: cursor, endByte: lineBytes, complete: true }
+          : { number: currentLine, text: retainedText })
+        acc.outputBytes += delimiter + retainedBytes
+      }
+    }
+    currentLine++
+    lineBytes = 0
+    retainedText = ''
+    retainedBytes = 0
+    retainedChars = 0
+    lineTruncated = false
+    lineTruncatedByBytes = false
   }
 
-  for await (const chunk of chunks) {
-    let startPos = 0
-    let newlinePos: number
-    while ((newlinePos = chunk.indexOf('\n', startPos)) !== -1) {
-      appendToLineBuffer(chunk.slice(startPos, newlinePos))
-      flushLine()
-      startPos = newlinePos + 1
+  try {
+    for await (const rawChunk of chunks) {
+      let chunk = pendingHighSurrogate + rawChunk
+      pendingHighSurrogate = ''
+      const trailing = chunk.charCodeAt(chunk.length - 1)
+      if (trailing >= 0xd800 && trailing <= 0xdbff) {
+        pendingHighSurrogate = chunk.at(-1) ?? ''
+        chunk = chunk.slice(0, -1)
+      }
+      for (const codePoint of chunk) {
+        if (pendingCarriageReturn) {
+          pendingCarriageReturn = false
+          if (codePoint === '\n') {
+            flushLine()
+            continue
+          }
+          consumeCodePoint('\r')
+        }
+        if (codePoint === '\r') {
+          pendingCarriageReturn = true
+        } else if (codePoint === '\n') {
+          flushLine()
+        } else {
+          consumeCodePoint(codePoint)
+        }
+      }
     }
-    appendToLineBuffer(chunk.slice(startPos))
+    if (pendingHighSurrogate !== '') consumeCodePoint(pendingHighSurrogate)
+  } catch (error: unknown) {
+    if (error !== STOP_AFTER_PARTIAL_LINE) throw error
+    return {
+      lines: acc.lines,
+      truncatedByBytes: acc.truncatedByBytes,
+      // oxlint-disable-next-line typescript/no-non-null-assertion -- the stop sentinel is thrown only after assigning a cursor
+      next: acc.next!,
+    }
   }
-  if (lineBuffer.length > 0) flushLine()
+  if (pendingCarriageReturn) consumeCodePoint('\r')
+  if (lineBytes > 0) flushLine()
   return finish(acc, request, displayPath)
 }
 
@@ -152,21 +271,33 @@ export async function buildWindow(
 export function formatReadOutput(displayPath: string, outcome: FileReadOutcome): string {
   const endLine = outcome.lines.at(-1)?.number ?? Math.max(0, outcome.offset - 1)
   let footer: string
-  if (outcome.truncatedByBytes) {
-    footer = `(Output capped. Showing lines ${outcome.offset}-${endLine}. Use offset=${endLine + 1} to continue.)`
-  } else if (endLine < outcome.totalLines) {
+  if (outcome.next !== undefined && outcome.next.lineByteOffset > 0) {
+    footer = `(Line ${outcome.next.offset} continues. Use offset=${outcome.next.offset} and line_byte_offset=${outcome.next.lineByteOffset}.)`
+  } else if (outcome.next !== undefined && outcome.totalLines !== undefined) {
+    footer = `(Showing lines ${outcome.offset}-${endLine} of ${outcome.totalLines}. Use offset=${outcome.next.offset} to continue.)`
+  } else if (outcome.totalLines !== undefined && endLine < outcome.totalLines) {
     footer = `(Showing lines ${outcome.offset}-${endLine} of ${outcome.totalLines}. Use offset=${endLine + 1} to continue.)`
-  } else {
+  } else if (outcome.totalLines !== undefined) {
     footer = `(End of file - total ${outcome.totalLines} lines)`
+  } else {
+    footer = '(More file content may remain.)'
   }
   const body = outcome.lines.length > 0
-    ? `${outcome.lines.map(line => `${line.number}: ${line.text}`).join('\n')}\n\n${footer}`
+    ? `${outcome.lines.map((line) => {
+      if (line.startByte === undefined || line.endByte === undefined) return `${line.number}: ${line.text}`
+      return `${line.number} [bytes ${line.startByte}-${line.endByte}]: ${line.text}`
+    }).join('\n')}\n\n${footer}`
     : footer
-  return `<path>${displayPath}</path>
+  return `<path>${escapeXml(displayPath)}</path>
 <type>file</type>
 <content>
 ${body}
 </content>`
+}
+
+/** Escape a path before placing it in the model-facing XML-like envelope. */
+function escapeXml(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
 /**
@@ -224,8 +355,9 @@ export interface FsReadMeta {
   offset: number
   /** The returned window's lines, each keeping its file line number. */
   lines: FileTextLine[]
-  /** Exact total line count in the file. */
-  totalLines: number
+  /** Exact total line count when the bounded stream reached EOF. */
+  totalLines?: number
+  next?: ReadCursor
   /** Syntax-highlighting language hint from the extension, or omitted for plain text. */
   lang?: string
 }
@@ -238,8 +370,12 @@ export interface FsReadMeta {
  */
 function isFileTextLine(value: unknown): value is FileTextLine {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
-  const { number, text } = value as Record<string, unknown>
-  return typeof number === 'number' && Number.isInteger(number) && number >= 1 && typeof text === 'string'
+  const { number, text, startByte, endByte, complete } = value as Record<string, unknown>
+  if (typeof number !== 'number' || !Number.isInteger(number) || number < 1 || typeof text !== 'string') return false
+  if (startByte === undefined && endByte === undefined && complete === undefined) return true
+  return typeof startByte === 'number' && Number.isInteger(startByte) && startByte >= 0
+    && typeof endByte === 'number' && Number.isInteger(endByte) && endByte >= startByte
+    && typeof complete === 'boolean'
 }
 
 /**
@@ -247,26 +383,38 @@ function isFileTextLine(value: unknown): value is FileTextLine {
  * Malformed metadata returns `undefined` so presentation can fall back to the
  * generic text card instead of throwing during replay. Beyond shape, the
  * semantic contract of a read window is enforced against replayed JSON that is
- * well-typed but out of range: `offset` must be a 1-based integer, `totalLines`
- * must be a non-negative integer, each line number must be a 1-based integer no
- * less than `offset`, the line numbers must strictly increase, and no line number
- * may exceed `totalLines`. Any violation declines to the generic fallback rather
- * than emitting a card that misnumbers or overcounts.
+ * well-typed but out of range: `offset` must be a 1-based integer, an available
+ * `totalLines` must be a non-negative integer, each line number must be a 1-based
+ * integer no less than `offset`, and the line numbers must strictly increase.
+ * When the bounded stream reached EOF, no line may exceed `totalLines`.
  * @param meta - result metadata.
  * @returns the validated read window, or `undefined` for absent, malformed, or semantically invalid data.
  */
 export function readMetaFromMeta(meta: unknown): FsReadMeta | undefined {
   if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return undefined
-  const { path, offset, lines, totalLines, lang } = meta as Record<string, unknown>
-  if (typeof path !== 'string' || typeof totalLines !== 'number' || typeof offset !== 'number') return undefined
+  const { path, offset, lines, totalLines, lang, next } = meta as Record<string, unknown>
+  if (typeof path !== 'string' || typeof offset !== 'number') return undefined
   if (!Number.isInteger(offset) || offset < 1) return undefined
-  if (!Number.isInteger(totalLines) || totalLines < 0) return undefined
+  if (totalLines !== undefined && (typeof totalLines !== 'number' || !Number.isInteger(totalLines) || totalLines < 0)) {
+    return undefined
+  }
   if (!Array.isArray(lines) || !lines.every(isFileTextLine)) return undefined
   if (lang !== undefined && typeof lang !== 'string') return undefined
+  if (next !== undefined) {
+    if (typeof next !== 'object' || next === null || Array.isArray(next)) return undefined
+    const { offset: nextOffset, lineByteOffset } = next as Record<string, unknown>
+    if (typeof nextOffset !== 'number' || !Number.isInteger(nextOffset) || nextOffset < 1) return undefined
+    if (typeof lineByteOffset !== 'number' || !Number.isInteger(lineByteOffset) || lineByteOffset < 0) return undefined
+  }
   let previous = offset - 1
   for (const { number } of lines) {
-    if (number <= previous || number > totalLines) return undefined
+    if (number <= previous || (totalLines !== undefined && number > totalLines)) return undefined
     previous = number
   }
-  return { path, offset, lines, totalLines, ...lang === undefined ? {} : { lang } }
+  return {
+    path, offset, lines,
+    ...totalLines === undefined ? {} : { totalLines },
+    ...next === undefined ? {} : { next: next as ReadCursor },
+    ...lang === undefined ? {} : { lang },
+  }
 }

@@ -100,7 +100,9 @@ interface ContextPressureState {
  * Usage chunks provide an early sample that survives a later request failure;
  * an assistant message provides the final sample for the same turn/step. A
  * repeated sample replaces that step's earlier value instead of double
- * counting it. The single `last` slot relies on the session-log invariant
+ * counting it. A compaction summary's auxiliary request usage is added
+ * independently, so it cannot replace or disturb the current step sample.
+ * The single `last` slot relies on the session-log invariant
  * that usage reports for one turn/step are adjacent: once a later step begins,
  * a legal log never reports usage for an earlier step again.
  */
@@ -110,6 +112,14 @@ ProjectionDefinition<'tokenUsage', TokenUsageState> = {
   schema: projectionSchema,
   init: () => ({ totals: zeroBuckets(), last: null }),
   apply: (state, event) => {
+    if (event.type === 'compaction/summary') {
+      if (event.data.usage === undefined) return state
+      return {
+        totals: addReplacing(state.totals, undefined, bucketsFrom(event.data.usage)),
+        last: state.last,
+      }
+    }
+
     let turn: number
     let step: number
     let usage: TokenUsage
@@ -136,7 +146,7 @@ ProjectionDefinition<'tokenUsage', TokenUsageState> = {
     }
   },
   view: state => state.totals,
-  stateVersion: 1,
+  stateVersion: 2,
 }
 
 /**

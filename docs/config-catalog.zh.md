@@ -418,7 +418,7 @@ export interface ConnectionConfig {
 
 ## `@deepseek-ai/dsh-client-hmr`
 
-需要：`clientModuleHost` · `webServer`
+需要：`clientModules` · `webServer`
 
 ```ts config-catalog
 /** Plugin config, validated by the same-named schemastery schema. */
@@ -662,7 +662,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-hooks-claude-code`
 
-需要：`bash`
+需要：`shell`
 
 ```ts config-catalog
 /** Plugin config: where the CC hook config lives + substitution roots. */
@@ -700,7 +700,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-hooks-codex`
 
-需要：`bash`
+需要：`shell`
 
 ```ts config-catalog
 /** Plugin config: where the Codex hooks.json lives + the model name for payloads. */
@@ -727,7 +727,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-host-apiproxy`
 
-需要：`agentDefaultModel` · `agents` · `attachments` · `directoryPicker` · `llm` · `sessions` · `subagents` · `sessionQuery` · `tools` · `userInteraction` · `workspace`
+需要：`agentDefaultModel` · `agents` · `attachments` · `directoryPicker` · `llm` · `sessions` · `subagents` · `sessionQuery` · `tools` · `userQuestions` · `workspaceRegistry`
 
 ```ts config-catalog
 /** Gateway plugin configuration. */
@@ -1374,6 +1374,7 @@ export type HttpNotificationEventType =
   | 'approval.decided'
   | 'tool.called'
   | 'tool.settled'
+  | 'compaction.settled'
 
 /** Supported reason filter values for `session.turn-settled`. */
 export type NotificationTurnReasonKind = NotificationTurnReason['kind']
@@ -1387,7 +1388,7 @@ export type NotificationTurnReasonKind = NotificationTurnReason['kind']
 
 ## `@deepseek-ai/dsh-permission-presets`
 
-需要：`bash` · `approval` · `sessions`
+需要：`shell` · `approval` · `sessions`
 
 ```ts config-catalog
 /** The {@link PermissionPresetService} config: preset table and composition default. */
@@ -1632,7 +1633,7 @@ export interface JsonRpcConfig {
 
 依赖：`Readable`（`node:stream`）· `Writable`（`node:stream`）
 
-来源：[`packages/sdk/server/src/index.ts:29`](../packages/sdk/server/src/index.ts)
+来源：[`packages/sdk/server/src/index.ts:25`](../packages/sdk/server/src/index.ts)
 
 <a id="deepseek-aidsh-session-persistence-jsonl"></a>
 
@@ -1997,9 +1998,9 @@ export interface Config {
 /** Plugin config (all optional — `static Config` supplies the defaults). */
 export interface Config {
   /**
-   * Root directory for spill files. Omitted uses a lazily-created private
-   * (0700) per-process directory under the OS temp dir — the safe default for
-   * a local deployment. Set it to keep spill files under a known location.
+   * Root directory for spill files. Omitted uses the durable
+   * `$DSH_HOME/artifacts/tool-results` location. Set it to use another durable
+   * deployment-owned location.
    */
   root?: string
 }
@@ -2338,7 +2339,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-terminal-bash`
 
-需要：`pty` · `sandboxPolicy` · `subprocess`
+需要：`terminals` · `sandboxPolicy` · `subprocess`
 
 ```ts config-catalog
 /** Public plugin configuration. */
@@ -2424,11 +2425,27 @@ export type TokenMeterConfig = Record<string, never>
 
 来源：[`packages/llm/token-meter/src/types.ts:12`](../packages/llm/token-meter/src/types.ts)
 
+<a id="deepseek-aidsh-tool-artifact-read"></a>
+
+## `@deepseek-ai/dsh-tool-artifact-read`
+
+需要：`tools` · `spillStore`
+
+```ts config-catalog
+/** Deployment-selected artifact page size. */
+export interface Config {
+  /** Maximum Unicode code points requested from the backend per call. */
+  pageChars?: number
+}
+```
+
+来源：[`packages/spill/tool-artifact-read/src/index.ts:28`](../packages/spill/tool-artifact-read/src/index.ts)
+
 <a id="deepseek-aidsh-tool-bash"></a>
 
 ## `@deepseek-ai/dsh-tool-bash`
 
-需要：`tools` · `bash` · `systemPrompt` · `bashEnv`
+需要：`tools` · `shell` · `systemPrompt` · `shellEnv`
 
 ```ts config-catalog
 /** Configuration for the bash tool. */
@@ -2444,7 +2461,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-bash-persistent`
 
-需要：`tools` · `pty`
+需要：`tools` · `terminals`
 
 ```ts config-catalog
 /** Configuration for the persistent Bash tool. */
@@ -2477,8 +2494,6 @@ export interface Config {
   readMaxLineLength?: number
   /** Maximum bytes returned for the selected lines of one `read` call. */
   readMaxBytes?: number
-  /** Files at or above this size stream instead of loading whole into memory. */
-  readStreamMinSize?: number
 }
 ```
 
@@ -2539,7 +2554,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-jobs`
 
-需要：`tools` · `tasks` · `systemPrompt`
+需要：`tools` · `jobs` · `systemPrompt`
 
 ```ts config-catalog
 /** Configures bounded `job_output` waits and completion-notice delivery. */
@@ -2593,7 +2608,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-pwsh`
 
-需要：`tools` · `bash` · `systemPrompt` · `bashEnv`
+需要：`tools` · `shell` · `systemPrompt` · `shellEnv`
 
 ```ts config-catalog
 /** Configuration for the pwsh tool. */
@@ -2609,7 +2624,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-ralph`
 
-需要：`tools` · `workflows` · `subagents` · `systemPrompt`
+需要：`tools` · `workflowEngine` · `subagents` · `systemPrompt`
 
 ```ts config-catalog
 /** Deployment policy for the fixed Ralph workflow. */
@@ -2670,14 +2685,16 @@ export interface Config {
 ```ts config-catalog
 /** Configuration for the string-replacement editor tool. */
 export interface Config {
-  /** Maximum returned view characters before clipping (default 16000). */
+  /** Maximum complete view-response characters, including formatting (default 16000, minimum 512). */
   maxOutputChars?: number
+  /** Maximum whole-file input bytes accepted by mutation commands (default 16 MiB). */
+  maxMutationInputBytes?: number
   /** Model-facing tool description. */
   description?: string
 }
 ```
 
-来源：[`packages/fs/tool-str-replace-editor/src/index.ts:497`](../packages/fs/tool-str-replace-editor/src/index.ts)
+来源：[`packages/fs/tool-str-replace-editor/src/index.ts:626`](../packages/fs/tool-str-replace-editor/src/index.ts)
 
 <a id="deepseek-aidsh-tool-subagent"></a>
 
@@ -2770,7 +2787,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-terminal`
 
-需要：`pty` · `tools` · `systemPrompt`
+需要：`terminals` · `tools` · `systemPrompt`
 
 ```ts config-catalog
 /** Model-facing terminal tool configuration. */
@@ -2836,7 +2853,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-workflow`
 
-需要：`tools` · `workflows` · `systemPrompt`
+需要：`tools` · `workflowEngine` · `systemPrompt`
 
 ```ts config-catalog
 /** Config: the model-facing tool name plus result rendering caps. */
@@ -2878,13 +2895,19 @@ export interface Config {
    * restores strictly serial dispatch. Must be a positive integer.
    */
   maxParallelSubCalls?: number
+  /**
+   * Maximum Unicode code points across text blocks in one finalized result.
+   * The platform ceiling is 50,000; deployments may only lower it. Oversized
+   * text is retained through `ctx.spillStore` before the inline preview is shortened.
+   */
+  maxResultTextChars?: number
 }
 
 /** How the registry presents its tools to the model (see {@link Config.mode}). */
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-来源：[`packages/core/tools/src/index.ts:654`](../packages/core/tools/src/index.ts)
+来源：[`packages/core/tools/src/index.ts:755`](../packages/core/tools/src/index.ts)
 
 <a id="deepseek-aidsh-typert-loader"></a>
 

@@ -27,7 +27,7 @@ await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-
 | `sampleOverCapGlobResults` | 无（必填） | `true` 会在顶层条目之间对超过上限的 `glob` 页面采样；`false` 保留按修改时间排序的前部。格式化 spill 成功时，两种模式都会在该产物中保留完整排序列表。 |
 | `globMaxResults` | `100` | 一次 `glob` 调用内联展示的最大路径数（与 Claude Code 的 `GlobTool` 上限相同）。未超过上限的结果保持完整，并按修改时间排序。 |
 | `grepMaxMatches` | `250` | 一次 `grep` 调用内联保留的最大平铺匹配数（与 Claude Code 的 `GrepTool` `head_limit` 相同）；后续匹配写入格式化 spill 产物。 |
-| `grepMaxLineBytes` | `2000` | 每条匹配行预览的字节上限；截断会保留 UTF-8 边界，并标记为 `(line truncated)`。 |
+| `grepMaxLineBytes` | `2000` | 每条匹配行预览在生产端的字节上限。ripgrep 会在 stdout 捕获前限制超长行并标记省略的尾部；Native 渲染保留 UTF-8 边界，并将其内联截断标记为 `(line truncated)`。 |
 | `rawOutputMaxBytes` | `20000000` | 搜索将解析的完整原始 `rg` stdout 上限（与 Claude Code 的 ripgrep 原始 buffer 相同）；更大的原始输出以 `SEARCH_RAW_OUTPUT_OVERFLOW` 失败。 |
 | `timeoutMs` | `30000` | 附加到两个工具定义上的协作式工具调用预算，由 `@deepseek-ai/dsh-tool-call-timeout-policy` 通过 `exec.signal` 强制执行；subprocess seam 的终止升级提供硬终止。 |
 | `graceMs` | `3000` | subprocess seam 在 `timeoutMs` 之外授予的终止升级宽限期须为正值；超过后搜索以 `SEARCH_ABORTED` 失败；该宽限期不得大于 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md)。 |
@@ -38,17 +38,17 @@ await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-
 | 工具 | 参数 | 行为 |
 |---|---|---|
 | `glob` | `pattern`、`path?` | 运行 `rg --files --glob <pattern> --sort=modified --no-ignore --hidden`，并排除 VCS 元数据（`.git`、`.svn`、`.hg`、`.bzr`、`.jj`、`.sl`）。`path` 是可选的**目录**搜索根；省略时使用解析后的工作目录。每行返回一个**文件**路径；`rg --files` 从不输出目录条目。pattern 保留 ripgrep 语义：不含 `/` 时匹配任意深度的基名，因此 `*` 匹配整棵树。完整结果保持按修改时间排序；超过上限时的呈现方式遵循 `sampleOverCapGlobResults`。 |
-| `grep` | `pattern`、`path?`、`include?` | 按行解析 `rg --json`，避免按冒号拆分的歧义。`pattern` 是 ripgrep 正则表达式；`path` 是可选的**文件或目录**目标；`include` 是一个正向 glob 过滤器，前置拒绝逗号分隔列表或否定值（`!…`），但允许 `*.{ts,tsx}` 等花括号交替。返回按文件分组、形如 `Line N: <preview>` 的匹配。 |
+| `grep` | `pattern`、`path?`、`include?` | 使用以 NUL 分隔路径和行号字段的逐行 ripgrep 输出（不会产生冒号或换行歧义），并通过 `--max-columns` / `--max-columns-preview` 在生产端限制匹配行。`pattern` 是 ripgrep 正则表达式；`path` 是可选的**文件或目录**目标；`include` 是一个正向 glob 过滤器，前置拒绝逗号分隔列表或否定值（`!…`），但允许 `*.{ts,tsx}` 等花括号交替。返回按文件分组、形如 `Line N: <preview>` 的匹配。 |
 
-常规预算不进入面向模型的 schema（没有 `head_limit`/`offset`/`case_insensitive`/输出模式）：模型需要周边上下文时，用 `read` 读取匹配文件；需要后续结果时，遵循返回的 spill locator 检索提示。
+常规预算不进入面向模型的 schema（没有 `head_limit`/`offset`/`case_insensitive`/输出模式）：模型需要周边上下文时，用 `read` 读取匹配文件。对于截断行，以报告的行号作为 `offset`，再沿同一行的 `line_byte_offset` 游标继续读取；需要后续结果时，遵循返回的 spill locator 检索提示。
 
 ## 两类预算、两类产物
 
-原始 `rg` stdout 与 stderr 是内部传输细节。每次搜索从 subprocess seam 请求 collect 模式预算——`rawOutputMaxBytes` 内的完整 stdout 与 `stderrMaxBytes` 的诊断尾部——两条流都不产生 spill 文件（工具从不读取原始 spill 路径）。如果 seam 仍报告 lossy stdout 读取，搜索会以 `SEARCH_RAW_OUTPUT_OVERFLOW` 失败，并要求模型缩小查询；lossy stderr 读取只把诊断摘录标记为 `[stderr truncated]`。成功的 `glob` 在 `{ root, paths }` 中保留所显示的搜索根及所有已取得路径；启用采样时，借助 `root`，Native 渲染器能以显式的相对或绝对搜索路径为根，按该根下的条目分组，而不是按其工作目录前缀分组。`grep` 保留所有已取得的 `{ path, lineNumber, line }`，并将其存入 `{ matches }`。内联条目和每行预览上限只应用于 Native 渲染器。直接接口调用的逻辑结果超过内联上限时，后置策略会尽力通过 `ctx.spillStore.saveText()` 保存完整格式化预览，并只把呈现替换为配置指定的页面与 locator。嵌套 Code 分派会跳过 spill，因为其完整规范值不会进入模型上下文。spill 缺失/失败时保留内联页面，并报告完整结果无法保存，绝不会成为 `isError`。
+原始 `rg` stdout 与 stderr 是内部传输细节。每次搜索从 subprocess seam 请求 collect 模式预算——`rawOutputMaxBytes` 内的完整 stdout 与 `stderrMaxBytes` 的诊断尾部——两条流都不产生 spill 文件（工具从不读取原始 spill 路径）。grep 还会把 `grepMaxLineBytes` 作为 `--max-columns` 传给 ripgrep，并启用 `--max-columns-preview`；由于 ripgrep 在 JSON 模式下忽略列数上限，本工具不使用 JSON 模式。每条 grep 记录因此在捕获前就受到预览上限、固定省略标记、由操作系统限制的路径及数字框架的约束，所以解析器可在原始输出总上限内安全地处理完整 stdout，而不会收集巨型匹配行。如果 seam 仍报告 lossy stdout 读取，搜索会以 `SEARCH_RAW_OUTPUT_OVERFLOW` 失败，并要求模型缩小查询；lossy stderr 读取只把诊断摘录标记为 `[stderr truncated]`。成功的 `glob` 在 `{ root, paths }` 中保留所显示的搜索根及所有已取得路径；启用采样时，借助 `root`，Native 渲染器能以显式的相对或绝对搜索路径为根，按该根下的条目分组，而不是按其工作目录前缀分组。`grep` 在 `{ matches }` 中保留所有已取得的 `{ path, lineNumber, line }`；对于超长行，`line` 是生产端限制后的预览与省略标记，而不是完整行。内联条目保留和最终保持 UTF-8 安全的预览处理应用于 Native 渲染器。直接接口调用的逻辑结果超过内联上限时，后置策略会尽力通过 `ctx.spillStore.saveText()` 保存所有匹配的完整格式化预览，并只把呈现替换为配置指定的页面与 locator。嵌套 Code 分派会跳过 spill，因为其完整规范值不会进入模型上下文。spill 缺失/失败时保留内联页面，并报告完整结果无法保存，绝不会成为 `isError`。
 
 ## 错误
 
-搜索失败会携带由本包定义的 `SearchError`（`HarnessError` 子类），并以 `{ name, code }` 的形式呈现在 `isError` 结果上：`SEARCH_INVALID_PATTERN`（ripgrep 拒绝正则/glob）、`SEARCH_FAILED`（`rg` 启动失败、目标不可访问、信号终止、`--json` 输出格式错误）、`SEARCH_RAW_OUTPUT_OVERFLOW`（原始输出超过 `rawOutputMaxBytes`，或在请求 stdout 捕获预算后仍 lossy）和 `SEARCH_ABORTED`（协作式工具超时或调用方取消）。ripgrep 的退出语义由工具负责处理：退出 0 表示成功且有结果，退出 1 表示成功的空搜索（`No files found` / `No matches found`），只有其他退出值表示失败。模型参数错误（空白 pattern、列表值 `include`）仍是普通工具参数错误。
+搜索失败会携带由本包定义的 `SearchError`（`HarnessError` 子类），并以 `{ name, code }` 的形式呈现在 `isError` 结果上：`SEARCH_INVALID_PATTERN`（ripgrep 拒绝正则/glob）、`SEARCH_FAILED`（`rg` 启动失败、目标不可访问、信号终止、输出格式错误）、`SEARCH_RAW_OUTPUT_OVERFLOW`（原始输出超过 `rawOutputMaxBytes`，或在请求 stdout 捕获预算后仍 lossy）和 `SEARCH_ABORTED`（协作式工具超时或调用方取消）。ripgrep 的退出语义由工具负责处理：退出 0 表示成功且有结果，退出 1 表示成功的空搜索（`No files found` / `No matches found`），只有其他退出值表示失败。模型参数错误（空白 pattern、列表值 `include`）仍是普通工具参数错误。
 
 ## 模型体验
 
@@ -73,7 +73,7 @@ Use the glob tool — not shell find — to discover files by path pattern. A pa
 ##### Grep 指导
 
 ```markdown
-Use the grep tool — not shell grep or rg — to search file contents. Use read on a matched file when you need surrounding context.
+Use the grep tool — not shell grep or rg — to search file contents. Use read on a matched file when you need surrounding context. If a matching line is truncated, read that path with its line number as offset; continue the same line with line_byte_offset when needed.
 ```
 
 #### Token 影响
@@ -102,7 +102,7 @@ glob 描述声明了配置的超过上限排序方式。生成的 [`glob` 和 `g
 
 #### 模型看到的内容
 
-`glob` 每行返回一个路径；`grep` 在每个路径下分组展示 `Line <line>: <preview>` 匹配。空搜索返回 `No files found` 或 `No matches found`。达到上限的结果以省略计数结尾，并附 spill locator 与后端检索提示，或说明完整结果无法保存。启用 `sampleOverCapGlobResults: true` 时，超过上限的 `glob` 页面按实际搜索根正下方的条目轮转取路径，页脚说明采样依据及其覆盖的顶层条目数；无法覆盖全部条目时，页脚提示模型收窄 `path`。`false` 时页面是按修改时间排序的前部，并保留普通的上限结果页脚。未超过上限的结果原样呈现；扁平采样的结果也保留普通页脚，因为其采样等于按修改时间排序的前部。spill 产物始终持有按修改时间排序的完整列表。
+`glob` 每行返回一个路径；`grep` 在每个路径下分组展示 `Line <line>: <preview>` 匹配。超长匹配行携带有界预览/省略标记，仍可通过 `read` 从报告的行号恢复。空搜索返回 `No files found` 或 `No matches found`。达到上限的结果以省略计数结尾，并附 spill locator 与后端检索提示，或说明完整结果无法保存。启用 `sampleOverCapGlobResults: true` 时，超过上限的 `glob` 页面按实际搜索根正下方的条目轮转取路径，页脚说明采样依据及其覆盖的顶层条目数；无法覆盖全部条目时，页脚提示模型收窄 `path`。`false` 时页面是按修改时间排序的前部，并保留普通的上限结果页脚。未超过上限的结果原样呈现；扁平采样的结果也保留普通页脚，因为其采样等于按修改时间排序的前部。glob spill 产物始终持有按修改时间排序的完整列表；grep spill 保留所有匹配，但超长行只保留生产端有界预览。
 
 #### Token 影响
 

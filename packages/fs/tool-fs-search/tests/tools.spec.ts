@@ -21,7 +21,7 @@ import type { SubprocessCollectedOutputs, SubprocessHandle, SubprocessOutcome, S
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { rgPath } from '@vscode/ripgrep'
 import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
-import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
+import type { ReadTextSpill, ReadTextSpillPage, SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
 import {
   buildGlobCommand,
@@ -178,6 +178,10 @@ class FakeSpill extends SpillStore {
       retrievalHint: 'Use the fake retrieval hint.',
     })
   }
+
+  override readText(_input: ReadTextSpill): Promise<ReadTextSpillPage> {
+    return Promise.reject(new Error('not used by search tests'))
+  }
 }
 
 interface SetupOptions {
@@ -226,9 +230,9 @@ function text(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(b => b.type === 'text').map(b => b.text).join('')
 }
 
-/** One rg --json match record line. */
+/** One bounded rg match record, without its output-record LF. */
 function matchLine(path: string, lineNumber: number, lineText: string): string {
-  return JSON.stringify({ type: 'match', data: { path: { text: path }, lines: { text: lineText }, line_number: lineNumber, absolute_offset: 0, submatches: [] } })
+  return `${path}\0${lineNumber}\0${lineText.replace(/\r?\n$/, '')}`
 }
 
 describe('registration', () => {
@@ -353,13 +357,34 @@ describe('command construction (plain argv)', () => {
       '--', 'docs dir'])
   })
 
-  it('grep: fixed rg --json argv with the pattern in --regexp= form', () => {
-    expect(buildGrepCommand({ pattern: 'foo.*bar' })).toEqual(['--json', '--regexp=foo.*bar'])
+  it('grep: fixed bounded rg argv with the pattern in --regexp= form', () => {
+    expect(buildGrepCommand({ pattern: 'foo.*bar' }, 2000)).toEqual([
+      '--with-filename',
+      '--line-number',
+      '--no-heading',
+      '--color=never',
+      '--field-match-separator=\\x00',
+      '--max-columns=2000',
+      '--max-columns-preview',
+      '--regexp=foo.*bar',
+    ])
   })
 
   it('grep: include in --glob= form, path behind --, both plain elements', () => {
-    expect(buildGrepCommand({ pattern: 'x', path: '-leading-dash', include: '*.{ts,tsx}' }))
-      .toEqual(['--json', '--regexp=x', '--glob=*.{ts,tsx}', '--', '-leading-dash'])
+    expect(buildGrepCommand({ pattern: 'x', path: '-leading-dash', include: '*.{ts,tsx}' }, 17))
+      .toEqual([
+        '--with-filename',
+        '--line-number',
+        '--no-heading',
+        '--color=never',
+        '--field-match-separator=\\x00',
+        '--max-columns=17',
+        '--max-columns-preview',
+        '--regexp=x',
+        '--glob=*.{ts,tsx}',
+        '--',
+        '-leading-dash',
+      ])
   })
 
   it.each([
@@ -373,7 +398,7 @@ describe('command construction (plain argv)', () => {
   ])('keeps %s as ONE inert argv element (no shell layer to escape)', (_label, raw) => {
     // The argv vector is handed to rg verbatim: hostile text cannot break out
     // of its argument because there is no shell between the vector and rg.
-    expect(buildGrepCommand({ pattern: raw })).toEqual(['--json', `--regexp=${raw}`])
+    expect(buildGrepCommand({ pattern: raw }, 2000)).toContain(`--regexp=${raw}`)
     expect(buildGlobCommand({ pattern: raw })[1]).toBe(`--glob=${raw}`)
   })
 })
@@ -405,7 +430,18 @@ describe('workdir derivation and signal forwarding', () => {
     const spec = subprocess.spawns[0]
     // --no-config keeps a host RIPGREP_CONFIG_PATH from injecting a
     // preprocessor into this unconfined spawn.
-    expect(spec?.argv).toEqual([rgPath, '--no-config', '--json', '--regexp=needle'])
+    expect(spec?.argv).toEqual([
+      rgPath,
+      '--no-config',
+      '--with-filename',
+      '--line-number',
+      '--no-heading',
+      '--color=never',
+      '--field-match-separator=\\x00',
+      '--max-columns=2000',
+      '--max-columns-preview',
+      '--regexp=needle',
+    ])
     expect(spec?.stdio.stdin).toBe('ignore')
     // stdout gets the tool's parse budget; stderr is a diagnostic excerpt;
     // both are the seam's diagnostic-tail shape (no spill files requested).
@@ -912,12 +948,9 @@ describe('grep results', () => {
   it('groups matches by file with line numbers', async () => {
     const { ctx, subprocess } = await setup()
     subprocess.handler = () => runResult([
-      JSON.stringify({ type: 'begin', data: { path: { text: 'a.ts' } } }),
       matchLine('a.ts', 3, 'const x = 1\n'),
       matchLine('a.ts', 9, 'const y = 2\n'),
-      JSON.stringify({ type: 'end', data: { path: { text: 'a.ts' } } }),
       matchLine('b.ts', 1, 'const z = 3'),
-      JSON.stringify({ type: 'summary', data: {} }),
       '',
     ].join('\n'))
     const result = await call(ctx, 'grep', { pattern: 'const' })
@@ -957,16 +990,15 @@ describe('grep results', () => {
     expect(text(result)).toContain('Line 1: aéaéa (line truncated)')
   })
 
-  it('renders a non-UTF-8 line (rg bytes form) as a placeholder instead of failing', async () => {
-    const { ctx, subprocess } = await setup()
-    const record = JSON.stringify({ type: 'match', data: { path: { text: 'bin.dat' }, lines: { bytes: 'AAECww==' }, line_number: 4 } })
-    subprocess.handler = () => runResult(`${record}\n`)
-    expect(text(await call(ctx, 'grep', { pattern: 'x' }))).toContain('Line 4: (line is not valid UTF-8)')
+  it('strips a CRLF terminator from the matched line text', () => {
+    const matches = parseGrepMatches('a.txt\0' + '1\0windows line\r\n')
+    expect(matches[0]?.line).toBe('windows line')
   })
 
-  it('strips a CRLF terminator from the matched line text', () => {
-    const matches = parseGrepMatches(`${matchLine('a.txt', 1, 'windows line\r\n')}\n`)
-    expect(matches[0]?.line).toBe('windows line')
+  it('preserves newlines inside the NUL-framed path field', () => {
+    expect(parseGrepMatches('odd\nname.txt\0' + '3\0match\n')).toEqual([
+      { path: 'odd\nname.txt', lineNumber: 3, line: 'match' },
+    ])
   })
 
   it('caps at grepMaxMatches and spills the full formatted match list', async () => {
@@ -1071,19 +1103,18 @@ describe('grep results', () => {
   })
 })
 
-describe('rg --json transport failures (SEARCH_FAILED)', () => {
+describe('bounded rg transport failures (SEARCH_FAILED)', () => {
   it.each([
-    ['a non-JSON line', 'not json at all'],
-    ['a non-object record', '42'],
-    ['a match record with no data', JSON.stringify({ type: 'match' })],
-    ['a match record with no path text', JSON.stringify({ type: 'match', data: { path: {}, lines: { text: 'x' }, line_number: 1 } })],
-    ['a match record with a non-object path', JSON.stringify({ type: 'match', data: { path: 'a.ts', lines: { text: 'x' }, line_number: 1 } })],
-    ['a match record with no line number', JSON.stringify({ type: 'match', data: { path: { text: 'a.ts' }, lines: { text: 'x' } } })],
-    ['a match record with no line content', JSON.stringify({ type: 'match', data: { path: { text: 'a.ts' }, line_number: 1 } })],
-    ['a match record with neither text nor bytes', JSON.stringify({ type: 'match', data: { path: { text: 'a.ts' }, lines: {}, line_number: 1 } })],
+    ['no path separator', 'not a record'],
+    ['no line-number separator', 'a.ts\0no second separator'],
+    ['no line terminator', 'a.ts\0' + '1\0unterminated'],
+    ['an empty path', '\0' + '1\0text\n'],
+    ['an empty line number', 'a.ts\0\0text\n'],
+    ['a zero line number', 'a.ts\0' + '0\0text\n'],
+    ['a non-numeric line number', 'a.ts\0one\0text\n'],
   ])('%s fails the search', async (_label, line) => {
     const { ctx, subprocess } = await setup()
-    subprocess.handler = () => runResult(`${line}\n`)
+    subprocess.handler = () => runResult(line)
     const result = await call(ctx, 'grep', { pattern: 'x' })
     expect(result.isError).toBe(true)
     expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_FAILED' } })

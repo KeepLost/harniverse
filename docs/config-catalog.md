@@ -1372,6 +1372,7 @@ export type HttpNotificationEventType =
   | 'approval.decided'
   | 'tool.called'
   | 'tool.settled'
+  | 'compaction.settled'
 
 /** Supported reason filter values for `session.turn-settled`. */
 export type NotificationTurnReasonKind = NotificationTurnReason['kind']
@@ -1995,9 +1996,9 @@ Source: [`packages/skill/skill-filesystem/src/index.ts:49`](../packages/skill/sk
 /** Plugin config (all optional — `static Config` supplies the defaults). */
 export interface Config {
   /**
-   * Root directory for spill files. Omitted uses a lazily-created private
-   * (0700) per-process directory under the OS temp dir — the safe default for
-   * a local deployment. Set it to keep spill files under a known location.
+   * Root directory for spill files. Omitted uses the durable
+   * `$DSH_HOME/artifacts/tool-results` location. Set it to use another durable
+   * deployment-owned location.
    */
   root?: string
 }
@@ -2422,6 +2423,22 @@ export type TokenMeterConfig = Record<string, never>
 
 Source: [`packages/llm/token-meter/src/types.ts:12`](../packages/llm/token-meter/src/types.ts)
 
+<a id="deepseek-aidsh-tool-artifact-read"></a>
+
+## `@deepseek-ai/dsh-tool-artifact-read`
+
+Requires: `tools` · `spillStore`
+
+```ts config-catalog
+/** Deployment-selected artifact page size. */
+export interface Config {
+  /** Maximum Unicode code points requested from the backend per call. */
+  pageChars?: number
+}
+```
+
+Source: [`packages/spill/tool-artifact-read/src/index.ts:28`](../packages/spill/tool-artifact-read/src/index.ts)
+
 <a id="deepseek-aidsh-tool-bash"></a>
 
 ## `@deepseek-ai/dsh-tool-bash`
@@ -2475,8 +2492,6 @@ export interface Config {
   readMaxLineLength?: number
   /** Maximum bytes returned for the selected lines of one `read` call. */
   readMaxBytes?: number
-  /** Files at or above this size stream instead of loading whole into memory. */
-  readStreamMinSize?: number
 }
 ```
 
@@ -2668,14 +2683,16 @@ Requires: `tools` · `fs`
 ```ts config-catalog
 /** Configuration for the string-replacement editor tool. */
 export interface Config {
-  /** Maximum returned view characters before clipping (default 16000). */
+  /** Maximum complete view-response characters, including formatting (default 16000, minimum 512). */
   maxOutputChars?: number
+  /** Maximum whole-file input bytes accepted by mutation commands (default 16 MiB). */
+  maxMutationInputBytes?: number
   /** Model-facing tool description. */
   description?: string
 }
 ```
 
-Source: [`packages/fs/tool-str-replace-editor/src/index.ts:497`](../packages/fs/tool-str-replace-editor/src/index.ts)
+Source: [`packages/fs/tool-str-replace-editor/src/index.ts:626`](../packages/fs/tool-str-replace-editor/src/index.ts)
 
 <a id="deepseek-aidsh-tool-subagent"></a>
 
@@ -2876,13 +2893,19 @@ export interface Config {
    * restores strictly serial dispatch. Must be a positive integer.
    */
   maxParallelSubCalls?: number
+  /**
+   * Maximum Unicode code points across text blocks in one finalized result.
+   * The platform ceiling is 50,000; deployments may only lower it. Oversized
+   * text is retained through `ctx.spillStore` before the inline preview is shortened.
+   */
+  maxResultTextChars?: number
 }
 
 /** How the registry presents its tools to the model (see {@link Config.mode}). */
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:654`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:755`](../packages/core/tools/src/index.ts)
 
 <a id="deepseek-aidsh-typert-loader"></a>
 

@@ -55,7 +55,7 @@
     },
     {
       "name": "grep",
-      "description": "Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. Returns the first 250 matches inline; a capped result reports where the complete match list was saved. Use read on a matched file for surrounding context.",
+      "description": "Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. Returns the first 250 matches inline; a capped result reports where the complete match list was saved. Use read on a matched file for surrounding context. For a truncated matching line, use its line number as read offset and continue with line_byte_offset.",
       "parameters": {
         "type": "object",
         "properties": {

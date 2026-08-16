@@ -134,6 +134,8 @@ flowchart LR
   cfg --> plugin_dsh_base_spill_local
   plugin_dsh_base_spill_policy["spill-policy<br/>@deepseek-ai/dsh-spill-policy"]
   cfg --> plugin_dsh_base_spill_policy
+  plugin_dsh_base_tool_artifact_read["tool-artifact-read<br/>@deepseek-ai/dsh-tool-artifact-read"]
+  cfg --> plugin_dsh_base_tool_artifact_read
   plugin_dsh_base_session_checkpoint_policy["session-checkpoint-policy<br/>@deepseek-ai/dsh-session-checkpoint-policy"]
   cfg --> plugin_dsh_base_session_checkpoint_policy
   plugin_dsh_base_tool_result_pruner["tool-result-pruner<br/>@deepseek-ai/dsh-compaction-tool-result-pruner"]
@@ -235,6 +237,7 @@ flowchart LR
 | `timeout-policy` | `@deepseek-ai/dsh-tool-call-timeout-policy` |
 | `spill-local` | `@deepseek-ai/dsh-spill-local` |
 | `spill-policy` | `@deepseek-ai/dsh-spill-policy` |
+| `tool-artifact-read` | `@deepseek-ai/dsh-tool-artifact-read` |
 | `session-checkpoint-policy` | `@deepseek-ai/dsh-session-checkpoint-policy` |
 | `tool-result-pruner` | `@deepseek-ai/dsh-compaction-tool-result-pruner` |
 | `tool-todo` | `@deepseek-ai/dsh-tool-todo` |

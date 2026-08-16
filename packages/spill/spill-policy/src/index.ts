@@ -134,6 +134,7 @@ export function apply(ctx: Context, config: Config): void {
     toolName: string,
     callId: CallId,
     label: 'result' | 'dispatch',
+    signal: AbortSignal,
   ): Promise<string | undefined> {
     if (sessionId === undefined) {
       ctx.logger.warn(`spill-policy: no session owner for ${toolName} ${label}; keeping the inline content`)
@@ -145,6 +146,7 @@ export function apply(ctx: Context, config: Config): void {
       return undefined
     }
     const save: SaveTextSpill = {
+      signal,
       owner: { sessionId },
       source: { toolName, callId, label },
       suggestedName: `${toolName}.txt`,
@@ -202,7 +204,8 @@ export function apply(ctx: Context, config: Config): void {
     const totalBytes = Buffer.byteLength(text, 'utf8')
     if (totalBytes <= maxInlineBytes) return decision
 
-    const replacedText = await spillReplacement(text, totalBytes, ownerSessionId(exec), exec.name, exec.callId, 'result')
+    const replacedText = await spillReplacement(
+      text, totalBytes, ownerSessionId(exec), exec.name, exec.callId, 'result', exec.signal)
     if (replacedText === undefined) return decision
     const replaced: ContentBlock[] = [{ type: 'text', text: replacedText }]
     return { kind: 'accept', content: replaced, ...decision.additionalContexts ? { additionalContexts: decision.additionalContexts } : {} }
@@ -225,7 +228,7 @@ export function apply(ctx: Context, config: Config): void {
     if (totalBytes <= maxInlineBytes) return content
 
     const replacedText = await spillReplacement(
-      text, totalBytes, ownerSessionId(dispatch.exec), dispatch.name, dispatch.subCallId, 'dispatch')
+      text, totalBytes, ownerSessionId(dispatch.exec), dispatch.name, dispatch.subCallId, 'dispatch', dispatch.exec.signal)
     if (replacedText === undefined) return content
     return [{ type: 'text', text: replacedText }]
   }, { prepend: true })

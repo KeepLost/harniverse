@@ -6,6 +6,8 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import SpillStore, { SpillLocator } from '@deepseek-ai/dsh-spill'
+import type { ReadTextSpill, ReadTextSpillPage, SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
@@ -14,12 +16,35 @@ function driverDone(agent: Agent): Promise<void> {
   return (agent as Agent & { done: Promise<void> }).done
 }
 
-async function harness(adapter: MockAdapter) {
+class ArtifactStore extends SpillStore {
+  saved: SaveTextSpill | undefined
+
+  async saveText(input: SaveTextSpill): Promise<SpillRef> {
+    this.saved = input
+    return {
+      locator: SpillLocator('stub:v1:loop-result'),
+      bytes: Buffer.byteLength(input.content, 'utf8'),
+      retrievalHint: 'Use artifact_read.',
+    }
+  }
+
+  async readText(_input: ReadTextSpill): Promise<ReadTextSpillPage> {
+    throw new Error('not used')
+  }
+}
+
+async function harness(
+  adapter: MockAdapter,
+  options: { maxResultTextChars?: number; artifactStore?: boolean } = {},
+) {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRuntime)
+  if (options.artifactStore === true) await ctx.plugin(ArtifactStore)
+  await ctx.plugin(ToolRuntime, {
+    ...options.maxResultTextChars === undefined ? {} : { maxResultTextChars: options.maxResultTextChars },
+  })
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -388,6 +413,33 @@ describe('tool result meta persistence', () => {
 
     const result = agent.session.events.find(e => e.type === 'tool/result')
     expect(result?.type === 'tool/result' && result.data.meta).toEqual({ presentation: 'diff-card' })
+  })
+
+  it('records the structured full-result artifact beside the identical bounded surface', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('large-call', 'large-tool', {}),
+      textResponse('done'),
+    ])
+    const ctx = await harness(adapter, { maxResultTextChars: 120, artifactStore: true })
+    const agent = ctx.agentLoop.create(SessionId('tool-artifact'), { provider: 'mock', model: 'mock' })
+    const complete = 'x'.repeat(121)
+    ctx.tools.register(defineContentToolFixture({
+      name: 'large-tool', description: 'large result', parameters: {},
+      async execute() { return [{ type: 'text', text: complete }] },
+    }))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const result = agent.session.events.find(event => event.type === 'tool/result')
+    expect(result?.type === 'tool/result' ? result.data.artifact : undefined).toEqual({
+      kind: 'full-result', locator: 'stub:v1:loop-result', bytes: 121,
+    })
+    const durableContent = result?.type === 'tool/result' ? result.data.message.content[0].content : undefined
+    expect(durableContent?.[0]?.type === 'text' ? Array.from(durableContent[0].text).length : 0).toBe(120)
+    expect((ctx.spillStore as ArtifactStore).saved?.content).toBe(complete)
+    const requestToolResult = adapter.requests[1]?.messages.find(message => message.source.kind === 'tool')
+    expect(requestToolResult).toEqual(result?.type === 'tool/result' ? result.data.message : undefined)
   })
 })
 

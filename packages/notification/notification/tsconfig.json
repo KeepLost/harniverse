@@ -18,6 +18,9 @@
       "path": "../../util/brand"
     },
     {
+      "path": "../../compaction/compaction"
+    },
+    {
       "path": "../../llm/llm"
     },
     {

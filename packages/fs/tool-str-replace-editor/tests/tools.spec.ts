@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { FsVersion } from '@deepseek-ai/dsh-fs'
 import { CallId } from '@deepseek-ai/dsh-llm'
@@ -95,6 +95,7 @@ describe('tool-str-replace-editor', () => {
     }).properties
     expect(properties).not.toHaveProperty('replace_all')
     expect(properties.insert_line?.type).toBe('integer')
+    expect(properties.line_byte_offset?.type).toBe('integer')
     expect(properties.view_range?.items?.type).toBe('integer')
     expect(ctx.tools.get('str_replace_editor')?.presentCall?.({
       command: 'view',
@@ -196,6 +197,126 @@ describe('tool-str-replace-editor', () => {
     expect(await readFile(sample, 'utf8')).toBe('one\nbetween\n\nthree\n')
   })
 
+  it('always streams file views without calling readText', async () => {
+    const { ctx, root, owner } = await setup()
+    const sample = join(root, 'streamed.txt')
+    await writeFile(sample, 'one\ntwo')
+    const readText = vi.fn(async () => {
+      throw new Error('view must not call readText')
+    })
+    ctx.fs.readText = readText
+
+    expect(text(await call(ctx, owner, { command: 'view', path: sample }))).toContain('     2  two')
+    expect(readText).not.toHaveBeenCalled()
+  })
+
+  it('returns a bounded, strictly advancing cursor for a 24 MiB newline-free stream', async () => {
+    const { ctx, root, owner } = await setup({ maxOutputChars: 1024 })
+    const sample = join(root, 'giant.txt')
+    await writeFile(sample, 'placeholder')
+    const chunk = 'x'.repeat(64 * 1024)
+    async function* generated() {
+      for (let index = 0; index < 24 * 16; index++) yield chunk
+    }
+    ctx.fs.streamText = async () => generated()
+    const readText = vi.fn(async () => {
+      throw new Error('view must not call readText')
+    })
+    ctx.fs.readText = readText
+
+    const first = text(await call(ctx, owner, {
+      command: 'view',
+      path: sample,
+      view_range: [1, 1],
+    }))
+    expect(first.length).toBeLessThanOrEqual(1024)
+    expect(first).toContain('line_byte_offset=512')
+
+    const second = text(await call(ctx, owner, {
+      command: 'view',
+      path: sample,
+      view_range: [1, 1],
+      line_byte_offset: 512,
+    }))
+    expect(second.length).toBeLessThanOrEqual(1024)
+    expect(second).toContain('line_byte_offset=1024')
+    expect(readText).not.toHaveBeenCalled()
+  }, 20_000)
+
+  it('continues a multibyte UTF-8 line at returned byte boundaries', async () => {
+    const { ctx, root, owner } = await setup({ maxOutputChars: 512 })
+    const sample = join(root, 'utf8.txt')
+    await writeFile(sample, '你好世界'.repeat(200))
+
+    const first = text(await call(ctx, owner, { command: 'view', path: sample }))
+    expect(first).toContain('     1  你')
+    expect(first).toContain('line_byte_offset=3')
+
+    const second = text(await call(ctx, owner, {
+      command: 'view',
+      path: sample,
+      view_range: [1, 1],
+      line_byte_offset: 3,
+    }))
+    expect(second).toContain('     1  好')
+    expect(second).toContain('line_byte_offset=6')
+  })
+
+  it('rejects known oversized mutation inputs before readText', async () => {
+    const { ctx, root, owner } = await setup({ maxMutationInputBytes: 4 })
+    const sample = join(root, 'oversized.txt')
+    await writeFile(sample, '12345')
+    const readText = vi.spyOn(ctx.fs, 'readText')
+
+    const replace = await call(ctx, owner, {
+      command: 'str_replace',
+      path: sample,
+      old_str: '1',
+      new_str: 'x',
+    })
+    expect(replace.isError).toBe(true)
+    expect(text(replace)).toContain('exceeds maxMutationInputBytes (4 bytes)')
+
+    const insert = await call(ctx, owner, {
+      command: 'insert',
+      path: sample,
+      insert_line: 0,
+      new_str: 'x',
+    })
+    expect(insert.isError).toBe(true)
+    expect(text(insert)).toContain('exceeds maxMutationInputBytes (4 bytes)')
+    expect(readText).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['unknown', undefined],
+    ['stale', 4],
+  ] as const)('bounds %s-size mutation input while streaming', async (_case, reportedSize) => {
+    const { ctx, root, owner } = await setup({ maxMutationInputBytes: 4 })
+    const sample = join(root, 'stream-oversized.txt')
+    await writeFile(sample, '12345')
+    const originalStat = ctx.fs.stat.bind(ctx.fs)
+    ctx.fs.stat = async (target, signal) => {
+      const info = await originalStat(target, signal)
+      return info === undefined
+        ? undefined
+        : { ...info, ...reportedSize === undefined ? {} : { size: reportedSize } }
+    }
+    const readText = vi.fn(async () => { throw new Error('mutations must not call unbounded readText') })
+    ctx.fs.readText = readText
+
+    const result = await call(ctx, owner, {
+      command: 'str_replace',
+      path: sample,
+      old_str: '1',
+      new_str: 'x',
+    })
+
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('exceeds maxMutationInputBytes (4 bytes)')
+    expect(readText).not.toHaveBeenCalled()
+  })
+
   it('a failed view records absence so create can recover after external deletion', async () => {
     const { ctx, root, owner } = await setup({}, { fsPolicy: true })
     const sample = join(root, 'deleted.txt')
@@ -278,13 +399,14 @@ describe('tool-str-replace-editor', () => {
     expect(listing).toContain(join('node_modules_old', 'kept.js'))
     expect(listing).toContain(join('__pycache__backup', 'kept.py'))
 
-    const clipped = await setup({ maxOutputChars: 10 })
-    await writeFile(join(clipped.root, 'large.txt'), 'x'.repeat(100))
-    expect(text(await call(clipped.ctx, clipped.owner, {
+    const clipped = await setup({ maxOutputChars: 512 })
+    await writeFile(join(clipped.root, 'large.txt'), 'x'.repeat(1000))
+    const clippedOutput = text(await call(clipped.ctx, clipped.owner, {
       command: 'view',
       path: join(clipped.root, 'large.txt'),
-    })))
-      .toContain('<response clipped>')
+    }))
+    expect(clippedOutput).toContain('<response clipped>')
+    expect(clippedOutput.length).toBeLessThanOrEqual(512)
   })
 
   it('matches canonical empty-line, range, and end-insert behavior', async () => {
@@ -406,7 +528,11 @@ describe('tool-str-replace-editor', () => {
       { command: 'view', path: threeLines, view_range: [1, 99] },
       { command: 'view', path: threeLines, view_range: [2, 1] },
       { command: 'view', path: directory, view_range: [1, 1] },
+      { command: 'view', path: directory, line_byte_offset: 0 },
+      { command: 'view', path: ambiguous, line_byte_offset: -1 },
+      { command: 'view', path: ambiguous, line_byte_offset: Number.MAX_SAFE_INTEGER + 1 },
       { command: 'create', path: join(root, 'new.txt') },
+      { command: 'create', path: join(root, 'new.txt'), file_text: 'x', line_byte_offset: 0 },
       { command: 'create', path: ambiguous, file_text: 'overwrite' },
       { command: 'str_replace', path: ambiguous, new_str: 'x' },
       { command: 'str_replace', path: ambiguous, old_str: '', new_str: 'x' },
@@ -570,10 +696,13 @@ describe('tool-str-replace-editor', () => {
 
   it('rejects invalid plugin config', () => {
     expect(() => {
-      ToolStrReplaceEditor.apply(new Context(), { maxOutputChars: 0 })
-    }).toThrow('maxOutputChars must be a positive safe integer')
+      ToolStrReplaceEditor.apply(new Context(), { maxOutputChars: 511 })
+    }).toThrow('maxOutputChars must be a safe integer of at least 512')
     expect(() => {
       ToolStrReplaceEditor.apply(new Context(), { description: ' ' })
     }).toThrow('description must be non-empty')
+    expect(() => {
+      ToolStrReplaceEditor.apply(new Context(), { maxMutationInputBytes: 0 })
+    }).toThrow('maxMutationInputBytes must be a positive safe integer')
   })
 })

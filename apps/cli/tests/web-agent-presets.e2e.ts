@@ -15,6 +15,7 @@ import { resolveSessionPreset, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent
 import { applyChildComposition, childSessionMeta } from '@deepseek-ai/dsh-subagent'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-compaction-basic'
+import type {} from '@deepseek-ai/dsh-compaction-tool-result-pruner'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-tools'
 // Type-only: resolves `ctx.get('sessionProjections')` and `ctx.get('tokenMeter')`.
@@ -137,7 +138,9 @@ function enablePresetTool(composition: string, id: string): string {
   if (disabled < 0 || (end >= 0 && disabled > end)) {
     throw new Error(`preset row ${id} is not disabled`)
   }
-  return composition.slice(0, disabled) + composition.slice(disabled + '      disabled: true\n'.length)
+  return composition.slice(0, disabled)
+    + '      disabled: false\n'
+    + composition.slice(disabled + '      disabled: true\n'.length)
 }
 
 let ctx: Context
@@ -192,7 +195,7 @@ describe('the shipped Web composition', () => {
     expect(ctx.agentPresets.defaultId).toBe('standard')
   })
 
-  it('composes the full agent from `standard`', async () => {
+  it('composes the full agent from `standard` without tool-result pruning', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('preset-standard'),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
@@ -204,17 +207,18 @@ describe('the shipped Web composition', () => {
       // excluded for the reason the TUI composition e2e excludes them — they
       // depend on ripgrep being present on the machine.
       expect(toolNames(ctx, handle.agent).filter(name => name !== 'glob' && name !== 'grep')).toEqual([
-        'ask_user_question', 'bash', 'create_goal', 'edit', 'exit_plan_mode',
+        'artifact_read', 'ask_user_question', 'bash', 'create_goal', 'edit', 'exit_plan_mode',
         'get_goal', 'interrupt_agent', 'job_kill', 'job_list', 'job_output', 'list_agents', 'ralph', 'read', 'read_image', 'send_message', 'skill',
         'subagent', 'subagent_fork', 'todo_write', 'update_goal',
         'workflow', 'write',
       ])
+      expect(ctx.agentPresets.serviceFor(handle.agent, 'toolResultPruner')).toBeUndefined()
     } finally {
       await handle.dispose()
     }
   })
 
-  it('composes the exact RL prompt and two tools from `minimal`', async () => {
+  it('composes the exact RL prompt, coding tools, and artifact recovery from `minimal`', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('preset-minimal'),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
@@ -224,7 +228,7 @@ describe('the shipped Web composition', () => {
       expect(assembly.sections).toEqual([
         { name: 'deployment:persona', text: MINIMAL_PROMPT },
       ])
-      expect(assembly.tools.map(tool => tool.name)).toEqual(['bash', 'str_replace_editor'])
+      expect(assembly.tools.map(tool => tool.name)).toEqual(['artifact_read', 'bash', 'str_replace_editor'])
       expect(assembly.tools.find(tool => tool.name === 'bash')?.description).toBe(MINIMAL_BASH_DESCRIPTION)
       expect(JSON.stringify(assembly.tools.find(tool => tool.name === 'str_replace_editor')?.parameters))
         .toContain('Absolute path')
@@ -245,7 +249,7 @@ describe('the shipped Web composition', () => {
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })
     try {
-      expect(toolNames(ctx, minimal.agent)).toEqual(['bash', 'str_replace_editor'])
+      expect(toolNames(ctx, minimal.agent)).toEqual(['artifact_read', 'bash', 'str_replace_editor'])
       expect(toolNames(ctx, full.agent).length).toBeGreaterThan(10)
 
       await minimal.dispose()
@@ -258,7 +262,7 @@ describe('the shipped Web composition', () => {
     }
   })
 
-  it('composes the cordis agent with its own toolset', async () => {
+  it('composes the cordis agent with its own toolset and no tool-result pruning', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('preset-cordis'),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'cordis').then(() => undefined),
@@ -273,6 +277,7 @@ describe('the shipped Web composition', () => {
       // And it keeps the standard agent's own tools rather than replacing them.
       expect(tools).toEqual(expect.arrayContaining(['bash', 'read', 'edit', 'skill']))
       expect(tools).not.toContain('str_replace_editor')
+      expect(ctx.agentPresets.serviceFor(handle.agent, 'toolResultPruner')).toBeUndefined()
 
       // The preset's own authoring skill registers into ITS layer of the host
       // registry: the cordis agent's view carries it, the global view does not.
@@ -284,7 +289,7 @@ describe('the shipped Web composition', () => {
     }
   })
 
-  it('presents `code` as Code Mode without disturbing a native session beside it', async () => {
+  it('presents `code` as Code Mode without tool-result pruning or disturbing a native session', async () => {
     const coded = await ctx.agents.create({
       sessionId: SessionId('preset-code'),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'code').then(() => undefined),
@@ -303,6 +308,7 @@ describe('the shipped Web composition', () => {
       const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
       expect(sdk).not.toContain('str_replace_editor')
       expect(sdk).not.toContain('web_search')
+      expect(ctx.agentPresets.serviceFor(coded.agent, 'toolResultPruner')).toBeUndefined()
 
       // The presentation is this agent's alone: the deployment default is
       // native, and the session composed from `standard` still sees it.
@@ -310,6 +316,7 @@ describe('the shipped Web composition', () => {
       expect(nativeAssembly.tools.map(tool => tool.name)).toContain('bash')
       expect(nativeAssembly.tools.map(tool => tool.name)).not.toContain('run_code')
       expect(nativeAssembly.sections.some(section => section.name === 'tools:sdk')).toBe(false)
+      expect(ctx.agentPresets.serviceFor(native.agent, 'toolResultPruner')).toBeUndefined()
     } finally {
       await native.dispose()
       await coded.dispose()
@@ -394,7 +401,7 @@ describe('the shipped Web composition', () => {
       // stays the preset's choice — minimal mounts no `tool-skill`, so its
       // tool table has no loader even though the global layer is readable.
       expect((await ctx.skills.list({ scope: handle.agent })).map(skill => skill.name)).toContain('dsh-badge')
-      expect(toolNames(ctx, handle.agent)).toEqual(['bash', 'str_replace_editor'])
+      expect(toolNames(ctx, handle.agent)).toEqual(['artifact_read', 'bash', 'str_replace_editor'])
     } finally {
       await handle.dispose()
     }
@@ -424,7 +431,7 @@ describe('the shipped Web composition', () => {
   })
 })
 
-describe('product subagent rows in user presets', () => {
+describe('opt-in rows in user presets', () => {
   let productCtx: Context
   const ids = ['products-none', 'products-codex', 'products-claude', 'products-both'] as const
 
@@ -446,6 +453,12 @@ describe('product subagent rows in user presets', () => {
       await mkdir(directory, { recursive: true })
       await writeFile(join(directory, 'agent.cordis.yml'), composition)
     }
+    const pruningDirectory = join(userRoot, 'pruning-enabled')
+    await mkdir(pruningDirectory, { recursive: true })
+    await writeFile(
+      join(pruningDirectory, 'agent.cordis.yml'),
+      enablePresetTool(standard, 'tool-result-pruner'),
+    )
     productCtx = await bootWeb(settingsFile, [
       { insert: [
         { id: 'subagent-codex', name: '@deepseek-ai/dsh-subagent-codex' },
@@ -492,6 +505,18 @@ describe('product subagent rows in user presets', () => {
       } finally {
         await handle.dispose()
       }
+    }
+  })
+
+  it('activates tool-result pruning when a user preset explicitly enables the row', async () => {
+    const handle = await productCtx.agents.create({
+      sessionId: SessionId('preset-pruning-enabled'),
+      setup: agentCtx => productCtx.agentPresets.mount(agentCtx, 'pruning-enabled').then(() => undefined),
+    })
+    try {
+      expect(productCtx.agentPresets.serviceFor(handle.agent, 'toolResultPruner')).toBeDefined()
+    } finally {
+      await handle.dispose()
     }
   })
 
@@ -758,7 +783,7 @@ describe('authoring a preset on the shipped composition', () => {
     try {
       // The same tools the shipped `minimal` composes, from a directory copied
       // through the service into a root outside the installed harness.
-      expect(toolNames(authorCtx, handle.agent)).toEqual(['bash', 'str_replace_editor'])
+      expect(toolNames(authorCtx, handle.agent)).toEqual(['artifact_read', 'bash', 'str_replace_editor'])
     } finally {
       await handle.dispose()
     }
@@ -793,9 +818,9 @@ describe('the default preset as a user setting', () => {
         setup: agentCtx => ctx.agentPresets.mount(agentCtx).then(() => undefined),
       })
       try {
-        // `mount()` with no id resolves the effective default. Two tools, not
+        // `mount()` with no id resolves the effective default. Three tools, not
         // `standard`'s catalog: the setting decided the composition.
-        expect(toolNames(ctx, handle.agent)).toEqual(['bash', 'str_replace_editor'])
+        expect(toolNames(ctx, handle.agent)).toEqual(['artifact_read', 'bash', 'str_replace_editor'])
       } finally {
         await handle.dispose()
       }

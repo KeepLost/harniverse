@@ -221,7 +221,7 @@ interface FsObservationActor {
 
 ## Read outcome (consumer / read rendering)
 
-A text read is bounded by line window, byte cap, and backend limits. After the byte cap is reached, scanning continues without retaining more lines so `totalLines` remains exact. The result the model-facing `read` tool renders is purely presentational; there is no `full`/`partial` view — authorization is freshness-based (the tool emits a present `fs/observed` directly with the stat's version), so any windowed read can authorize a later write/edit when the file is unchanged. A metadata miss emits an absent observation before the tool returns `FS_NOT_FOUND`, allowing a later guarded write to recreate an externally deleted target without authorizing edit. `dsh-tool-fs`, the executor that owns the read, implements read windowing and constructs this result; the policy plugin does not.
+A text read is bounded by line window, byte cap, and backend limits. A partial line returns `next` with the same line and an advancing UTF-8 byte offset, then stops consuming the stream; that page omits `totalLines`, while a page that reaches EOF reports the exact count. Callers can therefore retrieve a giant logical line without loading it whole or scanning its unused suffix for each page. The result the model-facing `read` tool renders is purely presentational; there is no `full`/`partial` view — authorization is freshness-based (the tool emits a present `fs/observed` directly with the stat's version), so any windowed read can authorize a later write/edit when the file is unchanged. A metadata miss emits an absent observation before the tool returns `FS_NOT_FOUND`, allowing a later guarded write to recreate an externally deleted target without authorizing edit. `dsh-tool-fs`, the executor that owns the read, implements read windowing and constructs this result; the policy plugin does not.
 
 ```ts type-equiv
 /** Outcome of a bounded text read — what {@link formatReadOutput} renders. */
@@ -230,10 +230,11 @@ interface FileReadOutcome {
   offset: number
   /** Returned lines, already numbered. */
   lines: FileTextLine[]
-  /** Exact total line count in the file. */
-  totalLines: number
+  /** Exact total line count when known. */
+  totalLines?: number
   /** Whether selected output hit the byte cap. */
   truncatedByBytes?: true
+  next?: ReadCursor
 }
 ```
 

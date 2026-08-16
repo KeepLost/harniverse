@@ -10,7 +10,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
-import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
+import type { ReadTextSpill, SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 
 /** Minimal concrete backend: records the last request, returns a fixed ref. */
 class StubStore extends SpillStore {
@@ -24,10 +24,17 @@ class StubStore extends SpillStore {
       retrievalHint: 'Use the stub reader.',
     }
   }
+
+  async readText(input: ReadTextSpill) {
+    return {
+      text: `${input.locator}:${input.cursor ?? 'start'}`.slice(0, input.maxChars),
+    }
+  }
 }
 
 function request(content: string): SaveTextSpill {
   return {
+    signal: new AbortController().signal,
     owner: { sessionId: SessionId('s1') },
     source: { toolName: 'web_fetch', callId: CallId('c1'), label: 'result' },
     suggestedName: 'web_fetch.txt',
@@ -42,6 +49,16 @@ describe('spill seam', () => {
     const ref = await ctx.spillStore.saveText(request('hello'))
     expect(ref).toEqual({ locator: '/stub/web_fetch.txt', bytes: 5, retrievalHint: 'Use the stub reader.' })
     expect((ctx.spillStore as StubStore).last?.content).toBe('hello')
+  })
+
+  it('reads an opaque locator through the owning backend', async () => {
+    const ctx = new Context()
+    await ctx.plugin(StubStore)
+    await expect(ctx.spillStore.readText({
+      signal: new AbortController().signal,
+      locator: SpillLocator('stub:v1:item'),
+      maxChars: 100,
+    })).resolves.toEqual({ text: 'stub:v1:item:start' })
   })
 
   it('rejects a second implementation (one per context)', async () => {

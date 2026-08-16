@@ -76,7 +76,13 @@ const projected = (ctx: Context, session: Session): TokenUsageProjection => {
  * replaced span from the measurement service's own nodes and log the
  * shadow-price event directly before the replace.
  */
-function appendSummaryMeter(ctx: Context, session: Session, start: number, end: number): void {
+function appendSummaryMeter(
+  ctx: Context,
+  session: Session,
+  start: number,
+  end: number,
+  usage?: TokenUsage,
+): void {
   const nodes = ctx.tokenMeter.measure(session).nodes
   const startIdx = nodes.findIndex(node => node.seq === start)
   const endIdx = nodes.findIndex(node => node.seq === end)
@@ -89,6 +95,7 @@ function appendSummaryMeter(ctx: Context, session: Session, start: number, end: 
     shadowedTokenCount: shadowed.reduce((total, node) => total + node.tokens, 0),
     provider: 'mock',
     model: 'mock',
+    ...usage === undefined ? {} : { usage },
   })
 }
 
@@ -197,7 +204,42 @@ describe('tokenUsage session projection', () => {
     })
   })
 
-  it('does not erase historical billing when the visible surface is replaced', async () => {
+  it('adds compaction summarizer usage to the cumulative buckets', async () => {
+    const { ctx, session } = await harness()
+    const source = appendUser(session, 'content to summarize')
+    appendSummaryMeter(ctx, session, source, source, {
+      inputTokens: 21,
+      outputTokens: 8,
+      cacheReadTokens: 5,
+      cacheWriteTokens: 3,
+      reasoningTokens: 4,
+    })
+
+    expect(projected(ctx, session)).toEqual({
+      uncachedInputTokens: 21,
+      outputTokens: 8,
+      cacheReadTokens: 5,
+      cacheWriteTokens: 3,
+    })
+  })
+
+  it('keeps same-step replacement accounting when summary usage replays between samples', async () => {
+    const { ctx, session } = await harness()
+    startStep(session, 1, 1)
+    const source = usageChunk(session, { inputTokens: 10, outputTokens: 2 }, 1, 1)
+    const compacted = appendUser(session, 'content summarized between usage samples')
+    appendSummaryMeter(ctx, session, compacted, compacted, { inputTokens: 30, outputTokens: 7 })
+    finalUsage(session, { inputTokens: 14, outputTokens: 5 }, 1, 1, [source])
+
+    expect(projected(ctx, session)).toEqual({
+      uncachedInputTokens: 44,
+      outputTokens: 12,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    })
+  })
+
+  it('ignores absent summary usage and does not erase billing on replacement', async () => {
     const { ctx, session } = await harness()
     startStep(session, 1, 1)
     const source = usageChunk(session, { inputTokens: 12, outputTokens: 3 }, 1, 1)
@@ -207,6 +249,12 @@ describe('tokenUsage session projection', () => {
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
     appendSummaryMeter(ctx, session, before.seq, before.seq)
+    expect(projected(ctx, session)).toEqual({
+      uncachedInputTokens: 12,
+      outputTokens: 3,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'compacted' }],
       source: { kind: 'plugin', plugin: 'test' },
@@ -230,6 +278,7 @@ describe('tokenUsage session projection', () => {
     const checkpoint = JSON.parse(JSON.stringify(
       ctx.sessionProjections.checkpoint(session),
     )) as ReturnType<typeof ctx.sessionProjections.checkpoint>
+    expect(checkpoint.tokenUsage?.ver).toBe(2)
 
     await meterFiber.dispose()
     expect(ctx.sessionProjections.snapshot(session).values).not.toHaveProperty('tokenUsage')
@@ -311,6 +360,22 @@ describe('contextPressure session projection', () => {
     // Output is deliberately absent: occupancy describes the prompt that was
     // sent, so it holds still while the response streams.
     expect(pressure(ctx, session).pressureTokens).toBe(125)
+  })
+
+  it('excludes compaction summarizer usage from current context pressure', async () => {
+    const { ctx, session } = await harness()
+    startStep(session, 1, 1)
+    usageChunk(session, { inputTokens: 100, outputTokens: 10, cacheReadTokens: 20 }, 1, 1)
+    const source = appendUser(session, 'content to summarize without changing occupancy')
+    const before = pressure(ctx, session)
+    appendSummaryMeter(ctx, session, source, source, {
+      inputTokens: 50_000,
+      outputTokens: 5_000,
+      cacheReadTokens: 2_000,
+      cacheWriteTokens: 1_000,
+    })
+
+    expect(pressure(ctx, session)).toEqual(before)
   })
 
   it('replaces pressure with the newest request rather than accumulating', async () => {

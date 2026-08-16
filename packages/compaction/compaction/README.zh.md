@@ -43,14 +43,16 @@
 1. 追加 `compaction/start`（仅日志）：获取锁；
 2. 摘要该范围；
 3. 追加 `compaction/summary`（仅日志），其中记录摘要、范围、已遮蔽 seq、token 数与提供方／模型调用 envelope；
-4. 追加单个 `user/message`，其携带 `source: compactCheckpointSource(compactionId, sourceCommandId?)` 和包含摘要的 `surfaceOp: { op: 'replace', start, end }`：这是**本操作唯一的表层变更**；
+4. 紧接着追加单个 `user/message`，其携带 `source: compactCheckpointSource(compactionId, sourceCommandId?)` 和包含摘要的 `surfaceOp: { op: 'replace', start, end }`：这是**本操作唯一的表层变更**；
 5. 追加 `compaction/end`（仅日志）：释放锁。
 
-表层变更（第 4 步）位于锁的起止范围**内**：`compaction/end` 是最后一个事件，因此表层变更落地前绝不会释放锁。如果在 `compaction/start` 与 `compaction/end` 之间崩溃，会留下可检测的遗留锁（一个 `compaction/start` 没有匹配的 `compaction/end`），而不是虚假声称压缩已完成、但表层从未被遮蔽的 `compaction/end`。
+仅当紧跟在 `compaction/summary` 之后的检查点已提交时，包不变量才接受成功的 `compaction/end`。该检查点必须与摘要的范围、有序来源 `[startSeq, summarySeq, ...shadowedSeqs]`、`compactionId` 和可选 `sourceCommandId` 完全匹配。因此表层变更位于锁的起止范围**内**：`compaction/end` 是最后一个事件，所以在此之前崩溃会留下可检测的遗留锁，而不是虚假的成功结束。
 
 这对标记表示获取和释放锁的时间点，并非排他的事件容器。手动摘要等待期间，空闲的 `inject()` 可以在 start 与 end 之间追加不相关的上下文。因此，手动稳定性检查会重新验证所选 span，而不要求整个表层相等；位置替换会让该注入上下文在检查点之后保持可见。自动压缩则要求其活动轮次内的整个表层保持相等。
 
 `deriveMessages()` 随后将摘要渲染为 user 角色消息，再跟上已保留节点。已遮蔽事件仍保留在原始日志中，因此回放具有确定性。
+
+随附的 base、standard、code 和 Cordis 组合均保持其已配置的工具结果剪枝行处于禁用状态。因此自动与手动压缩会直接执行摘要替换，这是默认组合中唯一的历史改写。显式的 profile、home 或命令行 overlay 可以启用追溯式工具结果剪枝，再执行后续摘要。
 
 ## 阻塞
 
@@ -60,7 +62,7 @@
 
 ## 事件
 
-`compaction/*` 事件通过 declaration merging 扩展 `SessionEventMap`（可合并扩展）：它们是会话事件，不是 cordis `Events`，三者均仅存在于日志（不含 `surfaceOp`）。各事件 payload 与语义见生成的 [持久化日志事件目录](../../../docs/persistence-catalog.md)。
+`compaction/*` 事件通过 declaration merging 扩展 `SessionEventMap`（可合并扩展）：它们是会话事件，不是 cordis `Events`，并且都仅存在于日志（不含 `surfaceOp`）。各事件 payload 与语义见生成的 [持久化日志事件目录](../../../docs/persistence-catalog.md)。持久的 `compaction/end` 记录还会投影为出站 `compaction.settled`；其载荷与订阅详情由[通知包](../../notification/notification/README.md)负责。
 
 ## 实现后端
 
@@ -80,7 +82,7 @@
 
 #### Token 影响
 
-该 Service Definition 不会直接产生 token。后端用一份摘要换取多个原本保留的历史 token，并保持近期尾部不变。
+该 Service Definition 不会直接产生 token。后端用一份摘要换取多个原本保留的历史 token，并保持近期尾部不变。`compaction/summary` 上由提供方报告的摘要器用量会计入一次累计 `tokenUsage`，但该辅助请求不计入上下文压力。
 
 #### KV Cache 影响
 

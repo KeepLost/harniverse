@@ -348,17 +348,24 @@
 
     - id: spill-policy
       name: '@deepseek-ai/dsh-spill-policy'
+      disabled: true
       config:
         maxInlineBytes: 50000
+
+    - id: tool-artifact-read
+      name: '@deepseek-ai/dsh-tool-artifact-read'
+      config:
+        pageChars: 12000
 
     # Durability checkpoints before each model request and top-level dispatch.
     - id: session-checkpoint-policy
       name: '@deepseek-ai/dsh-session-checkpoint-policy'
 
-    # Compacts oversized tool results before the broader conversation compactor
-    # runs, preserving the model-visible result within the configured budget.
+    # Optional retroactive surface rewrite. The final-result artifact boundary
+    # handles new oversized outputs without invalidating earlier KV-cache input.
     - id: tool-result-pruner
       name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      disabled: true
       config:
         thresholdChars: 8192
         headChars: 4096
@@ -426,6 +433,8 @@
     # keeps the schema default (native).
     - id: tools
       name: '@deepseek-ai/dsh-tools'
+      config:
+        maxResultTextChars: 50000
 
     # The deployment persona is a deployment choice; plan-mode and tool plugins own
     # their own prompt sections.

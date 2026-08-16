@@ -8,7 +8,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-user-approval'
-import { applyReadTool, READ_LIMIT, STREAM_MIN_SIZE } from './read.ts'
+import { applyReadTool, READ_LIMIT } from './read.ts'
 import { applyWriteTool } from './write.ts'
 import { applyEditTool } from './edit.ts'
 import { applyReadImageTool } from './read-image.ts'
@@ -29,15 +29,12 @@ export interface Config {
   readMaxLineLength?: number
   /** Maximum bytes returned for the selected lines of one `read` call. */
   readMaxBytes?: number
-  /** Files at or above this size stream instead of loading whole into memory. */
-  readStreamMinSize?: number
 }
 
 export const Config: z<Config> = z.object({
   readLimit: z.number().default(READ_LIMIT),
   readMaxLineLength: z.number().default(READ_MAX_LINE_LENGTH),
   readMaxBytes: z.number().default(READ_MAX_BYTES),
-  readStreamMinSize: z.number().default(STREAM_MIN_SIZE),
 })
 
 /** The shape after schemastery applied the defaults. */
@@ -57,12 +54,10 @@ export function apply(ctx: Context, config: Config): void {
   assertPositiveInteger('readLimit', resolved.readLimit)
   assertPositiveInteger('readMaxLineLength', resolved.readMaxLineLength)
   assertPositiveInteger('readMaxBytes', resolved.readMaxBytes)
-  assertPositiveInteger('readStreamMinSize', resolved.readStreamMinSize)
   applyReadTool(ctx, {
     limit: resolved.readLimit,
     maxLineLength: resolved.readMaxLineLength,
     maxBytes: resolved.readMaxBytes,
-    streamMinSize: resolved.readStreamMinSize,
   })
   // read_image is composition-conditional: without a mounted attachment store
   // the deployment cannot durably commit image bytes, so the tool never

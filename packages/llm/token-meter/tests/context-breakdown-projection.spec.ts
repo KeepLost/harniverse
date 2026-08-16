@@ -54,7 +54,13 @@ function appendUser(session: Session, text: string): number {
  * replaced span from the measurement service's own nodes and log the
  * shadow-price event directly before the replace.
  */
-function appendSummaryMeter(ctx: Context, session: Session, start: number, end: number): void {
+function appendSummaryMeter(
+  ctx: Context,
+  session: Session,
+  start: number,
+  end: number,
+  usage?: { inputTokens: number; outputTokens: number },
+): void {
   const nodes = ctx.tokenMeter.measure(session).nodes
   const startIdx = nodes.findIndex(node => node.seq === start)
   const endIdx = nodes.findIndex(node => node.seq === end)
@@ -67,6 +73,7 @@ function appendSummaryMeter(ctx: Context, session: Session, start: number, end: 
     shadowedTokenCount: shadowed.reduce((total, node) => total + node.tokens, 0),
     provider: 'mock',
     model: 'mock',
+    ...usage === undefined ? {} : { usage },
   })
 }
 
@@ -169,8 +176,9 @@ describe('contextBreakdown session projection', () => {
     const grown = agree()
     expect(grown).toBeGreaterThan(0)
 
-    appendSummaryMeter(ctx, session, question, answer)
+    appendSummaryMeter(ctx, session, question, answer, { inputTokens: 50_000, outputTokens: 5_000 })
     // The armed shadow price must not move the published figure by itself.
+    // The summarizer's auxiliary request usage is not part of context composition.
     expect(agree()).toBe(grown)
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'summary' }],

@@ -28,7 +28,9 @@ declare module '@deepseek-ai/dsh-session/types' {
      * shadows the compacted range. That adjacency is contractual — the
      * shadowed pricing fields are the replacement's shadow price, so a
      * consumer may pair a replacement with the metering event directly
-     * before it (`compaction/prune` documents the shared protocol).
+     * before it (`compaction/prune` documents the shared protocol). The
+     * replacement range exactly matches `shadowedRange`, and its ordered
+     * `sourceEventSeqs` is `[startSeq, summarySeq, ...shadowedSeqs]`.
      */
     'compaction/summary': {
       compactionId: CompactionId
@@ -76,7 +78,8 @@ declare module '@deepseek-ai/dsh-session/types' {
      * for a summarizing compaction, this event for a prune), which states the
      * heuristic token price of the exact replaced range so a pure consumer
      * can subtract it without retaining per-node prices. The replacement MUST
-     * be appended synchronously right after this event.
+     * be appended synchronously right after this event, with the same range
+     * and `sourceEventSeqs` exactly equal to `shadowedSeqs`.
      */
     'compaction/prune': {
       /** The replaced range's first and last surface-node seqs (a surface-position span, like {@link CompactionResult.shadowedRange}). */

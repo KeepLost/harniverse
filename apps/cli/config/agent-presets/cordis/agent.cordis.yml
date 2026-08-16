@@ -113,6 +113,11 @@
 
 # ── compaction ──────────────────────────────────────────────────────────────
 
+- id: tool-artifact-read
+  name: '@deepseek-ai/dsh-tool-artifact-read'
+  config:
+    pageChars: 12000
+
 # `compaction-basic` reads `toolResultPrune` through `ctx.get`, so the pruner must
 # share this realm rather than sit outside it.
 #
@@ -137,6 +142,7 @@
 
     - id: tool-result-pruner
       name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      disabled: true
       config:
         thresholdChars: 8192
         headChars: 4096

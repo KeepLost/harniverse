@@ -114,6 +114,17 @@ export const notificationEnvelopeSchema = z.discriminatedUnion('type', [
       error: z.strictObject({ name: z.string(), code: z.string() }).optional(),
     }),
   }),
+  z.strictObject({
+    ...baseEnvelope,
+    type: z.literal('compaction.settled'),
+    data: z.strictObject({
+      compactionId: z.string().min(1),
+      turn: sequence.nullable(),
+      seq: sequence,
+      ok: z.boolean(),
+      sourceCommandId: z.string().min(1).optional(),
+    }),
+  }),
 ]) as unknown as z.ZodType<HttpNotificationEnvelope>
 
 const nonNegativeSafeInteger = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)

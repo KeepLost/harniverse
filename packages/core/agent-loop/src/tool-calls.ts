@@ -150,7 +150,7 @@ async function runGroup(
       const call = group[committed]
       const result = slot.needsPost
         ? await ctx.tools[TOOL_RUNTIME_SCHEDULER].finalize(slot.exec, slot.result)
-        : ctx.tools[TOOL_RUNTIME_SCHEDULER].finish(slot.exec, slot.result)
+        : await ctx.tools[TOOL_RUNTIME_SCHEDULER].finish(slot.exec, slot.result)
       // oxlint-disable-next-line typescript/no-non-null-assertion -- bounded index
       appendToolResult(session, turn, step, call!.block, result, callSeqs[committed]!)
       for (const context of result.additionalContexts ?? []) acceptContext(context)
@@ -282,8 +282,10 @@ function appendToolResult(
     turn, step,
     message,
     ...result.error?.info ? { error: result.error.info } : {},
+    ...result.originalError?.info ? { originalError: result.originalError.info } : {},
     // The tool's private presentation payload (e.g. a result-time diff),
     // persisted so a UI bridge reproduces the card on replay.
     ...result.meta !== undefined ? { meta: result.meta } : {},
+    ...result.artifact !== undefined ? { artifact: result.artifact } : {},
   }, { surfaceOp: 'append', sourceEventSeqs: [callSeq] })
 }

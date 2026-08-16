@@ -12,7 +12,7 @@
 
 - **测量**：单例 `ctx.tokenMeter` 会在同一个已消费日志 revision 上，计量最新一份规范化已记录 envelope 与当前表层的 token 用量。因此，步骤边界的压力计量会包含实际系统提示词、工具、路由、assistant 完成、工具结果、缓冲上下文与 steering（中途引导）。
 - **路由策略**：主动压力从拥有最新持久提供方／模型路由的适配器解析容量，再将默认策略与可选的精确目标覆盖缩放为具体 token 预算。模型发现仍仅供参考，不参与此处的策略解析。
-- **不依赖模型的剪枝**：在压力或规范溢出符合条件后，可选的 [`ctx.toolResultPruner`](../compaction-tool-result-pruner/README.md) 服务会在选择范围之前改写超大工具结果。Compact-basic 通过 `ctx.tokenMeter` 重新测量；如果压力已回到安全范围，就跳过摘要，否则对已剪枝的表层进行摘要。低于压力的步骤检查绝不剪枝。
+- **不依赖模型的剪枝**：随附组合会禁用可选的 [`ctx.toolResultPruner`](../compaction-tool-result-pruner/README.md) 服务，因此 compaction-basic 通常直接摘要，不会先改写工具结果。显式选择启用后，该服务会在压力或规范溢出符合条件之后、选择范围之前改写超大工具结果。Compact-basic 随后通过 `ctx.tokenMeter` 重新测量；如果压力已回到安全范围，就跳过摘要，否则对已剪枝的表层进行摘要。低于压力的步骤检查绝不剪枝。之后禁用该服务只会停止新的剪枝；已经追加到会话日志的替换事件及其持久表层效果不会撤销。
 - **保留**：压缩最旧的完整表层单元，同时保留近期尾部，并通过 [`dsh-compaction` 边界 helper](../compaction/README.md#tool-pairing-boundaries) 将切分点调整到工具调用／结果配对平衡的位置。轮次边界不会保护失控轮次内的旧步骤。尚未闭合且不可分的尾部会在闭合前拒绝压缩。当闭合的超大工具单元以文本型结果为可移除主体时，可选 pruner 可以修复它；不可分的非工具单元与不可剪枝的工具剩余部分不在范围内。
 - **收敛**：最多按 `compactionRetries` 重试头部检查点压缩；拒绝不能缩小源内容的摘要，如果重试仍无法回到阈值以下，则抛出异常。
 - **摘要**：直接 `llm/stream` 调用使用已配置的提供方／模型对与上限，回退到最新已记录请求目标，然后再回退到 agent（智能体）目标，而不运行仅用于 agent loop 的 `agent/request` 扩展点。该调用会逐字回放会话自身的系统提示词、工具与已遮蔽区域消息（包括图片引用），并将压缩指令作为最后一条 user 消息追加，从而复用提供方的热前缀 cache，而非使它失效。所选适配器必须解析或明确拒绝这些图片。它将 `GenerateOptions.purpose` 设为 `compaction`，适配器可将其作为请求归因转发（DeepSeek 适配器发送 `x-deepseek-harness-compact: 1`），但不会触碰模型可见的请求体。只有返回的文本会进入检查点；推理（reasoning）和工具调用都会被排除，以免泄露私有推理或产生遗留调用；图片输出会以 `UNSUPPORTED_CONTENT` 失败，而不是消失。
@@ -64,7 +64,7 @@ export function apply(ctx: Context): void {
 }
 ```
 
-加载插件会注册 `ctx.compaction`。在该插件之前添加同级 [`dsh-compaction-tool-result-pruner`](../compaction-tool-result-pruner/README.md) 以启用可选的不依赖模型的处理阶段。当 `auto: true`（默认）时，它会在 token 压力下自动压缩。同级 [`dsh-command-compact`](../command-compact/README.md) 调用 `ctx.compaction.compactNow(...)`；编程调用方也可以直接使用任一 seam 操作。
+加载插件会注册 `ctx.compaction`。随附默认配置不会启用 pruner，因此符合条件的压缩会直接进入摘要。请在该插件之前显式启用同级 [`dsh-compaction-tool-result-pruner`](../compaction-tool-result-pruner/README.md)，以添加不依赖模型的处理阶段。该选择启用可以减少或避免摘要器输入成本并降低溢出风险，但会改写较早的模型可见表层内容，并使从首个变更 token 起的 KV Cache 复用失效。当 `auto: true`（默认）时，compaction-basic 会在 token 压力下自动压缩。同级 [`dsh-command-compact`](../command-compact/README.md) 调用 `ctx.compaction.compactNow(...)`；编程调用方也可以直接使用任一 seam 操作。
 
 例如，同一个压缩插件可以安全服务于容量不同的模型，并应用一项目标特定策略：
 
@@ -86,7 +86,7 @@ export function apply(ctx: Context): void {
 
 #### 模型看到的内容
 
-成功步骤越过阈值后，如果已加载可选 pruner，超大工具结果会先被改写。如果仍需摘要，下一个请求会收到下方检查点前导、一个空行、`<compacted-summary>`、根据数据生成的摘要以及 `</compacted-summary>`。溢出恢复会根据使表层前进的任何替换重建立即重试。检查点会替换已选较早范围，后面跟随已保留的近期单元。
+成功步骤越过阈值后，随附的仅摘要组合会直接进入摘要。当部署显式启用可选 pruner 时，超大工具结果会先被改写。如果仍需摘要，下一个请求会收到下方检查点前导、一个空行、`<compacted-summary>`、根据数据生成的摘要以及 `</compacted-summary>`。溢出恢复会根据使表层前进的任何替换重建立即重试。检查点会替换已选较早范围，后面跟随已保留的近期单元。之后禁用 pruner 时，已剪枝的替换仍是持久表层的一部分。
 
 ##### 会话检查点前导
 
@@ -96,11 +96,11 @@ This is an automatically generated checkpoint condensing an earlier span of the 
 
 #### Token 影响
 
-不依赖模型的剪枝可以完全避免辅助调用；否则它会在摘要替换较早范围之前缩减该调用的 transcript（文本记录）。替换会缩减未来输入历史，而非追加第二份副本。摘要会保留到后续压缩将其替换，但不可分的非工具单元仍可能超出预算。
+未显式选择剪枝时，摘要器会读取所选的原始表层。不依赖模型的剪枝可以完全避免辅助调用；否则它会在摘要替换较早范围之前缩减该调用的 transcript（文本记录）、成本与溢出风险。替换会缩减未来输入历史，而非追加第二份副本。摘要会保留到后续压缩将其替换，但不可分的非工具单元仍可能超出预算。
 
 #### KV Cache 影响
 
-它是替换，而非仅追加。每个检查点都会使从第一个已替换历史 token 起的复用失效；该范围之前未更改的请求前缀仍可复用。
+它是替换，而非仅追加。每个检查点都会使从第一个已替换历史 token 起的复用失效；该范围之前未更改的请求前缀仍可复用。启用剪枝可能比仅摘要压缩更早地使复用失效，因为工具结果替换可能位于所选摘要范围之前。
 
 ### 辅助摘要器请求
 

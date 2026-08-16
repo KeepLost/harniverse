@@ -120,6 +120,28 @@ describe('search tools over the real subprocess service + the packaged rg', () =
       expect(text(result)).toBe('Found 1 match\n\nnotes.md\nLine 1: alpha appears here too')
     })
 
+    it('bounds a 24 MiB matching line at the producer and keeps its read recovery location', async () => {
+      const exact = `needle${'x'.repeat(2000 - 'needle'.length)}`
+      await writeFile(join(dir, 'exact.txt'), exact)
+      await writeFile(join(dir, 'giant.txt'), `needle${'x'.repeat(24 * 1024 * 1024 - 'needle'.length)}\n`)
+
+      const result = await call('grep', { pattern: 'needle' }, agent())
+
+      expect(result.isError).toBe(false)
+      if (result.isError) throw new Error('expected giant-line grep success')
+      expect(result.error).toBeUndefined()
+      const value = result.value as { matches: Array<{ path: string; lineNumber: number; line: string }> }
+      const exactMatch = value.matches.find(match => match.path === 'exact.txt')
+      const giantMatch = value.matches.find(match => match.path === 'giant.txt')
+      expect(exactMatch).toEqual({ path: 'exact.txt', lineNumber: 1, line: exact })
+      expect(giantMatch).toMatchObject({ path: 'giant.txt', lineNumber: 1 })
+      expect(giantMatch?.line).toContain('omitted end of long line')
+      expect(Buffer.byteLength(giantMatch?.line ?? '', 'utf8')).toBeLessThan(2200)
+      expect(text(result)).toContain('giant.txt\nLine 1: needle')
+      expect(text(result)).toContain('(line truncated)')
+      expect(text(result)).not.toContain('SEARCH_RAW_OUTPUT_OVERFLOW')
+    })
+
     it('greps a directory target with an include filter', async () => {
       const result = await call('grep', { pattern: 'alpha', path: '.', include: '*.ts' }, agent())
       const output = text(result)

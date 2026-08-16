@@ -64,7 +64,7 @@
 
 `user/message` 会直接存储完整的 `UserMessage`，其中包括收件箱路由或进入步骤前创建的标识。无论它是直接人类提示词、合成注入，还是已进入的 Goal Round，都会原样呈现其 `content`；带类型的 `source` 是区分三者的唯一通道，并携带各领域专有的持久事实。`assistant/message` 和 `tool/result` 也会存储完整的消息值。轮次执行仍由 `turn/start` 与 `turn/end` 包围；`agent.inject()` 会把输入排队，直到后续某次 pre-step 领取它，并在 enter 决策中返回它。
 
-`tool/result` 持久保存一条带标识、user-role 的工具结果消息，以及可选内部失败标识和可选呈现元数据。工具成功时的规范 `value` 和便于人类阅读的规范失败消息只存在于执行本地；渲染后的错误内容是回放权威消息。
+`tool/result` 持久保存一条带标识、user-role 的工具结果消息，以及可选内部失败标识、可选呈现元数据和可选结构化 `artifact { kind: 'full-result', locator, bytes }`。该产物指向超大内联结果受限前已保留的完整格式化文本；`artifact_read` 使用不透明 locator 恢复该文本。工具成功时的规范 `value` 和便于人类阅读的规范失败消息只存在于执行本地；渲染内容是回放权威消息，产物元数据则保持为独立持久字段。
 
 ### 会话事件词汇（`types.ts`）
 
@@ -98,11 +98,11 @@
 
 #### 模型看到的内容
 
-模型会原样接收 `user/message`、`assistant/message` 和 `tool/result` surface 条目中的完整消息。其标识、角色、来源和内容块都与创建时确定的值相同；投影不会生成标识。提示词封装只改变面向人的呈现；其前缀上下文和请求分隔符已经位于事件内容中。工具调用包含在 assistant 消息内。分片、边界、用量、钩子记录、todo 记录以及其他仅日志事件不会添加消息。
+模型会原样接收 `user/message`、`assistant/message` 和 `tool/result` surface 条目中的完整消息。其标识、角色、来源和内容块都与创建时确定的值相同；投影不会生成标识。提示词封装只改变面向人的呈现；其前缀上下文和请求分隔符已经位于事件内容中。工具调用包含在 assistant 消息内。超大工具结果只贡献有界内联预览；持久产物引用不是另一个内容块，模型需要完整文本时，预览会提示它使用该 locator 调用 `artifact_read`。分片、边界、用量、钩子记录、todo 记录以及其他仅日志事件不会添加消息。
 
 #### Token 影响
 
-追加的 surface 条目会在后续步骤中重新发送。`replace` surface 操作会从未来输入中移除被遮蔽条目，但不删除其原始日志记录。
+追加的 surface 条目（包括有界工具结果预览）会在后续步骤中重新发送。产物文本只通过后续 `artifact_read` 结果分页进入历史。`replace` surface 操作会从未来输入中移除被遮蔽条目，但不删除其原始日志记录。
 
 #### KV Cache 影响
 

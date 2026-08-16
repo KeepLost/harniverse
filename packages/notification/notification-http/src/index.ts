@@ -71,6 +71,7 @@ export const Config: z<Config> = z.object({
         'approval.decided',
         'tool.called',
         'tool.settled',
+        'compaction.settled',
       ]),
       // `z.array()` normalizes omission to `[]`; preserve omission so the
       // semantic validator can distinguish no filter from an empty filter.

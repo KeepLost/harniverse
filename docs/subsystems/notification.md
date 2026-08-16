@@ -63,5 +63,5 @@ emit(event: NotificationEnvelope): void
 abstract shutdown(): Promise<void>
 ```
 
-Source: [`packages/notification/notification/src/index.ts:166`](../../packages/notification/notification/src/index.ts)
+Source: [`packages/notification/notification/src/index.ts:176`](../../packages/notification/notification/src/index.ts)
 <!-- END GENERATED cordis-surface -->

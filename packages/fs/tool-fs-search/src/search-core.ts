@@ -69,7 +69,7 @@ export const SEARCH_META_MAX_BYTES = 65_536
  * provider operations: `SEARCH_INVALID_PATTERN` — ripgrep rejected the regex or
  * glob; `SEARCH_FAILED` — the search could not run or its output could not be
  * parsed (a failed `rg` launch, inaccessible target, signal kill, malformed
- * `--json`); `SEARCH_RAW_OUTPUT_OVERFLOW` — raw `rg` output exceeded
+ * output); `SEARCH_RAW_OUTPUT_OVERFLOW` — raw `rg` output exceeded
  * `rawOutputMaxBytes` or stayed truncated after that requested stdout budget;
  * `SEARCH_ABORTED` — the cooperative tool timeout or caller cancellation cut
  * the search short.
@@ -385,6 +385,7 @@ export async function trySaveFormattedResult(
     return undefined
   }
   const save: SaveTextSpill = {
+    signal: exec.signal,
     owner: { sessionId },
     source: { toolName: exec.name, callId: exec.callId, label: 'result' },
     suggestedName,

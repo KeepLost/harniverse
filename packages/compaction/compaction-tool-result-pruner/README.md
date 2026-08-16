@@ -6,15 +6,21 @@ The replay-safe model-free pruning service (`ctx.toolResultPruner`). It rewrites
 
 This is a concrete companion to [`dsh-compaction-basic`](../compaction-basic/README.md), not a compaction backend or model-facing tool. Compact-basic reads it through optional `ctx.get('toolResultPruner')`, so either package remains independently composable.
 
+Shipped base, standard, code, and Cordis compositions include configured pruner rows but keep them disabled. Normal automatic and manual compaction therefore summarize directly; enabling this service through an explicit profile, home, or command-line overlay opts into a retroactive history rewrite.
+
 ## Service API
 
-`pruneSession(session)` scans one stable snapshot of the current surface. Every over-budget tool result is replaced by one newly appended `tool/result` carrying `{ surfaceOp: { op: 'replace', start: originalSeq, end: originalSeq }, sourceEventSeqs: [originalSeq] }`. The replacement spreads the complete original data and changes only `content`, preserving `turn`, `step`, `callId`, error fields, `meta`, and later data additions. The original event remains available for persistence, replay, and exact-log inspection.
+`pruneSession(session)` scans one stable snapshot of the current surface. Every over-budget result appends `compaction/prune` and then immediately appends one `tool/result` replacement carrying the exact same range and `sourceEventSeqs: [originalSeq]`. The replacement spreads the complete original data and changes only `content`, preserving `turn`, `step`, `callId`, error fields, `meta`, and later data additions. The original event remains append-only and available for persistence, replay, and exact-log inspection.
 
 The method throws synchronously when the session rejects a replacement. Replacements committed earlier in the pass remain durable.
+
+Disabling or unloading the plugin stops future pruning but does not remove committed replacement events or restore their originals to the current surface.
 
 `measureContent(blocks)` counts Unicode code points in `text` blocks. `pruneContent(blocks)` returns the bounded replacement or `null` when content is already within the threshold. Non-text blocks are retained at their original relative positions; text slicing never splits a UTF-16 surrogate pair, though it can split a multi-code-point grapheme cluster.
 
 Every emitted result has exactly the configured head budget, fixed marker, and tail budget in text code points, is no larger than `thresholdChars`, and is strictly smaller than the triggering input. A second pass therefore emits no replacement.
+
+New tool results follow a separate path: [`ToolRuntime`](../../core/tools/README.md) applies an artifact-backed final cap of 50,000 Unicode code points before the result enters model history or its KV cache. This service only retroactively lowers already durable tool results to its smaller configured threshold.
 
 ## Config
 
@@ -45,7 +51,7 @@ export function apply(ctx: Context): void {
 
 #### What the model sees
 
-Once a compaction trigger qualifies, future requests see the retained head, `\n\n[... tool result middle pruned ...]\n\n`, and retained tail in place of the removed text. Rich blocks keep their order. The model does not see a second copy of the original.
+When an explicitly enabled pruner handles a qualifying compaction trigger, future requests see the retained head, `\n\n[... tool result middle pruned ...]\n\n`, and retained tail in place of the removed text. Rich blocks keep their order. The model does not see a second copy of the original, and the replacement remains active after the plugin is disabled.
 
 #### Token effect
 
@@ -53,7 +59,7 @@ Each rewritten tool result has at most `thresholdChars` text code points. Prunin
 
 #### KV Cache effect
 
-Replacing an earlier result invalidates reuse from the first changed token. The pruned prefix is eligible for reuse while its route, envelope, and preceding history remain identical.
+The first replacement invalidates reuse from its first changed token. The pruned prefix is eligible for later reuse while its route, envelope, and preceding history remain identical.
 
 ## Known Limitations and Deferred Work
 

@@ -2,9 +2,9 @@
 
 English | [中文](README.zh.md)
 
-The **tool-result spill policy**: a `tools/post-execute` transformer that keeps oversized plain-text tool results out of the model's context. When a final result exceeds `maxInlineBytes`, it saves the FULL text through [`ctx.spillStore`](../spill) and replaces the model-facing result with a bounded head/tail preview plus the backend's locator and retrieval hint.
+The optional **tool-result spill policy** is a `tools/post-execute` byte transformer. When a final plain-text result exceeds `maxInlineBytes`, it saves the full text through [`ctx.spillStore`](../spill) and replaces the model-facing result with a bounded head/tail preview plus the backend's opaque locator and retrieval hint.
 
-This plugin registers **no service** and owns no storage or preview mechanics: preview is [`@deepseek-ai/dsh-output-retention`](../../util/output-retention) (`TextRetainer`), storage is `ctx.spillStore`. It only decides WHEN to spill and composes the notice.
+This plugin registers **no service** and owns no storage or preview mechanics: preview is [`@deepseek-ai/dsh-output-retention`](../../util/output-retention) (`TextRetainer`), and storage is `ctx.spillStore`. It does not attach ToolRuntime's structured `full-result` artifact metadata. The shipped base loads this package disabled; deployments must explicitly enable it, and omitting `maxInlineBytes` still makes an enabled instance a no-op.
 
 ## Config
 
@@ -23,7 +23,7 @@ This plugin registers **no service** and owns no storage or preview mechanics: p
    ```text
    <retained head/tail preview>
 
-   (Omitted N bytes. Full formatted result stored at: /…/session-…/…-web_fetch.txt. Use read with offset/limit, or grep this path to search within it.)
+   (Omitted N bytes. Full formatted result stored at: local-spill:v1:…/…. Use artifact_read with this locator to retrieve the complete text.)
    ```
 
    When the notice alone fills the budget (a tiny cap or a long locator) the preview is empty and only the notice is returned. If even that notice-only replacement would exceed `maxInlineBytes`, the policy keeps the inline result — it never emits a replacement over the cap (and a within-cap replacement is always smaller than the original, so this also means spilling never adds bytes).
@@ -42,7 +42,7 @@ The policy sees only the FINAL formatted model-facing result—not a tool's inte
 
 #### What the model sees
 
-Results at or below `maxInlineBytes`, nested results, `read` results, blocked decisions, and results containing non-text blocks are unchanged. An oversized plain-text model-facing result becomes a bounded head/tail preview followed by `(Omitted <bytes> bytes. Full formatted result stored at: <locator>. <retrievalHint>)`; storage or ownership failures leave the original result visible.
+Results at or below `maxInlineBytes`, nested results, `read` results, blocked decisions, and results containing non-text blocks are unchanged. An oversized plain-text model-facing result becomes a bounded head/tail preview followed by `(Omitted <bytes> bytes. Full formatted result stored at: <locator>. <retrievalHint>)`; the model passes the opaque locator to the backend's retrieval tool. Storage or ownership failures leave the original result visible.
 
 #### Token effect
 
@@ -56,3 +56,4 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 - **Only final plain-text results are spillable** — mixed-content results, blocked feedback, and `read` pass through; provider truncation or tool-owned retention that happened earlier cannot be recovered here.
 - **A notice that cannot fit disables replacement for that call** — a tiny cap or long locator leaves the oversized original inline after the backend has already saved an unreferenced spill.
+- **Policy artifacts are notice-only** — this policy path does not add the structured `artifact` field that ToolRuntime records for its primary full-result retention path.

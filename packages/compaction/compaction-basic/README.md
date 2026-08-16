@@ -12,7 +12,7 @@ This backend owns the compaction policy:
 
 - **Measurement** — the singleton `ctx.tokenMeter` prices the latest canonical logged envelope and current surface at one consumed-log revision. Step-boundary pressure therefore includes the actual system prompt, tools, routing, assistant completion, tool results, buffered context, and steering.
 - **Routed policy** — proactive pressure resolves capacity from the adapter that owns the latest durable provider/model route, then scales the default policy plus an optional exact-target override into concrete token budgets. Model discovery remains advisory and is not consulted.
-- **Model-free pruning** — after pressure or canonical overflow qualifies, the optional [`ctx.toolResultPruner`](../compaction-tool-result-pruner/README.md) service rewrites oversized tool results before range selection. Compact-basic remeasures through `ctx.tokenMeter`, skips summarization when pressure becomes safe, and otherwise summarizes the pruned surface. Below-pressure step checks never prune.
+- **Model-free pruning** — shipped compositions leave the optional [`ctx.toolResultPruner`](../compaction-tool-result-pruner/README.md) service disabled, so compaction-basic normally summarizes without first rewriting tool results. An explicit opt-in rewrites oversized tool results after pressure or canonical overflow qualifies and before range selection. Compact-basic then remeasures through `ctx.tokenMeter`, skips summarization when pressure becomes safe, and otherwise summarizes the pruned surface. Below-pressure step checks never prune. Disabling the service later stops new pruning but does not undo replacement events already appended to the session log or their durable surface effect.
 - **Retention** — compact the oldest whole surface units while preserving a recent tail and balanced tool-call/result cuts through the [`dsh-compaction` boundary helpers](../compaction/README.md#tool-pairing-boundaries). Turn boundaries do not protect old steps inside a runaway turn. An open indivisible tail declines until it closes. The optional pruner can repair an oversized closed tool unit when its text-bearing result is the removable bulk; indivisible non-tool units and non-prunable tool remainders remain out of scope.
 - **Convergence** — retry head-checkpoint compaction up to `compactionRetries`; reject a summary that does not shrink its source, and throw if retries cannot return below threshold.
 - **Summarization** — a direct `llm/stream` call uses the configured provider/model pair and cap, falling back to the latest logged request target and then the agent target, without running the loop-only `agent/request` extension point. The call replays the conversation's own system prompt, tools, and shadowed-region messages verbatim, including image references, and appends the compaction instruction as the final user message, so it reuses the provider's warm prefix cache instead of invalidating it. The selected adapter must resolve or explicitly reject those images. It sets `GenerateOptions.purpose` to `compaction`, which adapters may forward as request attribution (the DeepSeek adapter sends `x-deepseek-harness-compact: 1`) without touching the model-visible body. Only returned text enters the checkpoint, excluding reasoning and tool calls that would leak private reasoning or create an orphaned call; image output fails with `UNSUPPORTED_CONTENT` rather than disappearing.
@@ -64,7 +64,7 @@ export function apply(ctx: Context): void {
 }
 ```
 
-Loading the plugin registers `ctx.compaction`. Add [`dsh-compaction-tool-result-pruner`](../compaction-tool-result-pruner/README.md) as a sibling before this plugin to enable the optional model-free pass. With `auto: true` (the default) it compacts automatically under token pressure. The sibling [`dsh-command-compact`](../command-compact/README.md) calls `ctx.compaction.compactNow(...)`; programmatic callers may also use any seam operation directly.
+Loading the plugin registers `ctx.compaction`. Shipped defaults load it without an active pruner, so qualifying compaction proceeds directly to summarization. Explicitly enable [`dsh-compaction-tool-result-pruner`](../compaction-tool-result-pruner/README.md) as a sibling before this plugin to add the model-free pass. That opt-in can reduce or avoid summarizer input cost and lower overflow risk, but it rewrites earlier model-visible surface content and invalidates KV-cache reuse from the first changed token. With `auto: true` (the default) compaction-basic compacts automatically under token pressure. The sibling [`dsh-command-compact`](../command-compact/README.md) calls `ctx.compaction.compactNow(...)`; programmatic callers may also use any seam operation directly.
 
 For example, the same compact plugin can safely serve models with different capacities and one target-specific policy:
 
@@ -86,7 +86,7 @@ For example, the same compact plugin can safely serve models with different capa
 
 #### What the model sees
 
-After a successful step crosses the threshold, oversized tool results are first rewritten when the optional pruner is loaded. If summarization remains necessary, the next request receives the checkpoint preamble below, a blank line, `<compacted-summary>`, the data-dependent summary, and `</compacted-summary>`. Overflow recovery rebuilds the immediate retry from whatever replacement advanced the surface. A checkpoint replaces the selected older range and is followed by the retained recent units.
+After a successful step crosses the threshold, the shipped summary-only composition proceeds directly to summarization. When a deployment explicitly enables the optional pruner, oversized tool results are rewritten first. If summarization remains necessary, the next request receives the checkpoint preamble below, a blank line, `<compacted-summary>`, the data-dependent summary, and `</compacted-summary>`. Overflow recovery rebuilds the immediate retry from whatever replacement advanced the surface. A checkpoint replaces the selected older range and is followed by the retained recent units. Pruned replacements remain part of the durable surface when the pruner is subsequently disabled.
 
 ##### Conversation checkpoint preamble
 
@@ -96,11 +96,11 @@ This is an automatically generated checkpoint condensing an earlier span of the 
 
 #### Token effect
 
-Model-free pruning can avoid the auxiliary call entirely; otherwise it reduces that call's transcript before the summary replaces an older range. The replacement reduces future input history rather than appending a second copy. A summary remains until a later compaction replaces it, while an indivisible non-tool unit can still exceed the budget.
+Without the explicit pruning opt-in, the summarizer reads the selected original surface. Model-free pruning can avoid the auxiliary call entirely; otherwise it reduces that call's transcript, cost, and overflow risk before the summary replaces an older range. The replacement reduces future input history rather than appending a second copy. A summary remains until a later compaction replaces it, while an indivisible non-tool unit can still exceed the budget.
 
 #### KV Cache effect
 
-Replacing rather than append-only. Each checkpoint invalidates reuse from the first replaced history token; the unchanged request prefix before that range remains reusable.
+Replacing rather than append-only. Each checkpoint invalidates reuse from the first replaced history token; the unchanged request prefix before that range remains reusable. Enabling pruning may invalidate reuse earlier than summary-only compaction because a tool-result replacement can precede the selected summary range.
 
 ### Auxiliary summarizer request
 

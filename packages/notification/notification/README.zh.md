@@ -8,7 +8,7 @@ notification Service Definition 负责稳定的外发信封、首版事件词汇
 
 每个 `NotificationEnvelope` 都带有 `specVersion: 1`、稳定的 `eventId`、事件 `type`、ISO-8601 格式的 `occurredAt`、`subject` 下可选的会话与父会话标识，以及事件类型对应的 JSON `data`。持久会话日志投影使用源会话 id 与序号构造事件 id；运行时生产者生成不透明 id。后端重试沿用同一个事件 id。
 
-首版词汇涵盖轮次结算、显式会话关闭、通用会话脱离、agent 状态变更、批准请求／决定审计事件，以及工具调用／结果审计事件。载荷只包含关联和结果元数据；不包含提示词、对话记录、assistant 输出、工具参数与结果、工作目录、环境值、凭据或堆栈跟踪。
+首版词汇涵盖轮次结算、显式会话关闭、通用会话脱离、agent 状态变更、批准请求／决定审计事件、工具调用／结果审计事件，以及压缩结算。`compaction.settled` 只从持久的 `compaction/end` 记录发出，并携带 `compactionId`、可为 `null` 的 `turn`、结束事件的 `seq`、`ok` 和可选的 `sourceCommandId`；它绝不携带摘要内容或错误详情，也不存在压缩开始通知。载荷只包含关联和结果元数据；不包含提示词、对话记录、assistant 输出、工具参数与结果、工作目录、环境值、凭据或堆栈跟踪。
 
 ## 后端交接
 

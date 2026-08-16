@@ -54,6 +54,8 @@ export interface SpillSource {
 
 /** One request to persist text to a spill artifact. */
 export interface SaveTextSpill {
+  /** Caller-owned cancellation for storage admission and persistence. */
+  signal: AbortSignal
   owner: SpillOwner
   source: SpillSource
   /**
@@ -70,4 +72,22 @@ export interface SpillRef {
   locator: SpillLocator
   bytes: number
   retrievalHint: string
+}
+
+/** One backend-owned request to page a previously saved text artifact. */
+export interface ReadTextSpill {
+  /** Caller-owned cancellation for locator validation and page retrieval. */
+  signal: AbortSignal
+  /** Opaque locator returned by {@link SpillRef.locator}; consumers must not parse it. */
+  locator: SpillLocator
+  /** Opaque continuation cursor returned by the same backend. Omit for the first page. */
+  cursor?: string
+  /** Maximum Unicode code points to return in this page. */
+  maxChars: number
+}
+
+/** One bounded page of artifact text plus an opaque cursor when unread text remains. */
+export interface ReadTextSpillPage {
+  text: string
+  nextCursor?: string
 }

@@ -15,6 +15,7 @@ This table connects model-visible tool names to the plugin package and service s
 
 | Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Deployment note |
 | --- | --- | --- | --- | --- | --- |
+| `@deepseek-ai/dsh-tool-artifact-read` | `artifact_read` | `ctx.tools`, `ctx.spillStore` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userQuestions` | `tool/call`, `tool/result after a UI/provider answers the question` | - | ask_user_question pauses the tool call until the active UI provider returns a human answer. |
 | `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.codeRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/code-dispatch-start + tool/code-dispatch pair per bridged sub-call`, `tool/result` | - | Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry's only wire contribution; the other visible capabilities are declared in a generated SDK section in the loaded runtime's language, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. |
 | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`, `ctx.systemPrompt`, `ctx.userQuestions (execution time, opportunistic)` | `tool/call`, `plan/mode inactive on an approved review`, `tool/result` | - | exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-questions seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary. |
@@ -39,6 +40,35 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
+
+<a id="deepseek-aidsh-tool-artifact-read"></a>
+
+## `@deepseek-ai/dsh-tool-artifact-read`
+
+### `artifact_read`
+
+Read one bounded text page from a stored artifact by opaque locator. Use locators returned by artifact notices, and pass any returned cursor back unchanged to continue. Do not interpret or modify locators or cursors. Returns the exact text page and continuation guidance when more text remains.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "locator": {
+      "type": "string",
+      "description": "Opaque artifact locator returned by the spill backend. Pass it unchanged."
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor returned by a previous artifact_read call. Pass it unchanged."
+    }
+  },
+  "required": [
+    "locator"
+  ]
+}
+```
+
+Source: [`packages/spill/tool-artifact-read/src/index.ts`](../packages/spill/tool-artifact-read/src/index.ts)
 
 <a id="deepseek-aidsh-tool-ask-user"></a>
 
@@ -583,6 +613,10 @@ Notes for using the `str_replace` command:
       "items": {
         "type": "integer"
       }
+    },
+    "line_byte_offset": {
+      "type": "integer",
+      "description": "Optional 0-based UTF-8 byte cursor for `view`. Use only the cursor returned when a long line continues."
     }
   },
   "required": [
@@ -654,6 +688,10 @@ Read a UTF-8 text file and return line-numbered content.
     "limit": {
       "type": "number",
       "description": "Maximum number of lines to return. Defaults to 2000."
+    },
+    "line_byte_offset": {
+      "type": "number",
+      "description": "0-based UTF-8 byte cursor within the first selected line. Use only a cursor returned by read."
     }
   },
   "required": [
@@ -744,7 +782,7 @@ Source: [`packages/fs/tool-fs-search/src/index.ts`](../packages/fs/tool-fs-searc
 
 ### `grep`
 
-Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. Returns the first 250 matches inline; a capped result reports where the complete match list was saved. Use read on a matched file for surrounding context.
+Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. Returns the first 250 matches inline; a capped result reports where the complete match list was saved. Use read on a matched file for surrounding context. For a truncated matching line, use its line number as read offset and continue with line_byte_offset.
 
 ```json
 {

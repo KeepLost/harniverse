@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/notification.md
-notification.md: 672dcce8f548966b57801c8f90075410935faa4d
-notification.zh.md: 589e01fdcca0d0276b6e2ec3f601bd8d1d471266
+notification.md: 6a42ee90e60c7a5bff58a1c02676ec56a08112f3
+notification.zh.md: 97732ba75ec8d0a0dcfda9c3bf16b6708e096f84

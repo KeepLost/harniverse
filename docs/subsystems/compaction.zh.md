@@ -8,15 +8,20 @@
 
 ## `compaction/*` 会话事件
 
-压缩通过声明合并为 [`SessionEventMap`](session.md) 扩展三种事件类型。三者都**仅写入日志**——它们记录锁、摘要、选中范围、被遮蔽事件 seq、token 数以及模型调用，绝不进入 surface。这里有意不扩展 `SurfaceEventType`（只有产生消息的事件才到达模型），因此摘要本身承载在另一条带有 `surfaceOp: { op: 'replace', start, end }` 的 `user/message` 上——这是摘要压缩执行的唯一 surface 变更。[Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) 负责复用 `user/message` 的决策依据。
+压缩通过声明合并为 [`SessionEventMap`](session.md) 扩展四种事件类型。四者都**仅写入日志**——它们记录锁、摘要或剪枝影子价格、选中范围、被遮蔽事件 seq、token 数以及可选的模型调用，绝不进入 surface。这里有意不扩展 `SurfaceEventType`（只有产生消息的事件才到达模型），因此摘要承载在另一条替换用 `user/message` 上，而剪枝承载在另一条仅改内容的 `tool/result` 替换上。[Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) 负责复用 `user/message` 的决策依据。
 
 | 事件 | 载荷 | 作用 |
 |---|---|---|
 | `compaction/start` | `{ turn }` | 获取日志记录的锁；数字标识尚未结束的自动轮次，`null` 标识独立手动尝试 |
 | `compaction/summary` | `{ summary, rawOutput?, llmStreamCall?, shadowedRange, shadowedSeqs, shadowedTokenCount, provider, model, maxTokens?, usage? }` | 安全摘要投影、可选的完整提供方输出与 usage、生成结果时恰好通过此上下文的 `ctx.llm.stream()` 发起一次调用所带的 `llmStreamCall: true` 标记（此时必须提供完整的 `rawOutput`）、被遮蔽的 surface 边界对（`start`/`end` seq——位置跨度，而非数值区间）、按 surface 顺序排列的被遮蔽 seq、估算 token 数，以及摘要调用的 envelope（`provider`、`model`，若有生成上限则还包括该上限）——写入日志后，该一次性请求可由日志 + 代码重建（见可重建性 Agent Note）；未带标记的 `rawOutput` 并不能判定调用路径 |
+| `compaction/prune` | `{ shadowedRange, shadowedSeqs, shadowedTokenCount }` | 紧随其后的仅改内容 `tool/result` 替换所对应的精确范围、有序来源和启发式 token 影子价格 |
 | `compaction/end` | `{ turn, error? }` | 使用相同的数字或 `null` 归属值释放锁（`error` 记录失败尝试） |
 
+`compaction/summary` 上由提供方报告的用量会计入一次累计 `tokenUsage`，但不计入表示主请求占用量的上下文压力。持久的 `compaction/end` 记录还会投影为出站 `compaction.settled`；通知详情由[通知包](../../packages/notification/notification/README.md)负责。
+
 锁括住**整个**操作：先追加 `compaction/start`，然后执行摘要生成、写入 `compaction/summary` 记录与 `user/message` 替换，最后才追加 `compaction/end`。最后释放锁意味着操作中途崩溃会表现为可检测的遗留锁（有 `compaction/start` 而无匹配的 `compaction/end`），而非一个虚假声称压缩已完成的 `compaction/end`。
+
+不变量要求 `compaction/summary` 后立即跟随其检查点替换，并且范围、有序来源 `[startSeq, summarySeq, ...shadowedSeqs]`、`compactionId` 和可选 `sourceCommandId` 完全匹配；该替换提交之前，成功的 `compaction/end` 会被拒绝。同样，每个 `compaction/prune` 后必须立即跟随一个范围与来源完全匹配的 `tool/result` 替换，并保留除 `content` 之外的所有字段。
 
 这些标记表示锁的时间点，而不是排他的容器。摘要等待期间，不相关的空闲注入可以出现在独立的手动 start 与 end 之间。手动路径只重新验证所选位置 span，因此替换检查点之后仍保留该注入上下文。活动的未匹配 start 会阻塞所有入口点；较新 `session/end-seed` 之前的未匹配 start 是先前生命周期留下的陈旧证据，会被忽略。
 
@@ -83,13 +88,13 @@ type ManualCompactionErrorCode =
 
 `changed` 和 `summary` 保持会话表层不变，但仍会闭合失败尝试并将其持久化到日志。`commit` 可能发生在部分变更之后；`persistence` 表示内存中的标记对已闭合，但 flush 失败。取消独立于这些失败，并在完成必要清理后抛出原始 abort 原因。
 
-压力压缩在串行 `agent/pre-step` 中运行，先于请求推导。一旦压力或规范化溢出满足条件，compaction-basic 会在选择范围前调用可选的 [`ctx.toolResultPruner`](../../packages/compaction/compaction-tool-result-pruner/README.md)，再通过 `ctx.tokenMeter` 重新测量，并且可以在不生成摘要的情况下推进 surface。失败请求的恢复在失败的步骤关闭后通过 `agent/request-error` 运行；仅当 surface replacement generation 前进时才返回重试动作，即便后续摘要工作在剪枝后抛异常亦如此；取消仍然优先。区域边界保持工具调用/结果配对，但不保持整个轮次，因此一个过大轮次中较早关闭的步骤可以被压缩。`dsh-compaction-basic` 拥有阈值、保留尾部策略、溢出上限与失败处理。
+压力压缩在串行 `agent/pre-step` 中运行，先于请求推导。随附的 base、standard、code 和 Cordis 组合均保持其剪枝行处于禁用状态，因此正常的自动与手动压缩会直接生成摘要，而摘要替换是唯一的默认历史改写。显式 overlay 可以启用可选的 [`ctx.toolResultPruner`](../../packages/compaction/compaction-tool-result-pruner/README.md)；一旦压力或规范化溢出满足条件，compaction-basic 会在选择范围前调用它，再通过 `ctx.tokenMeter` 重新测量，并且可以在不生成摘要的情况下推进 surface。失败请求的恢复在失败的步骤关闭后通过 `agent/request-error` 运行；仅当 surface replacement generation 前进时才返回重试动作，即便后续摘要工作在剪枝后抛异常亦如此；取消仍然优先。区域边界保持工具调用/结果配对，但不保持整个轮次，因此一个过大轮次中较早关闭的步骤可以被压缩。`dsh-compaction-basic` 拥有阈值、保留尾部策略、溢出上限与失败处理。
 
 该 Service Definition 导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于检查 seq 之前与之后的工具调用/结果配对。两者都会验证当前 surface 成员关系，并拒绝缺失的 seq 与遗留结果；[包约定](../../packages/compaction/compaction/README.md#tool-pairing-boundaries)定义其缓存行为。
 
 ## 工具结果剪枝产出
 
-可选的工具结果剪枝服务会报告每次持久内容替换以及 Unicode code point 的总减少量。其公开结果类型位于 [`compaction-tool-result-pruner/src/types.ts`](../../packages/compaction/compaction-tool-result-pruner/src/types.ts)。
+可选的工具结果剪枝服务会报告每次持久内容替换以及 Unicode code point 的总减少量。剪枝具有追溯性：第一次替换会使 KV cache 从该变更起失效，插件禁用后替换仍然有效，完整原始事件则保持仅追加。新结果另由 ToolRuntime 在进入 cache 前应用 artifact 支持的最终 50,000 码点上限。剪枝服务的公开结果类型位于 [`compaction-tool-result-pruner/src/types.ts`](../../packages/compaction/compaction-tool-result-pruner/src/types.ts)。
 
 ```ts type-equiv
 /** Cited source event and size accounting for one landed surface replacement. */

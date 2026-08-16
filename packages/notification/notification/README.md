@@ -8,7 +8,7 @@ The notification Service Definition owns the stable outbound envelope, the initi
 
 Every `NotificationEnvelope` carries `specVersion: 1`, a stable `eventId`, an event `type`, an ISO-8601 `occurredAt`, optional session and parent-session identity under `subject`, and type-specific JSON `data`. Durable session-log projections use the source session id and sequence as their event id; operational producers mint an opaque id. A backend retry retains the same event id.
 
-The initial vocabulary covers turn settlement, explicit session close, generic session detachment, agent status changes, approval ask/decision audit events, and tool call/result audit events. Payloads contain correlation and outcome metadata only: they exclude prompts, transcripts, assistant output, tool arguments and results, working directories, environment values, credentials, and stack traces.
+The initial vocabulary covers turn settlement, explicit session close, generic session detachment, agent status changes, approval ask/decision audit events, tool call/result audit events, and compaction settlement. `compaction.settled` is emitted only for durable `compaction/end` records and carries `compactionId`, nullable `turn`, the ending event `seq`, `ok`, and optional `sourceCommandId`; it never carries summary content or error detail, and there is no compaction-started notification. Payloads contain correlation and outcome metadata only: they exclude prompts, transcripts, assistant output, tool arguments and results, working directories, environment values, credentials, and stack traces.
 
 ## Backend handoff
 

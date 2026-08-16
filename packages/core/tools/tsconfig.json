@@ -36,6 +36,9 @@
       "path": "../../interaction/user-approval"
     },
     {
+      "path": "../../spill/spill"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     }
   ]

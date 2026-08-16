@@ -37,6 +37,7 @@ const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import
 const WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../agent-instructions.cordis.yml', import.meta.url))
 const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
 const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
+const ARTIFACT_RETENTION_CONFIG = fileURLToPath(new URL('../artifact-retention.cordis.yml', import.meta.url))
 const NOTIFICATION_HTTP_CONFIG = fileURLToPath(new URL('../notification-http.cordis.yml', import.meta.url))
 const SESSION_QUERY_CONFIG = fileURLToPath(new URL('../session-query.cordis.yml', import.meta.url))
 const IMAGE_CONFIG = fileURLToPath(new URL('../image.cordis.yml', import.meta.url))
@@ -184,7 +185,15 @@ const SCENARIOS: Scenario[] = [
     recorded: false,
     configPath: FS_CONFIG,
   },
-  { name: 'bash-spill', hasModelTurn: true, recorded: false, configPath: FS_CONFIG },
+  {
+    name: 'bash-spill',
+    hasModelTurn: true,
+    recorded: false,
+    pinsHeader: true,
+    headerClass: 'artifact-retention',
+    systemPromptSource: 'text-turn',
+    configPath: ARTIFACT_RETENTION_CONFIG,
+  },
   {
     name: 'session-query-spill',
     hasModelTurn: true,

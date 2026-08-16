@@ -1564,13 +1564,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'spillStore',
     summary: 'Abstract spill storage service.',
-    description: 'Abstract spill storage service. Subclass, implement saveText, and load the subclass as a plugin — it registers as `ctx.spillStore` (one implementation per context; loading a second throws, cordis\' standard duplicate-service behavior).\n\nSemantics every implementation must honor:\n\n- saveText persists the FULL `content` verbatim and returns an opaque locator, exact byte length, and model-facing retrieval guidance.\n- Storage is scoped by the request\'s SaveTextSpill.owner session; the backend chooses a private (not world-readable) location and a collision-free name derived from — never equal to — the caller\'s `suggestedName`.\n- `saveText` REJECTS on a real storage failure (permissions, ENOSPC, backend unavailable); the caller decides how to degrade (the spill policy treats a rejection as best-effort and keeps the inline result).',
+    description: 'Abstract spill storage service. Subclass, implement saveText, and load the subclass as a plugin — it registers as `ctx.spillStore` (one implementation per context; loading a second throws, cordis\' standard duplicate-service behavior).\n\nSemantics every implementation must honor:\n\n- saveText persists the FULL `content` verbatim and returns an opaque locator, exact byte length, and model-facing retrieval guidance.\n- Storage is scoped by the request\'s SaveTextSpill.owner session; the backend chooses a private (not world-readable) location and a collision-free name derived from — never equal to — the caller\'s `suggestedName`.\n- `saveText` REJECTS on a real storage failure (permissions, ENOSPC, backend unavailable); the caller decides how to degrade (the spill policy treats a rejection as best-effort and keeps the inline result).\n- Both operations observe the request\'s caller-owned cancellation signal and settle promptly after cancellation.',
     methods: [
       {
         signature: 'abstract saveText(input: SaveTextSpill): Promise<SpillRef>',
         description: 'Persist `input.content` to a session-scoped spill artifact.',
         parameters: [{ name: 'input', description: 'the owner, caller-supplied source fields, suggested name, and full text to save.' }],
         returns: 'the saved artifact\'s {@link SpillRef}; rejects on a storage failure.',
+      },
+      {
+        signature: 'abstract readText(input: ReadTextSpill): Promise<ReadTextSpillPage>',
+        description: 'Read one bounded page from a locator produced by this backend.',
+        parameters: [{ name: 'input', description: 'opaque locator, optional backend cursor, and page character limit.' }],
+        returns: 'bounded text and an opaque continuation cursor when unread text remains.',
       },
     ],
   },
@@ -1929,6 +1935,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Tool registry and execution pipeline.',
     description: 'Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.',
     methods: [
+      {
+        signature: 'readonly maxResultTextChars: number',
+        description: 'Resolved finalized-result text limit used by tools that must reserve their own rendering overhead.',
+        parameters: [],
+      },
       {
         signature: 'presentAs(mode: ToolPresentationMode): () => void',
         description: 'Present the calling scope\'s tools in `mode` instead of the deployment default. Nearest scope on the chain wins, so a preset\'s standing declaration covers every agent joined under it.\n\nScoped only, and one declaration per scope: this is how an agent preset composes Code Mode agents beside native ones in the same process, and a process-global override would be the `mode` config field instead.',
@@ -2895,6 +2906,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CompactionResult {\n    compactionId: CompactionId;\n    sourceCommandId?: CommandId;\n    startSeq: number;\n    summarySeq: number;\n    endSeq: number;\n    summary: ContentBlock[];\n    shadowedRange: {\n        start: number;\n        end: number;\n    };\n    shadowedSeqs: number[];\n    shadowedTokenCount: number;\n}',
   },
   {
+    name: 'CompactionSettledData',
+    declaration: 'export interface CompactionSettledData {\n    compactionId: string;\n    turn: number | null;\n    seq: number;\n    ok: boolean;\n    sourceCommandId?: string;\n}',
+  },
+  {
     name: 'CompactionTrigger',
     declaration: 'export type CompactionTrigger = \'pressure\' | \'context-overflow\';',
   },
@@ -3556,7 +3571,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'NotificationEventMap',
-    declaration: 'export interface NotificationEventMap {\n    \'session.turn-settled\': SessionTurnSettledData;\n    \'session.closed\': SessionClosedData;\n    \'session.detached\': SessionDetachedData;\n    \'agent.status-changed\': AgentStatusChangedData;\n    \'approval.requested\': ApprovalRequestedData;\n    \'approval.decided\': ApprovalDecidedData;\n    \'tool.called\': ToolCalledData;\n    \'tool.settled\': ToolSettledData;\n}',
+    declaration: 'export interface NotificationEventMap {\n    \'session.turn-settled\': SessionTurnSettledData;\n    \'session.closed\': SessionClosedData;\n    \'session.detached\': SessionDetachedData;\n    \'agent.status-changed\': AgentStatusChangedData;\n    \'approval.requested\': ApprovalRequestedData;\n    \'approval.decided\': ApprovalDecidedData;\n    \'tool.called\': ToolCalledData;\n    \'tool.settled\': ToolSettledData;\n    \'compaction.settled\': CompactionSettledData;\n}',
   },
   {
     name: 'NotificationEventType',
@@ -3664,11 +3679,19 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ReadFileLine',
-    declaration: 'export interface ReadFileLine {\n    number: number;\n    text: string;\n}',
+    declaration: 'export interface ReadFileLine {\n    number: number;\n    text: string;\n    startByte?: number;\n    endByte?: number;\n    complete?: boolean;\n}',
   },
   {
     name: 'ReadResultView',
-    declaration: 'export interface ReadResultView {\n    card: \'read\';\n    title?: string;\n    path: string;\n    offset: number;\n    lines: ReadFileLine[];\n    totalLines: number;\n    lang?: string;\n    content?: ContentBlock[];\n}',
+    declaration: 'export interface ReadResultView {\n    card: \'read\';\n    title?: string;\n    path: string;\n    offset: number;\n    lines: ReadFileLine[];\n    totalLines?: number;\n    next?: {\n        offset: number;\n        lineByteOffset: number;\n    };\n    lang?: string;\n    content?: ContentBlock[];\n}',
+  },
+  {
+    name: 'ReadTextSpill',
+    declaration: 'export interface ReadTextSpill {\n    signal: AbortSignal;\n    locator: SpillLocator;\n    cursor?: string;\n    maxChars: number;\n}',
+  },
+  {
+    name: 'ReadTextSpillPage',
+    declaration: 'export interface ReadTextSpillPage {\n    text: string;\n    nextCursor?: string;\n}',
   },
   {
     name: 'ReasoningBlock',
@@ -3784,7 +3807,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SaveTextSpill',
-    declaration: 'export interface SaveTextSpill {\n    owner: SpillOwner;\n    source: SpillSource;\n    suggestedName: string;\n    content: string;\n}',
+    declaration: 'export interface SaveTextSpill {\n    signal: AbortSignal;\n    owner: SpillOwner;\n    source: SpillSource;\n    suggestedName: string;\n    content: string;\n}',
   },
   {
     name: 'ScheduledToolDispatch',
@@ -3848,7 +3871,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n    \'request/context\': RequestContext;\n    \'session/end-seed\': Record<string, never>;\n}',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n        };\n        originalError?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n        artifact?: ToolResultArtifact;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n    \'request/context\': RequestContext;\n    \'session/end-seed\': Record<string, never>;\n}',
   },
   {
     name: 'SessionEventMetadataFilter',
@@ -4492,7 +4515,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecutionFailure',
-    declaration: 'export interface ToolExecutionFailure {\n    readonly isError: true;\n    readonly error: ToolFailure;\n    readonly value?: never;\n    readonly content: ContentBlock[];\n    readonly meta?: JsonValue;\n    readonly additionalContexts?: UserMessage[];\n    readonly concludesTurn?: never;\n}',
+    declaration: 'export interface ToolExecutionFailure {\n    readonly isError: true;\n    readonly error: ToolFailure;\n    readonly value?: JsonValue;\n    readonly originalError?: ToolFailure;\n    readonly content: ContentBlock[];\n    readonly meta?: JsonValue;\n    readonly additionalContexts?: UserMessage[];\n    readonly artifact?: ToolResultArtifact;\n    readonly concludesTurn?: true;\n}',
   },
   {
     name: 'ToolExecutionInput',
@@ -4508,7 +4531,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecutionSuccess',
-    declaration: 'export interface ToolExecutionSuccess {\n    readonly isError: false;\n    readonly value: JsonValue;\n    readonly content: ContentBlock[];\n    readonly error?: never;\n    readonly meta?: JsonValue;\n    readonly additionalContexts?: UserMessage[];\n    readonly concludesTurn?: true;\n}',
+    declaration: 'export interface ToolExecutionSuccess {\n    readonly isError: false;\n    readonly value: JsonValue;\n    readonly content: ContentBlock[];\n    readonly error?: never;\n    readonly originalError?: never;\n    readonly meta?: JsonValue;\n    readonly additionalContexts?: UserMessage[];\n    readonly artifact?: ToolResultArtifact;\n    readonly concludesTurn?: true;\n}',
   },
   {
     name: 'ToolExecutionToken',
@@ -4547,6 +4570,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ToolResult {\n    content: ContentBlock[];\n    isError: boolean;\n    meta?: JsonValue;\n}',
   },
   {
+    name: 'ToolResultArtifact',
+    declaration: 'export interface ToolResultArtifact {\n    kind: \'full-result\';\n    locator: string;\n    bytes: number;\n}',
+  },
+  {
     name: 'ToolResultBlock',
     declaration: 'export interface ToolResultBlock {\n    type: \'tool-result\';\n    toolCallId: CallId;\n    content: ContentBlock[];\n    isError?: boolean;\n}',
   },
@@ -4564,11 +4591,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolRuntime',
-    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
+    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    readonly maxResultTextChars: number;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
   },
   {
     name: 'ToolRuntimeScheduler',
-    declaration: 'export interface ToolRuntimeScheduler {\n    prepare(exec: ToolExecutionInput): Promise<ScheduledToolPreparation>;\n    dispatch(exec: ToolRunContext): Promise<ScheduledToolDispatch>;\n    finalize(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult>;\n    finish(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult;\n}',
+    declaration: 'export interface ToolRuntimeScheduler {\n    prepare(exec: ToolExecutionInput): Promise<ScheduledToolPreparation>;\n    dispatch(exec: ToolRunContext): Promise<ScheduledToolDispatch>;\n    finalize(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult>;\n    finish(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult>;\n}',
   },
   {
     name: 'ToolSchema',

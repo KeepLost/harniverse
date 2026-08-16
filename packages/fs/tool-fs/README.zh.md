@@ -23,28 +23,27 @@ await ctx.plugin(ToolFs)                                  // this package — re
 | 键 | 默认值 | 含义 |
 |---|---|---|
 | `readLimit` | `2000` | 一次 `read` 调用返回的默认和最大行数（工具 schema 将其声明为 `limit` 默认值）。 |
-| `readMaxLineLength` | `2000` | 每行截断前保留的字符数（后缀会说明上限）。 |
-| `readMaxBytes` | `51200` | 一次 `read` 调用所选行的字节上限；溢出时以「已达上限」footer 结束窗口。 |
-| `readStreamMinSize` | `10485760` | 大于等于该大小或大小未知的文件采用流式读取，而不是整体加载到内存。 |
+| `readMaxLineLength` | `2000` | 同一逻辑行进入续读前最多选择的 Unicode 码点数。 |
+| `readMaxBytes` | `40960` | 一次调用所选内容的最大 UTF-8 字节数（40 KiB）；溢出时返回精确续读游标。 |
 
 ## 工具（schema 见[文件系统工具 schema Agent Note](../../../.agents/notes/implemented/feature/2026-06-17-filesystem-tool-schemas.md)）
 
 | 工具 | 参数 | 行为 |
 |---|---|---|
-| `read` | `file_path`、`offset?`、`limit?` | 带行号的 UTF-8 内容和分页 footer。`offset` 从 1 开始；`limit` 默认为配置的 `readLimit`（2000），上限也为该值。 |
+| `read` | `file_path`、`offset?`、`limit?`、`line_byte_offset?` | 流式读取、带行号的 UTF-8 内容和精确续读游标。`offset` 从 1 开始；`line_byte_offset` 是首条所选行内从 0 开始的 UTF-8 字节位置，必须从先前结果复制；`limit` 默认为 `readLimit`（2000），上限也为该值。 |
 | `read_image` | `file_path` | 通过有界字节 seam 读取 PNG/JPEG/WebP/GIF 文件，经 `ctx.attachments.saveImage` 持久保存，并在小型元数据信封旁返回图像块。只有确切路由的模型声明图像输入时才会成功。 |
 | `write` | `file_path`、`content` | 创建文件或完整替换文件。有策略插件时：覆盖现有文件要求先在未变版本上执行 `read`；创建新文件不需要。没有插件时：无条件执行。 |
 | `edit` | `file_path`、非空 `old_string`、`new_string`、`replace_all?` | 字面量替换；除非 `replace_all` 为 true，否则要求唯一匹配。有策略插件时：要求先执行 `read`（任何窗口），且文件此后未变。没有插件时：无条件执行。 |
 
 字段名使用 snake_case，与 Claude Code 和现有 harness 工具 schema 一致。
 
-规范成功值分别为：`read` → `{ path, offset, lines: [{ number, text }], totalLines }`，`read_image` → `{ path, image: { attachmentId, mediaType, bytes, width, height, name? } }`，`write` → `{ path, operation: 'create' | 'update', before: string | null, after }`，`edit` → `{ path, before, after }`。原生渲染器会保留下方带行号的读取结果和变更确认。`write`/`edit` 从这些规范值派生可回放的 diff 卡片元数据，`read` 派生可回放的读取卡片窗口 `{ path, offset, lines, totalLines, lang? }`；规范值本身仅限于本次执行，不会添加到 `tool/result`，只有派生出的呈现元数据会被持久化。
+规范成功值分别为：`read` → `{ path, offset, lines: [{ number, text, startByte?, endByte?, complete? }], totalLines?, next?: { offset, lineByteOffset } }`，`read_image` → `{ path, image: { attachmentId, mediaType, bytes, width, height, name? } }`，`write` → `{ path, operation: 'create' | 'update', before: string | null, after }`，`edit` → `{ path, before, after }`。部分行分页会在续读位置确定后停止，并省略 `totalLines`；读到 EOF 的分页会报告精确总数。原生渲染器会保留下方带行号的读取结果和变更确认。`write`/`edit` 从这些规范值派生可回放的 diff 卡片元数据；每个成功的 `read` 都会派生包含字节范围和精确 `next` 游标的可回放读取卡片窗口，并且仅在已知时携带 `totalLines`。规范值本身仅限于本次执行，不会添加到 `tool/result`，只有派生出的呈现元数据会被持久化。
 
 ## 工具就是执行器；策略是事件门禁
 
 工具**不**注入策略服务，也不检查任何缓存。每个工具通过 `ctx.fs.resolve(path, { cwd, signal })` 解析路径；它会传入调用 agent（智能体）的会话 cwd（`exec.agent.session.header.cwd`），使相对路径以会话工作区为基准解析并与 `dsh-tool-bash` 一致，同时把工具取消转发到解析过程（见[每会话 cwd Agent Note](../../../.agents/notes/implemented/architecture/2026-07-02-fs-per-session-cwd.md)）。随后执行：
 
-- **read**：一次 `ctx.fs.stat`（用于类型、大小路由和版本），随后调用 `readText`/`streamText`，构建行窗口，再发出 `fs/observed`，使用普通 `ctx.emit`。（1 次 stat。）
+- **read**：一次 `ctx.fs.stat`（用于类型和版本），随后始终调用 `streamText`，构建有界行窗口，再通过普通 `ctx.emit` 发出 `fs/observed`。部分行分页会在严格递增的 UTF-8 cursor 确定后立即停止；读到 EOF 的分页还会报告精确总行数。（1 次 stat。）
 - **read_image**：在任何 I/O 之前校验参数、扩展名、附件可用性、部署接受的媒体类型和图像路由；随后一次 `ctx.fs.stat`（目标缺失时与 `read` 一样记录 `absent` 观察）、以 `imageLimits.maxImageBytes` 与 `imageLimits.maxMessageImageBytes` 中较小者为上限的有界 `ctx.fs.readBytes`（结果是携带一张图像的一条消息）、`attachments.saveImage`（内容寻址，因此在 `tool/result` 事件追加时图像块引用的对象已持久提交），最后发出 `fs/observed`。（1 次 stat。）
 - **write**：调用 `ctx.waterfall('fs/write-intent', target, exec, () => undefined)` 取得可选防护，然后调用 `ctx.fs.writeText(target, content, intent)`，再发出 `fs/observed`。（0 次 stat。）
 - **edit**：调用 `ctx.waterfall('fs/edit-intent', target, exec, () => undefined)` 取得可选防护，然后调用 `ctx.fs.editText(target, edit, intent)`，再发出 `fs/observed`。（0 次 stat。）
@@ -59,7 +58,7 @@ await ctx.plugin(ToolFs)                                  // this package — re
 
 `read` 允许并发调度，因为它唯一会改变状态的操作是同步记录版本。稍后的 `write` 或 `edit` 会在目标锁内重新检查版本，因此即使记录器发生竞态，系统也会安全地拒绝操作；两个变更工具仍保持互斥。见[并行工具调用 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)。
 
-包根目录只导出 Cordis 插件约定（`name`、`inject`、`Config` 和 `apply`）。读取渲染（行窗口与输出格式化）位于 `src/read-render.ts`（不依赖 Cordis，单独进行单元测试）；`src/read.ts`/`read-image.ts`/`write.ts`/`edit.ts` 是工具执行器，`src/index.ts` 负责组合。
+包根目录只导出 Cordis 插件约定（`name`、`inject`、`Config` 和 `apply`）。读取渲染（流式行窗口与输出格式化）位于 `src/read-render.ts`（不依赖 Cordis，单独进行单元测试）；`src/read.ts`/`read-image.ts`/`write.ts`/`edit.ts` 是工具执行器，`src/index.ts` 负责组合。
 
 ## 模型体验
 
@@ -72,7 +71,7 @@ await ctx.plugin(ToolFs)                                  // this package — re
 ##### Read 指导
 
 ```markdown
-Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
+Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Pass returned offset and line_byte_offset values unchanged to continue partial long lines.
 ```
 
 ##### Write 指导
@@ -113,11 +112,11 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 #### 模型看到的内容
 
-成功读取结果精确为 `<path><displayPath></path>`、换行、`<type>file</type>`、换行、`<content>`、形如 `<lineNumber>: <text>` 的编号行、一个空行、一条 footer 和 `</content>`。footer 精确为 `(Output capped. Showing lines <start>-<end>. Use offset=<next> to continue.)`、`(Showing lines <start>-<end> of <total>. Use offset=<next> to continue.)` 或 `(End of file - total <total> lines)`。长行结尾精确为 `... (line truncated to <max> chars)`。读取缺失目标仍返回 `FS_NOT_FOUND`，但会为调用会话记录确认缺失；外部删除的文件被重新读取后，重试的 `write` 可以通过提供方的不替换防护安全地重新创建该文件。
+成功读取结果精确为 `<path><displayPath></path>`、换行、`<type>file</type>`、换行、`<content>`、编号内容、一个空行、一条 footer 和 `</content>`。完整行渲染为 `<lineNumber>: <text>`；巨型行的部分内容渲染为 `<lineNumber> [bytes <start>-<end>]: <text>`。footer 精确为 `(Line <line> continues. Use offset=<line> and line_byte_offset=<byte>.)`、`(Showing lines <start>-<end> of <total>. Use offset=<next> to continue.)` 或 `(End of file - total <total> lines)`。返回的 `next` 位置是精确值：原样传回两个值会从下一个未读 UTF-8 码点边界恢复，包括在同一逻辑行内续读，既不遗漏也不重复。读取缺失目标仍返回 `FS_NOT_FOUND`，但会为调用会话记录确认缺失；外部删除的文件被重新读取后，重试的 `write` 可以通过提供方的不替换防护安全地重新创建该文件。
 
 #### Token 影响
 
-读取输出受 `readLimit`、`readMaxLineLength` 和 `readMaxBytes` 限制；保留的调用与结果会反复发送，直到上下文压缩（compaction）。
+读取输出受 `readLimit`、`readMaxLineLength` 和 40 KiB 所选内容预算限制。恢复一个巨型行可能需要对同一行调用多次；每个有界分页及其游标指导都会保留并反复发送，直到上下文压缩（compaction）。
 
 #### KV Cache 影响
 

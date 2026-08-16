@@ -155,6 +155,19 @@ describe('HTTP notification provider', () => {
     })
   })
 
+  it('accepts an unfiltered compaction settlement subscription', () => {
+    expect(resolveConfig({ endpoints: [{
+      id: 'compaction',
+      url: 'https://example.test/events',
+      subscriptions: [{ event: 'compaction.settled' }],
+    }] }).endpoints[0]?.subscriptions).toEqual([{ event: 'compaction.settled' }])
+    expect(() => resolveConfig({ endpoints: [{
+      id: 'compaction',
+      url: 'https://example.test/events',
+      subscriptions: [{ event: 'compaction.settled', reasons: ['completed'] }],
+    }] })).toThrow(/reasons.*session\.turn-settled/i)
+  })
+
   it('posts matching metadata in FIFO order with stable protocol headers', async () => {
     const received: ReceivedRequest[] = []
     const server = await listen((request, response) => {
@@ -225,12 +238,56 @@ describe('HTTP notification provider', () => {
     }
   })
 
+  it('posts and retries the exact privacy-minimized compaction settlement envelope', async () => {
+    const received: ReceivedRequest[] = []
+    const server = await listen((request, response) => {
+      void bodyOf(request).then((body) => {
+        received.push({ body, headers: request.headers })
+        response.writeHead(received.length === 1 ? 503 : 204).end()
+      })
+    })
+    try {
+      const { backend } = await load({ endpoints: [{
+        id: 'compaction',
+        url: server.url,
+        subscriptions: [{ event: 'compaction.settled' }],
+        retry: { maxAttempts: 2, initialDelayMs: 1, maxDelayMs: 1 },
+      }] })
+      const settlement = event('session-1:7', 'compaction.settled', {
+        compactionId: 'compact-1',
+        sourceCommandId: 'command-1',
+        turn: null,
+        seq: 7,
+        ok: false,
+      })
+      backend.emit(settlement)
+      await backend.shutdown()
+
+      expect(received.map(item => item.body)).toEqual([settlement, settlement])
+      expect(received.map(item => item.headers['x-harniverse-event'])).toEqual([
+        'compaction.settled',
+        'compaction.settled',
+      ])
+      expect(received.map(item => eventIdOf({ headers: item.headers } as IncomingMessage))).toEqual([
+        'session-1:7',
+        'session-1:7',
+      ])
+      expect(new Set(received.map(item => item.headers['x-harniverse-delivery-id'])).size).toBe(1)
+      expect(JSON.stringify(received)).not.toMatch(/summary|error/i)
+    } finally {
+      await server.close()
+    }
+  })
+
   it('bounds each endpoint queue, rejects newest work, and returns from shutdown after its deadline', async () => {
     let release: (() => void) | undefined
+    let markStarted: (() => void) | undefined
     const blocked = new Promise<void>((resolve) => { release = resolve })
+    const requestStarted = new Promise<void>((resolve) => { markStarted = resolve })
     const started = vi.fn()
     const server = await listen((request, response) => {
       started()
+      markStarted?.()
       void blocked.then(() => { response.writeHead(204).end() })
       request.resume()
     })
@@ -247,6 +304,7 @@ describe('HTTP notification provider', () => {
       })
       backend.emit(event('accepted'))
       backend.emit(event('rejected'))
+      await requestStarted
       await backend.shutdown()
 
       expect(started).toHaveBeenCalledTimes(1)
@@ -269,8 +327,20 @@ describe('HTTP notification provider', () => {
   it('rejects an invalid version-one envelope synchronously before outbox admission', async () => {
     const { backend } = await load({ endpoints: [] })
     const invalid = { ...event('invalid'), occurredAt: 'now' }
+    const compaction = event('compaction', 'compaction.settled', {
+      compactionId: 'compact-1', turn: 1, seq: 2, ok: true,
+    })
 
     expect(() => { backend.emit(invalid) }).toThrow()
+    expect(() => { backend.emit(compaction) }).not.toThrow()
+    expect(() => { backend.emit({
+      ...compaction,
+      data: { ...compaction.data, summary: 'private summary' },
+    } as unknown as HttpNotificationEnvelope) }).toThrow()
+    expect(() => { backend.emit({
+      ...compaction,
+      data: { ...compaction.data, error: 'private error' },
+    } as unknown as HttpNotificationEnvelope) }).toThrow()
   })
 
   it('encodes control and non-Latin event ids safely in headers without changing the body', async () => {

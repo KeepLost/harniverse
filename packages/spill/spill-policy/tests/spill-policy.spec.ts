@@ -19,7 +19,7 @@ import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { PostToolDecision, ToolExecution, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
-import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
+import type { ReadTextSpill, ReadTextSpillPage, SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import { WorkerThreadCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker-thread'
 
@@ -41,6 +41,11 @@ class StubStore extends SpillStore {
       bytes: Buffer.byteLength(input.content, 'utf8'),
       retrievalHint: 'Use the stub retrieval path.',
     }
+  }
+
+
+  async readText(_input: ReadTextSpill): Promise<ReadTextSpillPage> {
+    throw new Error('not used by spill-policy tests')
   }
 }
 

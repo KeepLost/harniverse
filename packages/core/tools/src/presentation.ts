@@ -127,6 +127,12 @@ export interface DiffCallView {
 export interface ReadFileLine {
   number: number
   text: string
+  /** UTF-8 byte offset where this returned fragment starts within its logical line. */
+  startByte?: number
+  /** UTF-8 byte offset immediately after this returned fragment within its logical line. */
+  endByte?: number
+  /** Whether this fragment reaches the end of its logical line. */
+  complete?: boolean
 }
 
 /**
@@ -292,8 +298,13 @@ export interface ReadResultView {
   offset: number
   /** The returned window's lines, in file order, each keeping its file line number. */
   lines: ReadFileLine[]
-  /** Exact total line count in the file, so a UI can show a "showing N of M" affordance. */
-  totalLines: number
+  /** Exact total line count when the bounded stream reached EOF. */
+  totalLines?: number
+  /** Exact cursor for the next bounded read page when unread text remains. */
+  next?: {
+    offset: number
+    lineByteOffset: number
+  }
   /**
    * A syntax-highlighting language hint derived from the file extension (e.g.
    * `ts`, `py`), or omitted when the extension maps to no known language so a UI

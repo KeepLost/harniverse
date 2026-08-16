@@ -3,6 +3,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { CallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type Session, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import { ApprovalRequestId } from '@deepseek-ai/dsh-user-approval'
+import { CompactionId } from '@deepseek-ai/dsh-compaction'
+import { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import NotificationBackend, {
   NotificationCoordinator,
@@ -208,6 +210,123 @@ describe('NotificationCoordinator projection', () => {
       { reason: { kind: 'unknown' } },
     ])
     expect(JSON.stringify(backend.events)).not.toContain('private')
+  })
+
+  it('projects compaction settlements with outcome metadata but no summary or error text', async () => {
+    const { ctx, backend } = await setup()
+    const current = session(ctx, 'compaction')
+
+    const firstId = CompactionId('compact-1')
+    const secondId = CompactionId('compact-2')
+    const commandId = CommandId('command-1')
+    current.append('compaction/start', { compactionId: firstId, turn: 4 })
+    current.append('compaction/summary', {
+      compactionId: firstId,
+      summary: [{ type: 'text', text: 'private summary content' }],
+      shadowedRange: { start: 1, end: 2 },
+      shadowedSeqs: [1, 2],
+      shadowedTokenCount: 2,
+      provider: 'private-provider',
+      model: 'private-model',
+    })
+    current.append('compaction/end', { compactionId: firstId, turn: 4 })
+    current.append('compaction/start', { compactionId: secondId, turn: null, sourceCommandId: commandId })
+    current.append('compaction/end', {
+      compactionId: secondId,
+      turn: null,
+      sourceCommandId: commandId,
+      error: 'private error text',
+    })
+
+    expect(backend.events.map(event => event.type)).toEqual(['compaction.settled', 'compaction.settled'])
+    expect(backend.events.map(event => event.eventId)).toEqual(['compaction:2', 'compaction:4'])
+    expect(backend.events.map(event => event.data)).toEqual([
+      { compactionId: 'compact-1', turn: 4, seq: 2, ok: true },
+      { compactionId: 'compact-2', turn: null, seq: 4, ok: false, sourceCommandId: 'command-1' },
+    ])
+    const serialized = JSON.stringify(backend.events)
+    expect(serialized).not.toContain('private summary content')
+    expect(serialized).not.toContain('private error text')
+    expect(serialized).not.toContain('private-provider')
+    expect(serialized).not.toContain('private-model')
+  })
+
+  it('projects a compaction end already present when a coordinator resumes', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const source = session(ctx, 'source')
+    const compactionId = CompactionId('resumed-1')
+    source.append('compaction/start', { compactionId, turn: null })
+    source.append('compaction/end', { compactionId, turn: null })
+    ctx.sessions.create(SessionId('resumed'), { seed: source.events })
+    const backendFiber = await ctx.plugin(CaptureBackend)
+    const coordinatorFiber = await ctx.plugin({
+      name: 'resumed-notification-capture',
+      inject: ['sessions', 'notification'],
+      apply(inner: Context) {
+        new NotificationCoordinator(inner, inner.notification)
+      },
+    })
+
+    expect((ctx.notification as CaptureBackend).events).toMatchObject([{
+      eventId: 'resumed:1',
+      type: 'compaction.settled',
+      data: { compactionId: 'resumed-1', turn: null, seq: 1, ok: true },
+    }])
+    await coordinatorFiber.dispose()
+    await backendFiber.dispose()
+  })
+
+  it('projects seeded compaction settlements when a resumed session is created after mount', async () => {
+    const { ctx, backend } = await setup()
+    const source = session(ctx, 'late-source')
+    const compactionId = CompactionId('late-resumed-1')
+    source.append('compaction/start', { compactionId, turn: null })
+    source.append('compaction/end', { compactionId, turn: null })
+    backend.events.length = 0
+
+    ctx.sessions.create(SessionId('late-resumed'), { seed: source.events })
+
+    expect(backend.events).toMatchObject([{
+      eventId: 'late-resumed:1',
+      type: 'compaction.settled',
+      data: { compactionId: 'late-resumed-1', turn: null, seq: 1, ok: true },
+    }])
+  })
+
+  it('does not re-emit inherited parent compactions as child settlements after a fork resumes', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const source = session(ctx, 'fork-source')
+    const inheritedId = CompactionId('inherited-compaction')
+    source.append('compaction/start', { compactionId: inheritedId, turn: null })
+    source.append('compaction/end', { compactionId: inheritedId, turn: null })
+    const seedLength = source.events.length
+    const childId = CompactionId('child-compaction')
+    source.append('compaction/start', { compactionId: childId, turn: null })
+    source.append('compaction/end', { compactionId: childId, turn: null })
+    ctx.sessions.create(SessionId('fork-child'), {
+      seed: source.events,
+      meta: { parentSession: SessionId('fork-source'), seedLength },
+    })
+
+    await ctx.plugin(CaptureBackend)
+    await ctx.plugin({
+      name: 'fork-notification-capture',
+      inject: ['sessions', 'notification'],
+      apply(inner: Context) {
+        new NotificationCoordinator(inner, inner.notification)
+      },
+    })
+
+    const childEvents = (ctx.notification as CaptureBackend).events
+      .filter(event => event.subject.sessionId === 'fork-child')
+    expect(childEvents).toMatchObject([{
+      eventId: 'fork-child:3',
+      type: 'compaction.settled',
+      data: { compactionId: 'child-compaction', seq: 3 },
+    }])
+    expect(childEvents).toHaveLength(1)
   })
 
   it('contains malformed source correlation and backend shutdown failures', async () => {

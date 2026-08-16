@@ -12,7 +12,9 @@ import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { assertNever, deepFreeze, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
-import type { JsonValue, UserMessage } from '@deepseek-ai/dsh-session'
+import type { JsonValue, ToolResultArtifact, UserMessage } from '@deepseek-ai/dsh-session'
+// Type-only: resolves the optional artifact backend consumed at finalization.
+import type { SpillStore } from '@deepseek-ai/dsh-spill'
 import type { ToolProviderResult } from '@deepseek-ai/dsh-system-prompt'
 import type { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 // Type-only: makes `ctx.get('approval')` resolve to the ApprovalService
@@ -456,7 +458,7 @@ export interface ToolRuntimeScheduler {
   /** Run post-execute and definition-owned content finalization, then materialize and notify. */
   finalize(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult>
   /** Run definition-owned content finalization, then materialize and notify without post-execute. */
-  finish(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult
+  finish(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult>
 }
 
 /**
@@ -470,6 +472,9 @@ export const TOOL_ABORTED = 'ABORTED'
 
 /** Canonical error code for cancellation before a tool body was invoked. */
 export const TOOL_ABORTED_BEFORE_DISPATCH = 'ABORTED_BEFORE_DISPATCH'
+
+/** Stable failure code when an oversized complete result cannot be retained. */
+export const TOOL_RESULT_RETENTION_FAILED = 'TOOL_RESULT_RETENTION_FAILED'
 
 /** Structured error metadata for a failed tool call (alongside the model-facing text). */
 export interface ToolErrorInfo {
@@ -559,21 +564,28 @@ export interface ToolExecutionSuccess {
   readonly value: JsonValue
   readonly content: ContentBlock[]
   readonly error?: never
+  readonly originalError?: never
   readonly meta?: JsonValue
   readonly additionalContexts?: UserMessage[]
+  /** Durable locator for complete formatted text omitted from {@link content}. */
+  readonly artifact?: ToolResultArtifact
   /** The agent loop stops after committing this successful result batch. */
   readonly concludesTurn?: true
 }
 
-/** Failed canonical tool execution; failures never carry a successful value. */
+/** Failed canonical tool execution; retention failures preserve a completed operation's value. */
 export interface ToolExecutionFailure {
   readonly isError: true
   readonly error: ToolFailure
-  readonly value?: never
+  readonly value?: JsonValue
+  /** Original failure when result retention itself becomes the authoritative error. */
+  readonly originalError?: ToolFailure
   readonly content: ContentBlock[]
   readonly meta?: JsonValue
   readonly additionalContexts?: UserMessage[]
-  readonly concludesTurn?: never
+  /** Durable locator for complete formatted text omitted from {@link content}. */
+  readonly artifact?: ToolResultArtifact
+  readonly concludesTurn?: true
 }
 
 /** The discriminated, execution-local outcome of one tool call. */
@@ -629,6 +641,95 @@ function failureMessageFromContent(content: ContentBlock[]): string {
   return text.length > 0 ? text : 'tool result blocked by post-execute policy'
 }
 
+/** Count Unicode code points in one string without allocating a code-point array. */
+function codePointLength(text: string): number {
+  let count = 0
+  for (const _codePoint of text) count++
+  return count
+}
+
+/** Slice one string by Unicode code-point offsets. */
+function sliceCodePoints(text: string, start: number, end = Number.POSITIVE_INFINITY): string {
+  let result = ''
+  let index = 0
+  for (const codePoint of text) {
+    if (index >= end) break
+    if (index >= start) result += codePoint
+    index++
+  }
+  return result
+}
+
+/** Visit model-visible text recursively while leaving reasoning and non-text blocks outside the budget. */
+function visitResultText(content: readonly ContentBlock[], visit: (text: string) => void): void {
+  for (const block of content) {
+    if (block.type === 'text') visit(block.text)
+    else if (block.type === 'tool-result') visitResultText(block.content, visit)
+  }
+}
+
+/** Concatenate the complete formatted text retained for artifact recovery. */
+function completeResultText(content: readonly ContentBlock[]): string {
+  let text = ''
+  visitResultText(content, (part) => { text += part })
+  return text
+}
+
+/** Count all recursively model-visible result text. */
+function resultTextLength(content: readonly ContentBlock[]): number {
+  let count = 0
+  visitResultText(content, (text) => { count += codePointLength(text) })
+  return count
+}
+
+interface TextLimitState {
+  offset: number
+  markerInserted: boolean
+}
+
+/** Retain aggregate head/tail text in-place while preserving every non-text block. */
+function limitResultText(
+  content: readonly ContentBlock[],
+  total: number,
+  maxChars: number,
+  markerText: string,
+  state: TextLimitState = { offset: 0, markerInserted: false },
+): ContentBlock[] {
+  const marker = sliceCodePoints(markerText, 0, maxChars)
+  const markerChars = codePointLength(marker)
+  const retained = maxChars - markerChars
+  const headChars = Math.floor(retained / 2)
+  const tailChars = retained - headChars
+  const tailStart = total - tailChars
+  const limited: ContentBlock[] = []
+
+  for (const block of content) {
+    if (block.type === 'tool-result') {
+      limited.push({ ...block, content: limitResultText(block.content, total, maxChars, markerText, state) })
+      continue
+    }
+    if (block.type !== 'text') {
+      limited.push(block)
+      continue
+    }
+    const start = state.offset
+    const length = codePointLength(block.text)
+    const end = start + length
+    const head = start < headChars
+      ? sliceCodePoints(block.text, 0, Math.max(0, Math.min(length, headChars - start)))
+      : ''
+    const tail = end > tailStart
+      ? sliceCodePoints(block.text, Math.max(0, tailStart - start))
+      : ''
+    const insertMarker = !state.markerInserted && end >= headChars
+    if (insertMarker) state.markerInserted = true
+    const text = head + (insertMarker ? marker : '') + tail
+    if (text.length > 0) limited.push({ ...block, text })
+    state.offset = end
+  }
+  return limited
+}
+
 /** Snapshot and freeze one durable tool-result projection or reject lossy data. */
 function materializePresentation<T>(candidate: T): T {
   const detached = snapshotJsonValue(candidate)
@@ -671,6 +772,12 @@ export interface Config {
    * restores strictly serial dispatch. Must be a positive integer.
    */
   maxParallelSubCalls?: number
+  /**
+   * Maximum Unicode code points across text blocks in one finalized result.
+   * The platform ceiling is 50,000; deployments may only lower it. Oversized
+   * text is retained through `ctx.spillStore` before the inline preview is shortened.
+   */
+  maxResultTextChars?: number
 }
 
 /**
@@ -780,6 +887,20 @@ function resolveMaxParallelSubCalls(value: number | undefined): number {
   return maxParallelSubCalls
 }
 
+const RETENTION_FAILURE_WARNING = 'Complete tool result was not retained. The operation may have completed. Do not retry blindly; it may have side effects.'
+/** Smallest result-text limit that can carry the complete mandatory safety warning. */
+export const MIN_RESULT_TEXT_CHARS = codePointLength(RETENTION_FAILURE_WARNING)
+const MAX_RESULT_TEXT_CHARS = 50_000
+
+/** Resolve the mandatory finalized-result limit for direct construction and Loader activation. */
+function resolveMaxResultTextChars(value: number | undefined): number {
+  const maxResultTextChars = value ?? MAX_RESULT_TEXT_CHARS
+  if (!Number.isInteger(maxResultTextChars) || maxResultTextChars < MIN_RESULT_TEXT_CHARS || maxResultTextChars > MAX_RESULT_TEXT_CHARS) {
+    throw new Error(`maxResultTextChars must be an integer from ${MIN_RESULT_TEXT_CHARS} through ${MAX_RESULT_TEXT_CHARS}`)
+  }
+  return maxResultTextChars
+}
+
 /**
  * Tool registry and execution pipeline. Scoped registrations shadow globals;
  * one visibility resolver feeds presentation, lookup, and dispatch.
@@ -790,6 +911,7 @@ export class ToolRuntime extends Service {
   static Config: z<Config> = z.object({
     mode: z.union(['native', 'code', 'both'] as const).default('native'),
     maxParallelSubCalls: z.natural().min(1).default(10),
+    maxResultTextChars: z.natural().min(MIN_RESULT_TEXT_CHARS).max(MAX_RESULT_TEXT_CHARS).default(MAX_RESULT_TEXT_CHARS),
   })
 
   /** Internal staged view consumed by `dsh-agent-loop`'s parallel scheduler. */
@@ -815,6 +937,8 @@ export class ToolRuntime extends Service {
   /** Presentation for scopes that declare none; {@link presentAs} shadows it per scope. */
   private readonly defaultMode: ToolPresentationMode
   private readonly maxParallelSubCalls: number
+  /** Resolved finalized-result text limit used by tools that must reserve their own rendering overhead. */
+  readonly maxResultTextChars: number
   /**
    * Reserved presentation transport, kept outside the filterable registration
    * layers. Built on first need rather than at construction: which agents run
@@ -829,6 +953,7 @@ export class ToolRuntime extends Service {
     // optional-input type for direct (non-Loader) construction in tests.
     this.defaultMode = config.mode ?? 'native'
     this.maxParallelSubCalls = resolveMaxParallelSubCalls(config.maxParallelSubCalls)
+    this.maxResultTextChars = resolveMaxResultTextChars(config.maxResultTextChars)
     ctx.systemPrompt.tools(context => this.wireSchemas(context.scope))
     if (this.defaultMode !== 'native') {
       ctx.systemPrompt.section(this.collapseSection())
@@ -1349,12 +1474,12 @@ export class ToolRuntime extends Service {
         const dispatched = await this.dispatchScheduledExecution(prepared.exec)
         return dispatched.kind === 'post-result'
           ? await this.finalizeScheduledExecution(prepared.exec, dispatched.result)
-          : this.finishScheduledExecution(prepared.exec, dispatched.result)
+          : await this.finishScheduledExecution(prepared.exec, dispatched.result)
       }
       case 'post-result':
         return await this.finalizeScheduledExecution(prepared.exec, prepared.result)
       case 'final-result':
-        return this.finishScheduledExecution(prepared.exec, prepared.result)
+        return await this.finishScheduledExecution(prepared.exec, prepared.result)
       /* v8 ignore next -- closed-union exhaustiveness guard */
       default:
         return assertNever(prepared, 'scheduled tool preparation')
@@ -1609,7 +1734,7 @@ export class ToolRuntime extends Service {
   private async finalizeScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult> {
     try {
       const postResult = await this.postExecute(exec, result)
-      return this.finishScheduledExecution(
+      return await this.finishScheduledExecution(
         exec,
         this.callerCancelled(exec) && !postResult.isError
           ? this.cancellationResult(exec, postResult)
@@ -1628,7 +1753,7 @@ export class ToolRuntime extends Service {
    * @returns the materialized final result.
    * @internal
    */
-  private finishScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult {
+  private async finishScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult> {
     let materializedResult: ToolExecutionResult
     try {
       materializedResult = this.materializeFinalResult(result)
@@ -1641,8 +1766,76 @@ export class ToolRuntime extends Service {
     } catch (error: unknown) {
       finalResult = this.materializeFinalResult(toolErrorResult(error))
     }
-    this.notifyResult(exec, finalResult)
-    return finalResult
+    const retainedResult = await this.retainOversizedResult(exec, finalResult)
+    const authoritativeResult = this.materializeFinalResult(retainedResult)
+    this.notifyResult(exec, authoritativeResult)
+    return authoritativeResult
+  }
+
+  /** Retain complete oversized text before replacing it with one bounded, recoverable preview. */
+  private async retainOversizedResult(
+    exec: ToolRunContext,
+    result: ToolExecutionResult,
+  ): Promise<ToolExecutionResult> {
+    const totalChars = resultTextLength(result.content)
+    if (totalChars <= this.maxResultTextChars) return result
+
+    const completeText = completeResultText(result.content)
+    const spillStore: SpillStore | undefined = this.ctx.get('spillStore')
+    if (exec.agent === undefined || spillStore === undefined) {
+      return this.retentionFailure(
+        result,
+        exec.agent === undefined ? 'the execution has no owning agent session' : 'no spillStore backend is loaded',
+      )
+    }
+
+    try {
+      const ref = await spillStore.saveText({
+        signal: exec.signal,
+        owner: { sessionId: exec.agent.session.id },
+        source: { toolName: exec.name, callId: exec.callId, label: 'full-result' },
+        suggestedName: `${exec.name}-result.txt`,
+        content: completeText,
+      })
+      const expectedBytes = Buffer.byteLength(completeText, 'utf8')
+      if (ref.bytes !== expectedBytes) {
+        throw new Error(`artifact backend reported ${ref.bytes} bytes for ${expectedBytes} retained bytes`)
+      }
+      const artifact: ToolResultArtifact = {
+        kind: 'full-result',
+        locator: ref.locator,
+        bytes: ref.bytes,
+      }
+      const marker = `\n[Full result: artifact_read locator="${ref.locator}" (${ref.bytes} bytes)]\n`
+      if (codePointLength(marker) > this.maxResultTextChars) {
+        throw new Error('artifact locator does not fit in the configured result-text limit')
+      }
+      return {
+        ...result,
+        content: limitResultText(result.content, totalChars, this.maxResultTextChars, marker),
+        artifact,
+      }
+    } catch (error: unknown) {
+      return this.retentionFailure(result, errorMessage(error))
+    }
+  }
+
+  /** Produce a bounded warning when complete retention cannot be guaranteed. */
+  private retentionFailure(result: ToolExecutionResult, reason: string): ToolExecutionFailure {
+    this.ctx.logger.warn(`tool result retention failed: ${reason}`)
+    const warning = RETENTION_FAILURE_WARNING
+    return {
+      isError: true,
+      error: {
+        message: 'complete tool result retention failed',
+        info: { name: 'ToolResultRetentionError', code: TOOL_RESULT_RETENTION_FAILED },
+      },
+      content: limitResultText(result.content, resultTextLength(result.content), this.maxResultTextChars, warning),
+      ...result.isError ? { originalError: result.error } : { value: result.value },
+      ...result.meta !== undefined ? { meta: result.meta } : {},
+      ...result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {},
+      ...result.concludesTurn === true ? { concludesTurn: true as const } : {},
+    }
   }
 
   /** Apply the snapshotted tool-owned content transform without exposing other result fields. */
@@ -1849,9 +2042,17 @@ export class ToolRuntime extends Service {
       content: result.content,
       ...result.meta !== undefined ? { meta: result.meta } : {},
       ...result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {},
+      ...result.artifact !== undefined ? { artifact: result.artifact } : {},
     }
     if (result.isError) {
-      return materializePresentation({ isError: true as const, error: result.error, ...presentation })
+      return materializePresentation({
+        isError: true as const,
+        error: result.error,
+        ...result.originalError !== undefined ? { originalError: result.originalError } : {},
+        ...result.value !== undefined ? { value: result.value } : {},
+        ...result.concludesTurn === true ? { concludesTurn: true as const } : {},
+        ...presentation,
+      })
     }
     const detached = materializePresentation({
       isError: false as const,

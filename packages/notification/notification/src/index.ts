@@ -113,6 +113,15 @@ export interface ToolSettledData {
   error?: NotificationErrorDetail
 }
 
+/** Payload for a durable compaction settlement audit event. */
+export interface CompactionSettledData {
+  compactionId: string
+  turn: number | null
+  seq: number
+  ok: boolean
+  sourceCommandId?: string
+}
+
 /**
  * Merge-extensible external event vocabulary. Packages may add stable event
  * types without changing the common envelope or backend interface.
@@ -126,6 +135,7 @@ export interface NotificationEventMap {
   'approval.decided': ApprovalDecidedData
   'tool.called': ToolCalledData
   'tool.settled': ToolSettledData
+  'compaction.settled': CompactionSettledData
 }
 
 /** Every registered external notification event type. */

@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-**工具结果 spill 策略**：一个 `tools/post-execute` 转换器，用于防止过大的纯文本工具结果进入模型上下文。当最终结果超过 `maxInlineBytes` 时，它会通过 [`ctx.spillStore`](../spill) 保存完整文本，并将面向模型的结果替换为有界的首尾预览、后端定位信息与取回指引。
+可选的**工具结果 spill 策略**是 `tools/post-execute` 字节转换器。当最终纯文本结果超过 `maxInlineBytes` 时，它会通过 [`ctx.spillStore`](../spill) 保存完整文本，并将面向模型的结果替换为有界的首尾预览、后端不透明 locator 与取回指引。
 
-该插件**不注册任何服务**，也不负责存储或预览机制：预览由 [`@deepseek-ai/dsh-output-retention`](../../util/output-retention)（`TextRetainer`）负责，存储由 `ctx.spillStore` 负责。它只决定何时 spill，并组合通知。
+该插件**不注册任何服务**，也不负责存储或预览机制：预览由 [`@deepseek-ai/dsh-output-retention`](../../util/output-retention)（`TextRetainer`）负责，存储由 `ctx.spillStore` 负责。它不会附加 ToolRuntime 的结构化 `full-result` 产物元数据。随附的基础组合会以禁用状态加载该包；部署必须显式启用它，而启用后省略 `maxInlineBytes` 仍会使其实例不执行任何操作。
 
 ## 配置
 
@@ -23,7 +23,7 @@
    ```text
    <retained head/tail preview>
 
-   (Omitted N bytes. Full formatted result stored at: /…/session-…/…-web_fetch.txt. Use read with offset/limit, or grep this path to search within it.)
+   (Omitted N bytes. Full formatted result stored at: local-spill:v1:…/…. Use artifact_read with this locator to retrieve the complete text.)
    ```
 
    当通知本身已占满预算时（上限极小或定位信息很长），预览为空，只返回通知。如果仅通知的替换内容仍会超过 `maxInlineBytes`，策略将保留内联结果；它绝不会发出超过上限的替换内容（而且上限内的替换内容总比原结果更小，因此这也意味着 spill 绝不会增加字节数）。
@@ -42,7 +42,7 @@
 
 #### 模型看到的内容
 
-大小不超过 `maxInlineBytes` 的结果、嵌套结果、`read` 结果、被阻止的决策和包含非文本块的结果都保持不变。过大的纯文本呈现结果会变为有界的首尾预览，后面附加 `(Omitted <bytes> bytes. Full formatted result stored at: <locator>. <retrievalHint>)`；存储失败或没有会话所有者时，原始结果仍然可见。
+大小不超过 `maxInlineBytes` 的结果、嵌套结果、`read` 结果、被阻止的决策和包含非文本块的结果都保持不变。过大的纯文本呈现结果会变为有界的首尾预览，后面附加 `(Omitted <bytes> bytes. Full formatted result stored at: <locator>. <retrievalHint>)`；模型会将不透明 locator 传给后端的取回工具。存储失败或没有会话所有者时，原始结果仍然可见。
 
 #### Token 影响
 
@@ -56,3 +56,4 @@
 
 - **只能对最终纯文本结果执行 spill**：混合内容结果、阻止反馈和 `read` 会原样通过；无法在此恢复先前已经发生的提供方截断或工具自身执行的保留处理。
 - **通知无法容纳时，该次调用的替换功能会禁用**：当上限极小或定位信息很长时，后端已经保存了无引用的 spill，但过大的原始结果仍会保留在内联位置。
+- **策略产物只有通知**：该策略路径不会添加 ToolRuntime 为其主要完整结果保留路径记录的结构化 `artifact` 字段。

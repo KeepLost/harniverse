@@ -54,12 +54,13 @@ async function loadYaml(lines: readonly string[]): Promise<Context> {
 }
 
 describe('real Loader composition', () => {
-  it('loads the shipped token-meter, pruning, and compaction-basic YAML order', async () => {
+  it('loads the shipped summary-only composition with pruning disabled', async () => {
     const loaded = await loadYaml([
       "- name: '@deepseek-ai/dsh-llm'",
       "- name: '@deepseek-ai/dsh-session'",
       "- name: '@deepseek-ai/dsh-token-meter'",
       "- name: '@deepseek-ai/dsh-compaction-tool-result-pruner'",
+      '  disabled: true',
       '  config:',
       '    thresholdChars: 100',
       '    headChars: 20',
@@ -75,13 +76,36 @@ describe('real Loader composition', () => {
       .filter(entry => entry.fiber === undefined && !entry.disabled)
       .map(entry => entry.options.name)
     expect(unloaded).toEqual([])
-    expect(loaded.get('toolResultPruner')).toBeInstanceOf(ToolResultPruner)
+    expect(loaded.get('toolResultPruner')).toBeUndefined()
     expect(loaded.get('compaction')).toBeInstanceOf(BasicCompactionEngine)
     expect((loaded.compaction as unknown as BasicCompactionEngine).config).toMatchObject({
       thresholdRatio: 0.5,
       retainRatio: 0.125,
       auto: false,
     })
+  })
+
+  it('loads pruning as a separate explicit opt-in before compaction-basic', async () => {
+    const loaded = await loadYaml([
+      "- name: '@deepseek-ai/dsh-llm'",
+      "- name: '@deepseek-ai/dsh-session'",
+      "- name: '@deepseek-ai/dsh-token-meter'",
+      "- name: '@deepseek-ai/dsh-compaction-tool-result-pruner'",
+      '  config:',
+      '    thresholdChars: 100',
+      '    headChars: 20',
+      '    tailChars: 10',
+      "- name: '@deepseek-ai/dsh-compaction-basic'",
+      '  config:',
+      '    auto: false',
+    ])
+
+    const unloaded = [...loaded.loader.entries()]
+      .filter(entry => entry.fiber === undefined && !entry.disabled)
+      .map(entry => entry.options.name)
+    expect(unloaded).toEqual([])
+    expect(loaded.get('toolResultPruner')).toBeInstanceOf(ToolResultPruner)
+    expect(loaded.get('compaction')).toBeInstanceOf(BasicCompactionEngine)
   })
 
   it('rejects stale token-meter config after Schemastery normalization', async () => {

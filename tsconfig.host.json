@@ -232,6 +232,7 @@
     { "path": "./packages/web/tool-web" },
     { "path": "./packages/spill/spill" },
     { "path": "./packages/spill/spill-local" },
+    { "path": "./packages/spill/tool-artifact-read" },
     { "path": "./packages/spill/spill-policy" },
     { "path": "./packages/guard/timeout-policy" },
     { "path": "./packages/runtime-diagnostics/invariants" },

@@ -2,10 +2,10 @@
  * The model-facing `grep` tool: search file contents with a ripgrep regular
  * expression. Execution spawns the packaged ripgrep binary
  * (`@vscode/ripgrep`) directly through the subprocess seam with a plain argv
- * vector using a fixed line-oriented `rg --json` command so file path, line
- * number, and line text parse without colon-splitting ambiguity — this module
+ * vector using a fixed line-oriented command whose NUL-separated fields keep
+ * file path and line number unambiguous while ripgrep bounds line previews — this module
  * owns the model-facing schema, argument validation, argv construction,
- * `--json` record parsing, per-line preview retention, match retention,
+ * bounded-record parsing, per-line preview retention, match retention,
  * grouping, and formatting; process concerns stay behind `ctx.subprocess`.
  *
  * @module @deepseek-ai/dsh-tool-fs-search/grep
@@ -39,7 +39,7 @@ export const GREP_MAX_LINE_BYTES = 2000
 export interface GrepToolCaps {
   /** Max flat matches retained inline; later matches go to the formatted spill file. */
   maxMatches: number
-  /** Max bytes retained per matched-line preview. */
+  /** Max bytes ripgrep emits per matched-line preview and the renderer retains inline. */
   maxLineBytes: number
   /** Max bytes of serialized `presentationMeta`; trailing file groups drop past it. */
   maxMetaBytes: number
@@ -99,7 +99,12 @@ export function parseGrepArgs(args: { pattern: string; path?: string; include?: 
 }
 
 /**
- * Build the fixed line-oriented `rg --json` argv for one `grep` call. Every
+ * Build the fixed line-oriented bounded-output argv for one `grep` call.
+ * `--max-columns-preview` makes ripgrep cap each matching line before stdout
+ * capture; NUL field separators preserve paths containing colons or newlines.
+ * ripgrep ignores `--max-columns` in JSON mode, so this transport deliberately
+ * uses its standard match printer instead of `--json`.
+ * Every
  * model-controlled value ({@link GrepInput.pattern}, {@link GrepInput.path},
  * {@link GrepInput.include}) is a plain argv element — no shell layer exists,
  * so no quoting applies; the pattern and include ride in `--flag=value` form
@@ -107,72 +112,61 @@ export function parseGrepArgs(args: { pattern: string; path?: string; include?: 
  * a flag.
  *
  * @param input - the validated arguments.
+ * @param maxLineBytes - producer-side byte cap for one matching-line preview.
  * @returns the complete ripgrep argument vector (excluding the binary itself).
  */
-export function buildGrepCommand(input: GrepInput): string[] {
-  const parts = ['--json', `--regexp=${input.pattern}`]
+export function buildGrepCommand(input: GrepInput, maxLineBytes: number): string[] {
+  const parts = [
+    '--with-filename',
+    '--line-number',
+    '--no-heading',
+    '--color=never',
+    '--field-match-separator=\\x00',
+    `--max-columns=${maxLineBytes}`,
+    '--max-columns-preview',
+    `--regexp=${input.pattern}`,
+  ]
   if (input.include !== undefined) parts.push(`--glob=${input.include}`)
   if (input.path !== undefined) parts.push('--', input.path)
   return parts
 }
 
 /**
- * The uniform malformed-output failure: raw `rg --json` is an internal
+ * The uniform malformed-output failure: raw bounded `rg` output is an internal
  * transport, so missing or invalid response fields cause a search failure, not a partial result.
  */
-function malformedRecord(detail: string, cause?: unknown): SearchError {
-  return new SearchError(`grep received malformed ripgrep --json output (${detail})`, 'SEARCH_FAILED', cause !== undefined ? { cause } : undefined)
+function malformedRecord(detail: string): SearchError {
+  return new SearchError(`grep received malformed ripgrep output (${detail})`, 'SEARCH_FAILED')
 }
 
 /**
- * Parse one `rg --json` NDJSON line into a match, `undefined` for the
- * non-match record types (`begin`/`end`/`context`/`summary`). A line that is
- * not JSON, or a `match` record missing its path / line number / line content,
- * throws {@link SearchError} `SEARCH_FAILED`. A match whose line is not valid
- * UTF-8 (ripgrep sends base64 `bytes` instead of `text`) yields a placeholder
- * preview rather than failing the whole search.
- */
-function parseRecord(line: string): GrepMatch | undefined {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(line)
-  } catch (error: unknown) {
-    throw malformedRecord('a line is not JSON', error)
-  }
-  if (typeof parsed !== 'object' || parsed === null) throw malformedRecord('a record is not an object')
-  const record = parsed as { type?: unknown; data?: unknown }
-  // Non-match record types (begin/end/context/summary — and any future type)
-  // are transport framing, not results: skipped, not malformed.
-  if (record.type !== 'match') return undefined
-  if (typeof record.data !== 'object' || record.data === null) throw malformedRecord('a match record has no data')
-  const data = record.data as { path?: unknown; line_number?: unknown; lines?: unknown }
-  const pathText = typeof data.path === 'object' && data.path !== null ? (data.path as { text?: unknown }).text : undefined
-  if (typeof pathText !== 'string') throw malformedRecord('a match record has no path text')
-  if (typeof data.line_number !== 'number') throw malformedRecord('a match record has no line number')
-  if (typeof data.lines !== 'object' || data.lines === null) throw malformedRecord('a match record has no line content')
-  const lines = data.lines as { text?: unknown; bytes?: unknown }
-  if (typeof lines.text === 'string') {
-    return { path: pathText, lineNumber: data.line_number, line: lines.text.replace(/\r?\n$/, '') }
-  }
-  if (typeof lines.bytes === 'string') {
-    return { path: pathText, lineNumber: data.line_number, line: '(line is not valid UTF-8)' }
-  }
-  throw malformedRecord('a match record has neither line text nor bytes')
-}
-
-/**
- * Parse complete `rg --json` stdout into flat matches, in output order (ripgrep
- * emits one file's matches contiguously). Only `match` records are consumed.
+ * Parse complete bounded ripgrep stdout. Each record is
+ * `<path> NUL <line-number> NUL <bounded-preview> LF`; NUL cannot occur in a
+ * filesystem path, and ripgrep's ordinary line printer never puts LF in the
+ * preview. `--max-columns-preview` bounds the preview before the subprocess
+ * captures it, so retaining whole stdout remains safe under the aggregate raw
+ * output cap without a streaming parser.
  *
- * @param stdout - the complete raw `rg --json` stdout.
- * @returns the flat matches; empty for output with no match records.
+ * @param stdout - complete output from the fixed grep command.
+ * @returns matches in ripgrep output order.
  */
 export function parseGrepMatches(stdout: string): GrepMatch[] {
   const matches: GrepMatch[] = []
-  for (const line of stdout.split('\n')) {
-    if (line.length === 0) continue
-    const match = parseRecord(line)
-    if (match !== undefined) matches.push(match)
+  let cursor = 0
+  while (cursor < stdout.length) {
+    const pathEnd = stdout.indexOf('\0', cursor)
+    if (pathEnd < 0) throw malformedRecord('a record has no path separator')
+    const lineNumberEnd = stdout.indexOf('\0', pathEnd + 1)
+    if (lineNumberEnd < 0) throw malformedRecord('a record has no line-number separator')
+    const recordEnd = stdout.indexOf('\n', lineNumberEnd + 1)
+    if (recordEnd < 0) throw malformedRecord('a record has no line terminator')
+    const path = stdout.slice(cursor, pathEnd)
+    if (path.length === 0) throw malformedRecord('a record has an empty path')
+    const lineNumberText = stdout.slice(pathEnd + 1, lineNumberEnd)
+    if (!/^[1-9]\d*$/.test(lineNumberText)) throw malformedRecord('a record has an invalid line number')
+    const line = stdout.slice(lineNumberEnd + 1, recordEnd).replace(/\r$/, '')
+    matches.push({ path, lineNumber: Number(lineNumberText), line })
+    cursor = recordEnd + 1
   }
   return matches
 }
@@ -276,14 +270,14 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
   ctx.systemPrompt.section({
     name: 'tool:grep',
     order: 104,
-    text: 'Use the grep tool — not shell grep or rg — to search file contents. Use read on a matched file when you need surrounding context.',
+    text: 'Use the grep tool — not shell grep or rg — to search file contents. Use read on a matched file when you need surrounding context. If a matching line is truncated, read that path with its line number as offset; continue the same line with line_byte_offset when needed.',
   })
 
   const tool = defineTool({
     name: 'grep',
     description: 'Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. '
       + `Returns the first ${caps.maxMatches} matches inline; a capped result reports where the complete match list was saved. `
-      + 'Use read on a matched file for surrounding context.',
+      + 'Use read on a matched file for surrounding context. For a truncated matching line, use its line number as read offset and continue with line_byte_offset.',
     parameters: {
       pattern: { type: 'string', required: true, description: 'Regular expression to search for (ripgrep syntax).' },
       path: { type: 'string', description: 'File or directory to search. Defaults to the session workspace; a relative path resolves against it.' },
@@ -319,7 +313,7 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
     },
     async execute(args, exec) {
       const input = parseGrepArgs(args)
-      const run = await runRipgrep(ctx, exec, 'grep', buildGrepCommand(input), caps.rawOutputMaxBytes, caps.graceMs, caps.stderrMaxBytes)
+      const run = await runRipgrep(ctx, exec, 'grep', buildGrepCommand(input, caps.maxLineBytes), caps.rawOutputMaxBytes, caps.graceMs, caps.stderrMaxBytes)
       if (run.noMatches) return { matches: [] }
 
       const all: GrepMatch[] = []

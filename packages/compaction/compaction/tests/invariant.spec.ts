@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { CompactionId, compactCheckpointSource } from '@deepseek-ai/dsh-compaction'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { CallId, createToolResultMessage, createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
+import { CompactionId, compactCheckpointSource, isCompactCheckpointSource } from '@deepseek-ai/dsh-compaction'
 import * as CompactionInvariant from '@deepseek-ai/dsh-compaction/invariant'
 import { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
@@ -19,6 +20,7 @@ const TEST_COMPACTION_ID = CompactionId('test-compaction')
 const NEXT_COMPACTION_ID = CompactionId('next-test-compaction')
 const TEST_COMMAND_ID = CommandId('test-command')
 const NEXT_COMMAND_ID = CommandId('next-test-command')
+const TEST_CALL_ID = CallId('test-call')
 
 const summary = (overrides: Record<string, unknown> = {}) => ({
   compactionId: TEST_COMPACTION_ID,
@@ -31,6 +33,60 @@ const summary = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
+function appendUser(session: Session, text: string): number {
+  return session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' }).seq
+}
+
+function appendCheckpoint(
+  session: Session,
+  startSeq: number,
+  summarySeq: number,
+  shadowedSeqs: number[],
+  sourceCommandId?: CommandId,
+): void {
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'checkpoint' }],
+    source: compactCheckpointSource(TEST_COMPACTION_ID, sourceCommandId),
+  }), {
+    surfaceOp: { op: 'replace', start: shadowedSeqs[0]!, end: shadowedSeqs.at(-1)! },
+    sourceEventSeqs: [startSeq, summarySeq, ...shadowedSeqs],
+  })
+}
+
+function appendToolResult(session: Session, text: string): number {
+  return session.append('tool/result', {
+    turn: 1,
+    step: 1,
+    message: createToolResultMessage({
+      callId: TEST_CALL_ID,
+      content: [{ type: 'text', text }],
+      isError: false,
+    }),
+  }, { surfaceOp: 'append' }).seq
+}
+
+function appendPruneReplacement(session: Session, originalSeq: number, text = 'short'): void {
+  const original = session.events[originalSeq]
+  if (original?.type !== 'tool/result') throw new Error('expected original tool result')
+  const result = original.data.message.content[0]
+  session.append('tool/result', {
+    ...original.data,
+    message: freezeMessage({
+      ...original.data.message,
+      content: [{
+        ...result,
+        content: [{ type: 'text', text }],
+      }],
+    }),
+  }, {
+    surfaceOp: { op: 'replace', start: originalSeq, end: originalSeq },
+    sourceEventSeqs: [originalSeq],
+  })
+}
+
 function startTurn(session: ReturnType<Context['sessions']['create']>, turn = 1): void {
   session.append('turn/start', { turn })
 }
@@ -39,9 +95,14 @@ describe('compaction invariants', () => {
   it('accepts successful and failed compaction lifecycles', async () => {
     const ctx = await setup()
     const success = ctx.sessions.create()
+    const shadowedSeqs = [appendUser(success, 'one'), appendUser(success, 'two')]
     startTurn(success)
-    success.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: 1 })
-    success.append('compaction/summary', summary())
+    const start = success.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: 1 })
+    const summarized = success.append('compaction/summary', summary({
+      shadowedRange: { start: shadowedSeqs[0], end: shadowedSeqs[1] },
+      shadowedSeqs,
+    }))
+    appendCheckpoint(success, start.seq, summarized.seq, shadowedSeqs)
     success.append('compaction/end', { compactionId: TEST_COMPACTION_ID, turn: 1 })
 
     const failed = ctx.sessions.create()
@@ -53,13 +114,75 @@ describe('compaction invariants', () => {
   it('accepts standalone successful and failed compaction lifecycles between turns', async () => {
     const ctx = await setup()
     const success = ctx.sessions.create()
-    success.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: null })
-    success.append('compaction/summary', summary())
+    const shadowedSeqs = [appendUser(success, 'one')]
+    const start = success.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: null })
+    const summarized = success.append('compaction/summary', summary({
+      shadowedRange: { start: shadowedSeqs[0], end: shadowedSeqs[0] },
+      shadowedSeqs,
+    }))
+    appendCheckpoint(success, start.seq, summarized.seq, shadowedSeqs)
     success.append('compaction/end', { compactionId: TEST_COMPACTION_ID, turn: null })
 
     const failed = ctx.sessions.create()
     failed.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: null })
     failed.append('compaction/end', { compactionId: TEST_COMPACTION_ID, turn: null, error: 'provider failed' })
+  })
+
+  it('rejects shadow provenance containing active events outside the declared range', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    const outside = appendUser(session, 'outside')
+    const first = appendUser(session, 'first')
+    const last = appendUser(session, 'last')
+    session.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: null })
+
+    expect(() => session.append('compaction/summary', summary({
+      shadowedRange: { start: first, end: last },
+      shadowedSeqs: [first, outside, last],
+    }))).toThrow(/shadowedSeqs must exactly match the current surface range/)
+  })
+
+  it('replays complete summary and prune replacement pairs', async () => {
+    const source = Session.create(SessionId('complete-compaction-source'))
+    const summarizedOriginal = appendUser(source, 'summarized original')
+    const start = source.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: null })
+    const summarized = source.append('compaction/summary', summary({
+      shadowedRange: { start: summarizedOriginal, end: summarizedOriginal },
+      shadowedSeqs: [summarizedOriginal],
+    }))
+    appendCheckpoint(source, start.seq, summarized.seq, [summarizedOriginal])
+    source.append('compaction/end', { compactionId: TEST_COMPACTION_ID, turn: null })
+    const prunedOriginal = appendToolResult(source, 'long result')
+    source.append('compaction/prune', {
+      shadowedRange: { start: prunedOriginal, end: prunedOriginal },
+      shadowedSeqs: [prunedOriginal],
+      shadowedTokenCount: 3,
+    })
+    appendPruneReplacement(source, prunedOriginal)
+
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    ctx.sessions.create(SessionId('complete-compaction-replay'), { seed: source.events })
+    await ctx.plugin(InvariantRegistry)
+    await expect(ctx.plugin(CompactionInvariant).then(() => undefined)).resolves.toBeUndefined()
+  })
+
+  it('rejects an interrupted summary replacement while replaying', async () => {
+    const source = Session.create(SessionId('interrupted-summary-source'))
+    const original = appendUser(source, 'original')
+    source.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: null })
+    source.append('compaction/summary', summary({
+      shadowedRange: { start: original, end: original },
+      shadowedSeqs: [original],
+    }))
+    appendUser(source, 'interruption')
+
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    ctx.sessions.create(SessionId('interrupted-summary-replay'), { seed: source.events })
+    await ctx.plugin(InvariantRegistry)
+    await expect(ctx.plugin(CompactionInvariant).then(() => undefined))
+      .rejects.toThrow(/compaction\/summary must be immediately followed/)
   })
 
   it('clears an inherited open compaction trace at end-seed during replay', async () => {
@@ -248,6 +371,206 @@ describe('compaction invariants', () => {
     )).not.toThrow()
   })
 
+  it('requires the summary replacement to be the immediately following event', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    const original = appendUser(session, 'original')
+    startTurn(session)
+    session.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: 1 })
+    session.append('compaction/summary', summary({
+      shadowedRange: { start: original, end: original },
+      shadowedSeqs: [original],
+    }))
+
+    expect(() => session.append('request/context', {
+      provider: 'mock',
+      model: 'mock',
+    })).toThrow(/compaction\/summary must be immediately followed/)
+  })
+
+  it.each([
+    ['range', [0, 1, 2, 3], { start: 1, end: 1 }, /range must exactly match/],
+    ['missing provenance', [1, 2], { start: 0, end: 0 }, /sourceEventSeqs must exactly equal/],
+    ['extraneous provenance', [0, 1, 2, 3], { start: 0, end: 0 }, /sourceEventSeqs must exactly equal/],
+    ['out-of-order provenance', [1, 0, 2], { start: 0, end: 0 }, /sourceEventSeqs must exactly equal/],
+  ])('rejects a summary replacement with the wrong %s', async (_name, provenance, range, message) => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    const originals = [appendUser(session, 'one'), appendUser(session, 'two')]
+    startTurn(session)
+    const start = session.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: 1 })
+    const summarized = session.append('compaction/summary', summary({
+      shadowedRange: { start: originals[0], end: originals[0] },
+      shadowedSeqs: [originals[0]],
+    }))
+    let sourceEventSeqs = provenance.map((seq) => {
+      if (seq === 0) return start.seq
+      if (seq === 1) return summarized.seq
+      if (seq === 2) return originals[0]!
+      if (seq === 3) return originals[1]!
+      return seq
+    })
+    const surfaceOp = range.start === 0
+      ? { op: 'replace' as const, start: originals[0]!, end: originals[0]! }
+      : { op: 'replace' as const, start: originals[1]!, end: originals[1]! }
+    if (range.start !== 0) sourceEventSeqs = [start.seq, summarized.seq, ...originals]
+
+    expect(() => session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'checkpoint' }],
+      source: compactCheckpointSource(TEST_COMPACTION_ID),
+    }), { surfaceOp, sourceEventSeqs })).toThrow(message)
+  })
+
+  it.each([
+    ['compaction id', compactCheckpointSource(NEXT_COMPACTION_ID), /checkpoint id .* does not match/],
+    ['source command id', compactCheckpointSource(TEST_COMPACTION_ID, NEXT_COMMAND_ID), /checkpoint sourceCommandId .* does not match/],
+  ])('rejects a summary replacement with the wrong checkpoint %s', async (_name, source, message) => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    const original = appendUser(session, 'original')
+    startTurn(session)
+    const start = session.append('compaction/start', {
+      compactionId: TEST_COMPACTION_ID,
+      sourceCommandId: TEST_COMMAND_ID,
+      turn: 1,
+    })
+    const summarized = session.append('compaction/summary', summary({
+      sourceCommandId: TEST_COMMAND_ID,
+      shadowedRange: { start: original, end: original },
+      shadowedSeqs: [original],
+    }))
+
+    expect(() => session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'checkpoint' }],
+      source,
+    }), {
+      surfaceOp: { op: 'replace', start: original, end: original },
+      sourceEventSeqs: [start.seq, summarized.seq, original],
+    })).toThrow(message)
+  })
+
+  it.each([
+    ['successful', undefined],
+    ['failed', 'commit failed'],
+  ])('does not allow a %s end to abandon a pending summary replacement', async (_name, error) => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    const original = appendUser(session, 'original')
+    startTurn(session)
+    session.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: 1 })
+    session.append('compaction/summary', summary({
+      shadowedRange: { start: original, end: original },
+      shadowedSeqs: [original],
+    }))
+
+    expect(() => session.append('compaction/end', {
+      compactionId: TEST_COMPACTION_ID,
+      turn: 1,
+      ...error === undefined ? {} : { error },
+    })).toThrow(/compaction\/summary must be immediately followed/)
+  })
+
+  it('does not commit a staged replacement when a later precommit listener vetoes it', async () => {
+    const ctx = await setup()
+    let veto = true
+    ctx.on('internal/dispatch', (_mode, eventName, args) => {
+      const [, event] = args as [Session, SessionEvent]
+      if (eventName === 'session/event'
+        && event?.type === 'user/message'
+        && isCompactCheckpointSource(event.data.source)
+        && veto) {
+        veto = false
+        throw new Error('later precommit veto')
+      }
+    }, { global: true })
+    const session = ctx.sessions.create()
+    const original = appendUser(session, 'original')
+    startTurn(session)
+    const start = session.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: 1 })
+    const summarized = session.append('compaction/summary', summary({
+      shadowedRange: { start: original, end: original },
+      shadowedSeqs: [original],
+    }))
+    expect(() => { appendCheckpoint(session, start.seq, summarized.seq, [original]) })
+      .toThrow(/later precommit veto/)
+
+    expect(() => {
+      appendCheckpoint(session, start.seq, summarized.seq, [original])
+      session.append('compaction/end', { compactionId: TEST_COMPACTION_ID, turn: 1 })
+    }).not.toThrow()
+  })
+
+  it('accepts a prune followed immediately by its exact tool-result replacement', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    const original = appendToolResult(session, 'long result')
+    session.append('compaction/prune', {
+      shadowedRange: { start: original, end: original },
+      shadowedSeqs: [original],
+      shadowedTokenCount: 3,
+    })
+
+    expect(() => { appendPruneReplacement(session, original) }).not.toThrow()
+  })
+
+  it('requires the prune replacement to be the immediately following event', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    const original = appendToolResult(session, 'long result')
+    session.append('compaction/prune', {
+      shadowedRange: { start: original, end: original },
+      shadowedSeqs: [original],
+      shadowedTokenCount: 3,
+    })
+
+    expect(() => appendUser(session, 'interruption'))
+      .toThrow(/compaction\/prune must be immediately followed/)
+  })
+
+  it.each([
+    ['range', true, false, /range must exactly match/],
+    ['provenance', false, true, /sourceEventSeqs must exactly equal/],
+  ])('rejects a prune replacement with the wrong %s', async (_name, wrongRange, wrongProvenance, message) => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    const original = appendToolResult(session, 'long result')
+    const other = appendToolResult(session, 'other result')
+    session.append('compaction/prune', {
+      shadowedRange: { start: original, end: original },
+      shadowedSeqs: [original],
+      shadowedTokenCount: 3,
+    })
+    const target = wrongRange ? other : original
+    const targetEvent = session.events[target]
+    if (targetEvent?.type !== 'tool/result') throw new Error('expected target tool result')
+    const targetResult = targetEvent.data.message.content[0]
+
+    expect(() => session.append('tool/result', {
+      ...targetEvent.data,
+      message: freezeMessage({
+        ...targetEvent.data.message,
+        content: [{
+          ...targetResult,
+          content: [{ type: 'text', text: 'short' }],
+        }],
+      }),
+    }, {
+      surfaceOp: { op: 'replace', start: target, end: target },
+      sourceEventSeqs: wrongProvenance ? [original, other] : [target],
+    })).toThrow(message)
+  })
+
+  it.each([
+    ['empty shadow set', { shadowedRange: { start: 0, end: 0 }, shadowedSeqs: [], shadowedTokenCount: 0 }, /shadowedSeqs must be non-empty/],
+    ['invalid shadow seq', { shadowedRange: { start: -1, end: -1 }, shadowedSeqs: [-1], shadowedTokenCount: 0 }, /non-negative safe integers/],
+    ['wrong endpoints', { shadowedRange: { start: 1, end: 2 }, shadowedSeqs: [1, 3], shadowedTokenCount: 0 }, /shadowedRange must match/],
+    ['invalid token count', { shadowedRange: { start: 0, end: 0 }, shadowedSeqs: [0], shadowedTokenCount: -1 }, /non-negative safe integer/],
+  ])('rejects prune metadata with %s', async (_name, data, message) => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    expect(() => session.append('compaction/prune', data)).toThrow(message)
+  })
+
   it('rejects a replacement checkpoint for another compaction transaction', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create()
@@ -257,7 +580,10 @@ describe('compaction invariants', () => {
     }), { surfaceOp: 'append' })
     startTurn(session)
     session.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: 1 })
-    session.append('compaction/summary', summary())
+    session.append('compaction/summary', summary({
+      shadowedRange: { start: original.seq, end: original.seq },
+      shadowedSeqs: [original.seq],
+    }))
 
     expect(() => session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'checkpoint' }],
@@ -281,7 +607,7 @@ describe('compaction invariants', () => {
     }), {
       surfaceOp: { op: 'replace', start: original.seq, end: original.seq },
       sourceEventSeqs: [original.seq],
-    })).toThrow(/no matching compaction\/start/)
+    })).toThrow(/no matching pending compaction\/summary/)
 
     const emptyCommand = ctx.sessions.create()
     const replaced = emptyCommand.append('user/message', createUserMessage({
@@ -289,13 +615,17 @@ describe('compaction invariants', () => {
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
     startTurn(emptyCommand)
-    emptyCommand.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: 1 })
+    const start = emptyCommand.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: 1 })
+    const summarized = emptyCommand.append('compaction/summary', summary({
+      shadowedRange: { start: replaced.seq, end: replaced.seq },
+      shadowedSeqs: [replaced.seq],
+    }))
     expect(() => emptyCommand.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'checkpoint' }],
       source: compactCheckpointSource(TEST_COMPACTION_ID, CommandId('')),
     }), {
       surfaceOp: { op: 'replace', start: replaced.seq, end: replaced.seq },
-      sourceEventSeqs: [replaced.seq],
+      sourceEventSeqs: [start.seq, summarized.seq, replaced.seq],
     })).toThrow(/checkpoint sourceCommandId must be a non-empty string/)
   })
 
@@ -318,9 +648,17 @@ describe('compaction invariants', () => {
       session.append('compaction/start', { compactionId: NEXT_COMPACTION_ID, turn: 2 })
     }, /still compacting/],
     ['repeated summary', (session: ReturnType<Context['sessions']['create']>) => {
-      session.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: 1 })
-      session.append('compaction/summary', summary())
-      session.append('compaction/summary', summary())
+      const original = appendUser(session, 'original')
+      const start = session.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: 1 })
+      const summarized = session.append('compaction/summary', summary({
+        shadowedRange: { start: original, end: original },
+        shadowedSeqs: [original],
+      }))
+      appendCheckpoint(session, start.seq, summarized.seq, [original])
+      session.append('compaction/summary', summary({
+        shadowedRange: { start: summarized.seq + 1, end: summarized.seq + 1 },
+        shadowedSeqs: [summarized.seq + 1],
+      }))
     }, /repeated within one compaction/],
     ['summary for another compaction', (session: ReturnType<Context['sessions']['create']>) => {
       session.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: 1 })

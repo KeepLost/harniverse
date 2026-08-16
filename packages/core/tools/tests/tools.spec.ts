@@ -3,21 +3,51 @@ import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, CallId, HarnessError, type ContentBlock  } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SpillStore, { SpillLocator } from '@deepseek-ai/dsh-spill'
+import type { ReadTextSpill, ReadTextSpillPage, SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import ToolRuntime, {
   defineContentToolFixture, defineTool, JsonSchemaError, parameterSchemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
   TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH,
+  MIN_RESULT_TEXT_CHARS,
   type InferArgs, type JsonValue, type ParameterSchemaSpec, type PreToolDecision, type PostToolDecision,
   type JsonSchemaNode, type ToolDefinition, type ToolDispatchExecution, type ToolExecutionResult, type ToolExecutionToken,
 } from '@deepseek-ai/dsh-tools'
 
 const testToolSignal = new AbortController().signal
 
-async function setup() {
+class StubArtifactStore extends SpillStore {
+  readonly saves: SaveTextSpill[] = []
+  fail = false
+
+  async saveText(input: SaveTextSpill): Promise<SpillRef> {
+    this.saves.push(input)
+    if (this.fail) throw new Error('artifact store unavailable')
+    return {
+      locator: SpillLocator('stub:v1:full-result'),
+      bytes: Buffer.byteLength(input.content, 'utf8'),
+      retrievalHint: 'Use artifact_read.',
+    }
+  }
+
+  async readText(_input: ReadTextSpill): Promise<ReadTextSpillPage> {
+    throw new Error('not used by ToolRuntime tests')
+  }
+}
+
+async function setup(config: { maxResultTextChars?: number; artifactStore?: boolean } = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRuntime)
+  if (config.artifactStore === true) await ctx.plugin(StubArtifactStore)
+  await ctx.plugin(ToolRuntime, {
+    ...config.maxResultTextChars !== undefined ? { maxResultTextChars: config.maxResultTextChars } : {},
+  })
   return ctx
+}
+
+function agentWithSession(id = 'tool-result-owner'): Agent {
+  return { id: SessionId(id), session: Session.create(SessionId(id)) } as unknown as Agent
 }
 
 const echoTool = defineTool({
@@ -91,6 +121,152 @@ describe('ToolRuntime', () => {
     const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result).toEqual({ content: [{ type: 'text', text: 'hi' }], isError: false, value: 'hi' })
     expect(observed).toEqual(result)
+  })
+
+  it('saves oversized finalized text before returning a bounded head-tail result', async () => {
+    const ctx = await setup({ maxResultTextChars: 120, artifactStore: true })
+    const complete = `${'h'.repeat(100)}😀${'t'.repeat(100)}`
+    ctx.tools.register(defineContentToolFixture({
+      name: 'large-result', description: 'large result', parameters: {},
+      async execute() { return [{ type: 'text', text: complete }] },
+    }))
+    let observed: ToolExecutionResult | undefined
+    ctx.on('tools/result', (_exec, result) => { observed = result })
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('large-result'),
+      name: 'large-result',
+      arguments: {},
+      agent: agentWithSession(),
+    })
+
+    const store = ctx.spillStore as StubArtifactStore
+    expect(store.saves).toHaveLength(1)
+    expect(store.saves[0]).toMatchObject({
+      content: complete,
+      source: { toolName: 'large-result', callId: CallId('large-result'), label: 'full-result' },
+    })
+    expect(result.isError).toBe(false)
+    expect(result.artifact).toEqual({
+      kind: 'full-result', locator: 'stub:v1:full-result', bytes: Buffer.byteLength(complete, 'utf8'),
+    })
+    const bounded = result.content.flatMap(block => block.type === 'text' ? Array.from(block.text) : [])
+    expect(bounded).toHaveLength(120)
+    expect(bounded.join('')).toContain('artifact_read')
+    expect(bounded.join('')).toContain('stub:v1:full-result')
+    expect(observed).toBe(result)
+  })
+
+  it('returns a bounded non-retry warning when complete result retention fails', async () => {
+    const ctx = await setup({ maxResultTextChars: 120, artifactStore: true })
+    const store = ctx.spillStore as StubArtifactStore
+    store.fail = true
+    ctx.tools.register(defineContentToolFixture({
+      name: 'side-effecting', description: 'side effect', parameters: {},
+      async execute() { return [{ type: 'text', text: 'x'.repeat(121) }] },
+    }))
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('side-effecting'),
+      name: 'side-effecting',
+      arguments: {},
+      agent: agentWithSession(),
+    })
+
+    expect(result.isError).toBe(true)
+    if (!result.isError) throw new Error('expected retention failure')
+    expect(result.error.info).toEqual({ name: 'ToolResultRetentionError', code: 'TOOL_RESULT_RETENTION_FAILED' })
+    const warning = result.content[0]?.type === 'text' ? result.content[0].text : ''
+    expect(Array.from(warning).length).toBeLessThanOrEqual(120)
+    expect(warning).toContain('may have completed')
+    expect(warning).toContain('Do not retry')
+  })
+
+  it('preserves canonical value and non-text blocks when retention fails', async () => {
+    const ctx = await setup({ maxResultTextChars: 120, artifactStore: true })
+    ;(ctx.spillStore as StubArtifactStore).fail = true
+    const image = {
+      type: 'image' as const,
+      attachment: { attachmentId: 'attachment-1', mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
+    } as ContentBlock
+    const canonical = [{ type: 'text' as const, text: 'x'.repeat(121) }, image]
+    ctx.tools.register(defineContentToolFixture({
+      name: 'retention-value', description: 'retention value', parameters: {},
+      async execute() { return canonical },
+    }))
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('retention-value'),
+      name: 'retention-value',
+      arguments: {},
+      agent: agentWithSession(),
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.value).toEqual(canonical)
+    expect(result.content.some(block => block.type === 'image')).toBe(true)
+    expect(result.content.reduce((count, block) => count + (block.type === 'text' ? Array.from(block.text).length : 0), 0)).toBe(120)
+  })
+
+  it('preserves original error identity when retention also fails', async () => {
+    const ctx = await setup({ maxResultTextChars: 120, artifactStore: true })
+    ;(ctx.spillStore as StubArtifactStore).fail = true
+    ctx.tools.register(defineContentToolFixture({
+      name: 'retention-error', description: 'retention error', parameters: {},
+      async execute() { throw new HarnessError('x'.repeat(200), 'ORIGINAL_FAILURE') },
+    }))
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('retention-error'),
+      name: 'retention-error',
+      arguments: {},
+      agent: agentWithSession(),
+    })
+
+    expect(result.isError).toBe(true)
+    if (!result.isError) throw new Error('expected retention failure')
+    expect(result.originalError?.info).toEqual({ name: 'HarnessError', code: 'ORIGINAL_FAILURE' })
+  })
+
+  it('applies the cap after finalizeContent expansion and preserves non-text blocks', async () => {
+    const ctx = await setup({ maxResultTextChars: 120, artifactStore: true })
+    const image = {
+      type: 'image' as const,
+      attachment: { id: 'attachment-1', mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
+    } as unknown as ContentBlock
+    ctx.tools.register(defineContentToolFixture({
+      name: 'expanded', description: 'expanded', parameters: {},
+      async execute() { return [{ type: 'text', text: 'short' }, image] },
+      finalizeContent: () => [{ type: 'text', text: 'a'.repeat(80) }, image, { type: 'text', text: 'b'.repeat(80) }],
+    }))
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('expanded'),
+      name: 'expanded',
+      arguments: {},
+      agent: agentWithSession(),
+    })
+
+    expect(result.content.some(block => block.type === 'image')).toBe(true)
+    expect(ctx.spillStore && (ctx.spillStore as StubArtifactStore).saves[0]?.content).toBe('a'.repeat(80) + 'b'.repeat(80))
+    expect(result.content.reduce((count, block) => count + (block.type === 'text' ? Array.from(block.text).length : 0), 0)).toBe(120)
+  })
+
+  it('enforces the platform maximum in loader and direct config', async () => {
+    expect(ToolRuntime.Config({})).toMatchObject({ maxResultTextChars: 50_000 })
+    expect(() => ToolRuntime.Config({ maxResultTextChars: 50_001 })).toThrow()
+    expect(() => ToolRuntime.Config({ maxResultTextChars: MIN_RESULT_TEXT_CHARS - 1 })).toThrow()
+
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    expect(() => new ToolRuntime(ctx, { maxResultTextChars: 50_001 })).toThrow(
+      `maxResultTextChars must be an integer from ${MIN_RESULT_TEXT_CHARS} through 50000`,
+    )
   })
 
   it('projects presentation metadata from the canonical value', async () => {

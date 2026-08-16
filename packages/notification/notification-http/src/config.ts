@@ -13,6 +13,7 @@ export type HttpNotificationEventType =
   | 'approval.decided'
   | 'tool.called'
   | 'tool.settled'
+  | 'compaction.settled'
 
 /** Envelope subset implemented by this provider's filters and durable schema. */
 export type HttpNotificationEnvelope = NotificationEnvelope<HttpNotificationEventType>
@@ -26,6 +27,7 @@ const HTTP_NOTIFICATION_EVENTS: readonly HttpNotificationEventType[] = [
   'approval.decided',
   'tool.called',
   'tool.settled',
+  'compaction.settled',
 ]
 
 /** Supported reason filter values for `session.turn-settled`. */

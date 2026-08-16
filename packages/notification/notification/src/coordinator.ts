@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AgentStatus } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-compaction'
 import type { CallId } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionClosedEvent, SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-user-approval'
@@ -35,6 +36,9 @@ export class NotificationCoordinator {
     ctx.on('session/event', (session, event) => {
       this.contain(() => { this.projectSessionEvent(session, event) })
     })
+    ctx.on('session/created', (session) => {
+      this.contain(() => { this.projectSeededCompactions(session) })
+    }, { global: true })
     ctx.on('session/disposed', (session) => {
       this.contain(() => { this.emitDetached(session) })
     })
@@ -44,6 +48,16 @@ export class NotificationCoordinator {
     ctx.on('agent/status', ({ agent, status }) => {
       this.contain(() => { this.emitAgentStatus(agent.session, status) })
     })
+    for (const session of ctx.sessions.list()) this.contain(() => { this.projectSeededCompactions(session) })
+  }
+
+  /** Project compaction settlements restored without `session/event` publication. */
+  private projectSeededCompactions(session: Session): void {
+    const ownSeedStart = session.header.seedLength ?? 0
+    for (let seq = ownSeedStart; seq < session.firstLiveSeq; seq += 1) {
+      const event = session.events[seq] as SessionEvent
+      if (event.type === 'compaction/end') this.projectSessionEvent(session, event)
+    }
   }
 
   /** Project one supported durable event; unrelated session events remain local. */
@@ -117,6 +131,19 @@ export class NotificationCoordinator {
         })
         return
       }
+      case 'compaction/end':
+        this.backend.emit({
+          ...this.ledgerBase(session, event),
+          type: 'compaction.settled',
+          data: {
+            compactionId: event.data.compactionId,
+            turn: event.data.turn,
+            seq: event.seq,
+            ok: event.data.error === undefined,
+            ...(event.data.sourceCommandId === undefined ? {} : { sourceCommandId: event.data.sourceCommandId }),
+          },
+        })
+        return
       default:
         return
     }

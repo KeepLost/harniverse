@@ -75,6 +75,7 @@
     "@deepseek-ai/dsh-skill-filesystem": "workspace:*",
     "@deepseek-ai/dsh-spill-local": "workspace:*",
     "@deepseek-ai/dsh-spill-policy": "workspace:*",
+    "@deepseek-ai/dsh-tool-artifact-read": "workspace:*",
     "@deepseek-ai/dsh-subagent": "workspace:*",
     "@deepseek-ai/dsh-subagent-acp": "workspace:*",
     "@deepseek-ai/dsh-subagent-claude-code": "workspace:*",

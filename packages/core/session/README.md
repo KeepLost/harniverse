@@ -64,7 +64,7 @@ This package owns ordered surface projection, replacement validation, replay, an
 
 A `user/message` stores the complete `UserMessage` directly, including the identity created before inbox routing or step entry. It renders its `content` verbatim whether it is a direct human prompt, a synthetic injection, or an entered goal round; its typed `source` is the only channel that tells them apart and carries any domain-specific durable facts. `assistant/message` and `tool/result` likewise store complete message values. Turn execution remains enclosed by `turn/start` and `turn/end`; `agent.inject()` queues input until a later pre-step claims it and returns it in an enter decision.
 
-`tool/result` persists one identified user-role tool-result message, optional internal failure identity, and optional presentation metadata. A tool's successful canonical `value` and human-readable canonical failure message remain execution-local; rendered error content is the replay-authoritative message.
+`tool/result` persists one identified user-role tool-result message, optional internal failure identity, optional presentation metadata, and optional structured `artifact { kind: 'full-result', locator, bytes }`. The artifact points to complete formatted text retained before an oversized inline result was bounded; `artifact_read` recovers that text from the opaque locator. A tool's successful canonical `value` and human-readable canonical failure message remain execution-local; rendered content is the replay-authoritative message, while artifact metadata remains a separate durable field.
 
 ### Session event vocabulary (`types.ts`)
 
@@ -98,11 +98,11 @@ Every `SessionEvent` carries three optional top-level fields (structural metadat
 
 #### What the model sees
 
-The model receives the complete messages from `user/message`, `assistant/message`, and `tool/result` surface entries verbatim. Their identities, roles, sources, and content blocks are the same values established at creation; projections do not mint identities. A prompt envelope changes only human presentation; its prefix context and request delimiter are already present in the event content. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
+The model receives the complete messages from `user/message`, `assistant/message`, and `tool/result` surface entries verbatim. Their identities, roles, sources, and content blocks are the same values established at creation; projections do not mint identities. A prompt envelope changes only human presentation; its prefix context and request delimiter are already present in the event content. Tool calls live inside assistant messages. An oversized tool result contributes only its bounded inline preview; the durable artifact reference is not another content block, and the preview tells the model to call `artifact_read` with the locator when it needs the complete text. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
 
 #### Token effect
 
-Appended surface entries are resent on later steps. A `replace` surface operation removes the shadowed entries from future inputs without deleting their raw log records.
+Appended surface entries, including bounded tool-result previews, are resent on later steps. Artifact text enters history only through later `artifact_read` result pages. A `replace` surface operation removes the shadowed entries from future inputs without deleting their raw log records.
 
 #### KV Cache effect
 

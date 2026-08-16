@@ -558,7 +558,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
               if (parked === undefined) return
               const result = parked.kind === 'post-result'
                 ? await scheduler.finalize(parked.exec, parked.result)
-                : scheduler.finish(parked.exec, parked.result)
+                : await scheduler.finish(parked.exec, parked.result)
               for (const context of result.additionalContexts ?? []) {
                 exec.deferContext(context)
               }

@@ -58,6 +58,9 @@ import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
+import * as ToolArtifactRead from '@deepseek-ai/dsh-tool-artifact-read'
+import SpillStore, { SpillLocator } from '@deepseek-ai/dsh-spill'
+import type { ReadTextSpill, ReadTextSpillPage, SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 import VmWorkflowEngine from '@deepseek-ai/dsh-workflow-worker-thread'
@@ -85,6 +88,17 @@ class CatalogAttachmentStore extends AttachmentStore {
 
   override readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
     return Promise.reject(new Error('gen-tool-catalog: attachment reads are unreachable during schema harvest'))
+  }
+}
+
+/** Schema-harvest spill seam marker; artifact I/O is unreachable while cataloguing. */
+class CatalogSpillStore extends SpillStore {
+  override saveText(_input: SaveTextSpill): Promise<SpillRef> {
+    return Promise.resolve({ locator: SpillLocator('catalog:unreachable'), bytes: 0, retrievalHint: '' })
+  }
+
+  override readText(_input: ReadTextSpill): Promise<ReadTextSpillPage> {
+    return Promise.reject(new Error('gen-tool-catalog: artifact reads are unreachable during schema harvest'))
   }
 }
 
@@ -182,6 +196,17 @@ export interface ToolPackage {
  * guard proves it is exhaustive against the on-disk glob.
  */
 const TOOL_PACKAGES: ToolPackage[] = [
+  {
+    pkg: '@deepseek-ai/dsh-tool-artifact-read',
+    dir: 'tool-artifact-read',
+    source: 'packages/spill/tool-artifact-read/src/index.ts',
+    requires: ['ctx.tools', 'ctx.spillStore'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(CatalogSpillStore)
+      await ctx.plugin(ToolArtifactRead)
+    },
+  },
   {
     pkg: '@deepseek-ai/dsh-tool-ask-user',
     dir: 'tool-ask-user',

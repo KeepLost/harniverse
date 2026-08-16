@@ -2,17 +2,19 @@
 
 [English](spill.md) | 中文
 
-spill 存储 seam 是一项[能力 seam](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md)，它持久保存工具的超大文本，并返回面向模型的定位符与检索指引；该能力拆分到三个包：Service Definition（[dsh-spill](../../packages/spill/spill)，`ctx.spillStore`）、Service Provider（[dsh-spill-local](../../packages/spill/spill-local)，宿主文件系统中会话作用域的私有文件）和 Consumer（[dsh-spill-policy](../../packages/spill/spill-policy)，`tools/post-execute` 策略）。spill 是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇记录在此处，而不在 [core.md](core.md) 中。预览机制仍归 [dsh-output-retention](../../packages/util/output-retention) 所有；该 seam 只保存策略交给它的最终文本。
+spill 存储 seam 是一项[能力 seam](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md)，它持久保存超大文本，并通过不透明的后端 locator 分页读取。该能力拆分到多个包：Service Definition（[dsh-spill](../../packages/spill/spill)，`ctx.spillStore`）、Service Provider（[dsh-spill-local](../../packages/spill/spill-local)，宿主文件系统中的持久私有文件），以及 Consumer（[dsh-tools](../../packages/core/tools) 的最终结果保留、面向模型检索的 [tool-artifact-read](../../packages/spill/tool-artifact-read)，和可选的 [dsh-spill-policy](../../packages/spill/spill-policy)）。spill 是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇记录在此处，而不在 [core.md](core.md) 中。
 
 源码：[`packages/spill/spill/src/types.ts`](../../packages/spill/spill/src/types.ts)
 
 ## 保存请求
 
-`saveText` 是唯一的服务操作：原样持久保存 `content`，并返回不透明的定位符、后端提供的检索提示和准确字节数。请求携带保存时的存储命名空间（`owner`）、生成内容的工具和调用（`source`，用于命名和检查，而非访问控制）以及后端可用作命名提示的 `suggestedName`（它不是路径）。
+`saveText` 原样持久保存 `content`，并返回不透明 locator、后端提供的检索提示和准确字节数。请求携带调用方取消、保存时存储命名空间（`owner`）、生成内容的工具和调用（`source`，用于命名和检查，而非访问控制），以及后端可用作命名提示的 `suggestedName`（它不是路径）。
 
 ```ts type-equiv
 /** One request to persist text to a spill artifact. */
 interface SaveTextSpill {
+  /** Caller-owned cancellation for storage admission and persistence. */
+  signal: AbortSignal
   owner: SpillOwner
   source: SpillSource
   /**
@@ -22,6 +24,32 @@ interface SaveTextSpill {
   suggestedName: string
   /** The full text to persist (UTF-8). */
   content: string
+}
+```
+
+## 读取请求与分页
+
+`readText` 只接受同一后端先前生成的 locator 和 cursor。消费方原样传递两个字符串；后端负责校验，并返回最多 `maxChars` 个 Unicode 码点。只有仍有未读文本时才包含 `nextCursor`。
+
+```ts type-equiv
+/** One backend-owned request to page a previously saved text artifact. */
+interface ReadTextSpill {
+  /** Caller-owned cancellation for locator validation and page retrieval. */
+  signal: AbortSignal
+  /** Opaque locator returned by {@link SpillRef.locator}; consumers must not parse it. */
+  locator: SpillLocator
+  /** Opaque continuation cursor returned by the same backend. Omit for the first page. */
+  cursor?: string
+  /** Maximum Unicode code points to return in this page. */
+  maxChars: number
+}
+```
+
+```ts type-equiv
+/** One bounded page of artifact text plus an opaque cursor when unread text remains. */
+interface ReadTextSpillPage {
+  text: string
+  nextCursor?: string
 }
 ```
 
@@ -67,7 +95,7 @@ interface SpillRef {
 }
 ```
 
-`SpillLocator` 是后端返回的[品牌化](core.md#branded-ids)面向模型句柄。本地后端将它渲染为文件系统路径；远程或数据库后端可以渲染 URI、键或命令 token。消费方将它视为不透明值，并使用 `retrievalHint` 渲染，而不是假定 `read` 始终是正确的检索机制。
+`SpillLocator` 是后端返回的[品牌化](core.md#branded-ids)面向模型句柄。本地后端返回带版本的不透明 token，而不是宿主路径；其他后端可以使用 URI 或键。消费方绝不解析它，而是渲染后端的 `retrievalHint`。
 
 ```ts type-equiv
 /**
@@ -80,9 +108,9 @@ type SpillLocator = Branded<'SpillLocator'>
 
 ## 服务
 
-`SpillStore`（`ctx.spillStore`，定义于 [`packages/spill/spill/src/index.ts`](../../packages/spill/spill/src/index.ts)）是只有一个方法的抽象服务：`saveText(input) → Promise<SpillRef>`。它持久保存完整的 `content`，并在实际存储失败（权限、ENOSPC、后端不可用）时拒绝。该 seam 只负责存储：不负责保留策略、工具结果替换或检索／搜索 API。
+`SpillStore`（`ctx.spillStore`，定义于 [`packages/spill/spill/src/index.ts`](../../packages/spill/spill/src/index.ts)）拥有两个抽象操作：`saveText(input) → Promise<SpillRef>` 和有界的 `readText(input) → Promise<ReadTextSpillPage>`。两者都会遵循调用方取消，并拒绝存储、locator、cursor 或完整性故障。该 seam 只负责存储和分页，不负责保留策略、工具结果替换或搜索。
 
-本地后端（[dsh-spill-local](../../packages/spill/spill-local)）写入 `<root>/session-<hash>/<random>-<safeName>`：根目录是已配置或延迟创建的私有（0700）目录，会话子目录采用 `sha256(sessionId)`，并通过排他且仅所有者可访问的写入（`open(path, 'wx', 0o600)`）防止预先植入的符号链接重定向写入。其 `locator` 是本地路径，`retrievalHint` 则告知模型在该路径上使用 `read` 或 `grep`。策略消费方（[dsh-spill-policy](../../packages/spill/spill-policy)）会把超过 `maxInlineBytes` 的纯文本最终结果替换为保留库生成的首尾预览和 spill 引用；该过程尽力而为：保存失败时保留原始内联结果，而不会把成功的调用变成 `isError`。
+本地后端（[dsh-spill-local](../../packages/spill/spill-local)）默认写入持久 Harniverse home。根目录与会话目录必须是真实、私有且归当前用户所有的目录；随机且排他的 0600 叶子文件会拒绝预先植入的目标。locator 只包含版本、会话 hash 和安全叶子名，后端 cursor 则是 UTF-8 字节偏移。ToolRuntime 会先保存完整的最终化超大结果，再发出有界预览和结构化 locator；`artifact_read` 对它分页。默认禁用的策略消费方仍可作为显式的尽力而为早期 spill 选项。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -103,6 +131,7 @@ Semantics every implementation must honor:
 - saveText persists the FULL `content` verbatim and returns an opaque locator, exact byte length, and model-facing retrieval guidance.
 - Storage is scoped by the request's SaveTextSpill.owner session; the backend chooses a private (not world-readable) location and a collision-free name derived from — never equal to — the caller's `suggestedName`.
 - `saveText` REJECTS on a real storage failure (permissions, ENOSPC, backend unavailable); the caller decides how to degrade (the spill policy treats a rejection as best-effort and keeps the inline result).
+- Both operations observe the request's caller-owned cancellation signal and settle promptly after cancellation.
 
 ```ts cordis-catalog
 /**
@@ -111,7 +140,14 @@ Semantics every implementation must honor:
  * @returns the saved artifact's {@link SpillRef}; rejects on a storage failure.
  */
 abstract saveText(input: SaveTextSpill): Promise<SpillRef>
+
+/**
+ * Read one bounded page from a locator produced by this backend.
+ * @param input - opaque locator, optional backend cursor, and page character limit.
+ * @returns bounded text and an opaque continuation cursor when unread text remains.
+ */
+abstract readText(input: ReadTextSpill): Promise<ReadTextSpillPage>
 ```
 
-Source: [`packages/spill/spill/src/index.ts:45`](../../packages/spill/spill/src/index.ts)
+Source: [`packages/spill/spill/src/index.ts:54`](../../packages/spill/spill/src/index.ts)
 <!-- END GENERATED cordis-surface -->

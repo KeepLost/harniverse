@@ -69,8 +69,9 @@ interface SessionEventMap {
    */
   'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
   /**
-   * A completed tool call's model-facing result, optional internal failure
-   * identity, and optional tool-private `meta` presentation payload. `meta` is
+   * A completed tool call's model-facing result, current and optional original
+   * failure identities, optional tool-private `meta`, and an optional complete
+   * result artifact. `meta` is
    * opaque to the core (the producing tool owns its shape and reads it back in
    * `presentResult`) but MUST be JSON-serializable: `Session.append`
    * runtime-validates all event data with `isJsonValue`, so a non-serializable
@@ -84,7 +85,9 @@ interface SessionEventMap {
     step: number
     message: ToolResultMessage
     error?: { name: string; code: string }
+    originalError?: { name: string; code: string }
     meta?: JsonValue
+    artifact?: ToolResultArtifact
   }
   /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }

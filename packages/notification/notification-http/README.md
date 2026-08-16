@@ -16,6 +16,7 @@ endpoints:
       - event: session.turn-settled
         reasons: [completed, error, aborted]
       - event: approval.requested
+      - event: compaction.settled
       - event: tool.settled
         toolNames: [bash, write]
     timeoutMs: 5000
@@ -41,7 +42,7 @@ Shutdown stops admission and lets accepted outbox work drain in parallel until `
 
 ## Privacy and authority
 
-The provider sends only the metadata envelope produced by `dsh-notification`; it does not add transcripts, prompts, tool arguments or results, credentials, working directories, environment values, or stack traces. Endpoint configuration is deployment-owned and never comes from a model or session event. Approval notifications are one-way; an HTTP response cannot answer the approval waterfall.
+The provider sends only the metadata envelope produced by `dsh-notification`; it does not add transcripts, prompts, tool arguments or results, compaction summaries or error detail, credentials, working directories, environment values, or stack traces. Endpoint configuration is deployment-owned and never comes from a model or session event. Approval notifications are one-way; an HTTP response cannot answer the approval waterfall.
 
 ## Model Experience
 
@@ -59,4 +60,4 @@ None; loading, configuring, or retrying this provider does not change model requ
 - **Storage settlement** — `shutdownTimeoutMs` bounds HTTP drain, not the Storage backend. An accepted Storage operation or domain close that does not settle also prevents safe provider disposal.
 - **Bounded retention, full-domain load** — terminal deduplication ends when its configured tombstone expires, and Storage Domain validates and loads every retained row at startup.
 - **No authentication fields** — URLs with embedded credentials are rejected and the provider adds no authorization header; deployment-wide outbound authentication remains a separate capability.
-- **Version-one vocabulary** — the Service Definition can declaration-merge new event types, but this provider accepts only its eight documented version-one events until its filters and durable schema add that event explicitly.
+- **Version-one vocabulary** — the Service Definition can declaration-merge new event types, but this provider accepts only its nine documented version-one events until its filters and durable schema add that event explicitly.

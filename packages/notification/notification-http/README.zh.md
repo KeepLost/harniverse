@@ -16,6 +16,7 @@ endpoints:
       - event: session.turn-settled
         reasons: [completed, error, aborted]
       - event: approval.requested
+      - event: compaction.settled
       - event: tool.settled
         toolNames: [bash, write]
     timeoutMs: 5000
@@ -41,7 +42,7 @@ outbox:
 
 ## 隐私与权限
 
-提供方只发送 `dsh-notification` 生成的元数据信封；它不会添加对话记录、提示词、工具参数或结果、凭据、工作目录、环境值或堆栈跟踪。端点配置属于部署，绝不来自模型或会话事件。批准通知是单向的；HTTP 响应不能回答批准 waterfall。
+提供方只发送 `dsh-notification` 生成的元数据信封；它不会添加对话记录、提示词、工具参数或结果、压缩摘要或错误详情、凭据、工作目录、环境值或堆栈跟踪。端点配置属于部署，绝不来自模型或会话事件。批准通知是单向的；HTTP 响应不能回答批准 waterfall。
 
 ## Model Experience
 
@@ -59,4 +60,4 @@ None, as 此提供方只在 Harness 正常操作后发送模型不可见的生�
 - **Storage 停稳** — `shutdownTimeoutMs` 限制 HTTP 排空，而不限制 Storage backend。已接收的 Storage 操作或 domain close 若不停止，提供方也无法安全完成 disposal。
 - **有界保留、全 domain 加载** — terminal tombstone 到期后不再去重，并且 Storage Domain 会在启动时验证和加载所有保留记录。
 - **没有认证字段** — 含内嵌凭据的 URL 会被拒绝，提供方不会添加授权 header；部署级统一外发认证仍是独立能力。
-- **版本一事件词汇表** — Service Definition 可通过 declaration merge 增加事件类型，但此提供方只接收其文档列出的八类版本一事件；新增事件必须先显式加入过滤器和持久 schema。
+- **版本一事件词汇表** — Service Definition 可通过 declaration merge 增加事件类型，但此提供方只接收其文档列出的九类版本一事件；新增事件必须先显式加入过滤器和持久 schema。

@@ -193,6 +193,16 @@ export interface TodoItem {
   status: 'pending' | 'in_progress' | 'completed'
 }
 
+/** Durable reference to the complete formatted text omitted from an inline tool result. */
+export interface ToolResultArtifact {
+  /** The artifact's role in reconstructing this tool result. */
+  kind: 'full-result'
+  /** Opaque backend locator accepted by the model-facing artifact reader. */
+  locator: string
+  /** Exact UTF-8 byte length of the retained complete text. */
+  bytes: number
+}
+
 /**
  * Logged request state outside derived history: call config, system prompt, and
  * tools. The latest full `request/header` snapshot reconstructs it; canonical
@@ -278,8 +288,9 @@ export interface SessionEventMap {
    */
   'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
   /**
-   * A completed tool call's model-facing result, optional internal failure
-   * identity, and optional tool-private `meta` presentation payload. `meta` is
+   * A completed tool call's model-facing result, current and optional original
+   * failure identities, optional tool-private `meta`, and an optional complete
+   * result artifact. `meta` is
    * opaque to the core (the producing tool owns its shape and reads it back in
    * `presentResult`) but MUST be JSON-serializable: `Session.append`
    * runtime-validates all event data with `isJsonValue`, so a non-serializable
@@ -293,7 +304,9 @@ export interface SessionEventMap {
     step: number
     message: ToolResultMessage
     error?: { name: string; code: string }
+    originalError?: { name: string; code: string }
     meta?: JsonValue
+    artifact?: ToolResultArtifact
   }
   /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }

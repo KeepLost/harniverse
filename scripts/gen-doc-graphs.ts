@@ -503,8 +503,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Spill storage seam',
     mode: 'seam',
     implementations: ['spill-local'],
-    consumers: ['spill-policy'],
-    note: 'The backend saves oversized tool text and returns a model-facing locator plus retrieval hint; spill-policy is the tools/post-execute consumer that decides when to spill.',
+    consumers: ['tools', 'tool-artifact-read', 'spill-policy'],
+    note: 'The backend durably saves and pages oversized finalized tool text behind opaque locators; ToolRuntime retains before bounding, tool-artifact-read exposes backend-owned cursor retrieval, and spill-policy remains an optional early transformer.',
   },
   {
     key: 'directoryPicker',

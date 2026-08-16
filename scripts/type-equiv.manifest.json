@@ -1347,6 +1347,16 @@
     },
     {
       "doc": "docs/subsystems/spill.md",
+      "symbol": "ReadTextSpill",
+      "source": "packages/spill/spill/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/spill.md",
+      "symbol": "ReadTextSpillPage",
+      "source": "packages/spill/spill/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/spill.md",
       "symbol": "SpillOwner",
       "source": "packages/spill/spill/src/types.ts"
     },

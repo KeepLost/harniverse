@@ -43,14 +43,16 @@ The private per-session cache is keyed by `session.surface.replaceGeneration` an
 1. appends `compaction/start` (log-only) — acquires the lock,
 2. summarizes the range,
 3. appends `compaction/summary` (log-only) with the summary, range, shadowed seqs, token count, and provider/model call envelope,
-4. appends a single `user/message` with `source: compactCheckpointSource(compactionId, sourceCommandId?)` and `surfaceOp: { op: 'replace', start, end }` carrying the summary — **the only surface mutation in this operation**,
+4. immediately appends a single `user/message` with `source: compactCheckpointSource(compactionId, sourceCommandId?)` and `surfaceOp: { op: 'replace', start, end }` carrying the summary — **the only surface mutation in this operation**,
 5. appends `compaction/end` (log-only) — releases the lock.
 
-The surface mutation (step 4) sits **inside** the lock bracket: `compaction/end` is the last event, so the lock is never released before the mutation lands. A crash between `compaction/start` and `compaction/end` therefore leaves a detectable orphaned lock (a `compaction/start` with no matching `compaction/end`) rather than a `compaction/end` that falsely claims compaction finished while the surface was never shadowed.
+The package invariant accepts a successful `compaction/end` only after the checkpoint immediately following `compaction/summary` commits. That checkpoint must exactly match the summary's range, ordered provenance `[startSeq, summarySeq, ...shadowedSeqs]`, `compactionId`, and optional `sourceCommandId`. The surface mutation therefore sits **inside** the lock bracket: `compaction/end` is the last event, so a crash before it leaves a detectable orphaned lock rather than a false successful end.
 
 The marker pair names lock acquisition and release, not an exclusive event container. An idle `inject()` may append unrelated context between a manual start and end while summarization is pending. Manual stability therefore revalidates the selected span rather than demanding whole-surface equality; the positional replacement leaves that injected context visible after the checkpoint. Automatic compaction keeps whole-surface equality inside its active turn.
 
 `deriveMessages()` then renders the summary as a user-role message followed by the retained nodes. The shadowed events remain in the raw log, so replay is deterministic.
+
+Shipped base, standard, code, and Cordis compositions keep their configured tool-result-pruner rows disabled. Automatic and manual compaction therefore proceed directly to summary replacement, which is the only history rewrite in default compositions. An explicit profile, home, or command-line overlay can enable retroactive tool-result pruning before later summaries.
 
 ## Blocking
 
@@ -60,7 +62,7 @@ The lock is the durable bracket, not a `WeakSet`, wrapper mutex, or client-side 
 
 ## Events
 
-The `compaction/*` events extend `SessionEventMap` (merge-extensible) via declaration merging — they are session events, not cordis `Events`, and all three are log-only (no `surfaceOp`). Per-event payloads and semantics are in the generated [persistence log event catalog](../../../docs/persistence-catalog.md).
+The `compaction/*` events extend `SessionEventMap` (merge-extensible) via declaration merging — they are session events, not cordis `Events`, and all are log-only (no `surfaceOp`). Per-event payloads and semantics are in the generated [persistence log event catalog](../../../docs/persistence-catalog.md). Durable `compaction/end` records also project to outbound `compaction.settled`; the [notification package](../../notification/notification/README.md) owns its payload and subscription details.
 
 ## Implementing a backend
 
@@ -80,7 +82,7 @@ A successful implementation replaces an older surface range with one user-role s
 
 #### Token effect
 
-Zero direct tokens from this Service Definition. A backend trades many retained history tokens for one summary and leaves the recent tail unchanged.
+Zero direct tokens from this Service Definition. A backend trades many retained history tokens for one summary and leaves the recent tail unchanged. Provider-reported summarizer usage on `compaction/summary` contributes once to cumulative `tokenUsage`, but this auxiliary request does not contribute to context pressure.
 
 #### KV Cache effect
 

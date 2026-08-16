@@ -36,6 +36,7 @@ const SNAPSHOT_SPILL_PATH_RE = new RegExp(
   + String.raw`(?=\. Use read with offset/limit|[\s)]|$)`,
   'g',
 )
+const OPAQUE_LOCAL_SPILL_RE = /local-spill:v1:[0-9a-f]{12}\/[0-9a-f]{12}-([A-Za-z0-9._~-]+)/g
 
 /**
  * Extract every snapshot-mode spill path from a session log, keyed by spill
@@ -154,6 +155,7 @@ function scrubString(value: string, ctx: NormalizeContext, cwdPathMode: CwdPathM
   }
   out = out.replace(LOCAL_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
   out = out.replace(SNAPSHOT_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
+  out = out.replace(OPAQUE_LOCAL_SPILL_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
   // Exact event-read results render the target as pretty JSON inside a
   // distinctive envelope. Restrict time scrubbing to that fenced target so
   // neighbor, model, bash, and unrelated tool text remains regression-visible.

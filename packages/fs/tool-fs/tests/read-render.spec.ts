@@ -22,6 +22,13 @@ async function* chunked(text: string, size: number): AsyncIterable<string> {
   for (let i = 0; i < text.length; i += size) yield text.slice(i, i + size)
 }
 
+/** Yield a large logical line without constructing it as one test string. */
+async function* repeatedLine(char: string, count: number, chunkSize: number): AsyncIterable<string> {
+  for (let remaining = count; remaining > 0; remaining -= chunkSize) {
+    yield char.repeat(Math.min(remaining, chunkSize))
+  }
+}
+
 describe('buildWindow', () => {
   it('numbers lines and reports total for a whole-file read', async () => {
     const result = await buildWindow(whole('one\ntwo\nthree'), READ_ALL, 'f')
@@ -47,7 +54,12 @@ describe('buildWindow', () => {
 
   it('truncates an over-long line', async () => {
     const result = await buildWindow(whole('x'.repeat(3000)), READ_ALL, 'f')
-    expect(result.lines[0]?.text).toContain(`... (line truncated to ${READ_MAX_LINE_LENGTH} chars)`)
+    expect(result.lines[0]).toEqual({
+      number: 1, text: 'x'.repeat(READ_MAX_LINE_LENGTH),
+      startByte: 0, endByte: READ_MAX_LINE_LENGTH, complete: false,
+    })
+    expect(result.next).toEqual({ offset: 1, lineByteOffset: READ_MAX_LINE_LENGTH })
+    expect(result.totalLines).toBeUndefined()
   })
 
   it('caps output bytes and reports truncatedByBytes', async () => {
@@ -78,9 +90,10 @@ describe('buildWindow', () => {
   })
 
   describe('caps are per-request (the plugin config reaches the window)', () => {
-    it('truncates lines at a custom maxLineLength and names it in the suffix', async () => {
+    it('returns a same-line cursor at a custom maxLineLength', async () => {
       const result = await buildWindow(whole('abcdefghij'), { offset: 1, limit: 10, maxLineLength: 5, maxBytes: READ_MAX_BYTES }, 'f')
-      expect(result.lines[0]?.text).toBe('abcde... (line truncated to 5 chars)')
+      expect(result.lines[0]).toEqual({ number: 1, text: 'abcde', startByte: 0, endByte: 5, complete: false })
+      expect(result.next).toEqual({ offset: 1, lineByteOffset: 5 })
     })
 
     it('caps output at a custom maxBytes', async () => {
@@ -100,13 +113,79 @@ describe('buildWindow', () => {
 
     it('caps a newline-free giant line split across chunks without unbounded buffering', async () => {
       const result = await buildWindow(chunked('z'.repeat(5000), 256), READ_ALL, 'f')
-      expect(result.lines[0]?.text).toContain(`... (line truncated to ${READ_MAX_LINE_LENGTH} chars)`)
+      expect(result.lines[0]).toEqual({
+        number: 1, text: 'z'.repeat(READ_MAX_LINE_LENGTH),
+        startByte: 0, endByte: READ_MAX_LINE_LENGTH, complete: false,
+      })
+    })
+
+    it('returns a strictly advancing cursor for a 24 MiB newline-free line', async () => {
+      const first = await buildWindow(
+        repeatedLine('z', 24 * 1024 * 1024, 64 * 1024),
+        { offset: 1, lineByteOffset: 0, limit: 1, maxLineLength: 2000, maxBytes: READ_MAX_BYTES },
+        'huge.txt',
+      )
+      expect(first.lines).toEqual([{
+        number: 1,
+        text: 'z'.repeat(2000),
+        startByte: 0,
+        endByte: 2000,
+        complete: false,
+      }])
+      expect(first.next).toEqual({ offset: 1, lineByteOffset: 2000 })
+
+      const second = await buildWindow(
+        repeatedLine('z', 24 * 1024 * 1024, 64 * 1024),
+        { offset: 1, lineByteOffset: first.next!.lineByteOffset, limit: 1, maxLineLength: 2000, maxBytes: READ_MAX_BYTES },
+        'huge.txt',
+      )
+      expect(second.lines[0]).toMatchObject({ startByte: 2000, endByte: 4000, complete: false })
+      expect(second.next).toEqual({ offset: 1, lineByteOffset: 4000 })
+    }, 15_000)
+
+    it('uses UTF-8 byte cursors and rejects a cursor inside a multibyte code point', async () => {
+      const first = await buildWindow(
+        whole('a😀b'),
+        { offset: 1, lineByteOffset: 0, limit: 1, maxLineLength: 2, maxBytes: 100 },
+        'unicode.txt',
+      )
+      expect(first.lines).toEqual([{
+        number: 1, text: 'a😀', startByte: 0, endByte: 5, complete: false,
+      }])
+      expect(first.next).toEqual({ offset: 1, lineByteOffset: 5 })
+
+      await expect(buildWindow(
+        whole('a😀b'),
+        { offset: 1, lineByteOffset: 2, limit: 1, maxLineLength: 2, maxBytes: 100 },
+        'unicode.txt',
+      )).rejects.toThrow('UTF-8 boundary')
+    })
+
+    it('keeps a supplementary code point split across provider chunks intact', async () => {
+      const result = await buildWindow(
+        ['a\ud83d', '\ude00b'],
+        { offset: 1, limit: 1, maxLineLength: 2, maxBytes: 100 },
+        'unicode-split.txt',
+      )
+      expect(result.lines).toEqual([{
+        number: 1, text: 'a😀', startByte: 0, endByte: 5, complete: false,
+      }])
+      expect(result.next).toEqual({ offset: 1, lineByteOffset: 5 })
+    })
+
+    it('does not concatenate an oversized provider chunk before bounding the retained fragment', async () => {
+      const result = await buildWindow(
+        whole('x'.repeat(2 * 1024 * 1024)),
+        { offset: 1, lineByteOffset: 0, limit: 1, maxLineLength: 32, maxBytes: 100 },
+        'one-chunk.txt',
+      )
+      expect(result.lines[0]).toEqual({ number: 1, text: 'x'.repeat(32), startByte: 0, endByte: 32, complete: false })
     })
 
     it('caps output bytes mid-stream', async () => {
       const big = Array.from({ length: 2000 }, () => 'y'.repeat(100)).join('\n')
       const result = await buildWindow(chunked(big, 512), READ_ALL, 'f')
-      expect(result.totalLines).toBe(2000)
+      expect(result.totalLines).toBeUndefined()
       expect(result.truncatedByBytes).toBe(true)
     })
 

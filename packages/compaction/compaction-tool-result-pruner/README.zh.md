@@ -6,15 +6,21 @@
 
 这是 [`dsh-compaction-basic`](../compaction-basic/README.md) 的具体配套服务，不是压缩（compaction）后端或面向模型的工具。Compact-basic 通过可选的 `ctx.get('toolResultPruner')` 读取它，因此这两个包仍可各自独立组合。
 
+随附的 base、standard、code 和 Cordis 组合包含已配置的剪枝行，但均保持禁用。正常的自动与手动压缩因此会直接生成摘要；通过显式的 profile、home 或命令行 overlay 启用本服务，即表示选择追溯式历史改写。
+
 ## 服务 API
 
-`pruneSession(session)` 会扫描当前表层的一个稳定快照。每个超出预算的工具结果都会被一个新追加的 `tool/result` 替换，其携带 `{ surfaceOp: { op: 'replace', start: originalSeq, end: originalSeq }, sourceEventSeqs: [originalSeq] }`。替换会展开完整原始数据，只更改 `content`，保留 `turn`、`step`、`callId`、错误字段、`meta` 以及以后新增的数据字段。原始事件仍可用于持久化、回放和精确日志检查。
+`pruneSession(session)` 会扫描当前表层的一个稳定快照。每个超出预算的结果都会先追加 `compaction/prune`，随后立即追加一个 `tool/result` 替换；该替换携带完全相同的范围和 `sourceEventSeqs: [originalSeq]`。替换会展开完整原始数据，只更改 `content`，保留 `turn`、`step`、`callId`、错误字段、`meta` 以及以后新增的数据字段。原始事件保持仅追加，并且仍可用于持久化、回放和精确日志检查。
 
 当会话拒绝替换时，该方法会同步抛出异常。本次扫描中先前已提交的替换仍会保留。
+
+禁用或卸载插件会停止后续剪枝，但不会移除已提交的替换事件，也不会让其原文恢复为当前表层。
 
 `measureContent(blocks)` 会统计 `text` 块中的 Unicode 码点。`pruneContent(blocks)` 会返回长度受限的替换；如果内容已在阈值内，则返回 `null`。非文本块保持原始相对位置；文本切片绝不会拆分 UTF-16 代理项对，但可能拆分由多个码点组成的字素簇。
 
 每个发出的结果在文本码点上都精确包含已配置的头部预算、固定标记和尾部预算，不大于 `thresholdChars`，且严格小于触发输入。因此第二次扫描不会发出替换。
+
+新工具结果走另一条路径：[ToolRuntime](../../core/tools/README.md) 会在结果进入模型历史或其 KV cache 之前，应用由 artifact 支持的最终 50,000 Unicode 码点上限。本服务只会追溯式地把已经持久化的工具结果降至更小的配置阈值。
 
 ## 配置
 
@@ -45,7 +51,7 @@ export function apply(ctx: Context): void {
 
 #### 模型看到的内容
 
-一旦满足压缩触发条件，后续请求看到的将是保留的头部、`\n\n[... tool result middle pruned ...]\n\n` 和保留的尾部，而非被移除的文本。非文本块保持原有顺序。模型不会看到原文的第二份副本。
+显式启用的剪枝服务处理满足条件的压缩触发后，后续请求看到的将是保留的头部、`\n\n[... tool result middle pruned ...]\n\n` 和保留的尾部，而非被移除的文本。非文本块保持原有顺序。模型不会看到原文的第二份副本，并且插件禁用后该替换仍然有效。
 
 #### Token 影响
 
@@ -53,7 +59,7 @@ export function apply(ctx: Context): void {
 
 #### KV Cache 影响
 
-替换较早的结果会使从第一个改变的 token 起的复用失效。当其路由、envelope 与之前的历史保持一致时，已剪枝前缀可以复用。
+第一次替换会使从其首个改变的 token 起的复用失效。当其路由、envelope 与之前的历史保持一致时，已剪枝的前缀可以在后续请求中复用。
 
 ## 已知限制与暂缓事项
 

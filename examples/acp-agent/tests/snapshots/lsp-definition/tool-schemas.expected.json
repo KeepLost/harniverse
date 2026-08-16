@@ -274,6 +274,10 @@
           "limit": {
             "type": "number",
             "description": "Maximum number of lines to return. Defaults to 2000."
+          },
+          "line_byte_offset": {
+            "type": "number",
+            "description": "0-based UTF-8 byte cursor within the first selected line. Use only a cursor returned by read."
           }
         },
         "required": [

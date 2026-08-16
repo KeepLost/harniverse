@@ -23,28 +23,27 @@ All keys are optional; the defaults are the shipped read caps.
 | Key | Default | Meaning |
 |---|---|---|
 | `readLimit` | `2000` | Default and maximum lines returned by one `read` call (the tool schema advertises it as the `limit` default). |
-| `readMaxLineLength` | `2000` | Characters kept per line before truncation (the suffix names the cap). |
-| `readMaxBytes` | `51200` | Byte cap on one `read` call's selected lines; overflow ends the window with a "capped" footer. |
-| `readStreamMinSize` | `10485760` | Files at or above this size (or with unknown size) stream instead of loading whole into memory. |
+| `readMaxLineLength` | `2000` | Maximum Unicode code points selected from one logical line before same-line continuation. |
+| `readMaxBytes` | `40960` | Maximum UTF-8 bytes across one call's selected content (40 KiB); overflow returns an exact continuation cursor. |
 
 ## Tools (schemas per [the filesystem tool schemas Agent Note](../../../.agents/notes/implemented/feature/2026-06-17-filesystem-tool-schemas.md))
 
 | Tool | Arguments | Behavior |
 |---|---|---|
-| `read` | `file_path`, `offset?`, `limit?` | Line-numbered UTF-8 content with a pagination footer. `offset` is 1-based; `limit` defaults to and caps at the configured `readLimit` (2000). |
+| `read` | `file_path`, `offset?`, `limit?`, `line_byte_offset?` | Streamed, line-numbered UTF-8 content with an exact continuation cursor. `offset` is 1-based; `line_byte_offset` is a 0-based UTF-8 byte position within that first selected line and must be copied from a prior result; `limit` defaults to and caps at `readLimit` (2000). |
 | `read_image` | `file_path` | Reads a PNG/JPEG/WebP/GIF file through the bounded byte seam, persists it through `ctx.attachments.saveImage`, and returns an image block beside a small metadata envelope. It succeeds only when the exact routed model declares image input. |
 | `write` | `file_path`, `content` | Create or fully replace a file. With the policy plugin: overwriting an existing file requires a prior `read` at the unchanged version; creating a new file does not. Without it: unconditional. |
 | `edit` | `file_path`, non-empty `old_string`, `new_string`, `replace_all?` | Literal replacement; unique match required unless `replace_all` is true. With the policy plugin: requires a prior `read` (any window) and the file unchanged since. Without it: unconditional. |
 
 Field names are snake_case to match Claude Code and existing harness tool schemas.
 
-Canonical successes are `read` → `{ path, offset, lines: [{ number, text }], totalLines }`, `read_image` → `{ path, image: { attachmentId, mediaType, bytes, width, height, name? } }`, `write` → `{ path, operation: 'create' | 'update', before: string | null, after }`, and `edit` → `{ path, before, after }`. Native renderers preserve the line-numbered read and mutation acknowledgements below. `write`/`edit` derive replayable diff-card metadata, and `read` derives a replayable read-card window `{ path, offset, lines, totalLines, lang? }`, from these canonical values; the canonical values themselves are execution-local and are not added to `tool/result`, only the derived presentation metadata is persisted.
+Canonical successes are `read` → `{ path, offset, lines: [{ number, text, startByte?, endByte?, complete? }], totalLines?, next?: { offset, lineByteOffset } }`, `read_image` → `{ path, image: { attachmentId, mediaType, bytes, width, height, name? } }`, `write` → `{ path, operation: 'create' | 'update', before: string | null, after }`, and `edit` → `{ path, before, after }`. A partial-line page stops once its continuation is known and omits `totalLines`; a page that reaches EOF reports the exact count. Native renderers preserve the line-numbered read and mutation acknowledgements below. `write`/`edit` derive replayable diff-card metadata; every successful read derives a replayable read-card window carrying byte ranges and the exact `next` cursor, with `totalLines` only when known. The canonical values themselves are execution-local and are not added to `tool/result`, only the derived presentation metadata is persisted.
 
 ## The tool is the executor; policy is an event gate
 
 The tools do **not** inject a policy service or inspect any cache. Each tool resolves the path via `ctx.fs.resolve(path, { cwd, signal })` — passing the calling agent's session cwd (`exec.agent.session.header.cwd`) so a relative path resolves against the session's workspace, matching `dsh-tool-bash`, and forwarding tool cancellation through resolution (see [the per-session cwd Agent Note](../../../.agents/notes/implemented/architecture/2026-07-02-fs-per-session-cwd.md)) — then:
 
-- **read** — one `ctx.fs.stat` (type + size routing + version), then `readText`/`streamText`, then builds the line window, then emits `fs/observed` with a plain `ctx.emit`. (1 stat.)
+- **read** — one `ctx.fs.stat` (type + version), then always `streamText`, then builds the bounded line window and emits `fs/observed` with a plain `ctx.emit`. It stops a partial-line page as soon as its advancing UTF-8 cursor is known; reads that reach EOF also report the exact total line count. (1 stat.)
 - **read_image** — validates the argument, extension, attachment availability, deployment media types, and the image-capable route before any I/O; then one `ctx.fs.stat` (recording an `absent` observation for a missing target, like `read`), a bounded `ctx.fs.readBytes` capped at the smaller of `imageLimits.maxImageBytes` and `imageLimits.maxMessageImageBytes` (the result is one message carrying one image), `attachments.saveImage` (content-addressed, so the image block references a durably committed object by the time `tool/result` is appended), and finally `fs/observed`. (1 stat.)
 - **write** — `ctx.waterfall('fs/write-intent', target, exec, () => undefined)` for the optional guard, then `ctx.fs.writeText(target, content, intent)`, then `fs/observed`. (0 stat.)
 - **edit** — `ctx.waterfall('fs/edit-intent', target, exec, () => undefined)` for the optional guard, then `ctx.fs.editText(target, edit, intent)`, then `fs/observed`. (0 stat.)
@@ -59,7 +58,7 @@ When `ctx.fs.sandboxMode` reports confinement, write/edit advertise `sandbox_per
 
 `read` opts into concurrent scheduling because its only mutation is the synchronous version recorder. Recorder races fail closed when a later `write` or `edit` re-checks the version under its target lock; both mutation tools remain exclusive. See the [parallel tool-call Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md).
 
-The package root exports only the Cordis plugin contract (`name`, `inject`, `Config`, and `apply`). Read rendering (line windowing + output formatting) lives in `src/read-render.ts` (Cordis-free, independently unit-tested); `src/read.ts`/`read-image.ts`/`write.ts`/`edit.ts` are the tool executors and `src/index.ts` composes them.
+The package root exports only the Cordis plugin contract (`name`, `inject`, `Config`, and `apply`). Read rendering (streamed line windowing + output formatting) lives in `src/read-render.ts` (Cordis-free, independently unit-tested); `src/read.ts`/`read-image.ts`/`write.ts`/`edit.ts` are the tool executors and `src/index.ts` composes them.
 
 ## Model Experience
 
@@ -72,7 +71,7 @@ Every request in this plugin's registration scope receives the independently reg
 ##### Read guidance
 
 ```markdown
-Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Use offset and limit to continue reading large files.
+Use the read tool — not shell commands like cat — to inspect text files. Results include line numbers. Pass returned offset and line_byte_offset values unchanged to continue partial long lines.
 ```
 
 ##### Write guidance
@@ -113,11 +112,11 @@ Prefix-stable while the visible tool definitions and order are unchanged. Regist
 
 #### What the model sees
 
-A successful read is exactly `<path><displayPath></path>`, newline, `<type>file</type>`, newline, `<content>`, numbered lines as `<lineNumber>: <text>`, a blank line, one footer, and `</content>`. The footer is exactly `(Output capped. Showing lines <start>-<end>. Use offset=<next> to continue.)`, `(Showing lines <start>-<end> of <total>. Use offset=<next> to continue.)`, or `(End of file - total <total> lines)`. A long line ends exactly `... (line truncated to <max> chars)`. A missing read still returns `FS_NOT_FOUND`, but it records confirmed absence for the calling session; after an externally deleted file is re-read, a retried `write` can safely recreate it through the provider's no-replace guard.
+A successful read is exactly `<path><displayPath></path>`, newline, `<type>file</type>`, newline, `<content>`, numbered content, a blank line, one footer, and `</content>`. Complete lines render as `<lineNumber>: <text>`; a partial giant line renders as `<lineNumber> [bytes <start>-<end>]: <text>`. The footer is exactly `(Line <line> continues. Use offset=<line> and line_byte_offset=<byte>.)`, `(Showing lines <start>-<end> of <total>. Use offset=<next> to continue.)`, or `(End of file - total <total> lines)`. The returned `next` position is exact: passing both values unchanged resumes at the next unread UTF-8 code-point boundary, including within the same logical line, without gaps or duplication. A missing read still returns `FS_NOT_FOUND`, but it records confirmed absence for the calling session; after an externally deleted file is re-read, a retried `write` can safely recreate it through the provider's no-replace guard.
 
 #### Token effect
 
-Read output is capped by `readLimit`, `readMaxLineLength`, and `readMaxBytes`; the retained call and result are resent until compaction.
+Read output is capped by `readLimit`, `readMaxLineLength`, and the 40 KiB selected-content budget. Recovering one giant line may take multiple calls on that same line; each bounded page and its cursor guidance are retained and resent until compaction.
 
 #### KV Cache effect
 

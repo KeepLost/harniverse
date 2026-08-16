@@ -342,23 +342,30 @@ interface ToolExecutionSuccess {
   readonly value: JsonValue
   readonly content: ContentBlock[]
   readonly error?: never
+  readonly originalError?: never
   readonly meta?: JsonValue
   readonly additionalContexts?: UserMessage[]
+  /** Durable locator for complete formatted text omitted from {@link content}. */
+  readonly artifact?: ToolResultArtifact
   /** The agent loop stops after committing this successful result batch. */
   readonly concludesTurn?: true
 }
 ```
 
 ```ts type-equiv
-/** Failed canonical tool execution; failures never carry a successful value. */
+/** Failed canonical tool execution; retention failures preserve a completed operation's value. */
 interface ToolExecutionFailure {
   readonly isError: true
   readonly error: ToolFailure
-  readonly value?: never
+  readonly value?: JsonValue
+  /** Original failure when result retention itself becomes the authoritative error. */
+  readonly originalError?: ToolFailure
   readonly content: ContentBlock[]
   readonly meta?: JsonValue
   readonly additionalContexts?: UserMessage[]
-  readonly concludesTurn?: never
+  /** Durable locator for complete formatted text omitted from {@link content}. */
+  readonly artifact?: ToolResultArtifact
+  readonly concludesTurn?: true
 }
 ```
 
@@ -367,7 +374,7 @@ interface ToolExecutionFailure {
 type ToolExecutionResult = ToolExecutionSuccess | ToolExecutionFailure
 ```
 
-The result carries only the outcome. Call identity remains on the immutable `ToolExecution` that accompanies it through every hook and on the durable `tool/call` / `tool/result` session events, so wrappers cannot create a second, disagreeing identity. The canonical `value` is execution-local: the loop persists only `content`, `error`, and `meta`, while `tool/code-dispatch` stores the sub-call's rendered `content` and `isError` verbatim. Replay reproduces presentation but cannot reconstruct canonical intermediate values.
+The result carries only the outcome. Call identity remains on the immutable `ToolExecution` that accompanies it through every hook and on the durable `tool/call` / `tool/result` session events, so wrappers cannot create a second, disagreeing identity. The canonical `value` is execution-local, including the value preserved when retention failure follows a completed operation. The loop persists bounded `content`, current and original error identities, `meta`, and the optional artifact reference, while `tool/code-dispatch` stores the sub-call's rendered `content` and `isError` verbatim. Replay reproduces presentation and artifact retrieval metadata but cannot reconstruct canonical intermediate values.
 
 On success the registry snapshots and validates the body value, freezes it, and invokes the pure renderer plus the optional top-level-call metadata projector. It separately materializes the durable presentation fields immediately before `tools/result`; an invalid value, renderer/projector failure, or non-JSON presentation becomes a JSON-safe `isError`. The final live observer therefore sees the exact execution-local value beside fields safe for the later durable append.
 
@@ -571,7 +578,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:787`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:908`](../../packages/core/tools/src/index.ts)
 
 <a id="tools-events"></a>
 
@@ -596,7 +603,7 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:207`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:209`](../../packages/core/tools/src/index.ts)
 
 <a id="toolscode-dispatch-log--waterfall"></a>
 
@@ -623,7 +630,7 @@ Allow a listener to replace content in the DURABLE LOG COPY of one `run_code` su
 
 Types: [ContentBlock](llm-streaming.md) · [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:189`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:191`](../../packages/core/tools/src/index.ts)
 
 <a id="toolsexecute--waterfall"></a>
 
@@ -647,7 +654,7 @@ Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a nor
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:163`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:165`](../../packages/core/tools/src/index.ts)
 
 <a id="toolspost-execute--waterfall"></a>
 
@@ -672,7 +679,7 @@ Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:175`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:177`](../../packages/core/tools/src/index.ts)
 
 <a id="toolspre-execute--waterfall"></a>
 
@@ -695,7 +702,7 @@ Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approv
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:152`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:154`](../../packages/core/tools/src/index.ts)
 
 <a id="toolsresult--emit"></a>
 
@@ -716,5 +723,5 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:197`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:199`](../../packages/core/tools/src/index.ts)
 <!-- END GENERATED cordis-surface -->
