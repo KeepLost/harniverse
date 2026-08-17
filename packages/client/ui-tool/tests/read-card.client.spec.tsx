@@ -111,6 +111,12 @@ describe('readCardModel', () => {
     expect(readCardModel(settled({ resultView: noLang }))?.lang).toBeUndefined()
   })
 
+  it('omits the window count when the result has no exact total', () => {
+    const noTotal = resultRead()
+    delete (noTotal as { totalLines?: number }).totalLines
+    expect(readCardModel(settled({ resultView: noTotal }))?.totalLines).toBe(sampleLines.length)
+  })
+
   it('returns null for a running read: the read intent is result-side only', () => {
     // A read carries no content until execute returns, so the pending call is a
     // generic card and there is no read card to draw yet.

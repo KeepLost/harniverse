@@ -53,7 +53,9 @@ export type ReadCardModel = Pick<ReadBlockProps, 'label' | 'lines' | 'totalLines
  * The label is the read view's `title` when the tool supplied one (the
  * presentation contract's replacement-title rule), otherwise the file path
  * relativized to the session workspace so a workspace-rooted absolute path
- * displays the same short form the row summary shows.
+ * displays the same short form the row summary shows. When the producer cannot
+ * provide an exact total, the returned line count keeps the primitive from
+ * displaying an invented window total.
  * @param block - RunningToolCall or ToolResultNode off the snapshot caches.
  * @param sessionCwd - the session workspace root; a workspace-rooted absolute
  *   path label displays relative to it. Absent leaves the path as authored.
@@ -70,7 +72,7 @@ export function readCardModel(block: ToolCallBlock, sessionCwd?: string): ReadCa
   return {
     label: result.title ?? relativizeToCwd(result.path, sessionCwd),
     lines,
-    totalLines: result.totalLines,
+    totalLines: result.totalLines ?? lines.length,
     lang: result.lang,
   }
 }
