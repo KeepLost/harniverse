@@ -108,7 +108,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
         }
         const decision = await authenticateIncoming(owner, req, 'http-api')
         if (decision.kind === 'rejected') {
-          rejectUnauthorized(res)
+          rejectUnauthorized(res, decision)
           return
         }
         await bridge(req, res, fetchHandler)

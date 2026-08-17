@@ -2142,8 +2142,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'webServer',
-    summary: 'The browser HTTP carrier service.',
-    description: 'The browser HTTP carrier service. Activation listens immediately. Route registration order does not affect requests because configured named routes must be distinct, and the fallback handler answers anything not yet claimed during startup with 404 until its owner registers. A listen failure rejects initialization, and the boot process reports the failed fiber.',
+    summary: 'The browser Web carrier service.',
+    description: 'The browser Web carrier service. Activation listens immediately. Route registration order does not affect requests because configured named routes must be distinct, and the fallback handler answers anything not yet claimed during startup with 404 until its owner registers. A listen failure rejects initialization, and the boot process reports the failed fiber.',
     methods: [
       {
         signature: 'register(route: WebRoute): () => void',
@@ -2874,7 +2874,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AuthenticationDecision',
-    declaration: 'export type AuthenticationDecision = {\n    kind: \'accepted\';\n    credential?: AuthenticationCredential;\n} | {\n    kind: \'rejected\';\n    reason: \'missing-credential\' | \'invalid-credential\' | \'authentication-unavailable\';\n};',
+    declaration: 'export type AuthenticationDecision = {\n    kind: \'accepted\';\n    credential?: AuthenticationCredential;\n} | {\n    kind: \'rejected\';\n    reason: \'missing-credential\' | \'invalid-credential\' | \'authentication-unavailable\';\n} | {\n    kind: \'rejected\';\n    reason: \'rate-limited\';\n    retryAfterMs: number;\n};',
   },
   {
     name: 'AuthenticationMode',

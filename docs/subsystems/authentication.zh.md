@@ -2,11 +2,11 @@
 
 [English](authentication.md) | 中文
 
-[认证 Service Definition](../../packages/auth/authentication)为 HTTP API 与 WebSocket 规范化接入判断。已交付的[本地提供方](../../packages/auth/authentication-local)验证具名 Bearer 令牌或内存浏览器会话，而 connection 消费方把 Host、Origin、Fetch Metadata 与 DNS 重绑定检查保留为独立防线。
+[认证 Service Definition](../../packages/auth/authentication)为 HTTP API 与 WebSocket 规范化接入判断。已交付的[本地提供方](../../packages/auth/authentication-local)验证具名 Bearer 令牌或内存浏览器会话，并按载体与直连 peer 限制无效凭据尝试；connection 消费方则把 Host、Origin、Fetch Metadata 与 DNS 重绑定检查保留为独立防线。
 
 每个已接受凭据都属于同一个 Harness 逻辑用户。凭据 revision 由稳定令牌 id、非机密管理名称与 generation 组成；它支持定向撤销浏览器会话和 WebSocket，但不会引入授权、scope、租户或每令牌 Harness session。
 
-Authenticated 启动要求至少一个令牌。移除最后一个令牌会封存运行中的实例，直到新增令牌。显式 bypass 模式跳过凭据检查，但仍保留每主目录实例 lease 与强制访问记录。
+Authenticated 启动要求至少一个令牌。移除最后一个令牌会封存运行中的实例，直到新增令牌。显式 bypass 模式跳过凭据检查，但仍保留每主目录实例 lease 与强制访问记录，而且 connection 消费方只在回环 listener 上接受 bypass。WebServer 的全接口 listener 必须直接启用 TLS。
 
 来源：[`packages/auth/authentication/src/index.ts`](../../packages/auth/authentication/src/index.ts)
 
@@ -53,7 +53,7 @@ abstract createBrowserSession(token: string, peerAddress?: string): Promise<Brow
 abstract revokeBrowserSession(cookie?: string): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:118`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:124`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authentication-events"></a>
 
@@ -73,7 +73,7 @@ Credential freshness was reconciled after an unavailable interval.
 'authentication/available'(): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:113`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:119`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authenticationrevoked--emit"></a>
 
@@ -90,7 +90,7 @@ A committed token registry change invalidated credential revisions.
 'authentication/revoked'(revocation: AuthenticationRevocation): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:101`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:107`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authenticationunavailable--emit"></a>
 
@@ -106,5 +106,5 @@ Credential freshness became unavailable; current sockets must close.
 'authentication/unavailable'(): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:107`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:113`](../../packages/auth/authentication/src/index.ts)
 <!-- END GENERATED cordis-surface -->

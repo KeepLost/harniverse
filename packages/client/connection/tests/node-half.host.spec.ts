@@ -22,7 +22,9 @@ import { API_PATH, apply, HOST_EVENTS_PATH, inject, MUX_EVENTS_PATH, type HostCo
 function fakeHttpServer(
   routes: WebRoute[],
   upgrades: WebUpgradeRoute[],
-): Pick<WebServer, 'register' | 'registerUpgrade' | 'tapIndex' | 'port'> {
+  host: '127.0.0.1' | '0.0.0.0' = '127.0.0.1',
+  protocol: 'http:' | 'https:' = 'http:',
+): Pick<WebServer, 'register' | 'registerUpgrade' | 'tapIndex' | 'port' | 'host' | 'protocol'> {
   return {
     register(route) {
       if (routes.some(candidate => candidate.kind === route.kind && candidate.path === route.path)) {
@@ -37,6 +39,8 @@ function fakeHttpServer(
     },
     tapIndex: () => () => {},
     port: 0,
+    host,
+    protocol,
   }
 }
 
@@ -108,6 +112,7 @@ async function mounted(
   config?: { trustedHosts?: string[] },
   decision: AuthenticationDecision = { kind: 'accepted' },
   overrides: Partial<Pick<InboundAuthentication, 'status' | 'createBrowserSession' | 'revokeBrowserSession'>> = {},
+  protocol: 'http:' | 'https:' = 'http:',
 ): Promise<{
   routes: WebRoute[]
   upgrades: WebUpgradeRoute[]
@@ -116,7 +121,7 @@ async function mounted(
   const ctx = new Context()
   const routes: WebRoute[] = []
   const upgrades: WebUpgradeRoute[] = []
-  ctx.provide('webServer', fakeHttpServer(routes, upgrades) as WebServer)
+  ctx.provide('webServer', fakeHttpServer(routes, upgrades, '127.0.0.1', protocol) as WebServer)
   provideAuthentication(ctx, decision, overrides)
   ctx.provide('apiProxy', {} as unknown as ApiProxy)
   const fiber = ctx.plugin({ inject: [...inject], apply }, config)
@@ -206,6 +211,28 @@ describe('connection node half', () => {
     await dispose()
   })
 
+  it('returns Retry-After for rate-limited API requests and WebSocket upgrades', async () => {
+    const decision = { kind: 'rejected', reason: 'rate-limited', retryAfterMs: 2_500 } as const
+    const { routes, upgrades, dispose } = await mounted(undefined, decision)
+    const api = fakeResponse()
+    await routes[0]!.handler(fakeRequest({ host: '127.0.0.1:3080' }), api.response)
+    expect(api.state).toMatchObject({
+      status: 429,
+      body: 'rate limited',
+      headers: { 'retry-after': '3' },
+    })
+
+    const socket = new PassThrough()
+    const chunks: Buffer[] = []
+    socket.on('data', (chunk: Buffer) => { chunks.push(chunk) })
+    const ended = once(socket, 'end')
+    await upgrades[0]!.handler(fakeRequest({ host: '127.0.0.1:3080' }, MUX_EVENTS_PATH), socket, Buffer.alloc(0))
+    await ended
+    expect(Buffer.concat(chunks).toString()).toContain('HTTP/1.1 429 Too Many Requests')
+    expect(Buffer.concat(chunks).toString()).toContain('Retry-After: 3')
+    await dispose()
+  })
+
   it('issues an HttpOnly strict browser cookie without exposing the token', async () => {
     const credential = {
       tokenId: authenticationTokenId('token-id'),
@@ -228,8 +255,76 @@ describe('connection node half', () => {
 
     expect(state.status).toBe(200)
     expect(state.headers?.['set-cookie']).toContain('dsh_auth=browser-session-secret; Path=/; HttpOnly; SameSite=Strict')
+    expect(state.headers?.['cache-control']).toBe('no-store')
     expect(state.body).not.toContain('one-time-token')
     await dispose()
+  })
+
+  it('issues a no-store __Host- Secure cookie over HTTPS', async () => {
+    const credential = {
+      tokenId: authenticationTokenId('token-id'),
+      tokenName: authenticationTokenName('laptop'),
+      generation: 1,
+    }
+    const { routes, dispose } = await mounted(undefined, { kind: 'accepted' }, {
+      createBrowserSession: () => Promise.resolve({
+        kind: 'accepted',
+        session: {
+          value: 'browser-session-secret',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          credential,
+        },
+      }),
+    }, 'https:')
+    const route = routes.find(candidate => candidate.path === '/auth/login')!
+    const { response, state } = fakeResponse()
+    await route.handler(fakePost({ host: '127.0.0.1:3080' }, '/auth/login', { token: 'one-time-token' }), response)
+
+    expect(state.status).toBe(200)
+    expect(state.headers?.['set-cookie'])
+      .toContain('__Host-dsh_auth=browser-session-secret; Path=/; HttpOnly; SameSite=Strict; Secure')
+    expect(state.headers?.['cache-control']).toBe('no-store')
+    await dispose()
+  })
+
+  it('returns Retry-After when browser login is rate limited', async () => {
+    const { routes, dispose } = await mounted(undefined, { kind: 'accepted' }, {
+      createBrowserSession: () => Promise.resolve({
+        kind: 'rejected', reason: 'rate-limited', retryAfterMs: 2_500,
+      }),
+    })
+    const route = routes.find(candidate => candidate.path === '/auth/login')!
+    const { response, state } = fakeResponse()
+    await route.handler(fakePost({ host: '127.0.0.1:3080' }, '/auth/login', { token: 'invalid' }), response)
+
+    expect(state.status).toBe(429)
+    expect(state.headers?.['retry-after']).toBe('3')
+    expect(state.headers?.['cache-control']).toBe('no-store')
+    await dispose()
+  })
+
+  it('marks malformed browser login responses as no-store', async () => {
+    const { routes, dispose } = await mounted()
+    const route = routes.find(candidate => candidate.path === '/auth/login')!
+    const { response, state } = fakeResponse()
+    await route.handler(fakeRawPost({ host: '127.0.0.1:3080' }, '/auth/login', '{}'), response)
+
+    expect(state.status).toBe(415)
+    expect(state.headers?.['cache-control']).toBe('no-store')
+    await dispose()
+  })
+
+  it('refuses authentication bypass on a non-loopback listener', async () => {
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    const upgrades: WebUpgradeRoute[] = []
+    ctx.provide('webServer', fakeHttpServer(routes, upgrades, '0.0.0.0', 'https:') as WebServer)
+    provideAuthentication(ctx)
+    Object.defineProperty(ctx.authentication, 'mode', { value: 'bypass' })
+
+    expect(() => { apply(ctx) }).toThrow(/bypass.*loopback/i)
+    expect(routes).toHaveLength(0)
+    expect(upgrades).toHaveLength(0)
   })
 
   it('pins privileged methods to loopback even for a declared trusted authority', async () => {
@@ -544,7 +639,7 @@ describe('connection node half over a real HTTP server', () => {
         'credentials.describe', 'credentials.set', 'credentials.unset',
         'host.pickDirectory', 'host.openPath',
         // Carries a draft credential and turns the host into a fetcher for a
-        // URL the caller picked: an anonymous LAN caller must not reach it.
+        // URL the caller picked: an admission-only remote credential must not reach it.
         'llm.discoverModels',
         'agentPreset.read', 'agentPreset.copy', 'agentPreset.openDocument', 'agentPreset.remove',
       ]) {

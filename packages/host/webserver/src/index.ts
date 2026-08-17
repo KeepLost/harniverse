@@ -1,6 +1,6 @@
 /**
- * @deepseek-ai/dsh-host-webserver — Web route-registration plugin: a node:http
- * server plus the `webServer` service (HTTP and upgrade route registries,
+ * @deepseek-ai/dsh-host-webserver — Web route-registration plugin: a Node HTTP
+ * or HTTPS server plus the `webServer` service (request and upgrade registries,
  * index transform taps, and the single fallback seat for everything no route
  * claims). Knows no harness concepts and serves no files; the composing
  * application's frontend plugin owns dist serving through the fallback hook.
@@ -8,7 +8,9 @@
  * IPC bridge. This package never prints: the URL line belongs to the shell.
  */
 
+import { readFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
+import { createServer as createHttpsServer } from 'node:https'
 import type { IncomingMessage, ServerResponse, Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { Duplex } from 'node:stream'
@@ -47,10 +49,14 @@ export interface Config {
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
+  /** TLS certificate path for HTTPS/WSS serving. */
+  tlsCertPath?: string
+  /** TLS private key path for HTTPS/WSS serving. */
+  tlsKeyPath?: string
 }
 
 /**
- * The browser HTTP carrier service. Activation listens immediately. Route
+ * The browser Web carrier service. Activation listens immediately. Route
  * registration order does not affect requests because configured named routes
  * must be distinct, and the fallback handler answers anything not yet claimed
  * during startup with 404 until its owner registers. A listen failure rejects
@@ -60,6 +66,8 @@ export class WebServer extends Service {
   static Config: z<Config> = z.object({
     host: z.union([z.const('127.0.0.1'), z.const('0.0.0.0')]).required(),
     port: z.natural().max(65535).required(),
+    tlsCertPath: z.string(),
+    tlsKeyPath: z.string(),
   })
 
   private readonly exact = new Map<string, WebRoute>()
@@ -83,6 +91,11 @@ export class WebServer extends Service {
   /** The configured bind host (the loopback or all-interfaces literal). */
   get host(): Config['host'] {
     return this.config.host
+  }
+
+  /** URL protocol served by this listener. */
+  get protocol(): 'http:' | 'https:' {
+    return this.config.tlsCertPath === undefined ? 'http:' : 'https:'
   }
 
   /**
@@ -146,6 +159,12 @@ export class WebServer extends Service {
 
   /** Listen; resolves once the socket is bound (rejection = FAILED fiber). */
   async [Service.init](): Promise<void> {
+    if ((this.config.tlsCertPath === undefined) !== (this.config.tlsKeyPath === undefined)) {
+      throw new Error('webserver: TLS certificate and key paths must be configured together')
+    }
+    if (this.config.host !== '127.0.0.1' && this.config.tlsCertPath === undefined) {
+      throw new Error('webserver: non-loopback listeners require TLS certificate and key paths')
+    }
     const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
       /* v8 ignore next -- `?? '/'` arm: node:http always sets url on server
       requests; the field is only optional on the client-side IncomingMessage type */
@@ -167,7 +186,7 @@ export class WebServer extends Service {
     // rejection killing the process on one malformed request (bad %-escape,
     // client dropping mid-body). Per-request failures log and answer 400 —
     // never a process exit.
-    this.server = createServer((req, res) => {
+    const listener = (req: IncomingMessage, res: ServerResponse): void => {
       handle(req, res).catch((err: unknown) => {
         this.ctx.logger.warn(err instanceof Error ? err : new Error(String(err)))
         if (res.headersSent) {
@@ -177,7 +196,15 @@ export class WebServer extends Service {
         res.writeHead(400)
         res.end()
       })
-    })
+    }
+    if (this.config.tlsCertPath === undefined || this.config.tlsKeyPath === undefined) this.server = createServer(listener)
+    else {
+      const [cert, key] = await Promise.all([
+        readFile(this.config.tlsCertPath),
+        readFile(this.config.tlsKeyPath),
+      ])
+      this.server = createHttpsServer({ cert, key }, listener)
+    }
     this.server.on('upgrade', (req, socket, head) => {
       const onError = (error: Error): void => {
         this.ctx.logger.warn(error)

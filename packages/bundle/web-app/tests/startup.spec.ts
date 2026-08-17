@@ -59,6 +59,8 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
     '    port: !!js ctx.webStartup.port ?? 3080',
     '    trustedHosts: !!js ctx.webStartup.trustedHosts',
     '    authenticationMode: !!js ctx.webStartup.authenticationMode',
+    '    tlsCertPath: !!js ctx.webStartup.tlsCertPath',
+    '    tlsKeyPath: !!js ctx.webStartup.tlsKeyPath',
     '- id: provider',
     `  name: ${pathToFileURL(join(dir, 'provider.mjs')).href}`,
     '',
@@ -133,28 +135,42 @@ describe('web command-line provider', () => {
     expect(observed.exits).toEqual([1])
   })
 
-  it('allows an authenticated all-interfaces host', async () => {
-    const { values, observed } = await bootProvider(['--host', '0.0.0.0'])
-    expect(values).toEqual({
-      host: '0.0.0.0', trustedHosts: [], authenticationMode: 'authenticated',
-    })
-    expect(observed.readerConfig).toEqual({
-      host: '0.0.0.0', port: 3080, trustedHosts: [], authenticationMode: 'authenticated',
-    })
-    expect(observed.exits).toEqual([])
+  it('rejects a TLS certificate or key supplied without its pair', async () => {
+    const { values, observed } = await bootProvider(['--tls-cert', '/tls/server.crt'])
+    expect(observed.out).toContain('--tls-cert and --tls-key must be supplied together')
+    expect(values).toBeUndefined()
+    expect(observed.readerConfig).toBeUndefined()
+    expect(observed.exits).toEqual([1])
   })
 
-  it('publishes an explicitly acknowledged all-interfaces host', async () => {
+  it('rejects an all-interfaces host without a TLS certificate and key', async () => {
+    const { values, observed } = await bootProvider(['--host', '0.0.0.0'])
+    expect(observed.out).toContain('non-loopback serving requires --tls-cert and --tls-key')
+    expect(values).toBeUndefined()
+    expect(observed.readerConfig).toBeUndefined()
+    expect(observed.exits).toEqual([1])
+  })
+
+  it('publishes TLS configuration for an authenticated all-interfaces host', async () => {
     const { values, observed } = await bootProvider([
       '--host', '0.0.0.0',
-      '--dangerously-skip-authentication',
+      '--tls-cert', '/tls/server.crt',
+      '--tls-key', '/tls/server.key',
     ])
-    expect(values).toEqual({ host: '0.0.0.0', trustedHosts: [], authenticationMode: 'bypass' })
+    expect(values).toEqual({
+      host: '0.0.0.0',
+      trustedHosts: [],
+      authenticationMode: 'authenticated',
+      tlsCertPath: '/tls/server.crt',
+      tlsKeyPath: '/tls/server.key',
+    })
     expect(observed.readerConfig).toEqual({
       host: '0.0.0.0',
       port: 3080,
       trustedHosts: [],
-      authenticationMode: 'bypass',
+      authenticationMode: 'authenticated',
+      tlsCertPath: '/tls/server.crt',
+      tlsKeyPath: '/tls/server.key',
     })
     expect(observed.exits).toEqual([])
   })

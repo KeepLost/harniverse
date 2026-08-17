@@ -21,4 +21,4 @@ None; authentication material never enters model input.
 ## Known Limitations and Deferred Work
 
 - The seam authenticates one logical user and intentionally defines no authorization or token scopes.
-- TLS termination remains deployment-owned; Bearer tokens must not cross an untrusted plaintext network.
+- The authentication seam does not own TLS; the shipped WebServer requires configured TLS for non-loopback listening.

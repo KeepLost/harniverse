@@ -2,11 +2,11 @@
 
 English | [中文](authentication.zh.md)
 
-The [authentication Service Definition](../../packages/auth/authentication) normalizes admission for HTTP APIs and WebSockets. The shipped [local provider](../../packages/auth/authentication-local) verifies named Bearer tokens or in-memory browser sessions, while the connection consumer retains Host, Origin, Fetch Metadata, and DNS-rebinding checks as independent defenses.
+The [authentication Service Definition](../../packages/auth/authentication) normalizes admission for HTTP APIs and WebSockets. The shipped [local provider](../../packages/auth/authentication-local) verifies named Bearer tokens or in-memory browser sessions and rate limits invalid credentials by carrier and direct peer, while the connection consumer retains Host, Origin, Fetch Metadata, and DNS-rebinding checks as independent defenses.
 
 Every accepted credential belongs to one logical Harness user. A credential revision combines a stable token id, a non-secret management name, and a generation; it supports targeted browser-session and WebSocket revocation without introducing authorization, scopes, tenants, or per-token Harness sessions.
 
-Authenticated startup requires at least one token. Removing the final token seals the running instance until a token is added. Explicit bypass mode skips credential checks but retains the per-home instance lease and mandatory access records.
+Authenticated startup requires at least one token. Removing the final token seals the running instance until a token is added. Explicit bypass mode skips credential checks but retains the per-home instance lease and mandatory access records, and the connection consumer accepts bypass only on a loopback listener. The WebServer requires direct TLS for an all-interfaces listener.
 
 Source: [`packages/auth/authentication/src/index.ts`](../../packages/auth/authentication/src/index.ts)
 
@@ -53,7 +53,7 @@ abstract createBrowserSession(token: string, peerAddress?: string): Promise<Brow
 abstract revokeBrowserSession(cookie?: string): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:118`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:124`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authentication-events"></a>
 
@@ -73,7 +73,7 @@ Credential freshness was reconciled after an unavailable interval.
 'authentication/available'(): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:113`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:119`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authenticationrevoked--emit"></a>
 
@@ -90,7 +90,7 @@ A committed token registry change invalidated credential revisions.
 'authentication/revoked'(revocation: AuthenticationRevocation): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:101`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:107`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authenticationunavailable--emit"></a>
 
@@ -106,5 +106,5 @@ Credential freshness became unavailable; current sockets must close.
 'authentication/unavailable'(): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:107`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:113`](../../packages/auth/authentication/src/index.ts)
 <!-- END GENERATED cordis-surface -->

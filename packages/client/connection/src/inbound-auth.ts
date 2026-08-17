@@ -26,8 +26,17 @@ export function authenticateIncoming(
 /**
  * Send the stable HTTP authentication rejection without exposing provider details.
  * @param res - Node HTTP response owned by the route.
+ * @param decision - provider rejection, including an optional retry interval.
  */
-export function rejectUnauthorized(res: ServerResponse): void {
+export function rejectUnauthorized(
+  res: ServerResponse,
+  decision: Extract<AuthenticationDecision, { kind: 'rejected' }>,
+): void {
+  if (decision.reason === 'rate-limited') {
+    res.writeHead(429, { 'retry-after': String(Math.ceil(decision.retryAfterMs / 1_000)) })
+    res.end('rate limited')
+    return
+  }
   res.writeHead(401, { 'www-authenticate': 'Bearer realm="dsh"' })
   res.end('unauthorized')
 }

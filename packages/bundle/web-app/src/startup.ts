@@ -31,6 +31,10 @@ export interface WebStartupValues {
   trustedHosts: string[]
   /** Process-wide inbound authentication behavior. */
   authenticationMode: AuthenticationMode
+  /** HTTPS certificate path, when direct TLS is enabled. */
+  tlsCertPath?: string
+  /** HTTPS private key path, when direct TLS is enabled. */
+  tlsKeyPath?: string
 }
 
 /** The web flag family, as commander parsed it. */
@@ -40,6 +44,8 @@ interface WebOptions {
   trustedHost?: string[]
   /** Explicit authentication bypass for this network-serving process. */
   dangerouslySkipAuthentication?: boolean
+  tlsCert?: string
+  tlsKey?: string
 }
 
 /**
@@ -54,6 +60,8 @@ function webCommand(): Command {
     .option('--host <host>', 'bind host')
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
+    .option('--tls-cert <path>', 'TLS certificate path for direct HTTPS/WSS serving')
+    .option('--tls-key <path>', 'TLS private key path for direct HTTPS/WSS serving')
     .option('--dangerously-skip-authentication', 'bypass inbound authentication for this process (access remains logged)')
     .addHelpText('after', `
 Examples:
@@ -75,11 +83,19 @@ export function apply(ctx: Context): void {
     if (options.port !== undefined && !/^\d+$/.test(options.port)) {
       program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
     }
+    if ((options.tlsCert === undefined) !== (options.tlsKey === undefined)) {
+      program.error('error: --tls-cert and --tls-key must be supplied together')
+    }
+    if (options.host === '0.0.0.0' && options.tlsCert === undefined) {
+      program.error('error: non-loopback serving requires --tls-cert and --tls-key')
+    }
     ctx.provide(WEB_STARTUP_SERVICE, {
       ...options.host !== undefined && { host: options.host },
       ...options.port !== undefined && { port: Number(options.port) },
       trustedHosts: options.trustedHost ?? [],
       authenticationMode: options.dangerouslySkipAuthentication === true ? 'bypass' : 'authenticated',
+      ...options.tlsCert !== undefined && { tlsCertPath: options.tlsCert },
+      ...options.tlsKey !== undefined && { tlsKeyPath: options.tlsKey },
     } satisfies WebStartupValues)
   })
   parseCmdline(ctx, program)

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/authentication.md
-authentication.md: 03cfa5e40803b9c8c3b7e33ecb5a950b310413ba
-authentication.zh.md: d8d41791ff36ecbff749ee87a5a8d129c234c3e7
+authentication.md: 7982599bde88c8a8536e4fe04a9708c273a58453
+authentication.zh.md: a86ebc301e225eccef05660c803d1efd35b4db23

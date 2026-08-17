@@ -163,7 +163,13 @@ export async function withPrivateFileLock<T>(target: string, operation: () => Pr
       const current = await readLockOwner(lockPath)
       if (current.owner.pid === owner.pid && current.owner.nonce === owner.nonce) {
         await rm(join(lockPath, current.filename), { force: true })
-        await rmdir(lockPath)
+        try {
+          await rmdir(lockPath)
+        } catch (removeError) {
+          if (!isCode(removeError, 'ENOTEMPTY')) throw removeError
+          const replacement = await readLockOwner(lockPath)
+          if (replacement.owner.pid === owner.pid && replacement.owner.nonce === owner.nonce) throw removeError
+        }
       }
     } catch (error) {
       if (!isCode(error, 'ENOENT')) throw error

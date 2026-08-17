@@ -36,6 +36,7 @@ export {
 } from './management.ts'
 
 const COOKIE_NAME = 'dsh_auth'
+const SECURE_COOKIE_NAME = '__Host-dsh_auth'
 
 /** Local authentication plugin configuration. */
 export interface Config {
@@ -57,6 +58,14 @@ export interface Config {
   accessLogMaxBytes?: number
   /** Number of rotated access-log files retained. */
   accessLogMaxFiles?: number
+  /** Invalid credentials allowed per channel and peer within one window. */
+  authFailureLimit?: number
+  /** Invalid-credential counting window in milliseconds. */
+  authFailureWindowMs?: number
+  /** Block duration after the invalid-credential limit is reached. */
+  authFailureBlockMs?: number
+  /** Maximum channel and peer failure states retained in memory. */
+  maxAuthFailureKeys?: number
 }
 
 interface ResolvedSpec {
@@ -69,11 +78,21 @@ interface ResolvedSpec {
   reconcileIntervalMs: number
   accessLogMaxBytes: number
   accessLogMaxFiles: number
+  authFailureLimit: number
+  authFailureWindowMs: number
+  authFailureBlockMs: number
+  maxAuthFailureKeys: number
 }
 
 interface BrowserSession {
   credential: AuthenticationCredential
   expiresAt: number
+}
+
+interface AuthenticationFailures {
+  failures: number
+  windowStartedAt: number
+  blockedUntil: number
 }
 
 /** Stable Cordis service name. */
@@ -95,6 +114,10 @@ export function resolveSpec(config: Config): ResolvedSpec {
     reconcileIntervalMs: config.reconcileIntervalMs ?? 5_000,
     accessLogMaxBytes: config.accessLogMaxBytes ?? 10 * 1024 * 1024,
     accessLogMaxFiles: config.accessLogMaxFiles ?? 5,
+    authFailureLimit: config.authFailureLimit ?? 10,
+    authFailureWindowMs: config.authFailureWindowMs ?? 60_000,
+    authFailureBlockMs: config.authFailureBlockMs ?? 5 * 60_000,
+    maxAuthFailureKeys: config.maxAuthFailureKeys ?? 4_096,
   }
 }
 
@@ -104,10 +127,14 @@ function credentialKey(credential: AuthenticationCredential): string {
 
 function cookieSession(cookie: string | undefined): string | undefined {
   if (cookie === undefined) return undefined
-  const values = cookie.split(';')
-    .map(part => part.trim())
+  const parts = cookie.split(';').map(part => part.trim())
+  const secureValues = parts
+    .filter(part => part.startsWith(`${SECURE_COOKIE_NAME}=`))
+    .map(part => part.slice(SECURE_COOKIE_NAME.length + 1))
+  const legacyValues = parts
     .filter(part => part.startsWith(`${COOKIE_NAME}=`))
     .map(part => part.slice(COOKIE_NAME.length + 1))
+  const values = secureValues.length > 0 ? secureValues : legacyValues
   const value = values[0]
   return values.length === 1 && value !== undefined && /^[A-Za-z0-9_-]{43}$/.test(value) ? value : undefined
 }
@@ -124,11 +151,16 @@ export class LocalAuthentication extends InboundAuthentication {
     reconcileIntervalMs: z.natural().min(1).default(5_000),
     accessLogMaxBytes: z.natural().min(1).default(10 * 1024 * 1024),
     accessLogMaxFiles: z.natural().min(1).default(5),
+    authFailureLimit: z.natural().min(1).default(10),
+    authFailureWindowMs: z.natural().min(1).default(60_000),
+    authFailureBlockMs: z.natural().min(1).default(5 * 60_000),
+    maxAuthFailureKeys: z.natural().min(1).default(4_096),
   })
 
   readonly mode: AuthenticationMode
   private readonly spec: ResolvedSpec
   private readonly sessions = new Map<string, BrowserSession>()
+  private readonly authenticationFailures = new Map<string, AuthenticationFailures>()
   private credentials = new Map<string, AuthenticationCredential>()
   private operations: Promise<void> = Promise.resolve()
   private watcherHealthy = true
@@ -205,7 +237,10 @@ export class LocalAuthentication extends InboundAuthentication {
       else if (!this.watcherHealthy) decision = { kind: 'rejected', reason: 'authentication-unavailable' }
       else {
         try {
-          decision = await this.decide(attempt)
+          const key = this.failureKey(attempt.channel, attempt.peerAddress)
+          decision = this.rateLimited(key) ?? await this.decide(attempt)
+          if (decision.kind === 'accepted') this.authenticationFailures.delete(key)
+          else if (decision.reason === 'invalid-credential') this.recordAuthenticationFailure(key)
         } catch (error) {
           this.ctx.logger.warn('authentication-local: credential verification unavailable')
           this.ctx.logger.warn(error)
@@ -238,6 +273,12 @@ export class LocalAuthentication extends InboundAuthentication {
     if (this.mode === 'bypass') return { kind: 'rejected', reason: 'authentication-unavailable' }
     return this.enqueue(async () => {
       if (!this.watcherHealthy) return { kind: 'rejected', reason: 'authentication-unavailable' }
+      const key = this.failureKey('browser-login', peerAddress)
+      const limited = this.rateLimited(key)
+      if (limited !== undefined) {
+        await this.recordLogin('rejected', peerAddress, undefined, limited.reason)
+        return limited
+      }
       let credential: AuthenticationCredential | undefined
       try {
         credential = await verifyAuthenticationToken(token, this.spec)
@@ -247,9 +288,11 @@ export class LocalAuthentication extends InboundAuthentication {
         return { kind: 'rejected', reason: 'authentication-unavailable' }
       }
       if (credential === undefined) {
+        this.recordAuthenticationFailure(key)
         await this.recordLogin('rejected', peerAddress, undefined, 'invalid-credential')
         return { kind: 'rejected', reason: 'invalid-credential' }
       }
+      this.authenticationFailures.delete(key)
       this.credentials.set(credentialKey(credential), credential)
       await this.recordLogin('accepted', peerAddress, credential)
       const value = randomBytes(32).toString('base64url')
@@ -296,6 +339,36 @@ export class LocalAuthentication extends InboundAuthentication {
       return { kind: 'rejected', reason: 'invalid-credential' }
     }
     return { kind: 'accepted', credential: session.credential }
+  }
+
+  private failureKey(channel: AuthenticationAttempt['channel'] | 'browser-login', peerAddress: string | undefined): string {
+    return `${channel}:${peerAddress ?? 'unknown'}`
+  }
+
+  private rateLimited(key: string): Extract<AuthenticationDecision, { kind: 'rejected' }> | undefined {
+    const state = this.authenticationFailures.get(key)
+    if (state === undefined) return undefined
+    const now = Date.now()
+    if (state.blockedUntil > now) {
+      return { kind: 'rejected', reason: 'rate-limited', retryAfterMs: state.blockedUntil - now }
+    }
+    if (now - state.windowStartedAt >= this.spec.authFailureWindowMs) this.authenticationFailures.delete(key)
+    return undefined
+  }
+
+  private recordAuthenticationFailure(key: string): void {
+    const now = Date.now()
+    let state = this.authenticationFailures.get(key)
+    if (state === undefined) {
+      while (this.authenticationFailures.size >= this.spec.maxAuthFailureKeys) {
+        const oldest = this.authenticationFailures.keys().next().value as string
+        this.authenticationFailures.delete(oldest)
+      }
+      state = { failures: 0, windowStartedAt: now, blockedUntil: 0 }
+      this.authenticationFailures.set(key, state)
+    }
+    state.failures += 1
+    if (state.failures >= this.spec.authFailureLimit) state.blockedUntil = now + this.spec.authFailureBlockMs
   }
 
   private record(record: Omit<AccessRecord, 'time'> & { time?: string }): Promise<void> {

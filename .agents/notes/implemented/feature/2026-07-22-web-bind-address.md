@@ -12,18 +12,18 @@ The HTTP carrier also hides the bind address inside `startWebServer()`, so alter
 
 ## Decision
 
-`dsh web` binds `127.0.0.1` by default and accepts `--host 0.0.0.0` as the explicit all-interface mode under normal authenticated admission. `--dangerously-skip-authentication` selects bypass independently of the bind address; the browser-trust fence, instance lease, and access records remain active. All-interface mode keeps printing the loopback URL and, when available, the first external IPv4 URL. The [inbound authentication decision](2026-08-16-inbound-network-authentication.md) owns this superseding security behavior.
+`dsh web` binds `127.0.0.1` by default and accepts `--host 0.0.0.0` as the explicit all-interface mode only with paired TLS certificate and key paths. `--dangerously-skip-authentication` is restricted to loopback; the browser-trust fence, instance lease, and access records remain active there. All-interface mode prints HTTPS loopback and external IPv4 URLs. The [inbound authentication decision](2026-08-16-inbound-network-authentication.md) owns this superseding security behavior.
 
-`WebServerOptions.host` is required. The HTTP carrier passes that value to `node:http` without supplying a fallback, leaving each shell responsible for its bind policy. Programmatic carrier consumers may select another hostname or address directly.
+`WebServer.Config.host` is required. The carrier passes that value to the selected Node HTTP or HTTPS server without supplying a fallback, leaving each shell responsible for choosing loopback or all interfaces within the schema's closed set.
 
 ## Alternatives considered
 
 **Keep `0.0.0.0` as the default.** Rejected because ordinary same-machine use does not need network-wide reachability and should not acquire it implicitly.
 
-**Use a boolean exposure flag instead of `--host`.** Rejected because `--host 0.0.0.0` names the resulting socket behavior directly and matches the underlying server option. The supplemental acknowledgement names the independent absence of authentication rather than replacing the bind address.
+**Use a boolean exposure flag instead of `--host`.** Rejected because `--host 0.0.0.0` names the resulting socket behavior directly and matches the underlying server option. TLS and authentication remain separate explicit controls rather than replacing the bind address.
 
 **Default inside `startWebServer()`.** Rejected because the carrier has multiple possible shells and no basis for choosing their deployment policy. Requiring `host` makes the choice visible at every assembly call.
 
 ## Consequences
 
-Local `dsh web` starts remain reachable at `http://127.0.0.1:3080`; a container or browser on another machine uses `dsh web --host 0.0.0.0` with a named token. Operators terminate TLS externally when the network is not trusted. The CLI does not expose custom interface addresses or IPv6 modes, while programmatic carrier consumers retain that flexibility. Provider tests pin authenticated and bypass mode selection independently from bind selection; the built Web smoke covers the assembled path.
+Local `dsh web` starts remain reachable at `http://127.0.0.1:3080`; a container or browser on another machine uses `dsh web --host 0.0.0.0 --tls-cert <path> --tls-key <path>` with a named token. The CLI does not expose custom interface addresses or IPv6 modes. Provider and real-server tests pin loopback bypass, plaintext remote rejection, and direct HTTPS serving; the built Web smoke covers the assembled path.

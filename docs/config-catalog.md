@@ -365,12 +365,20 @@ export interface Config {
   accessLogMaxBytes?: number
   /** Number of rotated access-log files retained. */
   accessLogMaxFiles?: number
+  /** Invalid credentials allowed per channel and peer within one window. */
+  authFailureLimit?: number
+  /** Invalid-credential counting window in milliseconds. */
+  authFailureWindowMs?: number
+  /** Block duration after the invalid-credential limit is reached. */
+  authFailureBlockMs?: number
+  /** Maximum channel and peer failure states retained in memory. */
+  maxAuthFailureKeys?: number
 }
 ```
 
 Depends on: [`AuthenticationMode`](../packages/auth/authentication/src/index.ts)
 
-Source: [`packages/auth/authentication-local/src/index.ts:41`](../packages/auth/authentication-local/src/index.ts)
+Source: [`packages/auth/authentication-local/src/index.ts:42`](../packages/auth/authentication-local/src/index.ts)
 
 <a id="deepseek-aidsh-bash-local"></a>
 
@@ -830,10 +838,14 @@ export interface Config {
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
+  /** TLS certificate path for HTTPS/WSS serving. */
+  tlsCertPath?: string
+  /** TLS private key path for HTTPS/WSS serving. */
+  tlsKeyPath?: string
 }
 ```
 
-Source: [`packages/host/webserver/src/index.ts:45`](../packages/host/webserver/src/index.ts)
+Source: [`packages/host/webserver/src/index.ts:47`](../packages/host/webserver/src/index.ts)
 
 <a id="deepseek-aidsh-invariants"></a>
 

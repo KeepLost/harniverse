@@ -28,10 +28,14 @@ Names are unique and match `^[a-z0-9][a-z0-9._-]{0,63}$`. Reset and delete revok
 | `reconcileIntervalMs` | `5000` | Registry polling fallback when filesystem watch events are missed. |
 | `accessLogMaxBytes` | 10 MiB | Active JSONL size before rotation. |
 | `accessLogMaxFiles` | `5` | Rotated files retained. |
+| `authFailureLimit` | `10` | Invalid credentials allowed per channel and direct peer within one window. |
+| `authFailureWindowMs` | `60000` | Invalid-credential counting window. |
+| `authFailureBlockMs` | `300000` | Block duration after the failure limit is reached. |
+| `maxAuthFailureKeys` | `4096` | Maximum channel-and-peer limiter states retained in memory. |
 
 ## Storage and lifecycle
 
-Registry and access files are `0600` under `0700` directories on POSIX. Registry writes use atomic replacement under a nonce-owned cross-process lock. Filesystem watch events trigger targeted revocation, periodic reconciliation covers missed events, and an authenticated watcher or registry-read failure rejects new admission and closes current sessions and sockets until reconciliation succeeds. Bypass does not depend on registry freshness. The process acquires `$DSH_HOME/runtime/inbound-authentication.lease` before the WebServer binds, so authenticated and bypass instances are mutually exclusive for one home; stale process owners are reclaimed without deleting a replacement owner's marker.
+Registry and access files are `0600` under `0700` directories on POSIX. Registry writes use atomic replacement under a nonce-owned cross-process lock. Filesystem watch events trigger targeted revocation, periodic reconciliation covers missed events, and an authenticated watcher or registry-read failure rejects new admission and closes current sessions and sockets until reconciliation succeeds. Invalid credentials are counted independently by carrier and direct peer; reaching the configured limit blocks verification until the block duration expires, returns `rate-limited` with a retry interval, and bounded state evicts its oldest key at capacity. A successful credential clears its key. Bypass does not depend on registry freshness. The process acquires `$DSH_HOME/runtime/inbound-authentication.lease` before the WebServer binds, so authenticated and bypass instances are mutually exclusive for one home; stale process owners are reclaimed without deleting a replacement owner's marker.
 
 `$DSH_HOME/auth/access.jsonl` contains serialized, rotated JSON records for instance, token-management, login, and admission outcomes. Records may contain peer addresses and token names, but never request bodies, query strings, Harness session ids, Authorization/Cookie values, token ids, digests, or browser-session secrets. An accepted network admission becomes a rejection when its access record cannot be committed.
 

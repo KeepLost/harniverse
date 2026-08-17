@@ -62,6 +62,12 @@ export interface AuthenticationCredential {
 export type AuthenticationDecision =
   | { kind: 'accepted'; credential?: AuthenticationCredential }
   | { kind: 'rejected'; reason: 'missing-credential' | 'invalid-credential' | 'authentication-unavailable' }
+  | {
+    kind: 'rejected'
+    reason: 'rate-limited'
+    /** Milliseconds before another attempt may be made. */
+    retryAfterMs: number
+  }
 
 /** Current process admission state exposed to the browser login gate. */
 export interface AuthenticationStatus {

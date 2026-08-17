@@ -56,13 +56,13 @@ dsh --profile tui
 
 ```sh
 dsh web
-dsh web --host 0.0.0.0 --port 3000 --dangerously-skip-authentication
+dsh web --host 0.0.0.0 --port 3000 --tls-cert ./server.crt --tls-key ./server.key
 dsh web --patch ./extra.cordis.yml
 dsh web --dump-config
 dsh web --help
 ```
 
-生产 Web 运行器需要已构建的包和前端产物（`pnpm run build`）。默认服务地址是 `http://127.0.0.1:3080`。绑定所有网络接口必须同时指定 `--host 0.0.0.0` 与 `--dangerously-skip-authentication`；省略确认参数属于用法错误。该参数确认 Web API 可以在没有认证层的情况下执行 agent 工具，不会禁用或替代 `/api` 浏览器信任栅栏。全接口绑定会自动信任 LAN IP 字面量；`--trusted-host` 可添加容器入口域名等具名服务 authority。
+生产 Web 运行器需要已构建的包和前端产物（`pnpm run build`）。默认服务地址是 `http://127.0.0.1:3080`。绑定所有网络接口必须成对指定 `--tls-cert` 与 `--tls-key` 路径，并通过 HTTPS/WSS 服务；省略任一路径属于用法错误。`--dangerously-skip-authentication` 只接受回环监听，而且绝不禁用 `/api` 浏览器信任栅栏或访问记录。全接口绑定会自动信任 LAN IP 字面量；`--trusted-host` 可添加容器入口域名等具名服务 authority。
 
 进程关闭时，插件树最多有 5 秒完成 dispose。首次收到 `SIGINT` 或 `SIGTERM` 时会开始优雅排空：`SIGTERM` 是监督进程发出的常规停止请求，在所有运行模式下都以 0 退出；`SIGINT` 则报告 130。第二次收到信号时会立即强制退出。如果一次性运行在正常结束时已经卡在 dispose 阶段，第一次按下 `Ctrl+C` 就会直接升级为强制退出，而不会被忽略。
 

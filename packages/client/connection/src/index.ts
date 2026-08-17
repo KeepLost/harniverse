@@ -75,15 +75,11 @@ export const Config: z<ConnectionConfig> = z.object({
  * user's configuration and secret store, and READING them is equally
  * privileged — `settings.describe` returns every exposed namespace's
  * configuration and `credentials.describe` reports whether an arbitrary
- * environment-variable name is configured and where from, which is
- * reconnaissance no anonymous caller should have. `trustedHosts` is a
- * DNS-rebinding fence, explicitly not authentication, so the whole
- * configuration plane stays loopback-same-origin until a real authentication
- * layer exists. `llm.discoverModels` belongs to that plane on both counts: it
- * carries a draft credential, and it makes the HOST issue a GET to a URL the
- * caller chose and reports back the status or the parsed body — an anonymous
- * LAN caller would have a probe for whatever the host can reach and the
- * browser cannot.
+ * environment-variable name is configured and where from. Named tokens prove
+ * admission but carry no per-operation authorization, so the whole
+ * configuration plane remains loopback-only. `llm.discoverModels` belongs to
+ * that plane on both counts: it carries a draft credential, and it makes the
+ * HOST issue a GET to a caller-chosen URL and reports the status or parsed body.
  *
  * The model catalog (`llm.providers`, `llm.models`) is deliberately NOT here:
  * it carries provider ids, display names, and model lists — no endpoints,
@@ -138,6 +134,9 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   // silently authorizing its hostname prefix at request time.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
   if (ctx.get('apiProxy') !== undefined) assertImageBodyCapacity(ctx, maxRequestBodyBytes)
+  if (ctx.authentication.mode === 'bypass' && ctx.webServer.host !== '127.0.0.1') {
+    throw new Error('client-connection: authentication bypass is restricted to a loopback listener')
+  }
   const connection = new HostConnectionService(ctx, trustedHosts)
   const fetchHandler = connection.createSharedFetchHandler(API_PATH, {
     async fetch(request) {
@@ -172,7 +171,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
       }
       const decision = await authenticateIncoming(ctx, req, 'http-api')
       if (decision.kind === 'rejected') {
-        rejectUnauthorized(res)
+        rejectUnauthorized(res, decision)
         return
       }
       await bridge(req, res, fetchHandler, maxRequestBodyBytes)
@@ -194,7 +193,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
           const channel = path === MUX_EVENTS_PATH ? 'websocket-mux' : 'websocket-host'
           const decision = await authenticateIncoming(apiCtx, req, channel)
           if (decision.kind === 'rejected') {
-            rejectUnauthorizedWebSocket(socket)
+            rejectUnauthorizedWebSocket(socket, decision)
             return
           }
           if (path === MUX_EVENTS_PATH) downlinks.handleMux(req, socket, head, decision.credential)

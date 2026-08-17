@@ -28,10 +28,14 @@ dsh auth token list
 | `reconcileIntervalMs` | `5000` | 文件系统 watcher 漏掉事件时的 registry 轮询后备间隔。 |
 | `accessLogMaxBytes` | 10 MiB | 轮转前的活动 JSONL 大小。 |
 | `accessLogMaxFiles` | `5` | 保留的轮转文件数量。 |
+| `authFailureLimit` | `10` | 一个窗口内每个 channel 与直连 peer 可提交的无效凭据次数。 |
+| `authFailureWindowMs` | `60000` | 无效凭据计数窗口。 |
+| `authFailureBlockMs` | `300000` | 达到失败上限后的阻断时长。 |
+| `maxAuthFailureKeys` | `4096` | 内存中保留的 channel 与 peer 限速状态上限。 |
 
 ## 存储与生命周期
 
-在 POSIX 上，registry 与访问文件以 `0600` 模式位于 `0700` 目录中。Registry 写入在 nonce 所有的跨进程锁下原子替换。文件系统 watch 事件触发定向撤销，周期 reconciliation 补偿漏掉的事件；authenticated 模式的 watcher 或 registry 读取失败后会拒绝新接入并关闭当前会话与 socket，直到 reconciliation 成功。Bypass 不依赖 registry freshness。进程会在 WebServer 绑定前取得 `$DSH_HOME/runtime/inbound-authentication.lease`，因此一个主目录的 authenticated 与 bypass 实例互斥；回收过期进程所有者时不会删除替代所有者的 marker。
+在 POSIX 上，registry 与访问文件以 `0600` 模式位于 `0700` 目录中。Registry 写入在 nonce 所有的跨进程锁下原子替换。文件系统 watch 事件触发定向撤销，周期 reconciliation 补偿漏掉的事件；authenticated 模式的 watcher 或 registry 读取失败后会拒绝新接入并关闭当前会话与 socket，直到 reconciliation 成功。无效凭据按载体和直连 peer 分别计数；达到配置上限后，验证会被阻断到封禁期结束，返回带重试间隔的 `rate-limited`，有界状态在达到容量时逐出最早键；成功凭据会清除对应键。Bypass 不依赖 registry freshness。进程会在 WebServer 绑定前取得 `$DSH_HOME/runtime/inbound-authentication.lease`，因此一个主目录的 authenticated 与 bypass 实例互斥；回收过期进程所有者时不会删除替代所有者的 marker。
 
 `$DSH_HOME/auth/access.jsonl` 保存实例、令牌管理、登录与接入结果的串行轮转 JSON 记录。记录可以包含 peer 地址和令牌名称，但绝不包含请求 body、query string、Harness session id、Authorization/Cookie 值、令牌 id、digest 或浏览器会话 secret。若无法提交访问记录，一个本应成功的网络接入会改为拒绝。
 

@@ -337,6 +337,8 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(web.stderr).toBe('')
       expect(web.stdout).toContain('Usage: dsh --profile web')
       expect(web.stdout).toContain('--port <port>')
+      expect(web.stdout).toContain('--tls-cert <path>')
+      expect(web.stdout).toContain('--tls-key <path>')
       expect(web.stdout).toContain('--dangerously-skip-authentication')
       expect(web.stdout).not.toContain('dsh web: http://')
 
@@ -346,7 +348,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       })
       expect(wildcardHost.code).toBe(1)
       expect(wildcardHost.stdout).toBe('')
-      expect(wildcardHost.stderr).toContain('--host 0.0.0.0 requires --dangerously-skip-authentication')
+      expect(wildcardHost.stderr).toContain('non-loopback serving requires --tls-cert and --tls-key')
       expect(wildcardHost.stderr).not.toContain('dsh web: http://')
 
       const headlessHelp = await runBuiltBin(['--profile', 'headless', '--help'], {

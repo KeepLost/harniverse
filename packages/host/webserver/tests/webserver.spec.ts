@@ -5,17 +5,26 @@
  * taps, fallback-seat semantics, per-request error containment, teardown).
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { once } from 'node:events'
+import { request as httpsRequest } from 'node:https'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import HttpServer from '../src/index.ts'
+
+const TEST_CERT_BODY_PATH = fileURLToPath(new URL('./fixtures/test-cert.der.b64', import.meta.url))
+const TEST_KEY_BODY_PATH = fileURLToPath(new URL('./fixtures/test-key.der.b64', import.meta.url))
+
+/** Wrap public test DER material for Node's TLS parser. */
+function pem(label: 'CERTIFICATE' | 'PRIVATE KEY', body: string): string {
+  return `-----BEGIN ${label}-----\n${body}\n-----END ${label}-----\n`
+}
 
 let root: string | undefined
 let context: Context | undefined
@@ -28,14 +37,34 @@ afterEach(async () => {
 })
 
 /** Write a cordis.yml with one webserver row, then boot it through the real Loader. */
-async function loadComposition(port = 0): Promise<Context> {
+async function loadComposition(
+  port = 0,
+  host: '127.0.0.1' | '0.0.0.0' = '127.0.0.1',
+  tls: 'none' | 'pair' | 'cert-only' = 'none',
+): Promise<Context> {
   root = await mkdtemp(join(tmpdir(), 'dsh-webserver-loader-'))
   const configPath = join(root, 'cordis.yml')
+  const certPath = join(root, 'test-cert.pem')
+  const keyPath = join(root, 'test-key.pem')
+  if (tls !== 'none') {
+    const certBody = (await readFile(TEST_CERT_BODY_PATH, 'utf8')).trim()
+    await writeFile(certPath, pem('CERTIFICATE', certBody))
+  }
+  if (tls === 'pair') {
+    const keyBody = (await readFile(TEST_KEY_BODY_PATH, 'utf8')).trim()
+    await writeFile(keyPath, pem('PRIVATE KEY', keyBody), { mode: 0o600 })
+  }
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-host-webserver'",
     '  config:',
-    "    host: '127.0.0.1'",
+    `    host: '${host}'`,
     `    port: ${String(port)}`,
+    ...tls !== 'none' ? [
+      `    tlsCertPath: ${JSON.stringify(certPath)}`,
+    ] : [],
+    ...tls === 'pair' ? [
+      `    tlsKeyPath: ${JSON.stringify(keyPath)}`,
+    ] : [],
     '',
   ].join('\n'))
 
@@ -67,6 +96,21 @@ async function request(port: number, path: string, init?: RequestInit): Promise<
   return { status: response.status, body: (await response.text()).slice(0, 80) }
 }
 
+/** GET one path from the self-signed HTTPS fixture server. */
+function secureRequest(port: number, path: string): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const request = httpsRequest({ host: '127.0.0.1', port, path, rejectUnauthorized: false }, (response) => {
+      const chunks: Buffer[] = []
+      response.on('data', (chunk: Buffer) => { chunks.push(chunk) })
+      response.on('end', () => {
+        resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString() })
+      })
+    })
+    request.on('error', reject)
+    request.end()
+  })
+}
+
 /** Open one raw upgrade request and return after the handler writes its response. */
 async function upgrade(port: number, path: string): Promise<ReturnType<typeof connect>> {
   const socket = connect(port, '127.0.0.1')
@@ -86,6 +130,36 @@ async function upgrade(port: number, path: string): Promise<ReturnType<typeof co
 }
 
 describe('real Loader composition', () => {
+  it('refuses a plaintext all-interfaces listener', { timeout: 60_000 }, async () => {
+    let failure: unknown
+    try {
+      await loadComposition(0, '0.0.0.0')
+    } catch (error) {
+      failure = error
+    }
+    expect(String(failure)).toMatch(/non-loopback.*TLS/i)
+  })
+
+  it('refuses an incomplete TLS path pair', { timeout: 60_000 }, async () => {
+    let failure: unknown
+    try {
+      await loadComposition(0, '127.0.0.1', 'cert-only')
+    } catch (error) {
+      failure = error
+    }
+    expect(String(failure)).toMatch(/certificate and key paths must be configured together/i)
+  })
+
+  it('serves HTTPS when an all-interfaces listener has a certificate and key', { timeout: 60_000 }, async () => {
+    const loaded = await loadComposition(0, '0.0.0.0', 'pair')
+    expect(loaded.webServer.protocol).toBe('https:')
+    loaded.webServer.register({
+      kind: 'exact', path: '/secure', handler: (_req, res) => { res.writeHead(200); res.end('SECURE') },
+    })
+    await expect(secureRequest(loaded.webServer.port, '/secure'))
+      .resolves.toEqual({ status: 200, body: 'SECURE' })
+  })
+
   // Real-Loader composition resolves workspace packages through tsx at test
   // time; first resolution after the host/client program split is slow enough
   // to trip the default 5s budget on cold caches.

@@ -56,13 +56,13 @@ Git-hosted plugins that ship sources build during install through their `prepare
 
 ```sh
 dsh web
-dsh web --host 0.0.0.0 --port 3000 --dangerously-skip-authentication
+dsh web --host 0.0.0.0 --port 3000 --tls-cert ./server.crt --tls-key ./server.key
 dsh web --patch ./extra.cordis.yml
 dsh web --dump-config
 dsh web --help
 ```
 
-The production Web runner needs built package and frontend artifacts (`pnpm run build`). It serves `http://127.0.0.1:3080` by default. All-interface binding requires both `--host 0.0.0.0` and `--dangerously-skip-authentication`; omitting the acknowledgement is a usage error. The flag acknowledges that the Web API can execute agent tools without an authentication layer and does not disable or replace the `/api` browser-trust fence. LAN IP literals are trusted automatically for an all-interface bind; `--trusted-host` adds named serving authorities such as a container ingress hostname.
+The production Web runner needs built package and frontend artifacts (`pnpm run build`). It serves `http://127.0.0.1:3080` by default. All-interface binding requires paired `--tls-cert` and `--tls-key` paths and serves HTTPS/WSS; omitting either path is a usage error. `--dangerously-skip-authentication` is accepted only on loopback and never disables the `/api` browser-trust fence or access records. LAN IP literals are trusted automatically for an all-interface bind; `--trusted-host` adds named serving authorities such as a container ingress hostname.
 
 Process shutdown gives the plugin tree up to five seconds to dispose. The first `SIGINT`/`SIGTERM` starts that graceful drain — `SIGTERM` is a supervisor's ordinary stop request and exits 0 on every surface, `SIGINT` reports 130; a second signal forces immediate exit. If one-shot normal completion is already stuck in disposal, the first `Ctrl+C` is the escalation and exits immediately instead of being swallowed.
 

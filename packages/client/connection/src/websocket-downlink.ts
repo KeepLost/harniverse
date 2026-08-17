@@ -3,11 +3,11 @@
 import { randomUUID } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
+import type { AuthenticationCredential, AuthenticationDecision } from '@deepseek-ai/dsh-authentication'
 import WebSocket, { WebSocketServer } from 'ws'
 import type {
   ApiProxy, HostFrame, MuxFrame, RpcRequest, ServerRequest,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
-import type { AuthenticationCredential } from '@deepseek-ai/dsh-authentication'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { eventsMuxRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
 
@@ -237,8 +237,24 @@ export function rejectWebSocketUpgrade(socket: Duplex): void {
 /**
  * Reject an unauthenticated upgrade before protocol negotiation.
  * @param socket - raw HTTP socket that remains owned by the caller.
+ * @param decision - provider rejection, including an optional retry interval.
  */
-export function rejectUnauthorizedWebSocket(socket: Duplex): void {
+export function rejectUnauthorizedWebSocket(
+  socket: Duplex,
+  decision: Extract<AuthenticationDecision, { kind: 'rejected' }>,
+): void {
+  if (decision.reason === 'rate-limited') {
+    socket.end([
+      'HTTP/1.1 429 Too Many Requests',
+      'Connection: close',
+      'Content-Type: text/plain; charset=utf-8',
+      'Content-Length: 12',
+      `Retry-After: ${String(Math.ceil(decision.retryAfterMs / 1_000))}`,
+      '',
+      'rate limited',
+    ].join('\r\n'))
+    return
+  }
   socket.end([
     'HTTP/1.1 401 Unauthorized',
     'Connection: close',
