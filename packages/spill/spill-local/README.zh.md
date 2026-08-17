@@ -24,7 +24,7 @@
 
 `readText` 只接受后端自身的精确 locator 语法和 `v1:<byte-offset>` cursor。根目录和会话目录必须是真实、私有且归当前用户所有的目录；平台支持时，叶子读取还会使用 `O_NOFOLLOW`。它会拒绝路径、外来或格式错误的 locator、不安全或越界的 cursor、位于 UTF-8 序列内部的 cursor、非普通文件、无效的已存储 UTF-8，以及不在整数范围 `1` 到 `50000` 内的 `maxChars`；成功分页最多包含 `maxChars` 个 Unicode 码点，并仅在仍有文本时返回另一个不透明 cursor。
 
-`saveText` 和 `readText` 会拒绝文件缺失、不安全的目录归属或权限、ENOSPC 等存储故障，并遵循请求的取消信号。ToolRuntime 无法保留完整的过大结果时会生成工具结果失败，而可选的 `spill-policy` 使用尽力而为回退。
+`saveText` 和 `readText` 会拒绝文件缺失、不安全的目录归属或权限、ENOSPC 等存储故障，并遵循请求的取消信号。`dsh-tool-result-artifacts` 无法保留完整的过大结果时会生成工具结果失败，而可选的 `spill-policy` 使用尽力而为回退。
 
 ## 持久性与生命周期
 
@@ -34,7 +34,7 @@
 
 ## 模型体验
 
-通过 ToolRuntime 和 `artifact_read` 间接影响模型：前者在有界完整结果标记中显示不透明本地 locator，后者返回一个已配置大小的 Unicode 分页及续读指引；模型不会收到宿主路径。
+通过 `dsh-tool-result-artifacts` 间接影响模型：该 Consumer 在有界完整结果标记中显示不透明本地 locator 并注册 `artifact_read`；模型不会收到宿主路径。
 
 #### KV Cache 影响
 

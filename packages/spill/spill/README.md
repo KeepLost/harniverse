@@ -10,16 +10,16 @@ This package is the Service Definition in a four-package capability whose roles 
 |---|---|
 | `@deepseek-ai/dsh-spill` (this) | Service Definition: abstract service and request/result types |
 | `@deepseek-ai/dsh-spill-local` | Service Provider: durable private files on the host filesystem |
-| `@deepseek-ai/dsh-tool-artifact-read` | Consumer: model-facing sequential text retrieval |
+| `@deepseek-ai/dsh-tool-result-artifacts` | Consumer: finalized-result retention and model-facing sequential text retrieval |
 | `@deepseek-ai/dsh-spill-policy` | Optional Consumer: best-effort result byte policy |
 
-A remote or virtual backend can implement this Service Definition without changing ToolRuntime, `artifact_read`, or policy consumers.
+A remote or virtual backend can implement this Service Definition without changing result-artifact or policy Consumers.
 
 ## Service API (`ctx.spillStore`)
 
 | Member | Semantics |
 |---|---|
-| `saveText(input)` | Persist `input.content` verbatim; resolve with an opaque locator, exact UTF-8 byte length, and retrieval guidance; reject on storage failure. |
+| `saveText(input)` | Persist `input.content` verbatim; resolve with an opaque locator and exact UTF-8 byte length; reject on storage failure. |
 | `readText(input)` | Validate the backend-owned locator, optional cursor, and requested bound; return at most `maxChars` Unicode code points plus an opaque `nextCursor` when unread text remains; reject invalid or unreadable input. |
 
 Storage is grouped by the request's `owner` session as a save-time namespace. The backend chooses its private representation and may derive names from `suggestedName`, but must never trust it as a path. Consumers pass locators and cursors unchanged: only the producing backend interprets and validates them, including rejecting another backend's locator, malformed cursors, and storage-specific integrity failures.
@@ -34,7 +34,7 @@ See the [tool output spill Agent Note](../../../.agents/notes/implemented/archit
 
 ## Model Experience
 
-Indirectly, through ToolRuntime, which renders a bounded full-result marker and structured artifact reference, and `artifact_read`, which returns one backend-bounded page and continuation guidance while the service adds no schema itself.
+Indirectly, through `dsh-tool-result-artifacts`, which renders a bounded full-result marker and structured artifact reference and registers `artifact_read`; the service adds no schema itself.
 
 #### KV Cache effect
 

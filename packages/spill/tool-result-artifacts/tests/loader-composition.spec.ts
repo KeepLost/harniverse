@@ -11,7 +11,7 @@ import SpillStore, { SpillLocator } from '@deepseek-ai/dsh-spill'
 import type { ReadTextSpill, ReadTextSpillPage, SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import * as ToolArtifactRead from '@deepseek-ai/dsh-tool-artifact-read'
+import * as ToolResultArtifacts from '@deepseek-ai/dsh-tool-result-artifacts'
 
 let root: string | undefined
 let context: Context | undefined
@@ -43,7 +43,7 @@ async function boot(): Promise<Context> {
     "- name: '@deepseek-ai/dsh-system-prompt'",
     "- name: '@deepseek-ai/dsh-tools'",
     "- name: '@fixture/spill-store'",
-    "- name: '@deepseek-ai/dsh-tool-artifact-read'",
+    "- name: '@deepseek-ai/dsh-tool-result-artifacts'",
     '  config:',
     '    pageChars: 3',
     '',
@@ -58,7 +58,7 @@ async function boot(): Promise<Context> {
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['@fixture/spill-store', LoaderSpillStore],
-    ['@deepseek-ai/dsh-tool-artifact-read', ToolArtifactRead],
+    ['@deepseek-ai/dsh-tool-result-artifacts', ToolResultArtifacts],
   ])
   ctx.loader.internal = {
     version: 'v2',
@@ -102,7 +102,7 @@ describe('artifact_read real Loader composition through cordis.yml', () => {
       value: { text: '组合🙂', nextCursor: 'loader-cursor' },
       content: [{
         type: 'text',
-        text: '组合🙂\n\nContinue with artifact_read using the same locator and cursor "loader-cursor".',
+        text: '组合🙂\n\nartifact_read cursor="loader-cursor"',
       }],
     })
   }, 30_000)

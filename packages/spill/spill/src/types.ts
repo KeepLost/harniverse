@@ -13,7 +13,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 /**
  * Opaque model-facing handle for one spilled artifact. A local backend may use a
  * filesystem path; a remote or database backend may use a URI or key. Consumers
- * render it with {@link SpillRef.retrievalHint}, but do not parse it.
+ * render but do not parse it.
  */
 export type SpillLocator = Branded<'SpillLocator'>
 
@@ -67,11 +67,10 @@ export interface SaveTextSpill {
   content: string
 }
 
-/** A saved spill artifact: its locator, byte length, and backend-specific retrieval guidance. */
+/** A saved spill artifact: its opaque locator and exact byte length. */
 export interface SpillRef {
   locator: SpillLocator
   bytes: number
-  retrievalHint: string
 }
 
 /** One backend-owned request to page a previously saved text artifact. */

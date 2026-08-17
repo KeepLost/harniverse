@@ -1599,7 +1599,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'spillStore',
     summary: 'Abstract spill storage service.',
-    description: 'Abstract spill storage service. Subclass, implement saveText, and load the subclass as a plugin — it registers as `ctx.spillStore` (one implementation per context; loading a second throws, cordis\' standard duplicate-service behavior).\n\nSemantics every implementation must honor:\n\n- saveText persists the FULL `content` verbatim and returns an opaque locator, exact byte length, and model-facing retrieval guidance.\n- Storage is scoped by the request\'s SaveTextSpill.owner session; the backend chooses a private (not world-readable) location and a collision-free name derived from — never equal to — the caller\'s `suggestedName`.\n- `saveText` REJECTS on a real storage failure (permissions, ENOSPC, backend unavailable); the caller decides how to degrade (the spill policy treats a rejection as best-effort and keeps the inline result).\n- Both operations observe the request\'s caller-owned cancellation signal and settle promptly after cancellation.',
+    description: 'Abstract spill storage service. Subclass, implement saveText, and load the subclass as a plugin — it registers as `ctx.spillStore` (one implementation per context; loading a second throws, cordis\' standard duplicate-service behavior).\n\nSemantics every implementation must honor:\n\n- saveText persists the FULL `content` verbatim and returns an opaque locator and exact byte length.\n- Storage is scoped by the request\'s SaveTextSpill.owner session; the backend chooses a private (not world-readable) location and a collision-free name derived from — never equal to — the caller\'s `suggestedName`.\n- `saveText` REJECTS on a real storage failure (permissions, ENOSPC, backend unavailable); the caller decides how to degrade (the spill policy treats a rejection as best-effort and keeps the inline result).\n- Both operations observe the request\'s caller-owned cancellation signal and settle promptly after cancellation.',
     methods: [
       {
         signature: 'abstract saveText(input: SaveTextSpill): Promise<SpillRef>',
@@ -1970,11 +1970,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Tool registry and execution pipeline.',
     description: 'Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.',
     methods: [
-      {
-        signature: 'readonly maxResultTextChars: number',
-        description: 'Resolved finalized-result text limit used by tools that must reserve their own rendering overhead.',
-        parameters: [],
-      },
       {
         signature: 'presentAs(mode: ToolPresentationMode): () => void',
         description: 'Present the calling scope\'s tools in `mode` instead of the deployment default. Nearest scope on the chain wins, so a preset\'s standing declaration covers every agent joined under it.\n\nScoped only, and one declaration per scope: this is how an agent preset composes Code Mode agents beside native ones in the same process, and a process-global override would be the `mode` config field instead.',
@@ -2667,6 +2662,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Around-dispatch waterfall for timeout, retry, or metrics.',
     description: 'Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a normalized result; wrappers may change only `exec.signal`, while call identity remains immutable. The registry re-fuses the original caller signal before the body, so replacement cannot detach caller cancellation; wrappers must still restore their signal and reach quiescence. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.',
     parameters: [{ name: 'exec', description: 'the allowed call about to dispatch (name, parsed arguments, caller agent, signal).' }],
+  },
+  {
+    name: 'tools/finalize-result',
+    mode: 'waterfall',
+    signature: '\'tools/finalize-result\'(this: Scoped<ToolRuntime>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>',
+    summary: 'Transform a complete normalized result after definition-owned `finalizeContent` and before authoritative lossless materialization.',
+    description: 'Transform a complete normalized result after definition-owned `finalizeContent` and before authoritative lossless materialization. `next()` preserves the result. Listeners may perform asynchronous policy work but must settle before `tools/result` notification. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.',
+    parameters: [{ name: 'exec', description: 'the execution whose result is being finalized.' }, { name: 'result', description: 'the complete candidate outcome.' }],
   },
   {
     name: 'tools/post-execute',
@@ -4318,7 +4321,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SpillRef',
-    declaration: 'export interface SpillRef {\n    locator: SpillLocator;\n    bytes: number;\n    retrievalHint: string;\n}',
+    declaration: 'export interface SpillRef {\n    locator: SpillLocator;\n    bytes: number;\n}',
   },
   {
     name: 'SpillSource',
@@ -4694,7 +4697,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolRuntime',
-    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    readonly maxResultTextChars: number;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
+    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
   },
   {
     name: 'ToolRuntimeScheduler',

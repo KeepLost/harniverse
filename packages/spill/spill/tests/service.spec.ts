@@ -21,7 +21,6 @@ class StubStore extends SpillStore {
     return {
       locator: SpillLocator(`/stub/${input.suggestedName}`),
       bytes: Buffer.byteLength(input.content, 'utf8'),
-      retrievalHint: 'Use the stub reader.',
     }
   }
 
@@ -47,7 +46,7 @@ describe('spill seam', () => {
     const ctx = new Context()
     await ctx.plugin(StubStore)
     const ref = await ctx.spillStore.saveText(request('hello'))
-    expect(ref).toEqual({ locator: '/stub/web_fetch.txt', bytes: 5, retrievalHint: 'Use the stub reader.' })
+    expect(ref).toEqual({ locator: '/stub/web_fetch.txt', bytes: 5 })
     expect((ctx.spillStore as StubStore).last?.content).toBe('hello')
   })
 

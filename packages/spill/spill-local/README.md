@@ -24,7 +24,7 @@ Files land at `<root>/session-<hash>/​<random>-<safeName>`:
 
 `readText` accepts only the backend's exact locator syntax and `v1:<byte-offset>` cursors. The root and session directory must be real, private, current-user-owned directories; the leaf read also uses `O_NOFOLLOW` where available. It rejects paths, foreign or malformed locators, unsafe or out-of-range cursors, cursors inside a UTF-8 sequence, non-regular files, invalid stored UTF-8, and `maxChars` values outside the integer range `1` through `50000`; a successful page contains at most `maxChars` Unicode code points and returns another opaque cursor only when text remains.
 
-`saveText` and `readText` reject storage failures such as missing files, unsafe directory ownership or permissions, or ENOSPC, and observe the request's cancellation signal. ToolRuntime treats inability to retain a complete oversized result as a tool-result failure, while the optional `spill-policy` uses a best-effort fallback.
+`saveText` and `readText` reject storage failures such as missing files, unsafe directory ownership or permissions, or ENOSPC, and observe the request's cancellation signal. `dsh-tool-result-artifacts` treats inability to retain a complete oversized result as a tool-result failure, while the optional `spill-policy` uses a best-effort fallback.
 
 ## Durability and lifecycle
 
@@ -34,7 +34,7 @@ Session close, service disposal, and runtime shutdown do not delete files. The b
 
 ## Model Experience
 
-Indirectly, through ToolRuntime, which shows an opaque local locator in its bounded full-result marker, and `artifact_read`, which returns one configured Unicode page plus continuation guidance while the model never receives the host path.
+Indirectly, through `dsh-tool-result-artifacts`, which shows an opaque local locator in its bounded full-result marker and registers `artifact_read`; the model never receives the host path.
 
 #### KV Cache effect
 

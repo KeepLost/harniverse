@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-工具注册表与执行流水线。工具插件注册各自的 schema 和执行器；agent loop（智能体循环）依次让每次调用经过 `tools/pre-execute`（可扩展的允许／拒绝门禁）→ 已注册的单调守卫 → `tools/execute`（供超时／重试／指标插件使用的环绕分发包装层）→ `tools/post-execute`（检查／替换结果、附加上下文）→ 由工具定义持有的 `finalizeContent` 边界 → 仅观测的 `tools/result` 通知。注册表还决定以何种方式向模型呈现工具：`mode` 配置可以选择原生 Function Calling（函数调用）、[Code Mode](#code-mode)，或同时选择两者；单个 agent 可用 `presentAs` 为自己遮蔽该默认值。
+工具注册表与执行流水线。工具插件注册各自的 schema 和执行器；agent loop（智能体循环）依次让每次调用经过 `tools/pre-execute`（可扩展的允许／拒绝门禁）→ 已注册的单调守卫 → `tools/execute`（供超时／重试／指标插件使用的环绕分发包装层）→ `tools/post-execute`（检查／替换结果、附加上下文）→ 由工具定义持有的 `finalizeContent` 边界 → `tools/finalize-result`（异步最终结果策略）→ 仅观测的 `tools/result` 通知。注册表还决定以何种方式向模型呈现工具：`mode` 配置可以选择原生 Function Calling（函数调用）、[Code Mode](#code-mode)，或同时选择两者；单个 agent 可用 `presentAs` 为自己遮蔽该默认值。
 
 ## 服务：`ToolRuntime`（ctx 键：`tools`）
 
@@ -11,10 +11,7 @@
 ```yaml
 tools:
   mode: native                 # native (default) | code | both
-  maxResultTextChars: 50000    # default and hard maximum
 ```
-
-`maxResultTextChars` 必须是 120 到 50,000 之间的整数。最小值可以容纳完整的保留失败安全警告。工具定义的 `finalizeContent` 运行后，`ToolRuntime` 会统计所有递归嵌套文本块的 Unicode 码点数，并始终限制其总长度；思考内容和非文本块不占用此预算。
 
 `native` 以函数定义的形式贡献可见工具。`code` 会提供保留的 `run_code` 传输、生成的 `tools:sdk` 段，以及声明「只有 `run_code` 可被直接调用」的 `tools:code-only` 规则。执行器随后强制执行该规则：模型直接调用其他任何工具时，会在策略运行前将该调用解析为 `UNKNOWN_TOOL`；`both` 同时提供两种形式，且不声明该规则，因为其中的原生调用确实可以执行。没有单独声明呈现模式的 agent 默认采用此配置；agent preset 可通过 [`dsh-agent-tool-presentation`](../agent-tool-presentation/README.md) 自行选择呈现模式。不能注册、遮蔽、限制或移除该保留传输，且无论配置何种模式，该名称都是保留的，因为任何 agent 都可能选择 code 模式。非原生模式要求所加载 `ctx.codeRuntime` 的 `language` 有已注册的 SDK 渲染器——TypeScript 经 [`dsh-code-runtime-worker-thread`](../../code-runtime/code-runtime-worker-thread/README.md) 交付；Python 渲染器内置，驱动任何报告 `language: 'python'` 的运行时（第一方 `dsh-code-runtime-python` 后端另行交付）。没有渲染器的运行时语言会导致提示词组装明确失败；如果 `systemPrompt.toolOrder` 条目指向当前模式未贡献的工具，系统会拒绝组装提示词。`system-prompt/assemble` 监听器可以替换注册表贡献；它返回的组装结果具有权威性，因此该监听器负责保留可用的 Code Mode 协议。
 
@@ -26,7 +23,7 @@ tools:
 - `ctx.tools.get(name: string, scope?: ScopeKey): ToolDefinition | undefined`：返回指定作用域可见的解析结果，其中已应用名称遮蔽；被作用域限制排除的全局工具会被视为不存在。呈现器会传入发起调用的 agent，使卡片与实际执行内容一致。
 - `ctx.tools.schemas(scope?: ScopeKey): ToolSchema[]`：返回该作用域可见的所有 schema（不含 `execute` 函数）。已交付工具的 schema 收录在 [docs/tool-catalog.md](../../../docs/tool-catalog.md) 中；该目录通过启动每个工具插件并采集此方法的结果生成（参见[工具 schema 目录 Agent Note](../../../.agents/notes/implemented/process/2026-07-02-tool-schema-catalog.md)）。
 - `ctx.tools.guard(guard: ToolGuard): () => void`：在 `tools/pre-execute` 之后注册单调同步执行守卫：返回理由会拒绝调用，返回 `undefined` 则保持原决定。普通上下文守卫全局生效；`agent.ctx` 守卫只对该 agent 生效。后续 waterfall（瀑布式事件）监听器无法将守卫的拒绝重新变为允许。随调用 fiber dispose。
-- `ctx.tools.execute(exec)`：以无损方式快照并冻结参数，分配不透明 token，运行完整的策略／分发／结果流水线，应用 `finalizeContent`，保留超大终结文本，然后在最终观测前独立快照权威的有界结果。无效参数会进入同一结果路径，但不会到达策略或工具主体。环绕包装层只能替换 `signal`；注册表会在进入工具主体之前，立即将调用方的原始信号重新合并到当前信号中。
+- `ctx.tools.execute(exec)`：以无损方式快照并冻结参数，分配不透明 token，运行完整的策略／分发／结果流水线，应用 `finalizeContent` 和 `tools/finalize-result`，然后在最终观测前独立快照权威结果。无效参数会进入同一结果路径，但不会到达策略或工具主体。环绕包装层只能替换 `signal`；注册表会在进入工具主体之前，立即将调用方的原始信号重新合并到当前信号中。
 - `ctx.tools.executionMode(exec)`：返回 `parallel` 的唯一条件是可见定义的 `isConcurrencySafe(exec.arguments)` 分类器恰好返回 `true`；未知、隐藏、未声明、无效或抛出异常的分类结果均为独占。
 
 ### 注入的服务
@@ -39,7 +36,7 @@ tools:
 
 ### 实时事件
 
-实时注册表流水线先经过 3 道可转换的 waterfall，再经过由工具定义持有的内容终结器，最后发布仅供观测的 `tools/result` 事件；注册表变更通知有意不作过滤，并作为共享状态通知发布。确切签名、分发 mode、作用域筛选和失败隔离约定位于 [tools.md](../../../docs/subsystems/tools.md#cordis-surface) 的生成区块，完整顺序则在生成的[工具执行流水线](../../../docs/tool-execution-pipeline.md)中可视化。`tools/result` 是实时事件；名称相近的 `tool/result` 是 agent loop 随后追加的持久会话事件。
+实时注册表流水线先经过 3 道分发 waterfall，再经过由工具定义持有的内容终结器和异步 `tools/finalize-result` waterfall，最后发布仅供观测的 `tools/result` 事件；注册表变更通知有意不作过滤，并作为共享状态通知发布。确切签名、分发 mode、作用域筛选和失败隔离约定位于 [tools.md](../../../docs/subsystems/tools.md#cordis-surface) 的生成区块，完整顺序则在生成的[工具执行流水线](../../../docs/tool-execution-pipeline.md)中可视化。`tools/result` 是实时事件；名称相近的 `tool/result` 是 agent loop 随后追加的持久会话事件。
 
 ### 关键类型
 
@@ -48,7 +45,7 @@ tools:
 - `ToolExecutionToken`：注册表分配的全新带品牌 `Symbol`。它只支持通过相等性进行关联，绝不会跨越模型、日志或 worker 边界。
 - `ToolExecution`：只读流水线视图：不可变的 `{ token, callId, name, arguments, signal, agent?, parent? }`；注册表会另行保留并重新融合调用方的原始信号。`ToolDispatchExecution` 是仅供 `tools/execute` 使用的视图，其必填信号可变，因此包装层可以替换并还原它，但不能删除它。嵌套调用的 `parent` 是 `ToolExecutionToken`，而不是执行对象。
 - `ToolRunContext`：传给工具主体的执行上下文，在 `ToolExecution` 基础上增加 `deferContext(context)`。它把一条上下文推迟到该工具的最终结果抵达循环时——通常是组合工具转运的嵌套分发上下文，也可以是叶子工具创建的全新插件来源指令（如 `tool-goal` 的收尾注入）——即使工具后来抛出或取消胜出也不例外；该方法绝不会立即注入上下文。
-- `ToolExecutionResult`：带判别标记的执行局部结果。成功形态为 `{ isError:false, value:JsonValue, content, meta?, additionalContexts?, artifact? }`；失败形态为 `{ isError:true, error:{ message, info? }, content, meta?, additionalContexts?, artifact? }`，且不含值。调用身份保留在不可变的 `ToolExecution` 上。注册表会在呈现前快照、验证并冻结规范值，随后在最终观测前实体化持久呈现字段。`ToolFailure.info` 携带内部的 `{ name, code }`，用于表示 `HarnessError`；`additionalContexts` 会保留每个通过延迟或 post-execute 加入且带标识的 `UserMessage`，供循环在结果后按 FIFO 顺序处理。文本上限只改变递归嵌套的文本块：规范 `value`、结构化 `error`、`meta`、非文本块和 `additionalContexts` 仍是语义不变的独立字段。
+- `ToolExecutionResult`：带判别标记的执行局部结果。成功形态为 `{ isError:false, value:JsonValue, content, meta?, additionalContexts?, artifact? }`；失败形态为 `{ isError:true, error:{ message, info? }, content, meta?, additionalContexts?, artifact? }`，且不含值。调用身份保留在不可变的 `ToolExecution` 上。注册表会在呈现前快照、验证并冻结规范值，随后在最终观测前实体化持久呈现字段。`ToolFailure.info` 携带内部的 `{ name, code }`，用于表示 `HarnessError`；`additionalContexts` 会保留每个通过延迟或 post-execute 加入且带标识的 `UserMessage`，供循环在结果后按 FIFO 顺序处理。最终结果 Consumer 可以转换呈现字段，而规范 `value`、结构化 `error`、`meta`、非文本块和 `additionalContexts` 仍是独立字段。
 - `ToolResultArtifact`：指向从有界内联内容中省略的完整终结文本的持久 `{ kind: 'full-result', locator, bytes }` 引用。`bytes` 是该文本的精确 UTF-8 字节长度，`artifact_read` 接受不透明 locator 并以有界分页恢复文本。
 - `PreToolDecision`：`{kind:'allow'}` | `{kind:'deny', reason}` | `{kind:'ask', reason?}`。该类型有意不提供输入改写；`ask` 在挂载 [`ctx.approval`](../../interaction/user-approval/README.md) 时由它处理，否则退化为拒绝。
 - `PostToolDecision`：接受决定可以替换 `content` 或 `value`（不能同时替换），并可附加 `additionalContexts`；阻止决定会把反馈变成无值失败。替换内容会保留规范值和元数据。替换值会重新验证，并重新呈现内容／元数据。接受决定会先保留工具延迟的上下文，再附加决定上下文；阻止决定会丢弃工具延迟的上下文，只公开阻止决定显式提供的上下文。
@@ -60,9 +57,7 @@ tools:
 - 工具插件调用 `ctx.tools.register()`：schema 会自动流入组装结果。
 - `tools/pre-execute` 是可重排的允许／拒绝／询问门禁；`ctx.tools.guard()` 在其后添加单调的拥有方策略。
 - `tools/execute` 会环绕包装规范化后的规范分发，以支持超时、重试或指标采集。包装层只能替换操作信号；包装层生成的成功结果会根据已解析工具的输出声明进行规范化。每个规范结果属于一个不可变分发 token，因此来自其他调用或工具的缓存结果会根据当前声明重新验证。
-- `tools/post-execute` 可以替换呈现内容、替换规范值、通过反馈阻止，或附加有序上下文。随后，定义可选的 `finalizeContent` 会在普通结果和外层流水线失败中维护其最终、仅涉及内容的不变式。`ToolRuntime` 接着拼接完整终结文本并先保存它，再把超大内联结果缩短为含 `artifact_read` locator 的有界头尾预览；`tools/result` 观测不可变的最终结果。内容替换不是保密边界：当编程消费方不得接收某个值时，应阻止或替换该值。
-
-如果完整保留功能不可用或失败，运行时会发出有界 `TOOL_RESULT_RETENTION_FAILED` 错误，而不是发布无法恢复的部分成功。警告会说明操作可能已经完成，且操作可能有副作用，因此不得盲目重试；调用方必须先验证外部状态，或按工具的重试语义判断后再重复操作。
+- `tools/post-execute` 可以替换呈现内容、替换规范值、通过反馈阻止，或附加有序上下文。随后，定义可选的 `finalizeContent` 会在普通结果和外层流水线失败中维护其最终同步、仅涉及内容的不变式。`tools/finalize-result` 是供 [`dsh-tool-result-artifacts`](../../spill/tool-result-artifacts/README.md) 等完整结果策略使用的异步扩展点；`tools/result` 观测不可变的最终结果。内容替换不是保密边界：当编程消费方不得接收某个值时，应阻止或替换该值。
 - 确切签名与顺序位于 [tools.md](../../../docs/subsystems/tools.md#cordis-surface) 的生成区块和[流水线](../../../docs/tool-execution-pipeline.md)中。
 - MCP 服务器：每个服务器使用一个插件；发现工具后，使用服务器的 schema 调用 `ctx.tools.register()`。
 
@@ -183,11 +178,11 @@ The available tools:
 
 #### 模型看到的内容
 
-循环会保留模型发出的参数和注册表最终的有界内容。超大终结文本显示为头尾预览，其中包含用于读取完整已保存文本的不透明 `artifact_read` locator。保留失败则显示有界 `TOOL_RESULT_RETENTION_FAILED` 警告，提醒模型不得盲目重复可能有副作用的操作。其他任何抛出异常或遭到拒绝的调用，都会转换为确切的 `Error: <message>`。Code Mode 只返回外层程序打印的行和呈现后的返回值；两者都为空时返回 `(run_code completed with no output)`；失败时返回 `Error: code run failed (<kind>): <message>`，并根据是否存在已捕获内容，在其后附加 `Captured output:` 与捕获的行。内部分发事件只保留在日志中；后置执行监听器可以在结果之后追加带来源归属的上下文。
+循环会保留模型发出的参数和经过所有已组装策略后的注册表最终内容。任何抛出异常或遭到拒绝的调用，都会转换为确切的 `Error: <message>`。Code Mode 只返回外层程序打印的行和呈现后的返回值；两者都为空时返回 `(run_code completed with no output)`；失败时返回 `Error: code run failed (<kind>): <message>`，并根据是否存在已捕获内容，在其后附加 `Captured output:` 与捕获的行。内部分发事件只保留在日志中；后置执行监听器可以在结果之后追加带来源归属的上下文。
 
 #### Token 影响
 
-参数、有界结果文本和附加上下文取决于数据，并会重复发送直至压缩（compaction）。完整产物文本只在模型请求的有界 `artifact_read` 分页中进入上下文。隐藏工具的限制还会在模型可以调用这些工具之前移除其 schema。
+参数、结果文本和附加上下文取决于数据，并会重复发送直至压缩（compaction）。已组装的最终结果 Consumer 可以在文本抵达模型之前限制其大小。隐藏工具的限制还会在模型可以调用这些工具之前移除其 schema。
 
 #### KV Cache 影响
 

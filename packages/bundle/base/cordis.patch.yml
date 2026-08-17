@@ -352,9 +352,10 @@
       config:
         maxInlineBytes: 50000
 
-    - id: tool-artifact-read
-      name: '@deepseek-ai/dsh-tool-artifact-read'
+    - id: tool-result-artifacts
+      name: '@deepseek-ai/dsh-tool-result-artifacts'
       config:
+        maxResultTextChars: 50000
         pageChars: 12000
 
     # Durability checkpoints before each model request and top-level dispatch.
@@ -433,8 +434,6 @@
     # keeps the schema default (native).
     - id: tools
       name: '@deepseek-ai/dsh-tools'
-      config:
-        maxResultTextChars: 50000
 
     # The deployment persona is a deployment choice; plan-mode and tool plugins own
     # their own prompt sections.

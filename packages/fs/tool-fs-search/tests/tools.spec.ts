@@ -175,7 +175,6 @@ class FakeSpill extends SpillStore {
     return Promise.resolve({
       locator: SpillLocator(`/spill/${input.suggestedName}`),
       bytes: Buffer.byteLength(input.content, 'utf8'),
-      retrievalHint: 'Use the fake retrieval hint.',
     })
   }
 
@@ -807,7 +806,7 @@ describe('glob results', () => {
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected glob success')
     expect(result.value).toEqual({ root: '.', paths: ['a.ts', 'b.ts', 'c.ts', 'd.ts'] })
-    expect(text(result)).toBe('a.ts\nb.ts\n\n(Showing 2 of 4 paths. Full sorted result stored at: /spill/glob-results.txt. Use the fake retrieval hint.)')
+    expect(text(result)).toBe('a.ts\nb.ts\n\n(Showing 2 of 4 paths. Full sorted result stored at: /spill/glob-results.txt. Pass this locator unchanged to the configured artifact reader.)')
     expect(spill?.saves).toHaveLength(1)
     expect(spill?.saves[0]).toMatchObject({
       owner: { sessionId: 'session-1' },
@@ -1024,7 +1023,7 @@ describe('grep results', () => {
         { path: 'b.ts', lineNumber: 3, line: 'three' },
       ],
     })
-    expect(text(result)).toBe('Found 2 of 3 matches\n\na.ts\nLine 1: one\nLine 2: two\n\n(Full grep result stored at: /spill/grep-results.txt. Use the fake retrieval hint.)')
+    expect(text(result)).toBe('Found 2 of 3 matches\n\na.ts\nLine 1: one\nLine 2: two\n\n(Full grep result stored at: /spill/grep-results.txt. Pass this locator unchanged to the configured artifact reader.)')
     expect(spill?.saves[0]).toMatchObject({
       source: { toolName: 'grep', label: 'result' },
       suggestedName: 'grep-results.txt',

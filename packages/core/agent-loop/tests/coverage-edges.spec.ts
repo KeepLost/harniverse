@@ -8,6 +8,7 @@ import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import SpillStore, { SpillLocator } from '@deepseek-ai/dsh-spill'
 import type { ReadTextSpill, ReadTextSpillPage, SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
+import * as ToolResultArtifacts from '@deepseek-ai/dsh-tool-result-artifacts'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
@@ -24,7 +25,6 @@ class ArtifactStore extends SpillStore {
     return {
       locator: SpillLocator('stub:v1:loop-result'),
       bytes: Buffer.byteLength(input.content, 'utf8'),
-      retrievalHint: 'Use artifact_read.',
     }
   }
 
@@ -42,9 +42,13 @@ async function harness(
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt)
   if (options.artifactStore === true) await ctx.plugin(ArtifactStore)
-  await ctx.plugin(ToolRuntime, {
-    ...options.maxResultTextChars === undefined ? {} : { maxResultTextChars: options.maxResultTextChars },
-  })
+  await ctx.plugin(ToolRuntime)
+  if (options.artifactStore === true) {
+    await ctx.plugin(ToolResultArtifacts, {
+      maxResultTextChars: options.maxResultTextChars ?? 50_000,
+      pageChars: 1,
+    })
+  }
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter(['mock'], adapter)

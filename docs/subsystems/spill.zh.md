@@ -2,13 +2,13 @@
 
 [English](spill.md) | 中文
 
-spill 存储 seam 是一项[能力 seam](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md)，它持久保存超大文本，并通过不透明的后端 locator 分页读取。该能力拆分到多个包：Service Definition（[dsh-spill](../../packages/spill/spill)，`ctx.spillStore`）、Service Provider（[dsh-spill-local](../../packages/spill/spill-local)，宿主文件系统中的持久私有文件），以及 Consumer（[dsh-tools](../../packages/core/tools) 的最终结果保留、面向模型检索的 [tool-artifact-read](../../packages/spill/tool-artifact-read)，和可选的 [dsh-spill-policy](../../packages/spill/spill-policy)）。spill 是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇记录在此处，而不在 [core.md](core.md) 中。
+spill 存储 seam 是一项[能力 seam](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md)，它持久保存超大文本，并通过不透明的后端 locator 分页读取。该能力拆分到多个包：Service Definition（[dsh-spill](../../packages/spill/spill)，`ctx.spillStore`）、Service Provider（[dsh-spill-local](../../packages/spill/spill-local)，宿主文件系统中的持久私有文件），以及 Consumer（负责最终结果保留和模型取回的 [tool-result-artifacts](../../packages/spill/tool-result-artifacts)，以及可选的 [dsh-spill-policy](../../packages/spill/spill-policy)）。spill 是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇记录在此处，而不在 [core.md](core.md) 中。
 
 源码：[`packages/spill/spill/src/types.ts`](../../packages/spill/spill/src/types.ts)
 
 ## 保存请求
 
-`saveText` 原样持久保存 `content`，并返回不透明 locator、后端提供的检索提示和准确字节数。请求携带调用方取消、保存时存储命名空间（`owner`）、生成内容的工具和调用（`source`，用于命名和检查，而非访问控制），以及后端可用作命名提示的 `suggestedName`（它不是路径）。
+`saveText` 原样持久保存 `content`，并返回不透明 locator 和准确字节数。请求携带调用方取消、保存时存储命名空间（`owner`）、生成内容的工具和调用（`source`，用于命名和检查，而非访问控制），以及后端可用作命名提示的 `suggestedName`（它不是路径）。
 
 ```ts type-equiv
 /** One request to persist text to a spill artifact. */
@@ -87,21 +87,20 @@ interface SpillSource {
 ## 结果
 
 ```ts type-equiv
-/** A saved spill artifact: its locator, byte length, and backend-specific retrieval guidance. */
+/** A saved spill artifact: its opaque locator and exact byte length. */
 interface SpillRef {
   locator: SpillLocator
   bytes: number
-  retrievalHint: string
 }
 ```
 
-`SpillLocator` 是后端返回的[品牌化](core.md#branded-ids)面向模型句柄。本地后端返回带版本的不透明 token，而不是宿主路径；其他后端可以使用 URI 或键。消费方绝不解析它，而是渲染后端的 `retrievalHint`。
+`SpillLocator` 是后端返回的[品牌化](core.md#branded-ids)面向模型句柄。本地后端返回带版本的不透明 token，而不是宿主路径；其他后端可以使用 URI 或键。Consumer 绝不解析它，并负责所有面向模型的取回说明。
 
 ```ts type-equiv
 /**
  * Opaque model-facing handle for one spilled artifact. A local backend may use a
  * filesystem path; a remote or database backend may use a URI or key. Consumers
- * render it with {@link SpillRef.retrievalHint}, but do not parse it.
+ * render but do not parse it.
  */
 type SpillLocator = Branded<'SpillLocator'>
 ```
@@ -110,7 +109,7 @@ type SpillLocator = Branded<'SpillLocator'>
 
 `SpillStore`（`ctx.spillStore`，定义于 [`packages/spill/spill/src/index.ts`](../../packages/spill/spill/src/index.ts)）拥有两个抽象操作：`saveText(input) → Promise<SpillRef>` 和有界的 `readText(input) → Promise<ReadTextSpillPage>`。两者都会遵循调用方取消，并拒绝存储、locator、cursor 或完整性故障。该 seam 只负责存储和分页，不负责保留策略、工具结果替换或搜索。
 
-本地后端（[dsh-spill-local](../../packages/spill/spill-local)）默认写入持久 Harniverse home。根目录与会话目录必须是真实、私有且归当前用户所有的目录；随机且排他的 0600 叶子文件会拒绝预先植入的目标。locator 只包含版本、会话 hash 和安全叶子名，后端 cursor 则是 UTF-8 字节偏移。ToolRuntime 会先保存完整的最终化超大结果，再发出有界预览和结构化 locator；`artifact_read` 对它分页。默认禁用的策略消费方仍可作为显式的尽力而为早期 spill 选项。
+本地后端（[dsh-spill-local](../../packages/spill/spill-local)）默认写入持久 Harniverse home。根目录与会话目录必须是真实、私有且归当前用户所有的目录；随机且排他的 0600 叶子文件会拒绝预先植入的目标。locator 只包含版本、会话 hash 和安全叶子名，后端 cursor 则是 UTF-8 字节偏移。`dsh-tool-result-artifacts` 会先保存完整的最终化超大结果，再发出有界预览和结构化 locator，然后通过 `artifact_read` 分页。默认禁用的策略 Consumer 仍可作为显式的尽力而为早期 spill 选项。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -128,7 +127,7 @@ Abstract spill storage service. Subclass, implement saveText, and load the subcl
 
 Semantics every implementation must honor:
 
-- saveText persists the FULL `content` verbatim and returns an opaque locator, exact byte length, and model-facing retrieval guidance.
+- saveText persists the FULL `content` verbatim and returns an opaque locator and exact byte length.
 - Storage is scoped by the request's SaveTextSpill.owner session; the backend chooses a private (not world-readable) location and a collision-free name derived from — never equal to — the caller's `suggestedName`.
 - `saveText` REJECTS on a real storage failure (permissions, ENOSPC, backend unavailable); the caller decides how to degrade (the spill policy treats a rejection as best-effort and keeps the inline result).
 - Both operations observe the request's caller-owned cancellation signal and settle promptly after cancellation.
@@ -149,5 +148,5 @@ abstract saveText(input: SaveTextSpill): Promise<SpillRef>
 abstract readText(input: ReadTextSpill): Promise<ReadTextSpillPage>
 ```
 
-Source: [`packages/spill/spill/src/index.ts:54`](../../packages/spill/spill/src/index.ts)
+Source: [`packages/spill/spill/src/index.ts:53`](../../packages/spill/spill/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -8,10 +8,10 @@ This family stores complete oversized tool results outside the session log, keep
 |---|---|---|
 | [`spill/`](spill/README.md) | Defines artifact text save and paged-read operations | `ctx.spillStore` |
 | [`spill-local/`](spill-local/README.md) | Provides durable host-filesystem storage and opaque local locators | registers on `ctx.spillStore` |
-| [`tool-artifact-read/`](tool-artifact-read/README.md) | Exposes cursor-based artifact pages to the model | registers `artifact_read` on `ctx.tools` |
+| [`tool-result-artifacts/`](tool-result-artifacts/README.md) | Owns finalized-result retention and cursor-based model retrieval | listens on `tools/finalize-result`; registers `artifact_read` |
 | [`spill-policy/`](spill-policy/README.md) | Optionally applies a best-effort byte policy | listens on `ctx.tools` |
 
-ToolRuntime owns the primary full-result path. When finalized text exceeds its character limit, it saves the complete formatted text, places as much as fits of an `artifact_read` marker between retained head/tail text, and records `{ kind: 'full-result', locator, bytes }` beside the identical bounded `tool/result`; a retention failure produces a bounded error that warns the model not to retry a potentially side-effecting operation blindly. The optional `spill-policy` is a separate best-effort transformer and is disabled in the shipped base composition.
+`dsh-tool-result-artifacts` owns the primary full-result path on `tools/finalize-result`. When finalized text exceeds its character limit, it saves the complete formatted text, places an `artifact_read` marker between retained head/tail text, and records `{ kind: 'full-result', locator, bytes }` beside the identical bounded `tool/result`; a retention failure produces a bounded error that warns the model not to retry a potentially side-effecting operation blindly. The optional `spill-policy` is a separate best-effort transformer and is disabled in the shipped base composition.
 
 ## Durability and lineage
 

@@ -76,11 +76,11 @@ describe('dsh-base bundle', () => {
     })
     expect(rows.find(row => row.id === 'spill-policy')).toMatchObject({ disabled: true })
     expect(rows.find(row => row.id === 'tool-result-pruner')).toMatchObject({ disabled: true })
-    expect(rows.find(row => row.id === 'tool-artifact-read')).toMatchObject({
-      name: '@deepseek-ai/dsh-tool-artifact-read',
-      config: { pageChars: 12000 },
+    expect(rows.find(row => row.id === 'tool-result-artifacts')).toMatchObject({
+      name: '@deepseek-ai/dsh-tool-result-artifacts',
+      config: { maxResultTextChars: 50000, pageChars: 12000 },
     })
-    expect(rows.find(row => row.id === 'tools')?.config).toMatchObject({ maxResultTextChars: 50000 })
+    expect(rows.find(row => row.id === 'tools')?.config).toBeUndefined()
   })
 
   it('gates each shell stack by platform with a symmetric disabled expression', () => {

@@ -42,7 +42,7 @@ The policy sees only the FINAL formatted model-facing result—not a tool's inte
 
 #### What the model sees
 
-Results at or below `maxInlineBytes`, nested results, `read` results, blocked decisions, and results containing non-text blocks are unchanged. An oversized plain-text model-facing result becomes a bounded head/tail preview followed by `(Omitted <bytes> bytes. Full formatted result stored at: <locator>. <retrievalHint>)`; the model passes the opaque locator to the backend's retrieval tool. Storage or ownership failures leave the original result visible.
+Results at or below `maxInlineBytes`, nested results, `read` results, blocked decisions, and results containing non-text blocks are unchanged. An oversized plain-text model-facing result becomes a bounded head/tail preview followed by `(Omitted <bytes> bytes. Full formatted result stored at: <locator>. Pass this locator unchanged to the configured artifact reader.)`; storage or ownership failures leave the original result visible.
 
 #### Token effect
 

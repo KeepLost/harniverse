@@ -10,16 +10,16 @@
 |---|---|
 | `@deepseek-ai/dsh-spill`（本包） | Service Definition：抽象服务与请求／结果类型 |
 | `@deepseek-ai/dsh-spill-local` | Service Provider：宿主文件系统中的持久化私有文件 |
-| `@deepseek-ai/dsh-tool-artifact-read` | Consumer：面向模型的顺序文本取回 |
+| `@deepseek-ai/dsh-tool-result-artifacts` | Consumer：最终结果保留和面向模型的顺序文本取回 |
 | `@deepseek-ai/dsh-spill-policy` | 可选 Consumer：尽力而为的结果字节策略 |
 
-远程或虚拟后端可以实现此 Service Definition，而无需修改 ToolRuntime、`artifact_read` 或策略消费方。
+远程或虚拟后端可以实现此 Service Definition，而无需修改结果产物或策略 Consumer。
 
 ## 服务 API（`ctx.spillStore`）
 
 | 成员 | 语义 |
 |---|---|
-| `saveText(input)` | 逐字保存 `input.content`；返回不透明 locator、精确 UTF-8 字节数和取回指引；存储失败时拒绝。 |
+| `saveText(input)` | 逐字保存 `input.content`；返回不透明 locator 和精确 UTF-8 字节数；存储失败时拒绝。 |
 | `readText(input)` | 验证后端自有的 locator、可选 cursor 和请求上限；返回最多 `maxChars` 个 Unicode 码点，并在仍有未读文本时返回不透明 `nextCursor`；输入无效或无法读取时拒绝。 |
 
 存储操作以请求的 `owner` 会话作为保存时命名空间进行分组。后端自行选择私有表示，并可从 `suggestedName` 派生名称，但绝不能将其当作可信路径。消费方原样传递 locator 和 cursor：只有产生它们的后端负责解释和验证，包括拒绝其他后端的 locator、格式错误的 cursor 和存储特有的完整性故障。
@@ -34,7 +34,7 @@
 
 ## 模型体验
 
-通过 ToolRuntime 和 `artifact_read` 间接影响模型：前者渲染有界的完整结果标记和结构化产物引用，后者返回一个后端设界的分页及续读指引；服务自身不添加 schema。
+通过 `dsh-tool-result-artifacts` 间接影响模型：该 Consumer 渲染有界的完整结果标记和结构化产物引用，并注册 `artifact_read`；服务自身不添加 schema。
 
 #### KV Cache 影响
 

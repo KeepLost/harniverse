@@ -58,7 +58,7 @@ producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 
 
 ## 执行策略与观测
 
-尽量不要把部署策略内建到工具中。使用 `tools/pre-execute` 实现可扩展的允许／拒绝／询问策略（见[权限门禁示例](extension-cookbook.md#a-hook-plugin-permission-gate-example)）；使用 `ctx.tools.guard()` 设置最终的单调拒绝，后续监听器无法撤销；使用 `tools/execute` 为分发添加截止时间、重试或指标收集；使用 `tools/post-execute` 替换展示内容或返回值、阻止结果，或附加模型可见上下文；使用 `tools/result` 观测不可变的归一化结果而不改变它。替换内容不会阻止程序化访问 `value`；保密策略会屏蔽或替换该值。沙箱实现也可以在工具的执行器实现中运行；[`dsh-tools` README](../../packages/core/tools/README.md#extension-points) 定义每个扩展点的输入、顺序、返回值和失败行为。
+尽量不要把部署策略内建到工具中。使用 `tools/pre-execute` 实现可扩展的允许／拒绝／询问策略（见[权限门禁示例](extension-cookbook.md#a-hook-plugin-permission-gate-example)）；使用 `ctx.tools.guard()` 设置最终的单调拒绝，后续监听器无法撤销；使用 `tools/execute` 为分发添加截止时间、重试或指标收集；使用 `tools/post-execute` 替换展示内容或返回值、阻止结果，或附加模型可见上下文；使用 `tools/finalize-result` 对定义已终结的完整结果执行异步策略；使用 `tools/result` 观测不可变的归一化结果而不改变它。替换内容不会阻止程序化访问 `value`；保密策略会屏蔽或替换该值。沙箱实现也可以在工具的执行器实现中运行；[`dsh-tools` README](../../packages/core/tools/README.md#extension-points) 定义每个扩展点的输入、顺序、返回值和失败行为。
 
 ## Code Mode 自动触达你的工具
 

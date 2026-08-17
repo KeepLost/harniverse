@@ -169,7 +169,7 @@ interface ToolRestriction {
 
 ## Execution: extensible waterfalls plus monotonic policy
 
-`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput` with a required readonly `signal`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace the result) → optional definition-owned `finalizeContent` → `tools/result` (the immutable authoritative outcome). Only the `tools/execute` view may replace the required signal. The outcome is a `ToolExecutionResult`.
+`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput` with a required readonly `signal`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace the result) → optional definition-owned `finalizeContent` → `tools/finalize-result` (asynchronous complete-result policy) → `tools/result` (the immutable authoritative outcome). Only the `tools/execute` view may replace the required signal. The outcome is a `ToolExecutionResult`.
 
 ```ts type-equiv
 /** Opaque call identity that permits correlation without exposing mutable execution state. */
@@ -378,7 +378,7 @@ The result carries only the outcome. Call identity remains on the immutable `Too
 
 On success the registry snapshots and validates the body value, freezes it, and invokes the pure renderer plus the optional top-level-call metadata projector. It separately materializes the durable presentation fields immediately before `tools/result`; an invalid value, renderer/projector failure, or non-JSON presentation becomes a JSON-safe `isError`. The final live observer therefore sees the exact execution-local value beside fields safe for the later durable append.
 
-Before final content, the registry materializes the candidate result; a failure in content, structured error, additional context, or presentation metadata becomes a JSON-safe `isError` result that still reaches `finalizeContent`. The registry invokes that callback exactly once, then materializes and freezes the accepted result immediately before `tools/result`, so the observed live outcome is safe for the later durable `tool/result` append.
+Before final content, the registry materializes the candidate result; a failure in content, structured error, additional context, or presentation metadata becomes a JSON-safe `isError` result that still reaches `finalizeContent`. The registry invokes that callback exactly once, delegates the complete candidate through `tools/finalize-result`, then materializes and freezes the accepted result immediately before `tools/result`, so the observed live outcome is safe for the later durable `tool/result` append.
 
 Each interception waterfall returns a typed **Decision** (the idiom shared with the `agent/*` waterfalls). `tools/pre-execute` listeners receive `(exec, next)` and return a `PreToolDecision`; `tools/execute` wrappers return a `ToolExecutionResult`; `tools/post-execute` listeners receive `(exec, result, next)` and return a `PostToolDecision`:
 
@@ -408,7 +408,7 @@ type PostToolDecision =
 
 Call `next()` for the default or return a decision to short-circuit. Pre-policy may deny or ask; only `allowed-once` proceeds, while a non-grant, missing approval channel or service, or agent-less request becomes a denial. Guards may still impose a final denial. Arguments cannot be rewritten because history, audit, UI, and execution must agree.
 
-Post-policy may replace either content or value, never both. Content replacement preserves the canonical value and existing metadata; value replacement is revalidated and recomputes content/metadata; a block removes the value and becomes an `isError` containing corrective feedback. Content replacement is presentation policy, not confidentiality policy: a listener that must hide the programmatic value blocks or replaces it. `tools/result` receives the frozen execution and result after normalization; observers cannot transform them, and observer failures are contained. Unknown and throwing tools both become structured errors (`ToolNotFoundError` maps to `UNKNOWN_TOOL`), so the call fails without ending the turn.
+Post-policy may replace either content or value, never both. Content replacement preserves the canonical value and existing metadata; value replacement is revalidated and recomputes content/metadata; a block removes the value and becomes an `isError` containing corrective feedback. Content replacement is presentation policy, not confidentiality policy: a listener that must hide the programmatic value blocks or replaces it. `tools/finalize-result` receives the complete candidate after the definition's synchronous finalizer and may perform asynchronous result policy before authoritative materialization. `tools/result` receives the frozen execution and result after normalization; observers cannot transform them, and observer failures are contained. Unknown and throwing tools both become structured errors (`ToolNotFoundError` maps to `UNKNOWN_TOOL`), so the call fails without ending the turn.
 
 ## The enforced raw JSON Schema subset
 
@@ -578,7 +578,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:908`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:805`](../../packages/core/tools/src/index.ts)
 
 <a id="tools-events"></a>
 
@@ -603,7 +603,7 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:209`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:218`](../../packages/core/tools/src/index.ts)
 
 <a id="toolscode-dispatch-log--waterfall"></a>
 
@@ -630,7 +630,7 @@ Allow a listener to replace content in the DURABLE LOG COPY of one `run_code` su
 
 Types: [ContentBlock](llm-streaming.md) · [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:191`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:189`](../../packages/core/tools/src/index.ts)
 
 <a id="toolsexecute--waterfall"></a>
 
@@ -654,7 +654,31 @@ Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a nor
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:165`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:163`](../../packages/core/tools/src/index.ts)
+
+<a id="toolsfinalize-result--waterfall"></a>
+
+#### `tools/finalize-result` — waterfall
+
+Transform a complete normalized result after definition-owned `finalizeContent` and before authoritative lossless materialization. `next()` preserves the result. Listeners may perform asynchronous policy work but must settle before `tools/result` notification. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
+
+```ts cordis-catalog
+/**
+ * Transform a complete normalized result after definition-owned
+ * `finalizeContent` and before authoritative lossless materialization.
+ * `next()` preserves the result. Listeners may perform asynchronous policy
+ * work but must settle before `tools/result` notification.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
+ * @param exec - the execution whose result is being finalized.
+ * @param result - the complete candidate outcome.
+ * @mode waterfall
+ */
+'tools/finalize-result'(this: Scoped<ToolRuntime>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
+```
+
+Types: [Scoped](scope.md)
+
+Source: [`packages/core/tools/src/index.ts:200`](../../packages/core/tools/src/index.ts)
 
 <a id="toolspost-execute--waterfall"></a>
 
@@ -679,7 +703,7 @@ Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:177`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:175`](../../packages/core/tools/src/index.ts)
 
 <a id="toolspre-execute--waterfall"></a>
 
@@ -702,7 +726,7 @@ Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approv
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:154`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:152`](../../packages/core/tools/src/index.ts)
 
 <a id="toolsresult--emit"></a>
 
@@ -723,5 +747,5 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:199`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:208`](../../packages/core/tools/src/index.ts)
 <!-- END GENERATED cordis-surface -->

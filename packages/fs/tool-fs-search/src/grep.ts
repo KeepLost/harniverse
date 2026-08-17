@@ -214,7 +214,7 @@ export function formatGrepOutput(retained: RetainedItems<GrepMatch>, spillRef: S
   const body = formatGrepMatches(retained.items)
   if (!retained.truncated) return `${header}\n\n${body}`
   const recovery = spillRef !== undefined
-    ? `Full grep result stored at: ${spillRef.locator}. ${spillRef.retrievalHint}`
+    ? `Full grep result stored at: ${spillRef.locator}. Pass this locator unchanged to the configured artifact reader.`
     : 'The complete result could not be saved; narrow pattern, path, or include to see more.'
   return `${header}\n\n${body}\n\n(${recovery})`
 }

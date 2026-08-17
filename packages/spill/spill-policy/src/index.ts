@@ -4,7 +4,7 @@
  * result's UTF-8 size exceeds `maxInlineBytes`, it saves the FULL text to a
  * session-scoped spill artifact (`ctx.spillStore`) and replaces the
  * model-facing result with a bounded head/tail preview plus the backend's
- * locator and retrieval guidance.
+ * locator and Consumer-owned retrieval guidance.
  *
  * It registers NO service and owns NO storage or preview mechanics: preview is
  * `@deepseek-ai/dsh-output-retention` (`TextRetainer`), storage is `ctx.spillStore`.
@@ -104,7 +104,7 @@ function preview(text: string, budget: number): { text: string; omitted: Omitted
 /** The spill-notice line for a given omission + saved reference (no preview, no leading blank line). */
 function spillNotice(omitted: Omitted, ref: SpillRef): string {
   const omission = describeOmitted(omitted, 'bytes')
-  return `(${omission} Full formatted result stored at: ${ref.locator}. ${ref.retrievalHint})`
+  return `(${omission} Full formatted result stored at: ${ref.locator}. Pass this locator unchanged to the configured artifact reader.)`
 }
 
 export function apply(ctx: Context, config: Config): void {

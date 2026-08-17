@@ -9,19 +9,16 @@
   ],
   "references": [
     {
-      "path": "../../../vendor/cosmokit"
+      "path": "../../../vendor/cordis"
     },
     {
       "path": "../../../vendor/schemastery"
     },
     {
-      "path": "../../../vendor/cordis"
+      "path": "../../auth/authentication-local"
     },
     {
-      "path": "../spill"
-    },
-    {
-      "path": "../../core/tools"
+      "path": "../../boot/cmdline"
     },
     {
       "path": "../../runtime-diagnostics/invariants"

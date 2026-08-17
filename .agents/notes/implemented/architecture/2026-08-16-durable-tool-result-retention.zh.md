@@ -14,13 +14,13 @@ Status: implemented
 
 ### 终结结果的权威归属
 
-`ToolRuntime` 是 post-execute 处理与定义自有内容终结之后的权威保留点。每个终结结果中递归可供模型看到的文本块合计最多为 50,000 个 Unicode 码点；`maxResultTextChars` 可以降低该上限，但不能低于能够容纳完整保留失败安全警告的 120。以码点而非 UTF-16 代码单元或 UTF-8 字节计数，可以让内联规则对补充平面 Unicode 字符保持稳定。
+随附的 [`dsh-tool-result-artifacts` Consumer](2026-08-17-plugin-owned-result-artifacts.md) 是 `tools/finalize-result` 上的权威保留点，位于 post-execute 处理与定义自有内容终结之后。其 `maxResultTextChars` 默认采用递归模型可见文本块合计 50,000 个 Unicode 码点的平台上限，并可降低到不小于能够容纳完整保留失败安全警告的 120。以码点而非 UTF-16 代码单元或 UTF-8 字节计数，可以让内联规则对补充平面 Unicode 字符保持稳定。
 
-终结文本超限时，`ToolRuntime` 首先通过 `SpillStore.saveText` 保存完整拼接后的格式化文本。只有后端确认精确 UTF-8 字节数之后，运行时才会把内联文本替换为一份有界的头尾视图，其中包含 `artifact_read` locator。已提交的 `tool/result` 携带相同的有界内容，以及结构化的 `{ kind: 'full-result', locator, bytes }` 产物引用，因此回放、UI 投影和下一次模型请求对可见结果及其完整文本位置保持一致。
+终结文本超限时，`dsh-tool-result-artifacts` 首先通过 `SpillStore.saveText` 保存完整拼接后的格式化文本。只有后端确认精确 UTF-8 字节数之后，该 Consumer 才会把内联文本替换为一份有界的头尾视图，其中包含 `artifact_read` locator。已提交的 `tool/result` 携带相同的有界内容，以及结构化的 `{ kind: 'full-result', locator, bytes }` 产物引用，因此回放、UI 投影和下一次模型请求对可见结果及其完整文本位置保持一致。
 
 非文本内容块保留原有位置，聚合文本预算则分配到所有文本块。`additionalContexts` 是独立的模型可见通道，因为它不是工具结果文本，并有自己的所有权与日志规则。
 
-如果执行没有所属 Session、没有加载 `SpillStore`、保存被拒绝，或者后端报告的字节数与已保存文本不一致，`ToolRuntime` 会返回 `TOOL_RESULT_RETENTION_FAILED`，其警告也受同一文本上限约束。警告说明操作可能已经完成，并禁止盲目重试。它不会返回超大值、声称产物存在，也不会把结果保留的不确定性变成重复副作用的许可。
+如果执行没有所属 Session、保存被拒绝，或者后端报告的字节数与已保存文本不一致，`dsh-tool-result-artifacts` 会返回 `TOOL_RESULT_RETENTION_FAILED`，其警告也受同一文本上限约束。警告说明操作可能已经完成，并禁止盲目重试。它不会返回超大值、声称产物存在，也不会把结果保留的不确定性变成重复副作用的许可。
 
 ### 持久产物检索
 
@@ -32,11 +32,11 @@ Status: implemented
 
 文件系统 `read` 工具始终使用 `streamText`；文件大小和后端大小元数据不会选择整文件读取路径。它返回的 cursor 由从 1 开始的行偏移量和从 0 开始的行内 UTF-8 字节偏移量组成，因此可以消费一条超长单行，而无需加载整行或静默跳过其剩余部分。字符串替换编辑器的 `view` 复用同一个流式窗口渲染器；变更命令仍有独立的完整输入大小上限，因为替换与插入需要完整源值。
 
-`grep` 要求 ripgrep 在捕获 stdout 之前应用逐行预览上限，使用无歧义的 NUL 分隔字段，并保留聚合原始输出上限。渲染器维持有界的匹配和元数据视图。这些生产方约束补足最终结果保留：`ToolRuntime` 只能持久保留到达最终渲染阶段的数据。
+`grep` 要求 ripgrep 在捕获 stdout 之前应用逐行预览上限，使用无歧义的 NUL 分隔字段，并保留聚合原始输出上限。渲染器维持有界的匹配和元数据视图。这些生产方约束补足最终结果保留：结果产物 Consumer 只能持久保留到达最终渲染阶段的数据。
 
 ### 压缩、计量与结算
 
-随附组合默认禁用遗留的 `dsh-spill-policy` 最终结果转换器和追溯式 `dsh-compaction-tool-result-pruner`。前者与强制执行的 `ToolRuntime` 终结规则重复，并采用尽力而为回退语义；后者会改写已经提交的工具结果历史，并可能比必要时机更早地使 KV Cache 复用失效。当降低摘要器输入成本或修复溢出的收益大于改写代价时，部署可以显式启用 pruner；但之后禁用它不会撤销持久的 prune 替换。
+随附组合默认禁用遗留的 `dsh-spill-policy` 最终结果转换器和追溯式 `dsh-compaction-tool-result-pruner`。前者与随附的结果产物 Consumer 重复，并采用尽力而为回退语义；后者会改写已经提交的工具结果历史，并可能比必要时机更早地使 KV Cache 复用失效。当降低摘要器输入成本或修复溢出的收益大于改写代价时，部署可以显式启用 pruner；但之后禁用它不会撤销持久的 prune 替换。
 
 因此，默认压缩会直接摘要选中的原始 surface。压缩不变式要求每个 `compaction/summary` 或 `compaction/prune` 计量事件后必须紧邻其替换，要求替换范围与有序 `sourceEventSeqs` 精确匹配计量事件，并且只有摘要替换提交后才允许成功的 `compaction/end`。这些邻接与 provenance 规则让回放和 shadow token 扣减保持确定，而无需依赖邻近事件启发式推断。
 
@@ -46,21 +46,21 @@ Status: implemented
 
 产物尚无可达性垃圾回收。关闭 Session 不会删除其产物，因为关闭后持久日志引用仍可能有用，fork 的 Session 也可能保留继承的 locator。保留期清理与删除协调仍属于独立工作。
 
-遗留的超大日志事件不会被改写，本决策也不会为权威终结之前提交的结果虚构产物引用。非文本块与 `additionalContexts` 不在 50,000 码点文本上限内。生产方在最终渲染之前已经丢弃的数据无法由 `ToolRuntime` 或 `artifact_read` 恢复，包括提供方已经截断的正文，或只通过较早本地摘要表示的执行器输出。
+遗留的超大日志事件不会被改写，本决策也不会为权威终结之前提交的结果虚构产物引用。非文本块与 `additionalContexts` 不在 50,000 码点文本上限内。生产方在最终渲染之前已经丢弃的数据无法由 `dsh-tool-result-artifacts` 或 `artifact_read` 恢复，包括提供方已经截断的正文，或只通过较早本地摘要表示的执行器输出。
 
 `artifact_read` 仅提供顺序文本分页。它没有可达性发现、搜索、随机访问或元数据协议；调用方只能使用所属后端提供的 cursor 继续读取。
 
 ## 验证与发布
 
-ToolRuntime 单元测试与 agent loop 集成测试固定精确上限透传、终结后扩展、Unicode 码点计数、先完整保存再生成预览的顺序、字节数校验、非文本保留、结构化持久引用和有界 `TOOL_RESULT_RETENTION_FAILED` 行为。Spill seam 与 local 后端测试固定不透明 locator、跨服务 dispose 的持久性、常规文件与路径穿越检查、超长单行分页、UTF-8 cursor 边界和精确续读。Loader 组合测试证明 `artifact_read` 注册、schema、默认分页大小、dispose 和真实后端检索。
+结果产物包测试与 agent loop 集成测试固定精确上限透传、终结后扩展、Unicode 码点计数、先完整保存再生成预览的顺序、字节数校验、非文本保留、结构化持久引用和有界 `TOOL_RESULT_RETENTION_FAILED` 行为。Spill seam 与 local 后端测试固定不透明 locator、跨服务 dispose 的持久性、常规文件与路径穿越检查、超长单行分页、UTF-8 cursor 边界和精确续读。Loader 组合测试证明合并后的 retention 和 `artifact_read` 注册、schema、默认分页大小、dispose 和真实后端检索。
 
 文件系统与编辑器测试固定始终流式的窗口、行内续读、有界变更输入和共享 view 渲染。搜索测试固定生产方有界的行预览、字段解析、原始输出溢出和有界展示元数据。压缩不变式测试拒绝缺失、不相邻、范围不匹配及 provenance 不匹配的替换；token meter 测试证明摘要器用量会累计；通知测试证明种子恢复和实时结算都不暴露摘要或错误载荷。
 
-基础组合包会一起加载持久 local `SpillStore`、`artifact_read` 与 50,000 码点 ToolRuntime 上限。Preset 保持直接摘要压缩，并禁用 spill-policy 与 pruner。移除 spill 后端的部署会让超大终结结果以有界的禁止重试警告快速失败；显式启用 pruning 的部署则接受其持久历史改写与 KV Cache 成本。发布期间不会运行日志迁移或产物清理。
+基础组合包会一起加载持久 local `SpillStore` 与 `dsh-tool-result-artifacts`；后者的单个 fiber 同时拥有 `artifact_read` 和 50,000 码点上限。Preset 保持直接摘要压缩，并禁用 spill-policy 与 pruner。部署会同时省略 retention 与 retrieval，而不会留下半组装标记；显式启用 pruning 的部署则接受其持久历史改写与 KV Cache 成本。发布期间不会运行日志迁移或产物清理。
 
 ## 考虑过的替代方案
 
-**继续让 `dsh-spill-policy` 作为默认最终结果 owner。** 不予采纳，因为 post-execute listener 在定义自有的终结逻辑完成内容扩展之前运行，它在组合中可选，并且在保留失败时会返回原始超大结果。强制的 ToolRuntime 终结规则可以看到权威值，并为每条分发路径执行统一的失败语义。
+**继续让 `dsh-spill-policy` 作为默认最终结果 owner。** 不予采纳，因为 post-execute listener 在定义自有的终结逻辑完成内容扩展之前运行，它在组合中可选，并且在保留失败时会返回原始超大结果。随附的 `tools/finalize-result` Consumer 可以看到权威值，并为每条分发路径执行统一的失败语义。
 
 **先缩短，再异步或尽力而为地保留。** 不予采纳，因为崩溃或存储失败可能留下一个持久预览，而被省略文本从未进入产物平面。保留确认先于缩短和提交。
 

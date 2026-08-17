@@ -31,6 +31,7 @@ const scopedSubjectResolvers: Readonly<Record<string, ScopedSubjectResolver | nu
   'system-prompt/assemble': args => (args[1] as Record<string, unknown>)['scope'],
   'tools/code-dispatch-log': args => (args[0] as Record<string, unknown>)['agent'],
   'tools/execute': args => (args[0] as Record<string, unknown>)['agent'],
+  'tools/finalize-result': args => (args[0] as Record<string, unknown>)['agent'],
   'tools/post-execute': args => (args[0] as Record<string, unknown>)['agent'],
   'tools/pre-execute': args => (args[0] as Record<string, unknown>)['agent'],
   'tools/result': args => (args[0] as Record<string, unknown>)['agent'],

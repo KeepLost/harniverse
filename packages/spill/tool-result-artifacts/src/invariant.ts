@@ -1,23 +1,24 @@
 /**
- * Package-owned invariant companion for `@deepseek-ai/dsh-tool-artifact-read`.
- * @module @deepseek-ai/dsh-tool-artifact-read/invariant
+ * Package-owned invariant companion for `@deepseek-ai/dsh-tool-result-artifacts`.
+ * @module @deepseek-ai/dsh-tool-result-artifacts/invariant
  */
 
 /* jscpd:ignore-start */
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-tool-artifact-read'
+const PACKAGE_NAME = '@deepseek-ai/dsh-tool-result-artifacts'
 
 /** Cordis companion plugin name. */
-export const name = 'tool-artifact-read-invariant'
+export const name = 'tool-result-artifacts-invariant'
 
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: this read-only adapter owns no event sequence or mutable
- * data relation beyond the spill backend and tool-runtime contracts.
+ * No runtime invariant: this stateless Consumer delegates storage and registry
+ * consistency to the spill backend and tool runtime and owns no independently
+ * inspectable mutable relation.
  */
 const install: InvariantInstaller = () => {}
 

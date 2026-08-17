@@ -14,8 +14,6 @@
           persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
           workspaceContext:
             maxBytes: 65536
-          tools:
-            maxResultTextChars: 800
           persona: |
             You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug.
 
@@ -25,7 +23,8 @@
             name: '@deepseek-ai/dsh-spill-local'
             config:
               root: !!js process.env.DSH_SNAPSHOT_SPILL_ROOT ?? './.spill'
-          - id: tool-artifact-read
-            name: '@deepseek-ai/dsh-tool-artifact-read'
+          - id: tool-result-artifacts
+            name: '@deepseek-ai/dsh-tool-result-artifacts'
             config:
+              maxResultTextChars: 800
               pageChars: 500

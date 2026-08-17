@@ -2,13 +2,13 @@
 
 English | [中文](spill.zh.md)
 
-The spill storage seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md) that persists oversized text and pages it through an opaque backend locator — is split across packages: Service Definition ([dsh-spill](../../packages/spill/spill), `ctx.spillStore`), Service Provider ([dsh-spill-local](../../packages/spill/spill-local), durable private files on the host filesystem), and Consumers ([dsh-tools](../../packages/core/tools), finalized-result retention; [tool-artifact-read](../../packages/spill/tool-artifact-read), model retrieval; and the optional [dsh-spill-policy](../../packages/spill/spill-policy)). Spill is **one optional capability**, not part of the agent-loop spine, so its vocabulary lives here rather than in [core.md](core.md).
+The spill storage seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md) that persists oversized text and pages it through an opaque backend locator — is split across packages: Service Definition ([dsh-spill](../../packages/spill/spill), `ctx.spillStore`), Service Provider ([dsh-spill-local](../../packages/spill/spill-local), durable private files on the host filesystem), and Consumers ([tool-result-artifacts](../../packages/spill/tool-result-artifacts), finalized-result retention and model retrieval; and the optional [dsh-spill-policy](../../packages/spill/spill-policy)). Spill is **one optional capability**, not part of the agent-loop spine, so its vocabulary lives here rather than in [core.md](core.md).
 
 Source: [`packages/spill/spill/src/types.ts`](../../packages/spill/spill/src/types.ts)
 
 ## The save request
 
-`saveText` persists `content` verbatim and returns an opaque locator, a backend-supplied retrieval hint, and the exact byte count. The request carries caller cancellation, the save-time storage namespace (`owner`), the tool and call that produced it (`source`, used for naming and inspection — not access control), and a `suggestedName` the backend may use as a naming hint (it is not a path).
+`saveText` persists `content` verbatim and returns an opaque locator and the exact byte count. The request carries caller cancellation, the save-time storage namespace (`owner`), the tool and call that produced it (`source`, used for naming and inspection — not access control), and a `suggestedName` the backend may use as a naming hint (it is not a path).
 
 ```ts type-equiv
 /** One request to persist text to a spill artifact. */
@@ -87,21 +87,20 @@ interface SpillSource {
 ## The result
 
 ```ts type-equiv
-/** A saved spill artifact: its locator, byte length, and backend-specific retrieval guidance. */
+/** A saved spill artifact: its opaque locator and exact byte length. */
 interface SpillRef {
   locator: SpillLocator
   bytes: number
-  retrievalHint: string
 }
 ```
 
-`SpillLocator` is a [branded](core.md#branded-ids) model-facing handle returned by the backend. The local backend returns a versioned opaque token rather than a host path; another backend may use a URI or key. Consumers never parse it and render the backend's `retrievalHint`.
+`SpillLocator` is a [branded](core.md#branded-ids) model-facing handle returned by the backend. The local backend returns a versioned opaque token rather than a host path; another backend may use a URI or key. Consumers never parse it and own all model-facing retrieval guidance.
 
 ```ts type-equiv
 /**
  * Opaque model-facing handle for one spilled artifact. A local backend may use a
  * filesystem path; a remote or database backend may use a URI or key. Consumers
- * render it with {@link SpillRef.retrievalHint}, but do not parse it.
+ * render but do not parse it.
  */
 type SpillLocator = Branded<'SpillLocator'>
 ```
@@ -110,7 +109,7 @@ type SpillLocator = Branded<'SpillLocator'>
 
 `SpillStore` (`ctx.spillStore`, defined in [`packages/spill/spill/src/index.ts`](../../packages/spill/spill/src/index.ts)) owns two abstract operations: `saveText(input) → Promise<SpillRef>` and bounded `readText(input) → Promise<ReadTextSpillPage>`. Both follow caller cancellation and reject storage, locator, cursor, or integrity failures. The seam owns storage and paging only, not retention policy, tool-result replacement, or search.
 
-The local backend ([dsh-spill-local](../../packages/spill/spill-local)) writes under the durable Harniverse home by default. Its root and session directory must be real, private, current-user-owned directories; random exclusive 0600 leaves reject planted targets. Locators contain only a version, session hash, and safe leaf name, while backend cursors are UTF-8 byte offsets. ToolRuntime saves a complete finalized oversized result before emitting a bounded preview and structured locator; `artifact_read` pages it. The disabled-by-default policy consumer remains an explicit best-effort early spill option.
+The local backend ([dsh-spill-local](../../packages/spill/spill-local)) writes under the durable Harniverse home by default. Its root and session directory must be real, private, current-user-owned directories; random exclusive 0600 leaves reject planted targets. Locators contain only a version, session hash, and safe leaf name, while backend cursors are UTF-8 byte offsets. `dsh-tool-result-artifacts` saves a complete finalized oversized result before emitting a bounded preview and structured locator, then pages it through `artifact_read`. The disabled-by-default policy Consumer remains an explicit best-effort early spill option.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -128,7 +127,7 @@ Abstract spill storage service. Subclass, implement saveText, and load the subcl
 
 Semantics every implementation must honor:
 
-- saveText persists the FULL `content` verbatim and returns an opaque locator, exact byte length, and model-facing retrieval guidance.
+- saveText persists the FULL `content` verbatim and returns an opaque locator and exact byte length.
 - Storage is scoped by the request's SaveTextSpill.owner session; the backend chooses a private (not world-readable) location and a collision-free name derived from — never equal to — the caller's `suggestedName`.
 - `saveText` REJECTS on a real storage failure (permissions, ENOSPC, backend unavailable); the caller decides how to degrade (the spill policy treats a rejection as best-effort and keeps the inline result).
 - Both operations observe the request's caller-owned cancellation signal and settle promptly after cancellation.
@@ -149,5 +148,5 @@ abstract saveText(input: SaveTextSpill): Promise<SpillRef>
 abstract readText(input: ReadTextSpill): Promise<ReadTextSpillPage>
 ```
 
-Source: [`packages/spill/spill/src/index.ts:54`](../../packages/spill/spill/src/index.ts)
+Source: [`packages/spill/spill/src/index.ts:53`](../../packages/spill/spill/src/index.ts)
 <!-- END GENERATED cordis-surface -->

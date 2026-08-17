@@ -39,7 +39,6 @@ class StubStore extends SpillStore {
     return {
       locator: SpillLocator(`/spill/${input.suggestedName}`),
       bytes: Buffer.byteLength(input.content, 'utf8'),
-      retrievalHint: 'Use the stub retrieval path.',
     }
   }
 
@@ -147,7 +146,7 @@ describe('oversized plain-text replacement', () => {
     expect(text).not.toBe(body)
     expect(text.startsWith('HEAD')).toBe(true)
     expect(text).toContain('Full formatted result stored at: /spill/big.txt')
-    expect(text).toContain('Use the stub retrieval path.')
+    expect(text).toContain('configured artifact reader')
     expect(text).toContain('Omitted')
     // The replacement (preview + blank line + notice) stays within the cap and
     // is smaller than the original — the whole point of spilling.

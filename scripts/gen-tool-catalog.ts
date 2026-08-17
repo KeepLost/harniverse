@@ -58,7 +58,7 @@ import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
-import * as ToolArtifactRead from '@deepseek-ai/dsh-tool-artifact-read'
+import * as ToolResultArtifacts from '@deepseek-ai/dsh-tool-result-artifacts'
 import SpillStore, { SpillLocator } from '@deepseek-ai/dsh-spill'
 import type { ReadTextSpill, ReadTextSpillPage, SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
@@ -94,7 +94,7 @@ class CatalogAttachmentStore extends AttachmentStore {
 /** Schema-harvest spill seam marker; artifact I/O is unreachable while cataloguing. */
 class CatalogSpillStore extends SpillStore {
   override saveText(_input: SaveTextSpill): Promise<SpillRef> {
-    return Promise.resolve({ locator: SpillLocator('catalog:unreachable'), bytes: 0, retrievalHint: '' })
+    return Promise.resolve({ locator: SpillLocator('catalog:unreachable'), bytes: 0 })
   }
 
   override readText(_input: ReadTextSpill): Promise<ReadTextSpillPage> {
@@ -196,17 +196,6 @@ export interface ToolPackage {
  * guard proves it is exhaustive against the on-disk glob.
  */
 const TOOL_PACKAGES: ToolPackage[] = [
-  {
-    pkg: '@deepseek-ai/dsh-tool-artifact-read',
-    dir: 'tool-artifact-read',
-    source: 'packages/spill/tool-artifact-read/src/index.ts',
-    requires: ['ctx.tools', 'ctx.spillStore'],
-    writes: ['tool/call', 'tool/result'],
-    async mount(ctx) {
-      await ctx.plugin(CatalogSpillStore)
-      await ctx.plugin(ToolArtifactRead)
-    },
-  },
   {
     pkg: '@deepseek-ai/dsh-tool-ask-user',
     dir: 'tool-ask-user',
@@ -429,6 +418,17 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-result-artifacts',
+    dir: 'tool-result-artifacts',
+    source: 'packages/spill/tool-result-artifacts/src/index.ts',
+    requires: ['ctx.tools', 'ctx.spillStore'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(CatalogSpillStore)
+      await ctx.plugin(ToolResultArtifacts)
+    },
   },
   {
     pkg: '@deepseek-ai/dsh-tool-skill',

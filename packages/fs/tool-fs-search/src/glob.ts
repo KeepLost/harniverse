@@ -223,7 +223,7 @@ export function formatGlobOutput(sample: GlobSample, seen: number, spillRef: Spi
 function formatGlobPage(items: readonly string[], seen: number, spillRef: SpillRef | undefined, basis: string): string {
   const body = items.join('\n')
   const recovery = spillRef !== undefined
-    ? `Full sorted result stored at: ${spillRef.locator}. ${spillRef.retrievalHint}`
+    ? `Full sorted result stored at: ${spillRef.locator}. Pass this locator unchanged to the configured artifact reader.`
     : 'The complete result could not be saved; narrow pattern or path to see more.'
   return `${body}\n\n(Showing ${items.length} of ${seen} paths${basis} ${recovery})`
 }

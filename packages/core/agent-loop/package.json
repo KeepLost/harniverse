@@ -56,6 +56,7 @@
     "@deepseek-ai/dsh-spill": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/dsh-tool-result-artifacts": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-settings": "workspace:^"
   }

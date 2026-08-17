@@ -47,11 +47,6 @@ switch (invocation.mode) {
     runDumpConfig(invocation.profile, invocation.defaultOnly, invocation.patches)
     break
   }
-  case 'auth-token': {
-    const { runAuthToken } = await import('./auth.ts')
-    await runAuthToken(invocation)
-    break
-  }
   default:
     invocation satisfies never
     throw new Error(`dsh: unhandled invocation mode ${JSON.stringify(invocation)}`)

@@ -57,15 +57,17 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'plugin', profile: 'tui', args: ['add', '--save-dev', 'x'] })
   })
 
-  it('routes named authentication token management', () => {
+  it('routes the auth alias without interpreting the app grammar', () => {
     expect(parse(['auth', 'token', 'add', 'laptop']))
-      .toEqual({ mode: 'auth-token', operation: 'add', name: 'laptop' })
+      .toEqual({ mode: 'profile', profile: 'auth', patches: [], args: ['token', 'add', 'laptop'] })
     expect(parse(['auth', 'token', 'reset', 'ci']))
-      .toEqual({ mode: 'auth-token', operation: 'reset', name: 'ci' })
+      .toEqual({ mode: 'profile', profile: 'auth', patches: [], args: ['token', 'reset', 'ci'] })
     expect(parse(['auth', 'token', 'delete', 'phone']))
-      .toEqual({ mode: 'auth-token', operation: 'delete', name: 'phone' })
+      .toEqual({ mode: 'profile', profile: 'auth', patches: [], args: ['token', 'delete', 'phone'] })
     expect(parse(['auth', 'token', 'list']))
-      .toEqual({ mode: 'auth-token', operation: 'list' })
+      .toEqual({ mode: 'profile', profile: 'auth', patches: [], args: ['token', 'list'] })
+    expect(parse(['auth', '--help']))
+      .toEqual({ mode: 'profile', profile: 'auth', patches: [], args: ['--help'] })
   })
 
   it('routes profile and web config dumps', () => {
@@ -107,8 +109,6 @@ describe('parseDshArgs', () => {
     expect(exitCode(['plugin', '--profile', 'tui'])).toBe(1) // nothing to forward
     expect(exitCode(['plugin', '--profile', ''])).toBe(1)
     expect(exitCode(['--profile', 'x', 'plugin', 'add', 'y'])).toBe(1)
-    expect(exitCode(['auth', 'token', 'add'])).toBe(1)
-    expect(exitCode(['auth', 'token', 'list', 'extra'])).toBe(1)
     expect(exitCode(['--profile', 'x', 'auth', 'token', 'list'])).toBe(1)
   })
 

@@ -164,7 +164,7 @@ describe('LocalSpillStore service', () => {
     const ref = await ctx.spillStore.saveText(request())
     expect(ref.locator).toMatch(/^local-spill:v1:[0-9a-f]{12}\/[0-9a-f]{12}-web_fetch\.txt$/)
     expect(ref.bytes).toBe(Buffer.byteLength('the full body', 'utf8'))
-    expect(ref.retrievalHint).toBe('Use artifact_read with this locator to retrieve the complete text.')
+    expect(ref).toEqual({ locator: ref.locator, bytes: Buffer.byteLength('the full body', 'utf8') })
     await expect(ctx.spillStore.readText({ signal: TEST_SIGNAL, locator: ref.locator, maxChars: 100 }))
       .resolves.toEqual({ text: 'the full body' })
   })

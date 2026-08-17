@@ -8,10 +8,10 @@
 |---|---|---|
 | [`spill/`](spill/README.md) | 定义产物文本保存和分页读取操作 | `ctx.spillStore` |
 | [`spill-local/`](spill-local/README.md) | 提供持久化宿主文件系统存储和不透明本地定位符 | 注册到 `ctx.spillStore` |
-| [`tool-artifact-read/`](tool-artifact-read/README.md) | 向模型公开基于 cursor 的产物分页 | 在 `ctx.tools` 上注册 `artifact_read` |
+| [`tool-result-artifacts/`](tool-result-artifacts/README.md) | 负责最终结果保留和面向模型的 cursor 分页取回 | 监听 `tools/finalize-result`；注册 `artifact_read` |
 | [`spill-policy/`](spill-policy/README.md) | 可选应用尽力而为的字节策略 | 监听 `ctx.tools` |
 
-ToolRuntime 负责主要的完整结果路径。最终文本超过其字符上限时，它会保存完整格式化文本，在保留的首尾文本之间放入上限可容纳的 `artifact_read` 标记，并在相同的有界 `tool/result` 旁记录 `{ kind: 'full-result', locator, bytes }`；保留失败时，它会生成有界错误，警告模型不要盲目重试可能具有副作用的操作。可选的 `spill-policy` 是独立的尽力而为转换器，并在随附的基础组合中禁用。
+`dsh-tool-result-artifacts` 通过 `tools/finalize-result` 负责主要的完整结果路径。最终文本超过其字符上限时，它会保存完整格式化文本，在保留的首尾文本之间放入 `artifact_read` 标记，并在相同的有界 `tool/result` 旁记录 `{ kind: 'full-result', locator, bytes }`；保留失败时，它会生成有界错误，警告模型不要盲目重试可能具有副作用的操作。可选的 `spill-policy` 是独立的尽力而为转换器，并在随附的基础组合中禁用。
 
 ## 持久性与谱系
 

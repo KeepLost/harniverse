@@ -58,7 +58,6 @@ export class LocalSpillStore extends SpillStore {
     return {
       locator: SpillLocator(localLocator(this.root, saved.path)),
       bytes: saved.bytes,
-      retrievalHint: 'Use artifact_read with this locator to retrieve the complete text.',
     }
   }
 

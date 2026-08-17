@@ -16,13 +16,13 @@
 
 运行中的 `dsh` 是一棵插件树，由启动时按序叠加的各层组合而成。
 
-**profile** 是存放在 Harness home 中的具名组装。它列出自己叠放的组合包，存放自己安装的树外插件，并保存用户自己的 `cordis.patch.yml`。`web` 和 `headless` 作为模板随发行版交付。
+**profile** 是存放在 Harness home 中的具名组装。它列出自己叠放的组合包，存放自己安装的树外插件，并保存用户自己的 `cordis.patch.yml`。`web`、`headless` 和 `auth` 作为模板随发行版交付。
 
 **组合包**是 Cordis 配置项及其挂载代码的分发格式，因此它插入的内容始终可被其上各层 patch。
 
 两者都在各自的 `package.json` 中通过 `dsh` 字段声明自己：`dsh.profile` 列出一个 profile 的组合包，`dsh.bundle` 指向一个组合包的 patch 文件。
 
-[`dsh-base`](../packages/bundle/base/README.md) 是每个 profile 的第一层：模型适配器、工具、持久化、沙箱与审批策略、设置、凭据、遥测。[`dsh-web-app`](../packages/bundle/web-app/README.md) 增加浏览器应用；[`dsh-headless`](../packages/bundle/headless/README.md) 增加一次性运行器，且完全不带服务器。
+[`dsh-base`](../packages/bundle/base/README.md) 是每个 agent profile 的第一层：模型适配器、工具、持久化、沙箱与审批策略、设置、凭据、遥测。[`dsh-web-app`](../packages/bundle/web-app/README.md) 增加浏览器应用；[`dsh-headless`](../packages/bundle/headless/README.md) 增加不带服务器的一次性运行器；[`dsh-auth-app`](../packages/bundle/auth-app/README.md) 是不含 agent 或网络服务的独立一次性认证管理 profile。
 
 各层按此顺序应用在空条目列表之上：先按 profile 列出的顺序应用每个组合包，然后是 profile 的 `cordis.patch.yml`，然后是 home 级的那份，最后是任意 `--patch` overlay。一条 patch 按 id 定位某个条目并替换其整个 config，或插入新条目。
 
@@ -78,14 +78,14 @@ turn/start
      append entered messages as user/message
      derive model history from the log
      agent/request -> llm/stream -> assistant/chunk* -> assistant/message
-     tool/call* -> tools/pre-execute -> tools/execute -> tools/post-execute -> tool/result*
+     tool/call* -> tools/pre-execute -> tools/execute -> tools/post-execute -> tools/finalize-result -> tool/result*
      step/end
      tools owe another request, or next-step input arrived -> claim -> next step
   -> agent/turn-stopping
 turn/end
 ```
 
-`turn/*`、`step/*`、`user/message`、`assistant/*` 和 `tool/*` 是持久会话事件；其余是分属三个事件域的实时扩展点。`agent/pre-step`、`agent/request`、`llm/stream` 和三个 `tools/*` 事件是 waterfall（瀑布式事件），其监听器必须调用 `next()` 才能委托下去；`agent/turn-stopping` 是 serial 事件，没有 `next()`。
+`turn/*`、`step/*`、`user/message`、`assistant/*` 和 `tool/*` 是持久会话事件；其余是分属三个事件域的实时扩展点。`agent/pre-step`、`agent/request`、`llm/stream` 和四个可转换的 `tools/*` 事件是 waterfall（瀑布式事件），其监听器必须调用 `next()` 才能委托下去；`agent/turn-stopping` 是 serial 事件，没有 `next()`。
 
 输入通过同一个 inbox 到达驱动器。有些消息会立即唤醒它；注入的上下文会留在 inbox 中，直到另一条消息将其唤醒。
 

@@ -1,0 +1,13 @@
+# One-shot authentication management without the network authentication provider.
+
+- insert:
+    - id: auth-startup
+      name: '@deepseek-ai/dsh-auth-app/startup'
+
+    - id: auth-runner
+      name: '@deepseek-ai/dsh-auth-app'
+      inject: [authStartup]
+      config:
+        operation: !!js ctx.authStartup.operation
+        name: !!js ctx.authStartup.name
+        dshHome: !!js process.env.DSH_HOME

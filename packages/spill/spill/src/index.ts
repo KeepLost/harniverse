@@ -1,15 +1,14 @@
 /**
  * Service Definition for the spill storage capability seam (`ctx.spillStore`): an abstract service defining WHAT a
  * spill backend does — persist a tool's oversized text and return a model-facing
- * locator plus retrieval guidance — without saying HOW. Implementations
+ * locator and exact byte count — without saying HOW. Implementations
  * subclass {@link SpillStore} and register as the `spillStore` service;
  * `@deepseek-ai/dsh-spill-local` (host filesystem) is the first.
  *
  * The Service Definition is deliberately minimal: bounded save/read operations. It owns NO
  * retention policy (that is `@deepseek-ai/dsh-output-retention`), NO tool-result
  * replacement (that is `@deepseek-ai/dsh-spill-policy`) or search API. The
- * backend supplies the locator and retrieval hint appropriate
- * for its storage substrate.
+ * backend supplies only storage facts; Consumers own presentation.
  *
  * @module @deepseek-ai/dsh-spill
  */
@@ -41,7 +40,7 @@ declare module '@deepseek-ai/cordis' {
  *
  * Semantics every implementation must honor:
  * - {@link saveText} persists the FULL `content` verbatim and returns an opaque
- *   locator, exact byte length, and model-facing retrieval guidance.
+ *   locator and exact byte length.
  * - Storage is scoped by the request's {@link SaveTextSpill.owner} session; the
  *   backend chooses a private (not world-readable) location and a collision-free
  *   name derived from — never equal to — the caller's `suggestedName`.

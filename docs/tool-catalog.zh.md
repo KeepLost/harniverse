@@ -17,7 +17,6 @@
 
 | 工具包 | 模型可见名称 | 依赖 | 写入／影响 | 随产品发布的别名 | 部署说明 |
 | --- | --- | --- | --- | --- | --- |
-| `@deepseek-ai/dsh-tool-artifact-read` | `artifact_read` | `ctx.tools`、`ctx.spillStore` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`、`ctx.userQuestions` | `tool/call`、`tool/result after a UI/provider answers the question` | - | ask_user_question 会暂停工具调用，直到当前 UI 提供方返回人类答案。 |
 | `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`、`ctx.codeRuntime (execution time)`、`ctx.systemPrompt` | `tool/call`、`one tool/code-dispatch-start + tool/code-dispatch pair per bridged sub-call`、`tool/result` | - | 在 `mode: code`／`mode: both` 下，它由工具注册表所有，作为可过滤能力层之外的保留传输机制（参见 Code Mode Agent Note）。在 `code` 下，它是注册表对协议格式（wire format）的唯一贡献；其他可见能力在使用已加载运行时语言生成的 SDK 章节中声明。程序通过 binding 调用这些能力，调用按照原生并发约定调度：启动顺序和策略遵循提交顺序，并发安全的函数体最多重叠执行 `maxParallelSubCalls` 个。调用会重新进入完整且受守卫保护的工具流水线，并将每个嵌套执行关联到此外层结果。 |
 | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`、`ctx.systemPrompt`、`ctx.userQuestions (execution time, opportunistic)` | `tool/call`、`plan/mode inactive on an approved review`、`tool/result` | - | 规划未激活时，exit_plan_mode 仍保留在面向模型的 schema 中，这样状态转换不会在规划策略变更之外额外造成工具目录变动。其执行路径会拒绝规划模式之外的调用；在规划模式下，它通过用户交互 seam 提交计划（批准／根据反馈继续规划），批准后会在步骤边界记录规划模式已停用。 |
@@ -33,6 +32,7 @@
 | `@deepseek-ai/dsh-schedule` | `schedule_create`、`schedule_delete`、`schedule_list` | `ctx.tools`、`ctx.sessions`、Session 持久化、未来创建的 live 根 Agent | `tool/call`、`schedule/change create or delete`、`tool/result` | - | 仅在选择启用的 Schedule 插件加载后创建的 live 根 Agent scope 内注册。版本 1 接受 after_seconds、显式绝对 at 和有界固定速率 every_seconds，并披露 session-local 交付；管理读取与变更必须通过共享的 Session 持久化 barrier。 |
 | `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`、`ctx.lsp`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，因此其模型可见 schema 在更换提供方时保持稳定。运行时要求已注册提供方，例如 `@deepseek-ai/dsh-lsp-stdio`；如果没有提供方，查询会返回结构化 `LSP_UNAVAILABLE` 错误，而不会改变 schema。 |
 | `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`、`ctx.workflowEngine`、`ctx.subagents`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents every fresh round)` | `tool/call`、`tool/result`、`workflow and child session events during execution` | - | 固定的前台工作流会在每个 Round 启动一个全新的结构化子级；模型只能选择不可变目标和可选的 Round 上限。 |
+| `@deepseek-ai/dsh-tool-result-artifacts` | `artifact_read` | `ctx.tools`、`ctx.spillStore` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`、`ctx.agents`、`ctx.skills` | `tool/call`、`tool/result`、`user/message replacement catalogs via agent.inject()` | - | - |
 | `@deepseek-ai/dsh-tool-session-query` | `session_event_read`、`session_event_search`、`session_event_trace`、`session_search`、`session_trace` | `ctx.tools`、`ctx.systemPrompt`、`ctx.sessionQuery`、`a calling Agent for workspace authority` | `tool/call`、`tool/result` | - | 这 5 个只读工具会隐藏提供方游标，并根据不可变的调用 agent 会话为每个结果授权。该包需要选择启用；需要强制截止时间或限制行内输出的组合还会挂载通用超时或 spill 策略。 |
 | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`、`ctx.subagents`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`child session events through the chosen provider` | `subagent`、`subagent_fork` | 注册的工具名称取决于加载时 `toolName` 配置（默认为 `subagent`）；上述 schema 对应默认值。随产品发布的组合会为每个 subagent 后端加载一次该包，因此模型还会看到绑定到 fork 后端的 `subagent_fork`。每个实例的描述、`run_in_background` 参数与 system prompt 策略取决于它自己的 `backgroundMode` 和 `enableRunInBackground`，因此两个随附 schema 并不相同：`subagent` 为 `continuable`，省略参数时默认后台运行，并由 runtime 自动投递结束结果；`subagent_fork` 保持 `one-shot`，省略参数时默认前台运行。详见 `packages/bundle/base/cordis.patch.yml` 和 `examples/acp-agent/cordis.yml`。 |
@@ -42,35 +42,6 @@
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`、`owning Agent session` | `tool/call`、`todo/write`、`tool/result` | - | todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。 |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`、`ctx.workflowEngine`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents the script children)` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`、`web_search` | `ctx.tools`、`ctx.web`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。 |
-
-<a id="deepseek-aidsh-tool-artifact-read"></a>
-
-## `@deepseek-ai/dsh-tool-artifact-read`
-
-### `artifact_read`
-
-通过不透明定位符从存储的 artifact 中读取一个有界文本页。使用 artifact 通知返回的定位符，并将返回的 cursor 原样传回以继续读取。不要解释或修改定位符或 cursor。如果仍有更多文本，会返回精确文本页及继续读取指引。
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "locator": {
-      "type": "string",
-      "description": "Opaque artifact locator returned by the spill backend. Pass it unchanged."
-    },
-    "cursor": {
-      "type": "string",
-      "description": "Opaque continuation cursor returned by a previous artifact_read call. Pass it unchanged."
-    }
-  },
-  "required": [
-    "locator"
-  ]
-}
-```
-
-来源：[`packages/spill/tool-artifact-read/src/index.ts`](../packages/spill/tool-artifact-read/src/index.ts)
 
 <a id="deepseek-aidsh-tool-ask-user"></a>
 
@@ -1249,6 +1220,35 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 来源：[`packages/workflow/tool-ralph/src/index.ts`](../packages/workflow/tool-ralph/src/index.ts)
 
 固定的前台工作流会在每个 Round 启动一个全新的结构化子级；模型只能选择不可变目标和可选的 Round 上限。
+
+<a id="deepseek-aidsh-tool-result-artifacts"></a>
+
+## `@deepseek-ai/dsh-tool-result-artifacts`
+
+### `artifact_read`
+
+通过不透明定位符从存储的 artifact 中读取一个有界文本页。使用 artifact 通知返回的定位符，并将返回的 cursor 原样传回以继续读取。不要解释或修改定位符或 cursor。如果仍有更多文本，会返回精确文本页及继续读取指引。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "locator": {
+      "type": "string",
+      "description": "Opaque artifact locator returned by the spill backend. Pass it unchanged."
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor returned by a previous artifact_read call. Pass it unchanged."
+    }
+  },
+  "required": [
+    "locator"
+  ]
+}
+```
+
+来源：[`packages/spill/tool-result-artifacts/src/index.ts`](../packages/spill/tool-result-artifacts/src/index.ts)
 
 <a id="deepseek-aidsh-tool-skill"></a>
 

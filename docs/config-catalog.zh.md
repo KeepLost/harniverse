@@ -342,6 +342,29 @@ export interface Config {
 
 来源：[`packages/attachment/attachment-local/src/index.ts:24`](../packages/attachment/attachment-local/src/index.ts)
 
+<a id="deepseek-aidsh-auth-app"></a>
+
+## `@deepseek-ai/dsh-auth-app`
+
+需要：`authStartup`
+
+```ts config-catalog
+/** Authentication management runner configuration. */
+export interface Config {
+  /** Selected token operation. */
+  operation: AuthOperation
+  /** Token name for add, reset, and delete. */
+  name?: string
+  /** Harness home containing the local token registry. */
+  dshHome?: string
+}
+
+/** Supported named-token management operations. */
+export type AuthOperation = 'add' | 'reset' | 'delete' | 'list'
+```
+
+来源：[`packages/bundle/auth-app/src/index.ts:21`](../packages/bundle/auth-app/src/index.ts)
+
 <a id="deepseek-aidsh-authentication-local"></a>
 
 ## `@deepseek-ai/dsh-authentication-local`
@@ -2469,22 +2492,6 @@ export type TokenMeterConfig = Record<string, never>
 
 来源：[`packages/llm/token-meter/src/types.ts:12`](../packages/llm/token-meter/src/types.ts)
 
-<a id="deepseek-aidsh-tool-artifact-read"></a>
-
-## `@deepseek-ai/dsh-tool-artifact-read`
-
-需要：`tools` · `spillStore`
-
-```ts config-catalog
-/** Deployment-selected artifact page size. */
-export interface Config {
-  /** Maximum Unicode code points requested from the backend per call. */
-  pageChars?: number
-}
-```
-
-来源：[`packages/spill/tool-artifact-read/src/index.ts:28`](../packages/spill/tool-artifact-read/src/index.ts)
-
 <a id="deepseek-aidsh-tool-bash"></a>
 
 ## `@deepseek-ai/dsh-tool-bash`
@@ -2685,6 +2692,24 @@ export interface Config {
 ```
 
 来源：[`packages/workflow/tool-ralph/src/index.ts:23`](../packages/workflow/tool-ralph/src/index.ts)
+
+<a id="deepseek-aidsh-tool-result-artifacts"></a>
+
+## `@deepseek-ai/dsh-tool-result-artifacts`
+
+需要：`tools` · `spillStore`
+
+```ts config-catalog
+/** Deployment-selected retention and artifact paging limits. */
+export interface Config {
+  /** Maximum Unicode code points across finalized model-visible result text. */
+  maxResultTextChars?: number
+  /** Maximum Unicode code points requested from the backend per call. */
+  pageChars?: number
+}
+```
+
+来源：[`packages/spill/tool-result-artifacts/src/index.ts:44`](../packages/spill/tool-result-artifacts/src/index.ts)
 
 <a id="deepseek-aidsh-tool-session-query"></a>
 
@@ -2939,19 +2964,13 @@ export interface Config {
    * restores strictly serial dispatch. Must be a positive integer.
    */
   maxParallelSubCalls?: number
-  /**
-   * Maximum Unicode code points across text blocks in one finalized result.
-   * The platform ceiling is 50,000; deployments may only lower it. Oversized
-   * text is retained through `ctx.spillStore` before the inline preview is shortened.
-   */
-  maxResultTextChars?: number
 }
 
 /** How the registry presents its tools to the model (see {@link Config.mode}). */
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-来源：[`packages/core/tools/src/index.ts:755`](../packages/core/tools/src/index.ts)
+来源：[`packages/core/tools/src/index.ts:672`](../packages/core/tools/src/index.ts)
 
 <a id="deepseek-aidsh-typert-loader"></a>
 

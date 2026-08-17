@@ -13,9 +13,10 @@
     complete: true
     includeRuntimeContext: false
 
-- id: tool-artifact-read
-  name: '@deepseek-ai/dsh-tool-artifact-read'
+- id: tool-result-artifacts
+  name: '@deepseek-ai/dsh-tool-result-artifacts'
   config:
+    maxResultTextChars: 50000
     pageChars: 12000
 
 # The PTY registry is an agent-owned service, so it lives in an entry-local

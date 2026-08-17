@@ -329,7 +329,7 @@
 - id: tool-str-replace-editor
   disabled: true
 
-- id: tool-artifact-read
+- id: tool-result-artifacts
   disabled: true
 
 # The `skill` REGISTRY stays in the host plane. It is host+per-scope layered

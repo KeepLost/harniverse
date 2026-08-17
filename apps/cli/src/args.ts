@@ -10,7 +10,7 @@
  * `dsh --profile tui --resume abc` boots the tui profile with `--resume abc`,
  * and `dsh --profile web -h` prints the web app's help, not this one's.
  *
- * `web` is a hardcoded alias for `--profile web`; `plugin` manages a profile's
+ * `web` and `auth` are hardcoded profile aliases; `plugin` manages a profile's
  * plugin dependencies by forwarding to pnpm.
  * @module @deepseek-ai/dsh/args
  */
@@ -44,13 +44,8 @@ interface PluginInvocation {
   args: string[]
 }
 
-/** Manage one named inbound-authentication token without booting a profile. */
-export type AuthTokenInvocation =
-  | { mode: 'auth-token'; operation: 'add' | 'reset' | 'delete'; name: string }
-  | { mode: 'auth-token'; operation: 'list' }
-
 /** The resolved `dsh` invocation. Help, version, and errors exit inside {@link parseDshArgs}. */
-export type DshInvocation = ProfileInvocation | DumpConfigInvocation | PluginInvocation | AuthTokenInvocation
+export type DshInvocation = ProfileInvocation | DumpConfigInvocation | PluginInvocation
 
 /** Launcher flags shared by the default command and the `web` alias. */
 interface BootOptions {
@@ -73,6 +68,7 @@ Examples:
   dsh --profile tui --patch ./extra.yml      boot a custom profile with one extra overlay
   dsh --profile tui --resume <session>       arguments after the launcher flags reach the app
   dsh --profile web --help                   the web app's own flags and help
+  dsh auth token add laptop                  create a named inbound-authentication token
   dsh plugin --profile tui add <package>     install a plugin into the tui profile
 `
 
@@ -185,19 +181,17 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
       resolved = { mode: 'plugin', profile: options.profile, args }
     })
 
-  const auth = program.command('auth').description('manage inbound authentication')
-  const token = auth.command('token').description('manage named access tokens')
-  const namedTokenAction = (operation: 'add' | 'reset' | 'delete') => (name: string): void => {
-    rejectParentOptions('auth')
-    resolved = { mode: 'auth-token', operation, name }
-  }
-  token.command('add').argument('<name>').action(namedTokenAction('add'))
-  token.command('reset').argument('<name>').action(namedTokenAction('reset'))
-  token.command('delete').argument('<name>').action(namedTokenAction('delete'))
-  token.command('list').action(() => {
-    rejectParentOptions('auth')
-    resolved = { mode: 'auth-token', operation: 'list' }
-  })
+  const auth = program.command('auth').description('manage inbound authentication (alias of --profile auth); app arguments follow')
+  auth
+    .helpOption(false)
+    .allowUnknownOption()
+    .passThroughOptions()
+    .enablePositionalOptions()
+    .argument('[args...]', 'arguments for the authentication management app (see: dsh auth --help)')
+    .action((args: string[]) => {
+      rejectParentOptions('auth')
+      resolved = { mode: 'profile', profile: 'auth', patches: [], args }
+    })
 
   try {
     program.parse(argv, { from: 'user' })

@@ -150,9 +150,9 @@ importers:
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:^
         version: link:../../packages/boot/app-boot
-      '@deepseek-ai/dsh-authentication-local':
+      '@deepseek-ai/dsh-auth-app':
         specifier: workspace:^
-        version: link:../../packages/auth/authentication-local
+        version: link:../../packages/bundle/auth-app
       '@deepseek-ai/dsh-base':
         specifier: workspace:^
         version: link:../../packages/bundle/base
@@ -246,9 +246,6 @@ importers:
       '@deepseek-ai/dsh-token-meter':
         specifier: workspace:^
         version: link:../../packages/llm/token-meter
-      '@deepseek-ai/dsh-tool-artifact-read':
-        specifier: workspace:^
-        version: link:../../packages/spill/tool-artifact-read
       '@deepseek-ai/dsh-tool-ask-user':
         specifier: workspace:^
         version: link:../../packages/interaction/tool-ask-user
@@ -279,6 +276,9 @@ importers:
       '@deepseek-ai/dsh-tool-ralph':
         specifier: workspace:^
         version: link:../../packages/workflow/tool-ralph
+      '@deepseek-ai/dsh-tool-result-artifacts':
+        specifier: workspace:^
+        version: link:../../packages/spill/tool-result-artifacts
       '@deepseek-ai/dsh-tool-skill':
         specifier: workspace:^
         version: link:../../packages/skill/tool-skill
@@ -677,9 +677,6 @@ importers:
       '@deepseek-ai/dsh-token-meter':
         specifier: workspace:*
         version: link:../packages/llm/token-meter
-      '@deepseek-ai/dsh-tool-artifact-read':
-        specifier: workspace:*
-        version: link:../packages/spill/tool-artifact-read
       '@deepseek-ai/dsh-tool-ask-user':
         specifier: workspace:*
         version: link:../packages/interaction/tool-ask-user
@@ -716,6 +713,9 @@ importers:
       '@deepseek-ai/dsh-tool-ralph':
         specifier: workspace:*
         version: link:../packages/workflow/tool-ralph
+      '@deepseek-ai/dsh-tool-result-artifacts':
+        specifier: workspace:*
+        version: link:../packages/spill/tool-result-artifacts
       '@deepseek-ai/dsh-tool-session-query':
         specifier: workspace:*
         version: link:../packages/session-query/tool-session-query
@@ -1036,6 +1036,34 @@ importers:
         specifier: ^15.0.0
         version: 15.0.0
 
+  packages/bundle/auth-app:
+    dependencies:
+      '@deepseek-ai/dsh-authentication-local':
+        specifier: workspace:^
+        version: link:../../auth/authentication-local
+      '@deepseek-ai/dsh-cmdline':
+        specifier: workspace:^
+        version: link:../../boot/cmdline
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      commander:
+        specifier: ^15.0.0
+        version: 15.0.0
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: workspace:^
+        version: link:../../../vendor/include
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+
   packages/bundle/base:
     dependencies:
       '@deepseek-ai/cordis-plugin-hmr':
@@ -1197,9 +1225,6 @@ importers:
       '@deepseek-ai/dsh-token-meter':
         specifier: workspace:^
         version: link:../../llm/token-meter
-      '@deepseek-ai/dsh-tool-artifact-read':
-        specifier: workspace:^
-        version: link:../../spill/tool-artifact-read
       '@deepseek-ai/dsh-tool-bash':
         specifier: workspace:^
         version: link:../../shell/tool-bash
@@ -1224,6 +1249,9 @@ importers:
       '@deepseek-ai/dsh-tool-ralph':
         specifier: workspace:^
         version: link:../../workflow/tool-ralph
+      '@deepseek-ai/dsh-tool-result-artifacts':
+        specifier: workspace:^
+        version: link:../../spill/tool-result-artifacts
       '@deepseek-ai/dsh-tool-skill':
         specifier: workspace:^
         version: link:../../skill/tool-skill
@@ -3611,6 +3639,9 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../system-prompt
+      '@deepseek-ai/dsh-tool-result-artifacts':
+        specifier: workspace:^
+        version: link:../../spill/tool-result-artifacts
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../tools
@@ -3725,9 +3756,6 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../session
-      '@deepseek-ai/dsh-spill':
-        specifier: workspace:^
-        version: link:../../spill/spill
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../system-prompt
@@ -7060,7 +7088,7 @@ importers:
         specifier: workspace:^
         version: link:../../core/tools
 
-  packages/spill/tool-artifact-read:
+  packages/spill/tool-result-artifacts:
     dependencies:
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
@@ -7075,12 +7103,18 @@ importers:
       '@deepseek-ai/cordis-plugin-loader':
         specifier: workspace:^
         version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
       '@deepseek-ai/dsh-spill':
         specifier: workspace:^
         version: link:../spill
