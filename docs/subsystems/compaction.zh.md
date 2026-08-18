@@ -2,7 +2,7 @@
 
 [English](compaction.md) | 中文
 
-压缩 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)，与 bash 一样分为 Service Definition（[dsh-compaction](../../packages/compaction/compaction)，`ctx.compaction`）、Service Provider（例如 [dsh-compaction-basic](../../packages/compaction/compaction-basic) 后端）和面向用户的 Consumer（[dsh-command-compact](../../packages/compaction/command-compact)）。压缩是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。基于 tokenizer 或模板的后端是实现同一接口的兄弟包。与 bash 不同，该接口必然依赖 `dsh-session` 和 `dsh-llm`：其动词作用于 agent 所有的 `Session`，而其持久摘要事件使用 `ContentBlock` 词汇（见[压缩能力 seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)）。
+压缩 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)，与 bash 一样分为 Service Definition（[dsh-compaction](../../packages/compaction/compaction)，`ctx.compaction`）、一个 Service Provider，例如 [dsh-compaction-basic](../../packages/compaction/compaction-basic) 或 [dsh-compaction-lossless](../../packages/compaction/compaction-lossless)，以及包括 [dsh-command-compact](../../packages/compaction/command-compact) 和 [dsh-tool-compaction-history](../../packages/compaction/tool-compaction-history) 在内的 Consumer。压缩是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其事件类型定义在此而非 [core.md](core.md) 中。与 bash 不同，该接口必然依赖 `dsh-session` 和 `dsh-llm`：其动词作用于 agent 所有的 `Session`，而其持久摘要事件使用 `ContentBlock`（见[压缩能力 seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)）。
 
 源码：[`packages/compaction/compaction/src/types.ts`](../../packages/compaction/compaction/src/types.ts)
 
@@ -71,7 +71,7 @@ interface CompactionResult {
 type CompactionTrigger = 'pressure' | 'context-overflow'
 ```
 
-`CompactionEngine` 暴露 `compactIfNeeded(agent, trigger, signal)` 以执行自动 `pressure` 或 `context-overflow` 策略，暴露 `compactNow(agent, signal)` 以便即使未达到压力也对空闲会话进行一次有效缩减，还针对显式、两端均包含的 surface 范围暴露 `compactRegion(...)`。`compactNow()` 作为轮次之间的 agent maintenance 运行；没有有效范围时返回 `null` 且不写入；在摘要前记录独立的 `turn: null` 标记对，并在后续排队提示词能够从新表层派生前 flush 已闭合尝试。每个后端都使用 `compactCheckpointSource(compactionId, sourceCommandId?)` 创建替换用 `user/message` 的源；client 与 wire 消费方从无 Cordis 的 `@deepseek-ai/dsh-compaction/checkpoint` 子路径导入该构造函数、`CompactionCheckpointSource` 和 `isCompactCheckpointSource()`，包根则为 host 消费方重新导出它们。必填的事务身份会关联替换检查点，而该判定函数使检查点识别不依赖任一特定后端。实现必须把传入的 signal 转发给摘要流程。该 seam 不拥有计价 API：单例 [`ctx.tokenMeter`](token-meter.md) 直接拥有估算与回放，而 `dsh-compaction-basic` 拥有保留策略、事件排序、按路由执行的摘要调用及其配置。
+`CompactionEngine` 暴露 `compactIfNeeded(agent, trigger, signal)` 以执行自动 `pressure` 或 `context-overflow` 策略，暴露 `compactNow(agent, signal)` 以便即使未达到压力也对空闲会话进行一次有效缩减，还针对显式、两端均包含的 surface 范围暴露 `compactRegion(...)`。`compactNow()` 作为轮次之间的 agent maintenance 运行；没有有效范围时返回 `null` 且不写入；在摘要前记录独立的 `turn: null` 标记对，并在后续排队提示词能够从新表层派生前 flush 已闭合尝试。每个后端都使用 `compactCheckpointSource(compactionId, sourceCommandId?)` 创建替换用 `user/message` 的源；client 与 wire 消费方从无 Cordis 的 `@deepseek-ai/dsh-compaction/checkpoint` 子路径导入该构造函数、`CompactionCheckpointSource` 和 `isCompactCheckpointSource()`，包根则为 host 消费方重新导出它们。必填的事务身份会关联替换检查点，而该判定函数使检查点识别不依赖任一特定后端。实现必须把传入的 signal 转发给摘要流程。该 seam 不拥有计价 API：单例 [`ctx.tokenMeter`](token-meter.md)拥有估算与回放，而选定的 provider 拥有保留策略、事件排序、按路由执行的摘要调用及配置。
 
 预期的手动失败使用 `ManualCompactionErrorCode`：
 
@@ -88,9 +88,15 @@ type ManualCompactionErrorCode =
 
 `changed` 和 `summary` 保持会话表层不变，但仍会闭合失败尝试并将其持久化到日志。`commit` 可能发生在部分变更之后；`persistence` 表示内存中的标记对已闭合，但 flush 失败。取消独立于这些失败，并在完成必要清理后抛出原始 abort 原因。
 
-压力压缩在串行 `agent/pre-step` 中运行，先于请求推导。随附的 base、standard、code 和 Cordis 组合均保持其剪枝行处于禁用状态，因此正常的自动与手动压缩会直接生成摘要，而摘要替换是唯一的默认历史改写。显式 overlay 可以启用可选的 [`ctx.toolResultPruner`](../../packages/compaction/compaction-tool-result-pruner/README.md)；一旦压力或规范化溢出满足条件，compaction-basic 会在选择范围前调用它，再通过 `ctx.tokenMeter` 重新测量，并且可以在不生成摘要的情况下推进 surface。失败请求的恢复在失败的步骤关闭后通过 `agent/request-error` 运行；仅当 surface replacement generation 前进时才返回重试动作，即便后续摘要工作在剪枝后抛异常亦如此；取消仍然优先。区域边界保持工具调用/结果配对，但不保持整个轮次，因此一个过大轮次中较早关闭的步骤可以被压缩。`dsh-compaction-basic` 拥有阈值、保留尾部策略、溢出上限与失败处理。
+压力压缩在串行 `agent/pre-step` 中运行，先于请求推导。随附的 base、standard、code、Cordis 和 standalone headless 组合选择启用自动策略的 `dsh-compaction-lossless`。bundle 与 preset 组合保持剪枝行禁用，headless 则不挂载剪枝器，因此摘要替换是唯一的默认历史改写。显式 overlay 可以启用可选的 [`ctx.toolResultPruner`](../../packages/compaction/compaction-tool-result-pruner/README.md)；一旦压力或规范化溢出满足条件，继承的 basic 策略会在选择范围前调用它，再通过 `ctx.tokenMeter` 重新测量，并且可以在不生成摘要的情况下推进 surface。失败请求的恢复在失败的步骤关闭后通过 `agent/request-error` 运行；仅当 surface replacement generation 前进时才返回重试动作，即便后续摘要工作在剪枝后抛异常亦如此；取消仍然优先。区域边界保持工具调用/结果配对，但不保持整个轮次，因此一个过大轮次中较早关闭的步骤可以被压缩。
 
 该 Service Definition 导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于检查 seq 之前与之后的工具调用/结果配对。两者都会验证当前 surface 成员关系，并拒绝缺失的 seq 与遗留结果；[包约定](../../packages/compaction/compaction/README.md#tool-pairing-boundaries)定义其缓存行为。
+
+## 可回溯 summary DAG
+
+`dsh-compaction-lossless` 在 `ctx.compaction` 旁注册 `ctx.compactionHistory`。该服务只在匹配的 compact checkpoint 提交后发布 summary 节点；后续替换遮蔽旧 checkpoint 时推导 parent id；并把每个节点剩余的 raw message seq 保留为 source 引用。resume 或 HMR 后，它从 append-only log 重建 live Session projection；没有 replacement checkpoint 的失败 summary 不会进入索引。
+
+`search(sessionId, query, limit?)` 对已提交 summary 文本执行有界且不区分大小写的 term matching。`expand(sessionId, summaryId, options?)` 在配置的深度与确定性 token 估算 cap 内返回 summary ancestry 和可选 raw message source。source 类型与配置声明在 [`compaction-lossless/src/types.ts`](../../packages/compaction/compaction-lossless/src/types.ts)；面向模型的 Consumer 负责工具 schema 与不可信历史提示。
 
 ## 工具结果剪枝产出
 
@@ -198,6 +204,46 @@ abstract compactRegion( start: number, end: number, agent: CompactionAgentContex
 Types: [CommandId](commands.md)
 
 Source: [`packages/compaction/compaction/src/index.ts:96`](../../packages/compaction/compaction/src/index.ts)
+
+<a id="ctxcompactionhistory--compactionhistory"></a>
+
+### `ctx.compactionHistory` — `CompactionHistory`
+
+Live in-memory projection of committed summary nodes recorded in each Session log.
+
+```ts cordis-catalog
+/**
+ * Search summary content belonging to one live session.
+ * @param sessionId - session whose committed summary nodes are searched.
+ * @param query - case-insensitive terms that every matching summary contains.
+ * @param limit - requested result count, capped by provider configuration.
+ * @returns newest matching committed summary nodes first.
+ * @throws when the session is not live in this projection.
+ */
+search(sessionId: SessionId, query: string, limit: number = this.config.maxSearchResults): CompactionSummarySearchHit[]
+
+/**
+ * Expand one summary through its parent DAG and optional raw message sources.
+ * @param sessionId - session that owns the summary identity.
+ * @param summaryId - committed summary node to expand.
+ * @param options - requested depth, token estimate, and source inclusion.
+ * @returns bounded summary ancestry and source messages.
+ * @throws when the session or summary is unavailable.
+ */
+expand( sessionId: SessionId, summaryId: CompactionSummaryId, options: CompactionSummaryExpansionOptions = {}, ): CompactionSummaryExpansion
+
+/**
+ * Return projection statistics for one live session.
+ * @param sessionId - session whose committed nodes are counted.
+ * @returns committed summary count and greatest DAG depth.
+ * @throws when the session is not live in this projection.
+ */
+stats(sessionId: SessionId): { summaries: number; maxDepth: number }
+```
+
+Types: [SessionId](core.md)
+
+Source: [`packages/compaction/compaction-lossless/src/index.ts:143`](../../packages/compaction/compaction-lossless/src/index.ts)
 
 <a id="ctxtoolresultpruner--toolresultpruner"></a>
 

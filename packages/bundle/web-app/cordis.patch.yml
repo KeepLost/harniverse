@@ -362,14 +362,18 @@
 - id: plan-mode
   disabled: true
 
-# The token METER stays on the host plane; only the compaction backend that
-# reads it moves. It owns the context-meter projection units, and that table is
+# The token METER stays on the host plane; the compaction backend, its history
+# projection, and the model-facing history tools move. The meter owns the
+# context-meter projection units, and that table is
 # process-wide, so preset ownership would make the meter a function of which
 # presets happen to be mounted rather than a per-session fact. Same criterion as
 # `tasks` and `goals`; the reasoning has one home in
 # `.agents/notes/implemented/architecture/2026-08-10-host-plane-ownership-after-presets.md`.
 
-- id: compaction-basic
+- id: compaction-lossless
+  disabled: true
+
+- id: tool-compaction-history
   disabled: true
 
 - id: command-compact

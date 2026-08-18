@@ -14,7 +14,7 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { resolveSessionPreset, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
 import { applyChildComposition, childSessionMeta } from '@deepseek-ai/dsh-subagent'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import type {} from '@deepseek-ai/dsh-compaction-basic'
+import type { LosslessCompactionEngine } from '@deepseek-ai/dsh-compaction-lossless'
 import type {} from '@deepseek-ai/dsh-compaction-tool-result-pruner'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -50,6 +50,7 @@ async function bootWeb(
   extra: PatchOptions[] = [],
   extraInstallAnchor?: string,
 ): Promise<Context> {
+  const home = dirname(settingsFile)
   const storageRoot = join(dirname(settingsFile), 'storages')
   const patches: PatchOptions[] = [
     ...loadOverlayPatches('dsh-test', BASE_PATCH),
@@ -65,6 +66,8 @@ async function bootWeb(
     // back on the next run, so a stored document from any other build decides
     // this test's boot. Same reason the settings row above is pinned.
     { id: 'storage-json', config: { root: storageRoot } },
+    { id: 'authentication', config: { dshHome: home } },
+    { id: 'session-persistence-jsonl', config: { root: join(home, 'sessions') } },
     // Host rows with side effects outside this process: a bound port, a served
     // asset tree, a telemetry exporter. `api-gateway` and `directory-picker`
     // stay ENABLED on purpose — the api-proxy is the host row that injects
@@ -114,7 +117,6 @@ async function bootWeb(
   // outside this workspace and bare plugin names cannot resolve by Node's
   // upward walk. The flat fallback the preset boot maintains is what makes
   // them resolvable — the same mechanism, not a test-only shim.
-  const home = dirname(settingsFile)
   healProfilesModuleFallback(INSTALL_ANCHOR, home)
   if (extraInstallAnchor !== undefined) healProfilesModuleFallback(extraInstallAnchor, home)
   const profileDir = join(home, 'profiles', 'spec')
@@ -207,11 +209,16 @@ describe('the shipped Web composition', () => {
       // excluded for the reason the TUI composition e2e excludes them — they
       // depend on ripgrep being present on the machine.
       expect(toolNames(ctx, handle.agent).filter(name => name !== 'glob' && name !== 'grep')).toEqual([
-        'artifact_read', 'ask_user_question', 'bash', 'create_goal', 'edit', 'exit_plan_mode',
-        'get_goal', 'interrupt_agent', 'job_kill', 'job_list', 'job_output', 'list_agents', 'ralph', 'read', 'read_image', 'send_message', 'skill',
+        'artifact_read', 'ask_user_question', 'bash', 'compaction_history_expand',
+        'compaction_history_search', 'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'interrupt_agent',
+        'job_kill', 'job_list', 'job_output', 'list_agents', 'ralph', 'read', 'read_image', 'send_message', 'skill',
         'subagent', 'subagent_fork', 'todo_write', 'update_goal',
         'workflow', 'write',
       ])
+      const compaction = ctx.agentPresets.serviceFor(handle.agent, 'compaction')
+      expect(compaction).toBeDefined()
+      expect((compaction as LosslessCompactionEngine).config.auto).toBe(true)
+      expect(ctx.agentPresets.serviceFor(handle.agent, 'compactionHistory')).toBeDefined()
       expect(ctx.agentPresets.serviceFor(handle.agent, 'toolResultPruner')).toBeUndefined()
     } finally {
       await handle.dispose()

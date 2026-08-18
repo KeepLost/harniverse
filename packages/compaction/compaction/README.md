@@ -10,7 +10,9 @@ This package owns the Service Definition role of the compaction capability, spli
 |---|---|
 | `@deepseek-ai/dsh-compaction` (this) | Service Definition: abstract service + `compaction/*` events + `CompactionResult` + correlated checkpoint-source constructor + tool-pairing boundary helpers |
 | `@deepseek-ai/dsh-compaction-basic` | Service Provider: `ctx.tokenMeter` pressure + token-budget retention + `llm.stream()` summarization |
+| `@deepseek-ai/dsh-compaction-lossless` | Service Provider: basic transaction policy + committed summary-DAG projection |
 | `@deepseek-ai/dsh-command-compact` | Consumer: the human `/compact` command over `ctx.compaction.compactNow()` |
+| `@deepseek-ai/dsh-tool-compaction-history` | Consumer: model-facing search and expansion over the lossless Provider's history projection |
 
 Unlike the bash seam, this Service Definition depends on `@deepseek-ai/dsh-session` and `@deepseek-ai/dsh-llm` — the contract's verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary, so they cannot be expressed without naming those packages. That deviation from the "Service Definition depends only on cordis" guidance is intentional and recorded in the [compaction capability-seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md).
 
@@ -52,7 +54,7 @@ The marker pair names lock acquisition and release, not an exclusive event conta
 
 `deriveMessages()` then renders the summary as a user-role message followed by the retained nodes. The shadowed events remain in the raw log, so replay is deterministic.
 
-Shipped base, standard, code, and Cordis compositions keep their configured tool-result-pruner rows disabled. Automatic and manual compaction therefore proceed directly to summary replacement, which is the only history rewrite in default compositions. An explicit profile, home, or command-line overlay can enable retroactive tool-result pruning before later summaries.
+Shipped base, standard, code, Cordis, and standalone headless compositions select `dsh-compaction-lossless`. The bundle and preset compositions keep their configured tool-result-pruner rows disabled, while headless does not mount one. Automatic and manual compaction therefore proceed directly to summary replacement, which is the only history rewrite in default compositions. An explicit profile, home, or command-line overlay can enable retroactive tool-result pruning before later summaries.
 
 ## Blocking
 
@@ -90,6 +92,6 @@ A successful backend replacement invalidates reuse from the first shadowed histo
 
 ## Known Limitations and Deferred Work
 
-- **Human command, not a model tool** — `@deepseek-ai/dsh-command-compact` exposes argument-free `/compact` through `ctx.commands`; no model-facing compaction tool is registered.
+- **Human compaction trigger, not a model trigger** — `@deepseek-ai/dsh-command-compact` exposes argument-free `/compact` through `ctx.commands`; the separate history tools read committed compaction but cannot initiate it.
 - **Some single-unit overflow is out of contract** — balanced summary compaction cannot split one indivisible unit. The optional pruning companion can still repair a closed tool pair when text-bearing tool-result bulk is removable; a large non-tool node or a tool unit whose non-prunable remainder is oversized cannot be compacted.
 - **An envelope that alone approaches the window is not surface-compaction work** — compaction shrinks derived history, never the system prompt, tools, or session prefix.

@@ -59,6 +59,8 @@ import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolResultArtifacts from '@deepseek-ai/dsh-tool-result-artifacts'
+import { CompactionHistory } from '@deepseek-ai/dsh-compaction-lossless'
+import * as ToolCompactionHistory from '@deepseek-ai/dsh-tool-compaction-history'
 import SpillStore, { SpillLocator } from '@deepseek-ai/dsh-spill'
 import type { ReadTextSpill, ReadTextSpillPage, SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
@@ -418,6 +420,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-compaction-history',
+    dir: 'tool-compaction-history',
+    source: 'packages/compaction/tool-compaction-history/src/index.ts',
+    requires: ['ctx.tools', 'ctx.systemPrompt', 'ctx.compactionHistory', 'a calling Agent for Session identity'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(CompactionHistory)
+      await ctx.plugin(ToolCompactionHistory)
+    },
+    note:
+      'The shipped tools search only committed summary checkpoints in the calling live Session. Expansion output treats recovered history as untrusted and applies configured depth and deterministic token-estimate caps.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-result-artifacts',

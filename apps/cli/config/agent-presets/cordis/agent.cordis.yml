@@ -119,24 +119,28 @@
     maxResultTextChars: 50000
     pageChars: 12000
 
-# `compaction-basic` reads `toolResultPrune` through `ctx.get`, so the pruner must
-# share this realm rather than sit outside it.
+# `compaction-lossless` inherits the basic provider's `toolResultPrune` lookup,
+# so the pruner must share this realm rather than sit outside it.
 #
 # `tokenMeter` is deliberately NOT in this realm: the meter stays on the HOST
 # plane, and the rows here resolve that one instance. It takes no configuration,
 # keys every fold by Session, and owns the context-meter projection units the
 # browser reads for every session — behind a realm those units would come and go
 # with whichever presets happen to be mounted. What a preset chooses is whether
-# its agent compacts at all, which is `compaction-basic` below.
+# its agent compacts at all, which is `compaction-lossless` below.
 - id: compaction
   name: cordis:group
   group: true
   isolate:
     compaction: true
+    compactionHistory: true
     toolResultPruner: true
   config:
-    - id: compaction-basic
-      name: '@deepseek-ai/dsh-compaction-basic'
+    - id: compaction-lossless
+      name: '@deepseek-ai/dsh-compaction-lossless'
+
+    - id: tool-compaction-history
+      name: '@deepseek-ai/dsh-tool-compaction-history'
 
     - id: command-compact
       name: '@deepseek-ai/dsh-command-compact'

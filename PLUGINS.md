@@ -75,13 +75,14 @@ The inventory is grouped by package directory. Every listed package is an offici
 ## Harniverse Capability Changes
 
 <!-- capability-changes-start -->
-Harniverse did not add six independent capabilities. Six downstream package manifests occupy roles in three capability families plus one profile bundle that exposes authentication management through the plugin tree.
+Harniverse did not add eight independent capabilities. Eight downstream package manifests occupy roles in four capability families plus one profile bundle that exposes authentication management through the plugin tree.
 
 | Capability | Service Definition | Service Provider | Consumer | Current downstream status |
 |---|---|---|---|---|
 | Inbound authentication and authorization | `dsh-authentication` (new) | `dsh-authentication-local` (new) | `dsh-client-connection` (official, modified), `dsh-auth-app` (new management bundle), `dsh-sdk-client` (official, modified) | Complete seam; public-key Grants produce short credentials bounded by Grant deadlines, pending enrollment is bounded, loss of the final owner seals every business transport, and endpoint metadata defaults unknown operations to deny. |
 | Outbound notification | `dsh-notification` (new; Definition + coordinator Consumer) | `dsh-notification-http` (new) | Coordinator folded into `dsh-notification` | Complete opt-in seam following the official session-telemetry pattern. |
 | Durable result artifacts | `dsh-spill` (official, modified) | `dsh-spill-local` (official, modified) | `dsh-tool-result-artifacts` (new), `dsh-spill-policy` | Complete seam; one Consumer owns retention, recovery marker, failure semantics, and `artifact_read`. |
+| Recallable compaction history | `dsh-compaction` (official) plus `dsh-compaction-lossless` summary-DAG service (new) | `dsh-compaction-lossless` (new; inherits the official basic Provider transaction) | `dsh-tool-compaction-history` (new) | Complete shipped seam; automatic compaction projects committed checkpoints over the canonical Session log, while bounded current-session tools search summaries and expand parent/source history. |
 
 ### Added Packages
 
@@ -93,6 +94,8 @@ Harniverse did not add six independent capabilities. Six downstream package mani
 | `@deepseek-ai/dsh-notification` | Notification Service Definition plus lifecycle projection Consumer | Not mounted alone. |
 | `@deepseek-ai/dsh-notification-http` | Durable HTTP/HTTPS notification Service Provider | Opt-in examples only. |
 | `@deepseek-ai/dsh-tool-result-artifacts` | Finalized-result retention and model-facing retrieval Consumer | Enabled in base/headless scopes and per-agent Web presets. |
+| `@deepseek-ai/dsh-compaction-lossless` | Automatic compaction Provider plus committed summary-DAG projection | Enabled in base, the standalone headless example, and the standard, code, and Cordis presets. |
+| `@deepseek-ai/dsh-tool-compaction-history` | Bounded current-session summary search and expansion Consumer | Enabled beside `dsh-compaction-lossless`; omitted by the minimal preset. The headless overflow snapshot pins its model-visible names and safety guidance. |
 
 ### Modified Official Plugin Families
 
@@ -101,6 +104,7 @@ Harniverse did not add six independent capabilities. Six downstream package mani
 | Model and Web defaults | `dsh-base`, `dsh-web`, `dsh-web-search-exa`, `dsh-web-search-perplexity`, `dsh-client-ui-settings-models`, `dsh-client-ui-settings-plugins` |
 | Session control and reconnect | `dsh-agent`, `dsh-agent-loop`, `dsh-session`, `dsh-host-apiproxy`, `dsh-client-connection`, `dsh-client-runtime`, `dsh-session-persistence`, `dsh-session-persistence-jsonl`, `dsh-session-persistence-sqlite`, `dsh-session-projection-cache`, `dsh-workspace` |
 | Result retention and bounded file access | `dsh-tools`, `dsh-spill`, `dsh-spill-local`, `dsh-spill-policy`, `dsh-tool-fs`, `dsh-tool-fs-search`, `dsh-tool-str-replace-editor`, `dsh-client-ui-tool`, `dsh-compaction`, `dsh-token-meter` |
+| Compaction composition and recall | `dsh-base`, `dsh-web-app`, and the standalone headless example; standard, code, and Cordis agent presets select the downstream Provider and Consumer. |
 | Authenticated Web and automation surface | `dsh-web-app`, `dsh-client-connection`, `dsh-client-modules`, `dsh-client-hmr`, `dsh-client-web`, `dsh-host-webserver`, `dsh-sdk-client`, `dsh-api-gateway`, `dsh-typert-protocol`, `dsh-typert-generator`, `dsh-typert-loader`, `dsh-typert-registry` |
 | Derived runtime catalogs | `dsh-cordis-client-runner`, `dsh-tool-cordis` |
 | Test support projection | `dsh-acp-snapshot` normalization only |
@@ -115,6 +119,8 @@ Harniverse did not add six independent capabilities. Six downstream package mani
 | `dsh-base` Web providers | Existing Exa and Perplexity providers are mounted beside DeepSeek; provider selection is live settings-backed. |
 | `dsh-base` model Web tools | `dsh-tool-web` remains loaded with both search and fetch disabled by default. |
 | `dsh-base` result policy | Legacy `dsh-spill-policy` and `dsh-compaction-tool-result-pruner` rows default disabled; `dsh-tool-result-artifacts` handles finalized-result retention and `artifact_read`. |
+| `dsh-base` compaction | `dsh-compaction-lossless` replaces the official basic row while inheriting its automatic transaction policy; `dsh-tool-compaction-history` exposes bounded recall. Web moves both rows behind standard, code, and Cordis agent presets; minimal remains uncompacted. |
+| Standalone headless example | The runnable headless composition selects the same lossless Provider and history Consumer; its keyless overflow snapshot verifies committed replacement plus model-visible recall tools and untrusted-history guidance. |
 | `dsh-web-app` authentication | `dsh-authentication-local` initializes before WebServer bind; connection injects the provider-neutral service. |
 | `dsh-web-app` transport | Non-loopback listeners require direct TLS; authentication bypass is loopback-only. |
 | `auth` profile | `dsh-auth-app` parses device, Grant, and API-client management arguments inside the plugin tree and exits without mounting an Agent, WebServer, or authentication runtime Provider. |

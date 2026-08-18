@@ -281,8 +281,11 @@
     - id: token-meter
       name: '@deepseek-ai/dsh-token-meter'
 
-    - id: compaction-basic
-      name: '@deepseek-ai/dsh-compaction-basic'
+    - id: compaction-lossless
+      name: '@deepseek-ai/dsh-compaction-lossless'
+
+    - id: tool-compaction-history
+      name: '@deepseek-ai/dsh-tool-compaction-history'
 
     # Human `/compact`: one useful reduction below the automatic threshold. Backend
     # independent, so it follows whichever compaction service this leaf mounts.

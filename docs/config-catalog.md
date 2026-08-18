@@ -609,6 +609,31 @@ export interface ModelCompactPolicyConfig extends CompactionPolicyConfig {
 
 Source: [`packages/compaction/compaction-basic/src/types.ts:38`](../packages/compaction/compaction-basic/src/types.ts)
 
+<a id="deepseek-aidsh-compaction-lossless"></a>
+
+## `@deepseek-ai/dsh-compaction-lossless`
+
+Requires: `llm` · `tokenMeter` · `sessions`
+
+```ts config-catalog
+/** Full provider configuration, including inherited BasicCompaction policy. */
+export interface Config extends BasicCompactionConfig, CompactionHistoryConfig {}
+
+/** Summary-DAG search and expansion service configuration. */
+export interface CompactionHistoryConfig {
+  /** Maximum summary hits returned by one search. Defaults to 20. */
+  readonly maxSearchResults?: number
+  /** Maximum summary levels returned by one expansion. Defaults to 3. */
+  readonly maxExpansionDepth?: number
+  /** Maximum deterministic estimated tokens returned by one expansion. Defaults to 4000. */
+  readonly maxExpansionTokens?: number
+}
+```
+
+Depends on: [`BasicCompactionConfig`](#deepseek-aidsh-compaction-basic)
+
+Source: [`packages/compaction/compaction-lossless/src/index.ts:46`](../packages/compaction/compaction-lossless/src/index.ts)
+
 <a id="deepseek-aidsh-compaction-tool-result-pruner"></a>
 
 ## `@deepseek-ai/dsh-compaction-tool-result-pruner`
@@ -2562,6 +2587,26 @@ export interface Config {
 ```
 
 Source: [`packages/shell/tool-bash-persistent/src/index.ts:405`](../packages/shell/tool-bash-persistent/src/index.ts)
+
+<a id="deepseek-aidsh-tool-compaction-history"></a>
+
+## `@deepseek-ai/dsh-tool-compaction-history`
+
+Requires: `tools` · `systemPrompt` · `compactionHistory`
+
+```ts config-catalog
+/** Tool configuration controlling result bounds. */
+export interface Config {
+  /** Maximum summary hits returned by one search call. Defaults to 20. */
+  readonly maxResults?: number
+  /** Maximum summary levels returned by one expansion call. Defaults to 3. */
+  readonly maxDepth?: number
+  /** Maximum deterministic estimated tokens in one rendered expansion. Defaults to 4000. */
+  readonly maxTokens?: number
+}
+```
+
+Source: [`packages/compaction/tool-compaction-history/src/index.ts:25`](../packages/compaction/tool-compaction-history/src/index.ts)
 
 <a id="deepseek-aidsh-tool-fs"></a>
 

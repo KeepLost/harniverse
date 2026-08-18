@@ -58,6 +58,8 @@ The design ships as a new backend `dsh-compact-recallable` on the existing `ctx.
 
 ### Relation to in-flight work
 
+The shipped [summary DAG and bounded history tools](../../implemented/feature/2026-08-18-summary-dag-compaction-history.md) partially overlap this proposal by making committed checkpoints searchable and expandable over the canonical log. This proposal remains active for the frozen index stubs, mutable state checkpoint, cache-stable prefix, paginated transcript reader, and multi-region compaction transaction that the shipped provider does not implement.
+
 - **Tool-result pruning** (the in-flight pruning service): its replacement nodes carry `sourceEventSeqs`; the same registry fold lists pruned results as recallable. Follow-up scope; neither blocks the other.
 - **Provider-usage token accounting** (the in-flight move of compaction pressure onto provider-reported usage): supplies the guard's accounting; the implementation stacks after it.
 - **"Query sessions" backlog item**: the cross-session generalization; this Agent Note scopes to the live session with tool names and rendering chosen so that work extends rather than collides.

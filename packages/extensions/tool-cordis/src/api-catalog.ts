@@ -591,6 +591,39 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'compactionHistory',
+    summary: 'Live in-memory projection of committed summary nodes recorded in each Session log.',
+    description: 'Live in-memory projection of committed summary nodes recorded in each Session log.',
+    methods: [
+      {
+        signature: 'readonly config: Readonly<Required<CompactionHistoryConfig>>',
+        description: 'Validated search and expansion limits used by this projection.',
+        parameters: [],
+      },
+      {
+        signature: 'search(sessionId: SessionId, query: string, limit: number = this.config.maxSearchResults): CompactionSummarySearchHit[]',
+        description: 'Search summary content belonging to one live session.',
+        parameters: [{ name: 'sessionId', description: 'session whose committed summary nodes are searched.' }, { name: 'query', description: 'case-insensitive terms that every matching summary contains.' }, { name: 'limit', description: 'requested result count, capped by provider configuration.' }],
+        returns: 'newest matching committed summary nodes first.',
+        throws: ['when the session is not live in this projection.'],
+      },
+      {
+        signature: 'expand( sessionId: SessionId, summaryId: CompactionSummaryId, options: CompactionSummaryExpansionOptions = {}, ): CompactionSummaryExpansion',
+        description: 'Expand one summary through its parent DAG and optional raw message sources.',
+        parameters: [{ name: 'sessionId', description: 'session that owns the summary identity.' }, { name: 'summaryId', description: 'committed summary node to expand.' }, { name: 'options', description: 'requested depth, token estimate, and source inclusion.' }],
+        returns: 'bounded summary ancestry and source messages.',
+        throws: ['when the session or summary is unavailable.'],
+      },
+      {
+        signature: 'stats(sessionId: SessionId): { summaries: number; maxDepth: number }',
+        description: 'Return projection statistics for one live session.',
+        parameters: [{ name: 'sessionId', description: 'session whose committed nodes are counted.' }],
+        returns: 'committed summary count and greatest DAG depth.',
+        throws: ['when the session is not live in this projection.'],
+      },
+    ],
+  },
+  {
     key: 'credentials',
     summary: 'Abstract credential service.',
     description: 'Abstract credential service. Providers implement the four operations over their source layers; one seam-wide rule binds them all: an empty stored value is absent everywhere — `resolve` skips it, `describe` reports it unconfigured — so a blank never masquerades as a configured secret.',
@@ -3113,6 +3146,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CompactionAgentContext {\n    session: Session;\n    options: {\n        provider?: string;\n        model?: string;\n    };\n}',
   },
   {
+    name: 'CompactionHistoryConfig',
+    declaration: 'export interface CompactionHistoryConfig {\n    readonly maxSearchResults?: number;\n    readonly maxExpansionDepth?: number;\n    readonly maxExpansionTokens?: number;\n}',
+  },
+  {
+    name: 'CompactionHistoryNode',
+    declaration: 'export interface CompactionHistoryNode {\n    readonly id: CompactionSummaryId;\n    readonly sessionId: SessionId;\n    readonly eventSeq: number;\n    readonly kind: \'leaf\' | \'condensed\';\n    readonly depth: number;\n    readonly content: ContentBlock[];\n    readonly text: string;\n    readonly parentIds: CompactionSummaryId[];\n    readonly sourceEventSeqs: number[];\n    readonly shadowedRange: {\n        readonly start: number;\n        readonly end: number;\n    };\n    readonly shadowedTokenCount: number;\n    readonly provider: string;\n    readonly model: string;\n    readonly createdAt: number;\n}',
+  },
+  {
     name: 'CompactionId',
     declaration: 'export type CompactionId = Branded<\'CompactionId\'>;',
   },
@@ -3123,6 +3164,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CompactionSettledData',
     declaration: 'export interface CompactionSettledData {\n    compactionId: string;\n    turn: number | null;\n    seq: number;\n    ok: boolean;\n    sourceCommandId?: string;\n}',
+  },
+  {
+    name: 'CompactionSummaryExpansion',
+    declaration: 'export interface CompactionSummaryExpansion {\n    readonly id: CompactionSummaryId;\n    readonly kind: CompactionHistoryNode[\'kind\'];\n    readonly depth: number;\n    readonly eventSeq: number;\n    readonly text: string;\n    readonly parents: CompactionSummaryExpansion[];\n    readonly sources: CompactionSummarySource[];\n    readonly tokenCap: number;\n    readonly estimatedTokens: number;\n    readonly truncated: boolean;\n}',
+  },
+  {
+    name: 'CompactionSummaryExpansionOptions',
+    declaration: 'export interface CompactionSummaryExpansionOptions {\n    readonly maxDepth?: number;\n    readonly tokenCap?: number;\n    readonly includeSources?: boolean;\n}',
+  },
+  {
+    name: 'CompactionSummaryId',
+    declaration: 'export type CompactionSummaryId = Branded<\'CompactionSummaryId\'>;',
+  },
+  {
+    name: 'CompactionSummarySearchHit',
+    declaration: 'export interface CompactionSummarySearchHit {\n    readonly id: CompactionSummaryId;\n    readonly kind: CompactionHistoryNode[\'kind\'];\n    readonly depth: number;\n    readonly eventSeq: number;\n    readonly snippet: string;\n    readonly tokenCount: number;\n}',
+  },
+  {
+    name: 'CompactionSummarySource',
+    declaration: 'export interface CompactionSummarySource {\n    readonly eventSeq: number;\n    readonly role: string;\n    readonly text: string;\n}',
   },
   {
     name: 'CompactionTrigger',

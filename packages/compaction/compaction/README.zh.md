@@ -10,7 +10,9 @@
 |---|---|
 | `@deepseek-ai/dsh-compaction`（本包） | Service Definition：抽象服务 + `compaction/*` 事件 + `CompactionResult` + 关联检查点源构造函数 + 工具配对边界 helper |
 | `@deepseek-ai/dsh-compaction-basic` | Service Provider：`ctx.tokenMeter` 压力 + token 预算保留 + `llm.stream()` 摘要 |
+| `@deepseek-ai/dsh-compaction-lossless` | Service Provider：basic transaction policy + 已提交 summary DAG projection |
 | `@deepseek-ai/dsh-command-compact` | Consumer：面向人类的 `/compact` 命令，基于 `ctx.compaction.compactNow()` 实现 |
+| `@deepseek-ai/dsh-tool-compaction-history` | Consumer：基于 lossless Provider history projection 的 model-facing 搜索与展开 |
 
 与 bash seam 不同，该 Service Definition 依赖 `@deepseek-ai/dsh-session` 和 `@deepseek-ai/dsh-llm`。约定的动词基于 `Session` 定义，其输出使用 `ContentBlock` 词汇，因此无法在不指名这些包的情况下表达。这项对「Service Definition 只依赖 cordis」指引的偏离是有意的，并记录在 [压缩能力 seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) 中。
 
@@ -52,7 +54,7 @@
 
 `deriveMessages()` 随后将摘要渲染为 user 角色消息，再跟上已保留节点。已遮蔽事件仍保留在原始日志中，因此回放具有确定性。
 
-随附的 base、standard、code 和 Cordis 组合均保持其已配置的工具结果剪枝行处于禁用状态。因此自动与手动压缩会直接执行摘要替换，这是默认组合中唯一的历史改写。显式的 profile、home 或命令行 overlay 可以启用追溯式工具结果剪枝，再执行后续摘要。
+随附的 base、standard、code、Cordis 和 standalone headless 组合选择 `dsh-compaction-lossless`。bundle 与 preset 组合保持已配置的工具结果剪枝行禁用，headless 则不挂载剪枝器。因此自动与手动压缩会直接执行摘要替换，这是默认组合中唯一的历史改写。显式的 profile、home 或命令行 overlay 可以启用追溯式工具结果剪枝，再执行后续摘要。
 
 ## 阻塞
 
@@ -90,6 +92,6 @@
 
 ## 已知限制与暂缓事项
 
-- **面向用户的命令，而非模型工具**：`@deepseek-ai/dsh-command-compact` 通过 `ctx.commands` 暴露无参数 `/compact`；不会注册面向模型的压缩工具。
+- **面向用户的压缩触发，而非模型触发**：`@deepseek-ai/dsh-command-compact` 通过 `ctx.commands` 暴露无参数 `/compact`；独立历史工具只读取已提交压缩，不能发起压缩。
 - **部分单元溢出不在约定内**：平衡摘要压缩无法拆分一个不可分单元。当闭合工具对中可移除的主要部分是承载文本的工具结果时，可选剪枝配套服务仍可修复该工具对；无法压缩大型非工具节点，或不可剪枝剩余部分过大的工具单元。
 - **单独接近窗口大小的 envelope 不属于表层压缩工作**：压缩缩减派生历史，绝不缩减系统提示词、工具或会话前缀。

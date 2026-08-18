@@ -58,6 +58,8 @@ Status: proposed
 
 ### 与进行中工作的关系
 
+已交付的 [summary DAG 与有界历史工具](../../implemented/feature/2026-08-18-summary-dag-compaction-history.md)通过在 canonical log 上搜索和展开已提交 checkpoint，与本提案部分重叠。本提案仍负责已交付 provider 未实现的 frozen index stub、mutable state checkpoint、cache-stable prefix、分页 transcript reader 和多区域 compaction transaction。
+
 - **工具结果裁剪**（进行中的裁剪服务）：其替换节点携带 `sourceEventSeqs`；同一注册表折叠会把经过裁剪的结果列为可回溯。它属于后续范围，两项工作互不阻塞。
 - **提供方 token 用量核算**（正在把压缩压力迁移至提供方报告用量的工作）：为保护逻辑提供核算基础；本实现堆叠在它之后。
 - **「查询会话」backlog（待办清单）条目**：它是跨会话的泛化方案；本 Agent Note 把范围限定在实时会话内，并选择工具名称与渲染方式，使该工作能够扩展本设计而不产生冲突。
