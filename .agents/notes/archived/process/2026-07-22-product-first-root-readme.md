@@ -1,6 +1,7 @@
 # Agent Note: Product-first root README
 
 Status: implemented
+Archived: 2026-08-18
 
 English | [中文](2026-07-22-product-first-root-readme.zh.md)
 

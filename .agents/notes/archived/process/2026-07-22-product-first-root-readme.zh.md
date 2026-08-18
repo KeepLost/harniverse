@@ -1,6 +1,7 @@
 # Agent Note: 产品优先的根 README
 
 Status: implemented
+Archived: 2026-08-18
 
 [English](2026-07-22-product-first-root-readme.md) | 中文
 

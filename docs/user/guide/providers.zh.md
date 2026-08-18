@@ -2,7 +2,7 @@
 
 [English](providers.md) | 中文
 
-本指南假定你已按照[根 README](../../../README.md#run)启动 Web UI。模型变更会在下一次请求时生效，不需要重启服务器。
+本指南假定你已按 [Web 快速开始](./index.md)完成浏览器注册。新的 Harniverse home 在添加提供方前没有可用的模型路由；保存后的模型变更会在下一次请求时生效，不需要重启服务器。
 
 ## 配置可选的原生 DeepSeek 适配器
 

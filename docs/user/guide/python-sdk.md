@@ -2,7 +2,7 @@
 
 English | [中文](python-sdk.zh.md)
 
-This tutorial is the programmatic alternative to the Web UI. It installs the published Python SDK, runs a checked-in agent composition, and shows how to call the same API from your own program.
+This tutorial is the programmatic alternative to the Web UI. It installs the inherited published DeepSeek Harness Python SDK, runs Harniverse's checked-in agent composition, and shows how to call the same API from your own program. Harniverse does not publish an independent Python package; repository source and the installed SDK/runtime must use compatible versions.
 
 ## Prerequisites
 
@@ -17,8 +17,8 @@ This tutorial is the programmatic alternative to the Web UI. It installs the pub
 Clone the repository for its runnable example, create a virtual environment, and install the SDK with its same-version bundled runtime:
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
-cd deepseek-harness
+git clone https://github.com/KeepLost/harniverse.git
+cd harniverse
 python -m venv .venv
 . .venv/bin/activate
 python -m pip install deepseek-harness-sdk

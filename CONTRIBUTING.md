@@ -2,22 +2,25 @@
 
 English | [中文](CONTRIBUTING.zh.md)
 
-Thank you for your interest in contributing to DeepSeek Harness!
+Harniverse welcomes issue reports, documentation corrections, plugin experiments, and pull requests. A submitted pull request is an invitation to review, not a promise to merge: acceptance depends on project scope, architecture fit, verification, and the maintainers' capacity to support the result.
 
-We deeply believe in the power of open source communities, and that belief has shaped this project from the very beginning.
+## Before proposing a change
 
-DeepSeek Harness is still at an early stage and under active development. We are sorry that we cannot accept external pull requests at the moment. However, contributing code to this repository is far from the only way to help. There are many other ways to get involved:
+- Search [Harniverse Issues](https://github.com/KeepLost/harniverse/issues) before opening a duplicate. Use an issue to align on substantial product, security, distribution, or architecture changes before implementation.
+- Read [AGENTS.md](AGENTS.md) for repository workflow and invariants, and [PLUGINS.md](PLUGINS.md) for the official DeepSeek Harness baseline and every Harniverse downstream capability or composition change.
+- Preserve **everything is a plugin**. Extend documented plugin services and complete Definition, Provider, and Consumer roles instead of adding launcher, loop, or bundle special cases.
+- Keep inherited `@deepseek-ai/dsh-*` names and upstream attribution unless an approved distribution decision changes them.
 
-- Identify and report issues or bugs in GitHub Discussions:
-  - Upvote discussions that you would like to bring to the team's attention. We are a very small team and may not be able to reply to every post, but we monitor them and consider them when allocating resources.
-- Contribute to the ecosystem:
-  - Create a plugin that excites you and share it with others:
-    - Associate your GitHub project with the `dsh-plugin` topic to help others discover your plugin.
-  - Write blog posts and how-to guides about DeepSeek Harness.
-  - Answer questions and help other members of the community.
+## Prepare a pull request
 
-DeepSeek Harness is designed to be deeply customizable. We do not believe that packages in the official repository are inherently more important than packages created by the community. You may consider this repository an idea, an official showcase, and a source of inspiration, but not a mandate from us.
+Keep one change focused and include the tests, bilingual documentation, generated artifacts, and Agent Note required by that change. Follow the [development guide](docs/development.md) for setup and daily commands; select checks through the workflow in [AGENTS.md](AGENTS.md#run-relevant-checks-locally) rather than treating one broad command as proof for every surface.
 
-We have already seen exciting projects emerge from the community, and we hope to see the ecosystem continue to grow in its own directions.
+Describe the observable result, important design boundaries, commands actually run, and any remaining failure or environment gap. Do not include credentials, private endpoints, generated secrets, or unrelated formatting churn.
 
-Into the unknown.
+Harniverse is pre-release software without a tagged compatibility commitment. A contribution may update all affected callers and persisted fixtures instead of adding speculative compatibility code, but it must preserve explicit authentication, authorization, TLS, and plugin-native ownership boundaries.
+
+## Contribute to the plugin ecosystem
+
+Plugins do not need to live in this repository to be useful. Publish independent plugins when their lifecycle and release cadence do not belong to Harniverse, add the [`dsh-plugin`](https://github.com/topics/dsh-plugin) topic for discovery, and document the Harniverse or upstream DSH versions and capabilities they require.
+
+Harniverse derives from [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Contributions to this repository are Harniverse contributions and do not represent acceptance, support, or endorsement by DeepSeek AI.

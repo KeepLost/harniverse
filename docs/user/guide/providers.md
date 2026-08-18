@@ -2,7 +2,7 @@
 
 English | [中文](providers.zh.md)
 
-This guide assumes you started the Web UI through the [root README](../../../README.md#run). Model changes take effect on the next request without restarting the server.
+This guide assumes you completed browser enrollment through the [Web quick start](./index.md). A new Harniverse home has no usable model route until you add a provider; saved model changes take effect on the next request without restarting the server.
 
 ## Configure the optional native DeepSeek adapter
 

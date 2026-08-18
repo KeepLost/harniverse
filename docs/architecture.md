@@ -1,10 +1,8 @@
-# DeepSeek Harness Architecture
+# Harniverse Architecture
 
 English | [中文](architecture.zh.md)
 
-Read this before changing anything under `packages/`. It assumes you know Cordis; if you do not, start with the [primer](cordis-primer.md) or the [tutorial](cordis-tutorial/index.md).
-
-We recommend using an agent to explore the codebase and understand its architecture.
+Harniverse preserves the DeepSeek Harness plugin architecture described here; [PLUGINS.md](../PLUGINS.md) records its downstream baseline and composition differences. Read this before changing anything under `packages/`. It assumes you know Cordis; if you do not, start with the [primer](cordis-primer.md) or the [tutorial](cordis-tutorial/index.md).
 
 ## Cordis
 

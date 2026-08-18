@@ -2,7 +2,7 @@
 
 [English](python-sdk.md) | 中文
 
-本教程介绍 Web UI 之外的程序化使用方式：安装已发布的 Python SDK、运行仓库内置的 agent（智能体）组合，并在自己的程序中调用同一套 API。
+本教程介绍 Web UI 之外的程序化使用方式：安装继承的 DeepSeek Harness 已发布 Python SDK、运行 Harniverse 仓库内置的 agent（智能体）组合，并在自己的程序中调用同一套 API。Harniverse 不发布独立 Python 包；仓库源码与安装的 SDK／运行时必须使用兼容版本。
 
 ## 前置要求
 
@@ -17,8 +17,8 @@
 克隆仓库以使用其中的可运行示例，创建虚拟环境，并安装 SDK 及其同版本内置运行时：
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
-cd deepseek-harness
+git clone https://github.com/KeepLost/harniverse.git
+cd harniverse
 python -m venv .venv
 . .venv/bin/activate
 python -m pip install deepseek-harness-sdk
