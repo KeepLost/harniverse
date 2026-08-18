@@ -1,5 +1,9 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
-import type { PluginInventorySnapshot } from '@deepseek-ai/dsh-api-remotes/client'
+import type {
+  PluginDiagnosticFinding,
+  PluginDiagnosticReport,
+  PluginInventorySnapshot,
+} from '@deepseek-ai/dsh-api-remotes/client'
 import {
   IconChevronDownOutline14,
   IconSearchOutline16,
@@ -12,6 +16,8 @@ import css from './PluginInventorySettingsTab.module.css'
 export interface PluginInventorySettingsTabInjected {
   /** Read a current Host inventory snapshot. */
   list: () => Promise<PluginInventorySnapshot>
+  /** Run current read-only Host plugin diagnostics. */
+  diagnose: () => Promise<PluginDiagnosticReport>
 }
 
 type PluginInventoryEntry = PluginInventorySnapshot['entries'][number]
@@ -26,7 +32,11 @@ export type PluginInventorySettingsTabProps =
 type ViewState =
   | { readonly status: 'loading' }
   | { readonly status: 'error' }
-  | { readonly status: 'ready'; readonly snapshot: PluginInventorySnapshot }
+  | {
+    readonly status: 'ready'
+    readonly snapshot: PluginInventorySnapshot
+    readonly report: PluginDiagnosticReport
+  }
 
 const PHASE_KEYS = {
   pending: 'pending',
@@ -35,6 +45,12 @@ const PHASE_KEYS = {
   failed: 'failed',
   unloading: 'unloading',
 } satisfies Record<Exclude<PluginFiberPhase, null>, PluginInventoryLocaleKey>
+
+const SEVERITY_KEYS = {
+  info: 'diagnosticInfo',
+  warning: 'diagnosticWarning',
+  error: 'diagnosticError',
+} satisfies Record<PluginDiagnosticFinding['severity'], PluginInventoryLocaleKey>
 
 /** Localized accessible label for one root Fiber phase. */
 function phaseLabel(
@@ -61,7 +77,7 @@ function matches(entry: PluginInventoryEntry, normalizedQuery: string): boolean 
 }
 
 /** Render the read-only current Loader inventory. */
-export function PluginInventorySettingsTab({ list, t }: PluginInventorySettingsTabProps): ReactNode {
+export function PluginInventorySettingsTab({ list, diagnose, t }: PluginInventorySettingsTabProps): ReactNode {
   const catalogId = useId()
   const [request, setRequest] = useState(0)
   const [query, setQuery] = useState('')
@@ -70,12 +86,12 @@ export function PluginInventorySettingsTab({ list, t }: PluginInventorySettingsT
 
   useEffect(() => {
     let current = true
-    void Promise.resolve().then(() => list()).then(
-      (snapshot) => { if (current) setState({ status: 'ready', snapshot }) },
+    void Promise.resolve().then(() => Promise.all([list(), diagnose()])).then(
+      ([snapshot, report]) => { if (current) setState({ status: 'ready', snapshot, report }) },
       () => { if (current) setState({ status: 'error' }) },
     )
     return () => { current = false }
-  }, [list, request])
+  }, [diagnose, list, request])
 
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const filteredEntries = useMemo(
@@ -107,6 +123,45 @@ export function PluginInventorySettingsTab({ list, t }: PluginInventorySettingsT
       ) : null}
       {state.status === 'ready' ? (
         <div className={css.catalog}>
+          <section
+            className={css.diagnostics}
+            aria-labelledby={`${catalogId}-diagnostics`}
+            data-plugin-diagnostics
+          >
+            <div className={css.diagnosticHeading}>
+              <div>
+                <h3 id={`${catalogId}-diagnostics`}>{t('diagnostics')}</h3>
+                <p>{t('diagnosticsReadOnly')}</p>
+              </div>
+              <span
+                className={css.diagnosticState}
+                data-healthy={state.report.findings.length === 0 ? 'true' : 'false'}
+              >
+                {t(state.report.findings.length === 0 ? 'diagnosticsHealthy' : 'diagnosticsFindings')}
+              </span>
+            </div>
+            <div className={css.diagnosticCounts}>
+              <span>{t('diagnosticChecks')}: <strong>{state.report.checksRun}</strong></span>
+              <span>{t('diagnosticFindingCount')}: <strong>{state.report.findings.length}</strong></span>
+            </div>
+            {state.report.findings.length > 0 ? (
+              <ul className={css.findings}>
+                {state.report.findings.map(finding => (
+                  <li key={`${finding.checkId}:${finding.code}:${finding.path ?? ''}`} data-diagnostic-severity={finding.severity}>
+                    <div className={css.findingTitle}>
+                      <span>{t(SEVERITY_KEYS[finding.severity])}</span>
+                      <code>{finding.code}</code>
+                    </div>
+                    <p>{finding.message}</p>
+                    {finding.path === undefined ? null : <code className={css.findingPath}>{finding.path}</code>}
+                    {finding.fixHint === undefined ? null : (
+                      <p className={css.fixHint}><strong>{t('fixHint')}:</strong> {finding.fixHint}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
           <label className={css.search}>
             <IconSearchOutline16 aria-hidden="true" />
             <span className={css.visuallyHidden}>{t('search')}</span>

@@ -11,12 +11,19 @@ import { en, type PluginInventoryLocaleKey } from '../src/client/locales.ts'
 afterEach(cleanup)
 
 type Snapshot = Awaited<ReturnType<PluginInventorySettingsTabInjected['list']>>
+type Report = Awaited<ReturnType<PluginInventorySettingsTabInjected['diagnose']>>
 const t = ((key: PluginInventoryLocaleKey): string => en[key]) as PluginInventorySettingsTabProps['t']
 
-function props(list: PluginInventorySettingsTabInjected['list']): PluginInventorySettingsTabProps {
+const CLEAN_REPORT = { observedAt: 1, checksRun: 3, findings: [] } as Report
+
+function props(
+  list: PluginInventorySettingsTabInjected['list'],
+  diagnose: PluginInventorySettingsTabInjected['diagnose'] = async () => CLEAN_REPORT,
+): PluginInventorySettingsTabProps {
   return {
     t,
     list,
+    diagnose,
   } as PluginInventorySettingsTabProps
 }
 
@@ -33,6 +40,37 @@ const SNAPSHOT = {
 } as unknown as Snapshot
 
 describe('PluginInventorySettingsTab', () => {
+  it('renders structured findings as read-only guidance', async () => {
+    const report = {
+      observedAt: 2,
+      checksRun: 3,
+      findings: [{
+        checkId: 'cordis/host-loader',
+        code: 'entry-pending',
+        severity: 'error',
+        domain: 'host-loader',
+        message: 'The plugin is waiting for required services: database.',
+        path: 'entry-1 (@fixture/pending)',
+        fixHint: 'Provide the missing service.',
+      }, {
+        checkId: 'cordis/dynamic-packages',
+        code: 'transitioning',
+        severity: 'info',
+        domain: 'dynamic-cordis',
+        message: 'The plugin is transitioning.',
+      }],
+    } as Report
+    render(<PluginInventorySettingsTab {...props(async () => SNAPSHOT, async () => report)} />)
+
+    expect(await screen.findByRole('heading', { name: en.diagnostics })).toBeTruthy()
+    expect(screen.getByText(en.diagnosticsReadOnly)).toBeTruthy()
+    expect(screen.getByText(en.diagnosticsFindings)).toBeTruthy()
+    expect(screen.getByText('entry-pending')).toBeTruthy()
+    expect(screen.getByText('entry-1 (@fixture/pending)')).toBeTruthy()
+    expect(screen.getByText(/Provide the missing service/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /repair|restart/i })).toBeNull()
+  })
+
   it('renders runtime status only for enabled plugins', async () => {
     const deferred = Promise.withResolvers<Snapshot>()
     const list = vi.fn(() => deferred.promise)
@@ -123,5 +161,13 @@ describe('PluginInventorySettingsTab', () => {
     const pendingFailure = render(<PluginInventorySettingsTab {...props(() => deferredFailure.promise)} />)
     pendingFailure.unmount()
     await act(async () => { deferredFailure.reject(new Error('late failure')) })
+
+    const diagnosticFailure = render(<PluginInventorySettingsTab {...props(
+      async () => SNAPSHOT,
+      async () => { throw new Error('private diagnostic detail') },
+    )} />)
+    expect((await screen.findByRole('alert')).textContent).toBe(en.error)
+    expect(screen.queryByText('private diagnostic detail')).toBeNull()
+    diagnosticFailure.unmount()
   })
 })

@@ -14,8 +14,9 @@ usePinnedBrowserLanguages('zh-CN')
 afterEach(cleanup)
 
 const EMPTY = { entries: [] }
-type ListResult =
-  | { readonly ok: true; readonly value: typeof EMPTY }
+const CLEAN_REPORT = { observedAt: 1, checksRun: 3, findings: [] }
+type RemoteResult<T> =
+  | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
 
 async function bench() {
@@ -29,10 +30,12 @@ async function bench() {
     }
   }
   new RemoteService(ctx)
-  const list = vi.fn<() => Promise<ListResult>>()
+  const list = vi.fn<() => Promise<RemoteResult<typeof EMPTY>>>()
     .mockResolvedValue({ ok: true, value: EMPTY })
-  ctx.provide('remote.pluginInventory', { list })
-  return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, list }
+  const diagnose = vi.fn<() => Promise<RemoteResult<typeof CLEAN_REPORT>>>()
+    .mockResolvedValue({ ok: true, value: CLEAN_REPORT })
+  ctx.provide('remote.pluginInventory', { list, diagnose })
+  return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, list, diagnose }
 }
 
 function declare(slots: SlotRegistry): () => void {
@@ -58,12 +61,17 @@ describe('ui-settings-plugin-inventory browser plugin', () => {
     expect(entry.locale).toBe(NS)
     expect(resolveSlotLabel(entry.options.label)).toBe('插件列表')
     expect(b.list).not.toHaveBeenCalled()
+    expect(b.diagnose).not.toHaveBeenCalled()
 
     const injected = (entry.inject as unknown as () => PluginInventorySettingsTabInjected)()
     await expect(injected.list()).resolves.toEqual(EMPTY)
+    await expect(injected.diagnose()).resolves.toEqual(CLEAN_REPORT)
     expect(b.list).toHaveBeenCalledOnce()
+    expect(b.diagnose).toHaveBeenCalledOnce()
     b.list.mockResolvedValueOnce({ ok: false, error: { code: 'REMOTE_ERROR', message: 'unavailable' } })
     await expect(injected.list()).rejects.toThrow('pluginInventory.list failed: REMOTE_ERROR: unavailable')
+    b.diagnose.mockResolvedValueOnce({ ok: false, error: { code: 'REMOTE_ERROR', message: 'unavailable' } })
+    await expect(injected.diagnose()).rejects.toThrow('pluginInventory.diagnose failed: REMOTE_ERROR: unavailable')
     await b.ctx.fiber.dispose()
   })
 

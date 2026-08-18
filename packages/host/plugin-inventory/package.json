@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-host-plugin-inventory",
-  "description": "Read-only Remote projection of current Cordis Loader plugin state",
+  "description": "Read-only Remote projection of Cordis plugin inventory and diagnostics",
   "version": "0.1.0-rc.5",
   "publishConfig": {
     "access": "public"
@@ -55,6 +55,7 @@
     "@deepseek-ai/cordis-plugin-loader": "workspace:^",
     "@deepseek-ai/dsh-brand": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-plugin-diagnostics": "workspace:^",
     "@deepseek-ai/dsh-typert-protocol": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   },
@@ -62,6 +63,7 @@
     "@deepseek-ai/cordis-plugin-loader": "workspace:^",
     "@deepseek-ai/dsh-brand": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-plugin-diagnostics": "workspace:^",
     "@deepseek-ai/dsh-typert-protocol": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   }

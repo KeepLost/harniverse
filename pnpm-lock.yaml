@@ -1530,6 +1530,12 @@ importers:
       '@deepseek-ai/dsh-message-feedback':
         specifier: workspace:^
         version: link:../../feedback/message-feedback
+      '@deepseek-ai/dsh-plugin-diagnostics':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/plugin-diagnostics
+      '@deepseek-ai/dsh-plugin-diagnostics-cordis':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/plugin-diagnostics-cordis
       '@deepseek-ai/dsh-session-log-export':
         specifier: workspace:^
         version: link:../../session-query/session-log-export
@@ -5136,6 +5142,9 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-plugin-diagnostics':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/plugin-diagnostics
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:^
         version: link:../../typert/protocol
@@ -5917,6 +5926,36 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+
+  packages/runtime-diagnostics/plugin-diagnostics:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../invariants
+
+  packages/runtime-diagnostics/plugin-diagnostics-cordis:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-agent-presets':
+        specifier: workspace:^
+        version: link:../../preset/agent-presets
+      '@deepseek-ai/dsh-cordis-host-runner':
+        specifier: workspace:^
+        version: link:../../extensions/cordis-host-runner
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../invariants
+      '@deepseek-ai/dsh-plugin-diagnostics':
+        specifier: workspace:^
+        version: link:../plugin-diagnostics
 
   packages/sandbox/sandbox:
     devDependencies:

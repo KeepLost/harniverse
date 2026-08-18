@@ -1109,6 +1109,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'pluginDiagnostics',
+    summary: 'Registry and coordinator for read-only plugin diagnostics.',
+    description: 'Registry and coordinator for read-only plugin diagnostics.',
+    methods: [
+      {
+        signature: 'register(check: PluginDiagnosticCheck): () => void',
+        description: 'Register one read-only check on the calling plugin fiber.',
+        parameters: [{ name: 'check', description: 'stable identity, description, and observation callback.' }],
+        returns: 'the exact disposer that removes the contribution.',
+      },
+      {
+        signature: 'async diagnose(signal?: AbortSignal): Promise<PluginDiagnosticReport>',
+        description: 'Run a snapshot of registered checks sequentially and contain check failures. No repair callback or mutation capability exists on this service.',
+        parameters: [{ name: 'signal', description: 'optional cancellation checked before each contribution.' }],
+        returns: 'sorted point-in-time findings.',
+      },
+    ],
+  },
+  {
     key: 'sandbox',
     summary: 'Abstract process-sandbox service.',
     description: 'Abstract process-sandbox service. confine must return enforcing argv or fail closed at wrap or runner-execution time; silent unconfined passthrough is forbidden. Functional probes arbitrate multi-runner chains and may be skipped for a sole candidate, whose own refusal remains the fail-closed end.',
@@ -3872,6 +3891,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PermissionSelect',
     declaration: 'export interface PermissionSelect {\n    options: PresetOption[];\n    currentValue: string;\n}',
+  },
+  {
+    name: 'PluginDiagnosticCheck',
+    declaration: 'export interface PluginDiagnosticCheck {\n    readonly id: string;\n    readonly description: string;\n    diagnose(signal?: AbortSignal): readonly PluginDiagnosticFinding[] | Promise<readonly PluginDiagnosticFinding[]>;\n}',
+  },
+  {
+    name: 'PluginDiagnosticDomain',
+    declaration: 'export type PluginDiagnosticDomain = \'host-loader\' | \'standing-preset\' | \'dynamic-cordis\' | \'diagnostic-check\';',
+  },
+  {
+    name: 'PluginDiagnosticFinding',
+    declaration: 'export interface PluginDiagnosticFinding {\n    readonly checkId: string;\n    readonly code: string;\n    readonly severity: PluginDiagnosticSeverity;\n    readonly domain: PluginDiagnosticDomain;\n    readonly message: string;\n    readonly path?: string;\n    readonly fixHint?: string;\n}',
+  },
+  {
+    name: 'PluginDiagnosticReport',
+    declaration: 'export interface PluginDiagnosticReport {\n    readonly observedAt: number;\n    readonly checksRun: number;\n    readonly findings: readonly PluginDiagnosticFinding[];\n}',
+  },
+  {
+    name: 'PluginDiagnosticSeverity',
+    declaration: 'export type PluginDiagnosticSeverity = \'info\' | \'warning\' | \'error\';',
   },
   {
     name: 'PostToolDecision',

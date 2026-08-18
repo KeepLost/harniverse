@@ -34,7 +34,14 @@ export function apply(ctx: ClientContext): void {
     }
     return result.value
   }
-  const injected = (): PluginInventorySettingsTabInjected => ({ list })
+  const diagnose: PluginInventorySettingsTabInjected['diagnose'] = async () => {
+    const result = await ctx.remote.pluginInventory.diagnose()
+    if (!result.ok) {
+      throw new Error(`pluginInventory.diagnose failed: ${result.error.code}: ${result.error.message}`)
+    }
+    return result.value
+  }
+  const injected = (): PluginInventorySettingsTabInjected => ({ list, diagnose })
 
   ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
     name: 'settings.plugins.tab',

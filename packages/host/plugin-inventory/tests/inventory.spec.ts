@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context, type Plugin } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
+import PluginDiagnostics from '@deepseek-ai/dsh-plugin-diagnostics'
 import PluginInventoryGateway from '../src/index.ts'
 
 const contexts: Context[] = []
@@ -23,6 +24,7 @@ async function harness(): Promise<{
   const ctx = new Context()
   contexts.push(ctx)
   await ctx.plugin(Loader)
+  await ctx.plugin(PluginDiagnostics)
   ctx.loader.builtins.active = activePlugin
   ctx.loader.builtins.pending = pendingPlugin
   await ctx.plugin(PluginInventoryGateway)
@@ -31,15 +33,38 @@ async function harness(): Promise<{
 }
 
 describe('PluginInventoryGateway', () => {
-  it('publishes one direct list method under the pluginInventory namespace', async () => {
+  it('publishes only read-only methods under the pluginInventory namespace', async () => {
     const { inventory } = await harness()
     expect(inventory.typertRemote).toMatchObject({
       serviceKey: 'pluginInventory',
       namespace: 'pluginInventory',
     })
     expect(remoteMethods(inventory)).toEqual([
-      { method: 'list', invocation: { kind: 'direct' } },
+      { method: 'list', invocation: { kind: 'direct' }, requiredCapability: 'harniverse.observe' },
+      { method: 'diagnose', invocation: { kind: 'direct' }, requiredCapability: 'harniverse.observe' },
     ])
+  })
+
+  it('delegates diagnosis without exposing a repair operation', async () => {
+    const { ctx, inventory } = await harness()
+    ctx.pluginDiagnostics.register({
+      id: 'fixture/health',
+      description: 'Fixture observation.',
+      diagnose: () => [{
+        checkId: 'fixture/health',
+        code: 'fixture-warning',
+        severity: 'warning',
+        domain: 'diagnostic-check',
+        message: 'A fixture warning is visible.',
+        fixHint: 'Inspect the fixture.',
+      }],
+    })
+
+    await expect(inventory.diagnose()).resolves.toMatchObject({
+      checksRun: 1,
+      findings: [{ checkId: 'fixture/health', code: 'fixture-warning' }],
+    })
+    expect(remoteMethods(inventory).some(method => method.method.toLowerCase().includes('repair'))).toBe(false)
   })
 
   it('projects current non-group Loader entries without a second cache', async () => {

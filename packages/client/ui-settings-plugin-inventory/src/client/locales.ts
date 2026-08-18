@@ -20,6 +20,16 @@ export const zh = {
   active: '已挂载',
   failed: '挂载失败',
   unloading: '卸载中',
+  diagnostics: '运行诊断',
+  diagnosticsReadOnly: '仅观察当前状态，不会修复、重启或修改配置。',
+  diagnosticsHealthy: '未发现问题',
+  diagnosticsFindings: '需要检查',
+  diagnosticChecks: '已运行检查',
+  diagnosticFindingCount: '发现项',
+  diagnosticInfo: '信息',
+  diagnosticWarning: '警告',
+  diagnosticError: '错误',
+  fixHint: '处理建议',
 } satisfies Record<string, string>
 
 /** Plugin inventory locale key union. */
@@ -45,4 +55,14 @@ export const en = {
   active: 'Mounted',
   failed: 'Mount failed',
   unloading: 'Unloading',
+  diagnostics: 'Runtime diagnostics',
+  diagnosticsReadOnly: 'Observes current state only; it cannot repair, restart, or change configuration.',
+  diagnosticsHealthy: 'No findings',
+  diagnosticsFindings: 'Review required',
+  diagnosticChecks: 'Checks run',
+  diagnosticFindingCount: 'Findings',
+  diagnosticInfo: 'Info',
+  diagnosticWarning: 'Warning',
+  diagnosticError: 'Error',
+  fixHint: 'Suggested response',
 } satisfies Record<PluginInventoryLocaleKey, string>

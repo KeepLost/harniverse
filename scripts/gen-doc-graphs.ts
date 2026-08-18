@@ -166,6 +166,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Companion subpaths register owner-local checks; the service owns selection, uniqueness, child fibers, and package-attributed failures.',
   },
   {
+    key: 'pluginDiagnostics',
+    pkg: 'plugin-diagnostics',
+    title: 'Read-only plugin diagnostics',
+    mode: 'seam',
+    implementations: ['plugin-diagnostics-cordis'],
+    consumers: ['host-plugin-inventory'],
+    note: 'Effect-scoped checks observe Host lifecycle owners; the existing authorized inventory Remote and Web Settings tab render structured findings without a repair operation.',
+  },
+  {
     key: 'typert',
     pkg: 'typert-registry',
     title: 'Runtime type registry',

@@ -1,5 +1,12 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
 
+export type {
+  PluginDiagnosticDomain,
+  PluginDiagnosticFinding,
+  PluginDiagnosticReport,
+  PluginDiagnosticSeverity,
+} from '@deepseek-ai/dsh-plugin-diagnostics/types'
+
 /** Stable Loader-tree identity of one configured plugin entry. */
 export type PluginEntryId = Branded<'PluginEntryId'>
 

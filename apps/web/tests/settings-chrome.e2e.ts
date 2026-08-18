@@ -24,6 +24,7 @@ import { ZH_BROWSER_LOCALE, saveFailureShot } from './support.ts'
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/settings-chrome', import.meta.url))
 const DIALOG_EXPECTED = join(SNAPSHOT_DIR, 'dialog.expected.md')
 const PLUGINS_EXPECTED = join(SNAPSHOT_DIR, 'plugins.expected.md')
+const PLUGIN_DIAGNOSTICS_EXPECTED = join(SNAPSHOT_DIR, 'plugin-diagnostics.expected.md')
 const PLUGIN_ROW_SELECTOR = '[data-plugin-entry$="ui-settings"]'
 const MODE = webSnapshotMode()
 
@@ -102,10 +103,15 @@ describe('web e2e: settings modal and General preferences', () => {
     await dialog.getByRole('tab', { name: '插件列表', exact: true }).click()
     const pluginRow = dialog.locator(PLUGIN_ROW_SELECTOR)
     await pluginRow.waitFor({ timeout: 10_000 })
+    const diagnostics = dialog.locator('[data-plugin-diagnostics]')
+    await diagnostics.waitFor({ timeout: 10_000 })
     const expectedPluginCount = [...scaffold.ctx.loader.entries()]
       .filter(entry => !entry.options.group)
       .length
     expect(await dialog.getByRole('searchbox', { name: '搜索插件' }).count()).toBe(1)
+    expect(await diagnostics.getByRole('heading', { name: '运行诊断' }).count()).toBe(1)
+    expect(await diagnostics.getByText('未发现问题', { exact: true }).count()).toBe(1)
+    expect(await diagnostics.getByText('已运行检查:', { exact: false }).count()).toBe(1)
     expect(await dialog.locator('[data-plugin-entry]').count()).toBe(expectedPluginCount)
     expect(await dialog.locator('[data-plugin-count]').getAttribute('data-plugin-count'))
       .toBe(String(expectedPluginCount))
@@ -118,6 +124,12 @@ describe('web e2e: settings modal and General preferences', () => {
       scaffold.workspaceCwd,
     )
     await compareOrRefreshGolden(PLUGINS_EXPECTED, pluginsSnapshot, MODE)
+    const diagnosticsSnapshot = await captureStableAria(
+      page,
+      '[data-plugin-diagnostics]',
+      scaffold.workspaceCwd,
+    )
+    await compareOrRefreshGolden(PLUGIN_DIAGNOSTICS_EXPECTED, diagnosticsSnapshot, MODE)
     // Close path 1: Escape.
     await page.keyboard.press('Escape')
     await expect.poll(() => page.getByRole('dialog', { name: '设置' }).count(), { timeout: 5_000 }).toBe(0)

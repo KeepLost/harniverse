@@ -1,0 +1,7 @@
+- region "运行诊断":
+  - heading "运行诊断" [level=3]
+  - paragraph: 仅观察当前状态，不会修复、重启或修改配置。
+  - text: "未发现问题 已运行检查:"
+  - strong: "3"
+  - text: "发现项:"
+  - strong: "0"

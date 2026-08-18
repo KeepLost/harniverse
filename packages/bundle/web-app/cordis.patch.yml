@@ -90,7 +90,15 @@
     - id: directory-picker
       name: '@deepseek-ai/dsh-host-directory-picker-auto'
 
-    # Read-only projection of current Loader entries for trusted client RPCs.
+    # Effect-scoped registry and the shipped Host, preset, and dynamic-package
+    # observations. The registry exposes no repair or mutation capability.
+    - id: plugin-diagnostics
+      name: '@deepseek-ai/dsh-plugin-diagnostics'
+
+    - id: plugin-diagnostics-cordis
+      name: '@deepseek-ai/dsh-plugin-diagnostics-cordis'
+
+    # Read-only inventory and diagnostic projection for trusted client RPCs.
     - id: plugin-inventory
       name: '@deepseek-ai/dsh-host-plugin-inventory'
 

@@ -2,6 +2,8 @@
 
 import type { Context, FiberState } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
+import type {} from '@deepseek-ai/dsh-plugin-diagnostics'
+import type { PluginDiagnosticReport } from '@deepseek-ai/dsh-plugin-diagnostics/types'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 // Typert-generated ./typert and ./remote artifacts import Zod at runtime.
 import type {} from 'zod'
@@ -41,7 +43,7 @@ const FIBER_PHASE = {
 
 /** Remote-only service exposing the Loader's current non-group entry state. */
 export class PluginInventoryGateway extends TypertRemoteService {
-  static inject = ['loader']
+  static inject = ['loader', 'pluginDiagnostics']
 
   constructor(ctx: Context) {
     super(ctx, 'pluginInventory')
@@ -66,6 +68,15 @@ export class PluginInventoryGateway extends TypertRemoteService {
       })
     }
     return { entries }
+  }
+
+  /**
+   * Run every current read-only diagnostic contribution.
+   * @returns A point-in-time report with isolated check failures.
+   */
+  @Remote({ exportName: 'diagnose', requiredCapability: 'harniverse.observe' })
+  diagnose(): Promise<PluginDiagnosticReport> {
+    return this.ctx.pluginDiagnostics.diagnose()
   }
 }
 

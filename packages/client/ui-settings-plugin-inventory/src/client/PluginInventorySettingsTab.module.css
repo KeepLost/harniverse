@@ -43,6 +43,127 @@
   gap: 12px;
 }
 
+.diagnostics {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  padding: 14px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.diagnosticHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.diagnosticHeading h3,
+.diagnosticHeading p,
+.findings p {
+  margin: 0;
+}
+
+.diagnosticHeading h3 {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.diagnosticHeading p {
+  margin-top: 2px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.diagnosticState {
+  flex: none;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary) 12%, transparent);
+  color: var(--dsw-alias-state-warning-primary);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+}
+
+.diagnosticState[data-healthy='true'] {
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.diagnosticCounts {
+  display: flex;
+  gap: 16px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.findings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.findings li {
+  border-left: 3px solid var(--dsw-alias-label-tertiary);
+  border-radius: 4px;
+  padding: 9px 10px;
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.findings li[data-diagnostic-severity='warning'] {
+  border-left-color: var(--dsw-alias-state-warning-primary);
+}
+
+.findings li[data-diagnostic-severity='error'] {
+  border-left-color: var(--dsw-alias-state-error-primary);
+}
+
+.findingTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 16px;
+  text-transform: uppercase;
+}
+
+.findingTitle code,
+.findingPath {
+  font-family: var(--ds-font-family-code);
+  text-transform: none;
+}
+
+.findings p {
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.findingPath {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.findings .fixHint {
+  margin-top: 6px;
+  color: var(--dsw-alias-label-secondary);
+}
+
 .search {
   position: relative;
   display: flex;
@@ -273,6 +394,15 @@
 }
 
 @media (max-width: 680px) {
+  .diagnosticHeading,
+  .diagnosticCounts {
+    flex-direction: column;
+  }
+
+  .diagnosticCounts {
+    gap: 2px;
+  }
+
   .cards {
     grid-template-columns: minmax(0, 1fr);
   }
