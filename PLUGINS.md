@@ -75,7 +75,7 @@ The inventory is grouped by package directory. Every listed package is an offici
 ## Harniverse Capability Changes
 
 <!-- capability-changes-start -->
-Harniverse did not add eight independent capabilities. Eight downstream package manifests occupy roles in four capability families plus one profile bundle that exposes authentication management through the plugin tree.
+Harniverse groups downstream package manifests by complete capability family rather than presenting each package as an independent capability.
 
 | Capability | Service Definition | Service Provider | Consumer | Current downstream status |
 |---|---|---|---|---|
@@ -83,6 +83,7 @@ Harniverse did not add eight independent capabilities. Eight downstream package 
 | Outbound notification | `dsh-notification` (new; Definition + coordinator Consumer) | `dsh-notification-http` (new) | Coordinator folded into `dsh-notification` | Complete opt-in seam following the official session-telemetry pattern. |
 | Durable result artifacts | `dsh-spill` (official, modified) | `dsh-spill-local` (official, modified) | `dsh-tool-result-artifacts` (new), `dsh-spill-policy` | Complete seam; one Consumer owns retention, recovery marker, failure semantics, and `artifact_read`. |
 | Recallable compaction history | `dsh-compaction` (official) plus `dsh-compaction-lossless` summary-DAG service (new) | `dsh-compaction-lossless` (new; inherits the official basic Provider transaction) | `dsh-tool-compaction-history` (new) | Complete shipped seam; automatic compaction projects committed checkpoints over the canonical Session log, while bounded current-session tools search summaries and expand parent/source history. |
+| Read-only plugin diagnostics | `dsh-plugin-diagnostics` (new) | `dsh-plugin-diagnostics-cordis` (new) | `dsh-host-plugin-inventory`, `dsh-api-remotes`, `dsh-client-ui-settings-plugin-inventory` (official, modified) | Complete shipped advisory seam; effect-scoped checks observe Host Loader, standing preset, and dynamic Cordis lifecycle state, while the authorized Remote and existing Settings tab expose structured findings and textual hints without a repair operation. |
 
 ### Added Packages
 
@@ -96,6 +97,8 @@ Harniverse did not add eight independent capabilities. Eight downstream package 
 | `@deepseek-ai/dsh-tool-result-artifacts` | Finalized-result retention and model-facing retrieval Consumer | Enabled in base/headless scopes and per-agent Web presets. |
 | `@deepseek-ai/dsh-compaction-lossless` | Automatic compaction Provider plus committed summary-DAG projection | Enabled in base, the standalone headless example, and the standard, code, and Cordis presets. |
 | `@deepseek-ai/dsh-tool-compaction-history` | Bounded current-session summary search and expansion Consumer | Enabled beside `dsh-compaction-lossless`; omitted by the minimal preset. The headless overflow snapshot pins its model-visible names and safety guidance. |
+| `@deepseek-ai/dsh-plugin-diagnostics` | Effect-scoped read-only diagnostic registry and report coordinator | Enabled by `dsh-web-app` before diagnostic Providers and the Host Remote. |
+| `@deepseek-ai/dsh-plugin-diagnostics-cordis` | Host Loader, standing preset, and dynamic Cordis diagnostic Provider | Enabled by `dsh-web-app`; contributes observations only and owns no repair operation. |
 
 ### Modified Official Plugin Families
 
@@ -108,6 +111,7 @@ Harniverse did not add eight independent capabilities. Eight downstream package 
 | Authenticated Web and automation surface | `dsh-web-app`, `dsh-client-connection`, `dsh-client-modules`, `dsh-client-hmr`, `dsh-client-web`, `dsh-host-webserver`, `dsh-sdk-client`, `dsh-api-gateway`, `dsh-typert-protocol`, `dsh-typert-generator`, `dsh-typert-loader`, `dsh-typert-registry` |
 | Derived runtime catalogs | `dsh-cordis-client-runner`, `dsh-tool-cordis` |
 | Test support projection | `dsh-acp-snapshot` normalization only |
+| Plugin operations and diagnostics | `dsh-host-plugin-inventory`, `dsh-api-remotes`, `dsh-client-ui-settings-plugin-inventory`, `dsh-web-app` |
 <!-- capability-changes-end -->
 
 ## Shipped Composition Changes
@@ -125,6 +129,7 @@ Harniverse did not add eight independent capabilities. Eight downstream package 
 | `dsh-web-app` transport | Non-loopback listeners require direct TLS; authentication bypass is loopback-only. |
 | `auth` profile | `dsh-auth-app` parses device, Grant, and API-client management arguments inside the plugin tree and exits without mounting an Agent, WebServer, or authentication runtime Provider. |
 | Notification | No shipped bundle mounts `dsh-notification-http`; explicit examples compose Storage plus the Provider. |
+| `dsh-web-app` plugin diagnostics | Mounts the diagnostics registry and Cordis lifecycle Provider before the existing authorized plugin-inventory Remote; the existing Plugins Settings tab displays each current report without repair controls. |
 
 ### Downstream Commit Ledger
 
@@ -142,6 +147,7 @@ Harniverse did not add eight independent capabilities. Eight downstream package 
 | `795f93ba84` | Requires TLS for non-loopback Web serving, adds secure cookies and peer-aware auth failure limiting, and fixes auth lock teardown. |
 | `6ba41ae8ef` | Replaces named-token inbound authentication with plugin-native public-key Enrollment/Grant/Access lifecycle, capability-total endpoint enforcement, bounded enrollment and per-Grant credentials, browser/API-client flows, and sealed owner admission. |
 | `22c9c1b9a9` | Adds automatic lossless-style compaction over a committed summary DAG, bounded current-session history tools, and shipped bundle, preset, and headless composition. |
+| `827dc083d5` | Adds the read-only plugin diagnostics Definition, Cordis Provider, authorized Remote projection, and Plugins Settings report. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
