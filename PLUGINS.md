@@ -134,6 +134,7 @@ Harniverse did not add six independent capabilities. Six downstream package mani
 | `5dde5cdc6f` | Adds inbound authentication Definition/Provider, Web transport enforcement, browser login, and token management. |
 | `c44c47bbba` | Makes the read-result UI accept bounded pages without an exact total line count. |
 | `795f93ba84` | Requires TLS for non-loopback Web serving, adds secure cookies and peer-aware auth failure limiting, and fixes auth lock teardown. |
+| `6ba41ae8ef` | Replaces named-token inbound authentication with plugin-native public-key Enrollment/Grant/Access lifecycle, capability-total endpoint enforcement, bounded enrollment and per-Grant credentials, browser/API-client flows, and sealed owner admission. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
