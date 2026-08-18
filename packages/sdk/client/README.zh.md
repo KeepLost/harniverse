@@ -33,6 +33,10 @@ console.log(result.finalResponse)
 
 `HarnessClientOptions.env` 给定时整体替换子进程环境（`undefined` 原样继承父进程环境）；凭据策略归调用方——`dsh-subprocess` 的 `scrubbedParentEnv` 是面向隔离启动的共享擦除基底。
 
+## 远程 Grant 接入
+
+`GrantAccess` 服务于已经通过 `dsh auth client add` 注册 P-256 公钥的外部自动化程序。调用方保留私钥，并提供生成 base64url IEEE-P1363 ECDSA/SHA-256 proof 的 signer。`authorization()` 合并并发 challenge 交换，并在短期 bearer 凭据过期前续期；`clear()` 阻止进行中的交换重新发布结果；`fetch()` 按配置的 Harness origin 解析目标、拒绝跨 origin 使用并附加凭据。远程 origin 必须使用 HTTPS，本地开发仍可使用回环 HTTP。该 helper 不接收可导出的长期 secret。
+
 ## 模型体验
 
 无，因为这是一个客户端进程库；模型运行在 spawn 出的运行时中，其体验由该运行时的 `cordis.yml` 所组合的插件决定。

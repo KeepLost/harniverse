@@ -20,6 +20,7 @@ interface RuntimeSchema {
 
 interface RuntimeDescriptor {
   readonly id: string
+  readonly requiredCapability: string
   readonly cancellation?: { readonly parameter: 'signal' }
   readonly parameters: readonly {
     readonly wire: string
@@ -70,6 +71,7 @@ describe('Remote model generation', { timeout: 60_000 }, () => {
     expect(model.invocations[0]).toMatchObject({
       id: '@fixture/remote#goals/create',
       service: 'goals',
+      requiredCapability: 'harniverse.operate',
       namespace: 'goals',
       method: 'create',
       invocation: { kind: 'direct' },
@@ -95,6 +97,7 @@ describe('Remote model generation', { timeout: 60_000 }, () => {
     expect(model.invocations[1]).toMatchObject({
       id: '@fixture/remote#goals/rename',
       service: 'goals',
+      requiredCapability: 'harniverse.operate',
       namespace: 'goals',
       method: 'rename',
       invocation: {
@@ -131,6 +134,7 @@ describe('Remote model generation', { timeout: 60_000 }, () => {
     const generated = await import(`data:text/javascript,${encodeURIComponent(executable)}`) as RuntimeRemoteModule
     expect(generated.TYPERT_REMOTE.package).toBe('@fixture/remote')
     const create = generated.TYPERT_REMOTE.descriptors[0]
+    expect(create?.requiredCapability).toBe('harniverse.operate')
     expect(create?.cancellation).toEqual({ parameter: 'signal' })
     expect(create?.parameters[1]?.codec.schema.safeParse({ title: 'ship' }).success).toBe(true)
     expect(create?.parameters[1]?.codec.schema.safeParse({ title: 1 }).success).toBe(false)
@@ -153,17 +157,17 @@ describe('Remote model generation', { timeout: 60_000 }, () => {
       '\n}\n\nexport type {',
       `
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   maybe(value: string | undefined): string | undefined {
     return value
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   labelled(id: string, label?: string): string {
     return label ?? id
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   clear(): void {}
 }
 
@@ -246,7 +250,7 @@ export type GenericResult = {
     return { renamed: request.title.length > 0 }
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   dispatch(request: GenericRequest): GenericResult {
     if (request.kind === 'ship') return { kind: 'ship', value: { accepted: request.payload.count > 0 } }
     return { kind: 'cancel', value: { cancelled: request.payload.reason.length > 0 } }
@@ -297,7 +301,7 @@ export interface BoxPayload {
     return { renamed: request.title.length > 0 }
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   box(request: Box<BoxPayload>): Box<BoxPayload> {
     return request
   }
@@ -318,7 +322,7 @@ export interface BoxPayload {
     return { renamed: request.title.length > 0 }
   }
 
-  @Remote('create-goal')
+  @Remote({ exportName: 'create-goal', requiredCapability: 'harniverse.operate' })
   createAlias(request: CreateGoalRequest): CreateGoalResult {
     return { ref: request.title }
   }
@@ -333,18 +337,28 @@ export interface BoxPayload {
   it.each(['create#v2', 'create goal', '.', '..'])('rejects untransportable Remote alias %s', (alias) => {
     const root = copyFixture()
     editFile(root, 'packages/remote/src/index.ts', source => source.replace(
-      '  @Remote\n  async create(',
-      `  @Remote('${alias}')\n  async create(`,
+      "  @Remote({ requiredCapability: 'harniverse.operate' })\n  async create(",
+      `  @Remote({ exportName: '${alias}', requiredCapability: 'harniverse.operate' })\n  async create(`,
     ))
 
     expect(() => analyzeRemote(root, false)).toThrow(/RPC endpoint segment characters/)
   })
 
+  it('rejects a Remote method without required capability metadata', () => {
+    const root = copyFixture()
+    editFile(root, 'packages/remote/src/index.ts', source => source.replace(
+      "@Remote({ requiredCapability: 'harniverse.operate' })",
+      '@Remote({})',
+    ))
+
+    expect(() => analyzeRemote(root, false)).toThrow(/require requiredCapability/)
+  })
+
   it('rejects a Remote export after its last Remote method is removed', () => {
     const root = copyFixture()
     editFile(root, 'packages/remote/src/index.ts', source => source
-      .replace('  @Remote\n', '')
-      .replace("  @RemoteScope('agent')\n", ''))
+      .replace("  @Remote({ requiredCapability: 'harniverse.operate' })\n", '')
+      .replace("  @RemoteScope('agent', { requiredCapability: 'harniverse.operate' })\n", ''))
     editFile(root, 'packages/remote/src/types.ts', source => `${source}
 
 /** @typert schema */
@@ -555,7 +569,10 @@ export interface ClientMarker {
 
   it('rejects a Remote Scope without a static Context declaration', () => {
     const root = copyFixture()
-    editFile(root, 'packages/remote/src/index.ts', source => source.replace("@RemoteScope('agent')", "@RemoteScope('missing')"))
+    editFile(root, 'packages/remote/src/index.ts', source => source.replace(
+      "@RemoteScope('agent', { requiredCapability: 'harniverse.operate' })",
+      "@RemoteScope('missing', { requiredCapability: 'harniverse.operate' })",
+    ))
 
     expect(() => analyzeRemote(root, false)).toThrow(/Remote Scope missing has no TypertContextMap entry/)
   })
@@ -578,7 +595,7 @@ export class DuplicateGoalService extends TypertRemoteService {
     super(undefined, 'duplicate', { namespace: 'goals' })
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   create(request: CreateGoalRequest): CreateGoalResult {
     return { ref: request.title }
   }

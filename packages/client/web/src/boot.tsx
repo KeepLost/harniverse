@@ -43,7 +43,7 @@ import {
 import * as AppShell from './app-shell.ts'
 import { APP_SHELL_ID } from './app-shell.ts'
 import { AppRoot } from './AppRoot.tsx'
-import { waitForBrowserAuthentication } from './AuthenticationGate.tsx'
+import { waitForBrowserAuthentication, type BrowserSessionRenewal } from './AuthenticationGate.tsx'
 import { getStaticModules } from './seed.ts'
 import { STATE_LABELS, createLoaderStatusStore, createSignal } from './loader-status.ts'
 import './base.css'
@@ -77,6 +77,7 @@ export class AppWebEntry {
   private modules!: ClientModuleSystem
   private manifest!: BootManifest
   private root: Root | undefined
+  private authenticationRenewal: BrowserSessionRenewal | undefined
 
   /**
    * Hold the mount point; all work happens in {@link run}.
@@ -97,7 +98,7 @@ export class AppWebEntry {
    */
   async run(): Promise<void> {
     this.root = createRoot(this.el)
-    await waitForBrowserAuthentication(this.root)
+    this.authenticationRenewal = await waitForBrowserAuthentication(this.root)
     this.manifest = parseBootManifest((globalThis as DshWindow).__DSH_BOOT__)
 
     this.modules = new ClientModuleSystem({
@@ -146,6 +147,8 @@ export class AppWebEntry {
 
   /** Unmount the shell (loading page or settled UI). */
   dispose(): void {
+    void this.authenticationRenewal?.stop()
+    this.authenticationRenewal = undefined
     this.root?.unmount()
   }
 

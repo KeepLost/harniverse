@@ -15,7 +15,7 @@ Web GUI 宿主默认通过回环 HTTP 提供 `/api`，显式绑定全接口时�
 - **媒体类型栅栏（dsh-host-apiproxy）**：每个 `/api` POST 必须声明 `application/json`，否则在解析前以 415 拒绝。跨站「简单请求」由此不复存在：任何跨站尝试都被逼进一次本服务器从不应答的 CORS 预检。
 - **权威栅栏（dsh-client-connection，`src/api-request-trust.ts`）**：每个请求的 `Host` 都必须是回环地址，或与某个 `trustedHosts` 条目匹配（带端口的 `host:port` 条目精确匹配，不带端口的条目匹配任意端口，均经 WHATWG 归一化；rebinding 防御）。刻意不为无标记请求开捷径：明文 HTTP 下浏览器的读取（EventSource、图片、导航——这些头只发给可信目标）既不带 `Origin` 也不带 Fetch-Metadata，因此无标记请求可能是被重绑页面发起且响应可被读走的读取，而 Host 是重绑唯一伪造不了的请求头；非浏览器客户端经由回环地址、推导的 LAN IP 字面量或已声明的权威通过。若带 `Origin` 则必须与 Host 权威完全一致；`sec-fetch-site: cross-site` 一律拒绝。不是单纯规范化 authority 的 `trustedHosts` 条目会导致插件加载失败——否则 WHATWG 解析会悄悄授权笔误里的 hostname，或放大精确端口授权。`host.pickDirectory` 失去专属守卫，与其他请求同栅而行。
 
-可达性仍由 webserver 的绑定配置（`host: 127.0.0.1 | 0.0.0.0`）控制，而独立的[入站认证服务](../feature/2026-08-16-inbound-network-authentication.md)建立调用者身份。这道栅栏仍是混淆代理人防御，不是认证或授权判断。旧守卫的回环 socket 检查被放弃而非泛化：绑定表达可达性、`trustedHosts` 点名远程权威之后，socket 地址提供不了头部栅栏与认证层覆盖不到的任何东西。
+可达性仍由 webserver 的绑定配置（`host: 127.0.0.1 | 0.0.0.0`）控制，而独立的[公钥 Grant 认证服务](2026-08-17-public-key-grant-authentication.md)建立调用者身份。这道栅栏仍是混淆代理人防御，不是认证或授权判断。旧守卫的回环 socket 检查被放弃而非泛化：绑定表达可达性、`trustedHosts` 点名远程权威之后，socket 地址提供不了头部栅栏与认证层覆盖不到的任何东西。
 
 ## 曾考虑的替代方案
 

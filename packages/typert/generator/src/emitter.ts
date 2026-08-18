@@ -276,6 +276,7 @@ export class FaceModelEmitter {
       '{',
       `  id: ${quote(invocation.id)},`,
       `  service: ${quote(invocation.service)},`,
+      `  requiredCapability: ${quote(invocation.requiredCapability)},`,
       `  namespace: ${quote(invocation.namespace)},`,
       `  method: ${quote(invocation.method)},`,
     ]

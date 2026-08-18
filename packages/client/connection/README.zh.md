@@ -2,13 +2,13 @@
 
 [English](README.md) | 中文
 
-协议消费层：客户端插件的 apply 会挂载 `ctx.connection`（共享 API 客户端 + 当前页面的 loopback 状态 + 可观察且按 generation 生效的 `hostDescription` + 单消费方流循环启动器）；导出表层携带协议约定类型、`AbstractApiClient` 抽象，以及循环的 sink／配置类型。每次就绪握手成功后，都会在 `onConnected` 之前发布完整的 `host.describe` 值；generation 失效或显式 stop 会清空它。浏览器载体以 HTTP POST 发送 unary／respond，并为 `events.mux` 与 `events.host` 各开一条只下行的 WebSocket；进程内载体满足同一双流抽象。Host half 持有唯一 `/api` route 及其 Fetch bridge；已注册的 Typert interceptor 会先认领自己的 Remote endpoint，未认领请求再回退 API Proxy。Loopback hostname 判定逻辑留在包内部。node 半侧认证每个网络请求，并把原生对话框、配置、凭据、模型发现及 agent preset 创作方法钉在回环，因为当前具名令牌只建立接入身份，不携带逐操作授权；认证 bypass 同样仅限回环。平台载体与 ConnectionController 循环属于包内部；apply 负责选择并驱动它们。下行边界见 [WebSocket 下行载体 Agent Note](../../../.agents/notes/implemented/architecture/2026-08-04-websocket-downlink-carrier.md)。
+协议消费层：客户端插件的 apply 会挂载 `ctx.connection`（共享 API 客户端 + 当前页面的 loopback 状态 + 可观察且按 generation 生效的 `hostDescription` + 单消费方流循环启动器）；导出表层携带协议约定类型、`AbstractApiClient` 抽象，以及循环的 sink／配置类型。每次就绪握手成功后，都会在 `onConnected` 之前发布完整的 `host.describe` 值；generation 失效或显式 stop 会清空它。浏览器载体以 HTTP POST 发送 unary／respond，并为 `events.mux` 与 `events.host` 各开一条只下行的 WebSocket；进程内载体满足同一双流抽象。Host half 持有唯一 `/api` route 及其 Fetch bridge；已注册的 Typert interceptor 会先认领自己的 Remote endpoint，未认领请求再回退 API Proxy。Loopback hostname 判定逻辑留在包内部。node 半侧认证每个网络请求，将已接受 principal 传入 HTTP 与 WebSocket 分发，并在选择 handler 前检查每个 legacy 或 Typert endpoint 所需的 capability。未知 endpoint 和缺少 policy 元数据的 endpoint 会被拒绝。认证 bypass 仍仅限回环并携带全部 capability。平台载体与 ConnectionController 循环属于包内部；apply 负责选择并驱动它们。下行边界见 [WebSocket 下行载体 Agent Note](../../../.agents/notes/implemented/architecture/2026-08-04-websocket-downlink-carrier.md)。
 
 `hostDescription.bootId` 标识一个 API Proxy 进程生命周期。它在同一 Host 服务的多个连接 generation 间保持稳定，并在重启后改变，使消费方能够隔离缓存的进程本地状态，而不会把重连误判为重启。
 
 ## /api 浏览器信任栅栏
 
-node 半侧在桥接或 upgrade 前守卫 `/api` 下的每个入口（`src/api-request-trust.ts`）。每个请求，无论是否带浏览器标记，`Host` 都必须是回环地址或匹配规范化的 `trustedHosts` authority；附带的 Origin 与 Fetch Metadata 也必须描述同源请求。这仍是 DNS 重绑定与混淆代理人防御，而不是认证。独立认证提供方随后验证 Bearer token 或浏览器 session，遭拒的 HTTP 或 WebSocket 接入不会进入 RPC 分发。非回环 listener 要求直接配置 TLS 证书与密钥，回环可以继续使用明文 HTTP；HTTPS 浏览器 session 使用 Secure `__Host-` cookie，认证响应不可缓存。非回环组合仍通过推导的 LAN 字面量或 `--trusted-host` 声明服务名称。决策记录：[api 浏览器信任边界](../../../.agents/notes/implemented/architecture/2026-07-28-api-browser-trust-boundary.md)与[入站认证](../../../.agents/notes/implemented/feature/2026-08-16-inbound-network-authentication.md) Agent Note。
+node 半侧在桥接或 upgrade 前守卫 `/api` 下的每个入口（`src/api-request-trust.ts`）。每个请求，无论是否带浏览器标记，`Host` 都必须是回环地址或匹配规范化的 `trustedHosts` authority；附带的 Origin 与 Fetch Metadata 也必须描述同源请求。这仍是 DNS 重绑定与混淆代理人防御，而不是认证。独立认证提供方随后验证短期 Access Token 或浏览器 session，遭拒的 HTTP 或 WebSocket 接入不会进入 RPC 分发。非回环 listener 要求直接配置 TLS 证书与密钥，回环可以继续使用明文 HTTP；HTTPS 浏览器 session 使用 Secure `__Host-` cookie，认证响应不可缓存。非回环组合仍通过推导的 LAN 字面量或 `--trusted-host` 声明服务名称。决策记录：[api 浏览器信任边界](../../../.agents/notes/implemented/architecture/2026-07-28-api-browser-trust-boundary.md)与[公钥 Grant 认证](../../../.agents/notes/implemented/architecture/2026-08-17-public-key-grant-authentication.md) Agent Note。
 
 ## `/api` WebSocket 下行
 

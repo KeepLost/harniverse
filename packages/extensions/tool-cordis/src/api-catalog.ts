@@ -398,24 +398,77 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'abstract authenticate(attempt: AuthenticationAttempt): Promise<AuthenticationDecision>',
         description: 'Authenticate one HTTP or WebSocket admission attempt.',
         parameters: [{ name: 'attempt', description: 'normalized headers, carrier, and direct peer.' }],
-        returns: 'accepted credential revision or a stable rejection reason.',
+        returns: 'accepted principal or a stable rejection reason.',
       },
       {
         signature: 'abstract status(): Promise<AuthenticationStatus>',
         description: 'Read process-wide admission state for the browser login gate.',
         parameters: [],
-        returns: 'the active mode and whether authenticated admission has no tokens.',
+        returns: 'the active mode and whether authenticated admission has no Grants.',
       },
       {
-        signature: 'abstract createBrowserSession(token: string, peerAddress?: string): Promise<BrowserAuthenticationDecision>',
-        description: 'Verify one token and issue an in-memory browser session.',
-        parameters: [{ name: 'token', description: 'raw token value supplied by the browser login form.' }, { name: 'peerAddress', description: 'direct socket peer used only for the access record.' }],
+        signature: 'abstract createBrowserSession(proof: AuthenticationChallengeProof, peerAddress?: string): Promise<BrowserAuthenticationDecision>',
+        description: 'Exchange one signed challenge for an in-memory browser session.',
+        parameters: [{ name: 'proof', description: 'single-use proof made by the enrolled browser key.' }, { name: 'peerAddress', description: 'direct socket peer used only for the access record.' }],
         returns: 'the issued session or a stable rejection reason.',
       },
       {
-        signature: 'abstract revokeBrowserSession(cookie?: string): void',
-        description: 'Revoke the browser session named by a raw Cookie header, when present.',
-        parameters: [{ name: 'cookie', description: 'raw Cookie header from the logout request.' }],
+        signature: 'abstract requestEnrollment( input: AuthenticationEnrollmentInput, peerAddress?: string, ): Promise<AuthenticationEnrollmentDecision>',
+        description: 'Submit one public-key enrollment request for later owner approval.',
+        parameters: [{ name: 'input', description: 'browser key and device metadata.' }, { name: 'peerAddress', description: 'direct peer used for enrollment rate limiting.' }],
+        returns: 'the pending enrollment or a stable overload response.',
+      },
+      {
+        signature: 'abstract enrollmentStatus(id: AuthenticationEnrollmentId): Promise<AuthenticationEnrollmentStatus | undefined>',
+        description: 'Read one enrollment request without exposing another request by name.',
+        parameters: [{ name: 'id', description: 'exact enrollment request id.' }],
+        returns: 'pending or approved status, or `undefined` after removal.',
+      },
+      {
+        signature: 'abstract listPendingEnrollments(): Promise<readonly Extract<AuthenticationEnrollmentStatus, { state: \'pending\' }>[]>',
+        description: 'List enrollment requests awaiting an owner decision.',
+        parameters: [],
+        returns: 'pending enrollment requests visible to an authenticated owner.',
+      },
+      {
+        signature: 'abstract approveEnrollment( id: AuthenticationEnrollmentId, approval: AuthenticationEnrollmentApproval, ): Promise<AuthenticationGrantSummary>',
+        description: 'Approve one pending enrollment with an explicit capability and lifetime policy.',
+        parameters: [{ name: 'id', description: 'exact pending enrollment id.' }, { name: 'approval', description: 'capabilities and optional lifetime restrictions.' }],
+        returns: 'non-secret metadata for the committed Grant.',
+      },
+      {
+        signature: 'abstract listGrants(): Promise<readonly AuthenticationGrantSummary[]>',
+        description: 'List approved Grants without exposing public keys.',
+        parameters: [],
+        returns: 'approved Grant metadata without public keys.',
+      },
+      {
+        signature: 'abstract revokeGrant(id: AuthenticationGrantId): Promise<void>',
+        description: 'Revoke one approved Grant and its process-local credentials.',
+        parameters: [{ name: 'id', description: 'exact Grant id.' }],
+      },
+      {
+        signature: 'abstract createChallenge( grantId: AuthenticationGrantId, purpose: AuthenticationChallengePurpose, ): Promise<AuthenticationGrantDecision<AuthenticationChallenge>>',
+        description: 'Issue one short-lived, single-use proof-of-possession challenge.',
+        parameters: [{ name: 'grantId', description: 'Grant expected to sign the challenge.' }, { name: 'purpose', description: 'credential exchange purpose bound into the payload.' }],
+        returns: 'the challenge or a stable rejection reason.',
+      },
+      {
+        signature: 'abstract exchangeAccessToken( proof: AuthenticationChallengeProof, peerAddress?: string, ): Promise<AuthenticationGrantDecision<AuthenticationAccessToken>>',
+        description: 'Exchange one signed access-token challenge for a short bearer token.',
+        parameters: [{ name: 'proof', description: 'single-use P-256 challenge proof.' }, { name: 'peerAddress', description: 'direct peer recorded without credential material.' }],
+        returns: 'the short Access Token or a stable rejection reason.',
+      },
+      {
+        signature: 'abstract issueEmergencyAccessToken( issuer: AuthenticationPrincipal, capabilities: readonly AuthenticationCapability[], ttlMs: number, ): Promise<AuthenticationGrantDecision<AuthenticationAccessToken>>',
+        description: 'Issue one short, nonrenewable bearer token from an owner Grant.',
+        parameters: [{ name: 'issuer', description: 'authenticated owner principal authorizing issuance.' }, { name: 'capabilities', description: 'explicit reduced capabilities; authorize is forbidden.' }, { name: 'ttlMs', description: 'requested positive lifetime bounded by Provider policy.' }],
+        returns: 'the emergency Access Token or a stable rejection reason.',
+      },
+      {
+        signature: 'abstract revokeBrowserSession(value?: string): void',
+        description: 'Revoke one opaque browser-session value, when present.',
+        parameters: [{ name: 'value', description: 'transport-selected browser-session value.' }],
       },
     ],
   },
@@ -491,7 +544,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the exact effect disposer that unregisters this definition.',
       },
       {
-        signature: '@Remote list(agent: Agent): readonly CommandDescriptor[]',
+        signature: '@Remote({ requiredCapability: \'harniverse.observe\' }) list(agent: Agent): readonly CommandDescriptor[]',
         description: 'List the effective immutable command descriptors for one agent.',
         parameters: [{ name: 'agent', description: 'exact receiving agent and scoped-layer key.' }],
         returns: 'name-sorted descriptors after scoped shadowing.',
@@ -503,7 +556,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the scoped shadow or global definition.',
       },
       {
-        signature: '@Remote async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandExecution | undefined>',
+        signature: '@Remote({ requiredCapability: \'harniverse.operate\' }) async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandExecution | undefined>',
         description: 'Parse and execute a known command without sending it to the model.\n\nA resolved command\'s lifecycle is logged: `command/run` is appended before the handler is invoked and `command/done` after settlement (a thrown or aborted handler settles as `kind: \'error\'`). Both are direct log-only appends — no turn wraps them, and persistence drains them at ordinary checkpoints. Admission misses (syntax or unknown name) log nothing — they never entered a handler. A `command/run` append failure fails the execution loud; a `command/done` append failure on the handler-failure path is contained so the handler\'s own error stays the reported failure.',
         parameters: [{ name: 'agent', description: 'exact receiving agent.' }, { name: 'line', description: 'complete slash-command line.' }, { name: 'signal', description: 'cancellation signal owned by the UI request.' }],
         returns: 'the settled execution (result + lifecycle pairing id), or `undefined` when syntax or name does not resolve.',
@@ -707,25 +760,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the created live view.',
       },
       {
-        signature: '@Remote(\'edit\') edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView',
+        signature: '@Remote({ exportName: \'edit\', requiredCapability: \'harniverse.operate\' }) edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView',
         description: 'Edit objective and/or round cap without changing phase.',
         parameters: [{ name: 'agent', description: 'owning live agent.' }, { name: 'ref', description: 'expected current revision.' }, { name: 'request', description: 'at least one replacement field.' }],
         returns: 'the edited view.',
       },
       {
-        signature: '@Remote(\'pause\') pause(agent: Agent, ref: GoalRef): GoalView',
+        signature: '@Remote({ exportName: \'pause\', requiredCapability: \'harniverse.operate\' }) pause(agent: Agent, ref: GoalRef): GoalView',
         description: 'Pause an active goal and disarm automatic continuation.',
         parameters: [{ name: 'agent', description: 'owning live agent.' }, { name: 'ref', description: 'expected current revision.' }],
         returns: 'the paused view.',
       },
       {
-        signature: '@Remote(\'resume\') resume(agent: Agent, ref: GoalRef): GoalView',
+        signature: '@Remote({ exportName: \'resume\', requiredCapability: \'harniverse.operate\' }) resume(agent: Agent, ref: GoalRef): GoalView',
         description: 'Resume and arm a stopped goal, or rearm an active goal after a session-start edge, while its round budget still has capacity.',
         parameters: [{ name: 'agent', description: 'owning live agent.' }, { name: 'ref', description: 'expected current revision.' }],
         returns: 'the active view.',
       },
       {
-        signature: '@Remote(\'complete\') complete(agent: Agent, ref: GoalRef): GoalView',
+        signature: '@Remote({ exportName: \'complete\', requiredCapability: \'harniverse.operate\' }) complete(agent: Agent, ref: GoalRef): GoalView',
         description: 'Mark a current non-complete goal complete and disarm it.',
         parameters: [{ name: 'agent', description: 'owning live agent.' }, { name: 'ref', description: 'expected current revision.' }],
         returns: 'the completed view.',
@@ -737,13 +790,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the blocked view with its durable reason.',
       },
       {
-        signature: '@Remote(\'clear\') clear(agent: Agent, ref: GoalRef): GoalRef',
+        signature: '@Remote({ exportName: \'clear\', requiredCapability: \'harniverse.operate\' }) clear(agent: Agent, ref: GoalRef): GoalRef',
         description: 'Clear the current goal while retaining a durable tombstone and history.',
         parameters: [{ name: 'agent', description: 'owning live agent.' }, { name: 'ref', description: 'expected current revision.' }],
         returns: 'the tombstone ref whose revision is one past the cleared snapshot.',
       },
       {
-        signature: '@Remote(\'create\') remoteExportCreate(agent: Agent, request: CreateGoalRequest): CreateGoalResult',
+        signature: '@Remote({ exportName: \'create\', requiredCapability: \'harniverse.operate\' }) remoteExportCreate(agent: Agent, request: CreateGoalRequest): CreateGoalResult',
         description: 'Create one Goal through the remote boundary.',
         parameters: [{ name: 'agent', description: 'exact live Agent resolved from the wire identity.' }, { name: 'request', description: 'objective and optional round cap.' }],
         returns: 'the created Goal identity.',
@@ -928,19 +981,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Storage-domain sidecar service. It inspects persisted Session history and never creates or resumes an Agent or Session.',
     methods: [
       {
-        signature: '@Remote(\'list\') async list(request: MessageFeedbackListRequest): Promise<MessageFeedbackListResult>',
+        signature: '@Remote({ exportName: \'list\', requiredCapability: \'harniverse.observe\' }) async list(request: MessageFeedbackListRequest): Promise<MessageFeedbackListResult>',
         description: 'Read feedback belonging to the current persisted Session lifecycle. A stale row from a reused Session id is invisible.',
         parameters: [{ name: 'request', description: 'Session identity to inspect and list.' }],
         returns: 'current immutable items or `session-not-found`.',
       },
       {
-        signature: '@Remote(\'put\') put(request: MessageFeedbackPutRequest): Promise<MessageFeedbackPutResult>',
+        signature: '@Remote({ exportName: \'put\', requiredCapability: \'harniverse.operate\' }) put(request: MessageFeedbackPutRequest): Promise<MessageFeedbackPutResult>',
         description: 'Create or replace feedback for one derived append-origin assistant message. Every request must match the addressed item\'s current version; a matching no-op returns the stored item without changing its revision.',
         parameters: [{ name: 'request', description: 'target, desired value, and observed item version.' }],
         returns: 'the committed item or an explicit business failure.',
       },
       {
-        signature: '@Remote(\'delete\') delete(request: MessageFeedbackDeleteRequest): Promise<MessageFeedbackDeleteResult>',
+        signature: '@Remote({ exportName: \'delete\', requiredCapability: \'harniverse.operate\' }) delete(request: MessageFeedbackDeleteRequest): Promise<MessageFeedbackDeleteResult>',
         description: 'Delete one feedback item. Absence is successful regardless of the supplied version; an existing item requires an exact version match.',
         parameters: [{ name: 'request', description: 'Session, message, and observed item version.' }],
         returns: 'the stable absent postcondition, or an explicit failure.',
@@ -2387,8 +2440,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'authentication/revoked',
     mode: 'emit',
     signature: '\'authentication/revoked\'(revocation: AuthenticationRevocation): void',
-    summary: 'A committed token registry change invalidated credential revisions.',
-    description: 'A committed token registry change invalidated credential revisions.',
+    summary: 'A committed Grant registry change invalidated Grant revisions.',
+    description: 'A committed Grant registry change invalidated Grant revisions.',
     parameters: [{ name: 'revocation', description: 'revisions that must lose browser and socket admission.' }],
   },
   {
@@ -2864,40 +2917,96 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type AttachmentId = Branded<\'AttachmentId\'>;',
   },
   {
+    name: 'AuthenticationAccessToken',
+    declaration: 'export interface AuthenticationAccessToken {\n    value: string;\n    expiresAt: string;\n    principal: Extract<AuthenticationPrincipal, {\n        kind: \'grant\';\n    }>;\n}',
+  },
+  {
     name: 'AuthenticationAttempt',
-    declaration: 'export interface AuthenticationAttempt {\n    channel: AuthenticationChannel;\n    authorization?: string;\n    cookie?: string;\n    peerAddress?: string;\n}',
+    declaration: 'export interface AuthenticationAttempt {\n    channel: AuthenticationChannel;\n    authorization?: string;\n    browserSession?: string;\n    peerAddress?: string;\n}',
+  },
+  {
+    name: 'AuthenticationCapability',
+    declaration: 'export type AuthenticationCapability = \'harniverse.observe\' | \'harniverse.operate\' | \'harniverse.administer\' | \'harniverse.authorize\';',
+  },
+  {
+    name: 'AuthenticationChallenge',
+    declaration: 'export interface AuthenticationChallenge {\n    id: AuthenticationChallengeId;\n    payload: string;\n    expiresAt: string;\n}',
+  },
+  {
+    name: 'AuthenticationChallengeId',
+    declaration: 'export type AuthenticationChallengeId = Branded<\'AuthenticationChallengeId\'>;',
+  },
+  {
+    name: 'AuthenticationChallengeProof',
+    declaration: 'export interface AuthenticationChallengeProof {\n    challengeId: AuthenticationChallengeId;\n    signature: string;\n}',
+  },
+  {
+    name: 'AuthenticationChallengePurpose',
+    declaration: 'export type AuthenticationChallengePurpose = \'access-token\' | \'browser-session\';',
   },
   {
     name: 'AuthenticationChannel',
     declaration: 'export type AuthenticationChannel = \'http-api\' | \'websocket-mux\' | \'websocket-host\';',
   },
   {
-    name: 'AuthenticationCredential',
-    declaration: 'export interface AuthenticationCredential {\n    tokenId: AuthenticationTokenId;\n    tokenName: AuthenticationTokenName;\n    generation: number;\n}',
+    name: 'AuthenticationDecision',
+    declaration: 'export type AuthenticationDecision = {\n    kind: \'accepted\';\n    principal: AuthenticationPrincipal;\n} | {\n    kind: \'rejected\';\n    reason: \'missing-credential\' | \'invalid-credential\' | \'authentication-unavailable\';\n} | {\n    kind: \'rejected\';\n    reason: \'rate-limited\';\n    retryAfterMs: number;\n};',
   },
   {
-    name: 'AuthenticationDecision',
-    declaration: 'export type AuthenticationDecision = {\n    kind: \'accepted\';\n    credential?: AuthenticationCredential;\n} | {\n    kind: \'rejected\';\n    reason: \'missing-credential\' | \'invalid-credential\' | \'authentication-unavailable\';\n} | {\n    kind: \'rejected\';\n    reason: \'rate-limited\';\n    retryAfterMs: number;\n};',
+    name: 'AuthenticationEnrollmentApproval',
+    declaration: 'export interface AuthenticationEnrollmentApproval {\n    capabilities: readonly AuthenticationCapability[];\n    expiresInMs?: number;\n    idleTimeoutMs?: number;\n}',
+  },
+  {
+    name: 'AuthenticationEnrollmentDecision',
+    declaration: 'export type AuthenticationEnrollmentDecision = {\n    kind: \'accepted\';\n    value: Extract<AuthenticationEnrollmentStatus, {\n        state: \'pending\';\n    }>;\n} | {\n    kind: \'rejected\';\n    reason: \'authentication-unavailable\';\n} | {\n    kind: \'rejected\';\n    reason: \'rate-limited\';\n    retryAfterMs: number;\n};',
+  },
+  {
+    name: 'AuthenticationEnrollmentId',
+    declaration: 'export type AuthenticationEnrollmentId = Branded<\'AuthenticationEnrollmentId\'>;',
+  },
+  {
+    name: 'AuthenticationEnrollmentInput',
+    declaration: 'export interface AuthenticationEnrollmentInput {\n    name: string;\n    kind: AuthenticationEnrollmentKind;\n    publicKey: string;\n}',
+  },
+  {
+    name: 'AuthenticationEnrollmentKind',
+    declaration: 'export type AuthenticationEnrollmentKind = \'device\' | \'temporary\';',
+  },
+  {
+    name: 'AuthenticationEnrollmentStatus',
+    declaration: 'export type AuthenticationEnrollmentStatus = {\n    state: \'pending\';\n    id: AuthenticationEnrollmentId;\n    approvalCode: string;\n    name: string;\n    kind: AuthenticationEnrollmentKind;\n    expiresAt: string;\n} | {\n    state: \'approved\';\n    id: AuthenticationEnrollmentId;\n    grantId: AuthenticationGrantId;\n    grantRevision: number;\n    capabilities: readonly AuthenticationCapability[];\n    expiresAt: string;\n};',
+  },
+  {
+    name: 'AuthenticationGrantDecision',
+    declaration: 'export type AuthenticationGrantDecision<T> = {\n    kind: \'accepted\';\n    value: T;\n} | {\n    kind: \'rejected\';\n    reason: \'invalid-grant\' | \'invalid-proof\' | \'expired\' | \'authentication-unavailable\';\n};',
+  },
+  {
+    name: 'AuthenticationGrantId',
+    declaration: 'export type AuthenticationGrantId = Branded<\'AuthenticationGrantId\'>;',
+  },
+  {
+    name: 'AuthenticationGrantRevision',
+    declaration: 'export interface AuthenticationGrantRevision {\n    grantId: AuthenticationGrantId;\n    grantRevision: number;\n}',
+  },
+  {
+    name: 'AuthenticationGrantSummary',
+    declaration: 'export interface AuthenticationGrantSummary {\n    id: AuthenticationGrantId;\n    name: string;\n    kind: \'device\' | \'api-client\' | \'temporary\';\n    revision: number;\n    capabilities: readonly AuthenticationCapability[];\n    createdAt: string;\n    expiresAt?: string;\n    idleTimeoutMs?: number;\n    lastUsedAt?: string;\n}',
   },
   {
     name: 'AuthenticationMode',
     declaration: 'export type AuthenticationMode = \'authenticated\' | \'bypass\';',
   },
   {
+    name: 'AuthenticationPrincipal',
+    declaration: 'export type AuthenticationPrincipal = {\n    readonly kind: \'bypass\';\n    readonly capabilities: readonly AuthenticationCapability[];\n} | {\n    readonly kind: \'grant\';\n    readonly grantId: AuthenticationGrantId;\n    readonly grantRevision: number;\n    readonly capabilities: readonly AuthenticationCapability[];\n    readonly expiresAt: string;\n};',
+  },
+  {
     name: 'AuthenticationRevocation',
-    declaration: 'export interface AuthenticationRevocation {\n    credentials: AuthenticationCredential[];\n}',
+    declaration: 'export interface AuthenticationRevocation {\n    grants: AuthenticationGrantRevision[];\n}',
   },
   {
     name: 'AuthenticationStatus',
     declaration: 'export interface AuthenticationStatus {\n    mode: AuthenticationMode;\n    sealed: boolean;\n}',
-  },
-  {
-    name: 'AuthenticationTokenId',
-    declaration: 'export type AuthenticationTokenId = Branded<\'AuthenticationTokenId\'>;',
-  },
-  {
-    name: 'AuthenticationTokenName',
-    declaration: 'export type AuthenticationTokenName = Branded<\'AuthenticationTokenName\'>;',
   },
   {
     name: 'BackendRegistry',
@@ -2925,7 +3034,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'BrowserAuthenticationSession',
-    declaration: 'export interface BrowserAuthenticationSession {\n    value: string;\n    expiresAt: string;\n    credential: AuthenticationCredential;\n}',
+    declaration: 'export interface BrowserAuthenticationSession {\n    value: string;\n    expiresAt: string;\n    principal: AuthenticationPrincipal;\n}',
   },
   {
     name: 'CancelOptions',
@@ -3365,7 +3474,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'InvocationDescriptor',
-    declaration: 'export interface InvocationDescriptor {\n    readonly id: string;\n    readonly service: string;\n    readonly namespace: string;\n    readonly method: string;\n    readonly implementation?: string;\n    readonly invocation: {\n        readonly kind: \'direct\';\n    } | {\n        readonly kind: \'context\';\n        readonly context: string;\n        readonly wire: string;\n        readonly codec: TypertCodec;\n    };\n    readonly scope?: {\n        readonly context: string;\n        readonly wire: string;\n    };\n    readonly parameters: readonly InvocationParameterDescriptor[];\n    readonly cancellation?: {\n        readonly parameter: \'signal\';\n    };\n    readonly result: TypertCodec;\n    readonly sourceLocation?: InvocationSourceLocation;\n}',
+    declaration: 'export interface InvocationDescriptor {\n    readonly id: string;\n    readonly service: string;\n    readonly namespace: string;\n    readonly method: string;\n    readonly implementation?: string;\n    readonly requiredCapability: AuthenticationCapability;\n    readonly invocation: {\n        readonly kind: \'direct\';\n    } | {\n        readonly kind: \'context\';\n        readonly context: string;\n        readonly wire: string;\n        readonly codec: TypertCodec;\n    };\n    readonly scope?: {\n        readonly context: string;\n        readonly wire: string;\n    };\n    readonly parameters: readonly InvocationParameterDescriptor[];\n    readonly cancellation?: {\n        readonly parameter: \'signal\';\n    };\n    readonly result: TypertCodec;\n    readonly sourceLocation?: InvocationSourceLocation;\n}',
   },
   {
     name: 'InvocationParameterDescriptor',
@@ -3377,7 +3486,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'InvokeRemoteRequest',
-    declaration: 'export interface InvokeRemoteRequest {\n    readonly namespace: string;\n    readonly method: string;\n    readonly args: Readonly<Record<string, unknown>>;\n    readonly signal?: AbortSignal;\n}',
+    declaration: 'export interface InvokeRemoteRequest {\n    readonly namespace: string;\n    readonly method: string;\n    readonly args: Readonly<Record<string, unknown>>;\n    readonly signal?: AbortSignal;\n    readonly principal?: AuthenticationPrincipal;\n}',
   },
   {
     name: 'JobDoneListener',

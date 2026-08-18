@@ -1,7 +1,8 @@
-/** Authenticated Web composition blocks plugin loading until browser login. */
+/** Authenticated Web composition blocks plugin loading until device approval. */
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { approveEnrollmentRequest, listEnrollmentRequests } from '@deepseek-ai/dsh-authentication-local'
 import { launchWebScaffold, watchConsole, type WebScaffold } from './scaffold.ts'
 import { newEnglishPage, saveFailureShot } from './support.ts'
 
@@ -13,7 +14,7 @@ describe('web e2e: authentication gate', () => {
   let tripwire: ReturnType<typeof watchConsole>
 
   beforeAll(async () => {
-    scaffold = await launchWebScaffold({ authentication: 'token' })
+    scaffold = await launchWebScaffold({ authentication: 'grant' })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     pluginRequests = []
@@ -29,24 +30,33 @@ describe('web e2e: authentication gate', () => {
     await scaffold?.close()
   })
 
-  it('loads no plugin bundle before login and releases the app after token exchange', async () => {
+  it('loads no plugin bundle before approval and releases the app after signed challenge exchange', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-authentication-gate'))
-    const input = page.getByLabel('访问令牌')
+    const input = page.getByLabel('设备名称')
     await input.waitFor({ timeout: 30_000 })
     expect(pluginRequests).toEqual([])
-    if (scaffold.authenticationToken === undefined) throw new Error('authenticated scaffold did not return its token')
-
-    await input.fill(scaffold.authenticationToken)
-    const loginResponsePromise = page.waitForResponse((response) => {
-      return new URL(response.url()).pathname === '/auth/login'
-    })
-    await page.getByRole('button', { name: '进入工作台' }).click()
-    const loginResponse = await loginResponsePromise
+    const sealedBundle = await page.request.get(`${scaffold.baseUrl}/plugins/@deepseek-ai/dsh-client-connection/client.js`)
+    const sealedTopology = await page.request.get(`${scaffold.baseUrl}/plugins/events`)
+    expect({ bundle: sealedBundle.status(), topology: sealedTopology.status() }).toEqual({ bundle: 401, topology: 401 })
+    await input.fill('browser-e2e')
+    const enrollmentResponsePromise = page.waitForResponse(response => new URL(response.url()).pathname === '/auth/enrollment' && response.request().method() === 'POST')
+    await page.getByRole('button', { name: '配对个人设备' }).click()
+    const enrollmentResponse = await enrollmentResponsePromise
     expect({
-      method: loginResponse.request().method(),
-      status: loginResponse.status(),
-      url: loginResponse.url(),
-    }).toEqual({ method: 'POST', status: 200, url: `${scaffold.baseUrl}/auth/login` })
+      method: enrollmentResponse.request().method(),
+      status: enrollmentResponse.status(),
+      url: enrollmentResponse.url(),
+    }).toEqual({ method: 'POST', status: 202, url: `${scaffold.baseUrl}/auth/enrollment` })
+    expect(pluginRequests).toEqual([])
+
+    const requests = await listEnrollmentRequests({ dshHome: scaffold.harnessHome })
+    expect(requests).toHaveLength(1)
+    const exchangeResponsePromise = page.waitForResponse(response => new URL(response.url()).pathname === '/auth/exchange')
+    await approveEnrollmentRequest(requests[0]!.id, {
+      capabilities: ['harniverse.observe', 'harniverse.operate', 'harniverse.administer', 'harniverse.authorize'],
+    }, { dshHome: scaffold.harnessHome })
+    const exchangeResponse = await exchangeResponsePromise
+    expect(exchangeResponse.status()).toBe(200)
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     expect(pluginRequests.length).toBeGreaterThan(0)
     expect(await input.count()).toBe(0)

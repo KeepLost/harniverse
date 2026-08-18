@@ -7,6 +7,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import type { AuthenticationPrincipal } from '@deepseek-ai/dsh-authentication'
 import type { z } from 'zod'
 import type { ApiProxy, MuxFrame, HostFrame } from '../api/index.ts'
 import { sessionLogQuerySchema } from '../api/downloads.schema.ts'
@@ -91,6 +92,8 @@ type UnaryRoutes = {
     invoke(api: ApiProxy, request: RpcRequest<RequestPayload<K>>, signal: AbortSignal): Promise<RpcResponse<ResponseValue<K>>>
   }
 }
+
+type ApiProxyFailureReporter = (operation: string, error: unknown) => void
 
 const UNARY_ROUTES: UnaryRoutes = {
   'session.list': { schema: sessionListRequestSchema, invoke: (api, r) => api.sessions.list(r) },
@@ -185,7 +188,12 @@ function fullResponse(narrow: RpcResponse<unknown>): Response {
 // schema/invoke pairing; a union parameter degrades the row to an uninvokable intersection.
 // oxlint-disable-next-line typescript/no-unnecessary-type-parameters
 async function handleUnary<K extends keyof RpcMethodMap>(
-  api: ApiProxy, method: K, message: ClientRequest, signal: AbortSignal,
+  api: ApiProxy,
+  method: K,
+  message: ClientRequest,
+  signal: AbortSignal,
+  principal?: AuthenticationPrincipal,
+  reportFailure?: ApiProxyFailureReporter,
 ): Promise<Response> {
   const route = UNARY_ROUTES[method]
   const payload = route.schema.safeParse(message.payload)
@@ -193,10 +201,14 @@ async function handleUnary<K extends keyof RpcMethodMap>(
     return errorResponse(message.rpcId, { code: 'bad-request', message: `invalid payload for ${method}`, details: { issues: payload.error.issues } })
   }
   try {
-    return fullResponse(await route.invoke(api, { rpcId: message.rpcId, payload: payload.data }, signal))
+    return fullResponse(await route.invoke(api, {
+      rpcId: message.rpcId,
+      payload: payload.data,
+      ...(principal !== undefined && { principal }),
+    }, signal))
   } catch (error: unknown) {
-    // The impl never throws business errors; reaching here means the implementation itself crashed — 500, carrier layer.
-    return new Response(`handler failure: ${String(error)}`, { status: 500 })
+    reportFailure?.(method, error)
+    return new Response('internal handler failure', { status: 500 })
   }
 }
 
@@ -209,7 +221,11 @@ function fullFrame(narrow: RpcRequest<MuxFrame | HostFrame>): ServerRequest {
  * Wrap a frame stream as an SSE Response; stops when req.signal aborts. An
  * impl throw mid-stream emits one stream/error frame and then closes.
  */
-function sseResponse(frames: AsyncIterable<RpcRequest<MuxFrame | HostFrame>>): Response {
+function sseResponse(
+  frames: AsyncIterable<RpcRequest<MuxFrame | HostFrame>>,
+  operation: string,
+  reportFailure?: ApiProxyFailureReporter,
+): Response {
   const encoder = new TextEncoder()
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -225,7 +241,11 @@ function sseResponse(frames: AsyncIterable<RpcRequest<MuxFrame | HostFrame>>): R
         // Mid-stream impl failure → one stream/error frame, then close: the client must see
         // the failure instead of a silent end (which reads as a normal disconnect). A fresh
         // rpcId is minted — this is a server-initiated push like any other frame.
-        const failure: MuxFrame | HostFrame = { type: 'stream/error', error: { code: 'internal', message: String(error), details: {} } }
+        reportFailure?.(operation, error)
+        const failure: MuxFrame | HostFrame = {
+          type: 'stream/error',
+          error: { code: 'internal', message: 'event stream failed', details: {} },
+        }
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(fullFrame({ rpcId: RpcId(randomUUID()), payload: failure }))}\n\n`))
         } catch {
@@ -247,9 +267,15 @@ function sseResponse(frames: AsyncIterable<RpcRequest<MuxFrame | HostFrame>>): R
 /**
  * Wraps an ApiProxy into a pure fetch function (isomorphic point: feed the returned fetch straight to InProcessApiClient).
  * @param api - the host-side ApiProxy implementation.
+ * @param principal - authenticated network identity attached to host-side requests.
+ * @param reportFailure - optional server-side unexpected-failure reporter.
  * @returns an object holding `fetch(Request)`; paths outside /api/ return 404.
  */
-export function toFetchHandler(api: ApiProxy): { fetch: typeof fetch } {
+export function toFetchHandler(
+  api: ApiProxy,
+  principal?: AuthenticationPrincipal,
+  reportFailure?: ApiProxyFailureReporter,
+): { fetch: typeof fetch } {
   return {
     // Signature matches global fetch: the isomorphic point hands this function to InProcessApiClient as its transport aspect,
     // Clients call in (url, init) form — normalize to Request before handling.
@@ -274,10 +300,18 @@ export function toFetchHandler(api: ApiProxy): { fetch: typeof fetch } {
         // JSON has no undefined-valued record entries; collapse Wire<> to the
         // exact payload after the schema has validated every key and value.
         const payload = parsed.data as Parameters<ApiProxy['events']['mux']>[0]['payload']
-        return sseResponse(api.events.mux({ rpcId: RpcId(randomUUID()), payload }, req.signal))
+        return sseResponse(api.events.mux({
+          rpcId: RpcId(randomUUID()),
+          payload,
+          ...(principal !== undefined && { principal }),
+        }, req.signal), 'events.mux', reportFailure)
       }
       if (path === '/api/events.host' && req.method === 'GET') {
-        return sseResponse(api.events.host({ rpcId: RpcId(randomUUID()), payload: {} }, req.signal))
+        return sseResponse(api.events.host({
+          rpcId: RpcId(randomUUID()),
+          payload: {},
+          ...(principal !== undefined && { principal }),
+        }, req.signal), 'events.host', reportFailure)
       }
       if (path === '/api/session.export' && (req.method === 'GET' || req.method === 'HEAD')) {
         // Query params are a different boundary from the POST envelope, but
@@ -336,7 +370,7 @@ export function toFetchHandler(api: ApiProxy): { fetch: typeof fetch } {
       if (message.method !== method) {
         return errorResponse(message.rpcId, { code: 'bad-request', message: `method "${message.method}" does not match path "${method}"`, details: { issues: [] } })
       }
-      return handleUnary(api, method, message, req.signal)
+      return handleUnary(api, method, message, req.signal, principal, reportFailure)
     },
   }
 }

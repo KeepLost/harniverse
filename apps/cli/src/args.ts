@@ -68,7 +68,8 @@ Examples:
   dsh --profile tui --patch ./extra.yml      boot a custom profile with one extra overlay
   dsh --profile tui --resume <session>       arguments after the launcher flags reach the app
   dsh --profile web --help                   the web app's own flags and help
-  dsh auth token add laptop                  create a named inbound-authentication token
+  dsh auth device approve <request> --profile owner
+                                               approve the first owner device
   dsh plugin --profile tui add <package>     install a plugin into the tui profile
 `
 

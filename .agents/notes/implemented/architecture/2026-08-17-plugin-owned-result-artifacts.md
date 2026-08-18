@@ -18,7 +18,7 @@ Authentication token management had the parallel ownership error at the applicat
 
 `SpillRef` carries only `{ locator, bytes }`. Providers own persistence, opaque addressing, paging, cancellation, and exact byte reporting. Consumers own every model-facing notice and instruction. The optional `spill-policy` remains a separate best-effort early transformer and renders its own provider-neutral locator guidance.
 
-The standalone `@deepseek-ai/dsh-auth-app` bundle applies the same ownership rule to management. `dsh auth` is only an alias for the `auth` profile; `auth-startup` parses the app grammar and releases an injected `auth-runner`, which invokes local management APIs and requests bounded exit. The profile mounts no Agent, WebServer, or runtime authentication Provider, so an empty Harness home can create its first token.
+The standalone `@deepseek-ai/dsh-auth-app` bundle applies the same ownership rule to management. `dsh auth` is only an alias for the `auth` profile; `auth-startup` parses the app grammar and releases an injected `auth-runner`, which invokes local management APIs and requests bounded exit. The profile mounts no Agent, WebServer, or runtime authentication Provider, so a sealed Harness home can approve its first owner device.
 
 The notification and session-telemetry Definition packages continue to bundle their coordinator Consumers. Generated capability projections list that same package in the Consumer column instead of showing an absent role.
 
@@ -38,4 +38,4 @@ A composed result-artifact Consumer guarantees that every successful retention m
 
 The final-result waterfall is powerful: a listener can asynchronously transform complete outcomes and a throw becomes a normalized tool failure. Listeners must call `next()`, preserve typed same-process fields they do not own, observe cancellation for owned work, and settle before immutable notification.
 
-Real Loader tests cover empty-home token creation and the combined retention/retrieval package. Focused pipeline tests pin finalizer ordering, agent-loop tests pin the durable artifact reference and bounded surface, and generated catalog checks prevent stale package or event projections.
+Real Loader tests cover sealed-home owner approval and the combined retention/retrieval package. Focused pipeline tests pin finalizer ordering, agent-loop tests pin the durable artifact reference and bounded surface, and generated catalog checks prevent stale package or event projections.

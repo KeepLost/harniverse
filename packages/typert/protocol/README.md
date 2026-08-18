@@ -6,8 +6,8 @@ Compiler-independent declarations shared by business packages, generated Typert 
 
 ## Remote declarations
 
-- `@Remote` marks a public instance method for direct invocation on its registered Cordis Service.
-- `@RemoteScope(key)` marks a method whose receiver is selected from a merge-declared scoped Context kind.
+- `@Remote({ requiredCapability, exportName? })` marks a public instance method for direct invocation on its registered Cordis Service.
+- `@RemoteScope(key, { requiredCapability, exportName? })` marks a method whose receiver is selected from a merge-declared scoped Context kind.
 - `TypertRemoteService` binds the Cordis key passed to `super(ctx, serviceKey, options?)` to the same default wire namespace.
 - `bindTypertRemote(this, serviceKey, options?)` provides the same visible, frozen binding for a Service that cannot inherit from `TypertRemoteService`.
 - `remoteMethods(service)` returns a detached declaration-order snapshot used by the Gateway's SRC fallback.
@@ -18,7 +18,7 @@ Decorator initializers retain markers in a module-private `WeakMap` keyed by the
 
 ## Typert protocol
 
-Business packages extend `TypertLookupMap` and `TypertContextMap` to associate Host objects or scoped Contexts with their wire identities. Generated artifacts extend `TypertRemoteMap`, `TypertRemoteScopeMap`, and `TypertRemoteNamespaceMap` so Client imports expose only selected Remote methods. `InvocationDescriptor` is the shared runtime form consumed by the registry, Gateway, and Client Remote.
+Business packages extend `TypertLookupMap` and `TypertContextMap` to associate Host objects or scoped Contexts with their wire identities. Every Remote declaration names one `harniverse.*` capability; generated and source-runtime descriptors retain it, and omission is invalid rather than an admission default. Generated artifacts extend `TypertRemoteMap`, `TypertRemoteScopeMap`, and `TypertRemoteNamespaceMap` so Client imports expose only selected Remote methods. `InvocationDescriptor` is the shared runtime form consumed by the registry, Gateway, and Client Remote.
 
 The Host assembly extends `TypertRemoteEventSelection` with the Host events it forwards to consumers, which narrows the `ctx.remote.$on` key face; `TypertForwardableEvent` states the shapes a one-way delivery can carry at all, excluding Scope-bound and answered events. `TypertClientRemote` carries both roles of that surface: consumers subscribe through `$on`, and the Client half owning the host frame sink hands frames over through `$dispatch`.
 

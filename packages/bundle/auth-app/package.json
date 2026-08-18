@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-auth-app",
-  "description": "One-shot named-token authentication management profile for the DeepSeek Harness",
+  "description": "One-shot local device and API-client Grant management profile for the DeepSeek Harness",
   "version": "0.1.0-rc.5",
   "publishConfig": {
     "access": "public"
@@ -44,6 +44,7 @@
     }
   },
   "dependencies": {
+    "@deepseek-ai/dsh-authentication": "workspace:^",
     "@deepseek-ai/dsh-authentication-local": "workspace:^",
     "@deepseek-ai/dsh-cmdline": "workspace:^",
     "@deepseek-ai/schemastery": "workspace:^",

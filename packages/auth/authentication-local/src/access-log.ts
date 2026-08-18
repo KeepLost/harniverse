@@ -1,7 +1,7 @@
 /** Global owner-only authentication access records with bounded rotation. */
 import { open, rename, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { AuthenticationChannel, AuthenticationMode, AuthenticationTokenName } from '@deepseek-ai/dsh-authentication'
+import type { AuthenticationChannel, AuthenticationMode } from '@deepseek-ai/dsh-authentication'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { assertPrivateFile, ensurePrivateDirectory, isMissing, withPrivateFileLock } from './private-files.ts'
 
@@ -19,10 +19,14 @@ export type AccessEvent =
   | 'browser-login-rejected'
   | 'websocket-opened'
   | 'websocket-closed'
-  | 'token-added'
-  | 'token-reset'
-  | 'token-deleted'
-  | 'token-rotation-applied'
+  | 'enrollment-requested'
+  | 'grant-approved'
+  | 'grant-revoked'
+  | 'grant-revision-applied'
+  | 'challenge-issued'
+  | 'challenge-rejected'
+  | 'challenge-exchange-accepted'
+  | 'challenge-exchange-rejected'
   | 'access-log-failed'
 
 /** One privacy-minimal authentication access record. */
@@ -30,10 +34,10 @@ export interface AccessRecord {
   time: string
   event: AccessEvent
   mode?: AuthenticationMode
-  channel?: AuthenticationChannel | 'browser-login' | 'local-cli'
+  channel?: AuthenticationChannel | 'browser-login' | 'browser-enrollment' | 'token-exchange' | 'local-cli'
   outcome?: 'accepted' | 'rejected'
   peer?: string
-  tokenName?: AuthenticationTokenName | string
+  grantName?: string
   reasonCode?: string
 }
 

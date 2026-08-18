@@ -2,23 +2,23 @@
 
 English | [中文](README.zh.md)
 
-Provider-neutral inbound network authentication (`ctx.authentication`). Consumers submit normalized HTTP or WebSocket headers and receive either one accepted token revision or a stable rejection reason. Every accepted token belongs to the same logical Harness user; token names support management and audit records, not authorization, scopes, tenants, or session isolation.
+Provider-neutral inbound authentication and authorization (`ctx.authentication`). An accepted HTTP or WebSocket attempt carries a principal with an exact Grant revision, expiry, and one or more capabilities: `harniverse.observe`, `harniverse.operate`, `harniverse.administer`, and `harniverse.authorize`. Network endpoints declare one required capability; missing metadata and insufficient principals are denied before dispatch.
 
-`authentication/revoked` identifies token revisions invalidated by a committed registry change. Long-lived consumers close only connections admitted by those revisions; unrelated tokens remain active.
+The seam exposes public-key enrollment with stable overload decisions, single-use signed challenges, short Access Token and browser-session exchange, owner approval, Grant listing, and targeted revocation. `authentication/revoked` names exact Grant revisions so browser sessions, Access Tokens, and WebSockets tied to unrelated Grants remain active.
 
-## Browser sessions
+## Credential lifecycle
 
-The seam verifies a token to create an opaque in-memory browser session and accepts its cookie on later requests. The provider owns session expiry and revocation; transport consumers own cookie attributes and the login/status/logout HTTP response format.
+Enrollment creates only a pending request. Owner approval creates a durable public-key Grant. A client proves possession by signing a challenge bound to the instance, Grant revision, purpose, nonce, and expiry. The Provider returns a short process-memory credential whose capabilities cannot exceed the Grant. Access Tokens cannot mint replacements; renewal requires another signed challenge.
 
 ## Model Experience
 
-None, as authentication admits external clients before they can invoke any session or model operation.
+None, as authentication and endpoint authorization run before session or model operations.
 
 #### KV Cache effect
 
-None; authentication material never enters model input.
+None; principals, proofs, and credentials never enter model input.
 
 ## Known Limitations and Deferred Work
 
-- The seam authenticates one logical user and intentionally defines no authorization or token scopes.
-- The authentication seam does not own TLS; the shipped WebServer requires configured TLS for non-loopback listening.
+- Capability restrictions are effect classes; endpoint-, preset-, and workspace-specific restrictions are not defined.
+- The seam does not own TLS; the shipped WebServer requires configured TLS for non-loopback listening.

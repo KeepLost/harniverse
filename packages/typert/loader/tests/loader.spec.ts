@@ -77,7 +77,7 @@ function invocationTypertSource(pkgName: string): string {
     '  model: { services: [], events: [], objects: [] },',
     '  invocations: [{',
     `    id: '${pkgName}#goals/create',`,
-    '    service: \'goals\', namespace: \'goals\', method: \'create\',',
+    '    service: \'goals\', requiredCapability: \'harniverse.operate\', namespace: \'goals\', method: \'create\',',
     '    invocation: { kind: \'direct\' },',
     '    parameters: [{',
     '      name: \'request\', wire: \'request\', source: \'json\',',
@@ -502,6 +502,10 @@ describe('validateTypertManifest', () => {
       .toThrow('TYPERT.invocations must be an array')
 
     const descriptor = strictInvocation()
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{ ...descriptor, requiredCapability: undefined }],
+    })).toThrow('requiredCapability is invalid')
     const manifest = { ...base, invocations: [descriptor] }
     expect(validateTypertManifest('pkg', manifest)).toBe(manifest)
     const cancellable = { ...descriptor, cancellation: { parameter: 'signal' } }
@@ -643,6 +647,7 @@ function strictInvocation() {
   return {
     id: 'pkg#goals/create',
     service: 'goals',
+    requiredCapability: 'harniverse.operate',
     namespace: 'goals',
     method: 'create',
     invocation: { kind: 'direct' },

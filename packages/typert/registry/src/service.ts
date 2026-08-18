@@ -640,6 +640,9 @@ function validateInvocation(descriptor: InvocationDescriptor): void {
   validateSegment('invocation service key', descriptor.service)
   validateWireName('invocation namespace', descriptor.namespace)
   validateWireName('invocation method', descriptor.method)
+  if (!isSupportedCapability(descriptor.requiredCapability)) {
+    throw new Error(`typert: invocation "${descriptor.id}" requiredCapability is invalid`)
+  }
   if (descriptor.implementation !== undefined) {
     validateWireName('invocation implementation method', descriptor.implementation)
   }
@@ -692,6 +695,13 @@ function validateInvocation(descriptor: InvocationDescriptor): void {
     }
     validateCodec(descriptor.invocation.codec, `${descriptor.id} Context`)
   }
+}
+
+function isSupportedCapability(value: unknown): boolean {
+  return value === 'harniverse.observe'
+    || value === 'harniverse.operate'
+    || value === 'harniverse.administer'
+    || value === 'harniverse.authorize'
 }
 
 function validateCodec(codec: InvocationDescriptor['result'], subject: string): void {

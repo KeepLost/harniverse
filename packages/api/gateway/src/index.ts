@@ -6,6 +6,7 @@
 
 import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
+import type { AuthenticationCapability } from '@deepseek-ai/dsh-authentication'
 import {
   remoteMethods,
   TypertLookupFailure,
@@ -82,6 +83,9 @@ class RemoteInvocationCancelled extends Error {
   }
 }
 
+/** Sanitized malformed RPC request diagnostic safe to return to its caller. */
+class TypertRpcRequestError extends Error {}
+
 /**
  * Resolve strict generated definitions or conservative SRC markers against
  * current Cordis Services and Typert providers.
@@ -90,7 +94,7 @@ class RemoteInvocationCancelled extends Error {
 export class TypertGatewayService extends Service implements TypertGateway {
   static inject = ['typert']
 
-  private srcClaims: ReadonlySet<string> | undefined
+  private srcClaims: ReadonlyMap<string, AuthenticationCapability | null> | undefined
 
   /**
    * Register the Gateway against the active Typert registry.
@@ -104,23 +108,27 @@ export class TypertGatewayService extends Service implements TypertGateway {
     ctx.inject(['connection'], (connectionCtx) => {
       connectionCtx.connection.rpc.intercept(
         '/api',
-        endpoint => this.claimsEndpoint(endpoint),
-        (endpoint, payload, signal) => this.dispatchRpc(endpoint, payload, signal),
-        { authority: 'trusted-host' },
+        endpoint => this.resolveEndpointPolicy(endpoint),
+        invocation => this.dispatchRpc(invocation),
+        { authority: 'trusted-host', requiredCapability: 'harniverse.observe' },
       )
     })
   }
 
-  private claimsEndpoint(endpoint: string): boolean {
+  private resolveEndpointPolicy(endpoint: string): { requiredCapability: AuthenticationCapability } | { denied: true } | undefined {
     const segments = endpoint.split('/')
-    if (segments.length !== 2 || segments[0] === '' || segments[1] === '') return false
-    if (this.ctx.typert.local.get(endpoint) !== undefined || this.ctx.typert.local.hasSeen(endpoint)) return true
+    if (segments.length !== 2 || segments[0] === '' || segments[1] === '') return undefined
+    const strict = this.ctx.typert.local.get(endpoint)
+    if (strict !== undefined) return { requiredCapability: strict.requiredCapability }
+    if (this.ctx.typert.local.hasSeen(endpoint)) return { denied: true }
     this.srcClaims ??= this.collectSrcClaims()
-    return this.srcClaims.has(endpoint)
+    const requiredCapability = this.srcClaims.get(endpoint)
+    if (requiredCapability === null) return { denied: true }
+    return requiredCapability === undefined ? undefined : { requiredCapability }
   }
 
-  private collectSrcClaims(): ReadonlySet<string> {
-    const claims = new Set<string>()
+  private collectSrcClaims(): ReadonlyMap<string, AuthenticationCapability | null> {
+    const claims = new Map<string, AuthenticationCapability | null>()
     for (const [serviceKey, definition] of Object.entries(this.ctx.reflect.props)) {
       if (definition.type !== 'service') continue
       const receiver = this.ctx.get(serviceKey) as unknown
@@ -130,7 +138,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
       if (!isObject(binding) || typeof Reflect.get(binding, 'namespace') !== 'string') continue
       const namespace = Reflect.get(binding, 'namespace') as string
       for (const candidate of remoteMethods(original)) {
-        claims.add(endpointOf(namespace, candidate.exportName ?? candidate.method))
+        const endpoint = endpointOf(namespace, candidate.exportName ?? candidate.method)
+        claims.set(endpoint, claims.has(endpoint) ? null : candidate.requiredCapability)
       }
     }
     return claims
@@ -145,6 +154,14 @@ export class TypertGatewayService extends Service implements TypertGateway {
   async invoke(request: InvokeRemoteRequest): Promise<unknown> {
     const endpoint = endpointOf(request.namespace, request.method)
     const descriptor = this.resolveDescriptor(request.namespace, request.method, endpoint)
+    if (request.principal !== undefined
+      && !request.principal.capabilities.includes(descriptor.requiredCapability)) {
+      throw new TypertGatewayError(
+        'authorization-denied',
+        endpoint,
+        `authenticated principal lacks ${descriptor.requiredCapability}`,
+      )
+    }
     assertExactArguments(request.args, descriptor, endpoint)
     const receiverContext = await this.resolveReceiverContext(descriptor, request.args, endpoint)
     const receiver = receiverContext.get(descriptor.service) as unknown
@@ -183,19 +200,25 @@ export class TypertGatewayService extends Service implements TypertGateway {
     return decode(descriptor.result, result, 'result-invalid', endpoint, 'result')
   }
 
-  private async dispatchRpc(
+  private async dispatchRpc(invocation: Parameters<ConnectionRpcHandler>[0]): Promise<ConnectionRpcResult> {
+    return this.invokeRpc(
+      invocation.endpoint,
+      invocation.payload,
+      invocation.signal,
+      invocation.principal,
+    )
+  }
+
+  private async invokeRpc(
     endpoint: string,
     payload: unknown,
     signal: AbortSignal,
+    principal?: Parameters<ConnectionRpcHandler>[0]['principal'],
   ): Promise<ConnectionRpcResult> {
-    return this.invokeRpc(endpoint, payload, signal)
-  }
-
-  private async invokeRpc(endpoint: string, payload: unknown, signal: AbortSignal): Promise<ConnectionRpcResult> {
     try {
       const segments = endpoint.split('/')
       if (segments.length !== 2 || segments[0] === '' || segments[1] === '') {
-        throw new Error(`invalid Remote endpoint ${JSON.stringify(endpoint)}`)
+        throw new TypertRpcRequestError(`invalid Remote endpoint ${JSON.stringify(endpoint)}`)
       }
       const [namespace, method] = segments as [string, string]
       if (!isObject(payload)
@@ -204,20 +227,24 @@ export class TypertGatewayService extends Service implements TypertGateway {
         || !Object.hasOwn(payload, 'args')
         || !isObject(payload.args)
         || !isPlainObject(payload.args)) {
-        throw new Error('Remote payload must contain exactly one plain-object args field')
+        throw new TypertRpcRequestError('Remote payload must contain exactly one plain-object args field')
       }
       const value = await this.invoke({
         namespace,
         method,
         args: payload.args,
         signal,
+        ...(principal !== undefined && { principal }),
       })
       // A void or explicitly absent business result carries no `value` field;
       // JSON has no `undefined`, and the envelope's optional slot is the one
       // representation of absence that both args and results already use.
       return { ok: true, value }
     } catch (error) {
-      return rpcFailure(error)
+      return rpcFailure(error, (cause) => {
+        this.ctx.logger.warn(`api-gateway: unexpected Remote failure for ${endpoint}`)
+        this.ctx.logger.warn(cause)
+      })
     }
   }
 
@@ -346,6 +373,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     return {
       id: `src:${binding.serviceKey}#${endpoint}`,
       service: binding.serviceKey,
+      requiredCapability: marker.requiredCapability,
       namespace: binding.namespace,
       method,
       ...(marker.method === method ? {} : { implementation: marker.method }),
@@ -468,7 +496,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
   }
 }
 
-function rpcFailure(error: unknown): ConnectionRpcResult {
+function rpcFailure(error: unknown, reportFailure: (error: unknown) => void): ConnectionRpcResult {
   if (error instanceof RemoteInvocationCancelled) {
     return {
       ok: false,
@@ -478,11 +506,15 @@ function rpcFailure(error: unknown): ConnectionRpcResult {
   if (error instanceof TypertLookupFailure) {
     return { ok: false, error: error.failure as ConnectionRpcError }
   }
+  if (error instanceof TypertGatewayError || error instanceof TypertRpcRequestError) {
+    return { ok: false, error: { code: 'internal', message: error.message, details: {} } }
+  }
+  reportFailure(error)
   return {
     ok: false,
     error: {
       code: 'internal',
-      message: error instanceof Error ? error.message : String(error),
+      message: 'Remote invocation failed',
       details: {},
     },
   }

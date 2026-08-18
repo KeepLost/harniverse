@@ -24,6 +24,9 @@
       "path": "../modules"
     },
     {
+      "path": "../connection/tsconfig.host.json"
+    },
+    {
       "path": "../../host/webserver"
     },
     {

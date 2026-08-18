@@ -3,6 +3,7 @@
  * report through clientModuleHost.rebuilt, and everything dies with the fiber.
  */
 import { mkdtempSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -70,10 +71,15 @@ function fakeHttpServer(routes: WebRoute[]): WebServer {
   return fake as WebServer
 }
 
-async function mount(clientModuleHost: FakeHost, webServer: WebServer) {
+async function mount(
+  clientModuleHost: FakeHost,
+  webServer: WebServer,
+  authorizeHttpRequest = () => Promise.resolve(true),
+) {
   const ctx = new Context()
   ctx.provide('clientModules', clientModuleHost)
   ctx.provide('webServer', webServer)
+  ctx.provide('connection', { authorizeHttpRequest })
   const fiber = ctx.plugin(
     { inject: [...inject], Config, apply },
     { pollIntervalMs: POLL_MS },
@@ -83,6 +89,24 @@ async function mount(clientModuleHost: FakeHost, webServer: WebServer) {
 }
 
 describe('hmr node half', () => {
+  it('does not expose the plugin graph before Connection admission', async () => {
+    const routes: WebRoute[] = []
+    const authorizeHttpRequest = vi.fn(() => Promise.resolve(false))
+    const fiber = await mount(fakeClientModuleHost(new Map()), fakeHttpServer(routes), authorizeHttpRequest)
+    const writeHead = vi.fn()
+    const response = {
+      writeHead,
+      write: vi.fn(),
+      on: vi.fn(),
+    } as unknown as ServerResponse
+
+    await routes[0]!.handler({ method: 'GET' } as IncomingMessage, response)
+
+    expect(authorizeHttpRequest).toHaveBeenCalledWith(expect.anything(), response, 'harniverse.observe')
+    expect(writeHead).not.toHaveBeenCalled()
+    await fiber.dispose()
+  })
+
   it('watches graph bundles, reports stat changes, and unwatches on dispose', async () => {
     const bundle = join(dir, 'a.js')
     writeFileSync(bundle, 'v1')

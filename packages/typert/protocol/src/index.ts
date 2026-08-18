@@ -5,6 +5,7 @@
  */
 
 import { Service, type Context } from '@deepseek-ai/cordis'
+import type { AuthenticationCapability } from '@deepseek-ai/dsh-authentication'
 import type { TypertContextMap } from './types.ts'
 
 const TYPERT_REMOTE_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
@@ -104,6 +105,14 @@ export interface RemoteMethodMarker {
   /** Endpoint method when it differs from the implementation member. */
   readonly exportName?: string
   readonly invocation: RemoteInvocationMarker
+  /** Capability required before Gateway dispatch. */
+  readonly requiredCapability: AuthenticationCapability
+}
+
+/** Required authorization metadata and optional alias for one Remote method. */
+export interface RemoteOptions {
+  readonly requiredCapability: AuthenticationCapability
+  readonly exportName?: string
 }
 
 type RemoteMethodDecorator = <This extends object, Args extends unknown[], Result>(
@@ -121,6 +130,7 @@ interface RemoteInitializerContext<This extends object> {
 interface StoredRemoteMethodMarker {
   readonly exportName?: string
   readonly invocation: RemoteInvocationMarker
+  readonly requiredCapability: AuthenticationCapability
 }
 
 const markers = new WeakMap<object, Map<string, StoredRemoteMethodMarker>>()
@@ -161,57 +171,37 @@ export abstract class TypertRemoteService<out T = never> extends Service<T> {
 }
 
 /**
- * Mark one public instance method as a direct Remote invocation.
- * @param _method - decorated method; retained only by the class itself.
- * @param context - standard decorator context used to schedule private marking.
- */
-export function Remote<This extends object, Args extends unknown[], Result>(
-  _method: (this: This, ...args: Args) => Result,
-  context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
-): void
-/**
- * Mark one public instance method under a distinct exported method name.
- * @param exportName - Remote endpoint method, without a namespace or slash.
+ * Mark one public instance method as a capability-gated Remote invocation.
+ * @param options - required capability and optional exported method alias.
  * @returns a standard method decorator.
  */
-export function Remote(exportName: string): RemoteMethodDecorator
-export function Remote<This extends object, Args extends unknown[], Result>(
-  methodOrExportName: string | ((this: This, ...args: Args) => Result),
-  context?: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
-): void | RemoteMethodDecorator {
-  if (typeof methodOrExportName === 'string') {
-    validateName('Remote export name', methodOrExportName)
-    return function <DecoratorThis extends object, DecoratorArgs extends unknown[], DecoratorResult>(
-      _method: (this: DecoratorThis, ...args: DecoratorArgs) => DecoratorResult,
-      decoratorContext: ClassMethodDecoratorContext<
-        DecoratorThis,
-        (this: DecoratorThis, ...args: DecoratorArgs) => DecoratorResult
-      >,
-    ): void {
-      addMarkerInitializer(decoratorContext, { kind: 'direct' }, methodOrExportName)
-    }
+export function Remote(options: RemoteOptions): RemoteMethodDecorator {
+  validateRemoteOptions(options)
+  return function <This extends object, Args extends unknown[], Result>(
+    _method: (this: This, ...args: Args) => Result,
+    context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
+  ): void {
+    addMarkerInitializer(context, { kind: 'direct' }, options)
   }
-  if (context === undefined) throw new TypeError('typert-protocol: Remote decorator context is missing')
-  addMarkerInitializer(context, { kind: 'direct' })
 }
 
 /**
  * Create a decorator for a method resolved from one Remote Scope.
  * @param key - scope key declared through the Context map.
- * @param exportName - optional Remote export name; defaults to the method name.
+ * @param options - required capability and optional exported method alias.
  * @returns a standard method decorator that records only private module state.
  */
 export function RemoteScope(
   key: Extract<keyof TypertContextMap, string>,
-  exportName?: string,
+  options: RemoteOptions,
 ): RemoteMethodDecorator {
   validateName('Scope key', key)
-  if (exportName !== undefined) validateName('Remote export name', exportName)
+  validateRemoteOptions(options)
   return function <This extends object, Args extends unknown[], Result>(
     _method: (this: This, ...args: Args) => Result,
     context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
   ): void {
-    addMarkerInitializer(context, { kind: 'context', context: key }, exportName)
+    addMarkerInitializer(context, { kind: 'context', context: key }, options)
   }
 }
 
@@ -230,7 +220,7 @@ export function remoteMethods(service: object): readonly RemoteMethodMarker[] {
 function addMarkerInitializer<This extends object>(
   context: RemoteInitializerContext<This>,
   invocation: RemoteInvocationMarker,
-  exportName?: string,
+  options: RemoteOptions,
 ): void {
   if (context.private || context.static || typeof context.name !== 'string') {
     throw new TypeError('typert-protocol: Remote decorators require a public instance method with a string name')
@@ -241,7 +231,7 @@ function addMarkerInitializer<This extends object>(
     if (prototype === null) {
       throw new TypeError(`typert-protocol: cannot mark Remote method "${method}" on an object without a prototype`)
     }
-    mark(prototype, method, invocation, exportName)
+    mark(prototype, method, invocation, options)
   })
 }
 
@@ -249,7 +239,7 @@ function mark(
   prototype: object,
   method: string,
   invocation: RemoteInvocationMarker,
-  exportName?: string,
+  options: RemoteOptions,
 ): void {
   let table = markers.get(prototype)
   if (table === undefined) {
@@ -257,15 +247,32 @@ function mark(
     markers.set(prototype, table)
   }
   const marker: StoredRemoteMethodMarker = {
-    ...(exportName === undefined || exportName === method ? {} : { exportName }),
+    ...(options.exportName === undefined || options.exportName === method ? {} : { exportName: options.exportName }),
     invocation: Object.freeze(invocation),
+    requiredCapability: options.requiredCapability,
   }
   const current = table.get(method)
   if (current !== undefined) {
-    if (current.exportName === marker.exportName && sameInvocation(current.invocation, invocation)) return
+    if (current.exportName === marker.exportName
+      && current.requiredCapability === marker.requiredCapability
+      && sameInvocation(current.invocation, invocation)) return
     throw new Error(`typert-protocol: Remote method "${method}" has conflicting invocation markers`)
   }
   table.set(method, Object.freeze(marker))
+}
+
+function validateRemoteOptions(options: RemoteOptions): void {
+  if (!isSupportedCapability(options.requiredCapability)) {
+    throw new TypeError('typert-protocol: Remote requiredCapability is invalid')
+  }
+  if (options.exportName !== undefined) validateName('Remote export name', options.exportName)
+}
+
+function isSupportedCapability(value: unknown): value is AuthenticationCapability {
+  return value === 'harniverse.observe'
+    || value === 'harniverse.operate'
+    || value === 'harniverse.administer'
+    || value === 'harniverse.authorize'
 }
 
 function sameInvocation(left: RemoteInvocationMarker, right: RemoteInvocationMarker): boolean {

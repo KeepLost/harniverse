@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-16-inbound-network-authentication.md
-2026-08-16-inbound-network-authentication.md: 4d94c22dc34ad64e2f81fadcce69b564d3e40f60
-2026-08-16-inbound-network-authentication.zh.md: e5ea87c7ae5447bd3d9b1c8b8a4a2908bad6d4be
+2026-08-16-inbound-network-authentication.md: d4f96d8ec17f687e0c09739e477a8eaa6da70306
+2026-08-16-inbound-network-authentication.zh.md: e4395c9dbf31ff3e34ae6a114e4921aa65084134

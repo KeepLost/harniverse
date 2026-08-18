@@ -15,6 +15,9 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../auth/authentication"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     }
   ]

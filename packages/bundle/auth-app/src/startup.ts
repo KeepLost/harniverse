@@ -13,15 +13,28 @@ export const inject = ['cmdlineArgs']
 /** Service provided to the authentication management runner. */
 export const AUTH_STARTUP_SERVICE = 'authStartup'
 
-/** Supported named-token management operations. */
-export type AuthOperation = 'add' | 'reset' | 'delete' | 'list'
+/** Supported Grant management operations. */
+export type AuthOperation =
+  | 'device-list'
+  | 'device-approve'
+  | 'device-revoke'
+  | 'grant-list'
+  | 'grant-revoke'
+  | 'client-add'
+  | 'client-revoke'
 
 /** One parsed authentication management invocation. */
 export interface AuthStartupValues {
-  /** Operation selected below `token`. */
+  /** Selected Grant-management operation. */
   operation: AuthOperation
-  /** Token name for operations that target one token. */
+  /** Enrollment id, Grant id, or client name targeted by the operation. */
   name?: string
+  /** P-256 SPKI public key for a new API client. */
+  publicKey?: string
+  /** Convenience capability profile. */
+  profile?: string
+  /** Explicit capability list for automation clients. */
+  capabilities?: string[]
 }
 
 /**
@@ -34,17 +47,49 @@ function authCommand(ctx: Context): Command {
     .name('dsh auth')
     .description('Manage inbound authentication.')
     .helpOption('-h, --help', 'show this help')
-  const token = program.command('token').description('manage named access tokens')
-  const publish = (operation: AuthOperation, tokenName?: string): void => {
+  const publish = (operation: AuthOperation, values: Omit<AuthStartupValues, 'operation'> = {}): void => {
     ctx.provide(AUTH_STARTUP_SERVICE, {
       operation,
-      ...(tokenName !== undefined && { name: tokenName }),
+      ...values,
     } satisfies AuthStartupValues)
   }
-  token.command('add').description('create a named token').argument('<name>').action((tokenName: string) => { publish('add', tokenName) })
-  token.command('reset').description('replace a named token').argument('<name>').action((tokenName: string) => { publish('reset', tokenName) })
-  token.command('delete').description('delete a named token').argument('<name>').action((tokenName: string) => { publish('delete', tokenName) })
-  token.command('list').description('list token metadata').action(() => { publish('list') })
+  const device = program.command('device').description('approve and revoke browser devices')
+  device.command('list').description('list pending device requests').action(() => { publish('device-list') })
+  device.command('approve')
+    .description('approve a pending device request')
+    .argument('<request-id>')
+    .requiredOption('--profile <profile>', 'observer, operator, administrator, owner, or temporary')
+    .action((requestId: string, options: { profile: string }) => {
+      publish('device-approve', { name: requestId, profile: options.profile })
+    })
+  device.command('revoke').description('revoke a browser Grant').argument('<grant-id>')
+    .action((grantId: string) => { publish('device-revoke', { name: grantId }) })
+
+  const grant = program.command('grant').description('inspect and revoke all Grants')
+  grant.command('list').description('list approved Grants').action(() => { publish('grant-list') })
+  grant.command('revoke').description('revoke one Grant').argument('<grant-id>')
+    .action((grantId: string) => { publish('grant-revoke', { name: grantId }) })
+
+  const client = program.command('client').description('register automation public keys')
+  client.command('add')
+    .description('register one API client public key')
+    .argument('<name>')
+    .requiredOption('--public-key <spki>', 'base64url DER SubjectPublicKeyInfo')
+    .option('--profile <profile>', 'observer, operator, administrator, or owner')
+    .option('--capability <capabilities...>', 'explicit harniverse.* capabilities')
+    .action((clientName: string, options: { publicKey: string; profile?: string; capability?: string[] }) => {
+      if ((options.profile === undefined) === (options.capability === undefined)) {
+        throw new Error('client add requires exactly one of --profile or --capability')
+      }
+      publish('client-add', {
+        name: clientName,
+        publicKey: options.publicKey,
+        ...(options.profile !== undefined && { profile: options.profile }),
+        ...(options.capability !== undefined && { capabilities: options.capability }),
+      })
+    })
+  client.command('revoke').description('revoke one API client Grant').argument('<grant-id>')
+    .action((grantId: string) => { publish('client-revoke', { name: grantId }) })
   program.action(() => { program.help() })
   return program
 }

@@ -4,7 +4,7 @@
  * are channel-independent and form a four-member discriminated union.
  * api/ contract layer: zero Node dependencies, importable from the browser.
  */
-
+import type { AuthenticationPrincipal } from '@deepseek-ai/dsh-authentication'
 import type { z as zCore } from 'zod'
 type ZodIssue = zCore.core.$ZodIssue
 import type { Branded } from '@deepseek-ai/dsh-brand'
@@ -138,6 +138,8 @@ export function transportError<T>(error: unknown): RpcResult<T> {
 export interface RpcRequest<P> {
   rpcId: RpcId
   payload: P
+  /** Authenticated network identity; absent for in-process callers and server-originated frames. */
+  principal?: AuthenticationPrincipal
 }
 
 /** Signature-layer narrow form, response side: rpcId always echoes the matching request. */

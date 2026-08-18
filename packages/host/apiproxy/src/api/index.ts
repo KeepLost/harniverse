@@ -97,4 +97,5 @@ export {
 } from './session-search.ts'
 
 // ---- Method registry and derived generics ----
+export { legacyRpcCapability, RPC_METHOD_CAPABILITIES } from './rpc-map.ts'
 export type { RequestPayload, ResponseValue, RpcMethodMap } from './rpc-map.ts'

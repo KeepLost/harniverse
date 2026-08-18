@@ -50,12 +50,12 @@ describe('typert-protocol Remote declarations', () => {
         super(ctx, 'goals')
       }
 
-      @Remote
+      @Remote({ requiredCapability: 'harniverse.observe' })
       create(value: string): string {
         return value
       }
 
-      @RemoteScope('metaFixture')
+      @RemoteScope('metaFixture', { requiredCapability: 'harniverse.operate' })
       scoped(value: string): string {
         return value
       }
@@ -77,8 +77,8 @@ describe('typert-protocol Remote declarations', () => {
       namespace: 'goals',
     })
     expect(remoteMethods(goals)).toEqual([
-      { method: 'create', invocation: { kind: 'direct' } },
-      { method: 'scoped', invocation: { kind: 'context', context: 'metaFixture' } },
+      { method: 'create', invocation: { kind: 'direct' }, requiredCapability: 'harniverse.observe' },
+      { method: 'scoped', invocation: { kind: 'context', context: 'metaFixture' }, requiredCapability: 'harniverse.operate' },
     ])
     await ctx.fiber.dispose()
   })
@@ -87,8 +87,8 @@ describe('typert-protocol Remote declarations', () => {
     const fixture = fileURLToPath(new URL('./fixtures/source-launch.ts', import.meta.url))
     const output = execFileSync(process.execPath, ['--import', 'tsx/esm', fixture], { encoding: 'utf8' })
     expect(JSON.parse(output)).toEqual([
-      { method: 'create', invocation: { kind: 'direct' } },
-      { method: 'scoped', invocation: { kind: 'context', context: 'agent' } },
+      { method: 'create', invocation: { kind: 'direct' }, requiredCapability: 'harniverse.observe' },
+      { method: 'scoped', invocation: { kind: 'context', context: 'agent' }, requiredCapability: 'harniverse.operate' },
     ])
   })
 
@@ -106,11 +106,11 @@ describe('typert-protocol Remote declarations', () => {
     }
 
     const initializers: Array<(this: Goals) => void> = []
-    Remote(
+    Remote({ requiredCapability: 'harniverse.observe' })(
       Reflect.get(Goals.prototype, 'create') as (this: Goals, ...args: unknown[]) => unknown,
       methodContext('create', initializers),
     )
-    RemoteScope('metaFixture')(
+    RemoteScope('metaFixture', { requiredCapability: 'harniverse.operate' })(
       Reflect.get(Goals.prototype, 'scoped') as (this: Goals, ...args: unknown[]) => unknown,
       methodContext('scoped', initializers),
     )
@@ -120,8 +120,8 @@ describe('typert-protocol Remote declarations', () => {
     expect(goals.typertRemote).toEqual({ service: goals, serviceKey: 'goals', namespace: 'goals' })
     expect(Object.isFrozen(goals.typertRemote)).toBe(true)
     expect(remoteMethods(goals)).toEqual([
-      { method: 'create', invocation: { kind: 'direct' } },
-      { method: 'scoped', invocation: { kind: 'context', context: 'metaFixture' } },
+      { method: 'create', invocation: { kind: 'direct' }, requiredCapability: 'harniverse.observe' },
+      { method: 'scoped', invocation: { kind: 'context', context: 'metaFixture' }, requiredCapability: 'harniverse.operate' },
     ])
     expect(Reflect.ownKeys(Goals)).toEqual(['length', 'name', 'prototype'])
     expect(Reflect.ownKeys(Goals.prototype)).toEqual(['constructor', 'create', 'scoped'])
@@ -135,7 +135,7 @@ describe('typert-protocol Remote declarations', () => {
     }
 
     const initializers: Array<(this: Service) => void> = []
-    Remote(
+    Remote({ requiredCapability: 'harniverse.observe' })(
       Reflect.get(Service.prototype, 'run') as (this: Service, ...args: unknown[]) => unknown,
       methodContext('run', initializers),
     )
@@ -149,7 +149,11 @@ describe('typert-protocol Remote declarations', () => {
     const snapshot = remoteMethods(first)
     expect(remoteMethods(second)).toEqual(snapshot)
     ;(snapshot as unknown as { method: string }[])[0]!.method = 'changed'
-    expect(remoteMethods(first)).toEqual([{ method: 'run', invocation: { kind: 'direct' } }])
+    expect(remoteMethods(first)).toEqual([{
+      method: 'run',
+      invocation: { kind: 'direct' },
+      requiredCapability: 'harniverse.observe',
+    }])
   })
 
   it('supports explicit export names without exposing marker storage', () => {
@@ -163,11 +167,11 @@ describe('typert-protocol Remote declarations', () => {
       }
     }
     const initializers: Array<(this: Service) => void> = []
-    Remote('execute')(
+    Remote({ exportName: 'execute', requiredCapability: 'harniverse.operate' })(
       Reflect.get(Service.prototype, 'run') as (this: Service, ...args: unknown[]) => unknown,
       methodContext('run', initializers),
     )
-    RemoteScope('metaFixture', 'inspect')(
+    RemoteScope('metaFixture', { exportName: 'inspect', requiredCapability: 'harniverse.administer' })(
       Reflect.get(Service.prototype, 'scoped') as (this: Service, ...args: unknown[]) => unknown,
       methodContext('scoped', initializers),
     )
@@ -175,8 +179,8 @@ describe('typert-protocol Remote declarations', () => {
     for (const initialize of initializers) initialize.call(service)
 
     expect(remoteMethods(service)).toEqual([
-      { method: 'run', exportName: 'execute', invocation: { kind: 'direct' } },
-      { method: 'scoped', exportName: 'inspect', invocation: { kind: 'context', context: 'metaFixture' } },
+      { method: 'run', exportName: 'execute', invocation: { kind: 'direct' }, requiredCapability: 'harniverse.operate' },
+      { method: 'scoped', exportName: 'inspect', invocation: { kind: 'context', context: 'metaFixture' }, requiredCapability: 'harniverse.administer' },
     ])
     expect(remoteMethods({})).toEqual([])
     const prototypeLess: object = {}
@@ -186,21 +190,20 @@ describe('typert-protocol Remote declarations', () => {
 
   it('rejects malformed decorator calls and targets', () => {
     const method: (this: object) => void = function (this: object): void {}
-    expect(() => { (Remote as unknown as (value: typeof method) => void)(method) }).toThrow('context is missing')
-    expect(() => Remote('bad/name')).toThrow('export name')
-    expect(() => Remote('bad#name')).toThrow('export name')
-    expect(() => Remote('bad name')).toThrow('export name')
-    expect(() => Remote('.')).toThrow('export name')
-    expect(() => Remote('..')).toThrow('export name')
-    expect(() => RemoteScope('' as 'metaFixture')).toThrow('Scope key')
-    expect(() => RemoteScope('metaFixture', 'bad/name')).toThrow('export name')
+    expect(() => Remote({ requiredCapability: 'invalid' as 'harniverse.observe' })).toThrow('requiredCapability')
+    expect(() => Remote({ exportName: 'bad/name', requiredCapability: 'harniverse.observe' })).toThrow('export name')
+    expect(() => Remote({ exportName: '.', requiredCapability: 'harniverse.observe' })).toThrow('export name')
+    expect(() => RemoteScope('' as 'metaFixture', { requiredCapability: 'harniverse.observe' })).toThrow('Scope key')
+    expect(() => RemoteScope('metaFixture', {
+      exportName: 'bad/name', requiredCapability: 'harniverse.observe',
+    })).toThrow('export name')
 
     for (const context of [
       { ...methodContext('run', []), private: true },
       { ...methodContext('run', []), static: true },
       { ...methodContext('run', []), name: Symbol('run') },
     ]) {
-      expect(() => { Remote(method, context) })
+      expect(() => { Remote({ requiredCapability: 'harniverse.observe' })(method, context) })
         .toThrow('public instance method')
     }
   })
@@ -208,7 +211,7 @@ describe('typert-protocol Remote declarations', () => {
   it('rejects prototype-less initialization and conflicting markers', () => {
     const method: (this: object) => void = function (this: object): void {}
     const direct: Array<(this: object) => void> = []
-    Remote(method, methodContext('run', direct))
+    Remote({ requiredCapability: 'harniverse.observe' })(method, methodContext('run', direct))
     const prototypeLess: object = {}
     Reflect.setPrototypeOf(prototypeLess, null)
     expect(() => { direct[0]!.call(prototypeLess) }).toThrow('without a prototype')
@@ -217,11 +220,11 @@ describe('typert-protocol Remote declarations', () => {
       run(): void {}
     }
     const conflicting: Array<(this: Service) => void> = []
-    Remote(
+    Remote({ requiredCapability: 'harniverse.observe' })(
       Reflect.get(Service.prototype, 'run'),
       methodContext('run', conflicting),
     )
-    RemoteScope('metaFixture')(
+    RemoteScope('metaFixture', { requiredCapability: 'harniverse.observe' })(
       Reflect.get(Service.prototype, 'run'),
       methodContext('run', conflicting),
     )

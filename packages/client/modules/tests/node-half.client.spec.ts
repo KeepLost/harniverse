@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WebServer, WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { ClientModuleRegistry } from '../src/index.ts'
 
@@ -38,7 +38,10 @@ function writePackage(
 }
 
 /** Construct the node-half service and capture its plugin-bundle route. */
-function constructWithRoute(packageNames: string[]): { service: ClientModuleRegistry; route: WebRoute } {
+function constructWithRoute(
+  packageNames: string[],
+  authorizeHttpRequest = () => Promise.resolve(true),
+): { service: ClientModuleRegistry; route: WebRoute } {
   const ctx = new Context()
   ctx.baseUrl = pathToFileURL(root!).href + '/'
   ctx.provide('loader', {
@@ -58,6 +61,7 @@ function constructWithRoute(packageNames: string[]): { service: ClientModuleRegi
     tapIndex: () => () => {},
   }
   ctx.provide('webServer', webServer as WebServer)
+  ctx.provide('connection', { authorizeHttpRequest })
   const service = new ClientModuleRegistry(ctx)
   if (route === undefined) throw new Error('client bundle route was not registered')
   return { service, route }
@@ -148,5 +152,24 @@ describe('client bundle activation', () => {
       'cache-control': 'no-cache',
     })
     expect(body).toBe(map)
+  })
+
+  it('does not serve a client bundle before Connection admission', async () => {
+    const packageName = '@fixture/protected-bundle'
+    const clientPath = writePackage(packageName)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'module.exports = {}\n')
+    const authorizeHttpRequest = vi.fn(() => Promise.resolve(false))
+    const { route } = constructWithRoute([packageName], authorizeHttpRequest)
+    const writeHead = vi.fn()
+    const response = {
+      writeHead,
+      end: vi.fn(),
+    } as unknown as ServerResponse
+
+    await route.handler({ method: 'GET', url: `/plugins/${packageName}/client.js` } as IncomingMessage, response)
+
+    expect(authorizeHttpRequest).toHaveBeenCalledWith(expect.anything(), response, 'harniverse.observe')
+    expect(writeHead).not.toHaveBeenCalled()
   })
 })

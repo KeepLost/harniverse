@@ -58,14 +58,12 @@ describe('parseDshArgs', () => {
   })
 
   it('routes the auth alias without interpreting the app grammar', () => {
-    expect(parse(['auth', 'token', 'add', 'laptop']))
-      .toEqual({ mode: 'profile', profile: 'auth', patches: [], args: ['token', 'add', 'laptop'] })
-    expect(parse(['auth', 'token', 'reset', 'ci']))
-      .toEqual({ mode: 'profile', profile: 'auth', patches: [], args: ['token', 'reset', 'ci'] })
-    expect(parse(['auth', 'token', 'delete', 'phone']))
-      .toEqual({ mode: 'profile', profile: 'auth', patches: [], args: ['token', 'delete', 'phone'] })
-    expect(parse(['auth', 'token', 'list']))
-      .toEqual({ mode: 'profile', profile: 'auth', patches: [], args: ['token', 'list'] })
+    expect(parse(['auth', 'device', 'approve', 'request-id', '--profile', 'owner']))
+      .toEqual({ mode: 'profile', profile: 'auth', patches: [], args: ['device', 'approve', 'request-id', '--profile', 'owner'] })
+    expect(parse(['auth', 'grant', 'list']))
+      .toEqual({ mode: 'profile', profile: 'auth', patches: [], args: ['grant', 'list'] })
+    expect(parse(['auth', 'client', 'revoke', 'grant-id']))
+      .toEqual({ mode: 'profile', profile: 'auth', patches: [], args: ['client', 'revoke', 'grant-id'] })
     expect(parse(['auth', '--help']))
       .toEqual({ mode: 'profile', profile: 'auth', patches: [], args: ['--help'] })
   })
@@ -109,7 +107,7 @@ describe('parseDshArgs', () => {
     expect(exitCode(['plugin', '--profile', 'tui'])).toBe(1) // nothing to forward
     expect(exitCode(['plugin', '--profile', ''])).toBe(1)
     expect(exitCode(['--profile', 'x', 'plugin', 'add', 'y'])).toBe(1)
-    expect(exitCode(['--profile', 'x', 'auth', 'token', 'list'])).toBe(1)
+    expect(exitCode(['--profile', 'x', 'auth', 'grant', 'list'])).toBe(1)
   })
 
   it('keeps its own help for an invocation with no app to hand it to', () => {

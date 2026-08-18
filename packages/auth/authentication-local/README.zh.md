@@ -2,53 +2,68 @@
 
 [English](README.md) | 中文
 
-[入站认证](../authentication/README.md)的本地具名令牌提供方。它只在 `$DSH_HOME/auth/tokens.json` 中保存令牌 lookup id 与 SHA-256 digest；`add` 和 `reset` 只返回一次生成值，而 list、诊断和访问记录只暴露非机密名称与时间戳。
+[入站认证](../authentication/README.md)的本地公钥 Grant 提供方。`$DSH_HOME/auth/grants.json` 保存 P-256 公钥、capability 集合、revision 和可选生命周期。私钥保留在设备或 API client 中。Challenge、bearer Access Token 和浏览器会话只存在于进程内存。
 
-## 令牌管理
+## 管理
 
 ```sh
-dsh auth token add laptop
-dsh auth token reset laptop
-dsh auth token delete laptop
-dsh auth token list
+dsh auth device list
+dsh auth device approve <request-id> --profile owner
+dsh auth grant list
+dsh auth grant revoke <grant-id>
+dsh auth client add automation --public-key <base64url-spki> --capability harniverse.observe harniverse.operate
+dsh auth client revoke <grant-id>
 ```
 
-名称唯一并匹配 `^[a-z0-9][a-z0-9._-]{0,63}$`。Reset 和 delete 只撤销对应具名令牌的浏览器会话与 WebSocket。删除最后一个令牌会封存正在运行的 authenticated 实例，但不会停止实例；新增令牌可恢复接入。Authenticated 进程不能以空 registry 启动。
+Authenticated 实例可以在没有 Grant 时启动。静态浏览器 shell 可以提交 enrollment 请求，但本地 CLI 批准并创建第一个 owner 之前，业务 API 保持封存；没有活跃 owner 时会重新封存。待处理请求受持久全局上限和每 peer 创建限制约束。Owner 浏览器可以在 `/auth/manage` 管理待处理请求和 Grant。个人设备 Grant 使用持久、不可导出的浏览器密钥；临时设备密钥只保留在内存中，其 Grant 最长 60 分钟，空闲超时 15 分钟。API client 在本地注册公钥并通过签名 challenge 交换凭据。Owner 管理路由可以签发最长 15 分钟、不可续期且不含 `harniverse.authorize` 的 Access Token。
+
+`$DSH_HOME/auth/tokens.json` 会被作为不支持的旧格式拒绝。系统不提供迁移或 bearer 兼容模式。
 
 ## 配置
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
-| `dshHome` | `$DSH_HOME` 或 `~/.dsh` | Registry、日志与 lease 根目录。 |
-| `mode` | `authenticated` | `authenticated` 或显式 `bypass`。 |
-| `watch` | `true` | 观察令牌管理变更。 |
+| `dshHome` | `$DSH_HOME` 或 `~/.dsh` | Grant registry、访问日志和 lease 根目录。 |
+| `mode` | `authenticated` | `authenticated` 或显式、仅回环的 `bypass`。 |
+| `watch` | `true` | 启用低延迟文件系统监听；周期 reconciliation 始终运行。 |
 | `debounceMs` | `100` | Registry watcher 稳定窗口。 |
-| `sessionTtlMs` | 24 小时 | 内存浏览器会话有效期。 |
-| `maxBrowserSessions` | `1024` | 进程内存会话上限；达到上限时，新登录会逐出最早的有效会话。 |
-| `reconcileIntervalMs` | `5000` | 文件系统 watcher 漏掉事件时的 registry 轮询后备间隔。 |
-| `accessLogMaxBytes` | 10 MiB | 轮转前的活动 JSONL 大小。 |
-| `accessLogMaxFiles` | `5` | 保留的轮转文件数量。 |
-| `authFailureLimit` | `10` | 一个窗口内每个 channel 与直连 peer 可提交的无效凭据次数。 |
+| `accessTokenTtlMs` | 10 分钟 | Access Token 和浏览器会话寿命，上限为 15 分钟。 |
+| `challengeTtlMs` | 60 秒 | 一次性 challenge 寿命，上限为 5 分钟。 |
+| `enrollmentTtlMs` | 10 分钟 | 待处理寿命与新批准回执轮询寿命，上限为 15 分钟。 |
+| `maxPendingEnrollments` | `128` | 持久、未过期待处理 enrollment 上限。 |
+| `enrollmentRequestLimit` | `5` | 每个直连 peer 在计数窗口内接受的请求数。 |
+| `enrollmentRequestWindowMs` | `60000` | 每 peer enrollment 计数窗口。 |
+| `maxEnrollmentPeerKeys` | `4096` | 进程内保留的 enrollment peer 计数器上限。 |
+| `maxAccessTokens` | `4096` | 进程内 Access Token 上限。 |
+| `maxAccessTokensPerGrant` | `64` 或更低的全局上限 | 每个确切 Grant revision 的进程内 Access Token 上限。全局 ledger 满时拒绝新 Grant，而不驱逐其他 Grant。 |
+| `maxChallenges` | `4096` | 待处理 challenge 上限。 |
+| `maxChallengesPerGrant` | `16` 或更低的全局上限 | 每个确切 Grant revision 的待处理 challenge 上限。 |
+| `maxBrowserSessions` | `1024` | 进程内浏览器会话上限。 |
+| `maxBrowserSessionsPerGrant` | `16` 或更低的全局上限 | 每个确切 Grant revision 的浏览器会话上限。 |
+| `reconcileIntervalMs` | `5000` | 强制周期 registry reconciliation。 |
+| `accessLogMaxBytes` | 10 MiB | 轮转前活动 JSONL 大小。 |
+| `accessLogMaxFiles` | `5` | 保留的轮转文件数。 |
+| `authFailureLimit` | `10` | 每个 channel 和直连 peer 在窗口内允许的无效凭据次数。 |
 | `authFailureWindowMs` | `60000` | 无效凭据计数窗口。 |
 | `authFailureBlockMs` | `300000` | 达到失败上限后的阻断时长。 |
-| `maxAuthFailureKeys` | `4096` | 内存中保留的 channel 与 peer 限速状态上限。 |
+| `maxAuthFailureKeys` | `4096` | 内存中保留的 limiter 状态上限。 |
 
-## 存储与生命周期
+## 存储与撤销
 
-在 POSIX 上，registry 与访问文件以 `0600` 模式位于 `0700` 目录中。Registry 写入在 nonce 所有的跨进程锁下原子替换。文件系统 watch 事件触发定向撤销，周期 reconciliation 补偿漏掉的事件；authenticated 模式的 watcher 或 registry 读取失败后会拒绝新接入并关闭当前会话与 socket，直到 reconciliation 成功。无效凭据按载体和直连 peer 分别计数；达到配置上限后，验证会被阻断到封禁期结束，返回带重试间隔的 `rate-limited`，有界状态在达到容量时逐出最早键；成功凭据会清除对应键。Bypass 不依赖 registry freshness。进程会在 WebServer 绑定前取得 `$DSH_HOME/runtime/inbound-authentication.lease`，因此一个主目录的 authenticated 与 bypass 实例互斥；回收过期进程所有者时不会删除替代所有者的 marker。
+在 POSIX 上，registry 和访问文件位于 `0700` 目录下并使用 `0600` 权限。Registry 写入在 nonce owner 的跨进程锁下原子替换；强制审计追加失败会回滚变更，浏览器凭据也只在登录审计成功后发布。Enrollment 批准和 Grant 撤销与 registry 读取串行化。每次接入都会重新检查持久 Grant revision、过期和空闲状态；凭据过期时间取 Grant 绝对截止与空闲截止中的较早者。Registry 故障或最后一个活跃 owner 消失时会清除所有进程凭据、拒绝业务接入并关闭 socket，直到 reconciliation 找到活跃 owner。精确 Grant 撤销会移除对应 challenge、Access Token、浏览器会话和 WebSocket。
 
-`$DSH_HOME/auth/access.jsonl` 保存实例、令牌管理、登录与接入结果的串行轮转 JSON 记录。记录可以包含 peer 地址和令牌名称，但绝不包含请求 body、query string、Harness session id、Authorization/Cookie 值、令牌 id、digest 或浏览器会话 secret。若无法提交访问记录，一个本应成功的网络接入会改为拒绝。
+提供方在 WebServer bind 前取得 `$DSH_HOME/runtime/inbound-authentication.lease`，因此一个 home 的 authenticated 与 bypass 实例互斥。`$DSH_HOME/auth/access.jsonl` 记录最小化的实例、enrollment、Grant、challenge、登录和接入结果。它不记录请求体、query string、Authorization/Cookie、私钥、签名、Access Token、浏览器会话值或 Harness session id。
 
 ## 模型体验
 
-无，因为该提供方控制外部客户端能否访问模型相关操作，但不会改变这些操作。
+无，因为该提供方控制外部接入而不改变模型操作。
 
 #### KV Cache 影响
 
-无；令牌与浏览器会话材料不会进入模型输入。
+无；认证材料不会进入模型输入。
 
 ## 已知限制与延后工作
 
-- 浏览器会话只存在于进程内存中，重启后必须重新登录。
-- 访问记录是带大小轮转的本地 JSONL，而不是远程审计 sink。
-- POSIX mode 检查在 Windows 上没有对应的 ACL 检查。
+- 浏览器会话和 Access Token 位于进程内存，重启后需要重新执行签名交换。
+- 访问记录是本地轮转 JSONL，不是远程审计 sink。
+- POSIX mode 检查没有等价的 Windows ACL 实现。

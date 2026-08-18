@@ -6,11 +6,11 @@
 
 ## 编程模型
 
-业务服务通过 `@Remote` 或 `@RemoteScope` 选择对 Client 开放的方法。未标记的方法不会进入生成的 Client 类型或运行时贡献，也不能通过 `ctx.remote` 调用。
+业务服务通过 `@Remote` 或 `@RemoteScope` 选择对 Client 开放的方法，并声明每个方法要求的认证 capability。未标记的方法不会进入生成的 Client 类型或运行时贡献，也不能通过 `ctx.remote` 调用。
 
 `@Remote` 表示调用根 Host Context 中注册的 Cordis 服务。复杂的 Host 对象不能直接跨 wire 传输；业务包必须通过 `TypertLookupMap` 声明它与 wire identity 的关联，并在运行时向 `ctx.typert.lookups` 注册默认解析提供方。例如 `Agent` 参数在 Host 签名中名为 `agent`，生成的 wire 字段为 `agentId`，Gateway 在调用业务方法前将 id 解析为 Host 对象。Host 组合可以用 `ctx.typert.lookups.configure()` 覆盖某个 lookup key 的解析策略，而不改变业务包拥有的参数名、wire 字段或规范类型 symbol。
 
-`@RemoteScope(key)` 表示先通过 `ctx.typert.contexts` 把 identity 解析为一个作用域 Context，再从该 Context 取得服务并调用方法。它适用于方法本身依赖作用域组合、而不需要显式接收 `Agent` 等对象的情形。
+`@RemoteScope(key, options)` 表示先通过 `ctx.typert.contexts` 把 identity 解析为一个作用域 Context，再从该 Context 取得服务并调用方法。它适用于方法本身依赖作用域组合、而不需要显式接收 `Agent` 等对象的情形。
 
 服务通常继承 `TypertRemoteService`，让 Cordis 服务 key 与默认 Remote namespace 在构造器中显式绑定。已有其他基类的服务可以改为声明 `readonly typertRemote = bindTypertRemote(this, serviceKey)`；两种方式都会留下可检查的公开 binding，不依赖编译器向构造函数注入 symbol。
 
@@ -32,7 +32,7 @@ export class GoalService extends TypertRemoteService {
     super(ctx, 'goals')
   }
 
-  @Remote('create')
+  @Remote({ exportName: 'create', requiredCapability: 'harniverse.operate' })
   createForClient(
     agent: Agent,
     request: CreateGoalRequest,
@@ -42,7 +42,7 @@ export class GoalService extends TypertRemoteService {
     return this.create(agent, request)
   }
 
-  @RemoteScope('agent', 'current')
+  @RemoteScope('agent', { exportName: 'current', requiredCapability: 'harniverse.observe' })
   currentForClient(): CreateGoalResult {
     return { accepted: true }
   }

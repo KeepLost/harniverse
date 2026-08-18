@@ -12,7 +12,7 @@ HTTP 承载层还把绑定地址隐藏在 `startWebServer()` 内部，导致其�
 
 ## 决策
 
-`dsh web` 默认绑定 `127.0.0.1`，并且只在成对提供 TLS 证书与密钥路径时接受 `--host 0.0.0.0` 作为显式全接口模式。`--dangerously-skip-authentication` 仅限回环；浏览器信任栅栏、实例 lease 与访问记录在该模式下仍然生效。全接口模式打印 HTTPS 回环与外部 IPv4 URL。[入站认证决策](2026-08-16-inbound-network-authentication.md)拥有这项取代原决策的安全行为。
+`dsh web` 默认绑定 `127.0.0.1`，并且只在成对提供 TLS 证书与密钥路径时接受 `--host 0.0.0.0` 作为显式全接口模式。`--dangerously-skip-authentication` 仅限回环；浏览器信任栅栏、实例 lease 与访问记录在该模式下仍然生效。全接口模式打印 HTTPS 回环与外部 IPv4 URL。[公钥 Grant 认证决策](../architecture/2026-08-17-public-key-grant-authentication.md)拥有这项取代原决策的安全行为。
 
 `WebServer.Config.host` 为必填项。承载层把该值传给选定的 Node HTTP 或 HTTPS 服务器且不提供回退，因此每个壳层需要在 schema 的封闭集合中选择回环或全接口绑定。
 
@@ -26,4 +26,4 @@ HTTP 承载层还把绑定地址隐藏在 `startWebServer()` 内部，导致其�
 
 ## 后果
 
-`dsh web` 的本地启动仍可通过 `http://127.0.0.1:3080` 访问；容器或其他机器上的浏览器使用 `dsh web --host 0.0.0.0 --tls-cert <path> --tls-key <path>` 与具名令牌。CLI 不开放自定义接口地址或 IPv6 模式。提供方与真实服务器测试固定回环 bypass、明文远程拒绝和直接 HTTPS 服务；构建产物 Web 冒烟测试覆盖组装后的路径。
+`dsh web` 的本地启动仍可通过 `http://127.0.0.1:3080` 访问；容器或其他机器上的浏览器使用 `dsh web --host 0.0.0.0 --tls-cert <path> --tls-key <path>` 并注册公钥设备 Grant。CLI 不开放自定义接口地址或 IPv6 模式。提供方与真实服务器测试固定回环 bypass、明文远程拒绝和直接 HTTPS 服务；构建产物 Web 冒烟测试覆盖组装后的路径。

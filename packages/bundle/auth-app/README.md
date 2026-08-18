@@ -2,9 +2,9 @@
 
 English | [中文](README.zh.md)
 
-The one-shot authentication management bundle. `dsh auth` boots this profile and forwards the remaining arguments to `auth-startup`, which owns the `token add`, `token reset`, `token delete`, and `token list` grammar. The injected `auth-runner` calls the local named-token management API, writes generated secrets only for add and reset, and requests bounded exit through the launcher-provided `ctx.appExit`.
+The one-shot local Grant management bundle. `dsh auth` boots this profile and forwards the remaining arguments to `auth-startup`, which owns the `device`, `grant`, and `client` command groups. The injected `auth-runner` approves pending device enrollments, lists or revokes Grants, registers API-client public keys, and requests bounded exit through the launcher-provided `ctx.appExit`.
 
-The bundle does not mount `dsh-authentication-local` as a network authentication service, open a port, or require an existing token. It can therefore create the first token in an empty Harness home.
+The bundle does not mount `dsh-authentication-local` as a network service or open a port. It therefore approves the first owner device in a sealed Harness home without requiring an existing credential.
 
 ## Model Experience
 
@@ -16,4 +16,4 @@ None; the bundle performs no model request.
 
 ## Known Limitations and Deferred Work
 
-- The app manages only the local named-token Provider; alternate authentication Providers own their own management surfaces.
+- The app manages only the local Grant Provider; alternate authentication Providers own their own management commands.

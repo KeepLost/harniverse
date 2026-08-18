@@ -1,6 +1,7 @@
 /** Generic unary RPC contracts shared by the Host and Client Connection halves. */
 
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { AuthenticationCapability, AuthenticationPrincipal } from '@deepseek-ai/dsh-authentication'
 
 /** Trust fence applied before a Host RPC channel reaches its handler. */
 export type ConnectionRpcAuthority = 'trusted-host' | 'loopback'
@@ -9,17 +10,35 @@ export type ConnectionRpcAuthority = 'trusted-host' | 'loopback'
 export interface ConnectionRpcHandlerOptions {
   /** Browser authority accepted by every endpoint in this channel. */
   readonly authority: ConnectionRpcAuthority
+  /** Capability required by every endpoint on a dedicated channel. */
+  readonly requiredCapability: AuthenticationCapability
 }
 
-/** Handler invoked after Connection has decoded the transport envelope. */
-export type ConnectionRpcHandler = (
-  endpoint: string,
-  payload: unknown,
-  signal: AbortSignal,
-) => Promise<RpcResult<unknown>>
+/** Authorization metadata for one channel-relative endpoint. */
+export interface ConnectionRpcEndpointPolicy {
+  readonly requiredCapability: AuthenticationCapability
+}
 
-/** Synchronous ownership test for one endpoint on a shared RPC channel. */
-export type ConnectionRpcEndpointMatcher = (endpoint: string) => boolean
+/** Explicit interceptor claim that must be denied rather than delegated. */
+export interface ConnectionRpcEndpointDenial {
+  readonly denied: true
+}
+
+/** Authenticated invocation decoded from one Connection RPC request. */
+export interface ConnectionRpcInvocation {
+  readonly endpoint: string
+  readonly payload: unknown
+  readonly signal: AbortSignal
+  readonly principal: AuthenticationPrincipal
+}
+
+/** Handler invoked after Connection has authenticated and decoded the transport envelope. */
+export type ConnectionRpcHandler = (invocation: ConnectionRpcInvocation) => Promise<RpcResult<unknown>>
+
+/** Resolve authorization metadata and ownership for one endpoint. */
+export type ConnectionRpcEndpointResolver = (
+  endpoint: string,
+) => ConnectionRpcEndpointPolicy | ConnectionRpcEndpointDenial | undefined
 
 /** Host registry for logical RPC channels carried by the current transport. */
 export interface HostConnectionRpc {
@@ -39,14 +58,14 @@ export interface HostConnectionRpc {
   /**
    * Intercept owned endpoints on the shared `/api` channel before its fallback.
    * @param channel - reserved shared channel; currently `/api`.
-   * @param matches - synchronous endpoint ownership test.
+   * @param resolveEndpoint - synchronous endpoint ownership and policy resolver.
    * @param handler - decoded endpoint handler returning the existing RPC result shape.
    * @param options - trust policy for every endpoint claimed by this interceptor.
    * @returns asynchronous disposer removing the interceptor.
    */
   intercept(
     channel: '/api',
-    matches: ConnectionRpcEndpointMatcher,
+    resolveEndpoint: ConnectionRpcEndpointResolver,
     handler: ConnectionRpcHandler,
     options: ConnectionRpcHandlerOptions,
   ): () => Promise<void>

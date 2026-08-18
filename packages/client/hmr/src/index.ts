@@ -13,6 +13,7 @@ import type { ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 // Empty type imports carry the clientModuleHost/webServer Context merges.
+import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-client-modules'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { PluginsEventFrame } from './events.ts'
@@ -25,7 +26,7 @@ export { EVENTS_ENDPOINT } from './events.ts'
 export const name = 'client-hmr'
 
 /** Required services: the web plugin table and the route registry. */
-export const inject = ['clientModules', 'webServer']
+export const inject = ['clientModules', 'webServer', 'connection']
 
 /** Plugin config, validated by the same-named schemastery schema. */
 export interface Config {
@@ -166,7 +167,7 @@ export function apply(ctx: Context, config: Config): void {
     const disposeRoute = ctx.webServer.register({
       kind: 'exact',
       path: EVENTS_ENDPOINT,
-      handler: (req, res) => {
+      handler: async (req, res) => {
         // Named routes match ahead of the carrier's method gate; keep the old
         // global 405 semantics for non-GET hits on this endpoint.
         if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -174,6 +175,7 @@ export function apply(ctx: Context, config: Config): void {
           res.end()
           return
         }
+        if (!await ctx.connection.authorizeHttpRequest(req, res, 'harniverse.observe')) return
         connect(res)
       },
     })

@@ -6,11 +6,11 @@ This is the current-state reference for the Typert API Gateway. It describes how
 
 ## Programming model
 
-Business services use `@Remote` or `@RemoteScope` to select the methods exposed to the Client. Unmarked methods do not enter the generated Client types or runtime contributions and cannot be called through `ctx.remote`.
+Business services use `@Remote` or `@RemoteScope` to select the methods exposed to the Client and declare each method's required authentication capability. Unmarked methods do not enter the generated Client types or runtime contributions and cannot be called through `ctx.remote`.
 
 `@Remote` denotes calling a Cordis service registered on the root Host Context. Complex Host objects cannot cross the wire directly; the business package must declare their association with a wire identity through `TypertLookupMap` and register a default resolution provider with `ctx.typert.lookups` at runtime. For example, an `Agent` parameter named `agent` in the Host signature produces an `agentId` wire field, and the Gateway resolves that id to a Host object before invoking the business method. Host composition can use `ctx.typert.lookups.configure()` to override the resolution policy for a lookup key without changing the parameter name, wire field, or canonical type symbol owned by the business package.
 
-`@RemoteScope(key)` first resolves an identity to a scoped Context through `ctx.typert.contexts`, then obtains the service from that Context and invokes the method. It applies when the method itself depends on scoped composition and does not need to receive objects such as `Agent` explicitly.
+`@RemoteScope(key, options)` first resolves an identity to a scoped Context through `ctx.typert.contexts`, then obtains the service from that Context and invokes the method. It applies when the method itself depends on scoped composition and does not need to receive objects such as `Agent` explicitly.
 
 Services normally extend `TypertRemoteService` so the constructor explicitly binds the Cordis service key and default Remote namespace. A service that already has another base class can instead declare `readonly typertRemote = bindTypertRemote(this, serviceKey)`; both forms leave an inspectable public binding and do not depend on the compiler injecting a symbol into the constructor.
 
@@ -32,7 +32,7 @@ export class GoalService extends TypertRemoteService {
     super(ctx, 'goals')
   }
 
-  @Remote('create')
+  @Remote({ exportName: 'create', requiredCapability: 'harniverse.operate' })
   createForClient(
     agent: Agent,
     request: CreateGoalRequest,
@@ -42,7 +42,7 @@ export class GoalService extends TypertRemoteService {
     return this.create(agent, request)
   }
 
-  @RemoteScope('agent', 'current')
+  @RemoteScope('agent', { exportName: 'current', requiredCapability: 'harniverse.observe' })
   currentForClient(): CreateGoalResult {
     return { accepted: true }
   }

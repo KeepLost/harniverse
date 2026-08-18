@@ -53,7 +53,7 @@ export class PluginInventoryGateway extends TypertRemoteService {
    * would only add another lifecycle truth to keep synchronized.
    * @returns Current non-group Loader entries in Loader order.
    */
-  @Remote('list')
+  @Remote({ exportName: 'list', requiredCapability: 'harniverse.observe' })
   list(): PluginInventorySnapshot {
     const entries: PluginInventoryEntry[] = []
     for (const entry of this.ctx.loader.entries()) {

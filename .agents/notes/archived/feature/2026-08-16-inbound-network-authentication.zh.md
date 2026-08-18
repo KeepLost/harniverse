@@ -1,6 +1,7 @@
 # Agent Note: 进程级入站网络认证
 
 Status: implemented
+Archived: 2026-08-17
 
 [English](2026-08-16-inbound-network-authentication.md) | 中文
 

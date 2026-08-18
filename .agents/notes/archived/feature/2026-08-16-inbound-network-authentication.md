@@ -1,6 +1,7 @@
 # Agent Note: Process-wide inbound network authentication
 
 Status: implemented
+Archived: 2026-08-17
 
 English | [中文](2026-08-16-inbound-network-authentication.zh.md)
 

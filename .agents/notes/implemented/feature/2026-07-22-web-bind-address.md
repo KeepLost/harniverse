@@ -12,7 +12,7 @@ The HTTP carrier also hides the bind address inside `startWebServer()`, so alter
 
 ## Decision
 
-`dsh web` binds `127.0.0.1` by default and accepts `--host 0.0.0.0` as the explicit all-interface mode only with paired TLS certificate and key paths. `--dangerously-skip-authentication` is restricted to loopback; the browser-trust fence, instance lease, and access records remain active there. All-interface mode prints HTTPS loopback and external IPv4 URLs. The [inbound authentication decision](2026-08-16-inbound-network-authentication.md) owns this superseding security behavior.
+`dsh web` binds `127.0.0.1` by default and accepts `--host 0.0.0.0` as the explicit all-interface mode only with paired TLS certificate and key paths. `--dangerously-skip-authentication` is restricted to loopback; the browser-trust fence, instance lease, and access records remain active there. All-interface mode prints HTTPS loopback and external IPv4 URLs. The [public-key Grant authentication decision](../architecture/2026-08-17-public-key-grant-authentication.md) owns this superseding security behavior.
 
 `WebServer.Config.host` is required. The carrier passes that value to the selected Node HTTP or HTTPS server without supplying a fallback, leaving each shell responsible for choosing loopback or all interfaces within the schema's closed set.
 
@@ -26,4 +26,4 @@ The HTTP carrier also hides the bind address inside `startWebServer()`, so alter
 
 ## Consequences
 
-Local `dsh web` starts remain reachable at `http://127.0.0.1:3080`; a container or browser on another machine uses `dsh web --host 0.0.0.0 --tls-cert <path> --tls-key <path>` with a named token. The CLI does not expose custom interface addresses or IPv6 modes. Provider and real-server tests pin loopback bypass, plaintext remote rejection, and direct HTTPS serving; the built Web smoke covers the assembled path.
+Local `dsh web` starts remain reachable at `http://127.0.0.1:3080`; a container or browser on another machine uses `dsh web --host 0.0.0.0 --tls-cert <path> --tls-key <path>` and enrolls a public-key device Grant. The CLI does not expose custom interface addresses or IPv6 modes. Provider and real-server tests pin loopback bypass, plaintext remote rejection, and direct HTTPS serving; the built Web smoke covers the assembled path.

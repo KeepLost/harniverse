@@ -193,6 +193,9 @@ function requireInvocation(pkgName: string, value: unknown): void {
     requireString(pkgName, invocation, key, 'invocation')
   }
   const id = invocation.id as string
+  if (!isSupportedCapability(invocation.requiredCapability)) {
+    throw new Error(`typert-loader: ${pkgName} invocation "${id}" requiredCapability is invalid`)
+  }
   const receiver = requireObject(pkgName, invocation.invocation, `invocation "${id}" receiver`)
   if (receiver.kind === 'context') {
     requireString(pkgName, receiver, 'context', `invocation "${id}" Context receiver`)
@@ -259,6 +262,13 @@ function requireInvocation(pkgName: string, value: unknown): void {
       }
     }
   }
+}
+
+function isSupportedCapability(value: unknown): boolean {
+  return value === 'harniverse.observe'
+    || value === 'harniverse.operate'
+    || value === 'harniverse.administer'
+    || value === 'harniverse.authorize'
 }
 
 function requireStrictCodec(pkgName: string, value: unknown, subject: string): void {

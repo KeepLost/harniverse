@@ -1,11 +1,49 @@
-/** Shell-owned login gate that runs before any browser plugin code loads. */
-import { startTransition, useEffect, useState, type FormEvent } from 'react'
+/** Shell-owned device enrollment gate that runs before browser plugins load. */
+import { startTransition, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { Root } from 'react-dom/client'
+import {
+  clearBrowserDevice,
+  generateBrowserDeviceKey,
+  readBrowserDevice,
+  signBrowserChallenge,
+  writeBrowserDevice,
+  type BrowserDevice,
+} from './browser-device.ts'
 
 interface AuthenticationStatusResponse {
   mode: 'authenticated' | 'bypass'
   sealed: boolean
   authenticated: boolean
+}
+
+interface PendingEnrollment {
+  state: 'pending'
+  id: string
+  approvalCode: string
+  name: string
+  kind: 'device' | 'temporary'
+  expiresAt: string
+}
+
+interface ApprovedEnrollment {
+  state: 'approved'
+  id: string
+  grantId: string
+  grantRevision: number
+  capabilities: string[]
+  expiresAt: string
+}
+
+type EnrollmentStatus = PendingEnrollment | ApprovedEnrollment
+
+interface GrantSummary {
+  id: string
+  name: string
+  kind: 'device' | 'api-client' | 'temporary'
+  revision: number
+  capabilities: string[]
+  createdAt: string
+  expiresAt?: string
 }
 
 function parseStatus(value: unknown): AuthenticationStatusResponse {
@@ -18,25 +56,199 @@ function parseStatus(value: unknown): AuthenticationStatusResponse {
   return value as AuthenticationStatusResponse
 }
 
-/** Browser login form rendered by the shell before the plugin graph exists. */
-export function AuthenticationGate({ onAuthenticated }: { onAuthenticated: () => void }): React.JSX.Element {
+async function responseJson(response: Response, failure: string): Promise<unknown> {
+  if (!response.ok) throw new Error(`${failure} (${String(response.status)})`)
+  return response.json()
+}
+
+function parseEnrollment(value: unknown): EnrollmentStatus {
+  if (typeof value !== 'object' || value === null || !['pending', 'approved'].includes(String((value as { state?: unknown }).state))) {
+    throw new Error('认证服务返回了无效配对状态')
+  }
+  return value as EnrollmentStatus
+}
+
+async function exchangeBrowserSession(device: BrowserDevice): Promise<string> {
+  if (device.grantId === undefined) throw new Error('设备尚未获批准')
+  const challenge = await responseJson(await fetch('/auth/challenge', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ grantId: device.grantId, purpose: 'browser-session' }),
+  }), '设备挑战失败') as { id: string; payload: string }
+  const signature = await signBrowserChallenge(device.privateKey, challenge.payload)
+  const result = await responseJson(await fetch('/auth/exchange', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ challengeId: challenge.id, signature }),
+  }), '设备认证失败')
+  if (typeof result !== 'object' || result === null || typeof (result as { expiresAt?: unknown }).expiresAt !== 'string') {
+    throw new Error('认证服务返回了无效会话')
+  }
+  return (result as { expiresAt: string }).expiresAt
+}
+
+/** Cancellable owner of one browser-session renewal chain. */
+export interface BrowserSessionRenewal {
+  /** Stop future renewal and wait for any exchange already in flight. */
+  stop(): Promise<void>
+}
+
+const activeRenewals = new Set<BrowserSessionRenewal>()
+
+/** Keep a browser session short while renewing it through device possession. */
+export function maintainBrowserSession(
+  device: BrowserDevice,
+  expiresAt: string,
+  recover: () => void = () => { window.location.reload() },
+): BrowserSessionRenewal {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let inFlight: Promise<void> | undefined
+  let stopped = false
+
+  const schedule = (expiry: string): void => {
+    if (stopped) return
+    const deadline = Date.parse(expiry)
+    const remaining = deadline - Date.now()
+    if (!Number.isFinite(deadline) || remaining <= 0) {
+      recover()
+      return
+    }
+    const lead = Math.min(30_000, Math.max(1, Math.floor(remaining / 3)))
+    const delay = Math.max(1, remaining - lead)
+    timer = setTimeout(() => {
+      timer = undefined
+      const operation = exchangeBrowserSession(device).then(
+        (nextExpiry) => {
+          if (stopped) return
+          const nextDeadline = Date.parse(nextExpiry)
+          if (!Number.isFinite(nextDeadline) || nextDeadline <= Date.now()) {
+            recover()
+          } else if (nextDeadline <= deadline) {
+            timer = setTimeout(() => { if (!stopped) recover() }, Math.max(1, nextDeadline - Date.now()))
+          } else {
+            schedule(nextExpiry)
+          }
+        },
+        () => { if (!stopped) recover() },
+      )
+      inFlight = operation
+      void operation.finally(() => {
+        if (inFlight === operation) inFlight = undefined
+      })
+    }, delay)
+  }
+
+  const renewal: BrowserSessionRenewal = {
+    async stop() {
+      if (!stopped) {
+        stopped = true
+        if (timer !== undefined) clearTimeout(timer)
+        timer = undefined
+        activeRenewals.delete(renewal)
+      }
+      await inFlight?.catch(() => {})
+    },
+  }
+  activeRenewals.add(renewal)
+  schedule(expiresAt)
+  return renewal
+}
+
+/** Stop and drain every renewal chain owned by this page. */
+export async function stopBrowserSessionRenewal(): Promise<void> {
+  await Promise.all([...activeRenewals].map(renewal => renewal.stop()))
+}
+
+/** Stop renewal before clearing the current short browser session. */
+export async function logoutBrowserSession(): Promise<void> {
+  await stopBrowserSessionRenewal()
+  const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' })
+  if (!response.ok) throw new Error(`退出认证失败 (${String(response.status)})`)
+}
+
+/** Browser device enrollment and signed reauthentication UI. */
+export function AuthenticationGate({ onAuthenticated }: {
+  onAuthenticated: (renewal?: BrowserSessionRenewal) => void
+}): React.JSX.Element {
+  const management = window.location.pathname === '/auth/manage'
   const [status, setStatus] = useState<AuthenticationStatusResponse>()
-  const [token, setToken] = useState('')
+  const [device, setDevice] = useState<BrowserDevice>()
+  const [pending, setPending] = useState<PendingEnrollment>()
+  const [name, setName] = useState('my-device')
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(true)
+  const renewal = useRef<BrowserSessionRenewal>()
+
+  const authenticateDevice = async (candidate: BrowserDevice): Promise<void> => {
+    try {
+      const expiresAt = await exchangeBrowserSession(candidate)
+      await renewal.current?.stop()
+      renewal.current = maintainBrowserSession(candidate, expiresAt)
+    } catch (reason) {
+      if (candidate.kind === 'device' && reason instanceof Error && reason.message.endsWith('(401)')) await clearBrowserDevice()
+      throw reason
+    }
+    if (management) {
+      setStatus({ mode: 'authenticated', sealed: false, authenticated: true })
+    } else {
+      const transferred = renewal.current
+      renewal.current = undefined
+      onAuthenticated(transferred)
+    }
+  }
+
+  const refreshEnrollment = async (candidate: BrowserDevice): Promise<void> => {
+    if (candidate.enrollmentId === undefined) return
+    const value = parseEnrollment(await responseJson(
+      await fetch(`/auth/enrollment?id=${encodeURIComponent(candidate.enrollmentId)}`, { credentials: 'same-origin' }),
+      '配对状态请求失败',
+    ))
+    if (value.state === 'pending') {
+      startTransition(() => { setPending(value) })
+      return
+    }
+    const approved: BrowserDevice = {
+      name: candidate.name,
+      kind: candidate.kind,
+      privateKey: candidate.privateKey,
+      grantId: value.grantId,
+    }
+    if (approved.kind === 'device') await writeBrowserDevice(approved)
+    setDevice(approved)
+    setPending(undefined)
+    await authenticateDevice(approved)
+  }
 
   const check = async (): Promise<void> => {
     setBusy(true)
     setError(undefined)
     try {
-      const response = await fetch('/auth/status', { credentials: 'same-origin' })
-      if (!response.ok) throw new Error(`认证状态请求失败 (${String(response.status)})`)
-      const next = parseStatus(await response.json())
+      const next = parseStatus(await responseJson(
+        await fetch('/auth/status', { credentials: 'same-origin' }),
+        '认证状态请求失败',
+      ))
       if (next.authenticated) {
+        const stored = await readBrowserDevice().catch(() => undefined)
+        if (stored?.grantId !== undefined) {
+          setDevice(stored)
+          await authenticateDevice(stored)
+          return
+        }
+        if (management) {
+          setStatus(next)
+          return
+        }
         onAuthenticated()
         return
       }
       startTransition(() => { setStatus(next) })
+      const stored = await readBrowserDevice().catch(() => undefined)
+      if (stored === undefined) return
+      setDevice(stored)
+      if (stored.grantId !== undefined) await authenticateDevice(stored)
+      else await refreshEnrollment(stored)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -46,23 +258,40 @@ export function AuthenticationGate({ onAuthenticated }: { onAuthenticated: () =>
 
   useEffect(() => { void check() }, [])
 
-  const login = async (event: FormEvent): Promise<void> => {
-    event.preventDefault()
-    if (token.length === 0 || busy) return
+  useEffect(() => () => { void renewal.current?.stop() }, [])
+
+  useEffect(() => {
+    if (device?.enrollmentId === undefined) return
+    const interval = setInterval(() => {
+      void refreshEnrollment(device).catch((reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : String(reason))
+      })
+    }, 2_000)
+    return () => { clearInterval(interval) }
+  }, [device])
+
+  const enroll = async (kind: 'device' | 'temporary'): Promise<void> => {
+    if (name.length === 0 || busy) return
     setBusy(true)
     setError(undefined)
     try {
-      const response = await fetch('/auth/login', {
+      const generated = await generateBrowserDeviceKey()
+      const enrollment = parseEnrollment(await responseJson(await fetch('/auth/enrollment', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ token }),
-      })
-      if (!response.ok) {
-        throw new Error(response.status === 401 ? '访问令牌无效' : `登录失败 (${String(response.status)})`)
+        body: JSON.stringify({ name, kind, publicKey: generated.publicKey }),
+      }), '创建配对请求失败'))
+      if (enrollment.state !== 'pending') throw new Error('配对请求未进入等待状态')
+      const next: BrowserDevice = {
+        name,
+        kind,
+        privateKey: generated.privateKey,
+        enrollmentId: enrollment.id,
       }
-      setToken('')
-      onAuthenticated()
+      if (kind === 'device') await writeBrowserDevice(next)
+      setDevice(next)
+      setPending(enrollment)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -70,35 +299,53 @@ export function AuthenticationGate({ onAuthenticated }: { onAuthenticated: () =>
     }
   }
 
+  if (management && status?.authenticated === true) {
+    return <AuthenticationManagement onLogout={() => logoutBrowserSession()} />
+  }
+
   return (
     <main className="dsh-auth-gate">
       <section className="dsh-auth-panel" aria-labelledby="dsh-auth-title">
         <div className="dsh-auth-mark" aria-hidden="true">DSH</div>
         <p className="dsh-auth-eyebrow">DeepSeek Harness</p>
-        <h1 id="dsh-auth-title">连接此工作台</h1>
-        {status?.sealed === true ? (
-          <p className="dsh-auth-copy">此实例没有可用令牌。请在主机上运行 <code>dsh auth token add &lt;name&gt;</code>，然后重试。</p>
+        <h1 id="dsh-auth-title">配对此设备</h1>
+        {pending === undefined ? (
+          <>
+            <p className="dsh-auth-copy">
+              {status?.sealed === true
+                ? '此实例尚无已批准设备。创建请求后，请在主机终端批准第一个 owner。'
+                : '使用此浏览器生成的设备密钥配对。私钥不可导出，服务器只保存公钥。'}
+            </p>
+            <form onSubmit={(event: FormEvent) => { event.preventDefault(); void enroll('device') }}>
+              <label htmlFor="dsh-auth-device-name">设备名称</label>
+              <input
+                id="dsh-auth-device-name"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={name}
+                onChange={(event) => { setName(event.target.value) }}
+                disabled={busy}
+                autoFocus
+              />
+              <button type="submit" disabled={busy || name.length === 0}>
+                {busy ? '准备中...' : '配对个人设备'}
+              </button>
+              <button type="button" disabled={busy || name.length === 0} onClick={() => { void enroll('temporary') }}>
+                临时使用公用设备
+              </button>
+            </form>
+          </>
         ) : (
-          <p className="dsh-auth-copy">输入主机生成的访问令牌。令牌只用于建立此浏览器会话，不会存入浏览器存储。</p>
-        )}
-        {status?.sealed !== true && (
-          <form onSubmit={(event) => { void login(event) }}>
-            <label htmlFor="dsh-auth-token">访问令牌</label>
-            <input
-              id="dsh-auth-token"
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              value={token}
-              onChange={(event) => { setToken(event.target.value) }}
-              disabled={busy}
-              autoFocus
-            />
-            <button type="submit" disabled={busy || token.length === 0}>{busy ? '验证中...' : '进入工作台'}</button>
-          </form>
+          <div className="dsh-auth-copy">
+            <p>配对请求正在等待批准。请核对批准码：</p>
+            <p><code>{pending.approvalCode}</code></p>
+            <p>主机命令：<code>dsh auth device approve {pending.id} --profile {pending.kind === 'temporary' ? 'temporary' : 'owner'}</code></p>
+            <p>批准后本页面会自动继续。</p>
+          </div>
         )}
         {error !== undefined && <p className="dsh-auth-error" role="alert">{error}</p>}
-        {(status?.sealed === true || error !== undefined) && (
+        {error !== undefined && (
           <button className="dsh-auth-retry" type="button" onClick={() => { void check() }} disabled={busy}>重新检查</button>
         )}
       </section>
@@ -106,8 +353,142 @@ export function AuthenticationGate({ onAuthenticated }: { onAuthenticated: () =>
   )
 }
 
-/** Render and await the shell login gate before constructing browser modules. */
-export function waitForBrowserAuthentication(root: Root): Promise<void> {
+const MANAGEMENT_PROFILES = {
+  observer: ['harniverse.observe'],
+  operator: ['harniverse.observe', 'harniverse.operate'],
+  administrator: ['harniverse.observe', 'harniverse.operate', 'harniverse.administer'],
+  owner: ['harniverse.observe', 'harniverse.operate', 'harniverse.administer', 'harniverse.authorize'],
+} as const
+
+function AuthenticationManagement({ onLogout }: { onLogout: () => Promise<void> }): React.JSX.Element {
+  const [enrollments, setEnrollments] = useState<PendingEnrollment[]>([])
+  const [grants, setGrants] = useState<GrantSummary[]>([])
+  const [profile, setProfile] = useState<keyof typeof MANAGEMENT_PROFILES>('operator')
+  const [issuedToken, setIssuedToken] = useState<string>()
+  const [error, setError] = useState<string>()
+  const [busy, setBusy] = useState(true)
+
+  const reload = async (): Promise<void> => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      const [nextEnrollments, nextGrants] = await Promise.all([
+        responseJson(await fetch('/auth/manage/enrollments', { credentials: 'same-origin' }), '读取配对请求失败'),
+        responseJson(await fetch('/auth/manage/grants', { credentials: 'same-origin' }), '读取设备列表失败'),
+      ])
+      if (!Array.isArray(nextEnrollments) || !Array.isArray(nextGrants)) throw new Error('认证服务返回了无效管理列表')
+      setEnrollments(nextEnrollments as PendingEnrollment[])
+      setGrants(nextGrants as GrantSummary[])
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  useEffect(() => { void reload() }, [])
+
+  const approve = async (request: PendingEnrollment): Promise<void> => {
+    setBusy(true)
+    try {
+      const temporary = request.kind === 'temporary'
+      await responseJson(await fetch('/auth/manage/enrollment/approve', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          id: request.id,
+          capabilities: temporary ? MANAGEMENT_PROFILES.operator : MANAGEMENT_PROFILES[profile],
+          ...(temporary && { expiresInMs: 60 * 60_000, idleTimeoutMs: 15 * 60_000 }),
+        }),
+      }), '批准配对失败')
+      await reload()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+      setBusy(false)
+    }
+  }
+
+  const revoke = async (grantId: string): Promise<void> => {
+    setBusy(true)
+    try {
+      await responseJson(await fetch('/auth/manage/grant/revoke', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ grantId }),
+      }), '撤销设备失败')
+      await reload()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+      setBusy(false)
+    }
+  }
+
+  const issueEmergencyToken = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const value = await responseJson(await fetch('/auth/manage/token', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ capabilities: MANAGEMENT_PROFILES.operator, ttlMs: 5 * 60_000 }),
+      }), '签发应急令牌失败') as { accessToken: string }
+      setIssuedToken(value.accessToken)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const logout = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      await onLogout()
+      window.location.reload()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <main className="dsh-auth-gate">
+      <section className="dsh-auth-panel" aria-labelledby="dsh-auth-manage-title">
+        <p className="dsh-auth-eyebrow">DeepSeek Harness</p>
+        <h1 id="dsh-auth-manage-title">设备与授权</h1>
+        <button type="button" disabled={busy} onClick={() => { void logout() }}>退出当前会话</button>
+        <label htmlFor="dsh-auth-profile">新设备权限</label>
+        <select id="dsh-auth-profile" value={profile} onChange={(event) => { setProfile(event.target.value as keyof typeof MANAGEMENT_PROFILES) }}>
+          {Object.keys(MANAGEMENT_PROFILES).map(value => <option key={value} value={value}>{value}</option>)}
+        </select>
+        <h2>等待批准</h2>
+        {enrollments.length === 0 && <p>没有等待批准的设备。</p>}
+        {enrollments.map(request => (
+          <div key={request.id}>
+            <strong>{request.name}</strong> <code>{request.approvalCode}</code> ({request.kind})
+            <button type="button" disabled={busy} onClick={() => { void approve(request) }}>批准</button>
+          </div>
+        ))}
+        <h2>已批准</h2>
+        {grants.map(grant => (
+          <div key={grant.id}>
+            <strong>{grant.name}</strong> ({grant.kind}) <small>{grant.capabilities.join(', ')}</small>
+            <button type="button" disabled={busy} onClick={() => { void revoke(grant.id) }}>撤销</button>
+          </div>
+        ))}
+        <h2>应急访问</h2>
+        <button type="button" disabled={busy} onClick={() => { void issueEmergencyToken() }}>签发 5 分钟 operator 令牌</button>
+        {issuedToken !== undefined && <p><code>{issuedToken}</code><br />此令牌只显示一次，不能续期，也不能授权其他设备。</p>}
+        {error !== undefined && <p className="dsh-auth-error" role="alert">{error}</p>}
+      </section>
+    </main>
+  )
+}
+
+/** Render and await the shell enrollment gate before constructing browser modules. */
+export function waitForBrowserAuthentication(root: Root): Promise<BrowserSessionRenewal | undefined> {
   return new Promise((resolve) => {
     root.render(<AuthenticationGate onAuthenticated={resolve} />)
   })

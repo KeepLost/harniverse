@@ -79,7 +79,7 @@ Harniverse did not add six independent capabilities. Six downstream package mani
 
 | Capability | Service Definition | Service Provider | Consumer | Current downstream status |
 |---|---|---|---|---|
-| Inbound authentication | `dsh-authentication` (new) | `dsh-authentication-local` (new) | `dsh-client-connection` (official, modified), `dsh-auth-app` (new management bundle) | Complete seam; runtime and management entry points both compose through plugins. |
+| Inbound authentication and authorization | `dsh-authentication` (new) | `dsh-authentication-local` (new) | `dsh-client-connection` (official, modified), `dsh-auth-app` (new management bundle), `dsh-sdk-client` (official, modified) | Complete seam; public-key Grants produce short credentials bounded by Grant deadlines, pending enrollment is bounded, loss of the final owner seals every business transport, and endpoint metadata defaults unknown operations to deny. |
 | Outbound notification | `dsh-notification` (new; Definition + coordinator Consumer) | `dsh-notification-http` (new) | Coordinator folded into `dsh-notification` | Complete opt-in seam following the official session-telemetry pattern. |
 | Durable result artifacts | `dsh-spill` (official, modified) | `dsh-spill-local` (official, modified) | `dsh-tool-result-artifacts` (new), `dsh-spill-policy` | Complete seam; one Consumer owns retention, recovery marker, failure semantics, and `artifact_read`. |
 
@@ -88,7 +88,7 @@ Harniverse did not add six independent capabilities. Six downstream package mani
 | Package | Role | Default composition |
 |---|---|---|
 | `@deepseek-ai/dsh-authentication` | Inbound authentication Service Definition | Type/service dependency; the concrete Web row loads its Provider. |
-| `@deepseek-ai/dsh-authentication-local` | Local named-token Service Provider | Enabled by `dsh-web-app`. |
+| `@deepseek-ai/dsh-authentication-local` | Local public-key Grant, challenge, Access Token, and browser-session Service Provider | Enabled by `dsh-web-app`. |
 | `@deepseek-ai/dsh-auth-app` | One-shot authentication management bundle and Consumer | Shipped as the standalone `auth` profile; `dsh auth` is its alias. |
 | `@deepseek-ai/dsh-notification` | Notification Service Definition plus lifecycle projection Consumer | Not mounted alone. |
 | `@deepseek-ai/dsh-notification-http` | Durable HTTP/HTTPS notification Service Provider | Opt-in examples only. |
@@ -101,7 +101,7 @@ Harniverse did not add six independent capabilities. Six downstream package mani
 | Model and Web defaults | `dsh-base`, `dsh-web`, `dsh-web-search-exa`, `dsh-web-search-perplexity`, `dsh-client-ui-settings-models`, `dsh-client-ui-settings-plugins` |
 | Session control and reconnect | `dsh-agent`, `dsh-agent-loop`, `dsh-session`, `dsh-host-apiproxy`, `dsh-client-connection`, `dsh-client-runtime`, `dsh-session-persistence`, `dsh-session-persistence-jsonl`, `dsh-session-persistence-sqlite`, `dsh-session-projection-cache`, `dsh-workspace` |
 | Result retention and bounded file access | `dsh-tools`, `dsh-spill`, `dsh-spill-local`, `dsh-spill-policy`, `dsh-tool-fs`, `dsh-tool-fs-search`, `dsh-tool-str-replace-editor`, `dsh-client-ui-tool`, `dsh-compaction`, `dsh-token-meter` |
-| Authenticated Web surface | `dsh-web-app`, `dsh-client-connection`, `dsh-client-web`, `dsh-host-webserver` |
+| Authenticated Web and automation surface | `dsh-web-app`, `dsh-client-connection`, `dsh-client-modules`, `dsh-client-hmr`, `dsh-client-web`, `dsh-host-webserver`, `dsh-sdk-client`, `dsh-api-gateway`, `dsh-typert-protocol`, `dsh-typert-generator`, `dsh-typert-loader`, `dsh-typert-registry` |
 | Derived runtime catalogs | `dsh-cordis-client-runner`, `dsh-tool-cordis` |
 | Test support projection | `dsh-acp-snapshot` normalization only |
 <!-- capability-changes-end -->
@@ -117,7 +117,7 @@ Harniverse did not add six independent capabilities. Six downstream package mani
 | `dsh-base` result policy | Legacy `dsh-spill-policy` and `dsh-compaction-tool-result-pruner` rows default disabled; `dsh-tool-result-artifacts` handles finalized-result retention and `artifact_read`. |
 | `dsh-web-app` authentication | `dsh-authentication-local` initializes before WebServer bind; connection injects the provider-neutral service. |
 | `dsh-web-app` transport | Non-loopback listeners require direct TLS; authentication bypass is loopback-only. |
-| `auth` profile | `dsh-auth-app` parses token-management arguments inside the plugin tree and exits without mounting an Agent, WebServer, or authentication runtime Provider. |
+| `auth` profile | `dsh-auth-app` parses device, Grant, and API-client management arguments inside the plugin tree and exits without mounting an Agent, WebServer, or authentication runtime Provider. |
 | Notification | No shipped bundle mounts `dsh-notification-http`; explicit examples compose Storage plus the Provider. |
 
 ### Downstream Commit Ledger

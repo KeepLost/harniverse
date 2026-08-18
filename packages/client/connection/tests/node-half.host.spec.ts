@@ -3,20 +3,33 @@ import { EventEmitter, once } from 'node:events'
 import { createServer, request as httpRequest } from 'node:http'
 import { PassThrough, Readable } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { AddressInfo } from 'node:net'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import {
-  authenticationTokenId,
-  authenticationTokenName,
+  ALL_AUTHENTICATION_CAPABILITIES,
+  authenticationChallengeId,
+  authenticationEnrollmentId,
+  authenticationGrantId,
+  type AuthenticationAttempt,
   type AuthenticationDecision,
+  type AuthenticationPrincipal,
   type InboundAuthentication,
 } from '@deepseek-ai/dsh-authentication'
 import { RpcId, type ClientRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { WebServer, WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
-import { API_PATH, apply, HOST_EVENTS_PATH, inject, MUX_EVENTS_PATH, type HostConnectionHandle } from '../src/index.ts'
+import {
+  API_PATH,
+  apply,
+  HOST_EVENTS_PATH,
+  inject,
+  MUX_EVENTS_PATH,
+  type ConnectionRpcInvocation,
+  type HostConnectionHandle,
+} from '../src/index.ts'
+import { browserSessionFromCookie } from '../src/inbound-auth.ts'
 
 /** Structural webServer fake recording both route registries. */
 function fakeHttpServer(
@@ -44,16 +57,51 @@ function fakeHttpServer(
   }
 }
 
+const TEST_PRINCIPAL: AuthenticationPrincipal = {
+  kind: 'bypass',
+  capabilities: ALL_AUTHENTICATION_CAPABILITIES,
+}
+
+const OBSERVER_PRINCIPAL: AuthenticationPrincipal = {
+  kind: 'grant',
+  grantId: authenticationGrantId('observer-grant'),
+  grantRevision: 1,
+  capabilities: ['harniverse.observe'],
+  expiresAt: new Date(Date.now() + 60_000).toISOString(),
+}
+
+const GRANT_PRINCIPAL: Extract<AuthenticationPrincipal, { kind: 'grant' }> = {
+  kind: 'grant',
+  grantId: authenticationGrantId('owner-grant'),
+  grantRevision: 1,
+  capabilities: ALL_AUTHENTICATION_CAPABILITIES,
+  expiresAt: new Date(Date.now() + 60_000).toISOString(),
+}
+
+const AUTHORIZE_PRINCIPAL: Extract<AuthenticationPrincipal, { kind: 'grant' }> = {
+  ...GRANT_PRINCIPAL,
+  capabilities: ['harniverse.authorize'],
+}
+
 function provideAuthentication(
   ctx: Context,
-  decision: AuthenticationDecision = { kind: 'accepted' },
-  overrides: Partial<Pick<InboundAuthentication, 'status' | 'createBrowserSession' | 'revokeBrowserSession'>> = {},
+  decision: AuthenticationDecision = { kind: 'accepted', principal: TEST_PRINCIPAL },
+  overrides: Partial<InboundAuthentication> = {},
 ): void {
   ctx.provide('authentication', {
     mode: 'authenticated',
     authenticate: () => Promise.resolve(decision),
     status: () => Promise.resolve({ mode: 'authenticated', sealed: false }),
     createBrowserSession: () => Promise.resolve({ kind: 'rejected', reason: 'invalid-credential' }),
+    requestEnrollment: () => Promise.reject(new Error('not implemented')),
+    enrollmentStatus: () => Promise.resolve(undefined),
+    listPendingEnrollments: () => Promise.resolve([]),
+    approveEnrollment: () => Promise.reject(new Error('not implemented')),
+    listGrants: () => Promise.resolve([]),
+    revokeGrant: () => Promise.resolve(),
+    createChallenge: () => Promise.resolve({ kind: 'rejected', reason: 'invalid-grant' }),
+    exchangeAccessToken: () => Promise.resolve({ kind: 'rejected', reason: 'invalid-grant' }),
+    issueEmergencyAccessToken: () => Promise.resolve({ kind: 'rejected', reason: 'invalid-grant' }),
     revokeBrowserSession: () => {},
     ...overrides,
   } as unknown as InboundAuthentication)
@@ -110,8 +158,8 @@ function fakeResponse(): { response: ServerResponse; state: { status?: number; b
 
 async function mounted(
   config?: { trustedHosts?: string[] },
-  decision: AuthenticationDecision = { kind: 'accepted' },
-  overrides: Partial<Pick<InboundAuthentication, 'status' | 'createBrowserSession' | 'revokeBrowserSession'>> = {},
+  decision: AuthenticationDecision = { kind: 'accepted', principal: TEST_PRINCIPAL },
+  overrides: Partial<InboundAuthentication> = {},
   protocol: 'http:' | 'https:' = 'http:',
 ): Promise<{
   routes: WebRoute[]
@@ -130,6 +178,13 @@ async function mounted(
 }
 
 describe('connection node half', () => {
+  it('prefers one secure browser cookie and rejects duplicate selected values', () => {
+    const legacy = 'L'.repeat(43)
+    const secure = 'S'.repeat(43)
+    expect(browserSessionFromCookie(`dsh_auth=${legacy}; __Host-dsh_auth=${secure}`)).toBe(secure)
+    expect(browserSessionFromCookie(`__Host-dsh_auth=${secure}; __Host-dsh_auth=${legacy}`)).toBeUndefined()
+  })
+
   it('fails loud when the carrier cap cannot hold the configured image batch', () => {
     const ctx = new Context()
     const routes: WebRoute[] = []
@@ -158,7 +213,7 @@ describe('connection node half', () => {
 
   it('registers API and browser-authentication routes plus one upgrade route per downlink', async () => {
     const { routes, upgrades, dispose } = await mounted()
-    expect(routes).toHaveLength(4)
+    expect(routes).toHaveLength(12)
     expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
     expect(upgrades.map(route => route.path)).toEqual([MUX_EVENTS_PATH, HOST_EVENTS_PATH])
     await dispose()
@@ -188,6 +243,39 @@ describe('connection node half', () => {
     }, MUX_EVENTS_PATH), socket, Buffer.alloc(0))
     await ended
     expect(Buffer.concat(chunks).toString()).toContain('HTTP/1.1 403 Forbidden')
+    await dispose()
+  })
+
+  it('rejects event WebSockets when the authenticated principal cannot observe', async () => {
+    const { upgrades, dispose } = await mounted(undefined, { kind: 'accepted', principal: AUTHORIZE_PRINCIPAL })
+    const socket = new PassThrough()
+    const chunks: Buffer[] = []
+    socket.on('data', (chunk: Buffer) => { chunks.push(chunk) })
+    const ended = once(socket, 'end')
+
+    await upgrades[0]!.handler(fakeRequest({ host: '127.0.0.1:3080' }, MUX_EVENTS_PATH), socket, Buffer.alloc(0))
+    await ended
+
+    expect(Buffer.concat(chunks).toString()).toContain('HTTP/1.1 403 Forbidden')
+    await dispose()
+  })
+
+  it('parses browser cookies before invoking the authentication provider', async () => {
+    const authenticate = vi.fn((_attempt: AuthenticationAttempt) =>
+      Promise.resolve({ kind: 'accepted' as const, principal: TEST_PRINCIPAL }))
+    const { routes, dispose } = await mounted(undefined, undefined, { authenticate })
+    const route = routes.find(candidate => candidate.path === '/auth/status')!
+    const response = fakeResponse()
+
+    await route.handler(fakeRequest({
+      host: '127.0.0.1:3080',
+      cookie: 'other=x; dsh_auth=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    }, '/auth/status'), response.response)
+
+    expect(authenticate).toHaveBeenCalledWith(expect.objectContaining({
+      browserSession: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    }))
+    expect(authenticate.mock.calls[0]?.[0]).not.toHaveProperty('cookie')
     await dispose()
   })
 
@@ -233,52 +321,42 @@ describe('connection node half', () => {
     await dispose()
   })
 
-  it('issues an HttpOnly strict browser cookie without exposing the token', async () => {
-    const credential = {
-      tokenId: authenticationTokenId('token-id'),
-      tokenName: authenticationTokenName('laptop'),
-      generation: 1,
-    }
-    const { routes, dispose } = await mounted(undefined, { kind: 'accepted' }, {
+  it('issues an HttpOnly strict browser cookie without exposing the proof', async () => {
+    const { routes, dispose } = await mounted(undefined, { kind: 'accepted', principal: TEST_PRINCIPAL }, {
       createBrowserSession: () => Promise.resolve({
         kind: 'accepted',
         session: {
           value: 'browser-session-secret',
           expiresAt: new Date(Date.now() + 60_000).toISOString(),
-          credential,
+          principal: TEST_PRINCIPAL,
         },
       }),
     })
-    const route = routes.find(candidate => candidate.path === '/auth/login')!
+    const route = routes.find(candidate => candidate.path === '/auth/exchange')!
     const { response, state } = fakeResponse()
-    await route.handler(fakePost({ host: '127.0.0.1:3080' }, '/auth/login', { token: 'one-time-token' }), response)
+    await route.handler(fakePost({ host: '127.0.0.1:3080' }, '/auth/exchange', { challengeId: 'challenge-id', signature: 'proof' }), response)
 
     expect(state.status).toBe(200)
     expect(state.headers?.['set-cookie']).toContain('dsh_auth=browser-session-secret; Path=/; HttpOnly; SameSite=Strict')
     expect(state.headers?.['cache-control']).toBe('no-store')
-    expect(state.body).not.toContain('one-time-token')
+    expect(state.body).not.toContain('proof')
     await dispose()
   })
 
   it('issues a no-store __Host- Secure cookie over HTTPS', async () => {
-    const credential = {
-      tokenId: authenticationTokenId('token-id'),
-      tokenName: authenticationTokenName('laptop'),
-      generation: 1,
-    }
-    const { routes, dispose } = await mounted(undefined, { kind: 'accepted' }, {
+    const { routes, dispose } = await mounted(undefined, { kind: 'accepted', principal: TEST_PRINCIPAL }, {
       createBrowserSession: () => Promise.resolve({
         kind: 'accepted',
         session: {
           value: 'browser-session-secret',
           expiresAt: new Date(Date.now() + 60_000).toISOString(),
-          credential,
+          principal: TEST_PRINCIPAL,
         },
       }),
     }, 'https:')
-    const route = routes.find(candidate => candidate.path === '/auth/login')!
+    const route = routes.find(candidate => candidate.path === '/auth/exchange')!
     const { response, state } = fakeResponse()
-    await route.handler(fakePost({ host: '127.0.0.1:3080' }, '/auth/login', { token: 'one-time-token' }), response)
+    await route.handler(fakePost({ host: '127.0.0.1:3080' }, '/auth/exchange', { challengeId: 'challenge-id', signature: 'proof' }), response)
 
     expect(state.status).toBe(200)
     expect(state.headers?.['set-cookie'])
@@ -287,15 +365,15 @@ describe('connection node half', () => {
     await dispose()
   })
 
-  it('returns Retry-After when browser login is rate limited', async () => {
-    const { routes, dispose } = await mounted(undefined, { kind: 'accepted' }, {
+  it('returns Retry-After when browser exchange is rate limited', async () => {
+    const { routes, dispose } = await mounted(undefined, { kind: 'accepted', principal: TEST_PRINCIPAL }, {
       createBrowserSession: () => Promise.resolve({
         kind: 'rejected', reason: 'rate-limited', retryAfterMs: 2_500,
       }),
     })
-    const route = routes.find(candidate => candidate.path === '/auth/login')!
+    const route = routes.find(candidate => candidate.path === '/auth/exchange')!
     const { response, state } = fakeResponse()
-    await route.handler(fakePost({ host: '127.0.0.1:3080' }, '/auth/login', { token: 'invalid' }), response)
+    await route.handler(fakePost({ host: '127.0.0.1:3080' }, '/auth/exchange', { challengeId: 'challenge-id', signature: 'invalid' }), response)
 
     expect(state.status).toBe(429)
     expect(state.headers?.['retry-after']).toBe('3')
@@ -303,15 +381,112 @@ describe('connection node half', () => {
     await dispose()
   })
 
-  it('marks malformed browser login responses as no-store', async () => {
+  it('marks malformed browser exchange responses as no-store', async () => {
     const { routes, dispose } = await mounted()
-    const route = routes.find(candidate => candidate.path === '/auth/login')!
+    const route = routes.find(candidate => candidate.path === '/auth/exchange')!
     const { response, state } = fakeResponse()
-    await route.handler(fakeRawPost({ host: '127.0.0.1:3080' }, '/auth/login', '{}'), response)
+    await route.handler(fakeRawPost({ host: '127.0.0.1:3080' }, '/auth/exchange', '{}'), response)
 
     expect(state.status).toBe(415)
     expect(state.headers?.['cache-control']).toBe('no-store')
     await dispose()
+  })
+
+  it('exposes enrollment, challenge, and access-token exchange before browser plugins load', async () => {
+    const requestEnrollment = vi.fn(() => Promise.resolve({
+      kind: 'accepted' as const,
+      value: {
+        state: 'pending' as const,
+        id: authenticationEnrollmentId('request-id'),
+        approvalCode: 'a1b2c3d4',
+        name: 'tablet',
+        kind: 'device' as const,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+    }))
+    const createChallenge = vi.fn(() => Promise.resolve({
+      kind: 'accepted' as const,
+      value: { id: authenticationChallengeId('challenge-id'), payload: '{}', expiresAt: new Date(Date.now() + 60_000).toISOString() },
+    }))
+    const exchangeAccessToken = vi.fn(() => Promise.resolve({
+      kind: 'accepted' as const,
+      value: {
+        value: 'short-access-token',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        principal: GRANT_PRINCIPAL,
+      },
+    }))
+    const { routes, dispose } = await mounted(undefined, undefined, {
+      requestEnrollment,
+      createChallenge,
+      exchangeAccessToken,
+    })
+
+    const enrollment = fakeResponse()
+    await routes.find(route => route.path === '/auth/enrollment')!.handler(fakePost(
+      { host: '127.0.0.1:3080' }, '/auth/enrollment', { name: 'tablet', kind: 'device', publicKey: 'spki' },
+    ), enrollment.response)
+    expect(enrollment.state.status).toBe(202)
+    expect(requestEnrollment).toHaveBeenCalledWith(
+      { name: 'tablet', kind: 'device', publicKey: 'spki' },
+      '127.0.0.1',
+    )
+
+    const challenge = fakeResponse()
+    await routes.find(route => route.path === '/auth/challenge')!.handler(fakePost(
+      { host: '127.0.0.1:3080' }, '/auth/challenge', { grantId: 'grant-id', purpose: 'access-token' },
+    ), challenge.response)
+    expect(challenge.state.status).toBe(200)
+
+    const token = fakeResponse()
+    await routes.find(route => route.path === '/auth/token')!.handler(fakePost(
+      { host: '127.0.0.1:3080' }, '/auth/token', { challengeId: 'challenge-id', signature: 'proof' },
+    ), token.response)
+    const tokenBody = JSON.parse(String(token.state.body)) as { accessToken: string; expiresAt: unknown }
+    expect(tokenBody.accessToken).toBe('short-access-token')
+    expect(typeof tokenBody.expiresAt).toBe('string')
+    await dispose()
+  })
+
+  it('returns Retry-After when the enrollment Provider limits a peer', async () => {
+    const requestEnrollment = vi.fn(() => Promise.resolve({
+      kind: 'rejected' as const,
+      reason: 'rate-limited' as const,
+      retryAfterMs: 2_500,
+    }))
+    const { routes, dispose } = await mounted(undefined, undefined, { requestEnrollment })
+    const result = fakeResponse()
+    await routes.find(route => route.path === '/auth/enrollment')!.handler(fakePost(
+      { host: '127.0.0.1:3080' },
+      '/auth/enrollment',
+      { name: 'tablet', kind: 'device', publicKey: 'spki' },
+    ), result.response)
+
+    expect(result.state).toMatchObject({ status: 429, body: 'rate limited' })
+    expect(result.state.headers?.['retry-after']).toBe('3')
+    expect(result.state.headers?.['cache-control']).toBe('no-store')
+    await dispose()
+  })
+
+  it('requires authorize capability before Grant management handlers run', async () => {
+    const listPendingEnrollments = vi.fn(() => Promise.resolve([]))
+    const observer = await mounted(undefined, { kind: 'accepted', principal: OBSERVER_PRINCIPAL }, { listPendingEnrollments })
+    const denied = fakeResponse()
+    await observer.routes.find(route => route.path === '/auth/manage/enrollments')!.handler(
+      fakeRequest({ host: '127.0.0.1:3080' }, '/auth/manage/enrollments'), denied.response,
+    )
+    expect(denied.state.status).toBe(403)
+    expect(listPendingEnrollments).not.toHaveBeenCalled()
+    await observer.dispose()
+
+    const owner = await mounted(undefined, { kind: 'accepted', principal: TEST_PRINCIPAL }, { listPendingEnrollments })
+    const allowed = fakeResponse()
+    await owner.routes.find(route => route.path === '/auth/manage/enrollments')!.handler(
+      fakeRequest({ host: '127.0.0.1:3080' }, '/auth/manage/enrollments'), allowed.response,
+    )
+    expect(allowed.state.status).toBe(200)
+    expect(listPendingEnrollments).toHaveBeenCalledOnce()
+    await owner.dispose()
   })
 
   it('refuses authentication bypass on a non-loopback listener', async () => {
@@ -327,15 +502,18 @@ describe('connection node half', () => {
     expect(upgrades).toHaveLength(0)
   })
 
-  it('pins privileged methods to loopback even for a declared trusted authority', async () => {
-    const { routes, dispose } = await mounted({ trustedHosts: ['harness.example'] })
+  it('denies administrative methods to an observer on a declared trusted authority', async () => {
+    const { routes, dispose } = await mounted(
+      { trustedHosts: ['harness.example'] },
+      { kind: 'accepted', principal: OBSERVER_PRINCIPAL },
+    )
     // The privileged set: native dialogs plus the whole settings/credential
     // configuration plane, reads included, plus the one method that makes the
     // host fetch a caller-chosen URL. The same declared authority reaches
     // ordinary reads (carrier-level 404 from the empty proxy proves the fence
     // passed), but each privileged method stays loopback-only and 403s.
     for (const method of [
-      'host.pickDirectory', 'host.openPath',
+      'host.pickDirectory', 'host.listDirectory', 'host.createDirectory', 'host.openPath',
       'settings.describe', 'settings.openDocument', 'settings.update', 'settings.replace', 'settings.mutate',
       'credentials.describe', 'credentials.set', 'credentials.unset',
       'llm.discoverModels',
@@ -386,15 +564,15 @@ describe('connection node half', () => {
     provideAuthentication(ctx)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    expect(routes).toHaveLength(4)
+    expect(routes).toHaveLength(12)
     expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
 
     const connection = ctx.get('connection') as HostConnectionHandle
     const calls: unknown[] = []
-    const remove = connection.rpc.handle('/rpc', async (endpoint, payload) => {
-      calls.push({ endpoint, payload })
+    const remove = connection.rpc.handle('/rpc', async (invocation) => {
+      calls.push(invocation)
       return { ok: true, value: { accepted: true } }
-    }, { authority: 'trusted-host' })
+    }, { authority: 'trusted-host', requiredCapability: 'harniverse.observe' })
     const route = routes.find(candidate => candidate.path === '/rpc')
     expect(route).toBeDefined()
 
@@ -412,17 +590,33 @@ describe('connection node half', () => {
       rpcId: 'rpc-dedicated',
       result: { ok: true, value: { accepted: true } },
     })
-    expect(calls).toEqual([{
+    expect(calls).toHaveLength(1)
+    const dedicatedInvocation = calls[0] as ConnectionRpcInvocation
+    expect(dedicatedInvocation).toMatchObject({
       endpoint: 'goals/create',
       payload: { args: { agentId: 'agent-1' } },
-    }])
+      principal: TEST_PRINCIPAL,
+    })
+    expect(dedicatedInvocation.signal).toBeInstanceOf(AbortSignal)
 
     expect(() => connection.rpc.handle('/rpc', async () => ({ ok: true, value: null }), {
       authority: 'trusted-host',
+      requiredCapability: 'harniverse.observe',
     })).toThrow(/duplicate route/)
     await remove()
     expect(routes.map(candidate => candidate.path)).toEqual([
-      API_PATH, '/auth/status', '/auth/login', '/auth/logout',
+      API_PATH,
+      '/auth/status',
+      '/auth/enrollment',
+      '/auth/challenge',
+      '/auth/exchange',
+      '/auth/token',
+      '/auth/manage/enrollments',
+      '/auth/manage/enrollment/approve',
+      '/auth/manage/grants',
+      '/auth/manage/grant/revoke',
+      '/auth/manage/token',
+      '/auth/logout',
     ])
     await fiber.dispose()
     expect(routes).toHaveLength(0)
@@ -440,24 +634,24 @@ describe('connection node half', () => {
     const calls: unknown[] = []
     const remove = connection.rpc.intercept(
       '/api',
-      endpoint => endpoint === 'goals/create',
-      async (endpoint, payload) => {
-        calls.push({ endpoint, payload })
+      endpoint => endpoint === 'goals/create' ? { requiredCapability: 'harniverse.operate' } : undefined,
+      async (invocation) => {
+        calls.push(invocation)
         return { ok: true, value: { accepted: true } }
       },
-      { authority: 'trusted-host' },
+      { authority: 'trusted-host', requiredCapability: 'harniverse.operate' },
     )
     expect(() => connection.rpc.intercept(
       '/api',
-      () => true,
+      () => ({ requiredCapability: 'harniverse.observe' }),
       async () => ({ ok: true, value: null }),
-      { authority: 'trusted-host' },
+      { authority: 'trusted-host', requiredCapability: 'harniverse.observe' },
     )).toThrow('already has an interceptor')
     expect(() => connection.rpc.intercept(
       '/rpc' as '/api',
-      () => true,
+      () => ({ requiredCapability: 'harniverse.observe' }),
       async () => ({ ok: true, value: null }),
-      { authority: 'trusted-host' },
+      { authority: 'trusted-host', requiredCapability: 'harniverse.observe' },
     )).toThrow('invalid shared RPC channel')
     const route = routes.find(candidate => candidate.path === API_PATH)!
     const request: ClientRequest = {
@@ -474,10 +668,14 @@ describe('connection node half', () => {
       rpcId: 'rpc-shared',
       result: { ok: true, value: { accepted: true } },
     })
-    expect(calls).toEqual([{
+    expect(calls).toHaveLength(1)
+    const sharedInvocation = calls[0] as ConnectionRpcInvocation
+    expect(sharedInvocation).toMatchObject({
       endpoint: 'goals/create',
       payload: { args: { agentId: 'agent-1' } },
-    }])
+      principal: TEST_PRINCIPAL,
+    })
+    expect(sharedInvocation.signal).toBeInstanceOf(AbortSignal)
 
     const denied = fakeResponse()
     await route.handler(fakePost({ host: 'other.example' }, '/api/goals/create', request), denied.response)
@@ -489,21 +687,69 @@ describe('connection node half', () => {
     expect(unclaimed.state.status).toBe(404)
 
     await remove()
+    const deniedFallback = vi.fn(async () => ({ ok: true as const, value: null }))
+    const denyClaim = connection.rpc.intercept(
+      '/api',
+      endpoint => endpoint === 'session.list' ? { denied: true } : undefined,
+      deniedFallback,
+      { authority: 'trusted-host', requiredCapability: 'harniverse.observe' },
+    )
+    const explicitlyDenied = fakeResponse()
+    await route.handler(fakeRequest({ host: '127.0.0.1:3080' }, '/api/session.list'), explicitlyDenied.response)
+    expect(explicitlyDenied.state).toMatchObject({ status: 403, body: 'forbidden' })
+    expect(deniedFallback).not.toHaveBeenCalled()
+    await denyClaim()
+
     const withdrawn = fakeResponse()
     await route.handler(fakePost({ host: '127.0.0.1:3080' }, '/api/goals/create', request), withdrawn.response)
-    expect(withdrawn.state.status).toBe(404)
+    expect(withdrawn.state.status).toBe(403)
     expect(calls).toHaveLength(1)
 
     const removeLoopback = connection.rpc.intercept(
       '/api',
-      endpoint => endpoint === 'goals/create',
+      endpoint => endpoint === 'goals/create' ? { requiredCapability: 'harniverse.operate' } : undefined,
       async () => ({ ok: true, value: null }),
-      { authority: 'loopback' },
+      { authority: 'loopback', requiredCapability: 'harniverse.operate' },
     )
     const loopbackOnly = fakeResponse()
     await route.handler(fakePost({ host: 'harness.example' }, '/api/goals/create', request), loopbackOnly.response)
     expect(loopbackOnly.state.status).toBe(403)
     await removeLoopback()
+    await fiber.dispose()
+  })
+
+  it('denies a claimed Typert endpoint before its handler when the principal lacks its capability', async () => {
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    ctx.provide('webServer', fakeHttpServer(routes, []) as WebServer)
+    provideAuthentication(ctx, { kind: 'accepted', principal: OBSERVER_PRINCIPAL })
+    ctx.provide('apiProxy', {} as unknown as ApiProxy)
+    const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.example'] })
+    await fiber.await()
+    const handler = vi.fn(async () => ({ ok: true as const, value: null }))
+    const connection = ctx.get('connection') as HostConnectionHandle
+    const remove = connection.rpc.intercept(
+      '/api',
+      endpoint => endpoint === 'goals/create' ? { requiredCapability: 'harniverse.operate' } : undefined,
+      handler,
+      { authority: 'trusted-host', requiredCapability: 'harniverse.operate' },
+    )
+    const request: ClientRequest = {
+      type: 'client-request',
+      rpcId: RpcId('rpc-denied'),
+      method: 'goals/create',
+      payload: { args: {} },
+    }
+    const denied = fakeResponse()
+
+    await routes[0]!.handler(
+      fakePost({ host: 'harness.example' }, '/api/goals/create', request),
+      denied.response,
+    )
+
+    expect(denied.state).toMatchObject({ status: 403, body: 'forbidden' })
+    expect(handler).not.toHaveBeenCalled()
+    await remove()
     await fiber.dispose()
   })
 
@@ -515,11 +761,12 @@ describe('connection node half', () => {
     const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.example'] })
     await fiber.await()
     const connection = ctx.get('connection') as HostConnectionHandle
-    const remove = connection.rpc.handle('/rpc', async (endpoint) => {
+    const remove = connection.rpc.handle('/rpc', async ({ endpoint }) => {
       if (endpoint === 'fail') throw new Error('handler broke')
       return { ok: true, value: null }
     }, {
       authority: 'trusted-host',
+      requiredCapability: 'harniverse.observe',
     })
     const route = routes.find(candidate => candidate.path === '/rpc')!
 
@@ -538,8 +785,8 @@ describe('connection node half', () => {
 
     for (const [request, status] of [
       [fakeRequest({ host: 'harness.example' }, '/rpc/goals/create'), 404],
-      [fakePost({ host: 'harness.example' }, '/outside/goals/create', {}), 404],
-      [fakePost({ host: 'harness.example' }, '/rpc/goals//create', {}), 404],
+      [fakePost({ host: 'harness.example' }, '/outside/goals/create', {}), 403],
+      [fakePost({ host: 'harness.example' }, '/rpc/goals//create', {}), 403],
       [fakeRawPost({ host: 'harness.example' }, '/rpc/goals/create', '{}'), 415],
       [fakeRawPost({ host: 'harness.example', 'content-type': 'text/plain' }, '/rpc/goals/create', '{}'), 415],
       [fakeRawPost({ host: 'harness.example', 'content-type': 'application/json; charset=utf-8' }, '/rpc/goals/create', '{'), 400],
@@ -566,17 +813,21 @@ describe('connection node half', () => {
     await route.handler(fakePost({ host: 'harness.example' }, '/rpc/fail', {
       type: 'client-request', rpcId: 'rpc-fail', method: 'fail', payload: {},
     }), failed.response)
-    expect(failed.state).toMatchObject({ status: 500, body: 'handler failure: Error: handler broke' })
+    expect(failed.state).toMatchObject({ status: 500, body: 'internal handler failure' })
+    expect(failed.state.body).not.toContain('handler broke')
 
     expect(() => connection.rpc.handle('/api', async () => ({ ok: true, value: null }), {
       authority: 'loopback',
+      requiredCapability: 'harniverse.observe',
     })).toThrow('invalid or reserved RPC channel')
     expect(() => connection.rpc.handle('api3', async () => ({ ok: true, value: null }), {
       authority: 'loopback',
+      requiredCapability: 'harniverse.observe',
     })).toThrow('invalid or reserved RPC channel')
 
     const removeLoopback = connection.rpc.handle('/loopback', async () => ({ ok: true, value: null }), {
       authority: 'loopback',
+      requiredCapability: 'harniverse.observe',
     })
     const loopbackRoute = routes.find(candidate => candidate.path === '/loopback')!
     const publicResponse = fakeResponse()
@@ -624,12 +875,15 @@ describe('connection node half over a real HTTP server', () => {
     })
   }
 
-  it('answers a declared LAN authority with 403 on every configuration method, over real HTTP', async () => {
+  it('enforces principal capabilities independently of LAN or loopback authority over real HTTP', async () => {
     // The fence's input is a real IncomingMessage parsed by Node from the
     // wire, not a hand-assembled object: the Host header a LAN browser sends
     // is exactly what decides loopback-only here, so the boundary is asserted
     // against the parse the server actually performs.
-    const { routes, dispose } = await mounted({ trustedHosts: ['harness.example'] })
+    const { routes, dispose } = await mounted(
+      { trustedHosts: ['harness.example'] },
+      { kind: 'accepted', principal: OBSERVER_PRINCIPAL },
+    )
     const { port, close } = await serve(routes)
     try {
       // Reads are as privileged as writes: describe returns the exposed
@@ -637,7 +891,7 @@ describe('connection node half over a real HTTP server', () => {
       for (const method of [
         'settings.describe', 'settings.openDocument', 'settings.update', 'settings.replace', 'settings.mutate',
         'credentials.describe', 'credentials.set', 'credentials.unset',
-        'host.pickDirectory', 'host.openPath',
+        'host.pickDirectory', 'host.listDirectory', 'host.createDirectory', 'host.openPath',
         // Carries a draft credential and turns the host into a fetcher for a
         // URL the caller picked: an admission-only remote credential must not reach it.
         'llm.discoverModels',
@@ -649,15 +903,13 @@ describe('connection node half over a real HTTP server', () => {
       // client's model picker needs it, and it carries no key or endpoint
       // state (404 is the empty proxy's carrier answer — the fence passed).
       // `agentPreset.list` joins the model catalog for the same reason: ids and
-      // trust only, and a LAN client's preset picker needs it. `select` is
-      // reachable too: `session.create` already takes an `agentPreset`, and the
-      // deployment's own default already carries bash, so pinning the switch
-      // would be a fence beside an open gate.
-      for (const method of ['llm.providers', 'llm.models', 'agentPreset.list', 'agentPreset.select']) {
+      // trust only, and a remote preset picker needs it.
+      for (const method of ['llm.providers', 'llm.models', 'agentPreset.list']) {
         expect([method, await call(port, method, 'harness.example')]).toEqual([method, 404])
       }
-      // Loopback reaches everything, configuration included.
-      expect(await call(port, 'settings.describe', `127.0.0.1:${String(port)}`)).toBe(404)
+      expect(await call(port, 'agentPreset.select', 'harness.example')).toBe(403)
+      // Network location does not add a capability absent from the principal.
+      expect(await call(port, 'settings.describe', `127.0.0.1:${String(port)}`)).toBe(403)
     } finally {
       await close()
       await dispose()

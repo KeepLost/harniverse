@@ -10,4 +10,7 @@
       config:
         operation: !!js ctx.authStartup.operation
         name: !!js ctx.authStartup.name
+        publicKey: !!js ctx.authStartup.publicKey
+        profile: !!js ctx.authStartup.profile
+        capabilities: !!js ctx.authStartup.capabilities
         dshHome: !!js process.env.DSH_HOME

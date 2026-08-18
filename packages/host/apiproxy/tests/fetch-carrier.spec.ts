@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { ALL_AUTHENTICATION_CAPABILITIES, type AuthenticationPrincipal } from '@deepseek-ai/dsh-authentication'
 import type { ApiProxy, HostFrame, MuxFrame } from '../src/api/index.ts'
 import type { ClientResponse, RpcMessage, RpcReceipt, RpcRequest } from '../src/api/rpc.ts'
 import { RpcId } from '../src/api/rpc.ts'
@@ -579,6 +580,26 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(parsed.result.error?.code).toBe('cancelled')
   })
 
+  it('attaches the authenticated principal to a host-side unary request', async () => {
+    const principal: AuthenticationPrincipal = {
+      kind: 'bypass',
+      capabilities: ALL_AUTHENTICATION_CAPABILITIES,
+    }
+    const api = fakeApi()
+    const listSessions = api.sessions.list.bind(api.sessions)
+    const list = vi.fn((request: Parameters<ApiProxy['sessions']['list']>[0]) => listSessions(request))
+    api.sessions.list = list
+    const handler = toFetchHandler(api, principal)
+    const response = await handler.fetch(new Request('http://x/api/session.list', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'client-request', rpcId: 'r-principal', method: 'session.list', payload: {} }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ principal }))
+  })
+
   it('propagates the carrier Request signal into subagent.prompt', async () => {
     const handler = toFetchHandler(fakeApi())
     const controller = new AbortController()
@@ -671,11 +692,13 @@ describe('handler carrier-layer statuses', () => {
   })
 
   it('500s when the impl itself throws', async () => {
-    const crashing = toFetchHandler(fakeApi({ crashOn: 'session.list' }))
+    const reportFailure = vi.fn()
+    const crashing = toFetchHandler(fakeApi({ crashOn: 'session.list' }), undefined, reportFailure)
     const body = JSON.stringify({ type: 'client-request', rpcId: 'r-11', method: 'session.list', payload: {} })
     const response = await crashing.fetch(new Request('http://x/api/session.list', { method: 'POST', headers: { 'content-type': 'application/json' }, body }))
     expect(response.status).toBe(500)
-    expect(await response.text()).toContain('impl crashed')
+    expect(await response.text()).toBe('internal handler failure')
+    expect(reportFailure).toHaveBeenCalledWith('session.list', expect.objectContaining({ message: 'impl crashed' }))
   })
 
   it('routes /api/respond, rejecting malformed client-responses as a receipt', async () => {

@@ -29,6 +29,7 @@ import { dirname, join } from 'node:path'
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
+import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { WebBootEntry, WebBootGraph } from './client/manifest.ts'
 
@@ -182,7 +183,7 @@ export function injectBootManifest(html: string, graph: WebBootGraph): string {
  * boot activation audit reports it).
  */
 export class ClientModuleRegistry extends Service {
-  static inject = ['webServer', 'loader']
+  static inject = ['webServer', 'loader', 'connection']
 
   private readonly table = new Map<string, WebPluginRecord>()
   // Negative verdicts (unresolvable specifier — builtins like cordis:include,
@@ -424,6 +425,7 @@ export class ClientModuleRegistry extends Service {
       res.end()
       return
     }
+    if (!await this.ctx.connection.authorizeHttpRequest(req, res, 'harniverse.observe')) return
     /* v8 ignore next -- `?? '/'` arm: node:http always sets url on server requests. */
     const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)
     // The id may contain a scope slash. Anything else under /plugins (including

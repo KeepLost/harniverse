@@ -519,7 +519,7 @@ describe('SSE stream path', () => {
     }
     expect(seen.map(f => f.type)).toEqual(['host/session-added', 'stream/error'])
     const last = seen.at(-1)
-    if (last?.type === 'stream/error') expect(last.error.message).toMatch(/impl died mid-stream/)
+    if (last?.type === 'stream/error') expect(last.error.message).toBe('event stream failed')
   })
 
   it('drops a malformed SSE frame and keeps the stream alive (S→C two-level parse)', async () => {

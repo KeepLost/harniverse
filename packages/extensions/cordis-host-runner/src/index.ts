@@ -223,7 +223,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
    * @param pluginId - Stable Plugin identity to remove.
    * @returns Whether removal succeeded and whether it stopped an active run.
    */
-  @Remote('undefineFromPanel')
+  @Remote({ exportName: 'undefineFromPanel', requiredCapability: 'harniverse.administer' })
   async undefineFromPanel(agent: Agent, pluginId: CordisDynamicPluginId): Promise<DynamicCordisUndefineReceipt> {
     const result = await this.undefine(agent, pluginId)
     if (result.ok) {
@@ -321,7 +321,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
    * @param approveFutureVersions - Whether this approval covers later Packages of the same Plugin.
    * @returns The exact Host activation or a failure message.
    */
-  @Remote('runHostHalf')
+  @Remote({ exportName: 'runHostHalf', requiredCapability: 'harniverse.administer' })
   async runHostHalf(
     agent: Agent,
     pluginId: CordisDynamicPluginId,
@@ -380,7 +380,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
    * @param pluginRunId - Exact active run authorized to receive source.
    * @returns Client source and its Plugin, Package, and run identities.
    */
-  @Remote('getClientCode')
+  @Remote({ exportName: 'getClientCode', requiredCapability: 'harniverse.administer' })
   getClientCode(
     agent: Agent,
     pluginId: CordisDynamicPluginId,
@@ -409,7 +409,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
    * @param resolution - Browser refusal or exact Client activation result.
    * @returns Whether the still-pending request accepted this resolution.
    */
-  @Remote('resolveRequestRun')
+  @Remote({ exportName: 'resolveRequestRun', requiredCapability: 'harniverse.administer' })
   async resolveRequestRun(
     requestId: ApprovalRequestId,
     resolution: DynamicCordisRunResolution,
@@ -434,7 +434,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
    * @param resolution - Exact Client activation result from the acting page.
    * @returns The committed activation or its failure.
    */
-  @Remote('settleUserRun')
+  @Remote({ exportName: 'settleUserRun', requiredCapability: 'harniverse.administer' })
   async settleUserRun(
     agent: Agent,
     pluginId: CordisDynamicPluginId,
@@ -476,7 +476,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
    * @param pluginId - Stable Plugin identity to stop.
    * @returns Success or the reason no run was stopped.
    */
-  @Remote('stopFromPanel')
+  @Remote({ exportName: 'stopFromPanel', requiredCapability: 'harniverse.administer' })
   async stopFromPanel(agent: Agent, pluginId: CordisDynamicPluginId): Promise<DynamicCordisStopResponse> {
     const result = await this.stop(agent, pluginId)
     if (!result.ok) return result
@@ -494,7 +494,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
    * @param providers - complete Client provider manifest.
    * @returns null after accepting the manifest.
    */
-  @Remote('syncInspectManifest')
+  @Remote({ exportName: 'syncInspectManifest', requiredCapability: 'harniverse.administer' })
   syncInspectManifest(providers: readonly CordisInspectProviderManifest[]): null {
     this.inspectRegistry.syncClientManifest(providers)
     return null
@@ -507,7 +507,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
    * @param resolution - provider result or structured refusal.
    * @returns whether this answer won the query.
    */
-  @Remote('resolveInspectQuery')
+  @Remote({ exportName: 'resolveInspectQuery', requiredCapability: 'harniverse.administer' })
   resolveInspectQuery(
     agent: Agent,
     requestId: CordisInspectRequestId,
@@ -521,7 +521,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
    * @returns Source-free metadata for every process-local Plugin.
    */
   /* jscpd:ignore-start */
-  @Remote('inventory')
+  @Remote({ exportName: 'inventory', requiredCapability: 'harniverse.administer' })
   inventory(): DynamicCordisInventoryRow[] {
     return this.registry.all().map(plugin => ({
       pluginId: plugin.pluginId,
@@ -680,7 +680,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
    * @param failure - Slot, message, and entry-retirement result.
    * @returns Null after recording or ignoring a stale report.
    */
-  @Remote('reportRenderFailure')
+  @Remote({ exportName: 'reportRenderFailure', requiredCapability: 'harniverse.administer' })
   async reportRenderFailure(
     agent: Agent,
     pluginId: CordisDynamicPluginId,
@@ -714,7 +714,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
    * @param failure - Original guard message and stack.
    * @returns Null after reporting or ignoring a stale/startup failure.
    */
-  @Remote('reportClientGuardFailure')
+  @Remote({ exportName: 'reportClientGuardFailure', requiredCapability: 'harniverse.administer' })
   async reportClientGuardFailure(
     agent: Agent,
     pluginId: CordisDynamicPluginId,
@@ -737,7 +737,7 @@ export class DynamicCordisRunnerService extends TypertRemoteService {
    * @param args - JSON argument delivered to the handler.
    * @returns The JSON result or a typed invocation failure.
    */
-  @Remote('invoke')
+  @Remote({ exportName: 'invoke', requiredCapability: 'harniverse.administer' })
   async invoke(
     pluginId: CordisDynamicPluginId,
     pluginRunId: CordisDynamicPluginRunId,

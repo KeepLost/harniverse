@@ -19,6 +19,8 @@ export {
 } from './client.ts'
 export type { NotificationSubscription } from './client.ts'
 export { JsonRpcResponseError } from '@deepseek-ai/dsh-sdk-protocol'
+export { GrantAccess } from './authentication.ts'
+export type { GrantAccessOptions } from './authentication.ts'
 export type {
   ContentBlock,
   DeepSeekHarnessOptions,

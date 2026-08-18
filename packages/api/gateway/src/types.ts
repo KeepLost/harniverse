@@ -3,6 +3,8 @@
  * @module @deepseek-ai/dsh-api-gateway/types
  */
 
+import type { AuthenticationPrincipal } from '@deepseek-ai/dsh-authentication'
+
 /** One Remote method request after a carrier has decoded its envelope. */
 export interface InvokeRemoteRequest {
   /** Remote namespace selected by the generated descriptor. */
@@ -13,12 +15,15 @@ export interface InvokeRemoteRequest {
   readonly args: Readonly<Record<string, unknown>>
   /** Carrier or direct-caller cancellation injected only into cancellation-aware methods. */
   readonly signal?: AbortSignal
+  /** Authenticated network identity; absent only for trusted in-process callers. */
+  readonly principal?: AuthenticationPrincipal
 }
 
 /** Stable infrastructure and boundary failures emitted before or after business execution. */
 export type TypertGatewayErrorCode =
   | 'ambiguous-endpoint'
   | 'arguments-invalid'
+  | 'authorization-denied'
   | 'binding-invalid'
   | 'context-failed'
   | 'context-not-found'

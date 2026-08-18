@@ -11,12 +11,12 @@ class Goals extends TypertRemoteService {
     super(ctx, 'goals')
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.observe' })
   create(value: string): string {
     return value
   }
 
-  @RemoteScope('agent')
+  @RemoteScope('agent', { requiredCapability: 'harniverse.operate' })
   scoped(value: string): string {
     return value
   }
@@ -25,8 +25,8 @@ class Goals extends TypertRemoteService {
 const methods = remoteMethods(new Goals(new Context()))
 const actual = JSON.stringify(methods)
 const expected = JSON.stringify([
-  { method: 'create', invocation: { kind: 'direct' } },
-  { method: 'scoped', invocation: { kind: 'context', context: 'agent' } },
+  { method: 'create', invocation: { kind: 'direct' }, requiredCapability: 'harniverse.observe' },
+  { method: 'scoped', invocation: { kind: 'context', context: 'agent' }, requiredCapability: 'harniverse.operate' },
 ])
 if (actual !== expected) throw new Error(`unexpected Remote declarations: ${actual}`)
 process.stdout.write(actual)

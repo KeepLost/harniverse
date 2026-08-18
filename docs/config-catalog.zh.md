@@ -351,19 +351,32 @@ export interface Config {
 ```ts config-catalog
 /** Authentication management runner configuration. */
 export interface Config {
-  /** Selected token operation. */
+  /** Selected Grant operation. */
   operation: AuthOperation
-  /** Token name for add, reset, and delete. */
+  /** Enrollment id, Grant id, or client name. */
   name?: string
-  /** Harness home containing the local token registry. */
+  /** Base64url P-256 SPKI key for client registration. */
+  publicKey?: string
+  /** Convenience capability profile. */
+  profile?: string
+  /** Explicit automation capabilities. */
+  capabilities?: string[]
+  /** Harness home containing the local Grant registry. */
   dshHome?: string
 }
 
-/** Supported named-token management operations. */
-export type AuthOperation = 'add' | 'reset' | 'delete' | 'list'
+/** Supported Grant management operations. */
+export type AuthOperation =
+  | 'device-list'
+  | 'device-approve'
+  | 'device-revoke'
+  | 'grant-list'
+  | 'grant-revoke'
+  | 'client-add'
+  | 'client-revoke'
 ```
 
-来源：[`packages/bundle/auth-app/src/index.ts:21`](../packages/bundle/auth-app/src/index.ts)
+来源：[`packages/bundle/auth-app/src/index.ts:27`](../packages/bundle/auth-app/src/index.ts)
 
 <a id="deepseek-aidsh-authentication-local"></a>
 
@@ -372,38 +385,60 @@ export type AuthOperation = 'add' | 'reset' | 'delete' | 'list'
 ```ts config-catalog
 /** Local authentication plugin configuration. */
 export interface Config {
-  /** Harness home containing the registry, access log, and instance lease. */
+  /** State root containing the private authentication registry and access log. */
   dshHome?: string
-  /** Admission behavior; authenticated is the default. */
+  /** Authenticated network admission or loopback-only development bypass. */
   mode?: AuthenticationMode
-  /** Watch token management changes and publish targeted revocations. */
+  /** Whether to watch the durable Grant registry for cross-process changes. */
   watch?: boolean
-  /** Watcher write-settle window in milliseconds. */
+  /** Filesystem watcher debounce interval in milliseconds. */
   debounceMs?: number
-  /** Browser session lifetime in milliseconds. */
-  sessionTtlMs?: number
-  /** Maximum process-memory browser sessions retained at once. */
+  /** Access Token and browser-session lifetime in milliseconds, at most 15 minutes. */
+  accessTokenTtlMs?: number
+  /** Single-use possession challenge lifetime in milliseconds, at most 5 minutes. */
+  challengeTtlMs?: number
+  /** Pending enrollment request lifetime in milliseconds, at most 15 minutes. */
+  enrollmentTtlMs?: number
+  /** Maximum unexpired pending enrollment records in the durable registry. */
+  maxPendingEnrollments?: number
+  /** Enrollment requests allowed from one direct peer in each counting window. */
+  enrollmentRequestLimit?: number
+  /** Enrollment request counting window in milliseconds. */
+  enrollmentRequestWindowMs?: number
+  /** Maximum direct-peer enrollment counters retained in process memory. */
+  maxEnrollmentPeerKeys?: number
+  /** Maximum process-memory Access Token records. */
+  maxAccessTokens?: number
+  /** Maximum process-memory Access Tokens issued by one exact Grant revision. */
+  maxAccessTokensPerGrant?: number
+  /** Maximum process-memory challenge records. */
+  maxChallenges?: number
+  /** Maximum process-memory challenges issued by one exact Grant revision. */
+  maxChallengesPerGrant?: number
+  /** Maximum concurrent process-memory browser sessions. */
   maxBrowserSessions?: number
-  /** Registry reconciliation interval backing up filesystem watch events. */
+  /** Maximum concurrent browser sessions issued by one exact Grant revision. */
+  maxBrowserSessionsPerGrant?: number
+  /** Fail-closed durable registry reconciliation interval in milliseconds. */
   reconcileIntervalMs?: number
-  /** Maximum active access-log size before rotation. */
+  /** Active access-log size before rotation in bytes. */
   accessLogMaxBytes?: number
   /** Number of rotated access-log files retained. */
   accessLogMaxFiles?: number
-  /** Invalid credentials allowed per channel and peer within one window. */
+  /** Invalid credential attempts allowed within one rate-limit window. */
   authFailureLimit?: number
-  /** Invalid-credential counting window in milliseconds. */
+  /** Authentication failure counting window in milliseconds. */
   authFailureWindowMs?: number
-  /** Block duration after the invalid-credential limit is reached. */
+  /** Rate-limit block duration in milliseconds. */
   authFailureBlockMs?: number
-  /** Maximum channel and peer failure states retained in memory. */
+  /** Maximum peer-and-channel rate-limit records retained. */
   maxAuthFailureKeys?: number
 }
 ```
 
 依赖：[`AuthenticationMode`](../packages/auth/authentication/src/index.ts)
 
-来源：[`packages/auth/authentication-local/src/index.ts:42`](../packages/auth/authentication-local/src/index.ts)
+来源：[`packages/auth/authentication-local/src/index.ts:70`](../packages/auth/authentication-local/src/index.ts)
 
 <a id="deepseek-aidsh-bash-local"></a>
 
@@ -475,13 +510,13 @@ export interface ConnectionConfig {
 }
 ```
 
-来源：[`packages/client/connection/src/index.ts:53`](../packages/client/connection/src/index.ts)
+来源：[`packages/client/connection/src/index.ts:56`](../packages/client/connection/src/index.ts)
 
 <a id="deepseek-aidsh-client-hmr"></a>
 
 ## `@deepseek-ai/dsh-client-hmr`
 
-需要：`clientModules` · `webServer`
+需要：`clientModules` · `webServer` · `connection`
 
 ```ts config-catalog
 /** Plugin config, validated by the same-named schemastery schema. */
@@ -491,7 +526,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/client/hmr/src/index.ts:31`](../packages/client/hmr/src/index.ts)
+来源：[`packages/client/hmr/src/index.ts:32`](../packages/client/hmr/src/index.ts)
 
 <a id="deepseek-aidsh-code-runtime-worker-thread"></a>
 
@@ -3209,7 +3244,7 @@ export interface Config {
 - `@deepseek-ai/dsh-api-gateway` — 需要 `typert`（[`packages/api/gateway/src/index.ts`](../packages/api/gateway/src/index.ts)）
 - `@deepseek-ai/dsh-api-remotes`（[`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts)）
 - `@deepseek-ai/dsh-client-locale`（[`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts)）
-- `@deepseek-ai/dsh-client-modules` — 需要 `webServer` · `loader`（[`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts)）
+- `@deepseek-ai/dsh-client-modules` — 需要 `webServer` · `loader` · `connection`（[`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts)）
 - `@deepseek-ai/dsh-client-runtime`（[`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-agent-preset`（[`packages/client/ui-agent-preset/src/index.ts`](../packages/client/ui-agent-preset/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-commands`（[`packages/client/ui-commands/src/index.ts`](../packages/client/ui-commands/src/index.ts)）

@@ -18,7 +18,7 @@ Status: implemented
 
 `SpillRef` 只携带 `{ locator, bytes }`。Provider 负责持久化、不透明寻址、分页、取消和精确字节报告。Consumer 负责所有面向模型的通知与指令。可选的 `spill-policy` 仍是独立的尽力而为早期转换器，并渲染自己的 Provider 无关 locator 指引。
 
-独立的 `@deepseek-ai/dsh-auth-app` bundle 将同一归属规则应用于管理入口。`dsh auth` 只是 `auth` profile 的别名；`auth-startup` 解析应用语法并释放注入的 `auth-runner`，后者调用本地管理 API 并请求有界退出。该 profile 不挂载 Agent、WebServer 或运行时认证 Provider，因此空 Harness home 可以创建首个 token。
+独立的 `@deepseek-ai/dsh-auth-app` bundle 将同一归属规则应用于管理入口。`dsh auth` 只是 `auth` profile 的别名；`auth-startup` 解析应用语法并释放注入的 `auth-runner`，后者调用本地管理 API 并请求有界退出。该 profile 不挂载 Agent、WebServer 或运行时认证 Provider，因此 sealed Harness home 可以批准第一个 owner 设备。
 
 Notification 与 session-telemetry Definition 包继续内置各自的 coordinator Consumer。生成的能力投影会在 Consumer 列列出同一个包，而不是显示该角色缺失。
 

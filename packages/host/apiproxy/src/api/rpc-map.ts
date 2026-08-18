@@ -15,6 +15,7 @@ import type { CredentialsApi } from './credentials.ts'
 import type { LlmApi } from './llm.ts'
 import type { SubagentsApi } from './subagents.ts'
 import type { RpcResponse } from './rpc.ts'
+import type { AuthenticationCapability } from '@deepseek-ai/dsh-authentication'
 
 /**
  * Method name → method signature. Signatures are the single source of truth; payload/value
@@ -78,6 +79,82 @@ export interface RpcMethodMap {
   'llm.providers': LlmApi['providers']
   'llm.models': LlmApi['models']
   'llm.discoverModels': LlmApi['discoverModels']
+}
+
+/** Required effect capability for every legacy unary endpoint. */
+export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: AuthenticationCapability } = {
+  'session.list': 'harniverse.observe',
+  'session.search': 'harniverse.observe',
+  'session.create': 'harniverse.operate',
+  'session.history': 'harniverse.observe',
+  'session.status': 'harniverse.observe',
+  'session.workStatus': 'harniverse.observe',
+  'session.models': 'harniverse.observe',
+  'session.selectModel': 'harniverse.operate',
+  'session.rename': 'harniverse.operate',
+  'session.fork': 'harniverse.operate',
+  'session.prompt': 'harniverse.operate',
+  'session.attachment': 'harniverse.operate',
+  'session.updateQueue': 'harniverse.operate',
+  'session.cancel': 'harniverse.operate',
+  'session.close': 'harniverse.operate',
+  'session.delete': 'harniverse.operate',
+  'subagent.list': 'harniverse.observe',
+  'subagent.history': 'harniverse.observe',
+  'subagent.prompt': 'harniverse.operate',
+  'subagent.interrupt': 'harniverse.operate',
+  'host.describe': 'harniverse.observe',
+  'host.pickDirectory': 'harniverse.administer',
+  'host.listDirectory': 'harniverse.administer',
+  'host.createDirectory': 'harniverse.administer',
+  'host.openPath': 'harniverse.administer',
+  'workspace.list': 'harniverse.observe',
+  'workspace.create': 'harniverse.operate',
+  'workspace.rename': 'harniverse.operate',
+  'workspace.delete': 'harniverse.operate',
+  'workspace.insertBefore': 'harniverse.operate',
+  'workspace.insertSessionBefore': 'harniverse.operate',
+  'workspace.archiveSession': 'harniverse.operate',
+  'skill.list': 'harniverse.observe',
+  'agentPreset.list': 'harniverse.observe',
+  'agentPreset.select': 'harniverse.operate',
+  'agentPreset.read': 'harniverse.administer',
+  'agentPreset.copy': 'harniverse.administer',
+  'agentPreset.openDocument': 'harniverse.administer',
+  'agentPreset.remove': 'harniverse.administer',
+  'goal.create': 'harniverse.operate',
+  'goal.edit': 'harniverse.operate',
+  'goal.pause': 'harniverse.operate',
+  'goal.resume': 'harniverse.operate',
+  'goal.complete': 'harniverse.operate',
+  'goal.clear': 'harniverse.operate',
+  'settings.describe': 'harniverse.administer',
+  'settings.openDocument': 'harniverse.administer',
+  'settings.update': 'harniverse.administer',
+  'settings.replace': 'harniverse.administer',
+  'settings.mutate': 'harniverse.administer',
+  'credentials.describe': 'harniverse.administer',
+  'credentials.set': 'harniverse.administer',
+  'credentials.unset': 'harniverse.administer',
+  'llm.providers': 'harniverse.observe',
+  'llm.models': 'harniverse.observe',
+  'llm.discoverModels': 'harniverse.administer',
+}
+
+/**
+ * Resolve the required capability for one legacy API endpoint.
+ * @param endpoint - channel-relative endpoint.
+ * @returns the declared capability, or undefined for an unknown endpoint.
+ */
+export function legacyRpcCapability(endpoint: string): AuthenticationCapability | undefined {
+  if (Object.hasOwn(RPC_METHOD_CAPABILITIES, endpoint)) {
+    return RPC_METHOD_CAPABILITIES[endpoint as keyof RpcMethodMap]
+  }
+  if (endpoint === 'events.mux' || endpoint === 'events.host' || endpoint === 'session.export') {
+    return 'harniverse.observe'
+  }
+  if (endpoint === 'respond') return 'harniverse.operate'
+  return undefined
 }
 
 /** Business request payload of method K (reaches through the RpcRequest narrow form to payload). */

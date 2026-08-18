@@ -33,6 +33,10 @@ The protocol client under the owned-run API: explicit `start()`/`initialize()`/`
 
 `HarnessClientOptions.env` replaces the child environment entirely when given (`undefined` inherits the parent's); callers own credential policy — `scrubbedParentEnv` from `dsh-subprocess` is the shared scrub base for isolation-minded launches.
 
+## Remote Grant access
+
+`GrantAccess` supports external automation that registered a P-256 public key with `dsh auth client add`. The caller retains the private key and supplies a signer for base64url IEEE-P1363 ECDSA/SHA-256 proofs. `authorization()` coalesces concurrent challenge exchanges and renews the short bearer credential before expiry; `clear()` prevents an in-flight exchange from republishing its result; `fetch()` resolves a target against the configured Harness origin, rejects cross-origin use, and attaches the credential. Remote origins require HTTPS, while loopback HTTP remains available for local development. The helper never receives an exportable long-lived secret.
+
 ## Model Experience
 
 None, as this is a client-process library; the model runs in the spawned runtime, whose experience is owned by the plugins its `cordis.yml` composes.

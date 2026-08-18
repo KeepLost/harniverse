@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-authentication-local",
-  "description": "Named-token inbound authentication, process lease, browser sessions, and access records for the DeepSeek Harness",
+  "description": "Public-key Grant authentication, process lease, short credentials, and access records for the DeepSeek Harness",
   "version": "0.1.0-rc.5",
   "publishConfig": {
     "access": "public"

@@ -6,8 +6,8 @@
 
 ## Remote 声明
 
-- `@Remote` 将公开实例方法标记为可在其注册的 Cordis 服务上直接调用。
-- `@RemoteScope(key)` 标记接收者选自合并声明的作用域 Context 类型的方法。
+- `@Remote({ requiredCapability, exportName? })` 将公开实例方法标记为可在其注册的 Cordis 服务上直接调用。
+- `@RemoteScope(key, { requiredCapability, exportName? })` 标记接收者选自合并声明的作用域 Context 类型的方法。
 - `TypertRemoteService` 将传给 `super(ctx, serviceKey, options?)` 的 Cordis 键绑定到同一默认协议命名空间。
 - `bindTypertRemote(this, serviceKey, options?)` 为无法继承 `TypertRemoteService` 的服务提供同样可见且冻结的绑定。
 - `remoteMethods(service)` 返回按声明顺序排列、与内部状态分离的快照，供 Gateway 的 SRC 回退路径使用。
@@ -18,7 +18,7 @@
 
 ## Typert 协议
 
-业务包扩展 `TypertLookupMap` 和 `TypertContextMap`，以关联宿主对象或作用域 Context 与其协议身份。生成的产物扩展 `TypertRemoteMap`、`TypertRemoteScopeMap` 和 `TypertRemoteNamespaceMap`，使客户端导入后仅暴露选定的 Remote 方法。`InvocationDescriptor` 是供注册表、网关和客户端 Remote 使用的共享运行时形式。
+业务包扩展 `TypertLookupMap` 和 `TypertContextMap`，以关联宿主对象或作用域 Context 与其协议身份。每个 Remote 声明必须指定一个 `harniverse.*` capability；生成 descriptor 和 source-runtime descriptor 都保留它，遗漏属于无效声明而不是默认接入。生成的产物扩展 `TypertRemoteMap`、`TypertRemoteScopeMap` 和 `TypertRemoteNamespaceMap`，使客户端导入后仅暴露选定的 Remote 方法。`InvocationDescriptor` 是供注册表、网关和客户端 Remote 使用的共享运行时形式。
 
 Host 装配以转发给消费端的 Host 事件扩展 `TypertRemoteEventSelection`，从而收窄 `ctx.remote.$on` 的键面；`TypertForwardableEvent` 陈述单向投递根本能承载哪些形状，把 Scope 化事件与有返回值的事件排除在外。`TypertClientRemote` 承载该面的两种角色：消费方经 `$on` 订阅，持有 Host 帧 sink 的 Client 半经 `$dispatch` 交出帧。
 

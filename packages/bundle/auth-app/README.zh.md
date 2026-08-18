@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-这是一次性认证管理组合包。`dsh auth` 启动该 profile，并将余下参数转发给 `auth-startup`；后者拥有 `token add`、`token reset`、`token delete` 和 `token list` 命令语法。注入的 `auth-runner` 调用本地具名 token 管理 API，仅在 add 和 reset 时写出生成的密钥，并通过 launcher 提供的 `ctx.appExit` 请求有界退出。
+这是一次性本地 Grant 管理组合包。`dsh auth` 启动该 profile，并将余下参数转发给 `auth-startup`；后者拥有 `device`、`grant` 和 `client` 命令组。注入的 `auth-runner` 批准待处理设备 enrollment、列出或撤销 Grant、注册 API client 公钥，并通过 launcher 提供的 `ctx.appExit` 请求有界退出。
 
-该组合包不会把 `dsh-authentication-local` 挂载为网络认证服务，不会打开端口，也不要求已有 token。因此它能在空 Harness home 中创建首个 token。
+该组合包不会把 `dsh-authentication-local` 挂载为网络服务，也不会打开端口。因此它可以在封存的 Harness home 中批准第一个 owner 设备，而不要求已有凭据。
 
 ## Model Experience
 
@@ -16,4 +16,4 @@ None; the bundle performs no model request.
 
 ## Known Limitations and Deferred Work
 
-- 该应用仅管理本地具名 token Provider；其他认证 Provider 各自拥有自己的管理界面。
+- 该应用仅管理本地 Grant Provider；其他认证 Provider 各自拥有自己的管理命令。

@@ -1,20 +1,32 @@
 import { describe, expect, it } from 'vitest'
-import { authenticationTokenId, authenticationTokenName } from '../src/index.ts'
+import {
+  ALL_AUTHENTICATION_CAPABILITIES,
+  authenticationChallengeId,
+  authenticationEnrollmentId,
+  authenticationGrantId,
+  isAuthenticationCapability,
+} from '../src/index.ts'
 
-describe('authentication token identities', () => {
-  it('brands unambiguous lowercase token names', () => {
-    expect(authenticationTokenName('laptop')).toBe('laptop')
-    expect(authenticationTokenName('ci-runner.2')).toBe('ci-runner.2')
+describe('authentication opaque identities', () => {
+  it('brands non-empty Grant, enrollment, and challenge ids', () => {
+    expect(authenticationGrantId('grant-1')).toBe('grant-1')
+    expect(authenticationEnrollmentId('enrollment-1')).toBe('enrollment-1')
+    expect(authenticationChallengeId('challenge-1')).toBe('challenge-1')
+    expect(() => authenticationGrantId('')).toThrow(TypeError)
+    expect(() => authenticationEnrollmentId('')).toThrow(TypeError)
+    expect(() => authenticationChallengeId('')).toThrow(TypeError)
   })
+})
 
-  it('rejects ambiguous or unsafe token names', () => {
-    for (const value of ['', 'Phone', '-leading', 'with space', 'a'.repeat(65)]) {
-      expect(() => authenticationTokenName(value)).toThrow(TypeError)
-    }
-  })
-
-  it('rejects an empty provider token id', () => {
-    expect(authenticationTokenId('opaque')).toBe('opaque')
-    expect(() => authenticationTokenId('')).toThrow(TypeError)
+describe('authentication principals', () => {
+  it('publishes the complete capability vocabulary in stable order', () => {
+    expect(ALL_AUTHENTICATION_CAPABILITIES).toEqual([
+      'harniverse.observe',
+      'harniverse.operate',
+      'harniverse.administer',
+      'harniverse.authorize',
+    ])
+    expect(ALL_AUTHENTICATION_CAPABILITIES.every(isAuthenticationCapability)).toBe(true)
+    expect(isAuthenticationCapability('harniverse.unknown')).toBe(false)
   })
 })

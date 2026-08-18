@@ -93,6 +93,7 @@ function directDescriptor(): InvocationDescriptor {
   return {
     id: '@fixture/probe#probe/create',
     service: 'probe',
+    requiredCapability: 'harniverse.operate',
     namespace: 'probe',
     method: 'create',
     invocation: { kind: 'direct' },
@@ -118,6 +119,7 @@ function contextDescriptor(): InvocationDescriptor {
   return {
     id: '@fixture/probe#probe/rename',
     service: 'probe',
+    requiredCapability: 'harniverse.operate',
     namespace: 'probe',
     method: 'rename',
     invocation: {
@@ -141,6 +143,7 @@ function maybeDescriptor(): InvocationDescriptor {
   return {
     id: '@fixture/probe#probe/maybe',
     service: 'probe',
+    requiredCapability: 'harniverse.operate',
     namespace: 'probe',
     method: 'maybe',
     invocation: { kind: 'direct' },

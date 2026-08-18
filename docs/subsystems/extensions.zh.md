@@ -92,7 +92,7 @@ async undefine(agent: Agent, pluginId: CordisDynamicPluginId): Promise<DynamicCo
  * @param pluginId - Stable Plugin identity to remove.
  * @returns Whether removal succeeded and whether it stopped an active run.
  */
-@Remote('undefineFromPanel') async undefineFromPanel(agent: Agent, pluginId: CordisDynamicPluginId): Promise<DynamicCordisUndefineReceipt>
+@Remote({ exportName: 'undefineFromPanel', requiredCapability: 'harniverse.administer' }) async undefineFromPanel(agent: Agent, pluginId: CordisDynamicPluginId): Promise<DynamicCordisUndefineReceipt>
 
 /**
  * Start or update one Package for a model tool call. An unauthorized Client
@@ -116,7 +116,7 @@ async run( agent: Agent, pluginId: CordisDynamicPluginId, packageId: CordisDynam
  * @param approveFutureVersions - Whether this approval covers later Packages of the same Plugin.
  * @returns The exact Host activation or a failure message.
  */
-@Remote('runHostHalf') async runHostHalf( agent: Agent, pluginId: CordisDynamicPluginId, packageId: CordisDynamicPackageId, mode: CordisDynamicRunMode, requestId: ApprovalRequestId | null, approveFutureVersions: boolean, ): Promise<DynamicCordisHostHalfResult>
+@Remote({ exportName: 'runHostHalf', requiredCapability: 'harniverse.administer' }) async runHostHalf( agent: Agent, pluginId: CordisDynamicPluginId, packageId: CordisDynamicPackageId, mode: CordisDynamicRunMode, requestId: ApprovalRequestId | null, approveFutureVersions: boolean, ): Promise<DynamicCordisHostHalfResult>
 
 /**
  * Fetch Client code for the exact active run.
@@ -125,7 +125,7 @@ async run( agent: Agent, pluginId: CordisDynamicPluginId, packageId: CordisDynam
  * @param pluginRunId - Exact active run authorized to receive source.
  * @returns Client source and its Plugin, Package, and run identities.
  */
-@Remote('getClientCode') getClientCode( agent: Agent, pluginId: CordisDynamicPluginId, pluginRunId: CordisDynamicPluginRunId, ): DynamicCordisClientSource
+@Remote({ exportName: 'getClientCode', requiredCapability: 'harniverse.administer' }) getClientCode( agent: Agent, pluginId: CordisDynamicPluginId, pluginRunId: CordisDynamicPluginRunId, ): DynamicCordisClientSource
 
 /**
  * Resolve one model-driven Client activation request.
@@ -133,7 +133,7 @@ async run( agent: Agent, pluginId: CordisDynamicPluginId, packageId: CordisDynam
  * @param resolution - Browser refusal or exact Client activation result.
  * @returns Whether the still-pending request accepted this resolution.
  */
-@Remote('resolveRequestRun') async resolveRequestRun( requestId: ApprovalRequestId, resolution: DynamicCordisRunResolution, ): Promise<DynamicCordisResolveAck>
+@Remote({ exportName: 'resolveRequestRun', requiredCapability: 'harniverse.administer' }) async resolveRequestRun( requestId: ApprovalRequestId, resolution: DynamicCordisRunResolution, ): Promise<DynamicCordisResolveAck>
 
 /**
  * Settle a direct panel run after this page loaded or failed its Client half.
@@ -142,7 +142,7 @@ async run( agent: Agent, pluginId: CordisDynamicPluginId, packageId: CordisDynam
  * @param resolution - Exact Client activation result from the acting page.
  * @returns The committed activation or its failure.
  */
-@Remote('settleUserRun') async settleUserRun( agent: Agent, pluginId: CordisDynamicPluginId, resolution: DynamicCordisRunResolution, ): Promise<DynamicCordisRunResponse>
+@Remote({ exportName: 'settleUserRun', requiredCapability: 'harniverse.administer' }) async settleUserRun( agent: Agent, pluginId: CordisDynamicPluginId, resolution: DynamicCordisRunResolution, ): Promise<DynamicCordisRunResponse>
 
 /**
  * Stop the active run while retaining every Package version.
@@ -158,14 +158,14 @@ async stop(agent: Agent, pluginId: CordisDynamicPluginId): Promise<DynamicCordis
  * @param pluginId - Stable Plugin identity to stop.
  * @returns Success or the reason no run was stopped.
  */
-@Remote('stopFromPanel') async stopFromPanel(agent: Agent, pluginId: CordisDynamicPluginId): Promise<DynamicCordisStopResponse>
+@Remote({ exportName: 'stopFromPanel', requiredCapability: 'harniverse.administer' }) async stopFromPanel(agent: Agent, pluginId: CordisDynamicPluginId): Promise<DynamicCordisStopResponse>
 
 /**
  * Replace the Host mirror of the Client inspect provider directory.
  * @param providers - complete Client provider manifest.
  * @returns null after accepting the manifest.
  */
-@Remote('syncInspectManifest') syncInspectManifest(providers: readonly CordisInspectProviderManifest[]): null
+@Remote({ exportName: 'syncInspectManifest', requiredCapability: 'harniverse.administer' }) syncInspectManifest(providers: readonly CordisInspectProviderManifest[]): null
 
 /**
  * Claim one pending Client inspect query with its live result.
@@ -174,13 +174,13 @@ async stop(agent: Agent, pluginId: CordisDynamicPluginId): Promise<DynamicCordis
  * @param resolution - provider result or structured refusal.
  * @returns whether this answer won the query.
  */
-@Remote('resolveInspectQuery') resolveInspectQuery( agent: Agent, requestId: CordisInspectRequestId, resolution: CordisInspectQueryResolution, ): CordisInspectResolveAck
+@Remote({ exportName: 'resolveInspectQuery', requiredCapability: 'harniverse.administer' }) resolveInspectQuery( agent: Agent, requestId: CordisInspectRequestId, resolution: CordisInspectQueryResolution, ): CordisInspectResolveAck
 
 /**
  * Frame-wide inventory, grouped as one row per stable Plugin.
  * @returns Source-free metadata for every process-local Plugin.
  */
-@Remote('inventory') inventory(): DynamicCordisInventoryRow[]
+@Remote({ exportName: 'inventory', requiredCapability: 'harniverse.administer' }) inventory(): DynamicCordisInventoryRow[]
 
 /**
  * Read one Session's Host-rich state for inspection and result rendering.
@@ -229,7 +229,7 @@ inspectPackage( agent: Agent, pluginId: CordisDynamicPluginId, packageId: Cordis
  * @param failure - Slot, message, and entry-retirement result.
  * @returns Null after recording or ignoring a stale report.
  */
-@Remote('reportRenderFailure') async reportRenderFailure( agent: Agent, pluginId: CordisDynamicPluginId, pluginRunId: CordisDynamicPluginRunId, failure: DynamicCordisRenderFailure, ): Promise<null>
+@Remote({ exportName: 'reportRenderFailure', requiredCapability: 'harniverse.administer' }) async reportRenderFailure( agent: Agent, pluginId: CordisDynamicPluginId, pluginRunId: CordisDynamicPluginRunId, failure: DynamicCordisRenderFailure, ): Promise<null>
 
 /**
  * Report a Client guard rejection that happened after the Package completed activation.
@@ -239,7 +239,7 @@ inspectPackage( agent: Agent, pluginId: CordisDynamicPluginId, packageId: Cordis
  * @param failure - Original guard message and stack.
  * @returns Null after reporting or ignoring a stale/startup failure.
  */
-@Remote('reportClientGuardFailure') async reportClientGuardFailure( agent: Agent, pluginId: CordisDynamicPluginId, pluginRunId: CordisDynamicPluginRunId, failure: CordisErrorDetails, ): Promise<null>
+@Remote({ exportName: 'reportClientGuardFailure', requiredCapability: 'harniverse.administer' }) async reportClientGuardFailure( agent: Agent, pluginId: CordisDynamicPluginId, pluginRunId: CordisDynamicPluginRunId, failure: CordisErrorDetails, ): Promise<null>
 
 /**
  * Invoke an active Host method while rejecting stale Client runs.
@@ -249,7 +249,7 @@ inspectPackage( agent: Agent, pluginId: CordisDynamicPluginId, packageId: Cordis
  * @param args - JSON argument delivered to the handler.
  * @returns The JSON result or a typed invocation failure.
  */
-@Remote('invoke') async invoke( pluginId: CordisDynamicPluginId, pluginRunId: CordisDynamicPluginRunId, method: string, args: JsonValue, ): Promise<DynamicCordisInvokeResult>
+@Remote({ exportName: 'invoke', requiredCapability: 'harniverse.administer' }) async invoke( pluginId: CordisDynamicPluginId, pluginRunId: CordisDynamicPluginRunId, method: string, args: JsonValue, ): Promise<DynamicCordisInvokeResult>
 ```
 
 Types: [Agent](core.md)

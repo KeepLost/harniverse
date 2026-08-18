@@ -1,6 +1,7 @@
 /** Host registry and HTTP adapter for generic Connection RPC channels. */
 
 import { Context, Service } from '@deepseek-ai/cordis'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import {
   clientRequestSchema,
@@ -16,27 +17,30 @@ import { authenticateIncoming, rejectUnauthorized } from './inbound-auth.ts'
 import { isTrustedApiRequest } from './api-request-trust.ts'
 import { API_PATH } from './api-path.ts'
 import type {
-  ConnectionRpcEndpointMatcher,
+  ConnectionRpcEndpointResolver,
   ConnectionRpcHandler,
   ConnectionRpcHandlerOptions,
   HostConnectionHandle,
   HostConnectionRpc,
 } from './rpc.ts'
+import type { AuthenticationCapability, AuthenticationPrincipal } from '@deepseek-ai/dsh-authentication'
 
 const INVALID_REQUEST_RPC_ID = RpcId('invalid-request')
 const CHANNEL_PATTERN = /^\/[A-Za-z0-9._~-]+$/
 const ENDPOINT_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
 
 interface ConnectionRpcInterceptor {
-  readonly matches: ConnectionRpcEndpointMatcher
-  readonly fetchHandler: FetchHandler
+  readonly resolveEndpoint: ConnectionRpcEndpointResolver
+  readonly handler: ConnectionRpcHandler
   readonly options: ConnectionRpcHandlerOptions
 }
+
+type RpcFailureReporter = (endpoint: string, error: unknown) => void
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Host Connection transport and RPC registrations. */
-    connection: HostConnectionHandle
+    connection: HostConnectionService
   }
 }
 
@@ -58,32 +62,81 @@ export class HostConnectionService extends Service implements HostConnectionHand
     const owner = this.ctx
     return {
       handle: (channel, handler, options) => this.register(owner, channel, handler, options),
-      intercept: (channel, matches, handler, options) =>
-        this.registerInterceptor(owner, channel, matches, handler, options),
+      intercept: (channel, resolveEndpoint, handler, options) =>
+        this.registerInterceptor(owner, channel, resolveEndpoint, handler, options),
     }
+  }
+
+  /**
+   * Apply transport trust, authentication, and one capability to an HTTP route.
+   * @param req - incoming Node HTTP request.
+   * @param res - response used for a stable denial.
+   * @param requiredCapability - capability required before the route handler runs.
+   * @returns whether the owning route may continue.
+   */
+  async authorizeHttpRequest(
+    req: IncomingMessage,
+    res: ServerResponse,
+    requiredCapability: AuthenticationCapability,
+  ): Promise<boolean> {
+    if (!isTrustedApiRequest(req, this.trustedHosts)) {
+      res.writeHead(403)
+      res.end('forbidden')
+      return false
+    }
+    const decision = await authenticateIncoming(this.ctx, req, 'http-api')
+    if (decision.kind === 'rejected') {
+      rejectUnauthorized(res, decision)
+      return false
+    }
+    if (!decision.principal.capabilities.includes(requiredCapability)) {
+      res.writeHead(403)
+      res.end('forbidden')
+      return false
+    }
+    return true
   }
 
   /**
    * Compose one shared-channel Fetch handler from its interceptor and fallback.
    * @param channel - shared channel mounted by Connection.
    * @param fallback - handler for endpoints not claimed by the interceptor.
+   * @param resolveFallback - legacy endpoint capability resolver.
+   * @param principal - authenticated identity authorizing endpoint dispatch.
    * @returns Fetch handler that selects exactly one target for each request.
    */
   createSharedFetchHandler(
     channel: '/api',
     fallback: FetchHandler,
+    resolveFallback: ConnectionRpcEndpointResolver,
+    principal: AuthenticationPrincipal,
   ): FetchHandler {
     return {
       fetch: (request) => {
         const endpoint = endpointFromPath(channel, new URL(request.url).pathname)
+        if (endpoint === undefined) return Promise.resolve(new Response('forbidden', { status: 403 }))
         const interceptor = this.interceptors.get(channel)
-        if (endpoint === undefined || interceptor === undefined || !interceptor.matches(endpoint)) {
-          return fallback.fetch(request)
+        const interceptorResolution = interceptor?.resolveEndpoint(endpoint)
+        if (interceptorResolution !== undefined) {
+          if ('denied' in interceptorResolution
+            || !principal.capabilities.includes(interceptorResolution.requiredCapability)) {
+            return Promise.resolve(new Response('forbidden', { status: 403 }))
+          }
+          if (interceptor === undefined) return Promise.resolve(new Response('forbidden', { status: 403 }))
+          if (interceptor.options.authority === 'loopback' && !isTrustedApiRequest(request, [])) {
+            return Promise.resolve(new Response('forbidden', { status: 403 }))
+          }
+          return rpcFetchHandler(channel, interceptor.handler, principal, (failedEndpoint, error) => {
+            this.reportRpcFailure(failedEndpoint, error)
+          }).fetch(request)
         }
-        if (interceptor.options.authority === 'loopback' && !isTrustedApiRequest(request, [])) {
+        const fallbackPolicy = resolveFallback(endpoint)
+        if (fallbackPolicy === undefined
+          || 'denied' in fallbackPolicy
+          || !principal.capabilities.includes(fallbackPolicy.requiredCapability)) {
           return Promise.resolve(new Response('forbidden', { status: 403 }))
         }
-        return interceptor.fetchHandler.fetch(request)
+        return fallback.fetch(request)
       },
     }
   }
@@ -96,7 +149,6 @@ export class HostConnectionService extends Service implements HostConnectionHand
   ): () => Promise<void> {
     assertChannel(channel)
     const trustedHosts = options.authority === 'loopback' ? [] : this.trustedHosts
-    const fetchHandler = rpcFetchHandler(channel, handler)
     const route: WebRoute = {
       kind: 'prefix',
       path: channel,
@@ -111,7 +163,13 @@ export class HostConnectionService extends Service implements HostConnectionHand
           rejectUnauthorized(res, decision)
           return
         }
-        await bridge(req, res, fetchHandler)
+        await bridge(req, res, capabilityFetchHandler(
+          channel,
+          handler,
+          decision.principal,
+          options.requiredCapability,
+          (endpoint, error) => { this.reportRpcFailure(endpoint, error) },
+        ))
       },
     }
     return owner.effect(
@@ -123,7 +181,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
   private registerInterceptor(
     owner: Context,
     channel: string,
-    matches: ConnectionRpcEndpointMatcher,
+    resolveEndpoint: ConnectionRpcEndpointResolver,
     handler: ConnectionRpcHandler,
     options: ConnectionRpcHandlerOptions,
   ): () => Promise<void> {
@@ -131,8 +189,8 @@ export class HostConnectionService extends Service implements HostConnectionHand
       throw new Error(`connection: invalid shared RPC channel ${JSON.stringify(channel)}`)
     }
     const interceptor: ConnectionRpcInterceptor = {
-      matches,
-      fetchHandler: rpcFetchHandler(channel, handler),
+      resolveEndpoint,
+      handler,
       options,
     }
     return owner.effect(() => {
@@ -145,11 +203,37 @@ export class HostConnectionService extends Service implements HostConnectionHand
       }
     }, `client-connection: ${channel} rpc interceptor`)
   }
+
+  private reportRpcFailure(endpoint: string, error: unknown): void {
+    this.ctx.logger.warn(`client-connection: RPC handler failed for ${endpoint}`)
+    this.ctx.logger.warn(error)
+  }
+}
+
+function capabilityFetchHandler(
+  channel: string,
+  handler: ConnectionRpcHandler,
+  principal: AuthenticationPrincipal,
+  requiredCapability: ConnectionRpcHandlerOptions['requiredCapability'],
+  reportFailure: RpcFailureReporter,
+): FetchHandler {
+  const delegate = rpcFetchHandler(channel, handler, principal, reportFailure)
+  return {
+    fetch(request) {
+      const endpoint = endpointFromPath(channel, new URL(request.url).pathname)
+      if (endpoint === undefined || !principal.capabilities.includes(requiredCapability)) {
+        return Promise.resolve(new Response('forbidden', { status: 403 }))
+      }
+      return delegate.fetch(request)
+    },
+  }
 }
 
 function rpcFetchHandler(
   channel: string,
   handler: ConnectionRpcHandler,
+  principal: AuthenticationPrincipal,
+  reportFailure: RpcFailureReporter,
 ): FetchHandler {
   return {
     async fetch(request: Request): Promise<Response> {
@@ -184,10 +268,11 @@ function rpcFetchHandler(
       }
 
       try {
-        const result = await handler(endpoint, message.payload, request.signal)
+        const result = await handler({ endpoint, payload: message.payload, signal: request.signal, principal })
         return fullResponse(message.rpcId, result)
       } catch (error) {
-        return new Response(`handler failure: ${String(error)}`, { status: 500 })
+        reportFailure(endpoint, error)
+        return new Response('internal handler failure', { status: 500 })
       }
     },
   }

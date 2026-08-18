@@ -4,6 +4,12 @@ import { describe, expect, it } from 'vitest'
 import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import { z } from 'zod'
 import { apply as applyConnection, inject as connectionInject } from '@deepseek-ai/dsh-client-connection'
+import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
+import {
+  ALL_AUTHENTICATION_CAPABILITIES,
+  authenticationGrantId,
+  type InboundAuthentication,
+} from '@deepseek-ai/dsh-authentication'
 import type { WebServer, WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import {
   bindTypertRemote,
@@ -54,7 +60,7 @@ class GoalService extends Service {
     super(ctx, 'goals')
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   create(agent: FixtureAgent, request: { readonly title: string }, signal: AbortSignal): unknown {
     this.calls.push('create')
     this.lastSignal = signal
@@ -65,25 +71,25 @@ class GoalService extends Service {
     }
   }
 
-  @RemoteScope('gatewayFixture')
+  @RemoteScope('gatewayFixture', { requiredCapability: 'harniverse.operate' })
   rename(request: { readonly title: string }): unknown {
     this.calls.push('rename')
     return { title: request.title, scope: (this.ctx as MarkedContext).fixtureScope ?? 'root' }
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   passthrough(value: unknown): unknown {
     this.calls.push('passthrough')
     return this.nextResult === undefined ? value : this.nextResult
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   maybe(value: string | null | undefined): string | null | undefined {
     this.calls.push('maybe')
     return value
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   fail(request: unknown): never {
     void request
     this.calls.push('fail')
@@ -100,7 +106,32 @@ type FakeRpcResult =
   | { readonly ok: true; readonly value: unknown }
   | { readonly ok: false; readonly error: { readonly code: string; readonly message: string; readonly details: object } }
 
-type FakeRpcHandler = (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<FakeRpcResult>
+type FakeRpcHandler = ConnectionRpcHandler
+type FakeRpcResolver = (
+  endpoint: string,
+) => { readonly requiredCapability: string } | { readonly denied: true } | undefined
+
+const TEST_PRINCIPAL = {
+  kind: 'bypass' as const,
+  capabilities: ALL_AUTHENTICATION_CAPABILITIES,
+}
+
+const OBSERVER_PRINCIPAL = {
+  kind: 'grant' as const,
+  grantId: authenticationGrantId('observer-grant'),
+  grantRevision: 1,
+  capabilities: ['harniverse.observe'] as const,
+  expiresAt: '2099-01-01T00:00:00.000Z',
+}
+
+function invokeConnection(
+  handler: FakeRpcHandler,
+  endpoint: string,
+  payload: unknown,
+  signal: AbortSignal,
+): Promise<FakeRpcResult> {
+  return handler({ endpoint, payload, signal, principal: TEST_PRINCIPAL })
+}
 
 class FakeConnectionService extends Service {
   channel: string | undefined
@@ -117,14 +148,14 @@ class FakeConnectionService extends Service {
     return {
       intercept: (
         channel: string,
-        matches: (endpoint: string) => boolean,
+        resolveEndpoint: FakeRpcResolver,
         handler: FakeRpcHandler,
-        options: { readonly authority: string },
+        options: { readonly authority: string; readonly requiredCapability: string },
       ) =>
         owner.effect(() => {
           this.channel = channel
           this.authority = options.authority
-          this.matches = matches
+          this.matches = endpoint => resolveEndpoint(endpoint) !== undefined
           this.handler = handler
           return () => {
             this.channel = undefined
@@ -175,7 +206,7 @@ class FirstSharedService extends Service {
     super(ctx, 'firstShared')
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   run(value: string): string {
     return value
   }
@@ -188,7 +219,7 @@ class SecondSharedService extends Service {
     super(ctx, 'secondShared')
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   run(value: string): string {
     return value
   }
@@ -201,7 +232,7 @@ class DefaultParameterService extends Service {
     super(ctx, 'defaultParameter')
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   run(value = 'fallback'): string {
     return value
   }
@@ -214,7 +245,7 @@ class DestructuredParameterService extends Service {
     super(ctx, 'destructuredParameter')
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   run({ value }: { readonly value: string }): string {
     return value
   }
@@ -227,7 +258,7 @@ class RestParameterService extends Service {
     super(ctx, 'restParameter')
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   run(...values: readonly unknown[]): string {
     return values.map(String).join(',')
   }
@@ -240,7 +271,7 @@ class NonFinalSignalService extends Service {
     super(ctx, 'nonFinalSignal')
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   run(signal: AbortSignal, value: string): string {
     return signal.aborted ? '' : value
   }
@@ -253,7 +284,7 @@ class WrongBindingService extends Service {
     super(ctx, 'wrongBinding')
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   run(value: string): string {
     return value
   }
@@ -266,7 +297,7 @@ class ExportedMethodService extends Service {
     super(ctx, 'exportedMethod')
   }
 
-  @Remote('execute')
+  @Remote({ exportName: 'execute', requiredCapability: 'harniverse.operate' })
   run(value: string): string {
     return value
   }
@@ -279,7 +310,7 @@ class EmptyMethodService extends Service {
     super(ctx, 'emptyMethod')
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   ping(): string {
     return 'pong'
   }
@@ -292,7 +323,7 @@ class CollidingWireService extends Service {
     super(ctx, 'collidingWire')
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   run(agent: FixtureAgent, agentId: string): string {
     return `${agent.id}:${agentId}`
   }
@@ -305,7 +336,7 @@ class ContextWireService extends Service {
     super(ctx, 'contextWire')
   }
 
-  @RemoteScope('gatewayFixture')
+  @RemoteScope('gatewayFixture', { requiredCapability: 'harniverse.operate' })
   run(agentId: string): string {
     return agentId
   }
@@ -334,7 +365,7 @@ class ObservedClaimService extends Service {
     return this.binding
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   run(value: string): string {
     return value
   }
@@ -347,7 +378,7 @@ class MissingMethodService extends Service {
     super(ctx, 'missingMethod')
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   run(value: string): string {
     return value
   }
@@ -360,7 +391,7 @@ class InheritedMethodBase extends Service {
     super(ctx, 'inheritedMethod')
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   run(value: string): string {
     return value
   }
@@ -974,7 +1005,7 @@ describe('TypertGatewayService', () => {
     const signal = abort.signal
     const handler = connection.handler
     if (handler === undefined) throw new Error('fixture Connection did not retain the /api interceptor')
-    await expect(handler('goals/create', {
+    await expect(invokeConnection(handler, 'goals/create', {
       args: { agentId: 'agent-1', request: { title: 'ship' } },
     }, signal)).resolves.toEqual({
       ok: true,
@@ -984,7 +1015,7 @@ describe('TypertGatewayService', () => {
     expect(service.lastSignal).toBe(signal)
     abort.abort(new Error('client disconnected'))
     expect(service.lastSignal?.aborted).toBe(true)
-    const invalid = await handler('goals/create', { invalid: true }, signal)
+    const invalid = await invokeConnection(handler, 'goals/create', { invalid: true }, signal)
     expect(invalid).toMatchObject({
       ok: false,
       error: { code: 'internal' },
@@ -992,36 +1023,36 @@ describe('TypertGatewayService', () => {
     if (invalid.ok) throw new Error('invalid Remote payload unexpectedly succeeded')
     expect(invalid.error.message).toMatch(/exactly one plain-object args field/)
 
-    await expect(handler('goals/maybe', { args: {} }, signal)).resolves.toEqual({
+    await expect(invokeConnection(handler, 'goals/maybe', { args: {} }, signal)).resolves.toEqual({
       ok: true,
       value: undefined,
     })
-    await expect(handler('goals/maybe', { args: { value: null } }, signal)).resolves.toEqual({
+    await expect(invokeConnection(handler, 'goals/maybe', { args: { value: null } }, signal)).resolves.toEqual({
       ok: true,
       value: null,
     })
 
     for (const endpoint of ['goals', '/create', 'goals/', 'goals/create/extra']) {
-      const result = await handler(endpoint, { args: {} }, signal)
+      const result = await invokeConnection(handler, endpoint, { args: {} }, signal)
       expect(result).toMatchObject({ ok: false, error: { code: 'internal' } })
       if (result.ok) throw new Error('invalid Remote endpoint unexpectedly succeeded')
       expect(result.error.message).toContain('invalid Remote endpoint')
     }
     for (const payload of [null, [], { args: {}, extra: true }, { only: true }, { args: null }, { args: [] }]) {
-      const result = await handler('goals/create', payload, signal)
+      const result = await invokeConnection(handler, 'goals/create', payload, signal)
       expect(result).toMatchObject({ ok: false, error: { code: 'internal' } })
       if (result.ok) throw new Error('invalid Remote payload unexpectedly succeeded')
       expect(result.error.message).toContain('plain-object args field')
     }
 
     service.businessError = 'non-error failure' as unknown as Error
-    await expect(handler(
+    await expect(invokeConnection(handler,
       'goals/fail',
       { args: { request: null } },
       new AbortController().signal,
     )).resolves.toEqual({
       ok: false,
-      error: { code: 'internal', message: 'non-error failure', details: {} },
+      error: { code: 'internal', message: 'Remote invocation failed', details: {} },
     })
 
     // A business rejection observed while the carrier signal is already aborted
@@ -1029,7 +1060,7 @@ describe('TypertGatewayService', () => {
     const cancelledCall = new AbortController()
     cancelledCall.abort(new Error('client disconnected'))
     service.businessError = new Error('fixture business failure')
-    await expect(handler(
+    await expect(invokeConnection(handler,
       'goals/fail',
       { args: { request: null } },
       cancelledCall.signal,
@@ -1065,7 +1096,7 @@ describe('TypertGatewayService', () => {
     const handler = rawConnection(ctx).handler
     if (handler === undefined) throw new Error('fixture Connection did not retain the /api interceptor')
 
-    await expect(handler('goals/create', {
+    await expect(invokeConnection(handler, 'goals/create', {
       args: { agentId: 'agent-1', request: { title: 'ship' } },
     }, new AbortController().signal)).resolves.toEqual({ ok: false, error: failure })
   })
@@ -1104,6 +1135,13 @@ describe('TypertGatewayService', () => {
     const ctx = new Context().extend({ fixtureScope: 'http-caller' })
     const routes: WebRoute[] = []
     ctx.provide('webServer', fakeHttpServer(routes) as WebServer)
+    ctx.provide('authentication', {
+      mode: 'authenticated',
+      authenticate: () => Promise.resolve({ kind: 'accepted', principal: TEST_PRINCIPAL }),
+      status: () => Promise.resolve({ mode: 'authenticated', sealed: false }),
+      createBrowserSession: () => Promise.resolve({ kind: 'rejected', reason: 'invalid-credential' }),
+      revokeBrowserSession: () => {},
+    } as unknown as InboundAuthentication)
     const connectionFiber = ctx.plugin({ inject: [...connectionInject], apply: applyConnection })
     await connectionFiber
     await ctx.plugin(TypertRegistry)
@@ -1114,8 +1152,9 @@ describe('TypertGatewayService', () => {
     const removeLookup = registerAgentLookup(ctx, { id: 'agent-1' })
     const removeStrict = registerStrict(ctx, [createDescriptor()])
     let strictActive = true
-    expect(routes).toHaveLength(1)
-    const server = await serveRoute(routes[0]!)
+    const apiRoute = routes.find(route => route.kind === 'prefix' && route.path === '/api')
+    if (apiRoute === undefined) throw new Error('fixture Connection did not register /api')
+    const server = await serveRoute(apiRoute)
 
     try {
       const response = await fetch(`${server.origin}/api/goals/create`, {
@@ -1172,20 +1211,11 @@ describe('TypertGatewayService', () => {
           payload: { args: { agentId: 'agent-1', request: { title: 'ship' } } },
         }),
       })
-      expect(withdrawn.status).toBe(200)
-      const withdrawnBody = await withdrawn.json() as unknown
-      expect(withdrawnBody).toMatchObject({
-        type: 'server-response',
-        rpcId: 'rpc-withdrawn',
-        result: {
-          ok: false,
-          error: { code: 'internal' },
-        },
-      })
-      expect(JSON.stringify(withdrawnBody)).toContain('strict definition was withdrawn')
+      expect(withdrawn.status).toBe(403)
+      await expect(withdrawn.text()).resolves.toBe('forbidden')
 
       const unclaimed = await fetch(`${server.origin}/api/legacy/list`, { method: 'POST' })
-      expect(unclaimed.status).toBe(404)
+      expect(unclaimed.status).toBe(403)
     } finally {
       await server.close()
       if (strictActive) await removeStrict()
@@ -1195,6 +1225,24 @@ describe('TypertGatewayService', () => {
       await connectionFiber.dispose()
     }
     expect(routes).toHaveLength(0)
+  })
+
+  it('rechecks the final descriptor capability before invoking a network request', async () => {
+    const { ctx, service, serviceFiber } = await setup()
+    const removeLookup = registerAgentLookup(ctx, { id: 'agent-1' })
+    const removeStrict = registerStrict(ctx, [createDescriptor()])
+
+    await expect(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'create',
+      args: { agentId: 'agent-1', request: { title: 'ship' } },
+      principal: OBSERVER_PRINCIPAL,
+    })).rejects.toMatchObject({ code: 'authorization-denied' })
+    expect(service.calls).toEqual([])
+
+    await removeStrict()
+    await removeLookup()
+    await serviceFiber.dispose()
   })
 })
 
@@ -1268,6 +1316,7 @@ function createDescriptor(): InvocationDescriptor {
   return {
     id: '@fixture/gateway#goals/create',
     service: 'goals',
+    requiredCapability: 'harniverse.operate',
     namespace: 'goals',
     method: 'create',
     invocation: { kind: 'direct' },
@@ -1301,6 +1350,7 @@ function renameDescriptor(): InvocationDescriptor {
   return {
     id: '@fixture/gateway#goals/rename',
     service: 'goals',
+    requiredCapability: 'harniverse.operate',
     namespace: 'goals',
     method: 'rename',
     invocation: {
@@ -1326,6 +1376,7 @@ function passthroughDescriptor(): InvocationDescriptor {
   return {
     id: '@fixture/gateway#goals/passthrough',
     service: 'goals',
+    requiredCapability: 'harniverse.operate',
     namespace: 'goals',
     method: 'passthrough',
     invocation: { kind: 'direct' },
@@ -1344,6 +1395,7 @@ function strictOnlyDescriptor(): InvocationDescriptor {
   return {
     id: '@fixture/gateway#goals/strictOnly',
     service: 'goals',
+    requiredCapability: 'harniverse.operate',
     namespace: 'goals',
     method: 'strictOnly',
     invocation: { kind: 'direct' },
@@ -1360,6 +1412,7 @@ function maybeDescriptor(): InvocationDescriptor {
   return {
     id: '@fixture/gateway#goals/maybe',
     service: 'goals',
+    requiredCapability: 'harniverse.operate',
     namespace: 'goals',
     method: 'maybe',
     invocation: { kind: 'direct' },

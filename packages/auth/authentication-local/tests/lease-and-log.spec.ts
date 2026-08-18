@@ -72,10 +72,10 @@ describe('authentication access records', () => {
       channel: 'http-api',
       outcome: 'accepted',
       peer: '127.0.0.1',
-      tokenName: 'laptop',
+      grantName: 'laptop',
     }, { dshHome })
     const text = await readFile(accessLogPath(dshHome), 'utf8')
-    expect(text).toContain('"tokenName":"laptop"')
+    expect(text).toContain('"grantName":"laptop"')
     expect(text).not.toContain('Authorization')
     expect(text).not.toContain('cookie')
     expect(text.endsWith('\n')).toBe(true)

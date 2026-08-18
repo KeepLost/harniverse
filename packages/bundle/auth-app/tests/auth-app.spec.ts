@@ -1,6 +1,7 @@
 /** Authentication management through the real startup/runner Loader composition. */
 
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { generateKeyPairSync } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -8,6 +9,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { internals as cmdlineInternals, provideCmdline } from '@deepseek-ai/dsh-cmdline'
+import { createEnrollmentRequest } from '@deepseek-ai/dsh-authentication-local'
 import { afterEach, describe, expect, it } from 'vitest'
 import { apply as applyRunner, internals as runnerInternals } from '../src/index.ts'
 import { apply as applyStartup, AUTH_STARTUP_SERVICE } from '../src/startup.ts'
@@ -55,6 +57,9 @@ export const apply = (ctx, config) => globalThis.__authAppRunner(ctx, config)
     '  config:',
     '    operation: !!js ctx.authStartup.operation',
     '    name: !!js ctx.authStartup.name',
+    '    publicKey: !!js ctx.authStartup.publicKey',
+    '    profile: !!js ctx.authStartup.profile',
+    '    capabilities: !!js ctx.authStartup.capabilities',
     `    dshHome: ${JSON.stringify(dshHome)}`,
     '- id: auth-startup',
     `  name: ${pathToFileURL(join(fixture, 'startup.mjs')).href}`,
@@ -90,41 +95,57 @@ export const apply = (ctx, config) => globalThis.__authAppRunner(ctx, config)
   return { code, out, err, authenticationMounted }
 }
 
-describe('authentication management app', () => {
-  it('creates the first token without mounting the network authentication provider', async () => {
-    const dshHome = await temporaryDirectory('dsh-auth-app-home-')
-    const added = await invoke(['token', 'add', 'laptop'], dshHome)
+function publicKey(): string {
+  return generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
+    .publicKey.export({ type: 'spki', format: 'der' }).toString('base64url')
+}
 
-    expect(added).toMatchObject({ code: 0, err: '', authenticationMounted: false })
-    expect(added.out.trim()).toMatch(/^dsh1_/)
-    expect(JSON.parse(await readFile(join(dshHome, 'auth', 'tokens.json'), 'utf8'))).toMatchObject({
+async function approveOwner(dshHome: string): Promise<void> {
+  const request = await createEnrollmentRequest({ name: 'owner', kind: 'device', publicKey: publicKey() }, { dshHome })
+  const result = await invoke(['device', 'approve', request.id, '--profile', 'owner'], dshHome)
+  if (result.code !== 0) throw new Error(`owner bootstrap failed: ${result.err}`)
+}
+
+describe('authentication management app', () => {
+  it('approves the first owner device without mounting the network authentication provider', async () => {
+    const dshHome = await temporaryDirectory('dsh-auth-app-home-')
+    const request = await createEnrollmentRequest({ name: 'laptop', kind: 'device', publicKey: publicKey() }, { dshHome })
+    const approved = await invoke(['device', 'approve', request.id, '--profile', 'owner'], dshHome)
+
+    expect(approved).toMatchObject({ code: 0, err: '', authenticationMounted: false })
+    expect(approved.out.trim()).toHaveLength(16)
+    expect(JSON.parse(await readFile(join(dshHome, 'auth', 'grants.json'), 'utf8'))).toMatchObject({
       version: 1,
-      tokens: [{ name: 'laptop', generation: 1 }],
+      grants: [{ name: 'laptop', kind: 'device', revision: 1 }],
     })
   })
 
-  it('owns add, list, reset, and delete output semantics', async () => {
+  it('owns enrollment listing, Grant listing, client registration, and revocation output', async () => {
     const dshHome = await temporaryDirectory('dsh-auth-app-home-')
-    const first = (await invoke(['token', 'add', 'phone'], dshHome)).out.trim()
-    const listed = await invoke(['token', 'list'], dshHome)
-    const reset = await invoke(['token', 'reset', 'phone'], dshHome)
-    const deleted = await invoke(['token', 'delete', 'phone'], dshHome)
+    await approveOwner(dshHome)
+    const request = await createEnrollmentRequest({ name: 'phone', kind: 'device', publicKey: publicKey() }, { dshHome })
+    const pending = await invoke(['device', 'list'], dshHome)
+    const deviceId = (await invoke(['device', 'approve', request.id, '--profile', 'operator'], dshHome)).out.trim()
+    const clientId = (await invoke([
+      'client', 'add', 'automation', '--public-key', publicKey(), '--capability', 'harniverse.observe', 'harniverse.operate',
+    ], dshHome)).out.trim()
+    const listed = await invoke(['grant', 'list'], dshHome)
+    const revoked = await invoke(['client', 'revoke', clientId], dshHome)
 
+    expect(pending.out).toContain(`${request.id}\t${request.approvalCode}\tphone\tdevice`)
     expect(listed).toMatchObject({ code: 0, err: '' })
-    expect(listed.out).toContain('phone')
-    expect(listed.out).not.toContain(first)
-    expect(reset).toMatchObject({ code: 0, err: '' })
-    expect(reset.out.trim()).toMatch(/^dsh1_/)
-    expect(reset.out.trim()).not.toBe(first)
-    expect(deleted).toMatchObject({ code: 0, out: '', err: '' })
-    expect((await invoke(['token', 'list'], dshHome)).out).toBe('')
+    expect(listed.out).toContain(`${deviceId}\tphone\tdevice\tharniverse.observe,harniverse.operate`)
+    expect(listed.out).toContain(`${clientId}\tautomation\tapi-client\tharniverse.observe,harniverse.operate`)
+    expect(revoked).toMatchObject({ code: 0, out: '', err: '' })
+    expect((await invoke(['grant', 'list'], dshHome)).out).not.toContain('automation')
   })
 
   it('prints app-owned help without activating the runner', async () => {
     const result = await invoke(['--help'], await temporaryDirectory('dsh-auth-app-home-'))
     expect(result.code).toBe(0)
     expect(result.out).toContain('dsh auth')
-    expect(result.out).toContain('token')
+    expect(result.out).toContain('device')
+    expect(result.out).toContain('client')
     expect(result.err).toBe('')
   })
 
@@ -137,26 +158,27 @@ describe('authentication management app', () => {
 
   it('reports grammar and management failures through bounded exit', async () => {
     const dshHome = await temporaryDirectory('dsh-auth-app-home-')
-    const grammar = await invoke(['token', 'add'], dshHome)
+    const grammar = await invoke(['device', 'approve'], dshHome)
     expect(grammar.code).toBe(1)
-    expect(grammar.err).toContain('missing required argument')
+    expect(grammar.err).toContain("required option '--profile <profile>' not specified")
 
-    await invoke(['token', 'add', 'duplicate'], dshHome)
-    const duplicate = await invoke(['token', 'add', 'duplicate'], dshHome)
+    await approveOwner(dshHome)
+    await invoke(['client', 'add', 'duplicate', '--public-key', publicKey(), '--profile', 'observer'], dshHome)
+    const duplicate = await invoke(['client', 'add', 'duplicate', '--public-key', publicKey(), '--profile', 'observer'], dshHome)
     expect(duplicate.code).toBe(1)
     expect(duplicate.out).toBe('')
     expect(duplicate.err).toContain('already exists')
   })
 
   it('fails loud for invalid runner composition', async () => {
-    expect(() => { applyRunner(new Context(), { operation: 'list' }) }).toThrow('must provide ctx.appExit')
+    expect(() => { applyRunner(new Context(), { operation: 'grant-list' }) }).toThrow('must provide ctx.appExit')
 
     const ctx = new Context()
     let err = ''
     runnerInternals.stderr = { write: (chunk: string) => { err += chunk; return true } }
     const exited = new Promise<number>((resolve) => { ctx.provide('appExit', resolve) })
-    applyRunner(ctx, { operation: 'add' })
+    applyRunner(ctx, { operation: 'client-add' })
     expect(await exited).toBe(1)
-    expect(err).toContain('add requires a token name')
+    expect(err).toContain('client-add requires a client name')
   })
 })

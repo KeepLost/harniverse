@@ -3,6 +3,24 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { AuthenticationChannel, AuthenticationDecision } from '@deepseek-ai/dsh-authentication'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
+const COOKIE_NAME = 'dsh_auth'
+const SECURE_COOKIE_NAME = '__Host-dsh_auth'
+
+/**
+ * Select one valid browser-session value from a raw transport Cookie header.
+ * @param cookie - raw Cookie header, when present.
+ * @returns the preferred secure or legacy session value.
+ */
+export function browserSessionFromCookie(cookie: string | null | undefined): string | undefined {
+  if (cookie === undefined || cookie === null) return undefined
+  const parts = cookie.split(';').map(part => part.trim())
+  const secure = parts.filter(part => part.startsWith(`${SECURE_COOKIE_NAME}=`)).map(part => part.slice(SECURE_COOKIE_NAME.length + 1))
+  const legacy = parts.filter(part => part.startsWith(`${COOKIE_NAME}=`)).map(part => part.slice(COOKIE_NAME.length + 1))
+  const values = secure.length > 0 ? secure : legacy
+  const value = values[0]
+  return values.length === 1 && value !== undefined && /^[A-Za-z0-9_-]{43}$/.test(value) ? value : undefined
+}
+
 /**
  * Authenticate one HTTP or upgrade request after transport trust checks pass.
  * @param ctx - Connection plugin context carrying authentication.
@@ -15,10 +33,13 @@ export function authenticateIncoming(
   req: IncomingMessage,
   channel: AuthenticationChannel,
 ): Promise<AuthenticationDecision> {
+  const browserSession = browserSessionFromCookie(
+    typeof req.headers.cookie === 'string' ? req.headers.cookie : undefined,
+  )
   return ctx.authentication.authenticate({
     channel,
     ...(typeof req.headers.authorization === 'string' && { authorization: req.headers.authorization }),
-    ...(typeof req.headers.cookie === 'string' && { cookie: req.headers.cookie }),
+    ...(browserSession !== undefined && { browserSession }),
     ...(req.socket.remoteAddress !== undefined && { peerAddress: req.socket.remoteAddress }),
   })
 }

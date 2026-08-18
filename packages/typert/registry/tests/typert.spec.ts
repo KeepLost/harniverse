@@ -65,6 +65,7 @@ function invocation(id = '@fixture/remote#goals/create'): InvocationDescriptor {
   return {
     id,
     service: 'goals',
+    requiredCapability: 'harniverse.operate',
     namespace: 'goals',
     method: 'create',
     invocation: { kind: 'direct' },
@@ -491,6 +492,10 @@ describe('TypertRegistry', () => {
 
     const malformed: readonly [InvocationDescriptor, string][] = [
       [{ ...invocation(), id: '' }, 'invocation id'],
+      [{
+        ...invocation(),
+        requiredCapability: undefined as unknown as InvocationDescriptor['requiredCapability'],
+      }, 'requiredCapability is invalid'],
       [{ ...invocation(), namespace: 'bad/name' }, 'namespace'],
       [{ ...invocation(), implementation: 'bad/name' }, 'implementation method'],
       [{

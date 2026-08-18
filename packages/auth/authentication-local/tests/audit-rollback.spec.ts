@@ -6,8 +6,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const audit = vi.hoisted(() => ({
   refreshError: undefined as Error | undefined,
-  resetStarted: undefined as (() => void) | undefined,
-  resetRecord: undefined as Promise<void> | undefined,
+  refreshRecord: undefined as Promise<void> | undefined,
+  loginError: undefined as Error | undefined,
+  mutationStarted: undefined as (() => void) | undefined,
+  mutationRecord: undefined as Promise<void> | undefined,
 }))
 const registryLock = vi.hoisted(() => ({
   active: 0,
@@ -19,7 +21,7 @@ vi.mock('../src/private-files.ts', async (importOriginal) => {
   return {
     ...actual,
     withPrivateFileLock: async <T>(target: string, operation: () => Promise<T>): Promise<T> => {
-      if (!target.endsWith('/auth/tokens.json')) return actual.withPrivateFileLock(target, operation)
+      if (!target.endsWith('/auth/grants.json')) return actual.withPrivateFileLock(target, operation)
       if (registryLock.active > 0) registryLock.contender?.()
       registryLock.active += 1
       try {
@@ -36,12 +38,15 @@ vi.mock('../src/access-log.ts', async (importOriginal) => {
   return {
     ...actual,
     appendAccessRecord: async (...args: Parameters<typeof actual.appendAccessRecord>) => {
-      if (args[0].event === 'token-rotation-applied' && audit.refreshError !== undefined) {
+      if ((args[0].event === 'browser-login-accepted' || args[0].event === 'browser-login-rejected')
+        && audit.loginError !== undefined) throw audit.loginError
+      if (args[0].event === 'grant-revision-applied' && audit.refreshError !== undefined) {
         throw audit.refreshError
       }
-      if (args[0].event === 'token-reset' && audit.resetRecord !== undefined) {
-        audit.resetStarted?.()
-        return audit.resetRecord
+      if (args[0].event === 'grant-revision-applied' && audit.refreshRecord !== undefined) return audit.refreshRecord
+      if (args[0].event === 'grant-revoked' && audit.mutationRecord !== undefined) {
+        audit.mutationStarted?.()
+        return audit.mutationRecord
       }
       return actual.appendAccessRecord(...args)
     },
@@ -49,30 +54,56 @@ vi.mock('../src/access-log.ts', async (importOriginal) => {
 })
 
 import LocalAuthentication from '../src/index.ts'
-import { addAuthenticationToken, resetAuthenticationToken } from '../src/management.ts'
+import { revokeAuthenticationGrant } from '../src/grant-registry.ts'
+import { createGrantFixture, signedProof } from './grant-fixture.ts'
 
 const cleanups: Array<() => Promise<void>> = []
 
 afterEach(async () => {
   audit.refreshError = undefined
-  audit.resetStarted = undefined
-  audit.resetRecord = undefined
+  audit.refreshRecord = undefined
+  audit.loginError = undefined
+  audit.mutationStarted = undefined
+  audit.mutationRecord = undefined
   registryLock.active = 0
   registryLock.contender = undefined
   while (cleanups.length > 0) await cleanups.pop()!()
   watchers.length = 0
 })
 
-describe('audited token mutation rollback', () => {
-  it('does not publish or apply a reset whose audit record fails', async () => {
+describe('audited Grant mutation rollback', () => {
+  it('returns authentication-unavailable when browser-login audit records fail', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'dsh-auth-login-audit-'))
+    cleanups.push(() => rm(dshHome, { recursive: true, force: true }))
+    const laptop = await createGrantFixture(dshHome, 'laptop')
+    const ctx = new Context()
+    const fiber = ctx.plugin(LocalAuthentication, { dshHome, mode: 'authenticated', watch: false })
+    cleanups.push(() => fiber.dispose())
+    await fiber
+
+    const acceptedProof = await signedProof(ctx, laptop, 'browser-session')
+    audit.loginError = new Error('login audit unavailable')
+    await expect(ctx.authentication.createBrowserSession(acceptedProof)).resolves.toEqual({
+      kind: 'rejected', reason: 'authentication-unavailable',
+    })
+
+    audit.loginError = undefined
+    const rejectedProof = await signedProof(ctx, laptop, 'browser-session')
+    audit.loginError = new Error('login audit unavailable')
+    await expect(ctx.authentication.createBrowserSession({ ...rejectedProof, signature: 'invalid' })).resolves.toEqual({
+      kind: 'rejected', reason: 'authentication-unavailable',
+    })
+  })
+
+  it('does not publish or apply a revocation whose audit record fails', async () => {
     const dshHome = await mkdtemp(join(tmpdir(), 'dsh-auth-audit-rollback-'))
     cleanups.push(() => rm(dshHome, { recursive: true, force: true }))
-    const token = await addAuthenticationToken('laptop', { dshHome })
+    const laptop = await createGrantFixture(dshHome, 'laptop')
     const ctx = new Context()
     const fiber = ctx.plugin(LocalAuthentication, { dshHome, mode: 'authenticated', debounceMs: 0 })
     cleanups.push(() => fiber.dispose())
     await fiber
-    const browser = await ctx.authentication.createBrowserSession(token.token)
+    const browser = await ctx.authentication.createBrowserSession(await signedProof(ctx, laptop, 'browser-session'))
     expect(browser.kind).toBe('accepted')
     if (browser.kind !== 'accepted') throw new Error('expected browser login to succeed')
     const revoked = vi.fn()
@@ -83,45 +114,65 @@ describe('audited token mutation rollback', () => {
     let rejectAudit!: (error: Error) => void
     let markReadAttempt!: () => void
     const readAttempt = new Promise<void>((resolve) => { markReadAttempt = resolve })
-    audit.resetStarted = markStarted
-    audit.resetRecord = new Promise<void>((_resolve, reject) => { rejectAudit = reject })
+    audit.mutationStarted = markStarted
+    audit.mutationRecord = new Promise<void>((_resolve, reject) => { rejectAudit = reject })
     registryLock.contender = markReadAttempt
-    const reset = resetAuthenticationToken('laptop', { dshHome })
+    const revocation = revokeAuthenticationGrant(laptop.grant.id, { dshHome })
     await started
     watchers[0]!.emit('all', 'change')
     await readAttempt
     rejectAudit(new Error('audit unavailable'))
 
-    await expect(reset).rejects.toThrow('audit unavailable')
+    await expect(revocation).rejects.toThrow('audit unavailable')
     await expect(ctx.authentication.authenticate({
       channel: 'http-api',
-      cookie: `dsh_auth=${browser.session.value}`,
-    })).resolves.toMatchObject({ kind: 'accepted', credential: { generation: 1 } })
+      browserSession: browser.session.value,
+    })).resolves.toMatchObject({ kind: 'accepted', principal: { grantId: laptop.grant.id } })
     expect(revoked).not.toHaveBeenCalled()
   })
 
-  it('publishes a committed reset when its refresh access record fails', async () => {
+  it('publishes a committed revocation when its refresh access record fails', async () => {
     const dshHome = await mkdtemp(join(tmpdir(), 'dsh-auth-refresh-audit-'))
     cleanups.push(() => rm(dshHome, { recursive: true, force: true }))
-    const token = await addAuthenticationToken('laptop', { dshHome })
+    const laptop = await createGrantFixture(dshHome, 'laptop')
     const ctx = new Context()
     const fiber = ctx.plugin(LocalAuthentication, { dshHome, mode: 'authenticated', debounceMs: 0 })
     cleanups.push(() => fiber.dispose())
     await fiber
-    const browser = await ctx.authentication.createBrowserSession(token.token)
+    const browser = await ctx.authentication.createBrowserSession(await signedProof(ctx, laptop, 'browser-session'))
     if (browser.kind !== 'accepted') throw new Error('expected browser login to succeed')
     const revoked = vi.fn()
     ctx.on('authentication/revoked', revoked)
 
-    await resetAuthenticationToken('laptop', { dshHome })
+    await revokeAuthenticationGrant(laptop.grant.id, { dshHome })
     audit.refreshError = new Error('refresh audit unavailable')
     watchers[0]!.emit('all', 'change')
 
     await vi.waitFor(() => { expect(revoked).toHaveBeenCalledTimes(1) })
     await expect(ctx.authentication.authenticate({
       channel: 'http-api',
-      cookie: `dsh_auth=${browser.session.value}`,
+      browserSession: browser.session.value,
     })).resolves.toMatchObject({ kind: 'rejected' })
+  })
+
+  it('publishes revocation before a slow refresh access record settles', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'dsh-auth-refresh-audit-order-'))
+    cleanups.push(() => rm(dshHome, { recursive: true, force: true }))
+    const laptop = await createGrantFixture(dshHome, 'laptop')
+    const ctx = new Context()
+    const fiber = ctx.plugin(LocalAuthentication, { dshHome, mode: 'authenticated', debounceMs: 0 })
+    cleanups.push(() => fiber.dispose())
+    await fiber
+    const revoked = vi.fn()
+    ctx.on('authentication/revoked', revoked)
+    let releaseAudit!: () => void
+    audit.refreshRecord = new Promise<void>((resolve) => { releaseAudit = resolve })
+
+    await revokeAuthenticationGrant(laptop.grant.id, { dshHome })
+    watchers[0]!.emit('all', 'change')
+
+    await vi.waitFor(() => { expect(revoked).toHaveBeenCalledOnce() })
+    releaseAudit()
   })
 })
 

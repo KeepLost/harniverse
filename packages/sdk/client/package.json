@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-sdk-client",
-  "description": "TypeScript client SDK for driving a DeepSeek Harness runtime subprocess over stdio JSON-RPC: the DeepSeekHarness high-level turns API and the lower-level HarnessClient",
+  "description": "TypeScript SDK for local stdio runtimes and public-key authenticated remote Harness access",
   "version": "0.1.0-rc.5",
   "publishConfig": {
     "access": "public"

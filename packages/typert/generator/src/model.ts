@@ -128,6 +128,8 @@ export interface InvocationParameterModel {
 export interface InvocationModel {
   readonly id: string
   readonly service: string
+  /** Capability required before Gateway dispatch. */
+  readonly requiredCapability: import('@deepseek-ai/dsh-authentication').AuthenticationCapability
   readonly namespace: string
   readonly method: string
   readonly implementation?: string

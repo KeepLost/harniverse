@@ -84,6 +84,8 @@ interface InvocationDescriptor {
   readonly method: string
   /** Service member invoked when the exported method name is an alias. */
   readonly implementation?: string
+  /** Capability required before Gateway dispatch. */
+  readonly requiredCapability: AuthenticationCapability
   /** Receiver selection mode. */
   readonly invocation:
     | { readonly kind: 'direct' }
@@ -150,6 +152,8 @@ interface InvokeRemoteRequest {
   readonly args: Readonly<Record<string, unknown>>
   /** Carrier or direct-caller cancellation injected only into cancellation-aware methods. */
   readonly signal?: AbortSignal
+  /** Authenticated network identity; absent only for trusted in-process callers. */
+  readonly principal?: AuthenticationPrincipal
 }
 ```
 
@@ -158,6 +162,7 @@ interface InvokeRemoteRequest {
 type TypertGatewayErrorCode =
   | 'ambiguous-endpoint'
   | 'arguments-invalid'
+  | 'authorization-denied'
   | 'binding-invalid'
   | 'context-failed'
   | 'context-not-found'
@@ -332,5 +337,5 @@ Resolve strict generated definitions or conservative SRC markers against current
 async invoke(request: InvokeRemoteRequest): Promise<unknown>
 ```
 
-Source: [`packages/api/gateway/src/index.ts:90`](../../packages/api/gateway/src/index.ts)
+Source: [`packages/api/gateway/src/index.ts:94`](../../packages/api/gateway/src/index.ts)
 <!-- END GENERATED cordis-surface -->

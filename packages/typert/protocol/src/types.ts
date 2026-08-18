@@ -5,6 +5,7 @@
  */
 
 import type { Context, Events } from '@deepseek-ai/cordis'
+import type { AuthenticationCapability } from '@deepseek-ai/dsh-authentication'
 
 declare const LOOKUP_HOST: unique symbol
 declare const LOOKUP_WIRE: unique symbol
@@ -181,6 +182,8 @@ export interface InvocationDescriptor {
   readonly method: string
   /** Service member invoked when the exported method name is an alias. */
   readonly implementation?: string
+  /** Capability required before Gateway dispatch. */
+  readonly requiredCapability: AuthenticationCapability
   /** Receiver selection mode. */
   readonly invocation:
     | { readonly kind: 'direct' }

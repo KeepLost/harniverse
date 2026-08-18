@@ -43,6 +43,26 @@ import type {
   WorkspaceModel,
 } from './model.ts'
 
+type RemoteMarkerModel =
+  | {
+    readonly kind: 'direct'
+    readonly requiredCapability: InvocationModel['requiredCapability']
+    readonly exportName?: string
+  }
+  | {
+    readonly kind: 'context'
+    readonly context: string
+    readonly requiredCapability: InvocationModel['requiredCapability']
+    readonly exportName?: string
+  }
+
+const AUTHENTICATION_CAPABILITIES = new Set<InvocationModel['requiredCapability']>([
+  'harniverse.observe',
+  'harniverse.operate',
+  'harniverse.administer',
+  'harniverse.authorize',
+])
+
 type WithoutId<T> = T extends { readonly id: TypeNodeId } ? Omit<T, 'id'> : never
 
 type TypeNodeInput = WithoutId<TypeNodeModel>
@@ -975,9 +995,7 @@ class FaceAnalyzer {
     registration: PackageRegistration,
     binding: GatewayBinding,
     method: ts.MethodDeclaration,
-    invocation:
-      | { readonly kind: 'direct'; readonly exportName?: string }
-      | { readonly kind: 'context'; readonly context: string; readonly exportName?: string },
+    invocation: RemoteMarkerModel,
   ): InvocationModel {
     if (visibilityOf(method) !== 'public' || hasModifier(method, ts.SyntaxKind.StaticKeyword)) {
       this.fail(method, 'Remote decorators require a public instance method')
@@ -1110,6 +1128,7 @@ class FaceAnalyzer {
     return {
       id: `${registration.name}#${binding.namespace}/${exportedMethod}`,
       service: binding.service,
+      requiredCapability: invocation.requiredCapability,
       namespace: binding.namespace,
       method: exportedMethod,
       ...(exportedMethod === methodName ? {} : { implementation: methodName }),
@@ -1214,42 +1233,31 @@ class FaceAnalyzer {
 
   private remoteMarker(
     member: ts.ClassElement,
-  ):
-    | { readonly kind: 'direct'; readonly exportName?: string }
-    | { readonly kind: 'context'; readonly context: string; readonly exportName?: string }
-    | undefined {
-    let found:
-      | { readonly kind: 'direct'; readonly exportName?: string }
-      | { readonly kind: 'context'; readonly context: string; readonly exportName?: string }
-      | undefined
+  ): RemoteMarkerModel | undefined {
+    let found: RemoteMarkerModel | undefined
     for (const decorator of ts.canHaveDecorators(member) ? ts.getDecorators(member) ?? [] : []) {
       const expression = decorator.expression
       let marker: typeof found
       if (this.isTypeMetaSymbol(expression, 'Remote')) {
-        marker = { kind: 'direct' }
+        this.fail(expression, 'Remote requires an options object with requiredCapability')
       } else if (ts.isCallExpression(expression)
         && this.isTypeMetaSymbol(expression.expression, 'Remote')) {
-        if (expression.arguments.length !== 1) this.fail(expression, 'Remote() requires one exported method name')
-        const exportName = stringLiteralValue(expression.arguments[0])
-        if (exportName === undefined || !isRemoteSegment(exportName)) {
-          this.fail(expression.arguments[0] ?? expression, 'Remote() name must be a string literal containing only RPC endpoint segment characters')
-        }
-        marker = { kind: 'direct', exportName }
+        if (expression.arguments.length !== 1) this.fail(expression, 'Remote() requires one options object')
+        marker = { kind: 'direct', ...this.remoteOptions(expression.arguments[0] ?? expression) }
       } else if (ts.isCallExpression(expression)
         && this.isTypeMetaSymbol(expression.expression, 'RemoteScope')) {
-        if (expression.arguments.length < 1 || expression.arguments.length > 2) {
-          this.fail(expression, 'RemoteScope() requires a Context key and optional exported method name')
+        if (expression.arguments.length !== 2) {
+          this.fail(expression, 'RemoteScope() requires a Context key and options object')
         }
         const context = stringLiteralValue(expression.arguments[0])
         if (context === undefined || !isRemoteSegment(context)) {
           this.fail(expression.arguments[0] ?? expression, 'RemoteScope() key must be a string literal containing only RPC endpoint segment characters')
         }
-        const exportArgument = expression.arguments[1]
-        const exportName = exportArgument === undefined ? undefined : stringLiteralValue(exportArgument)
-        if (exportArgument !== undefined && (exportName === undefined || !isRemoteSegment(exportName))) {
-          this.fail(exportArgument, 'RemoteScope() name must be a string literal containing only RPC endpoint segment characters')
+        marker = {
+          kind: 'context',
+          context,
+          ...this.remoteOptions(expression.arguments[1] ?? expression),
         }
-        marker = { kind: 'context', context, ...exportName === undefined ? {} : { exportName } }
       } else {
         continue
       }
@@ -1257,6 +1265,32 @@ class FaceAnalyzer {
       found = marker
     }
     return found
+  }
+
+  private remoteOptions(node: ts.Node): Pick<RemoteMarkerModel, 'requiredCapability' | 'exportName'> {
+    if (!ts.isObjectLiteralExpression(node)) this.fail(node, 'Remote options must be an object literal')
+    let requiredCapability: InvocationModel['requiredCapability'] | undefined
+    let exportName: string | undefined
+    for (const property of node.properties) {
+      if (!ts.isPropertyAssignment(property)) this.fail(property, 'Remote options require property assignments')
+      const name = memberName(property.name)
+      const value = stringLiteralValue(property.initializer)
+      if (name === 'requiredCapability') {
+        if (value === undefined || !AUTHENTICATION_CAPABILITIES.has(value as InvocationModel['requiredCapability'])) {
+          this.fail(property.initializer, 'Remote requiredCapability must be a supported capability string literal')
+        }
+        requiredCapability = value as InvocationModel['requiredCapability']
+      } else if (name === 'exportName') {
+        if (value === undefined || !isRemoteSegment(value)) {
+          this.fail(property.initializer, 'Remote exportName must be a string literal containing only RPC endpoint segment characters')
+        }
+        exportName = value
+      } else {
+        this.fail(property, 'Remote options support only requiredCapability and exportName')
+      }
+    }
+    if (requiredCapability === undefined) this.fail(node, 'Remote options require requiredCapability')
+    return { requiredCapability, ...(exportName === undefined ? {} : { exportName }) }
   }
 
   private remoteResultType(method: ts.MethodDeclaration): ts.TypeNode {

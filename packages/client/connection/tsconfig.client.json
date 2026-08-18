@@ -25,6 +25,9 @@
       "path": "../../attachment/attachment"
     },
     {
+      "path": "../../auth/authentication"
+    },
+    {
       "path": "../../core/session"
     },
     {

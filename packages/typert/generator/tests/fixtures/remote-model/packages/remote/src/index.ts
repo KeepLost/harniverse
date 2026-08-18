@@ -13,13 +13,13 @@ export class GoalService extends TypertRemoteService {
     super(undefined, 'goals')
   }
 
-  @Remote
+  @Remote({ requiredCapability: 'harniverse.operate' })
   async create(agent: Agent, request: CreateGoalRequest, signal: AbortSignal): Promise<CreateGoalResult> {
     signal.throwIfAborted()
     return { ref: `${agent.id}:${request.title}` }
   }
 
-  @RemoteScope('agent')
+  @RemoteScope('agent', { requiredCapability: 'harniverse.operate' })
   rename(request: RenameGoalRequest): RenameGoalResult {
     return { renamed: request.title.length > 0 }
   }

@@ -2,12 +2,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-attachment'
-import type {} from '@deepseek-ai/dsh-authentication'
+import type { AuthenticationPrincipal } from '@deepseek-ai/dsh-authentication'
 // Activates the webServer Context merge used below.
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
+import { legacyRpcCapability } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH } from './api-path.ts'
-import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
+import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES, type FetchHandler } from './http-bridge.ts'
 import { authenticateIncoming, rejectUnauthorized } from './inbound-auth.ts'
 import { assertTrustedAuthority, isTrustedApiRequest } from './api-request-trust.ts'
 import { registerBrowserAuthenticationRoutes } from './browser-auth-routes.ts'
@@ -16,9 +17,11 @@ import { rejectUnauthorizedWebSocket, rejectWebSocketUpgrade, WebSocketDownlinks
 
 export type {
   ConnectionRpcAuthority,
-  ConnectionRpcEndpointMatcher,
+  ConnectionRpcEndpointPolicy,
+  ConnectionRpcEndpointResolver,
   ConnectionRpcHandler,
   ConnectionRpcHandlerOptions,
+  ConnectionRpcInvocation,
   HostConnectionHandle,
   HostConnectionRpc,
 } from './rpc.ts'
@@ -70,54 +73,6 @@ export const Config: z<ConnectionConfig> = z.object({
 })
 
 /**
- * Methods gated to loopback even on a trusted-host deployment. Native dialogs
- * act on the host machine; the settings and credential domains mutate the
- * user's configuration and secret store, and READING them is equally
- * privileged — `settings.describe` returns every exposed namespace's
- * configuration and `credentials.describe` reports whether an arbitrary
- * environment-variable name is configured and where from. Named tokens prove
- * admission but carry no per-operation authorization, so the whole
- * configuration plane remains loopback-only. `llm.discoverModels` belongs to
- * that plane on both counts: it carries a draft credential, and it makes the
- * HOST issue a GET to a caller-chosen URL and reports the status or parsed body.
- *
- * The model catalog (`llm.providers`, `llm.models`) is deliberately NOT here:
- * it carries provider ids, display names, and model lists — no endpoints,
- * keys, or key state — and a LAN client's model picker legitimately needs it.
- */
-const PRIVILEGED_METHODS = new Set([
-  // A preset composition names the plugins a session runs, so reading one is
-  // reconnaissance; copy and remove rearrange what the deployment offers, and
-  // openDocument drives the host desktop — all more than the roster beside
-  // them. (Authoring is copy-only, so no method here accepts composition text
-  // or a path; the pin is about who may manage the roster at all.)
-  //
-  // CHOOSING one is not pinned, and `agentPreset.list` is not either. Picking a
-  // preset looks like escalation — one of them mounts the toolset that edits the
-  // live runtime — but `session.create` already takes an `agentPreset`, so
-  // pinning only the switch would leave the same capability one method over.
-  // The deeper reason is that the capability is not the preset's to grant: the
-  // deployment's own default already carries `bash` and the filesystem tools, so
-  // any caller that may start a session at all can already run commands as this
-  // process. Pinning the switch would be a fence beside an open gate.
-  'agentPreset.read',
-  'agentPreset.copy',
-  'agentPreset.openDocument',
-  'agentPreset.remove',
-  'host.pickDirectory',
-  'host.openPath',
-  'settings.describe',
-  'settings.openDocument',
-  'settings.update',
-  'settings.replace',
-  'settings.mutate',
-  'credentials.describe',
-  'credentials.set',
-  'credentials.unset',
-  'llm.discoverModels',
-])
-
-/**
  * Mounts the API gateway under the browser transport prefix. Every request on
  * the prefix passes the browser-trust fence first (DNS-rebinding and
  * cross-site defense — [api-request-trust](./api-request-trust.ts));
@@ -138,17 +93,9 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
     throw new Error('client-connection: authentication bypass is restricted to a loopback listener')
   }
   const connection = new HostConnectionService(ctx, trustedHosts)
-  const fetchHandler = connection.createSharedFetchHandler(API_PATH, {
+  const fallbackFetchHandler = (principal: AuthenticationPrincipal): FetchHandler => ({
     async fetch(request) {
       const pathname = new URL(request.url).pathname
-      const method = pathname.startsWith(`${API_PATH}/`)
-        ? pathname.slice(API_PATH.length + 1)
-        : undefined
-      if (method !== undefined
-        && PRIVILEGED_METHODS.has(method)
-        && !isTrustedApiRequest(request, [])) {
-        return new Response('forbidden', { status: 403 })
-      }
       if (request.method === 'GET' && (pathname === MUX_EVENTS_PATH || pathname === HOST_EVENTS_PATH)) {
         return new Response('upgrade required', {
           status: 426,
@@ -157,7 +104,10 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
       }
       const apiProxy = ctx.get('apiProxy')
       if (apiProxy === undefined) return new Response('not found', { status: 404 })
-      return toFetchHandler(apiProxy).fetch(request)
+      return toFetchHandler(apiProxy, principal, (operation, error) => {
+        ctx.logger.warn(`client-connection: ApiProxy handler failed for ${operation}`)
+        ctx.logger.warn(error)
+      }).fetch(request)
     },
   })
   const route: WebRoute = {
@@ -174,14 +124,30 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
         rejectUnauthorized(res, decision)
         return
       }
-      await bridge(req, res, fetchHandler, maxRequestBodyBytes)
+      await bridge(
+        req,
+        res,
+        connection.createSharedFetchHandler(
+          API_PATH,
+          fallbackFetchHandler(decision.principal),
+          (endpoint) => {
+            const requiredCapability = legacyRpcCapability(endpoint)
+            return requiredCapability === undefined ? undefined : { requiredCapability }
+          },
+          decision.principal,
+        ),
+        maxRequestBodyBytes,
+      )
     },
   }
   ctx.effect(() => ctx.webServer.register(route), 'client-connection: /api route')
   registerBrowserAuthenticationRoutes(ctx, trustedHosts)
   ctx.inject(['apiProxy'], (apiCtx) => {
     assertImageBodyCapacity(apiCtx, maxRequestBodyBytes)
-    const downlinks = new WebSocketDownlinks(apiCtx.apiProxy)
+    const downlinks = new WebSocketDownlinks(apiCtx.apiProxy, (error) => {
+      apiCtx.logger.warn('client-connection: WebSocket event stream failed')
+      apiCtx.logger.warn(error)
+    })
     const registerDownlink = (path: string): void => {
       apiCtx.effect(() => apiCtx.webServer.registerUpgrade({
         path,
@@ -196,13 +162,17 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
             rejectUnauthorizedWebSocket(socket, decision)
             return
           }
-          if (path === MUX_EVENTS_PATH) downlinks.handleMux(req, socket, head, decision.credential)
-          else downlinks.handleHost(req, socket, head, decision.credential)
+          if (!decision.principal.capabilities.includes('harniverse.observe')) {
+            rejectWebSocketUpgrade(socket)
+            return
+          }
+          if (path === MUX_EVENTS_PATH) downlinks.handleMux(req, socket, head, decision)
+          else downlinks.handleHost(req, socket, head, decision)
         },
       }), `client-connection: ${path} WebSocket`)
     }
     apiCtx.effect(() => () => downlinks.close(), 'client-connection: WebSocket downlinks')
-    apiCtx.on('authentication/revoked', ({ credentials }) => { downlinks.revoke(credentials) })
+    apiCtx.on('authentication/revoked', ({ grants }) => { downlinks.revoke(grants) })
     apiCtx.on('authentication/unavailable', () => { downlinks.authenticationUnavailable() })
     apiCtx.on('authentication/available', () => { downlinks.authenticationRecovered() })
     registerDownlink(MUX_EVENTS_PATH)

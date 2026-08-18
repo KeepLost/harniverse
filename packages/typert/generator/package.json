@@ -37,6 +37,7 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@deepseek-ai/dsh-authentication": "workspace:^",
     "@jridgewell/gen-mapping": "^0.3.13",
     "typescript": "^6.0.3"
   },

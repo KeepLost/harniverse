@@ -7,12 +7,17 @@ import type {
   ApiProxy, HostFrame, MuxFrame, RpcRequest, ServerRequest,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { authenticationTokenId, authenticationTokenName, type AuthenticationCredential } from '@deepseek-ai/dsh-authentication'
+import {
+  ALL_AUTHENTICATION_CAPABILITIES,
+  authenticationGrantId,
+  type AuthenticationDecision,
+  type AuthenticationPrincipal,
+} from '@deepseek-ai/dsh-authentication'
 import { HOST_EVENTS_PATH, MUX_EVENTS_PATH } from '../src/api-path.ts'
 import { WebSocketDownlinks } from '../src/websocket-downlink.ts'
 
-type MuxSource = (signal: AbortSignal) => AsyncIterable<RpcRequest<MuxFrame>>
-type HostSource = (signal: AbortSignal) => AsyncIterable<RpcRequest<HostFrame>>
+type MuxSource = (signal: AbortSignal, request: RpcRequest<unknown>) => AsyncIterable<RpcRequest<MuxFrame>>
+type HostSource = (signal: AbortSignal, request: RpcRequest<unknown>) => AsyncIterable<RpcRequest<HostFrame>>
 
 const running: (() => Promise<void>)[] = []
 
@@ -34,15 +39,15 @@ async function * idle<F>(signal: AbortSignal): AsyncGenerator<RpcRequest<F>> {
 function api(mux: MuxSource, host: HostSource): ApiProxy {
   return {
     events: {
-      mux: (_request, signal) => mux(signal),
-      host: (_request, signal) => host(signal),
+      mux: (request, signal) => mux(signal, request),
+      host: (request, signal) => host(signal, request),
     },
   } as ApiProxy
 }
 
 async function serve(
   downlinks: WebSocketDownlinks,
-  credentials: { mux?: AuthenticationCredential; host?: AuthenticationCredential } = {},
+  principals: { mux?: AuthenticationPrincipal; host?: AuthenticationPrincipal } = {},
 ): Promise<{
   origin: string
   close: () => Promise<void>
@@ -50,8 +55,13 @@ async function serve(
   const server = createServer()
   server.on('upgrade', (request, socket, head) => {
     const pathname = new URL(request.url ?? '/', 'http://dsh.internal').pathname
-    if (pathname === MUX_EVENTS_PATH) downlinks.handleMux(request, socket, head, credentials.mux)
-    else if (pathname === HOST_EVENTS_PATH) downlinks.handleHost(request, socket, head, credentials.host)
+    const principal = pathname === MUX_EVENTS_PATH ? principals.mux : principals.host
+    const admission: Extract<AuthenticationDecision, { kind: 'accepted' }> = {
+      kind: 'accepted',
+      principal: principal ?? { kind: 'bypass', capabilities: ALL_AUTHENTICATION_CAPABILITIES },
+    }
+    if (pathname === MUX_EVENTS_PATH) downlinks.handleMux(request, socket, head, admission)
+    else if (pathname === HOST_EVENTS_PATH) downlinks.handleHost(request, socket, head, admission)
     else socket.destroy()
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -62,6 +72,16 @@ async function serve(
       await downlinks.close()
       await new Promise<void>(resolve => server.close(() => { resolve() }))
     },
+  }
+}
+
+function grant(id: string, revision = 1, expiresAt = new Date(Date.now() + 60_000).toISOString()): AuthenticationPrincipal {
+  return {
+    kind: 'grant',
+    grantId: authenticationGrantId(id),
+    grantRevision: revision,
+    capabilities: ALL_AUTHENTICATION_CAPABILITIES,
+    expiresAt,
   }
 }
 
@@ -80,17 +100,31 @@ async function acceptedSocket(downlinks: WebSocketDownlinks): Promise<WebSocket>
 }
 
 describe('WebSocket downlinks', () => {
-  it('closes only sockets authenticated by a revoked credential revision', async () => {
-    const laptop = {
-      tokenId: authenticationTokenId('laptop-id'),
-      tokenName: authenticationTokenName('laptop'),
-      generation: 1,
-    }
-    const ci = {
-      tokenId: authenticationTokenId('ci-id'),
-      tokenName: authenticationTokenName('ci'),
-      generation: 1,
-    }
+  it('attaches the authenticated principal to the opened stream request', async () => {
+    let opened: RpcRequest<unknown> | undefined
+    const downlinks = new WebSocketDownlinks(api(
+      (signal, request) => {
+        opened = request
+        return idle(signal)
+      },
+      signal => idle(signal),
+    ))
+    const server = await serve(downlinks)
+    running.push(server.close)
+    const socket = new WebSocket(`${server.origin}${MUX_EVENTS_PATH}`)
+    await once(socket, 'open')
+
+    expect(opened?.principal).toEqual({
+      kind: 'bypass',
+      capabilities: ALL_AUTHENTICATION_CAPABILITIES,
+    })
+    socket.close()
+    await once(socket, 'close')
+  })
+
+  it('closes only sockets authenticated by a revoked Grant revision', async () => {
+    const laptop = grant('laptop-id')
+    const ci = grant('ci-id')
     const downlinks = new WebSocketDownlinks(api(idle, idle))
     const host = await serve(downlinks, { mux: laptop, host: ci })
     running.push(host.close)
@@ -99,7 +133,7 @@ describe('WebSocket downlinks', () => {
     await Promise.all([once(mux, 'open'), once(hostSocket, 'open')])
 
     const muxClosed = once(mux, 'close')
-    downlinks.revoke([laptop])
+    downlinks.revoke([{ grantId: authenticationGrantId('laptop-id'), grantRevision: 1 }])
     const [code] = await muxClosed as [number, Buffer]
     expect(code).toBe(4001)
     expect(hostSocket.readyState).toBe(WebSocket.OPEN)
@@ -107,35 +141,38 @@ describe('WebSocket downlinks', () => {
     await once(hostSocket, 'close')
   })
 
-  it('closes a socket whose credential was revoked before upgrade registration', async () => {
-    const laptop = {
-      tokenId: authenticationTokenId('laptop-id'),
-      tokenName: authenticationTokenName('laptop'),
-      generation: 2,
-    }
+  it('closes a socket whose Grant was revoked before upgrade registration', async () => {
     const downlinks = new WebSocketDownlinks(api(idle, idle))
-    downlinks.revoke([laptop])
-    const credentials = { mux: { ...laptop, generation: 1 } }
-    const host = await serve(downlinks, credentials)
+    downlinks.revoke([{ grantId: authenticationGrantId('laptop-id'), grantRevision: 2 }])
+    const principals = { mux: grant('laptop-id', 1) }
+    const host = await serve(downlinks, principals)
     running.push(host.close)
 
     const stale = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
     const [code] = await once(stale, 'close') as [number, Buffer]
     expect(code).toBe(4001)
 
-    credentials.mux = { ...laptop, generation: 3 }
+    principals.mux = grant('laptop-id', 3)
     const current = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
     await once(current, 'open')
     current.close()
     await once(current, 'close')
   })
 
+  it('closes an admitted socket when its short-lived principal expires', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const host = await serve(downlinks, { mux: grant('short-lived', 1, new Date(Date.now() + 100).toISOString()) })
+    running.push(host.close)
+
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+    await once(socket, 'open')
+    const [code, reason] = await once(socket, 'close') as [number, Buffer]
+    expect(code).toBe(4001)
+    expect(String(reason)).toBe('access expired')
+  })
+
   it('rejects sockets while authentication is unavailable and admits them after recovery', async () => {
-    const laptop = {
-      tokenId: authenticationTokenId('laptop-id'),
-      tokenName: authenticationTokenName('laptop'),
-      generation: 1,
-    }
+    const laptop = grant('laptop-id')
     const downlinks = new WebSocketDownlinks(api(idle, idle))
     downlinks.authenticationUnavailable()
     const host = await serve(downlinks, { mux: laptop })
@@ -266,12 +303,14 @@ describe('WebSocket downlinks', () => {
   })
 
   it('sends stream/error before closing when a source fails', async () => {
+    const reportError = vi.fn()
+    const sourceError = new Error('mux source failed')
     const downlinks = new WebSocketDownlinks(api(
       async function * () {
-        throw new Error('mux source failed')
+        throw sourceError
       },
       idle,
-    ))
+    ), reportError)
     const host = await serve(downlinks)
     running.push(host.close)
     const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
@@ -279,18 +318,30 @@ describe('WebSocket downlinks', () => {
     const closed = once(socket, 'close')
     expect((await failure).payload).toEqual({
       type: 'stream/error',
-      error: { code: 'internal', message: 'Error: mux source failed', details: {} },
+      error: { code: 'internal', message: 'event stream failed', details: {} },
     })
+    expect(reportError).toHaveBeenCalledWith(sourceError)
     await closed
+  })
+
+  it('contains a throwing diagnostic sink and still sends stream/error', async () => {
+    const downlinks = new WebSocketDownlinks(api(
+      async function * () { throw new Error('source failed') },
+      idle,
+    ), () => { throw new Error('logger failed') })
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+
+    await expect(read(socket)).resolves.toMatchObject({
+      payload: { type: 'stream/error', error: { message: 'event stream failed' } },
+    })
+    await once(socket, 'close')
   })
 
   it('aborts the source when an accepted socket reports a transport error', async () => {
     let aborted = false
-    const laptop = {
-      tokenId: authenticationTokenId('laptop-id'),
-      tokenName: authenticationTokenName('laptop'),
-      generation: 1,
-    }
+    const laptop = grant('laptop-id')
     const downlinks = new WebSocketDownlinks(api(
       async function * (signal) {
         try {
@@ -306,10 +357,10 @@ describe('WebSocket downlinks', () => {
     const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
     await once(socket, 'open')
     const accepted = await acceptedSocket(downlinks)
-    expect((downlinks as unknown as { credentials: Map<WebSocket, AuthenticationCredential> }).credentials.size).toBe(1)
+    expect((downlinks as unknown as { admissions: Map<WebSocket, AuthenticationDecision> }).admissions.size).toBe(1)
     const closed = once(socket, 'close')
     accepted.emit('error', new Error('transport failed'))
-    expect((downlinks as unknown as { credentials: Map<WebSocket, AuthenticationCredential> }).credentials.size).toBe(0)
+    expect((downlinks as unknown as { admissions: Map<WebSocket, AuthenticationDecision> }).admissions.size).toBe(0)
     await closed
     expect(aborted).toBe(true)
   })
