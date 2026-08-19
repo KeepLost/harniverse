@@ -79,7 +79,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 
 | Capability | Service Definition | Service Provider | Consumer | Current downstream status |
 |---|---|---|---|---|
-| Inbound authentication and authorization | `dsh-authentication` (new) | `dsh-authentication-local` (new) | `dsh-client-connection` (official, modified), `dsh-auth-app` (new management bundle), `dsh-sdk-client` (official, modified) | Complete seam; public-key Grants produce short credentials bounded by Grant deadlines, pending enrollment is bounded, loss of the final owner seals every business transport, and endpoint metadata defaults unknown operations to deny. |
+| Inbound authentication and authorization | `dsh-authentication` (new) | `dsh-authentication-local` (new) | `dsh-client-connection` (official, modified), `dsh-auth-app` (new management bundle), `dsh-sdk-client` (official, modified) | Complete seam; public-key Grants produce short credentials bounded by Grant deadlines, human-readable enrollment is bounded, loss of the final owner seals every business transport, declared Host/Origin trust precedes authentication, and endpoint metadata defaults unknown operations to deny. |
 | Outbound notification | `dsh-notification` (new; Definition + coordinator Consumer) | `dsh-notification-http` (new) | Coordinator folded into `dsh-notification` | Complete opt-in seam following the official session-telemetry pattern. |
 | Durable result artifacts | `dsh-spill` (official, modified) | `dsh-spill-local` (official, modified) | `dsh-tool-result-artifacts` (new), `dsh-spill-policy` | Complete seam; one Consumer owns retention, recovery marker, failure semantics, and `artifact_read`. |
 | Recallable compaction history | `dsh-compaction` (official) plus `dsh-compaction-lossless` summary-DAG service (new) | `dsh-compaction-lossless` (new; inherits the official basic Provider transaction) | `dsh-tool-compaction-history` (new) | Complete shipped seam; automatic compaction projects committed checkpoints over the canonical Session log, while bounded current-session tools search summaries and expand parent/source history. |
@@ -126,7 +126,8 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `dsh-base` compaction | `dsh-compaction-lossless` replaces the official basic row while inheriting its automatic transaction policy; `dsh-tool-compaction-history` exposes bounded recall. Web moves both rows behind standard, code, and Cordis agent presets; minimal remains uncompacted. |
 | Standalone headless example | The runnable headless composition selects the same lossless Provider and history Consumer; its keyless overflow snapshot verifies committed replacement plus model-visible recall tools and untrusted-history guidance. |
 | `dsh-web-app` authentication | `dsh-authentication-local` initializes before WebServer bind; connection injects the provider-neutral service. |
-| `dsh-web-app` transport | Non-loopback listeners require direct TLS; authentication bypass is loopback-only. |
+| `dsh-web-app` transport | Non-loopback listeners require direct TLS; authentication bypass is loopback-only. The Web startup provider carries explicit Host and exact-Origin trust into `dsh-client-connection`, while the composition prints the effective trust policy and mounts the Cordis console exporter for privacy-minimal connection and authentication diagnostics. |
+| Source container/Tailscale launcher | `pnpm run web:container` persists a development CA and leaf certificate under `$DSH_HOME`, maps certificate SAN hosts to the same authenticated Web profile's Host trust, optionally carries exact advanced Origins, and leaves browser enrollment and owner approval intact; it is not a separate profile or plugin composition. |
 | `auth` profile | `dsh-auth-app` parses device, Grant, and API-client management arguments inside the plugin tree and exits without mounting an Agent, WebServer, or authentication runtime Provider. |
 | Notification | No shipped bundle mounts `dsh-notification-http`; explicit examples compose Storage plus the Provider. |
 | `dsh-web-app` plugin diagnostics | Mounts the diagnostics registry and Cordis lifecycle Provider before the existing authorized plugin-inventory Remote; the existing Plugins Settings tab displays each current report without repair controls. |
@@ -148,6 +149,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `6ba41ae8ef` | Replaces named-token inbound authentication with plugin-native public-key Enrollment/Grant/Access lifecycle, capability-total endpoint enforcement, bounded enrollment and per-Grant credentials, browser/API-client flows, and sealed owner admission. |
 | `22c9c1b9a9` | Adds automatic lossless-style compaction over a committed summary DAG, bounded current-session history tools, and shipped bundle, preset, and headless composition. |
 | `827dc083d5` | Adds the read-only plugin diagnostics Definition, Cordis Provider, authorized Remote projection, and Plugins Settings report. |
+| `955ab7323a` | Adds the source container TLS launcher, Tailscale Host/SAN wiring, exact Origin trust configuration, human-readable enrollment errors, and privacy-minimal Web connection and authentication diagnostics. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
