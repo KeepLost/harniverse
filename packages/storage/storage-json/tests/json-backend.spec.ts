@@ -148,6 +148,26 @@ describe('json backend specifics', () => {
     await backend.close()
   })
 
+  it('rewrites an explicitly supported older unit version before serving it', async () => {
+    const root = await freshRoot()
+    await writeFile(
+      join(root, 'shape.json'),
+      JSON.stringify({
+        unit: { name: 'shape', version: 3 },
+        global: { legacy: true },
+        tables: { t: { old: { value: 1 } } },
+      }),
+      'utf8',
+    )
+    const backend = new JsonStorageBackend(root)
+    const unit = await backend.kv.open({ ...descriptor, migrateFrom: [3] })
+
+    expect((await unit.loadAll()).global).toEqual({ legacy: true })
+    const onDisk = JSON.parse(await readFile(join(root, 'shape.json'), 'utf8')) as { unit: { version: number } }
+    expect(onDisk.unit.version).toBe(1)
+    await backend.close()
+  })
+
   it('propagates non-ENOENT read failures', async () => {
     const root = await freshRoot()
     const { mkdir } = await import('node:fs/promises')

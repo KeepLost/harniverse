@@ -15,9 +15,10 @@ import WorkspaceRegistry, {
   WorkspaceMoveInvalidError,
   WorkspaceOrderInvalidError,
 } from '../src/index.ts'
-import type { WorkspaceDomainState, WorkspaceRecord } from '../src/index.ts'
+import type { WorkspaceDeletionDomainState, WorkspaceDomainState, WorkspaceRecord } from '../src/index.ts'
 
-const DOMAIN_VERSION = 3
+const DOMAIN_VERSION = 2
+const DELETION_DOMAIN_VERSION = 1
 
 const header = (id: string, cwd?: string, createdAt = 0): SessionHeader => ({
   version: 0,
@@ -167,6 +168,10 @@ function storedState(pool: MemoryMediaPool): WorkspaceDomainState {
   return pool.media.get('workspace')!.global as WorkspaceDomainState
 }
 
+function storedDeletionState(pool: MemoryMediaPool): WorkspaceDeletionDomainState {
+  return pool.media.get('workspace_deletion')!.global as WorkspaceDeletionDomainState
+}
+
 let base: string
 const tempDirs: string[] = []
 
@@ -184,6 +189,42 @@ afterEach(async () => {
 })
 
 describe('WorkspaceRegistry lifecycle and bootstrap', () => {
+  it('opens a workspace medium stamped by DSH v2 and isolates the deletion journal', async () => {
+    const pool = new MemoryMediaPool()
+    pool.versions.set('workspace', DOMAIN_VERSION)
+
+    const result = await harness({ pool })
+
+    expect(result.registry.list()).toEqual([])
+    expect(pool.versions.get('workspace')).toBe(DOMAIN_VERSION)
+    expect(pool.versions.get('workspace_deletion')).toBe(DELETION_DOMAIN_VERSION)
+
+    await result.registry.beginSessionDeletion(SessionId('deleting'))
+    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
+    expect(storedDeletionState(pool)).toEqual({ pendingSessionDeletionIds: ['deleting'] })
+  })
+
+  it('migrates the short-lived v3 marker into the separate deletion journal', async () => {
+    const pool = new MemoryMediaPool()
+    pool.versions.set('workspace', 3)
+    pool.media.set('workspace', {
+      tables: new Map<string, Map<string, unknown>>([['workspaces', new Map<string, unknown>()]]),
+      global: {
+        initialized: true,
+        workspaceIds: [],
+        archivedSessionIds: [],
+        pendingSessionDeletionIds: ['legacy-deleting'],
+      },
+    })
+
+    const result = await harness({ pool })
+
+    expect(pool.versions.get('workspace')).toBe(DOMAIN_VERSION)
+    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
+    expect(storedDeletionState(pool)).toEqual({ pendingSessionDeletionIds: ['legacy-deleting'] })
+    expect(result.registry.pendingSessionDeletionIds).toEqual(['legacy-deleting'])
+  })
+
   it('stays pending without sessionPersistence and never opens or marks the domain', async () => {
     const pool = new MemoryMediaPool()
     const ctx = await storageContext(pool)
@@ -971,6 +1012,6 @@ describe('registry-global session archive', () => {
     await second.registry.completeSessionDeletion(SessionId('deleting'))
     await second.registry.completeSessionDeletion(SessionId('deleting'))
     expect(second.registry.pendingSessionDeletionIds).toEqual([])
-    expect(storedState(pool).pendingSessionDeletionIds).toBeUndefined()
+    expect(storedDeletionState(pool)).toEqual({ pendingSessionDeletionIds: [] })
   })
 })

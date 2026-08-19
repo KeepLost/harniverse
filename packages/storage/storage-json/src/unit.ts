@@ -41,6 +41,9 @@ export async function openJsonUnit(
         tables: new Map(descriptor.tables.map(table => [table, new Map<string, unknown>()])),
       }
       : parse(text, descriptor)
+  if (state.migrated === true) {
+    await writeAtomic(path, serialize(descriptor.name, state))
+  }
   return new JsonKvUnit(descriptor, path, state, onClose)
 }
 

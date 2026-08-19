@@ -33,9 +33,10 @@ export interface KvFacet {
    * (materialization may defer to the first write, but {@link KvUnit.loadAll}
    * must immediately serve the empty shape). A version already stamped on the
    * medium that differs from `descriptor.version` rejects with
-   * `version-mismatch`; a medium that cannot be parsed as this unit rejects
-   * with `malformed-medium`. Opening the same unit name twice without closing
-   * is a caller bug and rejects.
+   * `version-mismatch` unless the descriptor explicitly lists that stamp in
+   * `migrateFrom`; a medium that cannot be parsed as this unit rejects with
+   * `malformed-medium`. Opening the same unit name twice without closing is a
+   * caller bug and rejects.
    * @param descriptor - Static identity and shape of the unit to open.
    * @returns the opened unit.
    */
@@ -48,6 +49,8 @@ export interface KvUnitDescriptor {
   readonly name: string
   /** Unit format version; a non-negative integer stamped on the medium at first materialization. */
   readonly version: number
+  /** Older unit versions this owner can rewrite to {@link KvUnitDescriptor.version} without changing record layout. */
+  readonly migrateFrom?: readonly number[]
   /** Table names; each must match {@link UNIT_NAME_RE}. */
   readonly tables: readonly string[]
   /** Whether this unit carries the global singleton slot. */

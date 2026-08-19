@@ -35,8 +35,10 @@ export interface DomainTableSpec<K extends string = string, V = unknown> {
 export interface DomainSpec {
   /** Domain name; must match `UNIT_NAME_RE` (doubles as the backend unit name). */
   readonly name: string
-  /** Domain format version; a medium stamped with a different version rejects at open. */
+  /** Domain format version; a different stamp rejects at open unless listed in {@link migrateFrom}. */
   readonly version: number
+  /** Older versions whose record layout the owner can preserve while rewriting the stamp. */
+  readonly migrateFrom?: readonly number[]
   /** Optional global singleton slot. */
   readonly global?: DomainGlobalSpec<unknown>
   /** Table declarations keyed by table name; each name must match `UNIT_NAME_RE`. */
@@ -106,6 +108,7 @@ export function descriptorOf(spec: DomainSpec): KvUnitDescriptor {
   return {
     name: spec.name,
     version: spec.version,
+    ...(spec.migrateFrom === undefined ? {} : { migrateFrom: spec.migrateFrom }),
     tables: Object.keys(spec.tables),
     hasGlobal: spec.global !== undefined,
   }

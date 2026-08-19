@@ -1,6 +1,6 @@
 /**
  * The workspace domain declaration: record schema and the `defineDomain` spec
- * the registry opens. The zod schema is the durable-boundary validator today
+ * the registry opens. The zod schemas are the durable-boundary validators today
  * and the direct source of the RPC wire projection in a later phase.
  * @module @deepseek-ai/dsh-workspace/src/spec
  */
@@ -46,9 +46,11 @@ const workspacePendingMutation = z.discriminatedUnion('operation', [
  * the registry-global archive set layered over workspace accounting: an
  * archived session keeps its `sessionIds` slot (unarchiving must restore the
  * position), so the set never participates in the one-owner accounting
- * invariant. `pendingSessionDeletionIds` is the recovery journal for
- * authoritative Session deletion followed by derived-reference cleanup.
- * Archive state is defaulted so records written before the field parse unchanged.
+ * invariant. Archive state is defaulted so records written before the field
+ * parse unchanged. The Harniverse-only Session deletion journal lives in the
+ * separate {@link workspaceDeletionDomainSpec}, so the shared workspace domain
+ * remains compatible with the official DSH format. The optional deletion field
+ * is read only to migrate media written by the short-lived version 3 format.
  */
 export const workspaceDomainState = z.object({
   initialized: z.boolean(),
@@ -61,6 +63,14 @@ export const workspaceDomainState = z.object({
 /** Durable registry state inferred from {@link workspaceDomainState}. */
 export type WorkspaceDomainState = z.infer<typeof workspaceDomainState>
 
+/** Durable state for the Harniverse-only Session deletion recovery journal. */
+export const workspaceDeletionDomainState = z.object({
+  pendingSessionDeletionIds: z.array(z.string().transform(SessionId)),
+})
+
+/** Durable deletion-journal state inferred from {@link workspaceDeletionDomainState}. */
+export type WorkspaceDeletionDomainState = z.infer<typeof workspaceDeletionDomainState>
+
 /**
  * The workspace domain spec: one `workspaces` table keyed by
  * {@link WorkspaceId} plus the bootstrap/order singleton. The registry opens
@@ -69,10 +79,25 @@ export type WorkspaceDomainState = z.infer<typeof workspaceDomainState>
  */
 export const workspaceDomainSpec = defineDomain({
   name: 'workspace',
-  version: 3,
+  version: 2,
+  migrateFrom: [3],
   global: {
     schema: workspaceDomainState,
     initial: { initialized: false, workspaceIds: [], archivedSessionIds: [] },
   },
   tables: { workspaces: domainTable<WorkspaceId, WorkspaceRecord>(workspaceRecord) },
+})
+
+/**
+ * The Harniverse-only deletion journal is separate from the shared workspace
+ * domain because the official DSH workspace format remains at version 2.
+ */
+export const workspaceDeletionDomainSpec = defineDomain({
+  name: 'workspace_deletion',
+  version: 1,
+  global: {
+    schema: workspaceDeletionDomainState,
+    initial: { pendingSessionDeletionIds: [] },
+  },
+  tables: {},
 })

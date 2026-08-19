@@ -17,13 +17,19 @@ import type { WorkspaceEntityHost } from './entity.ts'
 
 export { WorkspaceMoveInvalidError } from './entity.ts'
 import { realpathNormalize } from './paths.ts'
-import { workspaceDomainSpec } from './spec.ts'
-import type { WorkspaceDomainState, WorkspaceRecord } from './spec.ts'
+import { workspaceDeletionDomainSpec, workspaceDomainSpec } from './spec.ts'
+import type { WorkspaceDeletionDomainState, WorkspaceDomainState, WorkspaceRecord } from './spec.ts'
 import type { Workspace, WorkspaceId as WorkspaceIdBrand } from './types.ts'
 
 export type { Workspace } from './types.ts'
-export { workspaceDomainState, workspaceRecord, workspaceDomainSpec } from './spec.ts'
-export type { WorkspaceDomainState, WorkspaceRecord } from './spec.ts'
+export {
+  workspaceDeletionDomainSpec,
+  workspaceDeletionDomainState,
+  workspaceDomainState,
+  workspaceRecord,
+  workspaceDomainSpec,
+} from './spec.ts'
+export type { WorkspaceDeletionDomainState, WorkspaceDomainState, WorkspaceRecord } from './spec.ts'
 export { realpathNormalize } from './paths.ts'
 
 /** Identifies one workspace record (see `src/types.ts` for the brand rationale). */
@@ -94,6 +100,7 @@ export class WorkspaceRegistry extends Service {
 
   private table?: KvTable<WorkspaceId, WorkspaceRecord>
   private global?: DomainGlobal<WorkspaceDomainState>
+  private deletionGlobal?: DomainGlobal<WorkspaceDeletionDomainState>
   private state?: WorkspaceDomainState
   private readonly entities = new Map<WorkspaceId, WorkspaceEntity>()
   private readonly headers = new Map<SessionId, SessionHeader>()
@@ -118,10 +125,22 @@ export class WorkspaceRegistry extends Service {
   /** Open the domain, finish bootstrap when required, and rebuild the ordered cache. */
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(workspaceDomainSpec)
-    this.ctx.effect(() => () => domain.close(), 'workspace.domainClose')
+    let deletionDomain
+    try {
+      deletionDomain = await this.ctx.storageDomain.open(workspaceDeletionDomainSpec)
+    } catch (error) {
+      await domain.close()
+      throw error
+    }
+    this.ctx.effect(() => async () => {
+      await deletionDomain.close()
+      await domain.close()
+    }, 'workspace.domainClose')
     this.table = domain.table('workspaces')
     this.global = domain.global
+    this.deletionGlobal = deletionDomain.global
     this.state = domain.global.get()
+    await this.migrateLegacyDeletionState()
 
     await this.recoverPendingMutation()
     this.validateStoredState(this.state)
@@ -236,7 +255,7 @@ export class WorkspaceRegistry extends Service {
 
   /** Session ids whose authoritative deletion has begun but whose derived cleanup may need retry. */
   get pendingSessionDeletionIds(): readonly SessionId[] {
-    return this.requireState().pendingSessionDeletionIds ?? []
+    return this.requireDeletionState().pendingSessionDeletionIds
   }
 
   /**
@@ -246,11 +265,10 @@ export class WorkspaceRegistry extends Service {
    */
   beginSessionDeletion(sessionId: SessionId): Promise<void> {
     return this.enqueueOperation(async () => {
-      const state = this.requireState()
-      if (state.pendingSessionDeletionIds?.includes(sessionId) === true) return
-      await this.setState({
-        ...state,
-        pendingSessionDeletionIds: [...state.pendingSessionDeletionIds ?? [], sessionId],
+      const state = this.requireDeletionState()
+      if (state.pendingSessionDeletionIds.includes(sessionId)) return
+      await this.setDeletionState({
+        pendingSessionDeletionIds: [...state.pendingSessionDeletionIds, sessionId],
       })
     })
   }
@@ -262,11 +280,11 @@ export class WorkspaceRegistry extends Service {
    */
   completeSessionDeletion(sessionId: SessionId): Promise<void> {
     return this.enqueueOperation(async () => {
-      const state = this.requireState()
-      if (state.pendingSessionDeletionIds?.includes(sessionId) !== true) return
-      const next = state.pendingSessionDeletionIds.filter(id => id !== sessionId)
-      const { pendingSessionDeletionIds: _pending, ...base } = state
-      await this.setState(next.length === 0 ? base : { ...base, pendingSessionDeletionIds: next })
+      const state = this.requireDeletionState()
+      if (!state.pendingSessionDeletionIds.includes(sessionId)) return
+      await this.setDeletionState({
+        pendingSessionDeletionIds: state.pendingSessionDeletionIds.filter(id => id !== sessionId),
+      })
     })
   }
 
@@ -700,9 +718,32 @@ export class WorkspaceRegistry extends Service {
     return this.state
   }
 
+  private requireDeletionState(): WorkspaceDeletionDomainState {
+    if (this.deletionGlobal === undefined) throw new Error('workspace registry is not started yet')
+    return this.deletionGlobal.get()
+  }
+
   private async setState(state: WorkspaceDomainState): Promise<void> {
-    await (this.global as DomainGlobal<WorkspaceDomainState>).set(state)
-    this.state = state
+    const { pendingSessionDeletionIds: _legacy, ...compatibleState } = state
+    await (this.global as DomainGlobal<WorkspaceDomainState>).set(compatibleState)
+    this.state = compatibleState
+  }
+
+  private async setDeletionState(state: WorkspaceDeletionDomainState): Promise<void> {
+    await (this.deletionGlobal as DomainGlobal<WorkspaceDeletionDomainState>).set(state)
+  }
+
+  private async migrateLegacyDeletionState(): Promise<void> {
+    const state = this.requireState()
+    const legacy = state.pendingSessionDeletionIds
+    if (legacy === undefined) return
+    const deletion = this.requireDeletionState()
+    const pendingSessionDeletionIds = [...new Set([
+      ...deletion.pendingSessionDeletionIds,
+      ...legacy,
+    ])]
+    await this.setDeletionState({ pendingSessionDeletionIds })
+    await this.setState(state)
   }
 
   private enqueueOperation<T>(operation: () => Promise<T>): Promise<T> {

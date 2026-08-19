@@ -13,6 +13,7 @@ export interface UnitState {
   version: number
   global: unknown
   tables: Map<string, Map<string, unknown>>
+  migrated?: boolean
 }
 
 /**
@@ -35,9 +36,10 @@ export function serialize(name: string, state: UnitState): string {
 }
 
 /**
- * Parse file content into unit state, validating shape and version.
+ * Parse file content into unit state, validating shape and version. An
+ * explicitly supported older version is marked for a header-only rewrite.
  * @param text - Raw file content.
- * @param descriptor - Expected identity; version mismatch rejects.
+ * @param descriptor - Expected identity and explicitly supported migrations.
  * @returns the parsed state.
  */
 export function parse(text: string, descriptor: KvUnitDescriptor): UnitState {
@@ -59,7 +61,8 @@ export function parse(text: string, descriptor: KvUnitDescriptor): UnitState {
     throw new StorageError('malformed-medium', `unit '${descriptor.name}': missing or foreign unit header`)
   }
   const version = (unit as Record<string, unknown>)['version'] as number
-  if (version !== descriptor.version) {
+  const migrated = version !== descriptor.version
+  if (migrated && !descriptor.migrateFrom?.includes(version)) {
     throw new StorageError(
       'version-mismatch',
       `unit '${descriptor.name}': stored version ${version} != expected ${descriptor.version}`,
@@ -68,7 +71,12 @@ export function parse(text: string, descriptor: KvUnitDescriptor): UnitState {
   if (typeof tables !== 'object' || tables === null) {
     throw new StorageError('malformed-medium', `unit '${descriptor.name}': tables is not an object`)
   }
-  const state: UnitState = { version, global: globalValue ?? null, tables: new Map() }
+  const state: UnitState = {
+    version: descriptor.version,
+    global: globalValue ?? null,
+    tables: new Map(),
+    ...(migrated ? { migrated: true } : {}),
+  }
   for (const table of descriptor.tables) {
     const records = (tables as Record<string, unknown>)[table]
     if (records === undefined) {

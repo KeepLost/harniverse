@@ -6,9 +6,10 @@
  * `tests/`, never `src/`, so it stays out of the published surface).
  *
  * Fidelity to the backend contract (`dsh-storage` `src/backend.ts`): version
- * stamping and `version-mismatch` on reopen, `malformed` never (memory cannot
- * corrupt), per-call atomicity trivially, `closed` after close, delete
- * idempotence. Media survive across backends through the shared `media` map
+ * stamping and `version-mismatch` on reopen unless an explicit migration is
+ * listed, `malformed` never (memory cannot corrupt), per-call atomicity
+ * trivially, `closed` after close, delete idempotence. Media survive across
+ * backends through the shared `media` map
  * passed into the constructor, which simulates process restarts; stamp
  * `versions` directly to fabricate an on-medium version and force a
  * `version-mismatch` without a prior open.
@@ -136,11 +137,13 @@ export class MemoryStorageBackend implements StorageBackend {
         const stamped = this.pool.versions.get(descriptor.name)
         if (stamped === undefined) {
           this.pool.versions.set(descriptor.name, descriptor.version)
-        } else if (stamped !== descriptor.version) {
+        } else if (stamped !== descriptor.version && !descriptor.migrateFrom?.includes(stamped)) {
           throw new StorageError(
             'version-mismatch',
             `memory unit '${descriptor.name}' is stamped v${stamped}, descriptor wants v${descriptor.version}`,
           )
+        } else if (stamped !== descriptor.version) {
+          this.pool.versions.set(descriptor.name, descriptor.version)
         }
         let medium = this.pool.media.get(descriptor.name)
         if (medium === undefined) {

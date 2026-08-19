@@ -86,6 +86,29 @@ describe('sqlite backend specifics', () => {
     await backend.close()
   })
 
+  it('rewrites an explicitly supported older unit version before serving it', async () => {
+    const path = await freshDbPath()
+    const backend = backendAt(path)
+    const unit = await backend.kv.open({ ...DESCRIPTOR, version: 3 })
+    await unit.putRecord('records', 'legacy', { value: 1 })
+    await unit.close()
+    await backend.close()
+
+    const migrated = backendAt(path)
+    const current = await migrated.kv.open({ ...DESCRIPTOR, migrateFrom: [3] })
+    expect((await current.loadAll()).tables['records']).toEqual({ legacy: { value: 1 } })
+    await current.close()
+    await migrated.close()
+
+    const verify = new DatabaseSync(path)
+    try {
+      expect((verify.prepare('SELECT version FROM units WHERE name = ?').get('specimen') as { version: number }).version)
+        .toBe(DESCRIPTOR.version)
+    } finally {
+      verify.close()
+    }
+  })
+
   it('rejects invalid unit and table names before touching the medium', async () => {
     const backend = backendAt(':memory:')
     await expect(backend.kv.open({ ...DESCRIPTOR, name: 'Bad-Name' })).rejects.toThrow(/violates/)

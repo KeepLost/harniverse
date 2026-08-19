@@ -15,11 +15,11 @@ DeepSeek Harness 的 Workspace 实体注册表（`ctx.workspaceRegistry`）：�
 - `Workspace.attachSession(id)`：对照 workspace 路径验证实时或已持久化的会话头 cwd，并将新 id 前置。未知会话、缺失／无法解析／非目录的 cwd 值和不匹配情况都会在不写入的前提下被拒绝。`detachSession` 只移除候选索引条目。
 - `Workspace.insertSessionBefore(id, before?)`：在手动顺序内移动一个已记账的会话，语义类似 DOM 的 insertBefore：插到锚点之前，省略锚点则追加到末尾。会话或锚点不在记账中时拒绝且不写入；移动到当前位置时直接完成且不写入。注册表中的 Workspace 顺序绝不改变。
 - `ctx.workspaceRegistry.archiveSession(id)`/`archivedSessionIds`：覆盖在 workspace 记账之上的注册表级全局归档集合：被归档的会话从各分组视图中消失，但其会话日志和 `sessionIds` 席位保持不变，未来取消归档时可恢复原位置。归档接受任何实时或已持久化的会话（无论已记账还是 Ungrouped），对已归档的 id 直接完成而不写入，并拒绝未知 id。在该字段出现之前写入的状态解析为一个空集合。
-- `ctx.workspaceRegistry.beginSessionDeletion(id)`／`pendingSessionDeletionIds`／`completeSessionDeletion(id)`：持久恢复标记用于区分中断的权威 Session 删除与从未存在的 id。随后 `removeSessionReferences(id)` 会以幂等方式从每个 Workspace 记账、全局归档集合和内存 header/path 索引移除已提交的删除，调用方最后清除标记；这些方法自身都不删除 Session 日志。
+- `ctx.workspaceRegistry.beginSessionDeletion(id)`／`pendingSessionDeletionIds`／`completeSessionDeletion(id)`：Harniverse 专属的 `workspace_deletion` domain 中的持久恢复标记，用于区分中断的权威 Session 删除与从未存在的 id。随后 `removeSessionReferences(id)` 会以幂等方式从每个 Workspace 记账、全局归档集合和内存 header/path 索引移除已提交的删除，调用方最后清除标记；这些方法自身都不删除 Session 日志。
 - `Workspace.sessionIds`：按持久候选顺序提供同步 id 加规范 cwd 成员投影。缺失头部、无效 cwd 值和不匹配情况都被过滤；下一次 workspace 变更会剪除它们。如果同一存储介质将一个会话索引到两个 workspace 下、用两条记录声明同一路径，或偏离持久 workspace 顺序，启动会被拒绝。
 - `Workspace.status()`：未缓存的目录检查，返回 `'ok' | 'missing-dir'`；目录缺失绝不会改动记录。
 
-`storageDomain` 和 `sessionPersistence` 是启动必需依赖。任一依赖服务不可用时，插件保持待处理，且不能提交空的已初始化标记。首次成功启动时，注册表调用 `SessionPersistence.list()`，仅使用头部 `id`、`cwd` 和 `createdAt` 对有效历史目录分组并持久化初始顺序；它绝不读取事件正文。已初始化标记最后写入，因此重启后可安全复用引导初始化期间的部分写入。后续仅能通过 cwd 识别的会话仍属于 Ungrouped。
+`storageDomain` 和 `sessionPersistence` 是启动必需依赖。共享的 `workspace` domain 保持与官方 DSH 一致的格式版本 2；Harniverse 专属的删除恢复 journal 存储在版本 1 的 `workspace_deletion` domain 中。注册表将 workspace 版本 3 明确作为迁移来源，重写为版本 2，并把其中的删除标记转移到独立 journal。任一依赖服务不可用时，插件保持待处理，且不能提交空的已初始化标记。首次成功启动时，注册表调用 `SessionPersistence.list()`，仅使用头部 `id`、`cwd` 和 `createdAt` 对有效历史目录分组并持久化初始顺序；它绝不读取事件正文。已初始化标记最后写入，因此重启后可安全复用引导初始化期间的部分写入。后续仅能通过 cwd 识别的会话仍属于 Ungrouped。
 
 创建和删除操作会在记录和顺序可能分叉之前，先持久化明确的待处理变更标记。启动时只补全该标记所指明的变更，随后清除标记；没有标记的顺序／表不一致仍属于来源不明的损坏，并会明确报错。删除后重新注册同一路径会生成新的 Workspace id，且不会自动重新接纳保留下来的会话。
 
