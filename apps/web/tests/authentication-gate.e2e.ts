@@ -38,7 +38,7 @@ describe('web e2e: authentication gate', () => {
     const sealedBundle = await page.request.get(`${scaffold.baseUrl}/plugins/@deepseek-ai/dsh-client-connection/client.js`)
     const sealedTopology = await page.request.get(`${scaffold.baseUrl}/plugins/events`)
     expect({ bundle: sealedBundle.status(), topology: sealedTopology.status() }).toEqual({ bundle: 401, topology: 401 })
-    await input.fill('browser-e2e')
+    await input.fill('我的设备')
     const enrollmentResponsePromise = page.waitForResponse(response => new URL(response.url()).pathname === '/auth/enrollment' && response.request().method() === 'POST')
     await page.getByRole('button', { name: '配对个人设备' }).click()
     const enrollmentResponse = await enrollmentResponsePromise
@@ -51,6 +51,7 @@ describe('web e2e: authentication gate', () => {
 
     const requests = await listEnrollmentRequests({ dshHome: scaffold.harnessHome })
     expect(requests).toHaveLength(1)
+    expect(requests[0]?.name).toBe('我的设备')
     const exchangeResponsePromise = page.waitForResponse(response => new URL(response.url()).pathname === '/auth/exchange')
     await approveEnrollmentRequest(requests[0]!.id, {
       capabilities: ['harniverse.observe', 'harniverse.operate', 'harniverse.administer', 'harniverse.authorize'],

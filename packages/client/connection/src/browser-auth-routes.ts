@@ -6,12 +6,13 @@ import {
   authenticationGrantId,
   isAuthenticationCapability,
   type AuthenticationCapability,
+  type AuthenticationEnrollmentDecision,
   type AuthenticationChallengeProof,
   type AuthenticationPrincipal,
 } from '@deepseek-ai/dsh-authentication'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { bridge, type FetchHandler } from './http-bridge.ts'
-import { isTrustedApiRequest } from './api-request-trust.ts'
+import { describeApiTrustRequest, isTrustedApiRequest } from './api-request-trust.ts'
 import { browserSessionFromCookie } from './inbound-auth.ts'
 
 const AUTH_STATUS_PATH = '/auth/status'
@@ -41,6 +42,15 @@ function text(value: string, status: number): Response {
   return new Response(value, { status, headers: noStoreHeaders() })
 }
 
+function browserRequestDetails(request: Request, peerAddress: string | undefined): string {
+  return `${describeApiTrustRequest(request)} peer=${JSON.stringify(peerAddress ?? '-')}`
+}
+
+function principalDetails(principal: AuthenticationPrincipal): string {
+  if (principal.kind === 'bypass') return 'principal=bypass'
+  return `device=${JSON.stringify(principal.name ?? '-')} grant=${JSON.stringify(principal.grantId)}`
+}
+
 class HttpResponseError extends Error {
   constructor(readonly response: Response) {
     super('browser authentication request rejected')
@@ -67,6 +77,24 @@ function proof(value: unknown): AuthenticationChallengeProof | undefined {
 
 function exchangeStatus(reason: 'invalid-grant' | 'invalid-proof' | 'expired' | 'authentication-unavailable'): number {
   return reason === 'authentication-unavailable' ? 503 : 401
+}
+
+function enrollmentRejection(decision: Extract<AuthenticationEnrollmentDecision, { kind: 'rejected' }>): Response {
+  switch (decision.reason) {
+    case 'rate-limited':
+      return new Response('rate limited', {
+        status: 429,
+        headers: noStoreHeaders({ 'retry-after': String(Math.ceil(decision.retryAfterMs / 1_000)) }),
+      })
+    case 'authentication-unavailable':
+      return text('authentication unavailable', 503)
+    case 'invalid-name':
+      return text('device name must contain 1-64 letters, numbers, spaces, dots, underscores, or hyphens', 400)
+    case 'invalid-public-key':
+      return text('browser generated an invalid device key; use a current browser and retry', 400)
+    case 'name-conflict':
+      return text('device name is already registered or awaiting approval; choose another name', 409)
+  }
 }
 
 async function authorizeManagement(
@@ -123,21 +151,20 @@ function browserAuthenticationHandler(ctx: Context, peerAddress?: string): Fetch
           || typeof (body as { publicKey?: unknown }).publicKey !== 'string') {
           return text('invalid enrollment request', 400)
         }
+        const enrollment = body as { name: string; kind: 'device' | 'temporary'; publicKey: string }
+        ctx.logger.info(`client-connection: enrollment requested name=${JSON.stringify(enrollment.name)} kind=${JSON.stringify(enrollment.kind)} ${browserRequestDetails(request, peerAddress)}`)
         try {
-          const decision = await ctx.authentication.requestEnrollment(body as {
-            name: string
-            kind: 'device' | 'temporary'
-            publicKey: string
-          }, peerAddress)
-          if (decision.kind === 'accepted') return json(decision.value, { status: 202 })
-          return new Response(decision.reason === 'rate-limited' ? 'rate limited' : 'authentication unavailable', {
-            status: decision.reason === 'rate-limited' ? 429 : 503,
-            headers: noStoreHeaders(decision.reason === 'rate-limited'
-              ? { 'retry-after': String(Math.ceil(decision.retryAfterMs / 1_000)) }
-              : undefined),
-          })
-        } catch {
-          return text('invalid enrollment request', 400)
+          const decision = await ctx.authentication.requestEnrollment(enrollment, peerAddress)
+          if (decision.kind === 'accepted') {
+            ctx.logger.info(`client-connection: enrollment pending name=${JSON.stringify(enrollment.name)} enrollment=${JSON.stringify(decision.value.id)} peer=${JSON.stringify(peerAddress ?? '-')}`)
+            return json(decision.value, { status: 202 })
+          }
+          ctx.logger.warn(`client-connection: enrollment rejected name=${JSON.stringify(enrollment.name)} reason=${JSON.stringify(decision.reason)} peer=${JSON.stringify(peerAddress ?? '-')}`)
+          return enrollmentRejection(decision)
+        } catch (error) {
+          ctx.logger.warn('client-connection: enrollment request failed')
+          ctx.logger.warn(error)
+          return text('enrollment service failed; see server log', 500)
         }
       }
       if (pathname === AUTH_ENROLLMENT_PATH && request.method === 'GET') {
@@ -187,6 +214,7 @@ function browserAuthenticationHandler(ctx: Context, peerAddress?: string): Fetch
         }
         const decision = await ctx.authentication.createBrowserSession(submitted, peerAddress)
         if (decision.kind === 'rejected') {
+          ctx.logger.warn(`client-connection: browser authentication rejected path=${JSON.stringify(pathname)} reason=${JSON.stringify(decision.reason)} ${browserRequestDetails(request, peerAddress)}`)
           return new Response(decision.reason === 'rate-limited' ? 'rate limited' : 'unauthorized', {
             status: decision.reason === 'authentication-unavailable' ? 503 : decision.reason === 'rate-limited' ? 429 : 401,
             headers: noStoreHeaders(decision.reason === 'rate-limited'
@@ -194,6 +222,7 @@ function browserAuthenticationHandler(ctx: Context, peerAddress?: string): Fetch
               : undefined),
           })
         }
+        ctx.logger.info(`client-connection: browser authentication accepted path=${JSON.stringify(pathname)} ${principalDetails(decision.session.principal)} ${browserRequestDetails(request, peerAddress)}`)
         const maxAge = Math.max(0, Math.floor((Date.parse(decision.session.expiresAt) - Date.now()) / 1000))
         return json({ authenticated: true, expiresAt: decision.session.expiresAt }, {
           headers: {
@@ -298,8 +327,13 @@ function browserAuthenticationHandler(ctx: Context, peerAddress?: string): Fetch
  * Register browser authentication routes behind the existing request-trust fence.
  * @param ctx - Connection plugin context.
  * @param trustedHosts - deployment authorities accepted by the trust fence.
+ * @param trustedOrigins - exact cross-origin HTTP(S) Origins allowed after Host trust.
  */
-export function registerBrowserAuthenticationRoutes(ctx: Context, trustedHosts: readonly string[]): void {
+export function registerBrowserAuthenticationRoutes(
+  ctx: Context,
+  trustedHosts: readonly string[],
+  trustedOrigins: readonly string[] = [],
+): void {
   for (const path of [
     AUTH_STATUS_PATH,
     AUTH_ENROLLMENT_PATH,
@@ -317,7 +351,8 @@ export function registerBrowserAuthenticationRoutes(ctx: Context, trustedHosts: 
       kind: 'exact',
       path,
       handler: async (req, res) => {
-        if (!isTrustedApiRequest(req, trustedHosts)) {
+        if (!isTrustedApiRequest(req, trustedHosts, trustedOrigins)) {
+          ctx.logger.warn(`client-connection: rejected untrusted browser request path=${JSON.stringify(path)} ${describeApiTrustRequest(req)} peer=${JSON.stringify(req.socket.remoteAddress ?? '-')}`)
           res.writeHead(403)
           res.end('forbidden')
           return

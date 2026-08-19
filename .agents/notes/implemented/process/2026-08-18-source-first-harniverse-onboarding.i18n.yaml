@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-18-source-first-harniverse-onboarding.md
-2026-08-18-source-first-harniverse-onboarding.md: 25abb0d9eb4314abeb66ab054746f32960c80675
-2026-08-18-source-first-harniverse-onboarding.zh.md: 227537b842515aec66fd17b3a196a38ecbe6a28b
+2026-08-18-source-first-harniverse-onboarding.md: 4818eb06f57286125febbea24a98bea19019a216
+2026-08-18-source-first-harniverse-onboarding.zh.md: 77971111c40d40223ffc474be012c353e3dc3f37

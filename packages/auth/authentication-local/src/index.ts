@@ -36,6 +36,7 @@ import {
   authenticationGrantDeadline,
   consumeAuthenticationGrant,
   createEnrollmentRequest,
+  EnrollmentRequestInputError,
   getEnrollmentStatus,
   grantRegistryPath,
   isAuthenticationGrantActive,
@@ -441,6 +442,7 @@ export class LocalAuthentication extends InboundAuthentication {
       if (error instanceof PendingEnrollmentCapacityError) {
         return { kind: 'rejected', reason: 'rate-limited', retryAfterMs: error.retryAfterMs }
       }
+      if (error instanceof EnrollmentRequestInputError) return { kind: 'rejected', reason: error.reason }
       throw error
     }
   }
@@ -604,6 +606,7 @@ export class LocalAuthentication extends InboundAuthentication {
     const principal: Extract<AuthenticationPrincipal, { kind: 'grant' }> = {
       kind: 'grant',
       grantId: grant.id,
+      name: grant.name,
       grantRevision: grant.revision,
       capabilities: [...grant.capabilities],
       expiresAt: new Date(expiresAt).toISOString(),

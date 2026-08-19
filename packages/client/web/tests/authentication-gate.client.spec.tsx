@@ -59,6 +59,24 @@ describe('browser authentication gate', () => {
     }))
   })
 
+  it('shows the actionable enrollment response instead of only its status code', async () => {
+    deviceApi.read.mockResolvedValue(undefined)
+    deviceApi.generate.mockResolvedValue({ privateKey: { type: 'private' }, publicKey: 'p256-spki' })
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(Response.json({ mode: 'authenticated', sealed: true, authenticated: false }))
+      .mockResolvedValueOnce(new Response(
+        'device name is already registered or awaiting approval; choose another name',
+        { status: 409 },
+      )))
+    const view = render(<AuthenticationGate onAuthenticated={() => {}} />)
+
+    fireEvent.click(await view.findByRole('button', { name: '配对个人设备' }))
+
+    expect((await view.findByRole('alert')).textContent).toBe(
+      '创建配对请求失败：设备名称已注册或正在等待批准，请换一个名称 (409)',
+    )
+  })
+
   it('uses a persisted non-exportable device key to obtain a short browser session', async () => {
     const privateKey = { type: 'private' }
     deviceApi.read.mockResolvedValue({ name: 'tablet', kind: 'device', privateKey, grantId: 'grant-id' })

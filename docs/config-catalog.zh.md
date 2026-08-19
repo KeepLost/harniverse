@@ -438,7 +438,7 @@ export interface Config {
 
 依赖：[`AuthenticationMode`](../packages/auth/authentication/src/index.ts)
 
-来源：[`packages/auth/authentication-local/src/index.ts:70`](../packages/auth/authentication-local/src/index.ts)
+来源：[`packages/auth/authentication-local/src/index.ts:71`](../packages/auth/authentication-local/src/index.ts)
 
 <a id="deepseek-aidsh-bash-local"></a>
 
@@ -494,7 +494,7 @@ export type Config = LocalConfig
 需要：`webServer` · `authentication`
 
 ```ts config-catalog
-/** Plugin config: the deployment's non-loopback serving authorities. */
+/** Plugin config: the deployment's serving authorities and browser origins. */
 export interface ConnectionConfig {
   /**
    * Authorities this deployment serves beyond loopback: exact `host:port`, or
@@ -505,6 +505,8 @@ export interface ConnectionConfig {
    * that is not a bare, canonical authority fails the plugin load.
    */
   trustedHosts?: string[]
+  /** Exact cross-origin HTTP(S) browser origins explicitly allowed after Host trust. */
+  trustedOrigins?: string[]
   /** Maximum buffered JSON body for every `/api` request. */
   maxRequestBodyBytes?: number
 }
@@ -3140,6 +3142,8 @@ export interface Config {
   surfaceContext: boolean
   /** Explicit `--trusted-host` authorities from this invocation. */
   trustedHosts: string[]
+  /** Exact cross-origin HTTP(S) Origins from this invocation. */
+  trustedOrigins?: string[]
 }
 ```
 

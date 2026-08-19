@@ -57,7 +57,19 @@ function parseStatus(value: unknown): AuthenticationStatusResponse {
 }
 
 async function responseJson(response: Response, failure: string): Promise<unknown> {
-  if (!response.ok) throw new Error(`${failure} (${String(response.status)})`)
+  if (!response.ok) {
+    const body = (await response.text().catch(() => '')).trim()
+    const translated = ({
+      'device name must contain 1-64 letters, numbers, spaces, dots, underscores, or hyphens': '设备名称必须包含 1 至 64 个字母、数字、空格、点、下划线或连字符',
+      'browser generated an invalid device key; use a current browser and retry': '浏览器生成了无效设备密钥，请使用新版浏览器重试',
+      'device name is already registered or awaiting approval; choose another name': '设备名称已注册或正在等待批准，请换一个名称',
+      'enrollment service failed; see server log': '配对服务失败，请查看服务器日志',
+      'authentication unavailable': '认证服务不可用',
+      'rate limited': '请求过于频繁，请稍后重试',
+    } as Record<string, string>)[body] ?? body
+    const detail = translated.length > 0 && translated.length <= 256 ? `：${translated}` : ''
+    throw new Error(`${failure}${detail} (${String(response.status)})`)
+  }
   return response.json()
 }
 

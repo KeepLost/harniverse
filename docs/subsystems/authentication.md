@@ -50,7 +50,7 @@ abstract createBrowserSession(proof: AuthenticationChallengeProof, peerAddress?:
  * Submit one public-key enrollment request for later owner approval.
  * @param input - browser key and device metadata.
  * @param peerAddress - direct peer used for enrollment rate limiting.
- * @returns the pending enrollment or a stable overload response.
+ * @returns the pending enrollment or a stable actionable rejection.
  */
 abstract requestEnrollment( input: AuthenticationEnrollmentInput, peerAddress?: string, ): Promise<AuthenticationEnrollmentDecision>
 
@@ -119,7 +119,7 @@ abstract issueEmergencyAccessToken( issuer: AuthenticationPrincipal, capabilitie
 abstract revokeBrowserSession(value?: string): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:257`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:260`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authentication-events"></a>
 
@@ -139,7 +139,7 @@ Credential freshness was reconciled after an unavailable interval.
 'authentication/available'(): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:252`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:255`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authenticationrevoked--emit"></a>
 
@@ -156,7 +156,7 @@ A committed Grant registry change invalidated Grant revisions.
 'authentication/revoked'(revocation: AuthenticationRevocation): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:240`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:243`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authenticationunavailable--emit"></a>
 
@@ -172,5 +172,5 @@ Credential freshness became unavailable; current sockets must close.
 'authentication/unavailable'(): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:246`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:249`](../../packages/auth/authentication/src/index.ts)
 <!-- END GENERATED cordis-surface -->

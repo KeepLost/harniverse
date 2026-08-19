@@ -8,7 +8,7 @@
 
 ## /api 浏览器信任栅栏
 
-node 半侧在桥接或 upgrade 前守卫 `/api` 下的每个入口（`src/api-request-trust.ts`）。每个请求，无论是否带浏览器标记，`Host` 都必须是回环地址或匹配规范化的 `trustedHosts` authority；附带的 Origin 与 Fetch Metadata 也必须描述同源请求。这仍是 DNS 重绑定与混淆代理人防御，而不是认证。独立认证提供方随后验证短期 Access Token 或浏览器 session，遭拒的 HTTP 或 WebSocket 接入不会进入 RPC 分发。非回环 listener 要求直接配置 TLS 证书与密钥，回环可以继续使用明文 HTTP；HTTPS 浏览器 session 使用 Secure `__Host-` cookie，认证响应不可缓存。非回环组合仍通过推导的 LAN 字面量或 `--trusted-host` 声明服务名称。决策记录：[api 浏览器信任边界](../../../.agents/notes/implemented/architecture/2026-07-28-api-browser-trust-boundary.md)与[公钥 Grant 认证](../../../.agents/notes/implemented/architecture/2026-08-17-public-key-grant-authentication.md) Agent Note。
+node 半侧在桥接或 upgrade 前守卫 `/api` 下的每个入口（`src/api-request-trust.ts`）。每个请求，无论是否带浏览器标记，`Host` 都必须是回环地址或匹配规范化的 `trustedHosts` authority；附带的 Origin 与 Fetch Metadata 也必须描述同源请求，除非准确 Origin 位于 `trustedOrigins`。即使显式配置了跨 Origin，Host 信任仍是必需条件。这仍是 DNS 重绑定与混淆代理人防御，而不是认证。独立认证提供方随后验证短期 Access Token 或浏览器 session，遭拒的 HTTP 或 WebSocket 接入不会进入 RPC 分发。非回环 listener 要求直接配置 TLS 证书与密钥，回环可以继续使用明文 HTTP；HTTPS 浏览器 session 使用 Secure `__Host-` cookie，认证响应不可缓存。非回环组合仍通过推导的 LAN 字面量或 `--trusted-host` 声明服务名称；Web profile 会打印生效的信任策略与非机密的连接通过／拒绝标记。决策记录：[api 浏览器信任边界](../../../.agents/notes/implemented/architecture/2026-07-28-api-browser-trust-boundary.md)与[公钥 Grant 认证](../../../.agents/notes/implemented/architecture/2026-08-17-public-key-grant-authentication.md) Agent Note。
 
 ## `/api` WebSocket 下行
 

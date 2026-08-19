@@ -86,6 +86,26 @@ describe('local Grant authentication runtime', () => {
     expect(await ctx.authentication.status()).toEqual({ mode: 'authenticated', sealed: true })
   })
 
+  it('returns stable enrollment input and name-conflict rejections', async () => {
+    const dshHome = await home()
+    const ctx = await boot(dshHome)
+    const publicKey = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
+      .publicKey.export({ type: 'spki', format: 'der' }).toString('base64url')
+
+    await expect(ctx.authentication.requestEnrollment({
+      name: 'line\nbreak', kind: 'device', publicKey,
+    })).resolves.toEqual({ kind: 'rejected', reason: 'invalid-name' })
+    await expect(ctx.authentication.requestEnrollment({
+      name: '我的设备', kind: 'device', publicKey: 'not-a-key',
+    })).resolves.toEqual({ kind: 'rejected', reason: 'invalid-public-key' })
+    await expect(ctx.authentication.requestEnrollment({
+      name: '我的设备', kind: 'device', publicKey,
+    })).resolves.toMatchObject({ kind: 'accepted' })
+    await expect(ctx.authentication.requestEnrollment({
+      name: '我的设备', kind: 'device', publicKey,
+    })).resolves.toEqual({ kind: 'rejected', reason: 'name-conflict' })
+  })
+
   it('exchanges signed challenges for short bearer and browser credentials', async () => {
     const dshHome = await home()
     const fixture = await createGrantFixture(dshHome, 'phone')

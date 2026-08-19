@@ -15,7 +15,7 @@ dsh auth client add automation --public-key <base64url-spki> --capability harniv
 dsh auth client revoke <grant-id>
 ```
 
-Authenticated 实例可以在没有 Grant 时启动。静态浏览器 shell 可以提交 enrollment 请求，但本地 CLI 批准并创建第一个 owner 之前，业务 API 保持封存；没有活跃 owner 时会重新封存。待处理请求受持久全局上限和每 peer 创建限制约束。Owner 浏览器可以在 `/auth/manage` 管理待处理请求和 Grant。个人设备 Grant 使用持久、不可导出的浏览器密钥；临时设备密钥只保留在内存中，其 Grant 最长 60 分钟，空闲超时 15 分钟。API client 在本地注册公钥并通过签名 challenge 交换凭据。Owner 管理路由可以签发最长 15 分钟、不可续期且不含 `harniverse.authorize` 的 Access Token。
+Authenticated 实例可以在没有 Grant 时启动。静态浏览器 shell 可以提交 enrollment 请求，但本地 CLI 批准并创建第一个 owner 之前，业务 API 保持封存；没有活跃 owner 时会重新封存。人类可读的 Grant 名称由 1 至 64 个 Unicode 字母或数字组成，并可包含空格、点、下划线或连字符。无效名称、无效浏览器密钥和名称冲突会产生稳定且可处理的拒绝；意外的 registry 或审计故障仍属于服务器错误，并由 connection Consumer 记录。待处理请求受持久全局上限和每 peer 创建限制约束。Owner 浏览器可以在 `/auth/manage` 管理待处理请求和 Grant。个人设备 Grant 使用持久、不可导出的浏览器密钥；临时设备密钥只保留在内存中，其 Grant 最长 60 分钟，空闲超时 15 分钟。API client 在本地注册公钥并通过签名 challenge 交换凭据。Owner 管理路由可以签发最长 15 分钟、不可续期且不含 `harniverse.authorize` 的 Access Token。
 
 `$DSH_HOME/auth/tokens.json` 会被作为不支持的旧格式拒绝。系统不提供迁移或 bearer 兼容模式。
 

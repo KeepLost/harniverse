@@ -1377,6 +1377,9 @@ importers:
 
   packages/bundle/web-app:
     dependencies:
+      '@deepseek-ai/cordis-plugin-logger-console':
+        specifier: workspace:^
+        version: link:../../../vendor/logger-console
       '@deepseek-ai/dsh-agent-presets':
         specifier: workspace:^
         version: link:../../preset/agent-presets

@@ -21,14 +21,15 @@ vi.mock('node:os', () => ({
 
 describe('resolveLanTrust', () => {
   it('samples non-internal IPv4 addresses once for an all-interfaces bind: trust and display share them', () => {
-    const { lanAddresses, trustedHosts } = resolveLanTrust('0.0.0.0', ['harness.internal:3080'])
+    const { lanAddresses, trustedHosts, trustedOrigins } = resolveLanTrust('0.0.0.0', ['harness.internal:3080'], ['https://ui.example.test'])
     expect(lanAddresses).toEqual(['192.168.1.5', '10.0.0.7'])
     expect(trustedHosts).toEqual(['192.168.1.5', '10.0.0.7', 'harness.internal:3080'])
+    expect(trustedOrigins).toEqual(['https://ui.example.test'])
   })
 
   it('derives nothing for a loopback bind — extras alone stand, no LAN URL to print', () => {
-    expect(resolveLanTrust('127.0.0.1', [])).toEqual({ lanAddresses: [], trustedHosts: [] })
+    expect(resolveLanTrust('127.0.0.1', [])).toEqual({ lanAddresses: [], trustedHosts: [], trustedOrigins: [] })
     expect(resolveLanTrust('127.0.0.1', ['lab.internal']))
-      .toEqual({ lanAddresses: [], trustedHosts: ['lab.internal'] })
+      .toEqual({ lanAddresses: [], trustedHosts: ['lab.internal'], trustedOrigins: [] })
   })
 })

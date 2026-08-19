@@ -9,6 +9,8 @@
  * still be a rebound browser read and Host is the one header rebinding cannot
  * forge. Non-browser and remote clients pass the same fence via loopback,
  * deployment-derived LAN IP literals, or a declared `trustedHosts` authority.
+ * A declared `trustedOrigins` entry may additionally authorize an exact
+ * cross-origin browser UI, while Host trust remains mandatory.
  * Network reachability and authentication stay out of scope: binding policy
  * belongs to the webserver config, and this fence is not an auth layer.
  */
@@ -17,7 +19,7 @@ import type { IncomingHttpHeaders } from 'node:http'
 import { isLoopbackHostname } from './loopback-hostname.ts'
 
 /** The request facts the fence reads from either HTTP representation. */
-interface ApiTrustRequest {
+export interface ApiTrustRequest {
   headers: IncomingHttpHeaders | Headers
 }
 
@@ -25,6 +27,16 @@ function header(headers: IncomingHttpHeaders | Headers, name: string): string | 
   if (headers instanceof Headers) return headers.get(name) ?? undefined
   const value = headers[name]
   return typeof value === 'string' ? value : undefined
+}
+
+/**
+ * Render only the non-secret browser markers useful for a trust-fence rejection.
+ * @param request - request headers to describe.
+ * @returns bounded Host, Origin, and Fetch-Metadata markers.
+ */
+export function describeApiTrustRequest(request: ApiTrustRequest): string {
+  const value = (name: string): string => JSON.stringify(header(request.headers, name) ?? '-')
+  return `host=${value('host')} origin=${value('origin')} fetchSite=${value('sec-fetch-site')}`
 }
 
 /** Normalized URL of a Host-header authority (hostname lowercased, default port stripped, IPv6 bracketed), or undefined when unparsable. */
@@ -58,6 +70,17 @@ export function assertTrustedAuthority(entry: string): void {
 }
 
 /**
+ * Assert one configured Origin is an exact HTTP(S) origin without a path.
+ * @param entry - configured Origin value, verbatim.
+ */
+export function assertTrustedOrigin(entry: string): void {
+  const parsed = parseOrigin(entry)
+  if (parsed === undefined || canonicalOrigin(parsed) !== entry.toLowerCase()) {
+    throw new Error(`client-connection: trustedOrigins entry ${JSON.stringify(entry)} is not an exact http(s) origin`)
+  }
+}
+
+/**
  * Canonical form of a parsed authority: `hostname` when no port was written,
  * else `hostname:port`. The port is judged from URL parses under both special
  * schemes (their default ports differ, so `:80` and `:443` still count as
@@ -68,6 +91,29 @@ function canonicalAuthority(entry: string, entryUrl: URL): string {
   // An authority that parsed under http cannot fail under https.
   const port = entryUrl.port !== '' ? entryUrl.port : new URL(`https://${entry}`).port
   return port === '' ? entryUrl.hostname : `${entryUrl.hostname}:${port}`
+}
+
+function parseOrigin(value: string): URL | undefined {
+  try {
+    const url = new URL(value)
+    if (!['http:', 'https:'].includes(url.protocol)
+      || url.username !== '' || url.password !== ''
+      || url.pathname !== '/' || url.search !== '' || url.hash !== '') return undefined
+    return url
+  } catch {
+    return undefined
+  }
+}
+
+function canonicalOrigin(origin: URL): string {
+  return `${origin.protocol}//${origin.host}`
+}
+
+function isTrustedOrigin(origin: URL, trustedOrigins: readonly string[]): boolean {
+  return trustedOrigins.some((entry) => {
+    const parsed = parseOrigin(entry)
+    return parsed !== undefined && canonicalOrigin(parsed) === canonicalOrigin(origin)
+  })
 }
 
 /**
@@ -91,9 +137,14 @@ function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[]): bool
  * Decide whether one /api request may reach the RPC bridge.
  * @param request - Node HTTP or Fetch request facts (headers).
  * @param trustedHosts - non-loopback authorities this deployment serves: exact `host:port`, or port-less `host` matching any port.
- * @returns true when the Host is ours (loopback or trusted) and any attached browser markers are same-origin.
+ * @param trustedOrigins - exact cross-origin HTTP(S) origins allowed after Host trust.
+ * @returns true when the Host is ours (loopback or trusted) and any attached browser markers are same-origin or explicitly trusted.
  */
-export function isTrustedApiRequest(request: ApiTrustRequest, trustedHosts: readonly string[]): boolean {
+export function isTrustedApiRequest(
+  request: ApiTrustRequest,
+  trustedHosts: readonly string[],
+  trustedOrigins: readonly string[] = [],
+): boolean {
   // Host fence (DNS-rebinding defense), applied to every request: the browser
   // fills Host from the URL it believes it is talking to, so a rebound page
   // carries the attacker's domain here even though the socket lands on this
@@ -106,18 +157,17 @@ export function isTrustedApiRequest(request: ApiTrustRequest, trustedHosts: read
   const hostUrl = parseAuthority(host)
   if (hostUrl === undefined) return false
   if (!isLoopbackHostname(hostUrl.hostname) && !isTrustedAuthority(hostUrl, trustedHosts)) return false
-  // Cross-site fence: modern browsers label the initiator relationship on
-  // every fetch; an explicit cross-site marker is refused regardless of Origin.
-  if (header(request.headers, 'sec-fetch-site') === 'cross-site') return false
+  const origin = header(request.headers, 'origin')
+  const parsedOrigin = origin === undefined ? undefined : parseOrigin(origin)
+  const explicitlyTrustedOrigin = parsedOrigin !== undefined && isTrustedOrigin(parsedOrigin, trustedOrigins)
+  // Cross-site is refused unless the operator explicitly configured this exact
+  // Origin. Host trust remains mandatory above even for that explicit grant.
+  if (header(request.headers, 'sec-fetch-site') === 'cross-site' && !explicitlyTrustedOrigin) return false
   // Origin fence: when a browser attaches an Origin it must be exactly this
   // authority (compared through the same normalization as the Host). Absent
   // Origin is fine — the Host fence above already bound the request. The
   // literal "null" (sandboxed iframes, file: pages) is an opaque origin, refused.
-  const origin = header(request.headers, 'origin')
   if (origin === undefined) return true
-  try {
-    return new URL(origin).host === hostUrl.host
-  } catch {
-    return false
-  }
+  if (parsedOrigin === undefined) return false
+  return parsedOrigin.host === hostUrl.host || explicitlyTrustedOrigin
 }

@@ -1,7 +1,7 @@
 /** Behavior of the /api browser-trust fence (rebinding + cross-site defense). */
 
 import { describe, expect, it } from 'vitest'
-import { assertTrustedAuthority, isTrustedApiRequest } from '../src/api-request-trust.ts'
+import { assertTrustedAuthority, assertTrustedOrigin, isTrustedApiRequest } from '../src/api-request-trust.ts'
 
 function request(headers: Record<string, string | undefined>): { headers: Record<string, string | undefined> } {
   return { headers }
@@ -58,6 +58,17 @@ describe('isTrustedApiRequest', () => {
     expect(isTrustedApiRequest(request({ host: '127.0.0.1:3080', origin: 'null' }), [])).toBe(false)
   })
 
+  it('accepts an explicitly configured cross-origin UI only after Host trust', () => {
+    const headers = {
+      host: 'harness.internal:3080',
+      origin: 'https://ui.example.test',
+      'sec-fetch-site': 'cross-site',
+    }
+    expect(isTrustedApiRequest(request(headers), ['harness.internal:3080'], ['https://ui.example.test'])).toBe(true)
+    expect(isTrustedApiRequest(request(headers), [], ['https://ui.example.test'])).toBe(false)
+    expect(isTrustedApiRequest(request({ ...headers, origin: 'https://evil.example.test' }), ['harness.internal:3080'], ['https://ui.example.test'])).toBe(false)
+  })
+
   it('accepts a same-origin browser request, with or without an Origin header', () => {
     expect(isTrustedApiRequest(request({
       host: 'localhost:3080',
@@ -86,6 +97,15 @@ describe('isTrustedApiRequest', () => {
     // port, and non-canonical host spellings would not read back as written.
     for (const entry of ['harness.internal:', '[::1]:', 'harness.internal:0080', '0x7f.0.0.1', '[0:0:0:0:0:0:0:1]']) {
       expect(() => { assertTrustedAuthority(entry) }).toThrow(/not a bare host\[:port\] authority/)
+    }
+  })
+
+  it('assertTrustedOrigin accepts exact HTTP(S) origins and rejects URL parts or credentials', () => {
+    for (const entry of ['https://ui.example.test', 'http://localhost:3080', 'https://[::1]:8443']) {
+      expect(() => { assertTrustedOrigin(entry) }).not.toThrow()
+    }
+    for (const entry of ['ui.example.test', 'https://ui.example.test/path', 'https://user@ui.example.test', 'ftp://ui.example.test', 'https://ui.example.test?x=1', ' https://ui.example.test']) {
+      expect(() => { assertTrustedOrigin(entry) }).toThrow(/not an exact http\(s\) origin/)
     }
   })
 

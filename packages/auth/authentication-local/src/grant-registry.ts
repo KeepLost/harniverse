@@ -92,6 +92,21 @@ export class PendingEnrollmentCapacityError extends Error {
   }
 }
 
+/** Client-actionable enrollment input rejection. */
+export class EnrollmentRequestInputError extends Error {
+  /**
+   * @param reason - stable rejection projected by the authentication service.
+   */
+  constructor(readonly reason: 'invalid-name' | 'invalid-public-key' | 'name-conflict') {
+    super(reason === 'invalid-name'
+      ? 'authentication-local: invalid Grant name'
+      : reason === 'invalid-public-key'
+        ? 'authentication-local: invalid public key'
+        : 'authentication-local: Grant or enrollment name already exists')
+    this.name = 'EnrollmentRequestInputError'
+  }
+}
+
 /** Requested enrollment facts accepted from an untrusted browser. */
 export interface CreateEnrollmentRequest {
   name: string
@@ -128,8 +143,10 @@ function strictKeys(value: Record<string, unknown>, expected: readonly string[],
 }
 
 function grantName(value: unknown): string {
-  if (typeof value !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(value)) {
-    throw new Error('authentication-local: Grant name must match ^[a-z0-9][a-z0-9._-]{0,63}$')
+  if (typeof value !== 'string'
+    || value.trim() !== value
+    || !/^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,63}$/u.test(value)) {
+    throw new Error('authentication-local: Grant name must contain 1-64 letters, numbers, spaces, dots, underscores, or hyphens')
   }
   return value
 }
@@ -391,8 +408,18 @@ export async function createEnrollmentRequest(
   request: CreateEnrollmentRequest,
   options: GrantManagementOptions = {},
 ): Promise<EnrollmentRequest> {
-  const name = grantName(request.name)
-  const publicKey = authenticationPublicKey(request.publicKey)
+  let name: string
+  try {
+    name = grantName(request.name)
+  } catch {
+    throw new EnrollmentRequestInputError('invalid-name')
+  }
+  let publicKey: string
+  try {
+    publicKey = authenticationPublicKey(request.publicKey)
+  } catch {
+    throw new EnrollmentRequestInputError('invalid-public-key')
+  }
   const now = Date.now()
   const createdAt = new Date(now).toISOString()
   const ttl = options.enrollmentTtlMs ?? DEFAULT_ENROLLMENT_TTL_MS
@@ -415,7 +442,7 @@ export async function createEnrollmentRequest(
   return await mutateRegistry(options, (registry) => {
     const enrollments = registry.enrollments.filter(item => Date.parse(item.expiresAt) > now)
     if (registry.grants.some(item => item.name === name) || enrollments.some(item => 'name' in item && item.name === name)) {
-      throw new Error(`authentication Grant or enrollment "${name}" already exists`)
+      throw new EnrollmentRequestInputError('name-conflict')
     }
     const pending = enrollments.filter(item => item.state === 'pending')
     if (pending.length >= maxPendingEnrollments) {

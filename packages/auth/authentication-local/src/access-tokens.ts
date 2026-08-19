@@ -77,6 +77,7 @@ export class AccessTokenLedger {
     const principal: Extract<AuthenticationPrincipal, { kind: 'grant' }> = {
       kind: 'grant',
       grantId: grant.id,
+      name: grant.name,
       grantRevision: grant.revision,
       capabilities: [...capabilities],
       expiresAt: new Date(expiresAt).toISOString(),

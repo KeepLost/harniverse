@@ -45,6 +45,15 @@
 # `dsh.client` rows are the browser roster the modules node half scans into
 # window.__DSH_BOOT__; the modules row is simultaneously a host row.
 - insert:
+    # Web is an operator-facing long-running process. Export Cordis diagnostics
+    # to its terminal; one-shot protocol profiles keep stdout ownership separate.
+    # Cordis thresholds are maximum verbosity: WARN is level 2.
+    - id: logger-console
+      name: '@deepseek-ai/cordis-plugin-logger-console'
+      config:
+        levels:
+          default: 2
+
     - id: code-runtime
       name: '@deepseek-ai/dsh-code-runtime-worker-thread'
 
@@ -153,6 +162,7 @@
         printUrl: true
         surfaceContext: true
         trustedHosts: !!js ctx.webStartup.trustedHosts
+        trustedOrigins: !!js ctx.webStartup.trustedOrigins
 
     # The client-plugin reload chain, always mounted: it is idle until a
     # rebuild watcher (pnpm run dev:web) actually rewrites client bundles. It
@@ -180,6 +190,7 @@
         # A deployment adding authorities keeps this expression and concatenates
         # its literals, for example: ['app.internal', ...ctx.webRuntime.trustedHosts].
         trustedHosts: !!js ctx.webRuntime.trustedHosts
+        trustedOrigins: !!js ctx.webRuntime.trustedOrigins
 
     - id: api-remotes
       name: '@deepseek-ai/dsh-api-remotes'

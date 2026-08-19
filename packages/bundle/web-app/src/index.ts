@@ -47,12 +47,15 @@ export interface Config {
   surfaceContext: boolean
   /** Explicit `--trusted-host` authorities from this invocation. */
   trustedHosts: string[]
+  /** Exact cross-origin HTTP(S) Origins from this invocation. */
+  trustedOrigins?: string[]
 }
 
 export const Config: z<Config> = z.object({
   printUrl: z.boolean().default(true),
   surfaceContext: z.boolean().default(true),
   trustedHosts: z.array(String).default([]),
+  trustedOrigins: z.array(String).default([]),
 })
 
 /** Bind-dependent Web values shared by the trust fence and URL display. */
@@ -61,6 +64,8 @@ export interface WebRuntimeValues {
   lanAddresses: string[]
   /** LAN literals followed by explicit invocation authorities. */
   trustedHosts: string[]
+  /** Exact cross-origin HTTP(S) Origins explicitly allowed after Host trust. */
+  trustedOrigins: string[]
 }
 
 /** Environment variable naming the canonical local URL of this Web GUI. */
@@ -80,15 +85,20 @@ const ALL_INTERFACES_HOST = '0.0.0.0'
  * an OS-assigned port is unknowable before bind.
  * @param bindHost - the active webserver bind host.
  * @param extra - explicit `--trusted-host` values, in argument order.
+ * @param trustedOrigins - exact cross-origin HTTP(S) Origins, in argument order.
  * @returns the LAN display addresses and invocation-derived fence authorities.
  */
-export function resolveLanTrust(bindHost: string, extra: readonly string[]): WebRuntimeValues {
+export function resolveLanTrust(
+  bindHost: string,
+  extra: readonly string[],
+  trustedOrigins: readonly string[] = [],
+): WebRuntimeValues {
   const lanAddresses = bindHost === ALL_INTERFACES_HOST
     ? Object.values(networkInterfaces()).flat()
       .filter((iface): iface is NonNullable<typeof iface> => iface !== undefined && iface.family === 'IPv4' && !iface.internal)
       .map(iface => iface.address)
     : []
-  return { lanAddresses, trustedHosts: [...lanAddresses, ...extra] }
+  return { lanAddresses, trustedHosts: [...lanAddresses, ...extra], trustedOrigins: [...trustedOrigins] }
 }
 
 /** Model-visible orientation and acceptance boundary for sessions created through `dsh web`. */
@@ -135,7 +145,7 @@ export const internals: { resolveDistIndex: () => string } = { resolveDistIndex 
  * @param config - validated {@link Config}.
  */
 export function apply(ctx: Context, config: Config): void {
-  const runtime = resolveLanTrust(ctx.webServer.host, config.trustedHosts)
+  const runtime = resolveLanTrust(ctx.webServer.host, config.trustedHosts, config.trustedOrigins ?? [])
   // Release dependent rows only after bind-dependent trust has been sampled once.
   ctx.provide(WEB_RUNTIME_SERVICE, runtime)
   ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
@@ -165,9 +175,9 @@ export function apply(ctx: Context, config: Config): void {
     // settlement first; a hand-built tree without a Loader prints at once.
     const printUrl = (): void => {
       // Reuse the exact LAN snapshot provided to the /api trust fence.
-      const lanCandidate = runtime.lanAddresses[0]
-      const port = ctx.webServer.port
-      console.log(`dsh web: ${localWebUrl(ctx)}${lanCandidate === undefined ? '' : ` (LAN: ${ctx.webServer.protocol}//${lanCandidate}:${String(port)})`}`)
+      const lanUrls = runtime.lanAddresses.map(address => `${ctx.webServer.protocol}//${address}:${String(ctx.webServer.port)}`)
+      console.log(`dsh web: ${localWebUrl(ctx)}${lanUrls.length === 0 ? '' : ` (LAN: ${lanUrls.join(', ')})`}`)
+      console.log(`dsh web trust: hosts=${JSON.stringify(runtime.trustedHosts)} origins=${JSON.stringify(runtime.trustedOrigins)} same-origin-only=${runtime.trustedOrigins.length === 0 ? 'true' : 'false'}`)
     }
     // This row's own activation can precede a sibling failure. The app owns
     // readiness by waiting for its Loader tree, or prints at once in a

@@ -14,7 +14,7 @@ import {
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { bridge, type FetchHandler } from './http-bridge.ts'
 import { authenticateIncoming, rejectUnauthorized } from './inbound-auth.ts'
-import { isTrustedApiRequest } from './api-request-trust.ts'
+import { describeApiTrustRequest, isTrustedApiRequest } from './api-request-trust.ts'
 import { API_PATH } from './api-path.ts'
 import type {
   ConnectionRpcEndpointResolver,
@@ -37,6 +37,11 @@ interface ConnectionRpcInterceptor {
 
 type RpcFailureReporter = (endpoint: string, error: unknown) => void
 
+function principalDetails(principal: AuthenticationPrincipal): string {
+  if (principal.kind === 'bypass') return 'principal=bypass'
+  return `device=${JSON.stringify(principal.name ?? '-')} grant=${JSON.stringify(principal.grantId)}`
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Host Connection transport and RPC registrations. */
@@ -52,8 +57,13 @@ export class HostConnectionService extends Service implements HostConnectionHand
    * Provide the Host half over the active HTTP server.
    * @param ctx - owning Connection plugin context.
    * @param trustedHosts - deployment authorities accepted by trusted-host channels.
+   * @param trustedOrigins - exact cross-origin browser origins allowed after Host trust.
    */
-  constructor(ctx: Context, private readonly trustedHosts: readonly string[]) {
+  constructor(
+    ctx: Context,
+    private readonly trustedHosts: readonly string[],
+    private readonly trustedOrigins: readonly string[],
+  ) {
     super(ctx, 'connection')
   }
 
@@ -79,13 +89,15 @@ export class HostConnectionService extends Service implements HostConnectionHand
     res: ServerResponse,
     requiredCapability: AuthenticationCapability,
   ): Promise<boolean> {
-    if (!isTrustedApiRequest(req, this.trustedHosts)) {
+    if (!isTrustedApiRequest(req, this.trustedHosts, this.trustedOrigins)) {
+      this.ctx.logger.warn(`client-connection: rejected untrusted RPC request path=${JSON.stringify(req.url ?? '-')} ${describeApiTrustRequest(req)} peer=${JSON.stringify(req.socket.remoteAddress ?? '-')}`)
       res.writeHead(403)
       res.end('forbidden')
       return false
     }
     const decision = await authenticateIncoming(this.ctx, req, 'http-api')
     if (decision.kind === 'rejected') {
+      this.ctx.logger.warn(`client-connection: authentication rejected channel=http-api reason=${JSON.stringify(decision.reason)} path=${JSON.stringify(req.url ?? '-')} peer=${JSON.stringify(req.socket.remoteAddress ?? '-')}`)
       rejectUnauthorized(res, decision)
       return false
     }
@@ -94,6 +106,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
       res.end('forbidden')
       return false
     }
+    this.ctx.logger.info(`client-connection: connection accepted channel=http-api ${principalDetails(decision.principal)} path=${JSON.stringify(req.url ?? '-')} peer=${JSON.stringify(req.socket.remoteAddress ?? '-')}`)
     return true
   }
 
@@ -149,20 +162,24 @@ export class HostConnectionService extends Service implements HostConnectionHand
   ): () => Promise<void> {
     assertChannel(channel)
     const trustedHosts = options.authority === 'loopback' ? [] : this.trustedHosts
+    const trustedOrigins = options.authority === 'loopback' ? [] : this.trustedOrigins
     const route: WebRoute = {
       kind: 'prefix',
       path: channel,
       handler: async (req, res) => {
-        if (!isTrustedApiRequest(req, trustedHosts)) {
+        if (!isTrustedApiRequest(req, trustedHosts, trustedOrigins)) {
+          owner.logger.warn(`client-connection: rejected untrusted RPC request path=${JSON.stringify(req.url ?? '-')} ${describeApiTrustRequest(req)} peer=${JSON.stringify(req.socket.remoteAddress ?? '-')}`)
           res.writeHead(403)
           res.end('forbidden')
           return
         }
         const decision = await authenticateIncoming(owner, req, 'http-api')
         if (decision.kind === 'rejected') {
+          owner.logger.warn(`client-connection: authentication rejected channel=http-api reason=${JSON.stringify(decision.reason)} path=${JSON.stringify(req.url ?? '-')} peer=${JSON.stringify(req.socket.remoteAddress ?? '-')}`)
           rejectUnauthorized(res, decision)
           return
         }
+        owner.logger.info(`client-connection: connection accepted channel=http-api ${principalDetails(decision.principal)} path=${JSON.stringify(req.url ?? '-')} peer=${JSON.stringify(req.socket.remoteAddress ?? '-')}`)
         await bridge(req, res, capabilityFetchHandler(
           channel,
           handler,

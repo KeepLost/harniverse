@@ -29,6 +29,8 @@ export interface WebStartupValues {
   port?: number
   /** Explicit `--trusted-host` authorities, in argument order. */
   trustedHosts: string[]
+  /** Exact cross-origin HTTP(S) browser origins explicitly allowed. */
+  trustedOrigins: string[]
   /** Process-wide inbound authentication behavior. */
   authenticationMode: AuthenticationMode
   /** HTTPS certificate path, when direct TLS is enabled. */
@@ -42,6 +44,7 @@ interface WebOptions {
   host?: string
   port?: string
   trustedHost?: string[]
+  trustedOrigin?: string[]
   /** Explicit authentication bypass for this network-serving process. */
   dangerouslySkipAuthentication?: boolean
   tlsCert?: string
@@ -60,6 +63,7 @@ function webCommand(): Command {
     .option('--host <host>', 'bind host')
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
+    .option('--trusted-origin <origin...>', 'exact cross-origin HTTP(S) Origin the browser-trust fence accepts (repeatable)')
     .option('--tls-cert <path>', 'TLS certificate path for direct HTTPS/WSS serving')
     .option('--tls-key <path>', 'TLS private key path for direct HTTPS/WSS serving')
     .option('--dangerously-skip-authentication', 'bypass inbound authentication for this process (access remains logged)')
@@ -93,6 +97,7 @@ export function apply(ctx: Context): void {
       ...options.host !== undefined && { host: options.host },
       ...options.port !== undefined && { port: Number(options.port) },
       trustedHosts: options.trustedHost ?? [],
+      trustedOrigins: options.trustedOrigin ?? [],
       authenticationMode: options.dangerouslySkipAuthentication === true ? 'bypass' : 'authenticated',
       ...options.tlsCert !== undefined && { tlsCertPath: options.tlsCert },
       ...options.tlsKey !== undefined && { tlsKeyPath: options.tlsKey },

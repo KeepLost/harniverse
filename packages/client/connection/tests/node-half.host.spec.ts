@@ -157,11 +157,12 @@ function fakeResponse(): { response: ServerResponse; state: { status?: number; b
 }
 
 async function mounted(
-  config?: { trustedHosts?: string[] },
+  config?: { trustedHosts?: string[]; trustedOrigins?: string[] },
   decision: AuthenticationDecision = { kind: 'accepted', principal: TEST_PRINCIPAL },
   overrides: Partial<InboundAuthentication> = {},
   protocol: 'http:' | 'https:' = 'http:',
 ): Promise<{
+  ctx: Context
   routes: WebRoute[]
   upgrades: WebUpgradeRoute[]
   dispose: () => Promise<void>
@@ -174,7 +175,7 @@ async function mounted(
   ctx.provide('apiProxy', {} as unknown as ApiProxy)
   const fiber = ctx.plugin({ inject: [...inject], apply }, config)
   await fiber.await()
-  return { routes, upgrades, dispose: () => fiber.dispose() }
+  return { ctx, routes, upgrades, dispose: () => fiber.dispose() }
 }
 
 describe('connection node half', () => {
@@ -207,6 +208,19 @@ describe('connection node half', () => {
     ctx.provide('apiProxy', {} as unknown as ApiProxy)
     const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.internal/path'] })
     await expect(fiber).rejects.toThrow(/not a bare host\[:port\] authority/)
+    expect(routes).toHaveLength(0)
+    expect(upgrades).toHaveLength(0)
+  })
+
+  it('fails the load on a trustedOrigins entry that is not an exact origin', async () => {
+    const routes: WebRoute[] = []
+    const upgrades: WebUpgradeRoute[] = []
+    const ctx = new Context()
+    ctx.provide('webServer', fakeHttpServer(routes, upgrades) as WebServer)
+    provideAuthentication(ctx)
+    ctx.provide('apiProxy', {} as unknown as ApiProxy)
+    const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedOrigins: ['https://ui.example.test/path'] })
+    await expect(fiber).rejects.toThrow(/not an exact http\(s\) origin/)
     expect(routes).toHaveLength(0)
     expect(upgrades).toHaveLength(0)
   })
@@ -279,14 +293,86 @@ describe('connection node half', () => {
     await dispose()
   })
 
+  it('accepts an explicitly configured cross-origin browser Origin after Host trust', async () => {
+    const { routes, dispose } = await mounted({
+      trustedHosts: ['harness.example'],
+      trustedOrigins: ['https://ui.example.test'],
+    })
+    const route = routes.find(candidate => candidate.path === '/auth/status')!
+    const response = fakeResponse()
+    await route.handler(fakeRequest({
+      host: 'harness.example:3080',
+      origin: 'https://ui.example.test',
+      'sec-fetch-site': 'cross-site',
+    }, '/auth/status'), response.response)
+    expect(response.state.status).toBe(200)
+    expect(response.state.body).toContain('authenticated')
+    await dispose()
+  })
+
   it('refuses an untrusted Host on any /api path before the bridge runs', async () => {
-    const { routes, dispose } = await mounted()
+    const { ctx, routes, dispose } = await mounted()
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
     const { response, state } = fakeResponse()
     await routes[0]!.handler(fakeRequest({
       host: 'harness.example', origin: 'http://harness.example', 'sec-fetch-site': 'same-origin',
     }), response)
     expect(state.status).toBe(403)
     expect(state.body).toBe('forbidden')
+    expect(warnings).toContain('client-connection: rejected untrusted /api request path="/api/session.list" host="harness.example" origin="http://harness.example" fetchSite="same-origin" peer="127.0.0.1"')
+    await dispose()
+  })
+
+  it('logs an untrusted browser-auth request before returning forbidden', async () => {
+    const { ctx, routes, dispose } = await mounted()
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const route = routes.find(candidate => candidate.path === '/auth/enrollment')!
+    const response = fakeResponse()
+
+    await route.handler(fakeRequest({
+      host: 'tailnet.example', origin: 'https://tailnet.example', 'sec-fetch-site': 'same-origin',
+    }, '/auth/enrollment'), response.response)
+
+    expect(response.state).toMatchObject({ status: 403, body: 'forbidden' })
+    expect(warnings).toContain('client-connection: rejected untrusted browser request path="/auth/enrollment" host="tailnet.example" origin="https://tailnet.example" fetchSite="same-origin" peer="127.0.0.1"')
+    await dispose()
+  })
+
+  it('logs the enrolling device and request markers without logging its public key', async () => {
+    const infos: string[] = []
+    const { ctx, routes, dispose } = await mounted({ trustedHosts: ['100.64.0.2'] }, undefined, {
+      requestEnrollment: () => Promise.resolve({
+        kind: 'accepted' as const,
+        value: {
+          state: 'pending' as const,
+          id: authenticationEnrollmentId('enrollment-log-test'),
+          approvalCode: '12345678',
+          name: 'Tailscale Browser',
+          kind: 'device' as const,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+      }),
+    })
+    ctx.logger.info = ((message: unknown) => { infos.push(String(message)) }) as typeof ctx.logger.info
+    const route = routes.find(candidate => candidate.path === '/auth/enrollment')!
+    const response = fakeResponse()
+    await route.handler(fakePost({
+      host: '100.64.0.2:3080',
+      origin: 'https://100.64.0.2:3080',
+      'sec-fetch-site': 'same-origin',
+    }, '/auth/enrollment', {
+      name: 'Tailscale Browser',
+      kind: 'device',
+      publicKey: 'public-key-must-not-appear-in-logs',
+    }), response.response)
+    expect(response.state.status).toBe(202)
+    expect(infos).toEqual([
+      expect.stringContaining('enrollment requested name="Tailscale Browser" kind="device" host="100.64.0.2:3080"'),
+      expect.stringContaining('enrollment pending name="Tailscale Browser" enrollment="enrollment-log-test"'),
+    ])
+    expect(infos.join('\n')).not.toContain('public-key-must-not-appear-in-logs')
     await dispose()
   })
 
@@ -466,6 +552,35 @@ describe('connection node half', () => {
     expect(result.state.headers?.['retry-after']).toBe('3')
     expect(result.state.headers?.['cache-control']).toBe('no-store')
     await dispose()
+  })
+
+  it('returns actionable enrollment rejections and logs unexpected Provider failures', async () => {
+    const conflict = await mounted(undefined, undefined, {
+      requestEnrollment: () => Promise.resolve({ kind: 'rejected', reason: 'name-conflict' }),
+    })
+    const conflictResult = fakeResponse()
+    await conflict.routes.find(route => route.path === '/auth/enrollment')!.handler(fakePost(
+      { host: '127.0.0.1:3080' }, '/auth/enrollment', { name: 'tablet', kind: 'device', publicKey: 'spki' },
+    ), conflictResult.response)
+    expect(conflictResult.state).toMatchObject({
+      status: 409,
+      body: 'device name is already registered or awaiting approval; choose another name',
+    })
+    await conflict.dispose()
+
+    const failure = new Error('registry write failed')
+    const broken = await mounted(undefined, undefined, {
+      requestEnrollment: () => Promise.reject(failure),
+    })
+    const warn = vi.spyOn(broken.ctx.logger, 'warn').mockImplementation(() => broken.ctx.logger)
+    const failureResult = fakeResponse()
+    await broken.routes.find(route => route.path === '/auth/enrollment')!.handler(fakePost(
+      { host: '127.0.0.1:3080' }, '/auth/enrollment', { name: 'tablet', kind: 'device', publicKey: 'spki' },
+    ), failureResult.response)
+    expect(failureResult.state).toMatchObject({ status: 500, body: 'enrollment service failed; see server log' })
+    expect(warn).toHaveBeenNthCalledWith(1, 'client-connection: enrollment request failed')
+    expect(warn).toHaveBeenNthCalledWith(2, failure)
+    await broken.dispose()
   })
 
   it('requires authorize capability before Grant management handlers run', async () => {

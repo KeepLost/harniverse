@@ -65,6 +65,17 @@ describe('public-key Grant registry', () => {
     expect(document).not.toContain('PRIVATE KEY')
   })
 
+  it('accepts a human-readable Unicode device name', async () => {
+    const dshHome = await home()
+    const request = await createEnrollmentRequest({
+      name: '我的设备',
+      kind: 'device',
+      publicKey: publicKey(),
+    }, { dshHome })
+
+    expect(request.name).toBe('我的设备')
+  })
+
   it('keeps a fresh bounded approval receipt after the pending deadline', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     const startedAt = new Date('2026-08-17T00:00:00.000Z')

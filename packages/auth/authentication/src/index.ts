@@ -50,6 +50,8 @@ export type AuthenticationPrincipal =
     /** Short-lived access derived from an approved public-key Grant. */
     readonly kind: 'grant'
     readonly grantId: AuthenticationGrantId
+    /** Non-secret operator-selected Grant name, when the provider can supply it. */
+    readonly name?: string
     readonly grantRevision: number
     readonly capabilities: readonly AuthenticationCapability[]
     readonly expiresAt: string
@@ -171,11 +173,12 @@ export type AuthenticationEnrollmentStatus =
     expiresAt: string
   }
 
-/** Enrollment creation result with a stable overload response. */
+/** Enrollment creation result with stable client-actionable rejections. */
 export type AuthenticationEnrollmentDecision =
   | { kind: 'accepted'; value: Extract<AuthenticationEnrollmentStatus, { state: 'pending' }> }
   | { kind: 'rejected'; reason: 'authentication-unavailable' }
   | { kind: 'rejected'; reason: 'rate-limited'; retryAfterMs: number }
+  | { kind: 'rejected'; reason: 'invalid-name' | 'invalid-public-key' | 'name-conflict' }
 
 /** Owner-selected authorization and lifetime for a pending enrollment. */
 export interface AuthenticationEnrollmentApproval {
@@ -287,7 +290,7 @@ export abstract class InboundAuthentication extends Service {
    * Submit one public-key enrollment request for later owner approval.
    * @param input - browser key and device metadata.
    * @param peerAddress - direct peer used for enrollment rate limiting.
-   * @returns the pending enrollment or a stable overload response.
+   * @returns the pending enrollment or a stable actionable rejection.
    */
   abstract requestEnrollment(
     input: AuthenticationEnrollmentInput,

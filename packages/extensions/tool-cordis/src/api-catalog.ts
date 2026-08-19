@@ -416,7 +416,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'abstract requestEnrollment( input: AuthenticationEnrollmentInput, peerAddress?: string, ): Promise<AuthenticationEnrollmentDecision>',
         description: 'Submit one public-key enrollment request for later owner approval.',
         parameters: [{ name: 'input', description: 'browser key and device metadata.' }, { name: 'peerAddress', description: 'direct peer used for enrollment rate limiting.' }],
-        returns: 'the pending enrollment or a stable overload response.',
+        returns: 'the pending enrollment or a stable actionable rejection.',
       },
       {
         signature: 'abstract enrollmentStatus(id: AuthenticationEnrollmentId): Promise<AuthenticationEnrollmentStatus | undefined>',
@@ -3010,7 +3010,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AuthenticationEnrollmentDecision',
-    declaration: 'export type AuthenticationEnrollmentDecision = {\n    kind: \'accepted\';\n    value: Extract<AuthenticationEnrollmentStatus, {\n        state: \'pending\';\n    }>;\n} | {\n    kind: \'rejected\';\n    reason: \'authentication-unavailable\';\n} | {\n    kind: \'rejected\';\n    reason: \'rate-limited\';\n    retryAfterMs: number;\n};',
+    declaration: 'export type AuthenticationEnrollmentDecision = {\n    kind: \'accepted\';\n    value: Extract<AuthenticationEnrollmentStatus, {\n        state: \'pending\';\n    }>;\n} | {\n    kind: \'rejected\';\n    reason: \'authentication-unavailable\';\n} | {\n    kind: \'rejected\';\n    reason: \'rate-limited\';\n    retryAfterMs: number;\n} | {\n    kind: \'rejected\';\n    reason: \'invalid-name\' | \'invalid-public-key\' | \'name-conflict\';\n};',
   },
   {
     name: 'AuthenticationEnrollmentId',
@@ -3050,7 +3050,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AuthenticationPrincipal',
-    declaration: 'export type AuthenticationPrincipal = {\n    readonly kind: \'bypass\';\n    readonly capabilities: readonly AuthenticationCapability[];\n} | {\n    readonly kind: \'grant\';\n    readonly grantId: AuthenticationGrantId;\n    readonly grantRevision: number;\n    readonly capabilities: readonly AuthenticationCapability[];\n    readonly expiresAt: string;\n};',
+    declaration: 'export type AuthenticationPrincipal = {\n    readonly kind: \'bypass\';\n    readonly capabilities: readonly AuthenticationCapability[];\n} | {\n    readonly kind: \'grant\';\n    readonly grantId: AuthenticationGrantId;\n    readonly name?: string;\n    readonly grantRevision: number;\n    readonly capabilities: readonly AuthenticationCapability[];\n    readonly expiresAt: string;\n};',
   },
   {
     name: 'AuthenticationRevocation',

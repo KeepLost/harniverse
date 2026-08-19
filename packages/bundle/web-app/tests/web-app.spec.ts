@@ -5,9 +5,10 @@
  * runtime's bind-dependent LAN snapshot.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -71,6 +72,22 @@ interface BashContribution {
 }
 
 describe('web-app runtime glue', () => {
+  it('mounts the console logger needed for host-side Web diagnostics', () => {
+    const root = fileURLToPath(new URL('..', import.meta.url))
+    const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>
+    }
+    const patch = readFileSync(join(root, 'cordis.patch.yml'), 'utf8')
+
+    expect(manifest.dependencies).toHaveProperty(
+      '@deepseek-ai/cordis-plugin-logger-console',
+      'workspace:^',
+    )
+    expect(patch).toMatch(
+      /id: logger-console\s+name: '@deepseek-ai\/cordis-plugin-logger-console'\s+config:\s+levels:\s+default: 2/,
+    )
+  })
+
   it('mounts dist serving, prompt section, bash variables, and prints the URL with the LAN snapshot', async () => {
     stageDist()
     const ctx = new Context()
@@ -85,7 +102,7 @@ describe('web-app runtime glue', () => {
     } as never)
     provideLoader(ctx)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(ctx, new Config({ printUrl: true, surfaceContext: true, trustedHosts: ['lab.internal'] }))
+    apply(ctx, new Config({ printUrl: true, surfaceContext: true, trustedHosts: ['lab.internal'], trustedOrigins: ['https://ui.example.test'] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     // Settle the injected registrations.
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -94,8 +111,10 @@ describe('web-app runtime glue', () => {
     expect(ctx.get('webRuntime')).toEqual({
       lanAddresses: ['192.168.1.5'],
       trustedHosts: ['192.168.1.5', 'lab.internal'],
+      trustedOrigins: ['https://ui.example.test'],
     })
     expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567 (LAN: http://192.168.1.5:4567)')
+    expect(log).toHaveBeenCalledWith('dsh web trust: hosts=["192.168.1.5","lab.internal"] origins=["https://ui.example.test"] same-origin-only=false')
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.find(entry => entry.name === 'harness:source')?.text).toContain('DeepSeek Harness implementation checkout')
     const section = assembly.sections.find(entry => entry.name === 'app:web-surface')
