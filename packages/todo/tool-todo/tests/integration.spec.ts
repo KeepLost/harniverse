@@ -14,11 +14,17 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
  * tool/call + tool/result session events AND the todo/write event the tool
  * appends. Only the model is mocked; the tool and the session log are real.
  */
-async function harness(adapter: MockAdapter): Promise<Context> {
+async function harness(
+  adapter: MockAdapter,
+  config: Partial<Pick<ToolTodo.Config, 'autoContinueIncomplete' | 'autoContinueMessage' | 'maxAutoContinueTurns'>> = {},
+): Promise<Context> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
+  await ctx.plugin(ToolTodo, {
+    allowParallelInProgress: true,
+    ...config,
+  })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
@@ -97,5 +103,59 @@ describe('todo_write tool through the agent loop', () => {
       { content: 'step one', status: 'completed' },
       { content: 'step two', status: 'in_progress' },
     ])
+  })
+
+  it('queues a plugin user message after a stopped turn with incomplete todos', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('call-1', 'todo_write', { todos: [{ content: 'finish the task', status: 'in_progress' }] }),
+      textResponse('I stopped before finishing.'),
+      toolCallResponse('call-2', 'todo_write', { todos: [{ content: 'finish the task', status: 'completed' }] }),
+      textResponse('The task is complete.'),
+    ])
+    const ctx = await harness(adapter, {
+      autoContinueIncomplete: true,
+      autoContinueMessage: 'Continue the incomplete TODO items.',
+    })
+    const agent = ctx.agentLoop.create(SessionId('it-todo-continuation'), { provider: 'mock', model: 'mock' })
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'finish the task' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    const continuationMessages = agent.session.events.filter(event => event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === 'tool-todo')
+    expect(continuationMessages).toHaveLength(1)
+    const continuation = continuationMessages[0]
+    if (continuation?.type !== 'user/message') throw new Error('missing continuation message')
+    expect(continuation.data.content).toEqual([
+      { type: 'text', text: 'Continue the incomplete TODO items.' },
+    ])
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
+    expect(agent.session.events.findLast(event => event.type === 'todo/write')?.data.todos).toEqual([
+      { content: 'finish the task', status: 'completed' },
+    ])
+  })
+
+  it('stops automatic continuation at the configured consecutive-turn limit', async () => {
+    const adapter = new MockAdapter([
+      textResponse('first stop'),
+      textResponse('second stop'),
+      textResponse('third stop'),
+    ])
+    const ctx = await harness(adapter, {
+      autoContinueIncomplete: true,
+      maxAutoContinueTurns: 2,
+    })
+    const agent = ctx.agentLoop.create(SessionId('it-todo-continuation-limit'), { provider: 'mock', model: 'mock' })
+    agent.session.append('todo/write', { todos: [{ content: 'never finished', status: 'pending' }] })
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'start the task' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(3)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(3)
+    expect(agent.session.events.filter(event => event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === 'tool-todo')).toHaveLength(2)
   })
 })

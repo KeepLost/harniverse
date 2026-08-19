@@ -5,10 +5,13 @@
  * @module @deepseek-ai/dsh-tool-todo
  */
 
+import { isDeepStrictEqual } from 'node:util'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { z as zod } from 'zod'
 import type { ZodType } from 'zod'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { TodoItem } from '@deepseek-ai/dsh-session'
 // Type-only: resolves ctx.sessionProjections for the optional unit child.
@@ -25,6 +28,14 @@ export const inject = ['tools']
 /** The valid {@link TodoItem} statuses, as a runtime set for input narrowing. */
 const STATUSES = ['pending', 'in_progress', 'completed'] as const
 
+/** Process-local continuation authority for one exact Agent lifecycle. */
+interface ContinuationState {
+  consecutive: number
+  initialized: boolean
+  todos: TodoItem[] | undefined
+  warned: boolean
+}
+
 /** Model-facing todo tool configuration. */
 export interface Config {
   /**
@@ -35,11 +46,20 @@ export interface Config {
    * rejected.
    */
   allowParallelInProgress: boolean
+  /** Whether to queue a new user message when a turn stops with unfinished todos. */
+  autoContinueIncomplete?: boolean
+  /** The plugin-attributed message queued for an unfinished todo list. */
+  autoContinueMessage?: string
+  /** Maximum consecutive automatic continuation turns before the plugin stops. */
+  maxAutoContinueTurns?: number
 }
 
 /** Schemastery configuration for the todo tool consumer. */
 export const Config: z<Config> = z.object({
   allowParallelInProgress: z.boolean().required(),
+  autoContinueIncomplete: z.boolean().default(false),
+  autoContinueMessage: z.string().min(1).default('Continue working on the incomplete TODO items.'),
+  maxAutoContinueTurns: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(8),
 })
 
 const DESCRIPTION_HEAD =
@@ -127,6 +147,81 @@ const todosProjectionSchema: ZodType<TodoItem[] | null> = zod.union([
  */
 export function apply(ctx: Context, config: Config): void {
   const allowParallel = config.allowParallelInProgress
+  const autoContinueIncomplete = config.autoContinueIncomplete ?? false
+  const autoContinueMessage = config.autoContinueMessage ?? 'Continue working on the incomplete TODO items.'
+  const maxAutoContinueTurns = config.maxAutoContinueTurns ?? 8
+  const continuationStates = new Map<Agent, ContinuationState>()
+
+  function stateFor(agent: Agent): ContinuationState {
+    const existing = continuationStates.get(agent)
+    if (existing !== undefined) return existing
+    const state: ContinuationState = { consecutive: 0, initialized: false, todos: undefined, warned: false }
+    continuationStates.set(agent, state)
+    return state
+  }
+
+  function updateTodos(agent: Agent, todos: TodoItem[] | undefined): void {
+    const state = stateFor(agent)
+    state.initialized = true
+    if (isDeepStrictEqual(state.todos, todos)) return
+    state.todos = todos
+    state.consecutive = 0
+    state.warned = false
+  }
+
+  function isContinuationMessage(message: { source: { kind: string; plugin?: string } }): boolean {
+    return message.source.kind === 'plugin' && message.source.plugin === name
+  }
+
+  if (autoContinueIncomplete) {
+    ctx.on('agent/session-start', ({ agent }) => {
+      continuationStates.set(agent, { consecutive: 0, initialized: false, todos: undefined, warned: false })
+    })
+    ctx.on('agent/disposed', ({ agent }) => {
+      continuationStates.delete(agent)
+    })
+    ctx.on('session/event', (session, event) => {
+      const agent = ctx.get('agents')?.get(session.id)
+      if (agent === undefined || agent.session !== session) return
+      if (event.type === 'todo/write') {
+        updateTodos(agent, event.data.todos)
+      } else if (event.type === 'user/message' && !isContinuationMessage(event.data)) {
+        const state = stateFor(agent)
+        state.consecutive = 0
+        state.warned = false
+      }
+    })
+    ctx.on('agent/turn-stopping', ({ agent }) => {
+      const state = stateFor(agent)
+      if (!state.initialized) {
+        const latestTodo = agent.session.events.findLast(event => event.type === 'todo/write')
+        updateTodos(agent, latestTodo?.type === 'todo/write' ? latestTodo.data.todos : undefined)
+      }
+      const { todos } = state
+      if (todos === undefined || !todos.some(todo => todo.status !== 'completed')) return
+      if (agent.inbox.nextTurn.length > 0) return
+
+      if (state.consecutive >= maxAutoContinueTurns) {
+        if (!state.warned) {
+          state.warned = true
+          ctx.logger.warn(`tool-todo: stopped automatic continuation after ${maxAutoContinueTurns} consecutive turns for agent "${agent.id}"`)
+        }
+        return
+      }
+
+      state.consecutive += 1
+      try {
+        agent.followup(createUserMessage({
+          content: [{ type: 'text', text: autoContinueMessage }],
+          source: { kind: 'plugin', plugin: name },
+        }))
+      } catch (error: unknown) {
+        state.consecutive -= 1
+        ctx.logger.warn(`tool-todo: could not queue automatic continuation for agent "${agent.id}": ${String(error)}`)
+      }
+    })
+  }
+
   // The unit child activates only when a projection registry is composed
   // (headless assemblies without the seam stay unaffected). Standing-plan fold:
   // latest whole todo/write list, cleared by the next turn/start (turn/end keeps

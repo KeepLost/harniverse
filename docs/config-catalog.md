@@ -2967,10 +2967,16 @@ export interface Config {
    * rejected.
    */
   allowParallelInProgress: boolean
+  /** Whether to queue a new user message when a turn stops with unfinished todos. */
+  autoContinueIncomplete?: boolean
+  /** The plugin-attributed message queued for an unfinished todo list. */
+  autoContinueMessage?: string
+  /** Maximum consecutive automatic continuation turns before the plugin stops. */
+  maxAutoContinueTurns?: number
 }
 ```
 
-Source: [`packages/todo/tool-todo/src/index.ts:29`](../packages/todo/tool-todo/src/index.ts)
+Source: [`packages/todo/tool-todo/src/index.ts:40`](../packages/todo/tool-todo/src/index.ts)
 
 <a id="deepseek-aidsh-tool-web"></a>
 

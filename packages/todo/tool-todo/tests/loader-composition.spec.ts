@@ -11,8 +11,9 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { UserMessage } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
@@ -27,14 +28,14 @@ afterEach(async () => {
   root = undefined
 })
 
-function agent(ctx: Context): Agent {
+function agent(ctx: Context, followup: (message: UserMessage) => void = () => {}): Agent {
   const scope = ctx.plugin(() => {})
   const id = SessionId('todo-loader-agent')
   const session = Session.create(id)
   const value: Agent = {
     id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'idle', ctx: scope.ctx,
-    followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {},
+    followup, steer: () => {}, inject: () => {}, send: () => {}, cancel() {},
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
@@ -126,6 +127,27 @@ describe('tool-todo real Loader composition through cordis.yml', () => {
     })
     expect(result.isError).toBe(false)
     expect(owner.session.events.findLast(e => e.type === 'todo/write')?.data.todos).toEqual(PARALLEL_TODOS)
+  }, 30_000)
+
+  it('autoContinueIncomplete queues the configured plugin message through the loaded listener', async () => {
+    const ctx = await boot([
+      '    allowParallelInProgress: true',
+      '    autoContinueIncomplete: true',
+      '    autoContinueMessage: Keep going from the TODO list.',
+      '    maxAutoContinueTurns: 3',
+    ])
+    const queued: UserMessage[] = []
+    const owner = agent(ctx, message => queued.push(message))
+    owner.session.append('todo/write', { todos: [{ content: 'finish it', status: 'pending' }] })
+
+    await agentEvents(ctx, owner).serial('agent/turn-stopping', {
+      turn: 1,
+      signal: new AbortController().signal,
+    })
+
+    expect(queued).toHaveLength(1)
+    expect(queued[0]?.source).toEqual({ kind: 'plugin', plugin: 'tool-todo' })
+    expect(queued[0]?.content).toEqual([{ type: 'text', text: 'Keep going from the TODO list.' }])
   }, 30_000)
 
   it.each([
