@@ -112,6 +112,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | Derived runtime catalogs | `dsh-cordis-client-runner`, `dsh-tool-cordis` |
 | Test support projection | `dsh-acp-snapshot` normalization only |
 | Plugin operations and diagnostics | `dsh-host-plugin-inventory`, `dsh-api-remotes`, `dsh-client-ui-settings-plugin-inventory`, `dsh-web-app` |
+| Shared workspace storage compatibility | `dsh-storage`, `dsh-storage-domain`, `dsh-storage-json`, `dsh-storage-sqlite`, `dsh-workspace` |
 <!-- capability-changes-end -->
 
 ## Shipped Composition Changes
@@ -131,6 +132,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `auth` profile | `dsh-auth-app` parses device, Grant, and API-client management arguments inside the plugin tree and exits without mounting an Agent, WebServer, or authentication runtime Provider. |
 | Notification | No shipped bundle mounts `dsh-notification-http`; explicit examples compose Storage plus the Provider. |
 | `dsh-web-app` plugin diagnostics | Mounts the diagnostics registry and Cordis lifecycle Provider before the existing authorized plugin-inventory Remote; the existing Plugins Settings tab displays each current report without repair controls. |
+| `dsh-workspace` storage | Keeps the shared `workspace` domain at official DSH version 2, isolates the Harniverse-only deletion journal in `workspace_deletion` version 1, and explicitly migrates legacy version 3 workspace media. |
 
 ### Downstream Commit Ledger
 
@@ -150,6 +152,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `22c9c1b9a9` | Adds automatic lossless-style compaction over a committed summary DAG, bounded current-session history tools, and shipped bundle, preset, and headless composition. |
 | `827dc083d5` | Adds the read-only plugin diagnostics Definition, Cordis Provider, authorized Remote projection, and Plugins Settings report. |
 | `955ab7323a` | Adds the source container TLS launcher, Tailscale Host/SAN wiring, exact Origin trust configuration, human-readable enrollment errors, and privacy-minimal Web connection and authentication diagnostics. |
+| `5158dec7a0` | Keeps the shared workspace domain compatible with official DSH, isolates Harniverse deletion recovery state, and migrates legacy workspace media explicitly. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
