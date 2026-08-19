@@ -53,7 +53,7 @@ The inventory is grouped by package directory. Every listed package is an offici
 | `sandbox` | 4 | `sandbox`, `sandbox-local`, `sandbox-policy`, `sandbox-windows-acl` |
 | `schedule` | 1 | `schedule` |
 | `sdk` | 3 | `client`, `protocol`, `server` |
-| `session-query` | 4 | `session-log-export`, `session-query`, `session-query-sqlite`, `tool-session-query` |
+| `session-query` | 7 | `session-delivery`, `session-delivery-local`, `session-log-export`, `session-query`, `session-query-sqlite`, `tool-session-delivery`, `tool-session-query` |
 | `session` | 13 | `session-checkpoint-policy`, `session-persistence`, `session-persistence-jsonl`, `session-persistence-sqlite`, `session-projection`, `session-projection-cache`, `session-stats`, `session-telemetry`, `session-telemetry-otel`, `session-title`, `session-title-all-prompts-llm`, `session-title-first-prompt-llm`, `session-title-llm` |
 | `settings` | 2 | `settings`, `settings-file` |
 | `shell` | 9 | `bash-local`, `bash-sandbox`, `pwsh-local`, `pwsh-sandbox`, `shell`, `shell-env`, `tool-bash`, `tool-bash-persistent`, `tool-pwsh` |
@@ -133,6 +133,8 @@ Harniverse groups downstream package manifests by complete capability family rat
 | Notification | No shipped bundle mounts `dsh-notification-http`; explicit examples compose Storage plus the Provider. |
 | `dsh-web-app` plugin diagnostics | Mounts the diagnostics registry and Cordis lifecycle Provider before the existing authorized plugin-inventory Remote; the existing Plugins Settings tab displays each current report without repair controls. |
 | `dsh-workspace` storage | Keeps the shared `workspace` domain at official DSH version 2, isolates the Harniverse-only deletion journal in `workspace_deletion` version 1, and explicitly migrates legacy version 3 workspace media. |
+| `dsh-tool-todo` continuation | Optionally queues a plugin-attributed next-turn user message at `agent/turn-stopping` while the latest TODO snapshot remains unfinished, with a consecutive-turn cap and competing-input suppression. |
+| Cross-session query and delivery | Makes cwd an optional session-search filter rather than exact-target authority, adds runtime status and finalized message-tail reads, and adds a separate ordinary-session delivery Definition, local Provider, and Consumer with non-waiting `session_send_message` plus safe idle-only `session_unload`. Shipped defaults remain unchanged; the explicit ACP session-query scenario mounts all three delivery roles. |
 
 ### Downstream Commit Ledger
 
@@ -153,6 +155,8 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `827dc083d5` | Adds the read-only plugin diagnostics Definition, Cordis Provider, authorized Remote projection, and Plugins Settings report. |
 | `955ab7323a` | Adds the source container TLS launcher, Tailscale Host/SAN wiring, exact Origin trust configuration, human-readable enrollment errors, and privacy-minimal Web connection and authentication diagnostics. |
 | `5158dec7a0` | Keeps the shared workspace domain compatible with official DSH, isolates Harniverse deletion recovery state, and migrates legacy workspace media explicitly. |
+| `5816aa6d30` | Adds optional TODO-driven continuation turns with a bounded consecutive-turn policy and competing-input suppression. |
+| `093c319309` | Adds cross-session ID-bound query, runtime status and message tails, ordinary-session message delivery with cold resume, and safe idle-only unload. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
