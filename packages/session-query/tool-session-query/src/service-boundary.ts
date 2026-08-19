@@ -91,7 +91,7 @@ const SAFE_SESSION_QUERY_FAILURES = {
 
 function unauthorizedTarget(): HarnessError {
   return new HarnessError(
-    'session target is outside the caller workspace',
+    'session target is unavailable',
     'SESSION_QUERY_TOOL_UNAUTHORIZED',
   )
 }

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Workspace-authorized model tools over `ctx.sessionQuery`. The opt-in package depends only on the unified interface and registers `session_search`, `session_event_search`, `session_trace`, `session_event_trace`, and `session_event_read`; shipped host compositions do not mount it by default.
+Model tools over `ctx.sessionQuery` with id-bound exact observations and optional search filtering. The opt-in package registers seven query/read tools; shipped host compositions do not mount it by default.
 
 ## Configuration
 
@@ -11,9 +11,9 @@ Workspace-authorized model tools over `ctx.sessionQuery`. The opt-in package dep
 | `maxSearchResults` | `100` | Maximum authorized non-self hits collected across internal provider pages |
 | `searchTimeoutMs` | `30000` | Cooperative deadline attached to both full-text search tools |
 
-The caller comes exclusively from `ToolExecution.exec.agent`. Cross-session access requires exact equality between the target and caller session `cwd` values; a caller without `cwd` can inspect only itself. Search never exposes provider cursors, offsets, page sizes, or a model-controlled limit. Because one search consumes generation-bound provider cursors internally, both search tools execute exclusively with sibling tool calls; the three exact trace/read tools opt into parallel execution. Every exact executor passes its unchanged execution signal through authorization and the service trace/read, so cancellation waits for cooperative persistence cleanup and retains the signal's exact reason. Timestamps at the tool boundary require an explicit `Z` or numeric offset and become inclusive epoch-millisecond filters.
+The caller comes exclusively from `ToolExecution.exec.agent`. Exact targets are selected by opaque session id and every returned observation must retain that id; `cwd` is only an optional exact `session_search` filter, where omission searches the deployment-visible corpus and `null` selects sessions without a cwd. Search never exposes provider cursors, offsets, page sizes, or a model-controlled limit. Because one search consumes generation-bound provider cursors internally, both search tools execute exclusively with sibling tool calls; exact status, message-tail, trace, and read tools opt into parallel execution.
 
-`session_search` always omits the caller session. Requested parent ids are deduplicated and checked against caller-workspace authority before FTS; only authorized ids reach the provider, while missing and cross-workspace guesses behave identically and the root marker remains independently ORed. A current-session `session_event_search` stops immediately before the step that invoked it, so the active assistant output and logged tool call cannot match themselves. Direct targets are authorized before trace, event, or title reads. Lineage output replaces unauthorized ancestor and descendant boundaries with markers that contain no hidden session id.
+`session_search` always omits the caller session. Requested parent ids are deduplicated and checked for existence before FTS. A current-session `session_event_search` stops immediately before the step that invoked it. `session_status` never resumes cold sessions, while `session_message_tail` returns bounded finalized model-visible messages from one live-preferred observation.
 
 Every trusted `ctx.sessionQuery` call crosses one model-boundary sanitizer. Caller cancellation is checked first and preserved exactly. Available corpus and provider diagnostics, including safely inspectable nested causes, are logged internally on a best-effort basis; unprintable failures use a fixed log placeholder. Diagnostic formatting and error classification are independently guarded, so an unprintable cause cannot escape or prevent a safely classified outer error, while unsafe classification or logging falls back to the fixed `SESSION_QUERY_TOOL_FAILED` code and message. Local argument-validation and authorization errors retain their precise tool-owned messages.
 
@@ -30,7 +30,7 @@ The model receives one fixed prior-history guidance section.
 ##### Prior-history guidance
 
 ```markdown
-Use session_search to find relevant work from prior sessions, or session_event_search to search earlier events in one session. Search results are cursor-free and workspace-scoped. Follow a useful hit with session_trace, session_event_trace, or session_event_read when you need lineage, relationships, or exact data.
+Use session_search to find relevant work from prior sessions, or session_event_search to search earlier events in one session. Search results are cursor-free and can be narrowed with an optional cwd filter. Follow a useful hit with session_status, session_message_tail, session_trace, session_event_trace, or session_event_read when you need current activity, recent messages, lineage, relationships, or exact data.
 ```
 
 #### Token effect
@@ -45,11 +45,11 @@ Prefix-stable while the plugin and guidance text are unchanged.
 
 #### What the model sees
 
-The model sees the generated [`session_search`, `session_event_search`, `session_trace`, `session_event_trace`, and `session_event_read` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-session-query). Search filters add fixed schema tokens, while cursors, workspace paths, output pagination, and model-controlled result limits remain absent.
+The model sees the [seven generated session-query schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-session-query), including `session_status` and `session_message_tail`. Search filters add fixed schema tokens; `cwd` is accepted as an optional filter but is not rendered in results.
 
 #### Token effect
 
-Five fixed read-only schemas are sent on each request while visible.
+Seven fixed read-only schemas are sent on each request while visible.
 
 #### KV Cache effect
 
@@ -72,5 +72,5 @@ Append-only result text follows the reusable request prefix and does not invalid
 ## Known Limitations and Deferred Work
 
 - Search returns at most the deployment cap and asks the model to narrow its query when more matches exist; it offers no continuation token.
-- Workspace identity is conservative exact-string `cwd` equality, so symlink-equivalent paths do not share authority.
+- Mounting this opt-in Consumer exposes deployment-visible session discovery; session ids are bearer-like opaque references and must remain unguessable.
 - Custom compositions without the generic spill policy accept complete trace and event payloads inline.

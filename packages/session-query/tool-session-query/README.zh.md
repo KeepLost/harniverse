@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-位于 `ctx.sessionQuery` 之上、经工作区授权的模型工具。该 opt-in 包只依赖统一接口，并注册 `session_search`、`session_event_search`、`session_trace`、`session_event_trace` 和 `session_event_read`；已发布的宿主组合默认不挂载它。
+位于 `ctx.sessionQuery` 之上的模型工具，对精确观察执行 id 绑定，并支持可选搜索过滤。该 opt-in 包注册七个查询/读取工具；已发布的宿主组合默认不挂载它。
 
 ## 配置
 
@@ -11,9 +11,9 @@
 | `maxSearchResults` | `100` | 在内部提供方分页中收集的最大已授权非自身命中数 |
 | `searchTimeoutMs` | `30000` | 附加到两个全文搜索工具的协作式截止时间 |
 
-调用方只能来自 `ToolExecution.exec.agent`。跨会话访问要求目标和调用方会话的 `cwd` 值严格相等；没有 `cwd` 的调用方只能检查自己。搜索绝不公开提供方游标、偏移、分页大小或模型可控上限。由于一次搜索会在内部消费与世代绑定的提供方游标，两个搜索工具都与同级工具调用排他执行；三个精确跟踪/读取工具选择并行执行。每个精确执行器都将未更改的执行信号传递给授权和服务跟踪/读取，因此取消会等待协作式持久化清理，并保留信号的精确原因。工具边界上的时间戳要求显式 `Z` 或数字偏移，并转换为包含端点的 epoch 毫秒过滤器。
+调用方只能来自 `ToolExecution.exec.agent`。精确目标由不透明 session id 选择，所有返回观察都必须保持该 id；`cwd` 仅是可选的 `session_search` 精确过滤器，省略时搜索部署可见语料，`null` 选择没有 cwd 的会话。搜索不公开提供方游标、偏移、分页大小或模型可控上限。状态、消息尾部、跟踪和读取工具可并行执行。
 
-`session_search` 始终省略调用方会话。请求的父 id 会被去重，并在 FTS 前根据调用方工作区权限检查；只有已授权 id 会到达提供方，而缺失猜测和跨工作区猜测的行为完全相同，root 标记仍独立使用 OR。当前会话中的 `session_event_search` 会在调用它的步骤之前立即停止，因此当前 assistant 输出和已记录工具调用无法匹配自身。直接目标在跟踪、事件或标题读取前完成授权。血缘输出会用不含隐藏会话 id 的标记替换未授权祖先和后代边界。
+`session_search` 始终省略调用方会话。请求的父 id 会被去重并在 FTS 前检查是否存在。当前会话中的 `session_event_search` 会在调用它的步骤之前停止。`session_status` 不会恢复 cold 会话，`session_message_tail` 从一次 live-preferred 观察返回有界的最终模型可见消息。
 
 每个可信 `ctx.sessionQuery` 调用都会经过一个模型边界净化器。首先检查调用方取消，并精确保留。可获取的语料库诊断信息和提供方诊断信息（包括可安全检查的嵌套原因）会尽力记录到内部日志；不可打印的失败使用固定日志占位符。诊断格式化和错误分类各自独立受保护，因此不可打印的原因无法逃逸，也无法阻止已安全分类的外层错误；不安全的分类或日志记录则回退到固定 `SESSION_QUERY_TOOL_FAILED` 代码和消息。本地参数验证和授权错误保留精确的工具自有消息。
 
@@ -30,7 +30,7 @@
 ##### 既往历史指引
 
 ```markdown
-Use session_search to find relevant work from prior sessions, or session_event_search to search earlier events in one session. Search results are cursor-free and workspace-scoped. Follow a useful hit with session_trace, session_event_trace, or session_event_read when you need lineage, relationships, or exact data.
+Use session_search to find relevant work from prior sessions, or session_event_search to search earlier events in one session. Search results are cursor-free and can be narrowed with an optional cwd filter. Follow a useful hit with session_status, session_message_tail, session_trace, session_event_trace, or session_event_read when you need current activity, recent messages, lineage, relationships, or exact data.
 ```
 
 #### Token 影响
@@ -45,11 +45,11 @@ Use session_search to find relevant work from prior sessions, or session_event_s
 
 #### 模型看到的内容
 
-模型会看到生成的 [`session_search`、`session_event_search`、`session_trace`、`session_event_trace` 和 `session_event_read` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-session-query)。搜索过滤器会增加固定 schema token，而游标、工作区路径、输出分页和模型可控结果上限仍不存在。
+模型会看到[生成的七个 session-query schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-session-query)，包括 `session_status` 和 `session_message_tail`。`cwd` 可作为搜索过滤器输入，但不会出现在结果中。
 
 #### Token 影响
 
-可见期间，每次请求都会发送 5 个固定只读 schema。
+可见期间，每次请求都会发送 7 个固定只读 schema。
 
 #### KV Cache 影响
 
@@ -72,5 +72,5 @@ Use session_search to find relevant work from prior sessions, or session_event_s
 ## 已知限制与暂缓事项
 
 - 搜索最多返回部署上限，匹配更多时会请模型缩小查询；不提供延续 token。
-- 工作区身份使用保守的字符串精确 `cwd` 相等性，因此符号链接等价的路径不共享权限。
+- 挂载这一可选 Consumer 会暴露部署可见的会话发现；session id 是类似 bearer 的不透明引用，必须保持不可猜测。
 - 未挂载通用 spill 策略的自定义组合会以内联方式接收完整跟踪和事件载荷。

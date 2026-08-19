@@ -664,6 +664,15 @@ async resume(options: ResumeAgentOptions): Promise<AgentHandle>
 async close(id: SessionId): Promise<boolean>
 
 /**
+ * Atomically reserve and close one factory-owned Agent only when its concrete
+ * loop is idle and its inbox is empty. Maintenance counts as busy. The
+ * factory stops admission before this method first yields.
+ * @param id - live Agent identity to close.
+ * @returns whether the target closed, was busy, or was not live.
+ */
+async closeIfIdle(id: SessionId): Promise<AgentCloseIfIdleResult>
+
+/**
  * Register a live agent. Throws if an agent with the same id is already
  * registered. Emits `agent/created` on registration and `agent/disposed`
  * when the calling fiber is disposed — both with the agent's scope carrier
@@ -695,12 +704,14 @@ register(agent: Agent): () => void
  *   the resumed session's durable parent lineage.
  * @param close - factory-owned quiescent teardown capability, when this
  *   registry must support explicit lifecycle closure.
+ * @param closeIfIdle - factory-owned conditional teardown that atomically
+ *   reserves true idle and an empty inbox before yielding.
  * @returns an idempotent closure that removes this exact entry and emits
  *   `agent/disposed` with listener failures contained. When called from a
  *   synchronous `agent/created` listener, removal and disposal wait until
  *   that creation dispatch unwinds.
  */
-enter(agent: Agent, owner: Agent | undefined, close?: () => Promise<void>): () => void
+enter( agent: Agent, owner: Agent | undefined, close?: () => Promise<void>, closeIfIdle?: () => Promise<boolean>, ): () => void
 
 /**
  * Announce an agent previously inserted with {@link enter}.
@@ -743,7 +754,7 @@ list(): Agent[]
 roots(): Agent[]
 ```
 
-Source: [`packages/core/agent/src/index.ts:259`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:264`](../../packages/core/agent/src/index.ts)
 
 <a id="agent-events"></a>
 

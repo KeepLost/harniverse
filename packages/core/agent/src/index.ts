@@ -175,6 +175,9 @@ export interface AgentHandle {
   dispose(): Promise<void>
 }
 
+/** Result of atomically closing a factory-owned Agent only from true idle. */
+export type AgentCloseIfIdleResult = 'closed' | 'busy' | 'not-found'
+
 /**
  * The agent-creation factory the loop implementation provides to the registry
  * via {@link AgentRegistry.setFactory}. Kept on the `dsh-agent` interface so
@@ -228,6 +231,8 @@ interface AgentEntry {
   readonly carrier: Scoped<Agent>
   /** Factory-owned quiescent teardown, absent for externally registered agents. */
   readonly close?: () => Promise<void>
+  /** Factory-owned conditional teardown that reserves true idle before yielding. */
+  readonly closeIfIdle?: () => Promise<boolean>
   announced: boolean
   announcing: boolean
   detachRequested: boolean
@@ -449,6 +454,20 @@ export class AgentRegistry extends Service {
   }
 
   /**
+   * Atomically reserve and close one factory-owned Agent only when its concrete
+   * loop is idle and its inbox is empty. Maintenance counts as busy. The
+   * factory stops admission before this method first yields.
+   * @param id - live Agent identity to close.
+   * @returns whether the target closed, was busy, or was not live.
+   */
+  async closeIfIdle(id: SessionId): Promise<AgentCloseIfIdleResult> {
+    const entry = this.store.get(id)
+    if (entry === undefined) return 'not-found'
+    if (entry.closeIfIdle === undefined) throw new Error(`agent "${id}" is not factory-owned`)
+    return await entry.closeIfIdle() ? 'closed' : 'busy'
+  }
+
+  /**
    * Register a live agent. Throws if an agent with the same id is already
    * registered. Emits `agent/created` on registration and `agent/disposed`
    * when the calling fiber is disposed — both with the agent's scope carrier
@@ -487,12 +506,19 @@ export class AgentRegistry extends Service {
    *   the resumed session's durable parent lineage.
    * @param close - factory-owned quiescent teardown capability, when this
    *   registry must support explicit lifecycle closure.
+   * @param closeIfIdle - factory-owned conditional teardown that atomically
+   *   reserves true idle and an empty inbox before yielding.
    * @returns an idempotent closure that removes this exact entry and emits
    *   `agent/disposed` with listener failures contained. When called from a
    *   synchronous `agent/created` listener, removal and disposal wait until
    *   that creation dispatch unwinds.
    */
-  enter(agent: Agent, owner: Agent | undefined, close?: () => Promise<void>): () => void {
+  enter(
+    agent: Agent,
+    owner: Agent | undefined,
+    close?: () => Promise<void>,
+    closeIfIdle?: () => Promise<boolean>,
+  ): () => void {
     const id = agent.id
     if (id !== agent.session.id) {
       throw new Error(`agent id "${id}" does not match session id "${agent.session.id}"`)
@@ -507,6 +533,7 @@ export class AgentRegistry extends Service {
       owner,
       carrier,
       ...(close === undefined ? {} : { close }),
+      ...(closeIfIdle === undefined ? {} : { closeIfIdle }),
       announced: false,
       announcing: false,
       detachRequested: false,

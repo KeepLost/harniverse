@@ -451,6 +451,18 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/session-query/session-delivery": {
+      "entry": [],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "packages/session-query/session-delivery-local": {
+      "entry": [],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
     "packages/code-runtime/code-runtime-worker-thread": {
       "entry": [
         "tests/**/*.spec.ts",

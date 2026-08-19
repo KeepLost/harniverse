@@ -267,13 +267,22 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns WorkspaceId-branded records over the domain facility; stable sessionIds accounts drive Host RPC and GUI projections.',
   },
   {
+    key: 'sessionDelivery',
+    pkg: 'session-delivery',
+    title: 'Ordinary-session next-turn delivery',
+    mode: 'seam',
+    implementations: ['session-delivery-local'],
+    consumers: ['tool-session-delivery'],
+    note: 'The interface acknowledges inbox acceptance only; the local Provider resolves live or persisted ordinary Agents, while the model Consumer never waits for completion or a reply.',
+  },
+  {
     key: 'sessionQuery',
     pkg: 'session-query',
     title: 'Session reads, traces, filters, and search',
     mode: 'seam',
     implementations: ['session-query-sqlite'],
     consumers: ['session-reference', 'tool-session-query'],
-    note: 'The interface supplies exact reads, filters, and traces; its concrete backend adds full-text reconciliation, ranking, snippets, and cursor generations, while the model consumer owns workspace authority and cursor-free rendering.',
+    note: 'The interface supplies exact reads, status, finalized message tails, filters, and traces; its concrete backend adds full-text reconciliation, while the model consumer binds exact observations by id and owns optional cwd filtering plus cursor-free rendering.',
   },
   {
     key: 'sessionReferenceResolver',

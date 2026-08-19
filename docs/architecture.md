@@ -85,7 +85,7 @@ Input reaches the driver through one inbox. Some messages wake it immediately; i
 
 `agent/pre-step` decides what the model sees. Listeners may rewrite the claimed messages or reject them outright; a rejected or empty first claim still closes a durable turn that spent no step, so the log records the attempt. Each step reads the prompt sections and tool schemas that plugins registered.
 
-Agent teardown is one AgentLoop-owned quiescence boundary. It rejects new admission, cancels and drains the driver, unwinds the Agent scope, flushes the exact Session while it remains attached, then detaches the Agent and Session. Consumers close through `AgentHandle.dispose()` or the factory-owned capability retained by `ctx.agents.close(id)`; removing a SessionStore entry directly is never Agent teardown.
+Agent teardown is one AgentLoop-owned quiescence boundary. It rejects new admission, cancels and drains the driver, unwinds the Agent scope, flushes the exact Session while it remains attached, then detaches the Agent and Session. Consumers close through `AgentHandle.dispose()` or the factory-owned capabilities retained by `ctx.agents.close(id)`; `ctx.agents.closeIfIdle(id)` atomically reserves teardown only from true idle with an empty inbox and treats maintenance as busy. Removing a SessionStore entry directly is never Agent teardown.
 
 Details: the [sequence diagram](agent-lifecycle.md), the [tool pipeline](tool-execution-pipeline.md), and [cancellation and error recovery](subsystems/core.md#the-agent-handle).
 

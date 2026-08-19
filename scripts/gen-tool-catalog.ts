@@ -56,6 +56,13 @@ import Lsp from '@deepseek-ai/dsh-lsp'
 import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
+import SessionDelivery, {
+  type SessionDeliveryReceipt,
+  type SessionDeliveryRequest,
+  type SessionUnloadReceipt,
+  type SessionUnloadRequest,
+} from '@deepseek-ai/dsh-session-delivery'
+import * as ToolSessionDelivery from '@deepseek-ai/dsh-tool-session-delivery'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolResultArtifacts from '@deepseek-ai/dsh-tool-result-artifacts'
@@ -101,6 +108,16 @@ class CatalogSpillStore extends SpillStore {
 
   override readText(_input: ReadTextSpill): Promise<ReadTextSpillPage> {
     return Promise.reject(new Error('gen-tool-catalog: artifact reads are unreachable during schema harvest'))
+  }
+}
+
+class CatalogSessionDelivery extends SessionDelivery {
+  deliver(_request: SessionDeliveryRequest): Promise<SessionDeliveryReceipt> {
+    throw new Error('catalog-only delivery provider is not executable')
+  }
+
+  unload(_request: SessionUnloadRequest): Promise<SessionUnloadReceipt> {
+    throw new Error('catalog-only delivery provider is not executable')
   }
 }
 
@@ -463,10 +480,22 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
   },
   {
+    pkg: '@deepseek-ai/dsh-tool-session-delivery',
+    dir: 'tool-session-delivery',
+    source: 'packages/session-query/tool-session-delivery/src/index.ts',
+    requires: ['ctx.tools', 'ctx.sessionDelivery', 'a calling Agent'],
+    writes: ['tool/call', 'tool/result', 'target user/message through the selected Provider'],
+    async mount(ctx) {
+      await ctx.plugin(CatalogSessionDelivery)
+      await ctx.plugin(ToolSessionDelivery)
+    },
+    note: 'The tool confirms inbox acceptance only and never waits for target completion or a reply.',
+  },
+  {
     pkg: '@deepseek-ai/dsh-tool-session-query',
     dir: 'tool-session-query',
     source: 'packages/session-query/tool-session-query/src/index.ts',
-    requires: ['ctx.tools', 'ctx.systemPrompt', 'ctx.sessionQuery', 'a calling Agent for workspace authority'],
+    requires: ['ctx.tools', 'ctx.systemPrompt', 'ctx.sessionQuery', 'a calling Agent for caller identity'],
     writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(SessionStore)
@@ -474,7 +503,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolSessionQuery)
     },
     note:
-      'The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies.',
+      'The seven read-only tools hide provider cursors and bind exact observations to opaque session ids. The package is opt-in; cwd is only an optional session-search filter.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent',

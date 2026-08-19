@@ -490,6 +490,7 @@ export class AgentLoop extends Service implements AgentFactory {
     let detachSession: (() => void) | undefined
     let detachAgent: (() => void) | undefined
     let disposing: Promise<void> | undefined
+    let idleClosing: Promise<boolean> | undefined
     const machineReady = Promise.withResolvers<void>()
     // Reverse teardown, memoized so every racing owner awaits one quiescence:
     // stop the machine, leave the registries, unwind the scope, release
@@ -533,6 +534,13 @@ export class AgentLoop extends Service implements AgentFactory {
         }
       }
     })())
+    const closeIfIdle = (): Promise<boolean> => {
+      if (idleClosing !== undefined) return idleClosing
+      if (disposing !== undefined) return Promise.resolve(false)
+      if (machine === undefined || !machine.beginDisposeIfIdle()) return Promise.resolve(false)
+      idleClosing = dispose().then(() => true)
+      return idleClosing
+    }
     const untrack = this.ownership.track(dispose)
     let unfollowOwner: () => Promise<void> | void
     try {
@@ -571,7 +579,7 @@ export class AgentLoop extends Service implements AgentFactory {
         publish: (source) => {
           assertLive()
           detachSession = agent.ctx.sessions.enter(session)
-          detachAgent = loopCtx.agents.enter(agent, ownerCtx.agent, dispose)
+          detachAgent = loopCtx.agents.enter(agent, ownerCtx.agent, dispose, closeIfIdle)
           agent.ctx.sessions.announce(session)
           assertLive()
           loopCtx.agents.announce(agent)

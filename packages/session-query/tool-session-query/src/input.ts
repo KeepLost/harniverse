@@ -19,6 +19,7 @@ import {
 
 interface SessionSearchArgs {
   query: string
+  cwd?: string | null
   session_ids?: string[]
   created_at_from?: string
   created_at_to?: string
@@ -44,6 +45,10 @@ interface EventFilterInput {
 
 const sessionSearchParameters = {
   query: { type: 'string', required: true, description: 'Literal full-text query over prior session history.' },
+  cwd: {
+    oneOf: [{ type: 'string' }, { type: 'null' }],
+    description: 'Optional exact cwd filter. Omit to search all sessions; use null for sessions without a cwd.',
+  },
   session_ids: { type: 'array', items: { type: 'string' }, description: 'Optional session ids to include.' },
   created_at_from: { type: 'string', description: 'Inclusive timezone-qualified ISO 8601 creation-time lower bound.' },
   created_at_to: { type: 'string', description: 'Inclusive timezone-qualified ISO 8601 creation-time upper bound.' },
@@ -85,6 +90,11 @@ const targetSessionParameter = {
   session_id: { type: 'string', description: 'Target session id. Omit for the current session.' },
 } as const
 
+const messageTailParameters = {
+  session_id: { type: 'string', description: 'Target session id. Omit for the current session.' },
+  limit: { type: 'integer', description: 'Maximum finalized messages to return. Defaults to 10.' },
+} as const
+
 function buildSessionFilters(args: SessionSearchArgs): SessionResultFilter[] {
   const filters: SessionResultFilter[] = []
   if (args.session_ids !== undefined) {
@@ -97,6 +107,7 @@ function buildSessionFilters(args: SessionSearchArgs): SessionResultFilter[] {
     assertNonEmptyArray('availability', args.availability)
     filters.push({ kind: 'availability', values: args.availability })
   }
+  if (args.cwd !== undefined) filters.push({ kind: 'cwd', values: [args.cwd] })
   return filters
 }
 
@@ -298,6 +309,7 @@ export const toolInput = {
   sessionSearchParameters,
   eventSearchParameters,
   targetSessionParameter,
+  messageTailParameters,
   buildSessionFilters,
   materializeParentSessionIds,
   buildEventFilters,

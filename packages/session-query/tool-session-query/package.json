@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-tool-session-query",
-  "description": "Workspace-authorized model-facing session history search, trace, and event read tools",
+  "description": "Model-facing session history search, status, message-tail, trace, and event read tools",
   "version": "0.1.0-rc.5",
   "publishConfig": {
     "access": "public"

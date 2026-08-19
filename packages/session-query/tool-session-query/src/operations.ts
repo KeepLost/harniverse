@@ -46,6 +46,10 @@ interface EventReadArgs extends EventTargetArgs {
   after?: number
 }
 
+interface MessageTailArgs extends SessionTargetArgs {
+  limit?: number
+}
+
 interface SearchCollection<T> {
   readonly items: T[]
   readonly capped: boolean
@@ -58,13 +62,6 @@ async function executeSessionSearch(
   maxResults: number,
 ): Promise<string> {
   const caller = workspaceAccess.callerOf(exec)
-  const cwd = caller.header.cwd
-  if (cwd === undefined) {
-    throw new HarnessError(
-      'cross-session search is unavailable because the caller session has no workspace',
-      'SESSION_QUERY_TOOL_UNAUTHORIZED',
-    )
-  }
   const query = toolInput.normalizeQuery(args.query)
   const sessionFilters = toolInput.buildSessionFilters(args)
   const eventFilters = toolInput.buildEventFilters({
@@ -86,7 +83,6 @@ async function executeSessionSearch(
     if (parentValues.length === 0) return presentation.formatEmptySessionSearch()
     sessionFilters.push({ kind: 'parent', values: parentValues })
   }
-  sessionFilters.push({ kind: 'cwd', values: [cwd] })
   const collected = await collectPages(
     maxResults,
     exec.signal,
@@ -97,7 +93,7 @@ async function executeSessionSearch(
         eventFilters,
         ...cursor === undefined ? {} : { cursor },
       }, { signal: exec.signal })),
-    hit => hit.header.id !== caller.id && workspaceAccess.recordAuthorized(hit, caller),
+    hit => hit.header.id !== caller.id && workspaceAccess.recordAuthorized(hit),
   )
 
   const parentIds = collected.items
@@ -180,7 +176,7 @@ async function executeSessionTrace(
   const ancestors: SessionRecord[] = []
   let ancestorBoundary = false
   for (const ancestor of trace.ancestors) {
-    if (!workspaceAccess.recordAuthorized(ancestor, caller)) {
+    if (!workspaceAccess.recordAuthorized(ancestor)) {
       ancestorBoundary = true
       break
     }
@@ -236,6 +232,43 @@ async function executeEventRead(
   return presentation.formatEventRead(sessionId, title, window)
 }
 
+async function executeSessionStatus(
+  ctx: Context,
+  args: SessionTargetArgs,
+  exec: ToolRunContext,
+): Promise<string> {
+  const caller = workspaceAccess.callerOf(exec)
+  const sessionId = workspaceAccess.targetId(args, caller)
+  await workspaceAccess.authorizeTarget(ctx, caller, sessionId, exec.signal)
+  const status = await serviceBoundary.call(ctx, exec.signal, 'session status', () =>
+    ctx.sessionQuery.readRuntimeStatus(sessionId, exec.signal))
+  workspaceAccess.assertObservedTargetAuthorized(caller, sessionId, status.header)
+  return presentation.formatSessionStatus(status)
+}
+
+async function executeMessageTail(
+  ctx: Context,
+  args: MessageTailArgs,
+  exec: ToolRunContext,
+  defaultLimit: number,
+  maxLimit: number,
+): Promise<string> {
+  const caller = workspaceAccess.callerOf(exec)
+  const sessionId = workspaceAccess.targetId(args, caller)
+  await workspaceAccess.authorizeTarget(ctx, caller, sessionId, exec.signal)
+  const limit = args.limit ?? defaultLimit
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > maxLimit) {
+    throw new SessionQueryError(
+      `message tail limit must be between 1 and ${maxLimit}`,
+      'SESSION_QUERY_INVALID_LIMIT',
+    )
+  }
+  const tail = await serviceBoundary.call(ctx, exec.signal, 'session message tail', () =>
+    ctx.sessionQuery.readMessageTail(sessionId, limit, exec.signal))
+  workspaceAccess.assertObservedTargetAuthorized(caller, sessionId, tail.session)
+  return presentation.formatMessageTail(tail)
+}
+
 async function collectPages<T>(
   maxResults: number,
   signal: AbortSignal,
@@ -278,4 +311,6 @@ export const operations = {
   executeSessionTrace,
   executeEventTrace,
   executeEventRead,
+  executeSessionStatus,
+  executeMessageTail,
 }

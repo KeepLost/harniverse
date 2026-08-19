@@ -12,6 +12,7 @@ import type {
   SessionId,
   SurfaceEvent,
 } from '@deepseek-ai/dsh-session'
+import type { Message } from '@deepseek-ai/dsh-llm'
 import type { SessionTitleSnapshot } from '@deepseek-ai/dsh-session-title'
 import type { SessionSearchCursor } from './cursor.ts'
 
@@ -28,6 +29,38 @@ export interface SessionRecord {
   live: boolean
   /** Whether the active persistence backend currently materializes the id. */
   persisted: boolean
+}
+
+/** Runtime attachment and activity observed with one logical session record. */
+export interface SessionRuntimeStatus extends SessionRecord {
+  /** Whether the session is currently loaded in the live Session registry. */
+  loaded: boolean
+  /** Whether the live Agent is currently driving work for this session. */
+  running: boolean
+  /** Highest raw-log seq included in the observation, or `null` for an empty log. */
+  lastSeq: number | null
+}
+
+/** One finalized model-visible message from a session surface observation. */
+export interface SessionMessageTailItem {
+  /** Raw-log sequence that produced this message. */
+  seq: number
+  /** Raw-log timestamp of the producing event. */
+  time: number
+  /** Canonical message projected from the current surface. */
+  message: Message
+}
+
+/** Bounded latest-message observation from one logical session. */
+export interface SessionMessageTail {
+  /** Cloned header selected from the same corpus observation as the messages. */
+  session: SessionHeader
+  /** Highest raw-log seq included in the observation, or `null` for an empty log. */
+  capturedThroughSeq: number | null
+  /** Latest finalized messages in chronological order. */
+  messages: SessionMessageTailItem[]
+  /** Whether older finalized messages were omitted by the requested limit. */
+  truncated: boolean
 }
 
 /** One atomic live-preferred observation of a session's current model surface. */

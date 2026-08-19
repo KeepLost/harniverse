@@ -35,7 +35,8 @@
 | `@deepseek-ai/dsh-tool-compaction-history` | `compaction_history_expand`、`compaction_history_search` | `ctx.tools`、`ctx.systemPrompt`、`ctx.compactionHistory`、`a calling Agent for Session identity` | `tool/call`、`tool/result` | - | 随附工具只搜索调用方 live Session 中已提交的 summary checkpoint。展开输出把恢复历史视为不可信内容，并应用配置的深度与确定性 token 估算 cap。 |
 | `@deepseek-ai/dsh-tool-result-artifacts` | `artifact_read` | `ctx.tools`、`ctx.spillStore` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`、`ctx.agents`、`ctx.skills` | `tool/call`、`tool/result`、`user/message replacement catalogs via agent.inject()` | - | - |
-| `@deepseek-ai/dsh-tool-session-query` | `session_event_read`、`session_event_search`、`session_event_trace`、`session_search`、`session_trace` | `ctx.tools`、`ctx.systemPrompt`、`ctx.sessionQuery`、`a calling Agent for workspace authority` | `tool/call`、`tool/result` | - | 这 5 个只读工具会隐藏提供方游标，并根据不可变的调用 agent 会话为每个结果授权。该包需要选择启用；需要强制截止时间或限制行内输出的组合还会挂载通用超时或 spill 策略。 |
+| `@deepseek-ai/dsh-tool-session-delivery` | `session_send_message`、`session_unload` | `ctx.tools`、`ctx.sessionDelivery`、`a calling Agent` | `tool/call`、`tool/result`、`target user/message through the selected Provider` | - | 该工具只确认 inbox 接受，绝不等待目标完成或回复。 |
+| `@deepseek-ai/dsh-tool-session-query` | `session_event_read`、`session_event_search`、`session_event_trace`、`session_message_tail`、`session_search`、`session_status`、`session_trace` | `ctx.tools`、`ctx.systemPrompt`、`ctx.sessionQuery`、`a calling Agent for caller identity` | `tool/call`、`tool/result` | - | 这 7 个只读工具隐藏提供方游标，并把精确观察绑定到不透明 session id。该包需要选择启用；cwd 仅是可选的 session-search 过滤器。 |
 | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`、`ctx.subagents`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`child session events through the chosen provider` | `subagent`、`subagent_fork` | 注册的工具名称取决于加载时 `toolName` 配置（默认为 `subagent`）；上述 schema 对应默认值。随产品发布的组合会为每个 subagent 后端加载一次该包，因此模型还会看到绑定到 fork 后端的 `subagent_fork`。每个实例的描述、`run_in_background` 参数与 system prompt 策略取决于它自己的 `backgroundMode` 和 `enableRunInBackground`，因此两个随附 schema 并不相同：`subagent` 为 `continuable`，省略参数时默认后台运行，并由 runtime 自动投递结束结果；`subagent_fork` 保持 `one-shot`，省略参数时默认前台运行。详见 `packages/bundle/base/cordis.patch.yml` 和 `examples/acp-agent/cordis.yml`。 |
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`、`list_agents`、`send_message` | `ctx.tools`、`ctx.subagents`、`ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`、`tool/result`、`child session events through ctx.subagents` | - | 这些是控制可继续后台 subagent 的全局命名工具：绑定提供方的 `tool-subagent` 实例注册不同的委派工具；本包注册一次 `send_message` 和 `interrupt_agent`，另由 `list_agents` 通过单独加载的 `/list-agents` 插件提供，其目录行使用 sessionProjections 和实时 Agent 注册表。 |
 | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`、`ctx.systemPrompt`、`a live continuable in-process child Agent` | `tool/call`、`tool/result`、`a user-role message in the direct parent session` | - | 按可继续的进程内子级注册，而非全局注册，因此该 schema 仅在这种子级内部可见，并且不受其全局 `toolFilter` 影响。同一份贡献还会安装子级作用域的 `tool:report` 系统提示词 section，本目录不渲染该 section。面向父级的 `send_message` 工具单独安装。 |
@@ -1340,6 +1341,59 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 来源：[`packages/skill/tool-skill/src/index.ts`](../packages/skill/tool-skill/src/index.ts)
 
+<a id="deepseek-aidsh-tool-session-delivery"></a>
+
+## `@deepseek-ai/dsh-tool-session-delivery`
+
+### `session_send_message`
+
+把消息作为下一个 FIFO turn 发送到另一个普通会话。inbox 接受后立即返回，不等待回复或 turn 完成。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target ordinary session id."
+    },
+    "message": {
+      "type": "string",
+      "description": "Message to deliver."
+    }
+  },
+  "required": [
+    "session_id",
+    "message"
+  ]
+}
+```
+
+来源：[`packages/session-query/tool-session-delivery/src/index.ts`](../packages/session-query/tool-session-delivery/src/index.ts)
+
+### `session_unload`
+
+卸载另一个空闲普通会话。为避免中断工作，运行中、有排队消息、由 subagent 所有或由运行时所有的会话会被拒绝。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target ordinary session id."
+    }
+  },
+  "required": [
+    "session_id"
+  ]
+}
+```
+
+来源：[`packages/session-query/tool-session-delivery/src/index.ts`](../packages/session-query/tool-session-delivery/src/index.ts)
+
+该工具只确认 inbox 接受，绝不等待目标完成或回复。
+
 <a id="deepseek-aidsh-tool-session-query"></a>
 
 ## `@deepseek-ai/dsh-tool-session-query`
@@ -1462,9 +1516,31 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
 
+### `session_message_tail`
+
+读取已授权会话中最新的最终模型可见消息，不等待该会话。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target session id. Omit for the current session."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Maximum finalized messages to return. Defaults to 10."
+    }
+  }
+}
+```
+
+来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
 ### `session_search`
 
-搜索调用方工作区中的先前会话，并从每个会话返回匹配度最高的事件。
+搜索先前会话，并从每个会话返回匹配度最高的事件；可按 cwd 过滤。
 
 ```json
 {
@@ -1473,6 +1549,17 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
     "query": {
       "type": "string",
       "description": "Literal full-text query over prior session history."
+    },
+    "cwd": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Optional exact cwd filter. Omit to search all sessions; use null for sessions without a cwd."
     },
     "session_ids": {
       "type": "array",
@@ -1555,6 +1642,24 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
 
+### `session_status`
+
+读取已授权会话是否 live 及其 Agent 是否运行，且不恢复 cold 会话。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target session id. Omit for the current session."
+    }
+  }
+}
+```
+
+来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
 ### `session_trace`
 
 读取围绕一个会话的已授权会话谱系，包括完整可见的祖先和后代关系。
@@ -1573,7 +1678,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
 
-这 5 个只读工具会隐藏提供方游标，并根据不可变的调用 agent 会话为每个结果授权。该包需要选择启用；需要强制截止时间或限制行内输出的组合还会挂载通用超时或 spill 策略。
+这 7 个只读工具隐藏提供方游标，并把精确观察绑定到不透明 session id。该包需要选择启用；cwd 仅是可选的 session-search 过滤器。
 
 <a id="deepseek-aidsh-tool-subagent"></a>
 

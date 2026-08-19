@@ -1016,6 +1016,7 @@ describe('agent scope lifecycle', () => {
     const first = ctx.agents.close(sessionId)
     const second = ctx.agents.close(sessionId)
     await cleanupStarted.promise
+    await expect(ctx.agents.closeIfIdle(sessionId)).resolves.toBe('busy')
     expect(() => {
       handle.agent.followup(createUserMessage({ content: text('late'), source: { kind: 'user' } }))
     })
@@ -1026,6 +1027,33 @@ describe('agent scope lifecycle', () => {
     await expect(Promise.all([first, second])).resolves.toEqual([true, true])
     expect(flushes).toEqual([{ agentLive: true, sessionLive: true }])
     expect(ctx.agents.get(sessionId)).toBeUndefined()
+    expect(ctx.sessions.get(sessionId)).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('atomically closes only true-idle agents with empty inboxes', async () => {
+    const ctx = await harness()
+    const sessionId = SessionId('registry-close-if-idle')
+    const handle = await ctx.agents.create({
+      sessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const maintenanceGate = Promise.withResolvers<undefined>()
+    const maintenance = handle.agent.runMaintenance(async () => maintenanceGate.promise)
+
+    await expect(ctx.agents.closeIfIdle(sessionId)).resolves.toBe('busy')
+    maintenanceGate.resolve(undefined)
+    await maintenance
+    handle.agent.inject(createUserMessage({ content: text('pending'), source: { kind: 'user' } }))
+    await expect(ctx.agents.closeIfIdle(sessionId)).resolves.toBe('busy')
+    handle.agent.inbox.clear()
+
+    const closing = ctx.agents.closeIfIdle(sessionId)
+    expect(() => {
+      handle.agent.followup(createUserMessage({ content: text('late'), source: { kind: 'user' } }))
+    }).toThrow('agent "registry-close-if-idle" is closing')
+    await expect(closing).resolves.toBe('closed')
+    await expect(ctx.agents.closeIfIdle(sessionId)).resolves.toBe('not-found')
     expect(ctx.sessions.get(sessionId)).toBeUndefined()
     await ctx.fiber.dispose()
   })

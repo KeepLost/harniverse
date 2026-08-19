@@ -116,6 +116,13 @@ export class ReactLoopAgent implements Agent {
     this.accepting = false
   }
 
+  /** Reserve lifecycle teardown only from true idle with no pending input. */
+  beginDisposeIfIdle(): boolean {
+    if (!this.accepting || this.phase.kind !== 'idle' || this.inbox.hasPending) return false
+    this.accepting = false
+    return true
+  }
+
   private assertAccepting(): void {
     if (!this.accepting) throw new Error(`agent "${this.id}" is closing`)
   }

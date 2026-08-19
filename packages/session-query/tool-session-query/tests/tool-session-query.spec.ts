@@ -234,12 +234,14 @@ function errorCode(result: ToolExecutionResult): string | undefined {
 }
 
 describe('registration and schemas', () => {
-  it('registers the five cursor-free tools, prompt, timeouts, and pure generic presenters, then disposes them', async () => {
+  it('registers the seven cursor-free tools, prompt, timeouts, and pure generic presenters, then disposes them', async () => {
     const mounted = await mount({ maxSearchResults: 7, searchTimeoutMs: 1234 })
     const names = mounted.ctx.tools.schemas().map(schema => schema.name)
     expect(names).toEqual([
       'session_search',
       'session_event_search',
+      'session_status',
+      'session_message_tail',
       'session_trace',
       'session_event_trace',
       'session_event_read',
@@ -247,11 +249,13 @@ describe('registration and schemas', () => {
     const sessionSchema = mounted.ctx.tools.schemas().find(schema => schema.name === 'session_search')
     expect(sessionSchema?.parameters).not.toHaveProperty('properties.cursor')
     expect(sessionSchema?.parameters).not.toHaveProperty('properties.limit')
-    expect(sessionSchema?.parameters).not.toHaveProperty('properties.cwd')
+    expect(sessionSchema?.parameters).toHaveProperty('properties.cwd')
     expect(mounted.ctx.tools.get('session_search')?.timeoutMs).toBe(1234)
     expect(mounted.ctx.tools.get('session_trace')?.timeoutMs).toBeUndefined()
     const parallelArgs: Record<string, unknown> = {
       session_trace: {},
+      session_status: {},
+      session_message_tail: {},
       session_event_trace: { seq: 0 },
       session_event_read: { seq: 0 },
     }
@@ -323,13 +327,32 @@ describe('registration and schemas', () => {
 
   it('expresses the complete Node timer range in the Loader config schema', () => {
     expect(new ToolSessionQuery.Config({ searchTimeoutMs: MAX_TIMER_DELAY_MS }))
-      .toEqual({ maxSearchResults: 100, searchTimeoutMs: MAX_TIMER_DELAY_MS })
+      .toEqual({ maxSearchResults: 100, searchTimeoutMs: MAX_TIMER_DELAY_MS, messageTailLimit: 10 })
     expect(() => new ToolSessionQuery.Config({ searchTimeoutMs: 1.5 })).toThrow()
     expect(() => new ToolSessionQuery.Config({ searchTimeoutMs: MAX_TIMER_DELAY_MS + 1 })).toThrow()
   })
 })
 
 describe('input validation and translation', () => {
+  it('reads runtime status and a bounded finalized message tail without waiting', async () => {
+    const mounted = await mount()
+    mounted.caller.append(
+      'user/message',
+      createUserMessage({ content: [{ type: 'text', text: 'tail message' }], source: { kind: 'user' } }),
+      { surfaceOp: 'append' },
+    )
+
+    const status = text(await mounted.call('session_status', {}))
+    expect(status).toContain('Availability: live')
+    expect(status).toContain('Loaded: yes')
+    expect(status).toContain('Running: no')
+    const tail = text(await mounted.call('session_message_tail', { limit: 1 }))
+    expect(tail).toContain('tail message')
+    expect(tail).toContain('Latest messages (1)')
+    expect(errorCode(await mounted.call('session_message_tail', { limit: 51 })))
+      .toBe('SESSION_QUERY_INVALID_LIMIT')
+  })
+
   it.each([
     [{ query: '   ' }, 'SESSION_QUERY_INVALID_QUERY'],
     [{ query: 'bad\0query' }, 'SESSION_QUERY_INVALID_QUERY'],
@@ -368,6 +391,7 @@ describe('input validation and translation', () => {
     createSession(mounted.ctx, 'parent', '/work')
     await mounted.call('session_search', {
       query: '  alpha   beta ',
+      cwd: '/work',
       session_ids: ['a', 'b'],
       created_at_from: '2026-07-24T00:00:00+08:00',
       created_at_to: '2026-07-24T01:00:00+08:00',
@@ -392,8 +416,8 @@ describe('input validation and translation', () => {
           to: Date.parse('2026-07-24T01:00:00+08:00'),
         },
         { kind: 'availability', values: ['live'] },
-        { kind: 'parent', values: ['parent', null] },
         { kind: 'cwd', values: ['/work'] },
+        { kind: 'parent', values: ['parent', null] },
       ],
       eventFilters: [
         { kind: 'seq', from: 2, to: 9 },
@@ -572,8 +596,8 @@ describe('input validation and translation', () => {
   })
 })
 
-describe('workspace authority and lineage redaction', () => {
-  it('fails closed without an agent and for direct cross-workspace targets', async () => {
+describe('target identity and lineage visibility', () => {
+  it('fails closed without an agent and permits direct cross-cwd targets', async () => {
     const mounted = await mount()
     createSession(mounted.ctx, 'outside', '/outside')
     const missing = await mounted.ctx.tools.execute({
@@ -583,24 +607,22 @@ describe('workspace authority and lineage redaction', () => {
       signal: new AbortController().signal,
     })
     expect(errorCode(missing)).toBe('SESSION_QUERY_TOOL_MISSING_AGENT')
-    const denied = await mounted.call('session_event_read', { session_id: 'outside', seq: 0 })
-    expect(errorCode(denied)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
-    expect(text(denied)).not.toContain('session "outside"')
+    const allowed = await mounted.call('session_trace', { session_id: 'outside' })
+    expect(allowed.isError).toBe(false)
+    expect(text(allowed)).toContain('Session outside')
   })
 
-  it('allows only self for a null-cwd caller and denies cross-session search', async () => {
+  it('allows search and exact cross-session reads for a null-cwd caller', async () => {
     const mounted = await mount({}, null)
     const own = await mounted.call('session_trace', {})
     expect(own.isError).toBe(false)
     expect(text(own)).toContain('Session caller')
-    expect(errorCode(await mounted.call('session_search', { query: 'q' })))
-      .toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
+    expect((await mounted.call('session_search', { query: 'q' })).isError).toBe(false)
     createSession(mounted.ctx, 'other', undefined)
-    expect(errorCode(await mounted.call('session_trace', { session_id: 'other' })))
-      .toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
+    expect((await mounted.call('session_trace', { session_id: 'other' })).isError).toBe(false)
   })
 
-  it('makes hidden and nonexistent parent guesses indistinguishable without calling search', async () => {
+  it('accepts cross-cwd parent filters while missing parents remain empty', async () => {
     const mounted = await mount()
     const hiddenParent = createSession(mounted.ctx, 'guessed-hidden-parent-secret', '/outside')
     const visibleChild = createSession(
@@ -623,10 +645,9 @@ describe('workspace authority and lineage redaction', () => {
       parent_session_ids: ['guessed-missing-parent'],
     })
 
-    expect(hidden).toEqual(missing)
-    expect(text(hidden)).toBe('No prior session matches found.')
-    expect(JSON.stringify(hidden)).not.toContain(visibleChild.id)
-    expect(FakeQuery.sessionRequests).toEqual([])
+    expect(text(hidden)).toContain(visibleChild.id)
+    expect(text(missing)).toBe('No prior session matches found.')
+    expect(FakeQuery.sessionRequests).toHaveLength(1)
   })
 
   it('deduplicates parent guesses and sends only authorized parents plus the root marker', async () => {
@@ -653,13 +674,13 @@ describe('workspace authority and lineage redaction', () => {
     const parentValues = FakeQuery.sessionRequests.map(request =>
       request.sessionFilters?.find(filter => filter.kind === 'parent'))
     expect(parentValues).toEqual([
-      { kind: 'parent', values: [visible.id, null] },
-      { kind: 'parent', values: [null] },
+      { kind: 'parent', values: [visible.id, hidden.id, null] },
+      { kind: 'parent', values: [hidden.id, null] },
       { kind: 'parent', values: [null] },
     ])
   })
 
-  it('rejects unrequested or unauthorized records returned during parent preauthorization', async () => {
+  it('rejects unrequested records returned during parent preauthorization', async () => {
     const mounted = await mount()
     const requested = SessionId('requested-parent')
     vi.spyOn(mounted.ctx.sessionQuery, 'filterSessions').mockResolvedValueOnce([
@@ -673,7 +694,7 @@ describe('workspace authority and lineage redaction', () => {
     })
 
     expect(text(result)).toBe('No prior session matches found.')
-    expect(FakeQuery.sessionRequests).toEqual([])
+    expect(FakeQuery.sessionRequests).toHaveLength(1)
   })
 
   it('validates every other search filter before parent preauthorization', async () => {
@@ -785,7 +806,7 @@ describe('workspace authority and lineage redaction', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
-  it('redacts an unauthorized ancestor and prunes unauthorized descendant subtrees without hidden ids', async () => {
+  it('renders resolved lineage across cwd boundaries', async () => {
     const mounted = await mount()
     const hiddenParent = createSession(mounted.ctx, 'hidden-parent-secret', '/outside')
     const target = createSession(mounted.ctx, 'target', '/work', 20, hiddenParent.id)
@@ -799,11 +820,9 @@ describe('workspace authority and lineage redaction', () => {
     const output = text(result)
     expect(output).toContain('Target title')
     expect(output).toContain('visible-child')
-    expect(output).toContain('[outside workspace boundary]')
-    expect(output).toContain('[outside workspace subtree]')
-    expect(output).not.toContain('hidden-parent-secret')
-    expect(output).not.toContain('hidden-child-secret')
-    expect(output).not.toContain('hidden-grandchild-secret')
+    expect(output).toContain('hidden-parent-secret')
+    expect(output).toContain('hidden-child-secret')
+    expect(output).toContain('hidden-grandchild-secret')
   })
 
   it('sanitizes a real outside-workspace ancestor cycle before the lineage error reaches the model', async () => {
@@ -1030,7 +1049,7 @@ describe('workspace authority and lineage redaction', () => {
     expect(JSON.stringify(result)).not.toContain('hidden-race-secret')
   })
 
-  it('renders branching descendants in source preorder with one indented marker per pruned subtree', async () => {
+  it('renders branching descendants across cwd boundaries in source preorder', async () => {
     const mounted = await mount()
     const target = createSession(mounted.ctx, 'branch-target', '/work', 20)
     const [targetRecord] = await mounted.ctx.sessionQuery.filterSessions([{
@@ -1087,10 +1106,11 @@ describe('workspace authority and lineage redaction', () => {
       'Descendants:',
       '- branch-first — untitled | 1970-01-01T00:00:00.030Z | live',
       '  - branch-nested — untitled | 1970-01-01T00:00:00.040Z | live',
-      '  - [outside workspace subtree]',
+      '  - branch-hidden-secret — untitled | 1970-01-01T00:00:00.050Z | live',
+      '    - branch-hidden-descendant-secret — untitled | 1970-01-01T00:00:00.060Z | live',
       '- branch-last — untitled | 1970-01-01T00:00:00.070Z | live',
     ].join('\n'))
-    expect(titleReads).toEqual([target.id, firstId, nestedId, lastId])
+    expect(titleReads).toEqual([target.id, firstId, nestedId, hiddenId, hiddenDescendantId, lastId])
   })
 
   it('renders authorized ancestors and an unresolved lineage boundary without leaking it', async () => {
@@ -1103,7 +1123,7 @@ describe('workspace authority and lineage redaction', () => {
     const missingParent = SessionId('missing-parent-secret')
     const incomplete = createSession(mounted.ctx, 'incomplete-target', '/work', 7, missingParent)
     const redacted = text(await mounted.call('session_trace', { session_id: incomplete.id }))
-    expect(redacted).toContain('[outside workspace boundary]')
+    expect(redacted).toContain('[unresolved parent boundary]')
     expect(redacted).not.toContain(missingParent)
   })
 
@@ -1131,7 +1151,7 @@ describe('workspace authority and lineage redaction', () => {
     expect(output).toContain('persisted')
   })
 
-  it('rejects every payload observation whose target moved after pre-authorization', async () => {
+  it('rejects every payload observation whose target id changed after pre-authorization', async () => {
     const mounted = await mount()
     const target = createSession(mounted.ctx, 'moving-target', '/work')
     target.append(
@@ -1141,7 +1161,7 @@ describe('workspace authority and lineage redaction', () => {
       }),
       { surfaceOp: 'append' },
     )
-    const movedHeader = header(target.id, '/outside')
+    const movedHeader = header('wrong-target-id', '/outside')
 
     FakeQuery.eventSearch = () => Promise.resolve({
       session: movedHeader,
@@ -1200,7 +1220,7 @@ describe('workspace authority and lineage redaction', () => {
     expect(text(titled)).not.toContain('secret moved title')
   })
 
-  it('rejects a default self read when its same-id observation moved after caller capture', async () => {
+  it('permits a default self read when its same-id cwd changed after caller capture', async () => {
     const mounted = await mount()
     const appendLegacy = mounted.caller.append.bind(mounted.caller) as unknown as (
       type: string,
@@ -1222,14 +1242,14 @@ describe('workspace authority and lineage redaction', () => {
       session: header(mounted.caller.id, '/outside'),
     })
 
-    const denied = await mounted.call('session_event_read', { seq: secret.seq })
-    expect(errorCode(denied)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
-    expect(text(denied)).not.toContain('same-id moved secret')
+    const allowed = await mounted.call('session_event_read', { seq: secret.seq })
+    expect(allowed.isError).toBe(false)
+    expect(text(allowed)).toContain('same-id moved secret')
   })
 })
 
 describe('search paging, prior-history bounds, titles, and cancellation', () => {
-  it('drains hidden internal pages to the authorized non-self cap and masks an unauthorized parent id', async () => {
+  it('accepts cross-cwd pages and stops at the non-self cap', async () => {
     const mounted = await mount({ maxSearchResults: 2 })
     const outside = createSession(mounted.ctx, 'outside-parent-secret', '/outside')
     const a = createSession(mounted.ctx, 'a', '/work')
@@ -1268,13 +1288,13 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
     expect(FakeQuery.sessionRequests.every(request => request.limit === undefined)).toBe(true)
     expect(FakeQuery.sessionRequests.map(request => request.cursor)).toEqual([undefined, c1, c2])
     expect(output).toContain('Session a — Alpha')
-    expect(output).toContain('Session b — Beta')
-    expect(output).toContain('Parent: [outside workspace]')
-    expect(output).not.toContain('outside-parent-secret')
+    expect(output).toContain('Session unauthorized')
+    expect(output).not.toContain('Session b — Beta')
+    expect(output).toContain('Parent: outside-parent-secret')
     expect(output).toContain('Result cap reached')
   })
 
-  it('does not report a cap when only rejected hits remain after the authorized limit', async () => {
+  it('reports a cap when a cross-cwd hit remains after the limit', async () => {
     const mounted = await mount({ maxSearchResults: 1 })
     const cursor = SessionSearchCursor('rejected-tail')
     FakeQuery.sessionSearch = request => request.cursor === undefined
@@ -1292,7 +1312,7 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
     const output = text(await mounted.call('session_search', { query: 'needle' }))
     expect(FakeQuery.sessionRequests.map(request => request.cursor)).toEqual([undefined, cursor])
     expect(output).toContain('Session authorized')
-    expect(output).not.toContain('Result cap reached')
+    expect(output).toContain('Result cap reached')
   })
 
   it.each([
@@ -1764,7 +1784,7 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
     const result = await mounted.call('session_search', { query: 'needle' })
 
     expect(errorCode(result)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
-    expect(text(result)).toBe('Error: session target is outside the caller workspace')
+    expect(text(result)).toBe('Error: session target is unavailable')
     expect(JSON.stringify(result)).not.toContain('title observation became unauthorized')
     expect(text(result)).not.toContain('title unavailable')
   })

@@ -364,6 +364,30 @@ type SessionQueryErrorCode =
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxsessiondelivery--sessiondelivery-abstract-seam"></a>
+
+### `ctx.sessionDelivery` — `SessionDelivery` (abstract seam)
+
+Service Definition for ordinary-session message delivery.
+
+```ts cordis-catalog
+/**
+ * Deliver a message as a later FIFO turn and return after inbox acceptance.
+ * @param request - exact live sender, target identity, content, and admission cancellation.
+ * @returns acceptance receipt without target completion or reply.
+ */
+abstract deliver(request: SessionDeliveryRequest): Promise<SessionDeliveryReceipt>
+
+/**
+ * Unload an idle ordinary session without interrupting queued or owned work.
+ * @param request - exact live sender, target identity, and cancellation.
+ * @returns whether a live target was detached.
+ */
+abstract unload(request: SessionUnloadRequest): Promise<SessionUnloadReceipt>
+```
+
+Source: [`packages/session-query/session-delivery/src/index.ts:51`](../../packages/session-query/session-delivery/src/index.ts)
+
 <a id="ctxsessionquery--sessionqueryengine-abstract-seam"></a>
 
 ### `ctx.sessionQuery` — `SessionQueryEngine` (abstract seam)
@@ -395,6 +419,14 @@ abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchE
  * @returns deterministic newest-first cloned session records.
  */
 listSessions(signal?: AbortSignal): Promise<SessionRecord[]>
+
+/**
+ * Observe attachment and runtime activity without resuming a cold session.
+ * @param sessionId - live or persisted session id to observe.
+ * @param signal - optional cancellation for source resolution.
+ * @returns source availability, live Agent activity, and the observed log tail.
+ */
+async readRuntimeStatus( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionRuntimeStatus>
 
 /**
  * Read and replay-validate one complete logical session log without making it live.
@@ -457,10 +489,20 @@ async filterEvents( sessionId: SessionId, filters: readonly SessionEventResultFi
 /**
  * Read one session's complete current model surface from one corpus observation.
  * @param sessionId - live-preferred session id to read.
+ * @param signal - optional cancellation for persisted source resolution.
  * @returns cloned header, current surface, and the last sequence number included in the raw-log capture.
  * @throws when source resolution fails or the session surface is invalid.
  */
-async readSurface(sessionId: SessionId): Promise<SessionSurfaceSnapshot>
+async readSurface(sessionId: SessionId, signal?: AbortSignal): Promise<SessionSurfaceSnapshot>
+
+/**
+ * Read a bounded tail of finalized model-visible messages from one observation.
+ * @param sessionId - live or persisted session id to read.
+ * @param limit - positive maximum number of messages to return.
+ * @param signal - optional cancellation for source resolution.
+ * @returns latest messages in chronological order, with their source sequences.
+ */
+async readMessageTail( sessionId: SessionId, limit: number, signal?: AbortSignal, ): Promise<SessionMessageTail>
 
 /**
  * Trace known ancestry and descendants from one corpus observation.
@@ -491,5 +533,5 @@ async readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise
 
 Types: [SessionId](core.md) · [SessionTitleSnapshot](session-title.md)
 
-Source: [`packages/session-query/session-query/src/index.ts:81`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:83`](../../packages/session-query/session-query/src/index.ts)
 <!-- END GENERATED cordis-surface -->

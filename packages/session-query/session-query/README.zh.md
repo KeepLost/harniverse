@@ -13,6 +13,8 @@
 - `readTitleSnapshots(sessionIds, signal?)` 从一次实时优先的语料库观察中解析唯一 id，将取消信号传递给持久化列表查询和检查，并按顺序返回每个会话的结算结果，使某个缺失或格式错误的标题来源不会导致其他会话的结果被丢弃。每个实时来源直接 fold，每个持久化 worker fold 为脱离存储的 header/标题结果，并在出队下一个 id 前释放完整日志。取消会拒绝整个批次。`readTitleSnapshot(sessionId, signal?)` 是单次观察视图；`readTitle(sessionId, signal?)` 只返回其可选的 folded `session/title`。
 - `listEvents(sessionId)` 加载实时优先的原始日志，将每个事件分类为 `current`、`shadowed` 或 `log-only`；该分类使用共享 `dsh-session` 表层 fold。
 - `readSurface(sessionId)` 返回一个克隆 header、原始日志捕获边界，以及按模型历史顺序排列的完整折叠后当前表层。实时会话优先于持久化；压缩（compaction）只会在其替换追加之前或之后被观察，绝不会出现合成混合。
+- `readRuntimeStatus(sessionId, signal?)` 报告明确的 loaded 状态、来源可用性、精确 live Agent 活动和观察到的最终 seq，且不会恢复 cold 会话。
+- `readMessageTail(sessionId, limit, signal?)` 从一次当前表层观察投影规范最终消息，并返回带来源 seq/time 与截断元数据的有界时间顺序尾部。
 - `readEvent(request, signal?)` 返回一个克隆 header、完整目标事件和有界的原始 seq 窗口。`before` 和 `after` 默认为 0，且不得超过 `readWindowMax`。
 - `traceSession(sessionId, signal?)` 只读取一次语料库，返回从直接父级向外的祖先，以及确定性的递归后代树。`complete: false` 标识第一个缺失父级；与目标相连的循环会以 `SESSION_QUERY_INVALID_LINEAGE` 失败。
 - `traceEvent(request, signal?)` 只加载一次逻辑日志，返回其克隆源 header、直接位置替换和直接引用的源事件链接。`replacementChain` 沿位置替换者跟踪到最终替换；源事件链接仍不传递。
@@ -53,4 +55,4 @@
 ## 已知限制与暂缓事项
 
 - **无调用方授权**：这是上下文范围内的可信基础设施；未来的模型工具或 UI 必须限制调用方可检查的会话。
-- **无注册表或面向模型工具**：尚未提供提取器和搜索提供方注册表、递归遍历所引用的源事件的能力，以及面向模型的工具。[跟踪决策](../../../.agents/notes/implemented/feature/2026-07-13-session-query-tracing.md) 负责关系语义；SQLite 归属和 tokenizer 决策位于[已实现搜索记录](../../../.agents/notes/implemented/feature/2026-07-10-sqlite-session-query-provider.md)。
+- **无提供方无关的运行时队列细节**：状态只暴露 live/persisted/running 和最终 seq；Host 自有的 job、interaction 与队列投影仍在此 seam 之外。

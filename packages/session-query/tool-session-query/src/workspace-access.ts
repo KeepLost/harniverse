@@ -77,31 +77,23 @@ async function authorizeTarget(
   signal: AbortSignal,
 ): Promise<void> {
   if (target === caller.id) return
-  const cwd = caller.header.cwd
-  if (cwd === undefined) throw serviceBoundary.unauthorizedTarget()
   const records = await serviceBoundary.call(ctx, signal, 'target authorization', () =>
     ctx.sessionQuery.filterSessions([
       { kind: 'id', values: [target] },
-      { kind: 'cwd', values: [cwd] },
     ], signal))
   if (records.length !== 1) throw serviceBoundary.unauthorizedTarget()
 }
 
-function recordAuthorized(record: SessionRecord, caller: Caller): boolean {
-  return headerAuthorized(record.header, caller)
-}
-
-function headerAuthorized(header: SessionHeader, caller: Caller): boolean {
-  if (header.id === caller.id) return header.cwd === caller.header.cwd
-  return caller.header.cwd !== undefined && header.cwd === caller.header.cwd
+function recordAuthorized(_record: SessionRecord): boolean {
+  return true
 }
 
 function assertObservedTargetAuthorized(
-  caller: Caller,
+  _caller: Caller,
   target: SessionIdValue,
   observed: SessionHeader,
 ): void {
-  if (observed.id !== target || !headerAuthorized(observed, caller)) {
+  if (observed.id !== target) {
     throw serviceBoundary.unauthorizedTarget()
   }
 }
@@ -115,17 +107,15 @@ async function authorizeSessionIds(
   const unique = [...new Set(ids)]
   const authorized = new Set<SessionIdValue>()
   if (unique.includes(caller.id)) authorized.add(caller.id)
-  const cwd = caller.header.cwd
   const other = unique.filter(id => id !== caller.id)
-  if (cwd === undefined || other.length === 0) return authorized
+  if (other.length === 0) return authorized
   const records = await serviceBoundary.call(ctx, signal, 'session-id authorization', () =>
     ctx.sessionQuery.filterSessions([
       { kind: 'id', values: other },
-      { kind: 'cwd', values: [cwd] },
     ], signal))
   const requested = new Set(other)
   for (const record of records) {
-    if (requested.has(record.header.id) && recordAuthorized(record, caller)) {
+    if (requested.has(record.header.id) && recordAuthorized(record)) {
       authorized.add(record.header.id)
     }
   }
@@ -172,7 +162,7 @@ function unavailableTitle(
 
 function authorizeDescendants(
   nodes: readonly SessionLineageNode[],
-  caller: Caller,
+  _caller: Caller,
 ): Array<AuthorizedDescendant | null> {
   const result: Array<AuthorizedDescendant | null> = []
   let pending: DescendantProjectionFrame | undefined
@@ -182,7 +172,7 @@ function authorizeDescendants(
   while (pending !== undefined) {
     const current = pending
     pending = current.next
-    if (!recordAuthorized(current.node.session, caller)) {
+    if (!recordAuthorized(current.node.session)) {
       current.target.push(null)
       continue
     }

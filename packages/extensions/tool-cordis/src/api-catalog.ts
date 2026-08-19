@@ -267,15 +267,21 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: '`false` when no live Agent has that identity, otherwise `true` after its Agent and Session have detached.',
       },
       {
+        signature: 'async closeIfIdle(id: SessionId): Promise<AgentCloseIfIdleResult>',
+        description: 'Atomically reserve and close one factory-owned Agent only when its concrete loop is idle and its inbox is empty. Maintenance counts as busy. The factory stops admission before this method first yields.',
+        parameters: [{ name: 'id', description: 'live Agent identity to close.' }],
+        returns: 'whether the target closed, was busy, or was not live.',
+      },
+      {
         signature: 'register(agent: Agent): () => void',
         description: 'Register a live agent. Throws if an agent with the same id is already registered. Emits `agent/created` on registration and `agent/disposed` when the calling fiber is disposed — both with the agent\'s scope carrier (`scopeTarget(agent, agent)`): the subject is the agent in hand, so the emits are scope-filtered regardless of which context invoked `register` (calling through `agent.ctx` scopes EFFECTS; dispatch scoping always requires passing the carrier). Returns the disposer.',
         parameters: [{ name: 'agent', description: 'the already-constructed agent to record in the store.' }],
         returns: 'the EXACT Cordis effect disposer (single-shot; a repeat call returns undefined without awaiting an in-flight teardown). Exact identity is load-bearing: a composite (generator) effect that owns a teardown ORDER — the agent factory\'s lifecycle chain — must yield THIS function so Cordis nests the unregistration at that yield position; yielding a wrapper would leave it disposing as a concurrent sibling on owner unload, unregistering the agent (and emitting `agent/disposed`) while its final turn is still draining.',
       },
       {
-        signature: 'enter(agent: Agent, owner: Agent | undefined, close?: () => Promise<void>): () => void',
+        signature: 'enter( agent: Agent, owner: Agent | undefined, close?: () => Promise<void>, closeIfIdle?: () => Promise<boolean>, ): () => void',
         description: 'Insert an already-constructed agent without announcing it. This is the advanced ordered-lifecycle primitive used by the async agent factory: it first completes setup while the agent is unpublished, then assigns the returned detach closure into its pre-installed composite teardown before calling announce. Ordinary callers use register.',
-        parameters: [{ name: 'agent', description: 'the prepared, unpublished agent.' }, { name: 'owner', description: 'live agent whose scoped context created this agent, or undefined for a top-level runtime root. This is runtime ownership, not the resumed session\'s durable parent lineage.' }, { name: 'close', description: 'factory-owned quiescent teardown capability, when this registry must support explicit lifecycle closure.' }],
+        parameters: [{ name: 'agent', description: 'the prepared, unpublished agent.' }, { name: 'owner', description: 'live agent whose scoped context created this agent, or undefined for a top-level runtime root. This is runtime ownership, not the resumed session\'s durable parent lineage.' }, { name: 'close', description: 'factory-owned quiescent teardown capability, when this registry must support explicit lifecycle closure.' }, { name: 'closeIfIdle', description: 'factory-owned conditional teardown that atomically reserves true idle and an empty inbox before yielding.' }],
         returns: 'an idempotent closure that removes this exact entry and emits `agent/disposed` with listener failures contained. When called from a synchronous `agent/created` listener, removal and disposal wait until that creation dispatch unwinds.',
       },
       {
@@ -1170,6 +1176,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'sessionDelivery',
+    summary: 'Service Definition for ordinary-session message delivery.',
+    description: 'Service Definition for ordinary-session message delivery.',
+    methods: [
+      {
+        signature: 'abstract deliver(request: SessionDeliveryRequest): Promise<SessionDeliveryReceipt>',
+        description: 'Deliver a message as a later FIFO turn and return after inbox acceptance.',
+        parameters: [{ name: 'request', description: 'exact live sender, target identity, content, and admission cancellation.' }],
+        returns: 'acceptance receipt without target completion or reply.',
+      },
+      {
+        signature: 'abstract unload(request: SessionUnloadRequest): Promise<SessionUnloadReceipt>',
+        description: 'Unload an idle ordinary session without interrupting queued or owned work.',
+        parameters: [{ name: 'request', description: 'exact live sender, target identity, and cancellation.' }],
+        returns: 'whether a live target was detached.',
+      },
+    ],
+  },
+  {
     key: 'sessionPersistence',
     summary: 'Durable append-only session storage.',
     description: 'Durable append-only session storage. Implementations preserve contiguous, losslessly JSON-serializable events; append resolves only after durability, and load balances a complete interrupted tail without rewriting committed events.',
@@ -1349,6 +1374,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'deterministic newest-first cloned session records.',
       },
       {
+        signature: 'async readRuntimeStatus( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionRuntimeStatus>',
+        description: 'Observe attachment and runtime activity without resuming a cold session.',
+        parameters: [{ name: 'sessionId', description: 'live or persisted session id to observe.' }, { name: 'signal', description: 'optional cancellation for source resolution.' }],
+        returns: 'source availability, live Agent activity, and the observed log tail.',
+      },
+      {
         signature: 'async readSession(sessionId: SessionId): Promise<SessionLogSnapshot>',
         description: 'Read and replay-validate one complete logical session log without making it live.',
         parameters: [{ name: 'sessionId', description: 'live or persisted session id to read.' }],
@@ -1392,11 +1423,17 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'matching semantic documents in ascending seq order.',
       },
       {
-        signature: 'async readSurface(sessionId: SessionId): Promise<SessionSurfaceSnapshot>',
+        signature: 'async readSurface(sessionId: SessionId, signal?: AbortSignal): Promise<SessionSurfaceSnapshot>',
         description: 'Read one session\'s complete current model surface from one corpus observation.',
-        parameters: [{ name: 'sessionId', description: 'live-preferred session id to read.' }],
+        parameters: [{ name: 'sessionId', description: 'live-preferred session id to read.' }, { name: 'signal', description: 'optional cancellation for persisted source resolution.' }],
         returns: 'cloned header, current surface, and the last sequence number included in the raw-log capture.',
         throws: ['when source resolution fails or the session surface is invalid.'],
+      },
+      {
+        signature: 'async readMessageTail( sessionId: SessionId, limit: number, signal?: AbortSignal, ): Promise<SessionMessageTail>',
+        description: 'Read a bounded tail of finalized model-visible messages from one observation.',
+        parameters: [{ name: 'sessionId', description: 'live or persisted session id to read.' }, { name: 'limit', description: 'positive maximum number of messages to return.' }, { name: 'signal', description: 'optional cancellation for source resolution.' }],
+        returns: 'latest messages in chronological order, with their source sequences.',
       },
       {
         signature: 'async traceSession(sessionId: SessionId, signal?: AbortSignal): Promise<SessionLineageTrace>',
@@ -2865,6 +2902,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type AgentCancelCause = {\n    readonly kind: \'user\';\n} | {\n    readonly kind: \'parent\';\n} | {\n    readonly kind: \'hook\';\n    readonly reason: string;\n} | {\n    readonly kind: \'disposed\';\n};',
   },
   {
+    name: 'AgentCloseIfIdleResult',
+    declaration: 'export type AgentCloseIfIdleResult = \'closed\' | \'busy\' | \'not-found\';',
+  },
+  {
     name: 'AgentFactory',
     declaration: 'export interface AgentFactory {\n    createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>;\n    resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>;\n}',
   },
@@ -4177,6 +4218,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionClosedEvent {\n    readonly sessionId: SessionId;\n    readonly parentSessionId?: SessionId;\n}',
   },
   {
+    name: 'SessionDeliveryReceipt',
+    declaration: 'export interface SessionDeliveryReceipt {\n    accepted: true;\n    messageId: MessageId;\n}',
+  },
+  {
+    name: 'SessionDeliveryRequest',
+    declaration: 'export interface SessionDeliveryRequest {\n    sender: Agent;\n    targetSessionId: SessionId;\n    content: ContentBlock[];\n    signal: AbortSignal;\n}',
+  },
+  {
     name: 'SessionDetachedData',
     declaration: 'export type SessionDetachedData = Record<string, never>;',
   },
@@ -4277,6 +4326,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionLogSnapshot {\n    session: SessionHeader;\n    events: SessionEvent[];\n}',
   },
   {
+    name: 'SessionMessageTail',
+    declaration: 'export interface SessionMessageTail {\n    session: SessionHeader;\n    capturedThroughSeq: number | null;\n    messages: SessionMessageTailItem[];\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'SessionMessageTailItem',
+    declaration: 'export interface SessionMessageTailItem {\n    seq: number;\n    time: number;\n    message: Message;\n}',
+  },
+  {
     name: 'SessionPersistenceRevision',
     declaration: 'export type SessionPersistenceRevision = Branded<\'SessionPersistenceRevision\'>;',
   },
@@ -4319,6 +4376,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionResultRange',
     declaration: 'export interface SessionResultRange {\n    from?: number;\n    to?: number;\n}',
+  },
+  {
+    name: 'SessionRuntimeStatus',
+    declaration: 'export interface SessionRuntimeStatus extends SessionRecord {\n    loaded: boolean;\n    running: boolean;\n    lastSeq: number | null;\n}',
   },
   {
     name: 'SessionSearchCursor',
@@ -4411,6 +4472,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionTurnSettledData',
     declaration: 'export interface SessionTurnSettledData {\n    turn: number;\n    seq: number;\n    reason: NotificationTurnReason;\n}',
+  },
+  {
+    name: 'SessionUnloadReceipt',
+    declaration: 'export interface SessionUnloadReceipt {\n    unloaded: boolean;\n}',
+  },
+  {
+    name: 'SessionUnloadRequest',
+    declaration: 'export interface SessionUnloadRequest {\n    sender: Agent;\n    targetSessionId: SessionId;\n    signal: AbortSignal;\n}',
   },
   {
     name: 'SettingsApplies',

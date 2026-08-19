@@ -10,6 +10,8 @@ import {
   type SessionEventTraceObservation,
   type SessionEventWindow,
   type SessionLineageTrace,
+  type SessionMessageTail,
+  type SessionRuntimeStatus,
   type SessionRecord,
   type SessionSearchHit,
 } from '@deepseek-ai/dsh-session-query'
@@ -57,7 +59,7 @@ function formatSessionSearch(
       ? 'root'
       : authorizedParents.has(hit.header.parentSession)
         ? hit.header.parentSession
-        : '[outside workspace]'
+        : '[unresolved parent]'
     const availability = [
       hit.live ? 'live' : undefined,
       hit.persisted ? 'persisted' : undefined,
@@ -123,7 +125,7 @@ function formatSessionTrace(
   for (const record of ancestors) {
     lines.push(`- ${record.header.id} — ${workspaceAccess.titleText(titles.get(record.header.id))} | ${formatTime(record.header.createdAt)} | ${availabilityText(record)}`)
   }
-  if (ancestorBoundary) lines.push('- [outside workspace boundary]')
+  if (ancestorBoundary) lines.push('- [unresolved parent boundary]')
   lines.push('', 'Descendants:')
   if (descendants.length === 0) lines.push('- none')
   else renderDescendants(lines, descendants, titles)
@@ -138,7 +140,7 @@ function renderDescendants(
   for (const { node, depth } of workspaceAccess.visitDescendants(nodes)) {
     const indent = '  '.repeat(depth)
     if (node === null) {
-      lines.push(`${indent}- [outside workspace subtree]`)
+      lines.push(`${indent}- [unavailable subtree]`)
       continue
     }
     const id = node.record.header.id
@@ -184,6 +186,31 @@ function formatEventRead(
     lines.push('', 'After:')
     for (const event of after) lines.push(formatNeighbor(event))
   }
+  return lines.join('\n')
+}
+
+function formatSessionStatus(status: SessionRuntimeStatus): string {
+  const availability = availabilityText(status)
+  return [
+    `Session ${status.header.id}`,
+    `Availability: ${availability}`,
+    `Loaded: ${status.loaded ? 'yes' : 'no'}`,
+    `Running: ${status.running ? 'yes' : 'no'}`,
+    `Last observed seq: ${status.lastSeq ?? 'none'}`,
+  ].join('\n')
+}
+
+function formatMessageTail(tail: SessionMessageTail): string {
+  const lines = [
+    `Session ${tail.session.id}`,
+    `Observed through seq: ${tail.capturedThroughSeq ?? 'none'}`,
+    `Latest messages (${tail.messages.length}):`,
+  ]
+  for (const [index, item] of tail.messages.entries()) {
+    lines.push('', `${index + 1}. seq ${item.seq} | ${formatTime(item.time)}`, '```json', JSON.stringify(item.message, null, 2), '```')
+  }
+  if (tail.truncated) lines.push('', 'Older messages were omitted by the requested limit.')
+  if (tail.messages.length === 0) lines.push('', 'No finalized messages found.')
   return lines.join('\n')
 }
 
@@ -248,6 +275,8 @@ export const presentation = {
   formatSessionTrace,
   formatEventTrace,
   formatEventRead,
+  formatSessionStatus,
+  formatMessageTail,
   presentSessionSearchCall,
   presentEventSearchCall,
   presentSessionTraceCall,

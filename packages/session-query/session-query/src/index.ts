@@ -5,7 +5,7 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
-import { Session, snapshotSessionEvent, type SessionId } from '@deepseek-ai/dsh-session'
+import { deriveEventMessage, Session, snapshotSessionEvent, type SessionId } from '@deepseek-ai/dsh-session'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type { SessionTitleSnapshot } from '@deepseek-ai/dsh-session-title'
 import type {
@@ -20,6 +20,8 @@ import type {
   SessionEventWindow,
   SessionLineageTrace,
   SessionLogSnapshot,
+  SessionMessageTail,
+  SessionRuntimeStatus,
   SessionRecord,
   SessionResultFilter,
   SessionSearchExecContext,
@@ -133,6 +135,37 @@ export abstract class SessionQueryEngine extends Service {
    */
   listSessions(signal?: AbortSignal): Promise<SessionRecord[]> {
     return this._corpus.listSessions(signal)
+  }
+
+  /**
+   * Observe attachment and runtime activity without resuming a cold session.
+   * @param sessionId - live or persisted session id to observe.
+   * @param signal - optional cancellation for source resolution.
+   * @returns source availability, live Agent activity, and the observed log tail.
+   */
+  async readRuntimeStatus(
+    sessionId: SessionId,
+    signal?: AbortSignal,
+  ): Promise<SessionRuntimeStatus> {
+    const observed = await this._corpus.load(sessionId, signal)
+    const records = await this._corpus.listSessions(signal)
+    const record = records.find(candidate => candidate.header.id === sessionId)
+    if (record === undefined) {
+      throw new SessionQueryError(`session "${sessionId}" was not found`, 'SESSION_QUERY_SESSION_NOT_FOUND')
+    }
+    signal?.throwIfAborted()
+    const session = this.ctx.sessions.get(sessionId)
+    const agents = this.ctx.get('agents') as {
+      get(id: SessionId): { session: Session; status: 'idle' | 'running' } | undefined
+    } | undefined
+    const agent = agents?.get(sessionId)
+    return {
+      ...record,
+      header: structuredClone(observed.header),
+      loaded: session !== undefined,
+      running: session !== undefined && agent?.session === session && agent.status === 'running',
+      lastSeq: observed.events.at(-1)?.seq ?? null,
+    }
   }
 
   /**
@@ -257,15 +290,48 @@ export abstract class SessionQueryEngine extends Service {
   /**
    * Read one session's complete current model surface from one corpus observation.
    * @param sessionId - live-preferred session id to read.
+   * @param signal - optional cancellation for persisted source resolution.
    * @returns cloned header, current surface, and the last sequence number included in the raw-log capture.
    * @throws when source resolution fails or the session surface is invalid.
    */
-  async readSurface(sessionId: SessionId): Promise<SessionSurfaceSnapshot> {
-    const loaded = await this._corpus.load(sessionId)
+  async readSurface(sessionId: SessionId, signal?: AbortSignal): Promise<SessionSurfaceSnapshot> {
+    const loaded = await this._corpus.load(sessionId, signal)
     return {
       session: structuredClone(loaded.header),
       capturedThroughSeq: loaded.events.at(-1)?.seq ?? null,
       events: tracing.currentSurfaceEvents(sessionId, loaded.events),
+    }
+  }
+
+  /**
+   * Read a bounded tail of finalized model-visible messages from one observation.
+   * @param sessionId - live or persisted session id to read.
+   * @param limit - positive maximum number of messages to return.
+   * @param signal - optional cancellation for source resolution.
+   * @returns latest messages in chronological order, with their source sequences.
+   */
+  async readMessageTail(
+    sessionId: SessionId,
+    limit: number,
+    signal?: AbortSignal,
+  ): Promise<SessionMessageTail> {
+    if (!Number.isSafeInteger(limit) || limit < 1) {
+      throw new SessionQueryError(
+        'message tail limit must be a positive safe integer',
+        'SESSION_QUERY_INVALID_LIMIT',
+      )
+    }
+    const surface = await this.readSurface(sessionId, signal)
+    const messages = surface.events.flatMap((event) => {
+      const message = deriveEventMessage(event)
+      return message === null ? [] : [{ seq: event.seq, time: event.time, message }]
+    })
+    const start = Math.max(0, messages.length - limit)
+    return {
+      session: surface.session,
+      capturedThroughSeq: surface.capturedThroughSeq,
+      messages: messages.slice(start),
+      truncated: start > 0,
     }
   }
 

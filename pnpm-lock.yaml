@@ -18,6 +18,12 @@ importers:
       '@agentclientprotocol/sdk':
         specifier: 0.25.1
         version: 0.25.1(zod@4.4.3)
+      '@deepseek-ai/dsh-session-delivery':
+        specifier: workspace:^
+        version: link:packages/session-query/session-delivery
+      '@deepseek-ai/dsh-tool-session-delivery':
+        specifier: workspace:^
+        version: link:packages/session-query/tool-session-delivery
       '@deepseek-ai/dsh-tool-session-query':
         specifier: workspace:^
         version: link:packages/session-query/tool-session-query
@@ -590,6 +596,12 @@ importers:
       '@deepseek-ai/dsh-session-checkpoint-policy':
         specifier: workspace:*
         version: link:../packages/session/session-checkpoint-policy
+      '@deepseek-ai/dsh-session-delivery':
+        specifier: workspace:*
+        version: link:../packages/session-query/session-delivery
+      '@deepseek-ai/dsh-session-delivery-local':
+        specifier: workspace:*
+        version: link:../packages/session-query/session-delivery-local
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: workspace:*
         version: link:../packages/session/session-persistence-jsonl
@@ -728,6 +740,9 @@ importers:
       '@deepseek-ai/dsh-tool-result-artifacts':
         specifier: workspace:*
         version: link:../packages/spill/tool-result-artifacts
+      '@deepseek-ai/dsh-tool-session-delivery':
+        specifier: workspace:*
+        version: link:../packages/session-query/tool-session-delivery
       '@deepseek-ai/dsh-tool-session-query':
         specifier: workspace:*
         version: link:../packages/session-query/tool-session-query
@@ -6168,6 +6183,54 @@ importers:
         specifier: workspace:^
         version: link:../../subagent/subagent
 
+  packages/session-query/session-delivery:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+
+  packages/session-query/session-delivery-local:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-agent-default-model':
+        specifier: workspace:^
+        version: link:../../core/agent-default-model
+      '@deepseek-ai/dsh-agent-presets':
+        specifier: workspace:^
+        version: link:../../preset/agent-presets
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-session-delivery':
+        specifier: workspace:^
+        version: link:../session-delivery
+      '@deepseek-ai/dsh-session-persistence':
+        specifier: workspace:^
+        version: link:../../session/session-persistence
+
   packages/session-query/session-log-export:
     devDependencies:
       '@deepseek-ai/cordis':
@@ -6264,6 +6327,39 @@ importers:
       '@deepseek-ai/dsh-session-query':
         specifier: workspace:^
         version: link:../session-query
+
+  packages/session-query/tool-session-delivery:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent-loop':
+        specifier: workspace:^
+        version: link:../../core/agent-loop
+      '@deepseek-ai/dsh-agent-loop-testkit':
+        specifier: workspace:^
+        version: link:../../test-support/agent-loop-testkit
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-session-delivery':
+        specifier: workspace:^
+        version: link:../session-delivery
+      '@deepseek-ai/dsh-session-delivery-local':
+        specifier: workspace:^
+        version: link:../session-delivery-local
+      '@deepseek-ai/dsh-session-persistence-jsonl':
+        specifier: workspace:^
+        version: link:../../session/session-persistence-jsonl
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
 
   packages/session-query/tool-session-query:
     dependencies:

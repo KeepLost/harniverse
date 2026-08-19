@@ -373,14 +373,42 @@
       }
     },
     {
+      "name": "session_message_tail",
+      "description": "Read the latest finalized model-visible messages from an authorized session without waiting for it.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "Target session id. Omit for the current session."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum finalized messages to return. Defaults to 10."
+          }
+        }
+      }
+    },
+    {
       "name": "session_search",
-      "description": "Search prior sessions in the caller workspace and return the strongest matching event from each session.",
+      "description": "Search prior sessions and return the strongest matching event from each session; optionally filter by cwd.",
       "parameters": {
         "type": "object",
         "properties": {
           "query": {
             "type": "string",
             "description": "Literal full-text query over prior session history."
+          },
+          "cwd": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional exact cwd filter. Omit to search all sessions; use null for sessions without a cwd."
           },
           "session_ids": {
             "type": "array",
@@ -461,6 +489,40 @@
       }
     },
     {
+      "name": "session_send_message",
+      "description": "Send a message to another ordinary session as its next FIFO turn. Returns after inbox acceptance and does not wait for a reply or turn completion.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "Target ordinary session id."
+          },
+          "message": {
+            "type": "string",
+            "description": "Message to deliver."
+          }
+        },
+        "required": [
+          "session_id",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "session_status",
+      "description": "Read whether an authorized session is live and whether its Agent is running without resuming a cold session.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "Target session id. Omit for the current session."
+          }
+        }
+      }
+    },
+    {
       "name": "session_trace",
       "description": "Read the authorized session lineage around one session, including complete visible ancestor and descendant relationships.",
       "parameters": {
@@ -471,6 +533,22 @@
             "description": "Target session id. Omit for the current session."
           }
         }
+      }
+    },
+    {
+      "name": "session_unload",
+      "description": "Unload another idle ordinary session. Refuses running, queued, subagent-owned, or runtime-owned sessions so work is not interrupted.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "Target ordinary session id."
+          }
+        },
+        "required": [
+          "session_id"
+        ]
       }
     },
     {
