@@ -10,7 +10,9 @@ import type {
   SessionEventMetadataFilter,
   SessionEventResultFilter,
   SessionEventSearchRequest,
+  SessionFindRequest,
   SessionResultFilter,
+  SessionResultRange,
   SessionSearchCursor,
   SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
@@ -65,6 +67,7 @@ export interface QueryLimits {
 
 /** Normalized cross-session request. */
 export interface NormalizedSessionRequest {
+  kind: 'sessions'
   query: string
   sessionFilters: readonly SessionResultFilter[]
   eventFilters: readonly SessionEventMetadataFilter[]
@@ -72,8 +75,19 @@ export interface NormalizedSessionRequest {
   cursor?: SessionSearchCursor
 }
 
+/** Normalized session-discovery request. */
+export interface NormalizedFindRequest {
+  kind: 'find'
+  title?: string
+  sessionFilters: readonly SessionResultFilter[]
+  activity?: SessionResultRange
+  limit: number
+  cursor?: SessionSearchCursor
+}
+
 /** Normalized within-session request. */
 export interface NormalizedEventRequest {
+  kind: 'events'
   sessionId: SessionEventSearchRequest['sessionId']
   query: string
   filters: readonly SessionEventMetadataFilter[]
@@ -105,9 +119,35 @@ export function normalizeSessionRequest(
   const eventFilters = materializeMetadataFilters(request.eventFilters ?? [])
   const cursor = materializeCursor(request.cursor)
   return {
+    kind: 'sessions',
     query: normalizeQuery(request.query),
     sessionFilters,
     eventFilters,
+    limit: normalizeLimit(request.limit, limits),
+    ...cursor === undefined ? {} : { cursor },
+  }
+}
+
+/**
+ * Validate and canonicalize a current-title and metadata discovery request.
+ * @param request - caller-provided title, metadata, activity, limit, and cursor.
+ * @param limits - configured default and maximum page sizes.
+ * @returns normalized request with explicit filters and limit.
+ */
+export function normalizeFindRequest(
+  request: SessionFindRequest,
+  limits: QueryLimits,
+): NormalizedFindRequest {
+  const sessionFilters = materializeSessionResultFilters(request.sessionFilters ?? [])
+  const activity = request.activity === undefined
+    ? undefined
+    : materializeActivityRange(request.activity)
+  const cursor = materializeCursor(request.cursor)
+  return {
+    kind: 'find',
+    ...request.title === undefined ? {} : { title: normalizeQuery(request.title) },
+    sessionFilters,
+    ...activity === undefined ? {} : { activity },
     limit: normalizeLimit(request.limit, limits),
     ...cursor === undefined ? {} : { cursor },
   }
@@ -129,6 +169,7 @@ export function normalizeEventRequest(
   const filters = materializeMetadataFilters(request.filters ?? [])
   const cursor = materializeCursor(request.cursor)
   return {
+    kind: 'events',
     sessionId: request.sessionId,
     query: normalizeQuery(request.query),
     filters,
@@ -216,6 +257,19 @@ export function buildEventWhere(filters: readonly SessionEventMetadataFilter[]):
 }
 
 /**
+ * Compile an optional raw-event activity interval.
+ * @param activity - validated inclusive raw-event time bounds.
+ * @returns parameterized SQL fragment and ordered bindings.
+ */
+export function buildActivityWhere(activity: SessionResultRange | undefined): SqlWhere {
+  if (activity === undefined) return { sql: '', params: [], predicateCount: 0 }
+  const clauses: string[] = []
+  const params: Array<string | number> = []
+  addRange(clauses, params, 'time', activity)
+  return { sql: clauses.join(' AND '), params, predicateCount: clauses.length }
+}
+
+/**
  * Quote caller text as one FTS5 phrase so query syntax remains inert data.
  * @param query - normalized caller query.
  * @returns FTS5 expression containing one escaped literal phrase.
@@ -241,23 +295,46 @@ export function sanitizeFtsText(text: string): string {
  * @param request - normalized request whose filter ordering is canonicalized.
  * @returns deterministic JSON identity for cursor binding.
  */
-export function requestFingerprint(request: NormalizedSessionRequest | NormalizedEventRequest): string {
-  if ('sessionId' in request) {
-    return JSON.stringify({
-      scope: 'events',
-      sessionId: request.sessionId,
-      query: request.query,
-      filters: canonicalFilters(request.filters),
-      limit: request.limit,
-    })
+export function requestFingerprint(
+  request: NormalizedSessionRequest | NormalizedEventRequest | NormalizedFindRequest,
+): string {
+  switch (request.kind) {
+    case 'events':
+      return JSON.stringify({
+        scope: 'events',
+        sessionId: request.sessionId,
+        query: request.query,
+        filters: canonicalFilters(request.filters),
+        limit: request.limit,
+      })
+    case 'find':
+      return JSON.stringify({
+        scope: 'find',
+        ...request.title === undefined ? {} : { title: request.title },
+        sessionFilters: canonicalFilters(request.sessionFilters),
+        ...request.activity === undefined ? {} : { activity: request.activity },
+        limit: request.limit,
+      })
+    case 'sessions':
+      return JSON.stringify({
+        scope: 'sessions',
+        query: request.query,
+        sessionFilters: canonicalFilters(request.sessionFilters),
+        eventFilters: canonicalFilters(request.eventFilters),
+        limit: request.limit,
+      })
   }
-  return JSON.stringify({
-    scope: 'sessions',
-    query: request.query,
-    sessionFilters: canonicalFilters(request.sessionFilters),
-    eventFilters: canonicalFilters(request.eventFilters),
-    limit: request.limit,
-  })
+}
+
+function materializeActivityRange(range: SessionResultRange): SessionResultRange {
+  const materialized = materializeSessionEventResultFilters([{ kind: 'time', ...range }])[0]
+  if (materialized?.kind !== 'time') {
+    throw new SessionQueryError('session activity range is invalid', 'SESSION_QUERY_INVALID_FILTER')
+  }
+  return {
+    ...materialized.from === undefined ? {} : { from: materialized.from },
+    ...materialized.to === undefined ? {} : { to: materialized.to },
+  }
 }
 
 /**

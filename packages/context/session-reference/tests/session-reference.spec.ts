@@ -16,6 +16,12 @@ import SessionReferenceResolver, {
 import { stringifyTagSafeJson } from '../src/serialization.ts'
 
 class TestSessionQueryEngine extends SessionQueryEngine {
+  override findSessions(
+    ..._args: Parameters<SessionQueryEngine['findSessions']>
+  ): ReturnType<SessionQueryEngine['findSessions']> {
+    return Promise.resolve({ items: [] })
+  }
+
   override searchSessions(
     ..._args: Parameters<SessionQueryEngine['searchSessions']>
   ): ReturnType<SessionQueryEngine['searchSessions']> {

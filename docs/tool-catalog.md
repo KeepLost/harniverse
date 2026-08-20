@@ -34,7 +34,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-result-artifacts` | `artifact_read` | `ctx.tools`, `ctx.spillStore` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.agents`, `ctx.skills` | `tool/call`, `tool/result`, `user/message replacement catalogs via agent.inject()` | - | - |
 | `@deepseek-ai/dsh-tool-session-delivery` | `session_send_message`, `session_unload` | `ctx.tools`, `ctx.sessionDelivery`, `a calling Agent` | `tool/call`, `tool/result`, `target user/message through the selected Provider` | - | The tool confirms inbox acceptance only and never waits for target completion or a reply. |
-| `@deepseek-ai/dsh-tool-session-query` | `session_event_read`, `session_event_search`, `session_event_trace`, `session_message_tail`, `session_search`, `session_status`, `session_trace` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for caller identity` | `tool/call`, `tool/result` | - | The seven read-only tools hide provider cursors and bind exact observations to opaque session ids. The package is opt-in; cwd is only an optional session-search filter. |
+| `@deepseek-ai/dsh-tool-session-query` | `session_event_read`, `session_event_search`, `session_event_trace`, `session_find`, `session_log_tail`, `session_message_tail`, `session_search`, `session_status`, `session_trace` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for caller identity` | `tool/call`, `tool/result` | - | The nine read-only tools separate title/time discovery, content matches, current-message tails, and complete raw-log reads while hiding provider cursors and binding exact observations to opaque session ids. |
 | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`, `ctx.subagents`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped compositions load this package once per subagent backend, so the model additionally sees `subagent_fork` bound to the fork backend. Each instance's description, `run_in_background` parameter, and system-prompt policy follow its own `backgroundMode` and `enableRunInBackground`, so the two shipped schemas are not identical: `subagent` is `continuable` and defaults omitted calls to background with automatic settlement delivery, while `subagent_fork` stays `one-shot` and defaults them to foreground — see `packages/bundle/base/cordis.patch.yml` and `examples/acp-agent/cordis.yml`. |
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`, `list_agents`, `send_message` | `ctx.tools`, `ctx.subagents`, `ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`, `tool/result`, `child session events through ctx.subagents` | - | The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries). |
 | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`, `ctx.systemPrompt`, `a live continuable in-process child Agent` | `tool/call`, `tool/result`, `a user-role message in the direct parent session` | - | Registered per continuable in-process child rather than globally, so this schema is visible only inside such a child and survives its global `toolFilter`. The same contribution installs the child-scoped `tool:report` prompt section, which this catalog does not render. The parent-facing `send_message` tool is installed independently. |
@@ -1396,7 +1396,7 @@ The tool confirms inbox acceptance only and never waits for target completion or
 
 ### `session_event_read`
 
-Read one full unabridged event and optional neighboring raw-event summaries from an authorized session.
+Read a complete raw SessionEvent window around one event sequence from an authorized session.
 
 ```json
 {
@@ -1412,11 +1412,11 @@ Read one full unabridged event and optional neighboring raw-event summaries from
     },
     "before": {
       "type": "integer",
-      "description": "Number of preceding raw events to summarize. Omit for none."
+      "description": "Number of preceding complete raw events to include. Omit for none."
     },
     "after": {
       "type": "integer",
-      "description": "Number of following raw events to summarize. Omit for none."
+      "description": "Number of following complete raw events to include. Omit for none."
     }
   },
   "required": [
@@ -1512,9 +1512,105 @@ Read every direct replacement and relationship to a cited source event for one e
 
 Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
 
+### `session_find`
+
+Find prior sessions by current title, creation time, or raw-event activity time. Returns session metadata, never content-match events or snippets.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Optional literal full-text query over current session titles only."
+    },
+    "cwd": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Optional exact cwd filter. Omit to find sessions from every cwd; use null for sessions without a cwd."
+    },
+    "session_ids": {
+      "type": "array",
+      "description": "Optional session ids to include.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "created_at_from": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 creation-time lower bound."
+    },
+    "created_at_to": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 creation-time upper bound."
+    },
+    "active_at_from": {
+      "type": "string",
+      "description": "Inclusive lower bound requiring at least one raw event at or after this time."
+    },
+    "active_at_to": {
+      "type": "string",
+      "description": "Inclusive upper bound requiring at least one raw event at or before this time."
+    },
+    "parent_session_ids": {
+      "type": "array",
+      "description": "Optional direct parent session ids.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "include_root_sessions": {
+      "type": "boolean",
+      "description": "Include sessions with no parent in the parent filter."
+    },
+    "availability": {
+      "type": "array",
+      "description": "Require at least one selected source availability.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "live",
+          "persisted"
+        ]
+      }
+    }
+  }
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
+### `session_log_tail`
+
+Read the latest complete raw SessionEvent trajectory from an authorized session, including shadowed and log-only events.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target session id. Omit for the current session."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Maximum complete raw events to return. Defaults to 20."
+    }
+  }
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
 ### `session_message_tail`
 
-Read the latest finalized model-visible messages from an authorized session without waiting for it.
+Read the folded current model-message surface tail from an authorized session. This is not historical raw-log trajectory.
 
 ```json
 {
@@ -1674,7 +1770,7 @@ Read the authorized session lineage around one session, including complete visib
 
 Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
 
-The seven read-only tools hide provider cursors and bind exact observations to opaque session ids. The package is opt-in; cwd is only an optional session-search filter.
+The nine read-only tools separate title/time discovery, content matches, current-message tails, and complete raw-log reads while hiding provider cursors and binding exact observations to opaque session ids.
 
 <a id="deepseek-aidsh-tool-subagent"></a>
 

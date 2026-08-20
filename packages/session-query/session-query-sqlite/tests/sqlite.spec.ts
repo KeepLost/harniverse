@@ -251,6 +251,8 @@ describe('SQLite session search', () => {
 
     await expect(service.searchSessions({ query: 'needle' }))
       .rejects.toThrow(expectCode('SESSION_QUERY_SEARCH_DISABLED'))
+    await expect(service.findSessions({ title: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_SEARCH_DISABLED'))
     await expect(service.searchEvents({ sessionId: parent, query: 'needle' }))
       .rejects.toThrow(expectCode('SESSION_QUERY_SEARCH_DISABLED'))
 
@@ -416,6 +418,70 @@ describe('SQLite session search', () => {
       persisted: false,
       bestMatch: { seq: 0, surface: 'shadowed' },
     })
+  })
+
+  it('finds sessions by current title, creation time, or any raw-event activity without content hits', async () => {
+    const ctx = await liveContext({ path: ':memory:', defaultLimit: 1, maxLimit: 10 })
+    const target = ctx.sessions.create(SessionId('find-target'), {
+      meta: { createdAt: 10, cwd: '/work' },
+      seed: [{
+        type: 'session/title',
+        seq: 0,
+        time: 20,
+        data: { title: 'Retired title phrase', messageSeqs: [], source: { kind: 'fallback' } },
+      }, {
+        type: 'session/title',
+        seq: 1,
+        time: 30,
+        data: { title: 'Current discovery phrase\uFDD0', messageSeqs: [], source: { kind: 'user' } },
+      }, {
+        type: 'turn/start',
+        seq: 2,
+        time: 50,
+        data: { turn: 1 },
+      }, {
+        type: 'turn/end',
+        seq: 3,
+        time: 51,
+        data: { turn: 1, reason: { kind: 'completed' } },
+      }],
+    })
+    const newer = ctx.sessions.create(SessionId('find-newer'), {
+      meta: { createdAt: 11 },
+      seed: messageEvents('irrelevant content', 60),
+    })
+
+    const titleHits = await ctx.sessionQuery.findSessions({ title: 'Current discovery phrase', limit: 10 })
+    expect(titleHits).toMatchObject({
+      items: [{
+        header: { id: target.id },
+        title: 'Current discovery phrase\uFDD0',
+      }],
+    })
+    expect(titleHits.items[0]?.latestActivityAt).toBeTypeOf('number')
+    await expect(ctx.sessionQuery.findSessions({ title: 'Retired title phrase', limit: 10 }))
+      .resolves.toEqual({ items: [] })
+    await expect(ctx.sessionQuery.searchSessions({ query: 'Current discovery phrase', limit: 10 }))
+      .resolves.toEqual({ items: [] })
+    await expect(ctx.sessionQuery.findSessions({
+      sessionFilters: [{ kind: 'created-at', from: 10, to: 10 }],
+      limit: 10,
+    })).resolves.toMatchObject({ items: [{ header: { id: target.id } }] })
+    const activityHits = await ctx.sessionQuery.findSessions({ activity: { from: 50, to: 50 }, limit: 10 })
+    expect(activityHits).toMatchObject({
+      items: [{
+        header: { id: target.id },
+        matchedActivityAt: 50,
+      }],
+    })
+    expect(activityHits.items[0]?.latestActivityAt).toBeTypeOf('number')
+
+    const first = await ctx.sessionQuery.findSessions({})
+    expect(first.items.map(hit => hit.header.id)).toEqual([newer.id])
+    expect(first.nextCursor).toBeDefined()
+    if (first.nextCursor === undefined) throw new Error('expected find continuation cursor')
+    const second = await ctx.sessionQuery.findSessions({ cursor: first.nextCursor })
+    expect(second.items.map(hit => hit.header.id)).toEqual([target.id])
   })
 
   it('searches at the supported FTS5 outer-predicate boundary in both scopes', async () => {

@@ -17,10 +17,13 @@ const EVENT_OMITTED_BYTES = '{{eventOmittedBytes}}'
 const CWD_ROOTED_PATH_RE = /\{\{cwd\}\}(?:[\\/][^\s<>"'`]+)+/g
 const PATH_TAG_RE = /(<path>)([^<]*)(<\/path>)/g
 const ADDITIONAL_INSTRUCTIONS_PATH_RE = /(Additional instructions from: )([^\r\n]+)/g
-const EMBEDDED_EVENT_TIME_RE = /^(  "time": )\d+(?=,\r?$)/gm
+const EMBEDDED_EVENT_TIME_RE = /^(    "time": )\d+(?=,\r?$)/gm
 const EVENT_READ_OMITTED_BYTES_RE = /(\r?\n\r?\n\(Omitted )\d+( bytes\.)/g
-const EVENT_READ_TARGET_REGION_RE
-  = /^Session [^\r\n]+ — [^\r\n]+\r?\nTarget event seq \d+:\r?\n```json\r?\n\{\r?\n[\s\S]*?(?=\r?\n```(?:\r?\n|$)|\r?\n\r?\n\(Omitted )/
+const EVENT_READ_TARGET_REGION_RE = new RegExp(
+  String.raw`^Session [^\r\n]+ — [^\r\n]+\r?\nTarget event seq: \d+\r?\n`
+  + String.raw`Raw log window \(\d+\) \| seq \d+-\d+:\r?\n`
+  + String.raw`\`\`\`json\r?\n\[\r?\n[\s\S]*?(?=\r?\n\`\`\`(?:\r?\n|$)|\r?\n\r?\n\(Omitted )`,
+)
 const PATH_TEXT_BOUNDARY_RE = /[\s<>'"`()\[\]{},;:!?=]/
 const FILE_URI_PATH_PREFIX_RE = /(?:^|[^a-z0-9+.-])file:\/\/\/?$/i
 
@@ -156,9 +159,9 @@ function scrubString(value: string, ctx: NormalizeContext, cwdPathMode: CwdPathM
   out = out.replace(LOCAL_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
   out = out.replace(SNAPSHOT_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
   out = out.replace(OPAQUE_LOCAL_SPILL_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
-  // Exact event-read results render the target as pretty JSON inside a
-  // distinctive envelope. Restrict time scrubbing to that fenced target so
-  // neighbor, model, bash, and unrelated tool text remains regression-visible.
+  // Exact event-read results render complete events as pretty JSON inside a
+  // distinctive envelope. Restrict time scrubbing to event-envelope fields in
+  // that fenced window so nested payload and unrelated text stay visible.
   if (EVENT_READ_TARGET_REGION_RE.test(out)) {
     out = out.replace(
       EVENT_READ_TARGET_REGION_RE,

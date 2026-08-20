@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-`SessionQueryEngine` 是组合式抽象 `ctx.sessionQuery` 约定。它对实时 `ctx.sessions` 和可选的动态挂载 `ctx.sessionPersistence` 实现精确会话历史取回、关系跟踪和与提供方无关的过滤；具体后端实现它的两个全文方法。匹配 id 只产生一条记录：实时事件优先，而 `live` 和 `persisted` 会报告两种来源的可用性。如果不可变 header 存在冲突，则以 `SESSION_QUERY_SOURCE_CONFLICT` 失败。
+`SessionQueryEngine` 是组合式抽象 `ctx.sessionQuery` 约定。它对实时 `ctx.sessions` 和可选的动态挂载 `ctx.sessionPersistence` 实现精确会话历史取回、关系跟踪和与提供方无关的过滤；具体后端实现当前标题/时间发现和两个内容全文方法。匹配 id 只产生一条记录：实时事件优先，而 `live` 和 `persisted` 会报告两种来源的可用性。如果不可变 header 存在冲突，则以 `SESSION_QUERY_SOURCE_CONFLICT` 失败。
 
 ## 读取
 
@@ -15,6 +15,7 @@
 - `readSurface(sessionId)` 返回一个克隆 header、原始日志捕获边界，以及按模型历史顺序排列的完整折叠后当前表层。实时会话优先于持久化；压缩（compaction）只会在其替换追加之前或之后被观察，绝不会出现合成混合。
 - `readRuntimeStatus(sessionId, signal?)` 报告明确的 loaded 状态、来源可用性、精确 live Agent 活动和观察到的最终 seq，且不会恢复 cold 会话。
 - `readMessageTail(sessionId, limit, signal?)` 从一次当前表层观察投影规范最终消息，并返回带来源 seq/time 与截断元数据的有界时间顺序尾部。
+- `readLogTail(sessionId, limit, signal?)` 从一次实时优先观察返回完整原始事件的有界时间顺序尾部，其中包括 shadowed 和 log-only 记录。
 - `readEvent(request, signal?)` 返回一个克隆 header、完整目标事件和有界的原始 seq 窗口。`before` 和 `after` 默认为 0，且不得超过 `readWindowMax`。
 - `traceSession(sessionId, signal?)` 只读取一次语料库，返回从直接父级向外的祖先，以及确定性的递归后代树。`complete: false` 标识第一个缺失父级；与目标相连的循环会以 `SESSION_QUERY_INVALID_LINEAGE` 失败。
 - `traceEvent(request, signal?)` 只加载一次逻辑日志，返回其克隆源 header、直接位置替换和直接引用的源事件链接。`replacementChain` 沿位置替换者跟踪到最终替换；源事件链接仍不传递。
@@ -27,11 +28,11 @@
 
 文本子句刻意与 FTS 提供方无关：调用方文本会被转义为不区分大小写的 Unicode 正则表达式，每段连续空白匹配一个或多个空白字符。它是字面语义文本扫描，而非全文查询。`extractSessionEventText()` 和 `buildSessionEventSearchDocuments()` 定义共享的第一方文档投影；推理（reasoning）块、结构边界、流分片、请求 header 和未知声明合并变体不产生文档。
 
-## 全文方法
+## 发现与全文方法
 
-`SessionQueryEngine.searchSessions(request, exec?)` 按匹配最强的事件对逻辑语料库分组；`searchEvents(request, exec?)` 搜索一个逻辑会话。这两个是服务仅有的抽象方法。两者都返回分页结果，其延续信息是由服务持有的带品牌 `SessionSearchCursor`；接受可选取消，并在不使用提供方专用数值分数的情况下提供摘录。事件搜索分页结果还携带来自与命中相同索引世代的克隆目标 header，使授权消费方可将策略绑定到此次载荷观察。搜索请求只接受事件元数据过滤器，因为字面文本过滤使用上文所述扫描路径。
+`SessionQueryEngine.findSessions(request, exec?)` 按当前折叠标题、会话元数据或活动时间范围发现会话；活动范围要求至少一个完整原始事件落在区间内。其命中携带当前标题及最新/匹配活动时间，但刻意不包含内容事件、seq 或摘录。`searchSessions(request, exec?)` 则按最强语义事件对内容命中分组，`searchEvents(request, exec?)` 搜索单个逻辑会话内的内容。三者都返回带有自有品牌 `SessionSearchCursor` 的分页结果并接受可选取消；只有两个内容方法公开摘录。事件搜索分页结果还携带来自与命中相同索引世代的克隆目标 header，使授权消费方可将策略绑定到此次载荷观察。内容搜索请求只接受事件元数据过滤器，因为字面文本过滤使用上文所述扫描路径。
 
-该包没有提供方协调器、回退实现或独立具体插件。具体服务后端继承已实现的读取、过滤和跟踪，同时负责全文观察、对账、排名、游标世代和查询执行；第一个实现是 [`@deepseek-ai/dsh-session-query-sqlite`](../session-query-sqlite/README.md)。
+该包没有提供方协调器、回退实现或独立具体插件。具体服务后端继承已实现的读取、过滤和跟踪，同时负责发现/搜索观察、对账、排名、游标世代和查询执行；第一个实现是 [`@deepseek-ai/dsh-session-query-sqlite`](../session-query-sqlite/README.md)。
 
 `SessionQueryError.code` 是一个封闭联合，覆盖请求验证、缺失目标、格式错误的表层、来源冲突、持久化/索引失败、取消，以及无效或陈旧游标；精确字面值在 [`src/config.ts`](src/config.ts) 中定义。
 

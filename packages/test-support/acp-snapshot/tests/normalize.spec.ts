@@ -147,7 +147,7 @@ Additional instructions from: nested\AGENTS.md`,
     expect(out).not.toContain('"id"')
   })
 
-  it('stabilizes only the top-level event timestamp and spill byte count in event-read text', () => {
+  it('stabilizes event-envelope timestamps and spill byte count in event-read text', () => {
     const raw = JSON.stringify({
       jsonrpc: '2.0',
       method: 'session/update',
@@ -158,7 +158,7 @@ Additional instructions from: nested\AGENTS.md`,
             type: 'content',
             content: {
               type: 'text',
-              text: 'Session prior — title\nTarget event seq 4:\n```json\n{\n  "seq": 4,\n  "time": 1784876275593,\n  "data": {\n    "time": 31337,\n    "note": "model-visible"\n  }\n}\n```\n\nAfter:\n  "time": 424242,\n  neighbor semantic text\n\n(Omitted 39387 bytes. Full formatted result stored at: /tmp/result.txt.)',
+              text: 'Session prior — title\nTarget event seq: 4\nRaw log window (2) | seq 3-4:\n```json\n[\n  {\n    "seq": 3,\n    "time": 1784876275592,\n    "data": {}\n  },\n  {\n    "seq": 4,\n    "time": 1784876275593,\n    "data": {\n      "time": 31337,\n      "note": "model-visible"\n    }\n  }\n]\n```\n\nOutside:\n  "time": 424242,\n\n(Omitted 39387 bytes. Full formatted result stored at: /tmp/result.txt.)',
             },
           }],
         },
@@ -170,6 +170,7 @@ Additional instructions from: nested\AGENTS.md`,
     expect(out).toContain('\\"time\\": 424242')
     expect(out).toContain('Omitted {{eventOmittedBytes}} bytes')
     expect(out).not.toContain('1784876275593')
+    expect(out).not.toContain('1784876275592')
     expect(out).not.toContain('39387')
   })
 

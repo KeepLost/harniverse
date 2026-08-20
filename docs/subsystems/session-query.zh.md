@@ -2,7 +2,7 @@
 
 [English](session-query.md) | 中文
 
-本文定义逻辑会话语料库的查询词汇；当 live 数据存在时，该语料库优先使用 live 数据。[Service Definition 包](../../packages/session-query/session-query)负责精确读取、来源优先级、关系追踪、语义提取，以及与提供方无关的过滤器；[SQLite 提供方](../../packages/session-query/session-query-sqlite)负责具体全文索引的生命周期。
+本文定义逻辑会话语料库的查询词汇；当 live 数据存在时，该语料库优先使用 live 数据。[Service Definition 包](../../packages/session-query/session-query)负责精确读取、来源优先级、关系追踪、语义提取，以及与提供方无关的过滤器；[SQLite 提供方](../../packages/session-query/session-query-sqlite)负责索引化的当前标题/时间发现与内容搜索生命周期。
 
 源码：[`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)
 
@@ -48,6 +48,22 @@ interface SessionSurfaceSnapshot {
   capturedThroughSeq: number | null
   /** Cloned current surface events in model-history order. */
   events: SurfaceEvent[]
+}
+```
+
+`SessionLogTail` 不同于折叠当前 surface：它保留最近的完整原始事件，其中包括被 shadowed 或从不进入模型历史的记录。
+
+```ts type-equiv
+/** Bounded latest raw-log observation from one logical session. */
+interface SessionLogTail {
+  /** Cloned header selected from the same corpus observation as the events. */
+  session: SessionHeader
+  /** Highest raw-log seq included in the observation, or `null` for an empty log. */
+  capturedThroughSeq: number | null
+  /** Latest complete raw events in chronological order. */
+  events: SessionEvent[]
+  /** Whether older raw events were omitted by the requested limit. */
+  truncated: boolean
 }
 ```
 
@@ -140,13 +156,41 @@ interface SessionEventSearchDocument extends SessionEventRecord {
 
 `ctx.sessionQuery.filterSessions(filters)` 会对完整的逻辑会话语料库应用 `SessionResultFilter`；`ctx.sessionQuery.filterEvents(sessionId, filters)` 按 seq 升序返回匹配的文档。消息、推理（reasoning）、工具调用和工具结果、被阻止的提示词、待办事项，以及失败和状态详情会纳入语义文本；结构事件和流分片则不会。
 
-## 全文搜索结果页
+## 发现与全文搜索结果页
 
-整合后的 `ctx.sessionQuery` seam 提供两个全文搜索范围。`searchSessions()` 按匹配度最强的事件对语料库分组；`searchEvents()` 搜索单个会话。请求将不透明游标与规范化后的查询、元数据过滤器和结果数量上限绑定。提供方的元数据过滤器有意不包含事件文本扫描。
+`findSessions()` 按当前标题和会话/原始活动元数据发现会话；其结果不包含内容命中。两个全文搜索范围仍彼此独立：`searchSessions()` 按匹配度最强的事件对语料库分组，`searchEvents()` 搜索单个会话。请求将不透明游标与规范化后的查询或发现字段、元数据过滤器和结果数量上限绑定。提供方的元数据过滤器有意不包含事件文本扫描。
 
 ```ts type-equiv
 /** Provider-owned opaque continuation token returned by session search. */
 type SessionSearchCursor = Branded<'SessionSearchCursor'>
+```
+
+```ts type-equiv
+/** Session discovery request over current titles and session/activity metadata. */
+interface SessionFindRequest {
+  /** Optional literal full-text query over each session's current folded title. */
+  title?: string
+  /** Logical-session predicates applied before discovery ranking. */
+  sessionFilters?: readonly SessionResultFilter[]
+  /** Inclusive raw-event activity interval; at least one event must match. */
+  activity?: SessionResultRange
+  /** Maximum sessions in this page. */
+  limit?: number
+  /** Opaque cursor returned for the identical normalized request. */
+  cursor?: SessionSearchCursor
+}
+```
+
+```ts type-equiv
+/** One session discovered by current title or metadata, without a content match. */
+interface SessionFindHit extends SessionRecord {
+  /** Current folded title indexed from the same logical-session observation. */
+  title?: string
+  /** Latest raw-event timestamp, or `null` when the session log is empty. */
+  latestActivityAt: number | null
+  /** Latest raw-event timestamp inside the requested activity interval. */
+  matchedActivityAt?: number
+}
 ```
 
 ```ts type-equiv
@@ -394,7 +438,7 @@ Source: [`packages/session-query/session-delivery/src/index.ts:51`](../../packag
 
 Unified live-preferred session query service.
 
-Exact reads, filters, and traces are backend-independent concrete behavior. A backend implements full-text observation, reconciliation, ranking, cursor generations, and query execution on the same `ctx.sessionQuery` service.
+Exact reads, filters, and traces are backend-independent concrete behavior. A backend implements indexed discovery/content observation, reconciliation, ranking, cursor generations, and query execution on the same service.
 
 ```ts cordis-catalog
 /**
@@ -404,6 +448,14 @@ Exact reads, filters, and traces are backend-independent concrete behavior. A ba
  * @returns session hits ranked by their strongest matching event.
  */
 abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>
+
+/**
+ * Find sessions by current title and session or raw-activity metadata.
+ * @param request - title, metadata filters, activity interval, page size, and cursor.
+ * @param exec - optional cancellation control.
+ * @returns session metadata without content-match events or snippets.
+ */
+abstract findSessions( request: SessionFindRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionFindHit>>
 
 /**
  * Search events within one live-preferred logical session.
@@ -505,6 +557,15 @@ async readSurface(sessionId: SessionId, signal?: AbortSignal): Promise<SessionSu
 async readMessageTail( sessionId: SessionId, limit: number, signal?: AbortSignal, ): Promise<SessionMessageTail>
 
 /**
+ * Read a bounded tail of complete raw events from one corpus observation.
+ * @param sessionId - live or persisted session id to read.
+ * @param limit - positive maximum number of raw events to return.
+ * @param signal - optional cancellation for source resolution.
+ * @returns latest complete events in chronological order.
+ */
+async readLogTail( sessionId: SessionId, limit: number, signal?: AbortSignal, ): Promise<SessionLogTail>
+
+/**
  * Trace known ancestry and descendants from one corpus observation.
  * @param sessionId - logical session id to trace.
  * @param signal - optional cancellation for persistence listing.
@@ -533,5 +594,5 @@ async readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise
 
 Types: [SessionId](core.md) · [SessionTitleSnapshot](session-title.md)
 
-Source: [`packages/session-query/session-query/src/index.ts:83`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:86`](../../packages/session-query/session-query/src/index.ts)
 <!-- END GENERATED cordis-surface -->

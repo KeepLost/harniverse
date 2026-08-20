@@ -6,13 +6,15 @@ English | [中文](2026-08-19-cross-session-query-delivery.zh.md)
 
 ## Problem
 
-The session-query tools conflated cwd filtering with access authority and lacked direct runtime status or finalized-message-tail reads. Sending to an ordinary session would have forced a read-only Consumer to own Agent activation and lifecycle routing, while callers only needed inbox acceptance and could query the target separately.
+The session-query tools conflated cwd filtering with access authority and lacked direct runtime status or finalized-message-tail reads. Content full-text search was also the only discovery path: current titles and creation/raw-activity time could not independently locate a session, while the message tail exposed the folded current model surface rather than historical raw-log trajectory. Sending to an ordinary session would have forced a read-only Consumer to own Agent activation and lifecycle routing, while callers only needed inbox acceptance and could query the target separately.
 
 ## Decision
 
 The opt-in session-query Consumer no longer treats exact `cwd` equality as authorization. Exact operations resolve an opaque session id and reject any provider observation whose id changes. `session_search` instead accepts optional `cwd: string | null`: omission leaves the deployment-visible corpus unconstrained, a string matches exactly, and `null` selects sessions without cwd. The caller session remains excluded from cross-session search. Mounting the Consumer therefore grants corpus discovery, and session ids remain security-sensitive opaque references.
 
-`ctx.sessionQuery` additionally exposes non-resuming runtime status and a bounded tail of finalized model-visible messages. Status samples exact live Agent/Session identity when available; message tails use the canonical folded surface and `deriveEventMessage()` rather than Host display-history projections.
+`ctx.sessionQuery.findSessions()` is distinct from content search: it discovers sessions by the latest folded title, session metadata, and an activity interval requiring at least one complete raw event, and returns current title/activity metadata without a matching event, seq, or snippet. The SQLite Provider owns dedicated current-title FTS and raw-event activity tables, so retired titles disappear and structural, shadowed, and log-only activity counts. The model Consumer exposes this operation as `session_find`; `session_search` remains content search and returns matching event seqs and snippets.
+
+`ctx.sessionQuery` additionally exposes non-resuming runtime status, a bounded tail of finalized model-visible messages, and a bounded complete raw-log tail. Status samples exact live Agent/Session identity when available; message tails use the canonical folded surface and `deriveEventMessage()` rather than Host display-history projections. `session_log_tail` returns recent complete raw events, and `session_event_read` returns every event in its bounded raw window as complete JSON.
 
 Message mutation is a separate capability seam: `dsh-session-delivery` defines inbox acceptance and safe unload, `dsh-session-delivery-local` reuses live ordinary Agents or single-flight resumes persisted ordinary sessions under their recorded model and preset, and `dsh-tool-session-delivery` registers `session_send_message` and `session_unload`. Delivery always uses `Agent.followup()`, rejects self and subagent targets, and returns the accepted message id without awaiting a reply or target turn completion. Unload is idempotent for cold targets and rejects subagent, runtime-owned, or child-owning targets before `AgentRegistry.closeIfIdle()` atomically reserves teardown; that primitive treats running, maintenance, and queued input as busy and closes admission before yielding.
 
@@ -22,12 +24,16 @@ Message mutation is a separate capability seam: `dsh-session-delivery` defines i
 
 **Add sending to `tool-session-query`.** Rejected because query is non-activating and read-only, while delivery owns mutation, cold resume, preset reconstruction, and Agent lifecycle.
 
+**Overload `session_search` with metadata-only results.** Rejected because a content-search result owns a matching event, seq, and snippet, while title/time discovery owns only session metadata. Separate tools keep their outputs unambiguous.
+
 **Wait for a target reply.** Rejected because inbox acceptance is the only causally precise acknowledgement; the caller can inspect status and messages independently.
 
 ## Consequences
 
 - Cwd narrows search but grants no authority and is not rendered in results.
 - Cold status/tail reads never resume an Agent; cold delivery intentionally does.
+- `session_find` results never imply a content match; `session_search` results always identify one.
+- Raw-log tools preserve shadowed and log-only trajectory, while `session_message_tail` remains the folded current model-message view.
 - Delivery acknowledgement is process-local inbox acceptance, not crash durability or completion.
 - The shipped base mounts the local delivery Provider and both model Consumers; the Web bundle disables the global Consumer rows so every shipped Agent Profile mounts the same tools in its own scope.
 - The SQLite backend uses `openAt: first-search` in shipped bundles, so the default search tools are usable without importing SQLite during startup.

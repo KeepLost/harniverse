@@ -2,6 +2,8 @@ import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
 import type {
   SessionEventSearchPage,
   SessionEventSearchRequest,
+  SessionFindHit,
+  SessionFindRequest,
   SessionSearchExecContext,
   SessionSearchHit,
   SessionSearchPage,
@@ -10,6 +12,13 @@ import type {
 
 /** Test-only concrete query service for backend-independent behavior. */
 export class TestSessionQueryEngine extends SessionQueryEngine {
+  override findSessions(
+    _request: SessionFindRequest,
+    _exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionFindHit>> {
+    return Promise.resolve({ items: [] })
+  }
+
   override searchSessions(
     _request: SessionSearchRequest,
     _exec?: SessionSearchExecContext,

@@ -12,15 +12,15 @@ import {
   type SessionEventSearchPage,
   type SessionEventSurface,
   type SessionRecord,
+  type SessionResultFilter,
   type SessionSearchCursor,
 } from '@deepseek-ai/dsh-session-query'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { toolInput } from './input.ts'
+import type { SessionFindArgs, SessionSearchArgs } from './input.ts'
 import { presentation } from './presentation.ts'
 import { serviceBoundary } from './service-boundary.ts'
 import { workspaceAccess } from './workspace-access.ts'
-
-type SessionSearchArgs = Parameters<typeof toolInput.buildSessionFilters>[0]
 
 interface EventSearchArgs {
   session_id?: string
@@ -50,6 +50,8 @@ interface MessageTailArgs extends SessionTargetArgs {
   limit?: number
 }
 
+type LogTailArgs = MessageTailArgs
+
 interface SearchCollection<T> {
   readonly items: T[]
   readonly capped: boolean
@@ -72,16 +74,8 @@ async function executeSessionSearch(
     eventTypes: args.event_types,
     surfaces: args.event_surfaces,
   })
-  const requestedParentIds = toolInput.materializeParentSessionIds(args.parent_session_ids)
-  if (requestedParentIds !== undefined || args.include_root_sessions === true) {
-    const authorizedParentIds = requestedParentIds === undefined
-      ? new Set<SessionId>()
-      : await workspaceAccess.authorizeSessionIds(ctx, caller, requestedParentIds, exec.signal)
-    const parentValues: Array<SessionId | null> = requestedParentIds
-      ?.filter(id => authorizedParentIds.has(id)) ?? []
-    if (args.include_root_sessions === true) parentValues.push(null)
-    if (parentValues.length === 0) return presentation.formatEmptySessionSearch()
-    sessionFilters.push({ kind: 'parent', values: parentValues })
+  if (!await appendParentFilter(ctx, caller, args, sessionFilters, exec.signal)) {
+    return presentation.formatEmptySessionSearch()
   }
   const collected = await collectPages(
     maxResults,
@@ -107,6 +101,34 @@ async function executeSessionSearch(
     exec.signal,
   )
   return presentation.formatSessionSearch(collected, titles, authorizedParents)
+}
+
+async function executeSessionFind(
+  ctx: Context,
+  args: SessionFindArgs,
+  exec: ToolRunContext,
+  maxResults: number,
+): Promise<string> {
+  const caller = workspaceAccess.callerOf(exec)
+  const title = args.title === undefined ? undefined : toolInput.normalizeQuery(args.title)
+  const sessionFilters = toolInput.buildSessionFilters(args)
+  const activity = toolInput.buildActivityRange(args)
+  if (!await appendParentFilter(ctx, caller, args, sessionFilters, exec.signal)) {
+    return presentation.formatEmptySessionFind()
+  }
+  const collected = await collectPages(
+    maxResults,
+    exec.signal,
+    cursor => serviceBoundary.call(ctx, exec.signal, 'session find', () =>
+      ctx.sessionQuery.findSessions({
+        ...title === undefined ? {} : { title },
+        sessionFilters,
+        ...activity === undefined ? {} : { activity },
+        ...cursor === undefined ? {} : { cursor },
+      }, { signal: exec.signal })),
+    hit => hit.header.id !== caller.id && workspaceAccess.recordAuthorized(hit),
+  )
+  return presentation.formatSessionFind(collected)
 }
 
 async function executeEventSearch(
@@ -269,6 +291,49 @@ async function executeMessageTail(
   return presentation.formatMessageTail(tail)
 }
 
+async function executeLogTail(
+  ctx: Context,
+  args: LogTailArgs,
+  exec: ToolRunContext,
+  defaultLimit: number,
+  maxLimit: number,
+): Promise<string> {
+  const caller = workspaceAccess.callerOf(exec)
+  const sessionId = workspaceAccess.targetId(args, caller)
+  await workspaceAccess.authorizeTarget(ctx, caller, sessionId, exec.signal)
+  const limit = args.limit ?? defaultLimit
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > maxLimit) {
+    throw new SessionQueryError(
+      `log tail limit must be between 1 and ${maxLimit}`,
+      'SESSION_QUERY_INVALID_LIMIT',
+    )
+  }
+  const tail = await serviceBoundary.call(ctx, exec.signal, 'session log tail', () =>
+    ctx.sessionQuery.readLogTail(sessionId, limit, exec.signal))
+  workspaceAccess.assertObservedTargetAuthorized(caller, sessionId, tail.session)
+  return presentation.formatLogTail(tail)
+}
+
+async function appendParentFilter(
+  ctx: Context,
+  caller: ReturnType<typeof workspaceAccess.callerOf>,
+  args: Pick<SessionFindArgs, 'parent_session_ids' | 'include_root_sessions'>,
+  sessionFilters: SessionResultFilter[],
+  signal: AbortSignal,
+): Promise<boolean> {
+  const requestedParentIds = toolInput.materializeParentSessionIds(args.parent_session_ids)
+  if (requestedParentIds === undefined && args.include_root_sessions !== true) return true
+  const authorizedParentIds = requestedParentIds === undefined
+    ? new Set<SessionId>()
+    : await workspaceAccess.authorizeSessionIds(ctx, caller, requestedParentIds, signal)
+  const parentValues: Array<SessionId | null> = requestedParentIds
+    ?.filter(id => authorizedParentIds.has(id)) ?? []
+  if (args.include_root_sessions === true) parentValues.push(null)
+  if (parentValues.length === 0) return false
+  sessionFilters.push({ kind: 'parent', values: parentValues })
+  return true
+}
+
 async function collectPages<T>(
   maxResults: number,
   signal: AbortSignal,
@@ -304,8 +369,9 @@ async function collectPages<T>(
   }
 }
 
-/** Five model-facing session-query operation implementations. */
+/** Nine model-facing session-query operation implementations. */
 export const operations = {
+  executeSessionFind,
   executeSessionSearch,
   executeEventSearch,
   executeSessionTrace,
@@ -313,4 +379,5 @@ export const operations = {
   executeEventRead,
   executeSessionStatus,
   executeMessageTail,
+  executeLogTail,
 }

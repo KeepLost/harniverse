@@ -542,6 +542,11 @@
     },
     {
       "doc": "docs/subsystems/session-query.md",
+      "symbol": "SessionLogTail",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/session-query.md",
       "symbol": "SessionSurfaceSnapshot",
       "source": "packages/session-query/session-query/src/types.ts"
     },
@@ -1474,6 +1479,16 @@
       "doc": "docs/subsystems/session-query.md",
       "symbol": "SessionSearchCursor",
       "source": "packages/session-query/session-query/src/cursor.ts"
+    },
+    {
+      "doc": "docs/subsystems/session-query.md",
+      "symbol": "SessionFindRequest",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/session-query.md",
+      "symbol": "SessionFindHit",
+      "source": "packages/session-query/session-query/src/types.ts"
     },
     {
       "doc": "docs/subsystems/session-query.md",

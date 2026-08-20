@@ -42,7 +42,7 @@ const MINIMAL_BASH_DESCRIPTION = `Run commands in a bash shell
 * Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.`
 const MINIMAL_TOOL_NAMES = [
   'artifact_read', 'bash', 'session_event_read', 'session_event_search', 'session_event_trace',
-  'session_message_tail', 'session_search', 'session_send_message', 'session_status', 'session_trace',
+  'session_find', 'session_log_tail', 'session_message_tail', 'session_search', 'session_send_message', 'session_status', 'session_trace',
   'session_unload', 'str_replace_editor',
 ]
 
@@ -235,7 +235,8 @@ describe('the shipped Web composition', () => {
         'artifact_read', 'ask_user_question', 'bash', 'compaction_history_expand',
         'compaction_history_search', 'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'interrupt_agent',
         'job_kill', 'job_list', 'job_output', 'list_agents', 'ralph', 'read', 'read_image', 'send_message',
-        'session_event_read', 'session_event_search', 'session_event_trace', 'session_message_tail', 'session_search',
+        'session_event_read', 'session_event_search', 'session_event_trace', 'session_find', 'session_log_tail',
+        'session_message_tail', 'session_search',
         'session_send_message', 'session_status', 'session_trace', 'session_unload',
         'skill', 'subagent', 'subagent_fork', 'todo_write', 'update_goal',
         'workflow', 'write',

@@ -17,8 +17,7 @@ import {
   type SessionResultFilter,
 } from '@deepseek-ai/dsh-session-query'
 
-interface SessionSearchArgs {
-  query: string
+interface SessionFilterArgs {
   cwd?: string | null
   session_ids?: string[]
   created_at_from?: string
@@ -26,12 +25,24 @@ interface SessionSearchArgs {
   parent_session_ids?: string[]
   include_root_sessions?: boolean
   availability?: SessionAvailability[]
+}
+
+/** Model arguments for full-text search over session event content. */
+export interface SessionSearchArgs extends SessionFilterArgs {
+  query: string
   event_seq_from?: number
   event_seq_to?: number
   event_time_from?: string
   event_time_to?: string
   event_types?: string[]
   event_surfaces?: SessionEventSurface[]
+}
+
+/** Model arguments for current-title, metadata, and activity discovery. */
+export interface SessionFindArgs extends SessionFilterArgs {
+  title?: string
+  active_at_from?: string
+  active_at_to?: string
 }
 
 interface EventFilterInput {
@@ -71,6 +82,26 @@ const sessionSearchParameters = {
   },
 } as const
 
+const sessionFindParameters = {
+  title: { type: 'string', description: 'Optional literal full-text query over current session titles only.' },
+  cwd: {
+    oneOf: [{ type: 'string' }, { type: 'null' }],
+    description: 'Optional exact cwd filter. Omit to find sessions from every cwd; use null for sessions without a cwd.',
+  },
+  session_ids: { type: 'array', items: { type: 'string' }, description: 'Optional session ids to include.' },
+  created_at_from: { type: 'string', description: 'Inclusive timezone-qualified ISO 8601 creation-time lower bound.' },
+  created_at_to: { type: 'string', description: 'Inclusive timezone-qualified ISO 8601 creation-time upper bound.' },
+  active_at_from: { type: 'string', description: 'Inclusive lower bound requiring at least one raw event at or after this time.' },
+  active_at_to: { type: 'string', description: 'Inclusive upper bound requiring at least one raw event at or before this time.' },
+  parent_session_ids: { type: 'array', items: { type: 'string' }, description: 'Optional direct parent session ids.' },
+  include_root_sessions: { type: 'boolean', description: 'Include sessions with no parent in the parent filter.' },
+  availability: {
+    type: 'array',
+    items: { type: 'string', enum: ['live', 'persisted'] },
+    description: 'Require at least one selected source availability.',
+  },
+} as const
+
 const eventSearchParameters = {
   session_id: { type: 'string', description: 'Target session id. Omit for the current session.' },
   query: { type: 'string', required: true, description: 'Literal full-text query over the target session.' },
@@ -95,7 +126,12 @@ const messageTailParameters = {
   limit: { type: 'integer', description: 'Maximum finalized messages to return. Defaults to 10.' },
 } as const
 
-function buildSessionFilters(args: SessionSearchArgs): SessionResultFilter[] {
+const logTailParameters = {
+  session_id: { type: 'string', description: 'Target session id. Omit for the current session.' },
+  limit: { type: 'integer', description: 'Maximum complete raw events to return. Defaults to 20.' },
+} as const
+
+function buildSessionFilters(args: SessionFilterArgs): SessionResultFilter[] {
   const filters: SessionResultFilter[] = []
   if (args.session_ids !== undefined) {
     assertNonEmptyArray('session_ids', args.session_ids)
@@ -109,6 +145,10 @@ function buildSessionFilters(args: SessionSearchArgs): SessionResultFilter[] {
   }
   if (args.cwd !== undefined) filters.push({ kind: 'cwd', values: [args.cwd] })
   return filters
+}
+
+function buildActivityRange(args: SessionFindArgs): { from?: number; to?: number } | undefined {
+  return timestampRange('active_at', args.active_at_from, args.active_at_to)
 }
 
 function materializeParentSessionIds(values: readonly string[] | undefined): SessionIdValue[] | undefined {
@@ -307,10 +347,13 @@ function assertNonEmptyArray(name: string, values: readonly unknown[]): void {
 /** Model schemas and model-owned value normalization shared by tool operations. */
 export const toolInput = {
   sessionSearchParameters,
+  sessionFindParameters,
   eventSearchParameters,
   targetSessionParameter,
   messageTailParameters,
+  logTailParameters,
   buildSessionFilters,
+  buildActivityRange,
   materializeParentSessionIds,
   buildEventFilters,
   normalizeQuery,

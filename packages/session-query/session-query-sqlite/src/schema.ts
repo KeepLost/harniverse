@@ -5,7 +5,7 @@ import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 
 /** Current derived-index schema version. Incompatible versions reset in place. */
-export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 8
+export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 9
 
 /** SQLite application id protecting unrelated databases from derived resets. */
 export const SESSION_QUERY_SQLITE_APPLICATION_ID = 0x44534851
@@ -16,6 +16,13 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 const DERIVED_USER_TABLES = new Set([
   'search_state',
   'persisted_sessions',
+  'persisted_activity',
+  'persisted_titles',
+  'persisted_titles_data',
+  'persisted_titles_idx',
+  'persisted_titles_content',
+  'persisted_titles_docsize',
+  'persisted_titles_config',
   'persisted_docs',
   'persisted_docs_data',
   'persisted_docs_idx',
@@ -135,6 +142,25 @@ function ensurePersistentSchema(db: DatabaseSync): void {
       tokenize = 'unicode61'
     )
   `)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS persisted_activity (
+      session_id TEXT NOT NULL,
+      seq        INTEGER NOT NULL,
+      time       INTEGER NOT NULL,
+      PRIMARY KEY (session_id, seq)
+    ) STRICT
+  `)
+  db.exec('CREATE INDEX IF NOT EXISTS persisted_activity_time_idx ON persisted_activity (time, session_id)')
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS persisted_titles USING fts5(
+      title,
+      raw_title UNINDEXED,
+      session_id UNINDEXED,
+      updated_at UNINDEXED,
+      codepoint_length UNINDEXED,
+      tokenize = 'unicode61'
+    )
+  `)
   db.exec(`PRAGMA user_version = ${SESSION_QUERY_SQLITE_SCHEMA_VERSION}`)
 }
 
@@ -162,6 +188,25 @@ function ensureTemporarySchema(db: DatabaseSync): void {
       type UNINDEXED,
       time UNINDEXED,
       surface UNINDEXED,
+      codepoint_length UNINDEXED,
+      tokenize = 'unicode61'
+    )
+  `)
+  db.exec(`
+    CREATE TEMP TABLE IF NOT EXISTS live_activity (
+      session_id TEXT NOT NULL,
+      seq        INTEGER NOT NULL,
+      time       INTEGER NOT NULL,
+      PRIMARY KEY (session_id, seq)
+    ) STRICT
+  `)
+  db.exec('CREATE INDEX IF NOT EXISTS temp.live_activity_time_idx ON live_activity (time, session_id)')
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS temp.live_titles USING fts5(
+      title,
+      raw_title UNINDEXED,
+      session_id UNINDEXED,
+      updated_at UNINDEXED,
       codepoint_length UNINDEXED,
       tokenize = 'unicode61'
     )

@@ -17,6 +17,8 @@ import SessionQueryEngine, {
   type SessionEventSearchHit,
   type SessionEventSearchPage,
   type SessionEventSearchRequest,
+  type SessionFindHit,
+  type SessionFindRequest,
   type SessionLineageNode,
   type SessionSearchExecContext,
   type SessionSearchHit,
@@ -100,6 +102,17 @@ function sessionHit(
   }
 }
 
+function findHit(id: string, title: string, createdAt = 100): SessionFindHit {
+  return {
+    header: header(id, '/work', createdAt),
+    live: true,
+    persisted: false,
+    title,
+    latestActivityAt: 200,
+    matchedActivityAt: 190,
+  }
+}
+
 function eventHit(sessionId: SessionIdValue, seq: number, text = 'needle excerpt'): SessionEventSearchHit {
   return {
     sessionId,
@@ -117,6 +130,11 @@ class FakeQuery extends SessionQueryEngine {
     exec?: SessionSearchExecContext,
   ) => Promise<SessionSearchPage<SessionSearchHit>> = () => Promise.resolve({ items: [] })
 
+  static sessionFind: (
+    request: SessionFindRequest,
+    exec?: SessionSearchExecContext,
+  ) => Promise<SessionSearchPage<SessionFindHit>> = () => Promise.resolve({ items: [] })
+
   static eventSearch: (
     request: SessionEventSearchRequest,
     exec?: SessionSearchExecContext,
@@ -126,17 +144,20 @@ class FakeQuery extends SessionQueryEngine {
   })
 
   static sessionRequests: SessionSearchRequest[] = []
+  static findRequests: SessionFindRequest[] = []
   static eventRequests: SessionEventSearchRequest[] = []
   static searchSignals: Array<AbortSignal | undefined> = []
   static titles = new Map<SessionIdValue, string | Error>()
 
   static reset(): void {
+    this.sessionFind = () => Promise.resolve({ items: [] })
     this.sessionSearch = () => Promise.resolve({ items: [] })
     this.eventSearch = request => Promise.resolve({
       session: header(request.sessionId, '/work'),
       items: [],
     })
     this.sessionRequests = []
+    this.findRequests = []
     this.eventRequests = []
     this.searchSignals = []
     this.titles = new Map()
@@ -149,6 +170,15 @@ class FakeQuery extends SessionQueryEngine {
     FakeQuery.sessionRequests.push(request)
     FakeQuery.searchSignals.push(exec?.signal)
     return FakeQuery.sessionSearch(request, exec)
+  }
+
+  override findSessions(
+    request: SessionFindRequest,
+    exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionFindHit>> {
+    FakeQuery.findRequests.push(request)
+    FakeQuery.searchSignals.push(exec?.signal)
+    return FakeQuery.sessionFind(request, exec)
   }
 
   override searchEvents(
@@ -234,14 +264,16 @@ function errorCode(result: ToolExecutionResult): string | undefined {
 }
 
 describe('registration and schemas', () => {
-  it('registers the seven cursor-free tools, prompt, timeouts, and pure generic presenters, then disposes them', async () => {
+  it('registers distinct find, content-search, and raw-log tools with their prompt guidance, then disposes them', async () => {
     const mounted = await mount({ maxSearchResults: 7, searchTimeoutMs: 1234 })
     const names = mounted.ctx.tools.schemas().map(schema => schema.name)
     expect(names).toEqual([
+      'session_find',
       'session_search',
       'session_event_search',
       'session_status',
       'session_message_tail',
+      'session_log_tail',
       'session_trace',
       'session_event_trace',
       'session_event_read',
@@ -256,6 +288,7 @@ describe('registration and schemas', () => {
       session_trace: {},
       session_status: {},
       session_message_tail: {},
+      session_log_tail: {},
       session_event_trace: { seq: 0 },
       session_event_read: { seq: 0 },
     }
@@ -268,6 +301,19 @@ describe('registration and schemas', () => {
       .toEqual({ card: 'generic', kind: 'search', title: 'Search prior sessions', rawInput: 'needle' })
     expect(mounted.ctx.tools.get('session_event_search')?.presentCall?.({ query: 'needle' }))
       .toEqual({ card: 'generic', kind: 'search', title: 'Search session events', rawInput: 'needle' })
+    expect(mounted.ctx.tools.get('session_find')?.presentCall?.({ cwd: '/work' }))
+      .toEqual({ card: 'generic', kind: 'search', title: 'Find prior sessions', rawInput: { cwd: '/work' } })
+    expect(mounted.ctx.tools.get('session_status')?.presentCall?.({}))
+      .toEqual({ card: 'generic', kind: 'read', title: 'Read status for current session' })
+    expect(mounted.ctx.tools.get('session_message_tail')?.presentCall?.({ session_id: 'other' }))
+      .toEqual({
+        card: 'generic',
+        kind: 'read',
+        title: 'Read message tail from session other',
+        rawInput: 'other',
+      })
+    expect(mounted.ctx.tools.get('session_log_tail')?.presentCall?.({}))
+      .toEqual({ card: 'generic', kind: 'read', title: 'Read raw log tail from current session' })
     expect(mounted.ctx.tools.get('session_trace')?.presentCall?.({}))
       .toEqual({ card: 'generic', kind: 'read', title: 'Trace current session' })
     expect(mounted.ctx.tools.get('session_trace')?.presentCall?.({ session_id: 'other' }))
@@ -283,7 +329,11 @@ describe('registration and schemas', () => {
       .toEqual({ card: 'generic', kind: 'read', title: 'Read event 4', rawInput: { seq: 4 } })
     const assembly = await mounted.ctx.systemPrompt.assemble()
     expect(assembly.sections.find(section => section.name === 'tool:session-query')?.text)
-      .toContain('prior sessions')
+      .toContain('session_find returns session metadata without content-match events or snippets')
+    expect(assembly.sections.find(section => section.name === 'tool:session-query')?.text)
+      .toContain('session_search returns matching event seqs and snippets')
+    expect(assembly.sections.find(section => section.name === 'tool:session-query')?.text)
+      .toContain('session_log_tail reads complete raw events')
 
     await mounted.fiber.dispose()
     expect(mounted.ctx.tools.schemas().map(schema => schema.name)).toEqual([])
@@ -294,11 +344,13 @@ describe('registration and schemas', () => {
   it('keeps generation-bound searches exclusive while exact observations remain parallel', async () => {
     const mounted = await mount()
     const classifications = [
+      ['session_find', {}, 'exclusive'],
       ['session_search', { query: 'q' }, 'exclusive'],
       ['session_event_search', { query: 'q' }, 'exclusive'],
       ['session_trace', {}, 'parallel'],
       ['session_event_trace', { seq: 0 }, 'parallel'],
       ['session_event_read', { seq: 0 }, 'parallel'],
+      ['session_log_tail', {}, 'parallel'],
     ] as const
 
     for (const [name, args, kind] of classifications) {
@@ -327,13 +379,64 @@ describe('registration and schemas', () => {
 
   it('expresses the complete Node timer range in the Loader config schema', () => {
     expect(new ToolSessionQuery.Config({ searchTimeoutMs: MAX_TIMER_DELAY_MS }))
-      .toEqual({ maxSearchResults: 100, searchTimeoutMs: MAX_TIMER_DELAY_MS, messageTailLimit: 10 })
+      .toEqual({
+        maxSearchResults: 100,
+        searchTimeoutMs: MAX_TIMER_DELAY_MS,
+        messageTailLimit: 10,
+        logTailLimit: 20,
+      })
     expect(() => new ToolSessionQuery.Config({ searchTimeoutMs: 1.5 })).toThrow()
     expect(() => new ToolSessionQuery.Config({ searchTimeoutMs: MAX_TIMER_DELAY_MS + 1 })).toThrow()
   })
 })
 
 describe('input validation and translation', () => {
+  it('finds sessions by current title and independent creation/raw-activity ranges without content snippets', async () => {
+    const mounted = await mount()
+    FakeQuery.sessionFind = () => Promise.resolve({
+      items: [findHit('found-by-metadata', 'Current title')],
+    })
+
+    const result = await mounted.call('session_find', {
+      title: '  Current   title ',
+      cwd: '/work',
+      created_at_from: '2026-08-19T00:00:00Z',
+      created_at_to: '2026-08-20T00:00:00Z',
+      active_at_from: '2026-08-19T12:00:00Z',
+      active_at_to: '2026-08-19T13:00:00Z',
+    })
+
+    expect(result.isError).toBe(false)
+    expect(FakeQuery.findRequests).toEqual([{
+      title: 'Current title',
+      sessionFilters: [
+        {
+          kind: 'created-at',
+          from: Date.parse('2026-08-19T00:00:00Z'),
+          to: Date.parse('2026-08-20T00:00:00Z'),
+        },
+        { kind: 'cwd', values: ['/work'] },
+      ],
+      activity: {
+        from: Date.parse('2026-08-19T12:00:00Z'),
+        to: Date.parse('2026-08-19T13:00:00Z'),
+      },
+    }])
+    const output = text(result)
+    expect(output).toContain('Session find results (1)')
+    expect(output).toContain('Current title: Current title')
+    expect(output).toContain('Matched activity: 1970-01-01T00:00:00.190Z')
+    expect(output).not.toContain('Best match:')
+    expect(output).not.toContain('Snippet:')
+  })
+
+  it('rejects a blank session title query before calling the provider', async () => {
+    const mounted = await mount()
+    const result = await mounted.call('session_find', { title: '   ' })
+    expect(errorCode(result)).toBe('SESSION_QUERY_INVALID_QUERY')
+    expect(FakeQuery.findRequests).toEqual([])
+  })
+
   it('reads runtime status and a bounded finalized message tail without waiting', async () => {
     const mounted = await mount()
     mounted.caller.append(
@@ -2003,7 +2106,7 @@ describe('trace and exact read rendering', () => {
     expect(text(result)).toContain(new Date(session.events[0]?.time ?? 0).toISOString())
   })
 
-  it('renders unabridged fenced target JSON and readable semantic or log-only neighbor summaries', async () => {
+  it('renders every event in the bounded raw-log window as unabridged JSON', async () => {
     const mounted = await mount()
     const session = createSession(mounted.ctx, 'read', '/work')
     session.append(
@@ -2047,13 +2150,12 @@ describe('trace and exact read rendering', () => {
     expect(output).toContain('```json')
     expect(output).toContain('"text": "target full text"')
     expect(output).toContain('before semantic text')
-    expect(output).toContain('seq 2 | context/message')
-    expect(output).toContain('(no semantic text)')
-    expect(output).not.toContain('after semantic text')
+    expect(output).toContain('"type": "context/message"')
+    expect(output).toContain('after semantic text')
     expect(output).not.toContain('truncated')
   })
 
-  it('renders empty event relationships and neighbors without semantic text', async () => {
+  it('renders structural neighbors as complete raw events', async () => {
     const mounted = await mount()
     const session = createSession(mounted.ctx, 'empty-relations', '/work')
     session.append('step/start', { turn: 1, step: 1 })
@@ -2071,16 +2173,18 @@ describe('trace and exact read rendering', () => {
       seq: 0,
       after: 1,
     }))
-    expect(onlyAfter).not.toContain('Before:')
-    expect(onlyAfter).toContain('(no semantic text)')
+    expect(onlyAfter).toContain('Raw log window (2)')
+    expect(onlyAfter).toContain('"type": "step/start"')
+    expect(onlyAfter).toContain('"type": "step/end"')
 
     const onlyBefore = text(await mounted.call('session_event_read', {
       session_id: session.id,
       seq: 1,
       before: 1,
     }))
-    expect(onlyBefore).toContain('Before:')
-    expect(onlyBefore).not.toContain('After:')
+    expect(onlyBefore).toContain('Raw log window (2)')
+    expect(onlyBefore).toContain('"type": "step/start"')
+    expect(onlyBefore).toContain('"type": "step/end"')
   })
 
   it.each([

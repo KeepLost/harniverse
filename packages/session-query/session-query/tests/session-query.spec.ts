@@ -1008,6 +1008,38 @@ describe('session-query exact reads', () => {
     })
   })
 
+  it('reads a bounded detached tail of complete raw events', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('raw-tail'), { meta: { cwd: '/work' } })
+    session.append('turn/start', { turn: 1 })
+    session.append(
+      'user/message',
+      createUserMessage({
+        content: [{ type: 'text', text: 'raw tail message' }], source: { kind: 'user' },
+      }),
+      { surfaceOp: 'append' },
+    )
+    session.append('step/start', { turn: 1, step: 1 })
+
+    const tail = await ctx.sessionQuery.readLogTail(session.id, 2)
+    expect(tail).toMatchObject({
+      session: session.header,
+      capturedThroughSeq: 2,
+      truncated: true,
+      events: [
+        { type: 'user/message', seq: 1 },
+        { type: 'step/start', seq: 2 },
+      ],
+    })
+    if (tail.events[0]?.type !== 'user/message') throw new Error('expected raw user event')
+    expect(() => {
+      (tail.events[0]!.data as { content: unknown[] }).content = []
+    }).toThrow()
+    expect(session.events[1]?.type === 'user/message' && session.events[1].data.content).toHaveLength(1)
+    await expect(ctx.sessionQuery.readLogTail(session.id, 0))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_LIMIT'))
+  })
+
   it('returns a bounded detached raw-event window and validates the request', async () => {
     const ctx = await liveContext({ readWindowMax: 1 })
     const session = ctx.sessions.create(SessionId('window'), { meta: { cwd: '/work' } })

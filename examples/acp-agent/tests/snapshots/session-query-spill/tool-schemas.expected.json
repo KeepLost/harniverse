@@ -271,7 +271,7 @@
     },
     {
       "name": "session_event_read",
-      "description": "Read one full unabridged event and optional neighboring raw-event summaries from an authorized session.",
+      "description": "Read a complete raw SessionEvent window around one event sequence from an authorized session.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -285,11 +285,11 @@
           },
           "before": {
             "type": "integer",
-            "description": "Number of preceding raw events to summarize. Omit for none."
+            "description": "Number of preceding complete raw events to include. Omit for none."
           },
           "after": {
             "type": "integer",
-            "description": "Number of following raw events to summarize. Omit for none."
+            "description": "Number of following complete raw events to include. Omit for none."
           }
         },
         "required": [
@@ -373,8 +373,94 @@
       }
     },
     {
+      "name": "session_find",
+      "description": "Find prior sessions by current title, creation time, or raw-event activity time. Returns session metadata, never content-match events or snippets.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Optional literal full-text query over current session titles only."
+          },
+          "cwd": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional exact cwd filter. Omit to find sessions from every cwd; use null for sessions without a cwd."
+          },
+          "session_ids": {
+            "type": "array",
+            "description": "Optional session ids to include.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_at_from": {
+            "type": "string",
+            "description": "Inclusive timezone-qualified ISO 8601 creation-time lower bound."
+          },
+          "created_at_to": {
+            "type": "string",
+            "description": "Inclusive timezone-qualified ISO 8601 creation-time upper bound."
+          },
+          "active_at_from": {
+            "type": "string",
+            "description": "Inclusive lower bound requiring at least one raw event at or after this time."
+          },
+          "active_at_to": {
+            "type": "string",
+            "description": "Inclusive upper bound requiring at least one raw event at or before this time."
+          },
+          "parent_session_ids": {
+            "type": "array",
+            "description": "Optional direct parent session ids.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "include_root_sessions": {
+            "type": "boolean",
+            "description": "Include sessions with no parent in the parent filter."
+          },
+          "availability": {
+            "type": "array",
+            "description": "Require at least one selected source availability.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "live",
+                "persisted"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "session_log_tail",
+      "description": "Read the latest complete raw SessionEvent trajectory from an authorized session, including shadowed and log-only events.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "Target session id. Omit for the current session."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum complete raw events to return. Defaults to 20."
+          }
+        }
+      }
+    },
+    {
       "name": "session_message_tail",
-      "description": "Read the latest finalized model-visible messages from an authorized session without waiting for it.",
+      "description": "Read the folded current model-message surface tail from an authorized session. This is not historical raw-log trajectory.",
       "parameters": {
         "type": "object",
         "properties": {

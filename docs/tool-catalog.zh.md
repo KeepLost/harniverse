@@ -36,7 +36,7 @@
 | `@deepseek-ai/dsh-tool-result-artifacts` | `artifact_read` | `ctx.tools`、`ctx.spillStore` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`、`ctx.agents`、`ctx.skills` | `tool/call`、`tool/result`、`user/message replacement catalogs via agent.inject()` | - | - |
 | `@deepseek-ai/dsh-tool-session-delivery` | `session_send_message`、`session_unload` | `ctx.tools`、`ctx.sessionDelivery`、`a calling Agent` | `tool/call`、`tool/result`、`target user/message through the selected Provider` | - | 该工具只确认 inbox 接受，绝不等待目标完成或回复。 |
-| `@deepseek-ai/dsh-tool-session-query` | `session_event_read`、`session_event_search`、`session_event_trace`、`session_message_tail`、`session_search`、`session_status`、`session_trace` | `ctx.tools`、`ctx.systemPrompt`、`ctx.sessionQuery`、`a calling Agent for caller identity` | `tool/call`、`tool/result` | - | 这 7 个只读工具隐藏提供方游标，并把精确观察绑定到不透明 session id。该包需要选择启用；cwd 仅是可选的 session-search 过滤器。 |
+| `@deepseek-ai/dsh-tool-session-query` | `session_event_read`、`session_event_search`、`session_event_trace`、`session_find`、`session_log_tail`、`session_message_tail`、`session_search`、`session_status`、`session_trace` | `ctx.tools`、`ctx.systemPrompt`、`ctx.sessionQuery`、`a calling Agent for caller identity` | `tool/call`、`tool/result` | - | 这 9 个只读工具区分标题/时间发现、内容命中、当前消息尾部和完整原始日志读取，同时隐藏提供方游标，并把精确观察绑定到不透明 session id。 |
 | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`、`ctx.subagents`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`child session events through the chosen provider` | `subagent`、`subagent_fork` | 注册的工具名称取决于加载时 `toolName` 配置（默认为 `subagent`）；上述 schema 对应默认值。随产品发布的组合会为每个 subagent 后端加载一次该包，因此模型还会看到绑定到 fork 后端的 `subagent_fork`。每个实例的描述、`run_in_background` 参数与 system prompt 策略取决于它自己的 `backgroundMode` 和 `enableRunInBackground`，因此两个随附 schema 并不相同：`subagent` 为 `continuable`，省略参数时默认后台运行，并由 runtime 自动投递结束结果；`subagent_fork` 保持 `one-shot`，省略参数时默认前台运行。详见 `packages/bundle/base/cordis.patch.yml` 和 `examples/acp-agent/cordis.yml`。 |
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`、`list_agents`、`send_message` | `ctx.tools`、`ctx.subagents`、`ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`、`tool/result`、`child session events through ctx.subagents` | - | 这些是控制可继续后台 subagent 的全局命名工具：绑定提供方的 `tool-subagent` 实例注册不同的委派工具；本包注册一次 `send_message` 和 `interrupt_agent`，另由 `list_agents` 通过单独加载的 `/list-agents` 插件提供，其目录行使用 sessionProjections 和实时 Agent 注册表。 |
 | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`、`ctx.systemPrompt`、`a live continuable in-process child Agent` | `tool/call`、`tool/result`、`a user-role message in the direct parent session` | - | 按可继续的进程内子级注册，而非全局注册，因此该 schema 仅在这种子级内部可见，并且不受其全局 `toolFilter` 影响。同一份贡献还会安装子级作用域的 `tool:report` 系统提示词 section，本目录不渲染该 section。面向父级的 `send_message` 工具单独安装。 |
@@ -1400,7 +1400,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 ### `session_event_read`
 
-从一个已获授权的会话中读取一个完整且未删节的事件，以及可选的相邻原始事件概述。
+从一个已获授权的会话中读取围绕某一事件序号的完整原始 SessionEvent 窗口。
 
 ```json
 {
@@ -1416,11 +1416,11 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
     },
     "before": {
       "type": "integer",
-      "description": "Number of preceding raw events to summarize. Omit for none."
+      "description": "Number of preceding complete raw events to include. Omit for none."
     },
     "after": {
       "type": "integer",
-      "description": "Number of following raw events to summarize. Omit for none."
+      "description": "Number of following complete raw events to include. Omit for none."
     }
   },
   "required": [
@@ -1516,9 +1516,105 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
 
+### `session_find`
+
+按当前标题、创建时间或原始事件活动时间查找先前会话。只返回会话元数据，绝不返回内容匹配事件或摘录。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Optional literal full-text query over current session titles only."
+    },
+    "cwd": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Optional exact cwd filter. Omit to find sessions from every cwd; use null for sessions without a cwd."
+    },
+    "session_ids": {
+      "type": "array",
+      "description": "Optional session ids to include.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "created_at_from": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 creation-time lower bound."
+    },
+    "created_at_to": {
+      "type": "string",
+      "description": "Inclusive timezone-qualified ISO 8601 creation-time upper bound."
+    },
+    "active_at_from": {
+      "type": "string",
+      "description": "Inclusive lower bound requiring at least one raw event at or after this time."
+    },
+    "active_at_to": {
+      "type": "string",
+      "description": "Inclusive upper bound requiring at least one raw event at or before this time."
+    },
+    "parent_session_ids": {
+      "type": "array",
+      "description": "Optional direct parent session ids.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "include_root_sessions": {
+      "type": "boolean",
+      "description": "Include sessions with no parent in the parent filter."
+    },
+    "availability": {
+      "type": "array",
+      "description": "Require at least one selected source availability.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "live",
+          "persisted"
+        ]
+      }
+    }
+  }
+}
+```
+
+来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
+### `session_log_tail`
+
+读取已授权会话中最新的完整原始 SessionEvent 轨迹，其中包括 shadowed 和 log-only 事件。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target session id. Omit for the current session."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Maximum complete raw events to return. Defaults to 20."
+    }
+  }
+}
+```
+
+来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
 ### `session_message_tail`
 
-读取已授权会话中最新的最终模型可见消息，不等待该会话。
+读取已授权会话中折叠后的当前模型消息 surface 尾部。这不是历史原始日志轨迹。
 
 ```json
 {
@@ -1678,7 +1774,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
 
-这 7 个只读工具隐藏提供方游标，并把精确观察绑定到不透明 session id。该包需要选择启用；cwd 仅是可选的 session-search 过滤器。
+这 9 个只读工具区分标题/时间发现、内容命中、当前消息尾部和完整原始日志读取，同时隐藏提供方游标，并把精确观察绑定到不透明 session id。
 
 <a id="deepseek-aidsh-tool-subagent"></a>
 

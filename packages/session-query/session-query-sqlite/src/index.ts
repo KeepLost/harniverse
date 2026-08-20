@@ -9,6 +9,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { Context, Service, type Fiber } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type SessionPersistence from '@deepseek-ai/dsh-session-persistence'
 import type {
   SessionPersistenceRevision,
@@ -28,6 +29,8 @@ import type {
   SessionEventSearchHit,
   SessionEventSearchPage,
   SessionEventSearchRequest,
+  SessionFindHit,
+  SessionFindRequest,
   SessionSearchExecContext,
   SessionSearchHit,
   SessionSearchCursor as SessionSearchCursorValue,
@@ -40,15 +43,18 @@ import {
 } from './schema.ts'
 import {
   type NormalizedEventRequest,
+  type NormalizedFindRequest,
   type NormalizedSessionRequest,
   FTS_HIGHLIGHT_END,
   FTS_HIGHLIGHT_START,
   assertFts5OuterPredicateCount,
   assertPortableBindingCount,
+  buildActivityWhere,
   buildEventWhere,
   buildSessionWhere,
   makeSnippet,
   normalizeEventRequest,
+  normalizeFindRequest,
   normalizeSessionRequest,
   quoteFtsData,
   requestFingerprint,
@@ -82,10 +88,10 @@ export const SESSION_QUERY_SQLITE_SNIPPET_CHARS = 240
 // One transient source change gets a retry; repeated churn fails rather than monopolizing the queue.
 const STABLE_OBSERVATION_ATTEMPTS = 2
 
-/** SQLite module/handle opening phase; `never` disables full-text search entirely. */
+/** SQLite module/handle opening phase; `never` disables indexed discovery/search. */
 export type OpenAt = 'startup' | 'first-search' | 'never'
 
-/** Combined session-query configuration backed by SQLite full-text search. */
+/** Combined session-query configuration backed by SQLite discovery and full-text search. */
 export interface Config extends SessionQueryConfig {
   /**
    * Dedicated derived-index path; `:memory:` is supported for ephemeral
@@ -95,9 +101,9 @@ export interface Config extends SessionQueryConfig {
   path: string
   /**
    * Open the SQLite module and handle at service activation or the first
-   * search, or `never` to disable full-text search: the inherited exact
-   * reads, filters, and traces stay available, while `searchSessions` and
-   * `searchEvents` fail with `SESSION_QUERY_SEARCH_DISABLED` and SQLite is
+   * indexed discovery/search, or `never` to disable them: inherited exact
+   * reads, filters, and traces stay available, while `findSessions`,
+   * `searchSessions`, and `searchEvents` fail with `SESSION_QUERY_SEARCH_DISABLED` and SQLite is
    * never imported or opened. Defaults to `startup`.
    */
   openAt?: OpenAt
@@ -126,6 +132,8 @@ interface ResolvedConfig {
 
 interface ObservedSession {
   header: SessionHeader
+  activity: Array<{ seq: number; time: number }>
+  title?: { text: string; updatedAt: number }
   documents: SessionEventSearchDocument[]
   fingerprint: string
 }
@@ -183,10 +191,18 @@ interface SearchRow extends SessionHeaderRow {
   document_length: number
 }
 
+interface FindRow extends SessionHeaderRow {
+  live: number
+  persisted: number
+  title: string | null
+  latest_activity_at: number | null
+  matched_activity_at: number | null
+}
+
 interface CursorPayload {
   version: 1
   instance: string
-  scope: 'sessions' | 'events'
+  scope: 'find' | 'sessions' | 'events'
   fingerprint: string
   generation: string
   offset: number
@@ -281,6 +297,34 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     })
   }
 
+  override async findSessions(
+    request: SessionFindRequest,
+    exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionFindHit>> {
+    this._assertSearchEnabled()
+    const normalized = normalizeFindRequest(request, this.config)
+    const signal = exec?.signal
+    return this._serialized(signal, async () => {
+      await this._ensureReady(signal)
+      const persistenceBinding = await this._reconcile(signal)
+      assertNotAborted(signal)
+      const generation = String(this._globalGeneration)
+      const fingerprint = requestFingerprint(normalized)
+      const offset = normalized.cursor === undefined
+        ? 0
+        : decodeCursor(normalized.cursor, this._instance, 'find', fingerprint, generation)
+      const rows = this._queryFind(normalized, offset, persistenceBinding)
+      return page(rows, normalized.limit, row => this._findHit(row), cursorOffset => encodeCursor({
+        version: 1,
+        instance: this._instance,
+        scope: 'find',
+        fingerprint,
+        generation,
+        offset: cursorOffset,
+      }), offset)
+    })
+  }
+
   override async searchEvents(
     request: SessionEventSearchRequest,
     exec?: SessionSearchExecContext,
@@ -319,7 +363,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
   }
 
   /**
-   * Refuse full-text calls under `openAt: 'never'` before any request
+   * Refuse indexed discovery/search under `openAt: 'never'` before any request
    * normalization or SQLite work, so a disabled deployment never imports
    * node:sqlite, opens the index, or observes sources.
    */
@@ -557,9 +601,13 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
   private _deleteSession(source: 'persisted' | 'live', id: SessionId): void {
     const db = this._requireDb()
     if (source === 'persisted') {
+      db.prepare('DELETE FROM persisted_titles WHERE session_id = ?').run(id)
+      db.prepare('DELETE FROM persisted_activity WHERE session_id = ?').run(id)
       db.prepare('DELETE FROM persisted_docs WHERE session_id = ?').run(id)
       db.prepare('DELETE FROM persisted_sessions WHERE id = ?').run(id)
     } else {
+      db.prepare('DELETE FROM temp.live_titles WHERE session_id = ?').run(id)
+      db.prepare('DELETE FROM temp.live_activity WHERE session_id = ?').run(id)
       db.prepare('DELETE FROM temp.live_docs WHERE session_id = ?').run(id)
       db.prepare('DELETE FROM temp.live_sessions WHERE id = ?').run(id)
     }
@@ -581,6 +629,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       revision,
       generation,
     )
+    insertObservedMetadata(db, 'persisted', entry)
     const insert = db.prepare(`
       INSERT INTO persisted_docs (text, session_id, seq, type, time, surface, codepoint_length)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -612,6 +661,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       persisted ? 1 : 0,
       generation,
     )
+    insertObservedMetadata(db, 'live', entry)
     const insert = db.prepare(`
       INSERT INTO temp.live_docs (text, session_id, seq, type, time, surface, codepoint_length)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -667,6 +717,53 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       ORDER BY match_count DESC, document_length ASC, time DESC, session_id ASC, seq DESC
       LIMIT ? OFFSET ?
     `).all(...bindings) as unknown as SearchRow[]
+  }
+
+  private _queryFind(
+    request: NormalizedFindRequest,
+    offset: number,
+    persistenceBinding: PersistenceBinding,
+  ): FindRow[] {
+    const sessionWhere = buildSessionWhere(request.sessionFilters)
+    const activityWhere = buildActivityWhere(request.activity)
+    const selected = selectedFindSql(
+      request.title,
+      activityWhere,
+      persistenceBinding.service !== undefined,
+    )
+    const where = [
+      sessionWhere.sql,
+      request.activity === undefined ? '' : 'matched_activity.matched_activity_at IS NOT NULL',
+    ].filter(Boolean).join(' AND ')
+    const bindings = [
+      ...selected.params,
+      ...sessionWhere.params,
+      request.limit + 1,
+      offset,
+    ]
+    assertPortableBindingCount(bindings.length)
+    return this._requireDb().prepare(`
+      ${selected.sql}
+      SELECT
+        selected_sessions.*,
+        selected_titles.title AS title,
+        latest_activity.latest_activity_at AS latest_activity_at,
+        matched_activity.matched_activity_at AS matched_activity_at
+      FROM selected_sessions
+      ${request.title === undefined ? 'LEFT JOIN' : 'JOIN'} selected_titles
+        ON selected_titles.session_id = selected_sessions.session_id
+      LEFT JOIN latest_activity
+        ON latest_activity.session_id = selected_sessions.session_id
+      LEFT JOIN matched_activity
+        ON matched_activity.session_id = selected_sessions.session_id
+      ${where.length === 0 ? '' : `WHERE ${where}`}
+      ORDER BY
+        ${request.title === undefined ? '' : 'selected_titles.match_count DESC, selected_titles.document_length ASC,'}
+        COALESCE(matched_activity.matched_activity_at, latest_activity.latest_activity_at, selected_sessions.created_at) DESC,
+        selected_sessions.created_at DESC,
+        selected_sessions.session_id ASC
+      LIMIT ? OFFSET ?
+    `).all(...bindings) as unknown as FindRow[]
   }
 
   private _queryEvents(
@@ -738,6 +835,17 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     }
   }
 
+  private _findHit(row: FindRow): SessionFindHit {
+    return {
+      header: rowHeader(row),
+      live: row.live === 1,
+      persisted: row.persisted === 1,
+      ...row.title === null ? {} : { title: row.title },
+      latestActivityAt: row.latest_activity_at,
+      ...row.matched_activity_at === null ? {} : { matchedActivityAt: row.matched_activity_at },
+    }
+  }
+
   private _eventHit(row: SearchRow): SessionEventSearchHit {
     return {
       sessionId: row.session_id as SessionId,
@@ -777,6 +885,137 @@ function headerBindings(header: SessionHeader): (string | number | null)[] {
     header.delegationDepth ?? null,
     header.agentProfile ?? null,
   ]
+}
+
+function insertObservedMetadata(
+  db: DatabaseSync,
+  source: 'persisted' | 'live',
+  entry: ObservedSession,
+): void {
+  const prefix = source === 'persisted' ? 'persisted' : 'temp.live'
+  const insertActivity = db.prepare(`
+    INSERT INTO ${prefix}_activity (session_id, seq, time)
+    VALUES (?, ?, ?)
+  `)
+  for (const event of entry.activity) {
+    insertActivity.run(entry.header.id, event.seq, event.time)
+  }
+  if (entry.title === undefined) return
+  const title = sanitizeFtsText(entry.title.text)
+  db.prepare(`
+    INSERT INTO ${prefix}_titles (title, raw_title, session_id, updated_at, codepoint_length)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(title, entry.title.text, entry.header.id, entry.title.updatedAt, Array.from(title).length)
+}
+
+function selectedFindSql(
+  title: string | undefined,
+  activityWhere: ReturnType<typeof buildActivityWhere>,
+  persistenceVisible: boolean,
+): { sql: string; params: Array<string | number> } {
+  const visible = persistenceVisible ? 1 : 0
+  const params: Array<string | number> = [visible, visible, visible, ...activityWhere.params]
+  let titleSql: string
+  if (title === undefined) {
+    titleSql = `selected_titles AS (
+      SELECT pt.session_id, pt.raw_title AS title, 0 AS match_count, CAST(pt.codepoint_length AS INTEGER) AS document_length
+      FROM persisted_titles AS pt
+      WHERE ? = 1
+        AND NOT EXISTS (SELECT 1 FROM temp.live_sessions AS ls WHERE ls.id = pt.session_id)
+      UNION ALL
+      SELECT lt.session_id, lt.raw_title AS title, 0 AS match_count, CAST(lt.codepoint_length AS INTEGER) AS document_length
+      FROM temp.live_titles AS lt
+    )`
+    params.push(visible)
+  } else {
+    const expression = quoteFtsData(title)
+    titleSql = `title_candidates AS (
+      SELECT
+        pt.session_id,
+        pt.raw_title AS title,
+        highlight(persisted_titles, 0, ?, ?) AS marked_title,
+        CAST(pt.codepoint_length AS INTEGER) AS document_length
+      FROM persisted_titles AS pt
+      WHERE persisted_titles MATCH ?
+        AND ? = 1
+        AND NOT EXISTS (SELECT 1 FROM temp.live_sessions AS ls WHERE ls.id = pt.session_id)
+      UNION ALL
+      SELECT
+        lt.session_id,
+        lt.raw_title AS title,
+        highlight(live_titles, 0, ?, ?) AS marked_title,
+        CAST(lt.codepoint_length AS INTEGER) AS document_length
+      FROM temp.live_titles AS lt
+      WHERE live_titles MATCH ?
+    ), selected_titles AS (
+      SELECT *,
+        (
+          length(CAST(marked_title AS BLOB))
+          - length(CAST(replace(marked_title, ?, '') AS BLOB))
+        ) / ? AS match_count
+      FROM title_candidates
+    )`
+    params.push(
+      FTS_HIGHLIGHT_START,
+      FTS_HIGHLIGHT_END,
+      expression,
+      visible,
+      FTS_HIGHLIGHT_START,
+      FTS_HIGHLIGHT_END,
+      expression,
+      FTS_HIGHLIGHT_START,
+      Buffer.byteLength(FTS_HIGHLIGHT_START, 'utf8'),
+    )
+  }
+  return {
+    sql: `WITH selected_sessions AS (
+      SELECT
+        ps.id AS session_id,
+        ps.version AS version,
+        ps.created_at AS created_at,
+        ps.cwd AS cwd,
+        ps.parent_session AS parent_session,
+        ps.seed_length AS seed_length,
+        ps.delegation_depth AS delegation_depth,
+        ps.agent_preset AS agent_preset,
+        0 AS live,
+        1 AS persisted
+      FROM persisted_sessions AS ps
+      WHERE ? = 1
+        AND NOT EXISTS (SELECT 1 FROM temp.live_sessions AS ls WHERE ls.id = ps.id)
+      UNION ALL
+      SELECT
+        ls.id AS session_id,
+        ls.version AS version,
+        ls.created_at AS created_at,
+        ls.cwd AS cwd,
+        ls.parent_session AS parent_session,
+        ls.seed_length AS seed_length,
+        ls.delegation_depth AS delegation_depth,
+        ls.agent_preset AS agent_preset,
+        1 AS live,
+        CASE WHEN ? = 1 THEN ls.persisted ELSE 0 END AS persisted
+      FROM temp.live_sessions AS ls
+    ), selected_activity AS (
+      SELECT pa.session_id, pa.seq, pa.time
+      FROM persisted_activity AS pa
+      WHERE ? = 1
+        AND NOT EXISTS (SELECT 1 FROM temp.live_sessions AS ls WHERE ls.id = pa.session_id)
+      UNION ALL
+      SELECT la.session_id, la.seq, la.time
+      FROM temp.live_activity AS la
+    ), latest_activity AS (
+      SELECT session_id, MAX(time) AS latest_activity_at
+      FROM selected_activity
+      GROUP BY session_id
+    ), matched_activity AS (
+      SELECT session_id, MAX(time) AS matched_activity_at
+      FROM selected_activity
+      WHERE ${activityWhere.sql.length === 0 ? '0' : activityWhere.sql}
+      GROUP BY session_id
+    ), ${titleSql}`,
+    params,
+  }
 }
 
 function selectedDocumentsSql(): { sql: string } {
@@ -860,8 +1099,11 @@ function observeLive(session: Session): ObservedSession {
 function observeSession(header: SessionHeader, events: readonly SessionEvent[]): ObservedSession {
   const detachedHeader = structuredClone(header)
   const detachedEvents = events.map(event => structuredClone(event))
+  const title = foldSessionTitle(detachedEvents)
   return {
     header: detachedHeader,
+    activity: detachedEvents.map(event => ({ seq: event.seq, time: event.time })),
+    ...title === undefined ? {} : { title: { text: title.title, updatedAt: title.updatedAt } },
     documents: buildSessionEventSearchDocuments(detachedHeader.id, detachedEvents),
     fingerprint: createHash('sha256')
       .update(JSON.stringify({ header: detachedHeader, events: detachedEvents }))

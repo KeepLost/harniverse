@@ -5,20 +5,18 @@
  */
 
 import {
-  extractSessionEventText,
   type SessionEventSearchHit,
   type SessionEventTraceObservation,
   type SessionEventWindow,
+  type SessionFindHit,
   type SessionLineageTrace,
+  type SessionLogTail,
   type SessionMessageTail,
   type SessionRuntimeStatus,
   type SessionRecord,
   type SessionSearchHit,
 } from '@deepseek-ai/dsh-session-query'
-import type {
-  SessionEvent,
-  SessionId,
-} from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import { workspaceAccess } from './workspace-access.ts'
 
@@ -33,6 +31,14 @@ interface SearchCollection<T> {
 
 interface SessionSearchCallArgs {
   readonly query: string
+}
+
+interface SessionFindCallArgs {
+  readonly title?: string
+  readonly created_at_from?: string
+  readonly created_at_to?: string
+  readonly active_at_from?: string
+  readonly active_at_to?: string
 }
 
 interface EventSearchCallArgs {
@@ -78,6 +84,30 @@ function formatSessionSearch(
     lines.push('', 'Result cap reached. Narrow the query or add filters to find additional matches.')
   }
   return lines.join('\n')
+}
+
+function formatSessionFind(collected: SearchCollection<SessionFindHit>): string {
+  if (collected.items.length === 0) return formatEmptySessionFind()
+  const lines = [`Session find results (${collected.items.length}):`]
+  for (const [index, hit] of collected.items.entries()) {
+    lines.push(
+      '',
+      `${index + 1}. Session ${hit.header.id}`,
+      `   Current title: ${hit.title ?? '(untitled)'}`,
+      `   Created: ${formatTime(hit.header.createdAt)}`,
+      `   Latest activity: ${hit.latestActivityAt === null ? 'none' : formatTime(hit.latestActivityAt)}`,
+      `   Matched activity: ${hit.matchedActivityAt === undefined ? 'not filtered' : formatTime(hit.matchedActivityAt)}`,
+      `   Availability: ${availabilityText(hit)}`,
+    )
+  }
+  if (collected.capped) {
+    lines.push('', 'Result cap reached. Narrow the title or time filters to find additional sessions.')
+  }
+  return lines.join('\n')
+}
+
+function formatEmptySessionFind(): string {
+  return 'No sessions found for the requested discovery filters.'
 }
 
 function formatEmptySessionSearch(): string {
@@ -169,24 +199,14 @@ function formatEventRead(
   title: TitleView,
   window: SessionEventWindow,
 ): string {
-  const before = window.events.filter(event => event.seq < window.target.seq)
-  const after = window.events.filter(event => event.seq > window.target.seq)
-  const lines = [
+  return [
     `Session ${sessionId} — ${workspaceAccess.titleText(title)}`,
-    `Target event seq ${window.target.seq}:`,
+    `Target event seq: ${window.target.seq}`,
+    `Raw log window (${window.events.length}) | seq ${window.startSeq}-${window.endSeq}:`,
     '```json',
-    JSON.stringify(window.target, null, 2),
+    JSON.stringify(window.events, null, 2),
     '```',
-  ]
-  if (before.length > 0) {
-    lines.push('', 'Before:')
-    for (const event of before) lines.push(formatNeighbor(event))
-  }
-  if (after.length > 0) {
-    lines.push('', 'After:')
-    for (const event of after) lines.push(formatNeighbor(event))
-  }
-  return lines.join('\n')
+  ].join('\n')
 }
 
 function formatSessionStatus(status: SessionRuntimeStatus): string {
@@ -214,10 +234,17 @@ function formatMessageTail(tail: SessionMessageTail): string {
   return lines.join('\n')
 }
 
-function formatNeighbor(event: SessionEvent): string {
-  const text = extractSessionEventText(event)
-  return `- seq ${event.seq} | ${event.type} | ${formatTime(event.time)}`
-    + (text.length === 0 ? ' | (no semantic text)' : `\n  ${text.replaceAll('\n', '\n  ')}`)
+function formatLogTail(tail: SessionLogTail): string {
+  const lines = [
+    `Session ${tail.session.id}`,
+    `Observed through seq: ${tail.capturedThroughSeq ?? 'none'}`,
+    `Raw log tail (${tail.events.length}):`,
+    '```json',
+    JSON.stringify(tail.events, null, 2),
+    '```',
+  ]
+  if (tail.truncated) lines.push('', 'Older raw events were omitted by the requested limit.')
+  return lines.join('\n')
 }
 
 function availabilityText(record: SessionRecord): string {
@@ -239,15 +266,24 @@ function presentSessionSearchCall(args: SessionSearchCallArgs): GenericCallView 
   return { card: 'generic', kind: 'search', title: 'Search prior sessions', rawInput: args.query }
 }
 
+function presentSessionFindCall(args: SessionFindCallArgs): GenericCallView {
+  return {
+    card: 'generic',
+    kind: 'search',
+    title: 'Find prior sessions',
+    rawInput: args,
+  }
+}
+
 function presentEventSearchCall(args: EventSearchCallArgs): GenericCallView {
   return { card: 'generic', kind: 'search', title: 'Search session events', rawInput: args.query }
 }
 
-function presentSessionTraceCall(args: SessionTargetCallArgs): GenericCallView {
+function presentSessionTargetCall(action: string, args: SessionTargetCallArgs): GenericCallView {
   return {
     card: 'generic',
     kind: 'read',
-    title: args.session_id === undefined ? 'Trace current session' : `Trace session ${args.session_id}`,
+    title: args.session_id === undefined ? `${action} current session` : `${action} session ${args.session_id}`,
     ...args.session_id === undefined ? {} : { rawInput: args.session_id },
   }
 }
@@ -269,6 +305,8 @@ function presentEventTargetCall(
 
 /** Text output and call-card presentation for every session-query tool. */
 export const presentation = {
+  formatSessionFind,
+  formatEmptySessionFind,
   formatSessionSearch,
   formatEmptySessionSearch,
   formatEventSearch,
@@ -277,8 +315,10 @@ export const presentation = {
   formatEventRead,
   formatSessionStatus,
   formatMessageTail,
+  formatLogTail,
+  presentSessionFindCall,
   presentSessionSearchCall,
   presentEventSearchCall,
-  presentSessionTraceCall,
+  presentSessionTargetCall,
   presentEventTargetCall,
 }

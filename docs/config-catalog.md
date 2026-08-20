@@ -1876,7 +1876,7 @@ Source: [`packages/session/session-projection-cache/src/index.ts:42`](../package
 Requires: `sessions`
 
 ```ts config-catalog
-/** Combined session-query configuration backed by SQLite full-text search. */
+/** Combined session-query configuration backed by SQLite discovery and full-text search. */
 export interface Config extends SessionQueryConfig {
   /**
    * Dedicated derived-index path; `:memory:` is supported for ephemeral
@@ -1886,9 +1886,9 @@ export interface Config extends SessionQueryConfig {
   path: string
   /**
    * Open the SQLite module and handle at service activation or the first
-   * search, or `never` to disable full-text search: the inherited exact
-   * reads, filters, and traces stay available, while `searchSessions` and
-   * `searchEvents` fail with `SESSION_QUERY_SEARCH_DISABLED` and SQLite is
+   * indexed discovery/search, or `never` to disable them: inherited exact
+   * reads, filters, and traces stay available, while `findSessions`,
+   * `searchSessions`, and `searchEvents` fail with `SESSION_QUERY_SEARCH_DISABLED` and SQLite is
    * never imported or opened. Defaults to `startup`.
    */
   openAt?: OpenAt
@@ -1904,7 +1904,7 @@ export interface Config extends SessionQueryConfig {
   persistedInspectConcurrency?: number
 }
 
-/** SQLite module/handle opening phase; `never` disables full-text search entirely. */
+/** SQLite module/handle opening phase; `never` disables indexed discovery/search. */
 export type OpenAt = 'startup' | 'first-search' | 'never'
 
 /** Supported SQLite journal modes. */
@@ -1913,7 +1913,7 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 Depends on: [`SessionQueryConfig`](../packages/session-query/session-query/src/index.ts)
 
-Source: [`packages/session-query/session-query-sqlite/src/index.ts:89`](../packages/session-query/session-query-sqlite/src/index.ts)
+Source: [`packages/session-query/session-query-sqlite/src/index.ts:95`](../packages/session-query/session-query-sqlite/src/index.ts)
 
 <a id="deepseek-aidsh-session-reference"></a>
 
@@ -2798,18 +2798,20 @@ Source: [`packages/spill/tool-result-artifacts/src/index.ts:44`](../packages/spi
 Requires: `tools` · `systemPrompt` · `sessionQuery`
 
 ```ts config-catalog
-/** Deployment-owned search count and timeout bounds. */
+/** Deployment-owned discovery/search count, timeout, and tail bounds. */
 export interface Config {
-  /** Maximum authorized hits returned by one search call. Defaults to 100. */
+  /** Maximum authorized hits returned by one discovery/search call. Defaults to 100. */
   maxSearchResults?: number
-  /** Cooperative full-text search deadline in milliseconds. Defaults to 30000. */
+  /** Cooperative indexed discovery/search deadline in milliseconds. Defaults to 30000. */
   searchTimeoutMs?: number
   /** Default number of finalized messages returned by session_message_tail. */
   messageTailLimit?: number
+  /** Default number of complete raw events returned by session_log_tail. */
+  logTailLimit?: number
 }
 ```
 
-Source: [`packages/session-query/tool-session-query/src/index.ts:33`](../packages/session-query/tool-session-query/src/index.ts)
+Source: [`packages/session-query/tool-session-query/src/index.ts:37`](../packages/session-query/tool-session-query/src/index.ts)
 
 <a id="deepseek-aidsh-tool-skill"></a>
 

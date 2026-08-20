@@ -2,7 +2,7 @@
 
 English | [中文](session-query.zh.md)
 
-Query vocabulary over the live-preferred logical session corpus. The [Service Definition package](../../packages/session-query/session-query) owns exact reads, source precedence, relationship tracing, semantic extraction, and provider-independent filters, while the [SQLite provider](../../packages/session-query/session-query-sqlite) owns the concrete full-text index lifecycle.
+Query vocabulary over the live-preferred logical session corpus. The [Service Definition package](../../packages/session-query/session-query) owns exact reads, source precedence, relationship tracing, semantic extraction, and provider-independent filters, while the [SQLite provider](../../packages/session-query/session-query-sqlite) owns indexed current-title/time discovery and content-search lifecycle.
 
 Source: [`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)
 
@@ -48,6 +48,22 @@ interface SessionSurfaceSnapshot {
   capturedThroughSeq: number | null
   /** Cloned current surface events in model-history order. */
   events: SurfaceEvent[]
+}
+```
+
+`SessionLogTail` differs from the folded current surface: it retains complete recent raw events, including records that are shadowed or never enter model history.
+
+```ts type-equiv
+/** Bounded latest raw-log observation from one logical session. */
+interface SessionLogTail {
+  /** Cloned header selected from the same corpus observation as the events. */
+  session: SessionHeader
+  /** Highest raw-log seq included in the observation, or `null` for an empty log. */
+  capturedThroughSeq: number | null
+  /** Latest complete raw events in chronological order. */
+  events: SessionEvent[]
+  /** Whether older raw events were omitted by the requested limit. */
+  truncated: boolean
 }
 ```
 
@@ -140,13 +156,41 @@ interface SessionEventSearchDocument extends SessionEventRecord {
 
 `ctx.sessionQuery.filterSessions(filters)` applies `SessionResultFilter` to the complete logical corpus; `ctx.sessionQuery.filterEvents(sessionId, filters)` returns matching documents in ascending seq order. Messages, reasoning, tool calls/results, blocked prompts, todos, and failure/status detail contribute semantic text; structural events and stream chunks do not.
 
-## Full-text search pages
+## Discovery and full-text search pages
 
-The combined `ctx.sessionQuery` seam has two full-text scopes. `searchSessions()` groups the corpus by strongest matching event; `searchEvents()` searches one session. Requests bind an opaque cursor to the normalized query, metadata filters, and limit. The event text scan is intentionally absent from provider metadata filters.
+`findSessions()` discovers sessions by current title and session/raw-activity metadata; its results contain no content match. The two full-text scopes remain separate: `searchSessions()` groups the corpus by strongest matching event, while `searchEvents()` searches one session. Requests bind an opaque cursor to the normalized query or discovery fields, metadata filters, and limit. The event text scan is intentionally absent from provider metadata filters.
 
 ```ts type-equiv
 /** Provider-owned opaque continuation token returned by session search. */
 type SessionSearchCursor = Branded<'SessionSearchCursor'>
+```
+
+```ts type-equiv
+/** Session discovery request over current titles and session/activity metadata. */
+interface SessionFindRequest {
+  /** Optional literal full-text query over each session's current folded title. */
+  title?: string
+  /** Logical-session predicates applied before discovery ranking. */
+  sessionFilters?: readonly SessionResultFilter[]
+  /** Inclusive raw-event activity interval; at least one event must match. */
+  activity?: SessionResultRange
+  /** Maximum sessions in this page. */
+  limit?: number
+  /** Opaque cursor returned for the identical normalized request. */
+  cursor?: SessionSearchCursor
+}
+```
+
+```ts type-equiv
+/** One session discovered by current title or metadata, without a content match. */
+interface SessionFindHit extends SessionRecord {
+  /** Current folded title indexed from the same logical-session observation. */
+  title?: string
+  /** Latest raw-event timestamp, or `null` when the session log is empty. */
+  latestActivityAt: number | null
+  /** Latest raw-event timestamp inside the requested activity interval. */
+  matchedActivityAt?: number
+}
 ```
 
 ```ts type-equiv
@@ -394,7 +438,7 @@ Source: [`packages/session-query/session-delivery/src/index.ts:51`](../../packag
 
 Unified live-preferred session query service.
 
-Exact reads, filters, and traces are backend-independent concrete behavior. A backend implements full-text observation, reconciliation, ranking, cursor generations, and query execution on the same `ctx.sessionQuery` service.
+Exact reads, filters, and traces are backend-independent concrete behavior. A backend implements indexed discovery/content observation, reconciliation, ranking, cursor generations, and query execution on the same service.
 
 ```ts cordis-catalog
 /**
@@ -404,6 +448,14 @@ Exact reads, filters, and traces are backend-independent concrete behavior. A ba
  * @returns session hits ranked by their strongest matching event.
  */
 abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>
+
+/**
+ * Find sessions by current title and session or raw-activity metadata.
+ * @param request - title, metadata filters, activity interval, page size, and cursor.
+ * @param exec - optional cancellation control.
+ * @returns session metadata without content-match events or snippets.
+ */
+abstract findSessions( request: SessionFindRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionFindHit>>
 
 /**
  * Search events within one live-preferred logical session.
@@ -505,6 +557,15 @@ async readSurface(sessionId: SessionId, signal?: AbortSignal): Promise<SessionSu
 async readMessageTail( sessionId: SessionId, limit: number, signal?: AbortSignal, ): Promise<SessionMessageTail>
 
 /**
+ * Read a bounded tail of complete raw events from one corpus observation.
+ * @param sessionId - live or persisted session id to read.
+ * @param limit - positive maximum number of raw events to return.
+ * @param signal - optional cancellation for source resolution.
+ * @returns latest complete events in chronological order.
+ */
+async readLogTail( sessionId: SessionId, limit: number, signal?: AbortSignal, ): Promise<SessionLogTail>
+
+/**
  * Trace known ancestry and descendants from one corpus observation.
  * @param sessionId - logical session id to trace.
  * @param signal - optional cancellation for persistence listing.
@@ -533,5 +594,5 @@ async readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise
 
 Types: [SessionId](core.md) · [SessionTitleSnapshot](session-title.md)
 
-Source: [`packages/session-query/session-query/src/index.ts:83`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:86`](../../packages/session-query/session-query/src/index.ts)
 <!-- END GENERATED cordis-surface -->

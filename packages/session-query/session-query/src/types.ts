@@ -63,6 +63,18 @@ export interface SessionMessageTail {
   truncated: boolean
 }
 
+/** Bounded latest raw-log observation from one logical session. */
+export interface SessionLogTail {
+  /** Cloned header selected from the same corpus observation as the events. */
+  session: SessionHeader
+  /** Highest raw-log seq included in the observation, or `null` for an empty log. */
+  capturedThroughSeq: number | null
+  /** Latest complete raw events in chronological order. */
+  events: SessionEvent[]
+  /** Whether older raw events were omitted by the requested limit. */
+  truncated: boolean
+}
+
 /** One atomic live-preferred observation of a session's current model surface. */
 export interface SessionSurfaceSnapshot {
   /** Cloned session header selected from the same corpus observation as `events`. */
@@ -283,6 +295,30 @@ export interface SessionSearchRequest {
   limit?: number
   /** Opaque cursor returned for the identical normalized request. */
   cursor?: SessionSearchCursor
+}
+
+/** Session discovery request over current titles and session/activity metadata. */
+export interface SessionFindRequest {
+  /** Optional literal full-text query over each session's current folded title. */
+  title?: string
+  /** Logical-session predicates applied before discovery ranking. */
+  sessionFilters?: readonly SessionResultFilter[]
+  /** Inclusive raw-event activity interval; at least one event must match. */
+  activity?: SessionResultRange
+  /** Maximum sessions in this page. */
+  limit?: number
+  /** Opaque cursor returned for the identical normalized request. */
+  cursor?: SessionSearchCursor
+}
+
+/** One session discovered by current title or metadata, without a content match. */
+export interface SessionFindHit extends SessionRecord {
+  /** Current folded title indexed from the same logical-session observation. */
+  title?: string
+  /** Latest raw-event timestamp, or `null` when the session log is empty. */
+  latestActivityAt: number | null
+  /** Latest raw-event timestamp inside the requested activity interval. */
+  matchedActivityAt?: number
 }
 
 /** Within-session full-text search request. */

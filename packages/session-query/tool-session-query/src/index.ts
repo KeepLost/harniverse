@@ -19,24 +19,30 @@ export const name = 'tool-session-query'
 /** Capability services required by the model-facing consumer. */
 export const inject = ['tools', 'systemPrompt', 'sessionQuery']
 
-/** Default maximum number of authorized search hits returned by one call. */
+/** Default maximum number of authorized discovery/search hits returned by one call. */
 export const DEFAULT_MAX_SEARCH_RESULTS = 100
 
-/** Default cooperative deadline for either full-text search tool. */
+/** Default cooperative deadline for indexed discovery or full-text search. */
 export const DEFAULT_SEARCH_TIMEOUT_MS = 30_000
 /** Default finalized-message count returned by `session_message_tail`. */
 export const DEFAULT_MESSAGE_TAIL_LIMIT = 10
 /** Hard model-facing finalized-message limit for one tail read. */
 export const MAX_MESSAGE_TAIL_LIMIT = 50
+/** Default complete raw-event count returned by `session_log_tail`. */
+export const DEFAULT_LOG_TAIL_LIMIT = 20
+/** Hard model-facing complete raw-event limit for one tail read. */
+export const MAX_LOG_TAIL_LIMIT = 50
 
-/** Deployment-owned search count and timeout bounds. */
+/** Deployment-owned discovery/search count, timeout, and tail bounds. */
 export interface Config {
-  /** Maximum authorized hits returned by one search call. Defaults to 100. */
+  /** Maximum authorized hits returned by one discovery/search call. Defaults to 100. */
   maxSearchResults?: number
-  /** Cooperative full-text search deadline in milliseconds. Defaults to 30000. */
+  /** Cooperative indexed discovery/search deadline in milliseconds. Defaults to 30000. */
   searchTimeoutMs?: number
   /** Default number of finalized messages returned by session_message_tail. */
   messageTailLimit?: number
+  /** Default number of complete raw events returned by session_log_tail. */
+  logTailLimit?: number
 }
 
 /** Schemastery config for Loader defaults and generated configuration docs. */
@@ -44,12 +50,14 @@ export const Config: z<Config> = z.object({
   maxSearchResults: z.number().step(1).min(1).default(DEFAULT_MAX_SEARCH_RESULTS),
   searchTimeoutMs: z.number().step(1).min(1).max(MAX_TIMER_DELAY_MS).default(DEFAULT_SEARCH_TIMEOUT_MS),
   messageTailLimit: z.number().step(1).min(1).max(MAX_MESSAGE_TAIL_LIMIT).default(DEFAULT_MESSAGE_TAIL_LIMIT),
+  logTailLimit: z.number().step(1).min(1).max(MAX_LOG_TAIL_LIMIT).default(DEFAULT_LOG_TAIL_LIMIT),
 })
 
 interface ResolvedConfig {
   readonly maxSearchResults: number
   readonly searchTimeoutMs: number
   readonly messageTailLimit: number
+  readonly logTailLimit: number
 }
 
 const TEXT_OUTPUT = {
@@ -58,12 +66,12 @@ const TEXT_OUTPUT = {
 }
 
 const PROMPT_TEXT =
-  'Use session_search to find relevant work from prior sessions, or session_event_search to search earlier '
-  + 'events in one session. Search results are cursor-free and can be narrowed with an optional cwd filter. Follow a useful hit with '
-  + 'session_status, session_message_tail, session_trace, session_event_trace, or session_event_read when you need current activity, '
-  + 'recent messages, lineage, relationships, or exact data.'
+  'Use session_find to locate prior sessions by current title, creation time, or raw-event activity time; session_find returns session metadata without content-match events or snippets. '
+  + 'Use session_search to search prior-session content; session_search returns matching event seqs and snippets. Use session_event_search for content inside one session. '
+  + 'After discovery, session_log_tail reads complete raw events from the recent log; after a content hit, session_event_read reads a complete raw-event window around its seq. '
+  + 'session_message_tail reads only the folded current model-message surface, not historical raw-log trajectory. Search and find results are cursor-free.'
 
-/** Register all seven tools and their shared model guidance. */
+/** Register all nine tools and their shared model guidance. */
 export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
   ctx.systemPrompt.section({
@@ -71,6 +79,16 @@ export function apply(ctx: Context, config: Config): void {
     order: 113,
     text: PROMPT_TEXT,
   })
+
+  ctx.tools.register(defineTool({
+    name: 'session_find',
+    description: 'Find prior sessions by current title, creation time, or raw-event activity time. Returns session metadata, never content-match events or snippets.',
+    parameters: toolInput.sessionFindParameters,
+    output: TEXT_OUTPUT,
+    timeoutMs: resolved.searchTimeoutMs,
+    execute: (args, exec) => operations.executeSessionFind(ctx, args, exec, resolved.maxSearchResults),
+    presentCall: presentation.presentSessionFindCall,
+  }))
 
   ctx.tools.register(defineTool({
     name: 'session_search',
@@ -99,17 +117,27 @@ export function apply(ctx: Context, config: Config): void {
     output: TEXT_OUTPUT,
     isConcurrencySafe: () => true,
     execute: (args, exec) => operations.executeSessionStatus(ctx, args, exec),
-    presentCall: presentation.presentSessionTraceCall,
+    presentCall: args => presentation.presentSessionTargetCall('Read status for', args),
   }))
 
   ctx.tools.register(defineTool({
     name: 'session_message_tail',
-    description: 'Read the latest finalized model-visible messages from an authorized session without waiting for it.',
+    description: 'Read the folded current model-message surface tail from an authorized session. This is not historical raw-log trajectory.',
     parameters: toolInput.messageTailParameters,
     output: TEXT_OUTPUT,
     isConcurrencySafe: () => true,
     execute: (args, exec) => operations.executeMessageTail(ctx, args, exec, resolved.messageTailLimit, MAX_MESSAGE_TAIL_LIMIT),
-    presentCall: presentation.presentSessionTraceCall,
+    presentCall: args => presentation.presentSessionTargetCall('Read message tail from', args),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'session_log_tail',
+    description: 'Read the latest complete raw SessionEvent trajectory from an authorized session, including shadowed and log-only events.',
+    parameters: toolInput.logTailParameters,
+    output: TEXT_OUTPUT,
+    isConcurrencySafe: () => true,
+    execute: (args, exec) => operations.executeLogTail(ctx, args, exec, resolved.logTailLimit, MAX_LOG_TAIL_LIMIT),
+    presentCall: args => presentation.presentSessionTargetCall('Read raw log tail from', args),
   }))
 
   ctx.tools.register(defineTool({
@@ -119,7 +147,7 @@ export function apply(ctx: Context, config: Config): void {
     output: TEXT_OUTPUT,
     isConcurrencySafe: () => true,
     execute: (args, exec) => operations.executeSessionTrace(ctx, args, exec),
-    presentCall: presentation.presentSessionTraceCall,
+    presentCall: args => presentation.presentSessionTargetCall('Trace', args),
   }))
 
   ctx.tools.register(defineTool({
@@ -137,12 +165,12 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'session_event_read',
-    description: 'Read one full unabridged event and optional neighboring raw-event summaries from an authorized session.',
+    description: 'Read a complete raw SessionEvent window around one event sequence from an authorized session.',
     parameters: {
       ...toolInput.targetSessionParameter,
       seq: { type: 'integer', required: true, description: 'Target event sequence number.' },
-      before: { type: 'integer', description: 'Number of preceding raw events to summarize. Omit for none.' },
-      after: { type: 'integer', description: 'Number of following raw events to summarize. Omit for none.' },
+      before: { type: 'integer', description: 'Number of preceding complete raw events to include. Omit for none.' },
+      after: { type: 'integer', description: 'Number of following complete raw events to include. Omit for none.' },
     },
     output: TEXT_OUTPUT,
     isConcurrencySafe: () => true,
@@ -166,5 +194,9 @@ function resolveConfig(config: Config): ResolvedConfig {
   if (!Number.isSafeInteger(messageTailLimit) || messageTailLimit < 1 || messageTailLimit > MAX_MESSAGE_TAIL_LIMIT) {
     throw new TypeError(`tool-session-query: messageTailLimit must be between 1 and ${MAX_MESSAGE_TAIL_LIMIT}`)
   }
-  return { maxSearchResults, searchTimeoutMs, messageTailLimit }
+  const logTailLimit = config.logTailLimit ?? DEFAULT_LOG_TAIL_LIMIT
+  if (!Number.isSafeInteger(logTailLimit) || logTailLimit < 1 || logTailLimit > MAX_LOG_TAIL_LIMIT) {
+    throw new TypeError(`tool-session-query: logTailLimit must be between 1 and ${MAX_LOG_TAIL_LIMIT}`)
+  }
+  return { maxSearchResults, searchTimeoutMs, messageTailLimit, logTailLimit }
 }

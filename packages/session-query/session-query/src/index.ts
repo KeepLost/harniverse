@@ -1,5 +1,5 @@
 /**
- * Service Definition for combined session-history reads, traces, filters, and full-text search.
+ * Service Definition for combined session-history reads, traces, discovery, and content search.
  *
  * @module @deepseek-ai/dsh-session-query
  */
@@ -18,7 +18,10 @@ import type {
   SessionEventTraceObservation,
   SessionEventTraceRequest,
   SessionEventWindow,
+  SessionFindHit,
+  SessionFindRequest,
   SessionLineageTrace,
+  SessionLogTail,
   SessionLogSnapshot,
   SessionMessageTail,
   SessionRuntimeStatus,
@@ -77,8 +80,8 @@ declare module '@deepseek-ai/cordis' {
  * Unified live-preferred session query service.
  *
  * Exact reads, filters, and traces are backend-independent concrete behavior.
- * A backend implements full-text observation, reconciliation, ranking, cursor
- * generations, and query execution on the same `ctx.sessionQuery` service.
+ * A backend implements indexed discovery/content observation, reconciliation,
+ * ranking, cursor generations, and query execution on the same service.
  */
 export abstract class SessionQueryEngine extends Service {
   static inject = ['sessions']
@@ -116,6 +119,17 @@ export abstract class SessionQueryEngine extends Service {
     request: SessionSearchRequest,
     exec?: SessionSearchExecContext,
   ): Promise<SessionSearchPage<SessionSearchHit>>
+
+  /**
+   * Find sessions by current title and session or raw-activity metadata.
+   * @param request - title, metadata filters, activity interval, page size, and cursor.
+   * @param exec - optional cancellation control.
+   * @returns session metadata without content-match events or snippets.
+   */
+  abstract findSessions(
+    request: SessionFindRequest,
+    exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionFindHit>>
 
   /**
    * Search events within one live-preferred logical session.
@@ -331,6 +345,35 @@ export abstract class SessionQueryEngine extends Service {
       session: surface.session,
       capturedThroughSeq: surface.capturedThroughSeq,
       messages: messages.slice(start),
+      truncated: start > 0,
+    }
+  }
+
+  /**
+   * Read a bounded tail of complete raw events from one corpus observation.
+   * @param sessionId - live or persisted session id to read.
+   * @param limit - positive maximum number of raw events to return.
+   * @param signal - optional cancellation for source resolution.
+   * @returns latest complete events in chronological order.
+   */
+  async readLogTail(
+    sessionId: SessionId,
+    limit: number,
+    signal?: AbortSignal,
+  ): Promise<SessionLogTail> {
+    if (!Number.isSafeInteger(limit) || limit < 1) {
+      throw new SessionQueryError(
+        'log tail limit must be a positive safe integer',
+        'SESSION_QUERY_INVALID_LIMIT',
+      )
+    }
+    const loaded = await this._corpus.load(sessionId, signal)
+    signal?.throwIfAborted()
+    const start = Math.max(0, loaded.events.length - limit)
+    return {
+      session: structuredClone(loaded.header),
+      capturedThroughSeq: loaded.events.at(-1)?.seq ?? null,
+      events: loaded.events.slice(start).map(snapshotSessionEvent),
       truncated: start > 0,
     }
   }

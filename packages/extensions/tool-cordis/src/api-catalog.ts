@@ -1346,13 +1346,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'sessionQuery',
     summary: 'Unified live-preferred session query service.',
-    description: 'Unified live-preferred session query service.\n\nExact reads, filters, and traces are backend-independent concrete behavior. A backend implements full-text observation, reconciliation, ranking, cursor generations, and query execution on the same `ctx.sessionQuery` service.',
+    description: 'Unified live-preferred session query service.\n\nExact reads, filters, and traces are backend-independent concrete behavior. A backend implements indexed discovery/content observation, reconciliation, ranking, cursor generations, and query execution on the same service.',
     methods: [
       {
         signature: 'abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>',
         description: 'Search the live-preferred logical corpus and group by session.',
         parameters: [{ name: 'request', description: 'query text, metadata filters, page size, and cursor.' }, { name: 'exec', description: 'optional cancellation control.' }],
         returns: 'session hits ranked by their strongest matching event.',
+      },
+      {
+        signature: 'abstract findSessions( request: SessionFindRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionFindHit>>',
+        description: 'Find sessions by current title and session or raw-activity metadata.',
+        parameters: [{ name: 'request', description: 'title, metadata filters, activity interval, page size, and cursor.' }, { name: 'exec', description: 'optional cancellation control.' }],
+        returns: 'session metadata without content-match events or snippets.',
       },
       {
         signature: 'abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionEventSearchPage>',
@@ -1427,6 +1433,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Read a bounded tail of finalized model-visible messages from one observation.',
         parameters: [{ name: 'sessionId', description: 'live or persisted session id to read.' }, { name: 'limit', description: 'positive maximum number of messages to return.' }, { name: 'signal', description: 'optional cancellation for source resolution.' }],
         returns: 'latest messages in chronological order, with their source sequences.',
+      },
+      {
+        signature: 'async readLogTail( sessionId: SessionId, limit: number, signal?: AbortSignal, ): Promise<SessionLogTail>',
+        description: 'Read a bounded tail of complete raw events from one corpus observation.',
+        parameters: [{ name: 'sessionId', description: 'live or persisted session id to read.' }, { name: 'limit', description: 'positive maximum number of raw events to return.' }, { name: 'signal', description: 'optional cancellation for source resolution.' }],
+        returns: 'latest complete events in chronological order.',
       },
       {
         signature: 'async traceSession(sessionId: SessionId, signal?: AbortSignal): Promise<SessionLineageTrace>',
@@ -4279,6 +4291,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionEventWindow {\n    session: SessionHeader;\n    target: SessionEvent;\n    events: SessionEvent[];\n    startSeq: number;\n    endSeq: number;\n}',
   },
   {
+    name: 'SessionFindHit',
+    declaration: 'export interface SessionFindHit extends SessionRecord {\n    title?: string;\n    latestActivityAt: number | null;\n    matchedActivityAt?: number;\n}',
+  },
+  {
+    name: 'SessionFindRequest',
+    declaration: 'export interface SessionFindRequest {\n    title?: string;\n    sessionFilters?: readonly SessionResultFilter[];\n    activity?: SessionResultRange;\n    limit?: number;\n    cursor?: SessionSearchCursor;\n}',
+  },
+  {
     name: 'SessionForkSource',
     declaration: 'export type SessionForkSource = Session | SessionId;',
   },
@@ -4309,6 +4329,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionLogSnapshot',
     declaration: 'export interface SessionLogSnapshot {\n    session: SessionHeader;\n    events: SessionEvent[];\n}',
+  },
+  {
+    name: 'SessionLogTail',
+    declaration: 'export interface SessionLogTail {\n    session: SessionHeader;\n    capturedThroughSeq: number | null;\n    events: SessionEvent[];\n    truncated: boolean;\n}',
   },
   {
     name: 'SessionMessageTail',

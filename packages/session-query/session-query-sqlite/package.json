@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-session-query-sqlite",
-  "description": "Concrete ctx.sessionQuery backend with SQLite FTS5 search",
+  "description": "Concrete ctx.sessionQuery backend with SQLite discovery and content search",
   "version": "0.1.0-rc.5",
   "publishConfig": {
     "access": "public"
@@ -36,6 +36,7 @@
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-persistence": "workspace:^",
     "@deepseek-ai/dsh-session-query": "workspace:^",
+    "@deepseek-ai/dsh-session-title": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   },
   "peerDependenciesMeta": {
@@ -53,6 +54,7 @@
     "@deepseek-ai/dsh-session-persistence": "workspace:^",
     "@deepseek-ai/dsh-session-persistence-sqlite": "workspace:^",
     "@deepseek-ai/dsh-session-query": "workspace:^",
+    "@deepseek-ai/dsh-session-title": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   }
 }

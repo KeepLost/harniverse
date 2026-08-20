@@ -2,18 +2,21 @@ import { describe, expect, it } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { SessionSearchCursor, type SessionQueryErrorCode } from '@deepseek-ai/dsh-session-query'
 import {
+  buildActivityWhere,
   buildEventWhere,
   buildSessionWhere,
   FTS_HIGHLIGHT_END,
   FTS_HIGHLIGHT_START,
   makeSnippet,
   normalizeEventRequest,
+  normalizeFindRequest,
   normalizeSessionRequest,
   quoteFtsData,
   requestFingerprint,
   SQLITE_FTS5_OUTER_PREDICATE_LIMIT,
   SQLITE_MAX_PAGE_LIMIT,
   type NormalizedEventRequest,
+  type NormalizedFindRequest,
   type NormalizedSessionRequest,
 } from '../src/query.ts'
 
@@ -26,6 +29,7 @@ function expectCode(code: SessionQueryErrorCode): Error {
 describe('SQLite search request normalization', () => {
   it('normalizes both scopes, defaults arrays and limits, and preserves cursors', () => {
     expect(normalizeSessionRequest({ query: '  alpha\n beta  ' }, limits)).toEqual({
+      kind: 'sessions',
       query: 'alpha beta',
       sessionFilters: [],
       eventFilters: [],
@@ -38,6 +42,7 @@ describe('SQLite search request normalization', () => {
       limit: 3,
       cursor: SessionSearchCursor('next'),
     }, limits)).toEqual({
+      kind: 'sessions',
       query: 'needle',
       sessionFilters: [{ kind: 'availability', values: ['live'] }],
       eventFilters: [{ kind: 'surface', values: ['current'] }],
@@ -45,6 +50,7 @@ describe('SQLite search request normalization', () => {
       cursor: SessionSearchCursor('next'),
     })
     expect(normalizeEventRequest({ sessionId: SessionId('s'), query: 'needle' }, limits)).toEqual({
+      kind: 'events',
       sessionId: SessionId('s'),
       query: 'needle',
       filters: [],
@@ -56,11 +62,23 @@ describe('SQLite search request normalization', () => {
       filters: [{ kind: 'seq', from: 1 }],
       cursor: SessionSearchCursor('next'),
     }, limits)).toEqual({
+      kind: 'events',
       sessionId: SessionId('s'),
       query: 'needle',
       filters: [{ kind: 'seq', from: 1 }],
       limit: 2,
       cursor: SessionSearchCursor('next'),
+    })
+    expect(normalizeFindRequest({
+      title: '  Current   title ',
+      sessionFilters: [{ kind: 'cwd', values: ['/work'] }],
+      activity: { from: 10, to: 20 },
+    }, limits)).toEqual({
+      kind: 'find',
+      title: 'Current title',
+      sessionFilters: [{ kind: 'cwd', values: ['/work'] }],
+      activity: { from: 10, to: 20 },
+      limit: 2,
     })
   })
 
@@ -71,6 +89,10 @@ describe('SQLite search request normalization', () => {
       .toThrow(expectCode('SESSION_QUERY_INVALID_QUERY'))
     expect(() => normalizeSessionRequest({ query: 'bad\0query' }, limits))
       .toThrow(expectCode('SESSION_QUERY_INVALID_QUERY'))
+    expect(() => normalizeFindRequest({ title: '   ' }, limits))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_QUERY'))
+    expect(() => normalizeFindRequest({ activity: { from: 2, to: 1 } }, limits))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
     expect(() => normalizeEventRequest({ sessionId: 1 as never, query: 'x' }, limits))
       .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
     expect(() => normalizeEventRequest({
@@ -111,6 +133,15 @@ describe('SQLite search request normalization', () => {
 })
 
 describe('SQLite search predicate compilation', () => {
+  it('compiles optional raw-activity ranges independently from content predicates', () => {
+    expect(buildActivityWhere(undefined)).toEqual({ sql: '', params: [], predicateCount: 0 })
+    expect(buildActivityWhere({ from: 1, to: 2 })).toEqual({
+      sql: 'CAST(time AS INTEGER) >= ? AND CAST(time AS INTEGER) <= ?',
+      params: [1, 2],
+      predicateCount: 2,
+    })
+  })
+
   it('compiles all logical-session clauses including empty and nullable values', () => {
     expect(buildSessionWhere([])).toEqual({ sql: '', params: [], predicateCount: 0 })
     expect(buildSessionWhere([{ kind: 'id', values: [] }])).toEqual({
@@ -209,6 +240,7 @@ describe('SQLite query identity and presentation', () => {
 
   it('canonicalizes request and filter ordering in both scopes', () => {
     const sessionA: NormalizedSessionRequest = {
+      kind: 'sessions',
       query: 'needle',
       limit: 2,
       sessionFilters: [
@@ -220,6 +252,7 @@ describe('SQLite query identity and presentation', () => {
       eventFilters: [{ kind: 'time', to: 9 }],
     }
     const sessionB: NormalizedSessionRequest = {
+      kind: 'sessions',
       query: 'needle',
       limit: 2,
       sessionFilters: [
@@ -233,12 +266,14 @@ describe('SQLite query identity and presentation', () => {
     expect(requestFingerprint(sessionA)).toBe(requestFingerprint(sessionB))
 
     const eventA: NormalizedEventRequest = {
+      kind: 'events',
       sessionId: SessionId('s'),
       query: 'needle',
       limit: 2,
       filters: [{ kind: 'seq' }, { kind: 'surface', values: ['shadowed', 'current'] }],
     }
     const eventB: NormalizedEventRequest = {
+      kind: 'events',
       sessionId: SessionId('s'),
       query: 'needle',
       limit: 2,
@@ -246,6 +281,23 @@ describe('SQLite query identity and presentation', () => {
     }
     expect(requestFingerprint(eventA)).toBe(requestFingerprint(eventB))
     expect(requestFingerprint(eventA)).not.toBe(requestFingerprint({ ...eventB, sessionId: SessionId('other') }))
+
+    const findA: NormalizedFindRequest = {
+      kind: 'find',
+      title: 'title',
+      sessionFilters: [{ kind: 'cwd', values: ['/b', '/a'] }],
+      activity: { from: 1, to: 2 },
+      limit: 2,
+    }
+    const findB: NormalizedFindRequest = {
+      kind: 'find',
+      title: 'title',
+      sessionFilters: [{ kind: 'cwd', values: ['/a', '/b'] }],
+      activity: { from: 1, to: 2 },
+      limit: 2,
+    }
+    expect(requestFingerprint(findA)).toBe(requestFingerprint(findB))
+    expect(requestFingerprint(findA)).not.toBe(requestFingerprint({ ...findB, title: 'other' }))
   })
 
   it('normalizes, bounds, and positions snippets by Unicode code point', () => {

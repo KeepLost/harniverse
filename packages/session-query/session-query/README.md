@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-`SessionQueryEngine` is the combined abstract `ctx.sessionQuery` contract. It implements exact session-history retrieval, relationship tracing, and provider-independent filtering over live `ctx.sessions` plus optional dynamically mounted `ctx.sessionPersistence`; concrete backends implement its two full-text methods. Matching ids produce one record: live events win, while `live` and `persisted` report both source availabilities. Conflicting immutable headers fail with `SESSION_QUERY_SOURCE_CONFLICT`.
+`SessionQueryEngine` is the combined abstract `ctx.sessionQuery` contract. It implements exact session-history retrieval, relationship tracing, and provider-independent filtering over live `ctx.sessions` plus optional dynamically mounted `ctx.sessionPersistence`; concrete backends implement current-title/time discovery and two content full-text methods. Matching ids produce one record: live events win, while `live` and `persisted` report both source availabilities. Conflicting immutable headers fail with `SESSION_QUERY_SOURCE_CONFLICT`.
 
 ## Reads
 
@@ -15,6 +15,7 @@ English | [中文](README.zh.md)
 - `readSurface(sessionId)` returns one cloned header, raw-log capture boundary, and the complete folded current surface in model-history order. A live session wins over persistence; compaction is observed before or after its replacement append, never as a synthetic mixture.
 - `readRuntimeStatus(sessionId, signal?)` reports explicit loaded state, source availability, exact live Agent activity, and the observed final seq without resuming a cold session.
 - `readMessageTail(sessionId, limit, signal?)` projects canonical finalized messages from one current-surface observation and returns a bounded chronological tail with source seq/time and truncation metadata.
+- `readLogTail(sessionId, limit, signal?)` returns a bounded chronological tail of complete raw events from one live-preferred observation, including shadowed and log-only records.
 - `readEvent(request, signal?)` returns a cloned header, the full target event, and a bounded raw-seq window. `before` and `after` default to zero and may not exceed `readWindowMax`.
 - `traceSession(sessionId, signal?)` reads the corpus once and returns immediate-to-outward ancestors plus deterministic recursive descendant trees. `complete: false` identifies the first missing parent; a target-connected cycle fails with `SESSION_QUERY_INVALID_LINEAGE`.
 - `traceEvent(request, signal?)` loads the logical log once and returns its cloned source header with direct positional replacements and direct cited source-event links. `replacementChain` follows positional replacers to the final replacement; source-event links remain non-transitive.
@@ -27,11 +28,11 @@ Persistence is optional and may mount or unmount dynamically. Cross-corpus listi
 
 The text clause is deliberately independent of FTS providers: caller text is escaped into a Unicode, case-insensitive regular expression, and each whitespace run matches one or more whitespace characters. It is a literal semantic-text scan, not a full-text query. `extractSessionEventText()` and `buildSessionEventSearchDocuments()` define the shared first-party document projection; reasoning blocks, structural boundaries, stream chunks, request headers, and unknown declaration-merged variants produce no document.
 
-## Full-text methods
+## Discovery and full-text methods
 
-`SessionQueryEngine.searchSessions(request, exec?)` groups the logical corpus by strongest matching event; `searchEvents(request, exec?)` searches one logical session. These are the service's only abstract methods. Both return pages whose continuation is an owned branded `SessionSearchCursor`, accept optional cancellation, and expose snippets without provider-specific numeric scores. An event-search page also carries the cloned target header from the same indexed generation as its hits, allowing authorization consumers to bind policy to the payload observation. Search requests accept only metadata event filters, because literal-text filtering is the scan path described above.
+`SessionQueryEngine.findSessions(request, exec?)` discovers sessions by the current folded title, session metadata, or an inclusive activity interval that requires at least one complete raw event in range. Its hits carry the current title and latest/matched activity timestamps but deliberately contain no content event, seq, or snippet. `searchSessions(request, exec?)` instead groups content matches by strongest semantic event, and `searchEvents(request, exec?)` searches content inside one logical session. All three return pages whose continuation is an owned branded `SessionSearchCursor` and accept optional cancellation; only the two content methods expose snippets. An event-search page also carries the cloned target header from the same indexed generation as its hits, allowing authorization consumers to bind policy to the payload observation. Content-search requests accept only metadata event filters, because literal-text filtering is the scan path described above.
 
-The package has no provider coordinator, fallback implementation, or standalone concrete plugin. A concrete service backend inherits the implemented reads, filters, and traces while owning full-text observation, reconciliation, ranking, cursor generations, and query execution; the first implementation is [`@deepseek-ai/dsh-session-query-sqlite`](../session-query-sqlite/README.md).
+The package has no provider coordinator, fallback implementation, or standalone concrete plugin. A concrete service backend inherits the implemented reads, filters, and traces while owning discovery/search observation, reconciliation, ranking, cursor generations, and query execution; the first implementation is [`@deepseek-ai/dsh-session-query-sqlite`](../session-query-sqlite/README.md).
 
 `SessionQueryError.code` is a closed union covering request validation, missing targets, malformed surfaces, source conflicts, persistence/index failures, cancellation, and invalid or stale cursors; the exact literals are defined in [`src/config.ts`](src/config.ts).
 

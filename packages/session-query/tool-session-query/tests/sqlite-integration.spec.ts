@@ -59,6 +59,29 @@ describe('tool-session-query with the real SQLite provider', () => {
         source: { kind: 'user' },
       }),
       surfaceOp: 'append',
+    }, {
+      type: 'session/title',
+      seq: 1,
+      time: 3,
+      data: {
+        title: 'Earlier integration title',
+        messageSeqs: [],
+        source: { kind: 'fallback' },
+      },
+    }, {
+      type: 'session/title',
+      seq: 2,
+      time: 4,
+      data: {
+        title: 'Current persisted discovery title',
+        messageSeqs: [],
+        source: { kind: 'user' },
+      },
+    }, {
+      type: 'turn/start',
+      seq: 3,
+      time: 50,
+      data: { turn: 2 },
     }])
 
     const caller = ctx.sessions.create(SessionId('caller'), {
@@ -87,6 +110,61 @@ describe('tool-session-query with the real SQLite provider', () => {
     expect(sessions.isError).toBe(false)
     expect(sessions.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
       .toContain('Session persisted')
+    expect(sessions.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
+      .toContain('Best match: seq 0')
+
+    const byTitle = await execute('session_find', {
+      title: 'Current persisted discovery title',
+    })
+    expect(byTitle.isError).toBe(false)
+    const byTitleText = byTitle.content.map(block => block.type === 'text' ? block.text : '').join('\n')
+    expect(byTitleText).toContain('Session persisted')
+    expect(byTitleText).toContain('Current title: Current persisted discovery title')
+    expect(byTitleText).not.toContain('Best match:')
+    expect(byTitleText).not.toContain('Snippet:')
+
+    const staleTitle = await execute('session_find', { title: 'Earlier integration title' })
+    expect(staleTitle.isError).toBe(false)
+    expect(staleTitle.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
+      .toBe('No sessions found for the requested discovery filters.')
+
+    const byCreation = await execute('session_find', {
+      created_at_from: '1970-01-01T00:00:00.001Z',
+      created_at_to: '1970-01-01T00:00:00.001Z',
+    })
+    expect(byCreation.isError).toBe(false)
+    expect(byCreation.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
+      .toContain('Session persisted')
+
+    const byRawActivity = await execute('session_find', {
+      active_at_from: '1970-01-01T00:00:00.050Z',
+      active_at_to: '1970-01-01T00:00:00.050Z',
+    })
+    expect(byRawActivity.isError).toBe(false)
+    const byRawActivityText = byRawActivity.content
+      .map(block => block.type === 'text' ? block.text : '').join('\n')
+    expect(byRawActivityText).toContain('Session persisted')
+    expect(byRawActivityText).toContain('Matched activity: 1970-01-01T00:00:00.050Z')
+
+    const rawTail = await execute('session_log_tail', { session_id: persisted, limit: 3 })
+    expect(rawTail.isError).toBe(false)
+    const rawTailText = rawTail.content.map(block => block.type === 'text' ? block.text : '').join('\n')
+    expect(rawTailText).toContain('Raw log tail (3)')
+    expect(rawTailText).toContain('"type": "session/title"')
+    expect(rawTailText).toContain('"type": "turn/start"')
+
+    const rawWindow = await execute('session_event_read', {
+      session_id: persisted,
+      seq: 2,
+      before: 1,
+      after: 1,
+    })
+    expect(rawWindow.isError).toBe(false)
+    const rawWindowText = rawWindow.content.map(block => block.type === 'text' ? block.text : '').join('\n')
+    expect(rawWindowText).toContain('Raw log window (3)')
+    expect(rawWindowText).toContain('Earlier integration title')
+    expect(rawWindowText).toContain('Current persisted discovery title')
+    expect(rawWindowText).toContain('"type": "turn/start"')
     const persistedEvents = await execute('session_event_search', {
       session_id: persisted,
       query: 'persisted integration needle',

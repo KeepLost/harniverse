@@ -503,7 +503,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolSessionQuery)
     },
     note:
-      'The seven read-only tools hide provider cursors and bind exact observations to opaque session ids. The package is opt-in; cwd is only an optional session-search filter.',
+      'The nine read-only tools separate title/time discovery, content matches, current-message tails, and complete raw-log reads while hiding provider cursors and binding exact observations to opaque session ids.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent',
