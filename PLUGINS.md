@@ -106,6 +106,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 |---|---|
 | Model and Web defaults | `dsh-base`, `dsh-web`, `dsh-web-search-exa`, `dsh-web-search-perplexity`, `dsh-client-ui-settings-models`, `dsh-client-ui-settings-plugins` |
 | Session control and reconnect | `dsh-agent`, `dsh-agent-loop`, `dsh-session`, `dsh-host-apiproxy`, `dsh-client-connection`, `dsh-client-runtime`, `dsh-session-persistence`, `dsh-session-persistence-jsonl`, `dsh-session-persistence-sqlite`, `dsh-session-projection-cache`, `dsh-workspace` |
+| Agent Profile identity and composition | `dsh-agent-presets`, `dsh-host-apiproxy`, `dsh-permission-presets`, `dsh-client-runtime`, `dsh-client-ui-agent-preset`, session persistence/query Providers, and in-process subagent composition |
 | Result retention and bounded file access | `dsh-tools`, `dsh-spill`, `dsh-spill-local`, `dsh-spill-policy`, `dsh-tool-fs`, `dsh-tool-fs-search`, `dsh-tool-str-replace-editor`, `dsh-client-ui-tool`, `dsh-compaction`, `dsh-token-meter` |
 | Compaction composition and recall | `dsh-base`, `dsh-web-app`, and the standalone headless example; standard, code, and Cordis agent presets select the downstream Provider and Consumer. |
 | Authenticated Web and automation surface | `dsh-web-app`, `dsh-client-connection`, `dsh-client-modules`, `dsh-client-hmr`, `dsh-client-web`, `dsh-host-webserver`, `dsh-sdk-client`, `dsh-api-gateway`, `dsh-typert-protocol`, `dsh-typert-generator`, `dsh-typert-loader`, `dsh-typert-registry` |
@@ -135,6 +136,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `dsh-workspace` storage | Keeps the shared `workspace` domain at official DSH version 2, isolates the Harniverse-only deletion journal in `workspace_deletion` version 1, and explicitly migrates legacy version 3 workspace media. |
 | `dsh-tool-todo` continuation | Optionally queues a plugin-attributed next-turn user message at `agent/turn-stopping` while the latest TODO snapshot remains unfinished, with a consecutive-turn cap and competing-input suppression. |
 | Cross-session query and delivery | Makes cwd an optional session-search filter rather than exact-target authority, adds runtime status and finalized message-tail reads, and adds a separate ordinary-session delivery Definition, local Provider, and Consumer with non-waiting `session_send_message` plus safe idle-only `session_unload`. Shipped defaults remain unchanged; the explicit ACP session-query scenario mounts all three delivery roles. |
+| Web Agent Profiles | `session.create({ agentProfile })` creates a distinct Agent instance with immutable durable Profile identity. Profile metadata selects the pre-publication permission preset; resume, fork, cold presentation, delivery, child inheritance, and browser summaries preserve the same identity. The four shipped Profiles default to `workspace-write`, and no Profile-switch method remains. |
 
 ### Downstream Commit Ledger
 
@@ -157,6 +159,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `5158dec7a0` | Keeps the shared workspace domain compatible with official DSH, isolates Harniverse deletion recovery state, and migrates legacy workspace media explicitly. |
 | `5816aa6d30` | Adds optional TODO-driven continuation turns with a bounded consecutive-turn policy and competing-input suppression. |
 | `093c319309` | Adds cross-session ID-bound query, runtime status and message tails, ordinary-session message delivery with cold resume, and safe idle-only unload. |
+| `baafb40c0d` | Makes Agent Profile identity immutable at Session creation, applies Profile default permissions before publication, and removes blank-Session Profile switching. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
