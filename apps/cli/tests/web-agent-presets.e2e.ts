@@ -11,7 +11,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
-import { resolveSessionPreset, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
+import { resolveSessionProfile, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
 import { applyChildComposition, childSessionMeta } from '@deepseek-ai/dsh-subagent'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { LosslessCompactionEngine } from '@deepseek-ai/dsh-compaction-lossless'
@@ -21,6 +21,7 @@ import type {} from '@deepseek-ai/dsh-tools'
 // Type-only: resolves `ctx.get('sessionProjections')` and `ctx.get('tokenMeter')`.
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-token-meter'
+import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
 
 const CONFIG_DIR = fileURLToPath(new URL('../config/', import.meta.url))
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -160,6 +161,23 @@ describe('the shipped Web composition', () => {
     // present three. A regression here means an agent-plane row came back to
     // the host composition.
     expect(toolNames(ctx)).toEqual([])
+  })
+
+  it('creates an Agent instance with its Profile identity and default permission', async () => {
+    const sessionId = SessionId('profile-default-permission')
+    const response = await ctx.apiProxy.sessions.create({
+      rpcId: RpcId('profile-default-permission'),
+      payload: { sessionId, agentProfile: 'standard' },
+    })
+    expect(response.result).toMatchObject({
+      ok: true,
+      value: { sessionId, agentProfile: 'standard' },
+    })
+    const session = ctx.sessions.get(sessionId)
+    expect(session?.header.agentProfile).toBe('standard')
+    expect(session?.events.filter(event => event.type === 'permission/preset').map(event => event.data.preset))
+      .toEqual(['workspace-write'])
+    await ctx.agents.close(sessionId)
   })
 
   it('keeps the token meter and its context-meter projections on the host plane', async () => {
@@ -555,57 +573,20 @@ describe('opt-in rows in user presets', () => {
   })
 })
 
-describe('a switch survives the session', () => {
-  it('records the choice so the log states what the agent runs', async () => {
-    const handle = await ctx.agents.create({
-      sessionId: SessionId('preset-switch-logged'),
-      meta: { agentPreset: 'standard' },
-      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
-    })
-    try {
-      // The api-proxy's select does exactly this pair while the session is blank.
-      await ctx.agentPresets.recompose(handle.agent.ctx, 'minimal')
-      handle.agent.session.append('agent-preset/selected', { agentPreset: 'minimal' })
-
-      // The header keeps the creation fact; the log carries what it runs.
-      expect(handle.agent.session.header.agentPreset).toBe('standard')
-      expect(resolveSessionPreset(handle.agent.session)).toBe('minimal')
-    } finally {
-      await handle.dispose()
-    }
-  })
-
-  it('rebuilds a switched session from the log, not the creation header', () => {
-    // The exact shape a resume reads back from disk: the header says standard,
-    // the log records the switch the user made while the session was blank.
-    const rebuilt = resolveSessionPreset({
-      header: { version: 0, id: SessionId('x'), createdAt: 0, agentPreset: 'standard' },
-      events: [
-        { type: 'agent-preset/selected', seq: 1, time: 0, data: { agentPreset: 'minimal' } },
-        { type: 'turn/start', seq: 2, time: 0, data: { turn: 0, trigger: { kind: 'message', source: { kind: 'user' } } } },
-      ] as never,
-    })
-
-    // Reading the header alone would compose the creation-time preset over a
-    // history another one produced — the replay the blank-only lock prevents.
-    expect(rebuilt).toBe('minimal')
-  })
-})
-
 describe('a forked session', () => {
   it('inherits the composition its seeded history was produced under', async () => {
     const parent = await ctx.agents.create({
       sessionId: SessionId('preset-fork-parent'),
-      meta: { agentPreset: 'minimal' },
+      meta: { agentProfile: 'minimal' },
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })
-    const inherited = resolveSessionPreset(parent.agent.session)
+    const inherited = resolveSessionProfile(parent.agent.session)
     const child = await ctx.agents.create({
       sessionId: SessionId('preset-fork-child'),
       meta: {
         parentSession: SessionId('preset-fork-parent'),
         seedLength: 0,
-        ...inherited === undefined ? {} : { agentPreset: inherited },
+        ...inherited === undefined ? {} : { agentProfile: inherited },
       },
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, inherited).then(() => undefined),
     })
@@ -626,7 +607,7 @@ describe('a delegated child', () => {
   it('runs on the composition its parent runs on', async () => {
     const parent = await ctx.agents.create({
       sessionId: SessionId('preset-child-parent'),
-      meta: { agentPreset: 'standard' },
+      meta: { agentProfile: 'standard' },
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
     })
     // Exactly what an in-process subagent driver's creation window does.
@@ -642,37 +623,13 @@ describe('a delegated child', () => {
       // The shipped `standard` preset is the whole coding agent; an empty
       // child here is the defect, and equality alone would not catch it.
       expect(toolNames(ctx, child.agent)).toContain('bash')
-      expect(child.agent.session.header.agentPreset).toBe('standard')
+      expect(child.agent.session.header.agentProfile).toBe('standard')
     } finally {
       await child.dispose()
       await parent.dispose()
     }
   })
 
-  it('follows a parent that switched preset while blank', async () => {
-    const parent = await ctx.agents.create({
-      sessionId: SessionId('preset-child-switch-parent'),
-      meta: { agentPreset: 'standard' },
-      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
-    })
-    await ctx.agentPresets.recompose(parent.agent.ctx, 'minimal')
-    const child = await parent.agent.ctx.agents.create({
-      sessionId: SessionId('preset-child-switch'),
-      meta: childSessionMeta(parent.agent, 1, 0),
-      setup: (agentCtx) => {
-        applyChildComposition(agentCtx, parent.agent, {})
-      },
-    })
-    try {
-      // The live scope chain is the authority, not the parent's creation
-      // header — which still names `standard`.
-      expect(toolNames(ctx, child.agent)).toEqual(toolNames(ctx, parent.agent))
-      expect(child.agent.session.header.agentPreset).toBe('minimal')
-    } finally {
-      await child.dispose()
-      await parent.dispose()
-    }
-  })
 })
 
 describe('a launcher that configures no writable root', () => {
@@ -846,14 +803,14 @@ describe('a session keeps the preset it was created with', () => {
   it('refuses to adopt a live session under a different preset', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('preset-locked'),
-      meta: { agentPreset: 'minimal' },
+      meta: { agentProfile: 'minimal' },
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })
     try {
       // The api-proxy guard reads exactly this: the header records what the
       // session runs, so naming anything else is a caller error rather than a
       // switch. Its history was produced under `minimal`'s two tools.
-      expect(handle.agent.session.header.agentPreset).toBe('minimal')
+      expect(handle.agent.session.header.agentProfile).toBe('minimal')
     } finally {
       await handle.dispose()
     }

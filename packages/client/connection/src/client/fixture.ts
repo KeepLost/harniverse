@@ -1542,7 +1542,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     ['minimal', { trust: 'system', content: "- id: tool-web-search\n  name: '@deepseek-ai/dsh-tool-web-search'\n" }],
     ['my-agent', { trust: 'user', content: "- id: tool-read\n  name: '@deepseek-ai/dsh-tool-read'\n" }],
   ])
-  let fixtureDefaultPreset = 'standard'
+  const fixtureDefaultPreset = 'standard'
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 75]])
   let nextSession = 1
   let nextRpc = 1
@@ -2819,10 +2819,6 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         authorable: true,
         hasDocument: true,
       }),
-      select: (request) => {
-        fixtureDefaultPreset = request.payload.agentPreset
-        return ok(request, { agentPreset: request.payload.agentPreset })
-      },
       read: (request) => {
         const { agentPreset } = request.payload
         const preset = fixturePresets.get(agentPreset)
@@ -3223,7 +3219,6 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'workspace.archiveSession': return this.api.workspace.archiveSession(request)
       case 'skill.list': return this.api.skills.list(request)
       case 'agentPreset.list': return this.api.agentPresets.list(request)
-      case 'agentPreset.select': return this.api.agentPresets.select(request)
       case 'agentPreset.read': return this.api.agentPresets.read(request)
       case 'agentPreset.copy': return this.api.agentPresets.copy(request)
       case 'agentPreset.openDocument': return this.api.agentPresets.openDocument(request, new AbortController().signal)

@@ -208,7 +208,7 @@ describe('rowToMeta', () => {
       revision: 1,
       delegation_depth: null,
       agent_preset: 'minimal',
-    })).toMatchObject({ agentPreset: 'minimal' })
+    })).toMatchObject({ agentProfile: 'minimal' })
   })
 })
 

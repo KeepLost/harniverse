@@ -25,8 +25,8 @@ export interface SessionListEntry {
   /** Coarse durable origin for navigation filtering; not a continuation capability. */
   origin?: 'subagent'
   cwd?: string
-  /** Agent preset the session's agent was composed from (summary passthrough). */
-  agentPreset?: string
+  /** Agent profile the session's agent was composed from (summary passthrough). */
+  agentProfile?: string
   /** Current host-computed projection values for list consumers. */
   projectionValues?: Readonly<Partial<SessionProjectionMap>>
   /** User interaction currently blocking this session, derived from live mux frames. */

@@ -47,11 +47,11 @@ export interface SessionSummary {
   displayTitle: string
   cwd?: string
   /**
-   * Agent preset this session's agent was composed from; absent when the
-   * deployment composes no presets. The session header labels what the
+   * Agent profile this session's agent was composed from; absent when the
+   * deployment composes no profiles. The session header labels what the
    * session actually runs rather than the deployment's current default.
    */
-  agentPreset?: string
+  agentProfile?: string
   parentId?: SessionId
   /** Coarse durable origin for navigation filtering; not a continuation capability. */
   origin?: 'subagent'
@@ -408,10 +408,6 @@ export class SessionRuntime implements ISessions {
     return this.manager.refreshSubagents(parentSessionId)
   }
 
-  noteAgentPreset(sessionId: SessionId, agentPreset: string): void {
-    this.manager.noteAgentPreset(sessionId, agentPreset)
-  }
-
   /**
    * Clear the current selection so the layout shows the no-session empty
    * state (new-session affordance and the workspace preselection flow).
@@ -490,7 +486,12 @@ export class SessionRuntime implements ISessions {
    * @returns the new session id.
    * @throws {SessionCreateError} with the requested id.
    */
-  async create(opts: { workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId } = {}): Promise<SessionId> {
+  async create(opts: {
+    workspaceId?: WorkspaceId
+    cwd?: string
+    sessionId?: SessionId
+    agentProfile?: string
+  } = {}): Promise<SessionId> {
     const result = await this.manager.create(opts)
     if (!result.ok) throw new SessionCreateError(result.error, opts.sessionId)
     this.projectList()
@@ -690,7 +691,7 @@ export class SessionRuntime implements ISessions {
         ...(entry.cwd !== undefined ? { cwd: entry.cwd } : {}),
         ...(entry.parentSessionId !== undefined ? { parentId: entry.parentSessionId } : {}),
         ...(entry.origin !== undefined ? { origin: entry.origin } : {}),
-        ...(entry.agentPreset !== undefined ? { agentPreset: entry.agentPreset } : {}),
+        ...(entry.agentProfile !== undefined ? { agentProfile: entry.agentProfile } : {}),
       }
     }
     if (current !== undefined && currentAddress !== undefined) {

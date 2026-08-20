@@ -24,7 +24,7 @@
 import { stat } from 'node:fs/promises'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { bindScopeParent, createScope, scopeOf, type Scope, type ScopeKey, type ScopeParentBinding } from '@deepseek-ai/dsh-scope'
+import { bindScopeParent, createScope, scopeOf, type Scope, type ScopeKey } from '@deepseek-ai/dsh-scope'
 // Type-only: resolves the `agent/created` lifecycle event this service watches.
 import type {} from '@deepseek-ai/dsh-agent'
 import { settingsNamespace, type SettingsScope, type default as SettingsService } from '@deepseek-ai/dsh-settings'
@@ -62,7 +62,7 @@ export {
   copyComposition, deleteComposition, InvalidPresetIdError, PresetExistsError,
   PresetNotWritableError, readComposition, writableRoot,
 } from './authoring.ts'
-export { resolveSessionPreset, type PresetBearingSession } from './session.ts'
+export { resolveSessionProfile, type PresetBearingSession } from './session.ts'
 export { PresetMountError, UnknownPresetError } from './preset.ts'
 export type { AgentPreset, Config, PresetRoot, PresetTrust } from './preset.ts'
 
@@ -173,12 +173,6 @@ export class AgentPresets extends Service {
       )
     })
 
-    // The durable record is the commit point. Its public notification carries
-    // only the stable identity needed by clients, never the live Session.
-    ctx.on('session/event', (session, event) => {
-      if (event.type !== 'agent-preset/selected') return
-      ctx.emit('agent-preset/selected', session.id, event.data.agentPreset)
-    })
   }
 
   /**
@@ -252,14 +246,6 @@ export class AgentPresets extends Service {
   private readonly standing = new Map<string, Promise<StandingMount>>()
 
   /**
-   * Parent bindings of the agents this roster composed, keyed by the agent's
-   * scope key. The binding is dsh-scope's only re-link capability; holding it
-   * here makes this service the sole authority that can move an agent between
-   * standing compositions. WeakMap: entries die with their agents.
-   */
-  private readonly bindings = new WeakMap<ScopeKey, ScopeParentBinding>()
-
-  /**
    * Compose one agent from a preset: ensure the preset's standing mount, then
    * parent the agent's scope key to it so the mount's registrations and
    * listeners cover this agent.
@@ -279,11 +265,7 @@ export class AgentPresets extends Service {
     }
     const preset = await this.resolveMountable(id)
     const standing = await this.ensureStanding(preset)
-    // The one bind of this agent's ancestry. The binding is the only re-link
-    // authority, held privately so nothing outside this roster can move a
-    // composed agent to another preset; a later recompose layer re-links
-    // through it under the caller-owned blank-session contract.
-    this.bindings.set(agentKey, bindScopeParent(agentKey, standing.key))
+    bindScopeParent(agentKey, standing.key)
     return preset
   }
 
@@ -320,7 +302,7 @@ export class AgentPresets extends Service {
     }
     const standing = standingMountFor(parentCtx)
     if (standing === undefined) return undefined
-    this.bindings.set(agentKey, bindScopeParent(agentKey, standing.key))
+    bindScopeParent(agentKey, standing.key)
     return standing.presetId
   }
 
@@ -432,43 +414,6 @@ export class AgentPresets extends Service {
    */
   serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined {
     return serviceForAgent(this.ctx, agent, name)
-  }
-
-  /**
-   * Re-link one agent to a different preset's standing composition.
-   *
-   * Only valid while the agent has produced nothing: swapping tools mid
-   * conversation would leave logged tool calls the new composition cannot
-   * make. The CALLER owns that check — this method does not read session
-   * history.
-   *
-   * The swap is a parent re-link, not an unmount: standing mounts are shared
-   * and permanent, so the old composition stays for its other agents and the
-   * new one is ensured BEFORE the link moves. An unknown or unusable preset
-   * therefore throws with the agent exactly as it was — there is no torn-down
-   * state to restore. The re-link runs through the binding this roster kept
-   * from the agent's mount — dsh-scope's only re-link authority. An agent
-   * that never composed one has nothing to re-link: the switch is then the
-   * agent's first bind, exactly a mount.
-   * @param agentCtx - the agent's scope context.
-   * @param id - the preset to compose the agent from instead.
-   * @returns the preset now installed.
-   * @throws when the preset is unknown or its composition is unusable.
-   */
-  async recompose(agentCtx: Context, id: string): Promise<AgentPreset> {
-    const agentKey = scopeOf(agentCtx)
-    if (agentKey === undefined) {
-      throw new Error('agent-presets: refusing to recompose an unscoped context')
-    }
-    const preset = await this.resolveMountable(id)
-    const standing = await this.ensureStanding(preset)
-    const binding = this.bindings.get(agentKey)
-    if (binding === undefined) {
-      this.bindings.set(agentKey, bindScopeParent(agentKey, standing.key))
-    } else {
-      binding.rebind(standing.key)
-    }
-    return preset
   }
 
   /**

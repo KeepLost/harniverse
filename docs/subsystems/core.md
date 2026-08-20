@@ -513,29 +513,6 @@ async remove(id: string): Promise<void>
 serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined
 
 /**
- * Re-link one agent to a different preset's standing composition.
- *
- * Only valid while the agent has produced nothing: swapping tools mid
- * conversation would leave logged tool calls the new composition cannot
- * make. The CALLER owns that check — this method does not read session
- * history.
- *
- * The swap is a parent re-link, not an unmount: standing mounts are shared
- * and permanent, so the old composition stays for its other agents and the
- * new one is ensured BEFORE the link moves. An unknown or unusable preset
- * therefore throws with the agent exactly as it was — there is no torn-down
- * state to restore. The re-link runs through the binding this roster kept
- * from the agent's mount — dsh-scope's only re-link authority. An agent
- * that never composed one has nothing to re-link: the switch is then the
- * agent's first bind, exactly a mount.
- * @param agentCtx - the agent's scope context.
- * @param id - the preset to compose the agent from instead.
- * @returns the preset now installed.
- * @throws when the preset is unknown or its composition is unusable.
- */
-async recompose(agentCtx: Context, id: string): Promise<AgentPreset>
-
-/**
  * The standing scope key of one preset, for a host reader with no agent.
  *
  * A cold transcript read resolves tool presenters against the composition
@@ -1070,27 +1047,4 @@ A declarative agent entry failed before it could publish a live agent. Consumers
 ```
 
 Source: [`packages/core/agent-loop/src/index.ts:183`](../../packages/core/agent-loop/src/index.ts)
-
-<a id="agent-preset-events"></a>
-
-### `agent-preset/*` events
-
-<a id="agent-presetselected--emit"></a>
-
-#### `agent-preset/selected` — emit
-
-One session committed a different agent preset to its durable log. Consumers invalidate only state derived from that session's composition.
-
-```ts cordis-catalog
-/**
- * One session committed a different agent preset to its durable log.
- * Consumers invalidate only state derived from that session's composition.
- * @mode emit
- * @param sessionId - the session whose composition changed.
- * @param agentPreset - the preset recorded by the committed selection.
- */
-'agent-preset/selected'(sessionId: SessionId, agentPreset: string): void
-```
-
-Source: [`packages/preset/agent-presets/src/types.ts:13`](../../packages/preset/agent-presets/src/types.ts)
 <!-- END GENERATED cordis-surface -->

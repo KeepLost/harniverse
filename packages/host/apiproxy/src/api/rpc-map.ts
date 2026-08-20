@@ -57,7 +57,6 @@ export interface RpcMethodMap {
   'workspace.archiveSession': WorkspaceApi['archiveSession']
   'skill.list': SkillsApi['list']
   'agentPreset.list': AgentPresetsApi['list']
-  'agentPreset.select': AgentPresetsApi['select']
   'agentPreset.read': AgentPresetsApi['read']
   'agentPreset.copy': AgentPresetsApi['copy']
   'agentPreset.openDocument': AgentPresetsApi['openDocument']
@@ -117,7 +116,6 @@ export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: Auth
   'workspace.archiveSession': 'harniverse.operate',
   'skill.list': 'harniverse.observe',
   'agentPreset.list': 'harniverse.observe',
-  'agentPreset.select': 'harniverse.operate',
   'agentPreset.read': 'harniverse.administer',
   'agentPreset.copy': 'harniverse.administer',
   'agentPreset.openDocument': 'harniverse.administer',

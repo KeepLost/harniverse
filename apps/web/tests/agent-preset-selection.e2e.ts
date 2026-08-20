@@ -7,7 +7,7 @@
 // session starts. Before that, the new-session chip stages the choice beside
 // the workspace picker — the only screen where it still works. After it, the
 // session header names what the session runs and offers no control at all,
-// because the host answers `agent-preset-locked` to anything else.
+// because a different Profile is represented by a distinct Session.
 //
 // Zero model calls: no replay fixture mounts, so a stray stream fails loud.
 import { fileURLToPath } from 'node:url'
@@ -99,7 +99,7 @@ async function seedSubagent(scaffold: WebScaffold, parentId: SessionId): Promise
     parentSession: parentId,
     origin: 'subagent',
     delegationDepth: 1,
-    agentPreset: 'minimal',
+    agentProfile: 'minimal',
   })
   await scaffold.ctx.sessionPersistence.append(childId, [
     {
@@ -137,12 +137,12 @@ async function seedSubagent(scaffold: WebScaffold, parentId: SessionId): Promise
 }
 
 /**
- * The preset the host reports for the blank session the workspace connect
+ * The Profile the host reports for the blank session the workspace connect
  * produced. Addressed by id rather than by scanning the serialized list: the
  * seeded session records `minimal` too, so a substring match over the whole
  * list answers before the switch has landed.
  * @param baseUrl - the scaffold's origin.
- * @returns the live session's preset, or undefined before it is listed.
+ * @returns the live session's Profile, or undefined before it is listed.
  */
 async function livePreset(baseUrl: string): Promise<string | undefined> {
   const response = await fetch(`${baseUrl}/api/session.list`, {
@@ -153,9 +153,9 @@ async function livePreset(baseUrl: string): Promise<string | undefined> {
     }),
   })
   const body = await response.json() as {
-    result: { value?: { items: { sessionId: string; agentPreset?: string }[] } }
+    result: { value?: { items: { sessionId: string; agentProfile?: string }[] } }
   }
-  return body.result.value?.items.find(item => item.sessionId !== SEED_ID)?.agentPreset
+  return body.result.value?.items.find(item => item.sessionId !== SEED_ID)?.agentProfile
 }
 
 /** Every option label the trigger menu currently lists. */

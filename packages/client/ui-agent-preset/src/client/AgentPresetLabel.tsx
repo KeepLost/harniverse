@@ -42,7 +42,7 @@ export type AgentPresetLabelProps =
 export function AgentPresetLabel({
   sessionId, useSessions, useAgentPresets, load, t,
 }: AgentPresetLabelProps) {
-  const preset = useSessions(state => state.byId[sessionId]?.agentPreset)
+  const preset = useSessions(state => state.byId[sessionId]?.agentProfile)
   const options = useAgentPresets(state => state.options)
 
   useEffect(() => {

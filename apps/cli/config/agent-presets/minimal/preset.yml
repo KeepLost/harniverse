@@ -1,3 +1,4 @@
 name: 极简模式
 description: 提供持久 bash、str_replace_editor 与完整结果恢复的极简编码 Agent。
 order: 3
+permissionPreset: workspace-write

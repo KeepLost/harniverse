@@ -1022,7 +1022,6 @@ describe('connection node half over a real HTTP server', () => {
       for (const method of ['llm.providers', 'llm.models', 'agentPreset.list']) {
         expect([method, await call(port, method, 'harness.example')]).toEqual([method, 404])
       }
-      expect(await call(port, 'agentPreset.select', 'harness.example')).toBe(403)
       // Network location does not add a capability absent from the principal.
       expect(await call(port, 'settings.describe', `127.0.0.1:${String(port)}`)).toBe(403)
     } finally {

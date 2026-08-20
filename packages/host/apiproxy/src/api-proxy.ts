@@ -10,6 +10,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
+import type {} from '@deepseek-ai/dsh-permission-presets'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
@@ -30,7 +31,7 @@ import {
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import {
   InvalidPresetIdError, PresetExistsError, PresetMountError,
-  PresetNotWritableError, resolveSessionPreset,
+  PresetNotWritableError, resolveSessionProfile,
   SETTINGS_NAMESPACE as AGENT_PRESET_SETTINGS_NAMESPACE, UnknownPresetError,
 } from '@deepseek-ai/dsh-agent-presets'
 import type { PresetBearingSession } from '@deepseek-ai/dsh-agent-presets'
@@ -620,17 +621,17 @@ function sessionListFields(header: SessionHeader, events: readonly SessionEvent[
   parentSessionId?: SessionId
   origin?: 'subagent'
   cwd?: string
-  agentPreset?: string
+  agentProfile?: string
 } {
   // The preset comes from the log, not the header: a session that switched
   // while blank ran its turns under the newer composition, and a picker
   // showing the creation-time value would contradict what the model saw.
-  const agentPreset = resolveSessionPreset({ header, events })
+  const agentProfile = resolveSessionProfile({ header, events })
   return {
     ...header.parentSession === undefined ? {} : { parentSessionId: header.parentSession },
     ...header.origin === undefined ? {} : { origin: header.origin },
     ...header.cwd === undefined ? {} : { cwd: header.cwd },
-    ...agentPreset === undefined ? {} : { agentPreset },
+    ...agentProfile === undefined ? {} : { agentProfile },
   }
 }
 
@@ -1221,14 +1222,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   }
   type WebModelSelectionRef = ModelSelectionRef & { current: ModelSelection }
   const selections = new WeakMap<Agent, WebModelSelectionRef>()
-  /**
-   * Serializes `agentPreset.select` per session. Two concurrent selects both
-   * pass the blank check, and the second `unmountPresetFor` then finds nothing
-   * to unmount because the first already removed the record — leaving two
-   * compositions registered into one agent layer. The client's `busy` flag is
-   * not enforcement: the wire is reachable directly.
-   */
-  const presetSwitches = new Map<SessionId, Promise<unknown>>()
   /** Explicit close operations, also the admission fence for Host mutations. */
   const sessionClosures = new Map<SessionId, Promise<void>>()
   /** Durable delete operations, also the cold-resume/create admission fence. */
@@ -1347,8 +1340,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    * @returns the id to record on the header (absent without a roster) and the setup callback.
    * @throws when the roster supplies no such preset.
    */
-  async function composeAgent(presetId: string | undefined): Promise<{
-    agentPreset?: string
+  async function composeAgent(presetId: string | undefined, applyProfilePermission = false): Promise<{
+    agentProfile?: string
     setup: (agentCtx: Context) => Promise<void>
   }> {
     const presets = ctx.get('agentPresets')
@@ -1360,12 +1353,22 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         },
       }
     }
-    const resolvedId = (await presets.resolve(presetId)).id
+    const profile = await presets.resolve(presetId)
+    const resolvedId = profile.id
     return {
-      agentPreset: resolvedId,
+      agentProfile: resolvedId,
       setup: async (agentCtx: Context) => {
         installSelection(agentCtx)
         await presets.mount(agentCtx, resolvedId)
+        if (applyProfilePermission && profile.permissionPreset !== undefined) {
+          const permissions = ctx.get('permissionPresets')
+          if (permissions === undefined) {
+            throw new Error(`agent profile "${resolvedId}" requires permission preset "${profile.permissionPreset}", but permission presets are not composed`)
+          }
+          const agent = agentCtx.agent
+          if (agent === undefined) throw new Error('api-proxy: agent setup has no scoped agent')
+          permissions.set(agent.session, profile.permissionPreset)
+        }
       },
     }
   }
@@ -1390,7 +1393,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   const agentFor = createApiRemoteAgentResolver(ctx, {
     agentOptions,
     setup: async ({ meta, events }) =>
-      (await composeAgent(resolveSessionPreset({ header: meta, events }))).setup,
+      (await composeAgent(resolveSessionProfile({ header: meta, events }))).setup,
   })
 
   /** Resolve a live ordinary mutation target while close/delete owns its id. */
@@ -1775,7 +1778,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       // through the DEFAULT preset's standing layer: that is the composition
       // an unnamed session composes today, and presenters are pure display,
       // so the worst a mismatch produces is the generic card it had anyway.
-      return await presets.standingKeyFor(resolveSessionPreset(session))
+      return await presets.standingKeyFor(resolveSessionProfile(session))
     } catch {
       // Swallows only the unknown/unusable-preset rejection from the roster:
       // a deleted or broken preset must degrade this read, never fail it.
@@ -1820,7 +1823,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }
           // Resolved from the log, not the header: a session that switched
           // while blank ran every turn under the newer composition.
-          const storedPreset = resolveSessionPreset({ header: inspected.meta, events: inspected.events })
+          const storedPreset = resolveSessionProfile({ header: inspected.meta, events: inspected.events })
           assertPresetUnchanged(sessionId, presetId, storedPreset)
           // The stored preset wins over anything the request names: a resumed
           // session's history was produced under that composition, and
@@ -1838,13 +1841,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         } catch (error: unknown) {
           throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error })
         }
-        const composition = await composeAgent(presetId)
+        const composition = await composeAgent(presetId, true)
         return (await ctx.agents.create({
           sessionId,
           agentOptions: agentOptions(),
           meta: {
             cwd,
-            ...composition.agentPreset === undefined ? {} : { agentPreset: composition.agentPreset },
+            ...composition.agentProfile === undefined ? {} : { agentProfile: composition.agentProfile },
           },
           setup: composition.setup,
         })).agent
@@ -1871,7 +1874,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     // Beside the cwd check for the same reason, and after the await so it
     // covers every path that yields a live agent — freshly created, adopted
     // live, resumed from disk, or recovered by the concurrent-creation catch.
-    assertPresetUnchanged(sessionId, presetId, resolveSessionPreset(agent.session))
+    assertPresetUnchanged(sessionId, presetId, resolveSessionProfile(agent.session))
     if (agent.session.header.cwd !== cwd) {
       throw new SessionCwdConflict(sessionId, cwd, agent.session.header.cwd)
     }
@@ -2350,7 +2353,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }
         }
         const cwd = workspace?.path ?? request.payload.cwd ?? defaults.cwd
-        const requestedPreset = request.payload.agentPreset
+        const requestedPreset = request.payload.agentProfile
         try {
           await ensureSession(sessionId, cwd, request.payload.sessionId !== undefined, requestedPreset)
         } catch (error: unknown) {
@@ -2407,8 +2410,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // echoing the header would contradict both the adoption this call just
         // allowed and the row `session.list` serves for the same session.
         const created = ctx.agents.get(sessionId)
-        const createdPreset = created === undefined ? undefined : resolveSessionPreset(created.session)
-        return ok(request, { sessionId, ...createdPreset === undefined ? {} : { agentPreset: createdPreset } })
+        const createdProfile = created === undefined ? undefined : resolveSessionProfile(created.session)
+        return ok(request, { sessionId, ...createdProfile === undefined ? {} : { agentProfile: createdProfile } })
       },
 
       async history(request) {
@@ -2656,7 +2659,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           // those tools, and composing anything else would strand the tool calls
           // it already carries. Now that no model-facing row sits in the host
           // plane, composing nothing would leave the child with no tools at all.
-          const forkComposition = await composeAgent(resolveSessionPreset(source))
+          const forkComposition = await composeAgent(resolveSessionProfile(source))
           try {
             await ctx.agents.create({
               sessionId: childId,
@@ -2665,9 +2668,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 ...source.header.cwd === undefined ? {} : { cwd: source.header.cwd },
                 parentSession: source.id,
                 seedLength: cut,
-                ...forkComposition.agentPreset === undefined
+                ...forkComposition.agentProfile === undefined
                   ? {}
-                  : { agentPreset: forkComposition.agentPreset },
+                  : { agentProfile: forkComposition.agentProfile },
               },
               agentOptions: agentOptions(),
               setup: forkComposition.setup,
@@ -2895,10 +2898,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         let closing = sessionClosures.get(sessionId)
         if (closing === undefined) {
           closing = (async () => {
-            await Promise.all([
-              presetSwitches.get(sessionId) ?? Promise.resolve(),
-              imageAdmissionChains.get(agent) ?? Promise.resolve(),
-            ])
+            await (imageAdmissionChains.get(agent) ?? Promise.resolve())
             await ctx.subagents.drainContinuableDescendants([agent])
             if (!await ctx.agents.close(sessionId)) {
               throw new Error(`agent "${sessionId}" detached before close acquired its lifecycle`)
@@ -3450,63 +3450,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             isDefault: preset.id === defaultId,
             ...preset.name === undefined ? {} : { name: preset.name },
             ...preset.description === undefined ? {} : { description: preset.description },
+            ...preset.permissionPreset === undefined ? {} : { permissionPreset: preset.permissionPreset },
             ...preset.broken === undefined ? {} : { broken: preset.broken },
           })),
           authorable: presets.authorable,
           hasDocument: canOpenPaths(),
         })
-      },
-
-      // Recomposing is limited to a blank session because a started
-      // conversation's history was produced under its preset's tools; the
-      // agent and the session survive, only the composition is swapped.
-      async select(request) {
-        const { sessionId, agentPreset } = request.payload
-        const presets = ctx.get('agentPresets')
-        if (presets === undefined) {
-          return err(request, {
-            code: 'agent-preset-not-found',
-            message: 'this deployment composes no agent presets',
-            details: { agentPreset, available: [] },
-          })
-        }
-        const found = await activeAgentFor(sessionId)
-        if ('error' in found) return err(request, found.error)
-        const { agent } = found
-        const swap = async (): Promise<RpcResponse<{ agentPreset: string }>> => {
-          // Re-read inside the queue: an earlier switch may have run, and a
-          // conversation may have started, since this request arrived.
-          if (!sessionBlank(agent.session)) {
-            return err(request, {
-              code: 'agent-preset-locked',
-              message: `session "${sessionId}" has already started; its agent preset is fixed`,
-              details: { sessionId, agentPreset },
-            })
-          }
-          try {
-            const preset = await presets.recompose(agent.ctx, agentPreset)
-            // Recorded only after the swap committed: the log states what the
-            // agent runs, and a rejected mount leaves the previous composition.
-            agent.session.append('agent-preset/selected', { agentPreset: preset.id })
-            return ok(request, { agentPreset: preset.id })
-          } catch (error: unknown) {
-            const refused = presetFailure(request, error)
-            if (refused !== undefined) return refused
-            return err(request, {
-              code: 'internal',
-              message: `failed to select agent preset "${agentPreset}": ${String(error)}`,
-              details: {},
-            })
-          }
-        }
-        const queued = presetSwitches.get(sessionId) ?? Promise.resolve()
-        const turn = queued.then(swap)
-        presetSwitches.set(sessionId, turn.catch(() => undefined))
-        try {
-          return await turn
-        } finally {
-          if (presetSwitches.get(sessionId) === turn) presetSwitches.delete(sessionId)
-        }
       },
 
       // Authoring is privileged (see PRIVILEGED_METHODS in dsh-client-connection):

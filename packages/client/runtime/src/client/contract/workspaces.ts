@@ -19,7 +19,7 @@ export interface IWorkspaces {
    * @param workspaceId - target workspace.
    * @returns the connected session id.
    */
-  connectWorkspace(workspaceId: WorkspaceId): Promise<SessionId>
+  connectWorkspace(workspaceId: WorkspaceId, agentProfile?: string): Promise<SessionId>
   /**
    * The New Session flow: connect the explicit, current-Session, or recent
    * Workspace and open the resulting session; failures surface on the session
@@ -27,7 +27,7 @@ export interface IWorkspaces {
    * @param workspaceId - explicit target; omitted inherits the current
    * Session's Workspace before falling back to the recency projection.
    */
-  startSession(workspaceId?: WorkspaceId): void
+  startSession(workspaceId?: WorkspaceId, agentProfile?: string): void
   /**
    * Register an existing path as a Workspace.
    * @param input - the Host create payload.

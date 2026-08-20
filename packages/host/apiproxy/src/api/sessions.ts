@@ -258,12 +258,10 @@ export interface SessionSummary {
   /** Session working directory (header.cwd passthrough); absent when unrecorded. */
   cwd?: string
   /**
-   * Agent preset this session's agent was composed from (header passthrough);
-   * absent when the deployment composes no presets. A surface offering a
-   * switch reads this to show what the session actually runs rather than what
-   * the deployment currently defaults to.
+   * Agent profile this session's agent was composed from (header passthrough);
+   * absent when the deployment composes no profiles.
    */
-  agentPreset?: string
+  agentProfile?: string
   /**
    * Projection baseline for this row, with zero log loads: attached sessions
    * read the registry's live watermark cut; cold sessions read the persisted
@@ -308,15 +306,15 @@ export interface SessionsApi {
    * creation attaches the session after publication; an attach failure
    * returns `workspace-attach-failed` with the published session id.
    *
-   * `agentPreset` names the composition the new session's agent is built
+   * `agentProfile` names the server-defined profile the new session's agent is built
    * from; omitted, the effective default applies — the user's stored choice
    * where one exists, else the deployment's own. The resolved id is stored on
    * the session header, so a later resume rebuilds the same agent. An unknown
    * id fails with `agent-preset-not-found`, and a preset whose composition
    * cannot be mounted fails with `agent-preset-invalid`.
    */
-  create(request: RpcRequest<{ workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId; agentPreset?: string }>):
-  Promise<RpcResponse<{ sessionId: SessionId; agentPreset?: string }>>
+  create(request: RpcRequest<{ workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId; agentProfile?: string }>):
+  Promise<RpcResponse<{ sessionId: SessionId; agentProfile?: string }>>
 
   /**
    * Reads a window of history events; page boundaries align to append-origin message

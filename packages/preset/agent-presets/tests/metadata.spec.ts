@@ -27,6 +27,15 @@ describe('reading display metadata', () => {
     expect(await readPresetMetadata(dir)).toEqual({ name: '标准模式', description: '完整的编码 agent。' })
   })
 
+  it('reads the default permission preset', async () => {
+    const dir = await presetDir('name: 标准模式\npermissionPreset: workspace-write\n')
+
+    expect(await readPresetMetadata(dir)).toEqual({
+      name: '标准模式',
+      permissionPreset: 'workspace-write',
+    })
+  })
+
   it('treats an absent file as no metadata', async () => {
     // The common case: every preset authored by duplicating another starts
     // without one, and a picker simply falls back to the id.
@@ -79,11 +88,11 @@ describe('reading display metadata', () => {
   })
 
   it('cannot carry identity or trust', async () => {
-    const dir = await presetDir('name: mine\nid: standard\ntrust: system\n')
+    const dir = await presetDir('name: mine\nid: standard\ntrust: system\npermissionPreset: danger-full-access\n')
 
     // A locally authored preset writing `trust: system` must not become a
     // shipped one; identity comes from the directory and the root it sits in.
-    expect(await readPresetMetadata(dir)).toEqual({ name: 'mine' })
+    expect(await readPresetMetadata(dir)).toEqual({ name: 'mine', permissionPreset: 'danger-full-access' })
   })
 })
 
@@ -97,6 +106,10 @@ describe('rendering display metadata', () => {
 
   it('stores a declared order', () => {
     expect(renderPresetMetadata({ name: '标准模式', order: 1 })).toBe('name: 标准模式\norder: 1\n')
+  })
+
+  it('renders the default permission preset', () => {
+    expect(renderPresetMetadata({ permissionPreset: 'workspace-write' })).toBe('permissionPreset: workspace-write\n')
   })
 
   it('omits an absent field rather than writing it blank', () => {

@@ -18,7 +18,7 @@ The child's durable header compounded it. `childSessionMeta()` recorded no prese
 
 This is a bind, not a mount, and both differences are load-bearing. The child gets its parent's exact generation, so a composition file edited since the parent started cannot hand the child a different one than its parent's history was produced under, and a preset deleted since cannot fail a child whose parent keeps running. It is also synchronous, which is what lets the child creation windows use it — both in-process drivers compose inside a synchronous `setup`.
 
-`applyChildComposition(childCtx, parent, composition)` takes the parent and performs the join before applying the child's own registrations. The parameter is the point: it makes composing a child without the join unrepresentable at the call sites, rather than leaving each new driver to remember a second step. `childSessionMeta()` records the joined id through `AgentPresets.composedPreset()`, read from the parent's live scope chain rather than its header, because a parent that switched preset while blank runs on the newer composition while its header still names the older one.
+`applyChildComposition(childCtx, parent, composition)` takes the parent and performs the join before applying the child's own registrations. The parameter is the point: it makes composing a child without the join unrepresentable at the call sites, rather than leaving each new driver to remember a second step. `childSessionMeta()` records the joined id as `agentProfile` through `AgentPresets.composedPreset()`, read from the parent's live scope chain so the child names the exact standing composition generation it joined.
 
 `dsh-subagent` reaches the roster through `ctx.get('agentPresets')` with a type-only import and an optional peer dependency — the documented opportunistic-consumption pattern it already uses for `sandboxPolicy` and `approval`.
 
@@ -32,7 +32,7 @@ Giving the child its parent's tools exposed a second defect the same agent-plane
 
 **Extend the continuable activation setup registry to cover one-shot children.** Rejected because that registry's contribution type is synchronous `(childCtx) => () => void` with per-installation revocation, modelling deployment capabilities that come and go, while a preset join is a one-time bind with no revocation of its own. Widening it would have made the omission possible again for any driver that skipped the registry.
 
-**Let `dsh-subagent` import `resolveSessionPreset` and mount by the resolved id.** Rejected because it makes the preset roster a hard module edge for a package that must work without one, and it lands back on the remount semantics above.
+**Let `dsh-subagent` import `resolveSessionProfile` and mount by the resolved id.** Rejected because it makes the preset roster a hard module edge for a package that must work without one, and it lands back on the remount semantics above.
 
 **Filter every layer on the chain, including the scope's own.** Rejected because it makes a per-child capability filter delete that child's reporting and structured-output tools, which the delegation runtime registers into the child's own layer — an `allow` naming the capabilities a child may use would leave it unable to answer at all.
 
@@ -44,7 +44,7 @@ Giving the child its parent's tools exposed a second defect the same agent-plane
 
 `packages/core/tools/tests/scoped.spec.ts` covers the restriction rule directly: a child's filter removes a tool it inherited from an ancestor scope, the child's own registrations survive its own filter, and an ancestor's restriction still reaches every scope nested inside it.
 
-`packages/subagent/subagent-in-process-driver/tests/preset-inheritance.spec.ts` asserts the model-visible result through `startInProcessRun()` on a host composition carrying no model-facing rows: the schemas in the child's own request, its parent's prompt section, the recorded header preset, a `toolFilter` applied over the inherited preset tools, and a parent that switched preset while blank — to a DIFFERENT preset, so the assertion distinguishes reading the parent's live scope chain from reading its creation header.
+`packages/subagent/subagent-in-process-driver/tests/preset-inheritance.spec.ts` asserts the model-visible result through `startInProcessRun()` on a host composition carrying no model-facing rows: the schemas in the child's own request, its parent's prompt section, the recorded header Profile, and a `toolFilter` applied over the inherited Profile tools.
 
 The assembled-transcript layer is the shipped Web composition's e2e rather than a keyless snapshot. Every runnable example this repo ships composes no preset roster, so the defect is not observable in the snapshot harness at all: a snapshot scenario would first need an example that mounts a roster AND delegates. The Web e2e boots the real `base` + `web-app` patch layers with both shipped presets, which is the assembled evidence the testing policy asks for; the Web browser lane's subagent goldens carry the visible consequence, since a child that records its preset now shows the preset badge its parent shows.
 

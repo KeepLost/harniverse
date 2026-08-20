@@ -416,7 +416,7 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
       meta.seedLength ?? null,
       meta.origin ?? null,
       meta.delegationDepth ?? null,
-      meta.agentPreset ?? null,
+      meta.agentProfile ?? null,
       randomUUID(),
     )
   }

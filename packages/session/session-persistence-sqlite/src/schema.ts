@@ -189,7 +189,7 @@ export function rowToMeta(row: SessionRow): SessionHeader {
     ...row.seed_length !== null ? { seedLength: row.seed_length } : {},
     ...row.origin !== null ? { origin: row.origin } : {},
     ...row.delegation_depth !== null ? { delegationDepth: row.delegation_depth } : {},
-    ...row.agent_preset !== null ? { agentPreset: row.agent_preset } : {},
+    ...row.agent_preset !== null ? { agentProfile: row.agent_preset } : {},
   }
 }
 

@@ -933,17 +933,17 @@ describe('JsonlSessionPersistence: scanLog unit', () => {
       id: SessionId('composed'),
       createdAt: 1,
       delegationDepth: 0,
-      agentPreset: 'minimal',
+      agentProfile: 'minimal',
     })
     const log = `${JSON.stringify(line)}\n`
 
     // The preset decides the resumed session's tools and prompt; dropping it
     // on disk would restore a composition the logged history contradicts.
-    expect(scanLog(Buffer.from(log)).meta.agentPreset).toBe('minimal')
+    expect(scanLog(Buffer.from(log)).meta.agentProfile).toBe('minimal')
   })
 
-  it('rejects a session header whose agentPreset is not a string', () => {
-    const log = '{"type":"session","version":0,"id":"bad-preset","createdAt":1,"delegationDepth":0,"agentPreset":7}\n'
+  it('rejects a session header whose agentProfile is not a string', () => {
+    const log = '{"type":"session","version":0,"id":"bad-profile","createdAt":1,"delegationDepth":0,"agentProfile":7}\n'
 
     expect(() => scanLog(Buffer.from(log))).toThrow(/session header/)
   })

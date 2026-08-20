@@ -83,7 +83,7 @@ export const hostFrameSchema = z.discriminatedUnion('type', [
     parentSessionId: sessionIdSchema.optional(),
     origin: z.literal('subagent').optional(),
     cwd: z.string().optional(),
-    agentPreset: z.string().optional(),
+    agentProfile: z.string().optional(),
   }),
   z.object({ type: z.literal('host/session-removed'), sessionId: sessionIdSchema }),
   z.object({ type: z.literal('host/session-status'), sessionId: sessionIdSchema, running: z.boolean() }),

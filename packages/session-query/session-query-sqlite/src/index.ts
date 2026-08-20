@@ -775,7 +775,7 @@ function headerBindings(header: SessionHeader): (string | number | null)[] {
     header.parentSession ?? null,
     header.seedLength ?? null,
     header.delegationDepth ?? null,
-    header.agentPreset ?? null,
+    header.agentProfile ?? null,
   ]
 }
 
@@ -922,7 +922,7 @@ function sameHeader(a: SessionHeader, b: SessionHeader): boolean {
     && a.parentSession === b.parentSession
     && a.seedLength === b.seedLength
     && (a.delegationDepth ?? 0) === (b.delegationDepth ?? 0)
-    && a.agentPreset === b.agentPreset
+    && a.agentProfile === b.agentProfile
 }
 
 function rowHeader(row: SessionHeaderRow): SessionHeader {
@@ -934,7 +934,7 @@ function rowHeader(row: SessionHeaderRow): SessionHeader {
     ...row.parent_session === null ? {} : { parentSession: row.parent_session as SessionId },
     ...row.seed_length === null ? {} : { seedLength: row.seed_length },
     ...row.delegation_depth === null ? {} : { delegationDepth: row.delegation_depth },
-    ...row.agent_preset === null ? {} : { agentPreset: row.agent_preset },
+    ...row.agent_preset === null ? {} : { agentProfile: row.agent_preset },
   }
 }
 

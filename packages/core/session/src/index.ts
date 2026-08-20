@@ -143,8 +143,8 @@ function validateSessionHeader(id: SessionId, input: unknown): SessionHeader {
     && (typeof record.delegationDepth !== 'number' || !Number.isSafeInteger(record.delegationDepth) || record.delegationDepth < 0)) {
     throw new Error('session header delegationDepth must be a non-negative safe integer')
   }
-  if (record.agentPreset !== undefined && typeof record.agentPreset !== 'string') {
-    throw new Error('session header agentPreset must be a string')
+  if (record.agentProfile !== undefined && typeof record.agentProfile !== 'string') {
+    throw new Error('session header agentProfile must be a string')
   }
   return deepFreeze(record as unknown as SessionHeader)
 }
@@ -897,7 +897,7 @@ export class SessionStore extends Service {
       ...meta?.seedLength === undefined ? {} : { seedLength: meta.seedLength },
       ...meta?.origin === undefined ? {} : { origin: meta.origin },
       ...meta?.delegationDepth === undefined ? {} : { delegationDepth: meta.delegationDepth },
-      ...meta?.agentPreset === undefined ? {} : { agentPreset: meta.agentPreset },
+      ...meta?.agentProfile === undefined ? {} : { agentProfile: meta.agentProfile },
     }
     return Session.create(sessionId, seed, header)
   }

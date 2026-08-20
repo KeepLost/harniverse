@@ -1,6 +1,7 @@
 # Agent Note: 会话行的标识判定纳入 preset
 
 Status: implemented
+Archived: 2026-08-20
 
 [English](2026-08-10-session-row-identity-covers-the-preset.md) | 中文
 

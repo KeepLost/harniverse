@@ -170,7 +170,6 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
 export const EVENT_SCOPE_PAGE: Record<string, string> = {
   'agent': 'core.md',
   'agent-loop': 'core.md',
-  'agent-preset': 'core.md',
   'approval': 'approval.md',
   'authentication': 'authentication.md',
   'commands': 'commands.md',

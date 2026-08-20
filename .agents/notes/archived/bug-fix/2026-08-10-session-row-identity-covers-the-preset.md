@@ -1,6 +1,7 @@
 # Agent Note: The session-row identity guard covers the preset
 
 Status: implemented
+Archived: 2026-08-20
 
 English | [中文](2026-08-10-session-row-identity-covers-the-preset.zh.md)
 

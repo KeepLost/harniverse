@@ -102,10 +102,6 @@ async function bench() {
           return Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: { opened: true as const } } })
         },
         remove: () => Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: {} } }),
-        select: (payload: { agentPreset: string }) => {
-          calls.push(`select:${payload.agentPreset}`)
-          return Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: { agentPreset: payload.agentPreset } } })
-        },
       },
       settings: {
         // The row reads this to learn whether this browser may write at all.
@@ -147,14 +143,16 @@ function workspacesDouble() {
   const starts: unknown[] = []
   return {
     starts,
-    startSession: (workspaceId?: unknown) => { starts.push(workspaceId ?? null) },
+    startSession: (workspaceId?: unknown, agentProfile?: string) => {
+      starts.push([workspaceId ?? null, agentProfile ?? null])
+    },
   }
 }
 
 /** A sessions double whose list can be moved and whose changes are pushed. */
 function sessionsDouble(state: {
   current?: string
-  byId: Record<string, { id: string; blank: boolean; agentPreset?: string }>
+  byId: Record<string, { id: string; blank: boolean; agentProfile?: string }>
 }) {
   const listeners = new Set<() => void>()
   return {
@@ -164,12 +162,6 @@ function sessionsDouble(state: {
         listeners.add(fn)
         return () => listeners.delete(fn)
       },
-    },
-    noteAgentPreset: (sessionId: string, agentPreset: string) => {
-      const summary = state.byId[sessionId]
-      if (summary === undefined || summary.agentPreset === agentPreset) return
-      summary.agentPreset = agentPreset
-      for (const fn of listeners) fn()
     },
     /** Push a list change the way the runtime's store does. */
     notify: () => { for (const fn of listeners) fn() },
@@ -353,24 +345,6 @@ describe('ui-agent-preset apply', () => {
     conversation()
   })
 
-  it('folds a remote preset commit into the shared session row', async () => {
-    const { ctx, slots } = await bench()
-    declareRoot(slots)
-    declareConversation(slots)
-    ctx.provide('conversation', {} as never)
-    const state = {
-      current: 's1',
-      byId: { s1: { id: 's1', blank: true, agentPreset: 'standard' } },
-    }
-    ctx.provide('sessions', sessionsDouble(state) as never)
-    ctx.provide('workspaces', workspacesDouble() as never)
-    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
-
-    ctx.remote.$dispatch('agent-preset/selected', ['s1', 'minimal'])
-
-    expect(state.byId.s1.agentPreset).toBe('minimal')
-  })
-
   it('offers a just-authored preset on the new-session chip', async () => {
     const { ctx, slots } = await bench()
     declareRoot(slots)
@@ -401,18 +375,19 @@ describe('ui-agent-preset apply', () => {
     conversation()
   })
 
-  it('applies the staged choice to the blank session the flow lands on', async () => {
-    const { ctx, slots, calls } = await bench()
+  it('starts a distinct Session with the selected Profile', async () => {
+    const { ctx, slots } = await bench()
     declareRoot(slots)
     declareConversation(slots)
     ctx.provide('conversation', {} as never)
     const state: {
       current?: string
-      byId: Record<string, { id: string; blank: boolean; agentPreset?: string }>
+      byId: Record<string, { id: string; blank: boolean; agentProfile?: string }>
     } = { byId: {} }
     const sessions = sessionsDouble(state)
     ctx.provide('sessions', sessions as never)
-    ctx.provide('workspaces', workspacesDouble() as never)
+    const workspaces = workspacesDouble()
+    ctx.provide('workspaces', workspaces as never)
     await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
     const chip = (slots.entries('conversation.hero.agentPreset')[0]!
       .inject as unknown as () => AgentPresetSeatInjected)()
@@ -420,18 +395,17 @@ describe('ui-agent-preset apply', () => {
     await chip.load()
     // Picked on the hero screen, where there is no session yet.
     await chip.select('minimal')
-    expect(calls).not.toContain('select:minimal')
+    expect(workspaces.starts).toEqual([[null, 'minimal']])
 
     state.current = 's1'
-    state.byId['s1'] = { id: 's1', blank: true, agentPreset: 'standard' }
+    state.byId['s1'] = { id: 's1', blank: true, agentProfile: 'minimal' }
     sessions.notify()
 
-    // Connecting a workspace produced the session; the stage reaches it there.
-    await vi.waitFor(() => { expect(calls).toContain('select:minimal') })
+    await vi.waitFor(() => { expect(chip.hooks.agentPresetSeat.getSnapshot().busy).toBe(false) })
   })
 
-  it('applies the stage to a session that records no preset of its own', async () => {
-    const { ctx, slots, calls } = await bench()
+  it('does not assign a Profile to an existing profile-less Session', async () => {
+    const { ctx, slots } = await bench()
     declareRoot(slots)
     declareConversation(slots)
     ctx.provide('conversation', {} as never)
@@ -440,7 +414,8 @@ describe('ui-agent-preset apply', () => {
       byId: { s1: { id: 's1', blank: true } },
     })
     ctx.provide('sessions', sessions as never)
-    ctx.provide('workspaces', workspacesDouble() as never)
+    const workspaces = workspacesDouble()
+    ctx.provide('workspaces', workspaces as never)
     await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
     const chip = (slots.entries('conversation.hero.agentPreset')[0]!
       .inject as unknown as () => AgentPresetSeatInjected)()
@@ -448,37 +423,35 @@ describe('ui-agent-preset apply', () => {
     await chip.load()
     await chip.select('minimal')
 
-    // A session created before the deployment composed presets records none;
-    // reading that as "already runs it" would drop the pick on the floor.
-    expect(calls).toContain('select:minimal')
+    expect(workspaces.starts).toEqual([[null, 'minimal']])
   })
 
   it('forgets the stage once it has been spent', async () => {
-    const { ctx, slots, calls } = await bench()
+    const { ctx, slots } = await bench()
     declareRoot(slots)
     declareConversation(slots)
     ctx.provide('conversation', {} as never)
     const state = {
       current: 's1',
-      byId: { s1: { id: 's1', blank: true, agentPreset: 'standard' } },
+      byId: { s1: { id: 's1', blank: true, agentProfile: 'standard' } },
     }
     const sessions = sessionsDouble(state)
     ctx.provide('sessions', sessions as never)
-    ctx.provide('workspaces', workspacesDouble() as never)
+    const workspaces = workspacesDouble()
+    ctx.provide('workspaces', workspaces as never)
     await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
     const chip = (slots.entries('conversation.hero.agentPreset')[0]!
       .inject as unknown as () => AgentPresetSeatInjected)()
 
     await chip.load()
     await chip.select('minimal')
-    const spent = calls.filter(call => call === 'select:minimal').length
+    state.byId.s1.agentProfile = 'minimal'
+    sessions.notify()
     sessions.notify()
     sessions.notify()
 
-    // Every later list movement would re-apply a stage that was not cleared,
-    // switching sessions the user never picked for.
     await Promise.resolve()
-    expect(calls.filter(call => call === 'select:minimal')).toHaveLength(spent)
+    expect(workspaces.starts).toEqual([[null, 'minimal']])
   })
 
   it('gives the header label the same roster the General row reads', async () => {
@@ -522,7 +495,7 @@ describe('ui-agent-preset apply', () => {
     // new-session flow began.
     expect(section.startCreatorDraft).toBeDefined()
     expect(seat.hooks.agentPresetSeat.getSnapshot().current).toBe('cordis')
-    expect(workspaces.starts).toHaveLength(1)
+    expect(workspaces.starts).toEqual([[null, 'cordis']])
 
     // A cross-screen stage carries the introduce cue; the chip acknowledges
     // it once, and a repeat acknowledgement leaves the snapshot untouched.
@@ -536,17 +509,18 @@ describe('ui-agent-preset apply', () => {
   })
 
   it('keeps the applied composition when the roster load lands late', async () => {
-    const { ctx, slots, calls } = await bench()
+    const { ctx, slots } = await bench()
     declareRoot(slots)
     const conversation = declareConversation(slots)
     ctx.provide('conversation', {} as never)
     const state: {
       current?: string
-      byId: Record<string, { id: string; blank: boolean; agentPreset?: string }>
+      byId: Record<string, { id: string; blank: boolean; agentProfile?: string }>
     } = { byId: {} }
     const sessions = sessionsDouble(state)
     ctx.provide('sessions', sessions as never)
-    ctx.provide('workspaces', workspacesDouble() as never)
+    const workspaces = workspacesDouble()
+    ctx.provide('workspaces', workspaces as never)
     await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
     const section = (slots.entries('settings.section')[0]!.inject as unknown as () => AgentPresetSectionInjected)()
     const seat = (slots.entries('conversation.hero.agentPreset')[0]!
@@ -554,14 +528,13 @@ describe('ui-agent-preset apply', () => {
 
     section.startCreatorDraft?.()
     state.current = 's1'
-    state.byId['s1'] = { id: 's1', blank: true }
+    state.byId['s1'] = { id: 's1', blank: true, agentProfile: 'cordis' }
     sessions.notify()
-    await vi.waitFor(() => { expect(calls).toContain('select:cordis') })
+    await vi.waitFor(() => { expect(seat.hooks.agentPresetSeat.getSnapshot().busy).toBe(false) })
 
     // The chip mounts with the flow's session, so its roster load can land
     // AFTER the stage was consumed; the session's own composition is what
     // the display must keep — not the deployment default.
-    state.byId['s1'] = { id: 's1', blank: true, agentPreset: 'cordis' }
     await seat.load()
 
     expect(seat.hooks.agentPresetSeat.getSnapshot().current).toBe('cordis')

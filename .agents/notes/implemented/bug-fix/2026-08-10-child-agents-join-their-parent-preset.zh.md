@@ -18,7 +18,7 @@ Status: implemented
 
 这是认父而非挂载，两处差别都要紧。子 agent 拿到的是父方那个确切的代际，因此父方启动后被编辑过的组装文件不可能把与父方历史所产出时不同的另一个代际交给它，此后被删除的 preset 也不可能让一个父方仍在运行的子 agent 失败。它还是同步的，这正是子 agent 创建窗口能够使用它的前提——两个进程内驱动都在同步的 `setup` 中完成组装。
 
-`applyChildComposition(childCtx, parent, composition)` 接收父方，并在应用子 agent 自身注册之前完成加入。这个参数正是要点所在：它让"组装子 agent 却不做该加入"在各调用点无法表达，而不是把第二个步骤留给每个新驱动去记住。`childSessionMeta()` 通过 `AgentPresets.composedPreset()` 记录所加入的 id，该值从父方**活着的** scope 链读取而不是从其 header 读取，因为在空白期切换过 preset 的父方运行在更新的那份组装上，而它的 header 仍写着旧的那个。
+`applyChildComposition(childCtx, parent, composition)` 接收父方，并在应用子 agent 自身注册之前完成加入。这个参数正是要点所在：它让"组装子 agent 却不做该加入"在各调用点无法表达，而不是把第二个步骤留给每个新驱动去记住。`childSessionMeta()` 通过 `AgentPresets.composedPreset()` 把所加入的 id 记录为 `agentProfile`；该值从父方活着的 scope 链读取，使子方命名自己实际加入的常驻组装代际。
 
 `dsh-subagent` 以类型级导入加可选 peer 依赖的方式，通过 `ctx.get('agentPresets')` 触达 roster——这正是它对 `sandboxPolicy` 与 `approval` 已在使用的、有明确文档的机会性消费模式。
 
@@ -32,7 +32,7 @@ Status: implemented
 
 **扩展可继续 activation setup 注册表以覆盖一次性子 agent。** 否决，因为该注册表的贡献类型是同步的 `(childCtx) => () => void` 并带有逐次安装的撤销，建模的是会来会走的部署能力，而 preset 加入是一次性认父、自身没有撤销可言。扩展它反而会让任何绕过该注册表的驱动重新具备遗漏的可能。
 
-**让 `dsh-subagent` 导入 `resolveSessionPreset` 并按解析出的 id 挂载。** 否决，因为这会给一个必须在没有 roster 时也能工作的包引入硬模块边，而且最终仍落回上述的重新挂载语义。
+**让 `dsh-subagent` 导入 `resolveSessionProfile` 并按解析出的 id 挂载。** 否决，因为这会给一个必须在没有 roster 时也能工作的包引入硬模块边，而且最终仍落回上述的重新挂载语义。
 
 **过滤链上的每一层，包括作用域自身那层。** 否决，因为那会让逐子 agent 的能力过滤器把该子 agent 的回报与结构化输出工具一并删掉——它们由委派运行时注册进子 agent 自己那层——于是一个点名"子 agent 可用哪些能力"的 `allow` 会让它彻底无法回报。
 
@@ -44,7 +44,7 @@ Status: implemented
 
 `packages/core/tools/tests/scoped.spec.ts` 直接覆盖该限制规则：子 agent 的过滤器能移除它从祖先作用域继承来的工具、子 agent 自身的注册在自己的过滤器下存活、祖先的限制仍作用于其内嵌套的每个作用域。
 
-`packages/subagent/subagent-in-process-driver/tests/preset-inheritance.spec.ts` 在一个不含任何面向模型行的宿主组装上，通过 `startInProcessRun()` 断言模型可见的结果：子 agent 自身请求中的 schema、父方的提示段、记录下来的 header preset、施加在继承来的 preset 工具之上的 `toolFilter`，以及在空白期切换过 preset 的父方——切换到**另一个** preset，这样断言才能区分"读父方活 scope 链"与"读父方创建 header"。
+`packages/subagent/subagent-in-process-driver/tests/preset-inheritance.spec.ts` 在一个不含任何面向模型行的宿主组装上，通过 `startInProcessRun()` 断言模型可见的结果：子 agent 自身请求中的 schema、父方的提示段、记录下来的 header Profile，以及施加在继承 Profile 工具之上的 `toolFilter`。
 
 组装记录这一层用的是真实 shipped Web 组装的 e2e，而不是无密钥快照。本仓库所有可运行 example 都不组装 preset roster，因此该缺陷在快照 harness 里根本不可观察：要做快照场景，得先有一个既挂载 roster 又发起委派的 example。Web e2e 启动的是真实的 `base` + `web-app` 补丁层与两个 shipped preset，这正是测试政策要求的组装证据；Web 浏览器 lane 的 subagent golden 承载了可见后果——记录了 preset 的子 agent 现在会显示与其父方相同的 preset 徽标。
 

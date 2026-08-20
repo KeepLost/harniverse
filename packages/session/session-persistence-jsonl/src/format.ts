@@ -40,7 +40,7 @@ export interface HeaderLine {
   seedLength?: number
   origin?: 'subagent'
   delegationDepth: number
-  agentPreset?: string
+  agentProfile?: string
 }
 
 /**
@@ -59,7 +59,7 @@ export function toHeaderLine(header: SessionHeader): HeaderLine {
     ...header.seedLength !== undefined ? { seedLength: header.seedLength } : {},
     ...header.origin !== undefined ? { origin: header.origin } : {},
     delegationDepth: header.delegationDepth ?? 0,
-    ...header.agentPreset !== undefined ? { agentPreset: header.agentPreset } : {},
+    ...header.agentProfile !== undefined ? { agentProfile: header.agentProfile } : {},
   }
 }
 
@@ -81,7 +81,7 @@ export function fromHeaderLine(line: HeaderLine): SessionHeader {
     ...line.seedLength !== undefined ? { seedLength: line.seedLength } : {},
     ...line.origin !== undefined ? { origin: line.origin } : {},
     delegationDepth: line.delegationDepth,
-    ...line.agentPreset !== undefined ? { agentPreset: line.agentPreset } : {},
+    ...line.agentProfile !== undefined ? { agentProfile: line.agentProfile } : {},
   }
 }
 
@@ -102,8 +102,8 @@ function isHeaderLine(value: unknown): value is HeaderLine {
     && !Object.is((value as { delegationDepth: number }).delegationDepth, -0)
     && ((value as { origin?: unknown }).origin === undefined
       || (value as { origin?: unknown }).origin === 'subagent')
-    && ((value as { agentPreset?: unknown }).agentPreset === undefined
-      || typeof (value as { agentPreset?: unknown }).agentPreset === 'string')
+    && ((value as { agentProfile?: unknown }).agentProfile === undefined
+      || typeof (value as { agentProfile?: unknown }).agentProfile === 'string')
   )
 }
 

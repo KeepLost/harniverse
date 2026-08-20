@@ -53,8 +53,8 @@ export class WorkspaceRuntime implements IWorkspaces {
   readonly list: SnapshotStore<WorkspaceListState>
   /** Workspace baseline and frame owner. */
   private readonly manager: WorkspaceManager
-  /** In-flight blank-session creates keyed by workspace (connectWorkspace coalescing). */
-  private readonly connecting = new Map<WorkspaceId, Promise<SessionId>>()
+  /** In-flight blank-session creates keyed by workspace and requested profile. */
+  private readonly connecting = new Map<string, Promise<SessionId>>()
   /** Guards the runtime-owned one-shot initial-selection subscription. */
   private initialSelectionStarted = false
 
@@ -84,15 +84,17 @@ export class WorkspaceRuntime implements IWorkspaces {
    * store and `sessions.binding(id)` resolves synchronously — draft hand-off
    * may write the new scope's machine before opening.
    * @param workspaceId - chosen Workspace (must be in the workspace list).
+   * @param agentProfile - explicit immutable Agent Profile for a new Session.
    * @returns the reused or newly created session id.
    */
-  async connectWorkspace(workspaceId: WorkspaceId): Promise<SessionId> {
+  async connectWorkspace(workspaceId: WorkspaceId, agentProfile?: string): Promise<SessionId> {
     const workspace = this.list.getSnapshot().items.find(item => item.workspaceId === workspaceId)
     if (workspace === undefined) throw new Error(`workspaces.connectWorkspace: unknown workspace ${workspaceId}`)
     // Coalesce concurrent connects: a create's summary lands without cwd
     // until the host frame arrives, so a second call inside that window
     // would miss the reuse scan and mint another hidden blank session.
-    const inflight = this.connecting.get(workspaceId)
+    const connectKey = `${workspaceId}\0${agentProfile ?? ''}`
+    const inflight = this.connecting.get(connectKey)
     if (inflight !== undefined) return inflight
     // Reuse requires workspace membership (id in sessionIds AND same
     // canonical cwd — the host's own membership rule), never cwd alone:
@@ -107,11 +109,14 @@ export class WorkspaceRuntime implements IWorkspaces {
       const summary = sessions.byId[id]
       if (summary !== undefined && summary.blank && summary.cwd === workspace.path
         && workspace.sessionIds.includes(summary.id)
+        && (agentProfile === undefined || summary.agentProfile === agentProfile)
         && !archived.includes(summary.id)) return summary.id
     }
-    const attempt = this.sessions.create({ workspaceId })
-      .finally(() => { this.connecting.delete(workspaceId) })
-    this.connecting.set(workspaceId, attempt)
+    const attempt = this.sessions.create({
+      workspaceId,
+      ...agentProfile === undefined ? {} : { agentProfile },
+    }).finally(() => { this.connecting.delete(connectKey) })
+    this.connecting.set(connectKey, attempt)
     return attempt
   }
 
@@ -173,8 +178,9 @@ export class WorkspaceRuntime implements IWorkspaces {
    * Connect failures are non-fatal (console diagnostics; the current view
    * stays usable).
    * @param workspaceId - explicit target Workspace for scoped actions.
+   * @param agentProfile - explicit immutable Agent Profile for the new Session.
    */
-  startSession(workspaceId?: WorkspaceId): void {
+  startSession(workspaceId?: WorkspaceId, agentProfile?: string): void {
     const workspace = this.list.getSnapshot()
     const current = this.sessions.list.getSnapshot().current
     const currentWorkspaceId = current === undefined
@@ -185,7 +191,10 @@ export class WorkspaceRuntime implements IWorkspaces {
       this.sessions.clear()
       return
     }
-    void this.connectWorkspace(target).then(
+    const connected = agentProfile === undefined
+      ? this.connectWorkspace(target)
+      : this.connectWorkspace(target, agentProfile)
+    void connected.then(
       (sessionId) => { this.sessions.open(sessionId) },
       (reason: unknown) => { console.warn('new session failed:', reason) },
     )

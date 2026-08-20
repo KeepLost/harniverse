@@ -27,7 +27,7 @@ describe('minimal agent preset', () => {
     })
     agentHandle = await scaffold.ctx.agents.create({
       sessionId: SessionId('minimal-preset-smoke'),
-      meta: { cwd: scaffold.workspaceCwd, agentPreset: 'minimal' },
+      meta: { cwd: scaffold.workspaceCwd, agentProfile: 'minimal' },
       agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       setup: agentCtx => scaffold.ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })

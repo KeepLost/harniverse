@@ -1,6 +1,7 @@
 # Agent Note: The slash catalog follows a blank session's preset switch
 
 Status: implemented
+Archived: 2026-08-20
 
 English | [中文](2026-08-10-slash-catalog-follows-preset-switch.zh.md)
 

@@ -7,7 +7,8 @@
  * also keeps the composition exactly what its name says: a Cordis file the
  * loader owns and the cordis preset can author.
  *
- * The file carries display text ONLY. `id` is the directory name and `trust`
+ * The file carries display text and the profile's default permission preset.
+ * `id` is the directory name and `trust`
  * comes from the root a preset was discovered under, so neither is writable
  * here — otherwise a locally authored preset could claim to be a shipped one.
  *
@@ -36,6 +37,8 @@ export interface PresetMetadata {
    * can read in capability order while authored ones stay alphabetical.
    */
   readonly order?: number
+  /** Permission preset applied before the agent is published. */
+  readonly permissionPreset?: string
 }
 
 /** A non-empty trimmed string, or undefined for anything else. */
@@ -77,10 +80,12 @@ export async function readPresetMetadata(directory: string): Promise<PresetMetad
   const order = typeof record.order === 'number' && Number.isFinite(record.order)
     ? record.order
     : undefined
+  const permissionPreset = text(record.permissionPreset)
   return {
     ...name === undefined ? {} : { name },
     ...description === undefined ? {} : { description },
     ...order === undefined ? {} : { order },
+    ...permissionPreset === undefined ? {} : { permissionPreset },
   }
 }
 
@@ -96,10 +101,12 @@ export function renderPresetMetadata(metadata: PresetMetadata): string | undefin
   const name = text(metadata.name)
   const description = text(metadata.description)
   const { order } = metadata
-  if (name === undefined && description === undefined && order === undefined) return undefined
+  const permissionPreset = text(metadata.permissionPreset)
+  if (name === undefined && description === undefined && order === undefined && permissionPreset === undefined) return undefined
   return yaml.dump({
     ...name === undefined ? {} : { name },
     ...description === undefined ? {} : { description },
     ...order === undefined ? {} : { order },
+    ...permissionPreset === undefined ? {} : { permissionPreset },
   }, { lineWidth: -1 })
 }

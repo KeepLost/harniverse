@@ -232,7 +232,10 @@ describe('WorkspaceRuntime', () => {
         { sessionId: sid('s-stray-alpha'), updatedAt: 1, running: false, blank: true, cwd: '/w/alpha' },
         // Blank session parked in alpha (cwd == workspace path canon AND
         // accounted under alpha): the reuse hit.
-        { sessionId: sid('s-blank'), updatedAt: 2, running: false, blank: true, cwd: '/w/alpha' },
+        {
+          sessionId: sid('s-blank'), updatedAt: 2, running: false, blank: true,
+          cwd: '/w/alpha', agentProfile: 'standard',
+        },
         // Non-blank sibling in beta must never be reused.
         { sessionId: sid('s-active'), updatedAt: 3, running: false, blank: false, cwd: '/w/beta' },
         // Stray blank at gamma's path but NOT accounted under gamma (a CLI
@@ -252,10 +255,19 @@ describe('WorkspaceRuntime', () => {
     // Resolution guarantee: the id is binding-resolvable synchronously.
     expect(sessions.binding(sid('s-blank'))).toBeDefined()
 
+    // An explicit different Profile always mints a distinct Session; Profile
+    // identity is immutable even while the existing Session is blank.
+    api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-profile') }))
+    await expect(workspaces.connectWorkspace(wid('alpha'), 'minimal')).resolves.toBe('s-profile')
+    expect(api.callsOf('session.create')).toEqual([{ workspaceId: 'alpha', agentProfile: 'minimal' }])
+
     // Miss: beta has only a non-blank session → host create with workspaceId.
     api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-fresh') }))
     await expect(workspaces.connectWorkspace(wid('beta'))).resolves.toBe('s-fresh')
-    expect(api.callsOf('session.create')).toEqual([{ workspaceId: 'beta' }])
+    expect(api.callsOf('session.create')).toEqual([
+      { workspaceId: 'alpha', agentProfile: 'minimal' },
+      { workspaceId: 'beta' },
+    ])
     // Same guarantee on the create arm (draft hand-off writes the machine pre-open).
     expect(sessions.binding(sid('s-fresh'))).toBeDefined()
 
@@ -263,7 +275,11 @@ describe('WorkspaceRuntime', () => {
     // never reused, a fresh accounted session is created instead.
     api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-fresh-3') }))
     await expect(workspaces.connectWorkspace(wid('gamma'))).resolves.toBe('s-fresh-3')
-    expect(api.callsOf('session.create')).toEqual([{ workspaceId: 'beta' }, { workspaceId: 'gamma' }])
+    expect(api.callsOf('session.create')).toEqual([
+      { workspaceId: 'alpha', agentProfile: 'minimal' },
+      { workspaceId: 'beta' },
+      { workspaceId: 'gamma' },
+    ])
 
     // Unknown workspace fails loud instead of silently creating in nowhere.
     await expect(workspaces.connectWorkspace(wid('ghost'))).rejects.toThrow(/unknown workspace ghost/)

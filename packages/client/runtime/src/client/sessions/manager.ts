@@ -534,10 +534,13 @@ export class SessionManager {
    * @returns the create result.
    */
   async create(
-    opts: { workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId } = {},
+    opts: { workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId; agentProfile?: string } = {},
   ): Promise<RpcResult<{ sessionId: SessionId }>> {
     try {
-      const shared = opts.sessionId === undefined ? {} : { sessionId: opts.sessionId }
+      const shared = {
+        ...opts.sessionId === undefined ? {} : { sessionId: opts.sessionId },
+        ...opts.agentProfile === undefined ? {} : { agentProfile: opts.agentProfile },
+      }
       const payload = opts.workspaceId !== undefined
         ? { workspaceId: opts.workspaceId, ...shared }
         : { ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }), ...shared }
@@ -546,7 +549,7 @@ export class SessionManager {
         this.recordMutation({ kind: 'upsert', summary: {
           sessionId: result.value.sessionId, updatedAt: Date.now(), running: false, blank: true,
           ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
-          ...(result.value.agentPreset !== undefined ? { agentPreset: result.value.agentPreset } : {}),
+          ...(result.value.agentProfile !== undefined ? { agentProfile: result.value.agentProfile } : {}),
         } })
       } else {
         const publishedSessionId = workspaceAttachSessionId(result.error)
@@ -610,17 +613,6 @@ export class SessionManager {
    */
   private mergeSummary(summary: SessionSummary): void {
     this.recordMutation({ kind: 'upsert', summary })
-  }
-
-  /**
-   * Record a host-confirmed composition switch (see ISessions.noteAgentPreset).
-   * @param sessionId - the switched session.
-   * @param agentPreset - the preset id the host confirmed.
-   */
-  noteAgentPreset(sessionId: SessionId, agentPreset: string): void {
-    this.recordMutation({ kind: 'upsert', summary: {
-      sessionId, updatedAt: Date.now(), running: false, blank: true, agentPreset,
-    } })
   }
 
   /** Apply immediately and retain for replay when a list response is in flight. */
@@ -801,7 +793,7 @@ export class SessionManager {
           ...(frame.parentSessionId !== undefined ? { parentSessionId: frame.parentSessionId } : {}),
           ...(frame.origin !== undefined ? { origin: frame.origin } : {}),
           ...(frame.cwd !== undefined ? { cwd: frame.cwd } : {}),
-          ...(frame.agentPreset !== undefined ? { agentPreset: frame.agentPreset } : {}),
+          ...(frame.agentProfile !== undefined ? { agentProfile: frame.agentProfile } : {}),
         })
         this.sessions.get(frame.sessionId)?.handleBlank(frame.blank)
         if (frame.origin === 'subagent' && frame.parentSessionId !== undefined) {
@@ -1057,7 +1049,7 @@ export class SessionManager {
       const prev = this.entryCache.get(entry.sessionId)
       if (
         prev !== undefined && prev.updatedAt === entry.updatedAt && prev.running === entry.running
-        && prev.blank === entry.blank && prev.agentPreset === entry.agentPreset
+        && prev.blank === entry.blank && prev.agentProfile === entry.agentProfile
         && prev.parentSessionId === entry.parentSessionId && prev.cwd === entry.cwd
         && prev.origin === entry.origin && prev.title === entry.title && prev.depth === entry.depth
         && prev.pendingInteraction === entry.pendingInteraction
@@ -1106,15 +1098,12 @@ function applyMutation(summaries: readonly SessionSummary[], mutation: SessionLi
           ? { parentSessionId: mutation.summary.parentSessionId } : {}),
         ...(existing.origin === undefined && mutation.summary.origin !== undefined
           ? { origin: mutation.summary.origin } : {}),
-        // Newest wins, not fill-only: a blank-session preset switch replaces
-        // the creation-time value, and every producer of this field (the
-        // create echo, the select echo, a list row) reports the CURRENT one.
-        ...(mutation.summary.agentPreset !== undefined
-          ? { agentPreset: mutation.summary.agentPreset } : {}),
+        ...(mutation.summary.agentProfile !== undefined
+          ? { agentProfile: mutation.summary.agentProfile } : {}),
       }
       if (filled.cwd === existing.cwd && filled.parentSessionId === existing.parentSessionId
         && filled.origin === existing.origin && filled.blank === existing.blank
-        && filled.agentPreset === existing.agentPreset) return [...summaries]
+        && filled.agentProfile === existing.agentProfile) return [...summaries]
       return summaries.map(summary => summary.sessionId === mutation.summary.sessionId ? filled : summary)
     }
     case 'remove':

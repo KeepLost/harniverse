@@ -12,13 +12,13 @@ A session's preset is fixed when the session is created — the host refuses to 
 
 A second surface, beside the workspace picker on the new-session screen. It sits there rather than in the composer because that is where the choice is still open: a control that spends most of its life disabled belongs on the screen where it still works.
 
-The chip opens on the deployment default and its pick is *staged* — the screen precedes the session it would apply to. The stage reaches a session when one becomes current and is still blank, which covers both the session the workspace connect created and the blank one it reused; riding along on `sessions.create` would miss the second. It is spent on first use, so the next new session opens on the default again, exactly like the workspace picker beside it.
+The chip opens on the deployment default. Picking another Profile starts a distinct Session through `session.create({ workspaceId, agentProfile })`; workspace blank-session reuse only accepts an existing Session with the same Profile. The staged id remains visible until the created Session becomes current, then the next new-session flow opens on the default again.
 
-A session that has started is refused rather than queued: the host answers `agent-preset-locked`, and the stage is dropped instead of waiting for a session that will never accept it.
+The chip never mutates the current Session, whether blank or started. Profile identity is immutable from Session creation onward.
 
 ## The session-header label
 
-A third surface, beside the session title: the preset THIS session runs, as static chrome. A control there would promise a switch the host refuses outright. It reads the preset from the session's own summary and resolves the display name against the same roster the General row reads. Forwarded `agent-preset/selected` owner events fold committed blank-session switches into that shared summary in every tab; the initiating tab may already have applied the RPC echo, and the merge is idempotent.
+A third surface, beside the session title: the Profile THIS Session runs, as static chrome. It reads immutable `agentProfile` from the Session summary and resolves the display name against the same roster the General row reads.
 
 ## What it reads and writes
 
@@ -40,7 +40,7 @@ A preset publishes its own description, of any length, and the grid sizes every 
 
 A shipped preset opens in the read-only viewer. It is the known-good composition a copy starts from, so reading it is the point; it offers no location and no delete — its install is overwritten by upgrades and is not the user's to manage. The intro carries the guidance a create button used to imply: duplicate an existing preset and make it yours, or let the agent draft one in Creator mode.
 
-Beside copying sits the conversational entry: when the roster carries the self-referential `cordis` preset, a dashed add-card (the Models page's affordance) stages it and starts a new session — the section closes the settings panel through the shell's owner-prop `close` and the new-session chip's own applier composes the blank session the workspace flow produces. The seat keeps a late roster load from regressing the display: staged pick first, then the composition the current session already carries, then the deployment default.
+Beside copying sits the conversational entry: when the roster carries the self-referential `cordis` Profile, a dashed add-card starts a distinct Session with it and closes the settings panel. The seat keeps a late roster load from regressing the display: staged pick first, then the Profile the current Session carries, then the deployment default.
 
 The dialog mirrors the host's own containment rule (`[a-z0-9][a-z0-9-]*`) and refuses a name already in use — a copy never overwrites. Both checks are conveniences: the host re-applies them and its answer is what the dialog reports on failure.
 

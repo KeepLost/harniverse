@@ -197,6 +197,10 @@ describe('sessions domain schemas', () => {
       hasMore: true,
     })).toThrow()
     expect(sessionCreateRequestSchema.parse({ cwd: '/w' }).cwd).toBe('/w')
+    expect(sessionCreateRequestSchema.parse({ workspaceId: 'w1', agentProfile: 'minimal' }))
+      .toMatchObject({ agentProfile: 'minimal' })
+    expect(sessionCreateRequestSchema.parse({ workspaceId: 'w1', agentPreset: 'minimal' }))
+      .not.toHaveProperty('agentPreset')
     // The refine's both-sides branch: workspaceId alone passes, workspaceId+cwd rejects.
     expect(sessionCreateRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1' }).sessionId).toBe('s1')
     expect(() => sessionCreateRequestSchema.parse({ workspaceId: 'w1', cwd: '/w' })).toThrow(/not both/)
@@ -582,7 +586,6 @@ describe('events frame schemas', () => {
       { type: 'host/workspace-removed', workspaceId: 'w' },
       { type: 'host/remote-event', event: 'commands/change', args: [] },
       { type: 'host/remote-event', event: 'settings/document-updated', args: ['ns', 3] },
-      { type: 'host/remote-event', event: 'agent-preset/selected', args: ['s', 'minimal'] },
       { type: 'host/remote-event', event: 'llm/adapters-updated', args: [] },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]

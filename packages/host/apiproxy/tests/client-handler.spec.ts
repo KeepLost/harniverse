@@ -107,7 +107,6 @@ function scriptedApi(overrides: {
     skills: { list: r => ok(r, { skills: [] }), ...overrides.skills },
     agentPresets: {
       list: r => ok(r, { presets: [], authorable: false, hasDocument: false }),
-      select: r => ok(r, { agentPreset: r.payload.agentPreset }),
       read: r => ok(r, { agentPreset: r.payload.agentPreset, trust: 'user' as const, content: '' }),
       copy: r => ok(r, { agentPreset: r.payload.agentPreset }),
       openDocument: r => ok(r, { opened: true as const }),
@@ -262,8 +261,6 @@ describe('unary round trip', () => {
 
     // The switch carries the session it is about: the host refuses one whose
     // conversation has started, and it can only know which by id.
-    const selected = await c.agentPresets.select({ sessionId: sid('s1'), agentPreset: 'standard' })
-    expect(selected.result).toEqual({ ok: true, value: { agentPreset: 'standard' } })
   })
 
   it('passes business errors through as 200 + err result, not a throw', async () => {

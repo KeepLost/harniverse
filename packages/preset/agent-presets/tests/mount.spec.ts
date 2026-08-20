@@ -457,61 +457,7 @@ describe('attributing a service to a subtree', () => {
   })
 })
 
-describe('replacing a composition', () => {
-  it('publishes a committed preset selection for remote consumers', async () => {
-    const agent = await agentOn(ctx, 'sess-selected', 'standard')
-    const selected: Array<[SessionId, string]> = []
-    ctx.on('agent-preset/selected', (sessionId, agentPreset) => {
-      selected.push([sessionId, agentPreset])
-    })
-
-    agent.session.append('agent-preset/selected', { agentPreset: 'minimal' })
-
-    expect(selected).toEqual([[SessionId('sess-selected'), 'minimal']])
-  })
-
-  it('swaps the agent\'s tools without touching another session', async () => {
-    const keeper = await agentOn(ctx, 'sess-keeper', 'standard')
-    const handle = await ctx.agents.create({
-      sessionId: SessionId('sess-swap'),
-      setup: async (agentCtx: Context) => void await ctx.agentPresets.mount(agentCtx, 'standard'),
-    })
-    expect(toolNames(ctx, handle.agent)).toEqual(['alpha'])
-
-    await ctx.agentPresets.recompose(handle.agent.ctx, 'minimal')
-
-    expect(toolNames(ctx, handle.agent)).toEqual(['beta'])
-    expect(toolNames(ctx, keeper)).toEqual(['alpha'])
-    expect(toolNames(ctx)).toEqual([])
-  })
-
-  it('leaves the agent on its previous composition when the new one is unknown', async () => {
-    const handle = await ctx.agents.create({
-      sessionId: SessionId('sess-unknown'),
-      setup: async (agentCtx: Context) => void await ctx.agentPresets.mount(agentCtx, 'standard'),
-    })
-
-    await expect(ctx.agentPresets.recompose(handle.agent.ctx, 'nope'))
-      .rejects.toThrow(/not found/)
-
-    // Resolution happens before any teardown, so an unknown id is a no-op.
-    expect(toolNames(ctx, handle.agent)).toEqual(['alpha'])
-  })
-
-  it('restores the previous composition when the new one fails to mount', async () => {
-    const handle = await ctx.agents.create({
-      sessionId: SessionId('sess-restore'),
-      setup: async (agentCtx: Context) => void await ctx.agentPresets.mount(agentCtx, 'standard'),
-    })
-
-    await expect(ctx.agentPresets.recompose(handle.agent.ctx, 'broken'))
-      .rejects.toThrow(/failed to mount/)
-
-    // The swap is unmount-then-mount, so a failure must put the old one back
-    // rather than leave the agent with no tools at all.
-    expect(toolNames(ctx, handle.agent)).toEqual(['alpha'])
-  })
-
+describe('composition diagnostics', () => {
   it('names an agent that was published without joining any preset', async () => {
     const ctx = await harness()
     const warnings: string[] = []
@@ -543,70 +489,6 @@ describe('replacing a composition', () => {
     expect(warnings).toEqual([])
   })
 
-  it('composes an agent that had nothing installed', async () => {
-    // An agent created without a preset has no binding to re-link, so the
-    // switch is its first bind — exactly a mount — and once bound only the
-    // roster's kept binding can move it again.
-    const handle = await ctx.agents.create({ sessionId: SessionId('sess-bare') })
-
-    await ctx.agentPresets.recompose(handle.agent.ctx, 'minimal')
-
-    expect(toolNames(ctx, handle.agent)).toEqual(['beta'])
-  })
-
-  it('refuses a bare agent\'s broken composition without restoring anything', async () => {
-    const handle = await ctx.agents.create({ sessionId: SessionId('sess-bare-broken') })
-
-    await expect(ctx.agentPresets.recompose(handle.agent.ctx, 'broken'))
-      .rejects.toThrow(/failed to mount/)
-
-    // Nothing was installed, so there is nothing to put back.
-    expect(toolNames(ctx, handle.agent)).toEqual([])
-  })
-
-  it('keeps the agent on its standing composition when a switch fails, even with the source deleted', async () => {
-    // A preset root this test owns, so removing the composition mid-flight
-    // cannot disturb the shipped fixtures.
-    const root = await mkdtemp(join(tmpdir(), 'dsh-preset-restore-'))
-    const seeded: [string, string][] = [['first', `- id: only\n  name: ${join(FIXTURES, 'plugins', 'contribute.js')}\n  config:\n    tool: only\n`], ['broken', '- id: nope\n  name: ./does-not-exist.js\n']]
-    for (const [id, body] of seeded) {
-      await mkdir(join(root, id))
-      await writeFile(join(root, id, COMPOSITION_FILE), body)
-    }
-    const scoped = new Context()
-    scoped.baseUrl = pathToFileURL(FIXTURES).href + '/'
-    await scoped.plugin(Loader)
-    scoped.loader.builtins.include = Include
-    await scoped.plugin(LlmRuntime)
-    await scoped.plugin(SessionStore)
-    await scoped.plugin(SystemPrompt, { persona: '' })
-    await scoped.plugin(ToolRuntime)
-    await scoped.plugin(AgentRegistry)
-    await scoped.plugin(AgentLoop, { agents: [] })
-    await scoped.plugin(AgentPresets, { default: 'first', roots: [{ path: root, trust: 'user' as const }], includeUserRoot: false })
-    const handle = await scoped.agents.create({
-      sessionId: SessionId('sess-restore-gone'),
-      setup: async (agentCtx: Context) => void await scoped.agentPresets.mount(agentCtx, 'first'),
-    })
-
-    // The roster is a live directory: the composition the agent came from can
-    // be gone from DISK by the time a switch fails. The standing mount is not
-    // the file — it outlives deletion, so there is nothing to "restore".
-    await rm(join(root, 'first'), { recursive: true })
-
-    await expect(scoped.agentPresets.recompose(handle.agent.ctx, 'broken'))
-      .rejects.toThrow(/failed to mount/)
-
-    // The failed switch left the agent EXACTLY as it was: the new standing
-    // mount is ensured before the parent link moves, so a rejection never
-    // strips the old composition.
-    expect(toolNames(scoped, handle.agent)).toEqual(['only'])
-  })
-
-  it('refuses an unscoped context', async () => {
-    await expect(ctx.agentPresets.recompose(ctx, 'minimal'))
-      .rejects.toThrow(/unscoped context/)
-  })
 })
 
 describe('editing a composition file', () => {

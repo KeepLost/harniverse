@@ -119,7 +119,7 @@ async function tightenModes(dir: string): Promise<void> {
  * not one file. Symlinks are dereferenced so the copy is self-contained
  * rather than a set of links back into the install it was copied from.
  *
- * The copied metadata is then rewritten: the source's description is kept
+ * The copied metadata is then rewritten: the source's description and default permission are kept
  * (the file is the author's to edit afterwards), but its name and roster
  * `order` are not — a copy presenting itself identically to its source, or
  * sorted into the shipped set's declared order, would make the roster stop
@@ -153,6 +153,7 @@ export async function copyComposition(
     const rendered = renderPresetMetadata({
       ...name === undefined ? {} : { name },
       ...source.description === undefined ? {} : { description: source.description },
+      ...source.permissionPreset === undefined ? {} : { permissionPreset: source.permissionPreset },
     })
     const metadataPath = join(dir, METADATA_FILE)
     if (rendered === undefined) {

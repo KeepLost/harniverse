@@ -239,8 +239,8 @@ describe('the new-session chip controller', () => {
   /** A chip over a current session the test can move. */
   function chip(
     presets: { id: string; trust: 'system' | 'user'; isDefault: boolean }[],
-    current: { id: string; blank: boolean; agentPreset?: string } | undefined,
-    options: { writes?: Recorded[]; failSelect?: string; failList?: string; throwOn?: 'list' | 'select' } = {},
+    current: { id: string; blank: boolean; agentProfile?: string } | undefined,
+    options: { starts?: string[]; failList?: string; throwOn?: 'list' } = {},
   ): AgentPresetSeatController {
     const api = {
       agentPresets: {
@@ -250,16 +250,13 @@ describe('the new-session chip controller', () => {
             ? { rpcId: 'r', result: { ok: true as const, value: { presets } } }
             : { rpcId: 'r', result: { ok: false as const, error: { code: 'internal', message: options.failList, details: {} } } })
         },
-        select: (payload: { agentPreset: string }) => {
-          if (options.throwOn === 'select') return Promise.reject(new Error('socket closed'))
-          options.writes?.push({ ns: 'select', patch: payload.agentPreset })
-          return Promise.resolve(options.failSelect === undefined
-            ? { rpcId: 'r', result: { ok: true as const, value: { agentPreset: payload.agentPreset } } }
-            : { rpcId: 'r', result: { ok: false as const, error: { code: 'agent-preset-locked', message: options.failSelect, details: {} } } })
-        },
       },
     } as unknown as IApiClient
-    return new AgentPresetSeatController(api, () => current as SeatSessionSummary | undefined)
+    return new AgentPresetSeatController(
+      api,
+      () => current as SeatSessionSummary | undefined,
+      (profile) => { options.starts?.push(profile) },
+    )
   }
 
   const ROSTER: { id: string; trust: 'system' | 'user'; isDefault: boolean }[] = [
@@ -313,97 +310,66 @@ describe('the new-session chip controller', () => {
     expect(controller.store.getSnapshot().current).toBe('')
   })
 
-  it('stages a pick made before any session exists', async () => {
-    const writes: Recorded[] = []
-    const controller = chip(ROSTER, undefined, { writes })
+  it('starts a distinct session when a Profile is picked', async () => {
+    const starts: string[] = []
+    const controller = chip(ROSTER, undefined, { starts })
     await controller.load()
 
     await controller.select('minimal')
 
-    // Nothing to switch yet: the new-session screen precedes the session.
-    expect(writes).toEqual([])
+    expect(starts).toEqual(['minimal'])
     expect(controller.store.getSnapshot().current).toBe('minimal')
   })
 
-  it('applies the stage to the blank session the flow lands on', async () => {
-    const writes: Recorded[] = []
-    const current = { id: 's1', blank: true, agentPreset: 'standard' }
-    const controller = chip(ROSTER, current, { writes })
+  it('consumes the stage when the created Session becomes current', async () => {
+    const starts: string[] = []
+    const current: SeatSessionSummary = { id: 's1' as never, blank: true, agentProfile: 'standard' }
+    const controller = chip(ROSTER, current, { starts })
     await controller.load()
     await controller.select('minimal')
 
-    expect(writes).toEqual([{ ns: 'select', patch: 'minimal' }])
+    current.agentProfile = 'minimal'
+    await controller.apply()
+
+    expect(starts).toEqual(['minimal'])
     expect(controller.store.getSnapshot().current).toBe('minimal')
+    expect(controller.store.getSnapshot().busy).toBe(false)
   })
 
   it('spends the stage exactly once', async () => {
-    const writes: Recorded[] = []
-    const controller = chip(ROSTER, { id: 's1', blank: true, agentPreset: 'standard' }, { writes })
+    const starts: string[] = []
+    const current: SeatSessionSummary = { id: 's1' as never, blank: true, agentProfile: 'standard' }
+    const controller = chip(ROSTER, current, { starts })
     await controller.load()
     await controller.select('minimal')
 
+    current.agentProfile = 'minimal'
     await controller.apply()
     await controller.apply()
 
-    // Every later list movement calls apply(); an unspent stage would keep
-    // switching sessions the user never picked for.
-    expect(writes).toEqual([{ ns: 'select', patch: 'minimal' }])
+    expect(starts).toEqual(['minimal'])
   })
 
-  it('drops the stage against a session that already started', async () => {
-    const writes: Recorded[] = []
-    const controller = chip(ROSTER, { id: 's1', blank: false, agentPreset: 'standard' }, { writes })
+  it('does not mutate a Session that already started', async () => {
+    const starts: string[] = []
+    const controller = chip(ROSTER, { id: 's1', blank: false, agentProfile: 'standard' }, { starts })
     await controller.load()
 
     await controller.select('minimal')
 
-    // The host enforces the same rule; the chip simply never asks.
-    expect(writes).toEqual([])
+    expect(starts).toEqual(['minimal'])
   })
 
-  it('drops the stage when the session already runs it', async () => {
-    const writes: Recorded[] = []
-    const controller = chip(ROSTER, { id: 's1', blank: true, agentPreset: 'minimal' }, { writes })
-    await controller.load()
-
-    await controller.select('minimal')
-
-    expect(writes).toEqual([])
-  })
-
-  it('falls back to the default when the host refuses the switch', async () => {
-    const controller = chip(
-      ROSTER, { id: 's1', blank: true, agentPreset: 'standard' }, { failSelect: 'already started' })
-    await controller.load()
-
-    await controller.select('minimal')
-
-    // Showing `minimal` after a refusal would claim a composition the session
-    // never got.
-    expect(controller.store.getSnapshot()).toMatchObject({ current: 'standard', error: 'already started' })
-  })
-
-  it('falls back to the default when the switch never reaches the host', async () => {
-    const controller = chip(
-      ROSTER, { id: 's1', blank: true, agentPreset: 'standard' }, { throwOn: 'select' })
-    await controller.load()
-
-    await controller.select('minimal')
-
-    expect(controller.store.getSnapshot())
-      .toMatchObject({ current: 'standard', busy: false, error: 'socket closed' })
-  })
-
-  it('ignores a pick while a switch is in flight', async () => {
-    const writes: Recorded[] = []
-    const controller = chip(ROSTER, { id: 's1', blank: true, agentPreset: 'standard' }, { writes })
+  it('ignores a second pick while the created Session is pending', async () => {
+    const starts: string[] = []
+    const controller = chip(ROSTER, { id: 's1', blank: true, agentProfile: 'standard' }, { starts })
     await controller.load()
 
     const first = controller.select('minimal')
     await controller.select('standard')
     await first
 
-    expect(writes).toEqual([{ ns: 'select', patch: 'minimal' }])
+    expect(starts).toEqual(['minimal'])
   })
 
   it('keeps a staged pick across a roster refresh', async () => {

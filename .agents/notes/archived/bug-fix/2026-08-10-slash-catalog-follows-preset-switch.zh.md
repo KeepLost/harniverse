@@ -1,6 +1,7 @@
 # Agent Note: 斜杠目录跟随空会话的 preset 切换
 
 Status: implemented
+Archived: 2026-08-20
 
 [English](2026-08-10-slash-catalog-follows-preset-switch.md) | 中文
 

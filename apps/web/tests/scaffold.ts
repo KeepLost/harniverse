@@ -747,7 +747,7 @@ export function fixtureUserPrompts(fixtureText: string): string[] {
  * @param scaffold - the target scaffold.
  * @param fixtureText - raw recorded session.jsonl contents.
  * @param id - the seeded session id (stable for deterministic goldens).
- * @param agentPreset - the preset the recorded session was composed from,
+ * @param agentProfile - the Profile the recorded session was composed from,
  *   for scenarios asserting what a resumed session reports running.
  * @returns the seeded id.
  */
@@ -776,7 +776,7 @@ export async function seedSession(
   scaffold: WebScaffold,
   fixtureText: string,
   id: string,
-  agentPreset?: string,
+  agentProfile?: string,
 ): Promise<SessionId> {
   const events = parseSessionLog(realizeSeedFixture(scaffold, fixtureText, id))
   if (events.length === 0) throw new Error('seed fixture has no events')
@@ -790,7 +790,7 @@ export async function seedSession(
     createdAt: Date.now() - 60_000,
     cwd: scaffold.workspaceCwd,
     delegationDepth: 0,
-    ...agentPreset === undefined ? {} : { agentPreset },
+    ...agentProfile === undefined ? {} : { agentProfile },
   }
   await persistSeedSession(scaffold, meta, events)
   return meta.id

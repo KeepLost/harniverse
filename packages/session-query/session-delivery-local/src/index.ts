@@ -2,7 +2,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
+import { resolveSessionProfile } from '@deepseek-ai/dsh-agent-presets'
 import { installModelSelection, type Agent, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { foldRequestHeader, type SessionId } from '@deepseek-ai/dsh-session'
@@ -42,7 +42,7 @@ export class LocalSessionDelivery extends SessionDelivery {
           const inspected = await persistence.inspect(sessionId)
           if (inspected.meta.origin === 'subagent') throw new Error('target is a subagent session; use subagent delivery')
           const presets = ctx.get('agentPresets')
-          const presetId = resolveSessionPreset({ header: inspected.meta, events: inspected.events })
+          const presetId = resolveSessionProfile({ header: inspected.meta, events: inspected.events })
           if (presetId !== undefined && presets === undefined) {
             throw new Error('target session preset is unavailable')
           }
