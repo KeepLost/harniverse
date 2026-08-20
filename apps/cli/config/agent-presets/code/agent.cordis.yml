@@ -256,6 +256,12 @@
     autoContinueIncomplete: true
     maxAutoContinueTurns: 8
 
+- id: tool-session-query
+  name: '@deepseek-ai/dsh-tool-session-query'
+
+- id: tool-session-delivery
+  name: '@deepseek-ai/dsh-tool-session-delivery'
+
 # The `web` service and its search provider stay in the host composition; only
 # the model-facing tool is per-session.
 - id: tool-web

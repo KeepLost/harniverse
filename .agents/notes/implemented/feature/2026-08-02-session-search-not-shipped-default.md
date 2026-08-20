@@ -2,6 +2,8 @@
 
 Status: implemented
 
+This default-exposure decision is superseded by [Session tools ship in the default composition](2026-08-20-session-tools-default-composition.md). The query service and its security boundaries remain relevant.
+
 English | [中文](2026-08-02-session-search-not-shipped-default.zh.md)
 
 ## Problem

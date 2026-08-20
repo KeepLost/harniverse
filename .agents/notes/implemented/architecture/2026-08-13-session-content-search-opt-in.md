@@ -2,6 +2,8 @@
 
 Status: implemented
 
+This default-off decision is superseded by [Session tools ship in the default composition](../feature/2026-08-20-session-tools-default-composition.md). The provider's `openAt` lifecycle and durable-path configuration remain relevant.
+
 English | [中文](2026-08-13-session-content-search-opt-in.zh.md)
 
 ## Problem

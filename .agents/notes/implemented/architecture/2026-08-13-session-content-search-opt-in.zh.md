@@ -2,6 +2,8 @@
 
 Status: implemented
 
+本默认关闭决策已被[会话工具进入默认组合](../feature/2026-08-20-session-tools-default-composition.md)取代。提供方的 `openAt` 生命周期与持久 path 配置仍然有效。
+
 [English](2026-08-13-session-content-search-opt-in.md) | 中文
 
 ## 问题

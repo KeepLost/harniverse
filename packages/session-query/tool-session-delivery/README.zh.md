@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-基于 `ctx.sessionDelivery` 的可选 `session_send_message` 和 `session_unload` Consumer。它要求存在调用 Agent，以普通会话 id 为目标，立即返回已接受的 message id 而不等待回复，并且只卸载安全的空闲目标。
+基于 `ctx.sessionDelivery` 的默认 `session_send_message` 和 `session_unload` Consumer。它要求存在调用 Agent，以普通会话 id 为目标，立即返回已接受的 message id 而不等待回复，并且只卸载安全的空闲目标。
 
 ## 模型体验
 

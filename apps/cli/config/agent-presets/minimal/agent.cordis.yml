@@ -2,9 +2,9 @@
 #
 # The persona is the complete system prompt, so global identity, Web orientation,
 # tool guidance, and later assembly listeners cannot add prompt text. Runtime
-# context snapshots are suppressed for this preset, and the model composes only
-# persistent `bash` and `str_replace_editor`, plus `artifact_read` for recovering
-# complete retained tool results. Context compaction is absent.
+# context snapshots are suppressed for this preset, and the model composes the
+# persistent coding tools plus the default cross-session query and delivery
+# tools. Context compaction is absent.
 
 - id: persona
   name: '@deepseek-ai/dsh-persona'
@@ -67,3 +67,9 @@
       name: '@deepseek-ai/dsh-tool-str-replace-editor'
       config:
         maxOutputChars: 16000
+
+- id: tool-session-query
+  name: '@deepseek-ai/dsh-tool-session-query'
+
+- id: tool-session-delivery
+  name: '@deepseek-ai/dsh-tool-session-delivery'

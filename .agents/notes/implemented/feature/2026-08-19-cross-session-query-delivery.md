@@ -6,7 +6,7 @@ English | [中文](2026-08-19-cross-session-query-delivery.zh.md)
 
 ## Problem
 
-The opt-in session-query tools conflated cwd filtering with access authority and lacked direct runtime status or finalized-message-tail reads. Sending to an ordinary session would have forced a read-only Consumer to own Agent activation and lifecycle routing, while callers only needed inbox acceptance and could query the target separately.
+The session-query tools conflated cwd filtering with access authority and lacked direct runtime status or finalized-message-tail reads. Sending to an ordinary session would have forced a read-only Consumer to own Agent activation and lifecycle routing, while callers only needed inbox acceptance and could query the target separately.
 
 ## Decision
 
@@ -29,4 +29,5 @@ Message mutation is a separate capability seam: `dsh-session-delivery` defines i
 - Cwd narrows search but grants no authority and is not rendered in results.
 - Cold status/tail reads never resume an Agent; cold delivery intentionally does.
 - Delivery acknowledgement is process-local inbox acceptance, not crash durability or completion.
-- Shipped bundles remain unchanged; both model Consumers stay opt-in.
+- The shipped base mounts the local delivery Provider and both model Consumers; the Web bundle disables the global Consumer rows so every shipped Agent Profile mounts the same tools in its own scope.
+- The SQLite backend uses `openAt: first-search` in shipped bundles, so the default search tools are usable without importing SQLite during startup.

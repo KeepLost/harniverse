@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Optional `session_send_message` and `session_unload` Consumer over `ctx.sessionDelivery`. It requires a calling Agent, targets ordinary session ids, returns accepted message ids immediately without waiting for replies, and unloads only safe idle targets.
+Default `session_send_message` and `session_unload` Consumer over `ctx.sessionDelivery`. It requires a calling Agent, targets ordinary session ids, returns accepted message ids immediately without waiting for replies, and unloads only safe idle targets.
 
 ## Model Experience
 

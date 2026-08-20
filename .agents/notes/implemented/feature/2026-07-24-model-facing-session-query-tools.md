@@ -36,7 +36,7 @@ Session-level results include the latest folded title when available. Each tool 
 
 ## Host composition
 
-The consumer is an opt-in plugin. Shipped host compositions do not mount it: the shipped TUI, Web, and headless surfaces keep the `ctx.sessionQuery` index (the SQLite service behind `/resume` and the Web content search) but not the model-facing consumer, so their default requests carry neither the query prompt nor the five schemas; the automation-only ACP composition also mounts neither ([session-search-not-shipped-default](2026-08-02-session-search-not-shipped-default.md)). These compositions also supply the generic timeout and spill policies. The dedicated ACP snapshot fixture mounts the consumer and both policies explicitly, with private local spill storage. Generic tool presentation requires no session-query-specific client plugin.
+The consumer is a function plugin that custom compositions may omit. The shipped base and Agent Profile compositions mount it by default, while the Web bundle keeps the global tool layer empty and mounts the Consumer from each Profile. The automation-only ACP composition remains explicit because it owns its own independent tree. These compositions also supply the generic timeout and spill policies. Generic tool presentation requires no session-query-specific client plugin.
 
 ## Alternatives considered
 

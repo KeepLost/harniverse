@@ -80,6 +80,19 @@ describe('dsh-base bundle', () => {
       name: '@deepseek-ai/dsh-tool-result-artifacts',
       config: { maxResultTextChars: 50000, pageChars: 12000 },
     })
+    expect(rows.find(row => row.id === 'session-query-sqlite')?.config).toMatchObject({
+      path: ':memory:',
+      openAt: 'first-search',
+    })
+    expect(rows.find(row => row.id === 'session-delivery')).toMatchObject({
+      name: '@deepseek-ai/dsh-session-delivery-local',
+    })
+    expect(rows.find(row => row.id === 'tool-session-query')).toMatchObject({
+      name: '@deepseek-ai/dsh-tool-session-query',
+    })
+    expect(rows.find(row => row.id === 'tool-session-delivery')).toMatchObject({
+      name: '@deepseek-ai/dsh-tool-session-delivery',
+    })
     expect(rows.find(row => row.id === 'tools')?.config).toBeUndefined()
   })
 

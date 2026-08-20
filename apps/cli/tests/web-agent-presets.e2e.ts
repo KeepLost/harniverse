@@ -40,6 +40,11 @@ const MINIMAL_BASH_DESCRIPTION = `Run commands in a bash shell
 * To inspect a particular line range of a file, e.g. lines 10-25, try 'sed -n 10,25p /path/to/the/file'.
 * Please avoid commands that may produce a very large amount of output.
 * Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.`
+const MINIMAL_TOOL_NAMES = [
+  'artifact_read', 'bash', 'session_event_read', 'session_event_search', 'session_event_trace',
+  'session_message_tail', 'session_search', 'session_send_message', 'session_status', 'session_trace',
+  'session_unload', 'str_replace_editor',
+]
 
 /**
  * Boot the shipped Web composition, minus the rows that would bind a port,
@@ -229,8 +234,10 @@ describe('the shipped Web composition', () => {
       expect(toolNames(ctx, handle.agent).filter(name => name !== 'glob' && name !== 'grep')).toEqual([
         'artifact_read', 'ask_user_question', 'bash', 'compaction_history_expand',
         'compaction_history_search', 'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'interrupt_agent',
-        'job_kill', 'job_list', 'job_output', 'list_agents', 'ralph', 'read', 'read_image', 'send_message', 'skill',
-        'subagent', 'subagent_fork', 'todo_write', 'update_goal',
+        'job_kill', 'job_list', 'job_output', 'list_agents', 'ralph', 'read', 'read_image', 'send_message',
+        'session_event_read', 'session_event_search', 'session_event_trace', 'session_message_tail', 'session_search',
+        'session_send_message', 'session_status', 'session_trace', 'session_unload',
+        'skill', 'subagent', 'subagent_fork', 'todo_write', 'update_goal',
         'workflow', 'write',
       ])
       const compaction = ctx.agentPresets.serviceFor(handle.agent, 'compaction')
@@ -253,7 +260,7 @@ describe('the shipped Web composition', () => {
       expect(assembly.sections).toEqual([
         { name: 'deployment:persona', text: MINIMAL_PROMPT },
       ])
-      expect(assembly.tools.map(tool => tool.name)).toEqual(['artifact_read', 'bash', 'str_replace_editor'])
+      expect(assembly.tools.map(tool => tool.name)).toEqual(MINIMAL_TOOL_NAMES)
       expect(assembly.tools.find(tool => tool.name === 'bash')?.description).toBe(MINIMAL_BASH_DESCRIPTION)
       expect(JSON.stringify(assembly.tools.find(tool => tool.name === 'str_replace_editor')?.parameters))
         .toContain('Absolute path')
@@ -274,7 +281,9 @@ describe('the shipped Web composition', () => {
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })
     try {
-      expect(toolNames(ctx, minimal.agent)).toEqual(['artifact_read', 'bash', 'str_replace_editor'])
+      expect(toolNames(ctx, minimal.agent)).toEqual(expect.arrayContaining([
+        'session_search', 'session_send_message', 'session_status', 'session_unload',
+      ]))
       expect(toolNames(ctx, full.agent).length).toBeGreaterThan(10)
 
       await minimal.dispose()
@@ -416,7 +425,7 @@ describe('the shipped Web composition', () => {
     }
   })
 
-  it('shows a minimal agent the global layer but no loader tool', async () => {
+  it('shows a minimal agent the global layer and default session tools but no loader tool', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId(`preset-skills-minimal-${randomUUID()}`),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
@@ -426,7 +435,7 @@ describe('the shipped Web composition', () => {
       // stays the preset's choice — minimal mounts no `tool-skill`, so its
       // tool table has no loader even though the global layer is readable.
       expect((await ctx.skills.list({ scope: handle.agent })).map(skill => skill.name)).toContain('dsh-badge')
-      expect(toolNames(ctx, handle.agent)).toEqual(['artifact_read', 'bash', 'str_replace_editor'])
+      expect(toolNames(ctx, handle.agent)).toEqual(MINIMAL_TOOL_NAMES)
     } finally {
       await handle.dispose()
     }
@@ -747,7 +756,7 @@ describe('authoring a preset on the shipped composition', () => {
     try {
       // The same tools the shipped `minimal` composes, from a directory copied
       // through the service into a root outside the installed harness.
-      expect(toolNames(authorCtx, handle.agent)).toEqual(['artifact_read', 'bash', 'str_replace_editor'])
+      expect(toolNames(authorCtx, handle.agent)).toEqual(MINIMAL_TOOL_NAMES)
     } finally {
       await handle.dispose()
     }
@@ -782,9 +791,9 @@ describe('the default preset as a user setting', () => {
         setup: agentCtx => ctx.agentPresets.mount(agentCtx).then(() => undefined),
       })
       try {
-        // `mount()` with no id resolves the effective default. Three tools, not
-        // `standard`'s catalog: the setting decided the composition.
-        expect(toolNames(ctx, handle.agent)).toEqual(['artifact_read', 'bash', 'str_replace_editor'])
+        // `mount()` with no id resolves the effective default. The minimal
+        // catalog, not `standard`'s, proves the setting decided composition.
+        expect(toolNames(ctx, handle.agent)).toEqual(MINIMAL_TOOL_NAMES)
       } finally {
         await handle.dispose()
       }

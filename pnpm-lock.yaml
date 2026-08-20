@@ -150,6 +150,9 @@ importers:
       '@deepseek-ai/dsh-agent-instructions':
         specifier: workspace:^
         version: link:../../packages/context/agent-instructions
+      '@deepseek-ai/dsh-agent-presets':
+        specifier: workspace:^
+        version: link:../../packages/preset/agent-presets
       '@deepseek-ai/dsh-agent-tool-presentation':
         specifier: workspace:^
         version: link:../../packages/core/agent-tool-presentation
@@ -228,9 +231,18 @@ importers:
       '@deepseek-ai/dsh-schedule':
         specifier: workspace:^
         version: link:../../packages/schedule/schedule
+      '@deepseek-ai/dsh-session-delivery':
+        specifier: workspace:^
+        version: link:../../packages/session-query/session-delivery
+      '@deepseek-ai/dsh-session-delivery-local':
+        specifier: workspace:^
+        version: link:../../packages/session-query/session-delivery-local
       '@deepseek-ai/dsh-session-projection':
         specifier: workspace:^
         version: link:../../packages/session/session-projection
+      '@deepseek-ai/dsh-session-query':
+        specifier: workspace:^
+        version: link:../../packages/session-query/session-query
       '@deepseek-ai/dsh-session-reference':
         specifier: workspace:^
         version: link:../../packages/context/session-reference
@@ -291,6 +303,12 @@ importers:
       '@deepseek-ai/dsh-tool-result-artifacts':
         specifier: workspace:^
         version: link:../../packages/spill/tool-result-artifacts
+      '@deepseek-ai/dsh-tool-session-delivery':
+        specifier: workspace:^
+        version: link:../../packages/session-query/tool-session-delivery
+      '@deepseek-ai/dsh-tool-session-query':
+        specifier: workspace:^
+        version: link:../../packages/session-query/tool-session-query
       '@deepseek-ai/dsh-tool-skill':
         specifier: workspace:^
         version: link:../../packages/skill/tool-skill
@@ -1204,12 +1222,21 @@ importers:
       '@deepseek-ai/dsh-session-checkpoint-policy':
         specifier: workspace:^
         version: link:../../session/session-checkpoint-policy
+      '@deepseek-ai/dsh-session-delivery':
+        specifier: workspace:^
+        version: link:../../session-query/session-delivery
+      '@deepseek-ai/dsh-session-delivery-local':
+        specifier: workspace:^
+        version: link:../../session-query/session-delivery-local
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: workspace:^
         version: link:../../session/session-persistence-jsonl
       '@deepseek-ai/dsh-session-projection':
         specifier: workspace:^
         version: link:../../session/session-projection
+      '@deepseek-ai/dsh-session-query':
+        specifier: workspace:^
+        version: link:../../session-query/session-query
       '@deepseek-ai/dsh-session-query-sqlite':
         specifier: workspace:^
         version: link:../../session-query/session-query-sqlite
@@ -1291,6 +1318,12 @@ importers:
       '@deepseek-ai/dsh-tool-result-artifacts':
         specifier: workspace:^
         version: link:../../spill/tool-result-artifacts
+      '@deepseek-ai/dsh-tool-session-delivery':
+        specifier: workspace:^
+        version: link:../../session-query/tool-session-delivery
+      '@deepseek-ai/dsh-tool-session-query':
+        specifier: workspace:^
+        version: link:../../session-query/tool-session-query
       '@deepseek-ai/dsh-tool-skill':
         specifier: workspace:^
         version: link:../../skill/tool-skill

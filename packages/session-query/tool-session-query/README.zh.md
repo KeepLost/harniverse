@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-位于 `ctx.sessionQuery` 之上的模型工具，对精确观察执行 id 绑定，并支持可选搜索过滤。该 opt-in 包注册七个查询/读取工具；已发布的宿主组合默认不挂载它。
+位于 `ctx.sessionQuery` 之上的模型工具，对精确观察执行 id 绑定，并支持可选搜索过滤。该包注册七个查询/读取工具；已交付的 base 与 Agent Profile 组合默认挂载它。
 
 ## 配置
 

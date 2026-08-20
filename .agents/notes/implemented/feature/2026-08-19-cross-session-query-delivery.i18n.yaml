@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-19-cross-session-query-delivery.md
-2026-08-19-cross-session-query-delivery.md: 3ada94fa25112235f5cf504973859eeecf86c9cf
-2026-08-19-cross-session-query-delivery.zh.md: 06e7bbb54789965b812bf2a6569b15571c13bbfd
+2026-08-19-cross-session-query-delivery.md: bf57fe7be0aba8c13195f44b4bad7e21e612cdcb
+2026-08-19-cross-session-query-delivery.zh.md: 4e9543e43027058c447d460960ee41ea26c9fe0f

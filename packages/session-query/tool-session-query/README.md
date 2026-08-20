@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Model tools over `ctx.sessionQuery` with id-bound exact observations and optional search filtering. The opt-in package registers seven query/read tools; shipped host compositions do not mount it by default.
+Model tools over `ctx.sessionQuery` with id-bound exact observations and optional search filtering. The package registers seven query/read tools, and the shipped base and Agent Profile compositions mount it by default.
 
 ## Configuration
 

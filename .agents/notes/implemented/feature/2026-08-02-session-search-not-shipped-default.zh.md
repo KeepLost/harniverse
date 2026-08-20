@@ -2,6 +2,8 @@
 
 Status: implemented
 
+本默认暴露决策已被[会话工具进入默认组合](2026-08-20-session-tools-default-composition.md)取代。查询服务及其安全边界仍然有效。
+
 [English](2026-08-02-session-search-not-shipped-default.md) | 中文
 
 ## 问题

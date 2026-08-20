@@ -48,6 +48,8 @@ flowchart LR
   cfg --> plugin_dsh_base_attachment_local
   plugin_dsh_base_session_query_sqlite["session-query-sqlite<br/>@deepseek-ai/dsh-session-query-sqlite"]
   cfg --> plugin_dsh_base_session_query_sqlite
+  plugin_dsh_base_session_delivery["session-delivery<br/>@deepseek-ai/dsh-session-delivery-local"]
+  cfg --> plugin_dsh_base_session_delivery
   plugin_dsh_base_session_projection["session-projection<br/>@deepseek-ai/dsh-session-projection"]
   cfg --> plugin_dsh_base_session_projection
   plugin_dsh_base_session_telemetry_otel["session-telemetry-otel<br/>@deepseek-ai/dsh-session-telemetry-otel"]
@@ -144,6 +146,10 @@ flowchart LR
   cfg --> plugin_dsh_base_tool_result_pruner
   plugin_dsh_base_tool_todo["tool-todo<br/>@deepseek-ai/dsh-tool-todo"]
   cfg --> plugin_dsh_base_tool_todo
+  plugin_dsh_base_tool_session_query["tool-session-query<br/>@deepseek-ai/dsh-tool-session-query"]
+  cfg --> plugin_dsh_base_tool_session_query
+  plugin_dsh_base_tool_session_delivery["tool-session-delivery<br/>@deepseek-ai/dsh-tool-session-delivery"]
+  cfg --> plugin_dsh_base_tool_session_delivery
   plugin_dsh_base_tool_goal["tool-goal<br/>@deepseek-ai/dsh-tool-goal"]
   cfg --> plugin_dsh_base_tool_goal
   plugin_dsh_base_tool_ralph["tool-ralph<br/>@deepseek-ai/dsh-tool-ralph"]
@@ -196,6 +202,7 @@ flowchart LR
 | `session-persistence-jsonl` | `@deepseek-ai/dsh-session-persistence-jsonl` |
 | `attachment-local` | `@deepseek-ai/dsh-attachment-local` |
 | `session-query-sqlite` | `@deepseek-ai/dsh-session-query-sqlite` |
+| `session-delivery` | `@deepseek-ai/dsh-session-delivery-local` |
 | `session-projection` | `@deepseek-ai/dsh-session-projection` |
 | `session-telemetry-otel` | `@deepseek-ai/dsh-session-telemetry-otel` |
 | `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
@@ -244,6 +251,8 @@ flowchart LR
 | `session-checkpoint-policy` | `@deepseek-ai/dsh-session-checkpoint-policy` |
 | `tool-result-pruner` | `@deepseek-ai/dsh-compaction-tool-result-pruner` |
 | `tool-todo` | `@deepseek-ai/dsh-tool-todo` |
+| `tool-session-query` | `@deepseek-ai/dsh-tool-session-query` |
+| `tool-session-delivery` | `@deepseek-ai/dsh-tool-session-delivery` |
 | `tool-goal` | `@deepseek-ai/dsh-tool-goal` |
 | `tool-ralph` | `@deepseek-ai/dsh-tool-ralph` |
 | `tool-str-replace-editor` | `@deepseek-ai/dsh-tool-str-replace-editor` |

@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-可选的 session-query 工具把 cwd 过滤与访问权限混为一谈，也缺少直接的运行状态和最终消息尾部读取。向普通会话发送消息会迫使只读 Consumer 承担 Agent 激活与生命周期路由，而调用方实际只需要 inbox 接受，并可另行查询目标。
+session-query 工具把 cwd 过滤与访问权限混为一谈，也缺少直接的运行状态和最终消息尾部读取。向普通会话发送消息会迫使只读 Consumer 承担 Agent 激活与生命周期路由，而调用方实际只需要 inbox 接受，并可另行查询目标。
 
 ## 决策
 
@@ -29,4 +29,5 @@ Status: implemented
 - Cwd 只缩小搜索范围，不授予权限，也不会在结果中渲染。
 - Cold 状态/尾部读取绝不恢复 Agent；cold 投递会有意恢复。
 - 投递确认表示进程内 inbox 接受，不表示崩溃持久性或完成。
-- 已交付 bundle 不变；两个模型 Consumer 均保持可选。
+- 已交付的 base 默认挂载本地 delivery Provider 与两个模型 Consumer；Web bundle 关闭全局 Consumer 行，因此每个交付 Agent Profile 都在自己的作用域中挂载同一组工具。
+- 已交付 bundle 将 SQLite 后端设为 `openAt: first-search`，默认搜索工具可用，同时不会在启动时导入 SQLite。
