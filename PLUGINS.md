@@ -135,7 +135,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `dsh-web-app` plugin diagnostics | Mounts the diagnostics registry and Cordis lifecycle Provider before the existing authorized plugin-inventory Remote; the existing Plugins Settings tab displays each current report without repair controls. |
 | `dsh-workspace` storage | Keeps the shared `workspace` domain at official DSH version 2, isolates the Harniverse-only deletion journal in `workspace_deletion` version 1, and explicitly migrates legacy version 3 workspace media. |
 | `dsh-tool-todo` continuation | Optionally queues a plugin-attributed next-turn user message at `agent/turn-stopping` while the latest TODO snapshot remains unfinished, with a consecutive-turn cap and competing-input suppression. |
-| Cross-session query and delivery | Makes cwd an optional session-search filter rather than exact-target authority, adds runtime status and finalized message-tail reads, and adds a separate ordinary-session delivery Definition, local Provider, and Consumer with non-waiting `session_send_message` plus safe idle-only `session_unload`. The shared base mounts the Provider and model Consumers; Web Agent Profiles mount the Consumers in their own scopes, and full-text search opens lazily on first use. |
+| Cross-session query and delivery | Separates current-title/creation/raw-activity discovery from content search, adds runtime status, folded-message tails, complete raw-log tails and windows, and keeps cwd as an optional filter rather than exact-target authority. A separate ordinary-session delivery Definition, local Provider, and Consumer own non-waiting `session_send_message` plus safe idle-only `session_unload`. The shared base mounts the Provider and model Consumers; Web Agent Profiles mount the Consumers in their own scopes, and indexed discovery/search opens lazily on first use. |
 | Web Agent Profiles | `session.create({ agentProfile })` creates a distinct Agent instance with immutable durable Profile identity. Profile metadata selects the pre-publication permission preset; resume, fork, cold presentation, delivery, child inheritance, and browser summaries preserve the same identity. The four shipped Profiles default to `workspace-write`, and no Profile-switch method remains. |
 
 ### Downstream Commit Ledger
@@ -161,6 +161,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `093c319309` | Adds cross-session ID-bound query, runtime status and message tails, ordinary-session message delivery with cold resume, and safe idle-only unload. |
 | `baafb40c0d` | Makes Agent Profile identity immutable at Session creation, applies Profile default permissions before publication, and removes blank-Session Profile switching. |
 | `7e38080de9` | Mounts cross-session query and delivery in shipped compositions, with Profile-scoped Web Consumers and lazy first-search SQLite activation. |
+| `b2016ed5f2` | Adds current-title, creation-time, and raw-activity session discovery plus complete raw-log tail and window reads while preserving content-search hit semantics. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
