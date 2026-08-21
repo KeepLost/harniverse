@@ -202,7 +202,7 @@ describe('web e2e: settings modal and General preferences', () => {
       .toMatch(/ui-theme:\n\s+preference: dark/)
     await page.keyboard.press('Escape')
 
-    // Hold real plugin bundles so the shell-owned loading page remains observable.
+    // Hold the real plugin bootstrap so the shell-owned loading page remains observable.
     const pluginPattern = '**/plugins/**'
     let releaseBundles = (): void => {}
     const bundlesReleased = new Promise<void>((resolve) => { releaseBundles = resolve })

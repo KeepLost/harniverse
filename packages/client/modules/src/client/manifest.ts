@@ -43,7 +43,7 @@ declare module '@deepseek-ai/cordis' {
 /**
  * One composed client entry pushed by the host (a graph row). Wire
  * single source: the host node half (package root) produces this same shape.
- * `immediately` marks stage-one prefetch; `inject` is informational graph
+ * `immediately` marks the per-bundle fallback prefetch tier; `inject` is informational graph
  * metadata (the authoritative edges live in each package's `dsh.client`
  * declaration and reach fibers through entry creation).
  */
@@ -56,7 +56,7 @@ export interface WebBootEntry {
   rev: string
   /** Package-name dependency edges, informational (preflight display / HMR diffing). */
   inject?: string[]
-  /** Stage-one prefetch mark: load the script for factory registration during module-face boot. */
+  /** Per-bundle fallback prefetch mark when graph bootstrap registration fails. */
   immediately?: boolean
 }
 
@@ -64,6 +64,8 @@ export interface WebBootEntry {
 export interface WebBootGraph {
   /** Consistency anchor over the whole graph (content + bundle hashes). */
   rev: string
+  /** One revision-addressed script that registers every graph factory for initial boot. */
+  bootstrapUrl: string
   /** Composed entries; order carries no semantics (activation order is fiber inject waiting). */
   entries: WebBootEntry[]
 }
@@ -84,7 +86,7 @@ export interface BootPluginRow {
   id: string
   /** Package-name dependency edges ([] when the wire omits them). */
   inject: string[]
-  /** Stage-one prefetch tier (false when the wire omits it). */
+  /** Per-bundle fallback prefetch tier (false when the wire omits it). */
   immediately: boolean
 }
 
@@ -92,6 +94,8 @@ export interface BootPluginRow {
 export interface BootManifest {
   /** Consistency anchor over the whole graph. */
   rev: string
+  /** One revision-addressed script that registers every graph factory for initial boot. */
+  bootstrapUrl: string
   /** Rows as the module table consumes them. */
   modules: BootModuleRow[]
   /** Rows as entry composition consumes them. */
@@ -112,6 +116,9 @@ export function parseBootManifest(wire: unknown): BootManifest {
   const graph = wire as Record<string, unknown>
   if (typeof graph.rev !== 'string') {
     throw new Error('client-modules: boot manifest rev must be a string')
+  }
+  if (typeof graph.bootstrapUrl !== 'string') {
+    throw new Error('client-modules: boot manifest bootstrapUrl must be a string')
   }
   if (!Array.isArray(graph.entries)) {
     throw new Error('client-modules: boot manifest entries must be an array')
@@ -140,7 +147,7 @@ export function parseBootManifest(wire: unknown): BootManifest {
       immediately: row.immediately === true,
     })
   }
-  return { rev: graph.rev, modules, plugins }
+  return { rev: graph.rev, bootstrapUrl: graph.bootstrapUrl, modules, plugins }
 }
 
 /** The shape a client bundle hands to `window.__ModuleLoader__.load` (registration handoff). */
@@ -219,6 +226,11 @@ export interface ClientModuleLoader {
    */
   prefetch(id: string): Promise<void>
   /**
+   * Initial graph arrival: load one revision-addressed script that registers
+   * every non-static graph factory without materializing any plugin.
+   */
+  prefetchGraph(): Promise<void>
+  /**
    * Full reset of one module: drop its registered factory and materialized
    * record so the next prefetch/import reloads it (the HMR invalidation hook).
    * @param id - entry name to invalidate.
@@ -230,6 +242,8 @@ export interface ClientModuleLoader {
 export interface ClientModuleSystemOptions {
   /** Boot rows in the module-table view (from {@link parseBootManifest}). */
   modules: BootModuleRow[]
+  /** One revision-addressed script that registers every graph factory. */
+  bootstrapUrl: string
   /** Module-table seed: platform-singleton specifier → shell instance. */
   staticModules: Record<string, unknown>
   /** Bundle-load hook. Defaults to a same-origin classic `<script src>` element. */

@@ -406,7 +406,7 @@ function standardKit(
   const kit: InjectedProps = { ...standard }
   if (entry.locale !== undefined) {
     const face = host.locale
-    // Loud assembly failure: locale is immediately-tier infrastructure; a
+    // Loud assembly failure: locale is startup infrastructure; a
     // declared namespace with no installed face is a miswired composition.
     if (face === undefined) {
       throw new SlotAssemblyError(

@@ -55,8 +55,8 @@ const SKIP_WORKSPACE_BUILD: UserConfig = { entry: '' }
  * shallowEqual) lives in runtime pending its promotion-time rehoming, and
  * five importers (locale, ui-layout, ui-conversation ×3) ride this single
  * exemption. At runtime the lazy CJS table answers the require natively:
- * runtime is an immediately-tier row, its factory is registered before any
- * dependent bundle materializes. TODO(webload/store-rehome): remove with the
+ * graph bootstrap registers runtime before any dependent materializes, and its
+ * immediately mark preserves that barrier on fallback. TODO(webload/store-rehome): remove with the
  * store-engine relocation follow-up.
  */
 const RUNTIME_STORE_EXEMPTION = '@deepseek-ai/dsh-client-runtime/client'

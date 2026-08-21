@@ -12,7 +12,7 @@ import type { SlotEntryDef, SlotSpec, StoredEntry, Translate } from './index.ts'
  * locale plugin, installed through the runtime SlotRegistry (installLocale).
  * Install before the first render that needs the seat: outlets bind their
  * revision subscription at mount, and a face appearing later has no channel
- * to notify already-mounted outlets (the locale plugin is immediately-tier
+ * to notify already-mounted outlets (the locale plugin is startup
  * infrastructure, so normal compositions install during boot).
  */
 export interface LocaleFace extends HostObservable<{ revision: number }> {

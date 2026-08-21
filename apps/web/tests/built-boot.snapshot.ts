@@ -2,8 +2,8 @@
 // The built-bundle boot smoke: the assembled-jsdom test that owns the boot
 // graph itself. Other files share the same scaffolding (assembled-boot.ts) to
 // reach a surface only the built bundles expose; this one asserts that the
-// graph assembles at all — staged activation across the immediately tier and
-// the inject layers, per-plugin CSS injection, and a rendered journey reaching
+// graph assembles at all — aggregate factory registration followed by activation
+// across the inject layers, per-plugin CSS injection, and a rendered journey reaching
 // chat content from the keyless FixtureApiClient transport.
 //
 // Component behavior remains owned by per-package suites (SlotTestRuntime
@@ -15,6 +15,13 @@ import { expect, it } from 'vitest'
 import { installAssembledBootEnv, mountAssembledApp } from './assembled-boot.ts'
 
 installAssembledBootEnv()
+
+it('falls back to independent plugin bundles when graph bootstrap arrival fails', async () => {
+  mountAssembledApp({ failBootstrap: true })
+
+  await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
+  expect(screen.queryByText('fixture bootstrap unavailable')).toBeNull()
+})
 
 it('boots the built plugin graph and renders a fixture session end to end', async () => {
   mountAssembledApp()

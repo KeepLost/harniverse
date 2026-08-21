@@ -5,6 +5,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { gunzipSync } from 'node:zlib'
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WebServer, WebRoute } from '@deepseek-ai/dsh-host-webserver'
@@ -152,6 +153,53 @@ describe('client bundle activation', () => {
       'cache-control': 'no-cache',
     })
     expect(body).toBe(map)
+  })
+
+  it('serves one protected bootstrap script containing every plugin factory without per-bundle source maps', async () => {
+    const firstName = '@fixture/bootstrap-first'
+    const secondName = '@fixture/bootstrap-second'
+    const firstPath = writePackage(firstName)
+    const secondPath = writePackage(secondName)
+    mkdirSync(dirname(firstPath), { recursive: true })
+    mkdirSync(dirname(secondPath), { recursive: true })
+    writeFileSync(firstPath, 'window.__ModuleLoader__.load({id:"bootstrap-first",factory:()=>({})})\n//# sourceMappingURL=client.js.map\n')
+    writeFileSync(secondPath, 'window.__ModuleLoader__.load({id:"bootstrap-second",factory:()=>({})})\n//# sourceMappingURL=client.js.map\n')
+    const authorizeHttpRequest = vi.fn(() => Promise.resolve(true))
+    const { service, route } = constructWithRoute([firstName, secondName], authorizeHttpRequest)
+    const bootstrapUrl = (service.graph() as { bootstrapUrl?: unknown }).bootstrapUrl
+    expect(bootstrapUrl).toBe(`/plugins/bootstrap.js?rev=${service.graph().rev}`)
+    if (typeof bootstrapUrl !== 'string') throw new Error('expected bootstrap URL')
+    let status = 0
+    let headers: Record<string, string> | undefined
+    let body = Buffer.alloc(0)
+    const response = {
+      writeHead(nextStatus: number, nextHeaders?: Record<string, string>) {
+        status = nextStatus
+        headers = nextHeaders
+        return response
+      },
+      end(chunk?: Uint8Array) {
+        body = chunk === undefined ? Buffer.alloc(0) : Buffer.from(chunk)
+        return response
+      },
+    } as unknown as ServerResponse
+
+    await route.handler({
+      method: 'GET', url: bootstrapUrl, headers: { 'accept-encoding': 'gzip, deflate, br' },
+    } as IncomingMessage, response)
+
+    expect(status).toBe(200)
+    expect(headers).toMatchObject({
+      'cache-control': 'private, max-age=31536000, immutable',
+      'content-encoding': 'gzip',
+      'content-type': 'text/javascript; charset=utf-8',
+      'vary': 'accept-encoding',
+    })
+    const source = gunzipSync(body).toString('utf8')
+    expect(source).toContain('bootstrap-first')
+    expect(source).toContain('bootstrap-second')
+    expect(source).not.toContain('sourceMappingURL')
+    expect(authorizeHttpRequest).toHaveBeenCalledOnce()
   })
 
   it('does not serve a client bundle before Connection admission', async () => {

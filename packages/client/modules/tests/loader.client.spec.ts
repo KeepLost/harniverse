@@ -9,7 +9,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  ClientModuleSystem,
+  ClientModuleSystem, parseBootManifest,
   type BootModuleRow, type ClientModuleLoader, type ClientPluginHandoff, type DshWindow,
 } from '../src/client/index.ts'
 
@@ -39,28 +39,54 @@ interface Bench {
 function bench(
   entries: BootModuleRow[],
   bundles: Record<string, Factory | null> = {},
-  opts: { seed?: Record<string, unknown>; gated?: string[] } = {},
+  opts: { seed?: Record<string, unknown>; gated?: string[]; bootstrapUrl?: string } = {},
 ): Bench {
   const fetched: string[] = []
   const gates = new Map<string, () => void>()
   const loader = new ClientModuleSystem({
     modules: entries,
+    bootstrapUrl: opts.bootstrapUrl ?? '/plugins/bootstrap.js?rev=0',
     staticModules: opts.seed ?? {},
     loadBundle: async (url) => {
       fetched.push(url)
       if (opts.gated?.includes(url) === true) {
         await new Promise<void>((resolve) => { gates.set(url, resolve) })
       }
-      const id = /\/plugins\/(.+)\/client\.js/.exec(url)?.[1]
-      const factory = id === undefined ? undefined : bundles[id]
-      if (factory == null || id === undefined) return
-      win.__ModuleLoader__?.load({ id, factory })
+      if (url === opts.bootstrapUrl) {
+        for (const row of entries) {
+          const factory = bundles[row.id]
+          if (factory != null) win.__ModuleLoader__?.load({ id: row.id, factory })
+        }
+      } else {
+        const id = /\/plugins\/(.+)\/client\.js/.exec(url)?.[1]
+        const factory = id === undefined ? undefined : bundles[id]
+        if (factory == null || id === undefined) return
+        win.__ModuleLoader__?.load({ id, factory })
+      }
     },
   })
   return { loader, fetched, gates }
 }
 
 describe('lazy CJS arrival', () => {
+  it('registers the complete graph through one bootstrap script without materializing factories', async () => {
+    const ran: string[] = []
+    const bootstrapUrl = '/plugins/bootstrap.js?rev=graph'
+    const b = bench([row('a'), row('b')], {
+      a: () => { ran.push('a'); return {} },
+      b: () => { ran.push('b'); return {} },
+    }, { bootstrapUrl })
+
+    await (b.loader as ClientModuleLoader & { prefetchGraph(): Promise<void> }).prefetchGraph()
+
+    expect(b.fetched).toEqual([bootstrapUrl])
+    expect(ran).toEqual([])
+    await b.loader.import('a', '', {})
+    await b.loader.import('b', '', {})
+    expect(b.fetched).toEqual([bootstrapUrl])
+    expect(ran).toEqual(['a', 'b'])
+  })
+
   it('prefetch loads and registers but does not run the factory', async () => {
     const ran: string[] = []
     const b = bench([row('a')], { a: () => { ran.push('a'); return {} } })
@@ -107,6 +133,17 @@ describe('lazy CJS arrival', () => {
     await b.loader.prefetch('a')
     await b.loader.prefetch('a')
     expect(b.fetched).toHaveLength(1)
+  })
+})
+
+describe('boot manifest', () => {
+  it('carries the graph bootstrap URL into the module-system view', () => {
+    const manifest = parseBootManifest({
+      rev: 'graph',
+      bootstrapUrl: '/plugins/bootstrap.js?rev=graph',
+      entries: [row('a')],
+    })
+    expect((manifest as { bootstrapUrl?: unknown }).bootstrapUrl).toBe('/plugins/bootstrap.js?rev=graph')
   })
 })
 
@@ -218,7 +255,7 @@ describe('failure modes', () => {
 
   it('double boot is loud', () => {
     bench([])
-    expect(() => new ClientModuleSystem({ modules: [], staticModules: {} }))
+    expect(() => new ClientModuleSystem({ modules: [], bootstrapUrl: '/plugins/bootstrap.js?rev=0', staticModules: {} }))
       .toThrow('already installed (double boot?)')
   })
 })
@@ -283,7 +320,9 @@ describe('default transport seam', () => {
         script.dispatchEvent(new Event('load'))
       })
     })
-    const loader: ClientModuleLoader = new ClientModuleSystem({ modules: [row('dee')], staticModules: {} })
+    const loader: ClientModuleLoader = new ClientModuleSystem({
+      modules: [row('dee')], bootstrapUrl: '/plugins/bootstrap.js?rev=0', staticModules: {},
+    })
     const exports = await loader.import('dee', '', {})
     expect((exports as { marker: string }).marker).toBe('via-script')
     expect(append).toHaveBeenCalledOnce()
@@ -296,7 +335,9 @@ describe('default transport seam', () => {
       if (!(script instanceof HTMLScriptElement)) throw new Error('expected script node')
       queueMicrotask(() => { script.dispatchEvent(new Event('error')) })
     })
-    const loader = new ClientModuleSystem({ modules: [row('dee')], staticModules: {} })
+    const loader = new ClientModuleSystem({
+      modules: [row('dee')], bootstrapUrl: '/plugins/bootstrap.js?rev=0', staticModules: {},
+    })
     await expect(loader.prefetch('dee')).rejects.toThrow(
       'bundle script /plugins/dee/client.js?rev=0 failed to load',
     )

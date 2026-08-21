@@ -8,7 +8,7 @@ English | [中文](2026-08-10-pre-plugin-theme-bootstrap.zh.md)
 
 The web shell renders `Loading plugins…` before the browser-side plugin tree activates. The theme tokens are already loaded with the shell styles, but `color-scheme` and `body[data-ds-dark-theme]` are not written until ui-theme's ThemeRuntime and ui-layout's ThemePresenter activate; with a persisted dark preference, the loading page therefore renders first with the light palette and then switches to dark.
 
-`dshClient.immediately` only includes the bundle in first-stage prefetching; it does not cause the plugin to execute before HTML parsing or the shell's initial render. Changing only the client plugin's loading tier cannot close this window.
+`dshClient.immediately` only marks the bundle for per-plugin fallback registration when aggregate bootstrap fails; it does not cause the plugin to execute before HTML parsing or the shell's initial render. Changing only the client plugin's loading tier cannot close this window.
 
 ## Decision
 
@@ -20,13 +20,13 @@ The bootstrap logic recognizes only the built-in `light`, `dark`, and `system` s
 
 ## Verification
 
-ui-theme's unit tests cover activation without either optional Host service, the script position, Host-setting precedence, the OS preference, missing `matchMedia`, input without a body, live settings reads, and disposal of the Host registrations with the plugin fiber. A Chromium scenario for the real web composition selects the durable dark preference, holds the plugin bundle request open to keep the loading page observable, then asserts that the index response produces a dark background, the body attribute, and the root element's `color-scheme`. The change does not alter the accessibility tree, so it produces no new page golden.
+ui-theme's unit tests cover activation without either optional Host service, the script position, Host-setting precedence, the OS preference, missing `matchMedia`, input without a body, live settings reads, and disposal of the Host registrations with the plugin fiber. A Chromium scenario for the real web composition selects the durable dark preference, holds the plugin bootstrap resource open to keep the loading page observable, then asserts that the index response produces a dark background, the body attribute, and the root element's `color-scheme`. The change does not alter the accessibility tree, so it produces no new page golden.
 
 ## Alternatives considered
 
 **Hard-code the logic in `apps/web/index.html`.** This would run at the same point, but static HTML cannot embed the current Host setting and would duplicate the preference resolution and DOM fields owned by ui-theme. The Host transform follows the theme plugin's lifecycle and keeps the application shell unaware of the theme domain.
 
-**Make the ui-theme client bundle synchronous or activate it earlier.** `immediately` controls only prefetching; plugin instantiation still occurs after the shell starts running. Blocking the initial render until ThemeRuntime activates would delay the visible loading and error screens and make the shell depend on the plugin tree it monitors to render failures.
+**Make the ui-theme client bundle synchronous or activate it earlier.** `immediately` controls only aggregate-failure fallback; plugin instantiation still occurs after the shell starts running. Blocking the initial render until ThemeRuntime activates would delay the visible loading and error screens and make the shell depend on the plugin tree it monitors to render failures.
 
 **Rely only on CSS `prefers-color-scheme`.** Media queries cannot read an explicit persisted choice, so a user who selects dark while the operating system uses light would still see a flash.
 

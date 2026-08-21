@@ -11,22 +11,21 @@
  * AppWebEntry.run(), module face first, then plugin face: parse
  * `window.__DSH_BOOT__` into the two-view BootManifest (wire boundary)
  * → build the module system over the module-view rows → render the loading
- * page → prefetch every `immediately` row in parallel with mounting the
+ * page → load the graph's revision-addressed bootstrap script in parallel with mounting the
  * vendored cordis Loader (`internal` contract injection BEFORE any entry exists —
  * the bare-import fallback in tree.import must never run in a browser) →
- * await the prefetch tier, THEN adopt the modules entry and create one
+ * await factory registration, THEN adopt the modules entry and create one
  * loader entry per plugin-view row plus the shell-own app-shell assembly
  * entry → loader.await() + a full fiber sweep (all ACTIVE, else fail
  * listing who/what/which service) → flip the settled signal so AppRoot
  * switches to the real UI in one pass.
  *
- * Entry creation waits for the whole immediately tier: materialization runs
+ * Entry creation waits for graph factory registration: materialization runs
  * synchronous cross-package require edges (e.g. locale → runtime/client) that
  * fiber inject waiting cannot protect — a bundle's factory must be
- * registered before any dependent entry materializes. Per-row prefetch
- * failures still resolve silently (the create-side import reloads and
- * owns the loud failure), so the barrier never turns one bad bundle into a
- * boot-wide fail-fast.
+ * registered before any dependent entry materializes. If the aggregate is
+ * stale or incomplete, the `immediately` rows retain the original per-bundle
+ * barrier and entry imports own the remaining fail-loud arrivals.
  *
  * Composition lives in the host graph; the shell makes zero composition
  * decisions (the app-shell assembly is itself a graph entry, the only
@@ -102,7 +101,10 @@ export class AppWebEntry {
     this.manifest = parseBootManifest((globalThis as DshWindow).__DSH_BOOT__)
 
     this.modules = new ClientModuleSystem({
-      modules: this.manifest.modules, staticModules: getStaticModules(), ...this.seams,
+      modules: this.manifest.modules,
+      bootstrapUrl: this.manifest.bootstrapUrl,
+      staticModules: getStaticModules(),
+      ...this.seams,
     })
     // The app-shell assembly is the only shell-own module: every other graph
     // row is a plugin bundle arriving through fetch.
@@ -129,11 +131,9 @@ export class AppWebEntry {
       />,
     )
 
-    // The immediately tier prefetches in parallel with Loader mounting;
-    // runPluginBoot awaits it before creating entries (see module comment:
-    // cross-package synchronous require edges need every immediately-tier
-    // factory registered before any materialization).
-    const prefetching = this.prefetchImmediateTier()
+    // The graph aggregate registers all factories in parallel with Loader
+    // mounting; runPluginBoot awaits it before creating entries.
+    const prefetching = this.prefetchGraph()
     this.ctx = new Context()
     try {
       await this.runPluginBoot(prefetching)
@@ -152,14 +152,17 @@ export class AppWebEntry {
     this.root?.unmount()
   }
 
-  /** Prefetch the immediately tier (factory registration only; failures defer to the import path). */
-  private async prefetchImmediateTier(): Promise<void> {
-    await Promise.all(this.manifest.plugins
-      .filter(row => row.immediately)
-      .map(row => this.modules.prefetch(row.id).catch(() => {
-        // Import reloads and reports this loudly per entry; swallowing
-        // here keeps one failing prefetch from masking the others.
-      })))
+  /** Register every graph factory through one bootstrap script; entry imports remain the fallback. */
+  private async prefetchGraph(): Promise<void> {
+    try {
+      await this.modules.prefetchGraph()
+    } catch {
+      await Promise.all(this.manifest.plugins
+        .filter(row => row.immediately)
+        .map(row => this.modules.prefetch(row.id).catch(() => {
+          // Entry import retries this row and owns the loud failure.
+        })))
+    }
   }
 
   /** Plugin face: mount the Loader, inject the `internal` contract, adopt modules, create the graph entries, settle, sweep. */
@@ -181,10 +184,8 @@ export class AppWebEntry {
       this.status.set(entry.options.name, STATE_LABELS[entry.fiber.state])
     })
 
-    // Barrier before any entry exists: entry creation materializes bundles,
-    // and materialization runs synchronous cross-package require edges that
-    // need every immediately-tier factory already registered (module
-    // comment). Resolves even when individual prefetches failed.
+    // Barrier before any entry exists: aggregate registration normally covers
+    // every factory; its fallback covers the synchronous infrastructure edges.
     await prefetching
 
     // Adoption handoff, plugin side: the modules entry is created first —

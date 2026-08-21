@@ -26,6 +26,7 @@ import { readFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
+import { gzipSync } from 'node:zlib'
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
@@ -48,7 +49,7 @@ declare module '@deepseek-ai/cordis' {
 interface DshClientDeclaration {
   inject?: string[]
   platform: string
-  /** Boot phase-one prefetch mark; absent means lazy (fetched on demand). */
+  /** Per-bundle fallback prefetch mark used only if graph bootstrap registration fails. */
   immediately?: boolean
 }
 
@@ -106,6 +107,11 @@ interface WebPluginRecord {
   clientPath: string
 }
 
+interface BootstrapArtifact {
+  plain: Buffer
+  gzip: Buffer
+}
+
 /** Narrow an unknown parsed JSON value to the `dsh.client` declaration, throwing on malformed fields. */
 function parseDshClient(pkgName: string, value: unknown): DshClientDeclaration | undefined {
   if (value === undefined) return undefined
@@ -158,6 +164,12 @@ function graphRow(id: string, rev: string, injectEdges: string[] | undefined, im
   }
 }
 
+function bootstrapSource(records: Iterable<WebPluginRecord>): Buffer {
+  const sources = [...records].map(record => readFileSync(record.clientPath, 'utf8')
+    .replace(/(?:\r?\n)?\/\/# sourceMappingURL=client\.js\.map\s*$/, ''))
+  return Buffer.from(`${sources.join('\n;\n')}\n`)
+}
+
 /**
  * Inject the boot entry graph into index.html: `window.__DSH_BOOT__` as the
  * first script in <head> (before the shell bundle reads it). `<` is escaped in
@@ -177,7 +189,7 @@ export function injectBootManifest(html: string, graph: WebBootGraph): string {
 
 /**
  * The web plugin table service: incremental `dsh.client` scan + wire composition
- * + bundle route + index tap. Construction runs the activation scan
+ * + plugin resource route + index tap. Construction runs the activation scan
  * synchronously — a malformed declaration or missing bundle among the
  * already-loaded entries aggregates into one loud throw (FAILED fiber; the
  * boot activation audit reports it).
@@ -193,6 +205,7 @@ export class ClientModuleRegistry extends Service {
   private readonly rebuildListeners = new Set<(id: string, rev: string) => void>()
   private readonly graphListeners = new Set<() => void>()
   private readonly dirty = new Set<string>()
+  private readonly bootstrapArtifacts = new Map<string, BootstrapArtifact>()
   private readonly resolvePkgJson: (spec: string) => string
   private flushQueued = false
   private composed: WebBootGraph
@@ -240,8 +253,8 @@ export class ClientModuleRegistry extends Service {
     }
 
     ctx.effect(
-      () => ctx.webServer.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
-      'client-modules: bundle route',
+      () => ctx.webServer.register({ kind: 'prefix', path: '/plugins', handler: this.servePluginResource }),
+      'client-modules: plugin resource route',
     )
     ctx.effect(
       () => ctx.webServer.tapIndex(html => injectBootManifest(html, this.composed)),
@@ -315,7 +328,15 @@ export class ClientModuleRegistry extends Service {
 
   private compose(): WebBootGraph {
     const entries = [...this.table.values()].map(record => record.entry)
-    return { rev: shortHash(JSON.stringify(entries)), entries }
+    const rev = shortHash(JSON.stringify(entries))
+    const plain = bootstrapSource(this.table.values())
+    this.bootstrapArtifacts.set(rev, { plain, gzip: gzipSync(plain) })
+    while (this.bootstrapArtifacts.size > 2) {
+      const oldest = this.bootstrapArtifacts.keys().next().value
+      if (oldest === undefined) break
+      this.bootstrapArtifacts.delete(oldest)
+    }
+    return { rev, bootstrapUrl: `/plugins/bootstrap.js?rev=${rev}`, entries }
   }
 
   private notifyGraphChanged(): void {
@@ -419,7 +440,7 @@ export class ClientModuleRegistry extends Service {
     }
   }
 
-  private readonly serveBundle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+  private readonly servePluginResource = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405)
       res.end()
@@ -427,7 +448,28 @@ export class ClientModuleRegistry extends Service {
     }
     if (!await this.ctx.connection.authorizeHttpRequest(req, res, 'harniverse.observe')) return
     /* v8 ignore next -- `?? '/'` arm: node:http always sets url on server requests. */
-    const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)
+    const url = new URL(req.url ?? '/', 'http://x')
+    const pathname = decodeURIComponent(url.pathname)
+    if (pathname === '/plugins/bootstrap.js') {
+      const artifact = this.bootstrapArtifacts.get(url.searchParams.get('rev') ?? '')
+      if (artifact === undefined) {
+        res.writeHead(404)
+        res.end()
+        return
+      }
+      const acceptsGzip = (req.headers['accept-encoding'] ?? '').split(',')
+        .some(encoding => encoding.trim().split(';')[0] === 'gzip')
+      const body = acceptsGzip ? artifact.gzip : artifact.plain
+      res.writeHead(200, {
+        'content-type': 'text/javascript; charset=utf-8',
+        'cache-control': 'private, max-age=31536000, immutable',
+        'content-length': String(body.byteLength),
+        'vary': 'accept-encoding',
+        ...(acceptsGzip && { 'content-encoding': 'gzip' }),
+      })
+      res.end(req.method === 'HEAD' ? undefined : body)
+      return
+    }
     // The id may contain a scope slash. Anything else under /plugins (including
     // /plugins/events when the HMR row is absent) is an unknown resource.
     const prefix = '/plugins/'

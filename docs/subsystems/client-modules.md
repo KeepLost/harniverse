@@ -2,7 +2,7 @@
 
 English | [中文](client-modules.zh.md)
 
-The web plugin table: the Node half of the client module system in [dsh-client-modules](../../packages/client/modules), provided as `ctx.clientModules` (`ClientModuleRegistry`). It scans the host Loader's entries for packages declaring `dsh.client`, composes the `window.__DSH_BOOT__` entry graph, serves each bundle at `/plugins/<id>/client.js`, and taps the index render to inject the boot manifest — the four faces of one service. It is an optional capability of the web GUI stack, not part of the agent-loop spine, and it is a consumer of [dsh-host-webserver](../../packages/host/webserver): the carrier described in [web-server.md](web-server.md) supplies the prefix route and index tap this service registers. The same package's browser half (`ctx.modules`, the lazy-CJS module table that fetches and materializes these bundles) is kernel machinery documented in the [package README](../../packages/client/modules/README.md), not here.
+The web plugin table: the Node half of the client module system in [dsh-client-modules](../../packages/client/modules), provided as `ctx.clientModules` (`ClientModuleRegistry`). It scans the host Loader's entries for packages declaring `dsh.client`, composes the `window.__DSH_BOOT__` entry graph, serves its aggregate and per-plugin resources under `/plugins`, and taps the index render to inject the boot manifest — the four faces of one service. It is an optional capability of the web GUI stack, not part of the agent-loop spine, and it is a consumer of [dsh-host-webserver](../../packages/host/webserver): the carrier described in [web-server.md](web-server.md) supplies the prefix route and index tap this service registers. The same package's browser half (`ctx.modules`, the lazy-CJS module table that fetches and materializes these bundles) is kernel machinery documented in the [package README](../../packages/client/modules/README.md), not here.
 
 Source: [`packages/client/modules/src/client/manifest.ts`](../../packages/client/modules/src/client/manifest.ts)
 
@@ -14,7 +14,7 @@ The graph is the wire single source between the Node and browser halves: the hos
 /**
  * One composed client entry pushed by the host (a graph row). Wire
  * single source: the host node half (package root) produces this same shape.
- * `immediately` marks stage-one prefetch; `inject` is informational graph
+ * `immediately` marks the per-bundle fallback prefetch tier; `inject` is informational graph
  * metadata (the authoritative edges live in each package's `dsh.client`
  * declaration and reach fibers through entry creation).
  */
@@ -27,7 +27,7 @@ interface WebBootEntry {
   rev: string
   /** Package-name dependency edges, informational (preflight display / HMR diffing). */
   inject?: string[]
-  /** Stage-one prefetch mark: load the script for factory registration during module-face boot. */
+  /** Per-bundle fallback prefetch mark when graph bootstrap registration fails. */
   immediately?: boolean
 }
 ```
@@ -37,12 +37,14 @@ interface WebBootEntry {
 interface WebBootGraph {
   /** Consistency anchor over the whole graph (content + bundle hashes). */
   rev: string
+  /** One revision-addressed script that registers every graph factory for initial boot. */
+  bootstrapUrl: string
   /** Composed entries; order carries no semantics (activation order is fiber inject waiting). */
   entries: WebBootEntry[]
 }
 ```
 
-Each row's `rev` is the bundle's content hash and rides the URL as a cache-busting query; the graph `rev` hashes the composed rows, so any row change changes it. `immediately` marks the stage-one prefetch tier (fetch and execute during module-face boot, registration only); a lazy row is fetched on first import.
+Each row's `rev` is the bundle's content hash and rides the URL as a cache-busting query; the graph `rev` hashes the composed rows, so any row change changes it and its `bootstrapUrl`. The bootstrap script registers every row's factory without materializing any plugin. If that aggregate fails or omits a factory, `immediately` marks the per-bundle fallback barrier; entry import retains the independent route and owns loud arrival failures.
 
 ## The scan
 
@@ -54,7 +56,7 @@ Package metadata — including the negative "not a client package" verdict — i
 
 ## The bundle route and index tap
 
-`GET`/`HEAD /plugins/<id>/client.js` serves the registered bundle from disk with `no-cache` (the rev query, not HTTP caching, anchors consistency); other methods are 405. An unknown id — or a registered row whose bundle is unreadable because it has not been built yet — answers a loud 404 rather than letting the carrier's SPA fallback ship HTML as JavaScript. The index tap injects the current graph on every index render, so a reload always boots against the live composition.
+`GET`/`HEAD /plugins/bootstrap.js?rev=<graph-rev>` serves one cached aggregate of that graph revision's factory registrations. The aggregate strips per-bundle `sourceMappingURL` comments, supports gzip, and uses immutable revision caching; the registry retains the two latest revisions so an index response remains loadable across one concurrent graph change. `GET`/`HEAD /plugins/<id>/client.js` serves one registered bundle from disk with `no-cache`, and `/plugins/<id>/client.js.map` retains its source map for direct and HMR loads. Other methods are 405. An unknown id, evicted aggregate revision, or unreadable registered bundle answers a loud 404 rather than letting the carrier's SPA fallback ship HTML as JavaScript. The index tap injects the current graph on every index render, so a reload always boots against the live composition.
 
 ## The service
 
@@ -74,7 +76,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.clientModules` — `ClientModuleRegistry`
 
-The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index tap. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).
+The web plugin table service: incremental `dsh.client` scan + wire composition + plugin resource route + index tap. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).
 
 ```ts cordis-catalog
 /**
@@ -114,5 +116,5 @@ onRebuilt(listener: (id: string, rev: string) => void): () => void
 onGraphChanged(listener: () => void): () => void
 ```
 
-Source: [`packages/client/modules/src/index.ts:185`](../../packages/client/modules/src/index.ts)
+Source: [`packages/client/modules/src/index.ts:197`](../../packages/client/modules/src/index.ts)
 <!-- END GENERATED cordis-surface -->

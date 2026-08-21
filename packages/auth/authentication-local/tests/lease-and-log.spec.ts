@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendAccessRecord, accessLogPath } from '../src/access-log.ts'
+import { appendAccessRecord, appendAccessRecords, accessLogPath } from '../src/access-log.ts'
 import { acquireAuthenticationLease } from '../src/instance-lease.ts'
 
 const homes: string[] = []
@@ -63,6 +63,38 @@ describe('authentication instance lease', () => {
 })
 
 describe('authentication access records', () => {
+  it('persists a durable admission batch as ordered individual JSONL records', async () => {
+    const dshHome = await home()
+    await appendAccessRecords([
+      {
+        time: '2026-08-16T00:00:00.000Z',
+        event: 'access-accepted',
+        mode: 'authenticated',
+        channel: 'http-api',
+        outcome: 'accepted',
+        peer: '127.0.0.1',
+      },
+      {
+        time: '2026-08-16T00:00:00.001Z',
+        event: 'access-rejected',
+        mode: 'authenticated',
+        channel: 'http-api',
+        outcome: 'rejected',
+        peer: '127.0.0.2',
+        reasonCode: 'invalid-credential',
+      },
+    ], { dshHome })
+
+    const records = (await readFile(accessLogPath(dshHome), 'utf8'))
+      .trimEnd()
+      .split('\n')
+      .map(line => JSON.parse(line) as { event: string; peer: string })
+    expect(records).toEqual([
+      expect.objectContaining({ event: 'access-accepted', peer: '127.0.0.1' }),
+      expect.objectContaining({ event: 'access-rejected', peer: '127.0.0.2' }),
+    ])
+  })
+
   it('persists sanitized global records without credential material', async () => {
     const dshHome = await home()
     await appendAccessRecord({

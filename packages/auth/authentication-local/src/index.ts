@@ -29,7 +29,7 @@ import {
 } from '@deepseek-ai/dsh-authentication'
 import { canonicalizeWatchPath } from '@deepseek-ai/dsh-home-paths'
 import { AccessTokenLedger } from './access-tokens.ts'
-import { appendAccessRecord, type AccessRecord } from './access-log.ts'
+import { appendAccessRecord, appendAccessRecords, type AccessRecord } from './access-log.ts'
 import { ChallengeLedger } from './challenges.ts'
 import {
   approveEnrollmentRequest,
@@ -149,6 +149,12 @@ interface ResolvedSpec {
 interface BrowserSession {
   principal: Extract<AuthenticationPrincipal, { kind: 'grant' }>
   expiresAt: number
+}
+
+interface PendingAuthentication {
+  attempt: AuthenticationAttempt
+  resolve: (decision: AuthenticationDecision) => void
+  reject: (reason: unknown) => void
 }
 
 interface AuthenticationFailures {
@@ -288,8 +294,10 @@ export class LocalAuthentication extends InboundAuthentication {
   private readonly sessions = new Map<string, BrowserSession>()
   private readonly authenticationFailures = new Map<string, AuthenticationFailures>()
   private readonly enrollmentRequests = new Map<string, EnrollmentRequests>()
+  private readonly pendingAuthentications: PendingAuthentication[] = []
   private grants = new Map<string, AuthenticationGrant>()
   private operations: Promise<void> = Promise.resolve()
+  private authenticationBatch: ReturnType<typeof setImmediate> | undefined
   private watcherHealthy = true
   private ownerAvailable = false
   private ownerExpiry: ReturnType<typeof setTimeout> | undefined
@@ -318,6 +326,7 @@ export class LocalAuthentication extends InboundAuthentication {
     })
     yield async () => {
       this.closed = true
+      this.flushAuthenticationBatch()
       if (this.ownerExpiry !== undefined) clearTimeout(this.ownerExpiry)
       this.accessTokens.clear()
       this.challenges.clear()
@@ -338,6 +347,7 @@ export class LocalAuthentication extends InboundAuthentication {
     if (!this.spec.watch) {
       yield async () => {
         this.closed = true
+        this.flushAuthenticationBatch()
         clearInterval(reconciliation)
         await this.operations
       }
@@ -361,6 +371,7 @@ export class LocalAuthentication extends InboundAuthentication {
     })
     yield async () => {
       this.closed = true
+      this.flushAuthenticationBatch()
       clearInterval(reconciliation)
       await watcher.close()
       await this.operations
@@ -378,14 +389,37 @@ export class LocalAuthentication extends InboundAuthentication {
   }
 
   override async authenticate(attempt: AuthenticationAttempt): Promise<AuthenticationDecision> {
-    return this.enqueue(async () => {
+    if (this.closed) return { kind: 'rejected', reason: 'authentication-unavailable' }
+    return new Promise<AuthenticationDecision>((resolve, reject) => {
+      this.pendingAuthentications.push({ attempt, resolve, reject })
+      this.authenticationBatch ??= setImmediate(() => { this.flushAuthenticationBatch() })
+    })
+  }
+
+  private flushAuthenticationBatch(): void {
+    if (this.authenticationBatch !== undefined) clearImmediate(this.authenticationBatch)
+    this.authenticationBatch = undefined
+    if (this.pendingAuthentications.length === 0) return
+    const pending = this.pendingAuthentications.splice(0)
+    const task = this.enqueue(() => this.authenticateBatch(pending))
+    void task.catch((error: unknown) => {
+      for (const admission of pending) admission.reject(error)
+    })
+  }
+
+  private async authenticateBatch(pending: readonly PendingAuthentication[]): Promise<void> {
+    let registryRead: Promise<GrantRegistry> | undefined
+    const readRegistry = (): Promise<GrantRegistry> => registryRead ??= readGrantRegistry(this.spec)
+    const decisions: AuthenticationDecision[] = []
+    const records: AccessRecord[] = []
+    for (const { attempt } of pending) {
       let decision: AuthenticationDecision
       if (this.mode === 'bypass') decision = { kind: 'accepted', principal: BYPASS_PRINCIPAL }
       else if (!this.watcherHealthy || !this.ownerAvailable) decision = { kind: 'rejected', reason: 'authentication-unavailable' }
       else {
         try {
           const key = this.failureKey(attempt.channel, attempt.peerAddress)
-          decision = this.rateLimited(key) ?? await this.decide(attempt)
+          decision = this.rateLimited(key) ?? await this.decide(attempt, readRegistry)
           if (decision.kind === 'accepted') this.authenticationFailures.delete(key)
           else if (decision.reason === 'invalid-credential') this.recordAuthenticationFailure(key)
         } catch (error) {
@@ -394,26 +428,44 @@ export class LocalAuthentication extends InboundAuthentication {
           decision = { kind: 'rejected', reason: 'authentication-unavailable' }
         }
       }
-      try {
-        const admittedGrant = decision.kind === 'accepted' && decision.principal.kind === 'grant'
-          ? this.grantFor(decision.principal)
-          : undefined
-        await this.record({
-          event: decision.kind === 'accepted' ? 'access-accepted' : 'access-rejected',
-          mode: this.mode,
-          channel: attempt.channel,
-          outcome: decision.kind === 'accepted' ? 'accepted' : 'rejected',
-          ...(attempt.peerAddress !== undefined && { peer: attempt.peerAddress }),
-          ...(admittedGrant !== undefined && { grantName: admittedGrant.name }),
-          ...(decision.kind === 'rejected' && { reasonCode: decision.reason }),
-        })
-      } catch (error) {
-        this.ctx.logger.warn('authentication-local: access record failed')
-        this.ctx.logger.warn(error)
-        if (decision.kind === 'accepted') return { kind: 'rejected', reason: 'authentication-unavailable' }
+      decisions.push(decision)
+      const admittedGrant = decision.kind === 'accepted' && decision.principal.kind === 'grant'
+        ? this.grantFor(decision.principal)
+        : undefined
+      records.push({
+        time: new Date().toISOString(),
+        event: decision.kind === 'accepted' ? 'access-accepted' : 'access-rejected',
+        mode: this.mode,
+        channel: attempt.channel,
+        outcome: decision.kind === 'accepted' ? 'accepted' : 'rejected',
+        ...(attempt.peerAddress !== undefined && { peer: attempt.peerAddress }),
+        ...(admittedGrant !== undefined && { grantName: admittedGrant.name }),
+        ...(decision.kind === 'rejected' && { reasonCode: decision.reason }),
+      })
+    }
+    try {
+      await appendAccessRecords(records, {
+        ...(this.spec.dshHome !== undefined && { dshHome: this.spec.dshHome }),
+        maxBytes: this.spec.accessLogMaxBytes,
+        maxFiles: this.spec.accessLogMaxFiles,
+      })
+    } catch (error) {
+      this.ctx.logger.warn('authentication-local: access record batch failed')
+      this.ctx.logger.warn(error)
+      for (let index = 0; index < decisions.length; index += 1) {
+        if (decisions[index]?.kind === 'accepted') {
+          decisions[index] = { kind: 'rejected', reason: 'authentication-unavailable' }
+        }
       }
-      return decision
-    })
+    }
+    for (let index = 0; index < pending.length; index += 1) {
+      const admission = pending[index]
+      const decision = decisions[index]
+      if (admission === undefined || decision === undefined) {
+        throw new Error('authentication-local: admission batch result count mismatch')
+      }
+      admission.resolve(decision)
+    }
   }
 
   override async requestEnrollment(
@@ -631,14 +683,17 @@ export class LocalAuthentication extends InboundAuthentication {
     if (value !== undefined) this.sessions.delete(value)
   }
 
-  private async decide(attempt: AuthenticationAttempt): Promise<AuthenticationDecision> {
+  private async decide(
+    attempt: AuthenticationAttempt,
+    readRegistry: () => Promise<GrantRegistry>,
+  ): Promise<AuthenticationDecision> {
     if (attempt.authorization !== undefined) {
       const match = /^Bearer ([^\s]+)$/.exec(attempt.authorization)
       const value = match?.[1]
       if (value === undefined) return { kind: 'rejected', reason: 'invalid-credential' }
       const principal = this.accessTokens.authenticate(value)
       if (principal === undefined) return { kind: 'rejected', reason: 'invalid-credential' }
-      if (!await this.principalActive(principal)) {
+      if (!await this.principalActive(principal, readRegistry)) {
         return { kind: 'rejected', reason: this.ownerAvailable ? 'invalid-credential' : 'authentication-unavailable' }
       }
       return { kind: 'accepted', principal }
@@ -647,7 +702,7 @@ export class LocalAuthentication extends InboundAuthentication {
     if (value === undefined) return { kind: 'rejected', reason: 'missing-credential' }
     const session = this.sessions.get(value)
     if (session === undefined) return { kind: 'rejected', reason: 'invalid-credential' }
-    if (session.expiresAt <= Date.now() || !await this.principalActive(session.principal)) {
+    if (session.expiresAt <= Date.now() || !await this.principalActive(session.principal, readRegistry)) {
       this.sessions.delete(value)
       return { kind: 'rejected', reason: this.ownerAvailable ? 'invalid-credential' : 'authentication-unavailable' }
     }
@@ -700,9 +755,12 @@ export class LocalAuthentication extends InboundAuthentication {
     }
   }
 
-  private async principalActive(principal: Extract<AuthenticationPrincipal, { kind: 'grant' }>): Promise<boolean> {
+  private async principalActive(
+    principal: Extract<AuthenticationPrincipal, { kind: 'grant' }>,
+    readRegistry: () => Promise<GrantRegistry>,
+  ): Promise<boolean> {
     if (Date.parse(principal.expiresAt) <= Date.now()) return false
-    const registry = await readGrantRegistry(this.spec)
+    const registry = await readRegistry()
     if (!this.hasActiveOwner(registry)) {
       this.setOwnerAvailable(false)
       return false

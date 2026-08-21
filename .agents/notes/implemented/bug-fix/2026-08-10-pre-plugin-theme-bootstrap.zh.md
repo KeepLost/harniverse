@@ -8,7 +8,7 @@ Status: implemented
 
 Web 壳在浏览器侧插件树激活前呈现 `Loading plugins…`。主题 token 已随壳样式加载，但 `color-scheme` 和 `body[data-ds-dark-theme]` 要等 ui-theme 的 ThemeRuntime 与 ui-layout 的 ThemePresenter 激活后才写入；持久化偏好为深色时，加载页因此先按浅色调色板绘制，再切为深色。
 
-`dshClient.immediately` 只把 bundle 纳入第一阶段预取，不会让插件在 HTML 解析或壳首次渲染前执行。仅调整客户端插件的加载档位无法关闭这段时间窗口。
+`dshClient.immediately` 只在聚合 bootstrap 失败时把 bundle 标记为逐插件回退登记对象，不会让插件在 HTML 解析或壳首次渲染前执行。仅调整客户端插件的加载档位无法关闭这段时间窗口。
 
 ## 决策
 
@@ -20,13 +20,13 @@ settings provider 存在时，主机侧会注册 [`ui-theme.preference` settings
 
 ## 验证
 
-ui-theme 的单元测试覆盖不含任一可选 Host 服务时的激活、脚本位置、Host 设置优先级、系统偏好、缺少 `matchMedia`、不含 body 的输入、实时读取 settings，以及 Host 注册随插件 fiber 一同释放。真实 Web 组合的 Chromium 场景会选择持久化深色偏好并拦住插件 bundle 请求，使加载页保持可观察，再断言 index 响应产生了深色背景、body 属性和根元素 `color-scheme`。该变化不改变可访问性树，因此不产生新的页面 golden。
+ui-theme 的单元测试覆盖不含任一可选 Host 服务时的激活、脚本位置、Host 设置优先级、系统偏好、缺少 `matchMedia`、不含 body 的输入、实时读取 settings，以及 Host 注册随插件 fiber 一同释放。真实 Web 组合的 Chromium 场景会选择持久化深色偏好并拦住插件 bootstrap 资源，使加载页保持可观察，再断言 index 响应产生了深色背景、body 属性和根元素 `color-scheme`。该变化不改变可访问性树，因此不产生新的页面 golden。
 
 ## 考虑过的替代方案
 
 **把逻辑固定写进 `apps/web/index.html`。** 这样能在相同时机执行，但静态 HTML 无法嵌入当前 Host 设置，还会复制 ui-theme 拥有的偏好解析和 DOM 字段；Host 转换会跟随主题插件的生命周期，并让应用壳无需了解主题领域。
 
-**让 ui-theme 客户端 bundle 同步或更早激活。** `immediately` 只控制预取，插件实例化仍发生在壳开始运行之后；把首次渲染阻塞到 ThemeRuntime 激活会延后可见的加载与报错界面，也会让壳的故障呈现依赖被它监测的插件树。
+**让 ui-theme 客户端 bundle 同步或更早激活。** `immediately` 只控制聚合失败后的回退，插件实例化仍发生在壳开始运行之后；把首次渲染阻塞到 ThemeRuntime 激活会延后可见的加载与报错界面，也会让壳的故障呈现依赖被它监测的插件树。
 
 **只依赖 `prefers-color-scheme` 的 CSS。** 媒体查询无法读取显式持久化选择，因此操作系统为浅色而用户选择深色时仍会闪烁。
 

@@ -69,6 +69,8 @@ export class ClientModuleSystem implements ClientModuleLoader {
   private readonly materializing = new Set<string>()
   private readonly graphRows = new Map<string, BootModuleRow>()
   private readonly loadBundle: (url: string) => Promise<void>
+  private readonly bootstrapUrl: string
+  private graphArrival: Promise<void> | undefined
 
   /**
    * Build the module system over the parsed boot rows.
@@ -77,6 +79,7 @@ export class ClientModuleSystem implements ClientModuleLoader {
   constructor(options: ClientModuleSystemOptions) {
     this.seed = new Map(Object.entries(options.staticModules))
     this.loadBundle = options.loadBundle ?? defaultLoadBundle
+    this.bootstrapUrl = options.bootstrapUrl
 
     for (const row of options.modules) {
       if (this.graphRows.has(row.id)) throw new Error(`client-modules: duplicate graph entry "${row.id}"`)
@@ -187,6 +190,17 @@ export class ClientModuleSystem implements ClientModuleLoader {
     const row = this.graphRows.get(id)
     if (row === undefined) throw new Error(`client-modules: prefetch("${id}") — not a graph entry`)
     await this.arrive(row)
+  }
+
+  async prefetchGraph(): Promise<void> {
+    if ([...this.graphRows.keys()].every(id => this.statics.has(id) || this.factories.has(id))) return
+    this.graphArrival ??= this.loadBundle(this.bootstrapUrl).then(() => {
+      const missing = [...this.graphRows.keys()].filter(id => !this.statics.has(id) && !this.factories.has(id))
+      if (missing.length > 0) {
+        throw new Error(`client-modules: bootstrap script loaded without registering: ${missing.join(', ')}`)
+      }
+    }).finally(() => { this.graphArrival = undefined })
+    await this.graphArrival
   }
 
   invalidate(id: string): void {

@@ -51,9 +51,13 @@ const bundles = new Map(PLUGINS.map(plugin => [
   plugin.url,
   readFileSync(join(process.cwd(), plugin.bundlePath), 'utf8'),
 ]))
+const BOOTSTRAP_URL = '/plugins/bootstrap.js?rev=fx'
+const bootstrapBundle = [...bundles.values()]
+  .map(source => source.replace(/(?:\r?\n)?\/\/# sourceMappingURL=client\.js\.map\s*$/, ''))
+  .join('\n;\n')
 
 interface FixtureWindow extends Window {
-  __DSH_BOOT__?: { rev: string; entries: WebBootEntry[] }
+  __DSH_BOOT__?: { rev: string; bootstrapUrl: string; entries: WebBootEntry[] }
   __ModuleLoader__?: unknown
 }
 
@@ -87,6 +91,14 @@ export function installAssembledBootEnv(): void {
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
       setTimeout(() => { callback(0) }, 0) as unknown as number)
     vi.stubGlobal('cancelAnimationFrame', (id: number) => { clearTimeout(id) })
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const value = input instanceof Request ? input.url : String(input)
+      const path = new URL(value, 'http://fixture.invalid').pathname
+      if (path === '/auth/status') {
+        return Response.json({ mode: 'bypass', sealed: false, authenticated: true })
+      }
+      throw new Error(`assembled boot fixture rejected network request ${path}`)
+    })
   })
 
   afterEach(() => {
@@ -111,17 +123,25 @@ export function installAssembledBootEnv(): void {
 /**
  * Mount the assembled application on the fixture transport; the teardown
  * registered by installAssembledBootEnv disposes it.
+ * @param options - Transport failures selected by the owning boot test.
  */
-export function mountAssembledApp(): void {
+export function mountAssembledApp(options: { failBootstrap?: boolean } = {}): void {
   history.replaceState(null, '', '/?fixture')
   const root = document.createElement('div')
   root.id = 'root'
   document.body.appendChild(root)
-  win.__DSH_BOOT__ = { rev: 'fx', entries: PLUGINS.map(({ bundlePath: _bundlePath, ...plugin }) => plugin) }
+  win.__DSH_BOOT__ = {
+    rev: 'fx',
+    bootstrapUrl: BOOTSTRAP_URL,
+    entries: PLUGINS.map(({ bundlePath: _bundlePath, ...plugin }) => plugin),
+  }
   act(() => {
     const entry = new AppWebEntry(root, {
       loadBundle: async (url) => {
-        const code = bundles.get(url)
+        if (options.failBootstrap === true && url === BOOTSTRAP_URL) {
+          throw new Error('fixture bootstrap unavailable')
+        }
+        const code = url === BOOTSTRAP_URL ? bootstrapBundle : bundles.get(url)
         if (code === undefined) throw new Error(`missing built bundle ${url}`)
         ;(0, eval)(code)
       },

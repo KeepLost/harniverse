@@ -2,7 +2,7 @@
 
 [English](client-modules.md) | 中文
 
-Web 插件表：[dsh-client-modules](../../packages/client/modules) 中 client 模块系统的 Node 半，以 `ctx.clientModules`（`ClientModuleRegistry`）形式提供。它扫描宿主 Loader 的 entry，找出声明了 `dsh.client` 的包，组合出 `window.__DSH_BOOT__` entry 图，在 `/plugins/<id>/client.js` 提供各个 bundle，并经 index 转换（index tap）注入启动 manifest（元数据清单）——这是同一个服务的四个面。它是 Web GUI 栈的一项可选能力，不属于 agent loop（智能体循环）主干，并且是 [dsh-host-webserver](../../packages/host/webserver) 的消费方：[web-server.md](web-server.md) 所述的载体提供本服务注册的前缀路由与 index 转换。同一个包的浏览器半（`ctx.modules`，即拉取并物化这些 bundle 的 lazy CJS 模块表）属于内核机件，记录在[包 README](../../packages/client/modules/README.md)中，不在本页。
+Web 插件表：[dsh-client-modules](../../packages/client/modules) 中 client 模块系统的 Node 半，以 `ctx.clientModules`（`ClientModuleRegistry`）形式提供。它扫描宿主 Loader 的 entry，找出声明了 `dsh.client` 的包，组合出 `window.__DSH_BOOT__` entry 图，在 `/plugins` 下提供聚合及逐插件资源，并经 index 转换（index tap）注入启动 manifest（元数据清单）——这是同一个服务的四个面。它是 Web GUI 栈的一项可选能力，不属于 agent loop（智能体循环）主干，并且是 [dsh-host-webserver](../../packages/host/webserver) 的消费方：[web-server.md](web-server.md) 所述的载体提供本服务注册的前缀路由与 index 转换。同一个包的浏览器半（`ctx.modules`，即拉取并物化这些 bundle 的 lazy CJS 模块表）属于内核机件，记录在[包 README](../../packages/client/modules/README.md)中，不在本页。
 
 源码：[`packages/client/modules/src/client/manifest.ts`](../../packages/client/modules/src/client/manifest.ts)
 
@@ -14,7 +14,7 @@ Web 插件表：[dsh-client-modules](../../packages/client/modules) 中 client �
 /**
  * One composed client entry pushed by the host (a graph row). Wire
  * single source: the host node half (package root) produces this same shape.
- * `immediately` marks stage-one prefetch; `inject` is informational graph
+ * `immediately` marks the per-bundle fallback prefetch tier; `inject` is informational graph
  * metadata (the authoritative edges live in each package's `dsh.client`
  * declaration and reach fibers through entry creation).
  */
@@ -27,7 +27,7 @@ interface WebBootEntry {
   rev: string
   /** Package-name dependency edges, informational (preflight display / HMR diffing). */
   inject?: string[]
-  /** Stage-one prefetch mark: load the script for factory registration during module-face boot. */
+  /** Per-bundle fallback prefetch mark when graph bootstrap registration fails. */
   immediately?: boolean
 }
 ```
@@ -37,12 +37,14 @@ interface WebBootEntry {
 interface WebBootGraph {
   /** Consistency anchor over the whole graph (content + bundle hashes). */
   rev: string
+  /** One revision-addressed script that registers every graph factory for initial boot. */
+  bootstrapUrl: string
   /** Composed entries; order carries no semantics (activation order is fiber inject waiting). */
   entries: WebBootEntry[]
 }
 ```
 
-每一行的 `rev` 是该 bundle 的内容哈希，并作为使缓存失效的查询参数附在 URL 上；图的 `rev` 对组合后的各行做哈希，因此任何一行的变化都会改变它。`immediately` 标记第一阶段预取档位（在模块面启动期间 fetch 并执行，只做登记）；惰性行在首次 import 时才拉取。
+每一行的 `rev` 是该 bundle 的内容哈希，并作为使缓存失效的查询参数附在 URL 上；图的 `rev` 对组合后的各行做哈希，因此任何一行变化都会同时改变它和 `bootstrapUrl`。bootstrap 脚本会登记每一行的 factory，但不物化任何插件。聚合失败或漏登 factory 时，`immediately` 标记逐 bundle 回退屏障；entry import 保留独立路由，并负责大声报告到达失败。
 
 ## 扫描
 
@@ -54,7 +56,7 @@ interface WebBootGraph {
 
 ## bundle 路由与 index 转换
 
-`GET`/`HEAD /plugins/<id>/client.js` 以 `no-cache` 从磁盘提供已注册的 bundle（锚定一致性的是 rev 查询参数，而非 HTTP 缓存）；其他方法返回 405。未知 id——或已注册、但 bundle 因尚未构建而不可读的行——回应一个大声的 404，而不是让载体的 SPA 回退把 HTML 当作 JavaScript 发出。index 转换在每次 index 渲染时注入当前图，因此刷新页面总是针对实时组合启动。
+`GET`/`HEAD /plugins/bootstrap.js?rev=<graph-rev>` 提供由该图 revision 所有 factory 登记组成的一份缓存聚合。聚合会移除逐 bundle 的 `sourceMappingURL` 注释，支持 gzip，并采用按 revision 定址的 immutable 缓存；注册表保留最近两个 revision，使 index 响应跨越一次并发图变化后仍可加载。`GET`/`HEAD /plugins/<id>/client.js` 以 `no-cache` 从磁盘提供一个已注册的 bundle，`/plugins/<id>/client.js.map` 则为直接加载和 HMR 保留其 sourcemap。其他方法返回 405。未知 id、已淘汰的聚合 revision 或不可读的已注册 bundle 会回应一个大声的 404，而不是让载体的 SPA 回退把 HTML 当作 JavaScript 发出。index 转换在每次 index 渲染时注入当前图，因此刷新页面总是针对实时组合启动。
 
 ## 服务
 
@@ -74,7 +76,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.clientModules` — `ClientModuleRegistry`
 
-The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index tap. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).
+The web plugin table service: incremental `dsh.client` scan + wire composition + plugin resource route + index tap. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).
 
 ```ts cordis-catalog
 /**
@@ -114,5 +116,5 @@ onRebuilt(listener: (id: string, rev: string) => void): () => void
 onGraphChanged(listener: () => void): () => void
 ```
 
-Source: [`packages/client/modules/src/index.ts:185`](../../packages/client/modules/src/index.ts)
+Source: [`packages/client/modules/src/index.ts:197`](../../packages/client/modules/src/index.ts)
 <!-- END GENERATED cordis-surface -->
