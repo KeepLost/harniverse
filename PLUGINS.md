@@ -169,6 +169,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `baafb40c0d` | Makes Agent Profile identity immutable at Session creation, applies Profile default permissions before publication, and removes blank-Session Profile switching. |
 | `7e38080de9` | Mounts cross-session query and delivery in shipped compositions, with Profile-scoped Web Consumers and lazy first-search SQLite activation. |
 | `b2016ed5f2` | Adds current-title, creation-time, and raw-activity session discovery plus complete raw-log tail and window reads while preserving content-search hit semantics. |
+| `995b34867c` | Adds inherited Agent Profile capability composition, static recipe planning, immutable Session generations, Host-shared MCP restrictions, and Web management/read-only runtime views. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
