@@ -14,6 +14,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-capabilities'
 import z from '@deepseek-ai/schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
@@ -163,7 +164,69 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // The supervisor owns the client/transport generations, the reconnect
   // loop, and the live tool registrations; disposal stops reconnection,
   // quiesces in-flight work, and unregisters the current generation.
-  const connection = startConnection(ctx, config, reconnect)
+  let capabilityChanged = (): void => {}
+  const restrictionRefreshers = new Set<() => void>()
+  const connection = startConnection(ctx, config, reconnect, () => {
+    capabilityChanged()
+    for (const refresh of restrictionRefreshers) {
+      try {
+        refresh()
+      } catch (error) {
+        ctx.logger.error(`mcp-client(${config.serverName}): composition restriction refresh failed: ${String(error)}`)
+      }
+    }
+  })
+
+  ctx.inject(['capabilities'], (capabilityCtx) => {
+    const encodedName = Buffer.from(config.serverName).toString('hex')
+    const capabilityId = `mcp-server:${encodedName}`
+    capabilityCtx.capabilities.registerAdapter((control) => {
+      capabilityChanged = () => { control.invalidate() }
+      return {
+        id: `mcp-client:${encodedName}`,
+        snapshot: () => ({
+          complete: true,
+          entries: [{
+            id: capabilityId,
+            kind: 'mcp-server',
+            name: config.serverName,
+            description: `MCP server ${config.serverName}`,
+            provenance: 'external',
+            assembleable: true,
+            available: connection.connected(),
+            defaultLoaded: true,
+            manageable: true,
+            owner: '@deepseek-ai/dsh-mcp-client',
+            requires: [],
+          }],
+        }),
+        restrict: (compositionCtx, unloaded) => {
+          if (!unloaded.has(capabilityId)) return
+          const tools = compositionCtx.get('tools')
+          if (tools === undefined) return
+          let release = (): void => {}
+          const refresh = (): void => {
+            const names = connection.toolNames()
+            const next = names.length === 0
+              ? (): void => {}
+              : tools.restrict({ deny: names, includeOwn: true })
+            const previous = release
+            release = next
+            previous()
+          }
+          compositionCtx.effect(() => {
+            restrictionRefreshers.add(refresh)
+            refresh()
+            return () => {
+              restrictionRefreshers.delete(refresh)
+              release()
+            }
+          }, `mcp-client.capabilityComposition(${JSON.stringify(config.serverName)})`)
+        },
+      }
+    })
+    capabilityCtx.effect(() => () => { capabilityChanged = () => {} }, 'mcp-client.capabilities()')
+  })
 
   ctx.effect(() => {
     return () => connection.dispose()

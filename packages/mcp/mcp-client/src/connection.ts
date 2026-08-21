@@ -103,6 +103,10 @@ export interface ConnectionHandle {
    * whether a failed startup is fatal via `failOnStartupError`.
    */
   ready: Promise<ConnectionOutcome>
+  /** Public tool names in the current last-good generation. */
+  toolNames(): string[]
+  /** Whether a live MCP generation completed its initial synchronization. */
+  connected(): boolean
   /**
    * Stop reconnection, close the live client, wait for the in-flight attempt
    * and queued tool syncs to quiesce, then unregister every tool this server
@@ -118,9 +122,15 @@ export interface ConnectionHandle {
  * @param ctx - Cordis context providing the `tools` registry and logger.
  * @param config - Resolved plugin config selecting the transport and server identity.
  * @param policy - Resolved reconnect policy from {@link resolveReconnectPolicy}.
+ * @param onToolsChanged - observer notified when connection or tool topology changes.
  * @returns Handle with a `ready` promise for startup-await and a `dispose` for teardown.
  */
-export function startConnection(ctx: Context, config: Config, policy: ResolvedReconnectPolicy): ConnectionHandle {
+export function startConnection(
+  ctx: Context,
+  config: Config,
+  policy: ResolvedReconnectPolicy,
+  onToolsChanged: () => void = () => {},
+): ConnectionHandle {
   const label = `mcp-client(${config.serverName})`
   const opts: ToolBridgeOptions = {
     registrationFailure: 'contain',
@@ -162,7 +172,9 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   function enqueueSync(generation: Client, syncOpts: ToolBridgeOptions = opts): Promise<void> {
     const run = syncChain.then(async () => {
       if (!isCurrent(generation)) return
+      const previousNames = [...disposers.keys()]
       disposers = await syncTools(generation, ctx, syncOpts, disposers)
+      if (JSON.stringify(previousNames) !== JSON.stringify([...disposers.keys()])) onToolsChanged()
     })
     // The chain tail must survive a failed sync; the enqueuing caller owns reporting.
     syncChain = run.catch(() => {})
@@ -175,6 +187,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     client = undefined
     clientClosed = undefined
     scheduleReconnect()
+    onToolsChanged()
   }
 
   /** Wait for the transport-owned close signal without letting a broken transport wedge teardown forever. */
@@ -209,6 +222,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       syncChain = syncChain.then(() => {
         for (const dispose of disposers.values()) dispose()
         disposers = new Map()
+        onToolsChanged()
       })
       ctx.logger.error(`${label}: giving up after ${policy.maxAttempts} consecutive failed reconnect attempts — tools unregistered; reload the plugin or restart the Host to reconnect`)
       return
@@ -301,6 +315,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     }
     if (!isCurrent(generation)) return
     connectedAt = Date.now()
+    onToolsChanged()
     if (failedAttempts > 0) ctx.logger.info(`${label}: reconnected and re-synced tools (attempt ${failedAttempts}/${policy.maxAttempts})`)
   }
 
@@ -324,6 +339,8 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
 
   return {
     ready,
+    toolNames: () => [...disposers.keys()],
+    connected: () => !disposed && connectedAt !== undefined,
     async dispose(): Promise<void> {
       disposed = true
       if (reconnectTimer !== undefined) {
@@ -346,6 +363,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       await syncChain
       for (const dispose of disposers.values()) dispose()
       disposers = new Map()
+      onToolsChanged()
     },
   }
 }

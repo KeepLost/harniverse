@@ -152,18 +152,22 @@ type InferArgs<S> = InferProperties<S, []>
 
 ## `ToolRestriction` — 单个作用域对其继承内容的实时过滤器
 
-`ToolRestriction` 作用于该作用域继承来的工具：部署全局层，加上其链上的每个祖先作用域。注册表将 readonly 名称编译为私有集合，对多个限制取交集，再叠加该作用域**自身**的注册——后者不受约束，因此被委派的子 agent 会保留其回报所依赖的工具。仅 deny 的过滤器允许后续未列出的继承工具通过，而 allow 列表则排除它们。
+`ToolRestriction` 作用于该作用域继承来的工具：部署全局层，加上其链上的每个祖先作用域。注册表将 readonly 名称编译为私有集合，并对多个限制取交集。自身注册默认不受约束，因此被委派的子 agent 保留其回报所依赖的 protocol 工具；`includeOwn` 可让 standing Profile 组装筛选其精确层，同时保持下级自有工具不受约束。仅 deny 的过滤器允许后续未列出的继承工具通过，而 allow 列表则排除它们。
 
 ```ts type-equiv
 /**
- * Per-scope filter over global tools. Restrictions intersect and do not affect
- * scoped registrations or the reserved Code Mode transport.
+ * Per-scope filter over inherited tools. Restrictions intersect and do not
+ * affect the reserved Code Mode transport. A standing Profile composition may opt
+ * into filtering registrations owned by that same scope; descendant-owned
+ * protocol tools remain exempt.
  */
 interface ToolRestriction {
-  /** Global tool names that stay visible; everything else is removed. */
+  /** Inherited tool names that stay visible; everything else is removed. */
   readonly allow?: readonly string[]
-  /** Global tool names removed from visibility. */
+  /** Inherited tool names removed from visibility. */
   readonly deny?: readonly string[]
+  /** Also filter registrations owned by the restriction's exact scope. */
+  readonly includeOwn?: true
 }
 ```
 
@@ -578,7 +582,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:805`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:811`](../../packages/core/tools/src/index.ts)
 
 <a id="tools-events"></a>
 

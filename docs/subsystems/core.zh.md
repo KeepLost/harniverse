@@ -521,6 +521,20 @@ async remove(id: string): Promise<void>
 serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined
 
 /**
+ * Read assembly recipes without mounting any Profile.
+ * @param id - target Profile whose source rows provide native defaults; omission builds global defaults.
+ * @returns one deployment-wide descriptor set with target-native selections.
+ */
+async capabilityRecipes(id?: string): Promise<readonly CapabilityDescriptor[]>
+
+/**
+ * Runtime assembly captured by the immutable generation one Agent joined.
+ * @param agentCtx - scoped context of the Agent whose standing generation is inspected.
+ * @returns immutable generation identity and assembly results, or undefined for a bare Agent.
+ */
+compositionRuntime(agentCtx: Context): { readonly agentProfile: string readonly generation?: string readonly capabilities: readonly CapabilityRuntimeEntry[] } | undefined
+
+/**
  * The standing scope key of one preset, for a host reader with no agent.
  *
  * A cold transcript read resolves tool presenters against the composition
@@ -534,9 +548,9 @@ serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): 
 async standingKeyFor(id?: string): Promise<ScopeKey>
 ```
 
-Types: [ScopeKey](scope.md)
+Types: [CapabilityDescriptor](capabilities.md) · [CapabilityRuntimeEntry](capabilities.md) · [ScopeKey](scope.md)
 
-Source: [`packages/preset/agent-presets/src/index.ts:82`](../../packages/preset/agent-presets/src/index.ts)
+Source: [`packages/preset/agent-presets/src/index.ts:91`](../../packages/preset/agent-presets/src/index.ts)
 
 <a id="ctxagents--agentregistry"></a>
 

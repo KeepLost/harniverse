@@ -260,6 +260,22 @@ describe('restrict() over an inherited scope layer', () => {
     expect(ctx.tools.schemas(child.key).map(t => t.name)).toEqual(['bash'])
     expect(ctx.tools.schemas(parent.key).map(t => t.name)).toEqual(['bash'])
   })
+
+  it('lets a standing composition filter its own tools while preserving child-owned protocol tools', async () => {
+    const ctx = await mount()
+    const preset = await mintAgentScope(ctx, 'preset')
+    preset.scope.ctx.tools.register(tool('bash'))
+    preset.scope.ctx.tools.register(tool('read'))
+    preset.scope.ctx.tools.restrict({ deny: ['bash'], includeOwn: true })
+
+    const child = await mintChild(ctx, preset.key, 'child')
+    child.scope.ctx.tools.register(tool('report'))
+
+    expect(ctx.tools.schemas(preset.key).map(t => t.name)).toEqual(['read'])
+    expect(ctx.tools.schemas(child.key).map(t => t.name).sort()).toEqual(['read', 'report'])
+    expect(await run(ctx, 'bash', preset.key)).toBe('Error: unknown tool "bash"')
+    expect(await run(ctx, 'report', child.key)).toBe('ran:report')
+  })
 })
 
 describe('scoped execution dispatch', () => {

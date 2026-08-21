@@ -1,0 +1,17 @@
+export type {
+  CapabilityCatalogEntry,
+  CapabilityCatalogSnapshot,
+  CapabilityCompositionChange,
+  CapabilityCompositionSnapshot,
+  CapabilityDescriptor,
+  CapabilityKind,
+  CapabilityPlan,
+  CapabilityPlanBlocker,
+  CapabilityPlanOperation,
+  CapabilityRuntimeEntry,
+  CapabilityRuntimeStatus,
+  CapabilitySelectionValue,
+  CapabilityProvenance,
+  CapabilityTarget,
+  SessionCapabilitySnapshot,
+} from '@deepseek-ai/dsh-capabilities/types'

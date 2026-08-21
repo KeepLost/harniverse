@@ -235,6 +235,11 @@
     - id: skill
       name: '@deepseek-ai/dsh-skill'
 
+    # Unified capability catalog and Profile composition coordinator. Native
+    # subsystem adapters are mounted by surfaces that expose management.
+    - id: capabilities
+      name: '@deepseek-ai/dsh-capabilities'
+
     - id: skill-filesystem
       name: '@deepseek-ai/dsh-skill-filesystem'
 

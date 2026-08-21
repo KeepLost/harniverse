@@ -692,20 +692,25 @@ export interface Config {
 }
 
 /**
- * Per-scope filter over global tools. Restrictions intersect and do not affect
- * scoped registrations or the reserved Code Mode transport.
+ * Per-scope filter over inherited tools. Restrictions intersect and do not
+ * affect the reserved Code Mode transport. A standing Profile composition may opt
+ * into filtering registrations owned by that same scope; descendant-owned
+ * protocol tools remain exempt.
  */
 export interface ToolRestriction {
-  /** Global tool names that stay visible; everything else is removed. */
+  /** Inherited tool names that stay visible; everything else is removed. */
   readonly allow?: readonly string[]
-  /** Global tool names removed from visibility. */
+  /** Inherited tool names removed from visibility. */
   readonly deny?: readonly string[]
+  /** Also filter registrations owned by the restriction's exact scope. */
+  readonly includeOwn?: true
 }
 
 /** One restriction compiled at registration for repeated live-global lookup. */
 interface CompiledToolRestriction {
   readonly allow?: ReadonlySet<string>
   readonly deny?: ReadonlySet<string>
+  readonly includeOwn: boolean
 }
 
 /** One scope's complete registry view, derived in a single layer traversal. */
@@ -752,9 +757,10 @@ class ToolLayer implements ScopeLayer {
       && this.mode === undefined
   }
 
-  /** Whether every compiled restriction in this layer admits a global tool name. */
-  admits(name: string): boolean {
+  /** Whether every applicable restriction in this layer admits a tool name. */
+  admits(name: string, own: boolean): boolean {
     for (const filter of this.restrictions.values()) {
+      if (own && !filter.includeOwn) continue
       if ((filter.allow !== undefined && !filter.allow.has(name))
         || (filter.deny !== undefined && filter.deny.has(name))) return false
     }
@@ -1099,14 +1105,18 @@ export class ToolRuntime extends Service {
     const compiled: CompiledToolRestriction = {
       ...allow !== undefined ? { allow: new Set(allow) } : {},
       ...deny !== undefined ? { deny: new Set(deny) } : {},
+      includeOwn: filter.includeOwn === true,
     }
     if ([...allow ?? [], ...deny ?? []].includes(RUN_CODE_NAME)) {
       throw new Error(`tools.restrict() cannot name reserved Code Mode presentation transport "${RUN_CODE_NAME}"; restrict end-capability tools instead`)
     }
-    const known = this.view(scope).restrictableNames
+    const view = this.view(scope)
+    const known = filter.includeOwn === true ? view.knownNames : view.restrictableNames
     const unknown = [...allow ?? [], ...deny ?? []].filter(name => !known.has(name))
     if (unknown.length > 0) {
-      throw new Error(`tools.restrict() names unknown global tool${unknown.length > 1 ? 's' : ''} ${unknown.map(n => `"${n}"`).join(', ')}; known global tools: ${[...known].sort().join(', ') || '(none)'}`)
+      const surface = filter.includeOwn === true ? 'tool' : 'global tool'
+      const knownSurface = filter.includeOwn === true ? 'known tools' : 'known global tools'
+      throw new Error(`tools.restrict() names unknown ${surface}${unknown.length > 1 ? 's' : ''} ${unknown.map(n => `"${n}"`).join(', ')}; ${knownSurface}: ${[...known].sort().join(', ') || '(none)'}`)
     }
     return this.layers.effect(
       this.ctx,
@@ -1189,14 +1199,14 @@ export class ToolRuntime extends Service {
       restrictableNames.add(name)
       // Restrictions intersect across the whole chain: any scope on it may
       // mask an inherited name for everything nested inside it.
-      if (layers.every(layer => layer.admits(name))) visible.set(name, definition)
+      if (layers.every(layer => layer.admits(name, false))) visible.set(name, definition)
     }
     // The scope's own registrations last, shadowing an inherited name and
     // outside the filter above.
     if (own !== undefined) {
       for (const [name, definition] of own.tools.entries()) {
         knownNames.add(name)
-        visible.set(name, definition)
+        if (own.admits(name, true)) visible.set(name, definition)
       }
     }
     // Presentation infrastructure is resolved last and outside capability

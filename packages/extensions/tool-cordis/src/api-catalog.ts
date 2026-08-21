@@ -194,6 +194,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the agent\'s instance, or undefined when its preset mounts none.',
       },
       {
+        signature: 'async capabilityRecipes(id?: string): Promise<readonly CapabilityDescriptor[]>',
+        description: 'Read assembly recipes without mounting any Profile.',
+        parameters: [{ name: 'id', description: 'target Profile whose source rows provide native defaults; omission builds global defaults.' }],
+        returns: 'one deployment-wide descriptor set with target-native selections.',
+      },
+      {
+        signature: 'compositionRuntime(agentCtx: Context): { readonly agentProfile: string readonly generation?: string readonly capabilities: readonly CapabilityRuntimeEntry[] } | undefined',
+        description: 'Runtime assembly captured by the immutable generation one Agent joined.',
+        parameters: [{ name: 'agentCtx', description: 'scoped context of the Agent whose standing generation is inspected.' }],
+        returns: 'immutable generation identity and assembly results, or undefined for a bare Agent.',
+      },
+      {
         signature: 'async standingKeyFor(id?: string): Promise<ScopeKey>',
         description: 'The standing scope key of one preset, for a host reader with no agent.\n\nA cold transcript read resolves tool presenters against the composition the session recorded, and the standing mount makes that possible without resuming anything: ensuring the mount composes plugins but starts no agent, no session, and no turn.',
         parameters: [{ name: 'id', description: 'the preset id, or `undefined` for {@link defaultId}.' }],
@@ -468,6 +480,54 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'abstract revokeBrowserSession(value?: string): void',
         description: 'Revoke one opaque browser-session value, when present.',
         parameters: [{ name: 'value', description: 'transport-selected browser-session value.' }],
+      },
+    ],
+  },
+  {
+    key: 'capabilities',
+    summary: 'Generic capability recipe registry, composition store, planner, and Profile generation installer.',
+    description: 'Generic capability recipe registry, composition store, planner, and Profile generation installer.',
+    methods: [
+      {
+        signature: 'registerAdapter(create: (control: CapabilityAdapterControl) => CapabilityAdapter): () => void',
+        description: 'Register one native subsystem adapter on the calling plugin fiber.',
+        parameters: [{ name: 'create', description: 'factory receiving the registration-owned invalidation handle.' }],
+        returns: 'exact disposer for the scoped adapter registration.',
+      },
+      {
+        signature: 'async snapshot(target: CapabilityTarget, view: CapabilityView = {}): Promise<CapabilityCatalogSnapshot>',
+        description: 'Read the effective catalog for one global or Agent Profile target.',
+        parameters: [{ name: 'target', description: 'composition target whose explicit and inherited values are resolved.' }, { name: 'view', description: 'native registry scopes and workspace used by adapters.' }],
+        returns: 'deterministic capability entries and current composition/topology revisions.',
+      },
+      {
+        signature: 'composition(target: CapabilityTarget): CapabilityCompositionSnapshot',
+        description: 'Read current explicit values for one composition target.',
+        parameters: [{ name: 'target', description: 'global Agent defaults or one Agent Profile.' }],
+        returns: 'explicit values with the current Settings revision.',
+      },
+      {
+        signature: 'selectionSignature(agentProfile: string, descriptors: readonly CapabilityDescriptor[]): string',
+        description: 'Build the stable effective selection identity included in a Profile generation stamp.',
+        parameters: [{ name: 'agentProfile', description: 'Profile whose inherited and explicit values are resolved.' }, { name: 'descriptors', description: 'complete recipe and runtime adapter snapshot for this generation.' }],
+        returns: 'sorted JSON identity of the effective composition.',
+      },
+      {
+        signature: 'mountComposition(ctx: Context, entries: readonly CapabilityCatalogEntry[]): void',
+        description: 'Apply current effective unloads through every visible native adapter in a standing Profile scope.',
+        parameters: [{ name: 'ctx', description: 'scoped standing Profile context that owns the restrictions.' }, { name: 'entries', description: 'immutable selections resolved for this generation.' }],
+      },
+      {
+        signature: 'async plan( target: CapabilityTarget, changes: readonly CapabilityCompositionChange[], expectedRevision: number, view: CapabilityView = {}, ): Promise<CapabilityPlan>',
+        description: 'Build and retain one dry-run against exact composition and topology revisions.',
+        parameters: [{ name: 'target', description: 'composition target edited by the transaction.' }, { name: 'changes', description: 'staged explicit load, unload, or inherit values.' }, { name: 'expectedRevision', description: 'Settings revision the editor observed.' }, { name: 'view', description: 'native registry scopes and workspace used by adapters.' }],
+        returns: 'immutable plan with operations, blockers, and resulting catalog.',
+      },
+      {
+        signature: 'async apply(planId: string, expectedRevision: number): Promise<CapabilityCompositionSnapshot>',
+        description: 'Commit one previously planned composition transaction.',
+        parameters: [{ name: 'planId', description: 'retained plan identity returned by {@link plan}.' }, { name: 'expectedRevision', description: 'Settings revision the plan observed.' }],
+        returns: 'committed explicit selection values and new revision.',
       },
     ],
   },
@@ -2539,6 +2599,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [],
   },
   {
+    name: 'capabilities/change',
+    mode: 'emit',
+    signature: '\'capabilities/change\'(): void',
+    summary: 'Capability topology or composition changed; consumers refetch their target.',
+    description: 'Capability topology or composition changed; consumers refetch their target. @mode emit',
+    parameters: [],
+  },
+  {
     name: 'commands/change',
     mode: 'emit',
     signature: '\'commands/change\'(): void',
@@ -3129,6 +3197,78 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CancelOptions',
     declaration: 'export interface CancelOptions {\n    keepInbox?: boolean | undefined;\n}',
+  },
+  {
+    name: 'CapabilityAdapter',
+    declaration: 'export interface CapabilityAdapter {\n    readonly id: string;\n    snapshot(view: CapabilityView): Promise<CapabilityObservation> | CapabilityObservation;\n    restrict?(ctx: Context, unloaded: ReadonlySet<string>): void;\n}',
+  },
+  {
+    name: 'CapabilityAdapterControl',
+    declaration: 'export interface CapabilityAdapterControl {\n    readonly signal: AbortSignal;\n    invalidate(): void;\n}',
+  },
+  {
+    name: 'CapabilityCatalogEntry',
+    declaration: 'export interface CapabilityCatalogEntry extends CapabilityDescriptor {\n    readonly selection: \'inherit\' | CapabilitySelectionValue;\n    readonly effectiveSelection: CapabilitySelectionValue;\n    readonly selected: boolean;\n}',
+  },
+  {
+    name: 'CapabilityCatalogSnapshot',
+    declaration: 'export interface CapabilityCatalogSnapshot {\n    readonly target: CapabilityTarget;\n    readonly revision: number;\n    readonly topologyRevision: number;\n    readonly complete: boolean;\n    readonly entries: readonly CapabilityCatalogEntry[];\n}',
+  },
+  {
+    name: 'CapabilityCompositionChange',
+    declaration: 'export interface CapabilityCompositionChange {\n    readonly capabilityId: string;\n    readonly selection: \'inherit\' | CapabilitySelectionValue;\n}',
+  },
+  {
+    name: 'CapabilityCompositionSnapshot',
+    declaration: 'export interface CapabilityCompositionSnapshot {\n    readonly target: CapabilityTarget;\n    readonly revision: number;\n    readonly values: Readonly<Record<string, CapabilitySelectionValue>>;\n}',
+  },
+  {
+    name: 'CapabilityDescriptor',
+    declaration: 'export interface CapabilityDescriptor {\n    readonly id: string;\n    readonly kind: CapabilityKind;\n    readonly name: string;\n    readonly description: string;\n    readonly provenance: CapabilityProvenance;\n    readonly assembleable: boolean;\n    readonly available: boolean;\n    readonly defaultLoaded: boolean;\n    readonly manageable: boolean;\n    readonly owner?: string;\n    readonly requires: readonly string[];\n}',
+  },
+  {
+    name: 'CapabilityKind',
+    declaration: 'export type CapabilityKind = \'tool\' | \'skill\' | \'mcp-server\' | \'subagent-provider\';',
+  },
+  {
+    name: 'CapabilityObservation',
+    declaration: 'export interface CapabilityObservation {\n    readonly entries: readonly CapabilityDescriptor[];\n    readonly complete: boolean;\n}',
+  },
+  {
+    name: 'CapabilityPlan',
+    declaration: 'export interface CapabilityPlan {\n    readonly id: string;\n    readonly target: CapabilityTarget;\n    readonly expectedRevision: number;\n    readonly topologyRevision: number;\n    readonly operations: readonly CapabilityPlanOperation[];\n    readonly blockers: readonly CapabilityPlanBlocker[];\n    readonly result: readonly CapabilityCatalogEntry[];\n}',
+  },
+  {
+    name: 'CapabilityPlanBlocker',
+    declaration: 'export interface CapabilityPlanBlocker {\n    readonly code: \'unknown-capability\' | \'not-manageable\' | \'not-assembleable\' | \'required-unloaded\' | \'required-unassembleable\';\n    readonly capabilityId: string;\n    readonly dependencyId?: string;\n    readonly message: string;\n}',
+  },
+  {
+    name: 'CapabilityPlanOperation',
+    declaration: 'export interface CapabilityPlanOperation {\n    readonly capabilityId: string;\n    readonly before: \'inherit\' | CapabilitySelectionValue;\n    readonly after: \'inherit\' | CapabilitySelectionValue;\n}',
+  },
+  {
+    name: 'CapabilityProvenance',
+    declaration: 'export type CapabilityProvenance = \'upstream\' | \'harniverse-added\' | \'harniverse-adapted\' | \'external\' | \'unknown\';',
+  },
+  {
+    name: 'CapabilityRuntimeEntry',
+    declaration: 'export interface CapabilityRuntimeEntry extends CapabilityCatalogEntry {\n    readonly status: CapabilityRuntimeStatus;\n    readonly reason?: string;\n}',
+  },
+  {
+    name: 'CapabilityRuntimeStatus',
+    declaration: 'export type CapabilityRuntimeStatus = \'loaded\' | \'not-loaded\' | \'load-failed\' | \'dependency-blocked\' | \'security-denied\';',
+  },
+  {
+    name: 'CapabilitySelectionValue',
+    declaration: 'export type CapabilitySelectionValue = \'load\' | \'unload\';',
+  },
+  {
+    name: 'CapabilityTarget',
+    declaration: 'export type CapabilityTarget = {\n    readonly kind: \'global-agent\';\n} | {\n    readonly kind: \'agent-profile\';\n    readonly agentProfile: string;\n};',
+  },
+  {
+    name: 'CapabilityView',
+    declaration: 'export interface CapabilityView {\n    readonly scope?: ScopeKey;\n    readonly scopes?: readonly ScopeKey[];\n    readonly cwd?: string;\n    readonly signal?: AbortSignal;\n    readonly agentProfile?: string;\n}',
   },
   {
     name: 'ClientResponse',
@@ -4956,7 +5096,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolRestriction',
-    declaration: 'export interface ToolRestriction {\n    readonly allow?: readonly string[];\n    readonly deny?: readonly string[];\n}',
+    declaration: 'export interface ToolRestriction {\n    readonly allow?: readonly string[];\n    readonly deny?: readonly string[];\n    readonly includeOwn?: true;\n}',
   },
   {
     name: 'ToolResult',

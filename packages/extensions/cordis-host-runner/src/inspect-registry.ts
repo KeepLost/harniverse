@@ -2,6 +2,7 @@
 
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
+import { isDeepStrictEqual } from 'node:util'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue } from '@deepseek-ai/dsh-session/types'
@@ -35,6 +36,11 @@ interface PendingClientQuery {
   settle(resolution: CordisInspectQueryResolution): void
 }
 
+interface HostProviderSlot {
+  readonly mode: 'exclusive' | 'shared'
+  readonly registrations: HostCordisInspectProviderRegistration[]
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Host registry for Cordis inspect providers and Client manifest/query routing. */
@@ -44,7 +50,7 @@ declare module '@deepseek-ai/cordis' {
 
 /** Registry and cross-page router behind the two model-facing inspect tools. */
 export class CordisInspectRegistryService extends Service {
-  private readonly providers = new Map<string, HostCordisInspectProviderRegistration>()
+  private readonly providers = new Map<string, HostProviderSlot>()
   private readonly pending = new Map<CordisInspectRequestId, PendingClientQuery>()
   private clientManifest: readonly CordisInspectProviderManifest[] | undefined
   private nextRequest = 1
@@ -63,9 +69,45 @@ export class CordisInspectRegistryService extends Service {
     const manifest = validateManifest(registration.manifest)
     if (this.providers.has(manifest.id)) throw new Error(`Host Cordis inspect provider "${manifest.id}" is already registered`)
     const stored = { ...registration, manifest }
-    this.providers.set(manifest.id, stored)
+    const slot: HostProviderSlot = { mode: 'exclusive', registrations: [stored] }
+    this.providers.set(manifest.id, slot)
     return () => {
-      if (this.providers.get(manifest.id) === stored) this.providers.delete(manifest.id)
+      if (this.providers.get(manifest.id) === slot) this.providers.delete(manifest.id)
+    }
+  }
+
+  /**
+   * Share one identical Host provider contract across concurrent plugin generations.
+   * The latest surviving registration handles queries; disposing it restores the
+   * preceding generation. Ordinary registrations remain exclusive.
+   * @param registration - compatible manifest and generation-local query handler.
+   * @returns idempotent lease disposer.
+   */
+  share(registration: HostCordisInspectProviderRegistration): () => void {
+    const manifest = validateManifest(registration.manifest)
+    const stored = { ...registration, manifest }
+    const current = this.providers.get(manifest.id)
+    if (current !== undefined) {
+      if (current.mode !== 'shared') {
+        throw new Error(`Host Cordis inspect provider "${manifest.id}" is already registered`)
+      }
+      const contract = current.registrations[0]?.manifest
+      if (!isDeepStrictEqual(contract, manifest)) {
+        throw new Error(`Host Cordis inspect provider "${manifest.id}" has an incompatible shared contract`)
+      }
+      current.registrations.push(stored)
+    } else {
+      this.providers.set(manifest.id, { mode: 'shared', registrations: [stored] })
+    }
+    let active = true
+    return () => {
+      if (!active) return
+      active = false
+      const slot = this.providers.get(manifest.id)
+      if (slot?.mode !== 'shared') return
+      const index = slot.registrations.indexOf(stored)
+      if (index >= 0) slot.registrations.splice(index, 1)
+      if (slot.registrations.length === 0) this.providers.delete(manifest.id)
     }
   }
 
@@ -90,7 +132,7 @@ export class CordisInspectRegistryService extends Service {
    */
   list(): CordisInspectProviderView[] {
     return [
-      ...[...this.providers.values()].map(provider => view('host', provider.manifest)),
+      ...[...this.providers.values()].map(slot => view('host', latestRegistration(slot).manifest)),
       ...(this.clientManifest ?? []).map(provider => view('client', provider)),
     ]
   }
@@ -114,8 +156,9 @@ export class CordisInspectRegistryService extends Service {
     signal: AbortSignal,
   ): Promise<JsonValue> {
     if (platform === 'host') {
-      const registration = this.providers.get(providerId)
-      if (registration === undefined) throw new Error(`Host Cordis inspect provider "${providerId}" is not registered`)
+      const slot = this.providers.get(providerId)
+      if (slot === undefined) throw new Error(`Host Cordis inspect provider "${providerId}" is not registered`)
+      const registration = latestRegistration(slot)
       const method = findMethod(registration.manifest, methodName)
       validateInput('Host', providerId, method, input)
       signal.throwIfAborted()
@@ -196,6 +239,12 @@ export class CordisInspectRegistryService extends Service {
       signal.removeEventListener('abort', onAbort)
     }
   }
+}
+
+function latestRegistration(slot: HostProviderSlot): HostCordisInspectProviderRegistration {
+  const registration = slot.registrations.at(-1)
+  if (registration === undefined) throw new Error('Cordis inspect provider slot has no registration')
+  return registration
 }
 
 function view(platform: CordisInspectPlatform, manifest: CordisInspectProviderManifest): CordisInspectProviderView {

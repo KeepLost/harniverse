@@ -4,6 +4,9 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import Capabilities from '@deepseek-ai/dsh-capabilities'
+import { createScope } from '@deepseek-ai/dsh-scope'
+import { SettingsProvider, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { Config } from '@deepseek-ai/dsh-mcp-client'
@@ -62,6 +65,21 @@ async function mountRegistry(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  return ctx
+}
+
+class MemorySettings extends SettingsProvider {
+  readonly writable = true
+  protected load(): Promise<Record<string, unknown>> { return Promise.resolve({}) }
+  protected persist(_ns: SettingsNamespace, _section: Record<string, unknown>): Promise<void> {
+    return Promise.resolve()
+  }
+}
+
+async function mountCapabilityRegistry(): Promise<Context> {
+  const ctx = await mountRegistry()
+  await ctx.plugin(MemorySettings)
+  await ctx.plugin(Capabilities)
   return ctx
 }
 
@@ -179,6 +197,37 @@ describe('apply (plugin lifecycle)', () => {
     expect(mockSetNotificationHandler).toHaveBeenCalled()
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
     expect(ctx.tools.get('remote')).toBeUndefined()
+  })
+
+  it('lets a Profile unload one MCP server from its assembled tool exposure', async () => {
+    const managed = await mountCapabilityRegistry()
+    await apply(managed, stdioConfig)
+    const standingKey = { profile: 'standard' }
+    const standing = createScope(managed, standingKey)
+    const target = { kind: 'agent-profile', agentProfile: 'standard' } as const
+    const view = { scope: standingKey }
+    const catalog = await managed.capabilities.snapshot(target, view)
+    const server = catalog.entries.find(entry => entry.kind === 'mcp-server')
+    expect(server).toMatchObject({ name: 'srv', manageable: true, available: true })
+
+    const plan = await managed.capabilities.plan(target, [
+      { capabilityId: server!.id, selection: 'unload' },
+    ], catalog.revision, view)
+    expect(plan.blockers).toEqual([])
+    await managed.capabilities.apply(plan.id, catalog.revision)
+    managed.capabilities.mountComposition(standing.ctx, (await managed.capabilities.snapshot(target, view)).entries)
+
+    expect(managed.tools.schemas(standingKey).map(tool => tool.name)).not.toContain('mcp__srv__remote')
+
+    mockListTools.mockResolvedValue({
+      tools: [{ name: 'updated', inputSchema: { type: 'object' } }],
+      nextCursor: undefined,
+    })
+    const handler = mockSetNotificationHandler.mock.calls[0]![1] as () => Promise<void>
+    await handler()
+    expect(managed.tools.schemas(standingKey).map(tool => tool.name)).not.toContain('mcp__srv__updated')
+    expect(managed.tools.schemas().map(tool => tool.name)).toContain('mcp__srv__updated')
+    await managed.fiber.dispose()
   })
 
   it('keeps the Cordis plugin loading until initial discovery publishes its tools', async () => {

@@ -18,6 +18,7 @@ import AgentPresets, {
 import type { Config } from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
+import type { CapabilityCatalogEntry } from '@deepseek-ai/dsh-capabilities'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -524,6 +525,41 @@ describe('editing a composition file', () => {
     expect(toolNames(scoped, first)).toEqual(['before'])
   })
 
+  it('starts a new generation when a runtime adapter selection changes', async () => {
+    const { scoped } = await editable('runtime-selection')
+    let selected = true
+    const runtimeEntry = (): CapabilityCatalogEntry => ({
+      id: 'mcp-server:fixture',
+      kind: 'mcp-server',
+      name: 'fixture',
+      description: 'Fixture host-shared MCP server',
+      provenance: 'external',
+      assembleable: true,
+      available: true,
+      defaultLoaded: true,
+      manageable: true,
+      owner: '@deepseek-ai/dsh-mcp-client',
+      requires: [],
+      selection: selected ? 'load' : 'unload',
+      effectiveSelection: selected ? 'load' : 'unload',
+      selected,
+    })
+    scoped.provide('capabilities', {
+      snapshot: () => Promise.resolve({ entries: [runtimeEntry()] }),
+      selectionSignature: (_agentProfile: string, entries: readonly CapabilityCatalogEntry[]) =>
+        JSON.stringify(entries.map(entry => [entry.id, entry.effectiveSelection])),
+      mountComposition: () => {},
+    } as unknown as Context['capabilities'])
+
+    const first = await agentOn(scoped, 'sess-runtime-selection-first', 'runtime-selection')
+    expect(scoped.agentPresets.compositionRuntime(first.ctx)?.generation).toBe('runtime-selection@1')
+
+    selected = false
+    const second = await agentOn(scoped, 'sess-runtime-selection-second', 'runtime-selection')
+    expect(scoped.agentPresets.compositionRuntime(second.ctx)?.generation).toBe('runtime-selection@2')
+    expect(scoped.agentPresets.compositionRuntime(first.ctx)?.generation).toBe('runtime-selection@1')
+  })
+
   it('gives two sessions racing the refreshed file one shared new generation', async () => {
     const { scoped, path } = await editable('raced')
     await agentOn(scoped, 'sess-race-seed', 'raced')
@@ -603,6 +639,10 @@ describe('editing a composition file', () => {
     expect(livePresetMounts().filter(mount => mount.presetId === 'stale')).toHaveLength(1)
 
     await rm(path)
+    const snapshot = vi.fn(() => {
+      throw new Error('must not rebuild an unstamped generation')
+    })
+    scoped.provide('capabilities', { snapshot } as unknown as Context['capabilities'])
 
     // Discovery refuses a preset whose composition cannot be statted, so the
     // public route cannot reach this state — but a caller that resolved just
@@ -613,6 +653,7 @@ describe('editing a composition file', () => {
     }
     await racer.ensureStanding({ id: 'stale', trust: 'user', path })
 
+    expect(snapshot).not.toHaveBeenCalled()
     expect(livePresetMounts().filter(mount => mount.presetId === 'stale')).toHaveLength(1)
   })
 })

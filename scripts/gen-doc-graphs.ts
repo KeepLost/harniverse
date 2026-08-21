@@ -175,6 +175,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Effect-scoped checks observe Host lifecycle owners; the existing authorized inventory Remote and Web Settings tab render structured findings without a repair operation.',
   },
   {
+    key: 'capabilities',
+    pkg: 'capabilities',
+    title: 'Agent Profile capability composition',
+    mode: 'seam',
+    implementations: ['host-capability-management'],
+    consumers: ['agent-presets', 'mcp-client'],
+    note: 'Native adapters project scoped capabilities; revision-fenced composition plans alter future Profile generations without controlling Loader lifecycle.',
+  },
+  {
     key: 'typert',
     pkg: 'typert-registry',
     title: 'Runtime type registry',

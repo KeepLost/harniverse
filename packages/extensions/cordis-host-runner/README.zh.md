@@ -16,6 +16,7 @@
 - `inventory` 回答整个注册表，不按会话寻址，且每一行都指明拥有该定义的会话，因为运行控制面是全局的。能列出不等于能操作：每个有实际动作的动词仍会检查这份归属。每一行还会指明该定义有没有浏览器半，因此运行控制面只在确有可装载的半时，才提供「装入当前页面」。`snapshot` 是它按会话限定的 host 本地对侧，携带每个存活 host 半的 fiber，供 `cordis_inspect` 自行渲染 provides／waiting／state（fiber 无法跨 wire）。
 - `reportRenderFailure` 记录某个页面看到一个**已装载**的浏览器半在渲染时做错了什么。渲染严格发生在装载成功之后，因此到那时 run 早已回答了 `ok`：这份上报是 fire-and-forget 的，不带任何结算权威，也绝不触碰 `resolveRequestRun` 或 run 结论的任何部分——**它不是那个已退役的 v2 `report`／ack**。host 按定义保留跨所有页面的最后一次失败（第二个页面上报即覆盖），而一次全新的 run、一次 stop 或一次 undefine 都会清掉它，因此模型绝不会看到一次已不存在的下发留下的失败。浏览器半的契约面自己保留一份「**这个页面**当前正在显示什么」；两者回答的是不同的问题，不是同一个问题的两份答案。上报的会话若并不拥有该定义，这次上报会被丢弃，因为上报路径绝不能让一次渲染失败。
 - `invoke` 把一个包的浏览器半发起的一次调用，路由到它自己的 host 半用 `harness.handle` 注册的方法。这套基础设施只做路由：不存在 host 到浏览器的方向。
+- 进程全局的 Cordis Inspect registry 仍要求普通 Host provider 独占。它的显式共享注册路径只接受完全一致的 provider manifest，为每个贡献 fiber 保留一份租约，始终通过最新的存活租约路由，并在该租约 dispose 后恢复前一份。这样，新旧 Agent Profile 常驻代际可以共存，同时不会削弱对无关 provider 重复注册的检测。
 
 `run` 或 `stop` 的拒绝会给出 `definition-missing`、`host-half-failed`、`client-half-failed`、`rejected`、`cancelled`、`not-running` 之一；后三者是答复而非缺陷——有人拒绝了、提问的那一轮次已结束，或本来就没有在运行的东西可停。
 

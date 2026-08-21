@@ -152,18 +152,22 @@ Registration is a trusted same-process contract. The registry borrows the typed 
 
 ## `ToolRestriction` — one scope's live filter over what it inherits
 
-`ToolRestriction` applies to the tools a scope inherits: the deployment-global layer plus every ancestor scope on its chain. The registry compiles readonly names into private sets, intersects multiple restrictions, then overlays the scope's OWN registrations, which stay exempt so a delegated child keeps the tools it answers through. A deny-only filter admits later unlisted inherited tools, while an allow-list excludes them.
+`ToolRestriction` applies to the tools a scope inherits: the deployment-global layer plus every ancestor scope on its chain. The registry compiles readonly names into private sets and intersects multiple restrictions. Own registrations stay exempt by default so a delegated child keeps the protocol tools it answers through; `includeOwn` lets a standing Profile composition filter its exact layer while descendant-owned tools remain exempt. A deny-only filter admits later unlisted inherited tools, while an allow-list excludes them.
 
 ```ts type-equiv
 /**
- * Per-scope filter over global tools. Restrictions intersect and do not affect
- * scoped registrations or the reserved Code Mode transport.
+ * Per-scope filter over inherited tools. Restrictions intersect and do not
+ * affect the reserved Code Mode transport. A standing Profile composition may opt
+ * into filtering registrations owned by that same scope; descendant-owned
+ * protocol tools remain exempt.
  */
 interface ToolRestriction {
-  /** Global tool names that stay visible; everything else is removed. */
+  /** Inherited tool names that stay visible; everything else is removed. */
   readonly allow?: readonly string[]
-  /** Global tool names removed from visibility. */
+  /** Inherited tool names removed from visibility. */
   readonly deny?: readonly string[]
+  /** Also filter registrations owned by the restriction's exact scope. */
+  readonly includeOwn?: true
 }
 ```
 
@@ -578,7 +582,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:805`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:811`](../../packages/core/tools/src/index.ts)
 
 <a id="tools-events"></a>
 

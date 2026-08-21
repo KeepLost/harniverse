@@ -17,8 +17,9 @@
 import { isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
-import { Include } from '@deepseek-ai/cordis-plugin-include'
+import { Include, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import type { EntryTree } from '@deepseek-ai/cordis-plugin-loader'
+import type { CapabilityRuntimeEntry } from '@deepseek-ai/dsh-capabilities'
 import { scopeOf, scopeParentOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import { PresetMountError, type AgentPreset } from './preset.ts'
 
@@ -119,6 +120,10 @@ export interface PresetMount {
   readonly fiber: Fiber
   /** The standing scope key agents are parented to (undefined only in torn-down records). */
   readonly key: ScopeKey | undefined
+  /** Immutable composition generation identity shared by joined Sessions. */
+  readonly generation?: string
+  /** Assembly result captured before this generation was published. */
+  readonly capabilities?: readonly CapabilityRuntimeEntry[]
 }
 
 const mounts = new Set<PresetMount>()
@@ -326,10 +331,18 @@ function mountDetail(error: unknown): string {
  * the caller receives no disposer. A rejection leaves nothing mounted.
  * @param agentCtx - the agent's scope context, from the agent factory's `setup`.
  * @param preset - the resolved preset to compose the agent from.
+ * @param patches - native Include patches for this immutable generation.
+ * @param runtime - generation identity and assembly results exposed to readers.
+ * @returns the verified standing mount record.
  * @throws when `agentCtx` carries no scope, a row is unusable, or a row
  * published a service into the root realm.
  */
-export async function mountPreset(agentCtx: Context, preset: AgentPreset): Promise<void> {
+export async function mountPreset(
+  agentCtx: Context,
+  preset: AgentPreset,
+  patches: readonly PatchOptions[] = [],
+  runtime?: { readonly generation: string; readonly capabilities: readonly CapabilityRuntimeEntry[] },
+): Promise<PresetMount> {
   const scope = scopeOf(agentCtx)
   if (scope === undefined) {
     throw new Error(
@@ -337,7 +350,10 @@ export async function mountPreset(agentCtx: Context, preset: AgentPreset): Promi
       + 'its registrations would apply to every agent in the process',
     )
   }
-  const config: Include.Config = { path: pathToFileURL(preset.path).href }
+  const config: Include.Config = {
+    path: pathToFileURL(preset.path).href,
+    ...patches.length === 0 ? {} : { patches: [...patches] },
+  }
   // Captured before the subtree exists: the standing scope context still
   // carries the host composition's base, which is inside the installed
   // harness and is therefore where a row's package name has to resolve from.
@@ -365,7 +381,14 @@ export async function mountPreset(agentCtx: Context, preset: AgentPreset): Promi
         + 'a preset service must sit behind an `isolate` realm or move to the host composition',
       )
     }
-    mounts.add({ presetId: preset.id, fiber, key: scopeOf(agentCtx) })
+    const record: PresetMount = {
+      presetId: preset.id,
+      fiber,
+      key: scopeOf(agentCtx),
+      ...runtime === undefined ? {} : runtime,
+    }
+    mounts.add(record)
+    return record
   } catch (error) {
     try {
       await handle.dispose()

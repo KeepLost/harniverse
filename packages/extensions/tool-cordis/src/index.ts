@@ -35,7 +35,7 @@ function requireAgent(exec: ToolExecution): Agent {
 export function apply(ctx: Context): void {
   ctx.systemPrompt.section({ name: 'tool:cordis', order: 115, text: CORDIS_SYSTEM_PROMPT })
   for (const provider of hostInspectProviders(ctx)) {
-    ctx.effect(() => ctx.cordisInspect.register(provider), `tool-cordis: inspect ${provider.manifest.id}`)
+    ctx.effect(() => ctx.cordisInspect.share(provider), `tool-cordis: inspect ${provider.manifest.id}`)
   }
 
   ctx.tools.register(defineTool({

@@ -108,6 +108,11 @@
     - id: plugin-inventory
       name: '@deepseek-ai/dsh-host-plugin-inventory'
 
+    # Authorized capability catalog, dependency planning, and Profile composition
+    # writes. Diagnostics above remain observation-only.
+    - id: capability-management
+      name: '@deepseek-ai/dsh-host-capability-management'
+
     # The API gateway: the transport-agnostic dispatch face every client shape
     # shares. The base layer's agent-default-model service owns the default model.
     - id: api-gateway
@@ -221,6 +226,11 @@
 
     - id: ui-settings-plugin-inventory
       name: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory'
+
+    # Scoped Agent Profile composition. Mutation stays behind the separate
+    # authorized management Remote; the inventory tab remains read-only.
+    - id: ui-settings-capabilities
+      name: '@deepseek-ai/dsh-client-ui-settings-capabilities'
 
     - id: ui-conversation
       name: '@deepseek-ai/dsh-client-ui-conversation'

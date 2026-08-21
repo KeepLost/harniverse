@@ -28,6 +28,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../capability/capabilities"
+    },
+    {
       "path": "../../core/system-prompt"
     },
     {

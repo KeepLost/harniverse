@@ -47,6 +47,7 @@ One page per subsystem of the DeepSeek Harness: what it is, the data structures 
 | [plan.md](plan.md) | plan mode: the log-only `plan/mode` state, pending-selection flush, `PlanModeConfig`, the `exit_plan_mode` review arc |
 | [invariants.md](invariants.md) | the runtime-invariant registry: selection `Config`, `InvariantInstaller`/`InvariantFailure`, the empty-companion contract |
 | [plugin-diagnostics.md](plugin-diagnostics.md) | structured read-only plugin findings, effect-scoped checks, failure isolation, and the three shipped Cordis lifecycle domains |
+| [capabilities.md](capabilities.md) | scoped Agent capability descriptors, inherited allow/deny policy, dependency plans, and Profile generation behavior |
 | [web-server.md](web-server.md) | the HTTP carrier: `WebRouteKind`/`WebRoute`, match order, the claimable fallback seat, index taps |
 | [storage.md](storage.md) | the storage subsystem: the backend contract (`StorageBackend`), `StorageForms`, `DomainSpec`/`Domain`, `domain/changed` |
 | [workspace.md](workspace.md) | the workspace registry: `Workspace`/`WorkspaceId`, registration and resolution, the session `cwd` relationship |

@@ -23,6 +23,9 @@
 
 import { stat } from 'node:fs/promises'
 import { Context, Service } from '@deepseek-ai/cordis'
+import type {
+  CapabilityCatalogEntry, CapabilityDescriptor, CapabilityRuntimeEntry,
+} from '@deepseek-ai/dsh-capabilities'
 import z from '@deepseek-ai/schemastery'
 import { bindScopeParent, createScope, scopeOf, type Scope, type ScopeKey } from '@deepseek-ai/dsh-scope'
 // Type-only: resolves the `agent/created` lifecycle event this service watches.
@@ -34,6 +37,11 @@ import { copyComposition, deleteComposition, readComposition } from './authoring
 import { mountPreset, serviceForAgent, standingMountFor } from './mount.ts'
 import { PresetExistsError } from './authoring.ts'
 import { PresetMountError, UnknownPresetError, type AgentPreset, type Config, type PresetRoot } from './preset.ts'
+import {
+  compositionCatalog as readCompositionCatalog,
+  compositionPatches,
+  type PresetCompositionCatalog,
+} from './composition.ts'
 import type {} from './types.ts'
 
 /** Settings namespace carrying the user's chosen default preset. */
@@ -63,6 +71,7 @@ export {
   PresetNotWritableError, readComposition, writableRoot,
 } from './authoring.ts'
 export { resolveSessionProfile, type PresetBearingSession } from './session.ts'
+export { compositionCatalog, compositionPatches, type PresetCompositionCatalog } from './composition.ts'
 export { PresetMountError, UnknownPresetError } from './preset.ts'
 export type { AgentPreset, Config, PresetRoot, PresetTrust } from './preset.ts'
 
@@ -244,6 +253,7 @@ export class AgentPresets extends Service {
    * is bounded by how often compositions change, not by session count.
    */
   private readonly standing = new Map<string, Promise<StandingMount>>()
+  private readonly generations = new Map<string, number>()
 
   /**
    * Compose one agent from a preset: ensure the preset's standing mount, then
@@ -417,6 +427,35 @@ export class AgentPresets extends Service {
   }
 
   /**
+   * Read assembly recipes without mounting any Profile.
+   * @param id - target Profile whose source rows provide native defaults; omission builds global defaults.
+   * @returns one deployment-wide descriptor set with target-native selections.
+   */
+  async capabilityRecipes(id?: string): Promise<readonly CapabilityDescriptor[]> {
+    if (id !== undefined) await this.resolve(id)
+    return (await readCompositionCatalog(await this.list(), id)).descriptors
+  }
+
+  /**
+   * Runtime assembly captured by the immutable generation one Agent joined.
+   * @param agentCtx - scoped context of the Agent whose standing generation is inspected.
+   * @returns immutable generation identity and assembly results, or undefined for a bare Agent.
+   */
+  compositionRuntime(agentCtx: Context): {
+    readonly agentProfile: string
+    readonly generation?: string
+    readonly capabilities: readonly CapabilityRuntimeEntry[]
+  } | undefined {
+    const mount = standingMountFor(agentCtx)
+    if (mount === undefined) return undefined
+    return {
+      agentProfile: mount.presetId,
+      ...mount.generation === undefined ? {} : { generation: mount.generation },
+      capabilities: mount.capabilities ?? [],
+    }
+  }
+
+  /**
    * The standing scope key of one preset, for a host reader with no agent.
    *
    * A cold transcript read resolves tool presenters against the composition
@@ -443,7 +482,9 @@ export class AgentPresets extends Service {
       // serves the current generation — a mount must survive its file
       // disappearing, and failing the session over a stat would not.
       const current = await compositionStamp(preset.path)
-      if (current === undefined || sameStamp(mounted.stamp, current)) return mounted
+      if (current === undefined) return mounted
+      const composition = await this.resolveComposition(preset)
+      if (sameStamp(mounted.stamp, current) && mounted.composition === composition.signature) return mounted
       // TODO: reclaim the superseded generation once the last agent joined to
       // it is gone. The subtree is not inert — `dsh-skill-filesystem` watches its
       // roots — and the settings-page authoring flow turns "a composition
@@ -466,8 +507,12 @@ export class AgentPresets extends Service {
         if (stamp === undefined) {
           throw new PresetMountError(preset.id, `composition file is unreadable: ${preset.path}`)
         }
-        await mountPreset(scope.ctx, preset)
-        return { key, scope, stamp }
+        const composition = await this.resolveComposition(preset)
+        const generation = this.nextGeneration(preset.id)
+        const runtimeEntries = composition.entries.map(runtimeEntry)
+        await mountPreset(scope.ctx, preset, composition.patches, { generation, capabilities: runtimeEntries })
+        this.selfCtx.get('capabilities')?.mountComposition(scope.ctx, composition.entries)
+        return { key, scope, stamp, composition: composition.signature, generation, capabilities: runtimeEntries }
       } catch (error) {
         this.standing.delete(preset.id)
         await scope.dispose()
@@ -476,6 +521,29 @@ export class AgentPresets extends Service {
     })()
     this.standing.set(preset.id, created)
     return created
+  }
+
+  private async resolveComposition(preset: AgentPreset): Promise<{
+    readonly signature: string
+    readonly entries: readonly CapabilityCatalogEntry[]
+    readonly patches: ReturnType<typeof compositionPatches>
+  }> {
+    const catalog: PresetCompositionCatalog = await readCompositionCatalog(await this.list(), preset.id)
+    const capabilities = this.selfCtx.get('capabilities')
+    if (capabilities === undefined) return { signature: '', entries: [], patches: [] }
+    const target = { kind: 'agent-profile', agentProfile: preset.id } as const
+    const snapshot = await capabilities.snapshot(target, { agentProfile: preset.id })
+    return {
+      signature: capabilities.selectionSignature(preset.id, snapshot.entries),
+      entries: snapshot.entries,
+      patches: compositionPatches(catalog, snapshot.entries),
+    }
+  }
+
+  private nextGeneration(presetId: string): string {
+    const next = (this.generations.get(presetId) ?? 0) + 1
+    this.generations.set(presetId, next)
+    return `${presetId}@${String(next)}`
   }
 }
 
@@ -512,6 +580,20 @@ interface StandingMount {
   readonly scope: Scope
   /** Stamp of the composition file this generation was mounted from. */
   readonly stamp: CompositionStamp
+  /** Effective Profile composition this generation installed. */
+  readonly composition: string
+  /** Stable process-local generation identity. */
+  readonly generation: string
+  /** Immutable assembly result shown for Sessions joined to this generation. */
+  readonly capabilities: readonly CapabilityRuntimeEntry[]
+}
+
+function runtimeEntry(entry: CapabilityCatalogEntry): CapabilityRuntimeEntry {
+  if (!entry.selected) return { ...entry, status: 'not-loaded' }
+  if (!entry.available) {
+    return { ...entry, status: 'load-failed', reason: 'The selected implementation was unavailable at generation startup.' }
+  }
+  return { ...entry, status: 'loaded' }
 }
 
 export default AgentPresets

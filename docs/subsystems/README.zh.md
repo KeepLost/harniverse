@@ -47,6 +47,7 @@
 | [plan.md](plan.md) | 计划模式：仅记日志的 `plan/mode` 状态、待定选择的冲刷、`PlanModeConfig`、`exit_plan_mode` 审阅流程 |
 | [invariants.md](invariants.md) | 运行时不变式注册表：选择配置 `Config`、`InvariantInstaller`/`InvariantFailure`、空配套插件约定 |
 | [plugin-diagnostics.md](plugin-diagnostics.md) | 结构化只读插件发现项、effect 作用域检查、失败隔离与三个已装配 Cordis 生命周期域 |
+| [capabilities.md](capabilities.md) | 作用域 Agent 能力 descriptor、继承式允许/拒绝策略、依赖 plan 与 Profile generation 行为 |
 | [web-server.md](web-server.md) | HTTP 载体：`WebRouteKind`/`WebRoute`、匹配顺序、可认领的回退席位、index 渲染挂接点 |
 | [storage.md](storage.md) | 存储子系统：后端约定（`StorageBackend`）、`StorageForms`、`DomainSpec`/`Domain`、`domain/changed` |
 | [workspace.md](workspace.md) | 工作区注册表：`Workspace`/`WorkspaceId`、注册与解析、与会话 `cwd` 的关系 |

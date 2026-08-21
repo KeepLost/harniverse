@@ -27,6 +27,15 @@ Registry and cross-page router behind the two model-facing inspect tools.
 register(registration: HostCordisInspectProviderRegistration): () => void
 
 /**
+ * Share one identical Host provider contract across concurrent plugin generations.
+ * The latest surviving registration handles queries; disposing it restores the
+ * preceding generation. Ordinary registrations remain exclusive.
+ * @param registration - compatible manifest and generation-local query handler.
+ * @returns idempotent lease disposer.
+ */
+share(registration: HostCordisInspectProviderRegistration): () => void
+
+/**
  * Replace the mirrored Client provider directory.
  * @param providers - complete Client manifest snapshot.
  */
@@ -62,7 +71,7 @@ resolveClientQuery( agent: Agent, requestId: CordisInspectRequestId, resolution:
 
 Types: [Agent](core.md)
 
-Source: [`packages/extensions/cordis-host-runner/src/inspect-registry.ts:46`](../../packages/extensions/cordis-host-runner/src/inspect-registry.ts)
+Source: [`packages/extensions/cordis-host-runner/src/inspect-registry.ts:52`](../../packages/extensions/cordis-host-runner/src/inspect-registry.ts)
 
 <a id="ctxdynamiccordisrunner--dynamiccordisrunnerservice"></a>
 

@@ -46,6 +46,11 @@ flowchart LR
   svc_pluginDiagnostics["ctx.pluginDiagnostics<br/>Read-only plugin diagnostics"]
   pkg_plugin_diagnostics_cordis["plugin-diagnostics-cordis"]
   pkg_host_plugin_inventory["host-plugin-inventory"]
+  pkg_capabilities["capabilities"]
+  svc_capabilities["ctx.capabilities<br/>Agent Profile capability composition"]
+  pkg_host_capability_management["host-capability-management"]
+  pkg_agent_presets["agent-presets"]
+  pkg_mcp_client["mcp-client"]
   pkg_typert_registry["typert-registry"]
   svc_typert["ctx.typert<br/>Runtime type registry"]
   pkg_typert_loader["typert-loader"]
@@ -107,7 +112,6 @@ flowchart LR
   svc_userQuestions["ctx.userQuestions<br/>Human question/answer seam"]
   pkg_plan_mode["plan-mode"]
   svc_planMode["ctx.planMode<br/>Plan collaboration state"]
-  pkg_agent_presets["agent-presets"]
   svc_agentPresets["ctx.agentPresets<br/>Per-session agent composition"]
   pkg_commands["commands"]
   svc_commands["ctx.commands<br/>Human command registry"]
@@ -229,6 +233,7 @@ flowchart LR
   pkg_authentication_local --> svc_authentication
   pkg_bash_local --> svc_shell
   pkg_bash_sandbox --> svc_shell
+  pkg_capabilities --> svc_capabilities
   pkg_code_runtime --> svc_codeRuntime
   pkg_code_runtime_worker --> svc_codeRuntime
   pkg_commands --> svc_commands
@@ -250,6 +255,7 @@ flowchart LR
   pkg_fs_local --> svc_fs
   pkg_fs_sandbox --> svc_fs
   pkg_goal --> svc_goals
+  pkg_host_capability_management --> svc_capabilities
   pkg_invariants --> svc_invariants
   pkg_jobs --> svc_jobs
   pkg_jobs_local --> svc_jobs
@@ -338,6 +344,8 @@ flowchart LR
   svc_attachments --> pkg_host_runtime
   svc_attachments --> pkg_llm_pi_ai
   svc_authentication --> pkg_client_connection
+  svc_capabilities --> pkg_agent_presets
+  svc_capabilities --> pkg_mcp_client
   svc_clientModules --> pkg_hmr
   svc_codeRuntime --> pkg_tools
   svc_compaction --> pkg_command_compact
@@ -463,6 +471,7 @@ flowchart LR
 | `ctx.sessions` | `core` | [`session`](../packages/core/session) | - | [`agent-loop`](../packages/core/agent-loop), [`agent`](../packages/core/agent), [`session-persistence`](../packages/session/session-persistence), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), `subagent-inprocess`, [`invariants`](../packages/runtime-diagnostics/invariants), [`message-feedback`](../packages/feedback/message-feedback) | - | 拥有仅追加的 Session 实例，并发出持久的会话事件流。 |
 | `ctx.invariants` | `core` | [`invariants`](../packages/runtime-diagnostics/invariants) | - | [`session`](../packages/core/session), [`agent`](../packages/core/agent), [`scope`](../packages/core/scope), [`agent-loop`](../packages/core/agent-loop) | - | 配套子路径注册所属包本地的检查；该服务负责选择、唯一性、子 fiber，以及标明所属包的失败。 |
 | `ctx.pluginDiagnostics` | `seam` | [`plugin-diagnostics`](../packages/runtime-diagnostics/plugin-diagnostics) | [`plugin-diagnostics-cordis`](../packages/runtime-diagnostics/plugin-diagnostics-cordis) | [`host-plugin-inventory`](../packages/host/plugin-inventory) | - | effect 作用域检查观察 Host 生命周期 owner；现有经授权的清单 Remote 与 Web 设置标签页渲染结构化发现项，不提供修复操作。 |
+| `ctx.capabilities` | `seam` | [`capabilities`](../packages/capability/capabilities) | [`host-capability-management`](../packages/host/capability-management) | [`agent-presets`](../packages/preset/agent-presets), [`mcp-client`](../packages/mcp/mcp-client) | - | 原生 adapter 投影作用域能力；受 revision 约束的组装 plan 改变未来 Profile generation，而不控制 Loader 生命周期。 |
 | `ctx.typert` | `core` | [`typert-registry`](../packages/typert/registry) | - | [`typert-loader`](../packages/typert/loader), [`api-gateway`](../packages/api/gateway) | - | 插件直接或通过 dsh-typert-loader 注册实时 zod 贡献；API 网关消费调用描述符和提供方，其他运行时消费方则在各自边界查询 schema 与反射元数据。 |
 | `ctx.typertGateway` | `core` | [`api-gateway`](../packages/api/gateway) | - | - | - | 将生成的 Remote 描述符与实时 Cordis 服务关联，解析已注册的身份，并通过共享的 Connection RPC 载体提供一元调用。 |
 | `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session/session-persistence) | [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session/session-persistence-sqlite) | [`agent-loop`](../packages/core/agent-loop), [`tool-bash`](../packages/shell/tool-bash), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`message-feedback`](../packages/feedback/message-feedback) | - | 各后端持久化同一套 SessionEvent 词汇；应用在组合时选择后端。 |

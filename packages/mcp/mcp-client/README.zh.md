@@ -4,6 +4,8 @@
 
 MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelcontextprotocol.io/) 服务器，把它们的工具注册到 `ctx.tools`，使模型能够通过服务器限定名称（`mcp__<serverName>__<rawName>`）将其作为原生工具使用。
 
+组装了 `ctx.capabilities` 时，该实例还会在调用 scope 中注册一个 effect-owned `mcp-server` descriptor。Descriptor 只暴露稳定 server identity、连接可用性与工具拓扑；命令参数、环境、header、凭据和任意 server metadata 保持私有。每个组装 target 都能看见同一份部署目录。从 Profile 卸载 Host 共享 server 会隐藏它当前及后续发现的全部工具，而不会断开共享 server 进程；Profile 自有 MCP 行则可由 Profile 配方编译器实际选择。
+
 ## 用法
 
 `cordis.yml` 中每个 MCP 服务器使用一个插件实例：
@@ -75,6 +77,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 | 服务 | 用途 |
 |---|---|
 | `ctx.tools` | 注册／注销 MCP 工具 |
+| `ctx.capabilities` | 可选地发布 server identity 并应用 Profile generation 选择 |
 
 ## 模型体验
 
