@@ -65,6 +65,8 @@ export function apply(ctx: ClientContext): void {
     load: () => controller.load(),
     selectTarget: target => controller.selectTarget(target),
     setSelection: (capabilityId, selection) => { controller.setSelection(capabilityId, selection) },
+    setMembers: (capabilityId, members) => { controller.setMembers(capabilityId, members) },
+    setConfig: (capabilityId, config) => { controller.setConfig(capabilityId, config) },
     discard: () => { controller.discard() },
     preview: () => controller.preview(),
     apply: () => controller.apply(),

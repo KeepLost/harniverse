@@ -17,6 +17,7 @@
 - `ctx.skills.list({ cwd?, signal?, scope? })` 借用只读视图选项，然后返回当前工作区中的全部胜出摘要；这些摘要在全局层与观察 scope 链之间合并，并按名称排序。消费方在自身边界调用 `isModelInvocable(skill)` 或 `isUserInvocable(skill)`。
 - `ctx.skills.get(name, { cwd?, signal?, scope? })` 在发现和加载中使用同一组只读选项和胜出候选项；在发现或缓存命中后重新检查取消，让提供方加载与信号竞速，验证已加载定义，然后无论调用策略如何都将其返回。
 - `ctx.skills.register(skill): () => void` 将只读运行时嵌入式 skill 注册进调用方上下文所在层，省略时添加允许模型和用户调用的策略以及 `provider: "runtime"`。同层同名运行时注册使用先到先得：重复项会记录警告，并获得无操作 disposer。成功注册会返回精确的 Cordis disposer，以供有序组合拆卸。
+- `ctx.skills.restrict({ allow, includeOwn? }): () => void` 安装同时作用于 `list()` 和 `get()` 的 scoped allowlist。Restriction 沿 scope chain 取交集；`includeOwn` 让 standing Profile 策略覆盖挂载在该 Profile 精确 scope 中的 provider，同时继续豁免后代自己拥有的 runtime 贡献。
 
 ### 事件
 

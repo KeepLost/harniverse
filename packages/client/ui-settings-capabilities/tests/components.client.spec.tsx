@@ -23,6 +23,15 @@ const ENTRIES = [{
   manageable: true,
   owner: 'ctx.tools',
   requires: [],
+  members: [{ id: 'tool:bash/tool:read', kind: 'tool' as const, name: 'read', description: 'Read files.', defaultVisible: true, available: true, requires: [] }, { id: 'tool:bash/tool:write', kind: 'tool' as const, name: 'write', description: 'Write files.', defaultVisible: true, available: true, requires: [] }],
+  memberSelection: 'inherit' as const,
+  memberEntries: [{ id: 'tool:bash/tool:read', kind: 'tool' as const, name: 'read', description: 'Read files.', defaultVisible: true, available: true, requires: [], visible: true }, { id: 'tool:bash/tool:write', kind: 'tool' as const, name: 'write', description: 'Write files.', defaultVisible: true, available: true, requires: [], visible: true }],
+  customization: {
+    fields: [{ id: 'text', kind: 'text' as const, name: 'Persona', description: 'Agent identity.', multiline: true }],
+    defaultValues: { text: 'Default persona' },
+  },
+  configOverrides: {},
+  effectiveConfig: { text: 'Default persona' },
   selection: 'inherit' as const,
   effectiveSelection: 'load' as const,
   selected: true,
@@ -67,6 +76,8 @@ function renderTab(patch: Partial<CapabilityCompositionState> = {}) {
     load: vi.fn(async () => {}),
     selectTarget: vi.fn(async () => {}),
     setSelection: vi.fn(),
+    setMembers: vi.fn(),
+    setConfig: vi.fn(),
     discard: vi.fn(),
     preview: vi.fn(async () => {}),
     apply: vi.fn(async () => {}),
@@ -112,6 +123,19 @@ describe('CapabilityCompositionTab', () => {
     expect(within(spawn).queryByRole('radio')).toBeNull()
   })
 
+  it('stages an explicit built-in member allowlist and owner-declared configuration', () => {
+    const actions = renderTab()
+    const bash = rowFor('bash')
+    fireEvent.click(within(bash).getAllByText(new RegExp(en.members))[0]!)
+    fireEvent.click(within(bash).getByRole('checkbox', { name: /write/i }))
+    expect(actions.setMembers).toHaveBeenCalledWith('tool:bash', ['tool:bash/tool:read'])
+    fireEvent.click(within(bash).getAllByText(en.configuration)[0]!)
+    fireEvent.change(within(bash).getByRole('textbox', { name: /Persona/ }), {
+      target: { value: 'Reviewer persona' },
+    })
+    expect(actions.setConfig).toHaveBeenCalledWith('tool:bash', { text: 'Reviewer persona' })
+  })
+
   it('keeps unavailable Profile capabilities selectable and explains inherited composition', () => {
     const target = { kind: 'agent-profile', agentProfile: 'minimal' } as const
     const actions = renderTab({
@@ -150,7 +174,7 @@ describe('CapabilityCompositionTab', () => {
       }],
       result: ENTRIES,
     }
-    const actions = renderTab({ draft: { 'tool:bash': 'unload' }, plan: blocked })
+    const actions = renderTab({ draft: { 'tool:bash': { selection: 'unload' } }, plan: blocked })
 
     fireEvent.click(screen.getByRole('button', { name: en.preview }))
     expect(actions.preview).toHaveBeenCalledOnce()
@@ -168,7 +192,7 @@ describe('CapabilityCompositionTab', () => {
       blockers: [],
       result: ENTRIES,
     }
-    const actions = renderTab({ draft: { 'tool:bash': 'unload' }, plan: clearPlan, error: 'stale revision' })
+    const actions = renderTab({ draft: { 'tool:bash': { selection: 'unload' } }, plan: clearPlan, error: 'stale revision' })
     expect(screen.getByRole('alert').textContent).toBe(en.error)
     expect(screen.queryByText('stale revision')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: en.apply }))

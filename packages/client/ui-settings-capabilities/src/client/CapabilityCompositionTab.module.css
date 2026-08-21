@@ -35,7 +35,9 @@
 
 .failure button,
 .actions button,
-.plan > button {
+.plan > button,
+.members button,
+.configuration button {
   min-height: 34px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
@@ -49,7 +51,9 @@
 
 .failure button:disabled,
 .actions button:disabled,
-.plan > button:disabled {
+.plan > button:disabled,
+.members button:disabled,
+.configuration button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -112,6 +116,104 @@
   border-color: var(--dsw-alias-state-business-primary);
   outline: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 18%, transparent);
   outline-offset: 1px;
+}
+
+.members,
+.configuration {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 8px 0 0;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 9px;
+  padding: 10px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.details {
+  margin-top: 8px;
+}
+
+.details summary {
+  width: fit-content;
+  color: var(--dsw-alias-state-business-primary);
+  font-size: 11px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.members legend,
+.configuration legend {
+  padding: 0 5px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.members label,
+.booleanField {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  min-width: 0;
+  border-radius: 7px;
+  padding: 7px;
+  background: var(--dsw-alias-bg-layer-3);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.members label span,
+.booleanField span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.members small,
+.configuration small {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.members button,
+.configuration button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.configuration {
+  grid-template-columns: 1fr;
+}
+
+.configField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.configField input,
+.configField textarea {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 7px;
+  padding: 8px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-weight: 400;
+}
+
+.configField textarea {
+  min-height: 104px;
+  resize: vertical;
+  line-height: 18px;
 }
 
 .inlineError,
@@ -402,6 +504,10 @@
 
   .selection span {
     text-align: center;
+  }
+
+  .members {
+    grid-template-columns: 1fr;
   }
 
   .planHeading,

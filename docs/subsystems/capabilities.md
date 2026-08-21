@@ -2,11 +2,11 @@
 
 English | [中文](capabilities.zh.md)
 
-[`dsh-capabilities`](../../packages/capability/capabilities/README.md) owns the typed recipe catalog and composition planner shared by Tool, Skill, MCP-server, and Subagent-provider adapters. A `CapabilityDescriptor` distinguishes an assembleable recipe from current implementation health and carries its source-Profile default, manageability, owner, provenance, and hard dependency ids. Every target projects the same deployment-wide recipe id set; target-specific `selection`, `effectiveSelection`, and `selected` values describe the desired composition without mounting that Profile.
+[`dsh-capabilities`](../../packages/capability/capabilities/README.md) owns the typed recipe catalog and composition planner shared by Tool, Skill, MCP-server, and Subagent-provider adapters. A `CapabilityDescriptor` distinguishes an assembleable recipe from current implementation health and carries source-Profile defaults, immutable model-discoverable members, an optional Profile-safe configuration contract, manageability, owner, provenance, and hard dependencies. Every target projects the same deployment-wide recipe id set; target-specific selection, member allowlist, and configuration values describe desired composition without mounting that Profile.
 
-A `CapabilityTarget` is either the global Agent defaults or one Agent Profile. Omitted values inherit, global `load` or `unload` values flow into every Profile, and a Profile value overrides the inherited value. With no stored value, each Profile retains the native loaded state of its YAML rows. `CapabilityPlan` is an immutable revision-fenced dry-run: it adds assembleable hard dependencies, records effective operations and blockers, and is accepted only while composition and adapter topology revisions remain unchanged.
+A `CapabilityTarget` is either the global Agent defaults or one Agent Profile. Omitted values inherit, global structured overrides flow into every Profile, and a Profile value overrides the inherited value. With no stored value, each Profile retains native YAML selection, member, and configuration state. `CapabilityPlan` is an immutable revision-fenced dry-run: it validates member ids and owner-declared primitive fields, adds assembleable hard dependencies, records effective operations and blockers, and is accepted only while composition and adapter topology revisions remain unchanged.
 
-`dsh-agent-presets` reads top-level rows and groups as static recipes, then compiles changed selections into native `Include` patches when the next standing generation starts. A load may insert a canonical deployment row missing from the target Profile; an unload disables its source row. Hard activation failure rolls Session creation back. MCP adapters can additionally remove one Host-shared server's tools from a Profile without terminating its connection. Running Sessions remain pinned to their original generation, and the Session **Capabilities** view reads the immutable loaded, not-loaded, failed, dependency-blocked, or security-denied result captured before publication. The [composition Agent Note](../../.agents/notes/implemented/architecture/2026-08-20-scoped-capability-control-plane.md) owns this boundary.
+`dsh-agent-presets` reads top-level rows and groups as static recipes, then compiles changed selection and configuration into native `Include` patches when the next standing generation starts. Native Tool and Skill restrictions enforce explicit member allowlists through discovery and execution; config-gated Web/delegation members receive complete row config, and MCP adapters retain Host-shared connections while hiding a server or selected tools. Hard activation failure rolls Session creation back. Running Sessions remain pinned to their original generation, and the Session **Capabilities** view reads immutable recipe status and resolved member visibility captured before publication. The [composition Agent Note](../../.agents/notes/implemented/architecture/2026-08-20-scoped-capability-control-plane.md) owns this boundary.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -46,15 +46,15 @@ async snapshot(target: CapabilityTarget, view: CapabilityView = {}): Promise<Cap
 composition(target: CapabilityTarget): CapabilityCompositionSnapshot
 
 /**
- * Build the stable effective selection identity included in a Profile generation stamp.
+ * Build the stable effective assembly identity included in a Profile generation stamp.
  * @param agentProfile - Profile whose inherited and explicit values are resolved.
  * @param descriptors - complete recipe and runtime adapter snapshot for this generation.
- * @returns sorted JSON identity of the effective composition.
+ * @returns sorted JSON identity of selection, visible members, and resolved configuration.
  */
-selectionSignature(agentProfile: string, descriptors: readonly CapabilityDescriptor[]): string
+compositionSignature(agentProfile: string, descriptors: readonly CapabilityDescriptor[]): string
 
 /**
- * Apply current effective unloads through every visible native adapter in a standing Profile scope.
+ * Apply current selection and member restrictions through every visible native adapter.
  * @param ctx - scoped standing Profile context that owns the restrictions.
  * @param entries - immutable selections resolved for this generation.
  */
@@ -63,7 +63,7 @@ mountComposition(ctx: Context, entries: readonly CapabilityCatalogEntry[]): void
 /**
  * Build and retain one dry-run against exact composition and topology revisions.
  * @param target - composition target edited by the transaction.
- * @param changes - staged explicit load, unload, or inherit values.
+ * @param changes - staged selection, member allowlist, and typed configuration overrides.
  * @param expectedRevision - Settings revision the editor observed.
  * @param view - native registry scopes and workspace used by adapters.
  * @returns immutable plan with operations, blockers, and resulting catalog.
@@ -74,12 +74,12 @@ async plan( target: CapabilityTarget, changes: readonly CapabilityCompositionCha
  * Commit one previously planned composition transaction.
  * @param planId - retained plan identity returned by {@link plan}.
  * @param expectedRevision - Settings revision the plan observed.
- * @returns committed explicit selection values and new revision.
+ * @returns committed explicit assembly overrides and new revision.
  */
 async apply(planId: string, expectedRevision: number): Promise<CapabilityCompositionSnapshot>
 ```
 
-Source: [`packages/capability/capabilities/src/index.ts:93`](../../packages/capability/capabilities/src/index.ts)
+Source: [`packages/capability/capabilities/src/index.ts:113`](../../packages/capability/capabilities/src/index.ts)
 
 <a id="capabilities-events"></a>
 
@@ -96,5 +96,5 @@ Capability topology or composition changed; consumers refetch their target. @mod
 'capabilities/change'(): void
 ```
 
-Source: [`packages/capability/capabilities/src/index.ts:88`](../../packages/capability/capabilities/src/index.ts)
+Source: [`packages/capability/capabilities/src/index.ts:108`](../../packages/capability/capabilities/src/index.ts)
 <!-- END GENERATED cordis-surface -->

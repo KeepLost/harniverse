@@ -17,6 +17,7 @@ The registry is host+per-scope layered over [`@deepseek-ai/dsh-scope`](../../cor
 - `ctx.skills.list({ cwd?, signal?, scope? })` Borrows the readonly view options, then returns every winning summary for the current workspace, merged across the global layer and the viewing scope's chain and sorted by name. Consumers apply `isModelInvocable(skill)` or `isUserInvocable(skill)` at their own boundary.
 - `ctx.skills.get(name, { cwd?, signal?, scope? })` Uses the same readonly options and winning candidate for discovery and loading, rechecks cancellation after discovery or a cache hit, races provider loading against the signal, validates the loaded definition, then returns it regardless of invocation policy.
 - `ctx.skills.register(skill): () => void` Registers a readonly runtime embedded skill into the calling context's layer, adding the all-invocable policy and `provider: "runtime"` when omitted. Same-name runtime registrations in one layer are first-wins: a duplicate logs a warning and gets a no-op disposer. Successful registrations return the exact Cordis disposer for ordered composite teardown.
+- `ctx.skills.restrict({ allow, includeOwn? }): () => void` Installs a scoped allowlist applied by both `list()` and `get()`. Restrictions intersect along the scope chain; `includeOwn` lets a standing Profile policy cover the provider mounted in that exact Profile while descendant-owned runtime contributions remain exempt.
 
 ### Events
 

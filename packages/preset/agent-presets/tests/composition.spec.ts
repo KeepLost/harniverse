@@ -50,4 +50,67 @@ describe('Agent Profile composition recipes', () => {
       expect.objectContaining({ insert: [expect.objectContaining({ id: 'tool-bash', disabled: false })] }),
     ]))
   })
+
+  it('describes built-in tools and Profile-safe persona configuration without mounting plugins', async () => {
+    const catalog = await compositionCatalog([shippedPreset('standard')], 'standard')
+    const filesystem = catalog.descriptors.find(entry => entry.id === 'plugin:tool-fs')
+    expect(filesystem?.members?.map(member => member.name)).toEqual(['edit', 'read', 'read_image', 'write'])
+    const persona = catalog.descriptors.find(entry => entry.id === 'plugin:persona')
+    expect(persona).toMatchObject({ manageable: true, selectionManageable: false })
+    expect(persona?.customization?.defaultValues).toMatchObject({
+      complete: false,
+      includeRuntimeContext: true,
+    })
+  })
+
+  it('compiles resolved Persona configuration as a complete native row config', async () => {
+    const catalog = await compositionCatalog([shippedPreset('standard')], 'standard')
+    const entries = catalog.descriptors.map((descriptor): CapabilityCatalogEntry => ({
+      ...selected(descriptor),
+      ...descriptor.id === 'plugin:persona' ? {
+        effectiveConfig: {
+          text: 'You are a review specialist.',
+          complete: true,
+          includeRuntimeContext: false,
+        },
+      } : {},
+    }))
+    const patches = compositionPatches(catalog, entries)
+
+    expect(patches).toContainEqual({
+      id: 'persona',
+      config: {
+        text: 'You are a review specialist.',
+        complete: true,
+        includeRuntimeContext: false,
+      },
+    })
+  })
+
+  it('compiles member visibility into config-gated built-in tools', async () => {
+    const catalog = await compositionCatalog([shippedPreset('standard')], 'standard')
+    const entries = catalog.descriptors.map((descriptor): CapabilityCatalogEntry => {
+      const base = selected(descriptor)
+      if (descriptor.id !== 'plugin:tool-web') return base
+      if (descriptor.members === undefined) throw new Error('tool-web recipe must declare members')
+      return {
+        ...base,
+        memberSelection: 'custom',
+        memberEntries: descriptor.members.map(member => ({
+          ...member,
+          visible: member.name === 'web_search',
+        })),
+      }
+    })
+    const patches = compositionPatches(catalog, entries)
+
+    expect(patches).toContainEqual({
+      id: 'tool-web',
+      config: {
+        search: true,
+        fetch: false,
+        searchTimeoutMs: 60000,
+      },
+    })
+  })
 })

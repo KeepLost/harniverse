@@ -2,9 +2,9 @@
 
 English | [中文](README.zh.md)
 
-Localized **Profile assembly** tab for Web Settings plus a read-only **Capabilities** Session view. The Settings tab reads the Agent Profile roster and authorized capability-management Remote only after mounting. Every target shows the same deployment recipe set; users stage `inherit`, `load`, or `unload` values for Tool, Skill, MCP-server, and Subagent-provider entries. Profile rows show the effective global selection they inherit.
+Localized **Profile assembly** tab for Web Settings plus a read-only **Capabilities** Session view. Every target shows the same deployment recipe set with product descriptions. Users stage `inherit`, `load`, or `unload`, expand multi-member recipes to choose an immutable built-in Tool/Skill/MCP allowlist, and edit only owner-declared Profile-safe configuration fields such as Persona text and runtime-context policy.
 
-Nothing is written when a selection control changes. **Preview impact** sends the complete draft to the Host planner and renders explicit plus automatically added dependency operations. **Save assembly list** remains disabled until the returned plan has no blockers, then submits only the plan id and expected revision. The Session view shows its immutable Profile generation and the actual loaded, not-loaded, failed, dependency-blocked, or security-denied result for each recipe.
+Nothing is written while selection, member, or configuration controls change. **Preview impact** sends the complete draft to the Host planner and renders explicit plus automatically added dependency operations. **Save assembly list** remains disabled until the returned plan has no blockers, then submits only the plan id and expected revision. The Session view shows its immutable Profile generation, recipe status, and resolved visible/hidden members.
 
 ## Model Experience
 

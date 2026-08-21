@@ -54,7 +54,9 @@ async function boot(entries: readonly CapabilityDescriptor[]) {
     return {
       id: 'fixture',
       snapshot: () => ({ entries, complete: true }),
-      restrict: (_scope, denied) => { restrict([...denied].sort()) },
+      restrict: (_scope, projected) => {
+        restrict(projected.filter(entry => !entry.selected).map(entry => entry.id).sort())
+      },
     }
   })
   return { ctx, restrict, control, dispose }
@@ -78,7 +80,7 @@ describe('Capabilities', () => {
     expect(plan.blockers).toEqual([])
     const committed = await ctx.capabilities.apply(plan.id, initial.revision)
     expect(committed.revision).toBe(initial.revision + 1)
-    expect(committed.values).toEqual({ 'tool:search': 'unload' })
+    expect(committed.values).toEqual({ 'tool:search': { selection: 'unload' } })
 
     const current = await ctx.capabilities.snapshot(target)
     expect(current.entries.find(entry => entry.id === 'tool:search')).toMatchObject({
@@ -147,6 +149,74 @@ describe('Capabilities', () => {
     ctx.capabilities.mountComposition(standing.ctx, (await ctx.capabilities.snapshot(target)).entries)
     expect(restrict).toHaveBeenCalledWith(['tool:b'])
     await standing.dispose()
+  })
+
+  it('plans inherited member allowlists and typed Profile configuration', async () => {
+    const { ctx } = await boot([descriptor('plugin:persona-tools', {
+      members: [{
+        id: 'plugin:persona-tools/tool:read',
+        kind: 'tool',
+        name: 'read',
+        description: 'Read files.',
+        defaultVisible: true,
+        available: true,
+        requires: [],
+      }, {
+        id: 'plugin:persona-tools/tool:write',
+        kind: 'tool',
+        name: 'write',
+        description: 'Write files.',
+        defaultVisible: true,
+        available: true,
+        requires: [],
+      }],
+      customization: {
+        fields: [
+          { id: 'text', kind: 'text', name: 'Persona', description: 'Agent identity.', required: true },
+          { id: 'includeRuntimeContext', kind: 'boolean', name: 'Runtime context', description: 'Include runtime context.' },
+        ],
+        defaultValues: { text: 'default persona', includeRuntimeContext: true },
+      },
+    })])
+    const initial = await ctx.capabilities.snapshot(target)
+    const plan = await ctx.capabilities.plan(target, [{
+      capabilityId: 'plugin:persona-tools',
+      members: ['plugin:persona-tools/tool:read'],
+      config: { text: 'reviewer persona', includeRuntimeContext: false },
+    }], initial.revision)
+
+    expect(plan.blockers).toEqual([])
+    expect(plan.operations).toEqual([expect.objectContaining({
+      capabilityId: 'plugin:persona-tools',
+      membersChanged: true,
+      configChanged: true,
+    })])
+    await ctx.capabilities.apply(plan.id, initial.revision)
+    const current = (await ctx.capabilities.snapshot(target)).entries[0]!
+    expect(current.memberSelection).toBe('custom')
+    expect(current.memberEntries?.map(member => [member.name, member.visible])).toEqual([
+      ['read', true],
+      ['write', false],
+    ])
+    expect(current.effectiveConfig).toEqual({ text: 'reviewer persona', includeRuntimeContext: false })
+  })
+
+  it('blocks unknown members and fields outside the owner-declared configuration contract', async () => {
+    const { ctx } = await boot([descriptor('plugin:bounded', {
+      members: [],
+      customization: { fields: [], defaultValues: {} },
+    })])
+    const snapshot = await ctx.capabilities.snapshot(target)
+    const plan = await ctx.capabilities.plan(target, [{
+      capabilityId: 'plugin:bounded',
+      members: ['plugin:bounded/tool:ghost'],
+      config: { secret: 'nope' },
+    }], snapshot.revision)
+
+    expect(plan.blockers.map(blocker => blocker.code).sort()).toEqual([
+      'configuration-invalid',
+      'unknown-member',
+    ])
   })
 
   it('expires plans when an adapter invalidates or unloads', async () => {

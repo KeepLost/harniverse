@@ -71,6 +71,38 @@
   line-height: 17px;
 }
 
+.members {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.members li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 7px;
+  padding: 3px 6px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.members code {
+  font-family: var(--ds-font-family-code);
+  font-size: 10px;
+}
+
+.members li span {
+  padding: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+}
+
 .list span {
   align-self: start;
   border-radius: 999px;

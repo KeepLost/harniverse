@@ -1106,6 +1106,23 @@ describe('renderSkillContent', () => {
 })
 
 describe('SkillRegistry scoped layers', () => {
+  it('enforces a Profile-owned allowlist for discovery and loading', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    registerProvider(ctx, new MemoryProvider([
+      memorySkill('allowed-skill', 'Allowed', 100),
+      memorySkill('hidden-skill', 'Hidden', 100),
+    ]))
+    const preset = createScope(ctx, { preset: 'restricted' })
+    scopedSkills(preset.ctx).restrict({ allow: ['allowed-skill'], includeOwn: true })
+    const scope = scopeOf(preset.ctx)
+
+    expect((await ctx.skills.list({ scope })).map(skill => skill.name)).toEqual(['allowed-skill'])
+    expect(await ctx.skills.get('hidden-skill', { scope })).toBeUndefined()
+    expect((await ctx.skills.get('allowed-skill', { scope }))?.name).toBe('allowed-skill')
+    await preset.dispose()
+  })
+
   it('files a scoped provider into its layer and merges it into that scope view only', async () => {
     const ctx = new Context()
     await ctx.plugin(SkillRegistry)

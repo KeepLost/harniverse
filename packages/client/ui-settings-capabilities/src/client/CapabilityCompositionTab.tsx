@@ -1,7 +1,7 @@
 /** Agent Profile composition editor with server-side dependency planning. */
 
 import { useDeferredValue, useEffect, useState, type ReactNode } from 'react'
-import type { CapabilityCatalogEntry, CapabilityTarget } from '@deepseek-ai/dsh-api-remotes/client'
+import type { CapabilityCatalogEntry, CapabilityCompositionChange, CapabilityConfigValue, CapabilityTarget } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { CapabilityCompositionLocaleKey } from './locales.ts'
@@ -13,6 +13,8 @@ export interface CapabilityCompositionTabInjected {
   load(): Promise<void>
   selectTarget(target: CapabilityTarget): Promise<void>
   setSelection(capabilityId: string, selection: 'inherit' | 'load' | 'unload'): void
+  setMembers(capabilityId: string, members: 'inherit' | readonly string[]): void
+  setConfig(capabilityId: string, config: 'inherit' | Readonly<Record<string, CapabilityConfigValue>>): void
   discard(): void
   preview(): Promise<void>
   apply(): Promise<void>
@@ -38,6 +40,32 @@ const PROVENANCE_KEYS = {
   unknown: 'provenanceUnknown',
 } as const satisfies Record<CapabilityCatalogEntry['provenance'], CapabilityCompositionLocaleKey>
 
+const DESCRIPTION_KEYS: Readonly<Record<string, CapabilityCompositionLocaleKey>> = {
+  'plugin:persona': 'descriptionPersona',
+  'plugin:agent-instructions': 'descriptionAgentInstructions',
+  'plugin:tool-bash': 'descriptionBash',
+  'plugin:tool-pwsh': 'descriptionPwsh',
+  'plugin:tool-fs': 'descriptionFs',
+  'plugin:tool-fs-search': 'descriptionFsSearch',
+  'plugin:tool-jobs': 'descriptionJobs',
+  'plugin:skill-filesystem': 'descriptionSkillFilesystem',
+  'plugin:tool-skill': 'descriptionSkill',
+  'plugin:tool-goal': 'descriptionGoal',
+  'plugin:planning': 'descriptionPlanning',
+  'plugin:tool-result-artifacts': 'descriptionArtifacts',
+  'plugin:compaction': 'descriptionCompaction',
+  'plugin:delegation': 'descriptionDelegation',
+  'plugin:tool-ask-user': 'descriptionAskUser',
+  'plugin:tool-todo': 'descriptionTodo',
+  'plugin:tool-session-query': 'descriptionSessionQuery',
+  'plugin:tool-session-delivery': 'descriptionSessionDelivery',
+  'plugin:tool-web': 'descriptionWeb',
+  'plugin:persistent-shell': 'descriptionPersistentShell',
+  'plugin:filesystem': 'descriptionFilesystem',
+  'plugin:tool-presentation': 'descriptionPresentation',
+  'plugin:tool-cordis': 'descriptionCordis',
+}
+
 function targetValue(target: CapabilityTarget): string {
   return target.kind === 'global-agent' ? 'global' : `profile:${target.agentProfile}`
 }
@@ -55,14 +83,31 @@ function CapabilityRow({
   busy,
   t,
   setSelection,
+  setMembers,
+  setConfig,
 }: {
   entry: CapabilityCatalogEntry
-  selection: 'inherit' | 'load' | 'unload'
+  selection: Omit<CapabilityCompositionChange, 'capabilityId'>
   profileTarget: boolean
   busy: boolean
   t: (key: CapabilityCompositionLocaleKey) => string
   setSelection: CapabilityCompositionTabInjected['setSelection']
+  setMembers: CapabilityCompositionTabInjected['setMembers']
+  setConfig: CapabilityCompositionTabInjected['setConfig']
 }): ReactNode {
+  const selectionValue = selection.selection ?? entry.selection
+  const memberDraft = selection.members
+  const visibleMembers = new Set(memberDraft === 'inherit' || memberDraft === undefined
+    ? entry.memberEntries?.filter(member => member.visible).map(member => member.id) ?? []
+    : memberDraft)
+  const configDraft = selection.config
+  const configOverrides = configDraft === 'inherit' || configDraft === undefined
+    ? entry.configOverrides ?? {}
+    : configDraft
+  const configValues = configDraft === 'inherit' || configDraft === undefined
+    ? entry.effectiveConfig ?? {}
+    : { ...entry.effectiveConfig, ...configDraft }
+  const descriptionKey = DESCRIPTION_KEYS[entry.id]
   return (
     <li className={css.card} data-enabled={entry.selected ? 'true' : 'false'}>
       <div className={css.cardMain}>
@@ -73,38 +118,116 @@ function CapabilityRow({
             {t(PROVENANCE_KEYS[entry.provenance])}
           </span>
         </div>
-        <p className={css.description}>{entry.description}</p>
+        <p className={css.description}>{descriptionKey === undefined ? entry.description : t(descriptionKey)}</p>
         <div className={css.meta}>
           <span data-effective={entry.selected ? 'load' : 'unload'}>
             {t(entry.assembleable ? entry.selected ? 'selectedLoad' : 'selectedUnload' : 'notAssembleable')}
           </span>
           {!entry.available && entry.selected ? <span>{t('implementationUnavailable')}</span> : null}
-          {profileTarget && selection === 'inherit' && entry.selection === 'inherit' ? (
+          {profileTarget && selectionValue === 'inherit' && entry.selection === 'inherit' ? (
             <span className={css.inherited}>
               {t(entry.effectiveSelection === 'load' ? 'inheritedGlobalLoad' : 'inheritedGlobalUnload')}
             </span>
           ) : null}
           {entry.owner === undefined ? null : <span>{t('owner')}: <code>{entry.owner}</code></span>}
           {entry.requires.length === 0 ? null : <span>{t('requires')}: {entry.requires.length}</span>}
+          {entry.memberEntries === undefined ? null : (
+            <span>{t('memberSummary')}: {visibleMembers.size}/{entry.memberEntries.length}</span>
+          )}
         </div>
+        {entry.memberEntries !== undefined && entry.memberEntries.length > 1 ? (
+          <details className={css.details}>
+            <summary>{t('members')} · {visibleMembers.size}/{entry.memberEntries.length}</summary>
+            <fieldset className={css.members} disabled={busy || !entry.selected}>
+              <legend className={css.visuallyHidden}>{t('members')}</legend>
+              {entry.memberEntries.map(member => (
+                <label key={member.id}>
+                  <input
+                    type="checkbox"
+                    checked={visibleMembers.has(member.id)}
+                    onChange={() => {
+                      const next = new Set(visibleMembers)
+                      if (next.has(member.id)) next.delete(member.id)
+                      else next.add(member.id)
+                      setMembers(entry.id, [...next].sort())
+                    }}
+                  />
+                  <span><strong>{member.name}</strong><small>{member.description}</small></span>
+                </label>
+              ))}
+              <button type="button" onClick={() => { setMembers(entry.id, 'inherit') }}>{t('restoreMembers')}</button>
+            </fieldset>
+          </details>
+        ) : null}
+        {entry.customization === undefined ? null : (
+          <details className={css.details}>
+            <summary>{t('configuration')}</summary>
+            <fieldset className={css.configuration} disabled={busy}>
+              <legend className={css.visuallyHidden}>{t('configuration')}</legend>
+              {entry.customization.fields.map((field) => {
+                const value = configValues[field.id]
+                const fieldName = entry.id === 'plugin:persona'
+                  ? t(field.id === 'text' ? 'personaText' : field.id === 'complete' ? 'personaComplete' : 'personaRuntimeContext')
+                  : field.name
+                const fieldDescription = entry.id === 'plugin:persona'
+                  ? t(field.id === 'text' ? 'personaTextDescription' : field.id === 'complete' ? 'personaCompleteDescription' : 'personaRuntimeContextDescription')
+                  : field.description
+                if (field.kind === 'boolean') {
+                  return (
+                    <label key={field.id} className={css.booleanField}>
+                      <input
+                        type="checkbox"
+                        checked={value === true}
+                        onChange={(event) => { setConfig(entry.id, { ...configOverrides, [field.id]: event.currentTarget.checked }) }}
+                      />
+                      <span><strong>{fieldName}</strong><small>{fieldDescription}</small></span>
+                    </label>
+                  )
+                }
+                return (
+                  <label key={field.id} className={css.configField}>
+                    <span>{fieldName}</span>
+                    {field.multiline ? (
+                      <textarea
+                        value={typeof value === 'string' ? value : ''}
+                        onChange={(event) => { setConfig(entry.id, { ...configOverrides, [field.id]: event.currentTarget.value }) }}
+                      />
+                    ) : (
+                      <input
+                        type={field.kind === 'number' ? 'number' : 'text'}
+                        value={typeof value === 'string' || typeof value === 'number' ? value : ''}
+                        onChange={(event) => {
+                          const next = field.kind === 'number' ? Number(event.currentTarget.value) : event.currentTarget.value
+                          setConfig(entry.id, { ...configOverrides, [field.id]: next })
+                        }}
+                      />
+                    )}
+                    <small>{fieldDescription}</small>
+                  </label>
+                )
+              })}
+              <button type="button" onClick={() => { setConfig(entry.id, 'inherit') }}>{t('restoreConfiguration')}</button>
+            </fieldset>
+          </details>
+        )}
       </div>
-      {entry.manageable ? (
+      {entry.manageable && entry.selectionManageable !== false ? (
         <fieldset className={css.selection} disabled={busy}>
           <legend className={css.visuallyHidden}>{entry.name}</legend>
           {(['inherit', 'load', 'unload'] as const).map(value => (
-            <label key={value} data-checked={selection === value ? 'true' : undefined}>
+            <label key={value} data-checked={selectionValue === value ? 'true' : undefined}>
               <input
                 type="radio"
                 name={`capability-${entry.id}`}
                 value={value}
-                checked={selection === value}
+                checked={selectionValue === value}
                 onChange={() => { setSelection(entry.id, value) }}
               />
               <span>{t(value)}</span>
             </label>
           ))}
         </fieldset>
-      ) : <span className={css.readOnly}>{t('readOnly')}</span>}
+      ) : <span className={css.readOnly}>{t(entry.customization === undefined ? 'readOnly' : 'requiredCapability')}</span>}
     </li>
   )
 }
@@ -202,11 +325,13 @@ export function CapabilityCompositionTab(props: CapabilityCompositionTabProps): 
             <CapabilityRow
               key={entry.id}
               entry={entry}
-              selection={state.draft[entry.id] ?? entry.selection}
+              selection={state.draft[entry.id] ?? {}}
               profileTarget={state.target.kind === 'agent-profile'}
               busy={busy}
               t={props.t}
               setSelection={props.setSelection}
+              setMembers={props.setMembers}
+              setConfig={props.setConfig}
             />
           ))}
         </ul>

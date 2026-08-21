@@ -2,9 +2,9 @@
 
 English | [中文](README.zh.md)
 
-Generic Agent Profile recipe catalog and composition coordinator. Native subsystems register effect-owned adapters on `ctx.capabilities`; an adapter projects JSON-safe descriptors and may apply unloaded selections to a standing Profile generation. Recipe descriptors distinguish whether an implementation is assembleable, currently healthy, selected by the source Profile, and manageable.
+Generic Agent Profile recipe catalog and composition coordinator. Native subsystems register effect-owned adapters on `ctx.capabilities`; an adapter projects JSON-safe descriptors and may apply generation-scoped restrictions. Recipe descriptors distinguish whether an implementation is assembleable, currently healthy, selected by the source Profile, and manageable; they may additionally declare immutable model-discoverable members and an explicit Profile-safe primitive configuration contract.
 
-Selections persist in the `capabilities` Settings namespace. Global Agent values are inherited by every Profile, explicit Profile values override them, and omission falls back to the Profile YAML's native loaded state. `plan()` validates one staged transaction against exact composition and topology revisions, automatically loads declared hard dependencies, rejects unknown, immutable, unassembleable, or dependency-breaking changes, and retains an immutable dry-run. `apply()` accepts only that unchanged, unblocked plan. `dsh-agent-presets` compiles the result into native Loader patches when it creates the next standing generation.
+Structured overrides persist in the `capabilities` Settings namespace: selection, an optional member allowlist, and owner-declared configuration fields. Global Agent values are inherited by every Profile, explicit Profile values override them, and omission falls back to Profile-native values. `plan()` validates ids, field types, hard dependencies, and exact composition/topology revisions before retaining an immutable dry-run. `apply()` accepts only that unchanged, unblocked plan. `dsh-agent-presets` compiles selection and configuration into native Loader patches, while adapters enforce Tool, Skill, MCP, and provider membership when the next standing generation starts.
 
 ## Model Experience
 

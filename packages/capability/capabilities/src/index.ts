@@ -14,6 +14,8 @@ import type {
   CapabilityPlanOperation,
   CapabilityCompositionChange,
   CapabilityCompositionSnapshot,
+  CapabilityConfigValue,
+  CapabilityOverride,
   CapabilitySelectionValue,
   CapabilityTarget,
 } from './types.ts'
@@ -47,12 +49,19 @@ export interface CapabilityAdapterControl {
 export interface CapabilityAdapter {
   readonly id: string
   snapshot(view: CapabilityView): Promise<CapabilityObservation> | CapabilityObservation
-  restrict?(ctx: Context, unloaded: ReadonlySet<string>): void
+  restrict?(ctx: Context, entries: readonly CapabilityCatalogEntry[]): void
 }
 
 interface CompositionDocument {
-  readonly global: Record<string, CapabilitySelectionValue>
-  readonly profiles: Record<string, Record<string, CapabilitySelectionValue>>
+  readonly global: Record<string, CapabilityOverride>
+  readonly profiles: Record<string, Record<string, CapabilityOverride>>
+}
+
+type StoredOverride = CapabilitySelectionValue | CapabilityOverride
+
+interface StoredCompositionDocument {
+  readonly global: Record<string, StoredOverride>
+  readonly profiles: Record<string, Record<string, StoredOverride>>
 }
 
 interface StoredPlan {
@@ -72,10 +81,21 @@ function scopeVisible(registrationScope: ScopeKey | undefined, view: CapabilityV
 }
 
 const SETTINGS_NAMESPACE: SettingsNamespace = settingsNamespace('capabilities')
-const SELECTION = z.dict(z.union(['load', 'unload'] as const)).default({})
-const SETTINGS: z<CompositionDocument> = z.object({
-  global: SELECTION,
-  profiles: z.dict(SELECTION).default({}),
+const OVERRIDE = z.union([
+  z.union(['load', 'unload'] as const),
+  z.object({
+    selection: z.union(['load', 'unload'] as const),
+    // Schemastery materializes omitted array/dict schemas as empty values;
+    // keeping these optional payloads opaque preserves omission = inherit.
+    // Planner validation below owns their exact persisted shape.
+    members: z.any(),
+    config: z.any(),
+  }),
+])
+const OVERRIDES = z.dict(OVERRIDE).default({})
+const SETTINGS: z<StoredCompositionDocument> = z.object({
+  global: OVERRIDES,
+  profiles: z.dict(OVERRIDES).default({}),
 })
 
 declare module '@deepseek-ai/cordis' {
@@ -93,7 +113,7 @@ declare module '@deepseek-ai/cordis' {
 export class Capabilities extends Service {
   private readonly adapters = new Set<AdapterRegistration>()
   private readonly plans = new Map<string, StoredPlan>()
-  private settingsScope: SettingsScope<CompositionDocument> | undefined
+  private settingsScope: SettingsScope<StoredCompositionDocument> | undefined
   private settingsService: SettingsProvider | undefined
   private topologyRevision = 0
   private nextPlanId = 1
@@ -210,37 +230,41 @@ export class Capabilities extends Service {
     return {
       target,
       revision: this.settingsRevision(),
-      values: { ...targetValues(this.document(), target) },
+      values: structuredClone(targetValues(this.document(), target)),
     }
   }
 
   /**
-   * Build the stable effective selection identity included in a Profile generation stamp.
+   * Build the stable effective assembly identity included in a Profile generation stamp.
    * @param agentProfile - Profile whose inherited and explicit values are resolved.
    * @param descriptors - complete recipe and runtime adapter snapshot for this generation.
-   * @returns sorted JSON identity of the effective composition.
+   * @returns sorted JSON identity of selection, visible members, and resolved configuration.
    */
-  selectionSignature(agentProfile: string, descriptors: readonly CapabilityDescriptor[]): string {
+  compositionSignature(agentProfile: string, descriptors: readonly CapabilityDescriptor[]): string {
     assertProfileId(agentProfile)
     const target = { kind: 'agent-profile', agentProfile } as const
-    const values = Object.fromEntries(descriptors.map(descriptor => [
-      descriptor.id,
-      effectiveSelection(this.document(), target, descriptor),
-    ]))
+    const document = this.document()
+    const values = Object.fromEntries(descriptors.map((descriptor) => {
+      const entry = catalogEntry(descriptor, document, target)
+      return [descriptor.id, {
+        selection: entry.effectiveSelection,
+        members: entry.memberEntries?.filter(member => member.visible).map(member => member.id) ?? [],
+        config: entry.effectiveConfig ?? {},
+      }]
+    }))
     return JSON.stringify(Object.fromEntries(Object.entries(values).sort(([left], [right]) => left.localeCompare(right))))
   }
 
   /**
-   * Apply current effective unloads through every visible native adapter in a standing Profile scope.
+   * Apply current selection and member restrictions through every visible native adapter.
    * @param ctx - scoped standing Profile context that owns the restrictions.
    * @param entries - immutable selections resolved for this generation.
    */
   mountComposition(ctx: Context, entries: readonly CapabilityCatalogEntry[]): void {
-    const unloaded = new Set(entries.flatMap(entry => entry.selected ? [] : [entry.id]))
     const currentScope = scopeOf(ctx)
     const view: CapabilityView = currentScope === undefined ? {} : { scope: currentScope }
     for (const { adapter, scope } of this.adapters) {
-      if (scopeVisible(scope, view)) adapter.restrict?.(ctx, unloaded)
+      if (scopeVisible(scope, view)) adapter.restrict?.(ctx, entries)
     }
   }
 
@@ -249,7 +273,7 @@ export class Capabilities extends Service {
   /**
    * Build and retain one dry-run against exact composition and topology revisions.
    * @param target - composition target edited by the transaction.
-   * @param changes - staged explicit load, unload, or inherit values.
+   * @param changes - staged selection, member allowlist, and typed configuration overrides.
    * @param expectedRevision - Settings revision the editor observed.
    * @param view - native registry scopes and workspace used by adapters.
    * @returns immutable plan with operations, blockers, and resulting catalog.
@@ -266,7 +290,7 @@ export class Capabilities extends Service {
     }
     const descriptors = new Map(snapshot.entries.map(entry => [entry.id, descriptorOf(entry)]))
     const before = targetValues(this.document(), target)
-    const after = { ...before }
+    const after = structuredClone(before)
     const blockers: CapabilityPlanBlocker[] = []
     const seen = new Set<string>()
     for (const change of changes) {
@@ -288,6 +312,12 @@ export class Capabilities extends Service {
           capabilityId: change.capabilityId,
           message: `Capability ${change.capabilityId} is shared or read-only in this target.`,
         })
+      } else if (change.selection !== undefined && descriptor.selectionManageable === false) {
+        blockers.push({
+          code: 'not-manageable',
+          capabilityId: change.capabilityId,
+          message: `Capability ${change.capabilityId} must remain loaded in this target.`,
+        })
       } else if (change.selection === 'load' && !descriptor.assembleable) {
         blockers.push({
           code: 'not-assembleable',
@@ -295,8 +325,34 @@ export class Capabilities extends Service {
           message: `Capability ${change.capabilityId} has no recipe available to load.`,
         })
       }
-      if (change.selection === 'inherit') Reflect.deleteProperty(after, change.capabilityId)
-      else after[change.capabilityId] = change.selection
+      const current = { ...after[change.capabilityId] }
+      if (change.selection === 'inherit') Reflect.deleteProperty(current, 'selection')
+      else if (change.selection !== undefined) current.selection = change.selection
+      if (change.members === 'inherit') Reflect.deleteProperty(current, 'members')
+      else if (change.members !== undefined) {
+        const known = new Set(descriptor?.members?.map(member => member.id) ?? [])
+        for (const memberId of change.members) {
+          if (!known.has(memberId)) blockers.push({
+            code: 'unknown-member',
+            capabilityId: change.capabilityId,
+            dependencyId: memberId,
+            message: `Capability ${change.capabilityId} does not declare member ${memberId}.`,
+          })
+        }
+        current.members = [...new Set(change.members)].sort((left, right) => left.localeCompare(right))
+      }
+      if (change.config === 'inherit') Reflect.deleteProperty(current, 'config')
+      else if (change.config !== undefined) {
+        if (descriptor?.customization === undefined) blockers.push({
+          code: 'configuration-unsupported',
+          capabilityId: change.capabilityId,
+          message: `Capability ${change.capabilityId} does not expose Profile configuration.`,
+        })
+        else validateConfigurationChange(change.capabilityId, descriptor, change.config, blockers)
+        current.config = { ...change.config }
+      }
+      if (Object.keys(current).length === 0) Reflect.deleteProperty(after, change.capabilityId)
+      else after[change.capabilityId] = current
     }
     const operationIds = new Set(seen)
     let next = withTargetValues(this.document(), target, after)
@@ -311,7 +367,7 @@ export class Capabilities extends Service {
           const dependency = byId.get(dependencyId)
           if (dependency === undefined || dependency.selected || !dependency.assembleable || !dependency.manageable) continue
           if (seen.has(dependencyId)) continue
-          after[dependencyId] = 'load'
+          after[dependencyId] = { ...after[dependencyId], selection: 'load' }
           operationIds.add(dependencyId)
           expanded = true
         }
@@ -323,9 +379,19 @@ export class Capabilities extends Service {
     }
     blockers.push(...dependencyBlockers(result))
     const operations: CapabilityPlanOperation[] = [...operationIds].flatMap((capabilityId) => {
-      const previous = before[capabilityId] ?? 'inherit'
-      const following = after[capabilityId] ?? 'inherit'
-      return previous === following ? [] : [{ capabilityId, before: previous, after: following }]
+      const previous = before[capabilityId]
+      const following = after[capabilityId]
+      const beforeSelection = previous?.selection ?? 'inherit'
+      const afterSelection = following?.selection ?? 'inherit'
+      const membersChanged = JSON.stringify(previous?.members) !== JSON.stringify(following?.members)
+      const configChanged = JSON.stringify(previous?.config) !== JSON.stringify(following?.config)
+      return beforeSelection === afterSelection && !membersChanged && !configChanged ? [] : [{
+        capabilityId,
+        before: beforeSelection,
+        after: afterSelection,
+        ...membersChanged ? { membersChanged: true } : {},
+        ...configChanged ? { configChanged: true } : {},
+      }]
     })
     const plan: CapabilityPlan = {
       id: `capability-plan-${String(this.nextPlanId)}`,
@@ -345,7 +411,7 @@ export class Capabilities extends Service {
    * Commit one previously planned composition transaction.
    * @param planId - retained plan identity returned by {@link plan}.
    * @param expectedRevision - Settings revision the plan observed.
-   * @returns committed explicit selection values and new revision.
+   * @returns committed explicit assembly overrides and new revision.
    */
   async apply(planId: string, expectedRevision: number): Promise<CapabilityCompositionSnapshot> {
     const stored = this.plans.get(planId)
@@ -369,7 +435,7 @@ export class Capabilities extends Service {
     const current = this.settingsScope?.get()
     return current === undefined
       ? { global: {}, profiles: {} }
-      : structuredClone(current)
+      : normalizeDocument(current)
   }
 
   private settingsRevision(): number {
@@ -394,6 +460,7 @@ export class Capabilities extends Service {
 
 const STABLE_ID = /^[a-z0-9][a-z0-9._:/-]*$/
 const PROFILE_ID = /^[a-z0-9][a-z0-9-]*$/
+const CONFIG_FIELD_ID = /^[a-z][A-Za-z0-9]*$/
 
 function assertStableId(value: string, field: string): void {
   if (!STABLE_ID.test(value)) throw new TypeError(`capabilities: ${field} must be a stable lowercase id`)
@@ -401,6 +468,12 @@ function assertStableId(value: string, field: string): void {
 
 function assertProfileId(value: string): void {
   if (!PROFILE_ID.test(value)) throw new TypeError(`capabilities: invalid Agent Profile id ${JSON.stringify(value)}`)
+}
+
+function assertConfigFieldId(value: string, descriptorId: string): void {
+  if (!CONFIG_FIELD_ID.test(value) || value === 'constructor' || value === 'prototype') {
+    throw new TypeError(`capabilities: configuration field of ${JSON.stringify(descriptorId)} must be a safe config key`)
+  }
 }
 
 function assertTarget(target: CapabilityTarget): void {
@@ -435,6 +508,22 @@ function validateDescriptor(descriptor: CapabilityDescriptor, adapterId: string)
     }
     dependencies.add(dependency)
   }
+  const memberIds = new Set<string>()
+  for (const member of descriptor.members ?? []) {
+    assertStableId(member.id, `member id of ${JSON.stringify(descriptor.id)}`)
+    if (memberIds.has(member.id)) throw new Error(`capabilities: descriptor ${JSON.stringify(descriptor.id)} repeats member ${JSON.stringify(member.id)}`)
+    memberIds.add(member.id)
+    if (member.name.trim() !== member.name || member.name.length === 0) {
+      throw new TypeError(`capabilities: member ${JSON.stringify(member.id)} has an invalid name`)
+    }
+    for (const required of member.requires) assertStableId(required, `dependency of member ${JSON.stringify(member.id)}`)
+  }
+  const fieldIds = new Set<string>()
+  for (const field of descriptor.customization?.fields ?? []) {
+    assertConfigFieldId(field.id, descriptor.id)
+    if (fieldIds.has(field.id)) throw new Error(`capabilities: descriptor ${JSON.stringify(descriptor.id)} repeats configuration field ${JSON.stringify(field.id)}`)
+    fieldIds.add(field.id)
+  }
 }
 
 function copyDescriptor(descriptor: CapabilityDescriptor): CapabilityDescriptor {
@@ -448,8 +537,16 @@ function copyDescriptor(descriptor: CapabilityDescriptor): CapabilityDescriptor 
     available: descriptor.available,
     defaultLoaded: descriptor.defaultLoaded,
     manageable: descriptor.manageable,
+    ...descriptor.selectionManageable === undefined ? {} : { selectionManageable: descriptor.selectionManageable },
     ...descriptor.owner === undefined ? {} : { owner: descriptor.owner },
     requires: [...descriptor.requires],
+    ...descriptor.members === undefined ? {} : { members: descriptor.members.map(copyMember) },
+    ...descriptor.customization === undefined ? {} : {
+      customization: {
+        fields: descriptor.customization.fields.map(field => ({ ...field })),
+        defaultValues: { ...descriptor.customization.defaultValues },
+      },
+    },
   }
 }
 
@@ -458,7 +555,7 @@ function descriptorOf(entry: CapabilityCatalogEntry): CapabilityDescriptor {
   return descriptor
 }
 
-function targetValues(document: CompositionDocument, target: CapabilityTarget): Record<string, CapabilitySelectionValue> {
+function targetValues(document: CompositionDocument, target: CapabilityTarget): Record<string, CapabilityOverride> {
   return target.kind === 'global-agent'
     ? document.global
     : document.profiles[target.agentProfile] ?? {}
@@ -470,16 +567,16 @@ function effectiveSelection(
   descriptor: CapabilityDescriptor,
 ): CapabilitySelectionValue {
   if (target.kind === 'agent-profile') {
-    const profile = document.profiles[target.agentProfile]?.[descriptor.id]
+    const profile = document.profiles[target.agentProfile]?.[descriptor.id]?.selection
     if (profile !== undefined) return profile
   }
-  return document.global[descriptor.id] ?? (descriptor.defaultLoaded ? 'load' : 'unload')
+  return document.global[descriptor.id]?.selection ?? (descriptor.defaultLoaded ? 'load' : 'unload')
 }
 
 function withTargetValues(
   document: CompositionDocument,
   target: CapabilityTarget,
-  values: Record<string, CapabilitySelectionValue>,
+  values: Record<string, CapabilityOverride>,
 ): CompositionDocument {
   if (target.kind === 'global-agent') return { global: { ...values }, profiles: structuredClone(document.profiles) }
   const profiles = structuredClone(document.profiles)
@@ -493,18 +590,136 @@ function catalogEntries(
   document: CompositionDocument,
   target: CapabilityTarget,
 ): CapabilityCatalogEntry[] {
-  const explicit = targetValues(document, target)
   return [...descriptors.values()]
-    .map((descriptor): CapabilityCatalogEntry => {
-      const resolved = effectiveSelection(document, target, descriptor)
-      return {
-        ...copyDescriptor(descriptor),
-        selection: explicit[descriptor.id] ?? 'inherit',
-        effectiveSelection: resolved,
-        selected: resolved === 'load',
-      }
-    })
+    .map(descriptor => catalogEntry(descriptor, document, target))
     .sort((left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id))
+}
+
+function catalogEntry(
+  descriptor: CapabilityDescriptor,
+  document: CompositionDocument,
+  target: CapabilityTarget,
+): CapabilityCatalogEntry {
+  const explicit = targetValues(document, target)[descriptor.id]
+  const resolved = effectiveSelection(document, target, descriptor)
+  const memberIds = effectiveMembers(document, target, descriptor)
+  const effectiveConfig = effectiveConfiguration(document, target, descriptor)
+  return {
+    ...copyDescriptor(descriptor),
+    selection: explicit?.selection ?? 'inherit',
+    effectiveSelection: resolved,
+    selected: resolved === 'load',
+    ...descriptor.members === undefined ? {} : {
+      memberSelection: explicit?.members === undefined ? 'inherit' : 'custom',
+      memberEntries: descriptor.members.map(member => ({ ...copyMember(member), visible: memberIds.has(member.id) })),
+    },
+    ...descriptor.customization === undefined ? {} : {
+      configOverrides: { ...explicit?.config },
+      effectiveConfig,
+    },
+  }
+}
+
+function effectiveMembers(
+  document: CompositionDocument,
+  target: CapabilityTarget,
+  descriptor: CapabilityDescriptor,
+): ReadonlySet<string> {
+  const native = descriptor.members?.filter(member => member.defaultVisible).map(member => member.id) ?? []
+  const global = document.global[descriptor.id]?.members
+  if (target.kind === 'global-agent') return new Set(global ?? native)
+  return new Set(document.profiles[target.agentProfile]?.[descriptor.id]?.members ?? global ?? native)
+}
+
+function effectiveConfiguration(
+  document: CompositionDocument,
+  target: CapabilityTarget,
+  descriptor: CapabilityDescriptor,
+): Readonly<Record<string, CapabilityConfigValue>> {
+  if (descriptor.customization === undefined) return {}
+  const global = document.global[descriptor.id]?.config ?? {}
+  const profile = target.kind === 'agent-profile'
+    ? document.profiles[target.agentProfile]?.[descriptor.id]?.config ?? {}
+    : {}
+  return { ...descriptor.customization.defaultValues, ...global, ...profile }
+}
+
+function copyMember(member: NonNullable<CapabilityDescriptor['members']>[number]) {
+  return { ...member, requires: [...member.requires] }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(item => typeof item === 'string')
+}
+
+function normalizeConfig(value: unknown): Record<string, CapabilityConfigValue> {
+  if (!isRecord(value)) throw new TypeError('capabilities: stored override config must be an object')
+  const normalized: Record<string, CapabilityConfigValue> = {}
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item !== 'string' && typeof item !== 'number' && typeof item !== 'boolean') {
+      throw new TypeError('capabilities: stored override config must contain JSON primitive values')
+    }
+    normalized[key] = item
+  }
+  return normalized
+}
+
+function normalizeOverride(value: unknown): CapabilityOverride {
+  if (typeof value === 'string') {
+    if (value !== 'load' && value !== 'unload') throw new TypeError('capabilities: stored override has an invalid selection')
+    return { selection: value }
+  }
+  if (!isRecord(value)) throw new TypeError('capabilities: stored override must be an object')
+  const selection = value.selection
+  if (selection !== undefined && selection !== 'load' && selection !== 'unload') {
+    throw new TypeError('capabilities: stored override has an invalid selection')
+  }
+  if (value.members !== undefined && !isStringArray(value.members)) {
+    throw new TypeError('capabilities: stored override members must be an array of stable ids')
+  }
+  return {
+    ...selection === undefined ? {} : { selection },
+    ...value.members === undefined ? {} : { members: [...value.members] },
+    ...value.config === undefined ? {} : { config: normalizeConfig(value.config) },
+  }
+}
+
+function normalizeDocument(document: StoredCompositionDocument): CompositionDocument {
+  return {
+    global: Object.fromEntries(Object.entries(document.global).map(([id, value]) => [id, normalizeOverride(value)])),
+    profiles: Object.fromEntries(Object.entries(document.profiles).map(([profile, values]) => [
+      profile,
+      Object.fromEntries(Object.entries(values).map(([id, value]) => [id, normalizeOverride(value)])),
+    ])),
+  }
+}
+
+function validateConfigurationChange(
+  capabilityId: string,
+  descriptor: CapabilityDescriptor,
+  config: Readonly<Record<string, CapabilityConfigValue>>,
+  blockers: CapabilityPlanBlocker[],
+): void {
+  const fields = new Map(descriptor.customization?.fields.map(field => [field.id, field]) ?? [])
+  for (const [fieldId, value] of Object.entries(config)) {
+    const field = fields.get(fieldId)
+    const valid = field !== undefined && (
+      field.kind === 'text' && typeof value === 'string'
+      || field.kind === 'boolean' && typeof value === 'boolean'
+      || field.kind === 'number' && typeof value === 'number' && Number.isFinite(value)
+    )
+    if (valid) continue
+    blockers.push({
+      code: 'configuration-invalid',
+      capabilityId,
+      dependencyId: fieldId,
+      message: `Capability ${capabilityId} has an invalid value for configuration field ${fieldId}.`,
+    })
+  }
 }
 
 function dependencyBlockers(entries: readonly CapabilityCatalogEntry[]): CapabilityPlanBlocker[] {
@@ -527,6 +742,19 @@ function dependencyBlockers(entries: readonly CapabilityCatalogEntry[]): Capabil
           capabilityId: entry.id,
           dependencyId,
           message: `Capability ${entry.id} requires unloaded capability ${dependencyId}.`,
+        })
+      }
+    }
+    const members = new Map(entry.memberEntries?.map(member => [member.id, member]) ?? [])
+    for (const member of members.values()) {
+      if (!member.visible) continue
+      for (const dependencyId of member.requires) {
+        if (members.get(dependencyId)?.visible === true) continue
+        blockers.push({
+          code: 'required-member-hidden',
+          capabilityId: entry.id,
+          dependencyId,
+          message: `Capability ${entry.id} member ${member.id} requires hidden member ${dependencyId}.`,
         })
       }
     }

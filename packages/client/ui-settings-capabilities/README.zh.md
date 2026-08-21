@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-Web Settings 中本地化的“Profile 组装”tab，以及只读的 Session“能力”视图。Settings tab 仅在挂载后读取 Agent Profile roster 与授权 capability-management Remote。每个 target 都显示同一份部署配方集合；用户可为 Tool、Skill、MCP-server 与 Subagent-provider entry 暂存 `inherit`、`load` 或 `unload` 值。Profile 行会显示其继承的全局有效选择。
+Web Settings 中本地化的“Profile 组装”tab，以及只读的 Session“能力”视图。每个 target 都显示同一份带产品说明的部署配方集合；用户可暂存 `inherit`、`load` 或 `unload`，展开多成员配方选择不可修改定义的内置 Tool／Skill／MCP allowlist，并且只编辑 Persona 文本、运行时上下文策略等由 owner 声明的 Profile 安全配置字段。
 
-修改选择控件时不会写入任何内容。“预览影响”把完整 draft 发送给 Host planner，并呈现显式操作及自动加入的依赖操作。“保存组装清单”只有在返回 plan 没有阻止项时才可用，提交内容仅为 plan id 与预期 revision。Session 视图显示不可变 Profile generation，以及每项配方的已加载、未加载、加载失败、依赖阻止或安全拒绝结果。
+修改选择、成员或配置控件时不会写入任何内容。“预览影响”把完整 draft 发送给 Host planner，并呈现显式操作及自动加入的依赖操作。“保存组装清单”只有在返回 plan 没有阻止项时才可用，提交内容仅为 plan id 与预期 revision。Session 视图显示不可变 Profile generation、配方状态以及解析后的可见／隐藏成员。
 
 ## Model Experience
 

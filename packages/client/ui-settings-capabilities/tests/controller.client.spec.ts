@@ -84,7 +84,7 @@ function bench(overrides: Partial<CapabilityCompositionWire> = {}) {
       return {
         target: globalTarget,
         revision: 2,
-        values: { 'tool:bash': 'unload' },
+        values: { 'tool:bash': { selection: 'unload' } },
       }
     },
     ...overrides,
@@ -111,11 +111,35 @@ describe('CapabilityCompositionController', () => {
     await controller.selectTarget(profileTarget('minimal'))
     controller.setSelection('tool:bash', 'unload')
 
-    expect(controller.store.getSnapshot().draft).toEqual({ 'tool:bash': 'unload' })
+    expect(controller.store.getSnapshot().draft).toEqual({ 'tool:bash': { selection: 'unload' } })
     expect(controller.store.getSnapshot().plan).toBeNull()
     controller.discard()
     expect(controller.store.getSnapshot().draft).toEqual({})
     expect(calls.apply).toEqual([])
+  })
+
+  it('stages member and configuration changes without changing load selection', async () => {
+    const baseCatalog = catalog(globalTarget)
+    const customCatalog: CapabilityCatalogSnapshot = {
+      ...baseCatalog,
+      entries: [{
+        ...baseCatalog.entries[0]!,
+        members: [{ id: 'tool:bash/tool:run', kind: 'tool', name: 'run', description: 'Run.', defaultVisible: true, available: true, requires: [] }],
+        memberSelection: 'inherit',
+        memberEntries: [{ id: 'tool:bash/tool:run', kind: 'tool', name: 'run', description: 'Run.', defaultVisible: true, available: true, requires: [], visible: true }],
+        customization: { fields: [{ id: 'text', kind: 'text', name: 'Text', description: 'Text.' }], defaultValues: { text: 'default' } },
+        configOverrides: {},
+        effectiveConfig: { text: 'default' },
+      }, ...baseCatalog.entries.slice(1)],
+    }
+    const { controller } = bench({ catalog: vi.fn(async () => customCatalog) })
+    await controller.load()
+    controller.setMembers('tool:bash', [])
+    controller.setConfig('tool:bash', { text: 'custom' })
+
+    expect(controller.store.getSnapshot().draft).toEqual({
+      'tool:bash': { members: [], config: { text: 'custom' } },
+    })
   })
 
   it('previews blockers and refuses to apply a blocked plan', async () => {

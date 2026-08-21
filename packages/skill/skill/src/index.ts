@@ -12,7 +12,7 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import { assertNever } from '@deepseek-ai/dsh-llm'
-import { NamedEntries, ScopedLayers, scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
+import { AnonymousEntries, NamedEntries, ScopedLayers, scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, ScopeLayer } from '@deepseek-ai/dsh-scope'
 import z from '@deepseek-ai/schemastery'
 import type Schema from '@deepseek-ai/schemastery'
@@ -236,6 +236,18 @@ export interface SkillCatalogSnapshot {
   readonly complete: boolean
 }
 
+/** Per-scope allowlist over inherited Skill catalog entries. */
+export interface SkillRestriction {
+  readonly allow: readonly string[]
+  /** Also filter skills contributed by the restriction's exact scope. */
+  readonly includeOwn?: true
+}
+
+interface CompiledSkillRestriction {
+  readonly allow: ReadonlySet<string>
+  readonly includeOwn: boolean
+}
+
 /** Provider candidates plus whether the current discovery is authoritative. */
 export interface SkillProviderObservation {
   /** Candidates available from the current provider discovery. */
@@ -330,6 +342,7 @@ class SkillLayer implements ScopeLayer {
   readonly providers: NamedEntries<RegisteredProvider>
   /** Runtime skills registered through contexts carrying this scope. */
   readonly runtime = new Map<string, SkillDefinition>()
+  readonly restrictions = new AnonymousEntries<CompiledSkillRestriction>()
 
   constructor(scope: ScopeKey | undefined) {
     this.providers = new NamedEntries(name => new Error(scope === undefined
@@ -339,7 +352,15 @@ class SkillLayer implements ScopeLayer {
 
   /** Whether every contribution table in this aggregate layer is empty. */
   isEmpty(): boolean {
-    return this.providers.isEmpty() && this.runtime.size === 0
+    return this.providers.isEmpty() && this.runtime.size === 0 && this.restrictions.isEmpty()
+  }
+
+  admits(name: string, own: boolean): boolean {
+    for (const restriction of this.restrictions.values()) {
+      if (own && !restriction.includeOwn) continue
+      if (!restriction.allow.has(name)) return false
+    }
+    return true
   }
 }
 
@@ -461,6 +482,29 @@ export class SkillRegistry extends Service {
   }
 
   /**
+   * Restrict Skill discovery and loading for the calling scoped context.
+   * @param filter - immutable Skill-name allowlist and whether it also filters the current layer.
+   * @returns effect disposer that removes the scoped restriction.
+   */
+  restrict(filter: SkillRestriction): () => void {
+    if (scopeOf(this.ctx) === undefined) {
+      throw new Error('skills.restrict() requires a scoped context')
+    }
+    for (const name of filter.allow) {
+      if (!isSkillName(name)) throw new Error(`skills.restrict() received invalid skill name ${JSON.stringify(name)}`)
+    }
+    const compiled: CompiledSkillRestriction = {
+      allow: new Set(filter.allow),
+      includeOwn: filter.includeOwn === true,
+    }
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.restrictions.append(compiled),
+      { label: 'skills.restrict()' },
+    )
+  }
+
+  /**
    * List invocation-neutral skill summaries for a workspace. Consumers apply
    * model or user invocation policy at their operational boundary. Lookup
    * options and provider candidates are readonly same-process values borrowed
@@ -561,6 +605,9 @@ export class SkillRegistry extends Service {
       const collected = await this.collectLayer(layer, options)
       if (!collected.cacheable) cacheable = false
       for (const entry of collected.entries) merged.set(entry.candidate.name, entry)
+    }
+    for (const [name, entry] of merged) {
+      if (!layers.every(layer => layer.admits(name, entry.layer === layer))) merged.delete(name)
     }
     return { entries: merged, cacheable }
   }

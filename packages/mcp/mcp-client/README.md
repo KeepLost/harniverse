@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 MCP client bridge plugin: connects to external [Model Context Protocol](https://modelcontextprotocol.io/) servers and registers their tools on `ctx.tools`, making them available to the model as native tools under server-qualified names (`mcp__<serverName>__<rawName>`).
 
-When `ctx.capabilities` is composed, the instance also registers one effect-owned `mcp-server` descriptor in the calling scope. The descriptor exposes only stable server identity, connection availability, and tool topology; command arguments, environment, headers, credentials, and arbitrary server metadata remain private. Every composition target sees the same deployment catalog. Unloading a Host-shared server from a Profile hides all of its current and subsequently discovered tools there without disconnecting the shared server process; a Profile-owned MCP row can instead be physically selected by the Profile recipe compiler.
+When `ctx.capabilities` is composed, the instance also registers one effect-owned `mcp-server` descriptor with one immutable member per currently discovered public tool. Command arguments, environment, headers, credentials, and arbitrary server metadata remain private. A Profile may unload the server or retain an explicit member allowlist; refreshed generations apply the same policy to subsequently discovered tools without disconnecting the Host-shared server process. A Profile-owned MCP row can instead be physically selected by the Profile recipe compiler.
 
 ## Usage
 

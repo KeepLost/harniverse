@@ -5,6 +5,7 @@ import type {
   CapabilityPlan,
   CapabilityCompositionChange,
   CapabilityCompositionSnapshot,
+  CapabilityConfigValue,
   CapabilityTarget,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
@@ -34,7 +35,7 @@ export interface CapabilityCompositionState {
   readonly profiles: readonly CapabilityProfileOption[]
   readonly target: CapabilityTarget
   readonly catalog: CapabilityCatalogSnapshot | null
-  readonly draft: Readonly<Record<string, 'inherit' | 'load' | 'unload'>>
+  readonly draft: Readonly<Record<string, Omit<CapabilityCompositionChange, 'capabilityId'>>>
   readonly plan: CapabilityPlan | null
   readonly planning: boolean
   readonly applying: boolean
@@ -128,10 +129,46 @@ export class CapabilityCompositionController {
   setSelection(capabilityId: string, selection: 'inherit' | 'load' | 'unload'): void {
     const state = this.store.getSnapshot()
     const entry = state.catalog?.entries.find(candidate => candidate.id === capabilityId)
-    if (entry?.manageable !== true || state.planning || state.applying) return
+    if (entry?.manageable !== true || entry.selectionManageable === false || state.planning || state.applying) return
     const draft = { ...state.draft }
-    if (entry.selection === selection) Reflect.deleteProperty(draft, capabilityId)
-    else draft[capabilityId] = selection
+    const current = { ...draft[capabilityId] }
+    if (entry.selection === selection) Reflect.deleteProperty(current, 'selection')
+    else current.selection = selection
+    setDraftEntry(draft, capabilityId, current)
+    this.set({ draft, plan: null, error: null })
+  }
+
+  /**
+   * Stage an explicit member allowlist, or restore inherited membership.
+   * @param capabilityId - stable capability identity from the current catalog.
+   * @param members - stable member ids, or inherit to remove the target override.
+   */
+  setMembers(capabilityId: string, members: 'inherit' | readonly string[]): void {
+    const state = this.store.getSnapshot()
+    const entry = state.catalog?.entries.find(candidate => candidate.id === capabilityId)
+    if (entry?.manageable !== true || entry.memberEntries === undefined || state.planning || state.applying) return
+    const draft = { ...state.draft }
+    const current = { ...draft[capabilityId] }
+    if (members === 'inherit' && entry.memberSelection === 'inherit') Reflect.deleteProperty(current, 'members')
+    else current.members = members
+    setDraftEntry(draft, capabilityId, current)
+    this.set({ draft, plan: null, error: null })
+  }
+
+  /**
+   * Stage Profile-safe configuration fields, or restore inherited values.
+   * @param capabilityId - stable capability identity from the current catalog.
+   * @param config - owner-declared field values, or inherit to remove the target override.
+   */
+  setConfig(capabilityId: string, config: 'inherit' | Readonly<Record<string, CapabilityConfigValue>>): void {
+    const state = this.store.getSnapshot()
+    const entry = state.catalog?.entries.find(candidate => candidate.id === capabilityId)
+    if (entry?.manageable !== true || entry.customization === undefined || state.planning || state.applying) return
+    const draft = { ...state.draft }
+    const current = { ...draft[capabilityId] }
+    if (config === 'inherit' && Object.keys(entry.configOverrides ?? {}).length === 0) Reflect.deleteProperty(current, 'config')
+    else current.config = config
+    setDraftEntry(draft, capabilityId, current)
     this.set({ draft, plan: null, error: null })
   }
 
@@ -146,7 +183,7 @@ export class CapabilityCompositionController {
   async preview(): Promise<void> {
     const state = this.store.getSnapshot()
     if (state.catalog === null || state.planning || state.applying) return
-    const changes = Object.entries(state.draft).map(([capabilityId, selection]) => ({ capabilityId, selection }))
+    const changes = Object.entries(state.draft).map(([capabilityId, change]) => ({ capabilityId, ...change }))
     if (changes.length === 0) return
     this.set({ planning: true, plan: null, error: null })
     try {
@@ -181,4 +218,13 @@ export class CapabilityCompositionController {
       this.set({ status: 'error', applying: false, error: messageOf(error), catalog: null })
     }
   }
+}
+
+function setDraftEntry(
+  draft: Record<string, Omit<CapabilityCompositionChange, 'capabilityId'>>,
+  capabilityId: string,
+  change: Omit<CapabilityCompositionChange, 'capabilityId'>,
+): void {
+  if (Object.keys(change).length === 0) Reflect.deleteProperty(draft, capabilityId)
+  else draft[capabilityId] = change
 }

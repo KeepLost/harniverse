@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Capabilities, { type CapabilityCatalogSnapshot, type CapabilityDescriptor } from '@deepseek-ai/dsh-capabilities'
+import { createScope } from '@deepseek-ai/dsh-scope'
 import { SettingsProvider, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
+import SkillRegistry from '@deepseek-ai/dsh-skill'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 import CapabilityManagementGateway from '../src/index.ts'
 
@@ -39,6 +43,9 @@ async function harness() {
   const ctx = new Context()
   contexts.push(ctx)
   await ctx.plugin(MemorySettings)
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(SkillRegistry)
   await ctx.plugin(SubagentRuntime)
   await ctx.plugin(Capabilities)
   let standingReads = 0
@@ -53,10 +60,32 @@ async function harness() {
   ctx.provide('agentPresets', {
     list: () => Promise.resolve([{ id: 'standard' }, { id: 'minimal' }]),
     standingKeyFor: () => { standingReads += 1; return Promise.resolve({}) },
-    capabilityRecipes: (id?: string) => Promise.resolve([
-      recipe('profile-tool', id === undefined || id === 'standard'),
-      recipe('minimal-tool', id === undefined || id === 'minimal'),
-    ]),
+    capabilityCatalog: (id?: string) => Promise.resolve({
+      descriptors: [{
+        ...recipe('profile-tool', id === undefined || id === 'standard'),
+        members: ['read', 'write'].map(name => ({
+          id: `plugin:profile-tool/tool:${name}`,
+          kind: 'tool' as const,
+          name,
+          description: `${name} files`,
+          defaultVisible: true,
+          available: true,
+          requires: [],
+        })),
+      }, {
+        ...recipe('minimal-tool', id === undefined || id === 'minimal'),
+        members: [{
+          id: 'plugin:minimal-tool/tool:read',
+          kind: 'tool' as const,
+          name: 'read',
+          description: 'alternate read provider',
+          defaultVisible: true,
+          available: true,
+          requires: [],
+        }],
+      }],
+      recipes: new Map(),
+    }),
     compositionRuntime: () => ({ agentProfile: 'standard', generation: 'standard@2', capabilities: runtimeCapabilities }),
   })
   ctx.provide('agents', { get: () => runtimeAgent })
@@ -93,7 +122,7 @@ describe('CapabilityManagementGateway', () => {
     ], catalog.revision)
     expect(plan.blockers).toEqual([])
     const applied = await gateway.apply(plan.id, catalog.revision)
-    expect(applied.values).toEqual({ 'plugin:profile-tool': 'unload' })
+    expect(applied.values).toEqual({ 'plugin:profile-tool': { selection: 'unload' } })
     await expect(gateway.apply(plan.id, catalog.revision)).rejects.toThrow(/expired/)
   })
 
@@ -111,6 +140,34 @@ describe('CapabilityManagementGateway', () => {
     expect(minimal.entries.find(entry => entry.id === 'plugin:profile-tool')).toMatchObject({ assembleable: true, selected: false })
     expect(minimal.entries.find(entry => entry.id === 'plugin:minimal-tool')).toMatchObject({ assembleable: true, selected: true })
     expect(standingReads()).toBe(0)
+  })
+
+  it('enforces a Profile member allowlist through the native Tool registry', async () => {
+    const { ctx, gateway } = await harness()
+    for (const name of ['read', 'write']) {
+      ctx.tools.register({
+        name,
+        description: `${name} files`,
+        parameters: { type: 'object' },
+        output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value as string }] },
+        execute: async () => name,
+      })
+    }
+    const target = { kind: 'agent-profile', agentProfile: 'standard' } as const
+    const catalog = await gateway.catalog(target)
+    const capability = catalog.entries.find(entry => entry.id === 'plugin:profile-tool')
+    if (capability === undefined) throw new Error('profile-tool capability must exist')
+    const read = capability.memberEntries?.find(member => member.name === 'read')
+    if (read === undefined) throw new Error('profile-tool read member must exist')
+    const plan = await gateway.plan(target, [{ capabilityId: capability.id, members: [read.id] }], catalog.revision)
+    await gateway.apply(plan.id, catalog.revision)
+    const standingKey = { profile: 'standard' }
+    const standing = createScope(ctx, standingKey)
+    ctx.capabilities.mountComposition(standing.ctx, (await gateway.catalog(target)).entries)
+
+    expect(ctx.tools.schemas(standingKey).map(tool => tool.name)).toContain('read')
+    expect(ctx.tools.schemas(standingKey).map(tool => tool.name)).not.toContain('write')
+    await standing.dispose()
   })
 
   it('returns the immutable assembly result for a live Session generation', async () => {

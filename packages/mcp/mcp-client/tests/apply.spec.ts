@@ -230,6 +230,38 @@ describe('apply (plugin lifecycle)', () => {
     await managed.fiber.dispose()
   })
 
+  it('lets a Profile expose only selected tools from a shared MCP server', async () => {
+    mockListTools.mockResolvedValue({
+      tools: [
+        { name: 'read', description: 'Read', inputSchema: { type: 'object' } },
+        { name: 'write', description: 'Write', inputSchema: { type: 'object' } },
+      ],
+      nextCursor: undefined,
+    })
+    const managed = await mountCapabilityRegistry()
+    await apply(managed, stdioConfig)
+    const standingKey = { profile: 'selected-tools' }
+    const standing = createScope(managed, standingKey)
+    const target = { kind: 'agent-profile', agentProfile: 'selected-tools' } as const
+    const view = { scope: standingKey }
+    const catalog = await managed.capabilities.snapshot(target, view)
+    const server = catalog.entries.find(entry => entry.kind === 'mcp-server')!
+    const read = server.memberEntries?.find(member => member.name === 'mcp__srv__read')
+    expect(server.memberEntries?.map(member => member.name)).toEqual(['mcp__srv__read', 'mcp__srv__write'])
+
+    const plan = await managed.capabilities.plan(target, [{
+      capabilityId: server.id,
+      members: [read!.id],
+    }], catalog.revision, view)
+    expect(plan.blockers).toEqual([])
+    await managed.capabilities.apply(plan.id, catalog.revision)
+    managed.capabilities.mountComposition(standing.ctx, (await managed.capabilities.snapshot(target, view)).entries)
+
+    expect(managed.tools.schemas(standingKey).map(tool => tool.name)).toContain('mcp__srv__read')
+    expect(managed.tools.schemas(standingKey).map(tool => tool.name)).not.toContain('mcp__srv__write')
+    await managed.fiber.dispose()
+  })
+
   it('keeps the Cordis plugin loading until initial discovery publishes its tools', async () => {
     const connection: PromiseWithResolvers<void> = Promise.withResolvers()
     mockConnect.mockImplementation(async () => {

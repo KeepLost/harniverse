@@ -4,7 +4,7 @@
 
 Agent Profile 组装的授权 Host 投影。`CapabilityManagementGateway` 注册静态 Profile 配方与 Host Subagent-provider adapter，并通过生成的 Typert Remote 暴露 `catalog`、`plan`、`apply` 以及在线 Session 的 `session` 读取。目录与 Session 读取需要 `harniverse.observe`；规划与应用需要 `harniverse.administer`。
 
-目录读取会解析健康 Profile 的 YAML 文件，不会挂载它们。每个 target 获得同一份部署级顶层配方集合，而各 Profile 的源行提供原生加载默认值。Planner 生成受 revision 约束的加载／卸载操作与依赖阻止项。Session endpoint 返回发布前捕获的不可变 generation id，以及已加载、未加载、加载失败、依赖阻止或安全拒绝结果。
+目录读取会解析健康 Profile 的 YAML 文件，并按目标 Profile 行的原生根发现文件系统 Skill，不会挂载 Profile。每个 target 获得同一份部署级顶层配方集合，而各 Profile 的源行提供原生选择、成员与配置默认值。Planner 生成受 revision 约束的选择、成员 allowlist、类型化配置操作与依赖阻止项。Session endpoint 返回发布前捕获的不可变 generation id、解析成员，以及已加载、未加载、加载失败、依赖阻止或安全拒绝结果。
 
 ## Model Experience
 

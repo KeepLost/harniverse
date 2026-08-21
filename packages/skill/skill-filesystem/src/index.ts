@@ -142,6 +142,33 @@ export function apply(ctx: Context, config: Config = {}): void {
   })
 }
 
+/**
+ * Discover the default filesystem Skill catalog without registering a provider or watcher.
+ * @param ctx - context providing optional filesystem access and path policy.
+ * @param cwd - workspace used to resolve project-local Skill roots.
+ * @param config - filesystem provider roots with watching forcibly disabled.
+ * @returns discovered Skill candidates in normal provider precedence order.
+ */
+export async function discoverFileSystemSkills(
+  ctx: Context,
+  cwd: string | undefined,
+  config: Config = {},
+): Promise<readonly SkillCandidate[]> {
+  const lifecycle = new AbortController()
+  const discoveryConfig = Object.assign({}, config, { watch: false })
+  const provider = new FileSystemSkillProvider(ctx, {
+    signal: lifecycle.signal,
+    invalidate: () => {},
+  }, discoveryConfig)
+  try {
+    const observation = await provider.list({ cwd })
+    return Array.isArray(observation) ? observation : observation.candidates
+  } finally {
+    lifecycle.abort()
+    await provider.dispose()
+  }
+}
+
 /** Provider that maps local project/user skill roots into `ctx.skills`. */
 export class FileSystemSkillProvider implements SkillProvider {
   readonly name: string

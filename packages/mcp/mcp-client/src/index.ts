@@ -198,18 +198,30 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
             manageable: true,
             owner: '@deepseek-ai/dsh-mcp-client',
             requires: [],
+            members: connection.toolNames().map(name => ({
+              id: `${capabilityId}/mcp-tool:${Buffer.from(name).toString('hex')}`,
+              kind: 'mcp-tool' as const,
+              name,
+              description: `MCP tool ${name}`,
+              defaultVisible: true,
+              available: true,
+              requires: [],
+            })),
           }],
         }),
-        restrict: (compositionCtx, unloaded) => {
-          if (!unloaded.has(capabilityId)) return
+        restrict: (compositionCtx, entries) => {
+          const entry = entries.find(candidate => candidate.id === capabilityId)
+          if (entry === undefined) return
           const tools = compositionCtx.get('tools')
           if (tools === undefined) return
           let release = (): void => {}
           const refresh = (): void => {
             const names = connection.toolNames()
-            const next = names.length === 0
+            const visible = new Set(entry.memberEntries?.filter(member => member.visible).map(member => member.name) ?? names)
+            const denied = entry.selected ? names.filter(name => !visible.has(name)) : names
+            const next = denied.length === 0
               ? (): void => {}
-              : tools.restrict({ deny: names, includeOwn: true })
+              : tools.restrict({ deny: denied, includeOwn: true })
             const previous = release
             release = next
             previous()

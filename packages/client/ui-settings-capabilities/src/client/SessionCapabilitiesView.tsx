@@ -55,6 +55,16 @@ export function SessionCapabilitiesView(props: SessionCapabilitiesViewProps): Re
             </div>
             <span>{props.t(STATUS_KEYS[entry.status])}</span>
             {entry.reason === undefined ? null : <p>{entry.reason}</p>}
+            {entry.memberEntries === undefined ? null : (
+              <ul className={css.members}>
+                {entry.memberEntries.map(member => (
+                  <li key={member.id}>
+                    <code>{member.name}</code>
+                    <span>{props.t(member.visible ? 'memberVisible' : 'memberHidden')}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
       </ul>

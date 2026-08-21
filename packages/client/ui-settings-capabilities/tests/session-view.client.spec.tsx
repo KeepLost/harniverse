@@ -26,6 +26,9 @@ describe('SessionCapabilitiesView', () => {
         manageable: true,
         owner: '@deepseek-ai/dsh-tool-bash',
         requires: [],
+        members: [{ id: 'plugin:tool-bash/tool:bash', kind: 'tool' as const, name: 'bash', description: 'Run commands.', defaultVisible: true, available: true, requires: [] }],
+        memberSelection: 'custom' as const,
+        memberEntries: [{ id: 'plugin:tool-bash/tool:bash', kind: 'tool' as const, name: 'bash', description: 'Run commands.', defaultVisible: true, available: true, requires: [], visible: false }],
         selection: 'inherit' as const,
         effectiveSelection: 'load' as const,
         selected: true,
@@ -39,5 +42,7 @@ describe('SessionCapabilitiesView', () => {
     expect(await screen.findByText('standard@3')).toBeTruthy()
     expect(screen.getByText(en.statusLoaded)).toBeTruthy()
     expect(screen.getByText('tool-bash')).toBeTruthy()
+    expect(screen.getByText('bash')).toBeTruthy()
+    expect(screen.getByText(en.memberHidden)).toBeTruthy()
   })
 })

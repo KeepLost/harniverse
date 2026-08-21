@@ -23,9 +23,7 @@
 
 import { stat } from 'node:fs/promises'
 import { Context, Service } from '@deepseek-ai/cordis'
-import type {
-  CapabilityCatalogEntry, CapabilityDescriptor, CapabilityRuntimeEntry,
-} from '@deepseek-ai/dsh-capabilities'
+import type { CapabilityCatalogEntry, CapabilityRuntimeEntry } from '@deepseek-ai/dsh-capabilities'
 import z from '@deepseek-ai/schemastery'
 import { bindScopeParent, createScope, scopeOf, type Scope, type ScopeKey } from '@deepseek-ai/dsh-scope'
 // Type-only: resolves the `agent/created` lifecycle event this service watches.
@@ -427,13 +425,13 @@ export class AgentPresets extends Service {
   }
 
   /**
-   * Read assembly recipes without mounting any Profile.
+   * Read native assembly recipes without mounting any Profile.
    * @param id - target Profile whose source rows provide native defaults; omission builds global defaults.
-   * @returns one deployment-wide descriptor set with target-native selections.
+   * @returns deployment-wide descriptors plus Host-only native rows for generation compilation.
    */
-  async capabilityRecipes(id?: string): Promise<readonly CapabilityDescriptor[]> {
+  async capabilityCatalog(id?: string): Promise<PresetCompositionCatalog> {
     if (id !== undefined) await this.resolve(id)
-    return (await readCompositionCatalog(await this.list(), id)).descriptors
+    return readCompositionCatalog(await this.list(), id)
   }
 
   /**
@@ -534,7 +532,7 @@ export class AgentPresets extends Service {
     const target = { kind: 'agent-profile', agentProfile: preset.id } as const
     const snapshot = await capabilities.snapshot(target, { agentProfile: preset.id })
     return {
-      signature: capabilities.selectionSignature(preset.id, snapshot.entries),
+      signature: capabilities.compositionSignature(preset.id, snapshot.entries),
       entries: snapshot.entries,
       patches: compositionPatches(catalog, snapshot.entries),
     }

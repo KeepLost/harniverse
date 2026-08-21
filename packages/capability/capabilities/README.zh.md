@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-通用 Agent Profile 配方目录与组装协调器。原生子系统在 `ctx.capabilities` 上注册 effect-owned adapter；adapter 投影 JSON-safe descriptor，并可把卸载选择应用到 standing Profile generation。配方 descriptor 区分实现是否可组装、当前是否健康、源 Profile 是否默认选择以及是否可管理。
+通用 Agent Profile 配方目录与组装协调器。原生子系统在 `ctx.capabilities` 上注册 effect-owned adapter；adapter 投影 JSON-safe descriptor，并可应用 generation-scoped restriction。配方 descriptor 区分实现是否可组装、当前是否健康、源 Profile 是否默认选择以及是否可管理，还可声明不可修改定义的模型可发现成员和显式的 Profile 安全原始配置契约。
 
-选择持久化在 `capabilities` Settings namespace 中。全局 Agent 值由每个 Profile 继承，Profile 显式值优先，省略时回退到 Profile YAML 的原生加载状态。`plan()` 按精确的组装与拓扑 revision 校验事务，自动加载声明的硬依赖，拒绝未知、不可管理、不可组装或破坏依赖的变更，并保留不可变 dry-run。`apply()` 只接受未变化且无阻止项的 plan。`dsh-agent-presets` 在创建下一个 standing generation 时把结果编译为原生 Loader patch。
+结构化覆盖持久化在 `capabilities` Settings namespace 中，包括加载选择、可选成员 allowlist 和 owner 声明的配置字段。全局 Agent 值由每个 Profile 继承，Profile 显式值优先，省略时回退到 Profile 原生值。`plan()` 在保留不可变 dry-run 前校验 id、字段类型、硬依赖以及精确的组装／拓扑 revision；`apply()` 只接受未变化且无阻止项的 plan。`dsh-agent-presets` 把选择与配置编译为原生 Loader patch，各 adapter 则在下一个 standing generation 启动时强制 Tool、Skill、MCP 与 provider 成员限制。
 
 ## Model Experience
 

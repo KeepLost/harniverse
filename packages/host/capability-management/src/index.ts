@@ -1,10 +1,12 @@
 /** Authorized capability management and native Harness adapters. */
 
+import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {
   CapabilityCatalogSnapshot,
+  CapabilityCatalogEntry,
   CapabilityCompositionChange,
   CapabilityCompositionSnapshot,
   CapabilityPlan,
@@ -12,7 +14,10 @@ import type {
   CapabilityTarget,
   CapabilityView,
 } from '@deepseek-ai/dsh-capabilities'
+import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-skill'
+import { discoverFileSystemSkills, type Config as FileSystemSkillConfig } from '@deepseek-ai/dsh-skill-filesystem'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from 'zod'
@@ -21,7 +26,7 @@ export type * from './types.ts'
 
 /** Authorized Remote over static Profile recipes and immutable Session assembly results. */
 export class CapabilityManagementGateway extends TypertRemoteService {
-  static inject = ['capabilities', 'agentPresets', 'agents', 'subagents']
+  static inject = ['capabilities', 'agentPresets', 'agents', 'subagents', 'skills']
 
   constructor(ctx: Context) {
     super(ctx, 'capabilityManagement')
@@ -87,13 +92,12 @@ export class CapabilityManagementGateway extends TypertRemoteService {
   }
 
   private registerAdapters(ctx: Context): void {
-    ctx.capabilities.registerAdapter(() => {
+    ctx.capabilities.registerAdapter((control) => {
+      ctx.on('skills/change', () => { control.invalidate() })
       return {
         id: 'agent-profile-recipes',
-        snapshot: async view => ({
-          entries: await ctx.agentPresets.capabilityRecipes(view.agentProfile),
-          complete: true,
-        }),
+        snapshot: async view => ({ entries: await recipeDescriptors(ctx, view), complete: true }),
+        restrict: (compositionCtx, entries) => { restrictRecipeMembers(compositionCtx, entries) },
       }
     })
     ctx.capabilities.registerAdapter((control) => {
@@ -112,6 +116,87 @@ export class CapabilityManagementGateway extends TypertRemoteService {
       ...target.kind === 'agent-profile' ? { agentProfile: target.agentProfile } : {},
     }
   }
+}
+
+function restrictRecipeMembers(ctx: Context, entries: readonly CapabilityCatalogEntry[]): void {
+  const tools = ctx.get('tools')
+  const scope = scopeOf(ctx)
+  if (tools === undefined || scope === undefined) return
+  const known = new Set(tools.schemas(scope).map(tool => tool.name))
+  const visibleByName = new Map<string, boolean>()
+  for (const entry of entries) {
+    if (!entry.id.startsWith('plugin:')) continue
+    for (const member of entry.memberEntries ?? []) {
+      visibleByName.set(member.name, (visibleByName.get(member.name) ?? false) || entry.selected && member.visible)
+    }
+  }
+  const denied = [...visibleByName].filter(([name, visible]) => !visible && known.has(name)).map(([name]) => name)
+  if (denied.length > 0) tools.restrict({ deny: denied, includeOwn: true })
+  const skillEntry = entries.find(entry => entry.id === 'plugin:skill-filesystem')
+  const skills = ctx.get('skills')
+  if (skills !== undefined && skillEntry?.selected === true && skillEntry.memberSelection === 'custom') {
+    skills.restrict({
+      allow: skillEntry.memberEntries?.filter(member => member.visible).map(member => member.name) ?? [],
+      includeOwn: true,
+    })
+  }
+}
+
+async function recipeDescriptors(ctx: Context, view: CapabilityView) {
+  const catalog = await ctx.agentPresets.capabilityCatalog(view.agentProfile)
+  const skillRecipe = catalog.recipes.get('plugin:skill-filesystem')
+  const skillSource = skillRecipe?.source ?? skillRecipe?.canonical
+  const skillBaseUrl = skillRecipe?.source === undefined ? skillRecipe?.canonicalBaseUrl : skillRecipe.sourceBaseUrl
+  const discovered = await discoverFileSystemSkills(
+    ctx,
+    view.cwd,
+    fileSystemSkillConfig(skillSource?.config, skillBaseUrl),
+  )
+  const skills = new Map<string, (typeof discovered)[number]>()
+  for (const skill of [...discovered].sort((left, right) => left.rank - right.rank)) {
+    if (!skills.has(skill.name)) skills.set(skill.name, skill)
+  }
+  return catalog.descriptors.map((descriptor) => {
+    if (descriptor.id !== 'plugin:skill-filesystem') return descriptor
+    return {
+      ...descriptor,
+      members: [...skills.values()].sort((left, right) => left.name.localeCompare(right.name)).map(skill => ({
+        id: `${descriptor.id}/skill:${skill.name}`,
+        kind: 'skill' as const,
+        name: skill.name,
+        description: skill.description,
+        defaultVisible: skill.invocation.modelInvocable,
+        available: true,
+        requires: [],
+      })),
+    }
+  })
+}
+
+function fileSystemSkillConfig(value: unknown, baseUrl: string | undefined): FileSystemSkillConfig {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return {}
+  const source = value as Record<string, unknown>
+  return {
+    ...typeof source.providerName === 'string' ? { providerName: source.providerName } : {},
+    ...typeof source.includeDefaultRoots === 'boolean' ? { includeDefaultRoots: source.includeDefaultRoots } : {},
+    ...typeof source.dshHome === 'string' ? { dshHome: source.dshHome } : {},
+    ...typeof source.agentsHome === 'string' ? { agentsHome: source.agentsHome } : {},
+    ...Array.isArray(source.customSkillDirs)
+      ? { customSkillDirs: source.customSkillDirs.flatMap(item => staticSkillDirectory(item, baseUrl)) }
+      : {},
+    ...typeof source.bundledSkillDir === 'string' ? { bundledSkillDir: source.bundledSkillDir } : {},
+  }
+}
+
+function staticSkillDirectory(value: unknown, baseUrl: string | undefined): string[] {
+  if (typeof value === 'string') return [value]
+  if (baseUrl === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) return []
+  const expression = (value as Record<string, unknown>).__jsExpr
+  if (typeof expression !== 'string') return []
+  const match = /^process\.getBuiltinModule\((['"])node:url\1\)\.fileURLToPath\(new URL\((['"])([^'"]+)\2, baseUrl\)\)$/.exec(expression)
+  if (match?.[3] === undefined) return []
+  const resolved = new URL(match[3], baseUrl)
+  return resolved.protocol === 'file:' ? [fileURLToPath(resolved)] : []
 }
 
 function subagentDescriptors(ctx: Context) {

@@ -521,11 +521,11 @@ async remove(id: string): Promise<void>
 serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined
 
 /**
- * Read assembly recipes without mounting any Profile.
+ * Read native assembly recipes without mounting any Profile.
  * @param id - target Profile whose source rows provide native defaults; omission builds global defaults.
- * @returns one deployment-wide descriptor set with target-native selections.
+ * @returns deployment-wide descriptors plus Host-only native rows for generation compilation.
  */
-async capabilityRecipes(id?: string): Promise<readonly CapabilityDescriptor[]>
+async capabilityCatalog(id?: string): Promise<PresetCompositionCatalog>
 
 /**
  * Runtime assembly captured by the immutable generation one Agent joined.
@@ -548,9 +548,9 @@ compositionRuntime(agentCtx: Context): { readonly agentProfile: string readonly 
 async standingKeyFor(id?: string): Promise<ScopeKey>
 ```
 
-Types: [CapabilityDescriptor](capabilities.md) · [CapabilityRuntimeEntry](capabilities.md) · [ScopeKey](scope.md)
+Types: [CapabilityRuntimeEntry](capabilities.md) · [PresetCompositionCatalog](capabilities.md) · [ScopeKey](scope.md)
 
-Source: [`packages/preset/agent-presets/src/index.ts:91`](../../packages/preset/agent-presets/src/index.ts)
+Source: [`packages/preset/agent-presets/src/index.ts:89`](../../packages/preset/agent-presets/src/index.ts)
 
 <a id="ctxagents--agentregistry"></a>
 

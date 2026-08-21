@@ -194,10 +194,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the agent\'s instance, or undefined when its preset mounts none.',
       },
       {
-        signature: 'async capabilityRecipes(id?: string): Promise<readonly CapabilityDescriptor[]>',
-        description: 'Read assembly recipes without mounting any Profile.',
+        signature: 'async capabilityCatalog(id?: string): Promise<PresetCompositionCatalog>',
+        description: 'Read native assembly recipes without mounting any Profile.',
         parameters: [{ name: 'id', description: 'target Profile whose source rows provide native defaults; omission builds global defaults.' }],
-        returns: 'one deployment-wide descriptor set with target-native selections.',
+        returns: 'deployment-wide descriptors plus Host-only native rows for generation compilation.',
       },
       {
         signature: 'compositionRuntime(agentCtx: Context): { readonly agentProfile: string readonly generation?: string readonly capabilities: readonly CapabilityRuntimeEntry[] } | undefined',
@@ -507,27 +507,27 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'explicit values with the current Settings revision.',
       },
       {
-        signature: 'selectionSignature(agentProfile: string, descriptors: readonly CapabilityDescriptor[]): string',
-        description: 'Build the stable effective selection identity included in a Profile generation stamp.',
+        signature: 'compositionSignature(agentProfile: string, descriptors: readonly CapabilityDescriptor[]): string',
+        description: 'Build the stable effective assembly identity included in a Profile generation stamp.',
         parameters: [{ name: 'agentProfile', description: 'Profile whose inherited and explicit values are resolved.' }, { name: 'descriptors', description: 'complete recipe and runtime adapter snapshot for this generation.' }],
-        returns: 'sorted JSON identity of the effective composition.',
+        returns: 'sorted JSON identity of selection, visible members, and resolved configuration.',
       },
       {
         signature: 'mountComposition(ctx: Context, entries: readonly CapabilityCatalogEntry[]): void',
-        description: 'Apply current effective unloads through every visible native adapter in a standing Profile scope.',
+        description: 'Apply current selection and member restrictions through every visible native adapter.',
         parameters: [{ name: 'ctx', description: 'scoped standing Profile context that owns the restrictions.' }, { name: 'entries', description: 'immutable selections resolved for this generation.' }],
       },
       {
         signature: 'async plan( target: CapabilityTarget, changes: readonly CapabilityCompositionChange[], expectedRevision: number, view: CapabilityView = {}, ): Promise<CapabilityPlan>',
         description: 'Build and retain one dry-run against exact composition and topology revisions.',
-        parameters: [{ name: 'target', description: 'composition target edited by the transaction.' }, { name: 'changes', description: 'staged explicit load, unload, or inherit values.' }, { name: 'expectedRevision', description: 'Settings revision the editor observed.' }, { name: 'view', description: 'native registry scopes and workspace used by adapters.' }],
+        parameters: [{ name: 'target', description: 'composition target edited by the transaction.' }, { name: 'changes', description: 'staged selection, member allowlist, and typed configuration overrides.' }, { name: 'expectedRevision', description: 'Settings revision the editor observed.' }, { name: 'view', description: 'native registry scopes and workspace used by adapters.' }],
         returns: 'immutable plan with operations, blockers, and resulting catalog.',
       },
       {
         signature: 'async apply(planId: string, expectedRevision: number): Promise<CapabilityCompositionSnapshot>',
         description: 'Commit one previously planned composition transaction.',
         parameters: [{ name: 'planId', description: 'retained plan identity returned by {@link plan}.' }, { name: 'expectedRevision', description: 'Settings revision the plan observed.' }],
-        returns: 'committed explicit selection values and new revision.',
+        returns: 'committed explicit assembly overrides and new revision.',
       },
     ],
   },
@@ -1782,6 +1782,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Register a borrowed readonly runtime skill into the calling context\'s layer. Project entries outrank runtime entries, which outrank user entries, within one layer. Same-name runtime entries in one layer are first-wins; a duplicate logs a warning and receives a no-op disposer so it cannot remove the winner.',
         parameters: [{ name: 'skill', description: 'the skill definition input; omitted invocation and provider fields receive defaults.' }],
         returns: 'the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.',
+      },
+      {
+        signature: 'restrict(filter: SkillRestriction): () => void',
+        description: 'Restrict Skill discovery and loading for the calling scoped context.',
+        parameters: [{ name: 'filter', description: 'immutable Skill-name allowlist and whether it also filters the current layer.' }],
+        returns: 'effect disposer that removes the scoped restriction.',
       },
       {
         signature: 'async list(options: SkillViewOptions = {}): Promise<SkillSummary[]>',
@@ -3200,7 +3206,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CapabilityAdapter',
-    declaration: 'export interface CapabilityAdapter {\n    readonly id: string;\n    snapshot(view: CapabilityView): Promise<CapabilityObservation> | CapabilityObservation;\n    restrict?(ctx: Context, unloaded: ReadonlySet<string>): void;\n}',
+    declaration: 'export interface CapabilityAdapter {\n    readonly id: string;\n    snapshot(view: CapabilityView): Promise<CapabilityObservation> | CapabilityObservation;\n    restrict?(ctx: Context, entries: readonly CapabilityCatalogEntry[]): void;\n}',
   },
   {
     name: 'CapabilityAdapterControl',
@@ -3208,7 +3214,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CapabilityCatalogEntry',
-    declaration: 'export interface CapabilityCatalogEntry extends CapabilityDescriptor {\n    readonly selection: \'inherit\' | CapabilitySelectionValue;\n    readonly effectiveSelection: CapabilitySelectionValue;\n    readonly selected: boolean;\n}',
+    declaration: 'export interface CapabilityCatalogEntry extends CapabilityDescriptor {\n    readonly selection: \'inherit\' | CapabilitySelectionValue;\n    readonly effectiveSelection: CapabilitySelectionValue;\n    readonly selected: boolean;\n    readonly memberSelection?: \'inherit\' | \'custom\';\n    readonly memberEntries?: readonly CapabilityMemberCatalogEntry[];\n    readonly configOverrides?: Readonly<Record<string, CapabilityConfigValue>>;\n    readonly effectiveConfig?: Readonly<Record<string, CapabilityConfigValue>>;\n}',
   },
   {
     name: 'CapabilityCatalogSnapshot',
@@ -3216,23 +3222,47 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CapabilityCompositionChange',
-    declaration: 'export interface CapabilityCompositionChange {\n    readonly capabilityId: string;\n    readonly selection: \'inherit\' | CapabilitySelectionValue;\n}',
+    declaration: 'export interface CapabilityCompositionChange {\n    readonly capabilityId: string;\n    readonly selection?: \'inherit\' | CapabilitySelectionValue;\n    readonly members?: \'inherit\' | readonly string[];\n    readonly config?: \'inherit\' | Readonly<Record<string, CapabilityConfigValue>>;\n}',
   },
   {
     name: 'CapabilityCompositionSnapshot',
-    declaration: 'export interface CapabilityCompositionSnapshot {\n    readonly target: CapabilityTarget;\n    readonly revision: number;\n    readonly values: Readonly<Record<string, CapabilitySelectionValue>>;\n}',
+    declaration: 'export interface CapabilityCompositionSnapshot {\n    readonly target: CapabilityTarget;\n    readonly revision: number;\n    readonly values: Readonly<Record<string, CapabilityOverride>>;\n}',
+  },
+  {
+    name: 'CapabilityConfigurationField',
+    declaration: 'export interface CapabilityConfigurationField {\n    readonly id: string;\n    readonly kind: \'text\' | \'boolean\' | \'number\';\n    readonly name: string;\n    readonly description: string;\n    readonly required?: boolean;\n    readonly multiline?: boolean;\n}',
+  },
+  {
+    name: 'CapabilityConfigValue',
+    declaration: 'export type CapabilityConfigValue = string | number | boolean;',
+  },
+  {
+    name: 'CapabilityCustomizationDescriptor',
+    declaration: 'export interface CapabilityCustomizationDescriptor {\n    readonly fields: readonly CapabilityConfigurationField[];\n    readonly defaultValues: Readonly<Record<string, CapabilityConfigValue>>;\n}',
   },
   {
     name: 'CapabilityDescriptor',
-    declaration: 'export interface CapabilityDescriptor {\n    readonly id: string;\n    readonly kind: CapabilityKind;\n    readonly name: string;\n    readonly description: string;\n    readonly provenance: CapabilityProvenance;\n    readonly assembleable: boolean;\n    readonly available: boolean;\n    readonly defaultLoaded: boolean;\n    readonly manageable: boolean;\n    readonly owner?: string;\n    readonly requires: readonly string[];\n}',
+    declaration: 'export interface CapabilityDescriptor {\n    readonly id: string;\n    readonly kind: CapabilityKind;\n    readonly name: string;\n    readonly description: string;\n    readonly provenance: CapabilityProvenance;\n    readonly assembleable: boolean;\n    readonly available: boolean;\n    readonly defaultLoaded: boolean;\n    readonly manageable: boolean;\n    readonly selectionManageable?: boolean;\n    readonly owner?: string;\n    readonly requires: readonly string[];\n    readonly members?: readonly CapabilityMemberDescriptor[];\n    readonly customization?: CapabilityCustomizationDescriptor;\n}',
   },
   {
     name: 'CapabilityKind',
     declaration: 'export type CapabilityKind = \'tool\' | \'skill\' | \'mcp-server\' | \'subagent-provider\';',
   },
   {
+    name: 'CapabilityMemberCatalogEntry',
+    declaration: 'export interface CapabilityMemberCatalogEntry extends CapabilityMemberDescriptor {\n    readonly visible: boolean;\n}',
+  },
+  {
+    name: 'CapabilityMemberDescriptor',
+    declaration: 'export interface CapabilityMemberDescriptor {\n    readonly id: string;\n    readonly kind: \'tool\' | \'skill\' | \'mcp-tool\' | \'subagent-provider\';\n    readonly name: string;\n    readonly description: string;\n    readonly defaultVisible: boolean;\n    readonly available: boolean;\n    readonly requires: readonly string[];\n}',
+  },
+  {
     name: 'CapabilityObservation',
     declaration: 'export interface CapabilityObservation {\n    readonly entries: readonly CapabilityDescriptor[];\n    readonly complete: boolean;\n}',
+  },
+  {
+    name: 'CapabilityOverride',
+    declaration: 'export interface CapabilityOverride {\n    readonly selection?: CapabilitySelectionValue;\n    readonly members?: readonly string[];\n    readonly config?: Readonly<Record<string, CapabilityConfigValue>>;\n}',
   },
   {
     name: 'CapabilityPlan',
@@ -3240,11 +3270,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CapabilityPlanBlocker',
-    declaration: 'export interface CapabilityPlanBlocker {\n    readonly code: \'unknown-capability\' | \'not-manageable\' | \'not-assembleable\' | \'required-unloaded\' | \'required-unassembleable\';\n    readonly capabilityId: string;\n    readonly dependencyId?: string;\n    readonly message: string;\n}',
+    declaration: 'export interface CapabilityPlanBlocker {\n    readonly code: \'unknown-capability\' | \'not-manageable\' | \'not-assembleable\' | \'required-unloaded\' | \'required-unassembleable\' | \'unknown-member\' | \'required-member-hidden\' | \'configuration-unsupported\' | \'configuration-invalid\';\n    readonly capabilityId: string;\n    readonly dependencyId?: string;\n    readonly message: string;\n}',
   },
   {
     name: 'CapabilityPlanOperation',
-    declaration: 'export interface CapabilityPlanOperation {\n    readonly capabilityId: string;\n    readonly before: \'inherit\' | CapabilitySelectionValue;\n    readonly after: \'inherit\' | CapabilitySelectionValue;\n}',
+    declaration: 'export interface CapabilityPlanOperation {\n    readonly capabilityId: string;\n    readonly before: \'inherit\' | CapabilitySelectionValue;\n    readonly after: \'inherit\' | CapabilitySelectionValue;\n    readonly membersChanged?: boolean;\n    readonly configChanged?: boolean;\n}',
   },
   {
     name: 'CapabilityProvenance',
@@ -4107,6 +4137,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PrepareSessionOptions = (CreateSessionOptions & {\n    readonly seedSource?: undefined;\n}) | RestoredSessionOptions;',
   },
   {
+    name: 'PresetCompositionCatalog',
+    declaration: 'export interface PresetCompositionCatalog {\n    readonly descriptors: readonly CapabilityDescriptor[];\n    readonly recipes: ReadonlyMap<string, PresetCompositionRecipe>;\n}',
+  },
+  {
+    name: 'PresetCompositionRecipe',
+    declaration: 'export interface PresetCompositionRecipe {\n    readonly rowId: string;\n    readonly canonical: EntryOptions;\n    readonly canonicalBaseUrl: string;\n    readonly source?: EntryOptions;\n    readonly sourceBaseUrl?: string;\n}',
+  },
+  {
     name: 'PresetOption',
     declaration: 'export interface PresetOption {\n    value: string;\n    name: string;\n    description?: string;\n}',
   },
@@ -4725,6 +4763,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SkillResourceBase',
     declaration: 'export type SkillResourceBase = {\n    readonly kind: \'directory\';\n    readonly path: string;\n} | {\n    readonly kind: \'url\';\n    readonly url: string;\n} | {\n    readonly kind: \'opaque\';\n    readonly description: string;\n};',
+  },
+  {
+    name: 'SkillRestriction',
+    declaration: 'export interface SkillRestriction {\n    readonly allow: readonly string[];\n    readonly includeOwn?: true;\n}',
   },
   {
     name: 'SkillSource',

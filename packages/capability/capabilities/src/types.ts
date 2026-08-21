@@ -7,6 +7,45 @@ export type CapabilityProvenance = 'upstream' | 'harniverse-added' | 'harniverse
 /** A Profile composition entry. Omission means inherit. */
 export type CapabilitySelectionValue = 'load' | 'unload'
 
+/** JSON primitive accepted by one explicitly declared Profile configuration field. */
+export type CapabilityConfigValue = string | number | boolean
+
+/** Model-discoverable member contributed by one assembled capability. */
+export interface CapabilityMemberDescriptor {
+  readonly id: string
+  readonly kind: 'tool' | 'skill' | 'mcp-tool' | 'subagent-provider'
+  readonly name: string
+  readonly description: string
+  readonly defaultVisible: boolean
+  readonly available: boolean
+  readonly requires: readonly string[]
+}
+
+/** One Profile-safe field a capability owner permits the assembly editor to change. */
+export interface CapabilityConfigurationField {
+  readonly id: string
+  readonly kind: 'text' | 'boolean' | 'number'
+  readonly name: string
+  readonly description: string
+  readonly required?: boolean
+  readonly multiline?: boolean
+}
+
+/** Capability-owned configuration contract and source-Profile defaults. */
+export interface CapabilityCustomizationDescriptor {
+  readonly fields: readonly CapabilityConfigurationField[]
+  readonly defaultValues: Readonly<Record<string, CapabilityConfigValue>>
+}
+
+/** Explicit assembly override stored for one global or Profile target. */
+export interface CapabilityOverride {
+  readonly selection?: CapabilitySelectionValue
+  /** Presence selects only these stable member ids; omission inherits. */
+  readonly members?: readonly string[]
+  /** Field-level overrides over native then global values. */
+  readonly config?: Readonly<Record<string, CapabilityConfigValue>>
+}
+
 /** Target edited by one composition transaction. */
 export type CapabilityTarget =
   | { readonly kind: 'global-agent' }
@@ -26,8 +65,17 @@ export interface CapabilityDescriptor {
   /** Selection inherited when neither global nor Profile settings override it. */
   readonly defaultLoaded: boolean
   readonly manageable: boolean
+  /** Whether load/unload is editable; false may still allow owner-declared configuration. */
+  readonly selectionManageable?: boolean
   readonly owner?: string
   readonly requires: readonly string[]
+  readonly members?: readonly CapabilityMemberDescriptor[]
+  readonly customization?: CapabilityCustomizationDescriptor
+}
+
+/** One member as the selected target currently resolves it. */
+export interface CapabilityMemberCatalogEntry extends CapabilityMemberDescriptor {
+  readonly visible: boolean
 }
 
 /** One capability as a target currently resolves it. */
@@ -35,6 +83,10 @@ export interface CapabilityCatalogEntry extends CapabilityDescriptor {
   readonly selection: 'inherit' | CapabilitySelectionValue
   readonly effectiveSelection: CapabilitySelectionValue
   readonly selected: boolean
+  readonly memberSelection?: 'inherit' | 'custom'
+  readonly memberEntries?: readonly CapabilityMemberCatalogEntry[]
+  readonly configOverrides?: Readonly<Record<string, CapabilityConfigValue>>
+  readonly effectiveConfig?: Readonly<Record<string, CapabilityConfigValue>>
 }
 
 /** Point-in-time target catalog and composition revision. */
@@ -49,7 +101,9 @@ export interface CapabilityCatalogSnapshot {
 /** One staged composition edit. */
 export interface CapabilityCompositionChange {
   readonly capabilityId: string
-  readonly selection: 'inherit' | CapabilitySelectionValue
+  readonly selection?: 'inherit' | CapabilitySelectionValue
+  readonly members?: 'inherit' | readonly string[]
+  readonly config?: 'inherit' | Readonly<Record<string, CapabilityConfigValue>>
 }
 
 /** One explicit selection transition in a plan. */
@@ -57,11 +111,13 @@ export interface CapabilityPlanOperation {
   readonly capabilityId: string
   readonly before: 'inherit' | CapabilitySelectionValue
   readonly after: 'inherit' | CapabilitySelectionValue
+  readonly membersChanged?: boolean
+  readonly configChanged?: boolean
 }
 
 /** Why a candidate composition cannot be applied safely. */
 export interface CapabilityPlanBlocker {
-  readonly code: 'unknown-capability' | 'not-manageable' | 'not-assembleable' | 'required-unloaded' | 'required-unassembleable'
+  readonly code: 'unknown-capability' | 'not-manageable' | 'not-assembleable' | 'required-unloaded' | 'required-unassembleable' | 'unknown-member' | 'required-member-hidden' | 'configuration-unsupported' | 'configuration-invalid'
   readonly capabilityId: string
   readonly dependencyId?: string
   readonly message: string
@@ -82,7 +138,7 @@ export interface CapabilityPlan {
 export interface CapabilityCompositionSnapshot {
   readonly target: CapabilityTarget
   readonly revision: number
-  readonly values: Readonly<Record<string, CapabilitySelectionValue>>
+  readonly values: Readonly<Record<string, CapabilityOverride>>
 }
 
 /** Result of assembling one immutable Session generation. */
