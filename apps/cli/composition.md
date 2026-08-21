@@ -112,6 +112,8 @@ flowchart LR
   cfg --> plugin_dsh_base_compaction_lossless
   plugin_dsh_base_tool_compaction_history["tool-compaction-history<br/>@deepseek-ai/dsh-tool-compaction-history"]
   cfg --> plugin_dsh_base_tool_compaction_history
+  plugin_dsh_base_tool_compaction["tool-compaction<br/>@deepseek-ai/dsh-tool-compaction"]
+  cfg --> plugin_dsh_base_tool_compaction
   plugin_dsh_base_command_compact["command-compact<br/>@deepseek-ai/dsh-command-compact"]
   cfg --> plugin_dsh_base_command_compact
   plugin_dsh_base_subagent["subagent<br/>@deepseek-ai/dsh-subagent"]
@@ -236,6 +238,7 @@ flowchart LR
 | `token-meter` | `@deepseek-ai/dsh-token-meter` |
 | `compaction-lossless` | `@deepseek-ai/dsh-compaction-lossless` |
 | `tool-compaction-history` | `@deepseek-ai/dsh-tool-compaction-history` |
+| `tool-compaction` | `@deepseek-ai/dsh-tool-compaction` |
 | `command-compact` | `@deepseek-ai/dsh-command-compact` |
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn-in-process` | `@deepseek-ai/dsh-subagent-spawn-in-process` |

@@ -290,6 +290,9 @@
     - id: tool-compaction-history
       name: '@deepseek-ai/dsh-tool-compaction-history'
 
+    - id: tool-compaction
+      name: '@deepseek-ai/dsh-tool-compaction'
+
     # Human `/compact`: one useful reduction below the automatic threshold. Backend
     # independent, so it follows whichever compaction service this leaf mounts.
     - id: command-compact

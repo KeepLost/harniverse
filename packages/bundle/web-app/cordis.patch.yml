@@ -402,6 +402,9 @@
 - id: tool-compaction-history
   disabled: true
 
+- id: tool-compaction
+  disabled: true
+
 - id: command-compact
   disabled: true
 

@@ -12,6 +12,7 @@ This package owns the Service Definition role of the compaction capability, spli
 | `@deepseek-ai/dsh-compaction-basic` | Service Provider: `ctx.tokenMeter` pressure + token-budget retention + `llm.stream()` summarization |
 | `@deepseek-ai/dsh-compaction-lossless` | Service Provider: basic transaction policy + committed summary-DAG projection |
 | `@deepseek-ai/dsh-command-compact` | Consumer: the human `/compact` command over `ctx.compaction.compactNow()` |
+| `@deepseek-ai/dsh-tool-compaction` | Consumer: direct model-requested retained-tail compaction |
 | `@deepseek-ai/dsh-tool-compaction-history` | Consumer: model-facing search and expansion over the lossless Provider's history projection |
 
 Unlike the bash seam, this Service Definition depends on `@deepseek-ai/dsh-session` and `@deepseek-ai/dsh-llm` — the contract's verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary, so they cannot be expressed without naming those packages. That deviation from the "Service Definition depends only on cordis" guidance is intentional and recorded in the [compaction capability-seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md).
@@ -22,7 +23,7 @@ All three operations are **abstract** — the backend owns trigger policy, reten
 
 | Member | Semantics |
 |---|---|
-| `compactIfNeeded(agent, trigger, signal)` | Consider automatic compaction for `trigger: 'pressure' \| 'context-overflow'`. A pressure trigger may apply the backend's threshold and retained-tail policy; a confirmed overflow may force a useful balanced reduction. Returns the `CompactionResult`, or `null` when no safe range exists. A backend's summarization request is a direct `ctx.llm.stream()` call (not a loop step), so per-call interception happens at `llm/stream`. |
+| `compactIfNeeded(agent, trigger, signal)` | Consider compaction for `trigger: 'pressure' \| 'context-overflow' \| 'agent-request'`. Pressure applies threshold and retained-tail policy; confirmed overflow may force a reduction without retention; an agent request bypasses threshold while retaining recent context. Returns the `CompactionResult`, or `null` when no safe range exists. A backend's summarization request is a direct `ctx.llm.stream()` call (not a loop step), so per-call interception happens at `llm/stream`. |
 | `compactNow(agent, signal)` | Explicitly compact one useful balanced older span even below automatic pressure. It synchronously reserves idle turn admission before yielding, writes nothing when no useful span exists, records a standalone `compaction/* { turn: null }` attempt before summarization, and awaits its durability checkpoint before release. Expected operational failures use `ManualCompactionError`; cancellation rethrows the exact abort reason. |
 | `compactRegion(start, end, agent, signal?)` | Forcibly summarize surface nodes `[start, end]` (inclusive seqs) from `agent.session` into a single replacement node whose source comes from `compactCheckpointSource(compactionId)`. **Throws** if a compaction is already in progress, if `start`/`end` aren't surface nodes, or if `start` is positioned after `end` on the surface. The range is a SURFACE-POSITION span, not a numeric seq interval — after a prior replace lands a fresh high-seq summary node at the shadowed range's position, surface order no longer tracks seq order. |
 
@@ -50,11 +51,11 @@ The private per-session cache is keyed by `session.surface.replaceGeneration` an
 
 The package invariant accepts a successful `compaction/end` only after the checkpoint immediately following `compaction/summary` commits. That checkpoint must exactly match the summary's range, ordered provenance `[startSeq, summarySeq, ...shadowedSeqs]`, `compactionId`, and optional `sourceCommandId`. The surface mutation therefore sits **inside** the lock bracket: `compaction/end` is the last event, so a crash before it leaves a detectable orphaned lock rather than a false successful end.
 
-The marker pair names lock acquisition and release, not an exclusive event container. An idle `inject()` may append unrelated context between a manual start and end while summarization is pending. Manual stability therefore revalidates the selected span rather than demanding whole-surface equality; the positional replacement leaves that injected context visible after the checkpoint. Automatic compaction keeps whole-surface equality inside its active turn.
+The marker pair names lock acquisition and release, not an exclusive event container. An idle `inject()` may append unrelated context between a manual start and end while summarization is pending. Manual stability therefore revalidates the selected span rather than demanding whole-surface equality; the positional replacement leaves that injected context visible after the checkpoint. Active-turn pressure, overflow, agent-request, and explicit-region compaction keep whole-surface equality.
 
 `deriveMessages()` then renders the summary as a user-role message followed by the retained nodes. The shadowed events remain in the raw log, so replay is deterministic.
 
-Shipped base, standard, code, Cordis, and standalone headless compositions select `dsh-compaction-lossless`. The bundle and preset compositions keep their configured tool-result-pruner rows disabled, while headless does not mount one. Automatic and manual compaction therefore proceed directly to summary replacement, which is the only history rewrite in default compositions. An explicit profile, home, or command-line overlay can enable retroactive tool-result pruning before later summaries.
+Shipped base, standard, code, Cordis, and standalone headless compositions select `dsh-compaction-lossless`. The bundle and preset compositions keep their configured tool-result-pruner rows disabled, while headless does not mount one. Automatic, model-requested, and manual compaction therefore proceed directly to summary replacement, which is the only history rewrite in default compositions. An explicit profile, home, or command-line overlay can enable retroactive tool-result pruning before pressure or overflow summaries.
 
 ## Blocking
 
@@ -92,6 +93,5 @@ A successful backend replacement invalidates reuse from the first shadowed histo
 
 ## Known Limitations and Deferred Work
 
-- **Human compaction trigger, not a model trigger** — `@deepseek-ai/dsh-command-compact` exposes argument-free `/compact` through `ctx.commands`; the separate history tools read committed compaction but cannot initiate it.
 - **Some single-unit overflow is out of contract** — balanced summary compaction cannot split one indivisible unit. The optional pruning companion can still repair a closed tool pair when text-bearing tool-result bulk is removable; a large non-tool node or a tool unit whose non-prunable remainder is oversized cannot be compacted.
 - **An envelope that alone approaches the window is not surface-compaction work** — compaction shrinks derived history, never the system prompt, tools, or session prefix.

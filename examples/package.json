@@ -90,6 +90,7 @@
     "@deepseek-ai/dsh-jobs-local": "workspace:*",
     "@deepseek-ai/dsh-time-context": "workspace:*",
     "@deepseek-ai/dsh-tool-call-timeout-policy": "workspace:*",
+    "@deepseek-ai/dsh-tool-compaction": "workspace:*",
     "@deepseek-ai/dsh-tool-compaction-history": "workspace:*",
     "@deepseek-ai/dsh-token-meter": "workspace:*",
     "@deepseek-ai/dsh-tool-ask-user": "workspace:*",

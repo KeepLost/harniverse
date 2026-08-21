@@ -145,6 +145,7 @@
   },
   "devDependencies": {
     "@agentclientprotocol/sdk": "0.25.1",
+    "@deepseek-ai/dsh-tool-compaction": "workspace:^",
     "@deepseek-ai/dsh-tool-session-query": "workspace:^",
     "@deepseek-ai/dsh-session-delivery": "workspace:^",
     "@deepseek-ai/dsh-tool-session-delivery": "workspace:^",

@@ -13,7 +13,7 @@ The plugin combines two host-side roles:
 
 Load this provider instead of `@deepseek-ai/dsh-compaction-basic`. Both providers register `ctx.compaction` and cannot be active in one context.
 
-The shipped base, standard, code, Cordis, and standalone headless compositions select this provider and load `@deepseek-ai/dsh-tool-compaction-history`. A custom composition can select `compaction-basic` instead or omit the history tools.
+The shipped base, standard, code, Cordis, and standalone headless compositions select this provider and load `@deepseek-ai/dsh-tool-compaction-history`. Base, standard, Cordis, and headless also load the direct-only `@deepseek-ai/dsh-tool-compaction`; a custom composition can select `compaction-basic` instead or omit either Consumer.
 
 ```yaml
 - name: '@deepseek-ai/dsh-compaction-lossless'

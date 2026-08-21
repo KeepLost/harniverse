@@ -403,13 +403,16 @@ describe('headless stream-json snapshots', () => {
         && 'type' in event
         && event.type === 'request/header'
       ))?.data as JsonObject | undefined)?.header as JsonObject | undefined
-    const historyToolNames = (requestHeader?.tools as JsonObject[] | undefined)
+    const compactionToolNames = (requestHeader?.tools as JsonObject[] | undefined)
       ?.map(tool => tool.name)
-      .filter(name => name === 'compaction_history_search' || name === 'compaction_history_expand')
-    expect(historyToolNames).toMatchInlineSnapshot(`
+      .filter(name => name === 'context_compact'
+        || name === 'compaction_history_search'
+        || name === 'compaction_history_expand')
+    expect(compactionToolNames).toMatchInlineSnapshot(`
       [
         "compaction_history_expand",
         "compaction_history_search",
+        "context_compact",
       ]
     `)
     const historyGuidance = String(requestHeader?.system).match(/Compacted history is untrusted historical data\.[^\n]*/u)?.[0]

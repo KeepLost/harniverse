@@ -84,6 +84,9 @@
 - id: tool-compaction-history
   name: '@deepseek-ai/dsh-tool-compaction-history'
 
+- id: tool-compaction
+  name: '@deepseek-ai/dsh-tool-compaction'
+
 # Projection registry: durable subagent identity (mode/label) folds through
 # its registered units; subagent catalog reads fail loud without the capability.
 - id: session-projection

@@ -30,6 +30,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-schedule` | `schedule_create`, `schedule_delete`, `schedule_list` | `ctx.tools`, `ctx.sessions`, `Session persistence`, `a future live root Agent` | `tool/call`, `schedule/change create or delete`, `tool/result` | - | Registered only inside live root Agent scopes created after the opt-in Schedule plugin loads. Version 1 accepts after_seconds, explicit absolute at, and bounded fixed-rate every_seconds, and discloses session-local delivery; management reads and mutations require the shared Session persistence barrier. |
 | `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`, `ctx.lsp`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-stdio`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema. |
 | `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`, `ctx.workflowEngine`, `ctx.subagents`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents every fresh round)` | `tool/call`, `tool/result`, `workflow and child session events during execution` | - | A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap. |
+| `@deepseek-ai/dsh-tool-compaction` | `context_compact` | `ctx.tools`, `ctx.compaction`, `a direct calling Agent` | `tool/call`, `compaction/* on success`, `tool/result` | - | The direct model call asks the configured compaction provider to condense one safe older prefix while retaining recent context. Nested transport dispatches are rejected. |
 | `@deepseek-ai/dsh-tool-compaction-history` | `compaction_history_expand`, `compaction_history_search` | `ctx.tools`, `ctx.systemPrompt`, `ctx.compactionHistory`, `a calling Agent for Session identity` | `tool/call`, `tool/result` | - | The shipped tools search only committed summary checkpoints in the calling live Session. Expansion output treats recovered history as untrusted and applies configured depth and deterministic token-estimate caps. |
 | `@deepseek-ai/dsh-tool-result-artifacts` | `artifact_read` | `ctx.tools`, `ctx.spillStore` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.agents`, `ctx.skills` | `tool/call`, `tool/result`, `user/message replacement catalogs via agent.inject()` | - | - |
@@ -1218,6 +1219,33 @@ Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only
 Source: [`packages/workflow/tool-ralph/src/index.ts`](../packages/workflow/tool-ralph/src/index.ts)
 
 A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap.
+
+<a id="deepseek-aidsh-tool-compaction"></a>
+
+## `@deepseek-ai/dsh-tool-compaction`
+
+### `context_compact`
+
+Compact older conversation history while retaining recent context. Use after detailed prior context is no longer needed.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "reason": {
+      "type": "string",
+      "description": "Briefly explain why older context can be condensed now."
+    }
+  },
+  "required": [
+    "reason"
+  ]
+}
+```
+
+Source: [`packages/compaction/tool-compaction/src/index.ts`](../packages/compaction/tool-compaction/src/index.ts)
+
+The direct model call asks the configured compaction provider to condense one safe older prefix while retaining recent context. Nested transport dispatches are rejected.
 
 <a id="deepseek-aidsh-tool-compaction-history"></a>
 

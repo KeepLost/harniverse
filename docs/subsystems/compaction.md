@@ -2,7 +2,7 @@
 
 English | [中文](compaction.zh.md)
 
-The compaction seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) split like bash: Service Definition ([dsh-compaction](../../packages/compaction/compaction), `ctx.compaction`), one Service Provider such as [dsh-compaction-basic](../../packages/compaction/compaction-basic) or [dsh-compaction-lossless](../../packages/compaction/compaction-lossless), and Consumers including [dsh-command-compact](../../packages/compaction/command-compact) and [dsh-tool-compaction-history](../../packages/compaction/tool-compaction-history). Compaction is **one optional capability**, not part of the agent-loop spine, so its event types live here, not in [core.md](core.md). Unlike bash, the interface necessarily depends on `dsh-session` and `dsh-llm`: its verbs act on an agent-owned `Session`, and its durable summary event uses `ContentBlock` (see the [compaction capability-seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)).
+The compaction seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) split like bash: Service Definition ([dsh-compaction](../../packages/compaction/compaction), `ctx.compaction`), one Service Provider such as [dsh-compaction-basic](../../packages/compaction/compaction-basic) or [dsh-compaction-lossless](../../packages/compaction/compaction-lossless), and Consumers including [dsh-command-compact](../../packages/compaction/command-compact), [dsh-tool-compaction](../../packages/compaction/tool-compaction), and [dsh-tool-compaction-history](../../packages/compaction/tool-compaction-history). Compaction is **one optional capability**, not part of the agent-loop spine, so its event types live here, not in [core.md](core.md). Unlike bash, the interface necessarily depends on `dsh-session` and `dsh-llm`: its verbs act on an agent-owned `Session`, and its durable summary event uses `ContentBlock` (see the [compaction capability-seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)).
 
 Source: [`packages/compaction/compaction/src/types.ts`](../../packages/compaction/compaction/src/types.ts)
 
@@ -12,7 +12,7 @@ Compaction extends [`SessionEventMap`](session.md) with four event types via dec
 
 | Event | Payload | Role |
 |---|---|---|
-| `compaction/start` | `{ turn }` | acquires the log-recorded lock; a number identifies the open automatic turn, while `null` identifies a standalone manual attempt |
+| `compaction/start` | `{ turn }` | acquires the log-recorded lock; a number identifies the open active turn, while `null` identifies a standalone manual attempt |
 | `compaction/summary` | `{ summary, rawOutput?, llmStreamCall?, shadowedRange, shadowedSeqs, shadowedTokenCount, provider, model, maxTokens?, usage? }` | the safe summary projection, optional complete provider output and usage, an `llmStreamCall: true` marker when producing the result consumed exactly one call through this context's `ctx.llm.stream()` (which requires complete `rawOutput`), the shadowed surface-boundary pair (`start`/`end` seqs — a position span, not a numeric interval), the shadowed seqs in surface order, the estimated token count, and the summarize call's envelope (`provider`, `model`, plus its generation cap when one applied) — logged so the one-shot request is reconstructable from log + code (the reconstructability Agent Note); unmarked `rawOutput` does not identify the call path |
 | `compaction/prune` | `{ shadowedRange, shadowedSeqs, shadowedTokenCount }` | the exact range, ordered provenance, and heuristic token shadow price for the content-only `tool/result` replacement immediately after it |
 | `compaction/end` | `{ turn, error? }` | releases the lock with the same numeric-or-null owner (`error` records an unsuccessful attempt) |
@@ -64,14 +64,14 @@ interface CompactionResult {
 
 ## The service
 
-Automatic callers state why policy is running; implementations may treat confirmed overflow more aggressively than ordinary pressure.
+Policy callers state why compaction is running; implementations may treat confirmed overflow more aggressively than ordinary pressure or an agent request.
 
 ```ts type-equiv
-/** Why automatic policy is asking a backend to consider compaction. */
-type CompactionTrigger = 'pressure' | 'context-overflow'
+/** Why policy is asking a backend to consider compaction. */
+type CompactionTrigger = 'pressure' | 'context-overflow' | 'agent-request'
 ```
 
-`CompactionEngine` exposes `compactIfNeeded(agent, trigger, signal)` for automatic `pressure` or `context-overflow` policy, `compactNow(agent, signal)` for one useful idle-session reduction even below pressure, and `compactRegion(...)` for an explicit inclusive surface range. `compactNow()` runs as agent maintenance between turns, returns `null` without writing when no useful range exists, records a standalone `turn: null` bracket before summarization, and flushes a closed attempt before later queued prompts may derive from the new surface. Every backend creates its replacement `user/message` source with `compactCheckpointSource(compactionId, sourceCommandId?)`; client and wire consumers import that constructor, `CompactionCheckpointSource`, and `isCompactCheckpointSource()` from the cordis-free `@deepseek-ai/dsh-compaction/checkpoint` subpath, while the package root re-exports them for host consumers. The required transaction identity correlates the replacement checkpoint, while the predicate keeps recognition independent of any one backend. Implementations must forward the supplied signal to summarization. The seam owns no pricing API: the singleton [`ctx.tokenMeter`](token-meter.md) owns estimation and replay, while the selected provider owns retention, event sequencing, routed summarization calls, and configuration.
+`CompactionEngine` exposes `compactIfNeeded(agent, trigger, signal)` for automatic `pressure`, `context-overflow` recovery, or an `agent-request`, `compactNow(agent, signal)` for one useful idle-session reduction even below pressure, and `compactRegion(...)` for an explicit inclusive surface range. `compactNow()` runs as agent maintenance between turns, returns `null` without writing when no useful range exists, records a standalone `turn: null` bracket before summarization, and flushes a closed attempt before later queued prompts may derive from the new surface. Every backend creates its replacement `user/message` source with `compactCheckpointSource(compactionId, sourceCommandId?)`; client and wire consumers import that constructor, `CompactionCheckpointSource`, and `isCompactCheckpointSource()` from the cordis-free `@deepseek-ai/dsh-compaction/checkpoint` subpath, while the package root re-exports them for host consumers. The required transaction identity correlates the replacement checkpoint, while the predicate keeps recognition independent of any one backend. Implementations must forward the supplied signal to summarization. The seam owns no pricing API: the singleton [`ctx.tokenMeter`](token-meter.md) owns estimation and replay, while the selected provider owns retention, event sequencing, routed summarization calls, and configuration.
 
 Expected manual failures use `ManualCompactionErrorCode`:
 
@@ -88,7 +88,7 @@ type ManualCompactionErrorCode =
 
 `changed` and `summary` leave the conversation surface unchanged but still close and persist the failed attempt in the log. `commit` may follow partial mutation; `persistence` means the in-memory bracket closed but its flush failed. Cancellation remains separate and throws the exact abort reason after required cleanup.
 
-Pressure compaction runs at serial `agent/pre-step` before request derivation. Shipped base, standard, code, Cordis, and standalone headless compositions select `dsh-compaction-lossless` with automatic policy enabled. The bundle and preset compositions keep their pruner rows disabled, while headless does not mount one, so summary replacement is the only default history rewrite. An explicit overlay can enable optional [`ctx.toolResultPruner`](../../packages/compaction/compaction-tool-result-pruner/README.md); after pressure or canonical overflow qualifies, the inherited basic policy invokes it before range selection, remeasures through `ctx.tokenMeter`, and can advance the surface without a summary. Failed-request recovery runs through `agent/request-error` after the failed step closes and returns a retry action only when the surface replacement generation advances, even if later summary work throws after pruning; cancellation still wins. Region boundaries preserve tool-call/result pairing but not whole turns, allowing early closed steps of one oversized turn to compact.
+Pressure compaction runs at serial `agent/pre-step` before request derivation. Shipped base, standard, code, Cordis, and standalone headless compositions select `dsh-compaction-lossless` with automatic policy enabled. Base, standard, Cordis, and headless also mount the direct `context_compact` Consumer; Code omits it because Code Mode native-tool access is nested. Its `agent-request` trigger bypasses pressure, applies routed retained-tail policy, skips pruning, and performs at most one reduction. The bundle and preset compositions keep their pruner rows disabled, while headless does not mount one, so summary replacement is the only default history rewrite. An explicit overlay can enable optional [`ctx.toolResultPruner`](../../packages/compaction/compaction-tool-result-pruner/README.md); after pressure or canonical overflow qualifies, the inherited basic policy invokes it before range selection, remeasures through `ctx.tokenMeter`, and can advance the surface without a summary. Failed-request recovery runs through `agent/request-error` after the failed step closes and returns a retry action only when the surface replacement generation advances, even if later summary work throws after pruning; cancellation still wins. Region boundaries preserve tool-call/result pairing but not whole turns, allowing early closed steps of one oversized turn to compact.
 
 The Service Definition exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for the tool-call/result pairing checks before and after a seq. Both validate current surface membership and reject missing seqs and orphan results; the [package contract](../../packages/compaction/compaction/README.md#tool-pairing-boundaries) defines their cache behavior.
 
@@ -144,14 +144,15 @@ Abstract compaction service. Implementations own trigger policy, retention, and 
 
 ```ts cordis-catalog
 /**
- * Consider automatic compaction for one explicit trigger. Pressure policy
- * uses the latest durable routed request, while context-overflow policy may
- * force a useful balanced reduction even below the normal threshold. Return
- * `null` when no safe range can be compacted. A single oversized retained
- * unit or request envelope cannot be repaired through surface compaction.
+ * Consider compaction for one explicit trigger. Pressure policy uses the
+ * latest durable routed request, context-overflow policy may force a useful
+ * balanced reduction without retention, and an agent request bypasses the
+ * pressure threshold while retaining the configured recent tail. Return
+ * `null` when no safe range can be compacted. A single oversized retained unit
+ * or request envelope cannot be repaired through surface compaction.
  *
  * @param agent - agent context owning the session surface and routing options.
- * @param trigger - normal pressure or provider-confirmed context overflow.
+ * @param trigger - normal pressure, provider-confirmed overflow, or an active agent request.
  * @param signal - cancellation signal; model-backed implementations must forward it.
  * @returns the compaction result, or `null` if no compaction was needed.
  */

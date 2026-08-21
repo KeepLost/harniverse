@@ -101,6 +101,7 @@
     "@deepseek-ai/dsh-tool-session-query": "workspace:^",
     "@deepseek-ai/dsh-token-meter": "workspace:^",
     "@deepseek-ai/dsh-tool-bash": "workspace:^",
+    "@deepseek-ai/dsh-tool-compaction": "workspace:^",
     "@deepseek-ai/dsh-tool-compaction-history": "workspace:^",
     "@deepseek-ai/dsh-tool-fs": "workspace:^",
     "@deepseek-ai/dsh-tool-fs-search": "workspace:^",

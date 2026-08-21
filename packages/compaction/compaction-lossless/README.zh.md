@@ -13,7 +13,7 @@
 
 该 provider 应替代 `@deepseek-ai/dsh-compaction-basic` 加载。两个 provider 都注册 `ctx.compaction`，不能在同一个 context 中同时启用。
 
-随附的 base、standard、code、Cordis 和 standalone headless 组合选择该 provider，并加载 `@deepseek-ai/dsh-tool-compaction-history`。自定义组合可以改选 `compaction-basic`，也可以省略历史工具。
+随附的 base、standard、code、Cordis 和 standalone headless 组合选择该 provider，并加载 `@deepseek-ai/dsh-tool-compaction-history`。Base、standard、Cordis 与 headless 还加载仅 direct 的 `@deepseek-ai/dsh-tool-compaction`；自定义组合可以改选 `compaction-basic`，也可以省略任一 Consumer。
 
 ```yaml
 - name: '@deepseek-ai/dsh-compaction-lossless'

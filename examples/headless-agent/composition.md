@@ -30,6 +30,8 @@ flowchart LR
   cfg --> plugin_headless_compaction_lossless
   plugin_headless_tool_compaction_history["tool-compaction-history<br/>@deepseek-ai/dsh-tool-compaction-history"]
   cfg --> plugin_headless_tool_compaction_history
+  plugin_headless_tool_compaction["tool-compaction<br/>@deepseek-ai/dsh-tool-compaction"]
+  cfg --> plugin_headless_tool_compaction
   plugin_headless_session_projection["session-projection<br/>@deepseek-ai/dsh-session-projection"]
   cfg --> plugin_headless_session_projection
   plugin_headless_subagent["subagent<br/>@deepseek-ai/dsh-subagent"]
@@ -75,6 +77,7 @@ flowchart LR
 | `token-meter` | `@deepseek-ai/dsh-token-meter` |
 | `compaction-lossless` | `@deepseek-ai/dsh-compaction-lossless` |
 | `tool-compaction-history` | `@deepseek-ai/dsh-tool-compaction-history` |
+| `tool-compaction` | `@deepseek-ai/dsh-tool-compaction` |
 | `session-projection` | `@deepseek-ai/dsh-session-projection` |
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn-in-process` | `@deepseek-ai/dsh-subagent-spawn-in-process` |

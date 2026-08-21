@@ -278,7 +278,7 @@ function service(
 async function compactIfNeeded(
   compact: BasicCompactionEngine,
   session: Session,
-  trigger: 'pressure' | 'context-overflow' = 'pressure',
+  trigger: 'pressure' | 'context-overflow' | 'agent-request' = 'pressure',
   model: string | undefined = MODEL,
 ): Promise<CompactionResult | null> {
   return compact.compactIfNeeded(agent(session, model), trigger, SIGNAL)
@@ -614,6 +614,62 @@ describe('pressure measurement and retention', () => {
     expect(result).not.toBeNull()
     expect(result?.shadowedSeqs.length).toBeGreaterThan(2)
     expect(session.surface.nodes.length).toBeLessThan(8)
+  })
+
+  it('compacts a retained safe prefix on agent request even below pressure', async () => {
+    const compact = service({
+      auto: false,
+      thresholdRatio: 0.9,
+      retainTokens: 180,
+    }, createContext(100_000))
+    const session = conversation(4)
+
+    await expect(compactIfNeeded(compact, session, 'pressure')).resolves.toBeNull()
+    const result = await compactIfNeeded(compact, session, 'agent-request')
+
+    expect(result).not.toBeNull()
+    expect(result?.shadowedSeqs.length).toBeGreaterThan(2)
+    expect(session.surface.nodes.length).toBeLessThan(8)
+  })
+
+  it('does not write a compaction bracket when an agent request has no safe prefix', async () => {
+    const compact = service(compactConfig)
+    const session = conversation(1)
+
+    await expect(compactIfNeeded(compact, session, 'agent-request')).resolves.toBeNull()
+    expect(session.events.some(event => event.type === 'compaction/start')).toBe(false)
+  })
+
+  it('retains the unanswered tool call that requested compaction', async () => {
+    const compact = service({
+      auto: false,
+      retainTokens: 180,
+    })
+    const session = conversation(4)
+    const callId = CallId('context-compact-call')
+    session.append('step/start', { turn: 5, step: 1 })
+    const assistant = session.append('assistant/message', {
+      turn: 5,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'tool-call', id: callId, name: 'context_compact', arguments: '{}' }],
+        source: { kind: 'model', provider: MODEL, model: MODEL },
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('tool/call', {
+      turn: 5,
+      step: 1,
+      callId,
+      name: 'context_compact',
+      arguments: '{}',
+    })
+
+    const result = await compactIfNeeded(compact, session, 'agent-request')
+
+    expect(result).not.toBeNull()
+    expect(result?.shadowedSeqs).not.toContain(assistant.seq)
+    expect(session.surface.nodes).toContain(assistant.seq)
   })
 
   it('counts the durable routed request envelope without putting it on the surface', async () => {

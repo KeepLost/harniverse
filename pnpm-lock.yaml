@@ -21,6 +21,9 @@ importers:
       '@deepseek-ai/dsh-session-delivery':
         specifier: workspace:^
         version: link:packages/session-query/session-delivery
+      '@deepseek-ai/dsh-tool-compaction':
+        specifier: workspace:^
+        version: link:packages/compaction/tool-compaction
       '@deepseek-ai/dsh-tool-session-delivery':
         specifier: workspace:^
         version: link:packages/session-query/tool-session-delivery
@@ -276,6 +279,9 @@ importers:
       '@deepseek-ai/dsh-tool-bash-persistent':
         specifier: workspace:^
         version: link:../../packages/shell/tool-bash-persistent
+      '@deepseek-ai/dsh-tool-compaction':
+        specifier: workspace:^
+        version: link:../../packages/compaction/tool-compaction
       '@deepseek-ai/dsh-tool-compaction-history':
         specifier: workspace:^
         version: link:../../packages/compaction/tool-compaction-history
@@ -728,6 +734,9 @@ importers:
       '@deepseek-ai/dsh-tool-call-timeout-policy':
         specifier: workspace:*
         version: link:../packages/guard/timeout-policy
+      '@deepseek-ai/dsh-tool-compaction':
+        specifier: workspace:*
+        version: link:../packages/compaction/tool-compaction
       '@deepseek-ai/dsh-tool-compaction-history':
         specifier: workspace:*
         version: link:../packages/compaction/tool-compaction-history
@@ -1300,6 +1309,9 @@ importers:
       '@deepseek-ai/dsh-tool-call-timeout-policy':
         specifier: workspace:^
         version: link:../../guard/timeout-policy
+      '@deepseek-ai/dsh-tool-compaction':
+        specifier: workspace:^
+        version: link:../../compaction/tool-compaction
       '@deepseek-ai/dsh-tool-compaction-history':
         specifier: workspace:^
         version: link:../../compaction/tool-compaction-history
@@ -3608,6 +3620,39 @@ importers:
       '@deepseek-ai/dsh-token-meter':
         specifier: workspace:^
         version: link:../../llm/token-meter
+
+  packages/compaction/tool-compaction:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: workspace:^
+        version: link:../../../vendor/include
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-compaction':
+        specifier: workspace:^
+        version: link:../compaction
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
 
   packages/compaction/tool-compaction-history:
     dependencies:

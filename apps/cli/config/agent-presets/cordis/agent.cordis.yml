@@ -142,6 +142,9 @@
     - id: tool-compaction-history
       name: '@deepseek-ai/dsh-tool-compaction-history'
 
+    - id: tool-compaction
+      name: '@deepseek-ai/dsh-tool-compaction'
+
     - id: command-compact
       name: '@deepseek-ai/dsh-command-compact'
 

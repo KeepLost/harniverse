@@ -12,6 +12,7 @@
 | `@deepseek-ai/dsh-compaction-basic` | Service Provider：`ctx.tokenMeter` 压力 + token 预算保留 + `llm.stream()` 摘要 |
 | `@deepseek-ai/dsh-compaction-lossless` | Service Provider：basic transaction policy + 已提交 summary DAG projection |
 | `@deepseek-ai/dsh-command-compact` | Consumer：面向人类的 `/compact` 命令，基于 `ctx.compaction.compactNow()` 实现 |
+| `@deepseek-ai/dsh-tool-compaction` | Consumer：模型 direct 请求的保留尾部压缩 |
 | `@deepseek-ai/dsh-tool-compaction-history` | Consumer：基于 lossless Provider history projection 的 model-facing 搜索与展开 |
 
 与 bash seam 不同，该 Service Definition 依赖 `@deepseek-ai/dsh-session` 和 `@deepseek-ai/dsh-llm`。约定的动词基于 `Session` 定义，其输出使用 `ContentBlock` 词汇，因此无法在不指名这些包的情况下表达。这项对「Service Definition 只依赖 cordis」指引的偏离是有意的，并记录在 [压缩能力 seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) 中。
@@ -22,7 +23,7 @@
 
 | 成员 | 语义 |
 |---|---|
-| `compactIfNeeded(agent, trigger, signal)` | 根据 `trigger: 'pressure' \| 'context-overflow'` 判断是否需要自动压缩。压力触发可应用后端的阈值与保留尾部策略；已确认溢出可强制进行有效的平衡缩减。返回 `CompactionResult`，无安全范围时则返回 `null`。后端摘要请求是直接的 `ctx.llm.stream()` 调用（不是 agent loop（智能体循环）步骤），因此每次调用都可在 `llm/stream` 处拦截。 |
+| `compactIfNeeded(agent, trigger, signal)` | 根据 `trigger: 'pressure' \| 'context-overflow' \| 'agent-request'` 判断是否压缩。压力应用阈值与保留尾部策略；已确认溢出可不保留尾部地强制缩减；agent request 跳过阈值但保留近期上下文。返回 `CompactionResult`，无安全范围时则返回 `null`。后端摘要请求是直接的 `ctx.llm.stream()` 调用（不是 agent loop（智能体循环）步骤），因此每次调用都可在 `llm/stream` 处拦截。 |
 | `compactNow(agent, signal)` | 即使未达到自动压力，也显式压缩一段有效、平衡的较早范围。该操作会在让出控制权前同步预留空闲轮次接纳；没有有效范围时不写入任何内容；在摘要前记录独立的 `compaction/* { turn: null }` 尝试；释放预留前等待其持久性检查点。预期操作失败使用 `ManualCompactionError`；取消会原样重新抛出 abort 原因。 |
 | `compactRegion(start, end, agent, signal?)` | 强制将表层节点 `[start, end]`（包含两端 seq）从 `agent.session` 摘要为单个替换节点，其源由 `compactCheckpointSource(compactionId)` 创建。如果压缩已在进行、`start`／`end` 不是表层节点，或 `start` 在表层上位于 `end` 之后，则**抛出异常**。该范围是表层位置范围，不是数值 seq 区间：在之前的 replace 将新生成的高 seq 摘要节点放到已遮蔽范围的位置之后，表层顺序不再跟随 seq 顺序。 |
 
@@ -50,11 +51,11 @@
 
 仅当紧跟在 `compaction/summary` 之后的检查点已提交时，包不变量才接受成功的 `compaction/end`。该检查点必须与摘要的范围、有序来源 `[startSeq, summarySeq, ...shadowedSeqs]`、`compactionId` 和可选 `sourceCommandId` 完全匹配。因此表层变更位于锁的起止范围**内**：`compaction/end` 是最后一个事件，所以在此之前崩溃会留下可检测的遗留锁，而不是虚假的成功结束。
 
-这对标记表示获取和释放锁的时间点，并非排他的事件容器。手动摘要等待期间，空闲的 `inject()` 可以在 start 与 end 之间追加不相关的上下文。因此，手动稳定性检查会重新验证所选 span，而不要求整个表层相等；位置替换会让该注入上下文在检查点之后保持可见。自动压缩则要求其活动轮次内的整个表层保持相等。
+这对标记表示获取和释放锁的时间点，并非排他的事件容器。手动摘要等待期间，空闲的 `inject()` 可以在 start 与 end 之间追加不相关的上下文。因此，手动稳定性检查会重新验证所选 span，而不要求整个表层相等；位置替换会让该注入上下文在检查点之后保持可见。活动轮次中的压力、溢出、agent-request 与显式范围压缩都要求整个表层保持相等。
 
 `deriveMessages()` 随后将摘要渲染为 user 角色消息，再跟上已保留节点。已遮蔽事件仍保留在原始日志中，因此回放具有确定性。
 
-随附的 base、standard、code、Cordis 和 standalone headless 组合选择 `dsh-compaction-lossless`。bundle 与 preset 组合保持已配置的工具结果剪枝行禁用，headless 则不挂载剪枝器。因此自动与手动压缩会直接执行摘要替换，这是默认组合中唯一的历史改写。显式的 profile、home 或命令行 overlay 可以启用追溯式工具结果剪枝，再执行后续摘要。
+随附的 base、standard、code、Cordis 和 standalone headless 组合选择 `dsh-compaction-lossless`。bundle 与 preset 组合保持已配置的工具结果剪枝行禁用，headless 则不挂载剪枝器。因此自动、模型请求与手动压缩会直接执行摘要替换，这是默认组合中唯一的历史改写。显式的 profile、home 或命令行 overlay 可以启用追溯式工具结果剪枝，再执行后续压力或溢出摘要。
 
 ## 阻塞
 
@@ -92,6 +93,5 @@
 
 ## 已知限制与暂缓事项
 
-- **面向用户的压缩触发，而非模型触发**：`@deepseek-ai/dsh-command-compact` 通过 `ctx.commands` 暴露无参数 `/compact`；独立历史工具只读取已提交压缩，不能发起压缩。
 - **部分单元溢出不在约定内**：平衡摘要压缩无法拆分一个不可分单元。当闭合工具对中可移除的主要部分是承载文本的工具结果时，可选剪枝配套服务仍可修复该工具对；无法压缩大型非工具节点，或不可剪枝剩余部分过大的工具单元。
 - **单独接近窗口大小的 envelope 不属于表层压缩工作**：压缩缩减派生历史，绝不缩减系统提示词、工具或会话前缀。

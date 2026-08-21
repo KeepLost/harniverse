@@ -24,6 +24,7 @@ const TOOLS_BY_PACKAGE: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-tool-ask-user': ['ask_user_question'],
   '@deepseek-ai/dsh-tool-bash': ['bash'],
   '@deepseek-ai/dsh-tool-bash-persistent': ['bash'],
+  '@deepseek-ai/dsh-tool-compaction': ['context_compact'],
   '@deepseek-ai/dsh-tool-compaction-history': ['compaction_history_expand', 'compaction_history_search'],
   '@deepseek-ai/dsh-tool-cordis': ['cordis_define', 'cordis_inspect_list', 'cordis_inspect_query', 'cordis_inspect_self', 'cordis_run', 'cordis_stop', 'cordis_undefine'],
   '@deepseek-ai/dsh-tool-fs': ['edit', 'read', 'read_image', 'write'],

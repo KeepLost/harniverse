@@ -66,7 +66,15 @@ import * as ToolSessionDelivery from '@deepseek-ai/dsh-tool-session-delivery'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolResultArtifacts from '@deepseek-ai/dsh-tool-result-artifacts'
+import CompactionEngine from '@deepseek-ai/dsh-compaction'
+import type {
+  CompactionAgentContext,
+  CompactionResult,
+  CompactionTrigger,
+  ManualCompactAgentContext,
+} from '@deepseek-ai/dsh-compaction'
 import { CompactionHistory } from '@deepseek-ai/dsh-compaction-lossless'
+import * as ToolCompaction from '@deepseek-ai/dsh-tool-compaction'
 import * as ToolCompactionHistory from '@deepseek-ai/dsh-tool-compaction-history'
 import SpillStore, { SpillLocator } from '@deepseek-ai/dsh-spill'
 import type { ReadTextSpill, ReadTextSpillPage, SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
@@ -118,6 +126,28 @@ class CatalogSessionDelivery extends SessionDelivery {
 
   unload(_request: SessionUnloadRequest): Promise<SessionUnloadReceipt> {
     throw new Error('catalog-only delivery provider is not executable')
+  }
+}
+
+/** Schema-harvest compaction seam marker; catalog generation never executes tools. */
+class CatalogCompactionEngine extends CompactionEngine {
+  compactIfNeeded(
+    _agent: CompactionAgentContext,
+    _trigger: CompactionTrigger,
+    _signal: AbortSignal,
+  ): Promise<CompactionResult | null> {
+    return Promise.reject(new Error('gen-tool-catalog: compaction is unreachable during schema harvest'))
+  }
+
+  compactNow(
+    _agent: ManualCompactAgentContext,
+    _signal: AbortSignal,
+  ): Promise<CompactionResult | null> {
+    return Promise.reject(new Error('gen-tool-catalog: compaction is unreachable during schema harvest'))
+  }
+
+  compactRegion(): Promise<CompactionResult> {
+    return Promise.reject(new Error('gen-tool-catalog: compaction is unreachable during schema harvest'))
   }
 }
 
@@ -437,6 +467,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-compaction',
+    dir: 'tool-compaction',
+    source: 'packages/compaction/tool-compaction/src/index.ts',
+    requires: ['ctx.tools', 'ctx.compaction', 'a direct calling Agent'],
+    writes: ['tool/call', 'compaction/* on success', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(CatalogCompactionEngine)
+      await ctx.plugin(ToolCompaction)
+    },
+    note:
+      'The direct model call asks the configured compaction provider to condense one safe older prefix while retaining recent context. Nested transport dispatches are rejected.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-compaction-history',

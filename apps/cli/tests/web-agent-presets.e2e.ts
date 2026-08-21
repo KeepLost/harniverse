@@ -233,7 +233,7 @@ describe('the shipped Web composition', () => {
       // depend on ripgrep being present on the machine.
       expect(toolNames(ctx, handle.agent).filter(name => name !== 'glob' && name !== 'grep')).toEqual([
         'artifact_read', 'ask_user_question', 'bash', 'compaction_history_expand',
-        'compaction_history_search', 'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'interrupt_agent',
+        'compaction_history_search', 'context_compact', 'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'interrupt_agent',
         'job_kill', 'job_list', 'job_output', 'list_agents', 'ralph', 'read', 'read_image', 'send_message',
         'session_event_read', 'session_event_search', 'session_event_trace', 'session_find', 'session_log_tail',
         'session_message_tail', 'session_search',

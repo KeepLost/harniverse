@@ -246,12 +246,12 @@ export class BasicCompactionEngine extends CompactionEngine {
   }
 
   /**
-   * Compact for replayed step-boundary pressure or one provider-confirmed context
-   * overflow. Both triggers price the latest durable routed request envelope;
-   * overflow bypasses the normal threshold and retained-tail policy so it can
-   * force one useful balanced reduction.
+   * Compact for replayed step-boundary pressure, one provider-confirmed context
+   * overflow, or an active agent request. Every trigger prices the latest durable
+   * routed request envelope. Overflow bypasses threshold and retention; an agent
+   * request bypasses only the threshold and performs at most one reduction.
    * @param agent - agent whose latest durable routed request is measured.
-   * @param trigger - normal step-boundary pressure or context-overflow recovery.
+   * @param trigger - step pressure, context-overflow recovery, or an agent request.
    * @param signal - live turn cancellation signal forwarded to summarization.
    * @returns the latest summary compaction result, or `null` when no summary ran.
    */
@@ -269,6 +269,8 @@ export class BasicCompactionEngine extends CompactionEngine {
       case 'context-overflow':
         break
       case 'pressure':
+        break
+      case 'agent-request':
         break
       /* v8 ignore next -- closed-union exhaustiveness guard */
       default:
@@ -291,7 +293,10 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
 
     const context = (await this.ctx.llm.resolveModelInfo(target.provider, target.model, signal)).context
-    assertNoActiveCompaction(agent.session, 'automatic pressure compaction')
+    assertNoActiveCompaction(
+      agent.session,
+      trigger === 'pressure' ? 'automatic pressure compaction' : 'agent-request compaction',
+    )
     const targetKey = `${target.provider}/${target.model}`
     if (context === undefined) {
       throw new TargetPressureConfigError(
@@ -301,6 +306,11 @@ export class BasicCompactionEngine extends CompactionEngine {
       )
     }
     const spec = resolveCompactSpec(policy, context.contextWindow)
+    if (trigger === 'agent-request') {
+      const range = selectCompactableRange(agent.session, measurement, spec.retainTokens)
+      if (range === null) return null
+      return this.compactRegion(range.start, range.end, agent, signal)
+    }
     if (measurement.totalTokens < spec.thresholdTokens) return null
 
     // Once pressure qualifies, land the model-free pass before choosing a

@@ -512,8 +512,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Compaction seam',
     mode: 'seam',
     implementations: ['compaction-basic', 'compaction-lossless'],
-    consumers: ['command-compact'],
-    note: 'The shipped lossless backend inherits the basic automatic transaction policy, projects committed summary history, and composes bounded model-facing recall tools; command-compact remains backend-neutral.',
+    consumers: ['command-compact', 'tool-compaction'],
+    note: 'The shipped lossless backend inherits the basic transaction policy, projects committed summary history, and serves backend-neutral human and direct model compaction consumers plus bounded recall tools.',
   },
   {
     key: 'subagents',

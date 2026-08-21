@@ -65,6 +65,7 @@
     "@deepseek-ai/dsh-tool-ask-user": "workspace:^",
     "@deepseek-ai/dsh-tool-bash": "workspace:^",
     "@deepseek-ai/dsh-tool-bash-persistent": "workspace:^",
+    "@deepseek-ai/dsh-tool-compaction": "workspace:^",
     "@deepseek-ai/dsh-tool-compaction-history": "workspace:^",
     "@deepseek-ai/dsh-tool-cordis": "workspace:^",
     "@deepseek-ai/dsh-tool-fs": "workspace:^",
