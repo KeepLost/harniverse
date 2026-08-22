@@ -179,6 +179,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `8719eabfa4` | Adds direct model-requested retained-tail context compaction through the existing Provider transaction and lossless summary DAG. |
 | `WORKTREE` | Splits browser plugin startup into authenticated critical/deferred bootstrap phases, adds a lightweight auth entry, Brotli/immutable static asset delivery, Web-profile cold-summary probe suppression, and restored-history/baseline overlap without weakening plugin-route authorization. Locally verified; no commit created by request. |
 | `868883546d` | Adds provider-local bounded DeepSeek request-image projection, model-level explicit image modality opt-in, Files API upload reuse with scoped owner-only index, quota cleanup, stale-file inline retry, and all-inline fallback. Default catalogs and shipped Profiles remain text-only; no durable Session schema changes. Locally verified in the current worktree. |
+| `2157a1d84f` | Replaces scalar SQLite session-event rows with schema-17 batch-local packed rows, selective Zstandard payloads, compact provenance, bounded packed-range reads, and stale-safe physical-tail repair while preserving logical persistence semantics. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
