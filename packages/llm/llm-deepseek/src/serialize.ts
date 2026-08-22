@@ -9,7 +9,8 @@
 
 import { contentHasImage, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
-import type { WireMessage, WireRequest, WireTool } from './types.ts'
+import type { AttachmentId, ImageAttachmentRef, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
+import type { WireImageContentPart, WireMessage, WireRequest, WireTool, WireUserContentPart, WireTextContentPart } from './types.ts'
 
 /** Adapter-level request defaults (from plugin config). */
 export interface RequestDefaults {
@@ -140,23 +141,198 @@ export function serializeMessages(messages: Message[]): WireMessage[] {
   return wire
 }
 
+/** Provider representation for one retained request image. */
+export type ImageRequestRepresentation =
+  | {
+    kind: 'file'
+    resolveFileId: (
+      version: RequestImageAttachment,
+      location: ImageWireLocation,
+    ) => Promise<string>
+  }
+  | { kind: 'base64' }
+
+/** Dependencies required when serializing image-bearing messages. */
+export interface ImageSerializationOptions {
+  representation: ImageRequestRepresentation
+  requestImages: ReadonlyMap<ImageAttachmentRef['attachmentId'], RequestImageAttachment>
+  omittedImages?: ReadonlySet<AttachmentId>
+}
+
+/** Position of an image in the original harness message sequence. */
+export interface ImageWireLocation {
+  message: number
+  image: number
+}
+
+const TOOL_RESULT_IMAGE_TEXT = 'Attached image(s) from tool result:'
+
+function imageHandle(version: RequestImageAttachment, precededByContent: boolean): WireTextContentPart {
+  return {
+    type: 'text',
+    text: `${precededByContent ? '\n' : ''}[image ${version.attachment.attachmentId} ${version.width}x${version.height}]`,
+  }
+}
+
+async function imageParts(
+  block: Extract<ContentBlock, { type: 'image' }>,
+  images: ImageSerializationOptions,
+  location: ImageWireLocation,
+  precededByContent: boolean,
+): Promise<WireUserContentPart[]> {
+  if (images.omittedImages?.has(block.attachment.attachmentId)) {
+    return [{ type: 'text', text: `[image omitted: ${block.attachment.attachmentId}]` }]
+  }
+  const version = images.requestImages.get(block.attachment.attachmentId)
+  if (version === undefined) {
+    throw new LlmError(`DeepSeek request image ${block.attachment.attachmentId} was not prepared.`, 'INVALID_REQUEST')
+  }
+  const image: WireImageContentPart = images.representation.kind === 'file'
+    ? { type: 'file', file_id: await images.representation.resolveFileId(version, location) }
+    : {
+      type: 'image_url',
+      image_url: { url: `data:${version.mediaType};base64,${Buffer.from(version.data).toString('base64')}` },
+    }
+  return [imageHandle(version, precededByContent), image]
+}
+
+async function contentParts(
+  blocks: readonly ContentBlock[],
+  images: ImageSerializationOptions,
+  message: number,
+  nextImage: { value: number },
+): Promise<WireUserContentPart[]> {
+  const parts: WireUserContentPart[] = []
+  for (const block of blocks) {
+    switch (block.type) {
+      case 'text':
+        if (block.text.length > 0) parts.push({ type: 'text', text: block.text })
+        break
+      case 'image':
+        nextImage.value += 1
+        parts.push(...await imageParts(block, images, { message, image: nextImage.value }, parts.length > 0))
+        break
+      case 'tool-result':
+        parts.push(...await contentParts(block.content, images, message, nextImage))
+        break
+      default:
+        break
+    }
+  }
+  return parts
+}
+
+function userContent(parts: readonly WireUserContentPart[]): string | WireUserContentPart[] {
+  const text: string[] = []
+  for (const part of parts) {
+    if (part.type !== 'text') return [...parts]
+    text.push(part.text)
+  }
+  return text.join('')
+}
+
+function assertSupportedImageRoles(messages: readonly Message[]): void {
+  for (const message of messages) {
+    if (message.role !== 'user' && contentHasImage(message.content)) {
+      throw new LlmError(
+        `The DeepSeek chat-completions adapter cannot represent image content in a ${message.role} message.`,
+        'UNSUPPORTED_CONTENT',
+      )
+    }
+  }
+}
+
+/** Serialize an image-capable request while preserving text-only tool messages.
+ * @param messages - ordered harness messages.
+ * @param images - request-image versions and provider representation.
+ * @returns ordered wire messages.
+ */
+export async function serializeMessagesWithImages(
+  messages: readonly Message[],
+  images: ImageSerializationOptions,
+): Promise<WireMessage[]> {
+  assertSupportedImageRoles(messages)
+  const wire: WireMessage[] = []
+  let pendingToolImages: WireImageContentPart[] = []
+  const flushToolImages = (): void => {
+    if (pendingToolImages.length === 0) return
+    wire.push({
+      role: 'user',
+      content: [{ type: 'text', text: TOOL_RESULT_IMAGE_TEXT }, ...pendingToolImages],
+    })
+    pendingToolImages = []
+  }
+
+  for (const [messageIndex, message] of messages.entries()) {
+    const nextImage = { value: 0 }
+    if (message.role === 'system') {
+      flushToolImages()
+      wire.push({ role: 'system', content: flattenText(message.content) })
+      continue
+    }
+    if (message.role === 'assistant') {
+      flushToolImages()
+      wire.push(serializeAssistant(message))
+      continue
+    }
+    const regular = message.content.filter(block => block.type !== 'tool-result')
+    const toolResults = message.content.filter((block): block is Extract<ContentBlock, { type: 'tool-result' }> => (
+      block.type === 'tool-result'
+    ))
+    const content = userContent(await contentParts(regular, images, messageIndex + 1, nextImage))
+    if (content.length > 0 || toolResults.length === 0) {
+      flushToolImages()
+      wire.push({ role: 'user', content })
+    }
+    for (const result of toolResults) {
+      const resultParts = await contentParts(result.content, images, messageIndex + 1, nextImage)
+      const resultImages = resultParts.filter((part): part is WireImageContentPart => part.type !== 'text')
+      const resultText = resultParts
+        .filter((part): part is WireTextContentPart => part.type === 'text')
+        .map(part => part.text)
+        .join('')
+      wire.push({
+        role: 'tool',
+        tool_call_id: result.toolCallId,
+        content: resultText || '(no output)',
+      })
+      pendingToolImages.push(...resultImages)
+    }
+  }
+  flushToolImages()
+  return wire
+}
+
 /**
- * Build the full wire request. Always streaming (`stream: true`, usage
- * reporting on); optional fields are omitted rather than sent as null, so
- * provider defaults apply.
- * @param options - the harness request (model, history, system, tools, sampling).
- * @param defaults - adapter-level thinking defaults; undefined fields put nothing on the wire.
+ * Build a text-only wire request. Always streaming (`stream: true`, usage
+ * reporting on); optional fields are omitted rather than sent as null, so provider defaults apply.
+ * @param options - generation request and message history.
+ * @param defaults - adapter-level thinking defaults.
  * @returns the chat-completions request body.
+ */
+export function serializeRequest(options: GenerateOptions, defaults?: RequestDefaults): WireRequest
+/**
+ * Build an image-capable wire request using prepared provider representations.
+ * @param options - generation request and message history.
+ * @param defaults - adapter-level thinking defaults.
+ * @param images - prepared request-image versions and representation resolver.
+ * @returns the asynchronous chat-completions request body.
  */
 export function serializeRequest(
   options: GenerateOptions,
+  defaults: RequestDefaults,
+  images: ImageSerializationOptions,
+): Promise<WireRequest>
+export function serializeRequest(
+  options: GenerateOptions,
   defaults: RequestDefaults = {},
-): WireRequest {
+  images?: ImageSerializationOptions,
+): WireRequest | Promise<WireRequest> {
   const messages: WireMessage[] = []
   if (options.system !== undefined) {
     messages.push({ role: 'system', content: options.system })
   }
-  messages.push(...serializeMessages(options.messages))
+  if (images === undefined) messages.push(...serializeMessages(options.messages))
 
   const tools: WireTool[] | undefined = options.tools?.map(tool => ({
     type: 'function',
@@ -170,9 +346,9 @@ export function serializeRequest(
   // compaction calls continue to inherit the adapter's thinking defaults.
   const resolvedThinking = resolveThinking(options, defaults)
 
-  return {
+  const finish = (serializedMessages: WireMessage[]): WireRequest => ({
     model: options.model,
-    messages,
+    messages: serializedMessages,
     stream: true,
     stream_options: { include_usage: true },
     ...resolvedThinking.thinking !== undefined ? { thinking: { type: resolvedThinking.thinking } } : {},
@@ -183,5 +359,11 @@ export function serializeRequest(
     ...options.temperature !== undefined ? { temperature: options.temperature } : {},
     ...options.maxTokens === undefined ? {} : { max_tokens: options.maxTokens },
     ...options.stop !== undefined ? { stop: options.stop } : {},
-  }
+  })
+  return images === undefined
+    ? finish(messages)
+    : serializeMessagesWithImages(options.messages, images).then(serialized => finish([
+      ...options.system === undefined ? [] : [{ role: 'system' as const, content: options.system }],
+      ...serialized,
+    ]))
 }

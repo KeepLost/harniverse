@@ -29,6 +29,8 @@ interface WebBootEntry {
   inject?: string[]
   /** Per-bundle fallback prefetch mark when graph bootstrap registration fails. */
   immediately?: boolean
+  /** Whether this entry must be active before the first interactive UI. */
+  startup?: 'critical' | 'deferred'
 }
 ```
 
@@ -39,6 +41,8 @@ interface WebBootGraph {
   rev: string
   /** One revision-addressed script that registers every graph factory for initial boot. */
   bootstrapUrl: string
+  /** Bootstrap script for entries that are safe to activate after first paint. */
+  deferredBootstrapUrl: string
   /** Composed entries; order carries no semantics (activation order is fiber inject waiting). */
   entries: WebBootEntry[]
 }
@@ -116,5 +120,5 @@ onRebuilt(listener: (id: string, rev: string) => void): () => void
 onGraphChanged(listener: () => void): () => void
 ```
 
-Source: [`packages/client/modules/src/index.ts:197`](../../packages/client/modules/src/index.ts)
+Source: [`packages/client/modules/src/index.ts:211`](../../packages/client/modules/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -1,6 +1,6 @@
 /** Durable attachment vocabulary. @module @deepseek-ai/dsh-attachment/types */
 
-import type { AttachmentId } from './brand.ts'
+import type { AttachmentId, ImageVariantId } from './brand.ts'
 
 export type { AttachmentId } from './brand.ts'
 
@@ -45,4 +45,28 @@ export interface SaveImageAttachment {
 export interface StoredImageAttachment {
   ref: ImageAttachmentRef
   data: Uint8Array
+}
+
+/** Deterministic request-image policy selected by one exact model route. */
+export interface ImageRequestPolicy {
+  /** Maximum width multiplied by height after aspect-preserving projection. */
+  maxPixels: number
+  /** Encoded-byte cap before base64 expansion or provider upload. */
+  maxBytes: number
+}
+
+/** Transient request version derived from one durable attachment. */
+export interface RequestImageAttachment {
+  /** Identity over the attachment, policy, and fixed encoder version. */
+  variantId: ImageVariantId
+  /** Durable provider-independent source attachment. */
+  attachment: ImageAttachmentRef
+  data: Uint8Array
+  mediaType: ImageMediaType
+  bytes: number
+  width: number
+  height: number
+  depth: 'uchar'
+  space: 'srgb'
+  hasAlpha: boolean
 }

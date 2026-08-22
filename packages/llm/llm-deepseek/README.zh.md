@@ -30,9 +30,16 @@ harness LLM（大语言模型）seam 的 DeepSeek chat-completions 适配器：�
     models:                  # optional; defaults to V4 Flash and V4 Pro
       - id: deepseek-v4-flash
         name: DeepSeek-V4-Flash
-      - id: private-reasoner
-        description: Company-hosted reasoning model
-        contextWindow: 512000
+       - id: private-reasoner
+         description: Company-hosted reasoning model
+         contextWindow: 512000
+         inputModalities: [text, image] # image routes opt into request-image projection
+         imagePixelBudget: 4194304      # optional total pixels for one request version
+         imageMaxBytes: 1048576         # optional encoded bytes for one request version
+     maxRequestFilesBytes: 134217728    # optional aggregate file-reference budget
+     maxInlineRequestImageBytes: 20971520 # optional aggregate inline fallback budget
+     maxImagesPerRequest: 600            # optional retained image count
+     filesApiTimeoutMs: 60000            # optional Files API resolution timeout
 ```
 
 该插件注册唯一提供方路由 `deepseek-official`，同时注册解析后的 `retryPolicy`。请求使用 `provider: deepseek-official` 选择该路由；其 `model` 会作为协议 `model` 字符串原样传递，因此更改 DeepSeek 模型不需要生命周期时注册。省略 `models` 会公布 `deepseek-v4-flash`（名称为 `DeepSeek-V4-Flash`）和 `deepseek-v4-pro`（名称为 `DeepSeek-V4-Pro`），两者的上下文窗口均为 1,000,000 token；显式列表会替换这些默认值，`models: []` 则不公布任何模型。Catalog 配置项通过 `ctx.llm.listModels('deepseek-official')` 公开给 ACP（Agent Client Protocol）编辑器和 Web 选择器等客户端，但仍只提供建议：未列出模型 id 仍原样传递。省略配置项 name 默认为其 id。
@@ -40,6 +47,8 @@ harness LLM（大语言模型）seam 的 DeepSeek chat-completions 适配器：�
 `contextWindow` 对每个已配置模型都可选，不会通过建议 catalog 公开。`ctx.llm.resolveModelInfo('deepseek-official', model).context` 先返回精确模型值，再对不含容量的配置项或未列出原样传递 id 返回 `defaultContextWindow`。适配器默认值为 1,000,000；因此，压力敏感插件可以获得由部署决定的容量，不会将模型 selector 视为权威。为 `deepseek-official` 注册另一个适配器会抛出 `LlmError('DUPLICATE_ADAPTER')`。
 
 `maxTokens` 是适配器为对话请求配置的输出上限，默认值为 256,000。Catalog 配置项可以自带 `maxTokens`，它对该模型胜出；不含该上限的配置项以及任何未列出原样传递 id 都解析为 profile 值，因此新增按模型的上限只改变一个模型，而非整条路由。确切模型解析会将胜出值公开为 `defaultMaxTokens`；`LlmRuntime` 会在 agent loop（智能体循环）写入 `request/header` 前，将该值填入 `GenerateOptions.maxTokens`，从而仍可根据持久记录重建协议请求。显式的请求值或 `AgentOptions.maxTokens` 值优先，并会序列化为 `max_tokens`。适配器不会根据 `contextWindow` 自动调低该请求预算；上下文或提供方输出上限较小的部署必须配置与其相容的 `maxTokens`。
+
+除非 `inputModalities` 显式包含 `image`，否则 Catalog 模型均为纯文本模型。对于支持图片的模型，适配器经由 `ctx.attachments` 读取持久图片引用，生成有界请求版本，并发送 DeepSeek Files API 引用或一次完全 inline 的 fallback 表示。超过总字节或数量预算时优先省略较旧图片；一次请求绝不会混用文件引用和 inline 图片。默认 Catalog 仍为纯文本，因此现有 Profile 的行为不变。
 
 同一确切模型结果会在部署策略允许思考时，为每个原样传递模型在 `reasoning` 下公开有序的 `off`、`high` 和 `max` 推理（reasoning）强度。`reasoningEffort` 选择部署默认值，省略时回退为 `high`。`agent/request` 可以在每个会话步骤替换它；解析后的值会记录在 `request/header`。`high` 和 `max` 会启用思考，并序列化为官方顶层 `reasoning_effort`；适配器持有的 `off` 则序列化为 `thinking.type: disabled`，且省略 `reasoning_effort`。不支持的值会在网络 I/O 前以 `UNSUPPORTED_REASONING_EFFORT` 失败。
 
@@ -57,6 +66,8 @@ harness LLM（大语言模型）seam 的 DeepSeek chat-completions 适配器：�
 唯一在注册期捕获的事实是重试策略：其解析值变化时，插件原地重新注册该路由（同一适配器实例、一个同步区段），因此 `ctx.llm.providerRetryPolicy('deepseek-official')` 始终报告当前策略。
 
 该插件还会在可配置提供方目录（`ctx.llm.listConfigurableProviders()`）中声明自己的路由：提供方为 `deepseek-official`，settings namespace 为 `llm-deepseek`，settings path 为空——整个分节就是 profile。配置界面借助该条目，把本适配器与休眠的 pi-ai 提供方一并呈现。
+
+DeepSeek Files 映射属于提供方本地状态。它由端点/API 密钥 scope hash 与请求图片版本共同寻址，存放在 `DSH_HOME/llm-deepseek` 下并使用仅所有者权限，绝不会进入会话事件或通用附件引用。缓存映射会在过期前刷新；配额响应只清理由 harness 创建的文件并重试一次；聊天响应点名过期 file id 时会清除该 scope，并用同一请求的 inline 表示重试。
 
 ## 应用归因
 
@@ -82,7 +93,7 @@ DeepSeek 请求身份独立于应用归因。凭据解析成功后，每个提�
 
 #### 模型看到的内容
 
-所选 DeepSeek 模型会收到 harness 系统提示词、消息历史、工具 schema、stop sequence 和调用配置，不含适配器撰写的提示词文本。当之前的 assistant 轮次包含工具调用时，会按要求回传其推理内容；不含工具调用的轮次会省略推理。
+所选 DeepSeek 模型会收到 harness 系统提示词、消息历史、工具 schema、stop sequence 和调用配置，不含适配器撰写的提示词文本。当之前的 assistant 轮次包含工具调用时，会按要求回传其推理内容；不含工具调用的轮次会省略推理。支持图片的路由还会以有界的 user content part 接收持久化的用户图片和嵌套工具结果图片。每张图片前会带有附件 id 和请求尺寸；提供方看到的要么是 Files API `file` part，要么是 data URL，而会话历史只保留持久化附件引用。
 
 #### Token 影响
 
@@ -112,3 +123,5 @@ loop 保留的响应块会追加到下一个请求，并保留其较早可复用
 - **未映射 `tool_choice`**：它不属于核心词汇（MVP 取舍，与 pi-ai twin 共享）。
 - **请求使用原始 `fetch`，而非 `@cordisjs/plugin-http`**：没有共享 proxy／拦截配置；采用暂缓到第二个适配器需要该功能时（`TODO(http)`）。
 - **序列化会将 user 与工具结果内容展平为文本块**：会跳过插件添加的块类型，空工具输出会以字面 `(no output)` 通过协议发送。
+- **DeepSeek 图片输入是显式 opt-in 且属于提供方专属能力**：默认 Catalog 为纯文本；替代附件提供方也必须实现 `readImageRequest`，支持图片的路由才能工作。
+- **Files 映射只是缓存，不是模型持久状态**：删除本地索引或远端文件会触发重新上传或 inline fallback，不需要会话迁移。

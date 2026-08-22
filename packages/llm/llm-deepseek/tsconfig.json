@@ -21,10 +21,19 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../attachment/attachment"
+    },
+    {
+      "path": "../../util/atomic-write"
+    },
+    {
       "path": "../../credentials/credentials"
     },
     {
       "path": "../../util/launch-environment"
+    },
+    {
+      "path": "../../util/home-paths"
     },
     {
       "path": "../../settings/settings"

@@ -1,0 +1,129 @@
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import sharp from 'sharp'
+import { afterEach, describe, expect, it } from 'vitest'
+import { AttachmentId, type ImageMediaType, type StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
+import { readRequestImageFile, requestImageDimensions, requestImageVariantId } from '../src/request-image.ts'
+
+const roots: string[] = []
+
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
+})
+
+async function stored(format: 'png' | 'jpeg' | 'gif' | 'tiff' = 'png', width = 100, height = 50): Promise<StoredImageAttachment> {
+  const data = new Uint8Array(await sharp({
+    create: { width, height, channels: 4, background: { r: 12, g: 34, b: 56, alpha: 1 } },
+  }).toFormat(format).toBuffer())
+  const mediaType: ImageMediaType = format === 'jpeg' ? 'image/jpeg' : format === 'tiff' ? 'image/png' : `image/${format}`
+  return {
+    ref: {
+      attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
+      mediaType,
+      bytes: data.byteLength,
+      width,
+      height,
+    },
+    data,
+  }
+}
+
+describe('request image projection', () => {
+  it('keeps aspect ratio inside the pixel budget without enlarging', () => {
+    expect(requestImageDimensions(2_000, 1_000, 1_000_000)).toEqual({ width: 1414, height: 707 })
+    expect(requestImageDimensions(10, 5, 1_000_000)).toEqual({ width: 10, height: 5 })
+  })
+
+  it('derives and reuses a sidecar request image without changing the durable ref', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    const source = await stored('png', 100, 50)
+    const policy = { maxPixels: 1_000, maxBytes: 20_000 }
+    const first = await readRequestImageFile(root, source, policy)
+    const second = await readRequestImageFile(root, source, policy)
+
+    expect(first.variantId).toBe(requestImageVariantId(source.ref, policy))
+    expect(first.attachment).toEqual(source.ref)
+    expect(first.width * first.height).toBeLessThanOrEqual(policy.maxPixels)
+    expect(first.bytes).toBeLessThanOrEqual(policy.maxBytes)
+    expect(first.data).toEqual(second.data)
+    expect(second.mediaType).toBe(first.mediaType)
+  })
+
+  it('passes through a bounded source when no projection is needed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    const source = await stored('png', 20, 10)
+    const result = await readRequestImageFile(root, source, { maxPixels: 1_000, maxBytes: 20_000 })
+    expect(result.data).toBe(source.data)
+    expect(result.mediaType).toBe('image/png')
+  })
+
+  it('shares one generated sidecar across concurrent callers', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    const source = await stored('png', 200, 100)
+    const policy = { maxPixels: 1_000, maxBytes: 20_000 }
+    const results = await Promise.all(Array.from({ length: 8 }, () => readRequestImageFile(root, source, policy)))
+    expect(results.every(result => result.variantId === results[0]?.variantId)).toBe(true)
+    const prefix = String(results[0]!.variantId).slice(7, 9)
+    expect(await readdir(join(root, 'request-images', prefix))).toHaveLength(1)
+  })
+
+  it('ignores and replaces a corrupt sidecar cache entry', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    const source = await stored('png', 200, 100)
+    const policy = { maxPixels: 1_000, maxBytes: 20_000 }
+    const first = await readRequestImageFile(root, source, policy)
+    const hash = String(first.variantId).slice('sha256:'.length)
+    await writeFile(join(root, 'request-images', hash.slice(0, 2), hash), 'broken')
+    const rebuilt = await readRequestImageFile(root, source, policy)
+    expect(rebuilt.bytes).toBeGreaterThan(0)
+    expect(rebuilt.width * rebuilt.height).toBeLessThanOrEqual(policy.maxPixels)
+  })
+
+  it('rejects invalid request policies', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    await expect(readRequestImageFile(root, await stored(), { maxPixels: 0, maxBytes: 20_000 }))
+      .rejects.toMatchObject({ code: 'INVALID_IMAGE_POLICY' })
+  })
+
+  it('converts GIF request bytes to a provider-supported encoded format', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    const source = await stored('gif', 20, 20)
+    const result = await readRequestImageFile(root, source, { maxPixels: 10_000, maxBytes: 20_000 })
+    expect(result.mediaType).not.toBe('image/gif')
+    expect(result.data.byteLength).toBeLessThanOrEqual(20_000)
+  })
+
+  it('encodes opaque JPEG sources as JPEG and rejects an impossible byte budget', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    const source = await stored('jpeg', 20, 20)
+    const result = await readRequestImageFile(root, source, { maxPixels: 10_000, maxBytes: 20_000 })
+    expect(result.mediaType).toBe('image/jpeg')
+    await expect(readRequestImageFile(root, source, { maxPixels: 10_000, maxBytes: 1 }))
+      .rejects.toMatchObject({ code: 'IMAGE_TOO_LARGE' })
+  })
+
+  it('rejects malformed image bytes', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    const source = await stored()
+    await expect(readRequestImageFile(root, { ...source, data: new Uint8Array([1, 2, 3]) }, { maxPixels: 10_000, maxBytes: 20_000 }))
+      .rejects.toMatchObject({ code: 'INVALID_IMAGE' })
+  })
+
+  it('honors cancellation before reading the source', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    const controller = new AbortController()
+    controller.abort(new Error('cancelled'))
+    await expect(readRequestImageFile(root, await stored(), { maxPixels: 10_000, maxBytes: 20_000 }, controller.signal))
+      .rejects.toThrow('cancelled')
+  })
+})

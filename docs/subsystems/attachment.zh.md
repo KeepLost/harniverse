@@ -109,7 +109,17 @@ abstract saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef>
  * @throws the signal reason when aborted, or a storage error when verification fails.
  */
 abstract readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<StoredImageAttachment>
+
+/**
+ * Derive a bounded model-request image without changing the durable object.
+ * Providers that do not implement projection retain their existing behavior.
+ * @param ref - durable image reference.
+ * @param policy - pixel and encoded-byte limits for the transient version.
+ * @param signal - optional cancellation signal.
+ * @returns the transient request image version.
+ */
+readImageRequest( ref: ImageAttachmentRef, policy: ImageRequestPolicy, signal?: AbortSignal, ): Promise<RequestImageAttachment>
 ```
 
-Source: [`packages/attachment/attachment/src/index.ts:29`](../../packages/attachment/attachment/src/index.ts)
+Source: [`packages/attachment/attachment/src/index.ts:34`](../../packages/attachment/attachment/src/index.ts)
 <!-- END GENERATED cordis-surface -->

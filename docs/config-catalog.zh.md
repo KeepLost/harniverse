@@ -1001,6 +1001,26 @@ export interface Config {
   models?: DeepSeekCatalogModel[]
   /** Maximum provider idle time while one stream read is outstanding (default five minutes). */
   streamIdleTimeoutMs?: number
+  /** Maximum accumulated request-image bytes represented by file ids. */
+  maxRequestFilesBytes?: number
+  /** Maximum accumulated inline image bytes used by fallback requests. */
+  maxInlineRequestImageBytes?: number
+  /** Maximum number of images represented in one request. */
+  maxImagesPerRequest?: number
+  /** Raw-image offload quantum. */
+  imageOffloadByteQuantum?: number
+  /** Inline-image offload quantum. */
+  inlineImageOffloadByteQuantum?: number
+  /** Image-count offload quantum. */
+  imageOffloadCountQuantum?: number
+  /** Maximum duration of one Files API resolution. */
+  filesApiTimeoutMs?: number
+  /** Requested remote file lifetime in seconds. */
+  fileExpiresAfterSeconds?: number
+  /** Remaining lifetime below which a cached file is refreshed. */
+  fileRefreshMarginSeconds?: number
+  /** Number of old files to remove for one quota-recovery retry. */
+  fileQuotaCleanupBatch?: number
   /** Provider-owned model-request retry policy; omission uses normal defaults. */
   retryPolicy?: RetryPolicyConfig
 }
@@ -1017,12 +1037,20 @@ export interface DeepSeekCatalogModel {
   contextWindow?: number
   /** Per-request output cap for this model; omission falls back to the profile's {@link DeepSeekConnectionOptions.maxTokens}. */
   maxTokens?: number
+  /** Input modalities accepted by this exact configured route. */
+  inputModalities?: ('text' | 'image')[]
+  /** Maximum request-image pixels for image-capable routes. */
+  imagePixelBudget?: number
+  /** Maximum encoded bytes for one derived request image. */
+  imageMaxBytes?: number
+  /** Provider hint for low-detail image projection. */
+  imageDetail?: 'auto' | 'low'
 }
 ```
 
 依赖：[`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
-来源：[`packages/llm/llm-deepseek/src/index.ts:62`](../packages/llm/llm-deepseek/src/index.ts)
+来源：[`packages/llm/llm-deepseek/src/index.ts:97`](../packages/llm/llm-deepseek/src/index.ts)
 
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 

@@ -1,11 +1,35 @@
 import { describe, expect, it } from 'vitest'
-import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
+import type { RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { createUserMessage, CallId, ReasoningEffortId, createMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
-import { serializeMessages, serializeRequest } from '../src/serialize.ts'
+import { serializeMessages, serializeMessagesWithImages, serializeRequest } from '../src/serialize.ts'
 
 function request(overrides: Partial<GenerateOptions> = {}): GenerateOptions {
   return { provider: 'deepseek-official', model: 'deepseek-v4-flash', messages: [], ...overrides }
+}
+
+function requestImage(overrides: Partial<RequestImageAttachment> = {}): RequestImageAttachment {
+  const attachment = {
+    attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
+    mediaType: 'image/png' as const,
+    bytes: 2,
+    width: 2,
+    height: 1,
+  }
+  return {
+    variantId: ImageVariantId(`sha256:${'b'.repeat(64)}`),
+    attachment,
+    data: new Uint8Array([1, 2]),
+    mediaType: 'image/png',
+    bytes: 2,
+    width: 2,
+    height: 1,
+    depth: 'uchar',
+    space: 'srgb',
+    hasAlpha: false,
+    ...overrides,
+  }
 }
 
 describe('serializeMessages', () => {
@@ -144,6 +168,120 @@ describe('serializeMessages', () => {
       }],
       source: { kind: 'plugin', plugin: 'test' },
     })])).toThrow(expect.objectContaining({ code: 'UNSUPPORTED_CONTENT' }))
+  })
+
+  it('serializes inline image parts with a stable attachment handle', async () => {
+    const image = requestImage()
+    const wire = await serializeMessagesWithImages([
+      createUserMessage({
+        content: [
+          { type: 'text', text: 'describe this' },
+          { type: 'image', attachment: image.attachment },
+        ],
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
+    ], {
+      representation: { kind: 'base64' },
+      requestImages: new Map([[image.attachment.attachmentId, image]]),
+    })
+    expect(wire).toEqual([{
+      role: 'user',
+      content: [
+        { type: 'text', text: 'describe this' },
+        { type: 'text', text: '\n[image sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 2x1]' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,AQI=' } },
+      ],
+    }])
+  })
+
+  it('resolves file parts with their message and image locations', async () => {
+    const image = requestImage()
+    const locations: { message: number; image: number }[] = []
+    const wire = await serializeMessagesWithImages([
+      createUserMessage({
+        content: [{ type: 'image', attachment: image.attachment }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
+    ], {
+      representation: {
+        kind: 'file',
+        resolveFileId: async (_version, location) => {
+          locations.push(location)
+          return 'file-1'
+        },
+      },
+      requestImages: new Map([[image.attachment.attachmentId, image]]),
+    })
+    expect(locations).toEqual([{ message: 1, image: 1 }])
+    expect(wire[0]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: '[image sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 2x1]' },
+        { type: 'file', file_id: 'file-1' },
+      ],
+    })
+  })
+
+  it('keeps tool text in the tool message and projects tool images into a later user message', async () => {
+    const image = requestImage()
+    const wire = await serializeMessagesWithImages([
+      createUserMessage({
+        content: [{
+          type: 'tool-result',
+          toolCallId: CallId('call-1'),
+          content: [
+            { type: 'text', text: 'tool saw an image' },
+            { type: 'image', attachment: image.attachment },
+          ],
+        }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
+    ], {
+      representation: { kind: 'base64' },
+      requestImages: new Map([[image.attachment.attachmentId, image]]),
+    })
+    expect(wire).toEqual([
+      { role: 'tool', tool_call_id: 'call-1', content: 'tool saw an image\n[image sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 2x1]' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Attached image(s) from tool result:' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,AQI=' } },
+        ],
+      },
+    ])
+  })
+
+  it('renders omitted images as explicit text without reading a request image', async () => {
+    const image = requestImage()
+    const wire = await serializeMessagesWithImages([
+      createUserMessage({
+        content: [{ type: 'image', attachment: image.attachment }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
+    ], {
+      representation: { kind: 'base64' },
+      requestImages: new Map(),
+      omittedImages: new Set([image.attachment.attachmentId]),
+    })
+    expect(wire).toEqual([{
+      role: 'user',
+      content: `[image omitted: ${image.attachment.attachmentId}]`,
+    }])
+  })
+
+  it('rejects image content in system and assistant history roles', async () => {
+    const image = requestImage()
+    for (const role of ['system', 'assistant'] as const) {
+      await expect(serializeMessagesWithImages([createMessage({
+        role,
+        content: [{ type: 'image', attachment: image.attachment }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })], {
+        representation: { kind: 'base64' },
+        requestImages: new Map([[image.attachment.attachmentId, image]]),
+      })).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
+    }
   })
 
   it('emits an empty user message rather than dropping block-less messages', () => {

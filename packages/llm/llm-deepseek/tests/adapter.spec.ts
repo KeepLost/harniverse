@@ -14,8 +14,11 @@ import LlmRuntime, { createUserMessage,
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getOrCreateAnonymousUserId, type AnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import type { AttachmentStore, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
+import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekAdapter, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
+import { DeepSeekFileStore } from '@deepseek-ai/dsh-llm-deepseek'
 import { httpErrorCode } from '../src/adapter.ts'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
@@ -56,7 +59,100 @@ function adapterOf(config: Partial<LlmDeepSeek.Config> & { apiKey?: string } = {
   })
 }
 
+function requestImage(): RequestImageAttachment {
+  return {
+    variantId: ImageVariantId(`sha256:${'b'.repeat(64)}`),
+    attachment: {
+      attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
+      mediaType: 'image/png', bytes: 2, width: 1, height: 1,
+    },
+    data: new Uint8Array([1, 2]),
+    mediaType: 'image/png', bytes: 2, width: 1, height: 1,
+    depth: 'uchar', space: 'srgb', hasAlpha: false,
+  }
+}
+
+function imageAdapter(
+  baseURL: string,
+  files: DeepSeekFileStore,
+): DeepSeekAdapter {
+  const version = requestImage()
+  const connection = resolveAdapterOptions({
+    baseURL,
+    models: [{ id: 'vision', inputModalities: ['text', 'image'], imageMaxBytes: 10_000, imagePixelBudget: 10_000 }],
+  })
+  const attachments = { readImageRequest: vi.fn().mockResolvedValue(version) } as unknown as AttachmentStore
+  return new DeepSeekAdapter({
+    options: () => connection,
+    resolveApiKey: () => Promise.resolve('test-key'),
+    resolveUserId: () => TEST_USER_ID,
+    resolveAttachments: () => attachments,
+    resolveFiles: () => files,
+  })
+}
+
+function imageMessage() {
+  return createUserMessage({
+    content: [{
+      type: 'image',
+      attachment: requestImage().attachment,
+    }],
+    source: { kind: 'plugin', plugin: 'test' },
+  })
+}
+
+async function drain(adapter: DeepSeekAdapter): Promise<void> {
+  for await (const _chunk of adapter.stream({
+    provider: 'deepseek-official',
+    model: 'vision',
+    messages: [imageMessage()],
+  })) { /* consume the complete response */ }
+}
+
 describe('DeepSeekAdapter against a mock server', () => {
+  it('falls back to one all-inline image request when Files resolution fails', async () => {
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const files = new DeepSeekFileStore({
+      fetch: async () => new Response(JSON.stringify({ error: { message: 'Files unavailable' } }), { status: 400 }),
+    })
+    await drain(imageAdapter(server.url, files))
+    expect(server.requests).toHaveLength(1)
+    expect(server.requests[0]).toMatchObject({
+      messages: [{ role: 'user', content: [{ type: 'text' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AQI=' } }] }],
+    })
+  })
+
+  it('uses a file part when provider upload succeeds', async () => {
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const files = new DeepSeekFileStore({
+      fetch: async () => new Response(JSON.stringify({
+        id: 'file-1', object: 'file', bytes: 2, created_at: 1, filename: 'dsh-image.png',
+        purpose: 'user_data', expires_at: 10,
+      }), { status: 200 }),
+    })
+    await drain(imageAdapter(server.url, files))
+    expect(server.requests[0]).toMatchObject({
+      messages: [{ role: 'user', content: [{ type: 'text' }, { type: 'file', file_id: 'file-1' }] }],
+    })
+  })
+
+  it('clears cached file ids and retries the same image fully inline when the chat rejects them', async () => {
+    const server = await mockServer([
+      { kind: 'http-error', status: 400, body: JSON.stringify({ error: { code: 'file_expired', message: 'file id expired' } }) },
+      { kind: 'sse', events: textEvents },
+    ])
+    const files = new DeepSeekFileStore({
+      fetch: async () => new Response(JSON.stringify({
+        id: 'file-1', object: 'file', bytes: 2, created_at: 1, filename: 'dsh-image.png',
+        purpose: 'user_data', expires_at: 10,
+      }), { status: 200 }),
+    })
+    await drain(imageAdapter(server.url, files))
+    expect(server.requests).toHaveLength(2)
+    expect(server.requests[0]).toMatchObject({ messages: [{ content: [{ type: 'text' }, { type: 'file' }] }] })
+    expect(server.requests[1]).toMatchObject({ messages: [{ content: [{ type: 'text' }, { type: 'image_url' }] }] })
+  })
+
   it('streams a text generation end to end through the assembler', async () => {
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const ctx = await harness(server.url)
@@ -791,6 +887,20 @@ describe('plugin registration and config', () => {
       })
   })
 
+  it('advertises image capability only for explicitly opted-in models', async () => {
+    const adapter = adapterOf({ models: [
+      { id: 'text-model' },
+      { id: 'vision-model', inputModalities: ['text', 'image'], imageDetail: 'low' },
+    ] })
+    await expect(adapter.listModels('deepseek-official')).resolves.toEqual([
+      { provider: 'deepseek-official', id: 'text-model', name: 'text-model', inputModalities: ['text'] },
+      { provider: 'deepseek-official', id: 'vision-model', name: 'vision-model', inputModalities: ['text', 'image'] },
+    ])
+    await expect(adapter.resolveModel('deepseek-official', 'unlisted')).resolves.toMatchObject({
+      inputModalities: ['text'],
+    })
+  })
+
   it('uses exact model capacity before the adapter-wide default', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
@@ -840,6 +950,13 @@ describe('plugin registration and config', () => {
   it.each([0, 1.5])('rejects a per-model output cap of %s', (maxTokens) => {
     expect(() => resolveAdapterOptions({ models: [{ id: 'bad-cap', maxTokens }] }))
       .toThrow(/maxTokens must be a positive integer/)
+  })
+
+  it.each([
+    [{ id: 'vision', inputModalities: ['image'] as ('text' | 'image')[], imagePixelBudget: 0 }, /imagePixelBudget/],
+    [{ id: 'vision', inputModalities: ['image'] as ('text' | 'image')[], imageMaxBytes: 1.5 }, /imageMaxBytes/],
+  ])('rejects invalid image model config', (model, message) => {
+    expect(() => resolveAdapterOptions({ models: [model] })).toThrow(message)
   })
 
   it('prefers a model\'s own output cap over the profile default', async () => {

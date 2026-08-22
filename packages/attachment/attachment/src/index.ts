@@ -1,22 +1,27 @@
 /** Durable attachment storage seam (`ctx.attachments`). @module @deepseek-ai/dsh-attachment */
 
 import { Context, Service } from '@deepseek-ai/cordis'
+import { AttachmentError } from './error.ts'
 import type {
   ImageAttachmentLimits,
   ImageAttachmentRef,
+  ImageRequestPolicy,
+  RequestImageAttachment,
   SaveImageAttachment,
   StoredImageAttachment,
 } from './types.ts'
 
-export { AttachmentId } from './brand.ts'
+export { AttachmentId, ImageVariantId } from './brand.ts'
 export { AttachmentError } from './error.ts'
 export type {
   AttachmentId as AttachmentIdType,
   ImageAttachmentLimits,
   ImageAttachmentRef,
+  ImageRequestPolicy,
   ImageMediaType,
   SaveImageAttachment,
   StoredImageAttachment,
+  RequestImageAttachment,
 } from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -57,6 +62,28 @@ export abstract class AttachmentStore extends Service {
    * @throws the signal reason when aborted, or a storage error when verification fails.
    */
   abstract readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<StoredImageAttachment>
+
+  /**
+   * Derive a bounded model-request image without changing the durable object.
+   * Providers that do not implement projection retain their existing behavior.
+   * @param ref - durable image reference.
+   * @param policy - pixel and encoded-byte limits for the transient version.
+   * @param signal - optional cancellation signal.
+   * @returns the transient request image version.
+   */
+  readImageRequest(
+    ref: ImageAttachmentRef,
+    policy: ImageRequestPolicy,
+    signal?: AbortSignal,
+  ): Promise<RequestImageAttachment> {
+    signal?.throwIfAborted()
+    void ref
+    void policy
+    return Promise.reject(new AttachmentError(
+      'The mounted attachment provider cannot derive model-request images.',
+      'ATTACHMENT_PROJECTION_UNSUPPORTED',
+    ))
+  }
 }
 
 export default AttachmentStore

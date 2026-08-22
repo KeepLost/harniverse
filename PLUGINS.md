@@ -115,6 +115,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | Result retention and bounded file access | `dsh-tools`, `dsh-spill`, `dsh-spill-local`, `dsh-spill-policy`, `dsh-tool-fs`, `dsh-tool-fs-search`, `dsh-tool-str-replace-editor`, `dsh-client-ui-tool`, `dsh-compaction`, `dsh-token-meter` |
 | Compaction composition, proactive trigger, and recall | `dsh-compaction`, `dsh-compaction-basic`, `dsh-base`, `dsh-web-app`, and the standalone headless example; standard and Cordis Agent presets select both model Consumers, while Code keeps automatic compaction and recall without the direct-only trigger. |
 | Authenticated Web and automation surface | `dsh-web-app`, `dsh-client-connection`, `dsh-client-modules`, `dsh-client-hmr`, `dsh-client-web`, `dsh-host-webserver`, `dsh-sdk-client`, `dsh-api-gateway`, `dsh-typert-protocol`, `dsh-typert-generator`, `dsh-typert-loader`, `dsh-typert-registry` |
+| DeepSeek provider-local multimodal requests | `dsh-attachment`, `dsh-attachment-local`, `dsh-llm-deepseek` |
 | Derived runtime catalogs | `dsh-cordis-client-runner`, `dsh-tool-cordis` |
 | Test support projection | `dsh-acp-snapshot` normalization only |
 | Plugin operations and diagnostics | `dsh-host-plugin-inventory`, `dsh-api-remotes`, `dsh-client-ui-settings-plugin-inventory`, `dsh-web-app` |
@@ -176,6 +177,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `44956e699b` | Batches concurrent authentication admissions and registers initial browser plugin factories through one revision-addressed aggregate while preserving independent fallback and HMR. |
 | `8719eabfa4` | Adds direct model-requested retained-tail context compaction through the existing Provider transaction and lossless summary DAG. |
 | `WORKTREE` | Splits browser plugin startup into authenticated critical/deferred bootstrap phases, adds a lightweight auth entry, Brotli/immutable static asset delivery, Web-profile cold-summary probe suppression, and restored-history/baseline overlap without weakening plugin-route authorization. Locally verified; no commit created by request. |
+| `WORKTREE` | Adds provider-local bounded DeepSeek request-image projection, model-level explicit image modality opt-in, Files API upload reuse with scoped owner-only index, quota cleanup, stale-file inline retry, and all-inline fallback. Default catalogs and shipped Profiles remain text-only; no durable Session schema changes. Locally verified in the current worktree; no commit created by request. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger

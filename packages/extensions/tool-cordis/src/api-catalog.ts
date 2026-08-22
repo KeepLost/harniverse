@@ -393,6 +393,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the verified bytes and canonical reference.',
         throws: ['the signal reason when aborted, or a storage error when verification fails.'],
       },
+      {
+        signature: 'readImageRequest( ref: ImageAttachmentRef, policy: ImageRequestPolicy, signal?: AbortSignal, ): Promise<RequestImageAttachment>',
+        description: 'Derive a bounded model-request image without changing the durable object. Providers that do not implement projection retain their existing behavior.',
+        parameters: [{ name: 'ref', description: 'durable image reference.' }, { name: 'policy', description: 'pixel and encoded-byte limits for the transient version.' }, { name: 'signal', description: 'optional cancellation signal.' }],
+        returns: 'the transient request image version.',
+      },
     ],
   },
   {
@@ -3741,6 +3747,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ImageMediaType = \'image/png\' | \'image/jpeg\' | \'image/webp\' | \'image/gif\';',
   },
   {
+    name: 'ImageRequestPolicy',
+    declaration: 'export interface ImageRequestPolicy {\n    maxPixels: number;\n    maxBytes: number;\n}',
+  },
+  {
+    name: 'ImageVariantId',
+    declaration: 'export type ImageVariantId = Branded<\'ImageVariantId\'>;',
+  },
+  {
     name: 'Inbox',
     declaration: 'export class Inbox {\n    constructor(private readonly session: Session, private readonly notifications: InboxNotifications);\n    get nextTurn(): readonly UserMessage[];\n    get nextStep(): readonly UserMessage[];\n    get hasPending(): boolean;\n    clear(): void;\n    claim(target: InboxTarget, turn: number): UserMessage[];\n    append(target: InboxTarget, message: UserMessage): void;\n    prepend(target: InboxTarget, message: UserMessage): void;\n    replace(messageId: MessageId, newMessage: UserMessage): boolean;\n    remove(messageId: MessageId): boolean;\n    splice(target: InboxTarget, start: number, deleteCount: number, inserted: UserMessage[]): UserMessage[];\n}',
   },
@@ -4247,6 +4261,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RequestHeaderReason',
     declaration: 'export type RequestHeaderReason = \'initial\' | \'resume\' | \'change\';',
+  },
+  {
+    name: 'RequestImageAttachment',
+    declaration: 'export interface RequestImageAttachment {\n    variantId: ImageVariantId;\n    attachment: ImageAttachmentRef;\n    data: Uint8Array;\n    mediaType: ImageMediaType;\n    bytes: number;\n    width: number;\n    height: number;\n    depth: \'uchar\';\n    space: \'srgb\';\n    hasAlpha: boolean;\n}',
   },
   {
     name: 'RequestRunOutcome',

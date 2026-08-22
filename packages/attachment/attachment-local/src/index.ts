@@ -7,9 +7,12 @@ import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { readImageFile, saveImageFile, validateImageFile } from './store.ts'
+import { readRequestImageFile } from './request-image.ts'
+import type { ImageRequestPolicy, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 
 export { detectImage } from './image.ts'
 export { readImageFile, saveImageFile, validateImageFile } from './store.ts'
+export { readRequestImageFile, requestImageDimensions, requestImageVariantId } from './request-image.ts'
 
 /** Default maximum encoded bytes for one image. */
 export const DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -70,6 +73,15 @@ export class LocalAttachmentStore extends AttachmentStore {
 
   async readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<StoredImageAttachment> {
     return readImageFile(this.root, ref, signal)
+  }
+
+  override async readImageRequest(
+    ref: ImageAttachmentRef,
+    policy: ImageRequestPolicy,
+    signal?: AbortSignal,
+  ): Promise<RequestImageAttachment> {
+    const stored = await this.readImage(ref, signal)
+    return readRequestImageFile(this.root, stored, policy, signal)
   }
 }
 

@@ -6,6 +6,8 @@ The private local implementation of [`@deepseek-ai/dsh-attachment`](../attachmen
 
 `DSH_HOME` resolves through the shared path policy: explicit config, `$DSH_HOME`, then `~/.dsh`. Session logs contain only the reference and verified metadata, never this host path. `readImage` forwards optional cancellation into the filesystem read, observes it around verification, and preserves it instead of wrapping it as `ATTACHMENT_READ_FAILED`.
 
+The local backend implements `readImageRequest` with deterministic provider-request bytes under `<DSH_HOME>/attachments/v1/request-images`. A request version is aspect-preserving, never enlarged, and bounded by the selected pixel and byte policy. PNG, JPEG, and WebP may pass through when already within policy; other cases use bounded JPEG or WebP encoding. Sidecar files are owner-only, published atomically, revalidated before reuse, and remain separate from durable attachment objects.
+
 ## Model Experience
 
 Indirectly, through durable replay of historical user images and structured model image output after restart and fork.
