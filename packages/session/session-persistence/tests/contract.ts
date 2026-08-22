@@ -331,6 +331,36 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
       }
     })
 
+    it('readHistoryPage returns contiguous message-boundary pages from the tail', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const m = meta('history-page', '/work')
+        const log = oneTurnLog()
+        await persistence.create(m)
+        await persistence.append(m.id, log)
+
+        const tail = await persistence.readHistoryPage(m.id, { maxMessages: 1 })
+        expect(tail.events.map(event => event.seq)).toEqual([3, 4, 5])
+        expect(tail.hasMore).toBe(true)
+
+        const earlier = await persistence.readHistoryPage(m.id, {
+          beforeSeq: tail.events[0]!.seq,
+          maxMessages: 1,
+        })
+        expect(earlier.events.map(event => event.seq)).toEqual([1, 2])
+        expect(earlier.hasMore).toBe(true)
+
+        const oldest = await persistence.readHistoryPage(m.id, {
+          beforeSeq: earlier.events[0]!.seq,
+          maxMessages: 1,
+        })
+        expect(oldest.events.map(event => event.seq)).toEqual([0])
+        expect(oldest.hasMore).toBe(false)
+      } finally {
+        await dispose()
+      }
+    })
+
     it('lists stable lightweight revisions that change after an append', async () => {
       const { persistence, dispose } = await make()
       try {

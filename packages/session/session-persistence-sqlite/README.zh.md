@@ -6,6 +6,8 @@ SQLite 持久会话存储后端：第二个 `SessionPersistence` 提供方（见
 
 `locate(meta)` 返回 `undefined`：所有会话共享一个数据库，因此不存在真实、独立的逐会话 transcript（文本记录）路径。
 
+`readHistoryPage()` 使用索引的 `seq` 顺序查找最新 append-origin 消息候选，再读取一个连续的原始事件范围。冷会话的倒序历史页不需要检查或重建完整日志。
+
 ## 存储模型
 
 每个 `SessionEvent` 1:1 映射到 `events` 表中的一行 `(session_id, seq, type, time, data, source_event_seqs, surface_op)`；`data` 是作为 JSON 文本的事件 payload，因此行结构就是原始事件本身（包括 `assistant/chunk`，保持 `seq` 连续）。两个 `TEXT` 列 `source_event_seqs` 和 `surface_op` 可为空，存储事件可选接口元数据字段（见[会话接口](../../../.agents/notes/implemented/architecture/2026-06-18-session-surface.md)）。日志外元数据（`SessionHeader`）、每实体化 incarnation id 和每日志单调修订位于 `sessions` 行；`createdAt` 是存储在 strict `INTEGER` 列中的非负安全整数。单例状态行携带不可变存储 id。`sessions` 行只由第一次 `append` 写入，其存在性是延迟实体化信号（`list` 精确报告有行的会话）。

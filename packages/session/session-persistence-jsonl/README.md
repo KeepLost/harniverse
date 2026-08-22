@@ -31,6 +31,8 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
 
 `locate(meta)` returns `{ kind: 'jsonl', path }` for the fixed transcript inside the resolved project/session directories. It performs no filesystem I/O: the target can be returned before the directory or file exists, and an existing file contains only the last flushed prefix.
 
+`readHistoryPage()` reads complete raw lines from the tail of an uncompressed artifact or complete Zstandard frames from the end of a compressed artifact. It stops after finding the requested append-origin message boundary and returns the contiguous raw range; malformed or legacy input falls back to the full validated-prefix reader.
+
 ## Physical encoding
 
 The default artifact is a standard concatenation of independent [Zstandard frames](../../../.agents/notes/implemented/architecture/2026-07-19-zstandard-jsonl-session-logs.md): one checksummed frame containing only the header line, followed by one checksummed frame per durable append batch. The backend uses Node's built-in Zstandard API with its default compression level and exposes no level knob. Listing reads and validates only the header frame. `compression: 'none'` keeps the same logical lines in the original raw representation.

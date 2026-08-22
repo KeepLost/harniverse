@@ -18,6 +18,8 @@ Web API Proxy 已经服务本地浏览器 Session，但控制观测并不完整�
 
 `session.history` 有两种互斥模式。后向模式按追加来源消息边界分页。前向模式要求 `afterSeq` 加正整数 `maxEvents`，把 `afterSeq` 视为排他游标，并返回不含投影的连续事件区间。
 
+冷会话的后向页面使用 `SessionPersistence.readHistoryPage()`。SQLite 按 `seq` 选择消息候选和一个连续原始范围；JSONL 从产物尾部反向读取，并在损坏或旧布局时保留已校验前缀回退。Host 单独为首个尾部页面取得投影基线，较旧页面不携带投影块。
+
 `events.mux.since` 将每个 Session id 映射为该客户端已应用的最后一个连续持久 seq。Host 会在采样回放切点前安装实时观察，发送 `session/subscribed`，回放至切点，随后排空实时缓冲并丢弃重叠项。问题、审批、队列、任务和投影仍是临时快照／实时值，不会被虚构成持久事件。
 
 每条 Host 流队列受 `streamQueueMaxFrames` 限制。溢出时保留并排空已接纳帧，随后使流失败；禁止静默丢帧。重连会采样新的 Client 游标，因此可以跨 generation 有界推进回放。浏览器保留权威的已打开窗口，用前向 history 修复普通缺口，并在 Host 宣告的尾部低于本地游标时重新建基。
@@ -54,7 +56,7 @@ Web API Proxy 已经服务本地浏览器 Session，但控制观测并不完整�
 
 ## 验证
 
-Host 与载体测试固定前向 history 校验、回放／实时重叠、队列溢出先排空后失败、SSE/WebSocket 游标传输、prompt 回执、持久工作状态折叠、状态快照、启动身份、close 顺序和仅叶子删除。核心生命周期测试固定准入截止、并发 close 加入、scope 结算、实时 Session flush 和 detach 顺序。共享持久化约定在 JSONL 与 SQLite 上运行，并固定删除仲裁、重建身份、缓存写回隔离和 workspace/archive 清理。Client connection 与 runtime 测试固定动态游标采样、保留窗口、前向缺口修复、重复抑制和 Host 回滚重新建基。
+Host 与载体测试固定后向页面呈现与投影基线、前向 history 校验、回放／实时重叠、队列溢出先排空后失败、SSE/WebSocket 游标传输、prompt 回执、持久工作状态折叠、状态快照、启动身份、close 顺序和仅叶子删除。核心生命周期测试固定准入截止、并发 close 加入、scope 结算、实时 Session flush 和 detach 顺序。共享持久化约定在 JSONL 与 SQLite 上运行，并固定历史页面消息边界、删除仲裁、重建身份、缓存写回隔离和 workspace/archive 清理。Client connection 与 runtime 测试固定动态游标采样、保留窗口、前向缺口修复、重复抑制和 Host 回滚重新建基。
 
 ## 后果
 

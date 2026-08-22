@@ -9,6 +9,8 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import { SessionPreparation } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import type { SessionPersistenceRevision } from './revision.ts'
+import { paginateSessionHistory } from './history.ts'
+import type { SessionHistoryPage, SessionHistoryPageRequest } from './history.ts'
 
 // Re-export the metadata vocabulary so Consumers import it from the Service Definition.
 export type { SessionHeader } from '@deepseek-ai/dsh-session'
@@ -53,9 +55,12 @@ export {
 export type {
   PersistenceBackend,
   PersistenceCoordinatorOptions,
+  StoredHistoryPage,
   StoredPrefix,
   StoredSuffix,
 } from './coordinator.ts'
+export { paginateSessionHistory } from './history.ts'
+export type { SessionHistoryPage, SessionHistoryPageRequest } from './history.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -207,6 +212,36 @@ export abstract class SessionPersistence extends Service {
    * @returns the validated header and current logical event log.
    */
   abstract inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection>
+
+  /**
+   * Read one display-history page without resuming a Session. Concrete
+   * backends may seek directly to the tail; the default preserves the seam
+   * for third-party backends by paging a validated inspection.
+   * @param id - persisted session to read.
+   * @param request - exclusive upper bound and message quota.
+   * @param signal - optional cancellation for backend read work.
+   * @returns detached metadata and a contiguous raw-event page.
+   */
+  async readHistoryPage(
+    id: SessionId,
+    request: SessionHistoryPageRequest,
+    signal?: AbortSignal,
+  ): Promise<SessionHistoryPage & { readonly meta: SessionHeader }> {
+    if (!Number.isSafeInteger(request.maxMessages) || request.maxMessages < 1) {
+      throw new TypeError(`history maxMessages must be a positive safe integer, got ${String(request.maxMessages)}`)
+    }
+    if (request.beforeSeq !== undefined
+      && (!Number.isSafeInteger(request.beforeSeq) || request.beforeSeq < 0)) {
+      throw new TypeError(`history beforeSeq must be a non-negative safe integer, got ${String(request.beforeSeq)}`)
+    }
+    const inspected = await this.inspect(id, signal)
+    const page = paginateSessionHistory(inspected.events, request)
+    return {
+      meta: structuredClone(inspected.meta),
+      events: page.events.map(event => structuredClone(event)),
+      hasMore: page.hasMore,
+    }
+  }
 
   /**
    * Read the stored events from `fromSeq` onward — the read-from-seq

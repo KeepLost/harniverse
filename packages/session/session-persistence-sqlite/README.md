@@ -6,6 +6,8 @@ A SQLite durable session-persistence backend — a second `SessionPersistence` p
 
 `locate(meta)` returns `undefined`: all sessions share one database, so there is no honest independent per-session transcript path.
 
+`readHistoryPage()` uses indexed `seq` order to find the latest append-origin message candidates, then reads one contiguous raw-event range. It does not inspect or reconstruct the complete session log for a cold backward history page.
+
 ## Storage model
 
 Each `SessionEvent` maps 1:1 onto a row in an `events` table `(session_id, seq, type, time, data, source_event_seqs, surface_op)` — `data` is the event payload as JSON text, so the row shape is the event verbatim (including `assistant/chunk`, keeping `seq` contiguous). The two `TEXT` columns `source_event_seqs` and `surface_op` are nullable; they store the event's optional surface-metadata fields (see [session surface](../../../.agents/notes/implemented/architecture/2026-06-18-session-surface.md)). Out-of-log metadata (`SessionHeader`), a per-materialization incarnation id, and a monotonic per-log revision live in a `sessions` row; `createdAt` is a non-negative safe integer stored in a strict `INTEGER` column. A singleton state row carries the immutable store id. A `sessions` row is written only by the first `append` — its existence is the lazy-materialization signal (`list` reports exactly the sessions that have a row).

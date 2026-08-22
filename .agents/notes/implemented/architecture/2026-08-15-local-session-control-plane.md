@@ -18,6 +18,8 @@ These gaps interact. A prompt receipt is useful only when later state can be rec
 
 `session.history` has two exclusive modes. Backward mode pages by append-origin message boundaries. Forward mode requires `afterSeq` plus positive `maxEvents`, treats `afterSeq` as exclusive, and returns a contiguous event interval without projections.
 
+Cold backward pages use `SessionPersistence.readHistoryPage()`. SQLite selects message candidates and one contiguous raw range by `seq`; JSONL reads backward from the artifact tail and preserves the validated-prefix fallback for malformed or legacy input. The Host obtains the projection baseline separately for the first tail page, while older pages carry no projection block.
+
 `events.mux.since` maps each Session id to the last contiguous durable seq already applied by that client. The Host installs live observation before sampling replay cuts, emits `session/subscribed`, replays through the cut, then drains buffered live events while dropping overlap. Questions, approvals, queues, jobs, and projections remain transient snapshot/live values rather than invented durable events.
 
 Each Host stream queue is bounded by `streamQueueMaxFrames`. Overflow retains and drains accepted frames, then fails the stream; silent frame dropping is forbidden. A reconnect samples fresh Client cursors and can therefore make bounded replay progress across generations. The browser retains authoritative open windows, repairs ordinary gaps with forward history, and rebases when the Host advertises a tail below the local cursor.
@@ -54,7 +56,7 @@ A reconnect to the same `bootId` may reuse process-local observations according 
 
 ## Verification
 
-Host and carrier tests pin forward history validation, replay/live overlap, queue overflow drain-then-fail, SSE/WebSocket cursor transport, prompt receipts, durable work-status folding, status snapshots, boot identity, close ordering, and leaf-only deletion. Core lifecycle tests pin admission cutoff, concurrent close joining, scope settlement, live-Session flush, and detach order. Shared persistence contracts run against JSONL and SQLite and pin deletion arbitration, recreation identity, cache write-back fencing, and workspace/archive cleanup. Client connection and runtime tests pin dynamic cursor sampling, preserved windows, forward gap repair, duplicate suppression, and Host rollback rebase.
+Host and carrier tests pin backward page presentation and projection baselines, forward history validation, replay/live overlap, queue overflow drain-then-fail, SSE/WebSocket cursor transport, prompt receipts, durable work-status folding, status snapshots, boot identity, close ordering, and leaf-only deletion. Core lifecycle tests pin admission cutoff, concurrent close joining, scope settlement, live-Session flush, and detach order. Shared persistence contracts run against JSONL and SQLite and pin history-page message boundaries, deletion arbitration, recreation identity, cache write-back fencing, and workspace/archive cleanup. Client connection and runtime tests pin dynamic cursor sampling, preserved windows, forward gap repair, duplicate suppression, and Host rollback rebase.
 
 ## Consequences
 

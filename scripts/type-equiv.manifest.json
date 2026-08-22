@@ -517,6 +517,16 @@
     },
     {
       "doc": "docs/subsystems/persistence.md",
+      "symbol": "SessionHistoryPageRequest",
+      "source": "packages/session/session-persistence/src/history.ts"
+    },
+    {
+      "doc": "docs/subsystems/persistence.md",
+      "symbol": "SessionHistoryPage",
+      "source": "packages/session/session-persistence/src/history.ts"
+    },
+    {
+      "doc": "docs/subsystems/persistence.md",
       "symbol": "SessionLocation",
       "source": "packages/session/session-persistence/src/index.ts"
     },

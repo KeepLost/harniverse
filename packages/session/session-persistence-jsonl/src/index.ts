@@ -17,10 +17,12 @@ import { randomBytes } from 'node:crypto'
 import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE, DEFAULT_WRITE_BATCH_MAX_DELAY_MS, MAX_WRITE_BATCH_DELAY_MS,
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator, SessionFormatUnsupportedError,
+  paginateSessionHistory,
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
   type SessionInspection, type SessionPersistenceRevision as PersistenceRevision, type SessionRawArtifact,
-  type StoredPrefix,
+  type SessionHistoryPageRequest, type SessionHistoryPage, type StoredHistoryPage, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
+import { decodeStorageRecord, isAppendSurfaceEvent } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
 import {
   encodeSegment, eventLines, logPath, logSuffix, parseHeaderMeta, projectDir, scanLog, sessionDir,
@@ -36,6 +38,69 @@ export type { JsonlCompression } from './format.ts'
 
 const DEFAULT_PACK_CHUNKS = true
 const DEFAULT_COMPRESSION: JsonlCompression = 'zstd'
+
+/** Decode complete storage records from a plaintext body in reverse order. */
+function* reverseStorageRecords(body: Buffer): Generator<SessionEvent[]> {
+  let end = body.length
+  if (end > 0 && body[end - 1] !== 0x0A) {
+    const newline = body.lastIndexOf(0x0A)
+    if (newline === -1) return
+    end = newline + 1
+  }
+  while (end > 0) {
+    const lineEnd = end - 1
+    const lineStart = body.lastIndexOf(0x0A, lineEnd - 1) + 1
+    const line = body.subarray(lineStart, lineEnd)
+    end = lineStart
+    if (line.length === 0) continue
+    const decoded = decodeStorageRecord(JSON.parse(line.toString('utf8')))
+    yield decoded
+  }
+}
+
+/** Select one backward page from reverse-decoded storage records. */
+async function pageFromReverseRecords(
+  records: Iterable<SessionEvent[]> | AsyncIterable<SessionEvent[]>,
+  request: SessionHistoryPageRequest,
+): Promise<SessionHistoryPage> {
+  const selected: SessionEvent[][] = []
+  const upper = request.beforeSeq
+  let count = 0
+  let cut = 0
+  let lowestSeq = Number.MAX_SAFE_INTEGER
+  let complete = false
+  for await (const record of records) {
+    selected.unshift(record)
+    const first = record[0]
+    if (first !== undefined) lowestSeq = Math.min(lowestSeq, first.seq)
+    if (count >= request.maxMessages) {
+      complete = lowestSeq <= cut
+      if (complete) break
+      continue
+    }
+    for (let index = record.length - 1; index >= 0; index -= 1) {
+      const event = record[index] as SessionEvent
+      if (upper !== undefined && event.seq >= upper) continue
+      if (event.type !== 'user/message' && event.type !== 'assistant/message') continue
+      if (!isAppendSurfaceEvent(event)) continue
+      count += 1
+      const sources = (event as { sourceEventSeqs?: number[] }).sourceEventSeqs
+      cut = sources !== undefined && sources.length > 0
+        ? Math.min(event.seq, ...sources)
+        : event.seq
+      if (count >= request.maxMessages) {
+        complete = lowestSeq <= cut
+        break
+      }
+    }
+    if (complete) break
+  }
+  if (count < request.maxMessages) cut = 0
+  return {
+    events: selected.flat().filter(event => event.seq >= cut && (upper === undefined || event.seq < upper)),
+    hasMore: cut > 0,
+  }
+}
 /**
  * Internal scheduling constant, not deployment configuration: balance
  * frame-boundary event-loop yields against `setImmediate` overhead. One frame
@@ -203,6 +268,14 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     return this.coordinator.readFrom(id, fromSeq, signal)
   }
 
+  override readHistoryPage(
+    id: SessionId,
+    request: SessionHistoryPageRequest,
+    signal?: AbortSignal,
+  ): Promise<SessionHistoryPage & { readonly meta: SessionHeader }> {
+    return this.coordinator.readHistoryPage(id, request, signal)
+  }
+
   // One method serves both public `list` and the backend hook; delegating it to
   // the coordinator would call this hook recursively.
 
@@ -217,6 +290,59 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     const path = await this.findLog(id, signal)
     if (path === undefined) return undefined
     return this.readPrefix(path, id, signal)
+  }
+
+  /**
+   * Read a backward page by decoding storage records from the artifact tail.
+   * The stable file read preserves revision safety; only the records needed to
+   * locate the message boundary are decoded on the normal path.
+   */
+  async loadHistoryPage(
+    id: SessionId,
+    request: SessionHistoryPageRequest,
+    signal?: AbortSignal,
+  ): Promise<StoredHistoryPage | undefined> {
+    signal?.throwIfAborted()
+    await this.ensureRootEncoding()
+    signal?.throwIfAborted()
+    const path = await this.findLog(id, signal)
+    if (path === undefined) return undefined
+    const { buffer } = await this.readStableFile(path, signal)
+    try {
+      if (this.compression === 'none') {
+        const headerEnd = buffer.indexOf(0x0A)
+        if (headerEnd === -1) throw new Error('empty or header-less session log')
+        const meta = parseHeaderMeta(buffer.subarray(0, headerEnd).toString('utf8'))
+        if (meta === undefined || meta.id !== id) throw new Error(`corrupt session log: invalid header line in "${path}"`)
+        const page = await pageFromReverseRecords(reverseStorageRecords(buffer.subarray(headerEnd + 1)), request)
+        return { meta, ...page }
+      }
+
+      const { frames } = scanZstdFrames(buffer)
+      if (frames.length === 0) throw new Error('empty or header-less Zstandard session log')
+      const headerFrame = frames[0]
+      if (headerFrame === undefined) throw new Error('empty or header-less Zstandard session log')
+      const header = await decompressZstdFrame(buffer.subarray(headerFrame.start, headerFrame.end))
+      const meta = parseHeaderMeta(header.subarray(0, -1).toString('utf8'))
+      if (meta === undefined || meta.id !== id) throw new Error(`corrupt session log: invalid header line in "${path}"`)
+      const page = await pageFromReverseRecords((async function* () {
+        for (let index = frames.length - 1; index >= 1; index -= 1) {
+          signal?.throwIfAborted()
+          const frame = frames[index]
+          if (frame === undefined) continue
+          const body = await decompressZstdFrame(buffer.subarray(frame.start, frame.end))
+          yield* reverseStorageRecords(body)
+        }
+      })(), request)
+      return { meta, ...page }
+    } catch {
+      if (signal?.aborted) signal.throwIfAborted()
+      // Preserve the existing full-prefix validation and torn-tail behavior
+      // for malformed or legacy records that the bounded reader cannot decode.
+      const stored = await this.readPrefix(path, id, signal)
+      const page = paginateSessionHistory(stored.events, request)
+      return { meta: stored.meta, ...page }
+    }
   }
 
   /**

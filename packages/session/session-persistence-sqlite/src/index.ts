@@ -18,12 +18,13 @@ import {
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
   type SessionInspection, type SessionPersistenceRevision as PersistenceRevision,
-  type StoredPrefix, type StoredSuffix,
+  type SessionHistoryPageRequest, type StoredHistoryPage, type StoredPrefix, type StoredSuffix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SurfaceEventType, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
 import {
   type JournalMode, openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
 } from './schema.ts'
+import { rowToEvent } from './schema.ts'
 
 export { SCHEMA_VERSION } from './schema.ts'
 
@@ -202,6 +203,14 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
     return this.coordinator.readFrom(id, fromSeq, signal)
   }
 
+  override readHistoryPage(
+    id: SessionId,
+    request: SessionHistoryPageRequest,
+    signal?: AbortSignal,
+  ): Promise<StoredHistoryPage & { readonly meta: SessionHeader }> {
+    return this.coordinator.readHistoryPage(id, request, signal)
+  }
+
   // One method serves both public `list` and the backend hook; delegating it to
   // the coordinator would call this hook recursively.
 
@@ -239,6 +248,56 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
     signal?.throwIfAborted()
     const { preserved } = scanRows(eventRows, fromSeq)
     return { meta, events: preserved }
+  }
+
+  /**
+   * Read a backward display page without materializing the complete log. The
+   * append-origin candidates identify the message cut; one contiguous range
+   * query then returns all raw events needed to render that page.
+   */
+  async loadHistoryPage(
+    id: SessionId,
+    request: SessionHistoryPageRequest,
+    signal?: AbortSignal,
+  ): Promise<StoredHistoryPage | undefined> {
+    signal?.throwIfAborted()
+    await this.ready
+    signal?.throwIfAborted()
+    const row = this.rowFor(id)
+    if (row === undefined) return undefined
+    const upper = request.beforeSeq ?? Number.MAX_SAFE_INTEGER
+    const appendRows = this.db.prepare(
+      `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+       FROM events
+       WHERE session_id = ? AND seq < ?
+         AND type IN ('user/message', 'assistant/message')
+         AND surface_op = ?
+       ORDER BY seq DESC LIMIT ?`,
+    ).all(id, upper, JSON.stringify('append'), request.maxMessages) as unknown as EventRow[]
+    signal?.throwIfAborted()
+    let cut = 0
+    if (appendRows.length === request.maxMessages) {
+      const oldest = appendRows[appendRows.length - 1]
+      if (oldest === undefined) throw new Error('history page candidate query returned no oldest row')
+      const event = rowToEvent(oldest)
+      const sources = (event as { sourceEventSeqs?: number[] }).sourceEventSeqs
+      cut = sources !== undefined && sources.length > 0
+        ? Math.min(event.seq, ...sources)
+        : event.seq
+    }
+    const rows = this.db.prepare(
+      `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+       FROM events
+       WHERE session_id = ? AND seq >= ? AND seq < ?
+       ORDER BY seq`,
+    ).all(id, cut, upper) as unknown as EventRow[]
+    signal?.throwIfAborted()
+    const { preserved } = scanRows(rows, cut)
+    return {
+      meta: rowToMeta(row),
+      events: preserved,
+      hasMore: cut > 0,
+    }
   }
 
   /**

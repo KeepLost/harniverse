@@ -168,6 +168,7 @@ export function ChatView({
 
   const listRef = useRef<HTMLDivElement | null>(null)
   const columnRef = useRef<HTMLDivElement | null>(null)
+  const olderRef = useRef<HTMLDivElement | null>(null)
   const atBottomRef = useRef(true)
   const [atBottom, setAtBottom] = useState(true)
   /** Last position delivered or written on the main thread. */
@@ -362,6 +363,19 @@ export function ChatView({
     loadOlder()
   }
 
+  // Start the next older page before the reader reaches the boundary. The
+  // anchor restore keeps this prefetch invisible while the user is reading.
+  useEffect(() => {
+    const boundary = olderRef.current
+    const scrollport = listRef.current === null ? null : scrollerOf(listRef.current)
+    if (boundary === null || scrollport === null || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some(entry => entry.isIntersecting) && hasMore && !loadingOlder) loadOlderAnchored()
+    }, { root: scrollport, rootMargin: '400px 0px' })
+    observer.observe(boundary)
+    return () => { observer.disconnect() }
+  }, [hasMore, loadingOlder, loadOlder])
+
   return (
     <div className={css.root}>
       <div ref={listRef} className={css.scroll}>
@@ -373,7 +387,7 @@ export function ChatView({
             </div>
           )}
           {hasMore && (
-            <div className={css.older}>
+            <div ref={olderRef} className={css.older}>
               <button type="button" disabled={loadingOlder} onClick={loadOlderAnchored}>
                 {loadingOlder ? t('loading') : t('chat.loadOlder')}
               </button>

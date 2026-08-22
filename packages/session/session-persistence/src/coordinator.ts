@@ -18,6 +18,8 @@ import {
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { SessionInspection, SessionLocation } from './index.ts'
+import { paginateSessionHistory } from './history.ts'
+import type { SessionHistoryPageRequest } from './history.ts'
 import type { SessionPersistenceRevision } from './revision.ts'
 import { observeQueuedAbort, SessionPreparations } from './preparations.ts'
 import type { SessionPreparationReservation } from './preparations.ts'
@@ -114,6 +116,13 @@ export interface StoredSuffix {
   events: SessionEvent[]
 }
 
+/** Raw display-history page returned by a seek-capable backend. */
+export interface StoredHistoryPage {
+  meta: SessionHeader
+  events: SessionEvent[]
+  hasMore: boolean
+}
+
 /**
  * The storage contract between {@link PersistenceCoordinator} and a concrete
  * backend: the minimal set of durable primitives the orchestration calls. A
@@ -174,6 +183,17 @@ export interface PersistenceBackend<TornMarker = unknown> {
    * @param signal - optional cancellation for backend read work.
    */
   loadStoredFrom?(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<StoredSuffix | undefined>
+
+  /**
+   * Optional native backward display-history page. Backends may inspect only
+   * the tail candidates needed to locate the message boundary and then fetch
+   * the contiguous raw interval.
+   */
+  loadHistoryPage?(
+    id: SessionId,
+    request: SessionHistoryPageRequest,
+    signal?: AbortSignal,
+  ): Promise<StoredHistoryPage | undefined>
 
   /**
    * Durably append a CONTIGUOUS batch, lazily materializing the session first
@@ -897,6 +917,56 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const retired = Promise.resolve(this.retirements.get(id))
     const waited = signal === undefined ? retired : observeQueuedAbort(retired, signal, () => false)
     return waited.then(() => this.serialize(id, () => this.readFromCore(id, fromSeq, signal), signal))
+  }
+
+  /**
+   * Read one detached display-history page on the same per-id chain as writes.
+   * @param id - persisted session id.
+   * @param request - exclusive upper bound and message quota.
+   * @param signal - optional cancellation for backend read work.
+   * @returns detached metadata and a contiguous raw-event page.
+   */
+  readHistoryPage(
+    id: SessionId,
+    request: SessionHistoryPageRequest,
+    signal?: AbortSignal,
+  ): Promise<StoredHistoryPage> {
+    if (!Number.isSafeInteger(request.maxMessages) || request.maxMessages < 1) {
+      return Promise.reject(new TypeError(`history maxMessages must be a positive safe integer, got ${String(request.maxMessages)}`))
+    }
+    if (request.beforeSeq !== undefined
+      && (!Number.isSafeInteger(request.beforeSeq) || request.beforeSeq < 0)) {
+      return Promise.reject(new TypeError(`history beforeSeq must be a non-negative safe integer, got ${String(request.beforeSeq)}`))
+    }
+    try {
+      this.assertNotDeleting(id)
+    } catch (error: unknown) {
+      return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+    }
+    const retired = Promise.resolve(this.retirements.get(id))
+    const waited = signal === undefined ? retired : observeQueuedAbort(retired, signal, () => false)
+    return waited.then(() => this.serialize(id, () => this.readHistoryPageCore(id, request, signal), signal))
+  }
+
+  private async readHistoryPageCore(
+    id: SessionId,
+    request: SessionHistoryPageRequest,
+    signal?: AbortSignal,
+  ): Promise<StoredHistoryPage> {
+    signal?.throwIfAborted()
+    if (this.backend.loadHistoryPage !== undefined) {
+      const page = await this.backend.loadHistoryPage(id, request, signal)
+      signal?.throwIfAborted()
+      if (page === undefined) throw new Error(`session "${id}" not found`)
+      this.assertStoredId(id, page.meta)
+      this.assertVersion(page.meta)
+      const events = snapshotStoredEvents(page.events, id)
+      this.assertEventsSupported(page.meta, events)
+      return { meta: structuredClone(page.meta), events, hasMore: page.hasMore }
+    }
+    const whole = await this.readStoredPrefix(id, signal)
+    const page = paginateSessionHistory(whole.events, request)
+    return { meta: whole.meta, events: page.events, hasMore: page.hasMore }
   }
 
   private async readFromCore(

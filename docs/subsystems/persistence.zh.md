@@ -206,6 +206,26 @@ interface SessionInspection {
 }
 ```
 
+```ts type-equiv
+/** Request for one chronological display-history page. */
+interface SessionHistoryPageRequest {
+  /** Exclusive raw-event upper bound; omitted for the latest page. */
+  readonly beforeSeq?: number
+  /** Maximum number of append-origin user/assistant messages. */
+  readonly maxMessages: number
+}
+```
+
+```ts type-equiv
+/** One raw-event page from a session's append-origin display history. */
+interface SessionHistoryPage {
+  /** Events remain contiguous in raw-log order. */
+  readonly events: SessionEvent[]
+  /** Whether an earlier raw-event interval exists. */
+  readonly hasMore: boolean
+}
+```
+
 ## 轻量源修订号
 
 派生状态的消费方会在加载完整事件日志之前比较一个低开销的不透明修订号。其表示由持久化后端拥有，并随 append 或会修改数据的 load 修复以事务方式改变；调用方仅比较修订号是否相等。
@@ -230,7 +250,7 @@ interface SessionPersistenceSnapshot {
 
 ## 后端
 
-两者都实现同一个抽象 `SessionPersistence`（在 `SessionEvent` 上执行 locate/create/append/prepare/load/inspect/readFrom/list/listSnapshots，观察方法可选支持取消），并通过共享的 `runPersistenceContract` 套件：
+两者都实现同一个抽象 `SessionPersistence`（在 `SessionEvent` 上执行 locate/create/append/prepare/load/inspect/readFrom/readHistoryPage/list/listSnapshots，观察方法可选支持取消），并通过共享的 `runPersistenceContract` 套件：
 
 - **[dsh-session-persistence-jsonl](../../packages/session/session-persistence-jsonl)**——每个会话一份仅追加的逻辑 JSONL 日志，默认存储为带 checksum 的连续 Zstandard frame，也可配置为原始行；支持崩溃安全的原子写入、被中断轮次的恢复以及读取/回放路径。
 - **[dsh-session-persistence-sqlite](../../packages/session/session-persistence-sqlite)**：基于 `node:sqlite`，每个 `SessionEvent` 一行。行字段 `(session_id, seq, type, time, data, source_event_seqs, surface_op)` 与事件 1:1 映射（包含可选的 surface 元数据），因此没有需要保持同步的并行持久化 schema。
@@ -349,6 +369,17 @@ abstract load(id: SessionId): Promise<SessionInspection>
 abstract inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection>
 
 /**
+ * Read one display-history page without resuming a Session. Concrete
+ * backends may seek directly to the tail; the default preserves the seam
+ * for third-party backends by paging a validated inspection.
+ * @param id - persisted session to read.
+ * @param request - exclusive upper bound and message quota.
+ * @param signal - optional cancellation for backend read work.
+ * @returns detached metadata and a contiguous raw-event page.
+ */
+async readHistoryPage( id: SessionId, request: SessionHistoryPageRequest, signal?: AbortSignal, ): Promise<SessionHistoryPage & { readonly meta: SessionHeader }>
+
+/**
  * Read the stored events from `fromSeq` onward — the read-from-seq
  * primitive for read models that resume from a watermark (e.g. a persisted
  * projection cache folding only the tail past its checkpoint). Unlike
@@ -390,5 +421,5 @@ abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot
 
 Types: [SessionEvent](session.md) · [SessionId](core.md)
 
-Source: [`packages/session/session-persistence/src/index.ts:84`](../../packages/session/session-persistence/src/index.ts)
+Source: [`packages/session/session-persistence/src/index.ts:89`](../../packages/session/session-persistence/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -110,6 +110,7 @@ import {
   createApiRemoteAgentResolver,
   hasApiRemoteSubagentOwner,
   inspectApiRemoteSession,
+  readApiRemoteSessionHistoryPage,
 } from '@deepseek-ai/dsh-api-remotes'
 import { canOpenNativePath, openNativePath, openNativeTextFile } from './native-path-opener.ts'
 
@@ -915,12 +916,21 @@ function historyPage(
     ? paginate(events, beforeSeq, maxMessages ?? DEFAULT_MAX_MESSAGES)
     : paginateForward(events, forward.afterSeq, forward.maxEvents)
   return {
-    events: page.events.map((event) => {
-      const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId), scope)
-      return { event, ...view === undefined ? {} : { view } }
-    }),
+    events: presentHistoryEvents(ctx, page.events, scope),
     hasMore: page.hasMore,
   }
+}
+
+/** Add host-computed presentation views to an already bounded raw page. */
+function presentHistoryEvents(
+  ctx: Context,
+  events: readonly SessionEvent[],
+  scope?: ScopeKey,
+): HistoryEntry[] {
+  return events.map((event) => {
+    const view = viewFor(ctx, event, callId => backscanArgs(events, callId), scope)
+    return { event, ...view === undefined ? {} : { view } }
+  })
 }
 
 /**
@@ -940,7 +950,13 @@ function historyPage(
  */
 type HistorySource =
   | { readonly kind: 'attached'; readonly session: Session }
-  | { readonly kind: 'detached'; readonly header: SessionHeader; readonly events: SessionEvent[] }
+  | {
+    readonly kind: 'detached'
+    readonly header: SessionHeader
+    readonly events: SessionEvent[]
+    readonly pageHasMore?: boolean
+    readonly projections?: SessionProjectionsBlock
+  }
 
 function projectionsFor(ctx: Context, session: Session): SessionProjectionsBlock | undefined {
   const registry = ctx.get('sessionProjections')
@@ -1702,9 +1718,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    * @returns the attached session, or the inspected detached header and events.
    * @throws {@link ApiRemoteSessionNotFound} when no project-backed session has that identity.
    */
-  async function historySourceFor(sessionId: SessionId): Promise<HistorySource> {
+  async function historySourceFor(
+    sessionId: SessionId,
+    pageRequest?: { beforeSeq?: number; maxMessages: number },
+  ): Promise<HistorySource> {
     const attached = ctx.sessions.get(sessionId)
     if (attached !== undefined) return { kind: 'attached', session: attached }
+    if (pageRequest !== undefined) {
+      const page = await readApiRemoteSessionHistoryPage(ctx, sessionId, pageRequest)
+      return { kind: 'detached', header: page.meta, events: page.events, pageHasMore: page.hasMore }
+    }
     const inspected = await inspectServable(sessionId)
     return { kind: 'detached', header: inspected.meta, events: inspected.events }
   }
@@ -1735,12 +1758,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   function historyCutOf(
     source: HistorySource,
     includeProjections: boolean,
-  ): { events: SessionEvent[]; projections?: SessionProjectionsBlock } {
+  ): { events: readonly SessionEvent[]; projections?: SessionProjectionsBlock } {
     if (source.kind === 'detached') {
-      const projections = includeProjections ? detachedProjectionsFor(ctx, source.events) : undefined
+      const projections = includeProjections
+        ? source.projections ?? detachedProjectionsFor(ctx, source.events)
+        : undefined
       return { events: source.events, ...projections === undefined ? {} : { projections } }
     }
-    const events = [...source.session.events]
+    const events = source.session.events
     const projections = includeProjections ? projectionsFor(ctx, source.session) : undefined
     return { events, ...projections === undefined ? {} : { projections } }
   }
@@ -2417,7 +2442,19 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async history(request) {
         const { sessionId, beforeSeq, maxMessages, afterSeq, maxEvents } = request.payload
         try {
-          const source = await historySourceFor(sessionId)
+          const backward = afterSeq === undefined
+          const projectionCache = ctx.get('sessionProjectionCache')
+          const hasProjectionRegistry = ctx.get('sessionProjections') !== undefined
+          const canPageCold = !hasProjectionRegistry || projectionCache !== undefined
+          let source = await historySourceFor(
+            sessionId,
+            backward && canPageCold
+              ? {
+                ...beforeSeq === undefined ? {} : { beforeSeq },
+                maxMessages: maxMessages ?? DEFAULT_MAX_MESSAGES,
+              }
+              : undefined,
+          )
           // Both awaits happen BEFORE the cut. Ensuring the recorded
           // composition's standing mount is what registers its projection
           // units, so a first cold read would otherwise serve a baseline
@@ -2425,11 +2462,27 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           // appending, so awaiting between the two reads would pair events cut
           // at N with a baseline folded to N+1.
           const scope = await presenterScopeFor(sessionId, sourceSession(source))
+          if (source.kind === 'detached' && source.pageHasMore !== undefined && beforeSeq === undefined) {
+            try {
+              const projections = projectionCache === undefined ? undefined : await projectionCache.coldSnapshot(sessionId)
+              if (projectionCache !== undefined && projections === undefined) {
+                throw new Error(`projection cache has no cold baseline for session "${sessionId}"`)
+              }
+              source = { ...source, ...projections === undefined ? {} : { projections } }
+            } catch {
+              // A missing or stale optional cache falls back to the existing
+              // full inspection so the projection baseline remains correct.
+              const inspected = await inspectServable(sessionId)
+              source = { kind: 'detached', header: inspected.meta, events: inspected.events }
+            }
+          }
           const forward = afterSeq === undefined
             ? undefined
             : { afterSeq, maxEvents }
           const cut = historyCutOf(source, forward === undefined && beforeSeq === undefined)
-          const page = historyPage(ctx, cut.events, beforeSeq, maxMessages, scope, forward)
+          const page = source.kind === 'detached' && source.pageHasMore !== undefined && forward === undefined
+            ? { events: presentHistoryEvents(ctx, cut.events, scope), hasMore: source.pageHasMore }
+            : historyPage(ctx, cut.events, beforeSeq, maxMessages, scope, forward)
           return ok(request, {
             events: page.events,
             hasMore: page.hasMore,

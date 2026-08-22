@@ -206,6 +206,26 @@ interface SessionInspection {
 }
 ```
 
+```ts type-equiv
+/** Request for one chronological display-history page. */
+interface SessionHistoryPageRequest {
+  /** Exclusive raw-event upper bound; omitted for the latest page. */
+  readonly beforeSeq?: number
+  /** Maximum number of append-origin user/assistant messages. */
+  readonly maxMessages: number
+}
+```
+
+```ts type-equiv
+/** One raw-event page from a session's append-origin display history. */
+interface SessionHistoryPage {
+  /** Events remain contiguous in raw-log order. */
+  readonly events: SessionEvent[]
+  /** Whether an earlier raw-event interval exists. */
+  readonly hasMore: boolean
+}
+```
+
 ## Lightweight source revisions
 
 Consumers of derived state compare a cheap opaque revision before loading a full event log. The persistence backend owns its representation and changes it transactionally with append or mutating load repair; callers compare it only for equality.
@@ -230,7 +250,7 @@ interface SessionPersistenceSnapshot {
 
 ## The backends
 
-Both implement the same abstract `SessionPersistence` (locate/create/append/prepare/load/inspect/readFrom/list/listSnapshots over `SessionEvent`, with optional cancellation on observation methods) and pass the shared `runPersistenceContract` suite:
+Both implement the same abstract `SessionPersistence` (locate/create/append/prepare/load/inspect/readFrom/readHistoryPage/list/listSnapshots over `SessionEvent`, with optional cancellation on observation methods) and pass the shared `runPersistenceContract` suite:
 
 - **[dsh-session-persistence-jsonl](../../packages/session/session-persistence-jsonl)** — an append-only logical JSONL log per session, stored as checksummed concatenated Zstandard frames by default or raw lines by configuration, with crash-safe atomic writes, interrupted-turn recovery, and a read/replay path.
 - **[dsh-session-persistence-sqlite](../../packages/session/session-persistence-sqlite)** — `node:sqlite`, one row per `SessionEvent`. The row fields `(session_id, seq, type, time, data, source_event_seqs, surface_op)` map 1:1 onto the event, including optional surface metadata, so there is no parallel persisted schema to keep in sync.
@@ -349,6 +369,17 @@ abstract load(id: SessionId): Promise<SessionInspection>
 abstract inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection>
 
 /**
+ * Read one display-history page without resuming a Session. Concrete
+ * backends may seek directly to the tail; the default preserves the seam
+ * for third-party backends by paging a validated inspection.
+ * @param id - persisted session to read.
+ * @param request - exclusive upper bound and message quota.
+ * @param signal - optional cancellation for backend read work.
+ * @returns detached metadata and a contiguous raw-event page.
+ */
+async readHistoryPage( id: SessionId, request: SessionHistoryPageRequest, signal?: AbortSignal, ): Promise<SessionHistoryPage & { readonly meta: SessionHeader }>
+
+/**
  * Read the stored events from `fromSeq` onward — the read-from-seq
  * primitive for read models that resume from a watermark (e.g. a persisted
  * projection cache folding only the tail past its checkpoint). Unlike
@@ -390,5 +421,5 @@ abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot
 
 Types: [SessionEvent](session.md) · [SessionId](core.md)
 
-Source: [`packages/session/session-persistence/src/index.ts:84`](../../packages/session/session-persistence/src/index.ts)
+Source: [`packages/session/session-persistence/src/index.ts:89`](../../packages/session/session-persistence/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -3,7 +3,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentOptions, AgentSetup } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-session-persistence'
+import { paginateSessionHistory } from '@deepseek-ai/dsh-session-persistence'
+import type { SessionHistoryPageRequest } from '@deepseek-ai/dsh-session-persistence'
 import { TypertLookupFailure } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-typert-registry'
 
@@ -108,6 +109,44 @@ export async function inspectApiRemoteSession(
     throw new ApiRemoteSessionNotFound(`session "${sessionId}" not found`)
   }
   return { meta: inspected.meta, events: [...inspected.events] }
+}
+
+/**
+ * Read one backward display page without resuming or fully inspecting a cold
+ * session. The persistence seam may use a native tail reader; its fallback
+ * retains the complete-inspection behavior for third-party backends.
+ * @param ctx - Host Context carrying the persistence provider.
+ * @param sessionId - durable identity to read.
+ * @param request - exclusive upper bound and message quota.
+ * @returns detached metadata and a contiguous raw-event page.
+ * @throws {@link ApiRemoteSessionNotFound} when the identity is absent or not project-backed.
+ */
+export async function readApiRemoteSessionHistoryPage(
+  ctx: Context,
+  sessionId: SessionId,
+  request: SessionHistoryPageRequest,
+): Promise<{ meta: SessionHeader; events: SessionEvent[]; hasMore: boolean }> {
+  const persistence = ctx.get('sessionPersistence')
+  if (persistence === undefined) {
+    throw new Error('session persistence is not configured (load a dsh-session-persistence backend)')
+  }
+  const meta = (await persistence.list()).find(candidate => candidate.id === sessionId)
+  if (meta === undefined || meta.cwd === undefined) {
+    throw new ApiRemoteSessionNotFound(`session "${sessionId}" not found`)
+  }
+  if (typeof persistence.readHistoryPage === 'function') {
+    const page = await persistence.readHistoryPage(sessionId, request)
+    if (page.meta.cwd === undefined) {
+      throw new ApiRemoteSessionNotFound(`session "${sessionId}" not found`)
+    }
+    return { meta: page.meta, events: page.events, hasMore: page.hasMore }
+  }
+  const inspected = await persistence.inspect(sessionId)
+  if (inspected.meta.cwd === undefined) {
+    throw new ApiRemoteSessionNotFound(`session "${sessionId}" not found`)
+  }
+  const page = paginateSessionHistory(inspected.events, request)
+  return { meta: inspected.meta, events: page.events, hasMore: page.hasMore }
 }
 
 /**
