@@ -177,7 +177,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `44956e699b` | Batches concurrent authentication admissions and registers initial browser plugin factories through one revision-addressed aggregate while preserving independent fallback and HMR. |
 | `8719eabfa4` | Adds direct model-requested retained-tail context compaction through the existing Provider transaction and lossless summary DAG. |
 | `WORKTREE` | Splits browser plugin startup into authenticated critical/deferred bootstrap phases, adds a lightweight auth entry, Brotli/immutable static asset delivery, Web-profile cold-summary probe suppression, and restored-history/baseline overlap without weakening plugin-route authorization. Locally verified; no commit created by request. |
-| `WORKTREE` | Adds provider-local bounded DeepSeek request-image projection, model-level explicit image modality opt-in, Files API upload reuse with scoped owner-only index, quota cleanup, stale-file inline retry, and all-inline fallback. Default catalogs and shipped Profiles remain text-only; no durable Session schema changes. Locally verified in the current worktree; no commit created by request. |
+| `868883546d` | Adds provider-local bounded DeepSeek request-image projection, model-level explicit image modality opt-in, Files API upload reuse with scoped owner-only index, quota cleanup, stale-file inline retry, and all-inline fallback. Default catalogs and shipped Profiles remain text-only; no durable Session schema changes. Locally verified in the current worktree. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
