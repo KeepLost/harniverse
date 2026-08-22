@@ -1,7 +1,7 @@
 /**
  * Schema + load-time helpers for the SQLite session-persistence backend: the
- * DDL (a store-identity row, `sessions` metadata, and a 1:1 `events` row per
- * `SessionEvent`), the database open/configure step, and the last-`turn/end`
+ * DDL (a store-identity row, `sessions` metadata, and scalar or packed physical
+ * `events` rows), the database open/configure step, and the last-`turn/end`
  * cut that gives the SQLite backend the SAME crash-tail-on-load semantics as
  * the JSONL backend.
  *
@@ -10,14 +10,15 @@
 
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import { decodeScalarRow, scanRows as scanPhysicalRows } from './compression.ts'
 
 /**
  * The on-disk schema version. Bumped only on a breaking change to the table
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 15
+export const SCHEMA_VERSION = 17
 
 /** SQLite application id protecting unrelated databases from persistence writes. */
 export const SESSION_PERSISTENCE_SQLITE_APPLICATION_ID = 0x44534850
@@ -45,17 +46,17 @@ export interface SessionRow {
   agent_preset: string | null
 }
 
-/** An `events` table row: one `SessionEvent` mapped 1:1 (`data` is JSON text). */
+/** An `events` physical row; `data` is JSON text or a Zstandard frame. */
 export interface EventRow {
   seq: number
   type: string
   time: number
-  data: string
-  /** JSON-encoded `number[]` — the event's sourceEventSeqs, or null. */
-  source_event_seqs: string | null
+  data: string | Uint8Array
+  /** Varint/ZigZag-encoded sourceEventSeqs, or null. */
+  source_event_seqs: Uint8Array | null
   /** JSON-encoded `SurfaceOp` — how the event entered the surface, or null. */
   surface_op: string | null
-  /** `1` iff the event carries the envelope's `ignorable: true` marker, else null. */
+  /** Packed-row discriminator `0`, scalar ignorable marker `1`, or null. */
   ignorable: number | null
 }
 
@@ -69,6 +70,53 @@ export interface EventRow {
  */
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
+interface SchemaObjectRow {
+  readonly type: string
+  readonly name: string
+  readonly tbl_name: string
+  readonly sql: string
+}
+
+const SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS persistence_state (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    store_id  TEXT NOT NULL
+  ) STRICT;
+
+  CREATE TABLE IF NOT EXISTS sessions (
+    id               TEXT PRIMARY KEY,
+    version          INTEGER NOT NULL,
+    created_at       INTEGER NOT NULL,
+    cwd              TEXT,
+    parent_session   TEXT,
+    seed_length      INTEGER,
+    origin           TEXT,
+    delegation_depth INTEGER,
+    agent_preset     TEXT,
+    incarnation      TEXT NOT NULL,
+    revision         INTEGER NOT NULL
+  ) STRICT;
+
+  CREATE TABLE IF NOT EXISTS events (
+    session_id        TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    seq               INTEGER NOT NULL,
+    type              TEXT NOT NULL,
+    time              INTEGER NOT NULL,
+    data              ANY NOT NULL,
+    source_event_seqs ANY,
+    surface_op        TEXT,
+    ignorable         INTEGER CHECK (
+      ignorable IS NULL OR ignorable = 1 OR (
+        ignorable = 0
+        AND type IN ('text-chunks', 'reasoning-chunks', 'tool-call-chunks')
+        AND source_event_seqs IS NULL
+        AND surface_op IS NULL
+      )
+    ),
+    PRIMARY KEY (session_id, seq)
+  ) STRICT;
+`
+
 /**
  * Open the database and apply its schema and pragmas. An empty database with a
  * zero `user_version` is initialized at {@link SCHEMA_VERSION}; a nonempty
@@ -76,10 +124,11 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
  * being migrated in place.
  * @param path - the SQLite database file to open (created when absent).
  * @param journalMode - validated journal pragma.
+ * @param busyTimeoutMs - maximum synchronous wait for a competing SQLite lock.
  * @returns the open handle with pragmas applied and all three tables ensured.
  */
-export function openDatabase(path: string, journalMode: JournalMode): DatabaseSync {
-  const db = new DatabaseSync(path)
+export function openDatabase(path: string, journalMode: JournalMode, busyTimeoutMs = 5_000): DatabaseSync {
+  const db = new DatabaseSync(path, { timeout: busyTimeoutMs })
   try {
     configureDatabase(db, path, journalMode)
     return db
@@ -91,6 +140,8 @@ export function openDatabase(path: string, journalMode: JournalMode): DatabaseSy
 
 function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalMode): void {
   db.exec('PRAGMA foreign_keys = ON')
+  db.exec('PRAGMA trusted_schema = OFF')
+  db.exec('PRAGMA mmap_size = 0')
   let began = false
   try {
     db.exec('BEGIN IMMEDIATE')
@@ -113,38 +164,7 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
         `session database at "${path}" has application id ${applicationId}, expected ${SESSION_PERSISTENCE_SQLITE_APPLICATION_ID}`,
       )
     }
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS persistence_state (
-        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-        store_id  TEXT NOT NULL
-      ) STRICT;
-
-      CREATE TABLE IF NOT EXISTS sessions (
-        id               TEXT PRIMARY KEY,
-        version          INTEGER NOT NULL,
-        created_at       INTEGER NOT NULL,
-        cwd              TEXT,
-        parent_session   TEXT,
-        seed_length      INTEGER,
-        origin           TEXT,
-        delegation_depth INTEGER,
-        agent_preset    TEXT,
-        incarnation      TEXT NOT NULL,
-        revision         INTEGER NOT NULL
-      ) STRICT;
-
-      CREATE TABLE IF NOT EXISTS events (
-        session_id        TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-        seq               INTEGER NOT NULL,
-        type              TEXT NOT NULL,
-        time              INTEGER NOT NULL,
-        data              TEXT NOT NULL,
-        source_event_seqs TEXT,
-        surface_op        TEXT,
-        ignorable         INTEGER,
-        PRIMARY KEY (session_id, seq)
-      ) STRICT
-    `)
+    db.exec(SCHEMA_SQL)
     db.prepare(
       'INSERT OR IGNORE INTO persistence_state (singleton, store_id) VALUES (1, ?)',
     ).run(randomUUID())
@@ -152,6 +172,7 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
       db.exec(`PRAGMA application_id = ${SESSION_PERSISTENCE_SQLITE_APPLICATION_ID}`)
       db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
     }
+    validateRequiredSchema(db, path)
     db.exec('COMMIT')
     began = false
   } catch (error: unknown) {
@@ -169,6 +190,55 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
   // The validated union is safe to interpolate into a non-bindable PRAGMA.
   // Apply it only after ownership validation and initialization commit.
   db.exec(`PRAGMA journal_mode = ${journalMode.toUpperCase()}`)
+  db.exec('PRAGMA synchronous = FULL')
+}
+
+let canonicalSchema: readonly SchemaObjectRow[] | undefined
+
+function schemaObjects(db: DatabaseSync): SchemaObjectRow[] {
+  return (db.prepare(
+    `SELECT type, name, tbl_name, sql FROM sqlite_schema
+     WHERE name NOT GLOB 'sqlite_*' ORDER BY type, name`,
+  ).all() as unknown as SchemaObjectRow[]).map(row => ({
+    ...row,
+    sql: row.sql.replaceAll(/\s+/gu, ' ').trim(),
+  }))
+}
+
+function expectedSchema(): readonly SchemaObjectRow[] {
+  if (canonicalSchema !== undefined) return canonicalSchema
+  const reference = new DatabaseSync(':memory:')
+  try {
+    reference.exec('PRAGMA foreign_keys = ON')
+    reference.exec(SCHEMA_SQL)
+    canonicalSchema = schemaObjects(reference)
+    return canonicalSchema
+  } finally {
+    reference.close()
+  }
+}
+
+function validateRequiredSchema(db: DatabaseSync, path: string): void {
+  if (JSON.stringify(schemaObjects(db)) !== JSON.stringify(expectedSchema())) {
+    throw new Error(`session database at "${path}" does not contain the required schema objects`)
+  }
+}
+
+/**
+ * Recheck database identity and schema while the caller holds a write lock.
+ * @param db - open SQLite handle owned by the persistence backend.
+ * @param path - database path included in schema diagnostics.
+ */
+export function validateSchemaForMutation(db: DatabaseSync, path: string): void {
+  const { user_version: version } = db.prepare('PRAGMA user_version').get() as { user_version: number }
+  const { application_id: applicationId } = db.prepare('PRAGMA application_id').get() as { application_id: number }
+  if (applicationId !== SESSION_PERSISTENCE_SQLITE_APPLICATION_ID) {
+    throw new Error(`session database application id changed before mutation (expected ${SESSION_PERSISTENCE_SQLITE_APPLICATION_ID}, got ${applicationId})`)
+  }
+  validateRequiredSchema(db, path)
+  if (version !== SCHEMA_VERSION) {
+    throw new Error(`session database schema changed before mutation (expected ${SCHEMA_VERSION}, got ${version})`)
+  }
 }
 
 /**
@@ -195,26 +265,12 @@ export function rowToMeta(row: SessionRow): SessionHeader {
 
 /**
  * Reconstruct a {@link SessionEvent} from an `events` row (parses `data`).
- * @param row - the `events` table row; `data` and the surface columns hold JSON text.
+ * @param row - scalar `events` row; payload data may be text or a Zstandard frame.
  * @returns the reconstructed event; throws when a JSON column fails to parse
  *   ({@link scanRows} treats that as a hole, not corruption, in the tail).
  */
 export function rowToEvent(row: EventRow): SessionEvent {
-  // Surface-metadata fields are conditional on the event type in the type
-  // system; spread them so each variant gets only the fields it declares.
-  const surfaceFields = {
-    ...row.source_event_seqs !== null ? { sourceEventSeqs: JSON.parse(row.source_event_seqs) as number[] } : {},
-    ...row.surface_op !== null ? { surfaceOp: JSON.parse(row.surface_op) as SurfaceOp } : {},
-  }
-  const ignorableField = row.ignorable === 1 ? { ignorable: true as const } : {}
-  return {
-    type: row.type as SessionEvent['type'],
-    seq: row.seq,
-    time: row.time,
-    data: JSON.parse(row.data) as SessionEvent['data'],
-    ...surfaceFields,
-    ...ignorableField,
-  } as SessionEvent
+  return decodeScalarRow(row)
 }
 
 /**
@@ -230,41 +286,5 @@ export function rowToEvent(row: EventRow): SessionEvent {
  *   delete starts at — when a torn tail exists.
  */
 export function scanRows(rows: readonly EventRow[], base = 0): { preserved: SessionEvent[]; tornFrom?: number } {
-  // Pass 1: parse each row's data; a row whose data is not valid JSON is a hole.
-  // (The seq/type COLUMNS are always present even when `data` is corrupt.)
-  interface Parsed { ok: boolean; event?: SessionEvent }
-  const parsed: Parsed[] = rows.map((row) => {
-    try {
-      return { ok: true, event: rowToEvent(row) }
-    } catch {
-      return { ok: false }
-    }
-  })
-
-  // The last index that is a valid `turn/end` — holes through a closed turn
-  // are always committed corruption.
-  let lastTurnEnd = -1
-  for (let i = parsed.length - 1; i >= 0; i--) {
-    if (parsed[i]?.ok && rows[i]?.type === 'turn/end') { lastTurnEnd = i; break }
-  }
-
-  // Preserve the contiguous prefix, including a complete interrupted turn;
-  // holes through the last committed boundary throw, while later holes stop.
-  const preserved: SessionEvent[] = []
-  for (let i = 0; i < rows.length; i++) {
-    const p = parsed[i]
-    if (!p?.ok || p.event === undefined) {
-      if (i <= lastTurnEnd) throw new Error(`corrupt session log: unparsable committed event at seq ${rows[i]?.seq}`)
-      break // torn tail fragment after the last turn/end — stop, tolerate
-    }
-    if (p.event.seq !== base + i) {
-      if (i <= lastTurnEnd) throw new Error(`corrupt session log: seq gap in committed region (expected ${base + i}, got ${p.event.seq})`)
-      break // gap after the last turn/end — torn tail, stop
-    }
-    preserved.push(p.event)
-  }
-
-  // Any rows past the preserved prefix are a never-committed torn tail; their
-  // first seq is the deletion point for load's physical repair.
-  return preserved.length < rows.length ? { preserved, tornFrom: base + preserved.length } : { preserved }
+  return scanPhysicalRows(rows, base)
 }

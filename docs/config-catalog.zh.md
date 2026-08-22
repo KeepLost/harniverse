@@ -1843,11 +1843,9 @@ export interface Config {
   /**
    * Filesystem path to the SQLite database file. The special value `:memory:`
    * opens an in-process database (tests). On filesystems with POSIX modes,
-   * missing directories and databases are created owner-only; existing path
-   * modes are preserved. Filesystem setup errors other than an existing database
-   * fail initialization. The backend does not protect confidentiality or
-   * integrity when another principal can replace the database entry in its
-   * parent directory.
+   * missing directories and databases are created owner-only. Existing paths
+   * must be real, owner-only, and owned by the effective user. Filesystem setup
+   * errors fail initialization. The backend does not encrypt the database.
    */
   path: string
   /**
@@ -1857,6 +1855,8 @@ export interface Config {
    * (network mounts). See {@link JournalMode}.
    */
   journalMode?: JournalMode
+  /** Maximum synchronous wait for another SQLite writer. */
+  busyTimeoutMs?: number
   /** Maximum cold Session preparations retained for history-to-resume reuse. */
   preparedSessionCacheSize?: number
   /** Fixed live-event coalescing window; not a backend completion deadline. */
@@ -1874,7 +1874,7 @@ export interface Config {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-来源：[`packages/session/session-persistence-sqlite/src/index.ts:70`](../packages/session/session-persistence-sqlite/src/index.ts)
+来源：[`packages/session/session-persistence-sqlite/src/index.ts:88`](../packages/session/session-persistence-sqlite/src/index.ts)
 
 <a id="deepseek-aidsh-session-projection-cache"></a>
 

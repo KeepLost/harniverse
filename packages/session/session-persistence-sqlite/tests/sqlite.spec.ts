@@ -17,6 +17,7 @@ import {
   SESSION_PERSISTENCE_SQLITE_APPLICATION_ID,
   type EventRow,
 } from '../src/schema.ts'
+import { bindRecord } from '../src/compression.ts'
 import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
@@ -38,6 +39,19 @@ async function freshDbPath(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-sqlite-'))
   dirs.push(dir)
   return join(dir, 'sessions.db')
+}
+
+function eventRow(event: SessionEvent): EventRow {
+  const record = bindRecord(event)
+  return {
+    seq: record.seq,
+    type: record.type,
+    time: record.time,
+    data: record.data,
+    source_event_seqs: record.sourceEventSeqs,
+    surface_op: record.surfaceOp,
+    ignorable: record.ignorable,
+  }
 }
 
 /** A context with the session store + SQLite backend, plus a teardown. */
@@ -85,16 +99,7 @@ describe('scanRows', () => {
   // scanRows works off EventRows (data is a JSON string column); build them from SessionEvents
   // so the unit tests read in terms of the event vocabulary. Surface metadata is serialized to
   // its nullable columns so the conversion remains faithful.
-  const rows = (events: SessionEvent[]): EventRow[] =>
-    events.map((e) => {
-      const se = e as SessionEvent<SurfaceEventType>
-      return {
-        seq: e.seq, type: e.type, time: e.time, data: JSON.stringify(e.data),
-        source_event_seqs: se.sourceEventSeqs !== undefined ? JSON.stringify(se.sourceEventSeqs) : null,
-        surface_op: se.surfaceOp !== undefined ? JSON.stringify(se.surfaceOp) : null,
-        ignorable: e.ignorable === true ? 1 : null,
-      }
-    })
+  const rows = (events: SessionEvent[]): EventRow[] => events.map(eventRow)
 
   it('preserves the full log when it ends exactly on a turn/end (no torn tail)', () => {
     const { preserved, tornFrom } = scanRows(rows(oneTurnLog()))
@@ -125,7 +130,7 @@ describe('scanRows', () => {
     ]
     const { preserved, tornFrom } = scanRows(rows(gapped))
     expect(preserved.map(e => e.seq)).toEqual([0])
-    expect(tornFrom).toBe(1)
+    expect(tornFrom).toBe(2)
   })
 
   it('an empty log preserves nothing and has no torn tail', () => {
@@ -138,7 +143,7 @@ describe('scanRows', () => {
       { type: 'step/start', seq: 2, time: 2, data: { turn: 1, step: 1 } }, // seq 1 missing
       { type: 'turn/end', seq: 3, time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
-    expect(() => scanRows(rows(gapped))).toThrow(/seq gap in committed region/)
+    expect(() => scanRows(rows(gapped))).toThrow(/invalid committed physical row at seq 2/)
   })
 
   it('throws on an unparsable row inside the committed region', () => {
@@ -146,7 +151,7 @@ describe('scanRows', () => {
       { seq: 0, type: 'turn/start', time: 1, data: '{not json', source_event_seqs: null, surface_op: null, ignorable: null }, // corrupt, sits before a turn/end
       { seq: 1, type: 'turn/end', time: 2, data: JSON.stringify({ turn: 1, reason: { kind: 'completed' } }), source_event_seqs: null, surface_op: null, ignorable: null },
     ]
-    expect(() => scanRows(withCorruptCommitted)).toThrow(/unparsable committed event/)
+    expect(() => scanRows(withCorruptCommitted)).toThrow(/invalid committed physical row at seq 0/)
   })
 
   it('tolerates an unparsable torn-tail row after the last turn/end', () => {
@@ -224,6 +229,7 @@ describe('SqliteSessionPersistence: durability and crash semantics', () => {
     insert.run(m.id, 1, 'request/header-delta', 2, JSON.stringify({ config: { model: 'legacy' } }))
     insert.run(m.id, 2, 'turn/end', 3, JSON.stringify({ turn: 1, reason: { kind: 'completed' } }))
     db.close()
+    if (process.platform !== 'win32') await chmod(path, 0o600)
 
     const mounted = await backend(path)
     await expect(mounted.ctx.sessionPersistence.load(m.id)).rejects.toThrow(/unsupported legacy request\/header-delta event at seq 1/)
@@ -242,6 +248,7 @@ describe('SqliteSessionPersistence: durability and crash semantics', () => {
         reason: 'fallback',
       }))
     db.close()
+    if (process.platform !== 'win32') await chmod(path, 0o600)
 
     const mounted = await backend(path)
     await expect(mounted.ctx.sessionPersistence.load(m.id))
@@ -483,6 +490,24 @@ describe('SqliteSessionPersistence: durability and crash semantics', () => {
     db.close()
   })
 
+  it('rejects a current-version database whose schema objects drift', async () => {
+    const path = await freshDbPath()
+    const db = openDatabase(path, 'wal')
+    db.exec('ALTER TABLE sessions ADD COLUMN unexpected TEXT')
+    db.close()
+    expect(() => openDatabase(path, 'wal')).toThrow(/does not contain the required schema objects/)
+  })
+
+  it('pins connection security, durability, and the configured busy timeout', async () => {
+    const path = await freshDbPath()
+    const db = openDatabase(path, 'wal', 321)
+    expect(db.prepare('PRAGMA trusted_schema').get()).toEqual({ trusted_schema: 0 })
+    expect(db.prepare('PRAGMA mmap_size').get()).toEqual({ mmap_size: 0 })
+    expect(db.prepare('PRAGMA synchronous').get()).toEqual({ synchronous: 2 })
+    expect(db.prepare('PRAGMA busy_timeout').get()).toEqual({ timeout: 321 })
+    db.close()
+  })
+
   it('rejects a sibling v3 database (the merge-collided version) rather than opening it against missing columns', async () => {
     // Version 3 identified two incompatible sibling layouts, so it is always rejected.
     const path = await freshDbPath()
@@ -575,11 +600,15 @@ describe('SqliteSessionPersistence: durability and crash semantics', () => {
     ).get() as { store_id: string }).store_id
     probeA.close()
 
-    const aliasA = `${pathA}.alias`
-    await symlink(pathA, aliasA)
-    const reopenedA = await backend(aliasA)
+    const reopenedA = await backend(pathA)
     expect((await reopenedA.ctx.sessionPersistence.listSnapshots())[0]?.revision).toBe(revisionA)
     await reopenedA.dispose()
+
+    const aliasA = `${pathA}.alias`
+    await symlink(pathA, aliasA)
+    const aliasedA = await backend(aliasA)
+    await expect(aliasedA.ctx.sessionPersistence.listSnapshots()).rejects.toThrow(/not a symbolic link/)
+    await aliasedA.dispose()
 
     const b = await backend(pathB)
     await b.ctx.sessionPersistence.create(m)
@@ -659,7 +688,7 @@ describe('SqliteSessionPersistence: durability and crash semantics', () => {
   })
 
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(15)
+    expect(SCHEMA_VERSION).toBe(17)
   })
 
   it('keeps the revision stable for an empty repair hook', async () => {
@@ -713,22 +742,21 @@ describe('SqliteSessionPersistence: edge cases', () => {
     const db = openDatabase(path, 'wal')
     db.exec("UPDATE persistence_state SET store_id = '' WHERE singleton = 1")
     db.close()
+    if (process.platform !== 'win32') await chmod(path, 0o600)
 
     const b = await backend(path)
     await expect(b.ctx.sessionPersistence.listSnapshots()).rejects.toThrow(/no valid store identity/)
     await expect(b.dispose()).resolves.toBeUndefined()
   })
 
-  it('creates a new database and WAL sidecars with owner-only modes without changing its parent mode', async () => {
+  it('creates a new database and WAL sidecars with owner-only modes', async () => {
     if (process.platform === 'win32') return
     const path = await freshDbPath()
     const dir = dirname(path)
-    await chmod(dir, 0o755)
-
     const b = await backend(path)
     await b.ctx.sessionPersistence.list()
 
-    expect((await stat(dir)).mode & 0o777).toBe(0o755)
+    expect((await stat(dir)).mode & 0o777).toBe(0o700)
     expect((await stat(path)).mode & 0o777).toBe(0o600)
     expect((await stat(`${path}-wal`)).mode & 0o777).toBe(0o600)
     expect((await stat(`${path}-shm`)).mode & 0o777).toBe(0o600)
@@ -751,7 +779,7 @@ describe('SqliteSessionPersistence: edge cases', () => {
     await fiber.dispose()
   })
 
-  it('preserves the mode of an existing database file', async () => {
+  it('rejects a database file accessible to another principal', async () => {
     if (process.platform === 'win32') return
     const path = await freshDbPath()
     await writeFile(path, '', { mode: 0o644 })
@@ -760,10 +788,17 @@ describe('SqliteSessionPersistence: edge cases', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const fiber = await ctx.plugin(SqliteSessionPersistence, { path, journalMode: 'delete' })
-    await ctx.sessionPersistence.list()
-
-    expect((await stat(path)).mode & 0o777).toBe(0o644)
+    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/accessible only by that user/)
     await fiber.dispose()
+  })
+
+  it('rejects a group-writable database parent', async () => {
+    if (process.platform === 'win32') return
+    const path = await freshDbPath()
+    await chmod(dirname(path), 0o770)
+    const b = await backend(path)
+    await expect(b.ctx.sessionPersistence.list()).rejects.toThrow(/not group\/world-writable/)
+    await b.dispose()
   })
 
   it('surfaces an invalid database path during pre-creation', async () => {
@@ -794,7 +829,7 @@ describe('SqliteSessionPersistence: edge cases', () => {
     // b2 still thinks its cursor is 6, so this batch passes the contiguity check
     // but its INSERT of seq 6 hits the UNIQUE (session_id, seq) constraint
     // mid-transaction → ROLLBACK + rethrow.
-    await expect(b2.ctx.sessionPersistence.append(m.id, turn2)).rejects.toThrow(/UNIQUE/)
+    await expect(b2.ctx.sessionPersistence.append(m.id, turn2)).rejects.toThrow(/stored next seq is 8/)
     // b1's turn is intact; b2's rolled-back attempt left nothing extra.
     const loaded = await b1.ctx.sessionPersistence.load(m.id)
     expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
@@ -856,7 +891,7 @@ describe('surface field round-trip', () => {
     const row: EventRow = {
       seq: 0, type: 'assistant/message', time: 1,
       data: JSON.stringify({ turn: 1, step: 1, content: [] }),
-      source_event_seqs: JSON.stringify([3, 5]),
+      source_event_seqs: Buffer.from([3, 4]),
       surface_op: JSON.stringify('append'),
       ignorable: null,
     }
@@ -869,7 +904,7 @@ describe('surface field round-trip', () => {
     const row: EventRow = {
       seq: 0, type: 'assistant/message', time: 1,
       data: JSON.stringify({ turn: 1, step: 1, content: [] }),
-      source_event_seqs: JSON.stringify([0, 1]),
+      source_event_seqs: Buffer.from([0, 2]),
       surface_op: JSON.stringify({ op: 'replace', start: 0, end: 1 }),
       ignorable: null,
     }

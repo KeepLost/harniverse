@@ -1,7 +1,7 @@
 /**
  * SQLite durable session-persistence backend. It maps each session header and
- * event to rows, and delegates write-path orchestration to
- * {@link PersistenceCoordinator}. It has no independent per-session artifact,
+ * logical event stream to scalar or packed physical rows, then delegates write
+ * orchestration to {@link PersistenceCoordinator}. It has no per-session artifact,
  * so its locator returns `undefined`.
  * @module @deepseek-ai/dsh-session-persistence-sqlite
  */
@@ -11,7 +11,8 @@ import z from '@deepseek-ai/schemastery'
 import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdir, open } from 'node:fs/promises'
+import type { StatementSync } from 'node:sqlite'
+import { lstat, mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE, DEFAULT_WRITE_BATCH_MAX_DELAY_MS, MAX_WRITE_BATCH_DELAY_MS,
@@ -20,29 +21,15 @@ import {
   type SessionInspection, type SessionPersistenceRevision as PersistenceRevision,
   type SessionHistoryPageRequest, type StoredHistoryPage, type StoredPrefix, type StoredSuffix,
 } from '@deepseek-ai/dsh-session-persistence'
-import type { SessionEvent, SurfaceEventType, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
 import {
-  type JournalMode, openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
+  type JournalMode, openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow, validateSchemaForMutation,
 } from './schema.ts'
 import { rowToEvent } from './schema.ts'
+import { bindRecord, decodeRow } from './compression.ts'
+import { MAX_PACKED_ROW_MEMBERS, packChunkRuns } from './codec.ts'
 
 export { SCHEMA_VERSION } from './schema.ts'
-
-/**
- * Serialize an event's optional envelope fields for SQL binding. The surface
- * fields are nullable TEXT columns — null when the event has no surface
- * metadata (non-surface events, events written before surface support); the
- * ignorable marker is a nullable INTEGER column — `1` iff the envelope carries
- * `ignorable: true`.
- */
-function envelopeBindings(event: SessionEvent): [string | null, string | null, number | null] {
-  const se = event as SessionEvent<SurfaceEventType>
-  return [
-    se.sourceEventSeqs ? JSON.stringify(se.sourceEventSeqs) : null,
-    se.surfaceOp !== undefined ? JSON.stringify(se.surfaceOp) : null,
-    event.ignorable === true ? 1 : null,
-  ]
-}
 
 /** Build the source-qualified revision shared by full and lightweight reads. */
 function sqliteRevision(storeIdentity: string, row: SessionRow): PersistenceRevision {
@@ -67,16 +54,44 @@ async function createDatabaseFile(path: string): Promise<void> {
   }
 }
 
+async function validateParentDirectory(path: string): Promise<void> {
+  const parent = await lstat(path)
+  if (parent.isSymbolicLink() || !parent.isDirectory()) {
+    throw new Error(`session database parent "${path}" must be a real directory`)
+  }
+  const uid = process.getuid?.()
+  if (uid !== undefined && (parent.uid !== uid || (parent.mode & 0o022) !== 0)) {
+    throw new Error(`session database parent "${path}" must be owned by the current user and not group/world-writable`)
+  }
+}
+
+async function validateDatabaseFile(path: string): Promise<void> {
+  const file = await lstat(path)
+  if (file.isSymbolicLink() || !file.isFile()) {
+    throw new Error(`session database "${path}" must be a regular file, not a symbolic link`)
+  }
+  const uid = process.getuid?.()
+  if (uid !== undefined && (file.uid !== uid || (file.mode & 0o077) !== 0)) {
+    throw new Error(`session database "${path}" must be owned by the current user and accessible only by that user`)
+  }
+}
+
+async function validateDatabaseFileIfPresent(path: string): Promise<void> {
+  try {
+    await validateDatabaseFile(path)
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+}
+
 /** Plugin configuration. */
 export interface Config {
   /**
    * Filesystem path to the SQLite database file. The special value `:memory:`
    * opens an in-process database (tests). On filesystems with POSIX modes,
-   * missing directories and databases are created owner-only; existing path
-   * modes are preserved. Filesystem setup errors other than an existing database
-   * fail initialization. The backend does not protect confidentiality or
-   * integrity when another principal can replace the database entry in its
-   * parent directory.
+   * missing directories and databases are created owner-only. Existing paths
+   * must be real, owner-only, and owned by the effective user. Filesystem setup
+   * errors fail initialization. The backend does not encrypt the database.
    */
   path: string
   /**
@@ -86,6 +101,8 @@ export interface Config {
    * (network mounts). See {@link JournalMode}.
    */
   journalMode?: JournalMode
+  /** Maximum synchronous wait for another SQLite writer. */
+  busyTimeoutMs?: number
   /** Maximum cold Session preparations retained for history-to-resume reuse. */
   preparedSessionCacheSize?: number
   /** Fixed live-event coalescing window; not a backend completion deadline. */
@@ -105,6 +122,7 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
   static Config: z<Config> = z.object({
     path: z.string().required(),
     journalMode: z.union(['wal', 'delete', 'truncate', 'persist'] as const).default('wal'),
+    busyTimeoutMs: z.number().step(1).min(1).default(5000),
     preparedSessionCacheSize: z.number().step(1).min(1).default(DEFAULT_PREPARED_SESSION_CACHE_SIZE),
     writeBatchMaxDelayMs: z.number().step(1).min(1).max(MAX_WRITE_BATCH_DELAY_MS)
       .default(DEFAULT_WRITE_BATCH_MAX_DELAY_MS),
@@ -118,6 +136,7 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
   override readonly name = 'session-persistence-sqlite'
 
   private db!: DatabaseSync
+  private databasePath!: string
   private storeIdentity!: string
   private ready: Promise<void>
   private coordinator: PersistenceCoordinator<number>
@@ -127,24 +146,29 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
     // Programmatic wrappers may construct the backend without Schemastery normalization.
     const preparedSessionCacheSize = config.preparedSessionCacheSize
       ?? DEFAULT_PREPARED_SESSION_CACHE_SIZE
+    const busyTimeoutMs = config.busyTimeoutMs ?? 5000
     const writeBatchMaxDelayMs = config.writeBatchMaxDelayMs
       ?? DEFAULT_WRITE_BATCH_MAX_DELAY_MS
     // Open asynchronously so directory creation does not block plugin apply;
     // every storage hook awaits the same readiness promise.
-    this.ready = this.openDb(config.path, (config as Required<Config>).journalMode)
+    this.ready = this.openDb(config.path, (config as Required<Config>).journalMode, busyTimeoutMs)
     this.coordinator = new PersistenceCoordinator<number>(this.ctx, this, {
       preparedSessionCacheSize,
       writeBatchMaxDelayMs,
     })
   }
 
-  private async openDb(path: string, journalMode: JournalMode): Promise<void> {
+  private async openDb(path: string, journalMode: JournalMode, busyTimeoutMs: number): Promise<void> {
     const actual = path === ':memory:' ? path : resolve(path)
+    this.databasePath = actual
     if (actual !== ':memory:') {
       await mkdir(dirname(actual), { recursive: true, mode: 0o700 })
+      await validateParentDirectory(dirname(actual))
+      await validateDatabaseFileIfPresent(actual)
       await createDatabaseFile(actual)
+      await validateDatabaseFile(actual)
     }
-    this.db = openDatabase(actual, journalMode)
+    this.db = openDatabase(actual, journalMode, busyTimeoutMs)
     try {
       const row = this.db.prepare(
         'SELECT store_id FROM persistence_state WHERE singleton = 1',
@@ -231,9 +255,9 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
   }
 
   /**
-   * Seek-capable suffix read: SQL selects `seq >= fromSeq` directly, so the
-   * read scales with the suffix, not the log. Torn rows past the preserved
-   * region are dropped, never repaired (non-mutating read).
+   * Seek-capable suffix read. SQL includes only the bounded packed predecessor
+   * that may cover `fromSeq` plus physical rows at or after the resolved base.
+   * Torn rows past the preserved region are dropped, never repaired.
    */
   async loadStoredFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<StoredSuffix | undefined> {
     signal?.throwIfAborted()
@@ -242,12 +266,10 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
     const row = this.rowFor(id)
     if (row === undefined) return undefined
     const meta = rowToMeta(row)
-    const eventRows = this.db
-      .prepare('SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable FROM events WHERE session_id = ? AND seq >= ? ORDER BY seq')
-      .all(id, fromSeq) as unknown as EventRow[]
+    const { base, eventRows } = this.physicalSpanFrom(id, fromSeq)
     signal?.throwIfAborted()
-    const { preserved } = scanRows(eventRows, fromSeq)
-    return { meta, events: preserved }
+    const { preserved } = scanRows(eventRows, base)
+    return { meta, events: preserved.filter(event => event.seq >= fromSeq) }
   }
 
   /**
@@ -285,17 +307,12 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
         ? Math.min(event.seq, ...sources)
         : event.seq
     }
-    const rows = this.db.prepare(
-      `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
-       FROM events
-       WHERE session_id = ? AND seq >= ? AND seq < ?
-       ORDER BY seq`,
-    ).all(id, cut, upper) as unknown as EventRow[]
+    const physical = this.physicalSpanFrom(id, cut, request.beforeSeq)
     signal?.throwIfAborted()
-    const { preserved } = scanRows(rows, cut)
+    const { preserved } = scanRows(physical.eventRows, physical.base)
     return {
       meta: rowToMeta(row),
-      events: preserved,
+      events: preserved.filter(event => event.seq >= cut && event.seq < upper),
       hasMore: cut > 0,
     }
   }
@@ -349,13 +366,16 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
     const insertEvent = this.db.prepare(
       'INSERT INTO events (session_id, seq, type, time, data, source_event_seqs, surface_op, ignorable) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     )
-    this.db.exec('BEGIN')
+    this.db.exec('BEGIN IMMEDIATE')
     try {
-      if (!isMaterialized) this.writeRow(meta)
-      for (const event of events) {
-        const [surfaceSeqs, surfaceOp, ignorable] = envelopeBindings(event)
-        insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data), surfaceSeqs, surfaceOp, ignorable)
+      validateSchemaForMutation(this.db, this.databasePath)
+      const currentLast = this.logicalLastEvent(meta.id)
+      const expected = currentLast === undefined ? 0 : currentLast.seq + 1
+      if (events[0]?.seq !== expected) {
+        throw new Error(`session ${meta.id} append starts at seq ${events[0]?.seq}, stored next seq is ${expected}`)
       }
+      if (!isMaterialized) this.writeRow(meta)
+      for (const record of packChunkRuns(events)) this.insertRecord(insertEvent, meta.id, bindRecord(record))
       this.db.prepare('UPDATE sessions SET revision = revision + 1 WHERE id = ?').run(meta.id)
       this.db.exec('COMMIT')
     } catch (error) {
@@ -371,19 +391,33 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
    */
   async commitRepair(meta: SessionHeader, tornMarker: number | undefined, closers: readonly SessionEvent[]): Promise<void> {
     await this.ready
-    this.db.exec('BEGIN')
+    this.db.exec('BEGIN IMMEDIATE')
     try {
+      validateSchemaForMutation(this.db, this.databasePath)
+      const currentRows = this.db.prepare(
+        `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+         FROM events WHERE session_id = ? ORDER BY seq`,
+      ).all(meta.id) as unknown as EventRow[]
+      const current = scanRows(currentRows)
       if (tornMarker !== undefined) {
+        if (current.tornFrom !== tornMarker) {
+          throw new Error(`session ${meta.id} repair is stale: physical tail no longer starts at seq ${tornMarker}`)
+        }
         this.db.prepare('DELETE FROM events WHERE session_id = ? AND seq >= ?').run(meta.id, tornMarker)
+      } else if (current.tornFrom !== undefined) {
+        throw new Error(`session ${meta.id} repair omitted current torn tail at seq ${current.tornFrom}`)
       }
       if (closers.length > 0) {
+        const expected = current.preserved.at(-1)?.seq === undefined
+          ? 0
+          : (current.preserved.at(-1) as SessionEvent).seq + 1
+        if (closers[0]?.seq !== expected) {
+          throw new Error(`session ${meta.id} repair is stale: closer starts at seq ${closers[0]?.seq}, stored next seq is ${expected}`)
+        }
         const insertEvent = this.db.prepare(
           'INSERT INTO events (session_id, seq, type, time, data, source_event_seqs, surface_op, ignorable) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         )
-        for (const event of closers) {
-          const [surfaceSeqs, surfaceOp, ignorable] = envelopeBindings(event)
-          insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data), surfaceSeqs, surfaceOp, ignorable)
-        }
+        for (const event of closers) this.insertRecord(insertEvent, meta.id, bindRecord(event))
       }
       if (tornMarker !== undefined || closers.length > 0) {
         this.db.prepare('UPDATE sessions SET revision = revision + 1 WHERE id = ?').run(meta.id)
@@ -477,6 +511,67 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
       meta.delegationDepth ?? null,
       meta.agentProfile ?? null,
       randomUUID(),
+    )
+  }
+
+  private physicalSpanFrom(
+    id: SessionId,
+    fromSeq: number,
+    beforeSeq?: number,
+  ): { readonly base: number; readonly eventRows: EventRow[] } {
+    const packedFloor = Math.max(0, fromSeq - MAX_PACKED_ROW_MEMBERS + 1)
+    const predecessors = this.db.prepare(
+      `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+       FROM events
+       WHERE session_id = ? AND seq >= ? AND seq < ?
+         AND type IN ('text-chunks', 'reasoning-chunks', 'tool-call-chunks')
+         AND ignorable = 0
+       ORDER BY seq`,
+    ).all(id, packedFloor, fromSeq) as unknown as EventRow[]
+    let base = fromSeq
+    for (const predecessor of predecessors) {
+      try {
+        const last = decodeRow(predecessor).at(-1)
+        if (last !== undefined && last.seq >= fromSeq) base = Math.min(base, predecessor.seq)
+      } catch (error: unknown) {
+        throw new Error(`corrupt session log: invalid packed predecessor at seq ${predecessor.seq}`, { cause: error })
+      }
+    }
+    const upperClause = beforeSeq === undefined ? '' : ' AND seq < ?'
+    const eventRows = this.db.prepare(
+      `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+       FROM events WHERE session_id = ? AND seq >= ?${upperClause} ORDER BY seq`,
+    ).all(...beforeSeq === undefined ? [id, base] : [id, base, beforeSeq]) as unknown as EventRow[]
+    return { base, eventRows }
+  }
+
+  private logicalLastEvent(id: SessionId): SessionEvent | undefined {
+    const tail = this.db.prepare(
+      `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+       FROM events WHERE session_id = ? ORDER BY seq DESC LIMIT 2`,
+    ).all(id) as unknown as EventRow[]
+    if (tail.length === 0) return undefined
+    tail.reverse()
+    const span = this.physicalSpanFrom(id, (tail[0] as EventRow).seq)
+    const { preserved, tornFrom } = scanRows(span.eventRows, span.base)
+    if (tornFrom !== undefined) throw new Error(`session ${id} has an invalid physical tail at seq ${tornFrom}`)
+    return preserved.at(-1)
+  }
+
+  private insertRecord(
+    insert: StatementSync,
+    id: SessionId,
+    record: ReturnType<typeof bindRecord>,
+  ): void {
+    insert.run(
+      id,
+      record.seq,
+      record.type,
+      record.time,
+      record.data,
+      record.sourceEventSeqs,
+      record.surfaceOp,
+      record.ignorable,
     )
   }
 }
