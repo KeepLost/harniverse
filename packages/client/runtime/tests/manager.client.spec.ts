@@ -878,6 +878,16 @@ describe('remaining branches', () => {
 })
 
 describe('connected generation', () => {
+  it('starts restored history concurrently with the session baseline', () => {
+    const api = new FakeApiClient()
+    const manager = new SessionManager(api, fakeRemote(), S1)
+
+    manager.handleConnected()
+
+    expect(api.callsOf('session.history').length).toBeGreaterThan(0)
+    expect(api.callsOf('session.list')).toHaveLength(1)
+  })
+
   it('refreshes catalogs without rebuilding already-open contiguous windows', async () => {
     const api = new FakeApiClient()
     api.onHistory = () => Promise.resolve(ok({

@@ -70,6 +70,7 @@ export class ClientModuleSystem implements ClientModuleLoader {
   private readonly graphRows = new Map<string, BootModuleRow>()
   private readonly loadBundle: (url: string) => Promise<void>
   private readonly bootstrapUrl: string
+  private readonly deferredBootstrapUrl: string
   private graphArrival: Promise<void> | undefined
 
   /**
@@ -80,6 +81,7 @@ export class ClientModuleSystem implements ClientModuleLoader {
     this.seed = new Map(Object.entries(options.staticModules))
     this.loadBundle = options.loadBundle ?? defaultLoadBundle
     this.bootstrapUrl = options.bootstrapUrl
+    this.deferredBootstrapUrl = options.deferredBootstrapUrl ?? options.bootstrapUrl
 
     for (const row of options.modules) {
       if (this.graphRows.has(row.id)) throw new Error(`client-modules: duplicate graph entry "${row.id}"`)
@@ -193,14 +195,30 @@ export class ClientModuleSystem implements ClientModuleLoader {
   }
 
   async prefetchGraph(): Promise<void> {
-    if ([...this.graphRows.keys()].every(id => this.statics.has(id) || this.factories.has(id))) return
+    const critical = [...this.graphRows.values()].filter(row => row.startup !== 'deferred')
+    if (critical.every(row => this.statics.has(row.id) || this.factories.has(row.id))) return
     this.graphArrival ??= this.loadBundle(this.bootstrapUrl).then(() => {
-      const missing = [...this.graphRows.keys()].filter(id => !this.statics.has(id) && !this.factories.has(id))
+      const missing = critical
+        .filter(row => !this.statics.has(row.id) && !this.factories.has(row.id))
+        .map(row => row.id)
       if (missing.length > 0) {
         throw new Error(`client-modules: bootstrap script loaded without registering: ${missing.join(', ')}`)
       }
     }).finally(() => { this.graphArrival = undefined })
     await this.graphArrival
+  }
+
+  /** Register deferred factories after the critical application is interactive. */
+  async prefetchDeferredGraph(): Promise<void> {
+    const deferred = [...this.graphRows.values()].filter(row => row.startup === 'deferred')
+    if (deferred.every(row => this.statics.has(row.id) || this.factories.has(row.id))) return
+    await this.loadBundle(this.deferredBootstrapUrl)
+    const missing = deferred
+      .filter(row => !this.statics.has(row.id) && !this.factories.has(row.id))
+      .map(row => row.id)
+    if (missing.length > 0) {
+      throw new Error(`client-modules: deferred bootstrap script loaded without registering: ${missing.join(', ')}`)
+    }
   }
 
   invalidate(id: string): void {

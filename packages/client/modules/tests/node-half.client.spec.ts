@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { gunzipSync } from 'node:zlib'
+import { brotliDecompressSync } from 'node:zlib'
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WebServer, WebRoute } from '@deepseek-ai/dsh-host-webserver'
@@ -169,6 +169,7 @@ describe('client bundle activation', () => {
     const bootstrapUrl = (service.graph() as { bootstrapUrl?: unknown }).bootstrapUrl
     expect(bootstrapUrl).toBe(`/plugins/bootstrap.js?rev=${service.graph().rev}`)
     if (typeof bootstrapUrl !== 'string') throw new Error('expected bootstrap URL')
+    const deferredBootstrapUrl = bootstrapUrl.replace('/plugins/bootstrap.js', '/plugins/bootstrap-deferred.js')
     let status = 0
     let headers: Record<string, string> | undefined
     let body = Buffer.alloc(0)
@@ -185,17 +186,17 @@ describe('client bundle activation', () => {
     } as unknown as ServerResponse
 
     await route.handler({
-      method: 'GET', url: bootstrapUrl, headers: { 'accept-encoding': 'gzip, deflate, br' },
+      method: 'GET', url: deferredBootstrapUrl, headers: { 'accept-encoding': 'gzip, deflate, br' },
     } as IncomingMessage, response)
 
     expect(status).toBe(200)
     expect(headers).toMatchObject({
       'cache-control': 'private, max-age=31536000, immutable',
-      'content-encoding': 'gzip',
+      'content-encoding': 'br',
       'content-type': 'text/javascript; charset=utf-8',
       'vary': 'accept-encoding',
     })
-    const source = gunzipSync(body).toString('utf8')
+    const source = brotliDecompressSync(body).toString('utf8')
     expect(source).toContain('bootstrap-first')
     expect(source).toContain('bootstrap-second')
     expect(source).not.toContain('sourceMappingURL')

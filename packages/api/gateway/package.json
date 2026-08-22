@@ -40,7 +40,8 @@
         "@deepseek-ai/dsh-client-connection"
       ],
       "platform": "web",
-      "immediately": true
+      "immediately": true,
+      "startup": "critical"
     }
   },
   "scripts": {

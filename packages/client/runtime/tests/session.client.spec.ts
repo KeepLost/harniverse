@@ -203,6 +203,21 @@ describe('open', () => {
     expect(snapshot.turnEnds.get(3)).toBe(15)
   })
 
+  it('signals startup-core settlement after the first history request completes', async () => {
+    const api = new FakeApiClient()
+    const ready = vi.fn()
+    const session = new Session(SID, api, fakeRemote(), {
+      conversation: TEST_CONVERSATION,
+      onStartupCoreSettled: ready,
+    })
+    api.onHistory = () => histResponse(plainTurn(10, 3, '问', '答'))
+
+    await session.open()
+
+    expect(ready).toHaveBeenCalledOnce()
+    expect(session.getSnapshot().openState).toBe('open')
+  })
+
   it('is idempotent: concurrent opens share one history call, reopening when open is a no-op', async () => {
     const { api, session } = makeSession()
     await Promise.all([session.open(), session.open()])

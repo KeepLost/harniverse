@@ -26,7 +26,7 @@ import { readFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
-import { gzipSync } from 'node:zlib'
+import { brotliCompressSync, gzipSync } from 'node:zlib'
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
@@ -51,6 +51,7 @@ interface DshClientDeclaration {
   platform: string
   /** Per-bundle fallback prefetch mark used only if graph bootstrap registration fails. */
   immediately?: boolean
+  startup?: 'critical' | 'deferred'
 }
 
 /** Resolved package metadata for one `dsh.client` package (cached per name, never expires). */
@@ -58,6 +59,7 @@ interface PkgMeta {
   clientPath: string
   inject?: string[]
   immediately: boolean
+  startup: 'critical' | 'deferred'
 }
 
 /** Recovery instruction shared by grouped startup and steady-state bundle diagnostics. */
@@ -110,6 +112,7 @@ interface WebPluginRecord {
 interface BootstrapArtifact {
   plain: Buffer
   gzip: Buffer
+  br: Buffer
 }
 
 /** Narrow an unknown parsed JSON value to the `dsh.client` declaration, throwing on malformed fields. */
@@ -128,10 +131,14 @@ function parseDshClient(pkgName: string, value: unknown): DshClientDeclaration |
   if (decl.immediately !== undefined && typeof decl.immediately !== 'boolean') {
     throw new Error(`client-modules: ${pkgName} dsh.client.immediately must be a boolean`)
   }
+  if (decl.startup !== undefined && decl.startup !== 'critical' && decl.startup !== 'deferred') {
+    throw new Error(`client-modules: ${pkgName} dsh.client.startup must be critical or deferred`)
+  }
   return {
     platform: decl.platform,
     ...(decl.inject !== undefined ? { inject: decl.inject as string[] } : {}),
     ...(decl.immediately !== undefined ? { immediately: decl.immediately } : {}),
+    ...(decl.startup !== undefined ? { startup: decl.startup } : {}),
   }
 }
 
@@ -154,13 +161,20 @@ function shortHash(input: string | Buffer): string {
 }
 
 /** Graph row for one bundle rev (url carries the rev as its cache-busting query). */
-function graphRow(id: string, rev: string, injectEdges: string[] | undefined, immediately: boolean): WebBootEntry {
+function graphRow(
+  id: string,
+  rev: string,
+  injectEdges: string[] | undefined,
+  immediately: boolean,
+  startup: 'critical' | 'deferred',
+): WebBootEntry {
   return {
     id,
     url: `/plugins/${id}/client.js?rev=${rev}`,
     rev,
     ...(injectEdges !== undefined ? { inject: injectEdges } : {}),
     ...(immediately ? { immediately: true } : {}),
+    startup,
   }
 }
 
@@ -290,7 +304,7 @@ export class ClientModuleRegistry extends Service {
     if (record === undefined) return undefined
     const rev = shortHash(readFileSync(record.clientPath))
     if (rev === record.entry.rev) return rev
-    record.entry = graphRow(id, rev, record.entry.inject, record.entry.immediately === true)
+    record.entry = graphRow(id, rev, record.entry.inject, record.entry.immediately === true, record.entry.startup ?? 'deferred')
     this.composed = this.compose()
     for (const notify of this.rebuildListeners) {
       // Containment: rebuilt() runs inside the HMR watch callback — a
@@ -329,14 +343,31 @@ export class ClientModuleRegistry extends Service {
   private compose(): WebBootGraph {
     const entries = [...this.table.values()].map(record => record.entry)
     const rev = shortHash(JSON.stringify(entries))
-    const plain = bootstrapSource(this.table.values())
-    this.bootstrapArtifacts.set(rev, { plain, gzip: gzipSync(plain) })
-    while (this.bootstrapArtifacts.size > 2) {
+    const critical = [...this.table.values()].filter(record => record.entry.startup !== 'deferred')
+    const deferred = [...this.table.values()].filter(record => record.entry.startup === 'deferred')
+    const criticalPlain = bootstrapSource(critical)
+    const deferredPlain = bootstrapSource(deferred)
+    this.bootstrapArtifacts.set(rev, {
+      plain: criticalPlain,
+      gzip: gzipSync(criticalPlain),
+      br: brotliCompressSync(criticalPlain),
+    })
+    this.bootstrapArtifacts.set(`${rev}:deferred`, {
+      plain: deferredPlain,
+      gzip: gzipSync(deferredPlain),
+      br: brotliCompressSync(deferredPlain),
+    })
+    while (this.bootstrapArtifacts.size > 4) {
       const oldest = this.bootstrapArtifacts.keys().next().value
       if (oldest === undefined) break
       this.bootstrapArtifacts.delete(oldest)
     }
-    return { rev, bootstrapUrl: `/plugins/bootstrap.js?rev=${rev}`, entries }
+    return {
+      rev,
+      bootstrapUrl: `/plugins/bootstrap.js?rev=${rev}`,
+      deferredBootstrapUrl: `/plugins/bootstrap-deferred.js?rev=${rev}`,
+      entries,
+    }
   }
 
   private notifyGraphChanged(): void {
@@ -381,6 +412,7 @@ export class ClientModuleRegistry extends Service {
       clientPath: join(dirname(pkgPath), clientRel),
       ...(decl.inject !== undefined ? { inject: decl.inject } : {}),
       immediately: decl.immediately === true,
+      startup: decl.startup ?? (decl.immediately === true ? 'critical' : 'deferred'),
     }
     this.pkgMeta.set(pkgName, meta)
     return meta
@@ -418,7 +450,10 @@ export class ClientModuleRegistry extends Service {
     // The rev rides the row from here on: a fiber restart reuses the row (and
     // its rev) untouched; only rebuilt() re-reads the bundle.
     const rev = this.initialBundleRevision(entryName, meta.clientPath)
-    this.table.set(entryName, { entry: graphRow(entryName, rev, meta.inject, meta.immediately), clientPath: meta.clientPath })
+    this.table.set(entryName, {
+      entry: graphRow(entryName, rev, meta.inject, meta.immediately, meta.startup),
+      clientPath: meta.clientPath,
+    })
     return true
   }
 
@@ -450,22 +485,27 @@ export class ClientModuleRegistry extends Service {
     /* v8 ignore next -- `?? '/'` arm: node:http always sets url on server requests. */
     const url = new URL(req.url ?? '/', 'http://x')
     const pathname = decodeURIComponent(url.pathname)
-    if (pathname === '/plugins/bootstrap.js') {
-      const artifact = this.bootstrapArtifacts.get(url.searchParams.get('rev') ?? '')
+    if (pathname === '/plugins/bootstrap.js' || pathname === '/plugins/bootstrap-deferred.js') {
+      const revision = url.searchParams.get('rev') ?? ''
+      const artifact = this.bootstrapArtifacts.get(
+        pathname === '/plugins/bootstrap.js' ? revision : `${revision}:deferred`,
+      )
       if (artifact === undefined) {
         res.writeHead(404)
         res.end()
         return
       }
-      const acceptsGzip = (req.headers['accept-encoding'] ?? '').split(',')
-        .some(encoding => encoding.trim().split(';')[0] === 'gzip')
-      const body = acceptsGzip ? artifact.gzip : artifact.plain
+      const encodings = (req.headers['accept-encoding'] ?? '').split(',')
+        .map(encoding => encoding.trim().split(';')[0])
+      const acceptsBrotli = encodings.includes('br')
+      const acceptsGzip = encodings.includes('gzip')
+      const body = acceptsBrotli ? artifact.br : acceptsGzip ? artifact.gzip : artifact.plain
       res.writeHead(200, {
         'content-type': 'text/javascript; charset=utf-8',
         'cache-control': 'private, max-age=31536000, immutable',
         'content-length': String(body.byteLength),
         'vary': 'accept-encoding',
-        ...(acceptsGzip && { 'content-encoding': 'gzip' }),
+        ...(acceptsBrotli ? { 'content-encoding': 'br' } : acceptsGzip ? { 'content-encoding': 'gzip' } : {}),
       })
       res.end(req.method === 'HEAD' ? undefined : body)
       return

@@ -32,11 +32,13 @@ async function loadComposition(): Promise<Context> {
   root = await mkdtemp(join(tmpdir(), 'dsh-frontend-static-'))
   const dist = join(root, 'dist')
   await mkdir(dist)
+  await mkdir(join(dist, 'assets'))
   const distIndex = join(dist, 'index.html')
   await writeFile(distIndex, '<head></head><body>shell</body>')
   await writeFile(join(dist, 'app.js'), 'export {}')
   await writeFile(join(dist, 'blob.bin'), 'BLOB')
   await writeFile(join(dist, 'manifest.webmanifest'), '{}')
+  await writeFile(join(dist, 'assets', 'index-12345678.js'), 'export const cached = true')
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-host-webserver'",
@@ -74,12 +76,20 @@ async function loadComposition(): Promise<Context> {
 }
 
 /** GET (by default) one path against the running server; returns status, content-type, and a body prefix. */
-async function request(port: number, path: string, init?: RequestInit): Promise<{ status: number; type: string | null; body: string }> {
+async function request(port: number, path: string, init?: RequestInit): Promise<{
+  status: number
+  type: string | null
+  body: string
+  cache: string | null
+  length: string | null
+}> {
   const response = await fetch(`http://127.0.0.1:${String(port)}${path}`, init)
   return {
     status: response.status,
     type: response.headers.get('content-type'),
     body: (await response.text()).slice(0, 80),
+    cache: response.headers.get('cache-control'),
+    length: response.headers.get('content-length'),
   }
 }
 
@@ -102,6 +112,22 @@ describe('real Loader composition', () => {
     })
     await writeFile(join(root!, 'dist', 'app.js'), 'export const rebuilt = true')
     expect(await request(port, '/app.js')).toMatchObject({ status: 200, body: 'export const rebuilt = true' })
+    const cached = await request(port, '/assets/index-12345678.js')
+    expect(cached).toMatchObject({
+      status: 200,
+      body: 'export const cached = true',
+      cache: 'public, max-age=31536000, immutable',
+    })
+    await writeFile(join(root!, 'dist', 'assets', 'index-12345678.js'), 'changed after immutable response')
+    expect((await request(port, '/assets/index-12345678.js')).body).toBe('export const cached = true')
+    expect(await request(port, '/assets/index-12345678.js', {
+      method: 'HEAD',
+      headers: { 'accept-encoding': 'identity' },
+    })).toMatchObject({
+      status: 200,
+      body: '',
+      length: String(Buffer.byteLength('export const cached = true')),
+    })
 
     // Unknown extension ships as octet-stream.
     expect(await request(port, '/blob.bin')).toMatchObject({ status: 200, type: 'application/octet-stream', body: 'BLOB' })

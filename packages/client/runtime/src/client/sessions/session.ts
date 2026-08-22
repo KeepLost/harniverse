@@ -27,6 +27,7 @@ import { ProjectionValueStore } from './projection-store.ts'
 import type { ProjectionsBaseline } from './projection-store.ts'
 import { resolvedClientTimeZone } from '../time-zone.ts'
 import { SessionQueueMirror } from './queue-mirror.ts'
+import { markClientStartup, measureClientStartup } from '../startup-timing.ts'
 
 /** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
@@ -48,6 +49,8 @@ export interface SessionOptions {
    * (hidden, still reusable by connectWorkspace).
    */
   onEngaged?(session: Session): void
+  /** Runtime-level signal emitted after the first history request settles. */
+  onStartupCoreSettled?(): void
   /**
    * Manager-owned projection value store to adopt (frames route through the
    * manager and values outlive instantiation); omitted, the Session owns a
@@ -644,7 +647,10 @@ export class Session implements SessionFace {
     this.openError = null
     this.notifier.markDirty()
     try {
+      markClientStartup('history-start')
       let { result } = await this.history({ maxMessages: PAGE_MESSAGES })
+      markClientStartup('history-end')
+      measureClientStartup('history', 'history-start', 'history-end')
       if (generation !== this.openGeneration) return
       if (!result.ok) {
         this.openState = 'error'
@@ -668,7 +674,10 @@ export class Session implements SessionFace {
       /* v8 ignore next -- the `? null` arm is unreachable: transportError always returns ok:false. */
       this.openError = folded.ok ? null : folded.error
     } finally {
-      if (generation === this.openGeneration) this.notifier.markDirty()
+      if (generation === this.openGeneration) {
+        this.notifier.markDirty()
+        this.options.onStartupCoreSettled?.()
+      }
     }
   }
 

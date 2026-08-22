@@ -57,13 +57,15 @@ export class WorkspaceRuntime implements IWorkspaces {
   private readonly connecting = new Map<string, Promise<SessionId>>()
   /** Guards the runtime-owned one-shot initial-selection subscription. */
   private initialSelectionStarted = false
+  private startupHistorySettled = false
+  private startupCoreReported = false
 
   /**
    * @param ctx - client root context.
    * @param api - shared wire client.
    * @param sessions - cross-domain sessions face used for recency and blank-session reuse.
    */
-  constructor(ctx: Context, private readonly api: IApiClient, private readonly sessions: SessionsPort) {
+  constructor(private readonly ctx: Context, private readonly api: IApiClient, private readonly sessions: SessionsPort) {
     this.manager = new WorkspaceManager(api)
     this.list = createSnapshotStore<WorkspaceListState>({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'pending', error: null,
@@ -71,6 +73,13 @@ export class WorkspaceRuntime implements IWorkspaces {
     })
     this.manager.subscribe(() => { this.project() })
     this.sessions.list.subscribe(() => { this.project() })
+    ctx.effect(
+      () => ctx.root.on('runtime/session-history-settled', () => {
+        this.startupHistorySettled = true
+        this.reportStartupCoreIfSettled()
+      }),
+      'workspaces: startup history settlement',
+    )
     ctx.reflect.provide('workspaces', this, undefined)
   }
 
@@ -157,6 +166,7 @@ export class WorkspaceRuntime implements IWorkspaces {
         (reason: unknown) => {
           if (disposed) return
           state = 'waiting'
+          this.reportStartupCore()
           console.warn('initial workspace selection failed:', reason)
         },
       )
@@ -351,6 +361,7 @@ export class WorkspaceRuntime implements IWorkspaces {
     if (sessions.current !== undefined && workspace.archivedSessionIds.includes(sessions.current)) {
       this.sessions.clear()
     }
+    const recentWorkspaceId = baselinesReady ? recentWorkspace(workspace.items, sessions.byId) : undefined
     this.list.set({
       items: workspace.items,
       archivedSessionIds: workspace.archivedSessionIds,
@@ -358,8 +369,24 @@ export class WorkspaceRuntime implements IWorkspaces {
       phase: workspace.phase,
       error: workspace.error,
       baselinesReady,
-      recentWorkspaceId: baselinesReady ? recentWorkspace(workspace.items, sessions.byId) : undefined,
+      recentWorkspaceId,
     })
+    this.reportStartupCoreIfSettled()
+  }
+
+  private reportStartupCoreIfSettled(): void {
+    const workspace = this.list.getSnapshot()
+    const sessions = this.sessions.list.getSnapshot()
+    if (!workspace.baselinesReady) return
+    if (sessions.current !== undefined && !this.startupHistorySettled) return
+    if (sessions.current === undefined && workspace.recentWorkspaceId !== undefined) return
+    this.reportStartupCore()
+  }
+
+  private reportStartupCore(): void {
+    if (this.startupCoreReported) return
+    this.startupCoreReported = true
+    this.ctx.root.emit('runtime/startup-core-settled')
   }
 }
 

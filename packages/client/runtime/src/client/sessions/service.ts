@@ -298,6 +298,7 @@ export class SessionRuntime implements ISessions {
       restored.sessionId,
       restored.subagentAddress,
       conversation,
+      () => { rootCtx.root.emit('runtime/session-history-settled') },
     )
     this.list = createSnapshotStore<SessionListState>({
       ids: [], byId: {}, current: undefined, phase: 'pending',

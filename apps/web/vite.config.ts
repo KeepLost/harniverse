@@ -141,6 +141,7 @@ export default defineConfig({
       { find: /^node:module$/, replacement: src('./src/node-module-stub.ts') },
       { find: /^@deepseek-ai\/dsh-client-web$/, replacement: src('../../packages/client/web/src/boot.tsx') },
       { find: /^@deepseek-ai\/dsh-client-web-react$/, replacement: src('../../packages/client/web-react/src/index.ts') },
+      { find: /^@deepseek-ai\/dsh-client-web\/auth$/, replacement: src('../../packages/client/web/src/auth.tsx') },
       { find: /^@deepseek-ai\/dsh-client-ui-slots$/, replacement: src('../../packages/client/ui-slots/src/index.ts') },
       { find: /^@deepseek-ai\/dsh-client-ui-primitives$/, replacement: src('../../packages/client/ui-primitives/src/index.ts') },
       { find: /^@deepseek-ai\/dsh-client-ui-attachment$/, replacement: src('../../packages/client/ui-attachment/src/index.ts') },

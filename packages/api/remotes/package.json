@@ -39,7 +39,8 @@
         "@deepseek-ai/dsh-api-gateway"
       ],
       "platform": "web",
-      "immediately": true
+      "immediately": true,
+      "startup": "critical"
     }
   },
   "scripts": {

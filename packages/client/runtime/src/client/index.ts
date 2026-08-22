@@ -165,6 +165,10 @@ declare module '@deepseek-ai/cordis' {
      * @mode emit
      */
     'connection/reset'(): void
+    /** Startup's Session/Workspace baseline and selected history reads have settled. */
+    'runtime/startup-core-settled'(): void
+    /** The restored or selected Session's first history request has settled. */
+    'runtime/session-history-settled'(): void
   }
   interface Context {
     slots: import('./slots.ts').SlotRegistry

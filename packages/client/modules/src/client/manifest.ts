@@ -58,6 +58,8 @@ export interface WebBootEntry {
   inject?: string[]
   /** Per-bundle fallback prefetch mark when graph bootstrap registration fails. */
   immediately?: boolean
+  /** Whether this entry must be active before the first interactive UI. */
+  startup?: 'critical' | 'deferred'
 }
 
 /** The composed client entry graph the host injects as `window.__DSH_BOOT__`. */
@@ -66,6 +68,8 @@ export interface WebBootGraph {
   rev: string
   /** One revision-addressed script that registers every graph factory for initial boot. */
   bootstrapUrl: string
+  /** Bootstrap script for entries that are safe to activate after first paint. */
+  deferredBootstrapUrl: string
   /** Composed entries; order carries no semantics (activation order is fiber inject waiting). */
   entries: WebBootEntry[]
 }
@@ -78,6 +82,8 @@ export interface BootModuleRow {
   url: string
   /** Bundle content hash. */
   rev: string
+  /** Startup phase used by the module arrival planner. */
+  startup?: 'critical' | 'deferred'
 }
 
 /** The cordis-plugin view of one boot row: what entry composition needs (optional wire fields normalized). */
@@ -88,6 +94,8 @@ export interface BootPluginRow {
   inject: string[]
   /** Per-bundle fallback prefetch tier (false when the wire omits it). */
   immediately: boolean
+  /** Startup phase used by the loader gate. */
+  startup?: 'critical' | 'deferred'
 }
 
 /** The parsed boot manifest: one wire, two consumer views. */
@@ -96,6 +104,8 @@ export interface BootManifest {
   rev: string
   /** One revision-addressed script that registers every graph factory for initial boot. */
   bootstrapUrl: string
+  /** One revision-addressed script for deferred graph factories. */
+  deferredBootstrapUrl: string
   /** Rows as the module table consumes them. */
   modules: BootModuleRow[]
   /** Rows as entry composition consumes them. */
@@ -120,6 +130,9 @@ export function parseBootManifest(wire: unknown): BootManifest {
   if (typeof graph.bootstrapUrl !== 'string') {
     throw new Error('client-modules: boot manifest bootstrapUrl must be a string')
   }
+  const deferredBootstrapUrl = typeof graph.deferredBootstrapUrl === 'string'
+    ? graph.deferredBootstrapUrl
+    : graph.bootstrapUrl
   if (!Array.isArray(graph.entries)) {
     throw new Error('client-modules: boot manifest entries must be an array')
   }
@@ -140,14 +153,19 @@ export function parseBootManifest(wire: unknown): BootManifest {
     if (row.immediately !== undefined && typeof row.immediately !== 'boolean') {
       throw new Error(`client-modules: boot manifest entry ${where} immediately must be a boolean`)
     }
-    modules.push({ id: row.id, url: row.url, rev: row.rev })
+    if (row.startup !== undefined && row.startup !== 'critical' && row.startup !== 'deferred') {
+      throw new Error(`client-modules: boot manifest entry ${where} startup must be critical or deferred`)
+    }
+    const startup = row.startup === undefined || row.startup === 'critical' ? 'critical' : 'deferred'
+    modules.push({ id: row.id, url: row.url, rev: row.rev, startup })
     plugins.push({
       id: row.id,
       inject: row.inject === undefined ? [] : [...row.inject as string[]],
       immediately: row.immediately === true,
+      startup,
     })
   }
-  return { rev: graph.rev, bootstrapUrl: graph.bootstrapUrl, modules, plugins }
+  return { rev: graph.rev, bootstrapUrl: graph.bootstrapUrl, deferredBootstrapUrl, modules, plugins }
 }
 
 /** The shape a client bundle hands to `window.__ModuleLoader__.load` (registration handoff). */
@@ -230,6 +248,8 @@ export interface ClientModuleLoader {
    * every non-static graph factory without materializing any plugin.
    */
   prefetchGraph(): Promise<void>
+  /** Deferred graph arrival, started only after the critical UI is interactive. */
+  prefetchDeferredGraph(): Promise<void>
   /**
    * Full reset of one module: drop its registered factory and materialized
    * record so the next prefetch/import reloads it (the HMR invalidation hook).
@@ -244,6 +264,8 @@ export interface ClientModuleSystemOptions {
   modules: BootModuleRow[]
   /** One revision-addressed script that registers every graph factory. */
   bootstrapUrl: string
+  /** One revision-addressed script for deferred graph factories. */
+  deferredBootstrapUrl?: string
   /** Module-table seed: platform-singleton specifier → shell instance. */
   staticModules: Record<string, unknown>
   /** Bundle-load hook. Defaults to a same-origin classic `<script src>` element. */

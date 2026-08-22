@@ -22,6 +22,10 @@
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
     },
+    "./auth": {
+      "types": "./lib/types/auth.d.ts",
+      "default": "./lib/auth.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
@@ -55,6 +59,7 @@
   },
   "files": [
     "lib/index.js",
+    "lib/auth.js",
     "lib/invariant.js",
     "lib/types/**/*.d.ts"
   ]

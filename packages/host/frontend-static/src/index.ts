@@ -14,6 +14,7 @@
 import type { ServerResponse } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
+import { brotliCompressSync, gzipSync } from 'node:zlib'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -44,6 +45,14 @@ const MIME: Record<string, string> = {
   '.webmanifest': 'application/manifest+json',
 }
 
+interface CachedAsset {
+  raw: Buffer
+  gzip: Buffer
+  br: Buffer
+}
+
+const IMMUTABLE_ASSET = /^\/assets\/(?:[^/]+\/)*[^/]+-[A-Za-z0-9_-]{8,}\.[^/]+$/
+
 /**
  * Serve one GET/HEAD static request from the dist root.
  * @param pathname - decoded URL pathname of the request.
@@ -56,6 +65,9 @@ const MIME: Record<string, string> = {
 export async function serveStatic(
   pathname: string, res: ServerResponse, distRoot: string, distIndex: string,
   renderIndex: () => Promise<string>,
+  method: 'GET' | 'HEAD' = 'GET',
+  acceptEncoding = '',
+  assetCache: Map<string, CachedAsset> = new Map(),
 ): Promise<void> {
   const target = resolve(normalize(join(distRoot, pathname)))
   // Traversal rejection: the target must be distRoot itself (`/`) or stay under
@@ -68,17 +80,40 @@ export async function serveStatic(
   }
   const serveIndex = async (): Promise<void> => {
     const body = await renderIndex()
-    res.writeHead(200, { 'content-type': MIME['.html'] })
-    res.end(body)
+    res.writeHead(200, {
+      'content-type': MIME['.html'],
+      'content-length': String(Buffer.byteLength(body)),
+    })
+    res.end(method === 'HEAD' ? undefined : body)
   }
   if (target === distRoot || target === distIndex) {
     await serveIndex()
     return
   }
   try {
-    const body = await readFile(target)
-    res.writeHead(200, { 'content-type': MIME[extname(target)] ?? 'application/octet-stream' })
-    res.end(body)
+    const immutable = IMMUTABLE_ASSET.test(pathname)
+    let asset = immutable ? assetCache.get(target) : undefined
+    if (asset === undefined) {
+      const raw = await readFile(target)
+      if (immutable) {
+        asset = { raw, gzip: gzipSync(raw), br: brotliCompressSync(raw) }
+        assetCache.set(target, asset)
+      } else {
+        asset = { raw, gzip: gzipSync(raw), br: brotliCompressSync(raw) }
+      }
+    }
+    const encodings = acceptEncoding.split(',').map(item => item.trim().split(';')[0])
+    const brotli = encodings.includes('br')
+    const gzip = !brotli && encodings.includes('gzip')
+    const body = brotli ? asset.br : gzip ? asset.gzip : asset.raw
+    res.writeHead(200, {
+      'content-type': MIME[extname(target)] ?? 'application/octet-stream',
+      ...(immutable ? { 'cache-control': 'public, max-age=31536000, immutable' } : {}),
+      ...(brotli || gzip ? { vary: 'accept-encoding' } : {}),
+      ...(brotli ? { 'content-encoding': 'br' } : gzip ? { 'content-encoding': 'gzip' } : {}),
+      'content-length': String(body.byteLength),
+    })
+    res.end(method === 'HEAD' ? undefined : body)
   } catch {
     // Miss (ENOENT/EISDIR) falls back to index.html with 200 (SPA routing).
     await serveIndex()
@@ -93,6 +128,7 @@ export async function serveStatic(
 export function apply(ctx: Context, config: Config): void {
   const distIndex = config.distIndex
   const distRoot = dirname(distIndex)
+  const assetCache = new Map<string, CachedAsset>()
   const renderIndex = async (): Promise<string> =>
     ctx.webServer.applyIndexTaps(await readFile(distIndex, 'utf8'))
   ctx.effect(() => ctx.webServer.registerFallback(async (req, res) => {
@@ -105,6 +141,13 @@ export function apply(ctx: Context, config: Config): void {
     }
     /* v8 ignore next -- node:http always sets url on server requests */
     const rawPath = new URL(req.url ?? '/', 'http://x').pathname
-    await serveStatic(decodeURIComponent(rawPath), res, distRoot, distIndex, renderIndex)
+    await serveStatic(
+      decodeURIComponent(rawPath), res, distRoot, distIndex, renderIndex,
+      req.method,
+      Array.isArray(req.headers['accept-encoding'])
+        ? req.headers['accept-encoding'].join(',')
+        : req.headers['accept-encoding'] ?? '',
+      assetCache,
+    )
   }), 'frontend-static: fallback seat')
 }

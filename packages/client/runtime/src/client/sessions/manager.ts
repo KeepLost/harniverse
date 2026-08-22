@@ -19,6 +19,7 @@ import type { PendingInteractionStatus } from './pending.ts'
 // useProjection('title') consumer reads). Zero value imports by construction.
 import type {} from '@deepseek-ai/dsh-session-title/client'
 import { Notifier } from './notifier.ts'
+import { markClientStartup, measureClientStartup } from '../startup-timing.ts'
 import { ProjectionValueStore } from './projection-store.ts'
 import { Session } from './session.ts'
 import type { SessionRemotes } from './remotes.ts'
@@ -170,6 +171,7 @@ export class SessionManager {
     restoredSelection?: SessionId,
     restoredAddress?: SubagentAddress,
     private readonly conversation?: ConversationRuntime,
+    private readonly onStartupCoreSettled?: () => void,
   ) {
     this.selected = restoredSelection
     if (restoredAddress !== undefined) this.addresses.set(restoredAddress.childSessionId, restoredAddress)
@@ -317,6 +319,7 @@ export class SessionManager {
       onEngaged: (engaged) => {
         this.recordMutation({ kind: 'engaged', sessionId: engaged.sessionId })
       },
+      ...this.onStartupCoreSettled === undefined ? {} : { onStartupCoreSettled: this.onStartupCoreSettled },
       projections: this.projectionStore(sessionId),
       ...this.conversation === undefined ? {} : { conversation: this.conversation },
     })
@@ -446,7 +449,10 @@ export class SessionManager {
     this.notifier.markDirty()
     this.listInflight = (async () => {
       try {
+        markClientStartup('session-list-start')
         const { result } = await this.api.sessions.list({})
+        markClientStartup('session-list-end')
+        measureClientStartup('session-list', 'session-list-start', 'session-list-end')
         if (result.ok) {
           const baseline = this.listPhase === 'pending'
             ? result.value.items
@@ -906,6 +912,10 @@ export class SessionManager {
 
   /** After each connection generation: refresh catalogs and recover interrupted opens. */
   handleConnected(): void {
+    // Start restored history beside the list/workspace baselines instead of
+    // serializing it behind both responses. A stale persisted id fails softly
+    // and the authoritative list projection clears it.
+    if (this.selected !== undefined) void this.get(this.selected).open()
     void this.refreshList()
     const selectedAddress = this.selected === undefined ? undefined : this.addresses.get(this.selected)
     if (selectedAddress !== undefined) void this.refreshSubagents(selectedAddress.parentSessionId)

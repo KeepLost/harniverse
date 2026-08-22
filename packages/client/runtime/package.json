@@ -37,7 +37,8 @@
         "@deepseek-ai/dsh-api-remotes"
       ],
       "platform": "web",
-      "immediately": true
+      "immediately": true,
+      "startup": "critical"
     }
   },
   "license": "MIT",

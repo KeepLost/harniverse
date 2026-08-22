@@ -21,7 +21,7 @@ describe('web e2e: plugin bootstrap performance', () => {
     await scaffold?.close()
   })
 
-  it('reaches the application within five seconds through one plugin script request', async () => {
+  it('reaches the application through critical bootstrap before loading deferred plugins', async () => {
     const pluginScripts: string[] = []
     page.on('request', (request) => {
       const path = new URL(request.url()).pathname
@@ -35,6 +35,8 @@ describe('web e2e: plugin bootstrap performance', () => {
 
     expect(navigationToFrameMs).toBeLessThan(5_000)
     expect(pluginScripts).toEqual(['/plugins/bootstrap.js'])
+    await page.waitForRequest(request => new URL(request.url()).pathname === '/plugins/bootstrap-deferred.js')
+    expect(pluginScripts).toEqual(['/plugins/bootstrap.js', '/plugins/bootstrap-deferred.js'])
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   }, 15_000)

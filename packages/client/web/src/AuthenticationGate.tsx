@@ -9,6 +9,7 @@ import {
   writeBrowserDevice,
   type BrowserDevice,
 } from './browser-device.ts'
+import { markStartup, measureStartup } from './startup-timing.ts'
 
 interface AuthenticationStatusResponse {
   mode: 'authenticated' | 'bypass'
@@ -82,19 +83,25 @@ function parseEnrollment(value: unknown): EnrollmentStatus {
 
 async function exchangeBrowserSession(device: BrowserDevice): Promise<string> {
   if (device.grantId === undefined) throw new Error('设备尚未获批准')
+  markStartup('auth-challenge-start')
   const challenge = await responseJson(await fetch('/auth/challenge', {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ grantId: device.grantId, purpose: 'browser-session' }),
   }), '设备挑战失败') as { id: string; payload: string }
+  markStartup('auth-challenge-end')
+  measureStartup('auth-challenge', 'auth-challenge-start', 'auth-challenge-end')
   const signature = await signBrowserChallenge(device.privateKey, challenge.payload)
+  markStartup('auth-exchange-start')
   const result = await responseJson(await fetch('/auth/exchange', {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ challengeId: challenge.id, signature }),
   }), '设备认证失败')
+  markStartup('auth-exchange-end')
+  measureStartup('auth-exchange', 'auth-exchange-start', 'auth-exchange-end')
   if (typeof result !== 'object' || result === null || typeof (result as { expiresAt?: unknown }).expiresAt !== 'string') {
     throw new Error('认证服务返回了无效会话')
   }
@@ -237,10 +244,13 @@ export function AuthenticationGate({ onAuthenticated }: {
     setBusy(true)
     setError(undefined)
     try {
+      markStartup('auth-status-start')
       const next = parseStatus(await responseJson(
         await fetch('/auth/status', { credentials: 'same-origin' }),
         '认证状态请求失败',
       ))
+      markStartup('auth-status-end')
+      measureStartup('auth-status', 'auth-status-start', 'auth-status-end')
       if (next.authenticated) {
         const stored = await readBrowserDevice().catch(() => undefined)
         if (stored?.grantId !== undefined) {

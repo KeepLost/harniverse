@@ -45,7 +45,15 @@ import { AppRoot } from './AppRoot.tsx'
 import { waitForBrowserAuthentication, type BrowserSessionRenewal } from './AuthenticationGate.tsx'
 import { getStaticModules } from './seed.ts'
 import { STATE_LABELS, createLoaderStatusStore, createSignal } from './loader-status.ts'
+import { markStartup, measureStartup } from './startup-timing.ts'
 import './base.css'
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /** Runtime signal that startup's core Session/Workspace reads have settled. */
+    'runtime/startup-core-settled'(): void
+  }
+}
 
 /** Module transport hook the shell passes through (jsdom tests replace the <script> path). */
 export type BootSeams = Pick<ClientModuleSystemOptions, 'loadBundle'>
@@ -77,15 +85,17 @@ export class AppWebEntry {
   private manifest!: BootManifest
   private root: Root | undefined
   private authenticationRenewal: BrowserSessionRenewal | undefined
+  private readonly transferredAuthentication: BrowserSessionRenewal | undefined
 
   /**
    * Hold the mount point; all work happens in {@link run}.
    * @param el - mount point (the app's #root).
    * @param seams - Optional module transport overrides for test environments.
    */
-  constructor(el: HTMLElement, seams?: BootSeams) {
+  constructor(el: HTMLElement, seams?: BootSeams, transferredAuthentication?: BrowserSessionRenewal) {
     this.el = el
     this.seams = seams
+    this.transferredAuthentication = transferredAuthentication
   }
 
   /**
@@ -97,12 +107,16 @@ export class AppWebEntry {
    */
   async run(): Promise<void> {
     this.root = createRoot(this.el)
-    this.authenticationRenewal = await waitForBrowserAuthentication(this.root)
+    markStartup('boot-start')
+    this.authenticationRenewal = this.transferredAuthentication ?? await waitForBrowserAuthentication(this.root)
+    markStartup('auth-complete')
+    measureStartup('auth-total', 'boot-start', 'auth-complete')
     this.manifest = parseBootManifest((globalThis as DshWindow).__DSH_BOOT__)
 
     this.modules = new ClientModuleSystem({
       modules: this.manifest.modules,
       bootstrapUrl: this.manifest.bootstrapUrl,
+      deferredBootstrapUrl: this.manifest.deferredBootstrapUrl,
       staticModules: getStaticModules(),
       ...this.seams,
     })
@@ -133,11 +147,18 @@ export class AppWebEntry {
 
     // The graph aggregate registers all factories in parallel with Loader
     // mounting; runPluginBoot awaits it before creating entries.
-    const prefetching = this.prefetchGraph()
     this.ctx = new Context()
+    // Deferred entries can issue their own RPCs. Do not start them while the
+    // selected session is still fetching its first history page; the runtime
+    // emits this after that page has become the interactive session window.
+    const startupCoreSettled = new Promise<void>((resolve) => {
+      this.ctx.on('runtime/startup-core-settled', resolve)
+    })
+    const prefetching = this.prefetchGraph()
     try {
       await this.runPluginBoot(prefetching)
       this.settled.set(true)
+      void this.runDeferredPluginBoot(startupCoreSettled)
     } catch (reason) {
       // Stay on the loading page; surface the sweep report (fail loud).
       console.error(reason)
@@ -152,16 +173,44 @@ export class AppWebEntry {
     this.root?.unmount()
   }
 
-  /** Register every graph factory through one bootstrap script; entry imports remain the fallback. */
+  /** Register critical graph factories through one bootstrap script. */
   private async prefetchGraph(): Promise<void> {
     try {
+      markStartup('bootstrap-start')
       await this.modules.prefetchGraph()
+      markStartup('bootstrap-end')
+      measureStartup('bootstrap', 'bootstrap-start', 'bootstrap-end')
     } catch {
       await Promise.all(this.manifest.plugins
         .filter(row => row.immediately)
         .map(row => this.modules.prefetch(row.id).catch(() => {
           // Entry import retries this row and owns the loud failure.
         })))
+    }
+  }
+
+  /** Load non-critical factories and entries without delaying first paint. */
+  private async runDeferredPluginBoot(startupCoreSettled: Promise<void>): Promise<void> {
+    try {
+      await startupCoreSettled
+      const deferred = this.manifest.plugins.filter(row => row.startup === 'deferred').map(row => row.id)
+      try {
+        await this.modules.prefetchDeferredGraph()
+      } catch {
+        // Preserve the existing per-bundle recovery path if the aggregate
+        // deferred artifact is unavailable or incomplete.
+        await Promise.all(deferred.map(id => this.modules.prefetch(id).catch(() => {})))
+      }
+      await Promise.all(deferred.map(async (name) => {
+        this.status.set(name, 'loading')
+        const id = await this.ctx.loader.create({ name })
+        if (this.ctx.loader.resolve(id).fiber === undefined) this.status.set(name, 'failed')
+      }))
+      await this.ctx.loader.await()
+    } catch (reason) {
+      // Deferred capabilities must report their own failure without taking down
+      // an already interactive shell or weakening the protected route.
+      console.warn('web boot: deferred plugin loading failed', reason)
     }
   }
 
@@ -187,12 +236,20 @@ export class AppWebEntry {
     // Barrier before any entry exists: aggregate registration normally covers
     // every factory; its fallback covers the synchronous infrastructure edges.
     await prefetching
+    markStartup('critical-entry-start')
 
     // Adoption handoff, plugin side: the modules entry is created first —
     // its wrapper apply reads the kernel slot and provides ctx.modules (the
     // provide lives on the plugin face; see MODULES_ID for why the row loop
     // must then skip it).
-    const rows = [MODULES_ID, ...this.manifest.plugins.map(row => row.id).filter(id => id !== MODULES_ID), APP_SHELL_ID]
+    const rows = [
+      MODULES_ID,
+      ...this.manifest.plugins
+        .filter(row => row.startup !== 'deferred')
+        .map(row => row.id)
+        .filter(id => id !== MODULES_ID),
+      APP_SHELL_ID,
+    ]
     // Entry creation order carries no semantics (fiber inject waiting owns
     // activation order); creating concurrently lets non-prefetched bundle
     // loads parallelize. The app-shell assembly entry is appended by the
@@ -211,6 +268,8 @@ export class AppWebEntry {
 
     await loader.await()
     this.assertEntriesActive()
+    markStartup('critical-entry-end')
+    measureStartup('critical-entry', 'critical-entry-start', 'critical-entry-end')
   }
 
   /**

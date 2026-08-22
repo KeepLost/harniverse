@@ -188,6 +188,23 @@ describe('WorkspaceManager', () => {
 })
 
 describe('WorkspaceRuntime', () => {
+  it('settles startup core when both baselines confirm there is no session to open', async () => {
+    const ctx = new Context()
+    const settled = vi.fn()
+    ctx.on('runtime/startup-core-settled', settled)
+    const api = new FakeApiClient()
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [] }))
+    api.onList = () => Promise.resolve(ok({ items: [] }))
+
+    await Promise.all([workspaces.refresh(), sessions.refresh()])
+    await Promise.resolve()
+
+    expect(workspaces.list.getSnapshot().baselinesReady).toBe(true)
+    expect(settled).toHaveBeenCalled()
+  })
+
   it('feeds readiness and recent-Workspace targeting without changing Host order', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()

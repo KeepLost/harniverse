@@ -5262,11 +5262,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WebBootEntry',
-    declaration: 'export interface WebBootEntry {\n    id: string;\n    url: string;\n    rev: string;\n    inject?: string[];\n    immediately?: boolean;\n}',
+    declaration: 'export interface WebBootEntry {\n    id: string;\n    url: string;\n    rev: string;\n    inject?: string[];\n    immediately?: boolean;\n    startup?: \'critical\' | \'deferred\';\n}',
   },
   {
     name: 'WebBootGraph',
-    declaration: 'export interface WebBootGraph {\n    rev: string;\n    bootstrapUrl: string;\n    entries: WebBootEntry[];\n}',
+    declaration: 'export interface WebBootGraph {\n    rev: string;\n    bootstrapUrl: string;\n    deferredBootstrapUrl: string;\n    entries: WebBootEntry[];\n}',
   },
   {
     name: 'WebFetchBody',

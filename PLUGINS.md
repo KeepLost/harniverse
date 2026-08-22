@@ -175,6 +175,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `1dfeaaaea5` | Adds Profile-level Tool, Skill, and MCP member allowlists, owner-declared Persona configuration, native registry enforcement, and immutable generation member projections in the Web UI. |
 | `44956e699b` | Batches concurrent authentication admissions and registers initial browser plugin factories through one revision-addressed aggregate while preserving independent fallback and HMR. |
 | `8719eabfa4` | Adds direct model-requested retained-tail context compaction through the existing Provider transaction and lossless summary DAG. |
+| `WORKTREE` | Splits browser plugin startup into authenticated critical/deferred bootstrap phases, adds a lightweight auth entry, Brotli/immutable static asset delivery, Web-profile cold-summary probe suppression, and restored-history/baseline overlap without weakening plugin-route authorization. Locally verified; no commit created by request. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger

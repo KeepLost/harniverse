@@ -5,6 +5,7 @@ import type {
 } from '@deepseek-ai/dsh-api-remotes/client'
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { Notifier } from '../sessions/notifier.ts'
+import { markClientStartup, measureClientStartup } from '../startup-timing.ts'
 import { Workspace, type WorkspaceCreateInput } from './workspace.ts'
 
 /** Monotone workspace-list arrival lifecycle. */
@@ -92,7 +93,10 @@ export class WorkspaceManager {
     this.notifier.markDirty()
     this.inflight = (async () => {
       try {
+        markClientStartup('workspace-list-start')
         const { result } = await this.api.workspace.list({})
+        markClientStartup('workspace-list-end')
+        measureClientStartup('workspace-list', 'workspace-list-start', 'workspace-list-end')
         if (result.ok) {
           let items = result.value.items
           items = items.filter(workspace => !this.removedIds.has(workspace.workspaceId))

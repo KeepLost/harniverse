@@ -9,7 +9,7 @@ import { clientOnly } from '../tsdown.client.ts'
  * the lib under plain node must not crash on an asset specifier.
  */
 export default clientOnly([{
-  entry: ['lib/types/index.js', 'lib/types/invariant.js'],
+  entry: ['lib/types/index.js', 'lib/types/invariant.js', 'lib/types/auth.js'],
   outDir: 'lib',
   format: ['esm'],
   platform: 'neutral',

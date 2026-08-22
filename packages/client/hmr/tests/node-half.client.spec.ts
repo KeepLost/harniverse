@@ -41,6 +41,7 @@ function fakeClientModuleHost(rows: Map<string, string>, options: FakeHostOption
       return {
         rev: 'r',
         bootstrapUrl: '/plugins/bootstrap.js?rev=r',
+        deferredBootstrapUrl: '/plugins/bootstrap-deferred.js?rev=r',
         entries: [...rows.keys()].map(id => ({ id, url: `/plugins/${id}/client.js?rev=r`, rev: 'r' })),
       }
     },
