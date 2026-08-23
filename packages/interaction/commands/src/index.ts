@@ -7,7 +7,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { NamedEntries, ScopedLayers } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, ScopeLayer } from '@deepseek-ai/dsh-scope'
-import type { Session, SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionEventMap, SessionId } from '@deepseek-ai/dsh-session'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { CommandId } from './brand.ts'
 import type {
@@ -252,12 +252,17 @@ export class CommandRuntime extends TypertRemoteService {
   }
 
   /**
-   * List the effective immutable command descriptors for one agent.
-   * @param agent - exact receiving agent and scoped-layer key.
-   * @returns name-sorted descriptors after scoped shadowing.
+   * List the effective immutable command descriptors for one session.
+   *
+   * A live Agent contributes its scope-chain shadows. A cold session has no
+   * Agent and therefore cannot own an Agent-scoped registration, so it reads
+   * the global layer directly instead of being resumed merely for discovery.
+   * @param sessionId - receiving session identity.
+   * @returns name-sorted descriptors after any live scoped shadowing.
    */
   @Remote({ requiredCapability: 'harniverse.observe' })
-  list(agent: Agent): readonly CommandDescriptor[] {
+  list(sessionId: SessionId): readonly CommandDescriptor[] {
+    const agent = this.ctx.get('agents')?.get(sessionId)
     return Object.freeze([...this.view(agent).values()]
       .map(command => command.descriptor)
       // Names are unique in the effective view, so equality is impossible.
@@ -362,7 +367,7 @@ export class CommandRuntime extends TypertRemoteService {
   }
 
   /** Resolve global definitions followed by exact scoped shadows. */
-  private view(agent: Agent): Map<string, RegisteredCommand> {
+  private view(agent: Agent | undefined): Map<string, RegisteredCommand> {
     return this.layers.merge(agent, layer => layer.commands)
   }
 

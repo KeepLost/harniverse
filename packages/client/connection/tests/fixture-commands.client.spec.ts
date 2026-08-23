@@ -29,7 +29,7 @@ describe('createFixtureApi commands/skills', () => {
   it('serves the addressed session catalog', async () => {
     const { rpc } = createFixtureFaces()
     const commands = await callRemote<{ name: string; input?: { hint: string } }[]>(
-      rpc, 'commands/list', { agentId: sid('fx-alpha') })
+      rpc, 'commands/list', { sessionId: sid('fx-alpha') })
     expect(commands.map(c => c.name)).toEqual(['compact', 'echo', 'goal', 'permission', 'plan'])
     // input hint rides only the commands declaring it.
     const echo = commands.find(c => c.name === 'echo')
@@ -39,7 +39,7 @@ describe('createFixtureApi commands/skills', () => {
 
   it('rejects a catalog request for an unknown session', async () => {
     const { rpc } = createFixtureFaces()
-    const result = await rpc.call('/api', 'commands/list', { args: { agentId: sid('fx-nope') } })
+    const result = await rpc.call('/api', 'commands/list', { args: { sessionId: sid('fx-nope') } })
     expect(result).toMatchObject({ ok: false, error: { code: 'session-not-found' } })
   })
 
@@ -103,7 +103,7 @@ describe('createFixtureApi commands/skills', () => {
 describe('FixtureApiClient command/skill dispatch', () => {
   it('routes the Remote commands face and the legacy skill row through one state graph', async () => {
     const client = new FixtureApiClient()
-    const commands = await callRemote<{ name: string }[]>(client.rpc, 'commands/list', { agentId: sid('fx-alpha') })
+    const commands = await callRemote<{ name: string }[]>(client.rpc, 'commands/list', { sessionId: sid('fx-alpha') })
     expect(commands.length).toBeGreaterThan(0)
     const executed = await callRemote<{ commandId: string } | undefined>(
       client.rpc, 'commands/execute', { agentId: sid('fx-alpha'), line: '/compact' })

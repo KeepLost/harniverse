@@ -22,7 +22,7 @@ import {
   type SessionInspection, type SessionPersistenceRevision as PersistenceRevision,
   type SessionHistoryPageRequest, type StoredHistoryPage, type StoredPrefix, type StoredSuffix,
 } from '@deepseek-ai/dsh-session-persistence'
-import type { SessionEvent, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
+import type { EpochHeader, SessionEvent, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
 import {
   type JournalMode, openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow, validateSchemaForMutation,
 } from './schema.ts'
@@ -226,6 +226,10 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
 
   readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     return this.coordinator.readFrom(id, fromSeq, signal)
+  }
+
+  override readRequestHeader(id: SessionId, signal?: AbortSignal): Promise<EpochHeader | undefined> {
+    return this.coordinator.readRequestHeader(id, signal)
   }
 
   override readHistoryPage(

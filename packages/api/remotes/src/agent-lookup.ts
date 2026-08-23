@@ -25,18 +25,17 @@ export interface ApiRemoteAgentOptions {
   readonly agentOptions?: () => AgentOptions
   /**
    * Build the Host-specific Agent-scope composition completed before
-   * publication. Keyed by the resumed session itself because what a Host
+   * publication. Keyed by the resumed session's header because what a Host
    * installs may depend on what that session recorded: an agent preset fixes
    * the tools its history was produced under, so rebuilding it under another
    * composition would replay tool calls the agent can no longer make. The
-   * events come along because a session's own record of such a choice may be
-   * an event rather than a header field.
-   * @param session - the resumed session's persisted header and event log.
+   * recorded profile is an immutable header field, so the log stays unread
+   * here — the resume loads it once, and reading it twice on the same
+   * per-session chain would delay the caller's own history page.
+   * @param session - the resumed session's persisted header.
    * @returns the Agent-scope setup to run before publication.
    */
-  readonly setup?: (
-    session: { meta: SessionHeader; events: readonly SessionEvent[] },
-  ) => AgentSetup | Promise<AgentSetup>
+  readonly setup?: (session: { meta: SessionHeader }) => AgentSetup | Promise<AgentSetup>
 }
 
 /** Cold identity absent from the durable session store. */
@@ -83,6 +82,35 @@ export function apiRemoteSubagentOwnershipError(sessionId: SessionId): ApiRemote
     message: `session "${sessionId}" is owned by subagent routing`,
     details: { reason: 'use subagent delivery for this child session' },
   }
+}
+
+/**
+ * Read one cold served session's immutable header without loading its log.
+ *
+ * The pre-resume decisions — subagent ownership and the recorded profile —
+ * are header facts, and the resume that follows loads the log itself. Reading
+ * the whole log here would pay for it twice on the same per-session
+ * persistence chain, so a first click on a long session queues its own
+ * history page behind a full second read.
+ * @param ctx - Host Context carrying the optional persistence provider.
+ * @param sessionId - durable identity to read.
+ * @returns the servable session's header.
+ * @throws {@link ApiRemoteSessionNotFound} when the identity has no project-backed session.
+ */
+export async function readApiRemoteSessionHeader(
+  ctx: Context,
+  sessionId: SessionId,
+  signal?: AbortSignal,
+): Promise<SessionHeader> {
+  const persistence = ctx.get('sessionPersistence')
+  if (persistence === undefined) {
+    throw new Error('session persistence is not configured (load a dsh-session-persistence backend)')
+  }
+  const meta = (await persistence.list(signal)).find(candidate => candidate.id === sessionId)
+  if (meta === undefined || meta.cwd === undefined) {
+    throw new ApiRemoteSessionNotFound(`session "${sessionId}" not found`)
+  }
+  return meta
 }
 
 /**
@@ -185,15 +213,14 @@ export function createApiRemoteAgentResolver(
     if (resume === undefined) {
       resume = (async () => {
         try {
-          const inspected = await inspectApiRemoteSession(ctx, sessionId)
-          if (hasApiRemoteSubagentOwner(ctx, { header: inspected.meta }, undefined)) {
+          const meta = await readApiRemoteSessionHeader(ctx, sessionId)
+          if (hasApiRemoteSubagentOwner(ctx, { header: meta }, undefined)) {
             throw new ApiRemoteSubagentSessionOwnership(sessionId)
           }
-          // Built from the inspected session before the published re-checks
-          // below, so those stay adjacent to `resume` and a Host setup that
-          // awaits (composing a preset, say) does not widen the collision
-          // window.
-          const setup = options.setup === undefined ? undefined : await options.setup(inspected)
+          // Built from the read header before the published re-checks below, so
+          // those stay adjacent to `resume` and a Host setup that awaits
+          // (composing a preset, say) does not widen the collision window.
+          const setup = options.setup === undefined ? undefined : await options.setup({ meta })
           const publishedSession = ctx.sessions.get(sessionId)
           const publishedAgent = ctx.agents.get(sessionId)
           if (publishedSession !== undefined
@@ -205,6 +232,15 @@ export function createApiRemoteAgentResolver(
             ...options.agentOptions === undefined ? {} : { agentOptions: options.agentOptions() },
             ...setup === undefined ? {} : { setup },
           })
+          // The resume's own load is the authoritative read of the stored
+          // header, so a project-less identity is rejected against it rather
+          // than through a second full read before resuming. The listing is
+          // only a directory: it may name a session the log itself does not
+          // place in a project, and such an identity is not servable.
+          if (handle.agent.session.header.cwd === undefined) {
+            await handle.dispose()
+            throw new ApiRemoteSessionNotFound(`session "${sessionId}" not found`)
+          }
           return handle.agent
         } finally {
           resumes.delete(sessionId)

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import SessionStore, { Session, SessionId, isJsonValue } from '@deepseek-ai/dsh-session'
+import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionId, isJsonValue } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE, DEFAULT_WRITE_BATCH_MAX_DELAY_MS, MAX_WRITE_BATCH_DELAY_MS,
@@ -120,6 +120,10 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
 
   readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     return this.coordinator.readFrom(id, fromSeq, signal)
+  }
+
+  override readRequestHeader(id: SessionId, signal?: AbortSignal): ReturnType<PersistenceCoordinator['readRequestHeader']> {
+    return this.coordinator.readRequestHeader(id, signal)
   }
 
   // --- PersistenceBackend hooks (the Map storage primitives) ---
@@ -292,6 +296,62 @@ runCoordinatorContract('memory', async (): Promise<CoordinatorFixture> => {
 })
 
 describe('PersistenceCoordinator bounded writes', () => {
+  it('reads a request header without queueing behind a history page', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('header-bypasses-history')
+    const m: SessionHeader = { version: SESSION_FORMAT_VERSION, id, createdAt: 1, cwd: '/work' }
+    backend.store.set(id, {
+      meta: m,
+      events: [{
+        type: 'request/header', seq: 0, time: 1,
+        data: { header: { config: { provider: 'route', model: 'model' } }, reason: 'initial' },
+      }],
+    })
+    const blockedHistory = Promise.withResolvers<undefined>()
+    backend.beforeLoadStored = async (attempt) => {
+      if (attempt === 1) await blockedHistory.promise
+    }
+    const coordinator = new PersistenceCoordinator(ctx, backend)
+
+    const history = coordinator.readHistoryPage(id, { maxMessages: 1 })
+    await vi.waitFor(() => { expect(backend.loadAttempts).toBe(1) })
+
+    // This second physical read settles while the first remains blocked. If it
+    // joined the per-id chain, the assertion would wait until the history gate
+    // opened and reproduce the small-RPC head-of-line delay.
+    await expect(coordinator.readRequestHeader(id)).resolves.toEqual({
+      config: { provider: 'route', model: 'model' },
+    })
+    expect(backend.loadAttempts).toBe(2)
+
+    blockedHistory.resolve(undefined)
+    await history
+    await ctx.fiber.dispose()
+  })
+
+  it('refuses an unknown required event while observing a request header', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('header-unknown-required')
+    backend.store.set(id, {
+      meta: { version: SESSION_FORMAT_VERSION, id, createdAt: 1, cwd: '/work' },
+      events: [
+        { type: 'future/required', seq: 0, time: 1, data: {} } as unknown as SessionEvent,
+        {
+          type: 'request/header', seq: 1, time: 2,
+          data: { header: { config: { provider: 'route', model: 'model' } }, reason: 'initial' },
+        },
+      ],
+    })
+    const coordinator = new PersistenceCoordinator(ctx, backend)
+
+    await expect(coordinator.readRequestHeader(id)).rejects.toThrow('unknown to this harness and not marked ignorable')
+    await ctx.fiber.dispose()
+  })
+
   it('cancels the batching deadline when live initialization rejects', async () => {
     vi.useFakeTimers()
     const ctx = new Context()

@@ -9,13 +9,14 @@ import { Context } from '@deepseek-ai/cordis'
 import {
   adoptSessionEvent,
   interruptedTurnClosers,
+  foldRequestHeader,
   KNOWN_SESSION_EVENT_TYPES,
   SESSION_FORMAT_VERSION,
   SessionPreparation,
   snapshotJsonValue,
   snapshotSessionEvent,
 } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { EpochHeader, Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { SessionInspection, SessionLocation } from './index.ts'
 import { paginateSessionHistory } from './history.ts'
@@ -946,6 +947,24 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const retired = Promise.resolve(this.retirements.get(id))
     const waited = signal === undefined ? retired : observeQueuedAbort(retired, signal, () => false)
     return waited.then(() => this.serialize(id, () => this.readHistoryPageCore(id, request, signal), signal))
+  }
+
+  /**
+   * Observe the latest logged request header without joining the per-id chain.
+   *
+   * `loadStored` returns a valid contiguous prefix and is non-mutating. Running
+   * it beside a display-history read is safe: either read may observe the
+   * earlier stable prefix while an append commits, and neither publishes or
+   * repairs coordinator state. This deliberately differs from `inspect`, whose
+   * preparation and repair semantics require serialization.
+   */
+  async readRequestHeader(id: SessionId, signal?: AbortSignal): Promise<EpochHeader | undefined> {
+    this.assertNotDeleting(id)
+    signal?.throwIfAborted()
+    const live = this.ctx.sessions.get(id)
+    if (live !== undefined) return live.requestHeader()
+    const stored = await this.readStoredPrefix(id, signal)
+    return foldRequestHeader(stored.events)
   }
 
   private async readHistoryPageCore(

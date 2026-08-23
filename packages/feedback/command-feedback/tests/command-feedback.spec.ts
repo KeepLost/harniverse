@@ -107,7 +107,7 @@ describe('@deepseek-ai/dsh-command-feedback registration', () => {
     const loader = Object.create(Loader.prototype) as Loader
     expect(loader.unwrapExports(commandFeedback)).toBe(commandFeedback)
 
-    expect(test.ctx.commands.list(test.agent)).toContainEqual({
+    expect(test.ctx.commands.list(test.agent.id)).toContainEqual({
       name: 'feedback',
       description: 'record feedback about this session',
       input: { hint: '<text>' },

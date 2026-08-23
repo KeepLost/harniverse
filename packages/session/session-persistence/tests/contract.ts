@@ -100,6 +100,30 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
       }
     })
 
+    it('reads the latest request header without publishing a Session', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const m = meta('request-header-read', '/work')
+        await persistence.create(m)
+        await persistence.append(m.id, [
+          {
+            type: 'request/header', seq: 0, time: 1,
+            data: { header: { config: { provider: 'first', model: 'one' } }, reason: 'initial' },
+          },
+          {
+            type: 'request/header', seq: 1, time: 2,
+            data: { header: { config: { provider: 'second', model: 'two' } }, reason: 'change' },
+          },
+        ])
+
+        expect(await persistence.readRequestHeader(m.id)).toEqual({
+          config: { provider: 'second', model: 'two' },
+        })
+      } finally {
+        await dispose()
+      }
+    })
+
     it('rejects a fractional creation timestamp without reserving its session id', async () => {
       const { persistence, dispose } = await make()
       try {

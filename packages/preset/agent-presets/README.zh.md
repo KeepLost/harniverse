@@ -41,7 +41,7 @@ subagent 的子 agent 通过 `composeFrom()` 加入其父方的常驻组装，�
 
 ### Session 实际运行的是哪个 Profile
 
-创建 header 的 `agentProfile` 字段是 Session 所运行 Profile 的唯一事实源。`resolveSessionProfile(session)` 读取这一不可变身份；resume、fork、冷记录展示与本地 Session 投递都用它重建产生该 Session 历史的同一份组装。
+创建 header 的 `agentProfile` 字段是 Session 所运行 Profile 的唯一事实源。`resolveSessionProfile(session)` 读取这一不可变身份；resume、fork、冷记录展示与本地 Session 投递都用它重建产生该 Session 历史的同一份组装。它只查阅 header，因此 `events` 是可选的：仅持有 header 的调用方无需加载日志即可解析 Profile。
 
 已有 Session 不能更换 Profile，即使它尚未开始第一个 turn。需要不同工具、提示词、hooks 或默认权限时，调用方创建另一个 Session。这样 Profile 身份、持久化历史与模型可见组装无需第二份可变身份记录即可保持一致。
 

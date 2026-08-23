@@ -3,7 +3,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionHeader } from '@deepseek-ai/dsh-session'
+import type { EpochHeader, SessionHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
@@ -18,7 +18,13 @@ function request<P>(payload: P): RpcRequest<P> {
 const targetId = SessionId('delete-me')
 const target: SessionHeader = { version: 0, id: targetId, createdAt: 1, cwd: '/tmp' }
 
-async function harness(records = [{ header: target, live: false, persisted: true }]) {
+async function harness(
+  records = [{ header: target, live: false, persisted: true }],
+  overrides: {
+    beforeDelete?: () => Promise<void>
+    readRequestHeader?: () => Promise<EpochHeader | undefined>
+  } = {},
+) {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
@@ -41,6 +47,7 @@ async function harness(records = [{ header: target, live: false, persisted: true
     removeSessionReferences,
   } as never)
   const deleteStored = vi.fn(async () => {
+    await overrides.beforeDelete?.()
     const record = records.find(candidate => candidate.header.id === targetId && candidate.persisted)
     if (record === undefined) return false
     record.persisted = false
@@ -49,6 +56,7 @@ async function harness(records = [{ header: target, live: false, persisted: true
   ctx.provide('sessionPersistence', {
     list: vi.fn(() => Promise.resolve(records.filter(record => record.persisted).map(record => record.header))),
     delete: deleteStored,
+    readRequestHeader: overrides.readRequestHeader ?? (() => Promise.resolve(undefined)),
   } as never)
   ctx.provide('sessionQuery', { listSessions: vi.fn(() => Promise.resolve(records)) } as never)
   const deleteCheckpoint = vi.fn(() => Promise.resolve())
@@ -133,6 +141,38 @@ describe('session.delete', () => {
     })
     expect(fixture.deleteStored).toHaveBeenCalledTimes(1)
     expect(fixture.removeSessionReferences).toHaveBeenCalledTimes(2)
+    await fixture.ctx.fiber.dispose()
+  })
+
+  it('reports deletion ownership when it starts during a model observation', async () => {
+    const readStarted = Promise.withResolvers<undefined>()
+    const releaseRead = Promise.withResolvers<undefined>()
+    const deleteStarted = Promise.withResolvers<undefined>()
+    const releaseDelete = Promise.withResolvers<undefined>()
+    const fixture = await harness(undefined, {
+      readRequestHeader: async () => {
+        readStarted.resolve(undefined)
+        await releaseRead.promise
+        throw new Error('stored identity disappeared')
+      },
+      beforeDelete: async () => {
+        deleteStarted.resolve(undefined)
+        await releaseDelete.promise
+      },
+    })
+
+    const models = fixture.api.sessions.models(request({ sessionId: targetId }))
+    await readStarted.promise
+    const deleting = fixture.api.sessions.delete(request({ sessionId: targetId }))
+    await deleteStarted.promise
+    releaseRead.resolve(undefined)
+
+    expect((await models).result).toMatchObject({
+      ok: false,
+      error: { code: 'agent-busy', details: { reason: 'SESSION_DELETING' } },
+    })
+    releaseDelete.resolve(undefined)
+    expect((await deleting).result).toMatchObject({ ok: true })
     await fixture.ctx.fiber.dispose()
   })
 

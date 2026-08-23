@@ -7,7 +7,7 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import { SessionPreparation } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { EpochHeader, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import type { SessionPersistenceRevision } from './revision.ts'
 import { paginateSessionHistory } from './history.ts'
 import type { SessionHistoryPage, SessionHistoryPageRequest } from './history.ts'
@@ -265,6 +265,21 @@ export abstract class SessionPersistence extends Service {
    */
   abstract readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal):
   Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+
+  /**
+   * Read the latest request header from one valid stored prefix without
+   * acquiring, preparing, or publishing a Session. First-party coordinators
+   * allow this observation to run beside another detached read of the same id;
+   * direct implementations inherit the safe logical fallback through
+   * {@link inspect}.
+   * @param id - persisted session to observe.
+   * @param signal - optional cancellation for backend work.
+   * @returns the latest logged request header, or `undefined` when none exists.
+   */
+  async readRequestHeader(id: SessionId, signal?: AbortSignal): Promise<EpochHeader | undefined> {
+    const inspected = await this.inspect(id, signal)
+    return inspected.events.findLast(event => event.type === 'request/header')?.data.header
+  }
 
   /**
    * Lightweight listing from metadata, without a full-log parse.

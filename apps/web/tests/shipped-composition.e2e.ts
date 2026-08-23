@@ -115,7 +115,7 @@ it('assembles the shipped Web catalog, file-reference guidance, and confined acc
     agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   })
   try {
-    expect(scaffold.ctx.commands.list(commandHandle.agent)).toContainEqual({
+    expect(scaffold.ctx.commands.list(commandHandle.agent.id)).toContainEqual({
       name: 'feedback',
       description: 'record feedback about this session',
       input: { hint: '<text>' },

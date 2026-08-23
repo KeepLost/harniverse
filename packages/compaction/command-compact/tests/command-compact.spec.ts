@@ -161,7 +161,7 @@ describe('@deepseek-ai/dsh-command-compact registration', () => {
     expect('default' in commandCompact).toBe(false)
     const loader = Object.create(Loader.prototype) as Loader
     expect(loader.unwrapExports(commandCompact)).toBe(commandCompact)
-    expect(test.ctx.commands.list(test.agent)).toContainEqual({
+    expect(test.ctx.commands.list(test.agent.id)).toContainEqual({
       name: 'compact',
       description: 'Compact older conversation history',
     })

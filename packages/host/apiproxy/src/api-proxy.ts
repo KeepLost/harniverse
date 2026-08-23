@@ -15,7 +15,7 @@ import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, LlmCallConfig, MessageSource } from '@deepseek-ai/dsh-llm'
 import { isJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue, Session, SessionEvent, SessionEventMap, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import { paginateSessionHistory, type SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
@@ -1263,16 +1263,70 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   }
 
   /**
+   * Resolve the selection one session is pointed at, without owning an Agent.
+   *
+   * A live Agent answers from {@link selectionFor}, which is the only place an
+   * in-process pick exists: that tier is per-Agent, so a session with no Agent
+   * cannot have one. Otherwise persistence observes the latest logged request
+   * header without joining the per-session mutation chain. Reading the
+   * selection neither resumes the session nor queues behind an unrelated
+   * history page; the subagent fence still applies, because it decides whether
+   * the identity is servable at all.
+   * @param sessionId - the session whose selection is being read.
+   * @returns the selection in force: a live pick, the recorded header, else the host default.
+   * @throws {@link SessionNotFound} when no project-backed session has that identity.
+   * @throws {@link SubagentSessionOwnership} when subagent routing owns it.
+   */
+  async function modelSelectionFor(sessionId: SessionId): Promise<ModelSelection> {
+    const resident = residentModelSelectionFor(sessionId)
+    if (resident !== undefined) return resident
+    const header = await detachedHeaderFor(sessionId)
+    const published = residentModelSelectionFor(sessionId)
+    if (published !== undefined) return published
+    if (hasSubagentOwner({ header }, undefined)) throw new SubagentSessionOwnership(sessionId)
+    const persistence = ctx.get('sessionPersistence')
+    if (persistence === undefined) {
+      throw new Error('session persistence is not configured (load a dsh-session-persistence backend)')
+    }
+    const logged = await persistence.readRequestHeader(sessionId)
+    const raced = residentModelSelectionFor(sessionId)
+    return raced ?? recordedSelection(logged?.config)
+  }
+
+  /** Return an attached selection, or `undefined` when the identity remains cold. */
+  function residentModelSelectionFor(sessionId: SessionId): ModelSelection | undefined {
+    const live = ctx.agents.get(sessionId)
+    if (live !== undefined) {
+      if (hasSubagentOwner(live.session, live)) throw new SubagentSessionOwnership(sessionId)
+      return selectionFor(live).current
+    }
+    const attached = ctx.sessions.get(sessionId)
+    if (attached !== undefined) {
+      if (hasSubagentOwner(attached, undefined)) throw new SubagentSessionOwnership(sessionId)
+      return recordedSelection(attached.requestHeader()?.config)
+    }
+    return undefined
+  }
+
+  /** Project a logged call config onto the wire selection, else the host default. */
+  function recordedSelection(logged: LlmCallConfig | undefined): ModelSelection {
+    if (logged === undefined) return defaults.defaultModelSelection()
+    return {
+      provider: logged.provider,
+      model: logged.model,
+      ...logged.reasoningEffort === undefined ? {} : { reasoningEffort: logged.reasoningEffort },
+    }
+  }
+
+  /**
    * Install or return the session-local model selection that prompt assembly snapshots.
    *
-   * Precedence, resolved on EVERY read rather than seeded once: a selection
+   * Precedence, resolved on every read rather than seeded once: a selection
    * made in this process, else the session's own latest logged request/header,
    * else the live Agent default. Re-reading keeps the two tiers exact in both
    * directions: a session with a recorded request derives its selection from
-   * its log, while a blank session (New Session reuses one rather than minting
-   * another) reads any default saved after it was created. There is no create-time
-   * per-session override tier on this wire — if one returns (a create-options
-   * contribution), it must fold in between the selection and the log.
+   * its log, while a blank session reads any default saved after it was
+   * created. There is no create-time per-session override tier on this wire.
    */
   function selectionFor(agent: Agent): WebModelSelectionRef {
     const installed = selections.get(agent)
@@ -1283,15 +1337,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (picked !== undefined) return picked
         // Incrementally folded by the session, so a per-step read costs
         // O(new events) rather than a rescan.
-        const logged = agent.session.requestHeader()?.config
-        if (logged === undefined) return defaults.defaultModelSelection()
-        return {
-          provider: logged.provider,
-          model: logged.model,
-          ...logged.reasoningEffort === undefined
-            ? {}
-            : { reasoningEffort: logged.reasoningEffort },
-        }
+        return recordedSelection(agent.session.requestHeader()?.config)
       },
       set current(next: ModelSelection) {
         picked = next
@@ -1404,33 +1450,37 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   }
   // Cold resume composes the preset the session recorded, for the same reason
   // `session.create` does: its history was produced under that composition.
-  // Every generic entry point — prompt, models, commands — arrives here, so
-  // leaving it out meant a session opened after a restart ran on host tools
-  // and the deployment persona. Resolved from the LOG, not the header: a
-  // session that switched while blank ran its turns under the newer
-  // composition, and the header is written once at creation. Reading the
-  // header here would silently undo the switch on the next restart and
-  // restore that history under the old tool set.
+  // Every operation that needs a running Agent arrives here, so leaving it out
+  // meant a session resumed after a restart ran on host tools and the
+  // deployment persona. The recorded profile is an immutable header field,
+  // and the resume that follows loads the log itself, so this resolves from
+  // the header alone rather than reading every event a second time.
   const agentFor = createApiRemoteAgentResolver(ctx, {
     agentOptions,
-    setup: async ({ meta, events }) =>
-      (await composeAgent(resolveSessionProfile({ header: meta, events }))).setup,
+    setup: async ({ meta }) => (await composeAgent(resolveSessionProfile({ header: meta }))).setup,
   })
 
-  /** Resolve a live ordinary mutation target while close/delete owns its id. */
-  async function activeAgentFor(sessionId: SessionId) {
-    const unavailable = (operation: 'closing' | 'being deleted'): { error: RpcError } => ({
+  /** Return the close/delete admission failure currently owning one id. */
+  function sessionUnavailable(sessionId: SessionId): { error: RpcError } | undefined {
+    const operation = sessionClosures.has(sessionId)
+      ? 'closing'
+      : sessionDeletions.has(sessionId) ? 'being deleted' : undefined
+    if (operation === undefined) return undefined
+    return {
       error: {
         code: 'agent-busy',
         message: `session "${sessionId}" is ${operation}`,
         details: { reason: operation === 'closing' ? 'SESSION_CLOSING' : 'SESSION_DELETING' },
       },
-    })
-    if (sessionClosures.has(sessionId)) return unavailable('closing')
-    if (sessionDeletions.has(sessionId)) return unavailable('being deleted')
+    }
+  }
+
+  /** Resolve a live ordinary mutation target while close/delete owns its id. */
+  async function activeAgentFor(sessionId: SessionId) {
+    const unavailable = sessionUnavailable(sessionId)
+    if (unavailable !== undefined) return unavailable
     const found = await agentFor(sessionId)
-    if (sessionClosures.has(sessionId)) return unavailable('closing')
-    return sessionDeletions.has(sessionId) ? unavailable('being deleted') : found
+    return sessionUnavailable(sessionId) ?? found
   }
 
   /** Send one transient frame to every connected mux consumer. */
@@ -2619,12 +2669,30 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async models(request) {
         const { sessionId } = request.payload
-        const found = await activeAgentFor(sessionId)
-        if ('error' in found) return err(request, found.error)
-        const current = selectionFor(found.agent).current
-        const { groups, failures } = await buildModelCatalog(ctx)
-        const routable = routeServed(current.provider)
-        return ok(request, { current: { ...current }, routable, groups, failures })
+        const unavailable = sessionUnavailable(sessionId)
+        if (unavailable !== undefined) return err(request, unavailable.error)
+        try {
+          const current = await modelSelectionFor(sessionId)
+          const raced = sessionUnavailable(sessionId)
+          if (raced !== undefined) return err(request, raced.error)
+          const { groups, failures } = await buildModelCatalog(ctx)
+          const routable = routeServed(current.provider)
+          return ok(request, { current: { ...current }, routable, groups, failures })
+        } catch (error: unknown) {
+          const raced = sessionUnavailable(sessionId)
+          if (raced !== undefined) return err(request, raced.error)
+          if (error instanceof SessionNotFound) {
+            return err(request, { code: 'session-not-found', message: error.message, details: { sessionId } })
+          }
+          if (error instanceof SubagentSessionOwnership) {
+            return err(request, subagentOwnershipError(sessionId))
+          }
+          return err(request, {
+            code: 'internal',
+            message: `model selection unavailable for session "${sessionId}": ${String(error)}`,
+            details: {},
+          })
+        }
       },
 
       async selectModel(request) {

@@ -3111,12 +3111,13 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       const args = (payload as {
         args: {
           agentId: SessionId
+          sessionId: SessionId
           line?: string
           ref?: { id: string; revision: number }
           request?: { objective?: string; maxGoalRounds?: number }
         }
       }).args
-      const sessionId = args.agentId
+      const sessionId = endpoint === 'commands/list' ? args.sessionId : args.agentId
       switch (endpoint) {
         case 'commands/list': return Promise.resolve(commandRemotes.list(sessionId))
         case 'commands/execute': return Promise.resolve(commandRemotes.execute(sessionId, args.line as string))

@@ -41,7 +41,7 @@ The child records the joined id on its own durable header ([`dsh-subagent`](../.
 
 ### Which Profile a Session runs
 
-The creation header's `agentProfile` field is the sole authority for the Profile a Session runs. `resolveSessionProfile(session)` reads that immutable identity; resume, fork, cold transcript presentation, and local Session delivery all use it to rebuild the same composition that produced the Session's history.
+The creation header's `agentProfile` field is the sole authority for the Profile a Session runs. `resolveSessionProfile(session)` reads that immutable identity; resume, fork, cold transcript presentation, and local Session delivery all use it to rebuild the same composition that produced the Session's history. It consults only the header, so `events` is optional: a caller holding a header alone resolves the Profile without loading a log.
 
 An existing Session cannot change Profile, including before its first turn. A caller that needs another tool set, prompt, hooks, or default permission creates another Session. This keeps Profile identity, durable history, and the model-visible composition aligned without a second mutable identity record.
 

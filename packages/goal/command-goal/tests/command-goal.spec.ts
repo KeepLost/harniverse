@@ -93,7 +93,7 @@ describe('@deepseek-ai/dsh-command-goal registration', () => {
     const loader = Object.create(Loader.prototype) as Loader
     expect(loader.unwrapExports(commandGoal)).toBe(commandGoal)
 
-    expect(test.ctx.commands.list(test.agent)).toContainEqual({
+    expect(test.ctx.commands.list(test.agent.id)).toContainEqual({
       name: 'goal',
       description: 'set or view the goal for a long-running task',
       input: { hint: '[<objective>|clear|edit <objective>|pause|resume]' },

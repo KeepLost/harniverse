@@ -23,7 +23,7 @@ import {
   type SessionHistoryPageRequest, type SessionHistoryPage, type StoredHistoryPage, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import { decodeStorageRecord, isAppendSurfaceEvent } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
+import type { EpochHeader, SessionEvent, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
 import {
   encodeSegment, eventLines, logPath, logSuffix, parseHeaderMeta, projectDir, scanLog, sessionDir,
   SessionLogScanner, toHeaderLine,
@@ -287,6 +287,10 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
   // parses the stored prefix (both encodings) and skips forward to fromSeq.
   readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     return this.coordinator.readFrom(id, fromSeq, signal)
+  }
+
+  override readRequestHeader(id: SessionId, signal?: AbortSignal): Promise<EpochHeader | undefined> {
+    return this.coordinator.readRequestHeader(id, signal)
   }
 
   override readHistoryPage(

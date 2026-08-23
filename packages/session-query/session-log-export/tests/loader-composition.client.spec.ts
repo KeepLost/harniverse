@@ -57,7 +57,7 @@ describe('session-log-download real Loader composition', () => {
     const session = (context.get('sessions') as unknown as SessionStore)
       .create(SessionId('loader-session-export'), { meta: { createdAt: 1 } })
     const agent = { session, status: 'idle', options: {} } as unknown as Agent
-    expect(context.commands.list(agent)).toContainEqual({
+    expect(context.commands.list(agent.id)).toContainEqual({
       name: 'export', description: 'Download this Session log as a ZIP archive',
     })
     const execution = await context.commands.execute(agent, '/export', new AbortController().signal)

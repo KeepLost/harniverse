@@ -119,7 +119,7 @@ describe('command-compact real Loader composition', () => {
       options: {},
       reserveTurnAdmission: () => () => undefined,
     } as unknown as Agent
-    expect(context.commands.list(agent)).toContainEqual({
+    expect(context.commands.list(agent.id)).toContainEqual({
       name: 'compact',
       description: 'Compact older conversation history',
     })

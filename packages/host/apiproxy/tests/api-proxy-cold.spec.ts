@@ -399,10 +399,12 @@ describe('Remote Agent and Session lookup policy', () => {
     await ctx.plugin(UserQuestionService)
     const sessionId = sid('session-remote-cold')
     const meta = header(sessionId, 1000)
-    const inspect = vi.fn(() => Promise.resolve({ meta, events: [] as SessionEvent[] }))
+    // The pre-resume read is the listing: the recorded profile and the
+    // ownership fence are header facts, and the resume loads the log itself.
+    const list = vi.fn(() => Promise.resolve([meta]))
     ctx.provide('sessionPersistence', {
-      list: () => Promise.resolve([meta]),
-      inspect,
+      list,
+      inspect: () => Promise.resolve({ meta, events: [] as SessionEvent[] }),
       locate: () => undefined,
     } as never)
     const resumedSession = { id: sessionId, header: meta, events: [] } as unknown as import('@deepseek-ai/dsh-session').Session
@@ -430,7 +432,8 @@ describe('Remote Agent and Session lookup policy', () => {
 
     await expect(resolvedAgent).resolves.toBe(resumedAgent)
     await expect(resolvedSession).resolves.toBe(resumedSession)
-    expect(inspect).toHaveBeenCalledOnce()
+    // One shared resume for both parameters, so one pre-resume read.
+    expect(list).toHaveBeenCalledOnce()
   })
 
   it('preserves the subagent ownership fence for cold and live Remote lookups', async () => {
@@ -444,10 +447,10 @@ describe('Remote Agent and Session lookup policy', () => {
       parentSession: sid('session-parent'),
       origin: 'subagent',
     })
-    const inspect = vi.fn(() => Promise.resolve({ meta: coldMeta, events: [] as SessionEvent[] }))
+    const list = vi.fn(() => Promise.resolve([coldMeta]))
     ctx.provide('sessionPersistence', {
-      list: () => Promise.resolve([coldMeta]),
-      inspect,
+      list,
+      inspect: () => Promise.resolve({ meta: coldMeta, events: [] as SessionEvent[] }),
       locate: () => undefined,
     } as never)
     const liveSession = ctx.sessions.create(sid('session-remote-live-child'), {
@@ -480,7 +483,8 @@ describe('Remote Agent and Session lookup policy', () => {
     await expect(liveFailure).rejects.toBeInstanceOf(TypertLookupFailure)
     await expect(liveFailure).rejects.toMatchObject(ownershipFailure)
     expect(resume).not.toHaveBeenCalled()
-    expect(inspect).toHaveBeenCalledOnce()
+    // The cold child is fenced from its stored header, without loading its log.
+    expect(list).toHaveBeenCalledOnce()
   })
 })
 
@@ -547,7 +551,9 @@ describe('subagent ownership fence', () => {
     if (!create.result.ok) expect(create.result.error.code).toBe('agent-busy')
     expect(resume).not.toHaveBeenCalled()
     expect(ctx.agents.get(sessionId)).toBeUndefined()
-    expect(inspect).toHaveBeenCalledTimes(3)
+    // History and create read the log; prompt is fenced from the stored header
+    // alone, so refusing a child no longer loads its events.
+    expect(inspect).toHaveBeenCalledTimes(2)
   })
 
   it('no longer treats a descriptor-only cold child without origin as subagent-owned', async () => {

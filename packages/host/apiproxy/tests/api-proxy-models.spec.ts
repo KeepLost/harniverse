@@ -502,4 +502,168 @@ describe('Web session model selection', () => {
       .not.toContain('deleted-gateway/deleted-model')
     await ctx.fiber.dispose()
   })
+  it('serves a detached session its recorded selection without resuming it', async () => {
+    const { ctx } = await harness()
+    const sessionId = 'session-detached-models' as SessionId
+    const meta = {
+      version: 0, id: sessionId, createdAt: 1, cwd: '/proj',
+    } as unknown as import('@deepseek-ai/dsh-session').SessionHeader
+    const inspect = vi.fn(() => Promise.resolve({ meta, events: [] }))
+    const readRequestHeader = vi.fn(() => Promise.resolve({
+      config: { provider: 'deepseek-official', model: 'deepseek-reasoner' },
+    }))
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([meta]),
+      inspect,
+      readRequestHeader,
+      locate: () => undefined,
+    } as never)
+    const resume = vi.spyOn(ctx.agents, 'resume')
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+
+    const catalog = expectValue(await api.sessions.models(request({ sessionId })))
+
+    expect(catalog.current).toEqual({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
+    expect(catalog.routable).toBe(true)
+    // Reading a selection is an observation: no Agent is minted and the whole
+    // log is never loaded, so this cannot queue behind a full read.
+    expect(resume).not.toHaveBeenCalled()
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
+    expect(inspect).not.toHaveBeenCalled()
+    expect(readRequestHeader).toHaveBeenCalledOnce()
+    await ctx.fiber.dispose()
+  })
+
+  it('prefers an Agent published while a detached selection read is in flight', async () => {
+    const { ctx } = await harness()
+    const sessionId = 'session-model-publish-race' as SessionId
+    const meta = {
+      version: 0, id: sessionId, createdAt: 1, cwd: '/proj',
+    } as unknown as import('@deepseek-ai/dsh-session').SessionHeader
+    const readStarted = Promise.withResolvers<undefined>()
+    const releaseRead = Promise.withResolvers<undefined>()
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([meta]),
+      inspect: () => Promise.resolve({ meta, events: [] }),
+      readRequestHeader: async () => {
+        readStarted.resolve(undefined)
+        await releaseRead.promise
+        return { config: { provider: 'deepseek-official', model: 'deepseek-chat' } }
+      },
+      locate: () => undefined,
+    } as never)
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+
+    const pending = api.sessions.models(request({ sessionId }))
+    await readStarted.promise
+    const session = ctx.sessions.create(sessionId, { meta: { cwd: '/proj' } })
+    session.append('request/header', {
+      header: { config: { provider: 'deepseek-official', model: 'deepseek-reasoner' } },
+      reason: 'initial',
+    })
+    ctx.agents.register({
+      id: sessionId, session, status: 'idle', ctx,
+      inbox: { nextTurn: [], nextStep: [] },
+    } as unknown as Agent)
+    releaseRead.resolve(undefined)
+
+    expect(expectValue(await pending).current)
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
+    await ctx.fiber.dispose()
+  })
+
+  it('applies the subagent fence when a child publishes during a detached selection read', async () => {
+    const { ctx } = await harness()
+    const sessionId = 'session-model-child-race' as SessionId
+    const meta = {
+      version: 0, id: sessionId, createdAt: 1, cwd: '/proj',
+    } as unknown as import('@deepseek-ai/dsh-session').SessionHeader
+    const readStarted = Promise.withResolvers<undefined>()
+    const releaseRead = Promise.withResolvers<undefined>()
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([meta]),
+      inspect: () => Promise.resolve({ meta, events: [] }),
+      readRequestHeader: async () => {
+        readStarted.resolve(undefined)
+        await releaseRead.promise
+        return undefined
+      },
+      locate: () => undefined,
+    } as never)
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+
+    const pending = api.sessions.models(request({ sessionId }))
+    await readStarted.promise
+    ctx.sessions.create(sessionId, {
+      meta: { cwd: '/proj', parentSession: 'session-parent' as SessionId, origin: 'subagent' },
+    })
+    releaseRead.resolve(undefined)
+
+    expect((await pending).result).toMatchObject({
+      ok: false,
+      error: { code: 'agent-busy', details: { reason: 'use subagent delivery for this child session' } },
+    })
+    await ctx.fiber.dispose()
+  })
+
+  it('answers the host default when a detached session carries no recorded selection', async () => {
+    const { ctx } = await harness()
+    const sessionId = 'session-detached-blank' as SessionId
+    const meta = {
+      version: 0, id: sessionId, createdAt: 1, cwd: '/proj',
+    } as unknown as import('@deepseek-ai/dsh-session').SessionHeader
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([meta]),
+      inspect: () => Promise.resolve({ meta, events: [] }),
+      readRequestHeader: () => Promise.resolve(undefined),
+      readHistoryPage: () => Promise.resolve({ meta, events: [], hasMore: false }),
+      locate: () => undefined,
+    } as never)
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+
+    expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
+    await ctx.fiber.dispose()
+  })
+
+  it('keeps the subagent fence and the not-found answer on the detached read', async () => {
+    const { ctx } = await harness()
+    const childId = 'session-detached-child' as SessionId
+    const child = {
+      version: 0, id: childId, createdAt: 1, cwd: '/proj',
+      parentSession: 'session-parent', origin: 'subagent',
+    } as unknown as import('@deepseek-ai/dsh-session').SessionHeader
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([child]),
+      inspect: () => Promise.resolve({ meta: child, events: [] }),
+      readRequestHeader: () => Promise.resolve(undefined),
+      readHistoryPage: () => Promise.resolve({ meta: child, events: [], hasMore: false }),
+      locate: () => undefined,
+    } as never)
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+
+    const owned = await api.sessions.models(request({ sessionId: childId }))
+    expect(owned.result).toMatchObject({
+      ok: false,
+      error: { code: 'agent-busy', details: { reason: 'use subagent delivery for this child session' } },
+    })
+    const missing = await api.sessions.models(request({ sessionId: 'session-absent' as SessionId }))
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'session-not-found' } })
+    await ctx.fiber.dispose()
+  })
 })

@@ -22,14 +22,22 @@ async function createContext(): Promise<Context> {
   return ctx
 }
 
+/**
+ * Provide a durable session whose listing is the resolver's pre-resume read.
+ * `onRead` runs during that read, which is where a concurrent publish has to
+ * land for the re-checks after it to mean anything.
+ */
 function provideSession(
   ctx: Context,
   meta: SessionHeader,
-  inspect: () => Promise<{ meta: SessionHeader; events: SessionEvent[] }>,
+  onRead: () => void = () => undefined,
 ): void {
   ctx.provide('sessionPersistence', {
-    list: () => Promise.resolve([meta]),
-    inspect,
+    list: () => {
+      onRead()
+      return Promise.resolve([meta])
+    },
+    inspect: () => Promise.resolve({ meta, events: [] as SessionEvent[] }),
     locate: () => undefined,
   } as never)
 }
@@ -39,18 +47,50 @@ function stubAgent(ctx: Context, session: Session): Agent {
 }
 
 describe('API Remote Agent resolver races', () => {
-  it('maps an inspected session without a cwd to session-not-found', async () => {
+  it('disposes a resumed session without a cwd before returning session-not-found', async () => {
     const ctx = await createContext()
-    const sessionId = sid('missing-after-inspect')
+    const sessionId = sid('missing-after-resume')
     const meta = header(sessionId)
-    provideSession(ctx, meta, () => Promise.resolve({
-      meta: { ...meta, cwd: undefined } as unknown as SessionHeader,
-      events: [],
-    }))
+    provideSession(ctx, meta)
+    // The listing names it, but the log the resume loads places it in no
+    // project. The authoritative read is the resumed session's own header.
+    const detached = ctx.sessions.prepare(sessionId, { meta: { cwd: '/proj' } })
+    Object.defineProperty(detached, 'header', {
+      value: { ...meta, cwd: undefined },
+      configurable: true,
+    })
+    const detach = ctx.sessions.enter(detached)
+    const dispose = vi.fn(() => {
+      detach()
+      return Promise.resolve()
+    })
+    vi.spyOn(ctx.agents, 'resume').mockResolvedValue({
+      agent: stubAgent(ctx, detached),
+      dispose,
+    })
 
     const result = await createApiRemoteAgentResolver(ctx, {})(sessionId)
 
     expect(result).toMatchObject({ error: { code: 'session-not-found', details: { sessionId } } })
+    expect(dispose).toHaveBeenCalledOnce()
+    expect(ctx.sessions.get(sessionId)).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('refuses a stored subagent identity before resuming it', async () => {
+    const ctx = await createContext()
+    const sessionId = sid('stored-subagent')
+    // Owned by subagent routing in the durable header itself, with nothing
+    // live and nothing published concurrently: the pre-resume read is the only
+    // thing that can see this, and resuming it would hand a generic caller an
+    // Agent that subagent routing owns.
+    provideSession(ctx, { ...header(sessionId), origin: 'subagent' })
+    const resume = vi.spyOn(ctx.agents, 'resume')
+
+    const result = await createApiRemoteAgentResolver(ctx, {})(sessionId)
+
+    expect(result).toMatchObject({ error: { code: 'agent-busy' } })
+    expect(resume).not.toHaveBeenCalled()
     await ctx.fiber.dispose()
   })
 
@@ -61,7 +101,6 @@ describe('API Remote Agent resolver races', () => {
     let published: Session | undefined
     provideSession(ctx, meta, () => {
       published = ctx.sessions.create(sessionId, { meta: { cwd: '/proj' } })
-      return Promise.resolve({ meta, events: [] })
     })
     const resume = vi.spyOn(ctx.agents, 'resume').mockImplementation(async () => {
       if (published === undefined) throw new Error('Session was not published')
@@ -75,13 +114,12 @@ describe('API Remote Agent resolver races', () => {
     await ctx.fiber.dispose()
   })
 
-  it('rejects a subagent Session published after durable inspection', async () => {
+  it('rejects a subagent Session published after the pre-resume read', async () => {
     const ctx = await createContext()
     const sessionId = sid('owned-attach-race')
     const meta = header(sessionId)
     provideSession(ctx, meta, () => {
       ctx.sessions.create(sessionId, { meta: { cwd: '/proj', origin: 'subagent' } })
-      return Promise.resolve({ meta, events: [] })
     })
     const resume = vi.spyOn(ctx.agents, 'resume')
 
@@ -97,7 +135,7 @@ describe('API Remote Agent resolver races', () => {
       const ctx = await createContext()
       const sessionId = sid(`owned-${winner}-resume-race`)
       const meta = header(sessionId)
-      provideSession(ctx, meta, () => Promise.resolve({ meta, events: [] }))
+      provideSession(ctx, meta)
       vi.spyOn(ctx.agents, 'resume').mockImplementationOnce(async () => {
         const session = ctx.sessions.create(sessionId, { meta: { cwd: '/proj', origin: 'subagent' } })
         if (winner === 'agent') ctx.agents.register(stubAgent(ctx, session))
@@ -118,7 +156,6 @@ describe('API Remote Agent resolver races', () => {
     let published: Session | undefined
     provideSession(ctx, meta, () => {
       published = ctx.sessions.create(sessionId, { meta: { cwd: '/proj' } })
-      return Promise.resolve({ meta, events: [] })
     })
     const agentCtx = ctx.extend()
     vi.spyOn(ctx.agents, 'resume').mockImplementation(async () => {

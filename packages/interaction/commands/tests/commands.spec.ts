@@ -64,7 +64,7 @@ describe('CommandRuntime', () => {
     }
     ctx.commands.register(definition)
 
-    const listed = ctx.commands.list(agent)
+    const listed = ctx.commands.list(agent.id)
     expect(listed).toEqual([{
       name: 'inspect',
       description: 'Inspect state',
@@ -83,7 +83,7 @@ describe('CommandRuntime', () => {
     ctx.commands.register(command('zeta'))
     ctx.commands.register(command('alpha'))
     ctx.commands.register(command('middle'))
-    expect(ctx.commands.list(agent).map(item => item.name)).toEqual(['alpha', 'middle', 'zeta'])
+    expect(ctx.commands.list(agent.id).map(item => item.name)).toEqual(['alpha', 'middle', 'zeta'])
   })
 
   it('uses agent-scoped shadows and removes them with their scope', async () => {
@@ -93,9 +93,9 @@ describe('CommandRuntime', () => {
     ctx.commands.register(command('shared', 'global'))
     scope.ctx.commands.register(command('shared', 'scoped'))
 
-    expect(ctx.commands.list(agent).map(item => item.name)).toEqual(['shared'])
+    expect(ctx.commands.list(agent.id).map(item => item.name)).toEqual(['shared'])
     expect(ctx.commands.find(agent, 'shared')?.handler).toBeDefined()
-    expect(ctx.commands.list(other).map(item => item.name)).toEqual(['shared'])
+    expect(ctx.commands.list(other.id).map(item => item.name)).toEqual(['shared'])
     expect((await ctx.commands.execute(agent, '/shared', new AbortController().signal))?.result)
       .toEqual({ kind: 'success', text: 'scoped' })
 
