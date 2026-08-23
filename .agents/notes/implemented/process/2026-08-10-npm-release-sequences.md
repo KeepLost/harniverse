@@ -80,6 +80,18 @@ Every reference to a workspace member uses `workspace:^`, so `pnpm pack` substit
 
 `scripts/check-workspace-constraints.ts` requires the protocol, so a new package cannot reintroduce a hand-written range; the invariant-companion rule requires `workspace:^` for `@deepseek-ai/dsh-invariants` for the same reason.
 
+### Publication follows installed and peer dependencies
+
+`publishOrder` makes every installed dependency (`dependencies` and `optionalDependencies`) precede its consumer. That graph must be acyclic. Peer dependencies also precede their consumers where possible, but sibling plugins may declare each other as peers, so a peer edge is dropped when it closes a peer cycle or would reverse an installed-dependency path. `release:verify` resolves the complete order before build or packing begins.
+
+### An optional dependency is never loaded at module scope
+
+A package may omit a dependency declared in `optionalDependencies`, or a peer carrying `peerDependenciesMeta.<name>.optional`. A static runtime import would turn that supported absence into a module-load failure before the owning capability can report itself unavailable.
+
+[`verify-optional-dependency-imports`](../../../../scripts/verify-optional-dependency-imports.ts) reads each package manifest and scans published `packages/*/*/src/` and `apps/*/src/` files across both compiler faces. A bound TypeScript Program distinguishes erased type imports from runtime imports and re-exports. Violations must use a type-only import or move the runtime dependency behind the operation that requires and handles it.
+
+Current optional Consumers load no optional package at module scope. `dsh-capabilities` brands its fixed Settings namespace without loading the optional Settings service, while `dsh-session-query` imports the persistence service only as a type and classifies an installed provider's corruption error by its stable `Error.name`.
+
 ### Release family objects
 
 The entity in this domain is a **release family**: a set of packages sharing one version baseline and tag naming that publishes as a unit. Adding a family means adding a subclass and a workflow lane, not changing the core.
@@ -88,7 +100,7 @@ The entity in this domain is a **release family**: a set of packages sharing one
 |---|---|
 | `ReleaseFamily` | a family's identity: member discovery, version baseline, tag prefix, packed-payload rule, installed entry |
 | `ReleaseMember` | one publishable package: directory, name, version, manifest |
-| `publishOrder` | topological order over runtime dependencies, ties broken by package name; a cycle is reported rather than resolved arbitrarily |
+| `publishOrder` | strict topological order over installed dependencies plus best-effort peer ordering; installed cycles fail, peer cycles are ordered around |
 | `pack` | packs a whole family into one directory and records the upload order |
 | `verify` | the family's version baseline, and — when publishing — that the run comes from that family's tag and its members are publishable |
 | `verify-packed-install` | installs the tarballs of one or more pack directories into a throwaway consumer and drives the installed executable |

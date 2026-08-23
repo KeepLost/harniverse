@@ -80,6 +80,18 @@ registry 的两个行为决定了「怎么尝试一次发布」。写入之间�
 
 `scripts/check-workspace-constraints.ts` 要求这个协议，所以新包无法再引入硬写的范围；同理，invariant companion 规则要求 `@deepseek-ai/dsh-invariants` 用 `workspace:^`。
 
+### 发布遵循安装依赖与 peer 依赖
+
+`publishOrder` 会让每个安装依赖（`dependencies` 与 `optionalDependencies`）先于其 consumer 发布，而且这张图必须无环。Peer 依赖也会在可行时先于 consumer 发布；但兄弟插件可能互相声明 peer，因此当 peer 边会闭合 peer 环或反转安装依赖路径时会被丢弃。`release:verify` 会在开始构建或打包前解析完整顺序。
+
+### optional 依赖绝不在模块作用域被加载
+
+安装树可以省略 `optionalDependencies` 中的依赖，或带 `peerDependenciesMeta.<name>.optional` 的 peer。静态运行时 import 会把这种受支持的缺失变成模块加载失败，使自有能力还来不及报告不可用。
+
+[`verify-optional-dependency-imports`](../../../../scripts/verify-optional-dependency-imports.ts) 读取每个包的 manifest，并在两个编译门面中扫描会发布的 `packages/*/*/src/` 与 `apps/*/src/` 文件。绑定后的 TypeScript Program 会区分被擦除的类型 import 与运行时 import 或 re-export。违规代码必须改用 type-only import，或把运行时依赖移到真正需要并处理其缺失的操作中。
+
+当前 optional Consumer 不会在模块作用域加载 optional 包。`dsh-capabilities` 不加载可选 Settings 服务，直接为其固定 Settings namespace 添加品牌；`dsh-session-query` 只以类型导入 persistence 服务，并通过稳定的 `Error.name` 对已安装提供方的损坏错误分类。
+
 ### 发布族对象
 
 这个领域里的实体是**发布族**：一组共享版本基线与 tag 命名、可整体发布的包。新增一族等于加一个子类和一条 workflow lane，不改核心。
@@ -88,7 +100,7 @@ registry 的两个行为决定了「怎么尝试一次发布」。写入之间�
 |---|---|
 | `ReleaseFamily` | 一族的身份：成员发现、版本基线、tag 前缀、打包 payload 规则、已安装入口 |
 | `ReleaseMember` | 一个可发布包：目录、包名、版本、manifest |
-| `publishOrder` | 按运行时依赖的拓扑序，同层按包名排；遇到环是报错而不是随意定序 |
+| `publishOrder` | 严格按安装依赖拓扑排序，并尽量遵循 peer 顺序；安装依赖环失败，peer 环会被绕开 |
 | `pack` | 把整族打进一个目录并记录上传顺序 |
 | `verify` | 族的版本基线；发布时还要求本次运行来自该族的 tag、且成员可发布 |
 | `verify-packed-install` | 把一个或多个 pack 目录的 tarball 装进一次性 consumer，并驱动已安装的可执行入口 |

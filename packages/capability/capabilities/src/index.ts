@@ -3,7 +3,6 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import { scopeChainOf, scopeOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { SettingsNamespace, SettingsProvider, SettingsScope } from '@deepseek-ai/dsh-settings'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 import type {
   CapabilityCatalogEntry,
@@ -80,7 +79,7 @@ function scopeVisible(registrationScope: ScopeKey | undefined, view: CapabilityV
   return roots.some(root => scopeChainOf(root).includes(registrationScope))
 }
 
-const SETTINGS_NAMESPACE: SettingsNamespace = settingsNamespace('capabilities')
+const SETTINGS_NAMESPACE = 'capabilities' as SettingsNamespace
 const OVERRIDE = z.union([
   z.union(['load', 'unload'] as const),
   z.object({

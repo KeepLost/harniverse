@@ -74,6 +74,71 @@ describe('release families', () => {
     expect(() => { dsh.publishOrder(members) }).toThrow(/dependency cycle/)
   })
 
+  it('publishes a peer before its consumer', () => {
+    const dsh = releaseFamily('dsh')
+    const members = [
+      member('packages/a/consumer', '@deepseek-ai/dsh-consumer', {
+        peerDependencies: { '@deepseek-ai/dsh-zebra': 'workspace:^' },
+      }),
+      member('packages/a/zebra', '@deepseek-ai/dsh-zebra'),
+    ]
+
+    expect(dsh.publishOrder(members).map(entry => entry.name)).toEqual([
+      '@deepseek-ai/dsh-zebra',
+      '@deepseek-ai/dsh-consumer',
+    ])
+  })
+
+  it('orders around a peer cycle instead of rejecting the release family', () => {
+    const dsh = releaseFamily('dsh')
+    const members = [
+      member('packages/a/left', '@deepseek-ai/dsh-left', {
+        peerDependencies: { '@deepseek-ai/dsh-right': 'workspace:^' },
+      }),
+      member('packages/a/right', '@deepseek-ai/dsh-right', {
+        peerDependencies: { '@deepseek-ai/dsh-left': 'workspace:^' },
+      }),
+    ]
+
+    expect(dsh.publishOrder(members).map(entry => entry.name)).toEqual([
+      '@deepseek-ai/dsh-right',
+      '@deepseek-ai/dsh-left',
+    ])
+  })
+
+  it('keeps an installed dependency ahead of a surrounding peer edge', () => {
+    const dsh = releaseFamily('dsh')
+    const members = [
+      member('packages/a/base', '@deepseek-ai/dsh-base', {
+        peerDependencies: { '@deepseek-ai/dsh-consumer': 'workspace:^' },
+      }),
+      member('packages/a/consumer', '@deepseek-ai/dsh-consumer', {
+        dependencies: { '@deepseek-ai/dsh-base': 'workspace:^' },
+        peerDependencies: { '@deepseek-ai/dsh-base': 'workspace:^' },
+      }),
+    ]
+
+    expect(dsh.publishOrder(members).map(entry => entry.name)).toEqual([
+      '@deepseek-ai/dsh-base',
+      '@deepseek-ai/dsh-consumer',
+    ])
+  })
+
+  it('does not order publication from devDependencies', () => {
+    const dsh = releaseFamily('dsh')
+    const members = [
+      member('packages/a/alpha', '@deepseek-ai/dsh-alpha', {
+        devDependencies: { '@deepseek-ai/dsh-zebra': 'workspace:^' },
+      }),
+      member('packages/a/zebra', '@deepseek-ai/dsh-zebra'),
+    ]
+
+    expect(dsh.publishOrder(members).map(entry => entry.name)).toEqual([
+      '@deepseek-ai/dsh-alpha',
+      '@deepseek-ai/dsh-zebra',
+    ])
+  })
+
   it('applies the harness payload policy to dsh and keeps upstream payloads for vendored packages', () => {
     const dsh = releaseFamily('dsh')
     const vendor = releaseFamily('vendor')
