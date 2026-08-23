@@ -44,20 +44,41 @@ function stageDist(): string {
   return index
 }
 
+type FallbackHandler = (
+  req: { method: string; url: string; headers: Record<string, string> },
+  res: { writeHead: (status: number, headers?: Record<string, string>) => void; end: (body?: string | Buffer) => void },
+) => Promise<void>
+
 /** A fake webServer capturing the fallback seat and index taps. */
-function fakeHttpServer(host: '127.0.0.1' | '0.0.0.0' = '127.0.0.1'): { server: WebServer; seat: () => unknown } {
-  let fallback: unknown
+function fakeHttpServer(host: '127.0.0.1' | '0.0.0.0' = '127.0.0.1'): {
+  server: WebServer
+  seat: () => FallbackHandler | undefined
+} {
+  let fallback: FallbackHandler | undefined
   const server = {
     host,
     port: 4567,
     protocol: 'http:',
-    registerFallback: (handler: unknown) => {
+    registerFallback: (handler: FallbackHandler) => {
       fallback = handler
       return () => { fallback = undefined }
     },
     applyIndexTaps: (html: string) => html,
   } as unknown as WebServer
   return { server, seat: () => fallback }
+}
+
+async function fallbackRequest(handler: FallbackHandler, path: string): Promise<{ status: number; body: string }> {
+  let status = 0
+  let body = ''
+  await handler(
+    { method: 'GET', url: path, headers: {} },
+    {
+      writeHead: (value) => { status = value },
+      end: (value) => { body = value?.toString() ?? '' },
+    },
+  )
+  return { status, body }
 }
 
 /** A fake Loader whose settlement the test controls (the URL line waits on it). */
@@ -107,7 +128,12 @@ describe('web-app runtime glue', () => {
     // Settle the injected registrations.
     await new Promise(resolve => setTimeout(resolve, 0))
 
-    expect(seat()).toBeDefined() // frontend-static claimed the fallback
+    const fallback = seat()
+    expect(fallback).toBeDefined() // frontend-static claimed the fallback
+    const management = await fallbackRequest(fallback!, '/auth/manage')
+    expect(management.status).toBe(200)
+    expect(management.body).toContain('shell')
+    expect(await fallbackRequest(fallback!, '/missing.js')).toEqual({ status: 404, body: '' })
     expect(ctx.get('webRuntime')).toEqual({
       lanAddresses: ['192.168.1.5'],
       trustedHosts: ['192.168.1.5', 'lab.internal'],

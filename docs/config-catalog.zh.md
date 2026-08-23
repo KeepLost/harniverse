@@ -909,6 +909,8 @@ export interface Config {
 export interface Config {
   /** Absolute path of index.html inside the dist root. */
   distIndex: string
+  /** Browser pathnames that render index.html in addition to `/` and its file path. */
+  indexPaths: string[]
 }
 ```
 
@@ -1829,7 +1831,7 @@ export interface Config {
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-来源：[`packages/session/session-persistence-jsonl/src/index.ts:60`](../packages/session/session-persistence-jsonl/src/index.ts)
+来源：[`packages/session/session-persistence-jsonl/src/index.ts:146`](../packages/session/session-persistence-jsonl/src/index.ts)
 
 <a id="deepseek-aidsh-session-persistence-sqlite"></a>
 
@@ -1874,7 +1876,7 @@ export interface Config {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-来源：[`packages/session/session-persistence-sqlite/src/index.ts:88`](../packages/session/session-persistence-sqlite/src/index.ts)
+来源：[`packages/session/session-persistence-sqlite/src/index.ts:89`](../packages/session/session-persistence-sqlite/src/index.ts)
 
 <a id="deepseek-aidsh-session-projection-cache"></a>
 

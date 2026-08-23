@@ -1,9 +1,8 @@
 /**
  * @deepseek-ai/dsh-host-frontend-static — SPA dist server over the webserver
- * fallback seat: serves the built frontend directory with the semantics the
- * Web shell locked at step1 — traversal outside the dist root is 403, any
- * miss falls back to index.html with HTTP 200 (SPA routing), unknown
- * extensions ship as octet-stream, non-GET/HEAD is 405. Every index response
+ * fallback seat: serves the built frontend directory through explicit index
+ * paths. Missing paths are 404, traversal outside the dist root is 403,
+ * unknown extensions ship as octet-stream, and non-GET/HEAD is 405. Every index response
  * runs through the webserver's registered index taps (boot-manifest
  * injection). The dist location is workspace knowledge of the composing
  * application, so `distIndex` is typically supplied through a `!!js`
@@ -29,10 +28,13 @@ export const inject = ['webServer']
 export interface Config {
   /** Absolute path of index.html inside the dist root. */
   distIndex: string
+  /** Browser pathnames that render index.html in addition to `/` and its file path. */
+  indexPaths: string[]
 }
 
 export const Config: z<Config> = z.object({
   distIndex: z.string().required(),
+  indexPaths: z.array(String).default([]),
 })
 
 const MIME: Record<string, string> = {
@@ -52,6 +54,11 @@ interface CachedAsset {
 }
 
 const IMMUTABLE_ASSET = /^\/assets\/(?:[^/]+\/)*[^/]+-[A-Za-z0-9_-]{8,}\.[^/]+$/
+const STATIC_MISS_CODES: ReadonlySet<string | undefined> = new Set(['ENOENT', 'EISDIR', 'ENOTDIR'])
+
+function staticMiss(error: unknown): boolean {
+  return STATIC_MISS_CODES.has((error as NodeJS.ErrnoException).code)
+}
 
 /**
  * Serve one GET/HEAD static request from the dist root.
@@ -59,8 +66,11 @@ const IMMUTABLE_ASSET = /^\/assets\/(?:[^/]+\/)*[^/]+-[A-Za-z0-9_-]{8,}\.[^/]+$/
  * @param res - the node:http response to write.
  * @param distRoot - absolute dist root directory (resolved by the caller).
  * @param distIndex - absolute path of index.html inside distRoot.
- * @param renderIndex - produces the index.html body (index-tap injection) for
- * `/` and every SPA fallback.
+ * @param renderIndex - produces the index.html body (index-tap injection).
+ * @param method - GET writes response bytes; HEAD writes matching headers only.
+ * @param acceptEncoding - request compression preferences.
+ * @param assetCache - process-local immutable-asset cache owned by the plugin.
+ * @param indexPaths - exact browser pathnames that render the index.
  */
 export async function serveStatic(
   pathname: string, res: ServerResponse, distRoot: string, distIndex: string,
@@ -68,6 +78,7 @@ export async function serveStatic(
   method: 'GET' | 'HEAD' = 'GET',
   acceptEncoding = '',
   assetCache: Map<string, CachedAsset> = new Map(),
+  indexPaths: ReadonlySet<string> = new Set(),
 ): Promise<void> {
   const target = resolve(normalize(join(distRoot, pathname)))
   // Traversal rejection: the target must be distRoot itself (`/`) or stay under
@@ -86,8 +97,14 @@ export async function serveStatic(
     })
     res.end(method === 'HEAD' ? undefined : body)
   }
-  if (target === distRoot || target === distIndex) {
-    await serveIndex()
+  if (target === distRoot || target === distIndex || indexPaths.has(pathname)) {
+    try {
+      await serveIndex()
+    } catch (error) {
+      if (!staticMiss(error)) throw error
+      res.writeHead(404)
+      res.end()
+    }
     return
   }
   try {
@@ -114,9 +131,10 @@ export async function serveStatic(
       'content-length': String(body.byteLength),
     })
     res.end(method === 'HEAD' ? undefined : body)
-  } catch {
-    // Miss (ENOENT/EISDIR) falls back to index.html with 200 (SPA routing).
-    await serveIndex()
+  } catch (error) {
+    if (!staticMiss(error)) throw error
+    res.writeHead(404)
+    res.end()
   }
 }
 
@@ -128,6 +146,12 @@ export async function serveStatic(
 export function apply(ctx: Context, config: Config): void {
   const distIndex = config.distIndex
   const distRoot = dirname(distIndex)
+  const indexPaths = new Set(config.indexPaths)
+  for (const path of indexPaths) {
+    if (!path.startsWith('/') || path.includes('?') || path.includes('#')) {
+      throw new Error(`frontend-static: index path must be an absolute pathname: ${path}`)
+    }
+  }
   const assetCache = new Map<string, CachedAsset>()
   const renderIndex = async (): Promise<string> =>
     ctx.webServer.applyIndexTaps(await readFile(distIndex, 'utf8'))
@@ -148,6 +172,7 @@ export function apply(ctx: Context, config: Config): void {
         ? req.headers['accept-encoding'].join(',')
         : req.headers['accept-encoding'] ?? '',
       assetCache,
+      indexPaths,
     )
   }), 'frontend-static: fallback seat')
 }

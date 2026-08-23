@@ -907,10 +907,12 @@ Requires: `webServer`
 export interface Config {
   /** Absolute path of index.html inside the dist root. */
   distIndex: string
+  /** Browser pathnames that render index.html in addition to `/` and its file path. */
+  indexPaths: string[]
 }
 ```
 
-Source: [`packages/host/frontend-static/src/index.ts:29`](../packages/host/frontend-static/src/index.ts)
+Source: [`packages/host/frontend-static/src/index.ts:28`](../packages/host/frontend-static/src/index.ts)
 
 <a id="deepseek-aidsh-host-webserver"></a>
 
@@ -1827,7 +1829,7 @@ export interface Config {
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-Source: [`packages/session/session-persistence-jsonl/src/index.ts:125`](../packages/session/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session/session-persistence-jsonl/src/index.ts:146`](../packages/session/session-persistence-jsonl/src/index.ts)
 
 <a id="deepseek-aidsh-session-persistence-sqlite"></a>
 
@@ -1872,7 +1874,7 @@ export interface Config {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-Source: [`packages/session/session-persistence-sqlite/src/index.ts:88`](../packages/session/session-persistence-sqlite/src/index.ts)
+Source: [`packages/session/session-persistence-sqlite/src/index.ts:89`](../packages/session/session-persistence-sqlite/src/index.ts)
 
 <a id="deepseek-aidsh-session-projection-cache"></a>
 

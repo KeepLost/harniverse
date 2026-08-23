@@ -1,9 +1,9 @@
 /**
  * REAL-composition coverage: a test-only cordis.yml booted through the
  * vendored Loader mounts the webserver and frontend-static rows, and every
- * assertion observes the served HTTP surface — asset serving, MIME fallback,
- * SPA index fallback with index taps, traversal rejection, 405 on non-GET/
- * HEAD, and seat release on fiber disposal (HMR safety).
+ * assertion observes the served HTTP surface — asset serving, explicit index
+ * paths with index taps, 404 misses, traversal rejection, 405 on non-GET/HEAD,
+ * and seat release on fiber disposal (HMR safety).
  */
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -28,11 +28,12 @@ afterEach(async () => {
 })
 
 /** Write a dist fixture and a two-row cordis.yml, then boot it through the real Loader. */
-async function loadComposition(): Promise<Context> {
+async function loadComposition(indexPaths: readonly string[] = ['/auth/manage']): Promise<Context> {
   root = await mkdtemp(join(tmpdir(), 'dsh-frontend-static-'))
   const dist = join(root, 'dist')
   await mkdir(dist)
   await mkdir(join(dist, 'assets'))
+  await mkdir(join(dist, 'empty'))
   const distIndex = join(dist, 'index.html')
   await writeFile(distIndex, '<head></head><body>shell</body>')
   await writeFile(join(dist, 'app.js'), 'export {}')
@@ -49,6 +50,7 @@ async function loadComposition(): Promise<Context> {
     "  name: '@deepseek-ai/dsh-host-frontend-static'",
     '  config:',
     `    distIndex: '${distIndex}'`,
+    `    indexPaths: [${indexPaths.map(path => JSON.stringify(path)).join(', ')}]`,
     '',
   ].join('\n'))
 
@@ -94,7 +96,7 @@ async function request(port: number, path: string, init?: RequestInit): Promise<
 }
 
 describe('real Loader composition', () => {
-  it('serves the dist with SPA fallback, taps, traversal rejection, and method gating', { timeout: 60_000 }, async () => {
+  it('serves declared index paths and files while preserving HTTP error semantics', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition()
     const unloaded = [...loaded.loader.entries()]
       .filter(entry => entry.fiber === undefined && !entry.disabled)
@@ -132,21 +134,41 @@ describe('real Loader composition', () => {
     // Unknown extension ships as octet-stream.
     expect(await request(port, '/blob.bin')).toMatchObject({ status: 200, type: 'application/octet-stream', body: 'BLOB' })
 
-    // `/`, the index path, and any miss all render index.html (SPA routing)
-    // through the registered index taps.
+    // Only declared page entries render index.html through the registered taps.
     const untap = server.tapIndex(html => html.replace('<head>', '<head><script>window.__T__=1</script>'))
-    for (const path of ['/', '/index.html', '/no/such/route']) {
+    for (const path of ['/', '/index.html', '/auth/manage', '/?fixture']) {
       const got = await request(port, path)
       expect(got.status).toBe(200)
+      expect(got.type).toBe('text/html; charset=utf-8')
       expect(got.body).toContain('__T__')
       expect(got.body).toContain('shell')
     }
+    expect(await request(port, '/auth/manage', { method: 'HEAD' })).toMatchObject({
+      status: 200, type: 'text/html; charset=utf-8', body: '',
+    })
     untap()
     expect((await request(port, '/')).body).not.toContain('__T__')
+
+    const brokenTap = server.tapIndex(() => { throw new Error('broken index render') })
+    expect((await request(port, '/')).status).toBe(400)
+    brokenTap()
+
+    for (const path of ['/no/such/route', '/api/no/such/route', '/empty', '/app.js/child', '/missing.js', '/missing.css']) {
+      const get = await request(port, path)
+      const head = await request(port, path, { method: 'HEAD' })
+      expect(get).toMatchObject({ status: 404, type: null, body: '' })
+      expect(head).toMatchObject({ status: 404, type: null, body: '' })
+    }
+
+    await rm(join(root!, 'dist', 'index.html'))
+    for (const path of ['/', '/index.html', '/auth/manage']) {
+      expect(await request(port, path)).toMatchObject({ status: 404, type: null, body: '' })
+    }
 
     // Traversal outside the dist root is 403; non-GET/HEAD is 405.
     expect((await request(port, '/..%2f..%2fetc%2fpasswd')).status).toBe(403)
     expect((await request(port, '/nowhere', { method: 'POST' })).status).toBe(405)
+    expect((await request(port, '/bad%00path')).status).toBe(400)
 
     // HMR safety: disposing the frontend row releases the fallback seat (the
     // unclaimed webserver answers 404) and the seat is claimable again.
@@ -155,5 +177,9 @@ describe('real Loader composition', () => {
     await frontendEntry!.fiber?.dispose()
     expect((await request(port, '/no/such/route')).status).toBe(404)
     expect(() => server.registerFallback(() => {})).not.toThrow()
+  })
+
+  it.each(['relative', '/query?x', '/fragment#x'])('rejects invalid index pathname %s', async (path) => {
+    await expect(loadComposition([path])).rejects.toThrow('index path must be an absolute pathname')
   })
 })

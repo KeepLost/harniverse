@@ -148,7 +148,10 @@ export function apply(ctx: Context, config: Config): void {
   const runtime = resolveLanTrust(ctx.webServer.host, config.trustedHosts, config.trustedOrigins ?? [])
   // Release dependent rows only after bind-dependent trust has been sampled once.
   ctx.provide(WEB_RUNTIME_SERVICE, runtime)
-  ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
+  ctx.plugin(FrontendStatic, {
+    distIndex: internals.resolveDistIndex(),
+    indexPaths: ['/auth/manage'],
+  })
   if (config.surfaceContext) {
     ctx.inject(['systemPrompt'], (promptCtx) => {
       addHarnessSourceSection(promptCtx, SOURCE_ROOT)
