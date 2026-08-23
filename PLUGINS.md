@@ -118,6 +118,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | DeepSeek provider-local multimodal requests | `dsh-attachment`, `dsh-attachment-local`, `dsh-llm-deepseek` |
 | Derived runtime catalogs | `dsh-cordis-client-runner`, `dsh-tool-cordis` |
 | Test support projection | `dsh-acp-snapshot` normalization only |
+| Local process confinement | `dsh-sandbox-local`, `dsh-bash-sandbox` |
 | Plugin operations and diagnostics | `dsh-host-plugin-inventory`, `dsh-api-remotes`, `dsh-client-ui-settings-plugin-inventory`, `dsh-web-app` |
 | Agent Profile capability composition | `dsh-agent-presets`, `dsh-tools`, `dsh-mcp-client`, `dsh-cordis-host-runner`, `dsh-tool-cordis`, `dsh-api-remotes`, `dsh-web-app` |
 | Shared workspace storage compatibility | `dsh-storage`, `dsh-storage-domain`, `dsh-storage-json`, `dsh-storage-sqlite`, `dsh-workspace` |
