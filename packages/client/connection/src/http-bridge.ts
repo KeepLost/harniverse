@@ -4,12 +4,73 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { promisify } from 'node:util'
+import { brotliCompress, constants, gzip } from 'node:zlib'
+
+const compressBrotli = promisify(brotliCompress)
+const compressGzip = promisify(gzip)
 
 /** Default carrier cap for all HTTP RPC bodies: sized for the default
  * aggregate image limit (100 MiB) after base64 expansion plus envelope
  * headroom (~134.3 MiB required), rounded up for slack. The bridge buffers
- * each body in memory, so this cap is also the per-request resident bound. */
+ * each request body in memory, so this cap is also the per-request resident
+ * bound. It does not bound responses: a complete JSON reply is buffered to
+ * negotiate its encoding and is bounded by whatever produced it, while
+ * streaming replies keep their own producer-side bound. */
 export const DEFAULT_MAX_REQUEST_BODY_BYTES = 160 * 1024 * 1024
+
+/**
+ * Smallest response worth compressing. Below roughly one MTU the encoded body
+ * plus its header overhead saves no round trip, so the CPU is pure loss.
+ */
+const MIN_COMPRESSED_BYTES = 1024
+
+/**
+ * Brotli quality for response bodies. The default (11) spends ~60 ms on a
+ * multi-megabyte history page for a few percent over this setting, which would
+ * move latency from the network to the Host; 4 keeps the encode near gzip's
+ * cost while beating its ratio (measured 9.6x versus 7.8x on a real
+ * chunk-heavy history page).
+ */
+const BROTLI_QUALITY = 4
+
+/**
+ * Encode a buffered response body when the client offered an encoding this
+ * bridge implements. Only complete JSON replies reach this function; every
+ * streaming reply is sent verbatim by its caller.
+ *
+ * The encode runs on the zlib thread pool rather than synchronously: a
+ * multi-megabyte history page takes tens of milliseconds, and the Host answers
+ * every other request on the same event loop, so a synchronous encoder would
+ * stall concurrent RPCs behind whichever session was being opened.
+ * @param body - complete response body.
+ * @param acceptEncoding - the request's `accept-encoding` header.
+ * @returns the encoded body and its token, or undefined to send it verbatim.
+ */
+async function encodeBody(
+  body: Buffer,
+  acceptEncoding: string,
+): Promise<{ readonly body: Buffer; readonly encoding: 'br' | 'gzip' } | undefined> {
+  if (body.byteLength < MIN_COMPRESSED_BYTES) return undefined
+  // `token;q=0` explicitly refuses that encoding, so a token is only offered
+  // when its quality is absent or non-zero. Ignoring the parameter would send
+  // a body the client just asked not to receive.
+  const offered = new Set(acceptEncoding.split(',').flatMap((entry) => {
+    const [rawToken, ...parameters] = entry.trim().split(';')
+    const token = rawToken?.trim().toLowerCase() ?? ''
+    if (token === '') return []
+    const refused = parameters.some(parameter => /^\s*q\s*=\s*0(?:\.0+)?\s*$/i.test(parameter))
+    return refused ? [] : [token]
+  }))
+  if (offered.has('br')) {
+    return {
+      body: await compressBrotli(body, { params: { [constants.BROTLI_PARAM_QUALITY]: BROTLI_QUALITY } }),
+      encoding: 'br',
+    }
+  }
+  if (offered.has('gzip')) return { body: await compressGzip(body, { level: 6 }), encoding: 'gzip' }
+  return undefined
+}
 
 /** Transport-independent request handler consumed by the Host HTTP bridge. */
 export interface FetchHandler {
@@ -73,11 +134,49 @@ export async function bridge(
     signal: abort.signal,
   })
   const response = await apiHandler.fetch(request)
-  res.writeHead(response.status, Object.fromEntries(response.headers.entries()))
+  const headers = Object.fromEntries(response.headers.entries())
   if (response.body === null) {
+    res.writeHead(response.status, headers)
     res.end()
     return
   }
+  // Unary RPC replies are complete JSON and are the bulk of the transferred
+  // bytes (a cold history page reaches several MiB); they are buffered here so
+  // the client's offered encoding can be applied.
+  //
+  // This is an allowlist on purpose. Buffering anything else would silently
+  // convert a deliberately incremental producer into an all-or-nothing
+  // response: SSE frames must reach the browser as they happen, and the
+  // session-log ZIP export streams under a bounded capacity gate precisely so
+  // the Host never holds a whole archive (and is already DEFLATEd per entry).
+  // An allowlist keeps every future streaming content type safe by default.
+  const unary = (response.headers.get('content-type') ?? '').startsWith('application/json')
+  if (unary) {
+    const parts: Buffer[] = []
+    for await (const chunk of response.body) parts.push(Buffer.from(chunk as Uint8Array))
+    const raw = Buffer.concat(parts)
+    const encoded = await encodeBody(raw, req.headers['accept-encoding'] ?? '')
+    const body = encoded?.body ?? raw
+    // Announce the negotiation to caches even when this reply went out
+    // verbatim, so a shared cache cannot serve an encoded body to a client that
+    // never offered the encoding. An upstream vary is preserved: dropping a
+    // vary: cookie while adding our own would be a cache-poisoning shape.
+    const upstreamVary = (headers.vary ?? '').split(',').map(entry => entry.trim()).filter(entry => entry !== '')
+    const vary = upstreamVary.some(entry => entry.toLowerCase() === 'accept-encoding')
+      ? upstreamVary
+      : [...upstreamVary, 'accept-encoding']
+    // Fetch lowercases every header name, so these literals always replace the
+    // spread entries rather than being sent alongside a differently-cased twin.
+    res.writeHead(response.status, {
+      ...headers,
+      vary: vary.join(', '),
+      ...(encoded === undefined ? {} : { 'content-encoding': encoded.encoding }),
+      'content-length': String(body.byteLength),
+    })
+    res.end(body)
+    return
+  }
+  res.writeHead(response.status, headers)
   for await (const chunk of response.body) {
     // Backpressure: a false return means the socket buffer is full — wait for drain
     // instead of buffering unboundedly (slow/suspended SSE consumers). 'close' also
