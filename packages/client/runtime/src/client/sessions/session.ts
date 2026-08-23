@@ -112,6 +112,11 @@ export class Session implements SessionFace {
   private stitching = false
   /** subscribed.lastSeq baseline (gap detection; null when no subscribed frame arrived — degrade to the liveBuffer dedup path). */
   private subscribedLastSeq: number | null = null
+  /** Generation-fenced, post-paint projection refresh kept off the message-open critical path. */
+  private projectionRefreshEpoch = 0
+  private projectionRefreshIdle: number | undefined
+  private projectionRefreshTimer: ReturnType<typeof setTimeout> | undefined
+  private projectionRefreshAbort: AbortController | undefined
 
   /**
    * Per-session projection value store (push model; see the session-projection
@@ -425,6 +430,7 @@ export class Session implements SessionFace {
     // session/subscribed frame instead (same stream as the queue snapshot
     // that follows it, so ordering is guaranteed).
     if (this.openState === 'cold') return // never opened: no window to rebuild (doOpen flips to 'loading' synchronously, so cold implies no in-flight open)
+    this.cancelProjectionRefresh()
     this.openGeneration++
     this.openPromise = null
     this.openState = 'cold'
@@ -458,6 +464,7 @@ export class Session implements SessionFace {
 
   /** Drop request identities owned by the dead stream generation without discarding durable history. */
   handleDisconnected(): void {
+    this.cancelProjectionRefresh()
     if (this.pending.size === 0) return
     this.pending.clear()
     this.pendingRev++
@@ -512,6 +519,8 @@ export class Session implements SessionFace {
         if (this.queueMirror.reset()) this.notifier.markDirty()
         if (this.openState === 'open' && localTail !== null && localTail > frame.lastSeq) {
           void this.resync()
+        } else if (this.openState === 'open') {
+          this.scheduleProjectionRefresh()
         }
         return
       }
@@ -604,6 +613,7 @@ export class Session implements SessionFace {
 
   /** host/session-removed relay: flag the snapshot (instance survives — resident-instance rule). */
   handleRemoved(): void {
+    this.cancelProjectionRefresh()
     this.removed = true
     this.notifier.markDirty()
   }
@@ -640,6 +650,21 @@ export class Session implements SessionFace {
     this.pendingRev++
   }
 
+  /**
+   * The window request that installs a first screen, used by open and by every
+   * repair path that replaces the whole window.
+   *
+   * A replacing read must ask for the same window shape the reader already has,
+   * otherwise a repaired session silently drops from the checkpoint-anchored
+   * window back to a plain quota window and re-enters projection restoration on
+   * the visible path. Addressed subagents keep their combined protocol.
+   */
+  private initialHistoryRequest(): { maxMessages: number; projectionMode?: 'omit' } {
+    return this.address === undefined
+      ? { maxMessages: PAGE_MESSAGES, projectionMode: 'omit' }
+      : { maxMessages: PAGE_MESSAGES }
+  }
+
   /** @param generation - openGeneration at launch; every await re-checks it and a stale pass
    *  drops all writes (resync superseded this open — its outcome belongs to a dead connection). */
   private async doOpen(generation: number): Promise<void> {
@@ -648,7 +673,8 @@ export class Session implements SessionFace {
     this.notifier.markDirty()
     try {
       markClientStartup('history-start')
-      let { result } = await this.history({ maxMessages: PAGE_MESSAGES })
+      const initialHistory = this.initialHistoryRequest()
+      let { result } = await this.history(initialHistory)
       markClientStartup('history-end')
       measureClientStartup('history', 'history-start', 'history-end')
       if (generation !== this.openGeneration) return
@@ -661,11 +687,12 @@ export class Session implements SessionFace {
       // Gap detection: baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq() ?? -1
       if (this.subscribedLastSeq !== null && this.subscribedLastSeq > tailSeq) {
-        result = (await this.history({ maxMessages: PAGE_MESSAGES })).result
+        result = (await this.history(initialHistory)).result
         if (generation !== this.openGeneration) return
         if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       }
       this.openState = 'open'
+      this.scheduleProjectionRefresh()
       if (this.liveBuffer.length > 0) void this.repairGap()
     } catch (error) {
       if (generation !== this.openGeneration) return
@@ -762,12 +789,13 @@ export class Session implements SessionFace {
   private async repairGap(): Promise<void> {
     /* v8 ignore next -- re-entry guard: acceptLiveEvent already detours to liveBuffer while stitching, so no second call reaches here. */
     if (this.stitching) return
+    this.cancelProjectionRefresh()
     this.stitching = true
     const generation = this.openGeneration
     let repeat = false
     try {
       if (this.address !== undefined) {
-        const { result } = await this.history({ maxMessages: PAGE_MESSAGES })
+        const { result } = await this.history(this.initialHistoryRequest())
         // Addressed history has no forward mode; retain its tail-window fallback.
         if (result.ok && generation === this.openGeneration && this.openState === 'open') {
           this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
@@ -781,7 +809,7 @@ export class Session implements SessionFace {
         const entries = result.value.events
         if (entries.length === 0) return
         if (entries[0]?.event.seq !== cursor + 1) {
-          const fallback = await this.history({ maxMessages: PAGE_MESSAGES })
+          const fallback = await this.history(this.initialHistoryRequest())
           // The request can outlive a disconnect even though TypeScript retains the loop's narrowing across await.
           // oxlint-disable-next-line typescript/no-unnecessary-condition
           if (fallback.result.ok && generation === this.openGeneration && this.openState === 'open') {
@@ -799,6 +827,7 @@ export class Session implements SessionFace {
       }
       if (generation === this.openGeneration && this.openState === 'open') {
         this.drainContiguousBuffer()
+        this.scheduleProjectionRefresh()
         repeat = this.liveBuffer.length > 0
       }
     } catch (error) {
@@ -855,16 +884,94 @@ export class Session implements SessionFace {
     }
   }
 
+  private cancelProjectionRefresh(): void {
+    this.projectionRefreshEpoch++
+    const cancelIdle = Reflect.get(globalThis, 'cancelIdleCallback') as
+      | typeof globalThis.cancelIdleCallback
+      | undefined
+    if (this.projectionRefreshIdle !== undefined) cancelIdle?.(this.projectionRefreshIdle)
+    if (this.projectionRefreshTimer !== undefined) clearTimeout(this.projectionRefreshTimer)
+    this.projectionRefreshAbort?.abort()
+    this.projectionRefreshIdle = undefined
+    this.projectionRefreshTimer = undefined
+    this.projectionRefreshAbort = undefined
+  }
+
+  /** Queue one ordinary-session projection baseline after the message window can paint. */
+  private scheduleProjectionRefresh(): void {
+    if (this.address !== undefined || this.removed || this.openState !== 'open') return
+    this.cancelProjectionRefresh()
+    const epoch = this.projectionRefreshEpoch
+    const queue = (): void => {
+      this.projectionRefreshIdle = undefined
+      this.projectionRefreshTimer = setTimeout(() => {
+        this.projectionRefreshTimer = undefined
+        void this.refreshProjections(epoch)
+      }, 0)
+    }
+    // Idle time keeps cold projection restoration off the message-rendering
+    // frame and lets subscription gaps start repair before a baseline becomes
+    // stale. Non-DOM and embedded clients retain the task-only fallback.
+    const requestIdle = Reflect.get(globalThis, 'requestIdleCallback') as
+      | typeof globalThis.requestIdleCallback
+      | undefined
+    if (requestIdle === undefined) queue()
+    else this.projectionRefreshIdle = requestIdle(queue)
+  }
+
+  /** Fetch and seed the authoritative baseline without changing open state on failure. */
+  private async refreshProjections(epoch: number): Promise<void> {
+    if (epoch !== this.projectionRefreshEpoch || this.openState !== 'open') return
+    if (this.stitching || this.liveBuffer.length > 0) return
+    const controller = new AbortController()
+    this.projectionRefreshAbort = controller
+    try {
+      const { result } = await this.history({ projectionMode: 'only' }, controller.signal)
+      // The request can outlive cancellation even though TypeScript retains the pre-await narrowing.
+      // oxlint-disable-next-line typescript/no-unnecessary-condition
+      if (epoch !== this.projectionRefreshEpoch || this.openState !== 'open') return
+      if (result.ok && result.value.projections !== undefined) {
+        this.projections.seed(result.value.projections)
+      }
+    } catch {
+      // Projection enrichment is fail-soft; the message window is already usable.
+    } finally {
+      if (epoch === this.projectionRefreshEpoch) this.projectionRefreshAbort = undefined
+    }
+  }
+
   /** Select ordinary or addressed history transport from the stored browser fact. */
   private history(payload:
-    | { beforeSeq?: number; maxMessages?: number; afterSeq?: never; maxEvents?: never }
-    | { afterSeq: number; maxEvents: number; beforeSeq?: never; maxMessages?: never },
+    | {
+      beforeSeq?: number
+      maxMessages?: number
+      projectionMode?: 'omit'
+      afterSeq?: never
+      maxEvents?: never
+    }
+    | {
+      projectionMode: 'only'
+      beforeSeq?: never
+      maxMessages?: never
+      afterSeq?: never
+      maxEvents?: never
+    }
+    | {
+      afterSeq: number
+      maxEvents: number
+      projectionMode?: never
+      beforeSeq?: never
+      maxMessages?: never
+    },
+  signal?: AbortSignal,
   ): Promise<RpcResponse<{
     events: HistoryEntry[]
     hasMore: boolean
     projections?: ProjectionsBaseline
   }>> {
-    if (this.address === undefined) return this.api.sessions.history({ sessionId: this.sessionId, ...payload })
+    if (this.address === undefined) {
+      return this.api.sessions.history({ sessionId: this.sessionId, ...payload }, signal)
+    }
     const { beforeSeq, maxMessages } = payload
     return this.api.subagents.history({
       ...this.address,

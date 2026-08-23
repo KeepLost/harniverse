@@ -260,6 +260,90 @@ describe('built-in conversation node Definitions', () => {
     })
   })
 
+  it('replays finalized Assistant history from the final body while retaining timing and usage', () => {
+    const usage = { inputTokens: 20, outputTokens: 4 }
+    const value = assembler([
+      at(60, 'turn/start', { turn: 7 }),
+      at(61, 'step/start', { turn: 7, step: 1 }),
+      at(62, 'assistant/chunk', {
+        turn: 7,
+        step: 1,
+        chunk: { type: 'block-start', index: 0, blockType: 'text' },
+      }),
+      at(63, 'assistant/chunk', {
+        turn: 7,
+        step: 1,
+        chunk: { type: 'text-delta', index: 0, text: 'first' },
+      }),
+      at(64, 'assistant/chunk', {
+        turn: 7,
+        step: 1,
+        chunk: { type: 'text-delta', index: 0, text: ' redundant' },
+      }),
+      at(65, 'assistant/chunk', {
+        turn: 7,
+        step: 1,
+        chunk: { type: 'usage', usage },
+      }),
+      at(66, 'assistant/message', {
+        turn: 7,
+        step: 1,
+        message: assistantMessage('assistant-history', 'final body'),
+        usage,
+      }, { surfaceOp: 'append' }),
+    ])
+
+    const before = node(snapshot(value), 'assistant-step')?.data as AssistantChatData
+    expect(before).toMatchObject({
+      status: 'settled',
+      blocks: [{ kind: 'text', text: 'final body' }],
+      usage,
+      finalNode: {
+        timing: {
+          stepStartTime: 1_700_000_000_061,
+          firstTokenTime: 1_700_000_000_063,
+          completedTime: 1_700_000_000_066,
+        },
+      },
+    })
+
+    value.rebuildRegistry()
+    value.flush()
+    expect(node(snapshot(value), 'assistant-step')?.data).toEqual(before)
+
+    const pageBoundary = assembler([
+      at(70, 'assistant/chunk', {
+        turn: 8, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' },
+      }),
+      at(71, 'assistant/chunk', {
+        turn: 8, step: 1, chunk: { type: 'text-delta', index: 0, text: 'first' },
+      }),
+      at(72, 'assistant/chunk', {
+        turn: 8, step: 1, chunk: { type: 'text-delta', index: 0, text: ' redundant' },
+      }),
+      at(73, 'assistant/chunk', {
+        turn: 8, step: 1, chunk: { type: 'usage', usage },
+      }),
+      at(74, 'assistant/message', {
+        turn: 8,
+        step: 1,
+        message: assistantMessage('assistant-page-boundary', 'boundary final'),
+        usage,
+      }, { surfaceOp: 'append' }),
+    ], true)
+    expect(node(snapshot(pageBoundary), 'assistant-step')?.data).toMatchObject({
+      blocks: [{ kind: 'text', text: 'boundary final' }],
+      usage,
+      finalNode: {
+        timing: {
+          stepStartTime: null,
+          firstTokenTime: 1_700_000_000_071,
+          completedTime: 1_700_000_000_074,
+        },
+      },
+    })
+  })
+
   it('keeps one keyed Tool node from running through settlement and replays nested dispatch after prepend', () => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),

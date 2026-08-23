@@ -23,6 +23,8 @@ export interface ChatStoreState {
   draft: string
   /** Active conversation view id ('conversation.view' entry id); null falls back to Chat. */
   view: string | null
+  /** Whether this Session has exposed a compaction boundary, keeping older-history paging manual across view remounts. */
+  compactionBoundarySeen?: boolean
   /**
    * One-shot inspect handoff: chat writes the call to reveal, the trajectory
    * view consumes it and acknowledges by clearing. Read with `?? null` —

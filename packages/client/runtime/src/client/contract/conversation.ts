@@ -179,6 +179,15 @@ export interface ConversationNodeDefinition<State = unknown> {
    */
   match(event: SessionEvent): ConversationMatchResult | null
   /**
+   * Identify batch-history update events whose State transition is superseded
+   * by later evidence in the same batch. The engine retains every Match but
+   * omits the selected `update` calls and their publication requests. This hook
+   * is never used for live append.
+   * @param events - complete replacement window or newly prepended page.
+   * @returns event seqs this Definition can safely omit from its State fold.
+   */
+  skipHistoryUpdates?(events: readonly SessionEvent[]): ReadonlySet<number>
+  /**
    * Create State from the unique start Match.
    * @param context - complete evidence currently collected for the Context.
    * @param match - the start Match.

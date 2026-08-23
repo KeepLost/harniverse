@@ -146,7 +146,15 @@ export const sessionHistoryRequestSchema = z.object({
   maxMessages: z.number().int().positive().optional(),
   afterSeq: z.number().int().min(-1).optional(),
   maxEvents: z.number().int().positive().optional(),
+  projectionMode: z.enum(['omit', 'only']).optional(),
 }).superRefine((payload, issue) => {
+  if (payload.projectionMode === 'only') {
+    if (payload.beforeSeq !== undefined || payload.maxMessages !== undefined
+      || payload.afterSeq !== undefined || payload.maxEvents !== undefined) {
+      issue.addIssue({ code: 'custom', message: 'projection-only history cannot carry pagination fields' })
+    }
+    return
+  }
   const forward = payload.afterSeq !== undefined || payload.maxEvents !== undefined
   if (!forward) return
   if (payload.afterSeq === undefined || payload.maxEvents === undefined) {
@@ -154,6 +162,9 @@ export const sessionHistoryRequestSchema = z.object({
   }
   if (payload.beforeSeq !== undefined || payload.maxMessages !== undefined) {
     issue.addIssue({ code: 'custom', message: 'forward and backward history fields are mutually exclusive' })
+  }
+  if (payload.projectionMode !== undefined) {
+    issue.addIssue({ code: 'custom', message: 'forward history cannot select projection mode' })
   }
 }) as z.ZodType<Wire<RequestPayload<'session.history'>>>
 

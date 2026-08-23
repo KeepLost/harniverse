@@ -1,7 +1,8 @@
 // Opt-in browser benchmark for high-cardinality workspace and history
-// rendering. It reports measurements without timing assertions because host
-// speed is not a correctness contract; structural assertions keep the number
-// of workspaces and history entries from silently shrinking.
+// rendering. General scenarios report measurements without timing assertions;
+// the cold-history scenario pins the product's click-to-message budget.
+// Structural assertions keep the number of workspaces and history entries from
+// silently shrinking.
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -17,12 +18,14 @@ import {
   createUserMessage,
 } from '@deepseek-ai/dsh-llm'
 import type { ReplayEntry, ReplayOverrideDoc } from '@deepseek-ai/dsh-llm-replay'
+import { CompactionId } from '@deepseek-ai/dsh-compaction'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   SESSION_FORMAT_VERSION,
   Session,
   SessionId,
 } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-compaction/types'
 // Carries the session/title event declaration into the fixture builder.
 import type {} from '@deepseek-ai/dsh-session-title'
 import {
@@ -38,11 +41,14 @@ const SIDEBAR_SESSION_COUNT = 1_000
 const LONG_SESSION_ID = 'perf-long-history'
 const LONG_SESSION_TITLE = 'LONG_PERF_SENTINEL 500-turn session'
 const LONG_HISTORY_TURNS = 500
+const LONG_HISTORY_COMPACTION_TURN = LONG_HISTORY_TURNS - 4
 const TOOL_TURN_INTERVAL = 10
 const TOOLS_PER_TOOL_TURN = 10
 const EXPECTED_TOOL_CALLS = LONG_HISTORY_TURNS / TOOL_TURN_INTERVAL * TOOLS_PER_TOOL_TURN
 const EXPECTED_TRAJECTORY_ROWS = 2_100
 const DEFAULT_HISTORY_TURNS = 24
+const LONG_HISTORY_CHUNKED_TURNS = DEFAULT_HISTORY_TURNS
+const LONG_HISTORY_CHUNK_DELTAS = 400
 const PERF_REPLAY_CONTEXT_WINDOW = 10_000_000
 const STREAM_PACE_MS = 8
 const STREAM_DELTA_COUNT = 120
@@ -181,6 +187,8 @@ interface PerformanceWorldOptions {
   readonly replay?: ReplayOverrideDoc
   readonly sidebarSessions?: number
   readonly seedLongHistory?: boolean
+  /** Seed the same long history without any compaction transaction. */
+  readonly seedUncompactedHistory?: boolean
 }
 
 function text(value: string): { type: 'text'; text: string }[] {
@@ -210,7 +218,28 @@ function appendAssistant(
   turn: number,
   step: number,
   body: string,
+  chunkDeltas = 0,
 ): void {
+  const usage = {
+    inputTokens: 4_000 + turn * 10,
+    outputTokens: 200 + step * 20,
+    cacheReadTokens: turn % 2 === 0 ? 2_000 : 0,
+  }
+  const sourceEventSeqs: number[] = []
+  const appendChunk = (chunk: StreamChunk): void => {
+    sourceEventSeqs.push(session.append('assistant/chunk', { turn, step, chunk }).seq)
+  }
+  if (chunkDeltas > 0) {
+    appendChunk({ type: 'block-start', index: 0, blockType: 'text' })
+    for (let index = 0; index < chunkDeltas; index += 1) {
+      const start = Math.floor(body.length * index / chunkDeltas)
+      const end = Math.floor(body.length * (index + 1) / chunkDeltas)
+      appendChunk({ type: 'text-delta', index: 0, text: body.slice(start, end) })
+    }
+    appendChunk({ type: 'block-end', index: 0, block: { type: 'text', text: body } })
+    appendChunk({ type: 'usage', usage })
+    appendChunk({ type: 'finish', reason: { kind: 'stop' } })
+  }
   session.append('assistant/message', {
     turn,
     step,
@@ -218,12 +247,11 @@ function appendAssistant(
       content: text(body),
       source: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }),
-    usage: {
-      inputTokens: 4_000 + turn * 10,
-      outputTokens: 200 + step * 20,
-      cacheReadTokens: turn % 2 === 0 ? 2_000 : 0,
-    },
-  }, { surfaceOp: 'append' })
+    usage,
+  }, {
+    surfaceOp: 'append',
+    ...(sourceEventSeqs.length === 0 ? {} : { sourceEventSeqs }),
+  })
 }
 
 function appendToolStep(
@@ -294,6 +322,37 @@ function appendToolStep(
   }
 }
 
+function appendHistoryCompaction(session: Session): void {
+  const shadowedSeqs = [...session.surface.nodes]
+  const start = shadowedSeqs[0]
+  const end = shadowedSeqs.at(-1)
+  if (start === undefined || end === undefined) {
+    throw new Error('performance compaction requires a non-empty surface')
+  }
+  const compactionId = CompactionId('perf-long-history-compaction')
+  const started = session.append('compaction/start', {
+    compactionId,
+    turn: null,
+  })
+  const summary = session.append('compaction/summary', {
+    compactionId,
+    summary: [{ type: 'text', text: 'The prior 496 turns were compacted for direct model context.' }],
+    shadowedRange: { start, end },
+    shadowedSeqs,
+    shadowedTokenCount: 100_000,
+    provider: 'performance-fixture',
+    model: 'performance-fixture',
+  })
+  session.append('user/message', createUserMessage({
+    content: text('<context_checkpoint>Compacted performance history.</context_checkpoint>'),
+    source: { kind: 'plugin', plugin: 'compact', compactionId },
+  }), {
+    surfaceOp: { op: 'replace', start, end },
+    sourceEventSeqs: [started.seq, summary.seq, ...shadowedSeqs],
+  })
+  session.append('compaction/end', { compactionId, turn: null })
+}
+
 function fencedCode(turn: number): string {
   if (turn % 25 !== 0) return ''
   const lines = Array.from(
@@ -340,9 +399,13 @@ function smallSidebarFixture(): string {
   return fixtureLog(session)
 }
 
-function longHistoryFixture(): string {
+function longHistoryFixture(options: { readonly compact?: boolean } = {}): string {
+  const compact = options.compact ?? true
   const session = Session.create(SessionId(LONG_SESSION_ID))
   for (let turn = 1; turn <= LONG_HISTORY_TURNS; turn += 1) {
+    const chunked = turn > LONG_HISTORY_TURNS - LONG_HISTORY_CHUNKED_TURNS
+    const chunkDeltas = chunked ? LONG_HISTORY_CHUNK_DELTAS : 0
+    const responsePayload = chunked ? 8_000 : 320
     session.append('turn/start', {
       turn,
     })
@@ -365,7 +428,8 @@ function longHistoryFixture(): string {
         session,
         turn,
         2,
-        `All synthetic tools completed for turn ${String(turn)}. ${'z'.repeat(320)}${fencedCode(turn)}`,
+        `All synthetic tools completed for turn ${String(turn)}. ${'z'.repeat(responsePayload)}${fencedCode(turn)}`,
+        chunkDeltas,
       )
       session.append('step/end', { turn, step: 2 })
     } else {
@@ -373,11 +437,13 @@ function longHistoryFixture(): string {
         session,
         turn,
         1,
-        `Synthetic assistant response for turn ${String(turn)}. ${'a'.repeat(320)}${fencedCode(turn)}`,
+        `Synthetic assistant response for turn ${String(turn)}. ${'a'.repeat(responsePayload)}${fencedCode(turn)}`,
+        chunkDeltas,
       )
       session.append('step/end', { turn, step: 1 })
     }
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
+    if (compact && turn === LONG_HISTORY_COMPACTION_TURN) appendHistoryCompaction(session)
   }
   return fixtureLog(session)
 }
@@ -853,6 +919,9 @@ async function launchPerformanceWorld(
     if (options.seedLongHistory === true) {
       await seedSession(scaffold, longHistoryFixture(), LONG_SESSION_ID)
     }
+    if (options.seedUncompactedHistory === true) {
+      await seedSession(scaffold, longHistoryFixture({ compact: false }), LONG_SESSION_ID)
+    }
     const setupMs = performance.now() - setupStarted
     page = await newEnglishPage(options.browser)
     return {
@@ -1295,6 +1364,166 @@ describe('manual web performance: complex workspace and history', () => {
         historyPages,
         warmTrajectory: { rows: warmTrajectory.value, ...warmTrajectory.measurement },
         warmConversation: { turns: warmConversation.value, ...warmConversation.measurement },
+      }, null, 2)}`)
+      expect(world.tripwire.warnings).toEqual([])
+      expect(world.tripwire.pageErrors).toEqual([])
+    } finally {
+      await closePerformanceWorld(world)
+    }
+  })
+
+  it('renders a cold 500-turn session within three seconds of its title click', async () => {
+    const world = await launchPerformanceWorld({
+      browser,
+      seedLongHistory: true,
+    })
+    try {
+      const page = world.page
+      await page.goto(world.scaffold.baseUrl, { waitUntil: 'load' })
+      await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      await page.getByRole('button', { name: 'Search sessions', exact: true }).click()
+      await page.getByRole('textbox', { name: 'Search sessions...', exact: true }).fill('LONG_PERF_SENTINEL')
+      const session = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
+      await expect.poll(() => session.count(), { timeout: 60_000 }).toBe(1)
+      const historyRequests: Array<{
+        projectionMode?: unknown
+        beforeSeq?: unknown
+        afterSeq?: unknown
+      }> = []
+      page.on('request', (request) => {
+        if (new URL(request.url()).pathname !== '/api/session.history') return
+        const envelope = request.postDataJSON() as {
+          payload?: { projectionMode?: unknown; beforeSeq?: unknown; afterSeq?: unknown }
+        }
+        historyRequests.push({
+          ...envelope.payload?.projectionMode === undefined
+            ? {}
+            : { projectionMode: envelope.payload.projectionMode },
+          ...envelope.payload?.beforeSeq === undefined ? {} : { beforeSeq: envelope.payload.beforeSeq },
+          ...envelope.payload?.afterSeq === undefined ? {} : { afterSeq: envelope.payload.afterSeq },
+        })
+      })
+      const initialHistory = page.waitForResponse((response) => {
+        if (new URL(response.url()).pathname !== '/api/session.history') return false
+        const request = response.request()
+        if (request.method() !== 'POST') return false
+        const envelope = request.postDataJSON() as { payload?: { projectionMode?: unknown } }
+        return envelope.payload?.projectionMode === 'omit'
+      })
+      const projectionHistory = page.waitForResponse((response) => {
+        if (new URL(response.url()).pathname !== '/api/session.history') return false
+        const request = response.request()
+        if (request.method() !== 'POST') return false
+        const envelope = request.postDataJSON() as { payload?: { projectionMode?: unknown } }
+        return envelope.payload?.projectionMode === 'only'
+      })
+
+      const started = performance.now()
+      await session.first().click()
+      await page.getByText(/^All synthetic tools completed for turn 500\./).waitFor({ timeout: 30_000 })
+      const clickToMessageMs = performance.now() - started
+      const historyBody = await (await initialHistory).json() as {
+        result: {
+          ok: boolean
+          value?: { events?: { event: SessionEvent }[] }
+        }
+      }
+      const initialEvents = historyBody.result.value?.events?.map(entry => entry.event) ?? []
+      await projectionHistory
+
+      expect(historyBody.result.ok).toBe(true)
+      expect(initialEvents[0]?.type).toBe('compaction/start')
+      expect(initialEvents.some(event => event.type === 'compaction/summary')).toBe(true)
+      expect(initialEvents.some(event => (
+        event.type === 'user/message'
+        && event.data.source.kind === 'plugin'
+        && event.data.source.plugin === 'compact'
+      ))).toBe(true)
+      expect(initialEvents.filter(event => (
+        event.type === 'assistant/chunk' && event.data.chunk.type === 'text-delta'
+      ))).toHaveLength(
+        (LONG_HISTORY_TURNS - LONG_HISTORY_COMPACTION_TURN) * LONG_HISTORY_CHUNK_DELTAS,
+      )
+      expect(await conversationTurns(page)).toBe(LONG_HISTORY_TURNS - LONG_HISTORY_COMPACTION_TURN)
+      expect(historyRequests.filter(request => request.projectionMode === 'omit')).toHaveLength(1)
+      expect(historyRequests.filter(request => request.projectionMode === 'only')).toHaveLength(1)
+      expect(historyRequests.filter(request => request.beforeSeq !== undefined)).toHaveLength(0)
+      expect(clickToMessageMs).toBeLessThan(3_000)
+      console.info(`WEB_PERF_RESULT ${JSON.stringify({
+        scenario: 'cold-history-click-to-message',
+        fixture: {
+          longHistoryTurns: LONG_HISTORY_TURNS,
+          compactedThroughTurn: LONG_HISTORY_COMPACTION_TURN,
+          chunkedTailTurns: LONG_HISTORY_CHUNKED_TURNS,
+          chunkDeltasPerAssistant: LONG_HISTORY_CHUNK_DELTAS,
+        },
+        setupMs: rounded(world.setupMs),
+        clickToMessageMs: rounded(clickToMessageMs),
+        historyRequests,
+      }, null, 2)}`)
+      expect(world.tripwire.warnings).toEqual([])
+      expect(world.tripwire.pageErrors).toEqual([])
+    } finally {
+      await closePerformanceWorld(world)
+    }
+  })
+
+  // The compaction-free shape is the common one and the shape a checkpoint
+  // search can silently turn into a whole-artifact read, so it carries the same
+  // hard click-to-message budget as the compacted lane.
+  it('renders a cold uncompacted 500-turn session within three seconds of its title click', async () => {
+    const world = await launchPerformanceWorld({
+      browser,
+      seedUncompactedHistory: true,
+    })
+    try {
+      const page = world.page
+      await page.goto(world.scaffold.baseUrl, { waitUntil: 'load' })
+      await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      await page.getByRole('button', { name: 'Search sessions', exact: true }).click()
+      await page.getByRole('textbox', { name: 'Search sessions...', exact: true }).fill('LONG_PERF_SENTINEL')
+      const session = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
+      await expect.poll(() => session.count(), { timeout: 60_000 }).toBe(1)
+      const initialHistory = page.waitForResponse((response) => {
+        if (new URL(response.url()).pathname !== '/api/session.history') return false
+        const request = response.request()
+        if (request.method() !== 'POST') return false
+        const envelope = request.postDataJSON() as { payload?: { projectionMode?: unknown } }
+        return envelope.payload?.projectionMode === 'omit'
+      })
+
+      const started = performance.now()
+      await session.first().click()
+      await page.getByText(/^All synthetic tools completed for turn 500\./).waitFor({ timeout: 30_000 })
+      const clickToMessageMs = performance.now() - started
+      const historyBody = await (await initialHistory).json() as {
+        result: {
+          ok: boolean
+          value?: { hasMore?: boolean; events?: { event: SessionEvent }[] }
+        }
+      }
+      const initialEvents = historyBody.result.value?.events?.map(entry => entry.event) ?? []
+
+      expect(historyBody.result.ok).toBe(true)
+      // No checkpoint exists, so the page is the ordinary bounded tail: it
+      // starts above seq 0 and leaves the rest reachable through paging.
+      expect(historyBody.result.value?.hasMore).toBe(true)
+      expect(initialEvents.some(event => event.type === 'compaction/summary')).toBe(false)
+      expect(initialEvents[0]?.seq ?? 0).toBeGreaterThan(0)
+      expect(await conversationTurns(page)).toBe(DEFAULT_HISTORY_TURNS)
+      expect(clickToMessageMs).toBeLessThan(3_000)
+      console.info(`WEB_PERF_RESULT ${JSON.stringify({
+        scenario: 'uncompacted-cold-history-click-to-message',
+        fixture: {
+          longHistoryTurns: LONG_HISTORY_TURNS,
+          compacted: false,
+          chunkedTailTurns: LONG_HISTORY_CHUNKED_TURNS,
+          chunkDeltasPerAssistant: LONG_HISTORY_CHUNK_DELTAS,
+        },
+        setupMs: rounded(world.setupMs),
+        clickToMessageMs: rounded(clickToMessageMs),
+        initialEvents: initialEvents.length,
+        renderedTurns: DEFAULT_HISTORY_TURNS,
       }, null, 2)}`)
       expect(world.tripwire.warnings).toEqual([])
       expect(world.tripwire.pageErrors).toEqual([])

@@ -178,9 +178,11 @@ function closedBoundary(
 
 function fallbackState(context: ConversationNodeContext<AssistantState>): AssistantState | undefined {
   let state: AssistantState | undefined
+  const skipped = settledAssistantHistoryUpdates(context.matches.map(match => match.event))
   for (const match of context.matches) {
     const event = match.event
     if (event.type === 'assistant/chunk') {
+      if (skipped.has(event.seq)) continue
       state ??= initialState(event.data.turn, event.data.step, event.seq, event.time, false)
       state = updateChunk(state, match)
     } else if (event.type === 'assistant/message') {
@@ -274,6 +276,32 @@ function assistantRequest(
   }
 }
 
+function settledAssistantHistoryUpdates(
+  events: readonly ConversationMatch['event'][],
+): ReadonlySet<number> {
+  const finalized = new Map<string, number>()
+  for (const event of events) {
+    if (event.type === 'assistant/message' && event.surfaceOp === 'append') {
+      finalized.set(`${String(event.data.turn)}:${String(event.data.step)}`, event.seq)
+    }
+  }
+  const firstToken = new Set<string>()
+  const skipped = new Set<number>()
+  for (const event of events) {
+    if (event.type !== 'assistant/chunk') continue
+    const key = `${String(event.data.turn)}:${String(event.data.step)}`
+    const finalSeq = finalized.get(key)
+    if (finalSeq === undefined || event.seq >= finalSeq) continue
+    if (event.data.chunk.type === 'usage') continue
+    if (isTokenDelta(event.data.chunk) && !firstToken.has(key)) {
+      firstToken.add(key)
+      continue
+    }
+    skipped.add(event.seq)
+  }
+  return skipped
+}
+
 /** Trajectory-owned Assistant streaming, settlement, and request lifecycle. */
 const trajectoryAssistantDefinition: ConversationNodeDefinition<AssistantState> = {
   kind: 'trajectory-assistant-step',
@@ -290,6 +318,7 @@ const trajectoryAssistantDefinition: ConversationNodeDefinition<AssistantState> 
     }
     return null
   },
+  skipHistoryUpdates: settledAssistantHistoryUpdates,
   start: (_context, match) => {
     if (match.event.type !== 'step/start') {
       throw new Error('trajectory-assistant-step start requires step/start')
@@ -303,7 +332,9 @@ const trajectoryAssistantDefinition: ConversationNodeDefinition<AssistantState> 
     )
   },
   update: (context, match) => {
-    if (match.event.type === 'assistant/chunk') return updateChunk(context.state, match)
+    if (match.event.type === 'assistant/chunk') {
+      return updateChunk(context.state, match)
+    }
     if (match.event.type === 'assistant/message') {
       return {
         ...context.state,

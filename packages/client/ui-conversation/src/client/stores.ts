@@ -10,6 +10,7 @@ type ChatActions = {
   select: (draft: ChatStoreState, target: SelectionTarget | null) => void
   setDraft: (draft: ChatStoreState, text: string) => void
   setView: (draft: ChatStoreState, view: string) => void
+  markCompactionBoundary: (draft: ChatStoreState) => void
   setInspect: (draft: ChatStoreState, target: { callId: CallId } | null) => void
 }
 
@@ -22,12 +23,19 @@ export function createChatStore(): EngineStoreHandle<ChatStoreState, ChatActions
     // Anchored to the contract shape: consumers read the store through
     // PropsStore<ChatStore>'s SnapshotSelectorHook<ChatStoreState>, so init
     // and the contract cannot drift.
-    init: (): ChatStoreState => ({ selection: null, draft: '', view: null, inspect: null }),
+    init: (): ChatStoreState => ({
+      selection: null,
+      draft: '',
+      view: null,
+      compactionBoundarySeen: false,
+      inspect: null,
+    }),
     persist: 'dsh.conversation.chat',
     actions: {
       select: (d, target: SelectionTarget | null) => { d.selection = target },
       setDraft: (d, text: string) => { d.draft = text },
       setView: (d, view: string) => { d.view = view },
+      markCompactionBoundary: (d) => { d.compactionBoundarySeen = true },
       setInspect: (d, target: { callId: CallId } | null) => { d.inspect = target },
     },
   })

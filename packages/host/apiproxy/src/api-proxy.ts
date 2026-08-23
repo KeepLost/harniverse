@@ -16,9 +16,9 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import { isAppendSurfaceEvent, isJsonValue } from '@deepseek-ai/dsh-session'
+import { isJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue, Session, SessionEvent, SessionEventMap, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
-import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import { paginateSessionHistory, type SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
 import type { SubagentListEntry as CatalogSubagentListEntry } from '@deepseek-ai/dsh-subagent'
@@ -337,23 +337,13 @@ function paginate(
   events: readonly SessionEvent[],
   beforeSeq: number | undefined,
   maxMessages: number,
+  preferLatestCheckpoint = false,
 ): { events: SessionEvent[]; hasMore: boolean } {
-  const window = beforeSeq === undefined ? [...events] : events.filter(event => event.seq < beforeSeq)
-  let count = 0
-  let cut = 0
-  for (let i = window.length - 1; i >= 0; i--) {
-    const event = window[i] as SessionEvent
-    if (!MESSAGE_TYPES.has(event.type) || !isAppendSurfaceEvent(event)) continue
-    count++
-    const sources = (event as { sourceEventSeqs?: number[] }).sourceEventSeqs
-    const groupStart = sources !== undefined && sources.length > 0 ? Math.min(event.seq, ...sources) : event.seq
-    if (count >= maxMessages) {
-      cut = groupStart
-      break
-    }
-  }
-  const page = window.filter(event => event.seq >= cut)
-  return { events: page, hasMore: cut > 0 }
+  return paginateSessionHistory(events, {
+    ...beforeSeq === undefined ? {} : { beforeSeq },
+    maxMessages,
+    ...(preferLatestCheckpoint ? { preferLatestCheckpoint: true } : {}),
+  })
 }
 
 /** Exclusive forward event pagination used by reconnect and gap repair. */
@@ -911,9 +901,10 @@ function historyPage(
   maxMessages: number | undefined,
   scope?: ScopeKey,
   forward?: { afterSeq: number; maxEvents: number },
+  preferLatestCheckpoint = false,
 ): { events: HistoryEntry[]; hasMore: boolean } {
   const page = forward === undefined
-    ? paginate(events, beforeSeq, maxMessages ?? DEFAULT_MAX_MESSAGES)
+    ? paginate(events, beforeSeq, maxMessages ?? DEFAULT_MAX_MESSAGES, preferLatestCheckpoint)
     : paginateForward(events, forward.afterSeq, forward.maxEvents)
   return {
     events: presentHistoryEvents(ctx, page.events, scope),
@@ -1395,8 +1386,22 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   ): boolean => hasApiRemoteSubagentOwner(ctx, session, agent)
   const subagentOwnershipError = (sessionId: SessionId): RpcError =>
     apiRemoteSubagentOwnershipError(sessionId)
-  const inspectServable = (sessionId: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> =>
-    inspectApiRemoteSession(ctx, sessionId)
+  const inspectServable = (
+    sessionId: SessionId,
+    signal?: AbortSignal,
+  ): Promise<{ meta: SessionHeader; events: SessionEvent[] }> =>
+    inspectApiRemoteSession(ctx, sessionId, signal)
+  const detachedHeaderFor = async (sessionId: SessionId, signal?: AbortSignal): Promise<SessionHeader> => {
+    const persistence = ctx.get('sessionPersistence')
+    if (persistence === undefined) {
+      throw new Error('session persistence is not configured (load a dsh-session-persistence backend)')
+    }
+    const header = (await persistence.list(signal)).find(candidate => candidate.id === sessionId)
+    if (header === undefined || header.cwd === undefined) {
+      throw new SessionNotFound(`session "${sessionId}" not found`)
+    }
+    return header
+  }
   // Cold resume composes the preset the session recorded, for the same reason
   // `session.create` does: its history was produced under that composition.
   // Every generic entry point — prompt, models, commands — arrives here, so
@@ -1720,15 +1725,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    */
   async function historySourceFor(
     sessionId: SessionId,
-    pageRequest?: { beforeSeq?: number; maxMessages: number },
+    pageRequest?: { beforeSeq?: number; maxMessages: number; preferLatestCheckpoint?: boolean },
+    signal?: AbortSignal,
   ): Promise<HistorySource> {
     const attached = ctx.sessions.get(sessionId)
     if (attached !== undefined) return { kind: 'attached', session: attached }
     if (pageRequest !== undefined) {
-      const page = await readApiRemoteSessionHistoryPage(ctx, sessionId, pageRequest)
+      const page = await readApiRemoteSessionHistoryPage(ctx, sessionId, pageRequest, signal)
       return { kind: 'detached', header: page.meta, events: page.events, pageHasMore: page.hasMore }
     }
-    const inspected = await inspectServable(sessionId)
+    const inspected = await inspectServable(sessionId, signal)
     return { kind: 'detached', header: inspected.meta, events: inspected.events }
   }
 
@@ -2439,21 +2445,63 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         return ok(request, { sessionId, ...createdProfile === undefined ? {} : { agentProfile: createdProfile } })
       },
 
-      async history(request) {
-        const { sessionId, beforeSeq, maxMessages, afterSeq, maxEvents } = request.payload
+      async history(request, signal) {
+        const {
+          sessionId, beforeSeq, maxMessages, afterSeq, maxEvents, projectionMode,
+        } = request.payload
         try {
           const backward = afterSeq === undefined
           const projectionCache = ctx.get('sessionProjectionCache')
           const hasProjectionRegistry = ctx.get('sessionProjections') !== undefined
-          const canPageCold = !hasProjectionRegistry || projectionCache !== undefined
+          const preferLatestCheckpoint = projectionMode === 'omit' && beforeSeq === undefined
+          const canPageCold = projectionMode === 'omit'
+            || !hasProjectionRegistry
+            || projectionCache !== undefined
+          if (projectionMode === 'only') {
+            const attached = ctx.sessions.get(sessionId)
+            const projectionSession: PresetBearingSession = attached ?? {
+              header: await detachedHeaderFor(sessionId, signal),
+              events: [],
+            }
+            await presenterScopeFor(sessionId, projectionSession)
+            let projections: SessionProjectionsBlock | undefined
+            if (!hasProjectionRegistry) {
+              // No registry: the capability is absent, so the response omits the
+              // block exactly as the combined response does. Synthesizing an
+              // empty baseline here would instead clear every client projection
+              // row at or below its `asOfSeq`, including the sidebar title.
+              projections = undefined
+            } else if (attached !== undefined) {
+              projections = projectionsFor(ctx, attached)
+            } else {
+              try {
+                const cached = projectionCache === undefined
+                  ? undefined
+                  : await projectionCache.coldSnapshot(sessionId, signal)
+                if (cached === undefined) throw new Error('projection cache unavailable')
+                projections = cached
+              } catch {
+                signal?.throwIfAborted()
+                const inspected = await inspectServable(sessionId, signal)
+                projections = detachedProjectionsFor(ctx, inspected.events)
+              }
+            }
+            return ok(request, {
+              events: [],
+              hasMore: false,
+              ...projections === undefined ? {} : { projections },
+            })
+          }
           let source = await historySourceFor(
             sessionId,
             backward && canPageCold
               ? {
                 ...beforeSeq === undefined ? {} : { beforeSeq },
                 maxMessages: maxMessages ?? DEFAULT_MAX_MESSAGES,
+                ...(preferLatestCheckpoint ? { preferLatestCheckpoint: true } : {}),
               }
               : undefined,
+            signal,
           )
           // Both awaits happen BEFORE the cut. Ensuring the recorded
           // composition's standing mount is what registers its projection
@@ -2462,9 +2510,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           // appending, so awaiting between the two reads would pair events cut
           // at N with a baseline folded to N+1.
           const scope = await presenterScopeFor(sessionId, sourceSession(source))
-          if (source.kind === 'detached' && source.pageHasMore !== undefined && beforeSeq === undefined) {
+          const includeProjections = projectionMode !== 'omit' && beforeSeq === undefined
+          if (includeProjections
+            && source.kind === 'detached'
+            && source.pageHasMore !== undefined) {
             try {
-              const projections = projectionCache === undefined ? undefined : await projectionCache.coldSnapshot(sessionId)
+              const projections = projectionCache === undefined
+                ? undefined
+                : await projectionCache.coldSnapshot(sessionId, signal)
               if (projectionCache !== undefined && projections === undefined) {
                 throw new Error(`projection cache has no cold baseline for session "${sessionId}"`)
               }
@@ -2472,17 +2525,26 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             } catch {
               // A missing or stale optional cache falls back to the existing
               // full inspection so the projection baseline remains correct.
-              const inspected = await inspectServable(sessionId)
+              signal?.throwIfAborted()
+              const inspected = await inspectServable(sessionId, signal)
               source = { kind: 'detached', header: inspected.meta, events: inspected.events }
             }
           }
           const forward = afterSeq === undefined
             ? undefined
             : { afterSeq, maxEvents }
-          const cut = historyCutOf(source, forward === undefined && beforeSeq === undefined)
+          const cut = historyCutOf(source, forward === undefined && includeProjections)
           const page = source.kind === 'detached' && source.pageHasMore !== undefined && forward === undefined
             ? { events: presentHistoryEvents(ctx, cut.events, scope), hasMore: source.pageHasMore }
-            : historyPage(ctx, cut.events, beforeSeq, maxMessages, scope, forward)
+            : historyPage(
+              ctx,
+              cut.events,
+              beforeSeq,
+              maxMessages,
+              scope,
+              forward,
+              preferLatestCheckpoint,
+            )
           return ok(request, {
             events: page.events,
             hasMore: page.hasMore,

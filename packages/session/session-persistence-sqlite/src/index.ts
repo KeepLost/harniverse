@@ -16,7 +16,8 @@ import { lstat, mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE, DEFAULT_WRITE_BATCH_MAX_DELAY_MS, MAX_WRITE_BATCH_DELAY_MS,
-  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
+  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator, replacementCheckpointStart,
+  CHECKPOINT_SEARCH_MESSAGE_BUDGET,
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
   type SessionInspection, type SessionPersistenceRevision as PersistenceRevision,
   type SessionHistoryPageRequest, type StoredHistoryPage, type StoredPrefix, type StoredSuffix,
@@ -306,6 +307,36 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
       cut = sources !== undefined && sources.length > 0
         ? Math.min(event.seq, ...sources)
         : event.seq
+    }
+    // A checkpoint can sit just past the message quota, so the search reaches
+    // below the quota cut — but only past CHECKPOINT_SEARCH_MESSAGE_BUDGET
+    // further messages, keeping a compaction-free session off a whole-history
+    // scan (an unbounded search measured 16s+ on a 203k-event log).
+    if (request.beforeSeq === undefined && request.preferLatestCheckpoint === true) {
+      const searchFloorRow = this.db.prepare(
+        `SELECT seq FROM events
+         WHERE session_id = ? AND type IN ('user/message', 'assistant/message')
+           AND surface_op = ?
+         ORDER BY seq DESC LIMIT 1 OFFSET ?`,
+      ).get(
+        id,
+        JSON.stringify('append'),
+        request.maxMessages + CHECKPOINT_SEARCH_MESSAGE_BUDGET - 1,
+      ) as { seq: number } | undefined
+      const floor = searchFloorRow?.seq ?? 0
+      const replacements = this.db.prepare(
+        `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+         FROM events
+         WHERE session_id = ? AND seq >= ? AND type = 'user/message'
+           AND surface_op IS NOT NULL AND surface_op <> ?
+         ORDER BY seq DESC`,
+      ).iterate(id, floor, JSON.stringify('append')) as unknown as Iterable<EventRow>
+      for (const replacement of replacements) {
+        const checkpointStart = replacementCheckpointStart(rowToEvent(replacement))
+        if (checkpointStart === undefined) continue
+        cut = checkpointStart
+        break
+      }
     }
     const physical = this.physicalSpanFrom(id, cut, request.beforeSeq)
     signal?.throwIfAborted()

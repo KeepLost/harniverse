@@ -87,8 +87,30 @@ export interface PromptReceipt {
 
 /** Backward message pages for display, or forward event pages for synchronization. */
 export type SessionHistoryRequest =
-  | { sessionId: SessionId; beforeSeq?: number; maxMessages?: number; afterSeq?: never; maxEvents?: never }
-  | { sessionId: SessionId; afterSeq: number; maxEvents: number; beforeSeq?: never; maxMessages?: never }
+  | {
+    sessionId: SessionId
+    projectionMode?: 'omit'
+    beforeSeq?: number
+    maxMessages?: number
+    afterSeq?: never
+    maxEvents?: never
+  }
+  | {
+    sessionId: SessionId
+    projectionMode: 'only'
+    beforeSeq?: never
+    maxMessages?: never
+    afterSeq?: never
+    maxEvents?: never
+  }
+  | {
+    sessionId: SessionId
+    projectionMode?: never
+    afterSeq: number
+    maxEvents: number
+    beforeSeq?: never
+    maxMessages?: never
+  }
 
 /** One answerable process-local interaction, preserving the rpcId required by `respond`. */
 export type SessionPendingInteraction = RpcRequest<
@@ -326,18 +348,20 @@ export interface SessionsApi {
    * Each entry pairs the raw SessionEvent with the host-computed view (tool events whose
    * presenter produced one, evaluated against the registry at pagination time); the client
    * rebuilds the surface from the events with the shared fold.
-   * The tail page — and only the tail page — additionally carries `projections`
-   * when the deployment mounts the session-projection registry: every moment
-   * the client needs a fresh baseline already pulls the tail page, and
-   * loadOlder (the only beforeSeq path) is the only path that never needs one.
+   * The default tail page additionally carries `projections` when the
+   * deployment mounts the session-projection registry. `projectionMode:
+   * 'omit'` serves events without waiting for that baseline; a later
+   * `projectionMode: 'only'` request returns no events and one authoritative
+   * baseline. loadOlder and forward gap repair never carry projections.
    * A deployment without the registry serves histories without the block.
    * Reading history uses an attached Session or persistence inspection and
    * never resumes or publishes an Agent. The mutually exclusive forward mode
    * returns at most `maxEvents` raw events whose seq is greater than
    * `afterSeq`; it carries no projection baseline and is intended for gap
-   * repair rather than display pagination.
+   * repair rather than display pagination. The carrier signal cancels cold
+   * metadata, page, projection-cache, and inspection work.
    */
-  history(request: RpcRequest<SessionHistoryRequest>):
+  history(request: RpcRequest<SessionHistoryRequest>, signal?: AbortSignal):
   Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; projections?: SessionProjectionsBlock }>>
 
   /** Reads one boot-fenced durable/live control snapshot without resuming a cold Session. */

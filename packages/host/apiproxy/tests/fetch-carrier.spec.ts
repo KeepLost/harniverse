@@ -45,7 +45,18 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async create(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-new' as never } } }
       },
-      async history(request) {
+      async history(request, signal) {
+        if (request.payload.sessionId === ('hang-history' as never)) {
+          if (!signal?.aborted) {
+            await new Promise<void>((resolve) => {
+              signal?.addEventListener('abort', () => { resolve() }, { once: true })
+            })
+          }
+          return {
+            rpcId: request.rpcId,
+            result: { ok: false, error: { code: 'internal', message: 'aborted', details: {} } },
+          }
+        }
         if (request.payload.sessionId === ('with-projections' as never)) {
           return {
             rpcId: request.rpcId,
@@ -572,6 +583,29 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     }
     expect(parsed.rpcId).toBe('r-search-sig')
     expect(parsed.result.error?.code).toBe('cancelled')
+  })
+
+  it('propagates the carrier Request signal into session.history', async () => {
+    const handler = toFetchHandler(fakeApi())
+    const controller = new AbortController()
+    const body = JSON.stringify({
+      type: 'client-request',
+      rpcId: 'r-history-sig',
+      method: 'session.history',
+      payload: { sessionId: 'hang-history', projectionMode: 'only' },
+    })
+    const pending = handler.fetch(new Request(
+      'http://x/api/session.history',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: controller.signal },
+    ))
+    controller.abort()
+    const response = await pending
+    const parsed = await response.json() as {
+      rpcId: string
+      result: { error?: { code: string } }
+    }
+    expect(parsed.rpcId).toBe('r-history-sig')
+    expect(parsed.result.error?.code).toBe('internal')
   })
 
   it('attaches the authenticated principal to a host-side unary request', async () => {

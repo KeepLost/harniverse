@@ -1044,4 +1044,142 @@ describe('ConversationNodeAssembler', () => {
     assembler.flush()
     expect([...chatSnapshot(assembler)?.nodes.values() ?? []][0]?.data).toBe(1)
   })
+
+  it('applies Definition-owned batch replay skips without hiding Matches or changing live append', () => {
+    const definition: ConversationNodeDefinition<readonly number[]> = {
+      kind: 'optimized-replay-probe',
+      target: 'chat',
+      match: (event) => {
+        if (event.type === 'step/start') return { id: `${String(event.data.turn)}:${String(event.data.step)}`, role: 'start' }
+        if (event.type === 'assistant/chunk' || event.type === 'assistant/message') {
+          return { id: `${String(event.data.turn)}:${String(event.data.step)}`, role: 'update' }
+        }
+        return null
+      },
+      skipHistoryUpdates: events => new Set(events
+        .filter(event => event.type === 'assistant/chunk'
+          && (event.data.chunk.type === 'block-start'
+            || (event.data.chunk.type === 'text-delta' && event.data.chunk.text === 'second')))
+        .map(event => event.seq)),
+      start: () => [],
+      update: (context, match) => [...context.state, match.event.seq],
+      buildViewNode: context => node(context, {
+        folded: context.state,
+        matches: context.matches.map(match => match.event.seq),
+      }),
+    }
+    const completeDefinition: ConversationNodeDefinition<readonly number[]> = {
+      kind: 'complete-replay-probe',
+      target: 'chat',
+      match: event => definition.match(event),
+      start: () => [],
+      update: (context, match) => [...context.state, match.event.seq],
+      buildViewNode: context => node(context, context.state),
+    }
+    const value = new ConversationNodeAssembler(
+      new TestEventDefinitions([definition, completeDefinition]),
+      new TestViewDefinitions([testView()]),
+    )
+    value.replaceWindow([
+      input(at(1, 'step/start', { turn: 1, step: 1 })),
+      input(at(2, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' },
+      })),
+      input(at(3, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'first' },
+      })),
+      input(at(4, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'second' },
+      })),
+      input(at(5, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'usage', usage: { inputTokens: 10, outputTokens: 2 } },
+      })),
+      {
+        event: {
+          ...at(6, 'assistant/message', { turn: 1, step: 1, message: { content: [] } }),
+          surfaceOp: 'append',
+        } as SessionEvent,
+        view: undefined,
+      },
+    ], false)
+    value.flush()
+    const history = [...chatSnapshot(value)?.nodes.values() ?? []]
+    expect(history.find(candidate => candidate.kind === 'optimized-replay-probe')?.data)
+      .toEqual({ folded: [3, 5, 6], matches: [1, 2, 3, 4, 5, 6] })
+    expect(history.find(candidate => candidate.kind === 'complete-replay-probe')?.data)
+      .toEqual([2, 3, 4, 5, 6])
+
+    value.append(input(at(7, 'step/start', { turn: 2, step: 1 })))
+    value.append(input(at(8, 'assistant/chunk', {
+      turn: 2, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' },
+    })))
+    value.append(input(at(9, 'assistant/chunk', {
+      turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: 'live' },
+    })))
+    value.append({
+      event: {
+        ...at(10, 'assistant/message', { turn: 2, step: 1, message: { content: [] } }),
+        surfaceOp: 'append',
+      } as SessionEvent,
+      view: undefined,
+    })
+    value.flush()
+    const live = [...chatSnapshot(value)?.nodes.values() ?? []]
+      .filter(candidate => candidate.id === '2:1')
+    expect(live.find(candidate => candidate.kind === 'optimized-replay-probe')?.data)
+      .toEqual({ folded: [8, 9, 10], matches: [7, 8, 9, 10] })
+    expect(live.find(candidate => candidate.kind === 'complete-replay-probe')?.data)
+      .toEqual([8, 9, 10])
+  })
+
+  it('applies Definition-owned skips only to a prepended page and keeps current updates active', () => {
+    const definition: ConversationNodeDefinition<readonly number[]> = {
+      kind: 'prepend-replay-probe',
+      target: 'chat',
+      match: (event) => {
+        if (event.type === 'step/start') return { id: String(event.data.turn), role: 'start' }
+        if (event.type === 'assistant/chunk' || event.type === 'assistant/message') {
+          return { id: String(event.data.turn), role: 'update' }
+        }
+        return null
+      },
+      skipHistoryUpdates: events => new Set(events
+        .filter(event => event.type === 'assistant/chunk'
+          && event.data.chunk.type === 'block-start')
+        .map(event => event.seq)),
+      start: () => [],
+      update: (context, match) => [...context.state, match.event.seq],
+      buildViewNode: context => node(context, context.state),
+    }
+    const value = new ConversationNodeAssembler(
+      new TestEventDefinitions([definition]),
+      new TestViewDefinitions([testView()]),
+    )
+    value.replaceWindow([
+      input(at(20, 'step/start', { turn: 2, step: 1 })),
+      input(at(21, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: 'interrupted' },
+      })),
+    ], true)
+    value.prepend([
+      input(at(1, 'step/start', { turn: 1, step: 1 })),
+      input(at(2, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' },
+      })),
+      input(at(3, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'settled' },
+      })),
+      {
+        event: {
+          ...at(4, 'assistant/message', { turn: 1, step: 1, message: { content: [] } }),
+          surfaceOp: 'append',
+        } as SessionEvent,
+        view: undefined,
+      },
+    ], false)
+    value.flush()
+    const nodes = [...chatSnapshot(value)?.nodes.values() ?? []]
+    expect(nodes.find(candidate => candidate.id === '1')?.data).toEqual([3, 4])
+    expect(nodes.find(candidate => candidate.id === '2')?.data).toEqual([21])
+  })
 })

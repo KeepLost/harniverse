@@ -203,6 +203,44 @@ describe('open', () => {
     expect(snapshot.turnEnds.get(3)).toBe(15)
   })
 
+  it('opens from history before fetching the projection baseline in the background', async () => {
+    vi.useFakeTimers()
+    try {
+      const { api, session } = makeSession()
+      const baseline = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+      const signals: Array<AbortSignal | undefined> = []
+      api.onHistory = (payload, signal) => {
+        signals.push(signal)
+        const mode = (payload as { projectionMode?: string }).projectionMode
+        if (mode === 'only') return baseline.promise
+        expect(mode).toBe('omit')
+        return histResponse(plainTurn(10, 3, '问', '答'))
+      }
+
+      await session.open()
+      expect(session.getSnapshot()).toMatchObject({ openState: 'open' })
+      expect(session.getSnapshot().nodes.map(node => node.kind)).toEqual(['user', 'assistant'])
+      expect(api.callsOf('session.history')).toHaveLength(1)
+      expect(session.projections.get('test/background')).toBeUndefined()
+      // The first-screen read owns no cancellation signal: background projection
+      // cancellation must never be able to abort the message window request.
+      expect(signals).toEqual([undefined])
+
+      await vi.runOnlyPendingTimersAsync()
+      expect(api.callsOf('session.history')).toHaveLength(2)
+      expect(signals[1]).toBeInstanceOf(AbortSignal)
+      baseline.resolve(ok({
+        events: [],
+        hasMore: false,
+        projections: { asOfSeq: 15, values: { 'test/background': { ready: true } } },
+      }))
+      await Promise.resolve()
+      expect(session.projections.get('test/background')).toEqual({ ready: true })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('signals startup-core settlement after the first history request completes', async () => {
     const api = new FakeApiClient()
     const ready = vi.fn()
@@ -895,9 +933,11 @@ describe('remaining branches', () => {
     api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
     await session.open()
     const later = plainTurn(6, 1, 'c', 'd')
-    api.onHistory = payload => payload.afterSeq === 5
-      ? histResponse(later)
-      : Promise.resolve(err({ code: 'internal', message: 'unexpected history mode', details: {} }))
+    api.onHistory = payload => (payload as { projectionMode?: string }).projectionMode === 'only'
+      ? Promise.resolve(ok({ events: [], hasMore: false, projections: { asOfSeq: 9, values: {} } }))
+      : payload.afterSeq === 5
+        ? histResponse(later)
+        : Promise.resolve(err({ code: 'internal', message: 'unexpected history mode', details: {} }))
 
     session.handleMuxEnvelope('gap' as never, {
       type: 'session/event', sessionId: SID, event: later.at(-1) as SessionEvent,
@@ -906,9 +946,81 @@ describe('remaining branches', () => {
     await vi.waitFor(() => {
       expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([1, 3, 7, 9])
     })
-    expect(api.callsOf('session.history').at(-1)).toEqual({
+    const calls = api.callsOf('session.history') as { afterSeq?: number }[]
+    expect(calls.find(call => call.afterSeq !== undefined)).toEqual({
       sessionId: SID, afterSeq: 5, maxEvents: 500,
     })
+  })
+
+  // A window-replacing repair must ask for the same window the first screen
+  // asked for. Dropping to a bare quota request would silently move a compacted
+  // session off its checkpoint window and re-enter projection restoration on the
+  // visible path.
+  it('repairs a non-contiguous forward page with the first-screen window request', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.open()
+    const later = plainTurn(6, 1, 'c', 'd')
+    const windowRequests: unknown[] = []
+    api.onHistory = (payload) => {
+      if ((payload as { projectionMode?: string }).projectionMode === 'only') {
+        return Promise.resolve(ok({ events: [], hasMore: false, projections: { asOfSeq: 9, values: {} } }))
+      }
+      // Forward page whose first event skips the cursor: forces the fallback.
+      if (payload.afterSeq === 5) return histResponse(plainTurn(20, 4, 'e', 'f'))
+      windowRequests.push(payload)
+      return histResponse(later)
+    }
+
+    session.handleMuxEnvelope('gap' as never, {
+      type: 'session/event', sessionId: SID, event: later.at(-1) as SessionEvent,
+    })
+
+    await vi.waitFor(() => { expect(windowRequests).toHaveLength(1) })
+    expect(windowRequests[0]).toEqual({ sessionId: SID, maxMessages: 50, projectionMode: 'omit' })
+  })
+
+  it('aborts an in-flight projection baseline and refreshes once after gap repair', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.open()
+    const staleProjection = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    const repair = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    const later = plainTurn(6, 1, 'c', 'd')
+    let projectionCalls = 0
+    api.onHistory = (payload) => {
+      if ((payload as { projectionMode?: string }).projectionMode === 'only') {
+        projectionCalls++
+        return projectionCalls === 1
+          ? staleProjection.promise
+          : Promise.resolve(ok({
+            events: [], hasMore: false,
+            projections: { asOfSeq: 11, values: { 'test/gap': 'fresh' } },
+          }))
+      }
+      if (payload.afterSeq === 5) return repair.promise
+      return Promise.resolve(err({ code: 'internal', message: 'unexpected history mode', details: {} }))
+    }
+
+    await vi.waitFor(() => { expect(projectionCalls).toBe(1) })
+    const staleSignal = api.lastHistorySignal
+    expect(staleSignal?.aborted).toBe(false)
+    session.handleMuxEnvelope('gap' as never, {
+      type: 'session/event', sessionId: SID, event: later.at(-1) as SessionEvent,
+    })
+    expect(staleSignal?.aborted).toBe(true)
+    repair.resolve(await histResponse(later))
+
+    await vi.waitFor(() => {
+      expect(projectionCalls).toBe(2)
+      expect(session.projections.get('test/gap')).toBe('fresh')
+    })
+    staleProjection.resolve(ok({
+      events: [], hasMore: false,
+      projections: { asOfSeq: 5, values: { 'test/gap': 'stale' } },
+    }))
+    await Promise.resolve()
+    expect(session.projections.get('test/gap')).toBe('fresh')
   })
 
   it('continues forward repair when a second buffered gap appears in flight', async () => {
@@ -918,6 +1030,9 @@ describe('remaining branches', () => {
     const firstRepair = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
     let repairs = 0
     api.onHistory = (payload) => {
+      if ((payload as { projectionMode?: string }).projectionMode === 'only') {
+        return Promise.resolve(ok({ events: [], hasMore: false, projections: { asOfSeq: 9, values: {} } }))
+      }
       repairs++
       if (repairs === 1) return firstRepair.promise
       expect(payload).toMatchObject({ afterSeq: 7, maxEvents: 500 })

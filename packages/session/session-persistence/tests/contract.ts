@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { SESSION_FORMAT_VERSION, Session, SessionId, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SurfaceEventType, SurfaceIntent } from '@deepseek-ai/dsh-session'
 import { CallId, MessageId, createMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
+import { CHECKPOINT_SEARCH_MESSAGE_BUDGET } from '../src/index.ts'
 import type { SessionPersistence } from '../src/index.ts'
 
 /** A backend under test plus its teardown. */
@@ -343,6 +344,13 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         expect(tail.events.map(event => event.seq)).toEqual([3, 4, 5])
         expect(tail.hasMore).toBe(true)
 
+        const preferredTail = await persistence.readHistoryPage(m.id, {
+          maxMessages: 1,
+          preferLatestCheckpoint: true,
+        })
+        expect(preferredTail.events.map(event => event.seq)).toEqual([3, 4, 5])
+        expect(preferredTail.hasMore).toBe(true)
+
         const earlier = await persistence.readHistoryPage(m.id, {
           beforeSeq: tail.events[0]!.seq,
           maxMessages: 1,
@@ -356,6 +364,261 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         })
         expect(oldest.events.map(event => event.seq)).toEqual([0])
         expect(oldest.hasMore).toBe(false)
+      } finally {
+        await dispose()
+      }
+    })
+
+    // A preferred initial page must not widen its window merely because no
+    // checkpoint exists. The decode-work bound this protects is measured in
+    // the JSONL suite, where reverse frame decoding is observable.
+    it('readHistoryPage keeps a preferred initial page bounded when no checkpoint exists', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const m = meta('history-unbounded-guard', '/work')
+        const log: SessionEvent[] = []
+        let seq = 0
+        const turns = 60
+        for (let turn = 1; turn <= turns; turn += 1) {
+          log.push({ type: 'turn/start', seq: seq++, time: seq, data: { turn } })
+          log.push({
+            type: 'user/message',
+            seq: seq++,
+            time: seq,
+            data: freezeMessage({
+              id: MessageId(`guard-user-${String(turn)}`),
+              role: 'user',
+              content: [{ type: 'text', text: `q${String(turn)}` }],
+              source: { kind: 'user' },
+            }),
+            surfaceOp: 'append',
+          })
+          log.push({ type: 'step/start', seq: seq++, time: seq, data: { turn, step: 1 } })
+          log.push({
+            type: 'assistant/message',
+            seq: seq++,
+            time: seq,
+            data: {
+              turn,
+              step: 1,
+              message: freezeMessage({
+                id: MessageId(`guard-assistant-${String(turn)}`),
+                role: 'assistant',
+                content: [{ type: 'text', text: `a${String(turn)}` }],
+                source: { kind: 'model', provider: 'mock', model: 'mock' },
+              }),
+            },
+            surfaceOp: 'append',
+          })
+          log.push({ type: 'step/end', seq: seq++, time: seq, data: { turn, step: 1 } })
+          log.push({ type: 'turn/end', seq: seq++, time: seq, data: { turn, reason: { kind: 'completed' } } })
+        }
+        await persistence.create(m)
+        await persistence.append(m.id, log)
+
+        const ordinary = await persistence.readHistoryPage(m.id, { maxMessages: 10 })
+        const preferred = await persistence.readHistoryPage(m.id, {
+          maxMessages: 10,
+          preferLatestCheckpoint: true,
+        })
+        // Identical page: preferring a checkpoint that does not exist must not
+        // widen the window, and must not degrade into a full-log read.
+        expect(preferred.events.map(event => event.seq)).toEqual(ordinary.events.map(event => event.seq))
+        expect(preferred.hasMore).toBe(true)
+        expect(preferred.events.length).toBeLessThan(log.length)
+        expect(preferred.events[0]!.seq).toBeGreaterThan(0)
+      } finally {
+        await dispose()
+      }
+    })
+
+    // The search bound is observable through its boundary: a checkpoint below
+    // the window must be left alone (page equals the ordinary quota page),
+    // while one inside the window must still cut the page. A backend that drops
+    // its bound and scans to the head of the log fails the first assertion.
+    it('readHistoryPage searches for a checkpoint only within its bounded window', async () => {
+      const maxMessages = 2
+      const inWindowMessages = CHECKPOINT_SEARCH_MESSAGE_BUDGET + maxMessages - 1
+      // One message past the window: reachable only by an unbounded search.
+      const outOfWindowMessages = CHECKPOINT_SEARCH_MESSAGE_BUDGET + maxMessages + 1
+
+      /** Log whose only checkpoint sits `laterMessages` append messages above the tail. */
+      const checkpointedLog = (laterMessages: number): SessionEvent[] => {
+        let seq = 0
+        const log: SessionEvent[] = [
+          { type: 'turn/start', seq: seq++, time: 1, data: { turn: 1 } },
+          {
+            type: 'user/message',
+            seq: seq++,
+            time: 2,
+            data: freezeMessage({
+              id: MessageId('window-original'),
+              role: 'user',
+              content: [{ type: 'text', text: 'superseded' }],
+              source: { kind: 'user' },
+            }),
+            surfaceOp: 'append',
+          },
+          { type: 'turn/end', seq: seq++, time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
+        ]
+        const transactionStart = seq
+        log.push({ type: 'turn/start', seq: seq++, time: 4, data: { turn: 2 } })
+        log.push({
+          type: 'user/message',
+          seq: seq++,
+          time: 5,
+          data: freezeMessage({
+            id: MessageId('window-checkpoint'),
+            role: 'user',
+            content: [{ type: 'text', text: 'condensed context' }],
+            source: { kind: 'plugin', plugin: 'compact' },
+          }),
+          surfaceOp: { op: 'replace', start: 1, end: 1 },
+          sourceEventSeqs: [transactionStart, 1],
+        })
+        for (let message = 1; message <= laterMessages; message += 1) {
+          log.push({
+            type: 'user/message',
+            seq: seq++,
+            time: 5 + message,
+            data: freezeMessage({
+              id: MessageId(`window-later-${String(message)}`),
+              role: 'user',
+              content: [{ type: 'text', text: `later ${String(message)}` }],
+              source: { kind: 'user' },
+            }),
+            surfaceOp: 'append',
+          })
+        }
+        log.push({
+          type: 'turn/end',
+          seq: seq++,
+          time: 6 + laterMessages,
+          data: { turn: 2, reason: { kind: 'completed' } },
+        })
+        return log
+      }
+
+      const pageFor = async (laterMessages: number, id: string) => {
+        const { persistence, dispose } = await make()
+        try {
+          const m = meta(id, '/work')
+          await persistence.create(m)
+          await persistence.append(m.id, checkpointedLog(laterMessages))
+          return {
+            ordinary: await persistence.readHistoryPage(m.id, { maxMessages }),
+            preferred: await persistence.readHistoryPage(m.id, {
+              maxMessages,
+              preferLatestCheckpoint: true,
+            }),
+          }
+        } finally {
+          await dispose()
+        }
+      }
+
+      const inWindow = await pageFor(inWindowMessages, 'history-window-inside')
+      // Found: the page starts at the cited transaction start (seq 3), which is
+      // strictly below the ordinary quota page's first event.
+      expect(inWindow.preferred.events[0]!.seq).toBe(3)
+      expect(inWindow.preferred.events[0]!.seq).toBeLessThan(inWindow.ordinary.events[0]!.seq)
+      expect(inWindow.preferred.hasMore).toBe(true)
+
+      const outOfWindow = await pageFor(outOfWindowMessages, 'history-window-outside')
+      // Not found: the checkpoint is past the bounded window, so the preferred
+      // page is exactly the ordinary quota page.
+      expect(outOfWindow.preferred.events.map(event => event.seq))
+        .toEqual(outOfWindow.ordinary.events.map(event => event.seq))
+      expect(outOfWindow.preferred.events[0]!.seq).toBeGreaterThan(3)
+    })
+
+    it('readHistoryPage can stop an initial page at the latest replacement checkpoint transaction', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const m = meta('history-checkpoint', '/work')
+        const checkpoint = freezeMessage({
+          id: MessageId('history-checkpoint-message'),
+          role: 'user',
+          content: [{ type: 'text', text: 'condensed context' }],
+          source: { kind: 'plugin', plugin: 'compact' },
+        })
+        const recent = freezeMessage({
+          id: MessageId('history-checkpoint-recent'),
+          role: 'user',
+          content: [{ type: 'text', text: 'recent prompt' }],
+          source: { kind: 'user' },
+        })
+        const answer = freezeMessage({
+          id: MessageId('history-checkpoint-answer'),
+          role: 'assistant',
+          content: [{ type: 'text', text: 'recent answer' }],
+          source: { kind: 'model', provider: 'mock', model: 'mock' },
+        })
+        const followup = freezeMessage({
+          id: MessageId('history-checkpoint-followup'),
+          role: 'user',
+          content: [{ type: 'text', text: 'followup prompt' }],
+          source: { kind: 'user' },
+        })
+        const followupAnswer = freezeMessage({
+          id: MessageId('history-checkpoint-followup-answer'),
+          role: 'assistant',
+          content: [{ type: 'text', text: 'followup answer' }],
+          source: { kind: 'model', provider: 'mock', model: 'mock' },
+        })
+        const log: SessionEvent[] = [
+          ...oneTurnLog(),
+          { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
+          {
+            type: 'user/message',
+            seq: 7,
+            time: 8,
+            data: checkpoint,
+            surfaceOp: { op: 'replace', start: 1, end: 1 },
+            sourceEventSeqs: [6, 1, 2, 3],
+          },
+          { type: 'user/message', seq: 8, time: 9, data: recent, surfaceOp: 'append' },
+          { type: 'step/start', seq: 9, time: 10, data: { turn: 2, step: 1 } },
+          {
+            type: 'assistant/message',
+            seq: 10,
+            time: 11,
+            data: { turn: 2, step: 1, message: answer },
+            surfaceOp: 'append',
+          },
+          { type: 'step/end', seq: 11, time: 12, data: { turn: 2, step: 1 } },
+          { type: 'turn/end', seq: 12, time: 13, data: { turn: 2, reason: { kind: 'completed' } } },
+          { type: 'turn/start', seq: 13, time: 14, data: { turn: 3 } },
+          { type: 'user/message', seq: 14, time: 15, data: followup, surfaceOp: 'append' },
+          { type: 'step/start', seq: 15, time: 16, data: { turn: 3, step: 1 } },
+          {
+            type: 'assistant/message',
+            seq: 16,
+            time: 17,
+            data: { turn: 3, step: 1, message: followupAnswer },
+            surfaceOp: 'append',
+          },
+          { type: 'step/end', seq: 17, time: 18, data: { turn: 3, step: 1 } },
+          { type: 'turn/end', seq: 18, time: 19, data: { turn: 3, reason: { kind: 'completed' } } },
+        ]
+        await persistence.create(m)
+        await persistence.append(m.id, log)
+
+        const tail = await persistence.readHistoryPage(m.id, {
+          maxMessages: 1,
+          preferLatestCheckpoint: true,
+        })
+        expect(tail.events.map(event => event.seq)).toEqual([
+          6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+        ])
+        expect(tail.hasMore).toBe(true)
+
+        const older = await persistence.readHistoryPage(m.id, {
+          beforeSeq: 6,
+          maxMessages: 50,
+        })
+        expect(older.events.map(event => event.seq)).toEqual([0, 1, 2, 3, 4, 5])
+        expect(older.hasMore).toBe(false)
       } finally {
         await dispose()
       }

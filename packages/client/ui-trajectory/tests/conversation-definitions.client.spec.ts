@@ -88,6 +88,75 @@ function assistantMessage(id: string, text: string) {
 }
 
 describe('Trajectory conversation Definitions', () => {
+  it('replays finalized Assistant history from the final message while preserving timing and streamed usage', () => {
+    const current = snapshot(assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' },
+      }),
+      at(4, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'first token' },
+      }),
+      at(5, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: ' redundant tail' },
+      }),
+      at(6, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'usage', usage: { inputTokens: 10, outputTokens: 3 } },
+      }),
+      at(7, 'assistant/message', {
+        turn: 1,
+        step: 1,
+        message: assistantMessage('assistant-finalized-history', 'finalized body'),
+      }, { surfaceOp: 'append' }),
+      at(8, 'step/end', { turn: 1, step: 1 }),
+    ]))
+
+    expect(current.eventNodes).toMatchObject([{
+      kind: 'assistant',
+      seq: 7,
+      blocks: [{ kind: 'text', text: 'finalized body' }],
+      timing: {
+        stepStartTime: 1_700_000_000_002,
+        firstTokenTime: 1_700_000_000_004,
+        completedTime: 1_700_000_000_007,
+      },
+    }])
+    expect(current.requests).toMatchObject([{
+      purpose: 'assistant',
+      status: 'complete',
+      usage: { inputTokens: 10, outputTokens: 3 },
+    }])
+
+    const boundary = snapshot(assembler([
+      at(20, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' },
+      }),
+      at(21, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: 'first token' },
+      }),
+      at(22, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: ' redundant tail' },
+      }),
+      at(23, 'assistant/message', {
+        turn: 2,
+        step: 1,
+        message: assistantMessage('assistant-boundary-history', 'boundary body'),
+        usage: { inputTokens: 12, outputTokens: 4 },
+      }, { surfaceOp: 'append' }),
+    ]))
+    expect(boundary.eventNodes).toMatchObject([{
+      kind: 'assistant',
+      blocks: [{ kind: 'text', text: 'boundary body' }],
+      usage: { inputTokens: 12, outputTokens: 4 },
+      timing: {
+        stepStartTime: null,
+        firstTokenTime: 1_700_000_000_021,
+        completedTime: 1_700_000_000_023,
+      },
+    }])
+  })
+
   it('assembles streaming usage, preserves retry facts, and materializes interruption', () => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),

@@ -206,6 +206,10 @@ describe('sessions domain schemas', () => {
     expect(() => sessionCreateRequestSchema.parse({ workspaceId: 'w1', cwd: '/w' })).toThrow(/not both/)
     expect(sessionCreateValueSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionHistoryRequestSchema.parse({ sessionId: 's1', beforeSeq: 3, maxMessages: 5 }).beforeSeq).toBe(3)
+    expect(sessionHistoryRequestSchema.parse({ sessionId: 's1', projectionMode: 'omit' }))
+      .toMatchObject({ projectionMode: 'omit' })
+    expect(sessionHistoryRequestSchema.parse({ sessionId: 's1', projectionMode: 'only' }))
+      .toMatchObject({ projectionMode: 'only' })
     expect(() => sessionHistoryRequestSchema.parse({ sessionId: 's1', maxMessages: 0 })).toThrow()
     expect(sessionHistoryRequestSchema.parse({ sessionId: 's1', afterSeq: -1, maxEvents: 5 }).afterSeq).toBe(-1)
     for (const invalid of [
@@ -216,6 +220,9 @@ describe('sessions domain schemas', () => {
       { sessionId: 's1', afterSeq: 0, maxEvents: 0 },
       { sessionId: 's1', afterSeq: 0, maxEvents: 5, beforeSeq: 4 },
       { sessionId: 's1', afterSeq: 0, maxEvents: 5, maxMessages: 2 },
+      { sessionId: 's1', projectionMode: 'only', beforeSeq: 4 },
+      { sessionId: 's1', projectionMode: 'only', maxMessages: 2 },
+      { sessionId: 's1', projectionMode: 'omit', afterSeq: 0, maxEvents: 5 },
     ]) expect(() => sessionHistoryRequestSchema.parse(invalid)).toThrow()
     expect(sessionHistoryValueSchema.parse({
       events: [],

@@ -95,16 +95,17 @@ export function apiRemoteSubagentOwnershipError(sessionId: SessionId): ApiRemote
 export async function inspectApiRemoteSession(
   ctx: Context,
   sessionId: SessionId,
+  signal?: AbortSignal,
 ): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
   const persistence = ctx.get('sessionPersistence')
   if (persistence === undefined) {
     throw new Error('session persistence is not configured (load a dsh-session-persistence backend)')
   }
-  const meta = (await persistence.list()).find(candidate => candidate.id === sessionId)
+  const meta = (await persistence.list(signal)).find(candidate => candidate.id === sessionId)
   if (meta === undefined || meta.cwd === undefined) {
     throw new ApiRemoteSessionNotFound(`session "${sessionId}" not found`)
   }
-  const inspected = await persistence.inspect(sessionId)
+  const inspected = await persistence.inspect(sessionId, signal)
   if (inspected.meta.cwd === undefined) {
     throw new ApiRemoteSessionNotFound(`session "${sessionId}" not found`)
   }
@@ -125,23 +126,24 @@ export async function readApiRemoteSessionHistoryPage(
   ctx: Context,
   sessionId: SessionId,
   request: SessionHistoryPageRequest,
+  signal?: AbortSignal,
 ): Promise<{ meta: SessionHeader; events: SessionEvent[]; hasMore: boolean }> {
   const persistence = ctx.get('sessionPersistence')
   if (persistence === undefined) {
     throw new Error('session persistence is not configured (load a dsh-session-persistence backend)')
   }
-  const meta = (await persistence.list()).find(candidate => candidate.id === sessionId)
+  const meta = (await persistence.list(signal)).find(candidate => candidate.id === sessionId)
   if (meta === undefined || meta.cwd === undefined) {
     throw new ApiRemoteSessionNotFound(`session "${sessionId}" not found`)
   }
   if (typeof persistence.readHistoryPage === 'function') {
-    const page = await persistence.readHistoryPage(sessionId, request)
+    const page = await persistence.readHistoryPage(sessionId, request, signal)
     if (page.meta.cwd === undefined) {
       throw new ApiRemoteSessionNotFound(`session "${sessionId}" not found`)
     }
     return { meta: page.meta, events: page.events, hasMore: page.hasMore }
   }
-  const inspected = await persistence.inspect(sessionId)
+  const inspected = await persistence.inspect(sessionId, signal)
   if (inspected.meta.cwd === undefined) {
     throw new ApiRemoteSessionNotFound(`session "${sessionId}" not found`)
   }

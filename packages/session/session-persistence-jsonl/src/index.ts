@@ -17,7 +17,7 @@ import { randomBytes } from 'node:crypto'
 import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE, DEFAULT_WRITE_BATCH_MAX_DELAY_MS, MAX_WRITE_BATCH_DELAY_MS,
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator, SessionFormatUnsupportedError,
-  paginateSessionHistory,
+  paginateSessionHistory, replacementCheckpointStart, CHECKPOINT_SEARCH_MESSAGE_BUDGET,
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
   type SessionInspection, type SessionPersistenceRevision as PersistenceRevision, type SessionRawArtifact,
   type SessionHistoryPageRequest, type SessionHistoryPage, type StoredHistoryPage, type StoredPrefix,
@@ -69,11 +69,16 @@ async function pageFromReverseRecords(
   let cut = 0
   let lowestSeq = Number.MAX_SAFE_INTEGER
   let complete = false
+  let checkpointCut: number | undefined
+  const searchLimit = request.maxMessages + CHECKPOINT_SEARCH_MESSAGE_BUDGET
   for await (const record of records) {
     selected.unshift(record)
     const first = record[0]
     if (first !== undefined) lowestSeq = Math.min(lowestSeq, first.seq)
-    if (count >= request.maxMessages) {
+    const searching = upper === undefined
+      && request.preferLatestCheckpoint === true
+      && count < searchLimit
+    if (checkpointCut !== undefined || (count >= request.maxMessages && !searching)) {
       complete = lowestSeq <= cut
       if (complete) break
       continue
@@ -81,21 +86,37 @@ async function pageFromReverseRecords(
     for (let index = record.length - 1; index >= 0; index -= 1) {
       const event = record[index] as SessionEvent
       if (upper !== undefined && event.seq >= upper) continue
+      // A checkpoint may sit just past the message quota, so the search passes
+      // it by CHECKPOINT_SEARCH_MESSAGE_BUDGET messages — never to the head.
+      // Searching to the head reverse-decoded whole compaction-free artifacts
+      // (measured 16s+ on a 203k-event log) on every title click.
+      if (upper === undefined && request.preferLatestCheckpoint === true && count < searchLimit) {
+        checkpointCut = replacementCheckpointStart(event)
+        if (checkpointCut !== undefined) {
+          cut = checkpointCut
+          complete = lowestSeq <= cut
+          break
+        }
+      }
       if (event.type !== 'user/message' && event.type !== 'assistant/message') continue
       if (!isAppendSurfaceEvent(event)) continue
       count += 1
+      if (count > request.maxMessages) continue
       const sources = (event as { sourceEventSeqs?: number[] }).sourceEventSeqs
       cut = sources !== undefined && sources.length > 0
         ? Math.min(event.seq, ...sources)
         : event.seq
-      if (count >= request.maxMessages) {
+      if (
+        count >= request.maxMessages
+        && !(upper === undefined && request.preferLatestCheckpoint === true)
+      ) {
         complete = lowestSeq <= cut
         break
       }
     }
     if (complete) break
   }
-  if (count < request.maxMessages) cut = 0
+  if (count < request.maxMessages && checkpointCut === undefined) cut = 0
   return {
     events: selected.flat().filter(event => event.seq >= cut && (upper === undefined || event.seq < upper)),
     hasMore: cut > 0,

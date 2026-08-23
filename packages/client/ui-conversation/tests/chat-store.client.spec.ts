@@ -12,7 +12,13 @@ beforeEach(() => {
 describe('createChatStore', () => {
   it('init shape: empty selection/draft/view', () => {
     const store = createChatStore().create()
-    expect(store.store.getSnapshot()).toEqual({ selection: null, draft: '', view: null, inspect: null })
+    expect(store.store.getSnapshot()).toEqual({
+      selection: null,
+      draft: '',
+      view: null,
+      compactionBoundarySeen: false,
+      inspect: null,
+    })
   })
 
   it('actions cover the declared write set', () => {
@@ -28,6 +34,9 @@ describe('createChatStore', () => {
 
     store.actions.setView('chat')
     expect(store.store.getSnapshot().view).toBe('chat')
+
+    store.actions.markCompactionBoundary()
+    expect(store.store.getSnapshot().compactionBoundarySeen).toBe(true)
 
     store.actions.setInspect({ callId: 'c1' })
     expect(store.store.getSnapshot().inspect).toEqual({ callId: 'c1' })

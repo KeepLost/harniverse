@@ -159,7 +159,8 @@ describe('subagent gateway', () => {
       ok: true,
       value: { hasMore: false, events: [{ event: { type: 'user/message', seq: 0 } }] },
     })
-    expect(inspect).toHaveBeenCalledWith(CHILD)
+    // The trailing argument is the optional cancellation signal, absent here.
+    expect(inspect).toHaveBeenCalledWith(CHILD, undefined)
     expect(restore).toHaveBeenCalledTimes(1)
     expect(getAgent).not.toHaveBeenCalled()
   })

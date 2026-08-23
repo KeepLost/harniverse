@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { MessageId, freezeMessage } from '@deepseek-ai/dsh-llm'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { logPath, scanLog, sessionDir, toHeaderLine, type JsonlCompression } from '../src/format.ts'
 import {
@@ -354,6 +355,77 @@ describe('JsonlSessionPersistence: default Zstandard encoding', () => {
       '',
     ].join('\n'))
     expect((await ctx.sessionPersistence.load(header.id)).events).toEqual(oneTurnLog())
+  })
+
+  // Regression: a preferred initial page used to search for a compaction
+  // checkpoint all the way to the head of the log, so a compaction-free session
+  // reverse-decoded every frame on each title click (16s+ on a 203k-event log,
+  // surfacing as an aborted session.history request). Frame decodes are the
+  // observable proxy for that work.
+  it('a preferred initial page decodes only tail frames when no checkpoint exists', async () => {
+    const root = await freshRoot()
+    const ctx = await mount(root)
+    const header = meta('preferred-bounded-zstd', '/work')
+    await ctx.sessionPersistence.create(header)
+
+    // One frame per append batch: 40 batches make whole-log decoding visible.
+    let seq = 0
+    const batches = 40
+    for (let turn = 1; turn <= batches; turn += 1) {
+      const events: SessionEvent[] = [
+        { type: 'turn/start', seq: seq++, time: seq, data: { turn } },
+        {
+          type: 'user/message',
+          seq: seq++,
+          time: seq,
+          data: freezeMessage({
+            id: MessageId(`bounded-user-${String(turn)}`),
+            role: 'user',
+            content: [{ type: 'text', text: `q${String(turn)}` }],
+            source: { kind: 'user' },
+          }),
+          surfaceOp: 'append',
+        },
+        { type: 'step/start', seq: seq++, time: seq, data: { turn, step: 1 } },
+        {
+          type: 'assistant/message',
+          seq: seq++,
+          time: seq,
+          data: {
+            turn,
+            step: 1,
+            message: freezeMessage({
+              id: MessageId(`bounded-assistant-${String(turn)}`),
+              role: 'assistant',
+              content: [{ type: 'text', text: `a${String(turn)}` }],
+              source: { kind: 'model', provider: 'mock', model: 'mock' },
+            }),
+          },
+          surfaceOp: 'append',
+        },
+        { type: 'step/end', seq: seq++, time: seq, data: { turn, step: 1 } },
+        { type: 'turn/end', seq: seq++, time: seq, data: { turn, reason: { kind: 'completed' } } },
+      ]
+      await ctx.sessionPersistence.append(header.id, events)
+    }
+
+    const buffer = await readFile(logPath(root, header.cwd, header.id, 'zstd'))
+    const totalFrames = scanZstdFrames(buffer).frames.length
+    expect(totalFrames).toBeGreaterThan(20)
+
+    const zstd = await import('../src/zstd.ts')
+    const decodes = vi.spyOn(zstd, 'decompressZstdFrame')
+    try {
+      const page = await ctx.sessionPersistence.readHistoryPage(header.id, {
+        maxMessages: 2,
+        preferLatestCheckpoint: true,
+      })
+      expect(page.hasMore).toBe(true)
+      // Header frame plus a handful of tail frames — never the whole artifact.
+      expect(decodes.mock.calls.length).toBeLessThan(totalFrames / 2)
+    } finally {
+      decodes.mockRestore()
+    }
   })
 
   it('readRaw decodes the compressed artifact back to the original JSONL text', async () => {

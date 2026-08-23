@@ -213,6 +213,8 @@ interface SessionHistoryPageRequest {
   readonly beforeSeq?: number
   /** Maximum number of append-origin user/assistant messages. */
   readonly maxMessages: number
+  /** Stop an initial page at the latest replacement checkpoint transaction. */
+  readonly preferLatestCheckpoint?: boolean
 }
 ```
 
@@ -251,6 +253,8 @@ interface SessionPersistenceSnapshot {
 ## 后端
 
 两者都实现同一个抽象 `SessionPersistence`（在 `SessionEvent` 上执行 locate/create/append/prepare/load/inspect/readFrom/readHistoryPage/list/listSnapshots，观察方法可选支持取消），并通过共享的 `runPersistenceContract` 套件：
+
+初始显示历史请求可以优先采用最近一次 compact 插件 replacement 检查点事务。此模式从检查点事务开始，并返回其后的全部原始事件，不受普通消息配额限制；`hasMore` 与 `beforeSeq` 继续提供对被替代前缀的访问。其他初始请求和更早分页仍遵循普通 append 消息上限。
 
 - **[dsh-session-persistence-jsonl](../../packages/session/session-persistence-jsonl)**——每个会话一份仅追加的逻辑 JSONL 日志，默认存储为带 checksum 的连续 Zstandard frame，也可配置为原始行；支持崩溃安全的原子写入、被中断轮次的恢复以及读取/回放路径。
 - **[dsh-session-persistence-sqlite](../../packages/session/session-persistence-sqlite)**：基于 `node:sqlite`，普通事件使用标量行，相容的 `assistant/chunk` 连续段使用 schema-17 打包物理行。读取方会先重建精确的逻辑流，再应用后缀或历史分页范围；物理上限、压缩、来源编码和修复规则由包 README 定义。

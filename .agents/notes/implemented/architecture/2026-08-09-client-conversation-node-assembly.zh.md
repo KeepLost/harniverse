@@ -59,7 +59,7 @@ start、result、resource、checkpoint 及业务自有终止 Event 必须携带�
 
 #### `ConversationMatch`
 
-匹配成功后，Assembler 把原始 Event、可选的 wire presentation view、`role` 和引擎计算的 `location` 组成只读 `ConversationMatch`。
+匹配成功后，Assembler 把原始 Event、可选的 wire presentation view、`role` 和引擎计算的 `location` 组成只读 `ConversationMatch`。对于批量历史 replace/prepend，Definition 可以通过 `skipHistoryUpdates(events)` 指定已被同一批次后续证据覆盖的 update seq。Assembler 保留这些 Match，只省略该 Definition 自己的 update 与 publication request。未声明该 hook 的 Definition 仍 fold 每条 Match，实时 append 也绝不调用它。Chat 与 Trajectory Assistant Definition 各自拥有 finalized-chunk 分类，并保留计时与用量核算所需的第一条 token delta 和 usage chunk。
 
 Context 的 `matches` 永远按 Event `seq` 升序保存，而不是按网络到达或分页摄入顺序保存。历史尾页先出现 result、older 页后出现 call 时，最终 Match 顺序仍然是 call 在前、result 在后。
 
@@ -128,7 +128,7 @@ Assembler 不以 State 引用相等判断是否需要发布或传播。每次成
 
 省略 `publication()` 等于 `immediate`。Assistant token delta 使用 `animation-frame`，不可见 Inbox Context 使用 `none`，final、依赖 replay 和 Location 边界会以 immediate 路径发布最新结果。
 
-一帧内的每条 delta 仍执行 update；合并的只是 `buildViewNode()`、View Builder 和 React snapshot 通知，不会丢失 token。
+实时帧内的每条 delta 仍执行 update；合并的只是 `buildViewNode()`、View Builder 和 React snapshot 通知。批量历史 replay 时，Definition 自有的 `skipHistoryUpdates()` 策略只能省略该 Definition 的重复 update；每条 Match 仍保留在 Context 中，未声明策略的 Definition 消费完整原始流，interrupted 流则保持活跃。
 
 #### `buildLocationData(context, scope)`
 
@@ -187,8 +187,8 @@ Assembler 还把 reference-stable timeline 交给 View Builder。业务不重复
 1. `Session.open()` 拉取最新 tail page，并把连续 History Entries 交给 `replaceWindow(entries, hasMore)`。
 2. `replaceWindow` 清空旧 Context、start-seq 索引、seq 反向索引、Reader 依赖和输入 Map。
 3. 全部 entries 按 Event `seq` 升序排序并写入当前窗口。
-4. LocationIndex 对这个窗口重建 Turn/Step facts。
-5. Assembler 按升序 Event 逐条调用每个普通 Definition 的 `match(event)`。
+4. LocationIndex 对这个窗口重建 Turn/Step facts；各 Definition 可以计算自己的批次内 skipped-update seq。
+5. Assembler 按升序 Event 逐条调用每个普通 Definition 的 `match(event)`；skipped update 仍进入该 Definition 的有序 Matches，但不执行其 State transition。
 6. 每个命中结果按 `(kind, id)` 取得或创建 Context，并把 Match 插入该 Context 的有序数组。
 7. 遇到 start 时执行 `start()`；已有 State 的尾部 update 直接执行 `update()`。
 8. 当前页只含 result/resource 而缺 start 时，Context 仍会按 ID 创建并收集 Matches，但 State 保持 `undefined`。
@@ -211,7 +211,7 @@ Assembler 还把 reference-stable timeline 交给 View Builder。业务不重复
 4. 已存在的 Context、State、current Nodes 和 View Builder 实例不清空。
 5. LocationIndex 用扩展后的完整输入重建 facts，并报告 Location identity 真正变化的 seq。
 6. 拥有这些 seq 的 Context 更新 Match Location，并从 start replay；无关 Context 不参与 Location replay。
-7. fresh Events 逐条执行 Definition matcher，并按稳定 ID 插入已有或新 Context 的有序 Matches。
+7. fresh Events 逐条执行 Definition matcher，并按稳定 ID 插入已有或新 Context 的有序 Matches；各 Definition 的页内 skipped-update 集合只作用于自己的 State replay。
 8. 新页补出 pending Context 的 start 时，该 Context 从 start 初始化，再正序应用已经收集的所有 updates。
 9. 新页建立更近的 Reader predecessor、改变 predecessor revision 或消除 window gap 时，消费者从 `start()` 重算。
 10. Reader 依赖沿 start seq 向后传递 replay；同一传播批次不会把 Event 逆序应用。
@@ -357,7 +357,7 @@ Slot type/runtime tests 固定父注册必须提供声明的 common inject、`ho
 
 Assembled Web snapshot、GUI 和浏览器场景覆盖真实 plugin graph。浏览器证据比较 Assistant streaming→settled、Bash running→settled 以及 Code Mode root + nested subcalls 与 master 的布局。
 
-历史链路验证同时覆盖完整 replace、非重叠 prepend、重叠 seq 去重、空页 `hasMore` 收敛和 live append。相同 Event 窗口通过不同摄入路径得到相同业务 State 与最终 Node。
+历史链路验证同时覆盖完整 replace、非重叠 prepend、重叠 seq 去重、空页 `hasMore` 收敛、registry rebuild、页边界 fallback 和 live append；还证明 Definition 自有 skip 保留每条 Match、不影响未声明策略的 Definition、保留 Assistant 第一条 token 计时与 usage，并使 interrupted/live 流保持活跃。相同 Event 窗口通过不同摄入路径得到相同业务 State 与最终 Node。手动 Web 性能通道固定配套的[压缩优先冷历史路径](2026-08-22-compaction-first-session-history.md)：500 轮冷 Session 压缩到第 496 轮，尾部 24 轮各自保留恰好 400 个 delta chunk，返回检查点和压缩后四轮且不自动加载更早页面，从点击标题到进入 DOM 实测 712.7 ms。
 
 ## 考虑过的替代方案
 
@@ -389,6 +389,8 @@ Assembled Web snapshot、GUI 和浏览器场景覆盖真实 plugin graph。浏�
 
 **把 running Assistant 或 Tool 保留在独立 tail container。** 拒绝：结算时会跨 React parent 移动，稳定业务 key 也无法阻止 remount。统一 keyed order 允许 data 和排序位置改变，但不改变 Seat identity。
 
+**从后向历史响应中删除已定稿 Assistant chunk。** 拒绝：这样会缩小传输体积，却会悄然让插件 Definition 丢失原始 Match，也会使展示分页语义偏离权威 Event 窗口。Definition 自有 replay 策略保留全部 wire Event，只允许显式采用策略的 Definition 跳过重复 State 构建。
+
 ## 后果
 
 新增业务节点可以局部注册自己的 matcher、State 转换、可选 Location data、最终 target Node 和 renderer，不再修改 Session 的业务 switch。`ChatNodeDataMap` 和 Location data maps 允许业务 package 通过 declaration merging 合入强类型 data；所有相关 Event 仍须暴露可单 Event 推导的稳定 ID。
@@ -399,7 +401,7 @@ Host 业务 package 把自己的持久 Event 成员 declaration-merge 到 `@deep
 
 Append 不扫描历史 Context；prepend 只 replay Match、Location 或 Reader 答案真正受影响的 Context。Chat 结构变化仍可能重算 visible order 和索引，但不会重跑无关业务 fold 或替换未变化 Node identity。
 
-State 更新与发布频率分离后，Assistant 每条 delta 都被 fold，同时每 animation frame 最多 materialize 一次。step/turn close 和 final 可立即发布最新 State。
+State 更新与发布频率分离后，每条实时或未结算 Assistant delta 都会被 fold，同时每 animation frame 最多 materialize 一次。批量历史会标记已定稿 chunk，使内建 Chat 与 Trajectory Definition 避免重复的 immutable 字符串重建，同时保留 first-token timing、usage 核算，并让插件继续访问每条 Match。step/turn close 和 final 可立即发布最新 State。
 
 Step/Turn 成为业务间共享聚合的稳定宿主。Turn Tail 和 Deliverables 不再依赖 renderer 扫描全局 Nodes；Slot-level `useTurnData()` 把常见读取限制到当前 Node 所属 Turn，并通过 selector equality 隔离无关更新。
 

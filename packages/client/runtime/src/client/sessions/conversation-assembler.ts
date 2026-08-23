@@ -29,6 +29,7 @@ interface InternalContext {
   revision: number
   readonly current: Map<string, ConversationViewNode | null>
   readonly locationData: Record<ConversationLocationDataScope, ConversationLocationData | null>
+  readonly skippedHistoryUpdates: Set<number>
   dependencies: Map<string, Dependency>
 }
 
@@ -36,6 +37,7 @@ interface PendingMatch {
   readonly definition: ConversationNodeDefinition
   readonly id: string
   readonly match: ConversationMatch
+  readonly skipUpdate: boolean
 }
 
 interface ViewState {
@@ -178,7 +180,8 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     for (const entry of sorted) this.inputs.set(entry.event.seq, entry)
     this.locationIndex.rebuild(sorted)
     this.timelineDirty = true
-    for (const entry of sorted) this.matchInput(entry)
+    const historySkips = this.historyUpdateSkips(sorted)
+    for (const entry of sorted) this.matchInput(entry, historySkips)
     this.replayDependencies()
     this.revised.clear()
     for (const context of this.contexts.values()) this.dirty.add(context)
@@ -234,8 +237,12 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     if (this.locationIndex.snapshot() !== previousTimeline) this.timelineDirty = true
     const affected = this.refreshMatchLocations(changedLocations)
     const pending = new Map<string, PendingMatch[]>()
+    const historySkips = this.historyUpdateSkips(fresh)
     for (const entry of fresh) {
-      publication = maximumPublication(publication, this.collectInput(entry, pending))
+      publication = maximumPublication(
+        publication,
+        this.collectInput(entry, pending, historySkips),
+      )
     }
     this.applyPendingMatches(pending, affected)
     this.replayContexts(affected)
@@ -334,14 +341,38 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     return [...this.inputs.values()].sort((left, right) => left.event.seq - right.event.seq)
   }
 
-  private matchInput(input: ConversationEventInput): ConversationPublication {
-    return this.dispatchInput(input, (definition, id, role) =>
-      this.acceptMatch(definition, id, role, input))
+  private historyUpdateSkips(
+    entries: readonly ConversationEventInput[],
+  ): ReadonlyMap<ConversationNodeDefinition, ReadonlySet<number>> {
+    const events = entries.map(entry => entry.event)
+    const definitions = [...this.eventDefinitions.entries()]
+    const fallback = this.eventDefinitions.fallbackEntry()
+    if (fallback !== undefined && !definitions.includes(fallback)) definitions.push(fallback)
+    const result = new Map<ConversationNodeDefinition, ReadonlySet<number>>()
+    for (const definition of definitions) {
+      const skipped = definition.skipHistoryUpdates?.(events)
+      if (skipped !== undefined && skipped.size > 0) result.set(definition, skipped)
+    }
+    return result
+  }
+
+  private matchInput(
+    input: ConversationEventInput,
+    historySkips?: ReadonlyMap<ConversationNodeDefinition, ReadonlySet<number>>,
+  ): ConversationPublication {
+    return this.dispatchInput(input, (definition, id, role) => this.acceptMatch(
+      definition,
+      id,
+      role,
+      input,
+      role === 'update' && historySkips?.get(definition)?.has(input.event.seq) === true,
+    ))
   }
 
   private collectInput(
     input: ConversationEventInput,
     pending: Map<string, PendingMatch[]>,
+    historySkips: ReadonlyMap<ConversationNodeDefinition, ReadonlySet<number>>,
   ): ConversationPublication {
     return this.dispatchInput(input, (definition, id, role) => {
       const key = conversationContextKey(definition.kind, id)
@@ -350,10 +381,12 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
         role,
         location: this.locationIndex.locationOf(input.event),
       }
+      const skipUpdate = role === 'update'
+        && historySkips.get(definition)?.has(input.event.seq) === true
       const matches = pending.get(key) ?? []
-      matches.push({ definition, id, match })
+      matches.push({ definition, id, match, skipUpdate })
       pending.set(key, matches)
-      return definition.publication?.(match) ?? 'immediate'
+      return skipUpdate ? 'none' : definition.publication?.(match) ?? 'immediate'
     })
   }
 
@@ -389,6 +422,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     id: string,
     role: ConversationMatch['role'],
     input: ConversationEventInput,
+    skipUpdate = false,
   ): ConversationPublication {
     const key = conversationContextKey(definition.kind, id)
     let context = this.contexts.get(key)
@@ -408,6 +442,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
         revision: 0,
         current: new Map(),
         locationData: emptyLocationData(),
+        skippedHistoryUpdates: new Set(),
         dependencies: new Map(),
       }
       this.contexts.set(key, context)
@@ -425,6 +460,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
       throw new Error(`conversation Context ${key} received an update before its start Match`)
     }
     context.matches.push(match)
+    if (skipUpdate) context.skippedHistoryUpdates.add(input.event.seq)
     if (role === 'start') {
       context.startSeq = input.event.seq
       context.start = match
@@ -436,14 +472,14 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
 
     if (role === 'start') {
       this.replayContext(context)
-    } else if (context.state !== undefined) {
+    } else if (context.state !== undefined && !skipUpdate) {
       const typed = contextSnapshot(context) as ConversationNodeContext & { readonly state: unknown }
       context.state = requireState(definition, 'update', definition.update(typed, match))
       context.revision++
       this.revised.add(context)
     }
     this.dirty.add(context)
-    return definition.publication?.(match) ?? 'immediate'
+    return skipUpdate ? 'none' : definition.publication?.(match) ?? 'immediate'
   }
 
   private applyPendingMatches(
@@ -468,6 +504,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
           revision: 0,
           current: new Map(),
           locationData: emptyLocationData(),
+          skippedHistoryUpdates: new Set(),
           dependencies: new Map(),
         }
         this.contexts.set(key, context)
@@ -487,6 +524,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
           const owners = this.contextsBySeq.get(entry.match.event.seq) ?? new Set<InternalContext>()
           owners.add(context)
           this.contextsBySeq.set(entry.match.event.seq, owners)
+          if (entry.skipUpdate) context.skippedHistoryUpdates.add(entry.match.event.seq)
           return entry.match
         })
         .sort((left, right) => left.event.seq - right.event.seq)
@@ -541,6 +579,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     for (let index = 1; index < context.matches.length; index++) {
       const match = context.matches[index]
       if (match === undefined || match.role !== 'update') continue
+      if (context.skippedHistoryUpdates.has(match.event.seq)) continue
       const typed = contextSnapshot(context) as ConversationNodeContext & { readonly state: unknown }
       context.state = requireState(
         context.definition,

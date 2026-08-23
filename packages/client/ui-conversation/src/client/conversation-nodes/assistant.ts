@@ -182,8 +182,10 @@ function finalNode(
 
 function fallbackState(context: ConversationNodeContext<AssistantState>): AssistantState | undefined {
   let state: AssistantState | undefined
+  const skipped = settledAssistantHistoryUpdates(context.matches.map(match => match.event))
   for (const match of context.matches) {
     if (match.event.type === 'assistant/chunk') {
+      if (skipped.has(match.event.seq)) continue
       state ??= initialState(match.event.data.turn, match.event.data.step)
       state = updateChunk(state, match)
       continue
@@ -240,6 +242,32 @@ function projectAssistant(context: ConversationNodeContext<AssistantState>): Ass
   }
 }
 
+function settledAssistantHistoryUpdates(
+  events: readonly ConversationMatch['event'][],
+): ReadonlySet<number> {
+  const finalized = new Map<string, number>()
+  for (const event of events) {
+    if (event.type === 'assistant/message' && event.surfaceOp === 'append') {
+      finalized.set(`${String(event.data.turn)}:${String(event.data.step)}`, event.seq)
+    }
+  }
+  const firstToken = new Set<string>()
+  const skipped = new Set<number>()
+  for (const event of events) {
+    if (event.type !== 'assistant/chunk') continue
+    const key = `${String(event.data.turn)}:${String(event.data.step)}`
+    const finalSeq = finalized.get(key)
+    if (finalSeq === undefined || event.seq >= finalSeq) continue
+    if (event.data.chunk.type === 'usage') continue
+    if (isTokenDelta(event.data.chunk) && !firstToken.has(key)) {
+      firstToken.add(key)
+      continue
+    }
+    skipped.add(event.seq)
+  }
+  return skipped
+}
+
 /** Per-step Assistant streaming/final/interruption Definition. */
 export const assistantDefinition: ConversationNodeDefinition<AssistantState> = {
   kind: 'assistant-step',
@@ -255,12 +283,15 @@ export const assistantDefinition: ConversationNodeDefinition<AssistantState> = {
     }
     return null
   },
+  skipHistoryUpdates: settledAssistantHistoryUpdates,
   start: (_context, match) => {
     if (match.event.type !== 'step/start') throw new Error('assistant-step start requires step/start')
     return initialState(match.event.data.turn, match.event.data.step)
   },
   update: (context, match) => {
-    if (match.event.type === 'assistant/chunk') return updateChunk(context.state, match)
+    if (match.event.type === 'assistant/chunk') {
+      return updateChunk(context.state, match)
+    }
     if (match.event.type === 'assistant/message') {
       return {
         ...context.state,

@@ -213,6 +213,8 @@ interface SessionHistoryPageRequest {
   readonly beforeSeq?: number
   /** Maximum number of append-origin user/assistant messages. */
   readonly maxMessages: number
+  /** Stop an initial page at the latest replacement checkpoint transaction. */
+  readonly preferLatestCheckpoint?: boolean
 }
 ```
 
@@ -251,6 +253,8 @@ interface SessionPersistenceSnapshot {
 ## The backends
 
 Both implement the same abstract `SessionPersistence` (locate/create/append/prepare/load/inspect/readFrom/readHistoryPage/list/listSnapshots over `SessionEvent`, with optional cancellation on observation methods) and pass the shared `runPersistenceContract` suite:
+
+An initial display-history request can prefer the latest compact-plugin replacement checkpoint transaction. In that mode the page starts at the checkpoint transaction and includes every later raw event regardless of the ordinary message quota; `hasMore` and `beforeSeq` retain access to the superseded prefix. Other initial and older-page requests keep the ordinary append-message bound.
 
 - **[dsh-session-persistence-jsonl](../../packages/session/session-persistence-jsonl)** — an append-only logical JSONL log per session, stored as checksummed concatenated Zstandard frames by default or raw lines by configuration, with crash-safe atomic writes, interrupted-turn recovery, and a read/replay path.
 - **[dsh-session-persistence-sqlite](../../packages/session/session-persistence-sqlite)** — `node:sqlite`, with scalar rows for ordinary events and schema-17 packed physical rows for compatible `assistant/chunk` runs. Reads reconstruct the exact logical stream before applying suffix or history-page bounds; the package README owns the physical limits, compression, provenance encoding, and repair rules.

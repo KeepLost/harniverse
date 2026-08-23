@@ -144,7 +144,7 @@ function TurnStatus({ startTime, t }: {
  * ordered business Node crosses the keyed renderer seat.
  */
 export function ChatView({
-  useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt,
+  useSession, useSessions, useStore, actions, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt,
   fileMentions, t,
 }: ChatViewSlotProps) {
   const order = useSession(s => s.chat.order)
@@ -159,6 +159,7 @@ export function ChatView({
   const hasMore = useSession(s => s.hasMore)
   const loadingOlder = useSession(s => s.loadingOlder)
   const selectedCallId = useStore(s => s.selection?.callId)
+  const compactionBoundarySeen = useStore(s => s.compactionBoundarySeen ?? false)
 
   const pendingSteering = useMemo(
     () => inbox.filter(item => item.placement === 'steering'),
@@ -186,9 +187,12 @@ export function ChatView({
   const followSigRef = useRef<string | null>(null)
 
   const firstKey = order[0]
-  const firstSeq = firstKey === undefined ? null : nodeStore.get(firstKey)?.anchorSeq ?? null
+  const firstNode = firstKey === undefined ? undefined : nodeStore.get(firstKey)
+  const firstSeq = firstNode?.anchorSeq ?? null
   const lastKey = order.at(-1) ?? null
   const lastNode = lastKey === null ? undefined : nodeStore.get(lastKey)
+  const startsAtCompaction = firstNode?.kind === 'compaction' || firstNode?.kind === 'manual-compaction'
+  const keepsCompactedHistoryManual = compactionBoundarySeen || startsAtCompaction
   const lastSteeringId = pendingSteering[pendingSteering.length - 1]?.id ?? null
   const followSig = `${openState}:${firstSeq}:${lastKey}:${order.length}:${running ? 1 : 0}:${lastSteeringId ?? ''}`
 
@@ -347,6 +351,11 @@ export function ChatView({
     if (!loadingOlder) anchorRef.current = null
   }, [loadingOlder])
 
+  useEffect(() => {
+    if (!startsAtCompaction || compactionBoundarySeen) return
+    actions.markCompactionBoundary()
+  }, [actions, compactionBoundarySeen, startsAtCompaction])
+
   const loadOlderAnchored = (): void => {
     const local = listRef.current
     /* v8 ignore next -- ref-null guard: the paging button renders inside the list tree. */
@@ -370,11 +379,16 @@ export function ChatView({
     const scrollport = listRef.current === null ? null : scrollerOf(listRef.current)
     if (boundary === null || scrollport === null || typeof IntersectionObserver === 'undefined') return
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some(entry => entry.isIntersecting) && hasMore && !loadingOlder) loadOlderAnchored()
+      if (
+        entries.some(entry => entry.isIntersecting)
+        && hasMore
+        && !loadingOlder
+        && !keepsCompactedHistoryManual
+      ) loadOlderAnchored()
     }, { root: scrollport, rootMargin: '400px 0px' })
     observer.observe(boundary)
     return () => { observer.disconnect() }
-  }, [hasMore, loadingOlder, loadOlder])
+  }, [hasMore, loadingOlder, loadOlder, keepsCompactedHistoryManual])
 
   return (
     <div className={css.root}>

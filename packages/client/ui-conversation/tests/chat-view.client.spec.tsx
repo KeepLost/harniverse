@@ -1230,6 +1230,61 @@ describe('ChatView', () => {
     expect(view.getByText('加载中…')).toBeTruthy()
   })
 
+  it('keeps automatic and manual compacted history manual while preserving ordinary boundary prefetch', () => {
+    let intersect: (() => void) | undefined
+    class IntersectionObserverStub {
+      constructor(callback: IntersectionObserverCallback) {
+        intersect = () => {
+          callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver)
+        }
+      }
+      observe(): void {}
+      disconnect(): void {}
+    }
+    vi.stubGlobal('IntersectionObserver', IntersectionObserverStub)
+
+    const ordinary = makeHarness({ nodes: [user(9, 'recent')], hasMore: true })
+    const manual = makeHarness({
+      nodes: [
+        command({
+          seq: 6,
+          name: 'compact',
+          outcome: { kind: 'success', text: 'compacted', sourceEventSeq: 7 },
+        }),
+        compaction(),
+        user(9, 'recent'),
+      ],
+      hasMore: true,
+    })
+    const compacted = makeHarness({ nodes: [compaction(), user(9, 'recent')], hasMore: true })
+    const compactedView = render(<compacted.ChatView {...compacted.props} />)
+    act(() => { intersect?.() })
+    expect(compacted.loadOlder).not.toHaveBeenCalled()
+    fireEvent.click(compactedView.getByText('加载更早'))
+    expect(compacted.loadOlder).toHaveBeenCalledTimes(1)
+    act(() => { compacted.set({ nodes: [user(1, 'older'), compaction(), user(9, 'recent')] }) })
+    act(() => { intersect?.() })
+    expect(compacted.loadOlder).toHaveBeenCalledTimes(1)
+    compactedView.rerender(<div />)
+    compactedView.rerender(<compacted.ChatView {...compacted.props} />)
+    act(() => { intersect?.() })
+    expect(compacted.loadOlder).toHaveBeenCalledTimes(1)
+    fireEvent.click(compactedView.getByText('加载更早'))
+    expect(compacted.loadOlder).toHaveBeenCalledTimes(2)
+    compactedView.unmount()
+
+    const manualView = render(<manual.ChatView {...manual.props} />)
+    act(() => { intersect?.() })
+    expect(manual.loadOlder).not.toHaveBeenCalled()
+    fireEvent.click(manualView.getByText('加载更早'))
+    expect(manual.loadOlder).toHaveBeenCalledTimes(1)
+    manualView.unmount()
+
+    render(<ordinary.ChatView {...ordinary.props} />)
+    act(() => { intersect?.() })
+    expect(ordinary.loadOlder).toHaveBeenCalledTimes(1)
+  })
+
   it('shows open error and loading states', () => {
     const h = makeHarness({
       openState: 'error',

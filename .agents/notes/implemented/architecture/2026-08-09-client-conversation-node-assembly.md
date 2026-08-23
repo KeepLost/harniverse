@@ -59,7 +59,7 @@ The `role` describes the State lifecycle, not visibility. A start may produce a 
 
 #### `ConversationMatch`
 
-After a successful match, the Assembler combines the raw Event, optional wire presentation view, `role`, and engine-computed `location` into a read-only `ConversationMatch`.
+After a successful match, the Assembler combines the raw Event, optional wire presentation view, `role`, and engine-computed `location` into a read-only `ConversationMatch`. For batch history replace/prepend, a Definition may use `skipHistoryUpdates(events)` to name update seqs whose State transition is superseded by later evidence in that same batch. The Assembler retains those Matches but omits only that Definition's update and publication request. Definitions without the hook still fold every Match, and live append never invokes it. The Chat and Trajectory Assistant Definitions own their finalized-chunk classifiers and retain the first token delta and usage chunks needed for timing and accounting.
 
 A Context's `matches` always remain in ascending Event `seq` order, not network arrival or pagination ingestion order. If a tail page supplies a result before an older page supplies its call, the final Match order still places the call before the result.
 
@@ -128,7 +128,7 @@ The Assembler does not use State reference equality to decide publication or pro
 
 Omitting `publication()` means `immediate`. Assistant token deltas use `animation-frame`, invisible Inbox Contexts use `none`, and finals, dependency replays, and Location boundaries publish the latest result through an immediate path.
 
-Every delta within a frame still executes update. Only `buildViewNode()`, View Builder work, and React snapshot notification are coalesced; no tokens are lost.
+Every delta within a live frame still executes update. Only `buildViewNode()`, View Builder work, and React snapshot notification are coalesced. During batch history replay, a Definition-owned `skipHistoryUpdates()` policy may suppress redundant updates for that Definition alone; every Match remains available in its Context, Definitions without the policy consume the complete raw stream, and interrupted streams remain active.
 
 #### `buildLocationData(context, scope)`
 
@@ -187,8 +187,8 @@ The Assembler also passes a reference-stable timeline to each View Builder. Busi
 1. `Session.open()` loads the latest tail page and passes its contiguous History Entries to `replaceWindow(entries, hasMore)`.
 2. `replaceWindow` clears old Contexts, start-seq indexes, seq reverse indexes, Reader dependencies, and the input Map.
 3. It sorts every entry by Event `seq` and stores the resulting current window.
-4. LocationIndex rebuilds Turn and Step facts for that window.
-5. The Assembler visits Events in ascending order and invokes every ordinary Definition's `match(event)`.
+4. LocationIndex rebuilds Turn and Step facts for that window, and each Definition may compute its own batch-local skipped-update seqs.
+5. The Assembler visits Events in ascending order and invokes every ordinary Definition's `match(event)`; skipped updates still enter that Definition's ordered Matches without running its State transition.
 6. Each result gets or creates its `(kind, id)` Context and enters that Context's ordered Match array.
 7. A start runs `start()`; a tail update on initialized State runs `update()` directly.
 8. If the page contains only a result or resource and omits its start, the ID still creates a Context and collects Matches, while State remains `undefined`.
@@ -211,7 +211,7 @@ If an update with the same ID is genuinely earlier than the start in log order, 
 4. Existing Contexts, State, current Nodes, and View Builder instances remain intact.
 5. LocationIndex rebuilds facts over the expanded complete input and reports seqs whose Location identity actually changed.
 6. Contexts owning those seqs update their Match Locations and replay from start; unrelated Contexts do not join Location replay.
-7. Fresh Events run Definition matchers and enter existing or new Contexts by stable ID.
+7. Fresh Events run Definition matchers and enter existing or new Contexts by stable ID; each Definition's page-local skipped-update set applies only to its own State replay.
 8. If the new page supplies a pending Context's start, that Context initializes from the start and then applies every already-collected update in ascending order.
 9. If the page establishes a nearer Reader predecessor, changes a predecessor revision, or removes a window gap, the consumer recomputes from `start()`.
 10. Reader dependencies propagate replay toward later start seqs; no Event is applied in reverse within the propagation batch.
@@ -357,7 +357,7 @@ Slot type/runtime tests pin required parent-provided common inject, the `hookCon
 
 Assembled Web snapshots, GUI tests, and browser scenarios cover the real plugin graph. Browser evidence compares Assistant streaming→settled, Bash running→settled, and Code Mode root + nested subcalls against master layout.
 
-History-path tests cover complete replace, non-overlapping prepend, overlapping-seq deduplication, empty-page `hasMore` convergence, and live append. Equal Event windows ingested through different paths produce equal business State and final Nodes.
+History-path tests cover complete replace, non-overlapping prepend, overlapping-seq deduplication, empty-page `hasMore` convergence, registry rebuild, page-boundary fallback, and live append. They prove that Definition-owned skips retain every Match, leave Definitions without a policy untouched, preserve Assistant first-token timing and usage, and leave interrupted and live streams active. Equal Event windows ingested through different paths produce equal business State and final Nodes. The manual Web performance lane pins the companion [compaction-first cold-history path](2026-08-22-compaction-first-session-history.md): a 500-turn cold Session compacted through turn 496 retains exactly 400 delta chunks in each of the tail 24 turns, returns the checkpoint and four post-checkpoint turns without automatic older paging, and measures 712.7 ms from title click to DOM visibility.
 
 ## Alternatives considered
 
@@ -389,6 +389,8 @@ History-path tests cover complete replace, non-overlapping prepend, overlapping-
 
 **Keep running Assistant or Tool values in an independent tail container.** Rejected: settlement would move them across React parents, and a stable business key could not prevent remount. One keyed order permits data and position changes without changing Seat identity.
 
+**Drop finalized Assistant chunks from backward history responses.** Rejected: it would shrink transfer size but silently remove raw Matches from plugin Definitions and make display paging semantics differ from the authoritative Event window. Definition-owned replay policies preserve every wire Event and let only an opting-in Definition skip redundant State construction.
+
 ## Consequences
 
 A new business node can register its matcher, State transitions, optional Location data, final target Node, and renderer locally without changing Session's business switch. `ChatNodeDataMap` and the Location data maps let a business package merge strongly typed data into the contract; every related Event must still expose a stable ID derivable from that Event alone.
@@ -399,7 +401,7 @@ Initial tail, older prepend, and live append share one set of Context invariants
 
 Append does not scan historical Contexts; prepend replays only Contexts whose Matches, Locations, or Reader answers actually changed. A structural Chat change may still recompute visible order and indexes, but does not rerun unrelated business folds or replace unchanged Node identity.
 
-Separating State updates from publication cadence folds every Assistant delta while materializing at most once per animation frame. Step or Turn close and final Events can immediately publish the latest State.
+Separating State updates from publication cadence folds every live or interrupted Assistant delta while materializing at most once per animation frame. Batch history marks finalized chunks so built-in Chat and Trajectory Definitions avoid repeated immutable string reconstruction, while first-token timing, usage accounting, and plugin access to every Match remain intact. Step or Turn close and final Events can immediately publish the latest State.
 
 Steps and Turns become stable homes for cross-business aggregates. Turn Tail and Deliverables no longer depend on renderers scanning global Nodes; slot-level `useTurnData()` narrows common reads to the current Node's Turn and uses selector equality to isolate unrelated updates.
 

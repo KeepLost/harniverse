@@ -59,7 +59,9 @@ export type {
   StoredPrefix,
   StoredSuffix,
 } from './coordinator.ts'
-export { paginateSessionHistory } from './history.ts'
+export {
+  CHECKPOINT_SEARCH_MESSAGE_BUDGET, paginateSessionHistory, replacementCheckpointStart,
+} from './history.ts'
 export type { SessionHistoryPage, SessionHistoryPageRequest } from './history.ts'
 
 declare module '@deepseek-ai/cordis' {

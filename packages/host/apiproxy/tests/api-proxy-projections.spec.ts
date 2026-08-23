@@ -87,6 +87,122 @@ describe('session.history projections block', () => {
     expect(events.at(-1)?.event.seq).toBe(projections?.asOfSeq)
   })
 
+  it('serves history and projections independently for non-blocking session open', async () => {
+    const { ctx, session } = await harness(true)
+    ctx.sessionProjections.register(lastUserUnit())
+    seedMessages(session, 3)
+    const proxy = api(ctx)
+
+    const history = await proxy.sessions.history(request({
+      sessionId: session.id,
+      projectionMode: 'omit',
+    } as never))
+    expect(history.result.ok).toBe(true)
+    if (!history.result.ok) throw new Error('unreachable')
+    expect(history.result.value.events).toHaveLength(3)
+    expect('projections' in history.result.value).toBe(false)
+
+    const baseline = await proxy.sessions.history(request({
+      sessionId: session.id,
+      projectionMode: 'only',
+    } as never))
+    expect(baseline.result.ok).toBe(true)
+    if (!baseline.result.ok) throw new Error('unreachable')
+    expect(baseline.result.value.events).toEqual([])
+    expect(baseline.result.value.hasMore).toBe(false)
+    expect(baseline.result.value.projections).toMatchObject({
+      asOfSeq: session.seq - 1,
+      values: { 'test/last-user': { text: 'm2' } },
+    })
+  })
+
+  it('restores a cold projection-only baseline without reading a history page', async () => {
+    const { ctx } = await harness(true)
+    const coldId = SessionId('session-cold-projection-only')
+    const readHistoryPage = vi.fn(() => Promise.reject(new Error('history page must not be read')))
+    const inspect = vi.fn(() => Promise.reject(new Error('cache hit must not inspect')))
+    const controller = new AbortController()
+    ctx.provide('sessionPersistence', {
+      list: async (signal?: AbortSignal) => {
+        expect(signal).toBe(controller.signal)
+        return [{ version: 0, id: coldId, createdAt: 5, cwd: '/tmp' }]
+      },
+      readHistoryPage,
+      inspect,
+    } as never)
+    const coldSnapshot = vi.fn((_id: SessionId, signal?: AbortSignal) => {
+      expect(signal).toBe(controller.signal)
+      return Promise.resolve({ asOfSeq: 7, values: { 'test/last-user': { text: 'cached' } } })
+    })
+    ctx.provide('sessionProjectionCache', { coldSnapshot } as never)
+
+    const response = await api(ctx).sessions.history(request({
+      sessionId: coldId,
+      projectionMode: 'only',
+    } as never), controller.signal)
+
+    expect(response.result).toMatchObject({
+      ok: true,
+      value: {
+        events: [],
+        hasMore: false,
+        projections: { asOfSeq: 7, values: { 'test/last-user': { text: 'cached' } } },
+      },
+    })
+    expect(coldSnapshot).toHaveBeenCalledTimes(1)
+    expect(readHistoryPage).not.toHaveBeenCalled()
+    expect(inspect).not.toHaveBeenCalled()
+  })
+
+  // Without a registry the capability is absent, so the block is omitted rather
+  // than synthesized empty: an empty baseline would clear every client
+  // projection row at or below its asOfSeq (`ProjectionValueStore.seed` treats an
+  // omitted key as capability-absent), including the sidebar title.
+  it('omits the projection block from a projection-only response when no registry is mounted', async () => {
+    const { ctx, session } = await harness(false)
+    seedMessages(session, 2)
+
+    const response = await api(ctx).sessions.history(request({
+      sessionId: session.id,
+      projectionMode: 'only',
+    } as never))
+
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) throw new Error('unreachable')
+    expect(response.result.value.events).toEqual([])
+    expect(response.result.value.hasMore).toBe(false)
+    expect('projections' in response.result.value).toBe(false)
+  })
+
+  it('forwards projection-only cancellation into a cold inspection fallback', async () => {
+    const { ctx } = await harness(true)
+    const coldId = SessionId('session-cold-projection-cancel')
+    const controller = new AbortController()
+    let inspectSignal: AbortSignal | undefined
+    ctx.provide('sessionPersistence', {
+      list: async () => [{ version: 0, id: coldId, createdAt: 5, cwd: '/tmp' }],
+      inspect: (_id: SessionId, signal?: AbortSignal) => {
+        inspectSignal = signal
+        return new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => {
+            reject(signal.reason instanceof Error ? signal.reason : new Error('inspection cancelled'))
+          }, { once: true })
+        })
+      },
+    } as never)
+
+    const pending = api(ctx).sessions.history(request({
+      sessionId: coldId,
+      projectionMode: 'only',
+    } as never), controller.signal)
+    await vi.waitFor(() => { expect(inspectSignal).toBe(controller.signal) })
+    controller.abort(new Error('test cancellation'))
+    const response = await pending
+
+    expect(response.result.ok).toBe(false)
+    expect(inspectSignal?.aborted).toBe(true)
+  })
+
   it('publishes the attachments imageLimits as a constant unit while both seams are composed', async () => {
     const { ctx, session } = await harness(true)
     const limits = {
