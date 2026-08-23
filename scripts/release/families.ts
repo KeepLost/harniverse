@@ -11,6 +11,10 @@
 
 import { globSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import {
+  harniverseClientBuildEnvironment,
+  readClientBuildRecord,
+} from '../client-build-environment.ts'
 import { validateTarballPayload } from '../publication-payload.ts'
 
 /** Installed dependencies constrain publication absolutely. */
@@ -78,6 +82,9 @@ export abstract class ReleaseFamily {
 
   /** Git tag prefix this family publishes from. */
   abstract readonly tagPrefix: string
+
+  /** Assert that built artifacts match this release family's required profile. */
+  verifyBuildArtifacts(_root: string): void {}
 
   /**
    * Discover this family's members.
@@ -238,6 +245,11 @@ class DshFamily extends ReleaseFamily {
   readonly id = 'dsh'
   readonly patterns = ['packages/*/*/package.json', 'apps/*/package.json'] as const
   readonly tagPrefix = 'dsh-v'
+
+  /** Require current artifacts from a complete Harniverse client build. */
+  override verifyBuildArtifacts(root: string): void {
+    readClientBuildRecord(root, harniverseClientBuildEnvironment(root))
+  }
 
   /**
    * Require one version across the family, the way a single tag can name it.
