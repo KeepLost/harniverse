@@ -188,6 +188,9 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `87ffb7eb28` | Negotiates `content-encoding` for buffered Host `/api` replies (Brotli, else gzip, else verbatim; `q=0` refused) on the zlib thread pool with Brotli quality pinned below its default, buffering only `application/json` so event streams and the streaming session-log ZIP export keep their incremental delivery. The transport-agnostic Fetch handler is unchanged. |
 | `57db49dcf0` | Keeps cold-session command discovery and model-directory observation off Agent resume: discovery applies scoped shadows only for an already-live Agent, while detached model selection reads a validated stored request-header prefix beside history rather than behind its per-id mutation chain, preserving publication, subagent, close, delete, format, and disposal fences. |
 | `d5caac49c1` | Ports official `82db1515fb`: every bwrap profile uses a private PID namespace and matching procfs, while the functional probe uses the same profile so unsupported hosts fall through the existing fail-closed Linux ladder instead of accepting weaker confinement. |
+| `000275810e` | Ports official `583894f7ae`: the DeepSeek adapter replays exact reasoning content on every reasoned assistant turn, including plain answers, so compatible gateways can recover upstream thinking signatures. |
+| `40882c1c4f` | Adapts official `92723cafeb` and `600f3a3110`: the authenticated Web composition declares `/auth/manage` as an exact shell entry while missing assets and undeclared paths return empty 404 responses. |
+| `b3db1057f5` | Ports official `47399764c5` and `7b973e27c8`: publication ordering preserves installed edges and best-effort peer edges, while Host and Client source gates reject module-scope loads of optional dependencies. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
