@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-23-harniverse-client-build-profile.md
+2026-08-23-harniverse-client-build-profile.md: 0ee2e26206000fa0c559e87f21189e43b4b51de2
+2026-08-23-harniverse-client-build-profile.zh.md: defb27289c4ca5240c642f83d0a11432abd7d372

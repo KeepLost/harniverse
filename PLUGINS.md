@@ -191,6 +191,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `000275810e` | Ports official `583894f7ae`: the DeepSeek adapter replays exact reasoning content on every reasoned assistant turn, including plain answers, so compatible gateways can recover upstream thinking signatures. |
 | `40882c1c4f` | Adapts official `92723cafeb` and `600f3a3110`: the authenticated Web composition declares `/auth/manage` as an exact shell entry while missing assets and undeclared paths return empty 404 responses. |
 | `b3db1057f5` | Ports official `47399764c5` and `7b973e27c8`: publication ordering preserves installed edges and best-effort peer edges, while Host and Client source gates reject module-scope loads of optional dependencies. |
+| `444d9f3326`, `cb84b86324`, `35d28a024a` | Adapts official `93cbb3799d`, `66a7081c15`, and `738dcced9b`: the `harniverse` build profile titles the shipped browser application `Harniverse`, feeds identical public `DSH_CLIENT_*` values to the Web shell and every dynamic client bundle, and binds one complete build to its artifacts so `release:pack --family dsh` refuses a missing, foreign, or stale client build record. Authentication and authorization remain runtime plugin decisions. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
