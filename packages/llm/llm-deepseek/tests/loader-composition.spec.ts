@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import LlmRuntime from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createMessage } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -174,5 +174,26 @@ describe('llm-deepseek real dynamic composition', () => {
     expect(ctx.get('credentials')).toBeUndefined()
     await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(server.headers[0]?.authorization).toBe('Bearer entry-key')
+  })
+
+  it('passes a plain reasoned turn through the real Loader composition', async () => {
+    vi.stubEnv('DEEPSEEK_API_KEY', 'entry-key')
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const { ctx } = await loadComposition({ withDynamic: false, baseURL: server.url })
+
+    await assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      messages: [createMessage({
+        role: 'assistant',
+        content: [{ type: 'reasoning', text: 'stable upstream thought' }, { type: 'text', text: 'answer' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    })
+
+    expect(server.requests[0]).toMatchObject({
+      messages: [{
+        role: 'assistant', content: 'answer', reasoning_content: 'stable upstream thought',
+      }],
+    })
   })
 })

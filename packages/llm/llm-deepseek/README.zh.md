@@ -80,7 +80,7 @@ DeepSeek 请求身份独立于应用归因。凭据解析成功后，每个提�
 - 只支持流式输出（`stream_options.include_usage` 始终开启）。`usage` 可能附着在 finish 分片上，也可能作为尾随的纯 usage 分片到达；转换器会将两者都延迟到 `[DONE]`，因此 `usage` 始终位于 `finish` 之前，`finish` 之后不会出现任何内容。
 - 适配器持有的 `off` 推理强度映射为 `thinking: {type: 'disabled'}`，绝不会以 `reasoning_effort: 'off'` 通过协议发送。
 - 第一个思考模式分片携带 `reasoning_content: ""`，系统会处理它（不会产生多余 reasoning 块）。
-- **推理回传规则**：对携带工具调用的 assistant 轮次，会将 `reasoning_content` 序列化回历史（思考模式 API 必需）；对不含工具调用的轮次，它会被丢弃（不会使用，可节省 token）。
+- **推理回传规则**：每个携带推理的 assistant 轮次都会将 `reasoning_content` 序列化回历史。思考模式要求工具调用轮次回传该字段；DeepSeek 会忽略其他轮次中的该字段，而兼容 gateway 可以对回传文本计算 hash，以恢复上游思考签名。
 - Cache 计量：`cacheReadTokens` ← `prompt_cache_hit_tokens` / `prompt_tokens_details.cached_tokens`；DeepSeek 不报告 cache-write 指标。
 
 ## 错误
@@ -93,15 +93,15 @@ DeepSeek 请求身份独立于应用归因。凭据解析成功后，每个提�
 
 #### 模型看到的内容
 
-所选 DeepSeek 模型会收到 harness 系统提示词、消息历史、工具 schema、stop sequence 和调用配置，不含适配器撰写的提示词文本。当之前的 assistant 轮次包含工具调用时，会按要求回传其推理内容；不含工具调用的轮次会省略推理。支持图片的路由还会以有界的 user content part 接收持久化的用户图片和嵌套工具结果图片。每张图片前会带有附件 id 和请求尺寸；提供方看到的要么是 Files API `file` part，要么是 data URL，而会话历史只保留持久化附件引用。
+所选 DeepSeek 模型会收到 harness 系统提示词、消息历史、工具 schema、stop sequence 和调用配置，不含适配器撰写的提示词文本。每个先前含推理的 assistant 轮次都会原样回传其推理内容。支持图片的路由还会以有界的 user content part 接收持久化的用户图片和嵌套工具结果图片。每张图片前会带有附件 id 和请求尺寸；提供方看到的要么是 Files API `file` part，要么是 data URL，而会话历史只保留持久化附件引用。
 
 #### Token 影响
 
-精确输入取决于提供方 tokenization。有条件推理回传会增加工具往返上下文，丢弃其他推理则避免再次支付这些 token；可用时会报告 cache-read 用量。
+精确输入取决于提供方 tokenization。推理回传会把每个含推理轮次的思维链带入后续请求；可用时会报告 cache-read 用量。
 
 #### KV Cache 影响
 
-未更改的已组装前缀可使用 DeepSeek cache 复用，适配器会在 usage 中报告它。模型路由变更，或任何上游提示词、schema、前缀或历史变更，都可能使从首个发生变化的 token 起的复用失效；推理回传会在工具往返期间追加。
+未更改的已组装前缀可使用 DeepSeek cache 复用，适配器会在 usage 中报告它。模型路由变更，或任何上游提示词、schema、前缀或历史变更，都可能使从首个发生变化的 token 起的复用失效；推理回传会在每个含推理轮次追加。
 
 ### DeepSeek 响应
 

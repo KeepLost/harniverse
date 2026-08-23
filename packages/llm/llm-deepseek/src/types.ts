@@ -87,9 +87,10 @@ export interface WireAssistantMessage {
   role: 'assistant'
   content: string | null
   /**
-   * CoT passback. REQUIRED on assistant turns that carried tool calls
-   * (thinking mode); ignored on tool-call-free turns (we omit it there to
-   * save tokens). See guides/thinking_mode.mdx § Tool Calls.
+   * CoT passback, present on every assistant turn that carried reasoning.
+   * Thinking mode requires it on tool-call turns; DeepSeek ignores it on
+   * plain turns, while compatible gateways may use it to recover the upstream
+   * thinking signature. See guides/thinking_mode.mdx § Tool Calls.
    */
   reasoning_content?: string
   tool_calls?: WireToolCall[]
