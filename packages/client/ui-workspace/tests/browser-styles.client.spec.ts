@@ -113,4 +113,8 @@ describe('WorkspaceBrowser.module.css list', () => {
     expect(declarations('.rail .iconButton')?.get('width')).toBe('36px')
     expect(declarations('.rail .search')?.get('width')).toBe('36px')
   })
+
+  it('keeps the three desktop header actions inside the clipped header', () => {
+    expect(declarations('.headerActions')?.get('max-width')).toBe('92px')
+  })
 })
