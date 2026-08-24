@@ -22,8 +22,8 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/web-search-round', impor
 const FIXTURE = fileURLToPath(new URL('./snapshots/web-search-round/session.jsonl', import.meta.url))
 const UI_EXPECTED = fileURLToPath(new URL('./snapshots/web-search-round/ui.expected.md', import.meta.url))
 const MODE = webSnapshotMode()
-const QUERY = 'DeepSeek Harness snapshot search'
-const PROMPT = `Use web_search to search exactly "${QUERY}". Then reply exactly SEARCH_DONE and stop.`
+const QUERIES = ['DeepSeek Harness snapshot search', 'Harniverse plugin snapshot search'] as const
+const PROMPT = `Use web_search to search exactly "${QUERIES[0]}" and exactly "${QUERIES[1]}". Then reply exactly SEARCH_DONE and stop.`
 const SEARCH_CREDENTIAL_REF = credentialRef('DSH_WEB_SEARCH_E2E_KEY')
 const SEARCH_CREDENTIAL = 'snapshot-search-key'
 
@@ -35,19 +35,21 @@ const SEARCH_CREDENTIAL = 'snapshot-search-key'
  */
 const PROVIDER_RESULT_COUNT = 12
 
-/** One provider result's URL, by 1-based provider order. */
-function resultUrl(ordinal: number): string {
-  return `https://docs.example.test/search/${ordinal}`
+/** One provider result's URL, by query and 1-based provider order. Rank one is shared. */
+function resultUrl(queryIndex: number, ordinal: number): string {
+  return ordinal === 1
+    ? 'https://docs.example.test/search/shared'
+    : `https://docs.example.test/search/${queryIndex + 1}-${ordinal}`
 }
 
-/** One provider result's title, by 1-based provider order. */
-function resultTitle(ordinal: number): string {
-  return `Snapshot Search Result ${ordinal}`
+/** One provider result's title, by query and 1-based provider order. */
+function resultTitle(queryIndex: number, ordinal: number): string {
+  return ordinal === 1 ? 'Snapshot Shared Search Result' : `Snapshot Search Result ${queryIndex + 1}-${ordinal}`
 }
 
-/** One provider result's citation excerpt, by 1-based provider order. */
-function resultSnippet(ordinal: number): string {
-  return `Snapshot search excerpt ${ordinal}: the harness replays this source list from a local endpoint.`
+/** One provider result's citation excerpt, by query and 1-based provider order. */
+function resultSnippet(queryIndex: number, ordinal: number): string {
+  return `Snapshot search excerpt ${queryIndex + 1}-${ordinal}: the harness replays this source list from a local endpoint.`
 }
 
 /** One provider result's `page_age`, by 1-based provider order (July 2026 days 01..12). */
@@ -57,6 +59,25 @@ function resultPageAge(ordinal: number): string {
 
 /** The 1-based provider ordinals, in provider order. */
 const RESULT_ORDINALS = Array.from({ length: PROVIDER_RESULT_COUNT }, (_value, index) => index + 1)
+
+/** The expected merged source order under the combined result cap. */
+function mergedResultOrder(maxResults: number): { queryIndex: number; ordinal: number }[] {
+  const seen = new Set<string>()
+  const merged: { queryIndex: number; ordinal: number }[] = []
+  for (const ordinal of RESULT_ORDINALS) {
+    for (const queryIndex of QUERIES.keys()) {
+      const candidate = { queryIndex, ordinal }
+      const url = resultUrl(candidate.queryIndex, candidate.ordinal)
+      if (seen.has(url)) continue
+      seen.add(url)
+      merged.push(candidate)
+      if (merged.length === maxResults) return merged
+    }
+  }
+  return merged
+}
+
+const MERGED_RESULTS = mergedResultOrder(WEB_SEARCH_MAX_RESULTS)
 
 interface CapturedSearchRequest {
   path: string
@@ -72,30 +93,34 @@ async function startSearchServer(captured: CapturedSearchRequest[]): Promise<{ s
     request.setEncoding('utf8')
     request.on('data', (chunk: string) => { body += chunk })
     request.on('end', () => {
+      const requestBody = JSON.parse(body) as unknown
       captured.push({
         path: request.url ?? '',
         apiKey: typeof request.headers['x-api-key'] === 'string' ? request.headers['x-api-key'] : undefined,
         authorization: typeof request.headers.authorization === 'string' ? request.headers.authorization : undefined,
-        body: JSON.parse(body) as unknown,
+        body: requestBody,
       })
       response.writeHead(200, { 'content-type': 'application/json' })
+      const bodyText = JSON.stringify(requestBody)
+      const queryIndex = QUERIES.findIndex(query => bodyText.includes(query))
+      if (queryIndex < 0) throw new Error('provider request did not contain a known query')
       response.end(JSON.stringify({
         content: [
           {
             type: 'text',
-            text: `Found ${PROVIDER_RESULT_COUNT} sources.`,
+            text: `Found ${PROVIDER_RESULT_COUNT} sources for ${QUERIES[queryIndex]}.`,
             citations: RESULT_ORDINALS.map(ordinal => ({
               type: 'web_search_result_location',
-              url: resultUrl(ordinal),
-              cited_text: resultSnippet(ordinal),
+              url: resultUrl(queryIndex, ordinal),
+              cited_text: resultSnippet(queryIndex, ordinal),
             })),
           },
           {
             type: 'web_search_tool_result',
             content: RESULT_ORDINALS.map(ordinal => ({
               type: 'web_search_result',
-              url: resultUrl(ordinal),
-              title: resultTitle(ordinal),
+              url: resultUrl(queryIndex, ordinal),
+              title: resultTitle(queryIndex, ordinal),
               page_age: resultPageAge(ordinal),
             })),
           },
@@ -206,34 +231,39 @@ describe('web e2e: opt-in DeepSeek web search', () => {
   }, 200_000)
 
   it.skipIf(MODE === 'record')('uses the real provider and persists the capped structured result', () => {
-    expect(searchRequests).toHaveLength(1)
-    expect(searchRequests[0]).toMatchObject({
-      path: '/messages',
-      apiKey: SEARCH_CREDENTIAL,
-      body: {
-        messages: [{
-          role: 'user',
-          content: [{ type: 'text', text: `Perform a web search for the query: ${QUERY}` }],
-        }],
-        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-      },
-    })
+    expect(searchRequests).toHaveLength(2)
+    const orderedRequests = [...searchRequests].sort((left, right) => JSON.stringify(left.body).localeCompare(JSON.stringify(right.body)))
+    for (const [index, request] of orderedRequests.entries()) {
+      expect(request).toMatchObject({
+        path: '/messages',
+        apiKey: SEARCH_CREDENTIAL,
+        body: {
+          messages: [{
+            role: 'user',
+            content: [{ type: 'text', text: `Perform a web search for the query: ${QUERIES[index]}` }],
+          }],
+          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        },
+      })
+    }
 
-    const auxiliaryRequest = sessionEvents.find(
+    const auxiliaryRequests = sessionEvents.filter(
       (event): event is Extract<SessionEvent, { type: 'web/deepseek-search-llm-request' }> =>
         event.type === 'web/deepseek-search-llm-request',
     )
-    expect(auxiliaryRequest?.data).toEqual({
-      endpoint: `${searchBaseURL}/messages`,
-      apiVersion: '2023-06-01',
-      body: searchRequests[0]?.body,
-    })
+    expect(auxiliaryRequests).toHaveLength(2)
+    const orderedAuxiliaryRequests = [...auxiliaryRequests].sort((left, right) => (
+      JSON.stringify(left.data.body).localeCompare(JSON.stringify(right.data.body))
+    ))
+    expect(orderedAuxiliaryRequests.map(event => event.data.body)).toEqual(orderedRequests.map(request => request.body))
+    expect(auxiliaryRequests.every(event => event.data.endpoint === `${searchBaseURL}/messages` && event.data.apiVersion === '2023-06-01')).toBe(true)
 
     const searchCall = sessionEvents.find(
       (event): event is Extract<SessionEvent, { type: 'tool/call' }> =>
         event.type === 'tool/call' && event.data.name === 'web_search',
     )
     if (searchCall === undefined) throw new Error('the replayed turn did not call web_search')
+    expect(JSON.parse(searchCall.data.arguments)).toEqual({ queries: [...QUERIES] })
     const searchResult = sessionEvents.find(
       (event): event is Extract<SessionEvent, { type: 'tool/result' }> =>
         event.type === 'tool/result' && event.data.message.source.callId === searchCall.data.callId,
@@ -242,23 +272,24 @@ describe('web e2e: opt-in DeepSeek web search', () => {
     const content = searchResult.data.message.content[0]
     expect(content.isError).toBe(false)
     const rendered = content.content.filter(block => block.type === 'text').map(block => block.text).join('')
-    // The seam caps the provider's list at the shipped searchMaxResults before
-    // the tool renders it, so the kept prefix is model-visible and the dropped
-    // suffix is not.
-    for (const ordinal of RESULT_ORDINALS.slice(0, WEB_SEARCH_MAX_RESULTS)) {
-      expect(rendered).toContain(`[${resultTitle(ordinal)}](${resultUrl(ordinal)})`)
+    for (const { queryIndex, ordinal } of MERGED_RESULTS) {
+      expect(rendered).toContain(`[${resultTitle(queryIndex, ordinal)}](${resultUrl(queryIndex, ordinal)})`)
     }
-    for (const ordinal of RESULT_ORDINALS.slice(WEB_SEARCH_MAX_RESULTS)) {
-      expect(rendered).not.toContain(resultUrl(ordinal))
+    for (const ordinal of RESULT_ORDINALS) {
+      for (const queryIndex of QUERIES.keys()) {
+        const url = resultUrl(queryIndex, ordinal)
+        if (!MERGED_RESULTS.some(result => resultUrl(result.queryIndex, result.ordinal) === url)) expect(rendered).not.toContain(url)
+      }
     }
+    expect(rendered.split(resultUrl(0, 1)).length).toBe(2)
     expect(rendered).toContain(
       `(Showing the first ${WEB_SEARCH_MAX_RESULTS} sources. Refine the query for more.)`,
     )
     expect(searchResult.data.meta).toMatchObject({
-      sources: RESULT_ORDINALS.slice(0, WEB_SEARCH_MAX_RESULTS).map(ordinal => ({
-        url: resultUrl(ordinal),
-        title: resultTitle(ordinal),
-        snippet: resultSnippet(ordinal),
+      sources: MERGED_RESULTS.map(({ queryIndex, ordinal }) => ({
+        url: resultUrl(queryIndex, ordinal),
+        title: resultTitle(queryIndex, ordinal),
+        snippet: resultSnippet(queryIndex, ordinal),
         publishedAt: resultPageAge(ordinal),
       })),
       truncated: true,
@@ -350,25 +381,29 @@ const ADDITIONAL_PROVIDER_SCENARIOS = [
       ],
     },
     expectedPath: '/search',
-    expectedBody: {
-      query: QUERY,
+    expectedBody: QUERIES.map(query => ({
+      query,
       type: 'neural',
       contents: { highlights: { highlightsPerUrl: 2 } },
       numResults: WEB_SEARCH_MAX_RESULTS,
-    },
+    })),
     expectedText: [
       'Sources:',
       '- [Exa Primary](https://exa.example.test/primary) — Exa highlight from the deterministic local response. (2026-08-01)',
+      '- [Exa result without a portable snippet](https://exa.example.test/no-highlight)',
       '',
       'Cite the relevant URLs above as markdown links in your answer.',
     ].join('\n'),
     expectedMeta: {
-      sources: [{
-        url: 'https://exa.example.test/primary',
-        title: 'Exa Primary',
-        snippet: 'Exa highlight from the deterministic local response.',
-        publishedAt: '2026-08-01',
-      }],
+      sources: [
+        {
+          url: 'https://exa.example.test/primary',
+          title: 'Exa Primary',
+          snippet: 'Exa highlight from the deterministic local response.',
+          publishedAt: '2026-08-01',
+        },
+        { url: 'https://exa.example.test/no-highlight', title: 'Exa result without a portable snippet' },
+      ],
       truncated: false,
     },
   },
@@ -388,13 +423,19 @@ const ADDITIONAL_PROVIDER_SCENARIOS = [
       ],
     },
     expectedPath: '/chat/completions',
-    expectedBody: {
+    expectedBody: QUERIES.map(query => ({
       model: 'sonar-test',
       max_tokens: 321,
-      messages: [{ role: 'user', content: QUERY }],
+      messages: [{ role: 'user', content: query }],
       search_recency_filter: 'week',
-    },
+    })),
     expectedText: [
+      `### ${QUERIES[0]}`,
+      '',
+      'Perplexity synthesized answer from the local response.',
+      '',
+      `### ${QUERIES[1]}`,
+      '',
       'Perplexity synthesized answer from the local response.',
       '',
       'Sources:',
@@ -410,7 +451,7 @@ const ADDITIONAL_PROVIDER_SCENARIOS = [
         publishedAt: '2026-08-02',
       }],
       truncated: false,
-      answer: 'Perplexity synthesized answer from the local response.',
+      answer: `### ${QUERIES[0]}\n\nPerplexity synthesized answer from the local response.\n\n### ${QUERIES[1]}\n\nPerplexity synthesized answer from the local response.`,
     },
   },
 ]
@@ -473,17 +514,22 @@ describe.skipIf(MODE === 'record').each(ADDITIONAL_PROVIDER_SCENARIOS)(
       await input.press('Enter')
       await settled
 
-      expect(searchRequests).toEqual([{
+      expect(searchRequests).toHaveLength(2)
+      const orderedRequests = [...searchRequests].sort((left, right) => (
+        JSON.stringify(left.body).localeCompare(JSON.stringify(right.body))
+      ))
+      expect(orderedRequests).toEqual(QUERIES.map((_, index) => ({
         path: scenario.expectedPath,
         apiKey: undefined,
         authorization: `Bearer ${scenario.credential}`,
-        body: scenario.expectedBody,
-      }])
+        body: scenario.expectedBody[index],
+      })))
       const searchCall = sessionEvents.find(
         (event): event is Extract<SessionEvent, { type: 'tool/call' }> =>
           event.type === 'tool/call' && event.data.name === 'web_search',
       )
       if (searchCall === undefined) throw new Error('the replayed turn did not call web_search')
+      expect(JSON.parse(searchCall.data.arguments)).toEqual({ queries: [...QUERIES] })
       const searchResult = sessionEvents.find(
         (event): event is Extract<SessionEvent, { type: 'tool/result' }> =>
           event.type === 'tool/result' && event.data.message.source.callId === searchCall.data.callId,

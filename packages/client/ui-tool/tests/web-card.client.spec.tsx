@@ -38,7 +38,7 @@ const SID = 's1' as SessionId
 /** Locale seat for the card render sites (GenericToolCard, DetailsPanel), as the sibling suites build it. */
 const t = makeTranslate(zh, commonZh)
 
-const SEARCH_ARGS = '{"query":"deepseek harness"}'
+const SEARCH_ARGS = '{"queries":["deepseek harness"]}'
 const FETCH_ARGS = '{"url":"https://example.com/page"}'
 
 /** A web_search result view; overrides tune the sources / answer / truncation. */
@@ -262,7 +262,7 @@ describe('DetailsPanel web Output section', () => {
     expect(view.getByText('Titled')).toBeTruthy()
     expect(view.getByText('excerpt')).toBeTruthy()
     // The Input JSON section survives beside it.
-    expect(view.getByText(/"query"/)).toBeTruthy()
+    expect(view.getByText(/"queries"/)).toBeTruthy()
   })
 
   it('renders the fetch card and keeps the fetched body below it', () => {

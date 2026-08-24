@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The model-facing web tool suite — `web_search` and `web_fetch` — over the [web capability seam](../web/README.md) (`ctx.web`). It owns model-facing concerns only: tool names, JSON schemas, snake_case argument names, prompt sections, the result-count bound, result formatting, HTML→markdown presentation, and the UI presentation projection — `presentCall`, `presentResult` (a `card: 'web'` result card discriminated by `kind: 'search' | 'fetch'`), and the `output.presentationMeta` that carries the structured search sources or the fetch summary the lossy render text cannot (see the [web-result-card Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-web-result-card.md)). All web access goes through `ctx.web`; this package never imports a concrete provider. Neither tool exposes a model-facing timeout — each tool's cooperative tool-call budget is declared here via config (`fetchTimeoutMs`/`searchTimeoutMs`, attached as `ToolDefinition.timeoutMs`) and enforced by [`@deepseek-ai/dsh-tool-call-timeout-policy`](../../guard/timeout-policy/README.md) (a `tools/execute` wrapper); each tool just forwards `exec.signal` to the seam.
+The model-facing web tool suite — `web_search` and `web_fetch` — over the [web capability seam](../web/README.md) (`ctx.web`). It owns model-facing concerns only: tool names, JSON schemas, snake_case argument names, prompt sections, bounded search queries and results, result formatting, HTML→markdown presentation, and the UI presentation projection — `presentCall`, `presentResult` (a `card: 'web'` result card discriminated by `kind: 'search' | 'fetch'`), and the `output.presentationMeta` that carries the structured search sources or the fetch summary the lossy render text cannot (see the [web-result-card Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-web-result-card.md)). All web access goes through `ctx.web`; this package never imports a concrete provider. Neither tool exposes a model-facing timeout — each tool's cooperative tool-call budget is declared here via config (`fetchTimeoutMs`/`searchTimeoutMs`, attached as `ToolDefinition.timeoutMs`) and enforced by [`@deepseek-ai/dsh-tool-call-timeout-policy`](../../guard/timeout-policy/README.md) (a `tools/execute` wrapper). Single-provider operations forward `exec.signal` directly to the seam; a multi-query search derives one fused signal for sibling cancellation and waits for batch quiescence before returning a failure.
 
 Each tool is registered independently; a product that wants only one disables the other via config (`{ search: false }` / `{ fetch: false }`). Search guidance mentions `web_fetch` only when fetch is also config-enabled; a search-only composition instead tells the model to use returned snippets and cite their URLs.
 
@@ -10,7 +10,7 @@ Each tool is registered independently; a product that wants only one disables th
 
 | Tool | Args | Behavior |
 |---|---|---|
-| `web_search` | `query` (string) | Discovery. Returns an optional answer plus source URLs. `max_results` is **not** model-facing — the tool sets the bound (the `searchMaxResults` config, default 8) and passes it to the seam. |
+| `web_search` | `queries` (nonempty string array) | Discovery. Runs up to `searchMaxQueries` queries concurrently, deduplicates exact URLs, and fairly merges sources. Returns optional answers plus source URLs; multi-query answers are labelled by query. `max_results` and the query count are **not** model-facing — the tool sets both bounds (`searchMaxResults`, default 8, and `searchMaxQueries`, default 4) and passes one query at a time to the seam. |
 | `web_fetch` | `url` (string) | Retrieves a specific URL. HTML bodies are rendered to markdown (turndown with GFM tables/strikethrough); text bodies pass through. A non-2xx status is reported, not an error. The tool-call timeout is deployment policy (`dsh-tool-call-timeout-policy`), not a model argument. |
 
 Both tools opt into concurrent scheduling because provider reads return content without mutating parent-agent state.
@@ -24,6 +24,7 @@ The normalized service results are also the canonical tool values: `WebSearchRes
 | `search` | `true` | Register `web_search`. |
 | `fetch` | `true` | Register `web_fetch`. |
 | `searchMaxResults` | `8` | Upper bound on sources returned by one `web_search` call (the seam truncates a longer provider list and flags it). |
+| `searchMaxQueries` | `4` | Upper bound on non-empty queries accepted by one `web_search` call; configuration cannot exceed the protocol maximum `16`. Exact duplicate query strings are collapsed after this bound is checked. |
 | `fetchTimeoutMs` | `30000` | Cooperative tool-call timeout budget (ms) for `web_fetch`. |
 | `searchTimeoutMs` | `30000` | Cooperative tool-call timeout budget (ms) for `web_search`. |
 | `fetchMaxOutputChars` | `200000` | Cap on source characters converted synchronously and on one complete `web_fetch` output (header, rendered body, and footer); a cut body gets the truncation notice when it fits. |
@@ -34,6 +35,20 @@ The normalized service results are also the canonical tool values: `WebSearchRes
 - id: tool-web
   name: '@deepseek-ai/dsh-tool-web'
 ```
+
+<a id="search-query-contract"></a>
+
+### Search Query Contract
+
+`web_search` requires `queries` to be an array containing 1 through `searchMaxQueries` string values. The model schema rejects an absent `queries`, a scalar legacy `{ query: "..." }`, or a non-array `queries` value with `INVALID_ARGS` before execution. After schema validation, an empty array reports `queries must contain at least one query`, a blank item reports `each query must be a non-empty string`, and an over-limit array reports `queries must contain at most <N> query` or `queries` before any provider request. Exact duplicate query strings are removed after the count check, preserving first occurrence order, so a call cannot evade the configured bound by repeating a query.
+
+### Multi-query Search
+
+The fan-out, fused cancellation, quiescence, round-robin merge, and query-labelled answer rules below apply only when validation leaves at least two distinct queries. A one-item array is a direct single-provider operation.
+
+Distinct queries fan out concurrently through the same `ctx.web.search()` seam. Each provider invocation still receives one scalar `query` and the shared `maxResults` bound; provider adapters do not implement batch APIs. A one-item array forwards `exec.signal` directly for this single provider operation. For a fused batch, one sibling failure aborts the derived sibling signal, waits for every started search to settle, and only then returns the first failure. This quiescence prevents late sibling work from publishing after the tool has failed; caller cancellation also aborts the fused batch signal.
+
+Successful batch results merge sources by round-robin rank across query order, skip exact duplicate URLs, and stop at `searchMaxResults`; provider or merge truncation sets `truncated`. Non-empty provider answers are retained in query order as `### <query>` sections, so the model can distinguish their provenance. A one-item array uses the provider result directly while preserving the same model-facing contract.
 
 ## Stable registration
 
@@ -52,13 +67,13 @@ Search and fetch contribute the web-search and web-fetch guidance below. Search 
 ##### Web search guidance with fetch enabled
 
 ```markdown
-Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Follow up with web_fetch when you need the full content of a specific result, and cite the relevant URLs as markdown links.
+Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Follow up with web_fetch when you need the full content of a specific result, and cite the relevant URLs as markdown links.
 ```
 
 ##### Web search-only guidance
 
 ```markdown
-Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.
+Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.
 ```
 
 ##### Web fetch guidance
@@ -97,7 +112,7 @@ The optional provider-owned answer is followed by `Sources:` and data-dependent 
 
 #### Token effect
 
-Data-dependent results are resent until compaction and sources are capped by `searchMaxResults`.
+Data-dependent results are resent until compaction; validation caps queries by `searchMaxQueries`, and batch merging caps sources by `searchMaxResults`.
 
 #### KV Cache effect
 
@@ -121,7 +136,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-Blank inputs become exactly `Error: query must be a non-empty string` or `Error: url must be a non-empty string`.
+Blank URL inputs become exactly `Error: url must be a non-empty string`; search argument shape errors are either schema-level `INVALID_ARGS` or the `queries` array validation messages documented in the [Search Query Contract](#search-query-contract) above.
 
 #### Token effect
 

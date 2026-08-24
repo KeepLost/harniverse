@@ -10,17 +10,17 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
     - tab "Capabilities"
-- text: Use web_search to search exactly "DeepSeek Harness snapshot search". Then reply exactly SEARCH_DONE and stop. {{clock}}
+- text: Use web_search to search exactly "DeepSeek Harness snapshot search" and exactly "Harniverse plugin snapshot search". Then reply exactly SEARCH_DONE and stop. {{clock}}
 - button "Copy":
   - img
 - button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img
   - text: Context injection @deepseek-ai/dsh-system-prompt
-- button "Search DeepSeek Harness snapshot search":
+- button "Search DeepSeek Harness snapshot search, Harniverse plugin snapshot search":
   - img
   - img
-  - text: Search DeepSeek Harness snapshot search
+   - text: Search DeepSeek Harness snapshot search, Harniverse plugin snapshot search
 - paragraph: SEARCH_DONE
 - button "Copy":
   - img

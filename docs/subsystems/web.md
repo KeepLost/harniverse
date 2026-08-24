@@ -2,7 +2,7 @@
 
 English | [中文](web.zh.md)
 
-The web access seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md) that spans **two operations** (search and fetch) on one `ctx.web` service, split across packages: Service Definition ([dsh-web](../../packages/web/web), `ctx.web` + the provider registries), Service Providers ([dsh-web-search-exa](../../packages/web/web-search-exa), [dsh-web-search-perplexity](../../packages/web/web-search-perplexity), [dsh-web-search-deepseek](../../packages/web/web-search-deepseek), [dsh-web-fetch-http](../../packages/web/web-fetch-http)), and Consumer ([dsh-tool-web](../../packages/web/tool-web), the `web_search`/`web_fetch` tool schemas). Web is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A search-provider swap does not change how the model asks for a query, and a fetch-provider swap does not change how the model asks for a URL.
+The web access seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md) that spans **two operations** (search and fetch) on one `ctx.web` service, split across packages: Service Definition ([dsh-web](../../packages/web/web), `ctx.web` + the provider registries), Service Providers ([dsh-web-search-exa](../../packages/web/web-search-exa), [dsh-web-search-perplexity](../../packages/web/web-search-perplexity), [dsh-web-search-deepseek](../../packages/web/web-search-deepseek), [dsh-web-fetch-http](../../packages/web/web-fetch-http)), and Consumer ([dsh-tool-web](../../packages/web/tool-web), the `web_search`/`web_fetch` tool schemas). Web is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A search-provider swap does not change the model's required `queries` array, and a fetch-provider swap does not change how the model asks for a URL.
 
 Source: [`packages/web/web/src/types.ts`](../../packages/web/web/src/types.ts)
 
@@ -12,7 +12,11 @@ Search and fetch share no request schema and no business logic, but they are del
 
 ## Search request and result
 
-The model-facing tool argument is just a `query`; `maxResults` is a consumer-owned bound (`dsh-tool-web`'s `searchMaxResults` config, default `8`) passed through the seam and enforced on the way back — if a provider over-returns, the seam truncates `sources[]` and sets `truncated`.
+The provider seam receives one scalar `query`; the model-facing `dsh-tool-web` consumer requires a nonempty `queries` array bounded by `searchMaxQueries` (default `4`). The consumer removes exact duplicate query strings after validating the bound, fans distinct queries out concurrently, and passes each one separately through `ctx.web.search()`. `maxResults` remains a consumer-owned source bound (`searchMaxResults`, default `8`) passed through the seam and enforced on the way back — if a provider over-returns, the seam truncates `sources[]` and sets `truncated`.
+
+### Batched model search
+
+The tool rejects missing, empty, non-string, blank, mixed legacy `{ query }`, and over-limit inputs before provider execution. A sibling failure aborts the shared batch signal, waits for every started search to settle, and then returns the first failure; caller cancellation follows the same path. Successful sources are deduplicated by exact URL and merged in query-order round-robin rank until `searchMaxResults`. Non-empty provider answers are emitted in query order under `### <query>` headings. A one-item array still uses the provider's direct result, while the provider API remains single-query.
 
 ```ts type-equiv
 /**

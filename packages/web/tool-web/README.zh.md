@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-面向模型的 web 工具套件 `web_search` 与 `web_fetch`，构建于 [web 能力 seam](../web/README.md)（`ctx.web`）之上。它只负责面向模型的事项：工具名称、JSON Schema、snake_case 参数名称、提示词区段、结果数量上限、结果格式、HTML→markdown 呈现，以及 UI 呈现投影——`presentCall`、`presentResult`（以 `kind: 'search' | 'fetch'` 区分的 `card: 'web'` 结果卡片），以及承载有损渲染文本无法携带的结构化搜索来源或抓取摘要的 `output.presentationMeta`（见 [web-result-card Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-web-result-card.md)）。所有 web 访问都通过 `ctx.web`；该包绝不导入具体提供方。两个工具都不公开面向模型的超时：每个工具的协作式工具调用超时预算通过配置在此声明（`fetchTimeoutMs`／`searchTimeoutMs`，附加为 `ToolDefinition.timeoutMs`），由 [`@deepseek-ai/dsh-tool-call-timeout-policy`](../../guard/timeout-policy/README.md)（`tools/execute` 包装层）强制执行；每个工具只把 `exec.signal` 转发给 seam。
+面向模型的 web 工具套件 `web_search` 与 `web_fetch`，构建于 [web 能力 seam](../web/README.md)（`ctx.web`）之上。它只负责面向模型的事项：工具名称、JSON Schema、snake_case 参数名称、提示词区段、结果数量上限、结果格式、HTML→markdown 呈现，以及 UI 呈现投影——`presentCall`、`presentResult`（以 `kind: 'search' | 'fetch'` 区分的 `card: 'web'` 结果卡片），以及承载有损渲染文本无法携带的结构化搜索来源或抓取摘要的 `output.presentationMeta`（见 [web-result-card Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-web-result-card.md)）。所有 web 访问都通过 `ctx.web`；该包绝不导入具体提供方。两个工具都不公开面向模型的超时：每个工具的协作式工具调用超时预算通过配置在此声明（`fetchTimeoutMs`／`searchTimeoutMs`，附加为 `ToolDefinition.timeoutMs`），由 [`@deepseek-ai/dsh-tool-call-timeout-policy`](../../guard/timeout-policy/README.md)（`tools/execute` 包装层）强制执行。单提供方操作会将 `exec.signal` 直接转发给 seam；多查询搜索则为兄弟查询构造合并信号，并在失败返回前等待批处理 quiescence。
 
 每个工具独立注册；只需要其中一个工具的产品可以通过配置禁用另一个（`{ search: false }`／`{ fetch: false }`）。仅当抓取也通过配置启用时，搜索指引才会提及 `web_fetch`；仅启用搜索的组合则会要求模型使用返回的 snippet 并引用其 URL。
 
@@ -10,7 +10,7 @@
 
 | 工具 | 参数 | 行为 |
 |---|---|---|
-| `web_search` | `query`（string） | 用于发现信息。返回可选答案与来源 URL。`max_results` **不**面向模型：工具设置上限（`searchMaxResults` 配置，默认 8）并传给 seam。 |
+| `web_search` | `queries`（非空 string 数组） | 用于发现信息。并发运行最多 `searchMaxQueries` 个查询，去除完全相同的 URL 并公平合并来源。返回可选答案与来源 URL；多查询答案会按查询标记。`max_results` 和查询数量**不**面向模型：工具设置上限（`searchMaxResults` 默认 8，`searchMaxQueries` 默认 4），并逐个查询传给 seam。 |
 | `web_fetch` | `url`（string） | 获取特定 URL。HTML 主体渲染为 markdown（turndown，带 GFM 表格／删除线）；文本主体原样通过。非 2xx 状态会报告，而非报错。工具调用超时是部署策略（`dsh-tool-call-timeout-policy`），不是模型参数。 |
 
 两个工具都选择并发调度，因为提供方读取会返回内容，不会修改父 agent（智能体）的状态。
@@ -24,6 +24,7 @@
 | `search` | `true` | 注册 `web_search`。 |
 | `fetch` | `true` | 注册 `web_fetch`。 |
 | `searchMaxResults` | `8` | 一次 `web_search` 调用返回的来源数量上限（seam 截断更长的提供方列表并标记）。 |
+| `searchMaxQueries` | `4` | 一次 `web_search` 调用接受的非空查询数量上限；配置不能超过协议最大值 `16`，查询字符串在检查该上限后按完全相同值去重。 |
 | `fetchTimeoutMs` | `30000` | `web_fetch` 的协作式工具调用超时预算（ms）。 |
 | `searchTimeoutMs` | `30000` | `web_search` 的协作式工具调用超时预算（ms）。 |
 | `fetchMaxOutputChars` | `200000` | 同步转换的源字符数与单次完整 `web_fetch` 输出的上限（状态头、渲染后的主体与页脚合并计算）；主体被截断时，在能容纳的情况下附带截断提示。 |
@@ -34,6 +35,20 @@
 - id: tool-web
   name: '@deepseek-ai/dsh-tool-web'
 ```
+
+<a id="search-query-contract"></a>
+
+### 搜索查询契约
+
+`web_search` 要求 `queries` 为包含 1 至 `searchMaxQueries` 个字符串的数组。模型 schema 会在执行前以 `INVALID_ARGS` 拒绝缺少 `queries`、标量旧式 `{ query: "..." }` 或非数组的 `queries`。通过 schema 后，空数组报告 `queries must contain at least one query`，空白项报告 `each query must be a non-empty string`，超限数组报告 `queries must contain at most <N> query` 或 `queries`，并且都不会调用提供方。完全相同的查询字符串在检查数量上限后去重，并保留首次出现顺序，因此重复查询不能绕过配置上限。
+
+### 多查询搜索
+
+下面的并发 fan-out、融合取消、quiescence、round-robin 合并和按查询标记答案规则，仅适用于验证后仍有至少两个不同查询的情况。单项数组是直接的单提供方操作。
+
+不同查询会通过同一个 `ctx.web.search()` seam 并发执行。每次提供方调用仍只接收一个标量 `query` 与共享的 `maxResults` 上限；提供方适配器不实现批量 API。单项数组会为这次单提供方操作直接转发 `exec.signal`。融合批次则在一个兄弟查询失败时中止派生的兄弟信号，等待所有已启动的搜索 settle，然后才返回第一个失败；这种 quiescence 可避免工具失败后仍有迟到的兄弟结果发布，调用方取消也会中止该融合批次信号。
+
+成功的批量结果按查询顺序进行来源 rank 的 round-robin 合并，跳过完全相同的 URL，并在 `searchMaxResults` 处停止；提供方或合并截断都会设置 `truncated`。非空的提供方答案按查询顺序保留为 `### <query>` 区段，使模型可以区分答案来源。单项数组直接使用提供方结果，但仍遵守相同的面向模型契约。
 
 ## 稳定注册
 
@@ -52,13 +67,13 @@
 ##### 启用抓取时的 Web 搜索指引
 
 ```markdown
-Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Follow up with web_fetch when you need the full content of a specific result, and cite the relevant URLs as markdown links.
+Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Follow up with web_fetch when you need the full content of a specific result, and cite the relevant URLs as markdown links.
 ```
 
 ##### 仅搜索时的 Web 搜索指引
 
 ```markdown
-Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.
+Use the web_search tool to discover current information on the web. The required queries array accepts 1–4 non-empty search queries; use a one-item array for a single search. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.
 ```
 
 ##### Web 抓取指引
@@ -121,7 +136,7 @@ Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL (for ex
 
 #### 模型看到的内容
 
-空输入精确地变为 `Error: query must be a non-empty string` 或 `Error: url must be a non-empty string`。
+空白 URL 输入精确地变为 `Error: url must be a non-empty string`；搜索参数形状错误要么是 schema 层的 `INVALID_ARGS`，要么是上文[搜索查询契约](#search-query-contract)中的 `queries` 数组验证消息。
 
 #### Token 影响
 
