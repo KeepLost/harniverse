@@ -200,6 +200,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `614a79d862` | Keeps authenticated browser transport values inside the inline-safe API wire layer: connection and Fetch carriers import only authentication types, principal identity schemas retain wire validation without runtime branding, the source purity regression scans client and inline-safe carrier edges, and build failures identify the importing module. |
 | `ba26e84caf` | Makes the public unit-test workflow build the complete artifact tree before Vitest, keeps `check:all` on one dependency-ordered build, and lets third-party notice generation ignore pnpm virtual-store entries whose platform-optional package was not materialized. |
 | `132d22be25` | Records build-before-unit verification as a repository-level requirement and removes obsolete host-agent sandbox escalation guidance without changing the product sandbox's plugin-owned confinement and approval rules. |
+| `af1ef802d0` | Adds idle-only Archived Session Web management, read-only archive previews, unarchive, and dependency-ordered deletion. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
