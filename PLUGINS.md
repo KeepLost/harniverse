@@ -204,6 +204,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `7a9f18df5e` | Carries the admitted identity in every connection `server-response` envelope so authenticated browser Remotes validate, and reads a cold listed Session's capability assembly from the standing generation of its recorded Profile without starting an agent, session, or turn. |
 | `6ef9ea1bc1` | Makes the Archived Sessions entry reachable from the collapsed sidebar rail and expands the rail before opening the archive panel. |
 | `2c925a4f50` | Reserves the full width of the three desktop sidebar header actions so the archive control is not clipped or covered by the adjacent conversation column. |
+| `f7c1bc1308` | Refuses a composition plan whose selected recipes claim one member name, and compiles an already-stored tool-name conflict into a mountable generation so a Profile carrying one can still start a Session. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
