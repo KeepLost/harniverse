@@ -220,6 +220,10 @@ interface ShellProcessRead {
 
 `ShellExecutor` owns `resolve`, foreground `run`, background-process `start`, and the `sandboxMode` capability fact. `dsh-bash-local` owns command defaulting, timeout/abort classification, the terminal environment, and the background read merge; process groups, bounded collectors, spill files, credential scrubbing, and disposal quiescence are the [subprocess service](subprocess.md)'s. `dsh-tool-bash` owns model-facing rendering and adapts background handles into the [generic job runtime](jobs.md). `dsh-shell` owns the shell tools' shared exit-status contract: the exported `parseExitStatus`/`ParsedExitStatus` inverts the `[exit code: N]` / `[killed by signal: X]` markers `dsh-tool-bash`'s `renderResult` and `dsh-tool-pwsh`'s `renderPwshResult` append, and both tools' `presentResult` use it to split the rendered text into the terminal card's output body and its exit-status pill.
 
+## Persistent terminal tools
+
+`dsh-tool-bash-persistent` and the opt-in `dsh-tool-pwsh-persistent` consume `ctx.terminals`, not `ctx.shell`. Each keeps one owner-scoped PTY per Agent, serializes that owner's calls, and resets the terminal after timeout, cancellation, send failure, initialization failure, or shell exit; deployment composition selects the Bash or PowerShell terminal dialect.
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>

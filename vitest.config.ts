@@ -56,6 +56,7 @@ const windowsUnsupportedCoveragePackages = process.platform === 'win32'
 const windowsOnlyCoverageExclusions = process.platform !== 'win32'
   ? [
       'packages/sandbox/sandbox-windows-acl/src/**/*.ts',
+      'packages/subprocess/subprocess-local/src/windows-inspector.ts',
     ]
   : []
 

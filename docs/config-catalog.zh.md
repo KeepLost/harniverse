@@ -2827,6 +2827,28 @@ export interface Config {
 
 来源：[`packages/shell/tool-pwsh/src/index.ts:52`](../packages/shell/tool-pwsh/src/index.ts)
 
+<a id="deepseek-aidsh-tool-pwsh-persistent"></a>
+
+## `@deepseek-ai/dsh-tool-pwsh-persistent`
+
+需要：`tools` · `terminals`
+
+```ts config-catalog
+/** Configuration for the persistent pwsh tool. */
+export interface Config {
+  /** PTY backend used for each owner-isolated persistent shell. */
+  backendType?: string
+  /** Wall-clock limit for one command. */
+  timeoutMs?: number
+  /** Maximum returned command-output characters before clipping. */
+  maxOutputChars?: number
+  /** Model-facing tool description. */
+  description?: string
+}
+```
+
+来源：[`packages/shell/tool-pwsh-persistent/src/index.ts:419`](../packages/shell/tool-pwsh-persistent/src/index.ts)
+
 <a id="deepseek-aidsh-tool-ralph"></a>
 
 ## `@deepseek-ai/dsh-tool-ralph`

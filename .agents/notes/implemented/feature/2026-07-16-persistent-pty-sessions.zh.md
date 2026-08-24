@@ -16,7 +16,7 @@ harness 可以运行前台与后台命令、编辑文件和委派工作，但无
 
 可选的 `packages/terminal/` 能力家族提供由 agent（智能体）拥有、持久化且面向行式交互的 PTY 会话。它遵循仓库的 [能力模式](../../implemented/architecture/2026-06-13-capability-seams.md)，与现有命令和文件系统工具并存，并且不修改 `agent-loop`。
 
-当前实现在 Linux 和 macOS 上支持交互式 shell 与行式 REPL。全屏终端应用、按键序列、BEL 触发的控制流、进程丢失后的会话恢复以及跨 agent 共享会话都明确推迟。
+当前实现在 Linux、macOS 与 Windows ConPTY 上支持交互式 shell 与行式 REPL。全屏终端应用、按键序列、BEL 触发的控制流、进程丢失后的会话恢复以及跨 agent 共享会话都明确推迟。
 
 ### 包拓扑
 
@@ -45,7 +45,7 @@ agent scope dispose（资源释放）时先撤销注册，再等待全部所属 
 
 沙箱限制本地进程副作用，但不会让任意 shell 输入自动安全：网络调用和其他外部副作用仍由部署策略治理。工具描述会说明 PTY 会话比一次性工具更难审计，只应在确实需要持久状态或交互式 stdin 时使用。
 
-本地子进程终端原语只使用 `node-pty` 的公开能力：子进程 PID、`data` 与 `exit` 通知、`write` 和 `kill`。它不假设能访问原生 master fd，也不从 TypeScript 调用 `waitpid`。该原语下的平台进程检查器在 Linux 上通过 `/proc`、在 macOS 上通过 `ps` 推导前台进程组和父子进程身份。[可移植执行环境决策](../architecture/2026-07-28-portable-execution-world-consumers.md)负责定义这种进程／消费方拆分。
+本地子进程终端原语只使用 `node-pty` 的公开能力：子进程 PID、`data` 与 `exit` 通知、`write` 和 `kill`。它不假设能访问原生 master fd，也不从 TypeScript 调用 `waitpid`。该原语下的平台进程检查器在 Linux 上通过 `/proc`、在 macOS 上通过 `ps`，并在 Windows 上通过 Toolhelp32 加 `GetProcessTimes` 推导前台进程组和父子进程身份。[可移植执行环境决策](../architecture/2026-07-28-portable-execution-world-consumers.md)负责定义这种进程／消费方拆分。
 
 ### 6 个面向模型的工具
 
@@ -78,6 +78,8 @@ UI 渲染约定精确且不携带位置信息。`terminal_send` 只为前台发�
 
 macOS 没有精确 syscall 层。任何前台进程组输出静默都会返回 `inferred_idle`，包括 Python 和 `gdb`；从 `ps` 推导的终端 PGID 只用于发送信号，不作为「只有 shell 才能 idle」的证明。纯进程检查逻辑可注入，并在 Linux 上经过单元测试，同时由 macOS CI job 驱动真实 PTY 和进程表路径。
 
+Windows 没有 POSIX 进程组或精确 stdin-wait 层。shell pid 充当伪前台组；SIGINT 通过写入 Ctrl-C 投递，TERM 与 KILL 则使用身份围栏保护的 taskkill 进程树。Toolhelp32 枚举与创建时间身份在所有宿主上通过注入 internals 进行单元测试；ConPTY、真实 Win32 bridge、Ctrl-C 与拆卸仍必须由原生 Windows CI 验证。
+
 Tier 2 在持续 `idleSilenceMs` 没有输出后返回 `inferred_idle`，因此 sleep 或网络阻塞的命令可能看似 ready。如果此前已经见过 prompt marker，Tier 2 会再等待 `handoffGraceMs`，使恰好落在静默边界上的 bash 前台交接仍然以精确的 `stdin_read` 归因结束，而不是退到较弱的推断；该宽限是由部署方拥有的配置字段，并被校验为至少覆盖一个 `pollIntervalMs`——短于轮询周期的宽限装不下一次就绪轮询，因此不可能改变任何结果。它只约束见过 marker 的 send，代价是这一种情况的交互返回延迟，而不是每一次 send。Tier 3 在 `timeoutMs` 后返回 `timeout`，避免前台工具调用无限占住 agent。结果保留这些区别；调用方可以通过 `ctx.jobs` 等待、向前台组发信号，或从另一个会话排查。
 
 一次 send 在任一层级 settle 之后，`TerminalSendOperation.append` 就不再接受输出，此后子进程的输出不会再进入那个已 settle 的 operation；它仍然会进入 scrollback，以及此时恰好处于活跃状态的任何 send。因此，等待自己所启动的 operation 上出现标记的测试，必须把 `idleSilenceMs` 与 `timeoutMs` 设得高于子进程自身的启动耗时；否则在负载较高的 macOS runner 上，解释器启动会在标记打印之前就结束这次 send。
@@ -92,7 +94,7 @@ Tier 2 在持续 `idleSilenceMs` 没有输出后返回 `inferred_idle`，因此 
 
 ### 进程树 teardown
 
-子进程终端句柄拥有顶层终端进程及其会话。关闭时，它按父 PID 以子进程优先顺序捕获传递后代、发送 `SIGTERM` 并等待，然后重新扫描关停期间 fork 出的子进程，向二者并集发送 `SIGKILL`，并在停止顶层进程前验证每个非僵尸后代都已离开进程表。身份匹配的 Linux 僵尸进程已无可执行工作，因此视为完全停稳。每个捕获的 PID 都包含进程启动身份，避免 PID 复用把升级信号发给无关进程。
+子进程终端句柄拥有顶层终端进程及其会话。关闭时，它按父 PID 以子进程优先顺序捕获传递后代、发送 `SIGTERM` 并等待，然后重新扫描关停期间 fork 出的子进程，向二者并集发送 `SIGKILL`，并在停止顶层进程前验证每个非僵尸后代都已离开进程表。身份匹配的 Linux 僵尸进程已无可执行工作，因此视为完全停稳。每个捕获的 PID 都包含进程启动身份，避免 PID 复用把升级信号发给无关进程。Windows shell 拆卸会在每个 taskkill 档位验证捕获的创建身份，且只有检查器证明根进程已消失后，才会补全 node-pty 遗漏的退出事件。
 
 teardown 独立报告顶层进程退出与存活进程清理。PTY 会话不会只因 shell 退出就声称成功：它会调用 `SubprocessTerminalHandle.terminate()` 并等待整个会话完全停稳，若清理失败则向外传播并列出存活者。失败的 close 不会永久缓存：注册表与本地会话各自仅在关闭围栏仍指向该次失败尝试时才将其清除，因此后续的显式 close 或生命周期 close 会重试，且不会干扰较新的并发尝试。即使某个 close 失败，服务 dispose 仍会清空其后端、预留与 owner detacher 注册表。
 
@@ -134,7 +136,7 @@ plugins:
 - 声明式 per-agent 启动需要 agent-setup 组合点；仍然禁止插件加载期全局会话。
 - harness 进程丢失后的会话恢复需要进程外 owner 和版本化协议。
 - 网络出口策略与外部副作用回滚超出 PTY 范围，继续作为独立安全工作。
-- Windows/ConPTY 支持需要具备 Windows 原生进程所有权与信号语义的后端。
+- Windows 支持只有在原生 Windows CI 覆盖 ConPTY、真实 Win32 进程所有权、Ctrl-C 投递、taskkill 升级与 node-pty 退出事件缺失后，才能声明已经验证。
 
 ## 备选方案
 
@@ -157,7 +159,7 @@ plugins:
 ## 验证
 
 - 逐文件覆盖测试锁定了 owner 隔离、并发预留、写入前检查期间的取消、未发布 spawn 的取消与等待式 teardown、沙箱模式变更拒绝、可重试的生命周期清理、就绪层级、对写入前 stdin 等待与延迟到达的先前 prompt 的拒绝、配置化交接宽限把 idle fallback 顶过一次轮询以及低于 `pollIntervalMs` 时的拒绝、sanitizer carry state、完整 UTF-8 结果上限、task 集成、schema 和精确 render intent。
-- 子进程 fixture（测试前置数据）覆盖非 leader 与非主线程的 stdin 等待、僵尸进程完全停稳、不可读进程状态、受支持的 syscall 表、不支持的架构和误报拒绝；同一单元测试套件通过注入覆盖 macOS 检查器逻辑。
+- 子进程 fixture（测试前置数据）覆盖非 leader 与非主线程的 stdin 等待、僵尸进程完全停稳、不可读进程状态、受支持的 syscall 表、不支持的架构、误报拒绝，以及模拟的 Windows 身份不匹配、非活动句柄、环、后代和信号升级；原生 Windows 执行仍是平台 CI 的义务。
 - 真实 `node-pty` 与 PTY 消费方测试共同在受支持宿主上覆盖 shell 状态、共享沙箱策略、环境清洗、raw mode 前台 `SIGINT`、忽略 `SIGTERM` 的后代进程，以及 dispose 返回后立即完全停稳。
 - Loader 驱动的 `cordis.yml` 测试挂载真实三包组合。ACP 与 headless 快照通过 opt-in overlay 固定 6 个 schema、有界结果和错误；TUI 快照固定 terminal 与 generic 卡片展示。
 - 包约定、架构图、子系统页面、生成目录和 website API 描述同一个已发布接口。

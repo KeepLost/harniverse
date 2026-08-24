@@ -32,6 +32,7 @@ const TOOLS_BY_PACKAGE: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-tool-goal': ['create_goal', 'get_goal', 'update_goal'],
   '@deepseek-ai/dsh-tool-jobs': ['job_kill', 'job_list', 'job_output'],
   '@deepseek-ai/dsh-tool-pwsh': ['pwsh'],
+  '@deepseek-ai/dsh-tool-pwsh-persistent': ['pwsh'],
   '@deepseek-ai/dsh-tool-ralph': ['ralph'],
   '@deepseek-ai/dsh-tool-result-artifacts': ['artifact_read'],
   '@deepseek-ai/dsh-tool-session-delivery': ['session_send_message', 'session_unload'],

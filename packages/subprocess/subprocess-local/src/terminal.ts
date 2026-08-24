@@ -50,11 +50,13 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
    * @param terminal - allocated node-pty process.
    * @param inspector - platform process/session operations.
    * @param graceMs - TERM-to-KILL and exit-wait grace.
+   * @param platform - host platform, injectable for deterministic tests.
    */
   constructor(
     private readonly terminal: IPty,
     private readonly inspector: ProcessInspector,
     private readonly graceMs: number,
+    private readonly platform: NodeJS.Platform = process.platform,
   ) {
     this.pid = terminal.pid
     this.rootIdentity = inspector.processTree(this.pid).find(member => member.pid === this.pid)
@@ -97,6 +99,15 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
     }
     if (signal === 'SIGKILL' && foreground.processGroupId === this.pid) {
       throw new Error('refusing to SIGKILL the terminal shell; terminate the terminal session instead')
+    }
+    if (this.platform === 'win32') {
+      if (signal === 'SIGINT') {
+        this.terminal.write('\x03')
+        return foreground.processGroupId
+      }
+      if (signal === 'SIGTSTP' || signal === 'SIGHUP') {
+        throw new Error(`signal ${signal} is unsupported on Windows; only SIGINT, SIGTERM, and SIGKILL are available`)
+      }
     }
     this.inspector.signalGroup(foreground.processGroupId, signal)
     return foreground.processGroupId
@@ -214,6 +225,10 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
   }
 
   private async stopShell(): Promise<void> {
+    if (this.platform === 'win32') {
+      await this.stopShellWindows()
+      return
+    }
     if (!this.exited) {
       try {
         this.terminal.kill('SIGTERM')
@@ -233,6 +248,36 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
     if (!this.exited) throw new Error(`terminal cleanup failed; surviving pid: ${this.pid}`)
   }
 
+  private async stopShellWindows(): Promise<void> {
+    const shellGone = (): boolean =>
+      this.exited || (this.rootIdentity !== undefined && !this.inspector.isAlive(this.rootIdentity))
+    if (!shellGone() && this.rootIdentity !== undefined) {
+      this.inspector.signalProcess(this.rootIdentity, 'SIGTERM')
+      await this.waitForWindowsShellExit()
+    }
+    if (!shellGone() && this.rootIdentity === undefined) {
+      try {
+        this.terminal.kill()
+      } catch (_topLevelAlreadyExitedDuringKill) {
+        // The exit callback is authoritative when no exact identity is available.
+      }
+      await Promise.race([this.done.then(() => undefined), delay(this.graceMs)])
+    }
+    if (!shellGone() && this.rootIdentity !== undefined) {
+      this.inspector.signalProcess(this.rootIdentity, 'SIGKILL')
+      await this.waitForWindowsShellExit()
+    }
+    if (!shellGone()) throw new Error(`terminal cleanup failed; surviving pid: ${this.pid}`)
+  }
+
+  private async waitForWindowsShellExit(): Promise<void> {
+    const until = Date.now() + this.graceMs
+    while (!this.exited && Date.now() < until) {
+      if (this.rootIdentity !== undefined && !this.inspector.isAlive(this.rootIdentity)) return
+      await delay(Math.min(25, Math.max(1, until - Date.now())))
+    }
+  }
+
   private async closeOnce(): Promise<void> {
     let survivors = await this.stopDescendants()
     if (survivors.length > 0) {
@@ -243,7 +288,17 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
     if (survivors.length > 0) {
       throw new Error(`terminal cleanup failed; surviving pids: ${survivors.map(member => member.pid).join(', ')}`)
     }
+    this.settleExitIfGone()
     this.dataDisposable.dispose()
     this.exitDisposable.dispose()
+  }
+
+  private settleExitIfGone(): void {
+    if (this.platform !== 'win32' || this.exited) return
+    /* v8 ignore next -- stopShellWindows verified absence; this is a defensive identity fence. */
+    if (this.rootIdentity !== undefined && this.inspector.isAlive(this.rootIdentity)) return
+    this.exited = true
+    this.output.end()
+    this.outcome.resolve({ exitCode: null, signal: null })
   }
 }

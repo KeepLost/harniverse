@@ -9,9 +9,8 @@ import type {
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
 import LlmRuntime, { createUserMessage, CallId } from '@deepseek-ai/dsh-llm'
-import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { Message, ReplayEnvelope, ToolSchema } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
-import type { PiAiReplayState } from '../src/replay.ts'
 import { assemble, type AssembledResult } from './assemble.ts'
 
 interface ProviderCase {
@@ -118,18 +117,20 @@ function expectFinish(result: AssembledResult, expected: 'stop' | 'tool-calls'):
   expect(result.finish.kind).toBe(expected)
 }
 
-function expectNativeReplay(result: AssembledResult, profile: ProviderCase): PiAiReplayState {
+function expectNativeReplay(result: AssembledResult, profile: ProviderCase): ReplayEnvelope {
   const replayState = result.message.source.kind === 'model'
     ? result.message.source.replayState
     : undefined
   expect(replayState).toMatchObject({
-    kind: 'pi-ai',
-    version: 1,
-    api: profile.api,
-    provider: profile.provider,
-    model: profile.model,
+    response: {
+      kind: 'pi-ai',
+      version: 2,
+      api: profile.api,
+      provider: profile.provider,
+      model: profile.model,
+    },
   })
-  return replayState as PiAiReplayState
+  return replayState as ReplayEnvelope
 }
 
 const lookupTool: ToolSchema = {

@@ -43,6 +43,7 @@ import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolPwsh from '@deepseek-ai/dsh-tool-pwsh'
 import * as ToolBashPersistent from '@deepseek-ai/dsh-tool-bash-persistent'
+import * as ToolPwshPersistent from '@deepseek-ai/dsh-tool-pwsh-persistent'
 import CordisHostRunner from '@deepseek-ai/dsh-cordis-host-runner'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
@@ -342,6 +343,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'One owner-isolated persistent bash tool; deployment composition supplies the PTY backend and may override the model-facing environment description.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-pwsh-persistent',
+    dir: 'tool-pwsh-persistent',
+    source: 'packages/shell/tool-pwsh-persistent/src/index.ts',
+    requires: ['ctx.tools', 'ctx.terminals', 'an owning Agent at execution time'],
+    writes: ['tool/call', 'PTY shell state', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(TerminalSessionService)
+      await ctx.plugin(ToolPwshPersistent)
+    },
+    note:
+      'One owner-isolated persistent pwsh tool; explicit deployment composition supplies a PowerShell-dialect PTY backend and may override the model-facing environment description.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-str-replace-editor',

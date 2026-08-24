@@ -16,7 +16,7 @@ The existing `bash`, `read`, `write`, and `edit` tools remain the reliable defau
 
 The optional `packages/terminal/` capability family exposes agent-owned, persistent, line-oriented PTY sessions. It follows the repository's [capability pattern](../../implemented/architecture/2026-06-13-capability-seams.md), coexists with the existing command and filesystem tools, and does not change `agent-loop`.
 
-The implementation supports interactive shells and line-oriented REPLs on Linux and macOS. Full-screen terminal applications, keystroke sequences, BEL-triggered control flow, session restoration after process loss, and cross-agent session sharing are explicitly deferred.
+The implementation supports interactive shells and line-oriented REPLs on Linux, macOS, and Windows ConPTY. Full-screen terminal applications, keystroke sequences, BEL-triggered control flow, session restoration after process loss, and cross-agent session sharing are explicitly deferred.
 
 ### Package topology
 
@@ -45,7 +45,7 @@ A registered `shell` backend constrains how a terminal starts; it does not const
 
 Sandboxing confines local process effects but does not make arbitrary shell input safe: network calls and other external side effects remain governed by deployment policy. Tool descriptions state that PTY sessions are less auditable than one-shot tools and should be used only when persistence or interactive stdin is necessary.
 
-The local subprocess terminal primitive uses only public `node-pty` capabilities: child PID, `data` and `exit` notifications, `write`, and `kill`. It does not assume access to the native master fd or call `waitpid` from TypeScript. Platform process inspectors below that primitive derive foreground process groups and parent/child identity from `/proc` on Linux and `ps` on macOS. The [portable execution-world decision](../architecture/2026-07-28-portable-execution-world-consumers.md) owns this process/consumer split.
+The local subprocess terminal primitive uses only public `node-pty` capabilities: child PID, `data` and `exit` notifications, `write`, and `kill`. It does not assume access to the native master fd or call `waitpid` from TypeScript. Platform process inspectors below that primitive derive foreground process groups and parent/child identity from `/proc` on Linux, `ps` on macOS, and Toolhelp32 plus `GetProcessTimes` on Windows. The [portable execution-world decision](../architecture/2026-07-28-portable-execution-world-consumers.md) owns this process/consumer split.
 
 ### Six model-facing tools
 
@@ -78,6 +78,8 @@ On Linux, the inspector reads the shell's terminal foreground PGID from `/proc/<
 
 On macOS there is no exact syscall tier. Output silence returns `inferred_idle` for any foreground process group, including Python and `gdb`; `ps`-derived terminal PGID is used for signaling, not as proof that only the shell can be idle. Pure process-inspector logic is injectable and unit-tested on Linux, while a macOS CI job exercises the real PTY and process-table path.
 
+On Windows there is no POSIX process group or exact stdin-wait tier. The shell pid is the pseudo foreground group; SIGINT is delivered by writing Ctrl-C, while TERM and KILL use identity-fenced taskkill trees. Toolhelp32 enumeration and creation-time identities are unit-tested through injected internals on every host; native Windows CI remains required for ConPTY, Win32 bridge, Ctrl-C, and teardown validation.
+
 Tier 2 returns `inferred_idle` after `idleSilenceMs` without output. A sleeping or network-blocked command can therefore look ready. When a prompt marker was already seen, Tier 2 waits a further `handoffGraceMs` so a bash foreground handoff that lands on the silence boundary still settles as the exact `stdin_read` attribution instead of the weaker inference; the grace is a deployment-owned config field validated to cover at least one `pollIntervalMs`, because a grace shorter than the poll period cannot contain a single readiness poll and so cannot change any outcome. It bounds only sends that saw a marker, so its cost is the interactive return latency of that one case rather than every send. Tier 3 returns `timeout` after `timeoutMs` so a foreground tool call cannot hold the agent indefinitely. The result preserves the distinction; callers may wait through `ctx.jobs`, signal the foreground group, or inspect from another session.
 
 Once a send settles under any tier, `TerminalSendOperation.append` stops accepting output, so later child output no longer reaches that settled operation; it still reaches the scrollback, and any send that is active when it arrives. A test that waits for a marker on the operation it started must therefore set `idleSilenceMs` and `timeoutMs` above the child's own startup latency; interpreter startup on a loaded macOS runner otherwise ends the send before the marker is printed.
@@ -92,7 +94,7 @@ Background sends use the existing task completion notice and `job_output` result
 
 ### Process-tree teardown
 
-The subprocess terminal handle owns the top-level terminal process and its session. On close it snapshots transitive descendants by parent PID in children-first order, sends `SIGTERM`, waits, rescans for children forked during shutdown, sends `SIGKILL` to the union, and verifies every non-zombie descendant left the process table before stopping the top-level process. A matching Linux zombie has no executable work and therefore counts as quiescent. Every captured PID includes process-start identity so reuse cannot redirect escalation.
+The subprocess terminal handle owns the top-level terminal process and its session. On close it snapshots transitive descendants by parent PID in children-first order, sends `SIGTERM`, waits, rescans for children forked during shutdown, sends `SIGKILL` to the union, and verifies every non-zombie descendant left the process table before stopping the top-level process. A matching Linux zombie has no executable work and therefore counts as quiescent. Every captured PID includes process-start identity so reuse cannot redirect escalation. Windows shell teardown verifies the captured creation identity through each taskkill tier and settles a missing node-pty exit event only after the inspector proves the root absent.
 
 Teardown reports top-level exit and survivor cleanup independently. The PTY session does not claim success merely because the shell exited: it calls `SubprocessTerminalHandle.terminate()` and awaits whole-session quiescence, propagating a cleanup failure that names survivors. A failed close is not cached forever: the registry and local session clear the fence only when it still names that failed attempt, so a later explicit or lifecycle close retries without disturbing a newer concurrent attempt. Service disposal still clears its backend, reservation, and owner-detacher registries when a close fails.
 
@@ -134,7 +136,7 @@ The package ships concise tool guidance explaining persistent state, owner isola
 - Declarative per-agent startup requires an agent-setup composition point; plugin-load global sessions remain prohibited.
 - Session restoration across harness-process loss requires an out-of-process owner and a versioned protocol.
 - Network-egress policy and rollback of external side effects are broader than PTY and remain separate security work.
-- Windows/ConPTY support requires a backend with Windows-native process ownership and signaling semantics.
+- Windows support remains unvalidated until native Windows CI exercises ConPTY, real Win32 process ownership, Ctrl-C delivery, taskkill escalation, and missing node-pty exit events.
 
 ## Alternatives considered
 
@@ -157,7 +159,7 @@ The package ships concise tool guidance explaining persistent state, owner isola
 ## Verification
 
 - Per-file coverage pins owner fencing, concurrent reservations, cancellation during pre-write inspection, unpublished-spawn cancellation and awaited teardown, sandbox-mode change rejection, retriable lifecycle cleanup, readiness tiers, rejection of pre-write stdin waits and delayed earlier prompts, the configured handoff grace holding the idle fallback past one poll and its rejection below `pollIntervalMs`, sanitizer carry state, complete UTF-8 bounds, task integration, schemas, and exact render intents.
-- Subprocess process fixtures cover non-leader and non-main-thread stdin waits, zombie quiescence, unreadable process state, supported syscall tables, unsupported architectures, and false-positive rejection; macOS inspector logic is injected into the same unit suite.
+- Subprocess process fixtures cover non-leader and non-main-thread stdin waits, zombie quiescence, unreadable process state, supported syscall tables, unsupported architectures, false-positive rejection, and mocked Windows identity mismatch, inactive handles, cycles, descendants, and signal escalation; native Windows execution remains a platform CI obligation.
 - Real `node-pty` and PTY-consumer tests jointly exercise shell state, shared sandbox policy, environment scrubbing, raw-mode foreground `SIGINT`, a TERM-ignoring descendant, and immediate post-disposal quiescence on supported hosts.
 - A Loader-driven `cordis.yml` test mounts the real three-package composition. ACP and headless snapshots pin the six schemas, bounded results, and errors through opt-in overlays; TUI snapshots pin terminal and generic card presentation.
 - Package contracts, the architecture map, subsystem pages, generated catalogs, and the website API describe the same shipped surface.
