@@ -176,8 +176,8 @@ type StreamChunk =
   | {
     type: 'finish'
     reason: FinishReason
-    /** Adapter-private lossless-JSON state for replaying a successful response. */
-    replayState?: unknown
+    /** Replay metadata for a successful response; see {@link ReplayEnvelope}. */
+    replayState?: ReplayEnvelope
   }
 ```
 
@@ -297,13 +297,25 @@ declare class BlockAssembler {
    *   tool calls that cannot be executed safely; an open block assembles from
    *   its accumulated deltas (an unknown block type never closed by `block-end` throws).
    */
-  blocks(): ContentBlock[];
-  /** Usage from the `usage` chunk; undefined until one arrives. */
+   blocks(): ContentBlock[];
+   /**
+    * Assemble the prefix an interrupted stream can safely finalize: closed and
+    * open text/reasoning blocks with non-whitespace content, in stream order.
+    * Tool calls are omitted because interruption precedes dispatch; retaining
+    * one would require a fabricated result.
+    * @returns the kept blocks; empty when nothing streamed before interruption.
+    */
+   interruptedBlocks(): ContentBlock[];
+   /** Usage from the `usage` chunk; undefined until one arrives. */
   get usage(): TokenUsage | undefined;
   /** Finish reason from the `finish` chunk; `{kind: 'stop'}` when the stream ended without one. */
   get finish(): FinishReason;
-  /** Adapter-private replay state from the terminal finish chunk, if any. */
-  get replayState(): unknown;
+   /**
+    * Replay metadata from the terminal finish chunk, if any, with per-block
+    * entries pruned in step with {@link blocks}. Undefined when the envelope's
+    * entries do not align with the emitted blocks.
+    */
+   get replayState(): ReplayEnvelope | undefined;
   /**
    * The assembled assistant message.
    * @param source - producer attribution for the assembled message.
