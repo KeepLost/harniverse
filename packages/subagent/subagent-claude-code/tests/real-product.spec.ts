@@ -284,9 +284,10 @@ describe('real Claude Agent SDK 0.3.220 and its distributed Claude Code 2.1.220 
     await fixture.requestStarted
     expect(harness.handles).toHaveLength(1)
     harness.handles[0]!.terminate()
-    await expect(run.result).resolves.toEqual({
+    await expect(run.result).resolves.toMatchObject({
       output: [],
       stopReason: 'error',
+      diagnostic: expect.stringContaining('Product subagent failure'),
     })
     await run.dispose()
     expect(fixture.requests).toHaveLength(1)

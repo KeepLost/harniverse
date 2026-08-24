@@ -123,7 +123,7 @@ describe('matrix row: claimed', () => {
     fireEvent.change(textarea, { target: { value: '/goal 发布' } })
     fireEvent.keyDown(textarea, { key: 'Enter' })
     expect(sink).not.toHaveBeenCalled()
-    await vi.waitFor(() => { expect(submit).toHaveBeenCalledWith('发布', SCTX) })
+    await vi.waitFor(() => { expect(submit).toHaveBeenCalledWith('发布', SCTX, []) })
     // Commit: draft cleared, notice surfaced, back to plain.
     await vi.waitFor(() => { expect((textarea).value).toBe('') })
     expect(view.getByText('完成')).toBeTruthy()

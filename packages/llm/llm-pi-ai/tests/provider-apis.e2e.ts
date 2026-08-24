@@ -117,7 +117,9 @@ function expectFinish(result: AssembledResult, expected: 'stop' | 'tool-calls'):
   expect(result.finish.kind).toBe(expected)
 }
 
-function expectNativeReplay(result: AssembledResult, profile: ProviderCase): ReplayEnvelope {
+type PiAiReplayEnvelope = ReplayEnvelope & { response: { stopReason?: string } }
+
+function expectNativeReplay(result: AssembledResult, profile: ProviderCase): PiAiReplayEnvelope {
   const replayState = result.message.source.kind === 'model'
     ? result.message.source.replayState
     : undefined
@@ -130,7 +132,7 @@ function expectNativeReplay(result: AssembledResult, profile: ProviderCase): Rep
       model: profile.model,
     },
   })
-  return replayState as ReplayEnvelope
+  return replayState as PiAiReplayEnvelope
 }
 
 const lookupTool: ToolSchema = {

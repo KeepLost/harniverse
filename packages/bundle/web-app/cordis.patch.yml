@@ -29,11 +29,11 @@
     path: ':memory:'
     openAt: first-search
 
-- id: session-reference
-  name: '@deepseek-ai/dsh-session-reference'
-
-- id: file-reference-local
-  name: '@deepseek-ai/dsh-file-reference-local'
+- insert:
+    - id: session-reference
+      name: '@deepseek-ai/dsh-session-reference'
+    - id: file-reference-local
+      name: '@deepseek-ai/dsh-file-reference-local'
 
 - id: tools
   config:

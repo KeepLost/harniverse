@@ -207,9 +207,10 @@ describe('real @openai/codex 0.147.0 product', () => {
       parent: harness.parent,
       signal: new AbortController().signal,
     })
-    await expect(run.result).resolves.toEqual({
+    await expect(run.result).resolves.toMatchObject({
       output: [],
       stopReason: 'error',
+      diagnostic: expect.stringContaining('Codex unattended decision'),
     })
     await run.dispose()
 
