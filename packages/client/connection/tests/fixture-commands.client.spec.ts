@@ -28,13 +28,14 @@ const req = <P>(payload: P): RpcRequest<P> => ({ rpcId: RpcId(`t-${reqCount++}`)
 describe('createFixtureApi commands/skills', () => {
   it('serves the addressed session catalog', async () => {
     const { rpc } = createFixtureFaces()
-    const commands = await callRemote<{ name: string; input?: { hint: string } }[]>(
+    const commands = await callRemote<{ name: string; input?: { hint: string; images?: boolean } }[]>(
       rpc, 'commands/list', { sessionId: sid('fx-alpha') })
     expect(commands.map(c => c.name)).toEqual(['compact', 'echo', 'goal', 'permission', 'plan'])
     // input hint rides only the commands declaring it.
     const echo = commands.find(c => c.name === 'echo')
     expect(echo?.input?.hint).toBeTruthy()
     expect(commands.find(c => c.name === 'compact')?.input).toBeUndefined()
+    expect(commands.filter(c => c.input?.images === true).map(c => c.name)).toEqual(['plan'])
   })
 
   it('rejects a catalog request for an unknown session', async () => {
@@ -78,6 +79,36 @@ describe('createFixtureApi commands/skills', () => {
       args: { agentId: sid('fx-nope'), line: '/goal ship' },
     })
     expect(missing).toMatchObject({ ok: false, error: { code: 'session-not-found' } })
+  })
+
+  it('forwards command images, enforces fixture declarations, and keeps unknown commands inert', async () => {
+    const { rpc } = createFixtureFaces()
+    const image = { mediaType: 'image/png', data: 'AA==' }
+
+    const refused = await callRemote<{ result: { kind: string; text?: string } } | undefined>(
+      rpc,
+      'commands/execute',
+      { agentId: sid('fx-alpha'), line: '/echo hi', images: [image] },
+    )
+    expect(refused?.result).toEqual({ kind: 'error', text: '/echo does not accept image attachments' })
+
+    const accepted = await callRemote<{ result: { kind: string } } | undefined>(
+      rpc,
+      'commands/execute',
+      { agentId: sid('fx-alpha'), line: '/plan', images: [image] },
+    )
+    expect(accepted?.result.kind).toBe('success')
+
+    const off = await callRemote<{ result: { kind: string; text?: string } } | undefined>(
+      rpc,
+      'commands/execute',
+      { agentId: sid('fx-alpha'), line: '/plan off', images: [image] },
+    )
+    expect(off?.result).toEqual({ kind: 'error', text: 'Image attachments cannot accompany /plan off.' })
+
+    await expect(callRemote(rpc, 'commands/execute', {
+      agentId: sid('fx-alpha'), line: '/missing', images: [image],
+    })).resolves.toBeUndefined()
   })
 
   it('answers no execution for unknown names and non-command lines', async () => {

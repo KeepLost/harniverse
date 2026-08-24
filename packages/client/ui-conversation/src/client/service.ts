@@ -14,6 +14,7 @@ import type { Context } from '@deepseek-ai/cordis'
 // method) instead of the standalone helper.
 import type { ISessions, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import type { SubmitImageAttachment } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { ComposerAttachment } from './contract/slots.ts'
 import type { QueueAction, QueueItemId } from './contract/queue.ts'
 import type { ComposerBlocks } from './input/blocks.ts'
@@ -190,6 +191,24 @@ export class ConversationController extends Service implements IConversation {
   }
 
   /**
+   * Serialize ordered browser draft images for a command Remote without
+   * releasing them; the composer owns release through successful settlement.
+   * @param imageIds - ordered draft-local ids.
+   * @param signal - command submit cancellation signal.
+   * @returns encoded image payloads in id order.
+   */
+  async serializeDraftImages(
+    imageIds: readonly DraftAttachmentId[],
+    signal?: AbortSignal,
+  ): Promise<readonly SubmitImageAttachment[]> {
+    const attachments = this.draftImages(imageIds)
+    if (attachments.length !== imageIds.length) {
+      throw new Error('conversation.serializeDraftImages: one or more draft images are no longer available')
+    }
+    return Promise.all(attachments.map(attachment => this.encodeImage(attachment.file, signal)))
+  }
+
+  /**
    * Release one browser-owned draft image and preview URL.
    * @param id - draft attachment id.
    */
@@ -321,17 +340,22 @@ export class ConversationController extends Service implements IConversation {
     images: readonly File[],
     signal?: AbortSignal,
   ): Promise<Parameters<SessionFace['prompt']>[0]> {
-    return Promise.all(images.map(async (file) => {
-      signal?.throwIfAborted()
-      const data = await file.arrayBuffer()
-      signal?.throwIfAborted()
-      return {
-        type: 'image' as const,
-        mediaType: imageMediaType(file.type),
-        data: bytesToBase64(new Uint8Array(data)),
-        ...(file.name === '' ? {} : { name: file.name }),
-      }
-    }))
+    return Promise.all(images.map(async file => ({
+      type: 'image' as const,
+      ...await this.encodeImage(file, signal),
+    })))
+  }
+
+  /** Encode one browser File with cancellation checks around its read. */
+  private async encodeImage(file: File, signal?: AbortSignal): Promise<SubmitImageAttachment> {
+    signal?.throwIfAborted()
+    const data = await file.arrayBuffer()
+    signal?.throwIfAborted()
+    return {
+      mediaType: imageMediaType(file.type),
+      data: bytesToBase64(new Uint8Array(data)),
+      ...(file.name === '' ? {} : { name: file.name }),
+    }
   }
 }
 

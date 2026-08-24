@@ -8,13 +8,33 @@ Source: [`packages/interaction/commands/src/index.ts`](../../packages/interactio
 
 ## Input metadata
 
-The service exposes one optional unstructured-input hint. Command availability follows plugin composition: every adapter consuming the registry sees every effective definition.
+The service exposes one optional unstructured-input descriptor. Its image flag is an explicit capability declaration, not a client hint: the Host enforces it for direct and Remote callers before attachment admission or handler execution. Command availability follows plugin composition: every adapter consuming the registry sees every effective definition.
+
+```ts type-equiv
+/** Provider-neutral encoded image carried by a command Remote invocation. */
+interface CommandImageAttachment {
+  /** Browser-declared media type, verified by the attachment store. */
+  readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+  /** Canonical base64 image bytes. */
+  readonly data: string
+  /** Optional display name; never interpreted as a path. */
+  readonly name?: string
+}
+```
 
 ```ts type-equiv
 /** Immutable metadata for a command's optional unstructured input. */
 interface CommandInputDescriptor {
   /** Placeholder shown before the user supplies free-form input. */
   readonly hint: string
+  /**
+   * Whether composer image attachments may accompany an invocation. Absent or
+   * false = the executor rejects an invocation carrying images and capable
+   * composers refuse the submission before dispatch. A declaring command's
+   * handler receives the admitted durable blocks and owns every further
+   * grammar decision, including rejecting sub-commands that cannot use them.
+   */
+  readonly images?: boolean
 }
 ```
 
@@ -44,7 +64,7 @@ interface CommandDefinition {
 
 ## Invocation and result
 
-The adapter owns cancellation and passes the exact target agent. `rawInput` begins immediately after the parsed name and retains the adapter-delivered separator and suffix. Results are direct UI outcomes, not tool results or session events.
+The adapter owns cancellation and passes the exact target agent. `rawInput` begins immediately after the parsed name and retains the adapter-delivered separator and suffix. `attachments` contains frozen, provider-neutral `ImageBlock`s whose references were durably admitted in submission order. The handler owns any model-visible use and records it through its domain message event; the registry never schedules the blocks. Results are direct UI outcomes, not tool results or session events.
 
 ```ts type-equiv
 /** Invocation passed to one registered command handler. */
@@ -55,6 +75,14 @@ interface CommandInvocation {
   readonly agent: Agent
   /** Exact text following the registered command name, including separator whitespace. */
   readonly rawInput: string
+  /**
+   * Durably admitted image blocks accompanying this invocation, in submission
+   * order; empty unless the definition declares `input.images`. The handler
+   * owns their model-visible use — the registry never schedules them itself —
+   * and a handler whose grammar cannot use them in this invocation returns an
+   * error so the dispatching composer retains the originals.
+   */
+  readonly attachments: readonly ImageBlock[]
   /** Cancellation signal owned by the dispatching UI request. */
   readonly signal: AbortSignal
 }
@@ -156,16 +184,21 @@ find(agent: Agent, name: string): CommandDefinition | undefined
  *
  * @param agent - exact receiving agent.
  * @param line - complete slash-command line.
+ * Image capability and attachment admission are enforced here so Remote and
+ * direct callers cannot bypass declaration or deployment policy. A refused
+ * batch enters no handler and creates no durable attachment object.
+ *
+ * @param images - encoded command images in submission order.
  * @param signal - cancellation signal owned by the UI request.
  * @returns the settled execution (result + lifecycle pairing id), or
  *   `undefined` when syntax or name does not resolve.
  */
-@Remote({ requiredCapability: 'harniverse.operate' }) async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandExecution | undefined>
+@Remote({ requiredCapability: 'harniverse.operate' }) async execute( agent: Agent, line: string, images: readonly CommandImageAttachment[], signal: AbortSignal, ): Promise<CommandExecution | undefined>
 ```
 
 Types: [Agent](core.md) · [SessionId](core.md)
 
-Source: [`packages/interaction/commands/src/index.ts:225`](../../packages/interaction/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:245`](../../packages/interaction/commands/src/index.ts)
 
 <a id="commands-events"></a>
 
@@ -187,5 +220,5 @@ A command was registered or unregistered. This is an unfiltered registry notific
 'commands/change'(): void
 ```
 
-Source: [`packages/interaction/commands/src/types.ts:72`](../../packages/interaction/commands/src/types.ts)
+Source: [`packages/interaction/commands/src/types.ts:90`](../../packages/interaction/commands/src/types.ts)
 <!-- END GENERATED cordis-surface -->

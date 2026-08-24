@@ -8,13 +8,33 @@
 
 ## 输入元数据
 
-该服务公开一个可选的非结构化输入提示。命令的可用性由插件组合决定：每个消费注册表的适配器都会看到全部生效定义。
+该服务公开一个可选的非结构化输入描述符。它的图片标记是显式能力声明，而非客户端提示：Host 会对直接调用方与 Remote 调用方强制执行该声明，并在附件准入或处理器执行前拒绝不支持的输入。命令的可用性由插件组合决定：每个消费注册表的适配器都会看到全部生效定义。
+
+```ts type-equiv
+/** Provider-neutral encoded image carried by a command Remote invocation. */
+interface CommandImageAttachment {
+  /** Browser-declared media type, verified by the attachment store. */
+  readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+  /** Canonical base64 image bytes. */
+  readonly data: string
+  /** Optional display name; never interpreted as a path. */
+  readonly name?: string
+}
+```
 
 ```ts type-equiv
 /** Immutable metadata for a command's optional unstructured input. */
 interface CommandInputDescriptor {
   /** Placeholder shown before the user supplies free-form input. */
   readonly hint: string
+  /**
+   * Whether composer image attachments may accompany an invocation. Absent or
+   * false = the executor rejects an invocation carrying images and capable
+   * composers refuse the submission before dispatch. A declaring command's
+   * handler receives the admitted durable blocks and owns every further
+   * grammar decision, including rejecting sub-commands that cannot use them.
+   */
+  readonly images?: boolean
 }
 ```
 
@@ -44,7 +64,7 @@ interface CommandDefinition {
 
 ## 调用与结果
 
-取消由适配器负责，适配器会传入确切的目标 agent。`rawInput` 紧接在解析后的名称之后，并保留适配器传入的分隔符与后缀。结果会直接呈现给 UI，而不是工具结果或会话事件。
+取消由适配器负责，适配器会传入确切的目标 agent。`rawInput` 紧接在解析后的名称之后，并保留适配器传入的分隔符与后缀。`attachments` 包含按提交顺序持久接纳的、冻结且与提供方无关的 `ImageBlock`。处理器拥有其模型可见用途，并通过自己的领域消息事件记录；注册表绝不会自行安排这些块。结果会直接呈现给 UI，而不是工具结果或会话事件。
 
 ```ts type-equiv
 /** Invocation passed to one registered command handler. */
@@ -55,6 +75,14 @@ interface CommandInvocation {
   readonly agent: Agent
   /** Exact text following the registered command name, including separator whitespace. */
   readonly rawInput: string
+  /**
+   * Durably admitted image blocks accompanying this invocation, in submission
+   * order; empty unless the definition declares `input.images`. The handler
+   * owns their model-visible use — the registry never schedules them itself —
+   * and a handler whose grammar cannot use them in this invocation returns an
+   * error so the dispatching composer retains the originals.
+   */
+  readonly attachments: readonly ImageBlock[]
   /** Cancellation signal owned by the dispatching UI request. */
   readonly signal: AbortSignal
 }
@@ -156,16 +184,21 @@ find(agent: Agent, name: string): CommandDefinition | undefined
  *
  * @param agent - exact receiving agent.
  * @param line - complete slash-command line.
+ * Image capability and attachment admission are enforced here so Remote and
+ * direct callers cannot bypass declaration or deployment policy. A refused
+ * batch enters no handler and creates no durable attachment object.
+ *
+ * @param images - encoded command images in submission order.
  * @param signal - cancellation signal owned by the UI request.
  * @returns the settled execution (result + lifecycle pairing id), or
  *   `undefined` when syntax or name does not resolve.
  */
-@Remote({ requiredCapability: 'harniverse.operate' }) async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandExecution | undefined>
+@Remote({ requiredCapability: 'harniverse.operate' }) async execute( agent: Agent, line: string, images: readonly CommandImageAttachment[], signal: AbortSignal, ): Promise<CommandExecution | undefined>
 ```
 
 Types: [Agent](core.md) · [SessionId](core.md)
 
-Source: [`packages/interaction/commands/src/index.ts:225`](../../packages/interaction/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:245`](../../packages/interaction/commands/src/index.ts)
 
 <a id="commands-events"></a>
 
@@ -187,5 +220,5 @@ A command was registered or unregistered. This is an unfiltered registry notific
 'commands/change'(): void
 ```
 
-Source: [`packages/interaction/commands/src/types.ts:72`](../../packages/interaction/commands/src/types.ts)
+Source: [`packages/interaction/commands/src/types.ts:90`](../../packages/interaction/commands/src/types.ts)
 <!-- END GENERATED cordis-surface -->

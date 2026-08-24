@@ -48,6 +48,16 @@ export interface TokenSpan {
   readonly draftRev: number
 }
 
+/** Base64-encoded composer image accompanying one claimed command submit. */
+export interface SubmitImageAttachment {
+  /** Declared media type; the Host verifies it against decoded bytes. */
+  readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+  /** Canonical base64 encoding of the image bytes. */
+  readonly data: string
+  /** Optional display name; never interpreted as a path. */
+  readonly name?: string
+}
+
 /**
  * Command-mode entry credential. Pure data + a closure method — no class, no
  * cross-package runtime value (client bundle purity).
@@ -57,8 +67,10 @@ export interface CommandClaim {
   readonly token: string
   /** Ghost-text hint rendered while the claim's args are blank. */
   readonly hint?: string
+  /** Whether composer images may accompany this command submit. */
+  readonly images?: boolean
   /** Enter transaction, supplied by the source as a closure. */
-  submit(args: string, actx: ClientContext): Promise<SubmitOutcome>
+  submit(args: string, actx: ClientContext, images: readonly SubmitImageAttachment[]): Promise<SubmitOutcome>
 }
 
 /**
@@ -97,6 +109,12 @@ export type PickOutcome =
   | { readonly text: string; readonly continue?: boolean }
   | 'handled'
   | undefined
+
+/** Non-text composer state visible to Enter adjudication. */
+export interface SubmitEnvelope {
+  /** Number of available image attachments accompanying the draft. */
+  readonly images: number
+}
 
 /** Candidate request passed to a source. The signal is superseded on query change / menu close. */
 export interface CandidateRequest {
@@ -159,7 +177,12 @@ export interface InputTriggerSource {
    * with trailing text present, bare-token-only kinds answer undefined
    * unless the line is exactly the token.
    */
-  matchEnter?(session: ClientSessionContext, line: string, signal: AbortSignal): Promise<PickOutcome>
+  matchEnter?(
+    session: ClientSessionContext,
+    line: string,
+    signal: AbortSignal,
+    envelope: SubmitEnvelope,
+  ): Promise<PickOutcome>
   /**
    * Scope-birth prewarm hook (fire-and-forget): the per-session controller
    * calls it once when the session scope comes alive so sources can fetch

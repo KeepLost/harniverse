@@ -16,7 +16,7 @@ While active, `plan:policy` renders the configured `section`. The plugin always 
 
 The review question declares the `plan-review` presentation intent, naming `Approve` as the label that approves it, so a capable UI presents the plan as a decision instead of a generic question; the answer the tool reads is the same either way. A dismissed review — the user closing the request to speak instead — is reported to the model as such, telling it to stay in plan mode and wait for the message; every other review failure keeps the seam's own message.
 
-When `ctx.commands` is composed, the package registers `/plan [message]` and reserves the exact argument `off` for direct exit. Bare `/plan` selects plan mode; any other non-empty argument selects it first and is then submitted through `agent.steer()`, so it becomes the next step's ordinary logged user message under plan guidance. `/plan off` selects inactive without sending model input; it also cancels a pending entry before plan mode reaches a request.
+When `ctx.commands` is composed, the package registers `/plan [message]` with image capability and reserves the exact argument `off` for direct exit. Bare `/plan` selects plan mode. Text, ordered images, or both select it first and are then submitted through `agent.steer()` as one ordinary logged user message under plan guidance; image-only input is valid, and durable image references precede the optional text block. `/plan off` selects inactive without sending model input and refuses accompanying images; it also cancels a pending entry before plan mode reaches a request.
 
 The Web client consumes the plugin-owned `/plan` command; other entry points may drive the same service directly without defining a second mode vocabulary.
 
@@ -65,15 +65,15 @@ The section is stable within plan mode, but entering or leaving changes the syst
 
 #### What the model sees
 
-`/plan`, `/plan off`, and their terminal results stay outside model history. A non-empty suffix other than the exact `off` argument becomes one trimmed user text block through `agent.steer()` after plan mode is selected. An active `/plan off` selection contributes the standard logged user-switch notice only when the last request header described plan mode; cancelling a pending entry contributes none because no request observed it.
+`/plan`, `/plan off`, and their terminal results stay outside model history. A non-empty suffix other than the exact `off` argument becomes one trimmed user text block through `agent.steer()` after plan mode is selected. Accepted command images become ordered durable image blocks in the same logged user message, before optional text; provider adapters retain ownership of their request projection. An active `/plan off` selection contributes the standard logged user-switch notice only when the last request header described plan mode; cancelling a pending entry contributes none because no request observed it.
 
 #### Token effect
 
-The optional message costs the same history tokens as submitting that text separately; bare `/plan` and `/plan off` add none. A narrated active exit adds the small retained switch notice.
+Optional text and images have the same history and provider-input cost as submitting those blocks in an ordinary message; bare `/plan` and `/plan off` add none. A narrated active exit adds the small retained switch notice.
 
 #### KV Cache effect
 
-The user block is append-only conversation growth. Entering or leaving plan mode changes the earlier policy section; a narrated exit notice is appended after the reusable request prefix.
+The user blocks are append-only conversation growth. Adding an image changes the provider request suffix under the provider adapter's image policy. Entering or leaving plan mode changes the earlier policy section; a narrated exit notice is appended after the reusable request prefix.
 
 ### Exit tool schema and review exchange
 

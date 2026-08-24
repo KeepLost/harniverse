@@ -303,6 +303,11 @@
     },
     {
       "doc": "docs/subsystems/commands.md",
+      "symbol": "CommandImageAttachment",
+      "source": "packages/interaction/commands/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/commands.md",
       "symbol": "CommandInputDescriptor",
       "source": "packages/interaction/commands/src/types.ts"
     },
@@ -893,6 +898,11 @@
     {
       "doc": "docs/subsystems/attachment.md",
       "symbol": "ImageAttachmentLimits",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/attachment.md",
+      "symbol": "EncodedImageAttachment",
       "source": "packages/attachment/attachment/src/types.ts"
     },
     {

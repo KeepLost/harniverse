@@ -6,7 +6,7 @@
 
 `src/client/contract.ts` 是固定的业务 API 约定：`CommandUiContract.register(name, spec)` 与 `decorate(name, spec)` 是业务包消费的全部内容；`CommandUiSpec{options, onSelect}` 自己提供 popup 数据——外层组件归本包所有，业务包永远见不到它。贡献项是客户端自有命令（与 host 命令同名时会明确报错）；装饰项则为**已存在的** host 命令添加裸调用 popup。host 保留目录行、带参 claim（空格／带参数的 Enter）与生命周期记账，被装饰的名字若在会话目录中无 host 行，则永不触发。命令类型按每次派发派生，绝不在注册时定型：带 `input` 的 host descriptor 是 `leadingInput`，注册了 `CommandUiSpec` 的是 `popupSelect`，其余全部是 `execute`。
 
-`CommandDirectory`（`src/client/directory.ts`）是唯一的 wire 派生缓存，以 Session 为 key。普通 Session 通过 `command.list({sessionId})` 拉取，source 的 scope 出生 `warm` 钩子会预热该 Session 的缓存项。由目录寻址的可继续子代理会在客户端解析为空命令目录：`command.list` 绑定 Agent，若预热它，就会仅因查看持久化历史而激活子代理。缓存项由转发的 owner 事件 `commands/change` 软失效，由 `connection/reset` 硬失效，并以 epoch 把关，被取代的旧拉取永远无法覆盖更新的结果。不可变 Agent Profile 身份让每个 Session 的组装派生目录保持稳定。`matchSpace` 只凭该缓存同步应答；`matchEnter` 在 SubmitAttempt 信号上强等缓存，预热失败即拒绝。
+`CommandDirectory`（`src/client/directory.ts`）是唯一的 wire 派生缓存，以 Session 为 key。普通 Session 通过 `command.list({sessionId})` 拉取，source 的 scope 出生 `warm` 钩子会预热该 Session 的缓存项。由目录寻址的可继续子代理会在客户端解析为空命令目录：`command.list` 绑定 Agent，若预热它，就会仅因查看持久化历史而激活子代理。缓存项由转发的 owner 事件 `commands/change` 软失效，由 `connection/reset` 硬失效，并以 epoch 把关，被取代的旧拉取永远无法覆盖更新的结果。不可变 Agent Profile 身份让每个 Session 的组装派生目录保持稳定。`matchSpace` 只凭该缓存同步应答；`matchEnter` 在 SubmitAttempt 信号上强等缓存，预热失败即拒绝。它基于信封的决策会在打开 UI 或分发前拒绝携带图片的未知名称、popup contribution、decoration、裸 Host 命令，以及未声明 `input.images` 的 Host 输入命令；接受图片的 claim 会按 composer 顺序转发序列化图片，并把携带图片的处理器错误返回输入事务，使浏览器资源保持可重试。
 
 `command.execute` 返回已匹配的命令结果后，当前浏览器会发布本地 `command/executed(sessionId, name, result)`。其他客户端只会通过 Host 事件流收到持久命令节点，不会收到这条确认，因此浏览器专属副作用可以筛选由实际提交命令的客户端收到的成功结果，而不会把 Session 回放当成操作请求。监听器失败会逐项记录并隔离，不会改变已经准入的命令结果，也不会阻止后续监听器运行。
 

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type { CommandClaim, InputTriggerController, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import type {
+  CommandClaim, InputTriggerController, SubmitImageAttachment, SubmitOutcome,
+} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { SessionInputShell } from '../src/client/input/facade.ts'
 import type { DraftAttachmentId } from '../src/client/input/contract.ts'
 
@@ -380,5 +382,102 @@ describe('composer submit transaction', () => {
     shell.submit('queue')
     await vi.waitFor(() => { expect(shell.snapshot.draft).toBe('') })
     expect(sink).toHaveBeenCalledTimes(1)
+  })
+
+  it('retains a claimed command and images when the claim does not accept them', async () => {
+    const submit = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
+    const serialize = vi.fn(() => Promise.resolve<readonly SubmitImageAttachment[]>([]))
+    const shell = new SessionInputShell({
+      actx: {} as ClientContext,
+      defaultSink: vi.fn(),
+      commandImages: {
+        serialize,
+        release: vi.fn(),
+        unsupportedNotice: () => 'images unsupported',
+      },
+    })
+    shell.setDraft('/plain')
+    shell.beginCommand({ token: '/plain ', submit }, {
+      start: 0,
+      end: 6,
+      draftRev: shell.snapshot.draftRev,
+    })
+    shell.setDraft('/plain task')
+    shell.addImages(['image-1' as DraftAttachmentId])
+
+    shell.submit()
+
+    expect(shell.snapshot).toMatchObject({ phase: 'claimed', draft: '/plain task', imageIds: ['image-1'] })
+    expect(shell.notices.getSnapshot()?.text).toBe('images unsupported')
+    expect(serialize).not.toHaveBeenCalled()
+    expect(submit).not.toHaveBeenCalled()
+  })
+
+  it('serializes and releases accepting command images only after success', async () => {
+    const encoded = [
+      { mediaType: 'image/png' as const, data: 'AAAA', name: 'a.png' },
+      { mediaType: 'image/png' as const, data: 'BBBB', name: 'b.png' },
+    ]
+    const serialize = vi.fn(() => Promise.resolve(encoded))
+    const release = vi.fn()
+    const submit = vi.fn()
+      .mockResolvedValueOnce({ kind: 'error', text: 'retry' })
+      .mockResolvedValueOnce({ kind: 'success' })
+    const shell = new SessionInputShell({
+      actx: {} as ClientContext,
+      defaultSink: vi.fn(),
+      commandImages: { serialize, release, unsupportedNotice: vi.fn() },
+    })
+    shell.setDraft('/vision')
+    shell.beginCommand({ token: '/vision ', images: true, submit }, {
+      start: 0,
+      end: 7,
+      draftRev: shell.snapshot.draftRev,
+    })
+    shell.setDraft('/vision inspect')
+    shell.addImages(['image-1' as DraftAttachmentId, 'image-2' as DraftAttachmentId])
+
+    shell.submit()
+    await vi.waitFor(() => { expect(shell.snapshot.phase).toBe('claimed') })
+    expect(submit).toHaveBeenNthCalledWith(1, 'inspect', expect.anything(), encoded)
+    expect(shell.snapshot.imageIds).toEqual(['image-1', 'image-2'])
+    expect(release).not.toHaveBeenCalled()
+
+    shell.submit()
+    await vi.waitFor(() => { expect(shell.snapshot.phase).toBe('plain') })
+    expect(release).toHaveBeenCalledExactlyOnceWith(['image-1', 'image-2'])
+    expect(shell.snapshot.imageIds).toEqual([])
+  })
+
+  it('retains draft images when command serialization fails or disposal cancels it', async () => {
+    const serialization = deferred<readonly SubmitImageAttachment[]>()
+    const release = vi.fn()
+    const submit = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
+    const shell = new SessionInputShell({
+      actx: {} as ClientContext,
+      defaultSink: vi.fn(),
+      commandImages: {
+        serialize: () => serialization.promise,
+        release,
+        unsupportedNotice: vi.fn(),
+      },
+    })
+    shell.setDraft('/vision')
+    shell.beginCommand({ token: '/vision ', images: true, submit }, {
+      start: 0,
+      end: 7,
+      draftRev: shell.snapshot.draftRev,
+    })
+    shell.setDraft('/vision inspect')
+    shell.addImages(['image-1' as DraftAttachmentId])
+    shell.submit()
+
+    const disposal = shell.dispose()
+    serialization.resolve([{ mediaType: 'image/png', data: 'AAAA' }])
+    await disposal
+
+    expect(submit).not.toHaveBeenCalled()
+    expect(release).not.toHaveBeenCalled()
+    expect(shell.snapshot).toMatchObject({ draft: '/vision inspect', imageIds: ['image-1'] })
   })
 })

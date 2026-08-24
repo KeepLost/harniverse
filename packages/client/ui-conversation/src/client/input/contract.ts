@@ -214,7 +214,7 @@ export interface InputState {
   readonly draftRev: number
   readonly phase: 'plain' | 'adjudicating' | 'claimed' | 'submitting'
   /** Present exactly while claimed/submitting (claim snapshot during flight; submit closure withheld). */
-  readonly claim?: { readonly token: string; readonly hint?: string }
+  readonly claim?: { readonly token: string; readonly hint?: string; readonly images?: boolean }
   /** Chip occurrence table, sorted by offset (one U+FFFC per entry). */
   readonly occurrences: readonly Occurrence[]
   /** Live paste-match attempt (absent when no paste is matchable). */

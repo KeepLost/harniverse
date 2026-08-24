@@ -1759,11 +1759,11 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           { name: 'echo', description: 'fixture：回显参数', input: { hint: 'text to echo' } },
           { name: 'goal', description: 'set or view the goal for a long-running task', input: { hint: '<objective>' } },
           { name: 'permission', description: 'Switch the permission preset (sandbox mode + approval policy)', input: { hint: '<preset>' } },
-          { name: 'plan', description: 'Enter or leave plan mode', input: { hint: '[off|message]' } },
+          { name: 'plan', description: 'Enter or leave plan mode', input: { hint: '[off|message]', images: true } },
         ],
       }
     },
-    execute(id: SessionId, line: string): RpcResult<CommandExecution | undefined> {
+    execute(id: SessionId, line: string, images: readonly unknown[] = []): RpcResult<CommandExecution | undefined> {
       const missing = requireGoalSession(id)
       if (missing !== undefined) return missing
       // Structured split mirroring the Host parser: name + verbatim rawInput
@@ -1771,6 +1771,21 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       const match = /^\/(\S+)((?:\s.*)?)$/.exec(line.trim())
       const name = match?.[1]
       const args = match?.[2] ?? ''
+      const known = ['permission', 'goal', 'compact', 'echo', 'plan']
+      if (images.length > 0 && name !== undefined && known.includes(name)) {
+        const rejection = name !== 'plan'
+          ? `/${name} does not accept image attachments`
+          : args.trim() === 'off'
+            ? 'Image attachments cannot accompany /plan off.'
+            : undefined
+        if (rejection !== undefined) {
+          const commandId = `fx-cmd-${logOf(id).length}` as CommandId
+          append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+          const result: CommandResult = { kind: 'error', text: rejection }
+          append(id, { type: 'command/done', data: { commandId, ...result } })
+          return { ok: true, value: { commandId, result } }
+        }
+      }
       if (name === 'permission') {
         const preset = args.trim()
         const commandId = `fx-cmd-${logOf(id).length}` as CommandId
@@ -3142,6 +3157,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           sessionId: SessionId
           query?: string
           line?: string
+          images?: readonly unknown[]
           ref?: { id: string; revision: number }
           request?: { objective?: string; maxGoalRounds?: number }
         }
@@ -3149,7 +3165,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       const sessionId = endpoint === 'commands/list' ? args.sessionId : args.agentId
       switch (endpoint) {
         case 'commands/list': return Promise.resolve(commandRemotes.list(sessionId))
-        case 'commands/execute': return Promise.resolve(commandRemotes.execute(sessionId, args.line as string))
+        case 'commands/execute': return Promise.resolve(commandRemotes.execute(sessionId, args.line as string, args.images ?? []))
         case 'goals/create': return Promise.resolve(goalRemotes.create(sessionId, {
           objective: args.request?.objective as string,
           ...args.request?.maxGoalRounds === undefined ? {} : { maxGoalRounds: args.request.maxGoalRounds },

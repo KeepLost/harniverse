@@ -8,7 +8,6 @@ import type {
   InputTriggerServiceContract,
   InputTriggerSource,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
-import { formatFileMention } from '@deepseek-ai/dsh-file-reference/grammar'
 import type { FileReferenceCandidate } from '@deepseek-ai/dsh-file-reference/types'
 import type { SessionReferenceMentionCandidate } from '@deepseek-ai/dsh-session-reference/types'
 
@@ -59,6 +58,15 @@ function fileCandidate(candidate: FileReferenceCandidate, preserveQuote: boolean
   const directory = candidate.kind === 'directory'
   const value: ReferenceCandidateValue = { kind: 'file', fileKind: candidate.kind, label, mention }
   return [{ name: `${directory ? 'Folder' : 'File'} · ${label}${directory ? '/' : ''}`, description: candidate.path, section: 'Files & folders', value: JSON.stringify(value) }]
+}
+
+function formatFileMention(candidate: FileReferenceCandidate, preserveQuote: boolean): string | undefined {
+  const path = candidate.kind === 'directory' ? `${candidate.path}/` : candidate.path
+  if (/[\u0000-\u001f\u007f-\u009f"]/u.test(path)) return undefined
+  const quoted = preserveQuote || /\s/u.test(path)
+  if (!quoted) return `@${path}`
+  if (candidate.kind === 'directory') return `@"${path}`
+  return `@"${path}"`
 }
 
 function sessionCandidate(candidate: SessionReferenceMentionCandidate) {

@@ -51,6 +51,18 @@ The reference records intrinsic dimensions and encoded length so clients can lay
 ## Commit and verified-read payloads
 
 ```ts type-equiv
+/** Base64-encoded image upload accompanying one command wire request. */
+interface EncodedImageAttachment {
+  /** Declared media type, verified against decoded bytes during admission. */
+  mediaType: ImageMediaType
+  /** Canonical base64 encoding of the image bytes. */
+  data: string
+  /** Optional display name; never interpreted as a path. */
+  name?: string
+}
+```
+
+```ts type-equiv
 /** Request to validate and durably commit one image. */
 interface SaveImageAttachment {
   data: Uint8Array
@@ -69,7 +81,7 @@ interface StoredImageAttachment {
 }
 ```
 
-`saveImage()` validates bytes and atomically commits one object before returning its reference. `validateImage()` runs the same admission checks without persisting anything; batch callers validate every member through it before saving any member, so validation rejection leaves no partial objects behind. `readImage()` accepts a reference from an authorized session path and returns bytes only after integrity verification. The service is deliberately retention-neutral: resumed and forked sessions may share objects, so reference-aware garbage collection is deferred rather than tied to any one session's deletion.
+`admitEncodedImages()` accepts the wire form, rejects non-canonical base64 before storage, and delegates the decoded batch to `saveImages()`. That operation applies the store's deployment-resolved count, aggregate-byte, media-type, and per-image checks before its first write, then commits and returns references in input order. `saveImage()` validates bytes and atomically commits one object before returning its reference. `validateImage()` runs the same per-image admission checks without persisting anything. `readImage()` accepts a reference from an authorized session path and returns bytes only after integrity verification. The service is deliberately retention-neutral: resumed and forked sessions may share objects, so reference-aware garbage collection is deferred rather than tied to any one session's deletion.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -93,6 +105,13 @@ Immutable binary attachment service. Implementations validate bytes before publi
  * @returns completion after the encoded raster has been fully decoded.
  */
 abstract validateImage(input: SaveImageAttachment): Promise<void>
+
+/**
+ * Validate every member before committing an ordered image batch.
+ * @param inputs - decoded images in submission order.
+ * @returns durable references in the same order.
+ */
+async saveImages(inputs: readonly SaveImageAttachment[]): Promise<readonly ImageAttachmentRef[]>
 
 /**
  * Validate and durably commit one image before its owning session event is appended.
@@ -121,5 +140,5 @@ abstract readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<Store
 readImageRequest( ref: ImageAttachmentRef, policy: ImageRequestPolicy, signal?: AbortSignal, ): Promise<RequestImageAttachment>
 ```
 
-Source: [`packages/attachment/attachment/src/index.ts:34`](../../packages/attachment/attachment/src/index.ts)
+Source: [`packages/attachment/attachment/src/index.ts:36`](../../packages/attachment/attachment/src/index.ts)
 <!-- END GENERATED cordis-surface -->

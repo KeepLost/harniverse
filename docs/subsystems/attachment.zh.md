@@ -51,6 +51,18 @@ interface ImageAttachmentLimits {
 ## 提交与经校验读取的数据
 
 ```ts type-equiv
+/** Base64-encoded image upload accompanying one command wire request. */
+interface EncodedImageAttachment {
+  /** Declared media type, verified against decoded bytes during admission. */
+  mediaType: ImageMediaType
+  /** Canonical base64 encoding of the image bytes. */
+  data: string
+  /** Optional display name; never interpreted as a path. */
+  name?: string
+}
+```
+
+```ts type-equiv
 /** Request to validate and durably commit one image. */
 interface SaveImageAttachment {
   data: Uint8Array
@@ -69,7 +81,7 @@ interface StoredImageAttachment {
 }
 ```
 
-`saveImage()` 校验字节并以原子方式提交一个对象，之后才返回其引用。`validateImage()` 执行相同的准入检查，但不持久化任何内容；批量调用方会在保存任何成员前通过它校验所有成员，因此校验拒绝不会留下部分对象。`readImage()` 接受来自已授权会话路径的引用，只在完整性校验通过后返回字节。该服务刻意不规定保留策略：恢复和 fork 后的会话可能共享对象，因此基于引用的垃圾回收会延期实现，而不是与任何一个会话的删除绑定。
+`admitEncodedImages()` 接受 wire 形态，在进入存储前拒绝不规范的 base64，并把解码后的批次交给 `saveImages()`。该操作会在首次写入前应用存储服务按部署解析的数量、总字节数、媒体类型与单图检查，再按输入顺序提交并返回引用。`saveImage()` 校验字节并以原子方式提交一个对象，之后才返回其引用。`validateImage()` 执行相同的单图准入检查，但不持久化任何内容。`readImage()` 接受来自已授权会话路径的引用，只在完整性校验通过后返回字节。该服务刻意不规定保留策略：恢复和 fork 后的会话可能共享对象，因此基于引用的垃圾回收会延期实现，而不是与任何一个会话的删除绑定。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -93,6 +105,13 @@ Immutable binary attachment service. Implementations validate bytes before publi
  * @returns completion after the encoded raster has been fully decoded.
  */
 abstract validateImage(input: SaveImageAttachment): Promise<void>
+
+/**
+ * Validate every member before committing an ordered image batch.
+ * @param inputs - decoded images in submission order.
+ * @returns durable references in the same order.
+ */
+async saveImages(inputs: readonly SaveImageAttachment[]): Promise<readonly ImageAttachmentRef[]>
 
 /**
  * Validate and durably commit one image before its owning session event is appended.
@@ -121,5 +140,5 @@ abstract readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<Store
 readImageRequest( ref: ImageAttachmentRef, policy: ImageRequestPolicy, signal?: AbortSignal, ): Promise<RequestImageAttachment>
 ```
 
-Source: [`packages/attachment/attachment/src/index.ts:34`](../../packages/attachment/attachment/src/index.ts)
+Source: [`packages/attachment/attachment/src/index.ts:36`](../../packages/attachment/attachment/src/index.ts)
 <!-- END GENERATED cordis-surface -->

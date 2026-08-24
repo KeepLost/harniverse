@@ -10,7 +10,7 @@ import type { ClientContext, ObservableSnapshot, SnapshotStore } from '@deepseek
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ArbitrateKey, ArbitrateOutcome, CommandClaim, ConsumeTokenRequest, PickOutcome,
-  ReferenceInsert, InputTriggerController, SubmitOutcome, TokenSpan,
+  ReferenceInsert, InputTriggerController, SubmitImageAttachment, SubmitOutcome, TokenSpan,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {
   DraftAttachmentId, EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
@@ -51,6 +51,15 @@ export interface SessionInputDeps {
     mode: InputSubmitMode,
     signal: AbortSignal,
   ): Promise<SubmitOutcome>
+  /** Browser-owned command image serialization and successful-release seam. */
+  commandImages?: {
+    serialize(
+      ids: readonly DraftAttachmentId[],
+      signal: AbortSignal,
+    ): Promise<readonly SubmitImageAttachment[]>
+    release(ids: readonly DraftAttachmentId[]): void
+    unsupportedNotice(token: string): string
+  }
 }
 
 /** The sole lifecycle owner and attachment reservation for one image-only send. */
@@ -135,6 +144,7 @@ export class SessionInputShell implements SessionInput {
 
   /** Remove one image id from this draft. */
   removeImage(id: DraftAttachmentId): void {
+    if (this.snapshot.phase === 'adjudicating' || this.snapshot.phase === 'submitting') return
     const next = this.imageIds.filter(candidate => candidate !== id)
     if (next.length === this.imageIds.length) return
     this.imageIds = next
@@ -216,6 +226,16 @@ export class SessionInputShell implements SessionInput {
         this.imageSend = attempt
         this.settleImageSend(attempt, () => this.deps.defaultSink('', imageIds, mode, attempt.controller.signal))
       }
+      return
+    }
+    const availableImages = this.availableImageIds()
+    const before = this.snapshot
+    if (before.phase === 'claimed' && availableImages.length > 0 && before.claim?.images !== true) {
+      this.notify(
+        'error',
+        this.deps.commandImages?.unsupportedNotice(before.claim?.token ?? before.draft)
+          ?? `${(before.claim?.token ?? before.draft).trim()} does not accept image attachments`,
+      )
       return
     }
     this.run(this.core.dispatch({ type: 'enter', mode }))
@@ -501,6 +521,7 @@ export class SessionInputShell implements SessionInput {
     attempt: SubmitAttempt,
     operation: () => Promise<SubmitOutcome>,
     imageIds: readonly DraftAttachmentId[] = [],
+    onSuccess?: (() => void) | undefined,
   ): Promise<void> {
     return this.invokeAsync(operation).then(
       (outcome) => {
@@ -508,6 +529,7 @@ export class SessionInputShell implements SessionInput {
         if (outcome.kind === 'success' && imageIds.length > 0) {
           const submitted = new Set(imageIds)
           this.imageIds = this.imageIds.filter(id => !submitted.has(id))
+          onSuccess?.()
         }
         this.run(this.core.dispatch({
           type: 'submit-settled', attempt, ok: outcome.kind === 'success', outcome,
@@ -531,7 +553,11 @@ export class SessionInputShell implements SessionInput {
       this.run(this.core.dispatch({ type: 'adjudicated', attempt, outcome: undefined }))
       return
     }
-    this.own(this.invokeAsync(() => inputTriggers.adjudicate(draft.trim(), attempt.signal)).then(
+    this.own(this.invokeAsync(() => inputTriggers.adjudicate(
+      draft.trim(),
+      attempt.signal,
+      { images: this.availableImageIds().length },
+    )).then(
       (outcome: PickOutcome) => {
         if (this.dead(attempt)) return
         this.run(this.core.dispatch({ type: 'adjudicated', attempt, outcome }))
@@ -544,12 +570,46 @@ export class SessionInputShell implements SessionInput {
     ))
   }
 
-  /** The submit transaction: claim.submit against the session scope; ok maps from the outcome kind. */
+  /** Serialize command images, execute the claim, and release browser resources only after success. */
   private beginSubmit(attempt: SubmitAttempt, claim: CommandClaim, args: string): void {
-    this.own(this.settleSubmit(
+    const imageIds = claim.images === true ? this.availableImageIds() : []
+    this.own(this.serializeAndSubmitCommand(attempt, claim, args, imageIds))
+  }
+
+  /** One retained command transaction covering browser serialization through Host settlement. */
+  private async serializeAndSubmitCommand(
+    attempt: SubmitAttempt,
+    claim: CommandClaim,
+    args: string,
+    imageIds: readonly DraftAttachmentId[],
+  ): Promise<void> {
+    let images: readonly SubmitImageAttachment[] = []
+    if (imageIds.length > 0) {
+      const commandImages = this.deps.commandImages
+      if (commandImages === undefined) {
+        this.run(this.core.dispatch({
+          type: 'submit-settled', attempt, ok: false, message: 'command image serialization is unavailable',
+        }))
+        return
+      }
+      try {
+        images = await this.invokeAsync(() => commandImages.serialize(imageIds, attempt.signal))
+      } catch (error: unknown) {
+        if (this.dead(attempt)) return
+        this.run(this.core.dispatch({
+          type: 'submit-settled', attempt, ok: false,
+          message: error instanceof Error ? error.message : String(error),
+        }))
+        return
+      }
+    }
+    if (this.dead(attempt)) return
+    await this.settleSubmit(
       attempt,
-      () => Promise.resolve().then(() => claim.submit(args, this.deps.actx)),
-    ))
+      () => Promise.resolve().then(() => claim.submit(args, this.deps.actx, images)),
+      imageIds,
+      imageIds.length === 0 ? undefined : () => { this.deps.commandImages?.release(imageIds) },
+    )
   }
 
   /** Settle an image-only lifecycle and release its attachment reservation exactly once. */

@@ -136,7 +136,13 @@ export class InputMachine {
       imageIds: [],
       draftRev: this.draftRev,
       phase: this.phase,
-      ...(c ? { claim: { token: c.token, ...(c.hint !== undefined ? { hint: c.hint } : {}) } } : {}),
+      ...(c ? {
+        claim: {
+          token: c.token,
+          ...(c.hint !== undefined ? { hint: c.hint } : {}),
+          ...(c.images === true ? { images: true } : {}),
+        },
+      } : {}),
       occurrences: this.occurrences,
       ...(this.paste !== undefined ? { paste: this.paste } : {}),
       queue: EMPTY_QUEUE,

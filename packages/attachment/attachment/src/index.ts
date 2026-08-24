@@ -13,8 +13,10 @@ import type {
 
 export { AttachmentId, ImageVariantId } from './brand.ts'
 export { AttachmentError } from './error.ts'
+export { admitEncodedImages } from './admission.ts'
 export type {
   AttachmentId as AttachmentIdType,
+  EncodedImageAttachment,
   ImageAttachmentLimits,
   ImageAttachmentRef,
   ImageRequestPolicy,
@@ -46,6 +48,42 @@ export abstract class AttachmentStore extends Service {
    * @returns completion after the encoded raster has been fully decoded.
    */
   abstract validateImage(input: SaveImageAttachment): Promise<void>
+
+  /**
+   * Validate batch-wide limits before any durable write.
+   * @param inputs - decoded images in submission order.
+   */
+  protected validateImageBatch(inputs: readonly SaveImageAttachment[]): void {
+    const { maxImagesPerMessage, maxMessageImageBytes, mediaTypes } = this.imageLimits
+    if (inputs.length > maxImagesPerMessage) {
+      throw new AttachmentError('Image batch exceeds the configured image-count limit.', 'TOO_MANY_IMAGES')
+    }
+    const totalBytes = inputs.reduce((sum, input) => sum + input.data.byteLength, 0)
+    if (totalBytes > maxMessageImageBytes) {
+      throw new AttachmentError('Image batch exceeds the configured aggregate image-byte limit.', 'IMAGES_TOO_LARGE')
+    }
+    for (const input of inputs) {
+      if (!mediaTypes.includes(input.mediaType)) {
+        throw new AttachmentError(
+          `Image type ${input.mediaType} is not accepted by this deployment.`,
+          'UNSUPPORTED_IMAGE_TYPE',
+        )
+      }
+    }
+  }
+
+  /**
+   * Validate every member before committing an ordered image batch.
+   * @param inputs - decoded images in submission order.
+   * @returns durable references in the same order.
+   */
+  async saveImages(inputs: readonly SaveImageAttachment[]): Promise<readonly ImageAttachmentRef[]> {
+    this.validateImageBatch(inputs)
+    for (const input of inputs) await this.validateImage(input)
+    const refs: ImageAttachmentRef[] = []
+    for (const input of inputs) refs.push(await this.saveImage(input))
+    return refs
+  }
 
   /**
    * Validate and durably commit one image before its owning session event is appended.

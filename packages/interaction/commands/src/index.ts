@@ -5,6 +5,8 @@
 
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { AttachmentError, admitEncodedImages } from '@deepseek-ai/dsh-attachment'
+import type { ImageBlock } from '@deepseek-ai/dsh-llm'
 import { NamedEntries, ScopedLayers } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, ScopeLayer } from '@deepseek-ai/dsh-scope'
 import type { Session, SessionEvent, SessionEventMap, SessionId } from '@deepseek-ai/dsh-session'
@@ -13,6 +15,7 @@ import { CommandId } from './brand.ts'
 import type {
   CommandDescriptor,
   CommandExecution,
+  CommandImageAttachment,
   CommandInputDescriptor,
   CommandResult,
 } from './types.ts'
@@ -24,6 +27,9 @@ export const name = 'commands'
 
 const COMMAND_NAME = /^[a-z][a-z0-9_-]*$/u
 
+/** Shared immutable attachment value for image-free command invocations. */
+const NO_ATTACHMENTS: readonly ImageBlock[] = Object.freeze([])
+
 /** Invocation passed to one registered command handler. */
 export interface CommandInvocation {
   /** Pairing id already written to this invocation's `command/run` event. */
@@ -32,6 +38,14 @@ export interface CommandInvocation {
   readonly agent: Agent
   /** Exact text following the registered command name, including separator whitespace. */
   readonly rawInput: string
+  /**
+   * Durably admitted image blocks accompanying this invocation, in submission
+   * order; empty unless the definition declares `input.images`. The handler
+   * owns their model-visible use — the registry never schedules them itself —
+   * and a handler whose grammar cannot use them in this invocation returns an
+   * error so the dispatching composer retains the originals.
+   */
+  readonly attachments: readonly ImageBlock[]
   /** Cancellation signal owned by the dispatching UI request. */
   readonly signal: AbortSignal
 }
@@ -171,7 +185,13 @@ function normalizeDefinition(definition: CommandDefinition): RegisteredCommand {
     if (rawInput.hint.trim().length === 0) {
       throw new TypeError(`command "${definition.name}" input hint must not be empty`)
     }
-    input = Object.freeze({ hint: rawInput.hint })
+    if ('images' in rawInput && rawInput.images !== undefined && typeof rawInput.images !== 'boolean') {
+      throw new TypeError(`command "${definition.name}" input images flag must be a boolean`)
+    }
+    input = Object.freeze({
+      hint: rawInput.hint,
+      ...('images' in rawInput && rawInput.images === true) ? { images: true } : {},
+    })
   }
   const normalized = Object.freeze({
     name: definition.name,
@@ -294,6 +314,11 @@ export class CommandRuntime extends TypertRemoteService {
    *
    * @param agent - exact receiving agent.
    * @param line - complete slash-command line.
+   * Image capability and attachment admission are enforced here so Remote and
+   * direct callers cannot bypass declaration or deployment policy. A refused
+   * batch enters no handler and creates no durable attachment object.
+   *
+   * @param images - encoded command images in submission order.
    * @param signal - cancellation signal owned by the UI request.
    * @returns the settled execution (result + lifecycle pairing id), or
    *   `undefined` when syntax or name does not resolve.
@@ -302,6 +327,7 @@ export class CommandRuntime extends TypertRemoteService {
   async execute(
     agent: Agent,
     line: string,
+    images: readonly CommandImageAttachment[],
     signal: AbortSignal,
   ): Promise<CommandExecution | undefined> {
     const parsed = parseCommand(line)
@@ -316,30 +342,67 @@ export class CommandRuntime extends TypertRemoteService {
       ...command.definition.recordInput === false ? {} : { args: parsed.rawInput },
       source: { kind: 'user' },
     })
-    const invocation = Object.freeze({ commandId, agent, rawInput: parsed.rawInput, signal })
+    const settle = (result: CommandResult): CommandExecution => {
+      this.appendLifecycle(agent.session, 'command/done', {
+        commandId, kind: result.kind,
+        ...result.text === undefined ? {} : { text: result.text },
+        ...result.kind === 'success' && result.sourceEventSeq !== undefined
+          ? { sourceEventSeq: result.sourceEventSeq }
+          : {},
+      })
+      return Object.freeze({ commandId, result: Object.freeze(result) })
+    }
+    let attachments: readonly ImageBlock[] = NO_ATTACHMENTS
+    if (images.length > 0) {
+      if (command.definition.input?.images !== true) {
+        return settle({ kind: 'error', text: `/${parsed.name} does not accept image attachments` })
+      }
+      const store = this.ctx.get('attachments')
+      if (store === undefined) {
+        return settle({
+          kind: 'error',
+          text: `/${parsed.name}: image attachments are unavailable because no attachment store is composed`,
+        })
+      }
+      try {
+        const refs = await admitEncodedImages(store, images)
+        attachments = Object.freeze(refs.map(ref => Object.freeze({ type: 'image' as const, attachment: ref })))
+      } catch (error: unknown) {
+        if (error instanceof AttachmentError) {
+          return settle({ kind: 'error', text: error.message })
+        }
+        this.settleThrown(agent.session, parsed.name, commandId, error)
+        throw error
+      }
+      if (signal.aborted) {
+        const error = abortError(signal)
+        this.settleThrown(agent.session, parsed.name, commandId, error)
+        throw error
+      }
+    }
+    const invocation = Object.freeze({ commandId, agent, rawInput: parsed.rawInput, attachments, signal })
     let result: CommandResult
     try {
       const output = command.definition.handler(invocation)
       result = normalizeResult(parsed.name, await withAbort(Promise.resolve(output), signal))
     } catch (error: unknown) {
-      try {
-        this.appendLifecycle(agent.session, 'command/done', {
-          commandId, kind: 'error',
-          text: error instanceof Error ? error.message : renderThrown(error),
-        })
-      } catch (appendError: unknown) {
-        this.ctx.logger.warn(`command "${parsed.name}": command/done append failed: ${renderThrown(appendError)}`)
-      }
+      this.settleThrown(agent.session, parsed.name, commandId, error)
       throw error
     }
-    this.appendLifecycle(agent.session, 'command/done', {
-      commandId, kind: result.kind,
-      ...result.text === undefined ? {} : { text: result.text },
-      ...result.kind === 'success' && result.sourceEventSeq !== undefined
-        ? { sourceEventSeq: result.sourceEventSeq }
-        : {},
-    })
-    return Object.freeze({ commandId, result })
+    return settle(result)
+  }
+
+  /** Append a contained error settlement for a thrown handler or admission failure. */
+  private settleThrown(session: Session, command: string, commandId: CommandId, error: unknown): void {
+    try {
+      this.appendLifecycle(session, 'command/done', {
+        commandId,
+        kind: 'error',
+        text: error instanceof Error ? error.message : renderThrown(error),
+      })
+    } catch (appendError: unknown) {
+      this.ctx.logger.warn(`command "${command}": command/done append failed: ${renderThrown(appendError)}`)
+    }
   }
 
   /** Mint the next pairing id (monotonic; instance-token-prefixed so a resumed log never repeats one). */

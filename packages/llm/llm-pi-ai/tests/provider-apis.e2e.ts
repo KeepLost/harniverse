@@ -160,7 +160,7 @@ for (const profile of providerCases) {
         expect(textOf(result).toLowerCase()).toContain('pong')
         expect(result.usage?.inputTokens).toBeGreaterThan(0)
         expect(result.usage?.outputTokens).toBeGreaterThan(0)
-        expect(expectNativeReplay(result, profile).stopReason).toBe('stop')
+        expect(expectNativeReplay(result, profile).response.stopReason).toBe('stop')
       })
 
       it('round-trips a tool call with provider-native replay metadata', async () => {
@@ -179,7 +179,7 @@ for (const profile of providerCases) {
         expect(call).toBeDefined()
         expect(call!.name).toBe('lookup_code')
         expect(JSON.parse(call!.arguments)).toMatchObject({ code: 'blue' })
-        expect(expectNativeReplay(first, profile).stopReason).toBe('toolUse')
+        expect(expectNativeReplay(first, profile).response.stopReason).toBe('toolUse')
 
         const second = await assemble(ctx, {
           provider: profile.provider,
@@ -202,7 +202,7 @@ for (const profile of providerCases) {
 
         expectFinish(second, 'stop')
         expect(textOf(second).toLowerCase()).toContain('ocean')
-        expect(expectNativeReplay(second, profile).stopReason).toBe('stop')
+        expect(expectNativeReplay(second, profile).response.stopReason).toBe('stop')
       })
 
       if (profile.provider === 'anthropic') {

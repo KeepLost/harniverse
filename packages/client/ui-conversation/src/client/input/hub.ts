@@ -9,7 +9,7 @@
  * real host entity, so the sink is one unconditional prompt path.
  */
 import type { ClientContext, ISessions, SessionBinding, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import type { InputTriggerController, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import type { InputTriggerController, SubmitImageAttachment, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 import { queueReadFaceOf } from '../queue/store.ts'
 import type { ComposerKeyboard, DraftAttachmentId, SessionInputResolver, SessionInput } from './contract.ts'
@@ -31,6 +31,10 @@ interface ConversationAttachmentFace {
     mode: InputSubmitMode,
     signal?: AbortSignal,
   ): Promise<void>
+  serializeDraftImages(
+    imageIds: readonly DraftAttachmentId[],
+    signal?: AbortSignal,
+  ): Promise<readonly SubmitImageAttachment[]>
   releaseDraftImage(id: DraftAttachmentId): void
 }
 
@@ -78,6 +82,16 @@ export class InputHub implements SessionInputResolver {
       queue: queueReadFaceOf(session),
       defaultSink: (text, imageIds, mode, signal) => this.sink(session, text, imageIds, mode, signal),
       steerQueue: () => { void this.steerQueue(session, shell) },
+      commandImages: {
+        serialize: (ids, signal) => this.conversation().serializeDraftImages(ids, signal),
+        release: (ids) => {
+          const conversation = this.rootCtx.get('conversation') as ConversationAttachmentFace | undefined
+          for (const imageId of ids) conversation?.releaseDraftImage(imageId)
+        },
+        unsupportedNotice: token => this.t('command.imagesUnsupported', {
+          command: token.trim().replace(/^\//u, ''),
+        }),
+      },
     })
     this.shells.set(id, shell)
     // The one teardown axis: listeners, shell, and map entries all ride the

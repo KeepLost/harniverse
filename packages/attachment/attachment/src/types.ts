@@ -32,6 +32,16 @@ export interface ImageAttachmentLimits {
   mediaTypes: readonly ImageMediaType[]
 }
 
+/** Base64-encoded image upload accompanying one command wire request. */
+export interface EncodedImageAttachment {
+  /** Declared media type, verified against decoded bytes during admission. */
+  mediaType: ImageMediaType
+  /** Canonical base64 encoding of the image bytes. */
+  data: string
+  /** Optional display name; never interpreted as a path. */
+  name?: string
+}
+
 /** Request to validate and durably commit one image. */
 export interface SaveImageAttachment {
   data: Uint8Array

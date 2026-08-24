@@ -5,10 +5,26 @@
  */
 import type { TriggerChar } from '../types.ts'
 import type { DetectTrigger } from './contract.ts'
-import { activeAtToken } from '@deepseek-ai/dsh-file-reference/grammar'
 
 const WORD_CHAR = /[\p{L}\p{N}_]/u
 const WHITESPACE = /\s/u
+
+interface ActiveAtToken {
+  prefix: string
+  query: string
+  quoted: boolean
+}
+
+function activeAtToken(line: string, cursorCol: number): ActiveAtToken | undefined {
+  const beforeCursor = line.slice(0, cursorCol)
+  const quoted = /(?:^|\s)(@"([^"]*))$/u.exec(beforeCursor)
+  if (quoted?.[1] !== undefined && quoted[2] !== undefined) {
+    return { prefix: quoted[1], query: quoted[2], quoted: true }
+  }
+  const plain = /(?:^|\s)(@([^\s]*))$/u.exec(beforeCursor)
+  if (plain?.[1] === undefined || plain[2] === undefined) return undefined
+  return { prefix: plain[1], query: plain[2], quoted: false }
+}
 
 /**
  * Word-boundary rule: a trigger char opens only at start-of-draft, after

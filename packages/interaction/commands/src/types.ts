@@ -9,10 +9,28 @@
 
 import type { CommandId } from './brand.ts'
 
+/** Provider-neutral encoded image carried by a command Remote invocation. */
+export interface CommandImageAttachment {
+  /** Browser-declared media type, verified by the attachment store. */
+  readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+  /** Canonical base64 image bytes. */
+  readonly data: string
+  /** Optional display name; never interpreted as a path. */
+  readonly name?: string
+}
+
 /** Immutable metadata for a command's optional unstructured input. */
 export interface CommandInputDescriptor {
   /** Placeholder shown before the user supplies free-form input. */
   readonly hint: string
+  /**
+   * Whether composer image attachments may accompany an invocation. Absent or
+   * false = the executor rejects an invocation carrying images and capable
+   * composers refuse the submission before dispatch. A declaring command's
+   * handler receives the admitted durable blocks and owns every further
+   * grammar decision, including rejecting sub-commands that cannot use them.
+   */
+  readonly images?: boolean
 }
 
 /** Expected command outcome rendered directly by the dispatching UI. */

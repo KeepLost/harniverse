@@ -18,6 +18,12 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../attachment/attachment"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
       "path": "../../core/scope"
     },
     {
