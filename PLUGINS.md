@@ -209,6 +209,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `02ff1b54f8` | Keeps the vendored logger-console timestamp visible on dark terminals by using ANSI palette index 7 instead of dark index 8; log thresholds and message content remain unchanged. |
 | `ac8d0ffdfa` | Recovers unusable pi-ai replay metadata as provider-neutral history, aligns replay envelopes with max-token block pruning, and persists visible text/reasoning prefixes from cancelled streams as interrupted assistant messages for replay and UI projections. |
 | `44ac9c5d23` | Adds bounded provider-authored diagnostics to one-shot subagent results, preserves safe Claude Code failure and unattended-interaction facts, classifies Codex protocol/process/permission failures without retaining raw payloads, and presents diagnostics separately from partial assistant output. |
+| `60fd18012c` | Adds capability-gated Host file-reference discovery, bounded local Agent-workspace indexing, authenticated Session-reference candidates and pre-step preparation, and the unified Web `@` completion with quoted paths, directories, and canonical Session mentions. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
