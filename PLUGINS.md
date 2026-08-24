@@ -211,6 +211,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `44ac9c5d23` | Adds bounded provider-authored diagnostics to one-shot subagent results, preserves safe Claude Code failure and unattended-interaction facts, classifies Codex protocol/process/permission failures without retaining raw payloads, and presents diagnostics separately from partial assistant output. |
 | `60fd18012c` | Adds capability-gated Host file-reference discovery, bounded local Agent-workspace indexing, authenticated Session-reference candidates and pre-step preparation, and the unified Web `@` completion with quoted paths, directories, and canonical Session mentions. |
 | `fa35fa4edc` | Adds the opt-in Python `CodeRuntime` provider: fresh shell-free CPython subprocesses, hostile fd-3 JSONL validation, async bindings, resource/time/output limits, lossless JSON, cancellation, and quiescent disposal without changing shipped Profiles. |
+| `18fe061761` | Adds creation-time-fenced Windows process inspection and PTY teardown plus the opt-in owner-scoped persistent PowerShell tool, preserving existing POSIX behavior and leaving default Profile composition unchanged. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
