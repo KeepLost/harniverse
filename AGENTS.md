@@ -23,7 +23,7 @@ Package responsibilities live in [packages/README.md](packages/README.md); subtr
 ```sh
 pnpm install            # pnpm workspaces, node ^22.19 || >=24
 pnpm run clean           # remove build outputs and safe residue
-pnpm run test            # vitest unit tests
+pnpm run test            # full build, then vitest unit tests
 pnpm run test:coverage   # CI coverage gate: per-file 100% on packages/*/*/src
 pnpm run test:e2e        # real-API tests; self-skip without DEEPSEEK_API_KEY
 pnpm run test:snapshot   # keyless replay; filter with -t <name>
@@ -41,14 +41,11 @@ pnpm run demo:cordis     # live plugin demo; needs a key
 pnpm run demo:acp        # ACP automation server; needs DEEPSEEK_API_KEY
 ```
 
-### Host sandbox failures
-
-When the agent sandbox demonstrably blocks credentials, network, IPC, file watching, or nested `sandbox-exec`, retry the required command unchanged with the narrowest host escalation. Never bypass genuine failures or the product sandbox under test.
-
 ### Run relevant checks locally
 
 Use [dsh-pre-push-checks](.agents/skills/dsh-pre-push-checks/SKILL.md) before pushes; report commands run. Validate after `gh stack sync`; do not merge before checks pass.
 
+- Repository-level test completion includes `pnpm run build`; use `pnpm run test`, which enforces build-before-unit ordering. Use `pnpm run test:unit` only in a scheduler gate that depends on build or for explicitly focused diagnosis.
 - Match evidence to the surface: focused tests for behavior, snapshots for visible output, `doc-sync` for docs, built checks for published paths, and real-API e2e for providers.
 - Do not default to the full suite or repeat passing checks for commit/push. CI owns exhaustive coverage and the platform matrix; rehearse all only by request, CI diagnosis, or repository-wide change.
 - `test:coverage`, not `test`, is the CI coverage gate ([testing policy](docs/testing.md)).
