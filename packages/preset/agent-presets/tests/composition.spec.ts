@@ -51,6 +51,23 @@ describe('Agent Profile composition recipes', () => {
     ]))
   })
 
+  it('keeps a stored tool-name conflict mountable by disabling the shadowed source row', async () => {
+    // `persistent-shell` and `tool-bash` both register `bash`. A Profile that
+    // stored both as selected must still mount: two registrations under one
+    // name fail the whole generation, leaving the Session with no composition.
+    const catalog = await compositionCatalog([shippedPreset('standard'), shippedPreset('minimal')], 'standard')
+    const entries = catalog.descriptors.map(descriptor => selected(
+      descriptor,
+      descriptor.id === 'plugin:persistent-shell' ? true : descriptor.defaultLoaded,
+    ))
+    expect(entries.filter(entry => entry.selected).map(entry => entry.id))
+      .toEqual(expect.arrayContaining(['plugin:persistent-shell', 'plugin:tool-bash']))
+
+    const patches = compositionPatches(catalog, entries)
+
+    expect(patches).toContainEqual({ id: 'tool-bash', disabled: true })
+  })
+
   it('describes built-in tools and Profile-safe persona configuration without mounting plugins', async () => {
     const catalog = await compositionCatalog([shippedPreset('standard')], 'standard')
     const filesystem = catalog.descriptors.find(entry => entry.id === 'plugin:tool-fs')

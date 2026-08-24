@@ -3329,7 +3329,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CapabilityPlanBlocker',
-    declaration: 'export interface CapabilityPlanBlocker {\n    readonly code: \'unknown-capability\' | \'not-manageable\' | \'not-assembleable\' | \'required-unloaded\' | \'required-unassembleable\' | \'unknown-member\' | \'required-member-hidden\' | \'configuration-unsupported\' | \'configuration-invalid\';\n    readonly capabilityId: string;\n    readonly dependencyId?: string;\n    readonly message: string;\n}',
+    declaration: 'export interface CapabilityPlanBlocker {\n    readonly code: \'unknown-capability\' | \'not-manageable\' | \'not-assembleable\' | \'required-unloaded\' | \'required-unassembleable\' | \'unknown-member\' | \'required-member-hidden\' | \'member-name-conflict\' | \'configuration-unsupported\' | \'configuration-invalid\';\n    readonly capabilityId: string;\n    readonly dependencyId?: string;\n    readonly conflictingCapabilityId?: string;\n    readonly message: string;\n}',
   },
   {
     name: 'CapabilityPlanOperation',

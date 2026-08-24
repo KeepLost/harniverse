@@ -272,6 +272,58 @@ export async function compositionCatalog(
 }
 
 /**
+ * Source rows that must stay disabled because another selected recipe claims a
+ * tool name they register.
+ *
+ * A tool name has one owner per scope, so two selected recipes registering it
+ * fail the whole generation at mount and leave the Session with no composition
+ * at all. `capabilities` blocks a plan that would create such a pair, but a
+ * Profile stored before that gate — or edited outside it — must still boot.
+ *
+ * The claimant this Profile does not load by default keeps the name: turning
+ * that row on is the operator's explicit choice, while the row it collides with
+ * is only this Profile's default. Disabling the default one is therefore what
+ * the operator asked for, and it replaces a failed generation with a working
+ * composition.
+ * @param catalog - target Profile recipes and source rows.
+ * @param entries - effective selections being compiled.
+ * @returns row ids to force off, empty when no selection collides.
+ */
+function shadowedRowIds(
+  catalog: PresetCompositionCatalog,
+  entries: readonly CapabilityCatalogEntry[],
+): ReadonlySet<string> {
+  const claimants = new Map<string, { rowId: string; nativeDefault: boolean }[]>()
+  for (const entry of entries) {
+    if (!entry.selected) continue
+    const recipe = catalog.recipes.get(entry.id)
+    if (recipe === undefined) continue
+    const row = recipe.source ?? recipe.canonical
+    const visible = entry.memberEntries === undefined
+      ? toolsOf(row).filter(tool => tool.visible).map(tool => tool.name)
+      : entry.memberEntries.filter(member => member.visible && member.kind === 'tool').map(member => member.name)
+    for (const name of visible) {
+      const owners = claimants.get(name) ?? []
+      claimants.set(name, owners)
+      if (!owners.some(owner => owner.rowId === recipe.rowId)) {
+        owners.push({ rowId: recipe.rowId, nativeDefault: defaultLoaded(recipe.source) })
+      }
+    }
+  }
+  const shadowed = new Set<string>()
+  for (const owners of claimants.values()) {
+    if (owners.length < 2) continue
+    // An opted-in row wins over this Profile's own default; with no such
+    // distinction the first claimant keeps the name so the choice is stable.
+    const keeper = owners.find(owner => !owner.nativeDefault) ?? owners[0]
+    for (const owner of owners) {
+      if (owner.rowId !== keeper?.rowId) shadowed.add(owner.rowId)
+    }
+  }
+  return shadowed
+}
+
+/**
  * Compile desired selections into native Include patches for one generation.
  * @param catalog - target Profile recipes and source rows.
  * @param entries - effective selections to compile.
@@ -282,10 +334,15 @@ export function compositionPatches(
   entries: readonly CapabilityCatalogEntry[],
 ): PatchOptions[] {
   const patches: CompositionPatch[] = []
+  const shadowed = shadowedRowIds(catalog, entries)
   for (const entry of entries) {
     if (!entry.manageable || !entry.assembleable) continue
     const recipe = catalog.recipes.get(entry.id)
     if (recipe === undefined) continue
+    if (shadowed.has(recipe.rowId)) {
+      patches.push({ id: recipe.rowId, disabled: true })
+      continue
+    }
     const sourceLoaded = defaultLoaded(recipe.source)
     const visibleMembers = new Set(entry.memberEntries?.filter(member => member.visible).map(member => member.name) ?? [])
     const memberConfigured = entry.memberSelection === 'custom'

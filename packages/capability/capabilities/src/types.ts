@@ -117,9 +117,11 @@ export interface CapabilityPlanOperation {
 
 /** Why a candidate composition cannot be applied safely. */
 export interface CapabilityPlanBlocker {
-  readonly code: 'unknown-capability' | 'not-manageable' | 'not-assembleable' | 'required-unloaded' | 'required-unassembleable' | 'unknown-member' | 'required-member-hidden' | 'configuration-unsupported' | 'configuration-invalid'
+  readonly code: 'unknown-capability' | 'not-manageable' | 'not-assembleable' | 'required-unloaded' | 'required-unassembleable' | 'unknown-member' | 'required-member-hidden' | 'member-name-conflict' | 'configuration-unsupported' | 'configuration-invalid'
   readonly capabilityId: string
   readonly dependencyId?: string
+  /** Capability claiming the same member name, for `member-name-conflict`. */
+  readonly conflictingCapabilityId?: string
   readonly message: string
 }
 

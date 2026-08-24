@@ -219,6 +219,32 @@ describe('Capabilities', () => {
     ])
   })
 
+  it('blocks two selected capabilities that would register the same tool name', async () => {
+    const bashMember = (id: string) => ({
+      id: `${id}/tool:bash`,
+      kind: 'tool' as const,
+      name: 'bash',
+      description: 'Run commands in a bash shell.',
+      defaultVisible: true,
+      available: true,
+      requires: [],
+    })
+    const { ctx } = await boot([
+      descriptor('plugin:tool-bash', { members: [bashMember('plugin:tool-bash')] }),
+      descriptor('plugin:persistent-bash', {
+        defaultLoaded: false,
+        members: [bashMember('plugin:persistent-bash')],
+      }),
+    ])
+    const snapshot = await ctx.capabilities.snapshot(target)
+    const plan = await ctx.capabilities.plan(target, [
+      { capabilityId: 'plugin:persistent-bash', selection: 'load' },
+    ], snapshot.revision)
+
+    expect(plan.blockers.map(blocker => blocker.code)).toContain('member-name-conflict')
+    await expect(ctx.capabilities.apply(plan.id, snapshot.revision)).rejects.toThrow(/blocked/)
+  })
+
   it('expires plans when an adapter invalidates or unloads', async () => {
     const { ctx, control, dispose } = await boot([descriptor('tool:a')])
     const snapshot = await ctx.capabilities.snapshot(target)

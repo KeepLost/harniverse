@@ -377,6 +377,7 @@ export class Capabilities extends Service {
       }
     }
     blockers.push(...dependencyBlockers(result))
+    blockers.push(...memberNameConflicts(result))
     const operations: CapabilityPlanOperation[] = [...operationIds].flatMap((capabilityId) => {
       const previous = before[capabilityId]
       const following = after[capabilityId]
@@ -756,6 +757,44 @@ function dependencyBlockers(entries: readonly CapabilityCatalogEntry[]): Capabil
           message: `Capability ${entry.id} member ${member.id} requires hidden member ${dependencyId}.`,
         })
       }
+    }
+  }
+  return blockers
+}
+
+/**
+ * Two selected capabilities that would claim one native registry name.
+ *
+ * A registry name has a single owner per scope, so a second registration under
+ * it throws at mount and fails the whole Profile generation — the Session then
+ * has no composition at all. The catalog knows the visible member names before
+ * anything mounts, so the collision is a plan blocker rather than a mount
+ * crash. Only visible members of selected capabilities can collide: a hidden
+ * member registers nothing.
+ * @param entries - the candidate composition this plan would install.
+ * @returns one blocker per colliding capability pair and name.
+ */
+function memberNameConflicts(entries: readonly CapabilityCatalogEntry[]): CapabilityPlanBlocker[] {
+  const owners = new Map<string, Map<string, string>>()
+  const blockers: CapabilityPlanBlocker[] = []
+  for (const entry of entries) {
+    if (!entry.selected) continue
+    for (const member of entry.memberEntries ?? []) {
+      if (!member.visible) continue
+      const byName = owners.get(member.kind) ?? new Map<string, string>()
+      owners.set(member.kind, byName)
+      const owner = byName.get(member.name)
+      if (owner === undefined) {
+        byName.set(member.name, entry.id)
+        continue
+      }
+      blockers.push({
+        code: 'member-name-conflict',
+        capabilityId: entry.id,
+        dependencyId: member.id,
+        conflictingCapabilityId: owner,
+        message: `Capability ${entry.id} registers ${member.kind} ${member.name}, which capability ${owner} already registers. Unload one of them.`,
+      })
     }
   }
   return blockers
