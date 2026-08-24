@@ -76,7 +76,7 @@ export class ConsoleExporter implements Exporter {
     let indent = 3 + space.length, output = ''
     if (this.showTime) {
       indent += this.showTime.length
-      output += Logger.color(this, 8, Time.template(this.showTime))
+      output += Logger.color(this, 7, Time.template(this.showTime))
     }
     const code = Logger.code(message.name, this.colors)
     const label = Logger.color(this, code, message.name, ';1')
