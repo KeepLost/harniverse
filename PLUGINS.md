@@ -207,6 +207,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `2c925a4f50` | Reserves the full width of the three desktop sidebar header actions so the archive control is not clipped or covered by the adjacent conversation column. |
 | `f7c1bc1308` | Refuses a composition plan whose selected recipes claim one member name, and compiles an already-stored tool-name conflict into a mountable generation so a Profile carrying one can still start a Session. |
 | `02ff1b54f8` | Keeps the vendored logger-console timestamp visible on dark terminals by using ANSI palette index 7 instead of dark index 8; log thresholds and message content remain unchanged. |
+| `ac8d0ffdfa` | Recovers unusable pi-ai replay metadata as provider-neutral history, aligns replay envelopes with max-token block pruning, and persists visible text/reasoning prefixes from cancelled streams as interrupted assistant messages for replay and UI projections. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
