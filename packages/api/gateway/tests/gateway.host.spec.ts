@@ -1175,6 +1175,8 @@ describe('TypertGatewayService', () => {
           ok: true,
           value: { agentId: 'agent-1', title: 'ship', scope: 'http-caller' },
         },
+        // The admitted identity completes the envelope the browser validates.
+        authentication: { kind: 'bypass' },
       })
 
       const invalid = await fetch(`${server.origin}/api/goals/create`, {

@@ -16,6 +16,9 @@ import type {
 } from '@deepseek-ai/dsh-capabilities'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { SessionId } from '@deepseek-ai/dsh-session'
+// Type-only: activates the optional sessionPersistence Context merge the cold
+// Session read resolves through ctx.get.
+import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-skill'
 import { discoverFileSystemSkills, type Config as FileSystemSkillConfig } from '@deepseek-ai/dsh-skill-filesystem'
 import type {} from '@deepseek-ai/dsh-subagent'
@@ -78,17 +81,42 @@ export class CapabilityManagementGateway extends TypertRemoteService {
    * @returns its Profile, generation, and per-recipe runtime results.
    */
   @Remote({ exportName: 'session', requiredCapability: 'harniverse.observe' })
-  session(sessionId: string): SessionCapabilitySnapshot {
-    const agent = this.ctx.agents.get(SessionId(sessionId))
-    if (agent === undefined) throw new Error(`capability-management: session ${JSON.stringify(sessionId)} is not live`)
-    const runtime = this.ctx.agentPresets.compositionRuntime(agent.ctx)
-    const agentProfile = runtime?.agentProfile ?? agent.session.header.agentProfile
+  async session(sessionId: string): Promise<SessionCapabilitySnapshot> {
+    const id = SessionId(sessionId)
+    const agent = this.ctx.agents.get(id)
+    if (agent !== undefined) {
+      const runtime = this.ctx.agentPresets.compositionRuntime(agent.ctx)
+      const agentProfile = runtime?.agentProfile ?? agent.session.header.agentProfile
+      return {
+        sessionId,
+        ...agentProfile === undefined ? {} : { agentProfile },
+        ...runtime?.generation === undefined ? {} : { generation: runtime.generation },
+        entries: runtime?.capabilities ?? [],
+      }
+    }
+    // A listed Session the operator opens is cold until it runs a turn, and
+    // its assembly is still a fact: the standing generation of the Profile the
+    // log recorded composes plugins without resuming an agent, session, or
+    // turn (the presenter-scope precedent in api-proxy).
+    const stored = await this.storedProfile(id)
+    const runtime = await this.ctx.agentPresets.standingCompositionRuntime(stored)
     return {
       sessionId,
-      ...agentProfile === undefined ? {} : { agentProfile },
-      ...runtime?.generation === undefined ? {} : { generation: runtime.generation },
-      entries: runtime?.capabilities ?? [],
+      agentProfile: runtime.agentProfile,
+      generation: runtime.generation,
+      entries: runtime.capabilities,
     }
+  }
+
+  /** The Profile a cold Session recorded; undefined resolves the roster default. */
+  private async storedProfile(sessionId: SessionId): Promise<string | undefined> {
+    const persistence = this.ctx.get('sessionPersistence')
+    if (persistence === undefined) return undefined
+    const header = (await persistence.list()).find(candidate => candidate.id === sessionId)
+    if (header === undefined) {
+      throw new Error(`capability-management: session ${JSON.stringify(sessionId)} is not known`)
+    }
+    return header.agentProfile
   }
 
   private registerAdapters(ctx: Context): void {

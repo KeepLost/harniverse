@@ -480,6 +480,25 @@ export class AgentPresets extends Service {
     return (await this.ensureStanding(preset)).key
   }
 
+  /**
+   * Runtime assembly of one preset's standing generation, for a reader holding
+   * no Agent. Same values {@link compositionRuntime} reports for a joined
+   * Agent: ensuring the standing mount composes plugins but starts no agent,
+   * session, or turn, so a cold Session reads the composition it recorded.
+   * @param id - the preset id, or `undefined` for {@link defaultId}.
+   * @returns immutable generation identity and assembly results.
+   * @throws when the preset is unknown or its composition is unusable.
+   */
+  async standingCompositionRuntime(id?: string): Promise<{
+    readonly agentProfile: string
+    readonly generation: string
+    readonly capabilities: readonly CapabilityRuntimeEntry[]
+  }> {
+    const preset = await this.resolveMountable(id)
+    const mount = await this.ensureStanding(preset)
+    return { agentProfile: preset.id, generation: mount.generation, capabilities: mount.capabilities }
+  }
+
   /** Resolve (or create, single-flight) the standing mount of one preset. */
   private async ensureStanding(preset: AgentPreset): Promise<StandingMount> {
     const pending = this.standing.get(preset.id)

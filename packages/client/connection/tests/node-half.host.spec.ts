@@ -18,7 +18,7 @@ import {
   type AuthenticationPrincipal,
   type InboundAuthentication,
 } from '@deepseek-ai/dsh-authentication'
-import { RpcId, type ClientRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { RpcId, serverResponseSchema, type ClientRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { WebServer, WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
 import {
   API_PATH,
@@ -704,7 +704,11 @@ describe('connection node half', () => {
       type: 'server-response',
       rpcId: 'rpc-dedicated',
       result: { ok: true, value: { accepted: true } },
+      authentication: { kind: 'bypass' },
     })
+    // The browser parses every envelope with this schema before reading the
+    // result, so a channel that omits the admitted identity fails there.
+    expect(serverResponseSchema.safeParse(JSON.parse(String(result.state.body))).success).toBe(true)
     expect(calls).toHaveLength(1)
     const dedicatedInvocation = calls[0] as ConnectionRpcInvocation
     expect(dedicatedInvocation).toMatchObject({
@@ -782,7 +786,9 @@ describe('connection node half', () => {
       type: 'server-response',
       rpcId: 'rpc-shared',
       result: { ok: true, value: { accepted: true } },
+      authentication: { kind: 'bypass' },
     })
+    expect(serverResponseSchema.safeParse(JSON.parse(String(claimed.state.body))).success).toBe(true)
     expect(calls).toHaveLength(1)
     const sharedInvocation = calls[0] as ConnectionRpcInvocation
     expect(sharedInvocation).toMatchObject({

@@ -23,7 +23,12 @@ import type {
   HostConnectionHandle,
   HostConnectionRpc,
 } from './rpc.ts'
-import type { AuthenticationCapability, AuthenticationPrincipal } from '@deepseek-ai/dsh-authentication'
+import {
+  authenticationPrincipalIdentity,
+  type AuthenticationCapability,
+  type AuthenticationPrincipal,
+  type AuthenticationPrincipalIdentity,
+} from '@deepseek-ai/dsh-authentication'
 
 const INVALID_REQUEST_RPC_ID = RpcId('invalid-request')
 const CHANNEL_PATTERN = /^\/[A-Za-z0-9._~-]+$/
@@ -252,6 +257,7 @@ function rpcFetchHandler(
   principal: AuthenticationPrincipal,
   reportFailure: RpcFailureReporter,
 ): FetchHandler {
+  const authentication = authenticationPrincipalIdentity(principal)
   return {
     async fetch(request: Request): Promise<Response> {
       const endpoint = endpointFromPath(channel, new URL(request.url).pathname)
@@ -273,7 +279,7 @@ function rpcFetchHandler(
 
       const envelope = clientRequestSchema.safeParse(body)
       if (!envelope.success) {
-        return invalidEnvelopeResponse(body, envelope.error.issues)
+        return invalidEnvelopeResponse(body, envelope.error.issues, authentication)
       }
       const message: ClientRequest = envelope.data
       if (message.method !== endpoint) {
@@ -281,12 +287,12 @@ function rpcFetchHandler(
           code: 'bad-request',
           message: `method ${JSON.stringify(message.method)} does not match endpoint ${JSON.stringify(endpoint)}`,
           details: { issues: [] },
-        })
+        }, authentication)
       }
 
       try {
         const result = await handler({ endpoint, payload: message.payload, signal: request.signal, principal })
-        return fullResponse(message.rpcId, result)
+        return fullResponse(message.rpcId, result, authentication)
       } catch (error) {
         reportFailure(endpoint, error)
         return new Response('internal handler failure', { status: 500 })
@@ -295,14 +301,18 @@ function rpcFetchHandler(
   }
 }
 
-function invalidEnvelopeResponse(body: unknown, issues: RpcErrorDetailsMap['bad-request']['issues']): Response {
+function invalidEnvelopeResponse(
+  body: unknown,
+  issues: RpcErrorDetailsMap['bad-request']['issues'],
+  authentication: AuthenticationPrincipalIdentity,
+): Response {
   const rawId = (body as { rpcId?: unknown } | null)?.rpcId
   const rpcId = typeof rawId === 'string' ? RpcId(rawId) : INVALID_REQUEST_RPC_ID
   return errorResponse(rpcId, {
     code: 'bad-request',
     message: 'invalid client-request message',
     details: { issues },
-  })
+  }, authentication)
 }
 
 function endpointFromPath(channel: string, pathname: string): string | undefined {
@@ -316,12 +326,25 @@ function endpointFromPath(channel: string, pathname: string): string | undefined
   return endpoint
 }
 
-function errorResponse(rpcId: RpcIdType, error: RpcError): Response {
-  return fullResponse(rpcId, { ok: false, error })
+function errorResponse(
+  rpcId: RpcIdType,
+  error: RpcError,
+  authentication: AuthenticationPrincipalIdentity,
+): Response {
+  return fullResponse(rpcId, { ok: false, error }, authentication)
 }
 
-function fullResponse(rpcId: RpcIdType, result: RpcServerResponse['result']): Response {
-  const body: RpcServerResponse = { type: 'server-response', rpcId, result }
+/**
+ * Complete one narrow result into the ServerResponse full form. The admitted
+ * identity is part of that envelope: the browser validates every response
+ * against it before reading the result.
+ */
+function fullResponse(
+  rpcId: RpcIdType,
+  result: RpcServerResponse['result'],
+  authentication: AuthenticationPrincipalIdentity,
+): Response {
+  const body: RpcServerResponse = { type: 'server-response', rpcId, result, authentication }
   return Response.json(body)
 }
 

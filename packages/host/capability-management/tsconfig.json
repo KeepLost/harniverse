@@ -8,6 +8,7 @@
     { "path": "../../core/agent" },
     { "path": "../../core/scope" },
     { "path": "../../core/session" },
+    { "path": "../../session/session-persistence" },
     { "path": "../../core/tools" },
     { "path": "../../skill/skill" },
     { "path": "../../skill/skill-filesystem" },

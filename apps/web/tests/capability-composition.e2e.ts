@@ -26,7 +26,7 @@ it('assembles a changed Profile only for new Sessions', async () => {
   let future: Awaited<ReturnType<typeof ctx.agents.create>> | undefined
   try {
     expect(ctx.tools.schemas(existing.agent).some(schema => schema.name === 'bash')).toBe(true)
-    const existingRuntime = capabilities.session('capability-composition-existing')
+    const existingRuntime = await capabilities.session('capability-composition-existing')
     expect(existingRuntime).toMatchObject({
       agentProfile: 'standard',
       generation: 'standard@1',
@@ -67,7 +67,7 @@ it('assembles a changed Profile only for new Sessions', async () => {
     const futurePrompt = (await ctx.systemPrompt.assemble({ scope: future.agent })).sections.map(section => section.text).join('\n')
     expect(existingPrompt).not.toContain('customized generation')
     expect(futurePrompt).toContain('customized generation')
-    const futureRuntime = capabilities.session('capability-composition-future')
+    const futureRuntime = await capabilities.session('capability-composition-future')
     expect(futureRuntime).toMatchObject({
       agentProfile: 'standard',
       generation: 'standard@2',

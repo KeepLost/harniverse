@@ -212,6 +212,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the standing scope key readers pass as a registry view scope.',
         throws: ['when the preset is unknown or its composition is unusable.'],
       },
+      {
+        signature: 'async standingCompositionRuntime(id?: string): Promise<{ readonly agentProfile: string readonly generation: string readonly capabilities: readonly CapabilityRuntimeEntry[] }>',
+        description: 'Runtime assembly of one preset\'s standing generation, for a reader holding no Agent. Same values compositionRuntime reports for a joined Agent: ensuring the standing mount composes plugins but starts no agent, session, or turn, so a cold Session reads the composition it recorded.',
+        parameters: [{ name: 'id', description: 'the preset id, or `undefined` for {@link defaultId}.' }],
+        returns: 'immutable generation identity and assembly results.',
+        throws: ['when the preset is unknown or its composition is unusable.'],
+      },
     ],
   },
   {

@@ -87,8 +87,19 @@ async function harness() {
       recipes: new Map(),
     }),
     compositionRuntime: () => ({ agentProfile: 'standard', generation: 'standard@2', capabilities: runtimeCapabilities }),
+    standingCompositionRuntime: (id?: string) => Promise.resolve({
+      agentProfile: id ?? 'standard',
+      generation: `${id ?? 'standard'}@2`,
+      capabilities: runtimeCapabilities,
+    }),
   })
   ctx.provide('agents', { get: () => runtimeAgent })
+  ctx.provide('sessionPersistence', {
+    list: () => Promise.resolve([
+      { id: 'cold-session', agentProfile: 'minimal' },
+      { id: 'cold-unrecorded' },
+    ]),
+  })
   await ctx.plugin(CapabilityManagementGateway)
   return {
     ctx,
@@ -174,11 +185,30 @@ describe('CapabilityManagementGateway', () => {
     const { ctx, gateway, setRuntimeAgent } = await harness()
     setRuntimeAgent({ ctx, session: { header: {} } })
 
-    expect(gateway.session('session-1')).toMatchObject({
+    await expect(gateway.session('session-1')).resolves.toMatchObject({
       sessionId: 'session-1',
       agentProfile: 'standard',
       generation: 'standard@2',
       entries: [expect.objectContaining({ id: 'plugin:profile-tool', status: 'loaded' })],
     })
+  })
+
+  it('reads a cold listed Session through the recorded Profile standing generation', async () => {
+    const { gateway } = await harness()
+
+    // No live Agent: a Session the operator opens from the list is cold until
+    // it runs a turn, and its assembly is still readable.
+    await expect(gateway.session('cold-session')).resolves.toMatchObject({
+      sessionId: 'cold-session',
+      agentProfile: 'minimal',
+      generation: 'minimal@2',
+      entries: [expect.objectContaining({ id: 'plugin:profile-tool', status: 'loaded' })],
+    })
+    // A log from before the roster existed resolves the default composition.
+    await expect(gateway.session('cold-unrecorded')).resolves.toMatchObject({
+      sessionId: 'cold-unrecorded',
+      agentProfile: 'standard',
+    })
+    await expect(gateway.session('never-existed')).rejects.toThrow(/is not known/)
   })
 })

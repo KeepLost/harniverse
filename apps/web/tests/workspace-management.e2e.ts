@@ -7,7 +7,9 @@
 // flat "In one list" view with its persisted group-by preference, the session
 // hover card and row action menu, and the session archive round trip (row
 // menu → workspace.archiveSession RPC → durable global set → row hidden
-// across reload). Zero model calls: workspace.create/rename/archiveSession
+// across reload), and the archive panel that reads it back (header toggle →
+// listed row → preview resolving the logged messages).
+// Zero model calls: workspace.create/rename/archiveSession
 // are host RPCs with no model involvement, and the one session row the
 // flat/hover/menu/archive scenarios need comes from a seeded fixture (the
 // seeded-history seed reused verbatim — no new recording).
@@ -593,6 +595,34 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     // reappear if selection restore lands on another stray — not this test's
     // concern).
     expect(await page.getByText(rowTitle, { exact: true }).count()).toBe(0)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 90_000)
+
+  it('lists the archived session in the archive panel and previews its messages', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-archive-panel'))
+    // The archive entry is the header toggle the previous scenario's archive
+    // left populated; the panel is the only route to an archived log.
+    await page.getByRole('button', { name: 'View archived sessions' }).click()
+    const panel = page.getByRole('region', { name: 'Archived sessions' })
+    await panel.waitFor({ timeout: 10_000 })
+    // The archived row is listed, not the empty state.
+    const archivedRows = panel.getByRole('listitem')
+    await expect.poll(() => archivedRows.count(), { timeout: 10_000 }).toBe(1)
+    expect(await panel.getByText('No archived sessions', { exact: true }).count()).toBe(0)
+    const archivedRow = archivedRows.first()
+    expect((await archivedRow.innerText()).trim().length).toBeGreaterThan(0)
+    // Opening the preview must resolve real logged content: the seed carries
+    // conversation turns, so the empty-preview status is a failure here.
+    await archivedRow.getByRole('button').nth(0).click()
+    const preview = page.getByRole('dialog')
+    await preview.waitFor({ timeout: 10_000 })
+    await expect.poll(
+      () => preview.getByText('Loading session messages…', { exact: true }).count(),
+      { timeout: 20_000 },
+    ).toBe(0)
+    expect(await preview.getByRole('alert').count()).toBe(0)
+    expect(await preview.getByText('This session has no messages to display.', { exact: true }).count()).toBe(0)
+    await expect.poll(() => preview.locator('article').count(), { timeout: 20_000 }).toBeGreaterThan(0)
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
 
