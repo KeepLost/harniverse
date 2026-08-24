@@ -214,6 +214,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `18fe061761` | Adds creation-time-fenced Windows process inspection and PTY teardown plus the opt-in owner-scoped persistent PowerShell tool, preserving existing POSIX behavior and leaving default Profile composition unchanged. |
 | `644e92524d` | Carries typed image attachments through slash-command adjudication, transport, and Host admission; commands must opt into images, handlers receive durable `ImageBlock` references, and failed or cancelled submissions retain draft resources. |
 | `64ed2f1efc` | Aligns the accepted upstream feature contracts in regression fixtures: Web reference rows insert into the actual Web layer, interrupted output remains visible after cancellation, command image arguments are explicit, and provider diagnostics are asserted separately from failure output. |
+| `8926dce6ff` | Classifies the new `fileReferences` capability seam in generated service and event graphs, covering its Host implementation and Web consumer. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
