@@ -280,7 +280,14 @@ export interface SessionEventMap {
    * the model output and its accounting travel together (there is no separate
    * usage record). `usage` is absent when the adapter reported none.
    */
-  'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage }
+  'assistant/message': {
+    turn: number
+    step: number
+    message: AssistantMessage
+    usage?: TokenUsage
+    /** True when this message is the visible prefix finalized by cancellation. */
+    interrupted?: true
+  }
   /**
    * The model requested one tool invocation: `name` with the raw `arguments`
    * JSON string exactly as the model produced it (unparsed). `callId` pairs the

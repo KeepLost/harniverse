@@ -411,6 +411,16 @@ describe('Agent.cancel()', () => {
     expect(userTexts(agent)).toEqual(['go'])
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
     expect(adapter.requests).toHaveLength(1)
+    expect(agent.session.events.map(event => event.type)).toContain('assistant/message')
+    const interrupted = agent.session.events.find(event => event.type === 'assistant/message')
+    expect(interrupted?.type === 'assistant/message' ? interrupted.data : undefined).toMatchObject({
+      turn: 1,
+      step: 1,
+      interrupted: true,
+      message: {
+        content: [{ type: 'text', text: 'partial' }],
+      },
+    })
   })
 
   it('cancel from an assistant/message observer skips execution but balances replay', async () => {

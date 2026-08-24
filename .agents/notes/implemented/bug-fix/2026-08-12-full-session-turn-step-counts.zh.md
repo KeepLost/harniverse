@@ -15,7 +15,7 @@ Web 聊天统计条的每个非 token 数字都折算自 `StatsLine` 已加载�
 计数事件选 `step/end` 而非 `assistant/message`，源于评审直觉方案（按消息计数）时发现的两个正确性问题：
 
 1. max-tokens 步会追加一条仅为承载 usage 而存在的空内容 `assistant/message`，它从不进入 surface；按消息计数会把 transcript 上看不到的步计进去。
-2. 被取消的步在消息组装前就中止（完全没有 `assistant/message`），但客户端会合成可见的 interrupted assistant 节点；按消息计数会悄悄丢掉常见的取消步。
+2. 没有可见前缀的取消步不会有 `assistant/message`，而带可见前缀的取消步现在可能持久化一个 interrupted `assistant/message`；按消息计数仍会悄悄丢掉没有内容的取消步。
 
 `step/end` 对每个进入的步在循环的 `finally` 中恰好追加一次，因此完成、失败、取消、max-tokens 的步都恰好落一条——且计数在步结算时推进，与窗口折算推进的时机相同，直播期行为不发生变化。
 
@@ -35,4 +35,4 @@ Web 聊天统计条的每个非 token 数字都折算自 `StatsLine` 已加载�
 
 ## 后果
 
-统计条从第一个尾页起就显示全日志数字；翻页不再改变任何分组。与旧窗口语义的已定义边缘差异记录在包 README 中：未产生可见输出的步（在内容之前失败）仍计入；被崩溃打断的步在重新加载、恢复为其补写合成 `step/end` 后计入（`interruptedTurnClosers`）；被取消的步计数但不计时（没有组装出消息）；max-tokens 的 usage 宿主消息贡献 surface 上看不到的模型时间。每个 web 尾页与列表行多携带一个小键，且单元内部状态在步边界与首 token chunk 处变化，变更流每步会多发几帧值相同的推送；TUI 与 headless 装配不提供 `sessionStats` 键，其消费者回退窗口折叠。两个曾把统计条当作已加载窗口探针解析的 e2e（`chat-scroll-contract`、`complex-history.perf`）改为统计已挂载的消息流行／turn-tail 页脚。`stats-paged-history` web 场景冷种一份 28 轮日志，钉住整条统计条在不完整尾页上即读出全量数字、且「加载更早」前后不变。
+统计条从第一个尾页起就显示全日志数字；翻页不再改变任何分组。与旧窗口语义的已定义边缘差异记录在包 README 中：未产生可见输出的步（在内容之前失败）仍计入；被崩溃打断的步在重新加载、恢复为其补写合成 `step/end` 后计入（`interruptedTurnClosers`）；被取消的步无论其可见前缀是否持久化都计数但不计墙钟时间；max-tokens 的 usage 宿主消息贡献 surface 上看不到的模型时间。每个 web 尾页与列表行多携带一个小键，且单元内部状态在步边界与首 token chunk 处变化，变更流每步会多发几帧值相同的推送；TUI 与 headless 装配不提供 `sessionStats` 键，其消费者回退窗口折叠。两个曾把统计条当作已加载窗口探针解析的 e2e（`chat-scroll-contract`、`complex-history.perf`）改为统计已挂载的消息流行／turn-tail 页脚。`stats-paged-history` web 场景冷种一份 28 轮日志，钉住整条统计条在不完整尾页上即读出全量数字、且「加载更早」前后不变。

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
-import { createUserMessage, CallId, CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, LlmError, createMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId, CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, createMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { AssistantMessage, AssistantMessageEvent, Usage } from '@earendil-works/pi-ai'
 import { toPiContext } from '../src/context.ts'
@@ -415,35 +415,37 @@ describe('toPiContext', () => {
     expect(context.messages[0]).not.toHaveProperty('responseId')
   })
 
-  it('rejects unsupported replay-state versions with a stable error code', () => {
-    try {
-      toPiContext({
-        provider: 'deepseek',
-        model: 'm',
-        messages: [createMessage({
-          role: 'assistant',
-          content: [{ type: 'text', text: 'done' }],
-          source: {
-            kind: 'model',
-            ...{
-              provider: 'deepseek',
-              model: 'old',
-              replayState: { kind: 'pi-ai', version: 2 },
-            },
+  it('degrades unsupported replay-state versions to provider-neutral history', () => {
+    const reasons: string[] = []
+    const context = toPiContext({
+      provider: 'deepseek',
+      model: 'm',
+      messages: [createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'done' }],
+        source: {
+          kind: 'model',
+          ...{
+            provider: 'deepseek',
+            model: 'old',
+            replayState: { response: { kind: 'pi-ai', version: 1 } },
           },
-        })],
-      })
-      expect.fail('expected invalid replay state')
-    } catch (error: unknown) {
-      expect(error).toBeInstanceOf(LlmError)
-      expect((error as LlmError).code).toBe('INVALID_REPLAY_STATE')
-      expect((error as Error).message).toContain('unsupported version 2')
-    }
+        },
+      })],
+    }, reason => reasons.push(reason))
+    expect(context.messages[0]).toMatchObject({
+      api: 'dsh-foreign',
+      provider: 'deepseek',
+      model: 'old',
+      content: [{ type: 'text', text: 'done' }],
+    })
+    expect(reasons[0]).toContain('unsupported version 1')
   })
 
-  it('rejects replay metadata whose blocks do not match the durable content', () => {
+  it('degrades replay metadata whose blocks do not match the durable content', () => {
     const state = toPiReplayState(assistant({ content: [{ type: 'text', text: 'done' }] }))
-    expect(() => toPiContext({
+    const reasons: string[] = []
+    const context = toPiContext({
       provider: 'deepseek',
       model: 'm',
       messages: [createMessage({
@@ -454,12 +456,15 @@ describe('toPiContext', () => {
           ...{ provider: 'deepseek', model: 'deepseek-v4-flash', replayState: state },
         },
       })],
-    })).toThrow(/block 0 does not match assistant content/)
+    }, reason => reasons.push(reason))
+    expect(context.messages[0]).toMatchObject({ api: 'dsh-foreign' })
+    expect(reasons[0]).toContain('block 0 does not match assistant content')
   })
 
-  it('rejects replay metadata whose block count differs from durable content', () => {
+  it('degrades replay metadata whose block count differs from durable content', () => {
     const state = toPiReplayState(assistant())
-    expect(() => toPiContext({
+    const reasons: string[] = []
+    const context = toPiContext({
       provider: 'deepseek',
       model: 'm',
       messages: [createMessage({
@@ -470,55 +475,55 @@ describe('toPiContext', () => {
           ...{ provider: 'deepseek', model: 'deepseek-v4-flash', replayState: state },
         },
       })],
-    })).toThrow(/block count does not match assistant content/)
+    }, reason => reasons.push(reason))
+    expect(context.messages[0]).toMatchObject({ api: 'dsh-foreign' })
+    expect(reasons[0]).toContain('block count does not match assistant content')
   })
 
   const validReplay = {
-    kind: 'pi-ai',
-    version: 1,
-    api: 'openai-completions',
-    provider: 'deepseek',
-    model: 'deepseek-v4-flash',
-    stopReason: 'stop',
+    response: {
+      kind: 'pi-ai',
+      version: 2,
+      api: 'openai-completions',
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      stopReason: 'stop',
+    },
     blocks: [{ type: 'text' }],
   }
 
   it.each([
-    ['provider', { ...validReplay, provider: 'openai' }],
-    ['model', { ...validReplay, model: 'deepseek-v4-pro' }],
-  ])('rejects replay metadata whose %s differs from assistant source', (field, replayState) => {
-    try {
-      toPiContext({
-        provider: 'deepseek',
-        model: 'next-model',
-        messages: [createMessage({
-          role: 'assistant',
-          content: [{ type: 'text', text: 'done' }],
-          source: {
-            kind: 'model',
-            ...{ provider: 'deepseek', model: 'deepseek-v4-flash', replayState },
-          },
-        })],
-      })
-      expect.fail('expected invalid replay state')
-    } catch (error: unknown) {
-      expect(error).toBeInstanceOf(LlmError)
-      expect((error as LlmError).code).toBe('INVALID_REPLAY_STATE')
-      expect((error as Error).message).toContain(`${field} does not match assistant source`)
-    }
+    ['provider', { ...validReplay, response: { ...validReplay.response, provider: 'openai' } }],
+    ['model', { ...validReplay, response: { ...validReplay.response, model: 'deepseek-v4-pro' } }],
+  ])('degrades replay metadata whose %s differs from assistant source', (field, replayState) => {
+    const reasons: string[] = []
+    const context = toPiContext({
+      provider: 'deepseek',
+      model: 'next-model',
+      messages: [createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'done' }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'deepseek', model: 'deepseek-v4-flash', replayState },
+        },
+      })],
+    }, reason => reasons.push(reason))
+    expect(context.messages[0]).toMatchObject({ api: 'dsh-foreign' })
+    expect(reasons[0]).toContain(`${field} does not match assistant source`)
   })
 
   it.each([
-    ['number state', 1, 'expected an object'],
-    ['null state', null, 'expected an object'],
-    ['array state', [], 'expected an object'],
-    ['unknown kind', { ...validReplay, kind: 'other' }, 'unknown state kind'],
-    ['non-string api', { ...validReplay, api: 1 }, 'api must be a non-empty string'],
-    ['empty provider', { ...validReplay, provider: '' }, 'provider must be a non-empty string'],
-    ['missing model', { ...validReplay, model: undefined }, 'model must be a non-empty string'],
-    ['unknown stop reason', { ...validReplay, stopReason: 'pause' }, 'unknown stopReason'],
-    ['non-string response model', { ...validReplay, responseModel: 1 }, 'responseModel must be a string'],
-    ['non-string response id', { ...validReplay, responseId: 1 }, 'responseId must be a string'],
+    ['number state', 1, 'expected a replay envelope'],
+    ['null state', null, 'expected a replay envelope'],
+    ['array state', [], 'expected a replay envelope'],
+    ['unknown kind', { ...validReplay, response: { ...validReplay.response, kind: 'other' } }, 'unknown state kind'],
+    ['non-string api', { ...validReplay, response: { ...validReplay.response, api: 1 } }, 'api must be a non-empty string'],
+    ['empty provider', { ...validReplay, response: { ...validReplay.response, provider: '' } }, 'provider must be a non-empty string'],
+    ['missing model', { ...validReplay, response: { ...validReplay.response, model: undefined } }, 'model must be a non-empty string'],
+    ['unknown stop reason', { ...validReplay, response: { ...validReplay.response, stopReason: 'pause' } }, 'unknown stopReason'],
+    ['non-string response model', { ...validReplay, response: { ...validReplay.response, responseModel: 1 } }, 'responseModel must be a string'],
+    ['non-string response id', { ...validReplay, response: { ...validReplay.response, responseId: 1 } }, 'responseId must be a string'],
     ['non-array blocks', { ...validReplay, blocks: 'text' }, 'blocks must be an array'],
     ['number block', { ...validReplay, blocks: [1] }, 'block 0 must be an object'],
     ['null block', { ...validReplay, blocks: [null] }, 'block 0 must be an object'],
@@ -526,8 +531,9 @@ describe('toPiContext', () => {
     ['unknown block type', { ...validReplay, blocks: [{ type: 'audio' }] }, 'block 0 has an unknown type'],
     ['non-string signature', { ...validReplay, blocks: [{ type: 'text', textSignature: 1 }] }, 'textSignature must be a string'],
     ['non-boolean redaction', { ...validReplay, blocks: [{ type: 'reasoning', redacted: 'yes' }] }, 'redacted must be boolean'],
-  ])('rejects malformed replay state: %s', (_name, replayState, message) => {
-    expect(() => toPiContext({
+  ])('degrades malformed replay state: %s', (_name, replayState, message) => {
+    const reasons: string[] = []
+    const context = toPiContext({
       provider: 'deepseek',
       model: 'm',
       messages: [createMessage({
@@ -538,7 +544,9 @@ describe('toPiContext', () => {
           ...{ provider: 'deepseek', model: 'deepseek-v4-flash', replayState },
         },
       })],
-    })).toThrow(message)
+    }, reason => reasons.push(reason))
+    expect(context.messages[0]).toMatchObject({ api: 'dsh-foreign' })
+    expect(reasons[0]).toContain(message)
   })
 })
 
@@ -565,12 +573,14 @@ describe('toStreamChunks', () => {
         type: 'finish',
         reason: { kind: 'stop' },
         replayState: {
-          kind: 'pi-ai',
-          version: 1,
-          api: 'openai-completions',
-          provider: 'deepseek',
-          model: 'deepseek-v4-flash',
-          stopReason: 'stop',
+          response: {
+            kind: 'pi-ai',
+            version: 2,
+            api: 'openai-completions',
+            provider: 'deepseek',
+            model: 'deepseek-v4-flash',
+            stopReason: 'stop',
+          },
           blocks: [{ type: 'text' }],
         },
       },
@@ -614,12 +624,14 @@ describe('toStreamChunks', () => {
         type: 'finish',
         reason: { kind: 'tool-calls' },
         replayState: {
-          kind: 'pi-ai',
-          version: 1,
-          api: 'openai-completions',
-          provider: 'deepseek',
-          model: 'deepseek-v4-flash',
-          stopReason: 'toolUse',
+          response: {
+            kind: 'pi-ai',
+            version: 2,
+            api: 'openai-completions',
+            provider: 'deepseek',
+            model: 'deepseek-v4-flash',
+            stopReason: 'toolUse',
+          },
           blocks: [{ type: 'tool-call' }],
         },
       },

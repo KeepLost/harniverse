@@ -216,6 +216,7 @@ function finalNode(
       step: state.step,
       blocks: toAssistantBlocks(event.data.message.content),
       usage: event.data.usage,
+      ...event.data.interrupted === true ? { interrupted: true as const } : {},
       provenance: {
         provider: event.data.message.source.provider,
         model: event.data.message.source.model,

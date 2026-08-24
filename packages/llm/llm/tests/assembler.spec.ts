@@ -116,6 +116,37 @@ describe('BlockAssembler', () => {
     assembler.push({ type: 'usage', usage: { inputTokens: 5, outputTokens: 3 } })
     expect(assembler.usage).toEqual({ inputTokens: 5, outputTokens: 3 })
   })
+
+  it('prunes per-block replay metadata with max-token tool-call filtering', () => {
+    const assembler = new BlockAssembler()
+    assembler.push({ type: 'block-end', index: 0, block: { type: 'text', text: 'keep' } })
+    assembler.push({ type: 'block-end', index: 1, block: { type: 'tool-call', id: CallId('c1'), name: 'drop', arguments: '{}' } })
+    assembler.push({
+      type: 'finish',
+      reason: { kind: 'max-tokens' },
+      replayState: {
+        response: { route: 'native' },
+        blocks: [{ tag: 'text' }, { tag: 'tool' }],
+      },
+    })
+
+    expect(assembler.blocks()).toEqual([{ type: 'text', text: 'keep' }])
+    expect(assembler.replayState).toEqual({
+      response: { route: 'native' },
+      blocks: [{ tag: 'text' }],
+    })
+  })
+
+  it('drops a replay envelope whose block metadata is not aligned', () => {
+    const assembler = new BlockAssembler()
+    assembler.push({ type: 'text-delta', index: 0, text: 'content' })
+    assembler.push({
+      type: 'finish',
+      reason: { kind: 'stop' },
+      replayState: { response: { route: 'native' }, blocks: [] },
+    })
+    expect(assembler.replayState).toBeUndefined()
+  })
 })
 
 describe('assertNever', () => {

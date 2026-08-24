@@ -84,7 +84,9 @@ function piContext(options: GenerateOptions, messages: PiMessage[]): PiContext {
   }
 }
 
-function textOnlyContext(options: GenerateOptions): PiContext {
+type ReplayDegradeHandler = (reason: string) => void
+
+function textOnlyContext(options: GenerateOptions, onReplayDegrade?: ReplayDegradeHandler): PiContext {
   const toolNames = new Map<CallId, string>()
   const messages: PiMessage[] = []
   for (const message of options.messages) {
@@ -96,7 +98,7 @@ function textOnlyContext(options: GenerateOptions): PiContext {
       continue
     }
     if (message.role === 'assistant') {
-      const assistant = toPiAssistant(message)
+      const assistant = toPiAssistant(message, onReplayDegrade)
       for (const block of assistant.content) if (block.type === 'toolCall') toolNames.set(CallId(block.id), block.name)
       messages.push(assistant)
       continue
@@ -122,12 +124,14 @@ function textOnlyContext(options: GenerateOptions): PiContext {
 }
 
 /**
- * Convert text-only harness history to a synchronous pi-ai Context. Tool
- * result names are recovered from preceding assistant tool calls.
+ * Convert text-only harness history to a synchronous pi-ai Context while
+ * reporting unusable provider replay metadata. Tool result names are recovered
+ * from preceding assistant tool calls.
  * @param options - the harness request; `options.system` maps to pi-ai's single `systemPrompt` slot.
+ * @param onReplayDegrade - called when one assistant message falls back to neutral history.
  * @returns the pi-ai context; `tools` is omitted when the request declares none.
  */
-export function toPiContext(options: GenerateOptions): PiContext
+export function toPiContext(options: GenerateOptions, onReplayDegrade?: ReplayDegradeHandler): PiContext
 /**
  * Convert harness history to a pi-ai Context while resolving durable images.
  * Tool result names are recovered from preceding assistant tool calls.
@@ -135,12 +139,30 @@ export function toPiContext(options: GenerateOptions): PiContext
  * @param attachments - durable byte resolver for image references.
  * @returns the asynchronously resolved pi-ai context.
  */
-export function toPiContext(options: GenerateOptions, attachments: AttachmentStore): Promise<PiContext>
-export function toPiContext(options: GenerateOptions, attachments?: AttachmentStore): PiContext | Promise<PiContext> {
-  return attachments === undefined ? textOnlyContext(options) : toPiContextWithImages(options, attachments)
+export function toPiContext(
+  options: GenerateOptions,
+  attachments: AttachmentStore,
+  onReplayDegrade?: ReplayDegradeHandler,
+): Promise<PiContext>
+export function toPiContext(
+  options: GenerateOptions,
+  attachmentsOrReplayDegrade?: AttachmentStore | ReplayDegradeHandler,
+  onReplayDegrade?: ReplayDegradeHandler,
+): PiContext | Promise<PiContext> {
+  const attachments = typeof attachmentsOrReplayDegrade === 'function' ? undefined : attachmentsOrReplayDegrade
+  const replayDegrade = typeof attachmentsOrReplayDegrade === 'function'
+    ? attachmentsOrReplayDegrade
+    : onReplayDegrade
+  return attachments === undefined
+    ? textOnlyContext(options, replayDegrade)
+    : toPiContextWithImages(options, attachments, replayDegrade)
 }
 
-async function toPiContextWithImages(options: GenerateOptions, attachments: AttachmentStore): Promise<PiContext> {
+async function toPiContextWithImages(
+  options: GenerateOptions,
+  attachments: AttachmentStore,
+  onReplayDegrade?: ReplayDegradeHandler,
+): Promise<PiContext> {
   const toolNames = new Map<CallId, string>()
   const messages: PiMessage[] = []
 
@@ -156,7 +178,7 @@ async function toPiContextWithImages(options: GenerateOptions, attachments: Atta
       continue
     }
     if (message.role === 'assistant') {
-      const assistant = toPiAssistant(message)
+      const assistant = toPiAssistant(message, onReplayDegrade)
       for (const block of assistant.content) {
         if (block.type === 'toolCall') toolNames.set(CallId(block.id), block.name)
       }

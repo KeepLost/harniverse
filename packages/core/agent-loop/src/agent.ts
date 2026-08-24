@@ -361,15 +361,44 @@ export class ReactLoopAgent implements Agent {
       )
       const assembler = new BlockAssembler()
       const chunkSeqs: number[] = []
-      const stream = preparedCall?.stream(request) ?? this.loopCtx.llm.stream(request)
-      signal.throwIfAborted()
-      for await (const chunk of stream) {
-        signal.throwIfAborted()
-        chunkSeqs.push(this.session.append('assistant/chunk', { turn, step, chunk }).seq)
-        assembler.push(chunk)
+      let interruptedAppended = false
+      const appendInterrupted = (): void => {
+        if (interruptedAppended) return
+        interruptedAppended = true
+        const content = assembler.interruptedBlocks()
+        if (content.length === 0) return
+        this.session.append('assistant/message', {
+          turn,
+          step,
+          message: createAssistantMessage({
+            content,
+            source: { provider: request.provider, model: request.model },
+          }),
+          interrupted: true,
+          ...assembler.usage === undefined ? {} : { usage: assembler.usage },
+        }, { surfaceOp: 'append', sourceEventSeqs: chunkSeqs })
       }
-      signal.throwIfAborted()
+      try {
+        const stream = preparedCall?.stream(request) ?? this.loopCtx.llm.stream(request)
+        signal.throwIfAborted()
+        for await (const chunk of stream) {
+          signal.throwIfAborted()
+          chunkSeqs.push(this.session.append('assistant/chunk', { turn, step, chunk }).seq)
+          assembler.push(chunk)
+        }
+        signal.throwIfAborted()
+      } catch (error: unknown) {
+        if (signal.aborted) appendInterrupted()
+        throw error
+      }
       const finish = assembler.finish
+      // LlmRuntime can normalize an adapter abort into an `aborted` finish
+      // instead of rejecting the async iterator. Preserve the visible prefix
+      // before the outer agent cancellation path closes the turn.
+      if (signal.aborted && finish.kind === 'aborted') {
+        appendInterrupted()
+        signal.throwIfAborted()
+      }
       if (finish.kind === 'error' || finish.kind === 'aborted') {
         const action = await this.dispatch.waterfall(
           'agent/request-error', {
