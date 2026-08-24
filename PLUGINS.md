@@ -201,6 +201,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `ba26e84caf` | Makes the public unit-test workflow build the complete artifact tree before Vitest, keeps `check:all` on one dependency-ordered build, and lets third-party notice generation ignore pnpm virtual-store entries whose platform-optional package was not materialized. |
 | `132d22be25` | Records build-before-unit verification as a repository-level requirement and removes obsolete host-agent sandbox escalation guidance without changing the product sandbox's plugin-owned confinement and approval rules. |
 | `af1ef802d0` | Adds idle-only Archived Session Web management, read-only archive previews, unarchive, and dependency-ordered deletion. |
+| `7a9f18df5e` | Carries the admitted identity in every connection `server-response` envelope so authenticated browser Remotes validate, and reads a cold listed Session's capability assembly from the standing generation of its recorded Profile without starting an agent, session, or turn. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
