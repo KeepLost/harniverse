@@ -1,20 +1,52 @@
 // @vitest-environment jsdom
 /** Model-list editing, endpoint interrogation, and hand-declared provider creation. */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Schema from '@deepseek-ai/schemastery'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import { authenticationGrantId, type AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
 import type { RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
+
+class TestAuthentication {
+  private identity: AuthenticationPrincipalIdentity = { kind: 'bypass' }
+  private readonly listeners = new Set<() => void>()
+
+  getSnapshot = () => this.identity
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener)
+    return () => { this.listeners.delete(listener) }
+  }
+  validate = () => true
+  movePrincipal(): void {
+    this.identity = { kind: 'grant', grantId: authenticationGrantId('principal-b'), grantRevision: 1 }
+    for (const listener of this.listeners) listener()
+  }
+}
 import { ModelsSection, providerCopy } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected } from '../src/client/ModelsSection.tsx'
 import { CustomProviderCard } from '../src/client/CustomProviderCard.tsx'
 import { formatCapacity, parseCapacity } from '../src/client/DeepSeekModelsEditor.tsx'
-import { ModelsSettingsStore, deriveKeyRef, protocolChoices } from '../src/client/store.ts'
+import { ModelsSettingsStore as SharedModelsSettingsStore, deriveKeyRef, protocolChoices } from '../src/client/store.ts'
 import { en } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
 const t: ModelsSectionInjected['t'] = key => en[key]
+const writeFence = () => 0
+const isCurrent = () => true
+const acceptResponse = () => true
+const acceptSettingsView = vi.fn(() => true)
+
+class ModelsSettingsStore extends SharedModelsSettingsStore {
+  readonly authentication: TestAuthentication
+
+  constructor(api: ConstructorParameters<typeof SharedModelsSettingsStore>[0]) {
+    const authentication = new TestAuthentication()
+    super(api, new SettingsDescribeMirror(api, authentication))
+    this.authentication = authentication
+  }
+}
 
 const PROTOCOLS = ['openai-completions', 'openai-responses', 'anthropic-messages']
 
@@ -145,6 +177,10 @@ async function mountSection(options: Parameters<typeof scriptedFace>[0] = {}) {
     controller,
     useSnapshot: bindSnapshotSelector(controller.store),
     api: scripted.face as never,
+    writeFence,
+    isCurrent,
+    acceptResponse,
+    acceptSettingsView,
     t,
   }
   render(<ModelsSection {...injected} />)
@@ -537,6 +573,8 @@ describe('endpoint interrogation', () => {
     render(
       <CustomProviderCard
         taken={[]} protocols={PROTOCOLS} revision={7} api={scripted.face as never}
+        writeFence={writeFence} isCurrent={isCurrent} acceptResponse={acceptResponse}
+        acceptSettingsView={acceptSettingsView}
         t={t} readOnly={false} onClose={vi.fn()}
       />,
     )
@@ -643,6 +681,10 @@ describe('provider rows', () => {
       controller={controller}
       useSnapshot={bindSnapshotSelector(controller.store)}
       api={scripted.face as never}
+      writeFence={writeFence}
+      isCurrent={isCurrent}
+      acceptResponse={acceptResponse}
+      acceptSettingsView={acceptSettingsView}
       t={t}
     />)
 
@@ -665,6 +707,10 @@ describe('hand-declared providers', () => {
         protocols={PROTOCOLS}
         revision={7}
         api={scripted.face as never}
+        writeFence={writeFence}
+        isCurrent={isCurrent}
+        acceptResponse={acceptResponse}
+        acceptSettingsView={acceptSettingsView}
         t={t}
         readOnly={false}
         onClose={onClose}
@@ -1195,6 +1241,24 @@ describe('hand-declared providers', () => {
     fireEvent.click(screen.getByText(en.cancel))
     await waitFor(() => { expect(screen.queryByText(en.customTitle)).toBeNull() })
     expect(screen.getByRole('button', { name: en.customAdd })).toBeTruthy()
+  })
+
+  it('synchronously destroys a sensitive provider draft at a principal boundary', async () => {
+    const { controller } = await mountSection()
+    fireEvent.click(screen.getByRole('button', { name: en.customAdd }))
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'private-route' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://principal-a.invalid/v1' } })
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'principal-a-secret' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'private-model' } })
+
+    act(() => { controller.authentication.movePrincipal() })
+
+    expect(screen.queryByDisplayValue('private-route')).toBeNull()
+    expect(screen.queryByDisplayValue('https://principal-a.invalid/v1')).toBeNull()
+    expect(screen.queryByDisplayValue('principal-a-secret')).toBeNull()
+    expect(screen.queryByDisplayValue('private-model')).toBeNull()
+    expect(screen.queryByText(en.customTitle)).toBeNull()
   })
 
   it('refuses an unusable key on the field and blocks creation', () => {

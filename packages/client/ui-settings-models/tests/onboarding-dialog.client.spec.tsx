@@ -5,10 +5,23 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import Schema from '@deepseek-ai/schemastery'
 import type { RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
+
+const TEST_AUTHENTICATION = { getSnapshot: () => ({ kind: 'bypass' as const }), subscribe: () => () => {}, validate: () => true }
 import { DeepSeekOnboardingDialog } from '../src/client/DeepSeekOnboardingDialog.tsx'
 import type { DeepSeekOnboardingDialogProps } from '../src/client/DeepSeekOnboardingDialog.tsx'
-import { ModelsSettingsStore } from '../src/client/store.ts'
+import { ModelsSettingsStore as SharedModelsSettingsStore } from '../src/client/store.ts'
 import { en } from '../src/client/locales.ts'
+
+class ModelsSettingsStore extends SharedModelsSettingsStore {
+  readonly mirror: SettingsDescribeMirror
+
+  constructor(api: ConstructorParameters<typeof SharedModelsSettingsStore>[0]) {
+    const mirror = new SettingsDescribeMirror(api, TEST_AUTHENTICATION)
+    super(api, mirror)
+    this.mirror = mirror
+  }
+}
 
 afterEach(() => {
   cleanup()
@@ -137,6 +150,9 @@ function harness(options: {
     controller,
     useModels: bindSnapshotSelector(controller.store),
     api: face as never,
+    writeFence: () => controller.mirror.writeFence(),
+    isCurrent: fence => controller.mirror.isCurrent(fence),
+    acceptSettingsView: (view, fence, authentication) => controller.mirror.acceptView(view, fence, authentication as never),
     t: key => en[key],
   }
   return {

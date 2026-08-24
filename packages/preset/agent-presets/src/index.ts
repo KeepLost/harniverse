@@ -134,6 +134,9 @@ export class AgentPresets extends Service {
    */
   private readonly selfCtx: Context
 
+  /** Last discovered roster and composition-file identity. */
+  private rosterSignature: string | undefined
+
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'agentPresets')
     this.selfCtx = ctx
@@ -198,7 +201,13 @@ export class AgentPresets extends Service {
    * @returns the presets, first-root-wins per id.
    */
   async list(): Promise<AgentPreset[]> {
-    return await discoverPresets(this.resolvedRoots)
+    const presets = await discoverPresets(this.resolvedRoots)
+    const signature = await discoveredRosterSignature(presets)
+    if (signature !== this.rosterSignature) {
+      this.rosterSignature = signature
+      this.notifyChange()
+    }
+    return presets
   }
 
   /**
@@ -380,6 +389,7 @@ export class AgentPresets extends Service {
     // from disk outside `remove`); the new preset must not inherit it. Every
     // session already joined keeps the generation it runs on regardless.
     this.standing.delete(id)
+    await this.list()
   }
 
   /**
@@ -392,6 +402,7 @@ export class AgentPresets extends Service {
     // Sessions on the deleted preset keep their standing mount; only new
     // sessions see the roster without it.
     this.standing.delete(id)
+    await this.list()
     // Storing a default that does not exist YET is deliberate — the roster is a
     // live directory, so a name absent now may exist by the time a session asks
     // for it, and `resolve` reports it then. A default this call just deleted is
@@ -543,6 +554,35 @@ export class AgentPresets extends Service {
     this.generations.set(presetId, next)
     return `${presetId}@${String(next)}`
   }
+
+  /** Notify topology observers without allowing one listener to veto discovery or authoring. */
+  private notifyChange(): void {
+    for (const callback of this.selfCtx.events.dispatch('emit', ['agent-presets/change'])) {
+      try {
+        const returned: unknown = callback()
+        void Promise.resolve(returned).catch((error: unknown) => {
+          this.selfCtx.logger.warn('agent-presets/change listener rejected', error)
+        })
+      } catch (error) {
+        this.selfCtx.logger.warn('agent-presets/change listener threw', error)
+      }
+    }
+  }
+}
+
+/** Stable discovery fingerprint, including external composition-file replacement. */
+async function discoveredRosterSignature(presets: readonly AgentPreset[]): Promise<string> {
+  return JSON.stringify(await Promise.all(presets.map(async (preset) => {
+    let stamp: readonly [number, number] | undefined
+    try {
+      const value = await stat(preset.path)
+      stamp = [value.mtimeMs, value.size]
+    } catch {
+      stamp = undefined
+    }
+    return [preset.id, preset.trust, preset.path, preset.name, preset.description, preset.order,
+      preset.permissionPreset, preset.broken, stamp]
+  })))
 }
 
 /** The composition file identity one standing generation was mounted from. */

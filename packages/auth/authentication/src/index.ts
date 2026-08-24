@@ -57,6 +57,46 @@ export type AuthenticationPrincipal =
     readonly expiresAt: string
   }
 
+/** Stable non-secret identity of an authenticated transport admission. */
+export type AuthenticationPrincipalIdentity =
+  | { readonly kind: 'bypass' }
+  | {
+    readonly kind: 'grant'
+    readonly grantId: AuthenticationGrantId
+    readonly grantRevision: number
+  }
+
+/**
+ * Project an admission principal to the identity safe to return to its client.
+ * Names, capabilities, expiry, and credential material are deliberately absent.
+ * @param principal - Host-verified admission principal.
+ * @returns its stable non-secret identity and authorization revision.
+ */
+export function authenticationPrincipalIdentity(
+  principal: AuthenticationPrincipal,
+): AuthenticationPrincipalIdentity {
+  return principal.kind === 'bypass'
+    ? { kind: 'bypass' }
+    : { kind: 'grant', grantId: principal.grantId, grantRevision: principal.grantRevision }
+}
+
+/**
+ * Compare two stable principal identities.
+ * @param left - one identity.
+ * @param right - the other identity.
+ * @returns whether both identify the same Host-verified Grant revision.
+ */
+export function sameAuthenticationPrincipal(
+  left: AuthenticationPrincipalIdentity | undefined,
+  right: AuthenticationPrincipalIdentity | undefined,
+): boolean {
+  if (left === undefined || right === undefined || left.kind !== right.kind) return false
+  return left.kind === 'bypass'
+    || (right.kind === 'grant'
+      && left.grantId === right.grantId
+      && left.grantRevision === right.grantRevision)
+}
+
 /** Network carrier whose admission is being authenticated. */
 export type AuthenticationChannel = 'http-api' | 'websocket-mux' | 'websocket-host'
 

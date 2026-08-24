@@ -1243,6 +1243,28 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   const pendingApprovals = new Map<RpcId, PendingApproval>()
   const muxQueues = new Set<FrameQueue<RpcRequest<MuxFrame>>>()
   const hostQueues = new Set<FrameQueue<RpcRequest<HostFrame>>>()
+  let settingsExposureRevision = 0
+
+  /** Collapse Host-owned configuration topology signals into one remote contract. */
+  const announceSettingsExposure = (): void => {
+    settingsExposureRevision += 1
+    const revision = settingsExposureRevision
+    for (const listener of ctx.events.dispatch('emit', ['settings/exposure-changed', revision]) as Array<(value: number) => unknown>) {
+      try {
+        const returned = listener(revision)
+        if (returned != null && typeof (returned as PromiseLike<unknown>).then === 'function') {
+          void Promise.resolve(returned as PromiseLike<unknown>).catch((error: unknown) => {
+            ctx.logger.warn('api-proxy: settings exposure listener rejected', error)
+          })
+        }
+      } catch (error) {
+        ctx.logger.warn('api-proxy: settings exposure listener threw', error)
+      }
+    }
+  }
+  ctx.on('settings/description-changed', announceSettingsExposure)
+  ctx.on('capabilities/change', announceSettingsExposure)
+  ctx.on('llm/adapters-updated', announceSettingsExposure)
   const imageAdmissionChains = new WeakMap<Agent, Promise<void>>()
 
   function serializeSessionLineage<T>(parentId: SessionId, operation: () => Promise<T>): Promise<T> {

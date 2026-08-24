@@ -13,6 +13,7 @@ import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   createSnapshotStore, type SessionId, type SnapshotStore,
 } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { messageOf, presetOptions } from './settings-store.ts'
 import type { AgentPresetOption } from './settings-store.ts'
 
@@ -66,11 +67,19 @@ export class AgentPresetSeatController {
     /** The session the hero is about to hand over to, when there is one. */
     private readonly currentSession: () => SeatSessionSummary | undefined,
     /** Start a distinct Session using the selected immutable Profile. */
-    private readonly startSession?: (agentProfile: string) => void,
+    private readonly startSession: ((agentProfile: string) => void) | undefined,
+    private readonly describeFace: SettingsDescribeFace,
   ) {}
 
   private set(patch: Partial<AgentPresetSeatState>): void {
     this.store.set({ ...this.store.getSnapshot(), ...patch })
+  }
+
+  /** Clear prior-principal roster and staged Profile selection synchronously. */
+  reset(): void {
+    this.fallback = ''
+    this.staged = undefined
+    this.store.set(INITIAL)
   }
 
   /**
@@ -78,8 +87,10 @@ export class AgentPresetSeatController {
    * @returns once the snapshot reflects the host.
    */
   async load(): Promise<void> {
+    const fence = this.describeFace.writeFence()
     try {
       const response = await this.api.agentPresets.list({})
+      if (!this.describeFace.acceptResponse(response, fence)) return
       if (!response.result.ok) {
         this.set({ error: response.result.error.message })
         return
@@ -98,6 +109,7 @@ export class AgentPresetSeatController {
         error: null,
       })
     } catch (error) {
+      if (!this.describeFace.isCurrent(fence)) return
       this.set({ error: messageOf(error) })
     }
   }

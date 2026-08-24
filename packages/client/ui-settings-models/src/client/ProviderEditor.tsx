@@ -65,6 +65,10 @@ export interface ProviderEditorProps {
   settingsPath: readonly string[]
   /** Wire faces for writes and for interrogating a provider endpoint. */
   api: Pick<IApiClient, 'settings' | 'credentials' | 'llm'>
+  /** Shared mirror write fencing and successful-response fold. */
+  writeFence: () => number
+  isCurrent: (fence: number) => boolean
+  acceptSettingsView: (view: SettingsNamespaceView, fence: number, authentication?: unknown) => boolean
   /** Section copy. */
   t: (key: keyof typeof en) => string
   /** Disable writes (read-only settings provider). */
@@ -234,7 +238,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
    * descriptor, so a wholesale replace rebuilt from it could delete fields
    * outside the card. Ops name only the fields this card can see.
    */
-  const applyOnce = async (): Promise<string | undefined> => {
+  const applyOnce = async (fence: number): Promise<string | null | undefined> => {
     const ns = namespace.ns
     // A pi-ai profile names the conventional reference only when this page is
     // about to store a key. Otherwise the provider keeps its native auth path.
@@ -274,6 +278,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
           ? t('conflict')
           : response.result.error.message
       }
+      if (!props.acceptSettingsView(response.result.value, fence, response.authentication)) return null
       setCommittedOriginal(getPath(response.result.value.user, settingsPath))
       setExpectedRevision(response.result.value.revision)
       setDraft(next)
@@ -287,10 +292,12 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   }
 
   const apply = async (): Promise<void> => {
+    const fence = props.writeFence()
     setBusy(true)
     setFailure(undefined)
     try {
-      const failure = await applyOnce()
+      const failure = await applyOnce(fence)
+      if (failure === null) return
       if (failure !== undefined) {
         setFailure(failure)
         return
@@ -300,9 +307,9 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       // A transport failure (disconnect, a request the host refuses) rejects
       // rather than answering; without this the card would stay busy forever
       // with no error shown.
-      setFailure(messageOf(error))
+      if (props.isCurrent(fence)) setFailure(messageOf(error))
     } finally {
-      setBusy(false)
+      if (props.isCurrent(fence)) setBusy(false)
     }
   }
 

@@ -672,15 +672,22 @@ describe('respond path', () => {
       },
     })
     const receipt = await client(api).respond({ type: 'client-response', rpcId: RpcId('req-1'), result: { ok: true, value: { behavior: 'allow' } } })
-    expect(receipt).toEqual({ accepted: true })
-    expect(seen).toEqual([{ type: 'client-response', rpcId: 'req-1', result: { ok: true, value: { behavior: 'allow' } } }])
+    expect(receipt).toEqual({ accepted: true, authentication: { kind: 'bypass' } })
+    expect(seen).toEqual([{
+      type: 'client-response',
+      rpcId: 'req-1',
+      result: { ok: true, value: { behavior: 'allow' } },
+      expectedPrincipal: { kind: 'bypass' },
+    }])
   })
 
   it('returns bad-response for a malformed client-response without reaching the impl', async () => {
     const respond = vi.fn()
     const handler = toFetchHandler(scriptedApi({ respond }))
     const response = await handler.fetch('http://dsh.internal/api/respond', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'client-response' }) })
-    expect(await response.json()).toEqual({ accepted: false, reason: 'bad-response' })
+    expect(await response.json()).toEqual({
+      accepted: false, reason: 'bad-response', authentication: { kind: 'bypass' },
+    })
     expect(respond).not.toHaveBeenCalled()
   })
 })

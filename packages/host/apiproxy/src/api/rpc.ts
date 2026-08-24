@@ -4,7 +4,9 @@
  * are channel-independent and form a four-member discriminated union.
  * api/ contract layer: zero Node dependencies, importable from the browser.
  */
-import type { AuthenticationPrincipal } from '@deepseek-ai/dsh-authentication'
+import type {
+  AuthenticationPrincipal, AuthenticationPrincipalIdentity,
+} from '@deepseek-ai/dsh-authentication'
 import type { z as zCore } from 'zod'
 type ZodIssue = zCore.core.$ZodIssue
 import type { Branded } from '@deepseek-ai/dsh-brand'
@@ -30,6 +32,8 @@ export function RpcId(id: string): RpcId {
 
 /** Error code → details type map (a second table isomorphic to RpcMethodMap). New code = one row here + one branch in the error schema. */
 export interface RpcErrorDetailsMap {
+  /** The authenticated principal changed after the client initiated a mutation. */
+  'authentication-principal-mismatch': {}
   'bad-request': { issues: ZodIssue[] }
   'cancelled': {}
   'session-not-found': { sessionId: SessionId }
@@ -145,6 +149,8 @@ export interface RpcRequest<P> {
 export interface RpcResponse<T> {
   rpcId: RpcId
   result: RpcResult<T>
+  /** Host-verified non-secret identity attached by an authenticated unary carrier. */
+  authentication?: AuthenticationPrincipalIdentity
 }
 
 // ---- Wire full forms: four named members of a discriminated union (discriminant = the four `type` literals) ----
@@ -155,6 +161,8 @@ export interface ClientRequest {
   rpcId: RpcId
   method: string
   payload: unknown
+  /** Initiating identity required on mutating methods and checked by the authenticated Host carrier. */
+  expectedPrincipal?: AuthenticationPrincipalIdentity
 }
 
 /** Response to a ClientRequest (wire carrier: the HTTP response body of that POST); rpcId echoed. */
@@ -162,7 +170,12 @@ export interface ServerResponse {
   type: 'server-response'
   rpcId: RpcId
   result: RpcResult<unknown>
+  /** Host-verified non-secret identity attached by an authenticated unary carrier. */
+  authentication?: AuthenticationPrincipalIdentity
 }
+
+/** Transport control method preceding every authenticated downstream stream. */
+export const CONNECTION_AUTHENTICATED_METHOD = 'connection.authenticated'
 
 /**
  * Message initiated by the server (wire carrier: downstream stream frame). Answerable interactions
@@ -182,6 +195,8 @@ export interface ClientResponse {
   type: 'client-response'
   rpcId: RpcId
   result: RpcResult<unknown>
+  /** Identity initiating this answer, checked before the Host claims the pending interaction. */
+  expectedPrincipal?: AuthenticationPrincipalIdentity
 }
 
 /** Authoritative wire full-form union; narrow via `switch (message.type)`. */
@@ -192,4 +207,13 @@ export type RpcMessage = ClientRequest | ServerResponse | ServerRequest | Client
  * discipline as "HTTP status describes only the carrier"): the HTTP response
  * body of the POST carrying a client-response. Late/duplicate responses yield not-pending.
  */
-export type RpcReceipt = { accepted: true } | { accepted: false; reason: 'not-pending' | 'bad-response' }
+export type RpcReceipt = {
+  accepted: true
+  /** Host-authenticated identity added by the carrier; absent on direct ApiProxy calls. */
+  authentication?: AuthenticationPrincipalIdentity
+} | {
+  accepted: false
+  reason: 'not-pending' | 'bad-response' | 'authentication-principal-mismatch'
+  /** Host-authenticated identity added by the carrier; absent on direct ApiProxy calls. */
+  authentication?: AuthenticationPrincipalIdentity
+}

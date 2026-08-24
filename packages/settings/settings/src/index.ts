@@ -357,6 +357,8 @@ export abstract class SettingsProvider extends Service {
   private readonly pendingTails = new Set<Promise<void>>()
   /** Set at service dispose: refuse new writes while queued ones drain. */
   private stopped = false
+  /** Monotonic registration/disposal revision for description consumers. */
+  private descriptionRevision = 0
 
   /** Opaque read of {@link stopped}: control flow cannot narrow it across awaits. */
   private isStopped(): boolean {
@@ -450,9 +452,13 @@ export abstract class SettingsProvider extends Service {
     }
     this.ctx.effect(() => {
       this.registrations.set(ns, registration)
+      this.emitDescriptionChanged()
       // TODO(settings-registration-quiescence): Deactivate every watcher and await
       // its tail on disposal so callbacks cannot outlive the registrant fiber.
-      return () => this.registrations.delete(ns)
+      return () => {
+        if (!this.registrations.delete(ns)) return
+        this.emitDescriptionChanged()
+      }
     }, `settings.register(${JSON.stringify(String(ns))})`)
     return {
       get: () => registration.resolved as T,
@@ -743,6 +749,24 @@ export abstract class SettingsProvider extends Service {
       }
     }
     if (invariantFailure !== undefined) throw invariantFailure as Error
+  }
+
+  /** Announce registration topology without allowing one observer to veto it. */
+  private emitDescriptionChanged(): void {
+    this.descriptionRevision += 1
+    const revision = this.descriptionRevision
+    for (const listener of this.ctx.events.dispatch('emit', ['settings/description-changed', revision]) as Array<(value: number) => unknown>) {
+      try {
+        const returned = listener(revision)
+        if (returned != null && typeof (returned as PromiseLike<unknown>).then === 'function') {
+          void Promise.resolve(returned as PromiseLike<unknown>).catch((error: unknown) => {
+            this.ctx.logger.warn('settings: a description topology listener rejected', error)
+          })
+        }
+      } catch (error) {
+        this.ctx.logger.warn('settings: a description topology listener threw', error)
+      }
+    }
   }
 
   /** Commit a resolved value when changed: swap, notify watchers, emit the event. */

@@ -1,8 +1,8 @@
 /**
  * Host transport for the settings-namespace scope contract. The contract types
  * live in `dsh-client-runtime` (the common dependency of every feature that
- * owns a preference); this file owns the wire behavior and the invalidation
- * subscription, both of which are Settings-surface concerns.
+ * owns a preference); this file owns per-namespace derivation from the shared
+ * description and serialized writes back to that mirror.
  */
 
 import { Service } from '@deepseek-ai/cordis'
@@ -15,56 +15,45 @@ import {
   createSnapshotStore, type SettingsScope, type SettingsScopeSnapshot,
   type SettingsScopeSpec, type SnapshotStore,
 } from '@deepseek-ai/dsh-client-runtime/client'
-// Type-only, and deliberately NOT `@deepseek-ai/dsh-api-remotes/client`: this
-// package is reachable from the Host build graph through its feature-package
-// callers, and api-remotes' Client face imports a Host-tsdown-generated
-// `/remote` artifact, which would deadlock the Host tsc phase. The gateway's
-// Client half declares `ctx.remote` with no generated import, and the
-// allowlist's `types` subpath is a pure-type source file, so the pair supplies
-// `$on` and its key face without dragging a build artifact in. The runtime
-// `remote` injection belongs to whoever calls bindSettingsScope: the
-// subscription is registered on the caller's own context.
-import type {} from '@deepseek-ai/dsh-api-remotes/client'
-import type {} from '@deepseek-ai/dsh-api-remotes/types'
-// The forwarded event's own declaration: `$on`'s key face is
-// `Extract<keyof Events, keyof Selection>`, so the allowlist alone resolves to
-// never — the owning package's client-safe, type-only subpath supplies the
-// cordis `Events` entry (and with it the branded `SettingsNamespace`).
-import type {} from '@deepseek-ai/dsh-settings/types'
+import { SettingsDescribeMirror, type SettingsDescribeFace } from './settings-mirror.ts'
 type SettingsFace = Pick<IApiClient, 'settings'>
 
 /**
- * Serializes one namespace's Host reads and writes behind a snapshot store.
- * Reads never block plugin activation; writes carry the latest known
- * namespace revision and teardown waits for the operation already crossing
- * the wire.
+ * Derives one namespace from the shared description and serializes its writes.
+ * Writes carry the latest known revision, and teardown waits for the operation
+ * already crossing the wire.
  */
 export class SettingsScopeController<T> implements SettingsScope<T> {
   private readonly store: SnapshotStore<SettingsScopeSnapshot<T>>
   private tail: Promise<void> = Promise.resolve()
-  private readGeneration = 0
   private writeGeneration = 0
   private disposed = false
+  private readonly unsubscribe: () => void
+  private pendingRevision: number | undefined
+  private principal: number
 
   /**
    * @param api - settings wire face.
    * @param spec - namespace identity and optional narrowing decoder.
-   * @param persistence - remote browsers remain process-local because settings RPCs are loopback-only.
+   * @param mirror - shared authorization-aware settings description.
    */
   constructor(
     private readonly api: SettingsFace,
     private readonly spec: SettingsScopeSpec<T>,
-    private readonly persistence: 'host' | 'memory' = 'host',
+    private readonly mirror: SettingsDescribeMirror,
   ) {
     this.store = createSnapshotStore<SettingsScopeSnapshot<T>>({
-      status: persistence === 'host' ? 'loading' : 'unavailable',
+      status: 'loading',
       value: undefined,
       base: undefined,
       user: undefined,
       revision: undefined,
       writable: false,
-      mode: persistence,
+      mode: 'host',
     })
+    this.principal = mirror.writeFence()
+    this.unsubscribe = mirror.subscribe(() => { this.derive() })
+    this.derive()
   }
 
   /** @returns the current sync snapshot (stable reference until the next change). */
@@ -79,15 +68,6 @@ export class SettingsScopeController<T> implements SettingsScope<T> {
    */
   subscribe(listener: () => void): () => void {
     return this.store.subscribe(listener)
-  }
-
-  /**
-   * Queue a Host refresh; a newer read or user write suppresses stale publication.
-   * @returns settlement after the queued read completes or is skipped.
-   */
-  load(): Promise<void> {
-    const generation = ++this.readGeneration
-    return this.enqueue(() => this.read(generation))
   }
 
   /**
@@ -112,10 +92,11 @@ export class SettingsScopeController<T> implements SettingsScope<T> {
   }
 
   private write(op: SettingsPathOpView): Promise<void> {
-    this.readGeneration += 1
     const generation = ++this.writeGeneration
+    const principal = this.mirror.writeFence()
     return this.enqueue(async () => {
-      const revision = this.getSnapshot().revision
+      if (principal !== this.mirror.writeFence()) return
+      const revision = this.pendingRevision ?? this.getSnapshot().revision
       let response: Awaited<ReturnType<SettingsFace['settings']['mutate']>>
       try {
         response = await this.api.settings.mutate({
@@ -124,15 +105,28 @@ export class SettingsScopeController<T> implements SettingsScope<T> {
           ...(revision === undefined ? {} : { expectedRevision: revision }),
         })
       } catch (_settingsWriteFailure) {
-        if (!this.disposed && generation === this.writeGeneration) await this.read(++this.readGeneration)
+        await this.recover(generation, principal)
         return
       }
+      if (!this.mirror.acceptResponse(response, principal)) return
       if (!response.result.ok) {
-        if (!this.disposed && generation === this.writeGeneration) await this.read(++this.readGeneration)
+        await this.recover(generation, principal)
         return
       }
-      this.accept(response.result.value, generation === this.writeGeneration)
+      if (this.disposed || principal !== this.mirror.writeFence()) return
+      if (generation === this.writeGeneration) {
+        this.pendingRevision = undefined
+        if (!this.mirror.acceptView(response.result.value, principal, response.authentication)) return
+      } else {
+        this.pendingRevision = response.result.value.revision
+      }
     })
+  }
+
+  private async recover(generation: number, principal: number): Promise<void> {
+    if (this.disposed || generation !== this.writeGeneration || principal !== this.mirror.writeFence()) return
+    this.pendingRevision = undefined
+    await this.mirror.load()
   }
 
   /**
@@ -141,13 +135,13 @@ export class SettingsScopeController<T> implements SettingsScope<T> {
    */
   async dispose(): Promise<void> {
     this.disposed = true
-    this.readGeneration += 1
     this.writeGeneration += 1
+    this.unsubscribe()
     await this.tail
   }
 
   private enqueue(operation: () => Promise<void>): Promise<void> {
-    if (this.persistence === 'memory' || this.disposed) return Promise.resolve()
+    if (this.disposed) return Promise.resolve()
     const task = this.tail.then(async () => {
       if (this.disposed) return
       await operation()
@@ -158,36 +152,47 @@ export class SettingsScopeController<T> implements SettingsScope<T> {
     return task
   }
 
-  private async read(generation: number): Promise<void> {
-    let response: Awaited<ReturnType<SettingsFace['settings']['describe']>>
-    try {
-      response = await this.api.settings.describe({})
-    } catch (_settingsReadFailure) {
+  private derive(): void {
+    if (this.disposed) return
+    const principal = this.mirror.writeFence()
+    if (principal !== this.principal) {
+      this.principal = principal
+      this.writeGeneration += 1
+      this.pendingRevision = undefined
+    }
+    const mirrored = this.mirror.getSnapshot()
+    if (mirrored.view === undefined) {
+      this.store.set({
+        status: mirrored.error === null ? 'loading' : 'unavailable',
+        value: undefined,
+        base: undefined,
+        user: undefined,
+        revision: undefined,
+        writable: false,
+        mode: 'host',
+      })
       return
     }
-    if (!response.result.ok || this.disposed) return
-    const { namespaces, writable } = response.result.value
-    const view = namespaces.find(candidate => candidate.ns === this.spec.namespace)
-    const publish = generation === this.readGeneration
+    const { writable } = mirrored.view
+    const view = mirrored.view.namespaces.find(candidate => candidate.ns === this.spec.namespace)
     if (view === undefined) {
-      if (publish) {
-        this.store.update((draft) => {
-          draft.status = 'unavailable'
-          draft.writable = writable
-        })
-      }
+      this.store.set({
+        status: 'unavailable',
+        value: undefined,
+        base: undefined,
+        user: undefined,
+        revision: undefined,
+        writable,
+        mode: 'host',
+      })
       return
     }
-    this.accept(view, publish, writable)
-  }
-
-  private accept(view: SettingsNamespaceView, publish: boolean, writable?: boolean): void {
-    const decoded = publish ? this.decode(view) : undefined
+    const decoded = this.decode(view)
     this.store.update((draft) => {
       draft.revision = view.revision
       draft.base = view.base
       draft.user = view.user
-      if (writable !== undefined) draft.writable = writable
+      draft.writable = writable
       if (decoded === undefined) return
       draft.status = 'ready'
       draft.value = decoded
@@ -225,43 +230,40 @@ declare module '@deepseek-ai/cordis' {
  * (`packages/client/tsdown.client.ts`).
  */
 export class SettingsScopeBinder extends Service {
+  private readonly mirror: SettingsDescribeMirror
+
   /**
    * @param ctx - the providing plugin's context.
+   * @param mirror - shared authorization-aware settings description.
    */
-  constructor(ctx: Context) {
+  constructor(ctx: Context, mirror: SettingsDescribeMirror) {
     super(ctx, 'settingsScope')
+    this.mirror = mirror
   }
 
   /**
-   * Bind one namespace scope to settings and connection invalidations on the
-   * CALLER's plugin lifecycle — the service proxy binds `this.ctx` to the
-   * caller at call time, so the scope's disposer belongs to the calling fiber.
-   * Listeners exist before the initial background read starts, so activation
-   * never blocks on the settings transport. The caller injects `connection`
-   * for the transport and `remote` for the forwarded settings invalidation.
+   * Read the shared authorization-aware description used by every namespace scope.
+   * @returns the shared cross-namespace settings description.
+   */
+  describe(): SettingsDescribeFace {
+    return this.mirror
+  }
+
+  /**
+   * Bind one namespace scope on the CALLER's plugin lifecycle. The service
+   * proxy binds `this.ctx` to the caller at call time, so the scope's disposer
+   * belongs to the calling fiber. Reads derive from the provider-owned mirror,
+   * and binding never adds a settings wire read.
    * @param spec - domain-owned namespace contract.
    * @returns the bound scope consumed by the domain's services and rows.
    */
   bind<T>(spec: SettingsScopeSpec<T>): SettingsScope<T> {
     const ctx = this.ctx
     const connection = ctx.get('connection') as ConnectionHandle
-    const controller = new SettingsScopeController<T>(
-      connection.api,
-      spec,
-      connection.isLoopback ? 'host' : 'memory',
-    )
+    const controller = new SettingsScopeController<T>(connection.api, spec, this.mirror)
     ctx.effect(() => {
-      const refresh = (namespace?: string): void => {
-        if (namespace !== undefined && namespace !== spec.namespace) return
-        void controller.load()
-      }
-      const disposers = [
-        (ctx.get('remote') as Context['remote']).$on('settings/document-updated', refresh),
-        ctx.on('connection/reset', () => { refresh() }),
-      ]
-      void controller.load()
+      void this.mirror.ensure()
       return async () => {
-        for (const dispose of disposers) dispose()
         await controller.dispose()
       }
     }, `ui-settings: ${spec.namespace} settings scope`)

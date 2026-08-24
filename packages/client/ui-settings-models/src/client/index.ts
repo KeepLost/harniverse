@@ -21,7 +21,7 @@ import { ModelsSection } from './ModelsSection.tsx'
 import type { ModelsSectionInjected } from './ModelsSection.tsx'
 import { WelcomeNotice } from './WelcomeNotice.tsx'
 import type { WelcomeNoticeInjected } from './WelcomeNotice.tsx'
-import { refreshWelcomeIfLoaded, WelcomeNoticeStore } from './welcome-store.ts'
+import { decodeWelcomeSection, WelcomeNoticeStore } from './welcome-store.ts'
 import { ModelsSettingsStore } from './store.ts'
 import { en, zh, type ModelsKey } from './locales.ts'
 import { WELCOME_NOTICE_SETTINGS_NAMESPACE } from '../onboarding-copy.ts'
@@ -41,21 +41,11 @@ const NS = 'settings.models'
 export type { ModelsSettingsState, ProviderRow } from './store.ts'
 
 /**
- * Refetch the page snapshot only after its first load: an unopened Models
- * page must not fetch on background invalidations.
- * @param controller - the page store.
- */
-export function refreshIfLoaded(controller: ModelsSettingsStore): void {
-  if (controller.store.getSnapshot().status === 'idle') return
-  void controller.load()
-}
-
-/**
  * Required services (cordis fiber inject). The target slot is declared by
  * ui-settings' apply, whose activation order relative to this one is NOT
  * constrained; registration depends on each slot through `slots.inject()`.
  */
-export const inject = ['slots', 'locale', 'connection', 'remote']
+export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope']
 
 /**
  * Register the Models section once the `settings.section` declaration is on
@@ -67,7 +57,8 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-settings-models: copy dictionaries')
 
   const connection = ctx.get('connection') as ConnectionHandle
-  const controller = new ModelsSettingsStore(connection.api)
+  const describeFace = ctx.settingsScope.describe()
+  const controller = new ModelsSettingsStore(connection.api, describeFace)
   const useSnapshot = bindSnapshotSelector(controller.store)
   // Registration-time text (the nav label thunk) and the inject faces share
   // one bound translate; copy freshness rides the locale revision.
@@ -76,12 +67,16 @@ export function apply(ctx: ClientContext): void {
     controller,
     useSnapshot,
     api: connection.api,
+    writeFence: () => describeFace.writeFence(),
+    isCurrent: fence => describeFace.isCurrent(fence),
+    acceptResponse: (response, fence) => describeFace.acceptResponse(response as never, fence),
+    acceptSettingsView: (view, fence, authentication) => describeFace.acceptView(view, fence, authentication as never),
     t,
   })
-  const welcomeController = new WelcomeNoticeStore(
-    connection.api,
-    connection.isLoopback ? 'host' : 'memory',
-  )
+  const welcomeController = new WelcomeNoticeStore(ctx.settingsScope.bind({
+    namespace: WELCOME_NOTICE_SETTINGS_NAMESPACE,
+    decode: decodeWelcomeSection,
+  }))
   const welcomeInjected = (): WelcomeNoticeInjected => ({
     controller: welcomeController,
     hooks: { welcome: welcomeController.store },
@@ -91,21 +86,31 @@ export function apply(ctx: ClientContext): void {
   // Pushed invalidations converge every open surface without polling: any
   // settings/credentials/topology change refetches once the page loaded.
   ctx.effect(() => {
-    const refreshModels = (): void => { refreshIfLoaded(controller) }
-    const refreshAll = (): void => {
-      refreshModels()
-      refreshWelcomeIfLoaded(welcomeController)
+    const refreshModels = (): void => {
+      if (controller.store.getSnapshot().status !== 'idle') void controller.load()
+    }
+    let topologyRefreshScheduled = false
+    const refreshTopology = (): void => {
+      if (controller.store.getSnapshot().status === 'idle' || topologyRefreshScheduled) return
+      topologyRefreshScheduled = true
+      queueMicrotask(() => {
+        topologyRefreshScheduled = false
+        refreshModels()
+      })
     }
     const disposers = [
-      ctx.remote.$on('settings/document-updated', (ns) => {
+      ctx.remote.$on('settings/document-updated', () => {
         refreshModels()
-        if (ns === WELCOME_NOTICE_SETTINGS_NAMESPACE) refreshWelcomeIfLoaded(welcomeController)
       }),
       ctx.remote.$on('credentials/updated', refreshModels),
-      ctx.remote.$on('llm/adapters-updated', refreshModels),
-      ctx.on('connection/reset', refreshAll),
+      ctx.remote.$on('llm/adapters-updated', refreshTopology),
+      ctx.remote.$on('settings/exposure-changed', refreshTopology),
     ]
-    return () => { for (const dispose of disposers) dispose() }
+    return () => {
+      welcomeController.dispose()
+      controller.dispose()
+      for (const dispose of disposers) dispose()
+    }
   }, 'ui-settings-models: pushed invalidations')
 
   ctx.slots.inject('settings.section', () => ctx.slots.register({

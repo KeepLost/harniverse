@@ -11,6 +11,8 @@ import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
+import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
+
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-agent-preset/client'
 import { AgentPresetLabel } from '../src/client/AgentPresetLabel.tsx'
 import type { AgentPresetLabelInjected } from '../src/client/AgentPresetLabel.tsx'
@@ -82,7 +84,7 @@ async function bench() {
   // same `$dispatch` handoff the connection sink makes.
   new TestRemote(ctx)
   const calls: string[] = []
-  ctx.provide('connection', {
+  const connection = {
     api: {
       agentPresets: {
         list: () => { calls.push('list'); return Promise.resolve(ROSTER) },
@@ -112,8 +114,29 @@ async function bench() {
         update: (payload: { patch: unknown }) => { calls.push(`settings:${JSON.stringify(payload.patch)}`); return Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: {} } }) },
       },
     },
-  } as never)
-  return { ctx, slots: ctx.get('slots') as SlotRegistry, calls, moveDefault }
+  } as never
+  let identity: unknown = { kind: 'bypass' }
+  const authenticationListeners = new Set<() => void>()
+  const authentication = {
+    getSnapshot: () => identity,
+    subscribe: (listener: () => void) => {
+      authenticationListeners.add(listener)
+      return () => { authenticationListeners.delete(listener) }
+    },
+    validate: () => true,
+  }
+  const movePrincipal = (): void => {
+    identity = undefined
+    for (const listener of authenticationListeners) listener()
+    identity = { kind: 'grant', grantId: 'tab-b', grantRevision: 1 }
+    for (const listener of authenticationListeners) listener()
+  }
+  ctx.provide('connection', connection)
+  const settingsApi = (connection as unknown as {
+    api: ConstructorParameters<typeof SettingsDescribeMirror>[0]
+  }).api
+  ctx.provide('settingsScope', { describe: () => new SettingsDescribeMirror(settingsApi, authentication as never) } as never)
+  return { ctx, slots: ctx.get('slots') as SlotRegistry, calls, moveDefault, movePrincipal }
 }
 
 function declareRoot(slots: SlotRegistry): () => void {
@@ -170,7 +193,7 @@ function sessionsDouble(state: {
 
 describe('ui-agent-preset apply', () => {
   it('declares the services it uses', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote'])
+    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'settingsScope'])
   })
 
   it('registers the General row and the settings section', async () => {
@@ -247,7 +270,9 @@ describe('ui-agent-preset apply', () => {
     const { ctx, slots, calls } = await bench()
     declareRoot(slots)
     await ctx.plugin({ inject: [...inject], apply }).await()
+    const row = (slots.entries('settings.general.item')[0]!.inject as unknown as () => AgentPresetRowInjected)()
     const section = (slots.entries('settings.section')[0]!.inject as unknown as () => AgentPresetSectionInjected)()
+    await row.load()
     await section.load()
     const before = calls.length
 
@@ -263,15 +288,32 @@ describe('ui-agent-preset apply', () => {
     expect(calls.length).toBe(afterRelevant)
   })
 
-  it('re-reads both surfaces when the connection comes back', async () => {
+  it('refreshes loaded roster consumers directly on the forwarded topology event', async () => {
     const { ctx, slots, calls } = await bench()
     declareRoot(slots)
     await ctx.plugin({ inject: [...inject], apply }).await()
+    const row = (slots.entries('settings.general.item')[0]!.inject as unknown as () => AgentPresetRowInjected)()
     const section = (slots.entries('settings.section')[0]!.inject as unknown as () => AgentPresetSectionInjected)()
+    await row.load()
     await section.load()
     const before = calls.length
 
-    ctx.emit('connection/reset')
+    ctx.remote.$dispatch('agent-presets/change', [])
+
+    await vi.waitFor(() => { expect(calls.length).toBe(before + 2) })
+  })
+
+  it('clears and re-reads both surfaces when the authenticated principal changes', async () => {
+    const { ctx, slots, calls, movePrincipal } = await bench()
+    declareRoot(slots)
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    const row = (slots.entries('settings.general.item')[0]!.inject as unknown as () => AgentPresetRowInjected)()
+    const section = (slots.entries('settings.section')[0]!.inject as unknown as () => AgentPresetSectionInjected)()
+    await row.load()
+    await section.load()
+    const before = calls.length
+
+    movePrincipal()
 
     // A reconnect can land on a host whose roster changed under the browser.
     await vi.waitFor(() => { expect(calls.length).toBe(before + 2) })
@@ -365,10 +407,10 @@ describe('ui-agent-preset apply', () => {
     section.setCopyId('mine')
     section.setCopyName('我的模式')
     await section.confirmCopy()
+    ctx.remote.$dispatch('agent-presets/change', [])
 
-    // Authoring copies a directory rather than writing a setting, so nothing
-    // on the wire announces it: a preset created to be used must appear on
-    // the one screen that starts sessions, without a reload.
+    // The authoritative roster event, rather than a private section callback,
+    // refreshes the screen that starts sessions.
     await vi.waitFor(() => {
       expect(seat.hooks.agentPresetSeat.getSnapshot().options.map(option => option.id)).toEqual(['standard', 'mine'])
     })

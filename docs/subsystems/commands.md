@@ -123,11 +123,15 @@ Human-command registry. Plain-context definitions are global; definitions regist
 register(definition: CommandDefinition): () => void
 
 /**
- * List the effective immutable command descriptors for one agent.
- * @param agent - exact receiving agent and scoped-layer key.
- * @returns name-sorted descriptors after scoped shadowing.
+ * List the effective immutable command descriptors for one session.
+ *
+ * A live Agent contributes its scope-chain shadows. A cold session has no
+ * Agent and therefore cannot own an Agent-scoped registration, so it reads
+ * the global layer directly instead of being resumed merely for discovery.
+ * @param sessionId - receiving session identity.
+ * @returns name-sorted descriptors after any live scoped shadowing.
  */
-@Remote({ requiredCapability: 'harniverse.observe' }) list(agent: Agent): readonly CommandDescriptor[]
+@Remote({ requiredCapability: 'harniverse.observe' }) list(sessionId: SessionId): readonly CommandDescriptor[]
 
 /**
  * Resolve one effective command definition.
@@ -159,7 +163,7 @@ find(agent: Agent, name: string): CommandDefinition | undefined
 @Remote({ requiredCapability: 'harniverse.operate' }) async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandExecution | undefined>
 ```
 
-Types: [Agent](core.md)
+Types: [Agent](core.md) · [SessionId](core.md)
 
 Source: [`packages/interaction/commands/src/index.ts:225`](../../packages/interaction/commands/src/index.ts)
 

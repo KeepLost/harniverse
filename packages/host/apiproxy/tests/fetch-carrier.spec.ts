@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ALL_AUTHENTICATION_CAPABILITIES, type AuthenticationPrincipal } from '@deepseek-ai/dsh-authentication'
+import {
+  ALL_AUTHENTICATION_CAPABILITIES, authenticationGrantId,
+  type AuthenticationPrincipal, type AuthenticationPrincipalIdentity,
+} from '@deepseek-ai/dsh-authentication'
 import type { ApiProxy, HostFrame, MuxFrame } from '../src/api/index.ts'
 import type { ClientResponse, RpcMessage, RpcReceipt, RpcRequest } from '../src/api/rpc.ts'
 import { RpcId } from '../src/api/rpc.ts'
@@ -355,7 +358,88 @@ async function collect<F>(stream: AsyncIterable<RpcRequest<F>>): Promise<RpcRequ
   return out
 }
 
+function requestBody(init: RequestInit | undefined): string {
+  if (typeof init?.body !== 'string') throw new TypeError('expected a JSON string request body')
+  return init.body
+}
+
 describe('unary round trip (handler ⇄ client, no network)', () => {
+  it('retracts before rejecting a read whose response principal differs from its initiating identity', async () => {
+    const order: string[] = []
+    const initiating = {
+      kind: 'grant' as const,
+      grantId: authenticationGrantId('initiating-read'),
+      grantRevision: 1,
+    }
+    const c = new InProcessApiClient({
+      fetch: async (_input, init) => {
+        const request = JSON.parse(requestBody(init)) as { rpcId: string }
+        return Response.json({
+          type: 'server-response',
+          rpcId: request.rpcId,
+          result: { ok: true, value: { items: [] } },
+          authentication: {
+            kind: 'grant', grantId: 'settling-read', grantRevision: 1,
+          },
+        })
+      },
+    }, undefined, () => initiating, () => { order.push('retract') })
+
+    await expect(c.sessions.list({}).catch((error: unknown) => {
+      order.push('reject')
+      throw error
+    })).rejects.toThrow(/authentication identity mismatch/)
+
+    expect(order).toEqual(['retract', 'reject'])
+  })
+
+  it('retracts and rejects when a unary response omits Host authentication identity', async () => {
+    const retract = vi.fn()
+    const c = new InProcessApiClient({
+      fetch: async (_input, init) => {
+        const request = JSON.parse(requestBody(init)) as { rpcId: string }
+        return Response.json({
+          type: 'server-response', rpcId: request.rpcId, result: { ok: true, value: { items: [] } },
+        })
+      },
+    }, undefined, () => ({ kind: 'bypass' }), retract)
+
+    await expect(c.sessions.list({})).rejects.toThrow(/missing authentication identity/)
+    expect(retract).toHaveBeenCalledOnce()
+  })
+
+  it('rejects an A response after the current principal moves to B without retracting B', async () => {
+    const principalA: AuthenticationPrincipalIdentity = {
+      kind: 'grant', grantId: authenticationGrantId('launch-a'), grantRevision: 1,
+    }
+    const principalB: AuthenticationPrincipalIdentity = {
+      kind: 'grant', grantId: authenticationGrantId('current-b'), grantRevision: 1,
+    }
+    let current: AuthenticationPrincipalIdentity | undefined = principalA
+    const started = Promise.withResolvers<{ rpcId: string }>()
+    const response = Promise.withResolvers<Response>()
+    const retract = vi.fn(() => { current = undefined })
+    const c = new InProcessApiClient({
+      fetch: async (_input, init) => {
+        const request = JSON.parse(requestBody(init)) as { rpcId: string }
+        started.resolve(request)
+        return response.promise
+      },
+    }, undefined, () => current, retract)
+
+    const pending = c.sessions.list({})
+    const request = await started.promise
+    current = principalB
+    response.resolve(Response.json({
+      type: 'server-response', rpcId: request.rpcId,
+      result: { ok: true, value: { items: [] } }, authentication: principalA,
+    }))
+
+    await expect(pending).rejects.toThrow(/initiating authentication identity changed/)
+    expect(retract).not.toHaveBeenCalled()
+    expect(current).toEqual(principalB)
+  })
+
   it('carries a success result and echoes the minted rpcId', async () => {
     const response = await client().sessions.list({})
     expect(response.result).toEqual({ ok: true, value: { items: [] } })
@@ -626,6 +710,71 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
 
     expect(response.status).toBe(200)
     expect(list).toHaveBeenCalledWith(expect.objectContaining({ principal }))
+    expect(await response.json()).toMatchObject({
+      authentication: { kind: 'bypass' },
+    })
+  })
+
+  it('returns only stable non-secret Grant identity on unary responses', async () => {
+    const principal: AuthenticationPrincipal = {
+      kind: 'grant',
+      grantId: authenticationGrantId('browser-a'),
+      name: 'Personal laptop',
+      grantRevision: 7,
+      capabilities: ALL_AUTHENTICATION_CAPABILITIES,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }
+    const response = await toFetchHandler(fakeApi(), principal).fetch(new Request('http://x/api/session.list', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'client-request', rpcId: 'r-identity', method: 'session.list', payload: {} }),
+    }))
+
+    const body = await response.json() as Record<string, unknown>
+    expect(body.authentication).toEqual({ kind: 'grant', grantId: 'browser-a', grantRevision: 7 })
+    expect(JSON.stringify(body)).not.toContain('Personal laptop')
+    expect(JSON.stringify(body)).not.toContain('harniverse.administer')
+    expect(JSON.stringify(body)).not.toContain('expiresAt')
+  })
+
+  it('rejects a mutating request before route dispatch when the initiating principal changed', async () => {
+    const principal: AuthenticationPrincipal = {
+      kind: 'grant',
+      grantId: authenticationGrantId('current-browser'),
+      grantRevision: 3,
+      capabilities: ALL_AUTHENTICATION_CAPABILITIES,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }
+    const api = fakeApi()
+    const create = vi.fn(api.sessions.create.bind(api.sessions))
+    api.sessions.create = create
+    const initiating = {
+      kind: 'grant' as const,
+      grantId: authenticationGrantId('initiating-browser'),
+      grantRevision: 2,
+    }
+    const c = new InProcessApiClient(toFetchHandler(api, principal), undefined, () => initiating)
+
+    await expect(c.sessions.create({})).rejects.toThrow(/authentication identity mismatch/)
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('refuses to launch reads and mutations without an active identity outside host.describe bootstrap', async () => {
+    const requests: Record<string, unknown>[] = []
+    const handler = {
+      fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requests.push(JSON.parse(requestBody(init)) as Record<string, unknown>)
+        const request = requests.at(-1)!
+        const value = request.method === 'session.list' ? { items: [] } : { sessionId: 'created' }
+        return Response.json({ type: 'server-response', rpcId: request.rpcId, result: { ok: true, value } })
+      },
+    }
+    const c = new InProcessApiClient(handler, undefined, () => undefined)
+
+    await expect(c.sessions.list({})).rejects.toThrow(/without an authenticated principal/)
+    await expect(c.sessions.create({})).rejects.toThrow(/without an authenticated principal/)
+
+    expect(requests).toHaveLength(0)
   })
 
   it('propagates the carrier Request signal into subagent.prompt', async () => {
@@ -732,10 +881,12 @@ describe('handler carrier-layer statuses', () => {
   it('routes /api/respond, rejecting malformed client-responses as a receipt', async () => {
     const good = JSON.stringify({ type: 'client-response', rpcId: 'known', result: { ok: true, value: null } })
     const goodReceipt: unknown = await (await handler.fetch(new Request('http://x/api/respond', { method: 'POST', headers: { 'content-type': 'application/json' }, body: good }))).json()
-    expect(goodReceipt).toEqual({ accepted: true })
+    expect(goodReceipt).toEqual({ accepted: true, authentication: { kind: 'bypass' } })
     const bad = JSON.stringify({ type: 'client-request', rpcId: 'r', method: 'x', payload: {} })
     const badReceipt: unknown = await (await handler.fetch(new Request('http://x/api/respond', { method: 'POST', headers: { 'content-type': 'application/json' }, body: bad }))).json()
-    expect(badReceipt).toEqual({ accepted: false, reason: 'bad-response' })
+    expect(badReceipt).toEqual({
+      accepted: false, reason: 'bad-response', authentication: { kind: 'bypass' },
+    })
   })
 
   it('accepts (url, init) form fetch invocation', async () => {
@@ -831,9 +982,74 @@ describe('SSE streams through the carrier', () => {
 describe('client respond and transport failures', () => {
   it('passes a client-response through and parses the receipt', async () => {
     const receipt = await client().respond({ type: 'client-response', rpcId: RpcId('known'), result: { ok: true, value: null } })
-    expect(receipt).toEqual({ accepted: true })
+    expect(receipt).toEqual({ accepted: true, authentication: { kind: 'bypass' } })
     const late = await client().respond({ type: 'client-response', rpcId: RpcId('late'), result: { ok: true, value: null } })
-    expect(late).toEqual({ accepted: false, reason: 'not-pending' })
+    expect(late).toEqual({
+      accepted: false, reason: 'not-pending', authentication: { kind: 'bypass' },
+    })
+  })
+
+  it('rejects a response before claiming the interaction when the initiating principal changed', async () => {
+    const principal: AuthenticationPrincipal = {
+      kind: 'grant',
+      grantId: authenticationGrantId('answering-browser'),
+      grantRevision: 2,
+      capabilities: ALL_AUTHENTICATION_CAPABILITIES,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }
+    const api = fakeApi()
+    const respond = vi.fn(api.respond.bind(api))
+    api.respond = respond
+    const c = new InProcessApiClient(toFetchHandler(api, principal), undefined, () => ({
+      kind: 'grant', grantId: authenticationGrantId('requesting-browser'), grantRevision: 1,
+    }))
+
+    await expect(c.respond({
+      type: 'client-response', rpcId: RpcId('known'), result: { ok: true, value: null },
+    })).rejects.toThrow(/authentication identity mismatch/)
+    expect(respond).not.toHaveBeenCalled()
+  })
+
+  it('retracts and rejects when a respond receipt omits Host authentication identity', async () => {
+    const retract = vi.fn()
+    const c = new InProcessApiClient({
+      fetch: async () => Response.json({ accepted: true }),
+    }, undefined, () => ({ kind: 'bypass' }), retract)
+
+    await expect(c.respond({
+      type: 'client-response', rpcId: RpcId('known'), result: { ok: true, value: null },
+    })).rejects.toThrow(/missing authentication identity/)
+    expect(retract).toHaveBeenCalledOnce()
+  })
+
+  it('rejects an A respond receipt after the current principal moves to B without retracting B', async () => {
+    const principalA: AuthenticationPrincipalIdentity = {
+      kind: 'grant', grantId: authenticationGrantId('respond-launch-a'), grantRevision: 1,
+    }
+    const principalB: AuthenticationPrincipalIdentity = {
+      kind: 'grant', grantId: authenticationGrantId('respond-current-b'), grantRevision: 1,
+    }
+    let current: AuthenticationPrincipalIdentity | undefined = principalA
+    const started = Promise.withResolvers<undefined>()
+    const response = Promise.withResolvers<Response>()
+    const retract = vi.fn(() => { current = undefined })
+    const c = new InProcessApiClient({
+      fetch: async () => {
+        started.resolve(undefined)
+        return response.promise
+      },
+    }, undefined, () => current, retract)
+
+    const pending = c.respond({
+      type: 'client-response', rpcId: RpcId('known'), result: { ok: true, value: null },
+    })
+    await started.promise
+    current = principalB
+    response.resolve(Response.json({ accepted: true, authentication: principalA }))
+
+    await expect(pending).rejects.toThrow(/initiating authentication identity changed/)
+    expect(retract).not.toHaveBeenCalled()
+    expect(current).toEqual(principalB)
   })
 
   it('throws on non-OK unary and respond and stream transport', async () => {
@@ -846,7 +1062,10 @@ describe('client respond and transport failures', () => {
 
   it('throws on an rpcId echo mismatch', async () => {
     const lying = new InProcessApiClient({
-      fetch: async () => Response.json({ type: 'server-response', rpcId: 'someone-else', result: { ok: true, value: { items: [] } } }),
+      fetch: async () => Response.json({
+        type: 'server-response', rpcId: 'someone-else', result: { ok: true, value: { items: [] } },
+        authentication: { kind: 'bypass' },
+      }),
     })
     await expect(lying.sessions.list({})).rejects.toThrow('rpcId mismatch')
   })
@@ -897,7 +1116,12 @@ describe('resolveBase', () => {
       urls: string[] = []
       protected async doFetch(input: URL): Promise<Response> {
         this.urls.push(input.href)
-        return Response.json({ type: 'server-response', rpcId: this.lastMinted, result: { ok: true, value: { items: [] } } })
+        return Response.json({
+          type: 'server-response',
+          rpcId: this.lastMinted,
+          result: { ok: true, value: { items: [] } },
+          authentication: { kind: 'bypass' },
+        })
       }
 
       lastMinted = ''

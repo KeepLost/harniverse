@@ -6,6 +6,8 @@ Provider-neutral inbound authentication and authorization (`ctx.authentication`)
 
 The seam exposes public-key enrollment with stable overload decisions, single-use signed challenges, short Access Token and browser-session exchange, owner approval, Grant listing, and targeted revocation. `authentication/revoked` names exact Grant revisions so browser sessions, Access Tokens, and WebSockets tied to unrelated Grants remain active.
 
+`authenticationPrincipalIdentity(principal)` projects only the stable, non-secret identity needed to bind transport generations: `{ kind: 'bypass' }` or `{ kind: 'grant', grantId, grantRevision }`. It never exposes the Grant name, capabilities, expiry, browser-session value, Access Token, or proof material.
+
 ## Credential lifecycle
 
 Enrollment creates only a pending request. Owner approval creates a durable public-key Grant. A client proves possession by signing a challenge bound to the instance, Grant revision, purpose, nonce, and expiry. The Provider returns a short process-memory credential whose capabilities cannot exceed the Grant. Access Tokens cannot mint replacements; renewal requires another signed challenge.

@@ -246,29 +246,25 @@ const READ_SAMPLE_TEXT = READ_SAMPLE_SOURCE.map((text, index) => `${READ_SAMPLE_
 /**
  * The structured `web_search` result view for the web-search turn, authored inline
  * because this client-side fixture cannot import the web tool that projects it.
- * The sources exercise the citation list's features: a titled source with a
- * snippet and a date, a source with no title (its hostname labels the link) and
- * a snippet but no date, and a source with a title and a date but no snippet.
- * `truncated` marks the capped indicator. The shape is the contract's own
- * search view minus its wire discriminants.
+ * The sources exercise the multi-query merge contract: rank-one sources from
+ * two distinct queries are followed by a rank-two source, then the combined
+ * cap drops the remaining source. `truncated` marks that capped indicator.
+ * The shape is the contract's own search view minus its wire discriminants.
  */
 const WEB_SEARCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'search' }>, 'card' | 'kind'> = {
-  answer: 'DeepSeek Harness is a plugin-based agent harness on vendored Cordis where **every capability is a plugin**.',
+  answer: '### deepseek harness architecture\n\nDeepSeek Harness is a plugin-based agent harness.\n\n### harniverse plugin extensions\n\nHarniverse extends the plugin-native architecture.',
   sources: [
     {
       url: 'https://github.com/deepseek-ai/deepseek-harness',
       title: 'DeepSeek Harness — plugin-based agent harness',
-      snippet: 'Everything is a plugin: session, tools, agent-loop, and LLM adapters all mount on the same Cordis context.',
-      publishedAt: '2026-07-01',
-    },
-    {
-      url: 'https://www.deepseek.com/blog/harness-architecture',
-      snippet: 'The capability-seam pattern splits each capability into interface, implementation, and consumer packages.',
     },
     {
       url: 'https://docs.deepseek.com/harness/plugins',
       title: 'Writing a harness plugin',
-      publishedAt: '2026-06-15',
+    },
+    {
+      url: 'https://www.deepseek.com/blog/harness-architecture',
+      title: 'Harness architecture',
     },
   ],
   truncated: true,
@@ -545,7 +541,7 @@ function buildAlphaLog(): SessionEvent[] {
   // the real tools so they hit the keyed WebRow registration. Ordered BEFORE
   // the todo turn for the same reason turn 66 is: the standing plan retires at
   // the next turn/start, so a turn after it would empty the dock's plan strip.
-  toolTurn(70, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
+  toolTurn(70, 'web_search', '{"queries":["deepseek harness architecture","harniverse plugin extensions"]}', '### deepseek harness architecture\n\nDeepSeek Harness is a plugin-based agent harness.\n\n### harniverse plugin extensions\n\nHarniverse extends the plugin-native architecture.')
   toolTurn(71, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
 
   // Turn 72: max-tokens sample — the provider ends the turn at its output cap
@@ -661,7 +657,7 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
     // only at result time (the contract's result-only web shape); their pending
     // kind matches the result kind so a call and its result read as one category.
     case 'web_search':
-      return { card: 'generic', title: `Search ${str(args.query)}`, kind: 'search', rawInput: args }
+      return { card: 'generic', title: `Search ${Array.isArray(args.queries) ? args.queries.map(value => str(value)).join(', ') : ''}`, kind: 'search', rawInput: args }
     case 'web_fetch':
       return { card: 'generic', title: `Fetch ${str(args.url)}`, kind: 'fetch', rawInput: args }
     default:
@@ -3174,9 +3170,12 @@ export class FixtureApiClient extends AbstractApiClient {
       request as RpcRequest<never>,
       signal ?? new AbortController().signal,
     ) as RpcResponse<ResponseValue<K>>
-    const fullResponse: ServerResponse = { type: 'server-response', rpcId: response.rpcId, result: response.result }
+    const authentication = { kind: 'bypass' as const }
+    const fullResponse: ServerResponse = {
+      type: 'server-response', rpcId: response.rpcId, result: response.result, authentication,
+    }
     this.onEnvelope(fullResponse)
-    return response
+    return { ...response, authentication }
   }
 
   /** Method-key dispatch into the in-memory contract impl (a real carrier routes by URL path instead). */
@@ -3248,25 +3247,29 @@ export class FixtureApiClient extends AbstractApiClient {
     payload: { since?: Record<SessionId, number> },
     signal: AbortSignal,
     onOpen?: () => void,
+    onAuthenticated?: (identity: { readonly kind: 'bypass' }) => void,
   ): AsyncIterable<RpcRequest<MuxFrame>> {
-    return this.tapStream(this.api.events.mux(rpcRequest(payload), signal), onOpen)
+    return this.tapStream(this.api.events.mux(rpcRequest(payload), signal), onOpen, onAuthenticated)
   }
 
   protected override openHost(
     payload: Record<never, never>,
     signal: AbortSignal,
     onOpen?: () => void,
+    onAuthenticated?: (identity: { readonly kind: 'bypass' }) => void,
   ): AsyncIterable<RpcRequest<HostFrame>> {
-    return this.tapStream(this.api.events.host(rpcRequest(payload), signal), onOpen)
+    return this.tapStream(this.api.events.host(rpcRequest(payload), signal), onOpen, onAuthenticated)
   }
 
   private async *tapStream<F extends MuxFrame | HostFrame>(
     stream: AsyncIterable<RpcRequest<F>>,
     onOpen?: () => void,
+    onAuthenticated?: (identity: { readonly kind: 'bypass' }) => void,
   ): AsyncGenerator<RpcRequest<F>> {
     // No HTTP here: the in-memory stream is established the moment iteration starts (mirrors
     // readSse firing onOpen after response headers, before any frame).
     onOpen?.()
+    onAuthenticated?.({ kind: 'bypass' })
     for await (const envelope of stream) {
       const full: ServerRequest = { type: 'server-request', rpcId: envelope.rpcId, method: envelope.payload.type, payload: envelope.payload }
       this.onEnvelope(full)

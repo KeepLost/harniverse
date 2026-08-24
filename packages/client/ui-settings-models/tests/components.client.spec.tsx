@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import Schema from '@deepseek-ai/schemastery'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
+
+const TEST_AUTHENTICATION = { getSnapshot: () => ({ kind: 'bypass' as const }), subscribe: () => () => {}, validate: () => true }
 import {
   ModelsSection, needsSetup, providerCopy, providerTargetLabel, removeProviderProfile,
 } from '../src/client/ModelsSection.tsx'
@@ -14,13 +17,29 @@ import {
   DeepSeekModelsEditor, formatCapacity, modelDrafts, parseCapacity, validateDeepSeekModels,
 } from '../src/client/DeepSeekModelsEditor.tsx'
 import { apiKeyFailure } from '../src/client/apiKey.ts'
-import { deriveKeyRef, ModelsSettingsStore } from '../src/client/store.ts'
+import { deriveKeyRef, ModelsSettingsStore as SharedModelsSettingsStore } from '../src/client/store.ts'
 import type { ProviderRow } from '../src/client/store.ts'
 import { en } from '../src/client/locales.ts'
+
+class ModelsSettingsStore extends SharedModelsSettingsStore {
+  readonly mirror: SettingsDescribeMirror
+
+  constructor(api: ConstructorParameters<typeof SharedModelsSettingsStore>[0]) {
+    const mirror = new SettingsDescribeMirror(api, TEST_AUTHENTICATION)
+    super(api, mirror)
+    this.mirror = mirror
+  }
+}
 
 afterEach(cleanup)
 
 const t: ModelsSectionInjected['t'] = key => en[key]
+const FENCE_PROPS = {
+  writeFence: () => 0,
+  isCurrent: () => true,
+  acceptResponse: () => true,
+  acceptSettingsView: () => true,
+}
 const OPENAI_TARGET = { provider: 'openai', displayName: 'openai' }
 const openaiCopy = (template: string): string => providerCopy(template, OPENAI_TARGET)
 const DEEPSEEK_TARGET = { provider: 'deepseek-official', displayName: 'DeepSeek' }
@@ -191,6 +210,10 @@ async function mountFace(scripted: ReturnType<typeof scriptedFace>) {
     controller,
     useSnapshot: bindSnapshotSelector(controller.store),
     api: face as never,
+    writeFence: () => controller.mirror.writeFence(),
+    isCurrent: fence => controller.mirror.isCurrent(fence),
+    acceptResponse: (response, fence) => controller.mirror.acceptResponse(response as never, fence),
+    acceptSettingsView: (value, fence, authentication) => controller.mirror.acceptView(value, fence, authentication as never),
     t,
   }
   const view = render(<ModelsSection {...injected} />)
@@ -347,7 +370,7 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(set).toHaveBeenCalledWith({ ref: 'DEEPSEEK_API_KEY', value: 'sk-live' }) })
     expect(update).not.toHaveBeenCalled()
-    await waitFor(() => { expect(face.settings.describe.mock.calls.length).toBeGreaterThan(1) })
+    expect(face.settings.describe).toHaveBeenCalledOnce()
     expect((await screen.findByRole('status')).textContent).toBe(
       providerCopy(en.savedProvider, { provider: 'deepseek-official', displayName: 'DeepSeek' }),
     )
@@ -365,6 +388,7 @@ describe('ModelsSection', () => {
     const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
 
     render(<ProviderEditor
+      {...FENCE_PROPS}
       provider="deepseek-official"
       displayName="DeepSeek"
       hideTitle
@@ -618,6 +642,7 @@ describe('ModelsSection', () => {
     }
     const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
     render(<ProviderEditor
+      {...FENCE_PROPS}
       provider="deepseek-official"
       displayName="DeepSeek"
       namespace={overridden}
@@ -847,6 +872,7 @@ describe('ModelsSection', () => {
     }
     const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
     render(<ProviderEditor
+      {...FENCE_PROPS}
       provider="deepseek-official"
       displayName="DeepSeek"
       namespace={bare}

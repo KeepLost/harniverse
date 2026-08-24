@@ -1,7 +1,16 @@
 /** Page-store join: directory × namespaces × credentials, with last-good rows on failure. */
 import { describe, expect, it } from 'vitest'
 import type { RpcResponse } from '@deepseek-ai/dsh-api-remotes/client'
-import { messageOf, ModelsSettingsStore } from '../src/client/store.ts'
+import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
+
+const TEST_AUTHENTICATION = { getSnapshot: () => ({ kind: 'bypass' as const }), subscribe: () => () => {}, validate: () => true }
+import { messageOf, ModelsSettingsStore as SharedModelsSettingsStore } from '../src/client/store.ts'
+
+class ModelsSettingsStore extends SharedModelsSettingsStore {
+  constructor(api: ConstructorParameters<typeof SharedModelsSettingsStore>[0]) {
+    super(api, new SettingsDescribeMirror(api, TEST_AUTHENTICATION))
+  }
+}
 
 let nextRpc = 0
 function ok<T>(value: T): RpcResponse<T> {
@@ -251,6 +260,19 @@ describe('edge joins', () => {
     await first
     // The stale empty directory never overwrote the newer join.
     expect(store.store.getSnapshot().rows).toHaveLength(4)
+  })
+
+  it('clears settings-derived rows at an authentication boundary', async () => {
+    const { face } = api()
+    const store = new ModelsSettingsStore(face)
+    await store.load()
+    expect(store.store.getSnapshot().rows).toHaveLength(4)
+
+    store.reset()
+
+    expect(store.store.getSnapshot()).toMatchObject({
+      status: 'idle', writable: false, rows: [], namespaces: new Map(),
+    })
   })
 })
 

@@ -46,5 +46,22 @@ declare module '@deepseek-ai/cordis' {
      * @mode emit
      */
     'settings/document-updated'(ns: SettingsNamespace, revision: number): void
+
+    /**
+     * Registered namespace description topology changed. The monotonic
+     * provider-local revision advances after registration and disposal.
+     * @param revision - new description topology revision.
+     * @mode emit
+     */
+    'settings/description-changed'(revision: number): void
+
+    /**
+     * Host configuration gateway reports that its remotely exposed settings
+     * description may have changed due to document, namespace, provider, or
+     * Profile composition topology.
+     * @param revision - gateway-local monotonic exposure revision.
+     * @mode emit
+     */
+    'settings/exposure-changed'(revision: number): void
   }
 }

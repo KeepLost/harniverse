@@ -170,7 +170,7 @@ describe('connection client apply', () => {
     }
   })
 
-  it('WebApiClient keeps unary calls and respond on globalThis.fetch', async () => {
+  it('WebApiClient keeps reads on fetch and refuses a response before authentication readiness', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
     const handle = await mount()
     const original = globalThis.fetch
@@ -191,7 +191,7 @@ describe('connection client apply', () => {
       globalThis.fetch = original
     }
     expect(seen.some(u => u.includes('/api/host.describe'))).toBe(true)
-    expect(seen.some(u => u.includes('/api/respond'))).toBe(true)
+    expect(seen.some(u => u.includes('/api/respond'))).toBe(false)
   })
 
   it('opens one WebSocket per downlink, parses frames, and aborts both without using fetch', async () => {
@@ -304,6 +304,7 @@ describe('connection client apply', () => {
         type: 'server-response',
         rpcId: body.rpcId,
         result: { ok: true, value: { ref: 'goal-1' } },
+        authentication: { kind: 'bypass' },
       })
     }
     try {
@@ -344,6 +345,7 @@ describe('connection client apply', () => {
         type: 'server-response',
         rpcId: 'different-rpc',
         result: { ok: true, value: null },
+        authentication: { kind: 'bypass' },
       }))
       await expect(handle.rpc.call('/api', 'goals/create', {})).rejects.toThrow('rpcId mismatch')
       const fetch = vi.mocked(globalThis.fetch)

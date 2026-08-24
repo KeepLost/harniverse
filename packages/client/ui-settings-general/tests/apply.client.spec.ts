@@ -5,6 +5,9 @@ import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
+import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
+
+const TEST_AUTHENTICATION = { getSnapshot: () => ({ kind: 'bypass' as const }), subscribe: () => () => {}, validate: () => true }
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings-general/client'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
 import { GeneralSection } from '../src/client/GeneralSection.tsx'
@@ -44,10 +47,14 @@ async function bench(isLoopback = true) {
     rpcId: 'settings-open' as never,
     result: { ok: true as const, value: { opened: true as const } },
   }))
-  ctx.provide('connection', {
-    api: { settings: { describe: settingsDescribe, openDocument: settingsOpenDocument } },
+  const api = { settings: { describe: settingsDescribe, openDocument: settingsOpenDocument } }
+  const connection = {
+    api,
     isLoopback,
-  } as never)
+  } as never
+  ctx.provide('connection', connection)
+  const mirror = new SettingsDescribeMirror(api as never, TEST_AUTHENTICATION)
+  ctx.provide('settingsScope', { describe: () => mirror } as never)
   return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, settingsDescribe, settingsOpenDocument }
 }
 
@@ -75,7 +82,7 @@ function generalEntry(slots: SlotRegistry) {
 
 describe('ui-settings-general apply', () => {
   it('declares the services it uses', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection'])
+    expect(inject).toEqual(['slots', 'locale', 'connection', 'settingsScope'])
   })
 
   it('fills all five seats for declarations before or after apply', async () => {
@@ -149,7 +156,7 @@ describe('ui-settings-general apply', () => {
     expect(resolveSlotLabel(generalEntry(b.slots)!.options.label)).toBe('通用设置')
   })
 
-  it('refreshes loaded document availability on reconnect without reading it eagerly', async () => {
+  it('leaves reconnect refresh ownership with the shared settings mirror', async () => {
     const b = await bench()
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
@@ -160,7 +167,7 @@ describe('ui-settings-general apply', () => {
     await controller.load()
     expect(b.settingsDescribe).toHaveBeenCalledOnce()
     b.ctx.emit('connection/reset')
-    await vi.waitFor(() => { expect(b.settingsDescribe).toHaveBeenCalledTimes(2) })
+    expect(b.settingsDescribe).toHaveBeenCalledOnce()
   })
 
   it('withholds the loopback-only document action off-loopback', async () => {

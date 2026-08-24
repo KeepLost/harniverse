@@ -1,8 +1,22 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
+
+const TEST_AUTHENTICATION = { getSnapshot: () => ({ kind: 'bypass' as const }), subscribe: () => () => {}, validate: () => true }
 import {
-  PermissionPresetSettingsController, permissionDefaultOf, refreshPermissionIfLoaded,
+  PermissionPresetSettingsController as SharedPermissionPresetSettingsController,
+  permissionDefaultOf,
 } from '../src/client/settings-store.ts'
+
+class PermissionPresetSettingsController extends SharedPermissionPresetSettingsController {
+  readonly mirror: SettingsDescribeMirror
+
+  constructor(api: ConstructorParameters<typeof SharedPermissionPresetSettingsController>[1]) {
+    const mirror = new SettingsDescribeMirror(api, TEST_AUTHENTICATION)
+    super(mirror, api)
+    this.mirror = mirror
+  }
+}
 
 const SCHEMA = {
   uid: 6,
@@ -153,9 +167,10 @@ describe('permission settings store', () => {
       settings: { describe, mutate } as never,
     })
     const stale = controller.load()
-    await controller.load()
+    await Promise.resolve()
+    const fresh = controller.mirror.load()
     first.resolve(ok({ writable: true, hasDocument: false, namespaces: [view('workspace-write', 1)] }))
-    await stale
+    await Promise.all([stale, fresh])
     expect(controller.store.getSnapshot()).toMatchObject({
       currentValue: 'read-only',
       writable: false,
@@ -190,6 +205,44 @@ describe('permission settings store', () => {
     expect(thrown.store.getSnapshot()).toMatchObject({ status: 'error', error: 'disconnected' })
   })
 
+  it('clears permission state synchronously on a principal change while saving', async () => {
+    let fence = 0
+    let snapshot: { view: { writable: boolean; namespaces: SettingsNamespaceView[] } | undefined; error: string | null } = {
+      view: { writable: true, namespaces: [view('read-only', 1)] }, error: null,
+    }
+    const listeners = new Set<() => void>()
+    const describeFace = {
+      getSnapshot: () => ({ status: snapshot.view === undefined ? 'idle' : 'ready', ...snapshot }),
+      subscribe: (listener: () => void) => {
+        listeners.add(listener)
+        return () => { listeners.delete(listener) }
+      },
+      ensure: () => Promise.resolve(),
+      writeFence: () => fence,
+      isCurrent: (candidate: number) => candidate === fence,
+      acceptResponse: (_response: unknown, candidate: number) => candidate === fence,
+      acceptView: () => false,
+    }
+    const mutation = Promise.withResolvers<ReturnType<typeof ok<SettingsNamespaceView>>>()
+    const controller = new SharedPermissionPresetSettingsController(describeFace as never, {
+      settings: { mutate: () => mutation.promise } as never,
+    })
+    await controller.load()
+    const saving = controller.select('workspace-write')
+    expect(controller.store.getSnapshot().status).toBe('saving')
+
+    fence += 1
+    snapshot = { view: undefined, error: null }
+    for (const listener of listeners) listener()
+
+    expect(controller.store.getSnapshot()).toEqual({
+      status: 'idle', error: null, writable: false, currentValue: '', options: [], revision: 0,
+    })
+    mutation.resolve(ok(view('workspace-write', 2)))
+    await saving
+    expect(controller.store.getSnapshot()).toMatchObject({ currentValue: '', options: [] })
+  })
+
   it('disposal suppresses in-flight reads and writes, and loaded invalidations refetch', async () => {
     const read = Promise.withResolvers<ReturnType<typeof ok<{
       writable: boolean
@@ -197,8 +250,6 @@ describe('permission settings store', () => {
     }>>>()
     const describe = vi.fn(() => read.promise)
     const idle = new PermissionPresetSettingsController({ settings: { describe, mutate: vi.fn() } as never })
-    refreshPermissionIfLoaded(idle)
-    expect(describe).not.toHaveBeenCalled()
     const loading = idle.load()
     idle.dispose()
     read.resolve(ok({ writable: true, hasDocument: false, namespaces: [view('read-only')] }))
@@ -231,7 +282,7 @@ describe('permission settings store', () => {
       } as never,
     })
     await active.load()
-    refreshPermissionIfLoaded(active)
+    void active.mirror.load()
     await vi.waitFor(() => { expect(activeDescribe).toHaveBeenCalledTimes(2) })
     const saving = active.select('workspace-write')
     active.dispose()

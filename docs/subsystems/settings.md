@@ -258,6 +258,24 @@ Source: [`packages/settings/settings/src/index.ts:350`](../../packages/settings/
 
 ### `settings/*` events
 
+<a id="settingsdescription-changed--emit"></a>
+
+#### `settings/description-changed` — emit
+
+Registered namespace description topology changed. The monotonic provider-local revision advances after registration and disposal.
+
+```ts cordis-catalog
+/**
+ * Registered namespace description topology changed. The monotonic
+ * provider-local revision advances after registration and disposal.
+ * @param revision - new description topology revision.
+ * @mode emit
+ */
+'settings/description-changed'(revision: number): void
+```
+
+Source: [`packages/settings/settings/src/types.ts:56`](../../packages/settings/settings/src/types.ts)
+
 <a id="settingsdocument-updated--emit"></a>
 
 #### `settings/document-updated` — emit
@@ -280,6 +298,25 @@ One registered namespace's RAW user section changed, whether or not the resolved
 ```
 
 Source: [`packages/settings/settings/src/types.ts:48`](../../packages/settings/settings/src/types.ts)
+
+<a id="settingsexposure-changed--emit"></a>
+
+#### `settings/exposure-changed` — emit
+
+Host configuration gateway reports that its remotely exposed settings description may have changed due to document, namespace, provider, or Profile composition topology.
+
+```ts cordis-catalog
+/**
+ * Host configuration gateway reports that its remotely exposed settings
+ * description may have changed due to document, namespace, provider, or
+ * Profile composition topology.
+ * @param revision - gateway-local monotonic exposure revision.
+ * @mode emit
+ */
+'settings/exposure-changed'(revision: number): void
+```
+
+Source: [`packages/settings/settings/src/types.ts:65`](../../packages/settings/settings/src/types.ts)
 
 <a id="settingsupdated--emit"></a>
 

@@ -4,12 +4,22 @@
  * service retires with its fiber.
  */
 import { Context } from '@deepseek-ai/cordis'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject, SettingsScopeBinder } from '../src/client/index.ts'
 
-/** Boot the browser half over a bare root context; it injects nothing. */
+/** Boot the browser half over the required transport services. */
 function bench() {
   const ctx = new Context()
+  ctx.provide('connection', {
+    api: { settings: { describe: vi.fn() } },
+    authentication: {
+      getSnapshot: () => ({ kind: 'bypass' as const }),
+      subscribe: () => () => {},
+      validate: () => true,
+    },
+  } as never)
+  new TestRemote(ctx)
   return { ctx, fiber: ctx.plugin({ inject: [...inject], apply }) }
 }
 

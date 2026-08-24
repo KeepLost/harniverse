@@ -4,6 +4,8 @@
 
 协议消费层：客户端插件的 apply 会挂载 `ctx.connection`（共享 API 客户端 + 当前页面的 loopback 状态 + 可观察且按 generation 生效的 `hostDescription` + 单消费方流循环启动器）；导出表层携带协议约定类型、`AbstractApiClient` 抽象，以及循环的 sink／配置类型。每次就绪握手成功后，都会在 `onConnected` 之前发布完整的 `host.describe` 值；generation 失效或显式 stop 会清空它。浏览器载体以 HTTP POST 发送 unary／respond，并为 `events.mux` 与 `events.host` 各开一条只下行的 WebSocket；进程内载体满足同一双流抽象。Host half 持有唯一 `/api` route 及其 Fetch bridge；已注册的 Typert interceptor 会先认领自己的 Remote endpoint，未认领请求再回退 API Proxy。Loopback hostname 判定逻辑留在包内部。node 半侧认证每个网络请求，将已接受 principal 传入 HTTP 与 WebSocket 分发，并在选择 handler 前检查每个 legacy 或 Typert endpoint 所需的 capability。未知 endpoint 和缺少 policy 元数据的 endpoint 会被拒绝。认证 bypass 仍仅限回环并携带全部 capability。平台载体与 ConnectionController 循环属于包内部；apply 负责选择并驱动它们。下行边界见 [WebSocket 下行载体 Agent Note](../../../.agents/notes/implemented/architecture/2026-08-04-websocket-downlink-carrier.md)。
 
+`ctx.connection.authentication` 发布当前 generation 经 Host 校验的稳定身份。每次 unary 调用都会捕获发起身份，并要求响应或 receipt 在任何消费者可见前携带同一身份；元数据缺失或不匹配会同步撤回认证与 `hostDescription`，并中止 generation。每条下行流先发送一条由载体截获的 `connection.authenticated` 控制消息，就绪要求 unary、mux 与 host 身份精确一致。任一流刚打开便收到的业务帧会留在 generation 局部队列中，直到三方身份一致；匹配就绪后按各流顺序排空，不匹配或 generation 失败则直接丢弃，不会抵达 sink。每个队列默认最多保留 1,024 帧（`preReadyBufferMaxFrames`）；即使 `host.describe` 停滞，溢出也会使 generation 失败并重建。每个有 mutation 或因携带 secret 而 principal-bound 的 unary 还会把当前身份作为由 Host 强制执行的 expected-principal 前置条件。该边界只传输 `kind`、`grantId` 与 `grantRevision`。
+
 `hostDescription.bootId` 标识一个 API Proxy 进程生命周期。它在同一 Host 服务的多个连接 generation 间保持稳定，并在重启后改变，使消费方能够隔离缓存的进程本地状态，而不会把重连误判为重启。
 
 ## /api 响应编码
@@ -16,7 +18,7 @@ node 半侧在桥接或 upgrade 前守卫 `/api` 下的每个入口（`src/api-r
 
 ## `/api` WebSocket 下行
 
-`/api/events.mux` 与 `/api/events.host` 各接受一条 WebSocket upgrade，并只向浏览器发送对应的 `ServerRequest` 文本消息；客户端不会在这些 socket 上发送业务数据。每个 generation 开始前，`ConnectionController` 会采样 runtime 当前按 Session 划分的连续游标，浏览器把非空游标表编码到 mux URL 的 `since` 查询中，Host 则在 upgrade 前校验。任一 socket 结束都会使当前 connection generation 失败，并用新的游标采样重建两条流；连接就绪仍要求两条 socket 均已打开且 `host.describe` HTTP 调用成功。Host teardown 会终止两条 socket、中止各自的 source，并等待 source 清理完成后再返回。普通网络 GET 这些路径会返回 426，不保留 SSE（Server-Sent Events）回退；`toFetchHandler` 的 SSE 编解码只服务进程内同构载体。
+`/api/events.mux` 与 `/api/events.host` 各接受一条 WebSocket upgrade，并只向浏览器发送传输认证控制消息及其后的对应 `ServerRequest` 文本消息；客户端不会在这些 socket 上发送业务数据。每个 generation 开始前，`ConnectionController` 会采样 runtime 当前按 Session 划分的连续游标，浏览器把非空游标表编码到 mux URL 的 `since` 查询中，Host 则在 upgrade 前校验。任一 socket 结束都会使当前 connection generation 失败，并用新的游标采样重建两条流；连接就绪要求两条认证控制消息、匹配的 `host.describe` 响应身份以及流建立全部完成，随后带缓冲的业务帧才能抵达消费方。Host teardown 会终止两条 socket、中止各自的 source，并等待 source 清理完成后再返回。普通网络 GET 这些路径会返回 426，不保留 SSE（Server-Sent Events）回退；`toFetchHandler` 的 SSE 编解码只服务进程内同构载体。
 
 ## 模型体验
 

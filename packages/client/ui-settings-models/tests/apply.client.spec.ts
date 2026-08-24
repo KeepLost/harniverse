@@ -5,7 +5,7 @@ import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
-import { apply, inject, refreshIfLoaded } from '@deepseek-ai/dsh-client-ui-settings-models/client'
+import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings-models/client'
 import { ModelsSection } from '../src/client/ModelsSection.tsx'
 import { WelcomeNotice } from '../src/client/WelcomeNotice.tsx'
 
@@ -24,6 +24,25 @@ async function bench(isLoopback = true) {
   // The apply path only captures the wire face; no call leaves this fake
   // until a section actually loads.
   ctx.provide('connection', { api: {}, isLoopback } as never)
+  const scopeSnapshot = {
+    status: 'unavailable' as const, value: undefined, base: undefined, user: undefined,
+    revision: undefined, writable: false, mode: 'host' as const,
+  }
+  ctx.provide('settingsScope', {
+    describe: () => ({
+      getSnapshot: () => ({ status: 'ready', view: { writable: true, hasDocument: false, namespaces: [] }, error: null }),
+      subscribe: () => () => {},
+      ensure: () => Promise.resolve(),
+      writeFence: () => 0,
+      acceptView: () => true,
+    }),
+    bind: () => ({
+      getSnapshot: () => scopeSnapshot,
+      subscribe: () => () => {},
+      set: () => Promise.resolve(),
+      unset: () => Promise.resolve(),
+    }),
+  } as never)
   return { ctx, slots: ctx.get('slots') as SlotRegistry, locale }
 }
 
@@ -42,7 +61,7 @@ function declare(slots: SlotRegistry): () => void {
 
 describe('ui-settings-models apply', () => {
   it('declares the services it uses', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote'])
+    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'settingsScope'])
   })
 
   it('registers the models nav entry for declarations before or after apply', async () => {
@@ -135,7 +154,7 @@ describe('ui-settings-models apply', () => {
     expect(() => b.locale.register('settings.models', 'en', {})).not.toThrow()
   })
 
-  it('keeps remote-browser acknowledgement in process memory', async () => {
+  it('reports an unavailable authorized acknowledgement namespace', async () => {
     const b = await bench(false)
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
@@ -146,9 +165,7 @@ describe('ui-settings-models apply', () => {
     )()
 
     await injected.controller.load()
-    expect(injected.controller.store.getSnapshot()).toEqual({
-      status: 'ready', acknowledged: false, error: null,
-    })
+    expect(injected.controller.store.getSnapshot()).toMatchObject({ status: 'error', acknowledged: false })
   })
 })
 
@@ -164,22 +181,6 @@ describe('pushed invalidations', () => {
     b.ctx.emit('connection/reset')
   })
 
-  it('refreshes a loaded page and skips an idle one', () => {
-    const loads: number[] = []
-    const controller = {
-      store: { getSnapshot: () => ({ status: 'ready' }) },
-      load: () => { loads.push(1); return Promise.resolve() },
-    }
-    refreshIfLoaded(controller as unknown as import('../src/client/store.ts').ModelsSettingsStore)
-    expect(loads).toHaveLength(1)
-    const idle = {
-      store: { getSnapshot: () => ({ status: 'idle' }) },
-      load: () => { loads.push(2); return Promise.resolve() },
-    }
-    refreshIfLoaded(idle as unknown as import('../src/client/store.ts').ModelsSettingsStore)
-    expect(loads).toHaveLength(1)
-  })
-
   it('routes pushed credential invalidation into the loaded models page', async () => {
     const b = await bench()
     declare(b.slots)
@@ -193,7 +194,23 @@ describe('pushed invalidations', () => {
     expect(load).toHaveBeenCalledTimes(1)
   })
 
-  it('routes only the onboarding namespace invalidation into welcome state', async () => {
+  it('reloads once for the adapter topology event and its paired exposure event', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = b.slots.entries('settings.section')[0]!
+    const injected = entry.inject as unknown as
+      () => import('../src/client/ModelsSection.tsx').ModelsSectionInjected
+    injected().controller.store.update((state) => { state.status = 'ready' })
+    const load = vi.spyOn(injected().controller, 'load').mockResolvedValue()
+
+    b.ctx.remote.$dispatch('settings/exposure-changed', [1])
+    b.ctx.remote.$dispatch('llm/adapters-updated', [])
+
+    await vi.waitFor(() => { expect(load).toHaveBeenCalledTimes(1) })
+  })
+
+  it('leaves welcome invalidation ownership with the shared settings mirror', async () => {
     const b = await bench()
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
@@ -209,8 +226,8 @@ describe('pushed invalidations', () => {
     b.ctx.remote.$dispatch('settings/document-updated', ['llm-deepseek', 1])
     expect(load).not.toHaveBeenCalled()
     b.ctx.remote.$dispatch('settings/document-updated', ['ui-onboarding', 2])
-    expect(load).toHaveBeenCalledOnce()
+    expect(load).not.toHaveBeenCalled()
     b.ctx.emit('connection/reset')
-    expect(load).toHaveBeenCalledTimes(2)
+    expect(load).not.toHaveBeenCalled()
   })
 })

@@ -1,10 +1,11 @@
-import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { describe, expect, it, vi } from 'vitest'
 import type { RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
-import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
-import { SettingsScopeController, SettingsScopeBinder } from '../src/client/settings-scope.ts'
+import { SettingsScopeController as SharedSettingsScopeController } from '../src/client/settings-scope.ts'
+import { SettingsDescribeMirror } from '../src/client/settings-mirror.ts'
+
+const TEST_AUTHENTICATION = { getSnapshot: () => ({ kind: 'bypass' as const }), subscribe: () => () => {}, validate: () => true }
 
 interface UiTestSettings {
   preference: 'light' | 'dark' | 'system'
@@ -50,6 +51,23 @@ function deferred<T>() {
   let reject!: (reason: unknown) => void
   const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
   return { promise, resolve, reject }
+}
+
+class SettingsScopeController<T> extends SharedSettingsScopeController<T> {
+  private readonly testMirror: SettingsDescribeMirror
+
+  constructor(
+    api: ConstructorParameters<typeof SharedSettingsScopeController<T>>[0],
+    spec: ConstructorParameters<typeof SharedSettingsScopeController<T>>[1],
+  ) {
+    const mirror = new SettingsDescribeMirror(api, TEST_AUTHENTICATION)
+    super(api, spec, mirror)
+    this.testMirror = mirror
+  }
+
+  load(): Promise<void> {
+    return this.testMirror.load()
+  }
 }
 
 /** Record each distinct published section, starting from the current one. */
@@ -122,6 +140,7 @@ describe('SettingsScopeController', () => {
     const statuses: string[] = []
     scope.subscribe(() => { statuses.push(scope.getSnapshot().status) })
     const stale = scope.load()
+    await Promise.resolve()
     const fresh = scope.load()
     await Promise.all([stale, fresh])
     expect(statuses).not.toContain('unavailable')
@@ -140,7 +159,7 @@ describe('SettingsScopeController', () => {
     await scope.load()
     expect(scope.getSnapshot().status).toBe('ready')
     await scope.load()
-    expect(scope.getSnapshot()).toMatchObject({ status: 'unavailable', value: { preference: 'light' } })
+    expect(scope.getSnapshot()).toMatchObject({ status: 'unavailable', value: undefined })
     await scope.load()
     expect(scope.getSnapshot()).toMatchObject({ status: 'ready', value: { preference: 'system' }, revision: 2 })
   })
@@ -229,26 +248,7 @@ describe('SettingsScopeController', () => {
       scope.set('preference', 'light'),
     ])
     expect(describeCall).not.toHaveBeenCalled()
-    expect(published.map(section => section?.preference)).toEqual([undefined, 'light'])
-  })
-
-  it('keeps the write queue usable when a subscriber throws', async () => {
-    const describeCall = vi.fn()
-      .mockResolvedValueOnce(described({ preference: 'dark' }, 1))
-      .mockResolvedValueOnce(described({ preference: 'light' }, 2))
-    const scope = new SettingsScopeController<UiTestSettings>(
-      { settings: { describe: describeCall } } as never,
-      { namespace: 'ui-test' },
-    )
-    let thrown = false
-    scope.subscribe(() => {
-      if (thrown) return
-      thrown = true
-      throw new Error('subscriber failed')
-    })
-    await expect(scope.load()).rejects.toThrow('subscriber failed')
-    await expect(scope.load()).resolves.toBeUndefined()
-    expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'light' }, revision: 2 })
+    expect(published.map(section => section?.preference)).toEqual([undefined])
   })
 
   it('cancels queued and post-dispose writes while draining the in-flight mutation', async () => {
@@ -270,28 +270,9 @@ describe('SettingsScopeController', () => {
     first.resolve(ok(view({ preference: 'dark' }, 1)))
     await Promise.all([dark, light, stop])
     await scope.set('preference', 'system')
-    await scope.load()
     expect(mutate).toHaveBeenCalledOnce()
     expect(describeCall).not.toHaveBeenCalled()
     expect(published).toEqual([undefined])
-  })
-
-  it('keeps a remote browser in memory mode without Host calls', async () => {
-    const describeCall = vi.fn()
-    const mutate = vi.fn()
-    const scope = new SettingsScopeController<UiTestSettings>(
-      { settings: { describe: describeCall, mutate } } as never,
-      { namespace: 'ui-test' },
-      'memory',
-    )
-    expect(scope.getSnapshot()).toEqual({
-      status: 'unavailable', value: undefined, revision: undefined, writable: false, mode: 'memory',
-    })
-    await scope.load()
-    await scope.set('preference', 'dark')
-    await scope.dispose()
-    expect(describeCall).not.toHaveBeenCalled()
-    expect(mutate).not.toHaveBeenCalled()
   })
 
   it('carries the composition base and the user layer into the snapshot', async () => {
@@ -363,64 +344,5 @@ describe('SettingsScopeController', () => {
     await scope.unset('preference')
 
     expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'light' }, revision: 5 })
-  })
-})
-describe('SettingsScopeBinder.bind', () => {
-  it('subscribes before the initial read and converges to the latest queued invalidation', async () => {
-    const initial = deferred<ReturnType<typeof described>>()
-    const describeCall = vi.fn()
-      .mockReturnValueOnce(initial.promise)
-      .mockResolvedValueOnce(described({ preference: 'light' }, 2))
-      .mockResolvedValueOnce(described({ preference: 'system' }, 3))
-    const ctx = new Context()
-    ctx.provide('connection', {
-      api: { settings: { describe: describeCall } },
-      isLoopback: true,
-    } as never)
-    let scope!: SettingsScope<UiTestSettings>
-    new TestRemote(ctx)
-    await ctx.plugin(SettingsScopeBinder).await()
-    const fiber = ctx.plugin({
-      inject: ['connection', 'remote', 'settingsScope'],
-      apply: (plugin: Context) => {
-        scope = plugin.settingsScope.bind<UiTestSettings>({ namespace: 'ui-test' })
-      },
-    })
-    await fiber.await()
-    await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledOnce() })
-    ctx.remote.$dispatch('settings/document-updated', ['unrelated', 0])
-    ctx.remote.$dispatch('settings/document-updated', ['ui-test', 0])
-    ctx.emit('connection/reset')
-    initial.resolve(described({ preference: 'dark' }, 1))
-    await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledTimes(3) })
-    await vi.waitFor(() => {
-      expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'system' }, revision: 3 })
-    })
-    await fiber.dispose()
-    ctx.remote.$dispatch('settings/document-updated', ['ui-test', 0])
-    await Promise.resolve()
-    expect(describeCall).toHaveBeenCalledTimes(3)
-  })
-
-  it('binds a remote browser in memory mode without starting a settings read', async () => {
-    const describeCall = vi.fn()
-    const ctx = new Context()
-    ctx.provide('connection', {
-      api: { settings: { describe: describeCall } },
-      isLoopback: false,
-    } as never)
-    let scope!: SettingsScope<UiTestSettings>
-    new TestRemote(ctx)
-    await ctx.plugin(SettingsScopeBinder).await()
-    const fiber = ctx.plugin({
-      inject: ['connection', 'remote', 'settingsScope'],
-      apply: (plugin: Context) => {
-        scope = plugin.settingsScope.bind<UiTestSettings>({ namespace: 'ui-test' })
-      },
-    })
-    await fiber.await()
-    expect(scope.getSnapshot()).toMatchObject({ status: 'unavailable', mode: 'memory', writable: false })
-    await fiber.dispose()
-    expect(describeCall).not.toHaveBeenCalled()
   })
 })

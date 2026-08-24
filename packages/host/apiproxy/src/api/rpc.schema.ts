@@ -9,6 +9,7 @@ import { z } from 'zod'
 import type { z as zCore } from 'zod'
 type ZodIssue = zCore.core.$ZodIssue
 import type { ClientRequest, ClientResponse, RpcError, RpcId, RpcReceipt, ServerRequest, ServerResponse } from './rpc.ts'
+import { authenticationGrantId, type AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
 
 /**
  * Wire widening of a contract type: widens every property (deeply) to `original | undefined`.
@@ -30,8 +31,19 @@ export type Wire<T> = T extends readonly (infer E)[] ? Wire<E>[]
  */
 export const rpcIdSchema = z.string() as unknown as z.ZodType<RpcId>
 
+/** Stable non-secret principal identity carried by authenticated transports. */
+export const authenticationPrincipalIdentitySchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('bypass') }),
+  z.object({
+    kind: z.literal('grant'),
+    grantId: z.string().min(1).transform(authenticationGrantId),
+    grantRevision: z.number().int().nonnegative(),
+  }),
+]) as unknown as z.ZodType<AuthenticationPrincipalIdentity>
+
 /** Error body: discriminated by code, per-branch details aligned to RpcErrorDetailsMap; details is required. */
 export const rpcErrorSchema: z.ZodType<RpcError> = z.discriminatedUnion('code', [
+  z.object({ code: z.literal('authentication-principal-mismatch'), message: z.string(), details: z.object({}) }),
   z.object({ code: z.literal('bad-request'), message: z.string(), details: z.object({ issues: z.array(z.custom<ZodIssue>()) }) }),
   z.object({ code: z.literal('cancelled'), message: z.string(), details: z.object({}) }),
   z.object({ code: z.literal('session-not-found'), message: z.string(), details: z.object({ sessionId: z.string() }) }),
@@ -101,6 +113,7 @@ export const clientRequestSchema = z.object({
   rpcId: rpcIdSchema,
   method: z.string(),
   payload: z.unknown(),
+  expectedPrincipal: authenticationPrincipalIdentitySchema.optional(),
 }) as unknown as z.ZodType<ClientRequest>
 
 /** ServerResponse full form (result.value stays wide). */
@@ -108,6 +121,7 @@ export const serverResponseSchema = z.object({
   type: z.literal('server-response'),
   rpcId: rpcIdSchema,
   result: rpcResultSchema(z.unknown().optional()),
+  authentication: authenticationPrincipalIdentitySchema,
 }) as unknown as z.ZodType<ServerResponse>
 
 /** ServerRequest full form (payload stays wide). */
@@ -123,6 +137,7 @@ export const clientResponseSchema = z.object({
   type: z.literal('client-response'),
   rpcId: rpcIdSchema,
   result: rpcResultSchema(z.unknown().optional()),
+  expectedPrincipal: authenticationPrincipalIdentitySchema.optional(),
 }) as unknown as z.ZodType<ClientResponse>
 
 /** Wire full-form union (discriminated by type). */
@@ -135,6 +150,12 @@ export const rpcMessageSchema = z.discriminatedUnion('type', [
 
 /** Carrier receipt schema. */
 export const rpcReceiptSchema = z.union([
-  z.object({ accepted: z.literal(true) }),
-  z.object({ accepted: z.literal(false), reason: z.union([z.literal('not-pending'), z.literal('bad-response')]) }),
+  z.object({ accepted: z.literal(true), authentication: authenticationPrincipalIdentitySchema }),
+  z.object({
+    accepted: z.literal(false),
+    reason: z.union([
+      z.literal('not-pending'), z.literal('bad-response'), z.literal('authentication-principal-mismatch'),
+    ]),
+    authentication: authenticationPrincipalIdentitySchema,
+  }),
 ]) satisfies z.ZodType<Wire<RpcReceipt>>

@@ -23,7 +23,7 @@
 
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
+import type { IApiClient, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { apiKeyFailure } from './apiKey.ts'
 import { EditorFooter } from './EditorFooter.tsx'
 import { validateDeepSeekModels } from './DeepSeekModelsEditor.tsx'
@@ -60,6 +60,11 @@ export interface CustomProviderCardProps {
   revision: number
   /** Wire faces for the write and for interrogating the endpoint. */
   api: Pick<IApiClient, 'settings' | 'credentials' | 'llm'>
+  /** Shared mirror write fencing and successful-response fold. */
+  writeFence: () => number
+  isCurrent: (fence: number) => boolean
+  acceptResponse: (response: { authentication?: unknown }, fence: number) => boolean
+  acceptSettingsView: (view: SettingsNamespaceView, fence: number, authentication?: unknown) => boolean
   /** Section copy. */
   t: (key: keyof typeof en) => string
   /** Disable writes (read-only settings provider). */
@@ -129,7 +134,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
         : t('customNeedsModels')
 
   /** Perform the create, returning a failure message or undefined. */
-  const createOnce = async (): Promise<string | undefined> => {
+  const createOnce = async (fence: number): Promise<string | null | undefined> => {
     const keyRef = deriveKeyRef(route)
     const storesKey = keyValue.length > 0
     if (!committed) {
@@ -152,7 +157,9 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
         // `settings-conflict` instead of a write over the other profile.
         expectedRevision: openedAt,
       })
+      if (!props.acceptResponse(response, fence)) return null
       if (!response.result.ok) return response.result.error.message
+      if (!props.acceptSettingsView(response.result.value, fence, response.authentication)) return null
       // The provider now exists. A retry after the key write below fails must
       // not re-run this mutate: the revision it holds is the one this write
       // just superseded, so the Host would answer `settings-conflict` and the
@@ -161,6 +168,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
     }
     if (storesKey) {
       const stored = await api.credentials.set({ ref: keyRef, value: keyValue })
+      if (!props.acceptResponse(stored, fence)) return null
       // The profile landed; saying the key did not is the only honest report,
       // and the retry above now goes straight back to this write.
       if (!stored.result.ok) return stored.result.error.message
@@ -169,10 +177,12 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
   }
 
   const create = async (): Promise<void> => {
+    const fence = props.writeFence()
     setBusy(true)
     setFailure(undefined)
     try {
-      const outcome = await createOnce()
+      const outcome = await createOnce(fence)
+      if (outcome === null) return
       if (outcome !== undefined) {
         setFailure(outcome)
         return
@@ -181,9 +191,9 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
     } catch (error) {
       // A transport failure rejects rather than answering; without this the
       // card would stay busy with nothing shown.
-      setFailure(messageOf(error))
+      if (props.isCurrent(fence)) setFailure(messageOf(error))
     } finally {
-      setBusy(false)
+      if (props.isCurrent(fence)) setBusy(false)
     }
   }
 

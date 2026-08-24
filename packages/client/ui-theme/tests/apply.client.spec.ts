@@ -7,6 +7,9 @@ import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { SettingsScopeBinder } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
+
+const TEST_AUTHENTICATION = { getSnapshot: () => ({ kind: 'bypass' as const }), subscribe: () => () => {}, validate: () => true }
 import { apply, inject, SETTINGS_NS } from '@deepseek-ai/dsh-client-ui-theme/client'
 import type { AppearanceRowInjected, ThemeRuntime } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { THEME_SETTINGS_NAMESPACE, ThemeSettingsSchema } from '../src/theme-settings.ts'
@@ -53,10 +56,15 @@ async function bench(isLoopback = true) {
       result: { ok: true as const, value: namespace() },
     })
   })
-  ctx.provide('connection', { api: { settings: { describe, mutate } }, isLoopback } as never)
+  const api = { settings: { describe, mutate } }
+  const connection = { api, isLoopback } as never
+  ctx.provide('connection', connection)
   // The settings transport and the forwarded-event port the plugin injects.
   new TestRemote(ctx)
-  await ctx.plugin(SettingsScopeBinder).await()
+  const mirror = new SettingsDescribeMirror(api as never, TEST_AUTHENTICATION)
+  ctx.remote.$on('settings/document-updated', () => { void mirror.load() })
+  ctx.on('connection/reset', () => { mirror.reset(); void mirror.load() })
+  await ctx.plugin({ apply(plugin: Context) { new SettingsScopeBinder(plugin, mirror) } }).await()
   return {
     ctx, slots: ctx.get('slots') as SlotRegistry, locale, describe, mutate,
     setHostPreference: (next: string) => { preference = next },
@@ -125,7 +133,7 @@ describe('ui-theme apply', () => {
     await vi.waitFor(() => { expect(b.mutate).toHaveBeenCalledTimes(2) })
   })
 
-  it('loads Host settings at boot, refreshes its namespace, and keeps remote browsers process-local', async () => {
+  it('loads Host settings at boot, refreshes the shared document, and authorizes remote browsers through Host', async () => {
     const b = await bench()
     b.setHostPreference('dark')
     declareItems(b.slots)
@@ -133,7 +141,7 @@ describe('ui-theme apply', () => {
     const theme = b.ctx.get('theme') as ThemeRuntime
     await vi.waitFor(() => { expect(theme.getTheme().preference).toBe('dark') })
     b.ctx.remote.$dispatch('settings/document-updated', ['unrelated', 0])
-    expect(b.describe).toHaveBeenCalledOnce()
+    await vi.waitFor(() => { expect(b.describe).toHaveBeenCalledTimes(2) })
     b.setHostPreference('light')
     b.ctx.remote.$dispatch('settings/document-updated', [THEME_SETTINGS_NAMESPACE, 0])
     await vi.waitFor(() => { expect(theme.getTheme().preference).toBe('light') })
@@ -145,10 +153,9 @@ describe('ui-theme apply', () => {
     declareItems(remote.slots)
     await remote.ctx.plugin({ inject: [...inject], apply }).await()
     const remoteTheme = remote.ctx.get('theme') as ThemeRuntime
+    await vi.waitFor(() => { expect(remote.describe).toHaveBeenCalledOnce() })
     remoteTheme.setTheme('dark')
-    await Promise.resolve()
-    expect(remote.describe).not.toHaveBeenCalled()
-    expect(remote.mutate).not.toHaveBeenCalled()
+    await vi.waitFor(() => { expect(remote.mutate).toHaveBeenCalledOnce() })
   })
 
   it('activates before a slow initial settings read and converges when it settles', async () => {

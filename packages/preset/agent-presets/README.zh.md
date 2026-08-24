@@ -10,6 +10,8 @@
 
 发现过程不做缓存：`list()` 与 `resolve()` 每次调用都重新读取各个根目录，因此进程运行期间新写的 preset 立即可见，被删除的 preset 也会在下一次读取时消失。发现过程同时负责 preset 的**健康**：组装文件缺失或不可加载（YAML 无法解析——用加载器自己的方言检查，含 `!!js`——或不是由具名插件行组成的列表）的目录会作为携带 `broken` 原因的行列出而不是被跳过，因为被跳过的目录仍在磁盘上占着它的 id，而各个界面却没有任何可删的东西。目录名不是可用 preset id（`[a-z0-9][a-z0-9-]*`）的目录才被直接跳过：复制永远不可能占用那种名字。
 
+服务会在复制或删除后发出受包含保护的 `agent-presets/change`；当 roster 读取发现行、元数据字段、健康结果或组装文件 stamp 变化时，也会发出该事件。这是权威的 Profile 拓扑信号：观察方据此重新读取自己的投影，且任何观察方失败都不能否决发现或创作。
+
 - `ctx.agentPresets.defaultId: string` 调用方未指定时挂载的 preset id。
 - `ctx.agentPresets.list(): Promise<AgentPreset[]>` 当前各根目录提供的全部 preset；id 重复时靠前的根目录胜出；损坏的 preset 也在其中，各自携带原因。
 - `ctx.agentPresets.resolve(id?): Promise<AgentPreset>` 按 id 取一个 preset，缺省取 `defaultId`。没有任何根目录提供该 id 时抛错，并列出可用 id。损坏的 preset 照样解析——删除、读取与上报都需要这一行。

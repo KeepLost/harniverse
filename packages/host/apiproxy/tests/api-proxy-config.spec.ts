@@ -24,6 +24,11 @@ import type { RpcRequest, RpcResponse } from '../src/api/rpc.ts'
 import { RpcId } from '../src/api/rpc.ts'
 import { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-default-model'
 import { createApiProxy } from '../src/api-proxy.ts'
+import { InProcessApiClient } from '../src/fetch/client.ts'
+import { toFetchHandler } from '../src/fetch/handler.ts'
+import {
+  ALL_AUTHENTICATION_CAPABILITIES, authenticationGrantId, type AuthenticationPrincipal,
+} from '@deepseek-ai/dsh-authentication'
 
 const DEFAULTS = { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' }
 
@@ -235,6 +240,43 @@ function forwardedSettings(ns: string): HostFrame {
 }
 
 describe('settings domain', () => {
+  it('publishes one Host-authoritative exposure revision for each descriptor topology source', async () => {
+    const ctx = await harness()
+    createApiProxy(ctx, DEFAULTS)
+    const revisions: number[] = []
+    ctx.on('settings/exposure-changed', (revision) => { revisions.push(revision) })
+
+    ctx.emit('llm/adapters-updated')
+    ctx.emit('capabilities/change')
+    const fiber = ctx.plugin({
+      inject: ['settings'],
+      apply(child: Context) {
+        child.settings.register(settingsNamespace('ui-test-exposure'), z.object({ enabled: z.boolean().default(true) }))
+      },
+    })
+    await fiber
+    await fiber.dispose()
+
+    expect(revisions).toEqual([1, 2, 3, 4])
+  })
+
+  it('forwards Agent Profile topology without translating it into Settings exposure', async () => {
+    const ctx = await harness()
+    const api = createApiProxy(ctx, DEFAULTS)
+    const revisions: number[] = []
+    ctx.on('settings/exposure-changed', (revision) => { revisions.push(revision) })
+
+    const frames = await collectHost(api, ['host/remote-event'], 1, () => {
+      ctx.emit('agent-presets/change')
+      return Promise.resolve()
+    })
+
+    expect(frames).toEqual([
+      { type: 'host/remote-event', event: 'agent-presets/change', args: [] },
+    ])
+    expect(revisions).toEqual([])
+  })
+
   it('reports an actionable error when no settings provider is mounted', async () => {
     const ctx = await harness({ settings: false })
     const api = createApiProxy(ctx, DEFAULTS)
@@ -688,13 +730,42 @@ describe('llm domain', () => {
       return Promise.resolve()
     })
     expect(frames).toEqual([
+      { type: 'host/remote-event', event: 'settings/exposure-changed', args: [1] },
       { type: 'host/remote-event', event: 'llm/adapters-updated', args: [] },
+      { type: 'host/remote-event', event: 'settings/exposure-changed', args: [2] },
       { type: 'host/remote-event', event: 'llm/adapters-updated', args: [] },
     ])
   })
 })
 
 describe('llm.discoverModels', () => {
+  it('rejects a principal mismatch before invoking secret-bearing model discovery', async () => {
+    const ctx = await harness()
+    const discover = vi.fn(() => Promise.resolve([{ id: 'must-not-run' }]))
+    ctx.llm.registerModelDiscovery('llm-pi-ai', discover)
+    const principal: AuthenticationPrincipal = {
+      kind: 'grant',
+      grantId: authenticationGrantId('settling-principal'),
+      grantRevision: 2,
+      capabilities: ALL_AUTHENTICATION_CAPABILITIES,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }
+    const client = new InProcessApiClient(
+      toFetchHandler(createApiProxy(ctx, DEFAULTS), principal),
+      undefined,
+      () => ({
+        kind: 'grant', grantId: authenticationGrantId('initiating-principal'), grantRevision: 1,
+      }),
+    )
+
+    await expect(client.llm.discoverModels({
+      settingsNs: 'llm-pi-ai',
+      baseURL: 'https://must-not-be-contacted.example/v1',
+      apiKey: 'secret-probe-key',
+    })).rejects.toThrow(/authentication identity mismatch/)
+    expect(discover).not.toHaveBeenCalled()
+  })
+
   it('carries a draft to its namespace and returns candidates without storing anything', async () => {
     const ctx = await harness()
     const seen: unknown[] = []
@@ -723,8 +794,8 @@ describe('llm.discoverModels', () => {
       api: 'openai-completions',
       apiKey: 'probe-key',
     }])
-    // Interrogating a draft is a read: no namespace gained a section, and no
-    // credential reference was written.
+    // Interrogating a draft stores nothing even though the secret-bearing
+    // request is principal-bound at the carrier.
     expect(expectOk(await api.settings.describe(request({}))).namespaces.map(view => view.ns))
       .not.toContain('llm-pi-ai')
   })

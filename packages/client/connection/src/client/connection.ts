@@ -1,4 +1,8 @@
 import type { HostDescription, IApiClient, HostFrame, MuxFrame, RpcRequest } from './api.ts'
+import {
+  sameAuthenticationPrincipal,
+  type AuthenticationPrincipalIdentity,
+} from '@deepseek-ai/dsh-authentication'
 
 /** Reconnect/backoff tunables (deployment-varying — no hardcoded tunables; these become the
  *  future `ctx.connection` plugin's Config). All fields optional; defaults below. */
@@ -14,6 +18,8 @@ export interface ConnectionConfig {
    *  fires onOpen (misbehaving proxy) must not wedge the connection forever — on timeout the
    *  generation proceeds as connected and the live-gap repair path covers stragglers. */
   streamOpenTimeoutMs?: number
+  /** Maximum business frames retained per stream before readiness; overflow reconnects. */
+  preReadyBufferMaxFrames?: number
 }
 
 const CONNECTION_DEFAULTS: Required<ConnectionConfig> = {
@@ -21,6 +27,7 @@ const CONNECTION_DEFAULTS: Required<ConnectionConfig> = {
   backoffFactor: 2,
   backoffMaxMs: 10_000,
   streamOpenTimeoutMs: 3_000,
+  preReadyBufferMaxFrames: 1024,
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -47,10 +54,16 @@ export interface ConnectionSinks {
   onMuxEnvelope?: (envelope: RpcRequest<MuxFrame>) => void
   onHostEnvelope?: (envelope: RpcRequest<HostFrame>) => void
   /** After each connection generation is established (both streams open + describe succeeded), first connect included. */
-  onConnected?: (description: HostDescription) => void
+  onConnected?: (description: HostDescription, authentication: AuthenticationPrincipalIdentity) => void
   /** Coarse state transitions (deduplicated: fires only on change). The initial pre-connect
    *  span reports nothing — the UI treats "no state yet" as connecting, not as an outage. */
   onStateChange?: (state: ConnectionState) => void
+}
+
+interface StreamAdmission<F> {
+  ready: boolean
+  queued: RpcRequest<F>[]
+  sink: ((envelope: RpcRequest<F>) => void) | undefined
 }
 
 /**
@@ -74,6 +87,10 @@ export class ConnectionController {
     config: ConnectionConfig = {},
   ) {
     this.config = { ...CONNECTION_DEFAULTS, ...config }
+    if (!Number.isInteger(this.config.preReadyBufferMaxFrames)
+      || this.config.preReadyBufferMaxFrames <= 0) {
+      throw new TypeError('preReadyBufferMaxFrames must be a positive integer')
+    }
   }
 
   /** Idempotent: begin the connect/pump/reconnect loop. */
@@ -88,6 +105,11 @@ export class ConnectionController {
     this.running = false
     this.current?.abort()
     this.current = null
+  }
+
+  /** Abort the current generation so the normal reconnect loop re-authenticates every carrier. */
+  invalidate(): void {
+    if (this.running) this.current?.abort()
   }
 
   private backoffDelay(attempt: number): number {
@@ -121,6 +143,18 @@ export class ConnectionController {
         new Promise<void>((resolve) => { muxOpened = resolve }),
         new Promise<void>((resolve) => { hostOpened = resolve }),
       ])
+      let muxAuthenticated!: (identity: AuthenticationPrincipalIdentity) => void
+      let hostAuthenticated!: (identity: AuthenticationPrincipalIdentity) => void
+      const streamAuthentication = Promise.all([
+        new Promise<AuthenticationPrincipalIdentity>((resolve) => { muxAuthenticated = resolve }),
+        new Promise<AuthenticationPrincipalIdentity>((resolve) => { hostAuthenticated = resolve }),
+      ])
+      const muxAdmission: StreamAdmission<MuxFrame> = {
+        ready: false, queued: [], sink: this.sinks.onMuxEnvelope,
+      }
+      const hostAdmission: StreamAdmission<HostFrame> = {
+        ready: false, queued: [], sink: this.sinks.onHostEnvelope,
+      }
 
       const failed = new Promise<void>((resolve) => {
         const settle = (): void => {
@@ -129,8 +163,8 @@ export class ConnectionController {
         }
         const since = this.sinks.muxSince?.()
         const muxPayload = since === undefined || Object.keys(since).length === 0 ? {} : { since }
-        void this.pumpStream(this.api.events.mux(muxPayload, ac.signal, muxOpened), this.sinks.onMuxEnvelope, settle)
-        void this.pumpStream(this.api.events.host({}, ac.signal, hostOpened), this.sinks.onHostEnvelope, settle)
+        void this.pumpStream(this.api.events.mux(muxPayload, ac.signal, muxOpened, muxAuthenticated), muxAdmission, settle)
+        void this.pumpStream(this.api.events.host({}, ac.signal, hostOpened, hostAuthenticated), hostAdmission, settle)
       })
 
       try {
@@ -140,24 +174,49 @@ export class ConnectionController {
         // subscribed baseline. The timeout guards against a carrier that never fires onOpen
         // (see ConnectionConfig.streamOpenTimeoutMs).
         const timeout = new AbortController()
-        const [description] = await Promise.all([
+        const authenticated = Promise.race([
+          streamAuthentication,
+          sleep(this.config.streamOpenTimeoutMs, timeout.signal).then(() => {
+            throw new Error('stream authentication handshake timed out')
+          }),
+        ])
+        const readiness = Promise.all([
           this.api.host.describe({}),
+          authenticated,
           Promise.race([streamsOpen, sleep(this.config.streamOpenTimeoutMs, timeout.signal)]),
+        ] as const)
+        const [description, [muxIdentity, hostIdentity]] = await Promise.race([
+          readiness,
+          failed.then(() => { throw new Error('stream ended during readiness handshake') }),
         ])
         timeout.abort()
         const descriptionResult = description.result
         if (!descriptionResult.ok) {
           throw new Error(`host.describe failed: ${descriptionResult.error.code}: ${descriptionResult.error.message}`)
         }
+        const unaryIdentity = description.authentication
+        if (!sameAuthenticationPrincipal(unaryIdentity, muxIdentity)
+          || !sameAuthenticationPrincipal(unaryIdentity, hostIdentity)) {
+          throw new Error('connection authentication identity mismatch')
+        }
         if (ac.signal.aborted) throw new Error('generation aborted during readiness handshake')
+        muxAdmission.ready = true
+        hostAdmission.ready = true
+        this.flushAdmission(muxAdmission, ac)
+        this.flushAdmission(hostAdmission, ac)
+        if (!this.isGenerationActive(ac)) throw new Error('generation aborted while admitting buffered frames')
         this.attempt = 0
         this.emitState('connected')
         // A state sink may synchronously stop this controller. Do not publish
         // a description for a generation that no longer exists afterward.
         if (this.isGenerationActive(ac)) {
-          this.callSink(() => { this.sinks.onConnected?.(descriptionResult.value) })
+          this.callSink(() => {
+            this.sinks.onConnected?.(descriptionResult.value, unaryIdentity as AuthenticationPrincipalIdentity)
+          })
         }
       } catch {
+        muxAdmission.queued.length = 0
+        hostAdmission.queued.length = 0
         // Transport failure: treat as generation failure, fall through to the shared backoff.
         if (!ac.signal.aborted) ac.abort()
       }
@@ -181,18 +240,33 @@ export class ConnectionController {
 
   private async pumpStream<F extends { type: string }>(
     stream: AsyncIterable<RpcRequest<F>>,
-    sink: ((envelope: RpcRequest<F>) => void) | undefined,
+    admission: StreamAdmission<F>,
     onEnd: () => void,
   ): Promise<void> {
     try {
       for await (const envelope of stream) {
         if (envelope.payload.type === 'stream/error') break
-        if (sink !== undefined) this.callSink(() => { sink(envelope) })
+        if (!admission.ready) {
+          if (admission.sink === undefined) continue
+          if (admission.queued.length >= this.config.preReadyBufferMaxFrames) break
+          admission.queued.push(envelope)
+        }
+        else if (admission.sink !== undefined) this.callSink(() => { admission.sink?.(envelope) })
       }
     } catch {
       // Stream loss: converge on onEnd, which triggers the shared reconnect.
     }
     onEnd()
+  }
+
+  /** Publish frames received before all three carrier identities matched. */
+  private flushAdmission<F>(admission: StreamAdmission<F>, controller: AbortController): void {
+    const queued = admission.queued.splice(0)
+    if (admission.sink === undefined) return
+    for (const envelope of queued) {
+      if (!this.isGenerationActive(controller)) return
+      this.callSink(() => { admission.sink?.(envelope) })
+    }
   }
 
   /** Sink exception isolation: a business-layer throw is logged only, never affecting pump or reconnect semantics. */

@@ -79,7 +79,24 @@ async plan( target: CapabilityTarget, changes: readonly CapabilityCompositionCha
 async apply(planId: string, expectedRevision: number): Promise<CapabilityCompositionSnapshot>
 ```
 
-Source: [`packages/capability/capabilities/src/index.ts:113`](../../packages/capability/capabilities/src/index.ts)
+Source: [`packages/capability/capabilities/src/index.ts:112`](../../packages/capability/capabilities/src/index.ts)
+
+<a id="agent-presets-events"></a>
+
+### `agent-presets/*` events
+
+<a id="agent-presetschange--emit"></a>
+
+#### `agent-presets/change` — emit
+
+Agent Profile roster or composition topology changed; consumers refetch their projection. @mode emit
+
+```ts cordis-catalog
+/** Agent Profile roster or composition topology changed; consumers refetch their projection. @mode emit */
+'agent-presets/change'(): void
+```
+
+Source: [`packages/preset/agent-presets/src/types.ts:6`](../../packages/preset/agent-presets/src/types.ts)
 
 <a id="capabilities-events"></a>
 
@@ -96,5 +113,5 @@ Capability topology or composition changed; consumers refetch their target. @mod
 'capabilities/change'(): void
 ```
 
-Source: [`packages/capability/capabilities/src/index.ts:108`](../../packages/capability/capabilities/src/index.ts)
+Source: [`packages/capability/capabilities/src/index.ts:107`](../../packages/capability/capabilities/src/index.ts)
 <!-- END GENERATED cordis-surface -->

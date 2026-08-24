@@ -7,11 +7,33 @@
 
 import { describe, expect, it } from 'vitest'
 import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SettingsDescribeFace, SettingsMirrorSnapshot } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import {
-  AGENT_PRESET_SETTINGS_NS, AgentPresetSettingsController, messageOf,
+  AGENT_PRESET_SETTINGS_NS, AgentPresetSettingsController as SharedAgentPresetSettingsController, messageOf,
 } from '../src/client/settings-store.ts'
 import { AgentPresetSeatController } from '../src/client/seat-store.ts'
 import type { SeatSessionSummary } from '../src/client/seat-store.ts'
+
+class AgentPresetSettingsController extends SharedAgentPresetSettingsController {
+  constructor(api: IApiClient) {
+    let snapshot: SettingsMirrorSnapshot = { status: 'idle', view: undefined, error: null }
+    const face: SettingsDescribeFace = {
+      getSnapshot: () => snapshot,
+      subscribe: () => () => {},
+      ensure: async () => {
+        const response = await api.settings.describe({})
+        snapshot = response.result.ok
+          ? { status: 'ready', view: response.result.value, error: null }
+          : { status: 'idle', view: undefined, error: response.result.error.message }
+      },
+      writeFence: () => 0,
+      isCurrent: () => true,
+      acceptResponse: () => true,
+      acceptView: () => true,
+    }
+    super(api, face)
+  }
+}
 
 interface Recorded { ns: string; patch: unknown }
 
@@ -256,6 +278,11 @@ describe('the new-session chip controller', () => {
       api,
       () => current as SeatSessionSummary | undefined,
       (profile) => { options.starts?.push(profile) },
+      {
+        writeFence: () => 0,
+        isCurrent: () => true,
+        acceptResponse: () => true,
+      } as never,
     )
   }
 

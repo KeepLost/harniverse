@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
+import { authenticationGrantId } from '@deepseek-ai/dsh-authentication'
 import type { SessionId } from '../src/client/api.ts'
 import type { ConnectionState } from '../src/client/connection.ts'
 import { ConnectionController } from '../src/client/connection.ts'
@@ -41,6 +42,120 @@ describe('connection lifecycle', () => {
       expect(descriptions).toEqual([true])
     } finally {
       controller.stop()
+    }
+  })
+
+  it('refuses a generation when cookie-backed unary and stream principals differ', async () => {
+    const api = new FakeApiClient()
+    api.muxAuthentication = { kind: 'grant', grantId: authenticationGrantId('tab-a'), grantRevision: 1 }
+    api.hostAuthentication = { kind: 'grant', grantId: authenticationGrantId('tab-a'), grantRevision: 1 }
+    api.onDescribe = () => Promise.resolve({
+      ...ok({ bootId: 'boot' as never, version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true }),
+      authentication: { kind: 'grant', grantId: authenticationGrantId('tab-b'), grantRevision: 1 },
+    } as never)
+    let connected = 0
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const controller = new ConnectionController(api, { onConnected: () => { connected++ } }, FAST)
+    controller.start()
+    try {
+      await vi.waitFor(() => { expect(api.callsOf('host.describe').length).toBeGreaterThan(1) })
+      expect(connected).toBe(0)
+    } finally {
+      controller.stop()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('discards immediate business frames when stream and unary principals mismatch', async () => {
+    const api = new FakeApiClient()
+    const describe = deferred<Awaited<ReturnType<FakeApiClient['onDescribe']>>>()
+    api.onDescribe = () => describe.promise
+    api.muxAuthentication = { kind: 'grant', grantId: authenticationGrantId('stream-a'), grantRevision: 1 }
+    api.hostAuthentication = { kind: 'grant', grantId: authenticationGrantId('stream-a'), grantRevision: 1 }
+    const muxSeen: string[] = []
+    const hostSeen: string[] = []
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const controller = new ConnectionController(api, {
+      onMuxEnvelope: envelope => muxSeen.push(envelope.payload.type),
+      onHostEnvelope: envelope => hostSeen.push(envelope.payload.type),
+    }, FAST)
+    controller.start()
+    try {
+      await vi.waitFor(() => { expect(api.openMuxCount).toBe(1) })
+      api.pushMux(subscribedFrame())
+      api.pushHost({ type: 'host/session-removed', sessionId: SID })
+      await Promise.resolve()
+      expect(muxSeen).toEqual([])
+      expect(hostSeen).toEqual([])
+
+      describe.resolve({
+        ...ok({ bootId: 'boot' as never, version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true }),
+        authentication: { kind: 'grant', grantId: authenticationGrantId('unary-b'), grantRevision: 1 },
+      })
+      await vi.waitFor(() => { expect(api.callsOf('host.describe').length).toBeGreaterThan(1) })
+      expect(muxSeen).toEqual([])
+      expect(hostSeen).toEqual([])
+    } finally {
+      controller.stop()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('flushes immediate business frames only after all carrier identities agree', async () => {
+    const api = new FakeApiClient()
+    const describe = deferred<Awaited<ReturnType<FakeApiClient['onDescribe']>>>()
+    api.onDescribe = () => describe.promise
+    const muxSeen: string[] = []
+    const hostSeen: string[] = []
+    const controller = new ConnectionController(api, {
+      onMuxEnvelope: envelope => muxSeen.push(envelope.payload.type),
+      onHostEnvelope: envelope => hostSeen.push(envelope.payload.type),
+    }, FAST)
+    controller.start()
+    try {
+      await vi.waitFor(() => { expect(api.openMuxCount).toBe(1) })
+      api.pushMux(subscribedFrame())
+      api.pushHost({ type: 'host/session-removed', sessionId: SID })
+      await Promise.resolve()
+      expect([...muxSeen, ...hostSeen]).toEqual([])
+
+      describe.resolve(ok({ bootId: 'boot' as never, version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true }))
+      await vi.waitFor(() => {
+        expect(muxSeen).toEqual(['session/subscribed'])
+        expect(hostSeen).toEqual(['host/session-removed'])
+      })
+    } finally {
+      controller.stop()
+    }
+  })
+
+  it('fails a stalled readiness generation before buffered business frames exceed the bound', async () => {
+    const api = new FakeApiClient()
+    const firstDescribe = deferred<Awaited<ReturnType<FakeApiClient['onDescribe']>>>()
+    let describeCalls = 0
+    api.onDescribe = () => {
+      describeCalls += 1
+      return describeCalls === 1
+        ? firstDescribe.promise
+        : Promise.resolve(ok({
+          bootId: 'boot' as never, version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true,
+        }))
+    }
+    const seen: string[] = []
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const controller = new ConnectionController(api, {
+      onMuxEnvelope: envelope => seen.push(envelope.payload.type),
+    }, { ...FAST, preReadyBufferMaxFrames: 2 })
+    controller.start()
+    try {
+      await vi.waitFor(() => { expect(api.openMuxCount).toBe(1) })
+      for (let seq = 1; seq <= 10; seq += 1) api.pushMux(subscribedFrame(seq))
+
+      await vi.waitFor(() => { expect(describeCalls).toBe(2) })
+      expect(seen).toEqual([])
+    } finally {
+      controller.stop()
+      warnSpy.mockRestore()
     }
   })
 

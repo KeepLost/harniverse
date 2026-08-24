@@ -139,6 +139,74 @@ export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: Auth
   'llm.discoverModels': 'harniverse.administer',
 }
 
+/** Whether each unary method mutates Host or durable application state. */
+export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 'mutate' } = {
+  'session.list': 'read',
+  'session.search': 'read',
+  'session.create': 'mutate',
+  'session.history': 'read',
+  'session.status': 'read',
+  'session.workStatus': 'read',
+  'session.models': 'read',
+  'session.selectModel': 'mutate',
+  'session.rename': 'mutate',
+  'session.fork': 'mutate',
+  'session.prompt': 'mutate',
+  'session.attachment': 'read',
+  'session.updateQueue': 'mutate',
+  'session.cancel': 'mutate',
+  'session.close': 'mutate',
+  'session.delete': 'mutate',
+  'subagent.list': 'read',
+  'subagent.history': 'read',
+  'subagent.prompt': 'mutate',
+  'subagent.interrupt': 'mutate',
+  'host.describe': 'read',
+  'host.pickDirectory': 'read',
+  'host.listDirectory': 'read',
+  'host.createDirectory': 'mutate',
+  'host.openPath': 'read',
+  'workspace.list': 'read',
+  'workspace.create': 'mutate',
+  'workspace.rename': 'mutate',
+  'workspace.delete': 'mutate',
+  'workspace.insertBefore': 'mutate',
+  'workspace.insertSessionBefore': 'mutate',
+  'workspace.archiveSession': 'mutate',
+  'skill.list': 'read',
+  'agentPreset.list': 'read',
+  'agentPreset.read': 'read',
+  'agentPreset.copy': 'mutate',
+  'agentPreset.openDocument': 'read',
+  'agentPreset.remove': 'mutate',
+  'goal.create': 'mutate',
+  'goal.edit': 'mutate',
+  'goal.pause': 'mutate',
+  'goal.resume': 'mutate',
+  'goal.complete': 'mutate',
+  'goal.clear': 'mutate',
+  'settings.describe': 'read',
+  'settings.openDocument': 'mutate',
+  'settings.update': 'mutate',
+  'settings.replace': 'mutate',
+  'settings.mutate': 'mutate',
+  'credentials.describe': 'read',
+  'credentials.set': 'mutate',
+  'credentials.unset': 'mutate',
+  'llm.providers': 'read',
+  'llm.models': 'read',
+  'llm.discoverModels': 'mutate',
+}
+
+/**
+ * Test whether one unary method requires an expected-principal precondition.
+ * @param method - unary method name.
+ * @returns whether the method mutates Host or durable application state.
+ */
+export function isMutatingRpcMethod(method: keyof RpcMethodMap): boolean {
+  return RPC_METHOD_EFFECTS[method] === 'mutate'
+}
+
 /**
  * Resolve the required capability for one legacy API endpoint.
  * @param endpoint - channel-relative endpoint.

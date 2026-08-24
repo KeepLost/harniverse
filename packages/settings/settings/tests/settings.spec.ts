@@ -86,6 +86,23 @@ describe('settingsNamespace', () => {
 })
 
 describe('registration', () => {
+  it('announces description topology after namespace registration and disposal', async () => {
+    const { ctx } = await boot()
+    const revisions: number[] = []
+    ctx.on('settings/description-changed', (revision) => { revisions.push(revision) })
+    const fiber = ctx.plugin({
+      inject: ['settings'],
+      apply(child: Context) {
+        child.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+      },
+    })
+
+    await fiber
+    await fiber.dispose()
+
+    expect(revisions).toEqual([1, 2])
+  })
+
   it('resolves schema defaults, then composition base, then the user layer', async () => {
     const { ctx } = await boot({ doc: { 'ui-theme': { theme: 'light' } } })
     const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema, {

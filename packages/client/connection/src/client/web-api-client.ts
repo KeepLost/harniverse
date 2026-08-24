@@ -2,6 +2,9 @@
 
 import type { ApiProxy, HostFrame, MuxFrame, RpcRequest, ServerRequest } from './api.ts'
 import { AbstractApiClient } from './api.ts'
+import type { AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
+import { CONNECTION_AUTHENTICATED_METHOD } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { authenticationPrincipalIdentitySchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import { hostFrameSchema, muxFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
 import { serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import { HOST_EVENTS_PATH, MUX_EVENTS_PATH } from '../api-path.ts'
@@ -19,20 +22,22 @@ export class WebApiClient extends AbstractApiClient {
     payload: Parameters<ApiProxy['events']['mux']>[0]['payload'],
     signal: AbortSignal,
     onOpen?: () => void,
+    onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void,
   ): AsyncIterable<RpcRequest<MuxFrame>> {
     const since = payload.since
     const path = since === undefined || Object.keys(since).length === 0
       ? MUX_EVENTS_PATH
       : `${MUX_EVENTS_PATH}?${new URLSearchParams({ since: JSON.stringify(since) }).toString()}`
-    return this.readWebSocket(path, signal, muxFrameSchema, onOpen)
+    return this.readWebSocket(path, signal, muxFrameSchema, onOpen, onAuthenticated)
   }
 
   protected override openHost(
     _payload: Parameters<ApiProxy['events']['host']>[0]['payload'],
     signal: AbortSignal,
     onOpen?: () => void,
+    onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void,
   ): AsyncIterable<RpcRequest<HostFrame>> {
-    return this.readWebSocket(HOST_EVENTS_PATH, signal, hostFrameSchema, onOpen)
+    return this.readWebSocket(HOST_EVENTS_PATH, signal, hostFrameSchema, onOpen, onAuthenticated)
   }
 
   private async *readWebSocket<F extends MuxFrame | HostFrame>(
@@ -40,6 +45,7 @@ export class WebApiClient extends AbstractApiClient {
     signal: AbortSignal,
     frameSchema: Parser<F>,
     onOpen?: () => void,
+    onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void,
   ): AsyncGenerator<RpcRequest<F>> {
     const url = new URL(path, this.resolveBase())
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -58,6 +64,10 @@ export class WebApiClient extends AbstractApiClient {
       try {
         if (typeof event.data !== 'string') throw new Error('binary WebSocket frame')
         full = serverRequestSchema.parse(JSON.parse(event.data))
+        if (full.method === CONNECTION_AUTHENTICATED_METHOD) {
+          onAuthenticated?.(authenticationPrincipalIdentitySchema.parse(full.payload))
+          return
+        }
         frame = frameSchema.parse(full.payload)
       } catch (error) {
         console.error(`[client-connection] dropping malformed WebSocket frame on ${path}:`, error)

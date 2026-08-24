@@ -6,10 +6,17 @@
  * re-reads the roster because a copy changes more than the row it targeted.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
 import { AgentPresetSectionController, draftBlocker } from '../src/client/section-store.ts'
 import type { CopyDraft, PresetRow } from '../src/client/section-store.ts'
+
+const DESCRIBE_FACE = {
+  writeFence: () => 0,
+  isCurrent: () => true,
+  acceptResponse: () => true,
+  acceptView: () => true,
+} as never
 
 interface FakePreset { trust: 'system' | 'user'; content: string; name?: string }
 interface Recorded { method: string; payload: unknown }
@@ -141,16 +148,15 @@ function seed(): Map<string, FakePreset> {
   ])
 }
 
-function harness(options: FakeOptions = {}) {
+function harness(options: FakeOptions = {}, describeFace = DESCRIBE_FACE) {
   const presets = seed()
   const defaultId = { id: 'standard' }
   const calls: Recorded[] = []
-  let rosterChanges = 0
   const controller = new AgentPresetSectionController(
     fakeApi(presets, defaultId, { ...options, calls: options.calls ?? calls }),
-    () => { rosterChanges += 1 },
+    describeFace,
   )
-  return { controller, presets, defaultId, calls, rosterChanges: () => rosterChanges }
+  return { controller, presets, defaultId, calls }
 }
 
 function copyOf(controller: AgentPresetSectionController): CopyDraft {
@@ -160,6 +166,24 @@ function copyOf(controller: AgentPresetSectionController): CopyDraft {
 }
 
 describe('loading the roster', () => {
+  it('clears every prior-principal roster and dialog field synchronously', async () => {
+    const { controller } = harness({ hasDocument: false })
+    await controller.load()
+    await controller.view('standard')
+    controller.beginCopy('standard')
+    controller.setCopyId('draft-id')
+    controller.confirmDelete('mine')
+    await controller.openLocation('mine')
+
+    ;(controller as unknown as { reset(): void }).reset()
+
+    expect(controller.store.getSnapshot()).toEqual({
+      status: 'idle', error: null, authorable: false, hasDocument: false,
+      rows: [], copy: null, view: null, pendingDelete: null, deleting: false,
+      revealedPaths: {},
+    })
+  })
+
   it('maps the roster onto rows with the capability flags', async () => {
     const { controller } = harness({ authorable: true, hasDocument: false })
 
@@ -338,8 +362,28 @@ describe('the copy blocker', () => {
 })
 
 describe('submitting a copy', () => {
-  it('copies, re-reads the roster, announces the change, and opens the files', async () => {
-    const { controller, calls, rosterChanges } = harness()
+  it('stops stale local publication and follow-on reads after principal rejection', async () => {
+    const acceptResponse = vi.fn(() => false)
+    const face = {
+      writeFence: () => 1,
+      isCurrent: () => true,
+      acceptResponse,
+      acceptView: () => false,
+    } as never
+    const { controller, calls } = harness({}, face)
+    await controller.load()
+    controller.beginCopy('standard')
+    controller.setCopyId('other-principal-copy')
+    calls.length = 0
+
+    await controller.confirmCopy()
+
+    expect(acceptResponse).toHaveBeenCalled()
+    expect(calls.map(call => call.method)).toEqual(['copy'])
+  })
+
+  it('copies, re-reads the roster, and opens the files', async () => {
+    const { controller, calls } = harness()
     await controller.load()
     controller.beginCopy('standard')
     controller.setCopyId('my-copy')
@@ -350,7 +394,6 @@ describe('submitting a copy', () => {
     const state = controller.store.getSnapshot()
     expect(state.copy).toBeNull()
     expect(state.rows.map(row => row.id)).toContain('my-copy')
-    expect(rosterChanges()).toBe(1)
     expect(calls.find(call => call.method === 'copy')?.payload)
       .toEqual({ from: 'standard', agentPreset: 'my-copy', name: '我的模式' })
     // A preset is its files from here on, so landing in them completes the
@@ -384,7 +427,7 @@ describe('submitting a copy', () => {
   })
 
   it('keeps the dialog open with the refusal on it', async () => {
-    const { controller, rosterChanges } = harness({ failCopy: 'id already exists' })
+    const { controller } = harness({ failCopy: 'id already exists' })
     await controller.load()
     controller.beginCopy('standard')
     controller.setCopyId('my-copy')
@@ -392,7 +435,6 @@ describe('submitting a copy', () => {
     await controller.confirmCopy()
 
     expect(copyOf(controller)).toMatchObject({ saving: false, error: 'id already exists' })
-    expect(rosterChanges()).toBe(0)
   })
 
   it('folds a dead transport into the dialog error', async () => {
@@ -469,8 +511,8 @@ describe('the location action', () => {
 })
 
 describe('deleting', () => {
-  it('asks first, then deletes, re-reads, and announces the change', async () => {
-    const { controller, rosterChanges } = harness()
+  it('asks first, then deletes and re-reads', async () => {
+    const { controller } = harness()
     await controller.load()
 
     controller.confirmDelete('mine')
@@ -480,7 +522,6 @@ describe('deleting', () => {
     const state = controller.store.getSnapshot()
     expect(state.pendingDelete).toBeNull()
     expect(state.rows.map(row => row.id)).not.toContain('mine')
-    expect(rosterChanges()).toBe(1)
   })
 
   it('dismisses the confirmation without deleting', async () => {
@@ -534,27 +575,12 @@ describe('deleting', () => {
         remove: () => Promise.reject(new Error('socket closed')),
       },
       settings: {},
-    } as unknown as Pick<IApiClient, 'agentPresets' | 'settings'>)
+    } as unknown as Pick<IApiClient, 'agentPresets' | 'settings'>, DESCRIBE_FACE)
     broken.confirmDelete('mine')
 
     await broken.remove()
 
     expect(broken.store.getSnapshot().error).toContain('socket closed')
-  })
-})
-
-describe('a controller with no roster listener', () => {
-  it('completes a delete without anyone to notify', async () => {
-    // The rosterChanged callback is optional wiring, not a requirement: a
-    // page composed without sibling surfaces still deletes cleanly.
-    const presets = seed()
-    const alone = new AgentPresetSectionController(fakeApi(presets, { id: 'standard' }))
-    await alone.load()
-    alone.confirmDelete('mine')
-
-    await alone.remove()
-
-    expect(alone.store.getSnapshot().rows.map(row => row.id)).not.toContain('mine')
   })
 })
 

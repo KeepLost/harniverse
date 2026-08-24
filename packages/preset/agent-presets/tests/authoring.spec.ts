@@ -60,6 +60,27 @@ beforeEach(async () => {
 })
 
 describe('copying a preset', () => {
+  it('announces authored and externally discovered roster topology', async () => {
+    const changes: number[] = []
+    ctx.on('agent-presets/change', () => { changes.push(changes.length + 1) })
+    await ctx.agentPresets.list()
+    expect(changes).toEqual([1])
+
+    await ctx.agentPresets.copy('standard', 'mine')
+    expect(changes).toEqual([1, 2])
+
+    await seedPreset(userRoot, 'external')
+    await ctx.agentPresets.list()
+    expect(changes).toEqual([1, 2, 3])
+
+    await writeFile(join(userRoot, 'external', COMPOSITION_FILE), '[]\n')
+    await ctx.agentPresets.list()
+    expect(changes).toEqual([1, 2, 3, 4])
+
+    await ctx.agentPresets.remove('mine')
+    expect(changes).toEqual([1, 2, 3, 4, 5])
+  })
+
   it('copies a shipped preset into the user root and lists it', async () => {
     await ctx.agentPresets.copy('standard', 'mine')
 

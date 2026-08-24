@@ -4,6 +4,10 @@
  * controller with its sinks.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import {
+  sameAuthenticationPrincipal,
+  type AuthenticationPrincipalIdentity,
+} from '@deepseek-ai/dsh-authentication'
 import type { HostDescription, IApiClient } from './api.ts'
 import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type ConnectionState } from './connection.ts'
 import { FixtureApiClient } from './fixture.ts'
@@ -49,6 +53,21 @@ export interface HostDescriptionSource {
   subscribe(listener: () => void): () => void
 }
 
+/** Host-verified principal identity shared by one matched unary/mux/host generation. */
+export interface ConnectionAuthenticationSource {
+  /** Current matched identity, absent before connect and while reconnecting. */
+  getSnapshot(): AuthenticationPrincipalIdentity | undefined
+  /** Subscribe to identity publication and synchronous retraction. */
+  subscribe(listener: () => void): () => void
+  /**
+   * Validate identity metadata on a later unary settlement. A mismatch retracts
+   * the generation synchronously and starts the normal reconnect path.
+   * @param identity - identity attached by the Host unary carrier.
+   * @returns whether it belongs to the current matched generation.
+   */
+  validate(identity: AuthenticationPrincipalIdentity | undefined): boolean
+}
+
 /** Required services (none — this is the wire root). */
 export const inject: string[] = []
 
@@ -64,6 +83,8 @@ export interface ConnectionHandle {
   readonly isLoopback: boolean
   /** Generation-scoped Host facts, including native path-open capability. */
   readonly hostDescription: HostDescriptionSource
+  /** Matched Host-verified identity of the active unary and stream transports. */
+  readonly authentication: ConnectionAuthenticationSource
   /** Generic logical RPC channels over the same Connection transport. */
   readonly rpc: ClientConnectionRpc
   /**
@@ -84,12 +105,12 @@ export interface ConnectionHandle {
 export function apply(ctx: Context): void {
   const pageLocation = typeof location === 'undefined' ? undefined : location
   const fixture = pageLocation !== undefined && new URLSearchParams(pageLocation.search).has('fixture')
+  let authentication: AuthenticationPrincipalIdentity | undefined
   const fixtureClient = fixture ? new FixtureApiClient() : undefined
-  const api: IApiClient = fixtureClient ?? new WebApiClient()
-  const rpc = fixtureClient?.rpc ?? createWebConnectionRpc()
   let started = false
   let description: HostDescription | undefined
   const descriptionListeners = new Set<() => void>()
+  const authenticationListeners = new Set<() => void>()
   const publishDescription = (next: HostDescription | undefined): void => {
     if (Object.is(description, next)) return
     description = next
@@ -101,6 +122,30 @@ export function apply(ctx: Context): void {
       }
     }
   }
+  const publishAuthentication = (next: AuthenticationPrincipalIdentity | undefined): void => {
+    if (sameAuthenticationPrincipal(authentication, next)) return
+    if (authentication === undefined && next === undefined) return
+    authentication = next
+    for (const listener of [...authenticationListeners]) {
+      try {
+        listener()
+      } catch (error) {
+        console.error('[web-runtime] authentication listener threw:', error)
+      }
+    }
+  }
+  let controller: ConnectionController | undefined
+  const invalidateAuthentication = (): void => {
+    publishAuthentication(undefined)
+    publishDescription(undefined)
+    controller?.invalidate()
+  }
+  const api: IApiClient = fixtureClient ?? new WebApiClient(
+    undefined,
+    () => authentication,
+    invalidateAuthentication,
+  )
+  const rpc = fixtureClient?.rpc ?? createWebConnectionRpc()
   const handle: ConnectionHandle = {
     api,
     isLoopback: pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
@@ -111,30 +156,49 @@ export function apply(ctx: Context): void {
         return () => { descriptionListeners.delete(listener) }
       },
     },
+    authentication: {
+      getSnapshot: () => authentication,
+      subscribe: (listener) => {
+        authenticationListeners.add(listener)
+        return () => { authenticationListeners.delete(listener) }
+      },
+      validate: (identity) => {
+        if (sameAuthenticationPrincipal(authentication, identity)) return true
+        invalidateAuthentication()
+        return false
+      },
+    },
     rpc,
     start(sinks, config) {
       if (started) throw new Error('connection: the stream loop is already owned by another consumer')
       started = true
-      const controller = new ConnectionController(api, {
+      controller = new ConnectionController(api, {
         ...sinks,
-        onConnected: (next) => {
+        onConnected: (next, identity) => {
+          publishAuthentication(identity)
           publishDescription(next)
           // A description subscriber may synchronously stop the loop. In that
           // case publishDescription(undefined) has already retracted this
           // generation, so do not leak its stale connected notification to
           // the consumer sink afterward.
-          if (!Object.is(description, next)) return
-          sinks.onConnected?.(next)
+          if (!Object.is(description, next)
+            || !sameAuthenticationPrincipal(authentication, identity)) return
+          sinks.onConnected?.(next, identity)
         },
         onStateChange: (state) => {
-          if (state === 'reconnecting') publishDescription(undefined)
+          if (state === 'reconnecting') {
+            publishAuthentication(undefined)
+            publishDescription(undefined)
+          }
           sinks.onStateChange?.(state)
         },
       }, config ?? {})
       controller.start()
       return {
         stop: () => {
-          controller.stop()
+          controller?.stop()
+          controller = undefined
+          publishAuthentication(undefined)
           publishDescription(undefined)
         },
       }

@@ -1,6 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { RpcResponse } from '@deepseek-ai/dsh-api-remotes/client'
-import { SettingsDocumentStore } from '../src/client/settings-document-store.ts'
+import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
+
+const TEST_AUTHENTICATION = { getSnapshot: () => ({ kind: 'bypass' as const }), subscribe: () => () => {}, validate: () => true }
+import { SettingsDocumentStore as SharedSettingsDocumentStore } from '../src/client/settings-document-store.ts'
+
+class SettingsDocumentStore extends SharedSettingsDocumentStore {
+  readonly mirror: SettingsDescribeMirror
+
+  constructor(api: ConstructorParameters<typeof SharedSettingsDocumentStore>[0]) {
+    const mirror = new SettingsDescribeMirror(api, TEST_AUTHENTICATION)
+    super(api, mirror)
+    this.mirror = mirror
+  }
+}
 
 function response(hasDocument = false): RpcResponse<{
   writable: boolean
@@ -102,9 +115,10 @@ describe('SettingsDocumentStore', () => {
       },
     } as never)
     const stale = controller.load()
-    await controller.load()
+    await Promise.resolve()
+    const fresh = controller.mirror.load()
     resolveFirst(response())
-    await stale
+    await Promise.all([stale, fresh])
     expect(controller.store.getSnapshot().status).toBe('ready')
     const opening = controller.open()
     rejectOpen('native unavailable')
@@ -124,9 +138,22 @@ describe('SettingsDocumentStore', () => {
       },
     } as never)
     const staleRejection = caught.load()
-    await caught.load()
+    await Promise.resolve()
+    const freshAfterRejection = caught.mirror.load()
     rejectFirst(new Error('stale offline'))
-    await staleRejection
+    await Promise.all([staleRejection, freshAfterRejection])
     expect(caught.store.getSnapshot()).toMatchObject({ status: 'ready', error: null })
+  })
+
+  it('clears document availability synchronously at an authentication boundary', async () => {
+    const controller = new SettingsDocumentStore({
+      settings: { describe: vi.fn().mockResolvedValue(response(true)), openDocument: vi.fn() },
+    } as never)
+    await controller.load()
+    expect(controller.store.getSnapshot().status).toBe('ready')
+
+    controller.mirror.reset()
+
+    expect(controller.store.getSnapshot()).toMatchObject({ status: 'loading', error: null })
   })
 })

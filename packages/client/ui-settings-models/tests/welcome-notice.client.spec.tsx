@@ -2,9 +2,13 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
+
+const TEST_AUTHENTICATION = { getSnapshot: () => ({ kind: 'bypass' as const }), subscribe: () => () => {}, validate: () => true }
+import { SettingsScopeController } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-scope.ts'
 import { WelcomeNotice } from '../src/client/WelcomeNotice.tsx'
 import type { WelcomeNoticeProps } from '../src/client/WelcomeNotice.tsx'
-import { WelcomeNoticeStore } from '../src/client/welcome-store.ts'
+import { decodeWelcomeSection, WelcomeNoticeStore } from '../src/client/welcome-store.ts'
 import { en, zh } from '../src/client/locales.ts'
 import {
   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_COPY, WELCOME_NOTICE_SETTINGS_NAMESPACE,
@@ -20,7 +24,16 @@ function response<T>(value: T) {
   return { rpcId: 'welcome-rpc' as never, result: { ok: true as const, value } }
 }
 
-function mount(version?: string, mutateImpl: () => Promise<unknown> = () => Promise.resolve(response({}))) {
+function mount(version?: string, mutateImpl: () => Promise<unknown> = () => Promise.resolve(response({
+  ns: WELCOME_NOTICE_SETTINGS_NAMESPACE,
+  schema: {},
+  value: { [WELCOME_NOTICE_ACK_FIELD]: WELCOME_NOTICE_VERSION },
+  base: {},
+  user: { [WELCOME_NOTICE_ACK_FIELD]: WELCOME_NOTICE_VERSION },
+  applies: 'live' as const,
+  secrets: [],
+  revision: 1,
+}))) {
   const appRoot = document.createElement('div')
   appRoot.id = 'root'
   document.body.append(appRoot)
@@ -44,7 +57,15 @@ function mount(version?: string, mutateImpl: () => Promise<unknown> = () => Prom
       mutate,
     },
   }
-  const controller = new WelcomeNoticeStore(api as never)
+  const wire = api as never
+  const mirror = new SettingsDescribeMirror(wire, TEST_AUTHENTICATION)
+  const scope = new SettingsScopeController(
+    wire,
+    { namespace: WELCOME_NOTICE_SETTINGS_NAMESPACE, decode: decodeWelcomeSection },
+    mirror,
+  )
+  const controller = new WelcomeNoticeStore(scope)
+  void mirror.load()
   const complete = vi.fn()
   const unusedHook = (() => { throw new Error('unused standard hook') }) as never
   const props: WelcomeNoticeProps = {

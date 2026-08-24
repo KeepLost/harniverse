@@ -2,13 +2,26 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
+
+const TEST_AUTHENTICATION = { getSnapshot: () => ({ kind: 'bypass' as const }), subscribe: () => () => {}, validate: () => true }
 import type { GeneralSectionComponentProps } from '../src/client/GeneralSection.tsx'
 import { GeneralSection } from '../src/client/GeneralSection.tsx'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
 import type { TriggerContentProps } from '../src/client/chrome.tsx'
 import { SettingsDocumentAction } from '../src/client/SettingsDocumentAction.tsx'
-import { SettingsDocumentStore } from '../src/client/settings-document-store.ts'
+import { SettingsDocumentStore as SharedSettingsDocumentStore } from '../src/client/settings-document-store.ts'
 import { en } from '../src/client/locales.ts'
+
+class SettingsDocumentStore extends SharedSettingsDocumentStore {
+  readonly mirror: SettingsDescribeMirror
+
+  constructor(api: ConstructorParameters<typeof SharedSettingsDocumentStore>[0]) {
+    const mirror = new SettingsDescribeMirror(api, TEST_AUTHENTICATION)
+    super(api, mirror)
+    this.mirror = mirror
+  }
+}
 
 afterEach(cleanup)
 
@@ -112,6 +125,7 @@ describe('SettingsDocumentAction', () => {
     await waitFor(() => { expect(controller.store.getSnapshot().status).toBe('unavailable') })
     expect(screen.queryByRole('button', { name: 'Open configuration file' })).toBeNull()
     first.unmount()
+    await controller.mirror.load()
     render(<SettingsDocumentAction
       {...kit}
       t={t}

@@ -609,10 +609,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the exact effect disposer that unregisters this definition.',
       },
       {
-        signature: '@Remote({ requiredCapability: \'harniverse.observe\' }) list(agent: Agent): readonly CommandDescriptor[]',
-        description: 'List the effective immutable command descriptors for one agent.',
-        parameters: [{ name: 'agent', description: 'exact receiving agent and scoped-layer key.' }],
-        returns: 'name-sorted descriptors after scoped shadowing.',
+        signature: '@Remote({ requiredCapability: \'harniverse.observe\' }) list(sessionId: SessionId): readonly CommandDescriptor[]',
+        description: 'List the effective immutable command descriptors for one session.\n\nA live Agent contributes its scope-chain shadows. A cold session has no Agent and therefore cannot own an Agent-scoped registration, so it reads the global layer directly instead of being resumed merely for discovery.',
+        parameters: [{ name: 'sessionId', description: 'receiving session identity.' }],
+        returns: 'name-sorted descriptors after any live scoped shadowing.',
       },
       {
         signature: 'find(agent: Agent, name: string): CommandDefinition | undefined',
@@ -1321,6 +1321,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Read the stored events from `fromSeq` onward — the read-from-seq primitive for read models that resume from a watermark (e.g. a persisted projection cache folding only the tail past its checkpoint). Unlike inspect, it is a detached physical suffix read: no preparation cache, torn-tail truncation, synthetic closers, or coordinator-state publication. Only events from the valid contiguous stored prefix are returned, so a torn fragment never reaches the caller. `fromSeq` at or beyond the stored prefix returns an empty event list (never an error). Backends whose medium can seek by seq (SQLite) read only the suffix; sequential media (JSONL, both encodings) still parse the whole artifact and skip forward — the primitive bounds what is RETURNED and refolded, not every backend\'s physical read.',
         parameters: [{ name: 'id', description: 'the persisted session to read.' }, { name: 'fromSeq', description: 'first event seq to include; a non-negative safe integer.' }, { name: 'signal', description: 'optional cancellation for queued and backend read work.' }],
         returns: 'the header and the stored events with `seq >= fromSeq`.',
+      },
+      {
+        signature: 'async readRequestHeader(id: SessionId, signal?: AbortSignal): Promise<EpochHeader | undefined>',
+        description: 'Read the latest request header from one valid stored prefix without acquiring, preparing, or publishing a Session. First-party coordinators allow this observation to run beside another detached read of the same id; direct implementations inherit the safe logical fallback through inspect.',
+        parameters: [{ name: 'id', description: 'persisted session to observe.' }, { name: 'signal', description: 'optional cancellation for backend work.' }],
+        returns: 'the latest logged request header, or `undefined` when none exists.',
       },
       {
         signature: 'abstract list(signal?: AbortSignal): Promise<SessionHeader[]>',
@@ -2489,6 +2495,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'payload', description: '.error - persistence, setup, or publication failure.' }],
   },
   {
+    name: 'agent-presets/change',
+    mode: 'emit',
+    signature: '\'agent-presets/change\'(): void',
+    summary: 'Agent Profile roster or composition topology changed; consumers refetch their projection.',
+    description: 'Agent Profile roster or composition topology changed; consumers refetch their projection. @mode emit',
+    parameters: [],
+  },
+  {
     name: 'agent/created',
     mode: 'emit',
     signature: '\'agent/created\'(this: Scoped<Agent>, payload: { agent: Agent }): void',
@@ -2793,12 +2807,28 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'session', description: 'the session whose buffered events must reach durable storage.' }],
   },
   {
+    name: 'settings/description-changed',
+    mode: 'emit',
+    signature: '\'settings/description-changed\'(revision: number): void',
+    summary: 'Registered namespace description topology changed.',
+    description: 'Registered namespace description topology changed. The monotonic provider-local revision advances after registration and disposal.',
+    parameters: [{ name: 'revision', description: 'new description topology revision.' }],
+  },
+  {
     name: 'settings/document-updated',
     mode: 'emit',
     signature: '\'settings/document-updated\'(ns: SettingsNamespace, revision: number): void',
     summary: 'One registered namespace\'s RAW user section changed, whether or not the resolved value did.',
     description: 'One registered namespace\'s RAW user section changed, whether or not the resolved value did. `settings/updated` is the consumer-facing event and stays deep-equal-gated; this one exists for configuration surfaces, which must learn that a field went from inherited to overridden (same resolved value, different meaning) and that their held revision is stale. Listener containment matches `settings/updated`.',
     parameters: [{ name: 'ns', description: 'the namespace whose stored section changed.' }, { name: 'revision', description: 'the namespace\'s new revision.' }],
+  },
+  {
+    name: 'settings/exposure-changed',
+    mode: 'emit',
+    signature: '\'settings/exposure-changed\'(revision: number): void',
+    summary: 'Host configuration gateway reports that its remotely exposed settings description may have changed due to document, namespace, provider, or Profile composition topology.',
+    description: 'Host configuration gateway reports that its remotely exposed settings description may have changed due to document, namespace, provider, or Profile composition topology.',
+    parameters: [{ name: 'revision', description: 'gateway-local monotonic exposure revision.' }],
   },
   {
     name: 'settings/updated',
@@ -3177,6 +3207,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type AuthenticationPrincipal = {\n    readonly kind: \'bypass\';\n    readonly capabilities: readonly AuthenticationCapability[];\n} | {\n    readonly kind: \'grant\';\n    readonly grantId: AuthenticationGrantId;\n    readonly name?: string;\n    readonly grantRevision: number;\n    readonly capabilities: readonly AuthenticationCapability[];\n    readonly expiresAt: string;\n};',
   },
   {
+    name: 'AuthenticationPrincipalIdentity',
+    declaration: 'export type AuthenticationPrincipalIdentity = {\n    readonly kind: \'bypass\';\n} | {\n    readonly kind: \'grant\';\n    readonly grantId: AuthenticationGrantId;\n    readonly grantRevision: number;\n};',
+  },
+  {
     name: 'AuthenticationRevocation',
     declaration: 'export interface AuthenticationRevocation {\n    grants: AuthenticationGrantRevision[];\n}',
   },
@@ -3314,7 +3348,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ClientResponse',
-    declaration: 'export interface ClientResponse {\n    type: \'client-response\';\n    rpcId: RpcId;\n    result: RpcResult<unknown>;\n}',
+    declaration: 'export interface ClientResponse {\n    type: \'client-response\';\n    rpcId: RpcId;\n    result: RpcResult<unknown>;\n    expectedPrincipal?: AuthenticationPrincipalIdentity;\n}',
   },
   {
     name: 'CodeBindingErrorClass',
@@ -4318,7 +4352,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RpcErrorDetailsMap',
-    declaration: 'export interface RpcErrorDetailsMap {\n    \'bad-request\': {\n        issues: ZodIssue[];\n    };\n    \'cancelled\': {};\n    \'session-not-found\': {\n        sessionId: SessionId;\n    };\n    \'model-unavailable\': {\n        provider: string;\n        model: string;\n    };\n    \'session-conflict\': {\n        sessionId: SessionId;\n        requestedCwd: string;\n        existingCwd?: string;\n    };\n    \'session-has-children\': {\n        sessionId: SessionId;\n        childSessionIds: SessionId[];\n    };\n    \'invalid-time-zone\': {\n        value: string;\n    };\n    \'workspace-attach-failed\': {\n        sessionId: SessionId;\n        workspaceId: string;\n    };\n    \'workspace-not-found\': {\n        workspaceId: string;\n    };\n    \'workspace-invalid-path\': {\n        path: string;\n    };\n    \'workspace-name-conflict\': {\n        name: string;\n    };\n    \'workspace-move-invalid\': {\n        workspaceId: string;\n        sessionId: SessionId;\n        beforeSessionId?: SessionId;\n    };\n    \'directory-unreadable\': {\n        path: string;\n    };\n    \'directory-exists\': {\n        path: string;\n    };\n    \'directory-create-failed\': {\n        path: string;\n    };\n    \'directory-picker-unavailable\': {\n        capability: string;\n    };\n    \'agent-preset-read-only\': {\n        agentPreset: string;\n        reason: string;\n    };\n    \'agent-preset-conflict\': {\n        sessionId: SessionId;\n        requestedPreset: string;\n        existingPreset?: string;\n    };\n    \'agent-preset-not-found\': {\n        agentPreset: str /* …truncated — full shape in source */',
+    declaration: 'export interface RpcErrorDetailsMap {\n    \'authentication-principal-mismatch\': {};\n    \'bad-request\': {\n        issues: ZodIssue[];\n    };\n    \'cancelled\': {};\n    \'session-not-found\': {\n        sessionId: SessionId;\n    };\n    \'model-unavailable\': {\n        provider: string;\n        model: string;\n    };\n    \'session-conflict\': {\n        sessionId: SessionId;\n        requestedCwd: string;\n        existingCwd?: string;\n    };\n    \'session-has-children\': {\n        sessionId: SessionId;\n        childSessionIds: SessionId[];\n    };\n    \'invalid-time-zone\': {\n        value: string;\n    };\n    \'workspace-attach-failed\': {\n        sessionId: SessionId;\n        workspaceId: string;\n    };\n    \'workspace-not-found\': {\n        workspaceId: string;\n    };\n    \'workspace-invalid-path\': {\n        path: string;\n    };\n    \'workspace-name-conflict\': {\n        name: string;\n    };\n    \'workspace-move-invalid\': {\n        workspaceId: string;\n        sessionId: SessionId;\n        beforeSessionId?: SessionId;\n    };\n    \'directory-unreadable\': {\n        path: string;\n    };\n    \'directory-exists\': {\n        path: string;\n    };\n    \'directory-create-failed\': {\n        path: string;\n    };\n    \'directory-picker-unavailable\': {\n        capability: string;\n    };\n    \'agent-preset-read-only\': {\n        agentPreset: string;\n        reason: string;\n    };\n    \'agent-preset-conflict\': {\n        sessionId: SessionId;\n        requestedPreset: string;\n        existingPreset?: string;\n    };\n    \'agent- /* …truncated — full shape in source */',
   },
   {
     name: 'RpcId',
@@ -4326,7 +4360,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RpcReceipt',
-    declaration: 'export type RpcReceipt = {\n    accepted: true;\n} | {\n    accepted: false;\n    reason: \'not-pending\' | \'bad-response\';\n};',
+    declaration: 'export type RpcReceipt = {\n    accepted: true;\n    authentication?: AuthenticationPrincipalIdentity;\n} | {\n    accepted: false;\n    reason: \'not-pending\' | \'bad-response\' | \'authentication-principal-mismatch\';\n    authentication?: AuthenticationPrincipalIdentity;\n};',
   },
   {
     name: 'RpcResult',
@@ -4402,7 +4436,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ServerResponse',
-    declaration: 'export interface ServerResponse {\n    type: \'server-response\';\n    rpcId: RpcId;\n    result: RpcResult<unknown>;\n}',
+    declaration: 'export interface ServerResponse {\n    type: \'server-response\';\n    rpcId: RpcId;\n    result: RpcResult<unknown>;\n    authentication?: AuthenticationPrincipalIdentity;\n}',
   },
   {
     name: 'SessionAvailability',
@@ -4514,7 +4548,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionHistoryPageRequest',
-    declaration: 'export interface SessionHistoryPageRequest {\n    readonly beforeSeq?: number;\n    readonly maxMessages: number;\n}',
+    declaration: 'export interface SessionHistoryPageRequest {\n    readonly beforeSeq?: number;\n    readonly maxMessages: number;\n    readonly preferLatestCheckpoint?: boolean;\n}',
   },
   {
     name: 'SessionId',

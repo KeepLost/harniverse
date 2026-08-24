@@ -34,7 +34,7 @@ import {
   displayPermissionPreset, FULL_ACCESS_PRESET,
 } from './presentation.ts'
 import {
-  PERMISSION_SETTINGS_NS, PermissionPresetSettingsController, refreshPermissionIfLoaded,
+  PermissionPresetSettingsController,
 } from './settings-store.ts'
 
 export type { PermissionRowInjected, PermissionRowProps } from './PermissionRow.tsx'
@@ -43,7 +43,7 @@ export type {
 } from './settings-store.ts'
 
 /** Required services (cordis fiber inject). */
-export const inject = ['commandUi', 'sessions', 'slots', 'locale', 'connection', 'remote']
+export const inject = ['commandUi', 'sessions', 'slots', 'locale', 'connection', 'remote', 'settingsScope']
 
 const ACCESS_NS = 'permission.access'
 
@@ -113,7 +113,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register('settings.permission', { zh, en }), 'ui-permission: settings row dictionaries')
 
   const connection = ctx.get('connection') as ConnectionHandle
-  const controller = new PermissionPresetSettingsController(connection.api)
+  const controller = new PermissionPresetSettingsController(ctx.settingsScope.describe(), connection.api)
   const load = (): Promise<void> => controller.load()
   const select = (preset: string): Promise<void> => controller.select(preset)
   const injected = (): PermissionRowInjected => ({
@@ -122,20 +122,7 @@ export function apply(ctx: ClientContext): void {
     select,
   })
 
-  ctx.effect(() => {
-    const refresh = (): void => { refreshPermissionIfLoaded(controller) }
-    const disposers = [
-      ctx.remote.$on('settings/document-updated', (ns) => {
-        if (ns !== PERMISSION_SETTINGS_NS) return
-        refresh()
-      }),
-      ctx.on('connection/reset', () => { refresh() }),
-    ]
-    return () => {
-      controller.dispose()
-      for (const dispose of disposers) dispose()
-    }
-  }, 'ui-permission: settings invalidations')
+  ctx.effect(() => () => { controller.dispose() }, 'ui-permission: settings mirror subscription')
 
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({
     name: 'settings.general.item',

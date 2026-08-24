@@ -28,7 +28,9 @@ Subclasses implement `writable`, `load()`, and `persist(ns, section)`, optionall
 
 `settings/document-updated (ns, revision)` fires whenever the RAW user section changes, whether or not the resolved value did. Configuration surfaces need this one: storing an override equal to the composition base leaves the resolved value alone but changes what the document says (the field is now overridden, not inherited) and moves the revision every open editor is holding. Listener containment matches `settings/updated`.
 
-Both declarations live in the client-safe `./types` subpath export, together with the `SettingsNamespace` and `SettingsUpdateSource` types their signatures name; the package root re-exports those types. A consumer outside the Host compilation face therefore reads the very signature the Host emits instead of restating it.
+`settings/description-changed (revision)` advances after each namespace registration or disposal. The API Proxy joins it with capability/Profile composition-document and configurable-provider topology signals and emits `settings/exposure-changed (revision)`, the Host-authoritative invalidation for remote settings descriptions.
+
+These declarations live in the client-safe `./types` subpath export, together with the `SettingsNamespace` and `SettingsUpdateSource` types their signatures name; the package root re-exports those types. A consumer outside the Host compilation face therefore reads the very signature the Host emits instead of restating it.
 
 ## Model Experience
 

@@ -10,6 +10,7 @@ import type {
 import {
   createSnapshotStore, type SnapshotStore,
 } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
   nodeAtPath, rehydrateSchema, type SchemaNode,
 } from '@deepseek-ai/dsh-client-schema-form'
@@ -87,42 +88,46 @@ export class PermissionPresetSettingsController {
     revision: 0,
   })
 
-  private generation = 0
-  private view: SettingsNamespaceView | undefined
+  private following: (() => void) | undefined
+  private saving = false
+  private disposed = false
+  private principalFence: number
 
-  /** @param api - Settings wire face. */
-  constructor(private readonly api: Pick<IApiClient, 'settings'>) {}
+  /**
+   * @param describeFace - shared authorized settings description.
+   * @param api - Settings wire face.
+   */
+  constructor(
+    private readonly describeFace: SettingsDescribeFace,
+    private readonly api: Pick<IApiClient, 'settings'>,
+  ) {
+    this.principalFence = describeFace.writeFence()
+  }
 
   /**
    * Refresh the permission descriptor. Latest request wins.
    * @returns nothing; {@link store} carries success or failure.
    */
   async load(): Promise<void> {
-    const generation = ++this.generation
+    if (this.disposed) return
+    this.following ??= this.describeFace.subscribe(() => {
+      const next = this.describeFace.writeFence()
+      if (next !== this.principalFence) {
+        this.principalFence = next
+        this.saving = false
+        this.store.set({
+          status: 'idle', error: null, writable: false, currentValue: '', options: [], revision: 0,
+        })
+        return
+      }
+      this.derive()
+    })
     this.store.update((state) => {
       state.status = 'loading'
       state.error = null
     })
-    try {
-      const response = await this.api.settings.describe({})
-      if (!response.result.ok) throw new Error(response.result.error.message)
-      if (generation !== this.generation) return
-      const view = response.result.value.namespaces.find(entry => entry.ns === PERMISSION_SETTINGS_NS)
-      if (view === undefined) {
-        this.view = undefined
-        this.store.update((state) => {
-          state.status = 'unavailable'
-          state.writable = false
-          state.currentValue = ''
-          state.options = []
-        })
-        return
-      }
-      this.accept(view, response.result.value.writable)
-    } catch (error) {
-      if (generation !== this.generation) return
-      this.fail(error)
-    }
+    await this.describeFace.ensure()
+    this.derive()
   }
 
   /**
@@ -131,10 +136,12 @@ export class PermissionPresetSettingsController {
    * @returns nothing; {@link store} carries success or failure.
    */
   async select(preset: string): Promise<void> {
-    const view = this.view
+    const view = this.describeFace.getSnapshot().view?.namespaces
+      .find(entry => entry.ns === PERMISSION_SETTINGS_NS)
     const state = this.store.getSnapshot()
-    if (view === undefined || !state.writable) return
-    const generation = ++this.generation
+    if (view === undefined || !state.writable || this.saving) return
+    this.saving = true
+    const fence = this.describeFace.writeFence()
     this.store.update((draft) => {
       draft.status = 'saving'
       draft.error = null
@@ -145,32 +152,70 @@ export class PermissionPresetSettingsController {
         ops: [{ op: 'set', path: ['defaultPreset'], value: preset }],
         expectedRevision: view.revision,
       })
-      if (generation !== this.generation) return
+      if (!this.describeFace.acceptResponse(response, fence)) {
+        this.saving = false
+        this.derive()
+        return
+      }
       if (!response.result.ok) throw new Error(response.result.error.message)
-      this.accept(response.result.value, true)
+      this.saving = false
+      if (this.disposed) return
+      if (!this.describeFace.acceptView(response.result.value, fence, response.authentication)) {
+        this.derive()
+      }
     } catch (error) {
-      if (generation !== this.generation) return
+      this.saving = false
+      if (this.disposed || !this.describeFace.isCurrent(fence)) return
       this.fail(error)
     }
   }
 
   /** Stop in-flight responses from publishing after plugin disposal. */
   dispose(): void {
-    this.generation += 1
-    this.view = undefined
+    this.disposed = true
+    this.following?.()
+    this.following = undefined
   }
 
-  private accept(view: SettingsNamespaceView, writable: boolean): void {
-    const resolved = permissionDefaultOf(view)
-    this.view = view
-    this.store.update((state) => {
-      state.status = 'ready'
-      state.error = null
-      state.writable = writable
-      state.currentValue = resolved.currentValue
-      state.options = resolved.options
-      state.revision = view.revision
-    })
+  private derive(): void {
+    if (this.disposed || this.saving) return
+    const mirrored = this.describeFace.getSnapshot()
+    if (mirrored.view === undefined) {
+      this.store.update((state) => {
+        state.status = mirrored.error === null ? 'loading' : 'error'
+        state.error = mirrored.error
+        state.writable = false
+        state.currentValue = ''
+        state.options = []
+        state.revision = 0
+      })
+      return
+    }
+    const view = mirrored.view.namespaces.find(entry => entry.ns === PERMISSION_SETTINGS_NS)
+    if (view === undefined) {
+      this.store.update((state) => {
+        state.status = 'unavailable'
+        state.error = null
+        state.writable = false
+        state.currentValue = ''
+        state.options = []
+        state.revision = 0
+      })
+      return
+    }
+    try {
+      const resolved = permissionDefaultOf(view)
+      this.store.update((state) => {
+        state.status = 'ready'
+        state.error = null
+        state.writable = mirrored.view?.writable ?? false
+        state.currentValue = resolved.currentValue
+        state.options = resolved.options
+        state.revision = view.revision
+      })
+    } catch (error) {
+      this.fail(error)
+    }
   }
 
   private fail(error: unknown): void {
@@ -179,13 +224,4 @@ export class PermissionPresetSettingsController {
       state.error = error instanceof Error ? error.message : String(error)
     })
   }
-}
-
-/**
- * Refetch only after the row has opened once.
- * @param controller - permission settings controller.
- */
-export function refreshPermissionIfLoaded(controller: PermissionPresetSettingsController): void {
-  if (controller.store.getSnapshot().status === 'idle') return
-  void controller.load()
 }

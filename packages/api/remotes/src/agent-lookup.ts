@@ -94,6 +94,7 @@ export function apiRemoteSubagentOwnershipError(sessionId: SessionId): ApiRemote
  * history page behind a full second read.
  * @param ctx - Host Context carrying the optional persistence provider.
  * @param sessionId - durable identity to read.
+ * @param signal - optional cancellation for persistence reads.
  * @returns the servable session's header.
  * @throws {@link ApiRemoteSessionNotFound} when the identity has no project-backed session.
  */
@@ -117,6 +118,7 @@ export async function readApiRemoteSessionHeader(
  * Inspect one cold served session without repairing, resuming, or publishing it.
  * @param ctx - Host Context carrying the optional persistence provider.
  * @param sessionId - durable identity to inspect.
+ * @param signal - optional cancellation for persistence reads.
  * @returns detached metadata and events for a servable session.
  * @throws {@link ApiRemoteSessionNotFound} when the identity has no project-backed session.
  */
@@ -147,6 +149,7 @@ export async function inspectApiRemoteSession(
  * @param ctx - Host Context carrying the persistence provider.
  * @param sessionId - durable identity to read.
  * @param request - exclusive upper bound and message quota.
+ * @param signal - optional cancellation for persistence reads.
  * @returns detached metadata and a contiguous raw-event page.
  * @throws {@link ApiRemoteSessionNotFound} when the identity is absent or not project-backed.
  */

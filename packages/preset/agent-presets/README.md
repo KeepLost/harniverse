@@ -10,6 +10,8 @@ The mechanism is two seams. Entry contexts chain to the context a subtree was pl
 
 Discovery is unmemoized: `list()` and `resolve()` re-read the roots on every call, so a preset authored while the process runs is visible immediately and a deleted one disappears from the next read. Discovery also owns preset **health**: a directory whose composition is missing or unloadable (unparsable YAML — checked with the loader's own dialect, `!!js` included — or not a list of named plugin rows) is listed with a `broken` reason rather than skipped, because a skipped directory would still occupy its id on disk while every surface shows nothing to delete. A directory whose name is not a usable preset id (`[a-z0-9][a-z0-9-]*`) is skipped outright: no copy could ever claim it.
 
+The service emits contained `agent-presets/change` after copy or removal and whenever a roster read discovers a changed row, metadata field, health result, or composition-file stamp. This is the authoritative Profile topology signal: observers refetch their own projection, and an observer failure cannot veto discovery or authoring.
+
 - `ctx.agentPresets.defaultId: string` The preset id mounted when a caller names none.
 - `ctx.agentPresets.list(): Promise<AgentPreset[]>` Every preset the configured roots currently supply, earlier root winning a duplicate id; broken presets included, each carrying its reason.
 - `ctx.agentPresets.resolve(id?): Promise<AgentPreset>` One preset by id, defaulting to `defaultId`. Throws naming the available ids when no root supplies it. A broken preset resolves — deleting, reading, and reporting one all need the row.

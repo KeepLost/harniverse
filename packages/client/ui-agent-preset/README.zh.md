@@ -28,7 +28,7 @@ chip 从不修改当前 Session，无论它空白还是已经开始。Profile �
 
 preset 文件提供一套未国际化的 `name` 与 `description`，Web 将其用于所有 `user` 行和未知的 `system` 行。对于四个随附 id（`standard`、`code`、`minimal` 与 `cordis`），只有名单将该行标记为 `system` 时，Web 才会从当前 locale 解析这两个字段；同名的 `user` preset 仍使用其文件元数据。
 
-本行在自身命名空间的 `settings/changed` 以及 `connection/reset` 时重新读取：名单是一个活动目录，默认值是一项设置，外部编辑与重新连接都可能改变它。
+本行会在自身 namespace 的 `settings/document-updated` 时重新读取。独立转发的 `agent-presets/change` 会直接刷新每一个已经加载的名单消费方，包括 General 行、管理分区、新会话 chip 与标题标签目录；它不会强制刷新 Settings describe。认证身份转换更强：每个表面都会先同步清空前一 principal 的名单、viewer、已显示路径、复制草稿、确认对话框和暂存 Profile，再为新 principal 重新读取。每个名单、读取、复制、打开、删除及设置结算都携带共享 principal fence；验收失败会停止本地发布及所有后续操作。
 
 ## 管理分区
 
@@ -68,4 +68,4 @@ Indirectly, through the preset a later session is composed from; [`dsh-agent-pre
 
 - **没有元数据的 preset 按 id 列出** —— 展示文本是可选的，未取名的副本刻意回退到目录名，而不是与其来源呈现得一模一样。
 - **展示的路径是文本，不是链接** —— 宿主没有桌面打开器时，卡片显示目录供手工复制；浏览器自身无法打开宿主文件系统上的位置。
-- **组装编辑对页面不可见** —— 文件在浏览器之外编辑，传输层不广播文件变动，因此名单只在自身操作、`settings/changed` 与 `connection/reset` 时重读，而非每次磁盘编辑。
+- **组装编辑没有文件系统 watcher** —— 下一次 Host 名单读取会对行元数据、健康状态与组装 stamp 取指纹，并在变化时发出 `agent-presets/change`；已加载消费方随后收敛，但外部编辑要等到某个消费方请求名单后才会被发现。

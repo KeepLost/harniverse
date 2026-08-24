@@ -13,6 +13,9 @@ import { describe, expect, it } from 'vitest'
 import { SlotRegistry, type SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
+import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
+
+const TEST_AUTHENTICATION = { getSnapshot: () => ({ kind: 'bypass' as const }), subscribe: () => () => {}, validate: () => true }
 import type { CommandDecoration } from '@deepseek-ai/dsh-client-ui-commands/client'
 import type { PermissionSelect } from '@deepseek-ai/dsh-permission-presets/client'
 import {
@@ -47,7 +50,7 @@ async function bench() {
       'settings.general.item': { kind: 'list', scope: 'root' },
     },
   } as never, () => null)
-  ctx.provide('connection', {
+  const connection = {
     api: {
       settings: {
         describe: () => Promise.resolve({
@@ -57,7 +60,12 @@ async function bench() {
         mutate: () => Promise.reject(new Error('settings mutation is not exercised')),
       },
     },
-  } as never)
+  } as never
+  ctx.provide('connection', connection)
+  const settingsApi = (connection as unknown as {
+    api: ConstructorParameters<typeof SettingsDescribeMirror>[0]
+  }).api
+  ctx.provide('settingsScope', { describe: () => new SettingsDescribeMirror(settingsApi, TEST_AUTHENTICATION) } as never)
   let decoration: CommandDecoration | undefined
   ctx.provide('commandUi', {
     decorate(c: CommandDecoration) {

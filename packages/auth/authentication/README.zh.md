@@ -6,6 +6,8 @@
 
 该 seam 提供带稳定过载决策的公钥 enrollment、一次性签名 challenge、短期 Access Token 与浏览器会话交换、owner 批准、Grant 列表和定向撤销。`authentication/revoked` 标识精确的 Grant revision，因此无关 Grant 对应的浏览器会话、Access Token 和 WebSocket 保持有效。
 
+`authenticationPrincipalIdentity(principal)` 只投影绑定传输 generation 所需的稳定、非机密身份：`{ kind: 'bypass' }` 或 `{ kind: 'grant', grantId, grantRevision }`。它绝不暴露 Grant 名称、capability、过期时间、浏览器会话值、Access Token 或 proof 材料。
+
 ## 凭据生命周期
 
 Enrollment 只创建待处理请求。Owner 批准后才创建持久公钥 Grant。客户端签署绑定实例、Grant revision、用途、nonce 和过期时间的 challenge，以证明持有私钥。提供方返回短期进程内凭据，其 capability 不会超过 Grant。Access Token 不能自行续期；续期必须再次签署 challenge。

@@ -7,13 +7,16 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { AuthenticationPrincipal } from '@deepseek-ai/dsh-authentication'
+import {
+  authenticationPrincipalIdentity, sameAuthenticationPrincipal,
+  type AuthenticationPrincipal, type AuthenticationPrincipalIdentity,
+} from '@deepseek-ai/dsh-authentication'
 import type { z } from 'zod'
 import type { ApiProxy, MuxFrame, HostFrame } from '../api/index.ts'
 import { sessionLogQuerySchema } from '../api/downloads.schema.ts'
-import type { RequestPayload, ResponseValue, RpcMethodMap } from '../api/rpc-map.ts'
+import { isMutatingRpcMethod, type RequestPayload, type ResponseValue, type RpcMethodMap } from '../api/rpc-map.ts'
 import type { ClientRequest, RpcError, RpcRequest, RpcResponse, ServerRequest, ServerResponse } from '../api/rpc.ts'
-import { RpcId } from '../api/rpc.ts'
+import { CONNECTION_AUTHENTICATED_METHOD, RpcId } from '../api/rpc.ts'
 import type { Wire } from '../api/rpc.schema.ts'
 import { clientRequestSchema, clientResponseSchema } from '../api/rpc.schema.ts'
 import {
@@ -165,15 +168,26 @@ function methodFor(path: string): keyof RpcMethodMap | undefined {
  */
 const INVALID_REQUEST_RPC_ID = RpcId('invalid-request')
 
+/** Host-authenticated identity for one carrier admission; local injection runs as bypass. */
+function carrierIdentity(principal?: AuthenticationPrincipal): AuthenticationPrincipalIdentity {
+  return principal === undefined ? { kind: 'bypass' } : authenticationPrincipalIdentity(principal)
+}
+
 /** Wrap a business error as a ServerResponse full form (rpcId backfilled; an unreadable rpcId uses the invalid-request sentinel). */
-function errorResponse(rpcId: RpcId, error: RpcError): Response {
-  const body: ServerResponse = { type: 'server-response', rpcId, result: { ok: false, error } }
+function errorResponse(rpcId: RpcId, error: RpcError, principal?: AuthenticationPrincipal): Response {
+  const body: ServerResponse = {
+    type: 'server-response', rpcId, result: { ok: false, error },
+    authentication: carrierIdentity(principal),
+  }
   return Response.json(body)
 }
 
 /** Complete the impl's narrow form into a ServerResponse full form. */
-function fullResponse(narrow: RpcResponse<unknown>): Response {
-  const body: ServerResponse = { type: 'server-response', rpcId: narrow.rpcId, result: narrow.result }
+function fullResponse(narrow: RpcResponse<unknown>, principal?: AuthenticationPrincipal): Response {
+  const body: ServerResponse = {
+    type: 'server-response', rpcId: narrow.rpcId, result: narrow.result,
+    authentication: carrierIdentity(principal),
+  }
   return Response.json(body)
 }
 
@@ -197,14 +211,14 @@ async function handleUnary<K extends keyof RpcMethodMap>(
   const route = UNARY_ROUTES[method]
   const payload = route.schema.safeParse(message.payload)
   if (!payload.success) {
-    return errorResponse(message.rpcId, { code: 'bad-request', message: `invalid payload for ${method}`, details: { issues: payload.error.issues } })
+    return errorResponse(message.rpcId, { code: 'bad-request', message: `invalid payload for ${method}`, details: { issues: payload.error.issues } }, principal)
   }
   try {
     return fullResponse(await route.invoke(api, {
       rpcId: message.rpcId,
       payload: payload.data,
       ...(principal !== undefined && { principal }),
-    }, signal))
+    }, signal), principal)
   } catch (error: unknown) {
     reportFailure?.(method, error)
     return new Response('internal handler failure', { status: 500 })
@@ -223,6 +237,7 @@ function fullFrame(narrow: RpcRequest<MuxFrame | HostFrame>): ServerRequest {
 function sseResponse(
   frames: AsyncIterable<RpcRequest<MuxFrame | HostFrame>>,
   operation: string,
+  principal?: AuthenticationPrincipal,
   reportFailure?: ApiProxyFailureReporter,
 ): Response {
   const encoder = new TextEncoder()
@@ -233,6 +248,13 @@ function sseResponse(
         // stream has no baseline frames and would otherwise emit zero bytes while idle;
         // a comment line is not a frame, so client frame parsing skips it naturally).
         controller.enqueue(encoder.encode(': connected\n\n'))
+        const authenticated: ServerRequest = {
+          type: 'server-request',
+          rpcId: RpcId(randomUUID()),
+          method: CONNECTION_AUTHENTICATED_METHOD,
+          payload: carrierIdentity(principal),
+        }
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(authenticated)}\n\n`))
         for await (const narrow of frames) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(fullFrame(narrow))}\n\n`))
         }
@@ -303,14 +325,14 @@ export function toFetchHandler(
           rpcId: RpcId(randomUUID()),
           payload,
           ...(principal !== undefined && { principal }),
-        }, req.signal), 'events.mux', reportFailure)
+        }, req.signal), 'events.mux', principal, reportFailure)
       }
       if (path === '/api/events.host' && req.method === 'GET') {
         return sseResponse(api.events.host({
           rpcId: RpcId(randomUUID()),
           payload: {},
           ...(principal !== undefined && { principal }),
-        }, req.signal), 'events.host', reportFailure)
+        }, req.signal), 'events.host', principal, reportFailure)
       }
       if (path === '/api/session.export' && (req.method === 'GET' || req.method === 'HEAD')) {
         // Query params are a different boundary from the POST envelope, but
@@ -350,8 +372,18 @@ export function toFetchHandler(
 
       if (path === '/api/respond') {
         const parsed = clientResponseSchema.safeParse(body)
-        if (!parsed.success) return Response.json({ accepted: false, reason: 'bad-response' })
-        return Response.json(await api.respond(parsed.data))
+        if (!parsed.success) return Response.json({
+          accepted: false, reason: 'bad-response', authentication: carrierIdentity(principal),
+        })
+        if (principal !== undefined
+          && !sameAuthenticationPrincipal(parsed.data.expectedPrincipal, authenticationPrincipalIdentity(principal))) {
+          return Response.json({
+            accepted: false,
+            reason: 'authentication-principal-mismatch',
+            authentication: carrierIdentity(principal),
+          })
+        }
+        return Response.json({ ...await api.respond(parsed.data), authentication: carrierIdentity(principal) })
       }
 
       const method = methodFor(path.slice('/api/'.length))
@@ -367,7 +399,15 @@ export function toFetchHandler(
       }
       const message: ClientRequest = envelope.data
       if (message.method !== method) {
-        return errorResponse(message.rpcId, { code: 'bad-request', message: `method "${message.method}" does not match path "${method}"`, details: { issues: [] } })
+        return errorResponse(message.rpcId, { code: 'bad-request', message: `method "${message.method}" does not match path "${method}"`, details: { issues: [] } }, principal)
+      }
+      if (principal !== undefined && isMutatingRpcMethod(method)
+        && !sameAuthenticationPrincipal(message.expectedPrincipal, authenticationPrincipalIdentity(principal))) {
+        return errorResponse(message.rpcId, {
+          code: 'authentication-principal-mismatch',
+          message: 'authenticated principal changed before mutation dispatch',
+          details: {},
+        }, principal)
       }
       return handleUnary(api, method, message, req.signal, principal, reportFailure)
     },

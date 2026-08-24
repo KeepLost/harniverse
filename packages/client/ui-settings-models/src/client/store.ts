@@ -11,6 +11,7 @@ import type {
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { getPath, hasPath, nodeAtPath, rehydrateSchema } from '@deepseek-ai/dsh-client-schema-form'
 
 /**
@@ -35,6 +36,8 @@ export interface ProviderRow {
 
 /** Page snapshot. */
 export interface ModelsSettingsState {
+  /** Principal generation that owns every component-local interaction state. */
+  principalGeneration: number
   status: 'idle' | 'loading' | 'ready' | 'error'
   /** Whole-load failure text; row-level write failures stay in the editor. */
   error: string | null
@@ -99,16 +102,51 @@ function apiKeyEnvOf(namespace: SettingsNamespaceView | undefined, path: readonl
 export class ModelsSettingsStore {
   /** The snapshot the section renders from (uSES-safe store). */
   readonly store: SnapshotStore<ModelsSettingsState> = createSnapshotStore<ModelsSettingsState>({
+    principalGeneration: 0,
     status: 'idle', error: null, credentialError: null, writable: false, rows: [], namespaces: new Map(),
   })
 
   /** Latest load wins; an older response never overwrites a newer one. */
   private generation = 0
+  private principalFence: number
+  private reloadAfterPrincipal = false
+  private readonly stopDescribe: () => void
 
   /**
-   * @param api - the wire face (settings/credentials/llm domains).
+   * @param api - the credentials and provider-directory wire face.
+   * @param describeFace - shared authorized settings description.
    */
-  constructor(private readonly api: Pick<IApiClient, 'settings' | 'credentials' | 'llm'>) {}
+  constructor(
+    private readonly api: Pick<IApiClient, 'settings' | 'credentials' | 'llm'>,
+    private readonly describeFace: SettingsDescribeFace,
+  ) {
+    this.principalFence = describeFace.writeFence()
+    this.stopDescribe = describeFace.subscribe(() => {
+      const next = describeFace.writeFence()
+      if (next === this.principalFence) return
+      this.principalFence = next
+      this.reloadAfterPrincipal ||= this.store.getSnapshot().status !== 'idle'
+      this.reset()
+      if (!this.reloadAfterPrincipal || !describeFace.isCurrent(next)) return
+      this.reloadAfterPrincipal = false
+      void this.load()
+    })
+  }
+
+  /** Release the shared mirror subscription owned by this page store. */
+  dispose(): void {
+    this.stopDescribe()
+  }
+
+  /** Clear every settings-derived value at an authenticated connection boundary. */
+  reset(): void {
+    this.generation += 1
+    const principalGeneration = this.store.getSnapshot().principalGeneration + 1
+    this.store.set({
+      principalGeneration,
+      status: 'idle', error: null, credentialError: null, writable: false, rows: [], namespaces: new Map(),
+    })
+  }
 
   /**
    * Refresh the whole page snapshot: directory and namespaces in parallel,
@@ -118,22 +156,25 @@ export class ModelsSettingsStore {
    */
   async load(): Promise<void> {
     const generation = ++this.generation
+    const fence = this.describeFace.writeFence()
     this.store.update((s) => { s.status = 'loading'; s.error = null })
     let providers: ConfigurableProviderView[]
     let writable: boolean
     let views: SettingsNamespaceView[]
     try {
-      const [providersResponse, settingsResponse] = await Promise.all([
+      const [providersResponse] = await Promise.all([
         this.api.llm.providers({}),
-        this.api.settings.describe({}),
+        this.describeFace.ensure(),
       ])
+      if (!this.describeFace.acceptResponse(providersResponse, fence)) return
       if (!providersResponse.result.ok) throw new Error(providersResponse.result.error.message)
-      if (!settingsResponse.result.ok) throw new Error(settingsResponse.result.error.message)
+      const mirrored = this.describeFace.getSnapshot()
+      if (mirrored.view === undefined) throw new Error(mirrored.error ?? 'settings are unavailable')
       providers = providersResponse.result.value.providers
-      writable = settingsResponse.result.value.writable
-      views = settingsResponse.result.value.namespaces
+      writable = mirrored.view.writable
+      views = [...mirrored.view.namespaces]
     } catch (error) {
-      if (generation !== this.generation) return
+      if (generation !== this.generation || !this.describeFace.isCurrent(fence)) return
       this.store.update((s) => {
         s.status = 'error'
         s.error = error instanceof Error ? error.message : String(error)
@@ -163,16 +204,18 @@ export class ModelsSettingsStore {
     if (refs.length > 0) {
       try {
         const response = await this.api.credentials.describe({ refs })
+        if (!this.describeFace.acceptResponse(response, fence)) return
         // Credential state is an enrichment for the Models page: neither a
         // business rejection nor a transport failure fails the load. The
         // onboarding projection below retains the failure distinction.
         if (response.result.ok) credentials = response.result.value.credentials
         else credentialError = response.result.error.message
       } catch (error) {
+        if (!this.describeFace.isCurrent(fence)) return
         credentialError = messageOf(error)
       }
     }
-    if (generation !== this.generation) return
+    if (generation !== this.generation || !this.describeFace.isCurrent(fence)) return
     this.store.update((s) => {
       s.status = 'ready'
       s.error = null

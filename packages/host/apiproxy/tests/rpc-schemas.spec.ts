@@ -108,7 +108,7 @@ describe('rpcResultSchema', () => {
 describe('wire full-form schemas', () => {
   it('parses the four quadrants and the union discriminates on type', () => {
     const cq = { type: 'client-request', rpcId: 'r1', method: 'session.list', payload: {} }
-    const sr = { type: 'server-response', rpcId: 'r1', result: { ok: true, value: 1 } }
+    const sr = { type: 'server-response', rpcId: 'r1', result: { ok: true, value: 1 }, authentication: { kind: 'bypass' } }
     const rq = { type: 'server-request', rpcId: 'r2', method: 'session/event', payload: { a: 1 } }
     const cr = { type: 'client-response', rpcId: 'r2', result: { ok: true, value: null } }
     expect(clientRequestSchema.parse(cq).method).toBe('session.list')
@@ -125,16 +125,23 @@ describe('wire full-form schemas', () => {
     expect(() => serverResponseSchema.parse({ type: 'server-response', rpcId: 'r1', result: {} })).toThrow()
     // A void business result carries no value field; the endpoint's own second
     // parse is what requires a value for methods that return data.
-    expect(serverResponseSchema.parse({ type: 'server-response', rpcId: 'r1', result: { ok: true } }).rpcId)
+    expect(serverResponseSchema.parse({
+      type: 'server-response', rpcId: 'r1', result: { ok: true }, authentication: { kind: 'bypass' },
+    }).rpcId)
       .toBe('r1')
+    expect(() => serverResponseSchema.parse({
+      type: 'server-response', rpcId: 'r1', result: { ok: true },
+    })).toThrow()
   })
 })
 
 describe('rpcReceiptSchema', () => {
-  it('accepts both receipt branches with the closed reason set', () => {
-    expect(rpcReceiptSchema.parse({ accepted: true })).toEqual({ accepted: true })
-    expect(rpcReceiptSchema.parse({ accepted: false, reason: 'not-pending' })).toEqual({ accepted: false, reason: 'not-pending' })
-    expect(rpcReceiptSchema.parse({ accepted: false, reason: 'bad-response' })).toEqual({ accepted: false, reason: 'bad-response' })
+  it('accepts authenticated receipt branches and rejects missing carrier identity', () => {
+    const authentication = { kind: 'bypass' as const }
+    expect(rpcReceiptSchema.parse({ accepted: true, authentication })).toEqual({ accepted: true, authentication })
+    expect(rpcReceiptSchema.parse({ accepted: false, reason: 'not-pending', authentication })).toEqual({ accepted: false, reason: 'not-pending', authentication })
+    expect(rpcReceiptSchema.parse({ accepted: false, reason: 'bad-response', authentication })).toEqual({ accepted: false, reason: 'bad-response', authentication })
+    expect(() => rpcReceiptSchema.parse({ accepted: true })).toThrow()
     expect(() => rpcReceiptSchema.parse({ accepted: false, reason: 'other' })).toThrow()
   })
 })

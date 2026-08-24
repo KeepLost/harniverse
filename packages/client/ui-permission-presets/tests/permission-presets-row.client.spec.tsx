@@ -3,9 +3,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
+
+const TEST_AUTHENTICATION = { getSnapshot: () => ({ kind: 'bypass' as const }), subscribe: () => () => {}, validate: () => true }
 import { PermissionRow, type PermissionRowProps } from '../src/client/PermissionRow.tsx'
 import { en } from '../src/client/locales.ts'
-import { PermissionPresetSettingsController } from '../src/client/settings-store.ts'
+import { PermissionPresetSettingsController as SharedPermissionPresetSettingsController } from '../src/client/settings-store.ts'
+
+class PermissionPresetSettingsController extends SharedPermissionPresetSettingsController {
+  constructor(api: ConstructorParameters<typeof SharedPermissionPresetSettingsController>[1]) {
+    super(new SettingsDescribeMirror(api, TEST_AUTHENTICATION), api)
+  }
+}
 
 afterEach(cleanup)
 

@@ -7,6 +7,9 @@ import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { SettingsScopeBinder } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
+
+const TEST_AUTHENTICATION = { getSnapshot: () => ({ kind: 'bypass' as const }), subscribe: () => () => {}, validate: () => true }
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type {
   ConfigurablePluginsTabInjected, PluginsSettingsSectionInjected,
@@ -27,14 +30,17 @@ async function bench() {
   // connection sink makes.
   new TestRemote(ctx)
   const describeSettings = vi.fn(() => Promise.resolve({ rpcId: 's', result: { ok: false, error: {} } }))
-  ctx.provide('connection', {
+  const api = {
+    settings: { describe: describeSettings },
+    credentials: { describe: describeCredentials },
+  }
+  const connection = {
     isLoopback: true,
-    api: {
-      settings: { describe: describeSettings },
-      credentials: { describe: describeCredentials },
-    },
-  } as never)
-  await ctx.plugin(SettingsScopeBinder).await()
+    api,
+  } as never
+  ctx.provide('connection', connection)
+  const mirror = new SettingsDescribeMirror(api as never, TEST_AUTHENTICATION)
+  await ctx.plugin({ apply(plugin: Context) { new SettingsScopeBinder(plugin, mirror) } }).await()
   return { ctx, slots: ctx.get('slots') as SlotRegistry, describeCredentials, describeSettings }
 }
 
@@ -77,13 +83,13 @@ describe('ui-settings-plugins apply', () => {
       .toEqual(['bash', 'agent-loop', 'web-search'])
   })
 
-  it('binds the selector and all three provider scopes while keeping one web-search card', async () => {
+  it('binds all scopes through one shared settings description while keeping one web-search card', async () => {
     const { ctx, slots, describeSettings } = await bench()
     declareRoot(slots)
 
     await ctx.plugin({ inject: [...inject], apply }).await()
 
-    await vi.waitFor(() => { expect(describeSettings).toHaveBeenCalledTimes(6) })
+    await vi.waitFor(() => { expect(describeSettings).toHaveBeenCalledOnce() })
     expect(slots.entries('settings.plugin.item').filter(entry => entry.options.id === 'web-search')).toHaveLength(1)
   })
 

@@ -2,6 +2,7 @@
 
 import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 
 /** Browser state of the Host-owned settings document. */
 export interface SettingsDocumentState {
@@ -24,44 +25,50 @@ export class SettingsDocumentStore {
     status: 'idle', opening: false, error: null,
   })
 
-  private generation = 0
+  private following: (() => void) | undefined
 
   /**
-   * @param api - loopback settings wire face that reports and opens the provider document.
+   * @param api - loopback settings wire face that opens the provider document.
+   * @param describeFace - shared authorized settings description.
    */
-  constructor(private readonly api: Pick<IApiClient, 'settings'>) {}
+  constructor(
+    private readonly api: Pick<IApiClient, 'settings'>,
+    private readonly describeFace: SettingsDescribeFace,
+  ) {}
 
   /**
    * Load whether the current provider owns a local document.
    * @returns after the latest metadata response updates the store.
    */
   async load(): Promise<void> {
-    const generation = ++this.generation
+    this.following ??= this.describeFace.subscribe(() => { this.derive() })
     this.store.update((state) => {
       state.status = 'loading'
       state.error = null
     })
-    try {
-      const { result } = await this.api.settings.describe({})
-      if (generation !== this.generation) return
-      if (!result.ok) {
-        this.store.update((state) => {
-          state.status = 'unavailable'
-          state.error = result.error.message
-        })
-        return
-      }
+    await this.describeFace.ensure()
+    this.derive()
+  }
+
+  /** Stop following the shared description. */
+  dispose(): void {
+    this.following?.()
+    this.following = undefined
+  }
+
+  private derive(): void {
+    const mirrored = this.describeFace.getSnapshot()
+    if (mirrored.view === undefined) {
       this.store.update((state) => {
-        state.status = result.value.hasDocument ? 'ready' : 'unavailable'
-        state.error = null
+        state.status = mirrored.error === null ? 'loading' : 'unavailable'
+        state.error = mirrored.error
       })
-    } catch (error) {
-      if (generation !== this.generation) return
-      this.store.update((state) => {
-        state.status = 'unavailable'
-        state.error = messageOf(error)
-      })
+      return
     }
+    this.store.update((state) => {
+      state.status = mirrored.view?.hasDocument ? 'ready' : 'unavailable'
+      state.error = null
+    })
   }
 
   /**
@@ -90,7 +97,3 @@ export class SettingsDocumentStore {
  * Refresh document availability after reconnect only when a surface has already requested it.
  * @param controller - optional loopback document state owner.
  */
-export function refreshDocumentIfLoaded(controller: SettingsDocumentStore | undefined): void {
-  if (controller === undefined || controller.store.getSnapshot().status === 'idle') return
-  void controller.load()
-}

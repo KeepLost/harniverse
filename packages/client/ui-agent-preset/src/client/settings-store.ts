@@ -7,8 +7,9 @@
  * namespace's `default` field, which is what the host resolves at creation.
  */
 
-import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
+import type { IApiClient, RpcResponse } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 
 /** The agent-preset settings namespace on the host wire. */
 export const AGENT_PRESET_SETTINGS_NS = 'agent-presets'
@@ -32,21 +33,29 @@ export function messageOf(error: unknown): string {
  * namespace and field the host resolves at session creation.
  * @param api - the settings wire face.
  * @param id - the preset to make default.
+ * @param describeFace - shared mirror receiving the successful write response.
  * @returns the failure message, or undefined once the write landed.
  */
 export async function writeDefaultPreset(
   api: Pick<IApiClient, 'settings'>,
   id: string,
-): Promise<string | undefined> {
+  describeFace: SettingsDescribeFace,
+): Promise<{ accepted: boolean; error?: string }> {
   let response
+  const fence = describeFace.writeFence()
   try {
     response = await api.settings.update({ ns: AGENT_PRESET_SETTINGS_NS, patch: { default: id } })
   } catch (error) {
     // The transport rejected rather than answering; the caller must be able to
     // say so instead of the row silently snapping back.
-    return messageOf(error)
+    return describeFace.isCurrent(fence)
+      ? { accepted: true, error: messageOf(error) }
+      : { accepted: false }
   }
-  return response.result.ok ? undefined : response.result.error.message
+  if (!describeFace.acceptResponse(response, fence)) return { accepted: false }
+  if (!response.result.ok) return { accepted: true, error: response.result.error.message }
+  if (!describeFace.acceptView(response.result.value, fence, response.authentication)) return { accepted: false }
+  return { accepted: true }
 }
 
 /** One selectable preset. */
@@ -88,7 +97,9 @@ export interface RosterValue {
 }
 
 /** The roster, or the message to show in its place. */
-export type RosterRead = { ok: true; value: RosterValue } | { ok: false; error: string }
+export type RosterRead =
+  | { ok: true; value: RosterValue; response: Pick<RpcResponse<unknown>, 'authentication'> }
+  | { ok: false; error: string; response?: Pick<RpcResponse<unknown>, 'authentication'> }
 
 /**
  * Read the roster, folding both refusal shapes into one message.
@@ -104,8 +115,8 @@ export async function readRoster(api: Pick<IApiClient, 'agentPresets'>): Promise
   try {
     const response = await api.agentPresets.list({})
     return response.result.ok
-      ? { ok: true, value: response.result.value }
-      : { ok: false, error: response.result.error.message }
+      ? { ok: true, value: response.result.value, response }
+      : { ok: false, error: response.result.error.message, response }
   } catch (error) {
     return { ok: false, error: messageOf(error) }
   }
@@ -120,16 +131,23 @@ export async function readRoster(api: Pick<IApiClient, 'agentPresets'>): Promise
  * failure. What differs between surfaces starts after this.
  * @param api - the agent-preset wire face.
  * @param store - the surface's own snapshot store.
+ * @param describeFace - shared principal-aware Settings description.
+ * @param fence - principal generation captured before the roster request.
  * @returns the roster, or undefined when the caller should return.
  */
 export async function beginRosterRead<S extends { status: string; error: string | null }>(
   api: Pick<IApiClient, 'agentPresets'>,
   store: SnapshotStore<S>,
+  describeFace: SettingsDescribeFace,
+  fence: number,
 ): Promise<RosterValue | undefined> {
   const before = store.getSnapshot()
   if (before.status === 'loading') return undefined
   store.set({ ...before, status: 'loading', error: null })
   const roster = await readRoster(api)
+  if (roster.response !== undefined
+    ? !describeFace.acceptResponse(roster.response, fence)
+    : !describeFace.isCurrent(fence)) return undefined
   if (roster.ok) return roster.value
   store.set({ ...store.getSnapshot(), status: 'error', error: roster.error })
   return undefined
@@ -166,10 +184,10 @@ export interface AgentPresetSettingsState {
   status: 'idle' | 'loading' | 'ready' | 'saving' | 'unavailable' | 'error'
   error: string | null
   /**
-   * Whether this browser may persist the choice at all. `settings.describe` is
-   * loopback-only and reports a read-only provider as `writable: false`; the
-   * row then shows the current default and disables the control rather than
-   * offering a write the gateway will refuse.
+   * Whether this authenticated browser may persist the choice at all. The
+   * Host reports a read-only provider as `writable: false`; the row then shows
+   * the current default and disables the control rather than offering a write
+   * the gateway will refuse.
    */
   writable: boolean
   currentValue: string
@@ -191,10 +209,18 @@ export class AgentPresetSettingsController {
   /** Row snapshot the renderer subscribes to. */
   readonly store: SnapshotStore<AgentPresetSettingsState> = createSnapshotStore(INITIAL)
 
-  constructor(private readonly api: IApiClient) {}
+  constructor(
+    private readonly api: IApiClient,
+    private readonly describeFace: SettingsDescribeFace,
+  ) {}
 
   private set(patch: Partial<AgentPresetSettingsState>): void {
     this.store.set({ ...this.store.getSnapshot(), ...patch })
+  }
+
+  /** Clear all roster and selection state authorized for the previous principal. */
+  reset(): void {
+    this.store.set(INITIAL)
   }
 
   /**
@@ -204,7 +230,8 @@ export class AgentPresetSettingsController {
    * @returns once the snapshot reflects the host.
    */
   async load(): Promise<void> {
-    const roster = await beginRosterRead(this.api, this.store)
+    const fence = this.describeFace.writeFence()
+    const roster = await beginRosterRead(this.api, this.store, this.describeFace, fence)
     if (roster === undefined) return
     const { presets } = roster
     const [first] = presets
@@ -214,14 +241,20 @@ export class AgentPresetSettingsController {
     }
     try {
       // The roster says what may be chosen; `settings.describe` says whether
-      // this browser may write the choice down. A non-loopback browser reaches
-      // neither method, so a refused describe leaves the row read-only rather
-      // than offering a control whose write answers `settings-not-exposed`.
-      const described = await this.api.settings.describe({})
+      // this browser may write the choice down. A refused describe leaves the
+      // row read-only rather than offering a control whose write the gateway
+      // will reject.
+      await this.describeFace.ensure()
+      if (!this.describeFace.isCurrent(fence)) return
+      const mirrored = this.describeFace.getSnapshot()
+      if (mirrored.view === undefined) {
+        this.set({ status: 'error', error: mirrored.error ?? 'settings are unavailable', writable: false })
+        return
+      }
       this.set({
         status: 'ready',
         error: null,
-        writable: described.result.ok && described.result.value.writable,
+        writable: mirrored.view.writable,
         options: presetOptions(presets),
         // A roster can mark nothing default: settings can name a preset that
         // was since deleted, and the picker still has to show something.
@@ -243,9 +276,10 @@ export class AgentPresetSettingsController {
     const before = this.store.getSnapshot()
     if (before.status === 'saving' || id === before.currentValue) return
     this.set({ status: 'saving', error: null, currentValue: id })
-    const failure = await writeDefaultPreset(this.api, id)
-    if (failure !== undefined) {
-      this.set({ status: 'ready', currentValue: before.currentValue, error: failure })
+    const result = await writeDefaultPreset(this.api, id, this.describeFace)
+    if (!result.accepted) return
+    if (result.error !== undefined) {
+      this.set({ status: 'ready', currentValue: before.currentValue, error: result.error })
       return
     }
     // Re-read rather than trust the patch: the host resolves the default

@@ -46,7 +46,7 @@ export type { AgentPresetOption, AgentPresetSettingsState } from './settings-sto
 export { AGENT_PRESET_SETTINGS_NS, writeDefaultPreset } from './settings-store.ts'
 
 /** Required services (cordis fiber inject). */
-export const inject = ['slots', 'locale', 'connection', 'remote']
+export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope']
 
 /**
  * Mount the General-settings row.
@@ -54,14 +54,49 @@ export const inject = ['slots', 'locale', 'connection', 'remote']
  */
 export function apply(ctx: ClientContext): void {
   const { api } = ctx.get('connection') as ConnectionHandle
-  const controller = new AgentPresetSettingsController(api)
+  const describeFace = ctx.settingsScope.describe()
+  const controller = new AgentPresetSettingsController(api, describeFace)
   // One roster, four surfaces. The chip is registered in a later scope, so it
   // subscribes here rather than being reached from this one.
   const rosterReaders = new Set<() => void>()
-  const section = new AgentPresetSectionController(api, () => {
-    void controller.load()
-    for (const read of rosterReaders) read()
-  })
+  const section = new AgentPresetSectionController(api, describeFace)
+  const principalConsumers = new Set<{
+    active(): boolean
+    reset(): void
+    load(): Promise<void>
+    reload: boolean
+  }>([
+    {
+      active: () => controller.store.getSnapshot().status !== 'idle',
+      reset: () => { controller.reset() },
+      load: () => controller.load(),
+      reload: false,
+    },
+    {
+      active: () => section.store.getSnapshot().status !== 'idle',
+      reset: () => { section.reset() },
+      load: () => section.load(),
+      reload: false,
+    },
+  ])
+  ctx.effect(() => {
+    let fence = describeFace.writeFence()
+    return describeFace.subscribe(() => {
+      const next = describeFace.writeFence()
+      if (next === fence) return
+      fence = next
+      for (const consumer of principalConsumers) {
+        consumer.reload ||= consumer.active()
+        consumer.reset()
+      }
+      if (!describeFace.isCurrent(next)) return
+      for (const consumer of principalConsumers) {
+        if (!consumer.reload) continue
+        consumer.reload = false
+        void consumer.load()
+      }
+    })
+  }, 'ui-agent-preset: authenticated principal reset')
 
   ctx.effect(() => ctx.locale.register('settings.agentPreset', { zh, en }), 'ui-agent-preset: settings row dictionaries')
 
@@ -85,7 +120,11 @@ export function apply(ctx: ClientContext): void {
         if (ns !== AGENT_PRESET_SETTINGS_NS) return
         refresh()
       }),
-      ctx.on('connection/reset', () => { refresh() }),
+      ctx.remote.$on('agent-presets/change', () => {
+        if (controller.store.getSnapshot().status !== 'idle') void controller.load()
+        if (section.store.getSnapshot().status !== 'idle') void section.load()
+        for (const read of rosterReaders) read()
+      }),
     ]
     return () => { for (const dispose of disposers) dispose() }
   }, 'ui-agent-preset: settings refresh')
@@ -113,7 +152,14 @@ export function apply(ctx: ClientContext): void {
         }
     }, (agentProfile) => {
       scope.workspaces.startSession(undefined, agentProfile)
-    })
+    }, describeFace)
+    const seatPrincipal = {
+      active: () => seat.store.getSnapshot().options.length > 0 || seat.store.getSnapshot().current !== '',
+      reset: () => { seat.reset() },
+      load: () => seat.load(),
+      reload: false,
+    }
+    principalConsumers.add(seatPrincipal)
 
     const seatInjected = (): AgentPresetSeatInjected => ({
       hooks: { agentPresetSeat: seat.store },
@@ -174,6 +220,7 @@ export function apply(ctx: ClientContext): void {
         creatorDraft = undefined
         chip()
         label()
+        principalConsumers.delete(seatPrincipal)
       }
     }, 'ui-agent-preset: new-session chip and header label')
   })

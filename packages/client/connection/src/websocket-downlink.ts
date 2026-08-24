@@ -3,12 +3,16 @@
 import { randomUUID } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
-import type { AuthenticationDecision, AuthenticationGrantRevision } from '@deepseek-ai/dsh-authentication'
+import {
+  authenticationPrincipalIdentity,
+  type AuthenticationDecision,
+  type AuthenticationGrantRevision,
+} from '@deepseek-ai/dsh-authentication'
 import WebSocket, { WebSocketServer } from 'ws'
 import type {
   ApiProxy, HostFrame, MuxFrame, RpcRequest, ServerRequest,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { CONNECTION_AUTHENTICATED_METHOD, RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { eventsMuxRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
 
 type Frame = MuxFrame | HostFrame
@@ -23,6 +27,15 @@ function serverRequest(frame: RpcRequest<Frame>): ServerRequest {
   }
 }
 
+function authenticationRequest(admission: AcceptedAuthentication): ServerRequest {
+  return {
+    type: 'server-request',
+    rpcId: RpcId(randomUUID()),
+    method: CONNECTION_AUTHENTICATED_METHOD,
+    payload: authenticationPrincipalIdentity(admission.principal),
+  }
+}
+
 function send(socket: WebSocket, frame: RpcRequest<Frame>): Promise<void> {
   return new Promise((resolve, reject) => {
     if (socket.readyState !== WebSocket.OPEN) {
@@ -32,6 +45,19 @@ function send(socket: WebSocket, frame: RpcRequest<Frame>): Promise<void> {
     socket.send(JSON.stringify(serverRequest(frame)), (error) => {
       if (error) reject(error)
       else resolve()
+    })
+  })
+}
+
+function sendRequest(socket: WebSocket, request: ServerRequest): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (socket.readyState !== WebSocket.OPEN) {
+      reject(new Error('websocket downlink closed before control delivery'))
+      return
+    }
+    socket.send(JSON.stringify(request), (error) => {
+      if (error == null) resolve()
+      else reject(error)
     })
   })
 }
@@ -199,7 +225,7 @@ export class WebSocketDownlinks {
       websocket.once('message', () => {
         websocket.close(1008, 'downlink only')
       })
-      const pump = this.pump(websocket, open(abort.signal), abort)
+      const pump = this.pump(websocket, open(abort.signal), abort, admission)
       this.pumps.add(pump)
       void pump.then(
         () => { this.pumps.delete(pump) },
@@ -212,8 +238,10 @@ export class WebSocketDownlinks {
     socket: WebSocket,
     frames: AsyncIterable<RpcRequest<F>>,
     abort: AbortController,
+    admission: AcceptedAuthentication,
   ): Promise<void> {
     try {
+      await sendRequest(socket, authenticationRequest(admission))
       for await (const frame of frames) await send(socket, frame)
     } catch (error) {
       if (!abort.signal.aborted) {

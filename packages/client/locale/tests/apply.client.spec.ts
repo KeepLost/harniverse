@@ -5,6 +5,9 @@ import { Context } from '@deepseek-ai/cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { SettingsScopeBinder } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
+
+const TEST_AUTHENTICATION = { getSnapshot: () => ({ kind: 'bypass' as const }), subscribe: () => () => {}, validate: () => true }
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import {
   apply, inject, SETTINGS_NS,
@@ -44,10 +47,15 @@ async function bench() {
       result: { ok: true as const, value: namespace() },
     }
   })
-  ctx.provide('connection', { api: { settings: { describe, mutate } }, isLoopback: true } as never)
+  const api = { settings: { describe, mutate } }
+  const connection = { api, isLoopback: true } as never
+  ctx.provide('connection', connection)
   // The settings transport and the forwarded-event port the plugin injects.
   new TestRemote(ctx)
-  await ctx.plugin(SettingsScopeBinder).await()
+  const mirror = new SettingsDescribeMirror(api as never, TEST_AUTHENTICATION)
+  ctx.remote.$on('settings/document-updated', () => { void mirror.load() })
+  ctx.on('connection/reset', () => { mirror.reset(); void mirror.load() })
+  await ctx.plugin({ apply(plugin: Context) { new SettingsScopeBinder(plugin, mirror) } }).await()
   return {
     ctx, slots: ctx.get('slots') as SlotRegistry, describe, mutate,
     setHostPreference: (next: string | undefined) => { preference = next; revision += 1 },

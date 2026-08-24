@@ -28,7 +28,7 @@ A locally authored preset is exactly as privileged as the plugins it names, so t
 
 Preset files publish one unlocalized `name` and `description`, which Web uses for every `user` row and unknown `system` row. For the four shipped ids (`standard`, `code`, `minimal`, and `cordis`), Web resolves both fields from its active locale only when the roster marks the row `system`; an identically named `user` preset keeps its file metadata.
 
-The row re-reads on `settings/changed` for its own namespace and on `connection/reset`: the roster is a live directory and the default is a settings field, so an external edit or a reconnect can both move it.
+The row re-reads on `settings/document-updated` for its own namespace. The independently forwarded `agent-presets/change` event refreshes every loaded roster consumer directly, including the General row, management section, new-session chip, and header-label catalog; it does not force a Settings describe refresh. Authentication identity changes are stronger: every surface synchronously clears its prior roster, viewer, revealed paths, copy draft, confirmation dialog, and staged Profile before re-reading for the new principal. Every roster, read, copy, open, remove, and settings settlement carries the shared principal fence; rejection stops local publication and all follow-on operations.
 
 ## The management section
 
@@ -68,4 +68,4 @@ No direct invalidation. Changing the default never touches a running session's p
 
 - **A preset without metadata is listed by id** — display text is optional, and a copy given no name deliberately falls back to its directory name rather than presenting itself identically to its source.
 - **A revealed path is display text, not a link** — where the host has no desktop opener the row shows the directory to copy by hand; the browser cannot open a host filesystem location itself.
-- **Composition edits are invisible to the page** — the files are edited outside the browser and nothing on the wire announces a file change, so the roster re-reads on its own actions, `settings/changed`, and `connection/reset`, not on every disk edit.
+- **Composition edits have no filesystem watcher** — the next Host roster read fingerprints row metadata, health, and composition stamps and emits `agent-presets/change` when they moved; loaded consumers then converge, but an external edit remains unseen until some consumer requests the roster.

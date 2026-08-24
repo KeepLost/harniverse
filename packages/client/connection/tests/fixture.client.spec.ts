@@ -259,6 +259,38 @@ describe('createFixtureApi', () => {
     expect(snapshot.data.todos.filter(t => t.status === 'in_progress')).toHaveLength(2)
   })
 
+  it('replays the assembled multi-query web result with durable merge metadata', async () => {
+    const api = createFixtureApi()
+    const history = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 100 }))
+    if (!history.result.ok) throw new Error('history failed')
+    const call = history.result.value.events.find(entry => entry.event.type === 'tool/call' && entry.event.data.name === 'web_search')
+    if (call?.event.type !== 'tool/call') throw new Error('fixture web_search call missing')
+    expect(JSON.parse(call.event.data.arguments)).toEqual({ queries: ['deepseek harness architecture', 'harniverse plugin extensions'] })
+    const callId = call.event.data.callId
+    const result = history.result.value.events.find((entry) => {
+      if (entry.event.type !== 'tool/result') return false
+      return String(entry.event.data.message.source.callId) === callId
+    })
+    if (result?.event.type !== 'tool/result') throw new Error('fixture web_search result missing')
+    expect(result.event.data.message.content[0]?.content[0]).toMatchObject({
+      type: 'text',
+      text: '### deepseek harness architecture\n\nDeepSeek Harness is a plugin-based agent harness.\n\n### harniverse plugin extensions\n\nHarniverse extends the plugin-native architecture.',
+    })
+    expect(result.view).toEqual({
+      for: 'result',
+      view: {
+        card: 'web', kind: 'search',
+        answer: '### deepseek harness architecture\n\nDeepSeek Harness is a plugin-based agent harness.\n\n### harniverse plugin extensions\n\nHarniverse extends the plugin-native architecture.',
+        sources: [
+          { url: 'https://github.com/deepseek-ai/deepseek-harness', title: 'DeepSeek Harness — plugin-based agent harness' },
+          { url: 'https://docs.deepseek.com/harness/plugins', title: 'Writing a harness plugin' },
+          { url: 'https://www.deepseek.com/blog/harness-architecture', title: 'Harness architecture' },
+        ],
+        truncated: true,
+      },
+    })
+  })
+
   it('create adds a session and pushes host/session-added to open host streams', async () => {
     const api = createFixtureApi()
     const abort = new AbortController()

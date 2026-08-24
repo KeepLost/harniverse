@@ -75,7 +75,11 @@ async function serve(
   }
 }
 
-function grant(id: string, revision = 1, expiresAt = new Date(Date.now() + 60_000).toISOString()): AuthenticationPrincipal {
+function grant(
+  id: string,
+  revision = 1,
+  expiresAt = new Date(Date.now() + 60_000).toISOString(),
+): Extract<AuthenticationPrincipal, { kind: 'grant' }> {
   return {
     kind: 'grant',
     grantId: authenticationGrantId(id),
@@ -85,8 +89,34 @@ function grant(id: string, revision = 1, expiresAt = new Date(Date.now() + 60_00
   }
 }
 
+function readRaw(socket: WebSocket): Promise<ServerRequest> {
+  return once(socket, 'message').then(([data]) => JSON.parse(rawText(data)) as ServerRequest)
+}
+
+function rawText(data: unknown): string {
+  if (Buffer.isBuffer(data)) return data.toString('utf8')
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString('utf8')
+  if (Array.isArray(data)) {
+    const chunks: Buffer[] = []
+    for (const chunk of data as unknown[]) {
+      if (!Buffer.isBuffer(chunk)) throw new TypeError('expected WebSocket raw data')
+      chunks.push(chunk)
+    }
+    return Buffer.concat(chunks).toString('utf8')
+  }
+  throw new TypeError('expected WebSocket raw data')
+}
+
 function read(socket: WebSocket): Promise<ServerRequest> {
-  return once(socket, 'message').then(([data]) => JSON.parse(String(data)) as ServerRequest)
+  return new Promise((resolve) => {
+    const onMessage = (data: WebSocket.RawData): void => {
+      const message = JSON.parse(rawText(data)) as ServerRequest
+      if (message.method === 'connection.authenticated') return
+      socket.off('message', onMessage)
+      resolve(message)
+    }
+    socket.on('message', onMessage)
+  })
 }
 
 async function acceptedSocket(downlinks: WebSocketDownlinks): Promise<WebSocket> {
@@ -100,6 +130,31 @@ async function acceptedSocket(downlinks: WebSocketDownlinks): Promise<WebSocket>
 }
 
 describe('WebSocket downlinks', () => {
+  it('sends stable non-secret authentication identity before business frames', async () => {
+    const principal: AuthenticationPrincipal = {
+      ...grant('browser-a', 7),
+      name: 'Personal laptop',
+    }
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const server = await serve(downlinks, { mux: principal })
+    running.push(server.close)
+    const socket = new WebSocket(`${server.origin}${MUX_EVENTS_PATH}`)
+
+    const first = await readRaw(socket)
+
+    expect(first).toMatchObject({
+      type: 'server-request',
+      method: 'connection.authenticated',
+      payload: { kind: 'grant', grantId: 'browser-a', grantRevision: 7 },
+    })
+    expect(typeof first.rpcId).toBe('string')
+    expect(JSON.stringify(first)).not.toContain('Personal laptop')
+    expect(JSON.stringify(first)).not.toContain('harniverse.administer')
+    expect(JSON.stringify(first)).not.toContain('expiresAt')
+    socket.close()
+    await once(socket, 'close')
+  })
+
   it('attaches the authenticated principal to the opened stream request', async () => {
     let opened: RpcRequest<unknown> | undefined
     const downlinks = new WebSocketDownlinks(api(

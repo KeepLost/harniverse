@@ -6,6 +6,11 @@ import type {
   RpcRequest, RpcResponse, SessionId, SessionModels, SessionSearchItem, SkillEntry, WorkspaceId,
 } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
+import type { AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
+
+type TestAuthenticationIdentity = AuthenticationPrincipalIdentity
+
+const BYPASS_IDENTITY: TestAuthenticationIdentity = { kind: 'bypass' }
 
 export interface Deferred<T> {
   promise: Promise<T>
@@ -27,7 +32,11 @@ export function deferred<T>(): Deferred<T> {
 let nextRpc = 0
 
 export function ok<T>(value: T): RpcResponse<T> {
-  return { rpcId: RpcId(`fake-${nextRpc++}`), result: { ok: true, value } }
+  return {
+    rpcId: RpcId(`fake-${nextRpc++}`),
+    result: { ok: true, value },
+    authentication: BYPASS_IDENTITY,
+  }
 }
 
 
@@ -247,6 +256,9 @@ export class FakeApiClient implements IApiClient {
   /** When true, streams never fire onOpen (misbehaving-carrier material for the handshake timeout guard). */
   suppressStreamOpen = false
 
+  muxAuthentication: TestAuthenticationIdentity = BYPASS_IDENTITY
+  hostAuthentication: TestAuthenticationIdentity = BYPASS_IDENTITY
+
   /** When true, onOpen callbacks are parked instead of fired; releaseStreamOpens() fires them.
    *  Lets a case hold the readiness handshake open (describe done, streams not yet "established"). */
   holdStreamOpen = false
@@ -259,12 +271,12 @@ export class FakeApiClient implements IApiClient {
   }
 
   readonly events: IApiClient['events'] = {
-    mux: (payload: unknown, signal: AbortSignal, onOpen?: () => void) => {
+    mux: (payload: unknown, signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: TestAuthenticationIdentity) => void) => {
       this.calls.push({ method: 'events.mux', payload })
-      return this.openStream(this.muxConns, signal, onOpen)
+      return this.openStream(this.muxConns, signal, onOpen, onAuthenticated, this.muxAuthentication)
     },
-    host: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) =>
-      this.openStream(this.hostConns, signal, onOpen),
+    host: (_payload: unknown, signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: TestAuthenticationIdentity) => void) =>
+      this.openStream(this.hostConns, signal, onOpen, onAuthenticated, this.hostAuthentication),
   }
 
   respond(): Promise<{ accepted: false; reason: 'not-pending' }> {
@@ -302,7 +314,13 @@ export class FakeApiClient implements IApiClient {
     return response
   }
 
-  private async *openStream<F>(registry: StreamConn<F>[], signal: AbortSignal, onOpen?: () => void): AsyncGenerator<RpcRequest<F>> {
+  private async *openStream<F>(
+    registry: StreamConn<F>[],
+    signal: AbortSignal,
+    onOpen: (() => void) | undefined,
+    onAuthenticated: ((identity: TestAuthenticationIdentity) => void) | undefined,
+    identity: TestAuthenticationIdentity,
+  ): AsyncGenerator<RpcRequest<F>> {
     const inbox: StreamItem<F>[] = []
     let wake: (() => void) | null = null
     const conn: StreamConn<F> = {
@@ -314,6 +332,7 @@ export class FakeApiClient implements IApiClient {
     registry.push(conn)
     if (this.holdStreamOpen && onOpen !== undefined) this.heldOpens.push(onOpen)
     else if (!this.suppressStreamOpen) onOpen?.()
+    onAuthenticated?.(identity)
     try {
       while (!signal.aborted) {
         while (inbox.length > 0) {

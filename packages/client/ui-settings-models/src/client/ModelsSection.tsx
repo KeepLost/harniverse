@@ -14,7 +14,7 @@
 
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
+import type { IApiClient, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { Button, IconPlusOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
@@ -32,6 +32,11 @@ export interface ModelsSectionInjected {
   useSnapshot: SnapshotSelectorHook<ModelsSettingsState>
   /** Wire faces the editor writes through. */
   api: Pick<IApiClient, 'settings' | 'credentials' | 'llm'>
+  /** Capture and fold successful settings writes through the shared mirror. */
+  writeFence: () => number
+  isCurrent: (fence: number) => boolean
+  acceptResponse: (response: { authentication?: unknown }, fence: number) => boolean
+  acceptSettingsView: (view: SettingsNamespaceView, fence: number, authentication?: unknown) => boolean
   /** Section copy. */
   t: (key: keyof typeof en) => string
 }
@@ -63,7 +68,7 @@ interface EditorTarget extends ProviderIdentity {
 /** Values that vary around the shared provider-editor rendering. */
 interface ProviderEditorRenderProps extends Pick<
   ProviderEditorProps,
-  'namespace' | 'api' | 't' | 'readOnly' | 'onClose'
+  'namespace' | 'api' | 'writeFence' | 'isCurrent' | 'acceptSettingsView' | 't' | 'readOnly' | 'onClose'
 > {
   target: EditorTarget
 }
@@ -96,23 +101,33 @@ export async function removeProviderProfile(
   api: Pick<IApiClient, 'settings' | 'credentials'>,
   controller: ModelsSettingsStore,
   target: { settingsNs: string; settingsPath: readonly string[]; credentialRef?: string },
-): Promise<string | undefined> {
+  writeFence: () => number = () => 0,
+  acceptSettingsView: (view: SettingsNamespaceView, fence: number, authentication?: unknown) => boolean = () => true,
+  acceptResponse: (response: { authentication?: unknown }, fence: number) => boolean = () => true,
+  isCurrent: (fence: number) => boolean = () => true,
+): Promise<string | null | undefined> {
+  const fence = writeFence()
   try {
     if (target.credentialRef !== undefined) {
       const credential = await api.credentials.unset({ ref: target.credentialRef })
+      if (!acceptResponse(credential, fence)) return null
       if (!credential.result.ok) return credential.result.error.message
     }
     const response = await api.settings.mutate({
       ns: target.settingsNs,
       ops: [{ op: 'unset', path: [...target.settingsPath] }],
     })
+    if (!acceptResponse(response, fence)) return null
     if (!response.result.ok) return response.result.error.message
+    if (!acceptSettingsView(response.result.value, fence, response.authentication)) return null
   } catch (error) {
+    if (!isCurrent(fence)) return null
     // The transport rejected rather than answering; the caller must be able
     // to retry the idempotent operation instead of the row silently staying.
     return messageOf(error)
   }
   await controller.load()
+  if (!isCurrent(fence)) return null
   return undefined
 }
 
@@ -169,13 +184,28 @@ export function providerCopy(template: string, target: ProviderIdentity): string
  * @returns the section, or null while the shell has not injected yet.
  */
 export function ModelsSection(props: ModelsSectionProps): ReactNode {
-  const { controller, useSnapshot, api, t } = props
+  const { controller, useSnapshot, api, writeFence, isCurrent, acceptResponse, acceptSettingsView, t } = props
   if (controller === undefined || useSnapshot === undefined || api === undefined || t === undefined) return null
-  return <Loaded injected={{ controller, useSnapshot, api, t }} />
+  return <PrincipalBoundary injected={{
+    controller,
+    useSnapshot,
+    api,
+    writeFence: writeFence ?? (() => 0),
+    isCurrent: isCurrent ?? (() => true),
+    acceptResponse: acceptResponse ?? (() => true),
+    acceptSettingsView: acceptSettingsView ?? (() => true),
+    t,
+  }} />
+}
+
+/** Remount the complete local-state subtree when the owning principal changes. */
+function PrincipalBoundary({ injected }: { injected: ModelsSectionInjected }): ReactNode {
+  const principalGeneration = injected.useSnapshot(snapshot => snapshot.principalGeneration)
+  return <Loaded key={principalGeneration} injected={injected} />
 }
 
 function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
-  const { controller, api, t } = injected
+  const { controller, api, writeFence, isCurrent, acceptResponse, acceptSettingsView, t } = injected
   const state = injected.useSnapshot(snapshot => snapshot)
   const [editing, setEditing] = useState<EditorTarget | undefined>(undefined)
   const [adding, setAdding] = useState(false)
@@ -223,15 +253,20 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
     if (deleteTarget === undefined || deleting) return
     setDeleting(true)
     setDeleteFailure(undefined)
-    void removeProviderProfile(api, controller, deleteTarget)
+    const fence = writeFence()
+    void removeProviderProfile(api, controller, deleteTarget, () => fence, acceptSettingsView, acceptResponse, injected.isCurrent)
       .then((failure) => {
+        if (!injected.isCurrent(fence)) return
+        if (failure === null) return
         if (failure !== undefined) {
           setDeleteFailure(failure)
           return
         }
         setDeleteTarget(undefined)
       })
-      .finally(() => { setDeleting(false) })
+      .finally(() => {
+        if (injected.isCurrent(fence)) setDeleting(false)
+      })
   }
 
   if (state.status === 'idle') void controller.load()
@@ -298,6 +333,9 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                   target,
                   namespace,
                   api,
+                  writeFence,
+                  isCurrent,
+                  acceptSettingsView,
                   t,
                   readOnly: !state.writable,
                   onClose: (changed) => { closeSetup(changed, target) },
@@ -382,6 +420,9 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                   target,
                   namespace,
                   api,
+                  writeFence,
+                  isCurrent,
+                  acceptSettingsView,
                   t,
                   readOnly: !state.writable,
                   onClose: (changed) => { closeEditor(changed, target) },
@@ -421,6 +462,9 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                 namespace={addNamespace}
                 settingsPath={addTarget.settingsPath}
                 api={api}
+                writeFence={writeFence}
+                isCurrent={isCurrent}
+                acceptSettingsView={acceptSettingsView}
                 t={t}
                 readOnly={!state.writable}
                 onClose={(changed) => { closeEditor(changed, addTarget) }}
@@ -436,6 +480,10 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                   /* v8 ignore next -- the card only opens from a button disabled without this namespace */
                   revision={state.namespaces.get('llm-pi-ai')?.revision ?? 0}
                   api={api}
+                  writeFence={writeFence}
+                  isCurrent={isCurrent}
+                  acceptResponse={acceptResponse}
+                  acceptSettingsView={acceptSettingsView}
                   t={t}
                   readOnly={!state.writable}
                   onClose={(changed) => {

@@ -6,12 +6,17 @@
  */
 
 import type { z } from 'zod'
+import {
+  sameAuthenticationPrincipal, type AuthenticationPrincipalIdentity,
+} from '@deepseek-ai/dsh-authentication'
 import type { ApiProxy, HostFrame, MuxFrame } from '../api/index.ts'
-import type { RequestPayload, ResponseValue, RpcMethodMap } from '../api/rpc-map.ts'
+import { isMutatingRpcMethod, type RequestPayload, type ResponseValue, type RpcMethodMap } from '../api/rpc-map.ts'
 import type { ClientRequest, ClientResponse, RpcMessage, RpcReceipt, RpcRequest, RpcResponse, ServerRequest } from '../api/rpc.ts'
-import { RpcId } from '../api/rpc.ts'
+import { CONNECTION_AUTHENTICATED_METHOD, RpcId } from '../api/rpc.ts'
 import type { Wire } from '../api/rpc.schema.ts'
-import { rpcReceiptSchema, serverRequestSchema, serverResponseSchema } from '../api/rpc.schema.ts'
+import {
+  authenticationPrincipalIdentitySchema, rpcReceiptSchema, serverRequestSchema, serverResponseSchema,
+} from '../api/rpc.schema.ts'
 import { hostFrameSchema, muxFrameSchema } from '../api/events.schema.ts'
 import {
   hostCreateDirectoryValueSchema, hostDescribeValueSchema,
@@ -140,8 +145,8 @@ export interface IApiClient {
     remove(payload: RequestPayload<'agentPreset.remove'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.remove'>>>
   }
   events: {
-    mux(payload: Parameters<ApiProxy['events']['mux']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<MuxFrame>>
-    host(payload: Parameters<ApiProxy['events']['host']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<HostFrame>>
+    mux(payload: Parameters<ApiProxy['events']['mux']>[0]['payload'], signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void): AsyncIterable<RpcRequest<MuxFrame>>
+    host(payload: Parameters<ApiProxy['events']['host']>[0]['payload'], signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void): AsyncIterable<RpcRequest<HostFrame>>
   }
   goals: {
     create(payload: RequestPayload<'goal.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.create'>>>
@@ -257,8 +262,16 @@ export abstract class AbstractApiClient implements IApiClient {
   private flushScheduled = false
   private readonly envelopeListeners = new Set<(batch: readonly RpcMessage[]) => void>()
 
-  /** @param timeoutMs - timeout for bounded unary calls; user-paced calls and streams do not use it. */
-  constructor(protected readonly timeoutMs: number = DEFAULT_TIMEOUT_MS) {}
+  /**
+   * @param timeoutMs - timeout for bounded unary calls; user-paced calls and streams do not use it.
+   * @param initiatingPrincipal - active matched identity captured when a unary request is launched.
+   * @param authenticationMismatch - synchronous active-generation retraction on invalid settlement identity.
+   */
+  constructor(
+    protected readonly timeoutMs: number = DEFAULT_TIMEOUT_MS,
+    private readonly initiatingPrincipal: () => AuthenticationPrincipalIdentity | undefined = () => ({ kind: 'bypass' }),
+    private readonly authenticationMismatch: () => void = () => {},
+  ) {}
 
   /** Transport aspect: browser fetch, injected handler.fetch, IPC bridge, ... */
   protected abstract doFetch(input: URL, init?: RequestInit): Promise<Response>
@@ -346,31 +359,57 @@ export abstract class AbstractApiClient implements IApiClient {
     signal?: AbortSignal,
     timeoutPolicy: UnaryTimeoutPolicy = 'default',
   ): Promise<RpcResponse<ResponseValue<K>>> {
-    const message: ClientRequest = { type: 'client-request', rpcId: this.mintRpcId(), method, payload }
+    const initiatingPrincipal = this.initiatingPrincipal()
+    if (initiatingPrincipal === undefined && method !== 'host.describe') {
+      throw new Error(`cannot initiate unary ${method} without an authenticated principal`)
+    }
+    const expectedPrincipal = isMutatingRpcMethod(method) ? initiatingPrincipal : undefined
+    if (isMutatingRpcMethod(method) && expectedPrincipal === undefined) {
+      throw new Error(`cannot initiate mutating ${method} without an authenticated principal`)
+    }
+    const message: ClientRequest = {
+      type: 'client-request', rpcId: this.mintRpcId(), method, payload,
+      ...(expectedPrincipal === undefined ? {} : { expectedPrincipal }),
+    }
     this.onEnvelope(message)
     const response = await this.postJson(`/api/${method}`, message, signal, timeoutPolicy)
-    const full = serverResponseSchema.parse(await response.json())
-    this.onEnvelope(full)
+    const raw: unknown = await response.json()
+    if (typeof raw !== 'object' || raw === null || !('authentication' in raw)) {
+      this.validateUnaryAuthentication(method, initiatingPrincipal, undefined)
+    }
+    const full = serverResponseSchema.parse(raw)
     if (full.rpcId !== message.rpcId) throw new Error(`rpcId mismatch for ${method}: sent ${message.rpcId}, got ${full.rpcId}`)
-    if (!full.result.ok) return { rpcId: full.rpcId, result: full.result }
+    this.validateUnaryAuthentication(method, initiatingPrincipal, full.authentication)
+    this.onEnvelope(full)
+    if (!full.result.ok) {
+      return {
+        rpcId: full.rpcId,
+        result: full.result,
+        ...(full.authentication === undefined ? {} : { authentication: full.authentication }),
+      }
+    }
     // Second-level S→C parse: the ok value must match the method's Value schema (mirror of the
     // handler's request-payload parse). The cast collapses the Wire<> widening, same as the handler side.
     const value = UNARY_VALUE_SCHEMAS[method].parse(full.result.value) as ResponseValue<K>
-    return { rpcId: full.rpcId, result: { ok: true, value } }
+    return {
+      rpcId: full.rpcId,
+      result: { ok: true, value },
+      ...(full.authentication === undefined ? {} : { authentication: full.authentication }),
+    }
   }
 
   /** Mux stream opener; virtual for the same override reason as callUnary. */
-  protected openMux(payload: Parameters<ApiProxy['events']['mux']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<MuxFrame>> {
+  protected openMux(payload: Parameters<ApiProxy['events']['mux']>[0]['payload'], signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void): AsyncIterable<RpcRequest<MuxFrame>> {
     const since = payload.since
     const path = since === undefined || Object.keys(since).length === 0
       ? '/api/events.mux'
       : `/api/events.mux?${new URLSearchParams({ since: JSON.stringify(since) }).toString()}`
-    return this.readSse(path, signal, muxFrameSchema, onOpen)
+    return this.readSse(path, signal, muxFrameSchema, onOpen, onAuthenticated)
   }
 
   /** Host stream opener; virtual. */
-  protected openHost(_payload: Parameters<ApiProxy['events']['host']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<HostFrame>> {
-    return this.readSse('/api/events.host', signal, hostFrameSchema, onOpen)
+  protected openHost(_payload: Parameters<ApiProxy['events']['host']>[0]['payload'], signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void): AsyncIterable<RpcRequest<HostFrame>> {
+    return this.readSse('/api/events.host', signal, hostFrameSchema, onOpen, onAuthenticated)
   }
 
   /**
@@ -385,6 +424,7 @@ export abstract class AbstractApiClient implements IApiClient {
     signal: AbortSignal,
     frameSchema: z.ZodType<F>,
     onOpen?: () => void,
+    onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void,
   ): AsyncGenerator<RpcRequest<F>> {
     const response = await this.doFetch(new URL(path, this.resolveBase()), { signal })
     if (!response.ok || response.body === null) throw new Error(`transport failure for ${path}: HTTP ${response.status}`)
@@ -407,6 +447,10 @@ export abstract class AbstractApiClient implements IApiClient {
           let frame: F
           try {
             full = serverRequestSchema.parse(JSON.parse(data))
+            if (full.method === CONNECTION_AUTHENTICATED_METHOD) {
+              onAuthenticated?.(authenticationPrincipalIdentitySchema.parse(full.payload))
+              continue
+            }
             frame = frameSchema.parse(full.payload)
           } catch (error) {
             console.error(`[apiproxy] dropping malformed SSE frame on ${path}:`, error)
@@ -518,14 +562,47 @@ export abstract class AbstractApiClient implements IApiClient {
   }
 
   readonly events: IApiClient['events'] = {
-    mux: (payload, signal, onOpen) => this.openMux(payload, signal, onOpen),
-    host: (payload, signal, onOpen) => this.openHost(payload, signal, onOpen),
+    mux: (payload, signal, onOpen, onAuthenticated) => this.openMux(payload, signal, onOpen, onAuthenticated),
+    host: (payload, signal, onOpen, onAuthenticated) => this.openHost(payload, signal, onOpen, onAuthenticated),
   }
 
   async respond(message: ClientResponse, signal?: AbortSignal): Promise<RpcReceipt> {
-    this.onEnvelope(message)
-    const response = await this.postJson('/api/respond', message, signal)
-    return rpcReceiptSchema.parse(await response.json())
+    const expectedPrincipal = this.initiatingPrincipal()
+    if (expectedPrincipal === undefined) {
+      throw new Error('cannot initiate mutating respond without an authenticated principal')
+    }
+    const request: ClientResponse = { ...message, expectedPrincipal }
+    this.onEnvelope(request)
+    const response = await this.postJson('/api/respond', request, signal)
+    const raw: unknown = await response.json()
+    if (typeof raw !== 'object' || raw === null || !('authentication' in raw)) {
+      this.validateUnaryAuthentication('respond', expectedPrincipal, undefined)
+    }
+    const receipt = rpcReceiptSchema.parse(raw) as RpcReceipt
+    this.validateUnaryAuthentication('respond', expectedPrincipal, receipt.authentication)
+    return receipt
+  }
+
+  /** Reject stale launches without retracting a newer principal; retract invalid current settlements. */
+  private validateUnaryAuthentication(
+    method: keyof RpcMethodMap | 'respond',
+    initiating: AuthenticationPrincipalIdentity | undefined,
+    settled: AuthenticationPrincipalIdentity | undefined,
+  ): void {
+    const current = this.initiatingPrincipal()
+    const launchIsCurrent = current === undefined || initiating === undefined
+      ? current === initiating
+      : sameAuthenticationPrincipal(current, initiating)
+    if (!launchIsCurrent) {
+      throw new Error(`unary ${method} initiating authentication identity changed`)
+    }
+    if (settled === undefined) {
+      this.authenticationMismatch()
+      throw new Error(`unary ${method} response is missing authentication identity`)
+    }
+    if (initiating === undefined || sameAuthenticationPrincipal(initiating, settled)) return
+    this.authenticationMismatch()
+    throw new Error(`unary ${method} authentication identity mismatch`)
   }
 }
 
@@ -535,8 +612,18 @@ export abstract class AbstractApiClient implements IApiClient {
  * in-process injection is this package's own capability (handler and client are both local).
  */
 export class InProcessApiClient extends AbstractApiClient {
-  constructor(private readonly handler: { fetch: typeof fetch }, timeoutMs?: number) {
-    super(timeoutMs)
+  /**
+   * @param handler - injected fetch-shaped Host carrier.
+   * @param timeoutMs - bounded unary timeout.
+   * @param initiatingPrincipal - active identity captured for mutating requests.
+   */
+  constructor(
+    private readonly handler: { fetch: typeof fetch },
+    timeoutMs?: number,
+    initiatingPrincipal?: () => AuthenticationPrincipalIdentity | undefined,
+    authenticationMismatch?: () => void,
+  ) {
+    super(timeoutMs, initiatingPrincipal, authenticationMismatch)
   }
 
   /**

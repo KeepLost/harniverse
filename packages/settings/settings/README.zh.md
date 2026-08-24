@@ -28,7 +28,9 @@
 
 `settings/document-updated (ns, revision)` 在**原始**用户分节发生变化时触发，无论解析值是否随之改变。配置界面需要的是这一个：存入一个与组合 `base` 相同的覆盖值不会改变解析值，却改变了文档的说法（该字段从继承变成了覆盖），也推进了每个已打开编辑器所持有的 revision。监听器的异常隔离方式与 `settings/updated` 相同。
 
-两条声明都住在 client-safe 的 `./types` 子路径出口，与其签名点名的 `SettingsNamespace`、`SettingsUpdateSource` 类型同处一处；包根继续 re-export 这些类型。于是 Host 编译面之外的消费方读到的正是 Host 发射的那一份签名，而不必再写一遍。
+`settings/description-changed (revision)` 在每次 namespace 注册或释放后推进。API Proxy 将它与 capability／Profile 组合文档及可配置提供方拓扑信号汇合，发出 `settings/exposure-changed (revision)`；后者是远程设置描述的 Host 权威失效通知。
+
+这些声明都住在 client-safe 的 `./types` 子路径出口，与其签名点名的 `SettingsNamespace`、`SettingsUpdateSource` 类型同处一处；包根继续 re-export 这些类型。于是 Host 编译面之外的消费方读到的正是 Host 发射的那一份签名，而不必再写一遍。
 
 ## 模型体验
 
