@@ -21,11 +21,11 @@ The Service Definition package (`@deepseek-ai/dsh-code-runtime`) exports the por
 
 The Service Definition also narrows the portable identifier subset to `[A-Za-z_][A-Za-z0-9_]*` (documented on `CodeBindingNamespace.global` and `CodeBindingErrorClass`), dropping the JS-only `$`. The worker consumes the shared constants directly under their exported names — `PORTABLE_RESERVED_WORDS` for both binding-global and error-class names, `RESERVED_BINDING_GLOBALS` for backend-owned slots, `RESERVED_ERROR_MEMBERS` plus `DUNDER_MEMBER` for error members — with no local re-alias; its `IDENTIFIER` regex loses `$`.
 
-The constants live in the Service Definition even though the worker is the only shipped backend: the whole point is that the contract is language-agnostic and owned above any single language. A Service Provider that violated it would be the bug, and the shared set is where a reviewer looks to see what "portable" means.
+The constants live in the Service Definition above both the worker-thread and Python process providers: the contract is language-agnostic and owned above any single language. A Service Provider that violated it would be the bug, and the shared set is where a reviewer looks to see what "portable" means.
 
 ## Scope
 
-This decision delivers only the Service Definition extension and the worker's adoption of it. The `py-types` renderer and Code Mode language dispatch are owned by the [language-dispatch note](../feature/2026-07-31-code-mode-language-dispatch.md); a Python backend does not exist yet. The Service Definition README keeps its worker-only wording for that reason: linking to a `dsh-code-runtime-python` README that does not exist would break the dead-link gate.
+This decision owns the Service Definition extension and every provider's adoption of it. The `py-types` renderer and Code Mode language dispatch are owned by the [language-dispatch note](../feature/2026-07-31-code-mode-language-dispatch.md); the [Python provider](../feature/2026-08-25-python-code-runtime-provider.md) imports and enforces these shared constants.
 
 `RESERVED_BINDING_GLOBALS` encodes the Python bootstrap's concrete design ahead of the backend itself: it seeds exactly `__builtins__`/`__name__` and wraps the program under `__dsh_main__`. A Python backend that seeds any additional module global (`__doc__`, `__loader__`, `__spec__`, `__file__`, `__package__`, …) MUST widen this set in the same change, exactly as adding a language widens `PORTABLE_RESERVED_WORDS` — a name the bootstrap seeds but the set omits is the portability split this contract exists to prevent.
 
@@ -39,6 +39,6 @@ This decision delivers only the Service Definition extension and the worker's ad
 
 ## Consequences
 
-Bought: one place — the Service Definition package — defines what a portable binding name is, and every backend enforces the same contract by import. A namespace list valid on one backend is valid on all, verifiably, not by coincidence of which backend the caller tested.
+Bought: one place — the Service Definition package — defines what a portable binding name is, and both executable backends enforce the same contract by import. A namespace list valid on one backend is valid on all, verifiably, not by coincidence of which backend the caller tested.
 
 Cost: existing worker callers using a `$`-containing global now fail identifier validation. Under the pre-release stance this is a corrected foundation, not a compatibility break to shim. The worker's Service Definition misuse tests gain cases for `$tools`, Python exception members (`args`), dunders (`__dict__`), and a Python-owned global (`__dsh_main__`), proving the shared set is enforced from the worker side.

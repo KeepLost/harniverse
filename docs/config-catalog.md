@@ -528,6 +528,30 @@ export interface Config {
 
 Source: [`packages/client/hmr/src/index.ts:32`](../packages/client/hmr/src/index.ts)
 
+<a id="deepseek-aidsh-code-runtime-python"></a>
+
+## `@deepseek-ai/dsh-code-runtime-python`
+
+```ts config-catalog
+/** Validated deployment limits and Python executable selection. */
+export interface Config {
+  /** Executable passed directly to `spawn`; no shell parses this value. */
+  pythonExecutable?: string
+  /** Per-process `RLIMIT_CPU` soft limit in whole seconds where supported. */
+  cpuSeconds?: number
+  /** Host wall-clock ceiling for one complete process run. */
+  maxWallMs?: number
+  /** Per-process `RLIMIT_AS` soft limit in MiB where supported. */
+  maxAddressSpaceMb?: number
+  /** Combined serialized logs/value/diagnostic cap. */
+  maxOutputBytes?: number
+  /** Maximum bytes in one fd-3 frame, including binding payloads. */
+  maxControlBytes?: number
+}
+```
+
+Source: [`packages/code-runtime/code-runtime-python/src/index.ts:20`](../packages/code-runtime/code-runtime-python/src/index.ts)
+
 <a id="deepseek-aidsh-code-runtime-worker-thread"></a>
 
 ## `@deepseek-ai/dsh-code-runtime-worker-thread`

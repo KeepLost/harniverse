@@ -106,7 +106,8 @@ export abstract class CodeRuntime extends Service {
    * generates language-specific presentation (typed SDK stubs, usage
    * instructions) switches on it and fails loud on a language it cannot
    * present. Well-known values: `'typescript'` and `'python'`, those
-   * `dsh-tools` presents; only `'typescript'` has a published backend.
+   * `dsh-tools` presents; shipped Profiles select TypeScript while the Python
+   * process provider is available for explicit composition.
    */
   abstract readonly language: string
 
