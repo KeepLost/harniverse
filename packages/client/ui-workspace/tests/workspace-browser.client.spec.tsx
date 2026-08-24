@@ -136,6 +136,18 @@ describe('WorkspaceBrowser', () => {
     b.view.unmount()
   })
 
+  it('makes the archive entry reachable from the collapsed rail and expands it', () => {
+    const expandSidebar = vi.fn()
+    mount({ wide: false, expandSidebar })
+
+    const archiveButton = screen.getByRole('button', { name: '查看归档会话' })
+    expect(archiveButton).toBeTruthy()
+    fireEvent.click(archiveButton)
+
+    expect(expandSidebar).toHaveBeenCalledTimes(1)
+    expect(archiveButton.getAttribute('aria-pressed')).toBe('true')
+  })
+
   it('prunes deleted Workspace view state only after the Workspace baseline is ready', async () => {
     const pending = {
       ...workspaceState([]),

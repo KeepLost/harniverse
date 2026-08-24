@@ -1,7 +1,7 @@
 /* Workspace browsing region (fills the sidebar shell's hole): section
    header, search capsule, and the scrolling session list. Wide/rail
    variants ride the shell's fold state through the `wide` owner prop —
-   rail state renders only the two 36x36 icon controls. */
+   rail state renders 36x36 icon controls. */
 
 .root {
   --dsh-session-list-edge-inset: var(--dsh-sidebar-inline-padding);
@@ -239,9 +239,8 @@
 }
 
 /* Rail variant (own .rail class from the wide owner prop — the region never
-   reads the shell's class names): the two icon controls stack as 36x36
-   circles matching the shell's rail rhythm. Both use the rail's shared base
-   left anchor so the outer shell can translate the whole region uniformly. */
+   reads the shell's class names): icon controls use 36x36 circles matching
+   the shell's rail rhythm and shared base left anchor. */
 .rail .sectionHeader {
   gap: 0;
   padding-left: 0;

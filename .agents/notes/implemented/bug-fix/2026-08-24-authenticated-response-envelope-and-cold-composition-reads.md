@@ -24,7 +24,7 @@ The HTTP request handler carries the admitted identity in every envelope it emit
 
 Both changes are read-path corrections. Neither alters Remote capability requirements, owner sealing, loopback-only bypass, TLS for non-loopback listeners, the set of public routes, durable session or Profile formats, or plugin selection state. The envelope change adds a field the schema already required; it introduces no new field and no new authentication outcome. The cold-composition change adds a read fallback and no mutation: composing a standing mount is the same effect an ordinary Profile read already has.
 
-The archive surface needed no source change. The archive entry, panel, and preview were already composed; the panel's emptiness in earlier probing was a fixture without archived Sessions, not a defect. It gains regression coverage rather than a fix.
+The archive panel and preview were already composed, and their earlier emptiness in probing was a fixture without archived Sessions. A separate reachability defect remained: the archive entry was rendered only in the expanded sidebar, so a collapsed or narrow sidebar had no route to the panel. The entry now renders in both sidebar states and expands the rail before opening the panel.
 
 ## Testing
 
@@ -33,6 +33,8 @@ The envelope defect is pinned where it originated and where it is consumed. The 
 The cold-composition path is covered by gateway unit tests for all three outcomes: a live Agent, a cold Session listed with a recorded Profile, and a Session persistence does not list. A cold Session whose log predates the recorded-Profile field resolves the default composition rather than failing.
 
 The web e2e archive scenario extends the existing archive round trip: after the row-menu archive commits, the header entry opens the panel, the archived Session is listed rather than the empty state, and its preview resolves logged message content. The message assertion was falsified against a deliberately impossible expectation to confirm it observes five real rendered messages rather than passing vacuously.
+
+The WorkspaceBrowser client spec covers the collapsed rail entry: the archive control is present, clicking it calls the shell's expansion action, and the control enters archive mode.
 
 ## Alternatives considered
 

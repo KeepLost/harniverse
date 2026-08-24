@@ -1077,19 +1077,20 @@ export function WorkspaceBrowser({
               </button>
             </Tooltip>
           )}
-          {wide && (
-            <Tooltip label={archiveMode ? t('archive.close') : t('archive.open')} side="bottom" delayMs={500}>
-              <button
-                type="button"
-                className={css.iconButton}
-                aria-label={archiveMode ? t('archive.close') : t('archive.open')}
-                aria-pressed={archiveMode}
-                onClick={() => { setArchiveMode(value => !value) }}
-              >
-                {archiveMode ? <IconCloseFill14 /> : <ArchiveIcon />}
-              </button>
-            </Tooltip>
-          )}
+          <Tooltip label={archiveMode ? t('archive.close') : t('archive.open')} side="bottom" delayMs={500}>
+            <button
+              type="button"
+              className={css.iconButton}
+              aria-label={archiveMode ? t('archive.close') : t('archive.open')}
+              aria-pressed={archiveMode}
+              onClick={() => {
+                if (!archiveMode && !wide) expandSidebar()
+                setArchiveMode(value => !value)
+              }}
+            >
+              {archiveMode ? <IconCloseFill14 /> : <ArchiveIcon />}
+            </button>
+          </Tooltip>
         </div>
         {/* Add flow + its error dialog (same package — direct composition). */}
         <WorkspacePickFlow
