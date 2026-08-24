@@ -82,7 +82,7 @@ export type {
 } from './rpc.ts'
 
 // ---- Errors and ids ----
-export { CONNECTION_AUTHENTICATED_METHOD, RpcId, transportError } from './rpc.ts'
+export { CONNECTION_AUTHENTICATED_METHOD, RpcId, sameAuthenticationPrincipalIdentity, transportError } from './rpc.ts'
 export type { RpcError, RpcErrorCode, RpcErrorDetailsMap, RpcResult } from './rpc.ts'
 export {
   clientRequestSchema,

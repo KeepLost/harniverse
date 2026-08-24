@@ -4,11 +4,8 @@
  * controller with its sinks.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import {
-  sameAuthenticationPrincipal,
-  type AuthenticationPrincipalIdentity,
-} from '@deepseek-ai/dsh-authentication'
-import type { HostDescription, IApiClient } from './api.ts'
+import type { AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
+import { sameAuthenticationPrincipalIdentity, type HostDescription, type IApiClient } from './api.ts'
 import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type ConnectionState } from './connection.ts'
 import { FixtureApiClient } from './fixture.ts'
 import { WebApiClient } from './web-api-client.ts'
@@ -123,7 +120,7 @@ export function apply(ctx: Context): void {
     }
   }
   const publishAuthentication = (next: AuthenticationPrincipalIdentity | undefined): void => {
-    if (sameAuthenticationPrincipal(authentication, next)) return
+    if (sameAuthenticationPrincipalIdentity(authentication, next)) return
     if (authentication === undefined && next === undefined) return
     authentication = next
     for (const listener of [...authenticationListeners]) {
@@ -163,7 +160,7 @@ export function apply(ctx: Context): void {
         return () => { authenticationListeners.delete(listener) }
       },
       validate: (identity) => {
-        if (sameAuthenticationPrincipal(authentication, identity)) return true
+        if (sameAuthenticationPrincipalIdentity(authentication, identity)) return true
         invalidateAuthentication()
         return false
       },
@@ -182,7 +179,7 @@ export function apply(ctx: Context): void {
           // generation, so do not leak its stale connected notification to
           // the consumer sink afterward.
           if (!Object.is(description, next)
-            || !sameAuthenticationPrincipal(authentication, identity)) return
+            || !sameAuthenticationPrincipalIdentity(authentication, identity)) return
           sinks.onConnected?.(next, identity)
         },
         onStateChange: (state) => {

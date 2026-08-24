@@ -1,8 +1,5 @@
-import type { HostDescription, IApiClient, HostFrame, MuxFrame, RpcRequest } from './api.ts'
-import {
-  sameAuthenticationPrincipal,
-  type AuthenticationPrincipalIdentity,
-} from '@deepseek-ai/dsh-authentication'
+import { sameAuthenticationPrincipalIdentity, type HostDescription, type IApiClient, type HostFrame, type MuxFrame, type RpcRequest } from './api.ts'
+import type { AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
 
 /** Reconnect/backoff tunables (deployment-varying — no hardcoded tunables; these become the
  *  future `ctx.connection` plugin's Config). All fields optional; defaults below. */
@@ -195,8 +192,8 @@ export class ConnectionController {
           throw new Error(`host.describe failed: ${descriptionResult.error.code}: ${descriptionResult.error.message}`)
         }
         const unaryIdentity = description.authentication
-        if (!sameAuthenticationPrincipal(unaryIdentity, muxIdentity)
-          || !sameAuthenticationPrincipal(unaryIdentity, hostIdentity)) {
+        if (!sameAuthenticationPrincipalIdentity(unaryIdentity, muxIdentity)
+          || !sameAuthenticationPrincipalIdentity(unaryIdentity, hostIdentity)) {
           throw new Error('connection authentication identity mismatch')
         }
         if (ac.signal.aborted) throw new Error('generation aborted during readiness handshake')

@@ -6,13 +6,11 @@
  */
 
 import type { z } from 'zod'
-import {
-  sameAuthenticationPrincipal, type AuthenticationPrincipalIdentity,
-} from '@deepseek-ai/dsh-authentication'
+import type { AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
 import type { ApiProxy, HostFrame, MuxFrame } from '../api/index.ts'
 import { isMutatingRpcMethod, type RequestPayload, type ResponseValue, type RpcMethodMap } from '../api/rpc-map.ts'
 import type { ClientRequest, ClientResponse, RpcMessage, RpcReceipt, RpcRequest, RpcResponse, ServerRequest } from '../api/rpc.ts'
-import { CONNECTION_AUTHENTICATED_METHOD, RpcId } from '../api/rpc.ts'
+import { CONNECTION_AUTHENTICATED_METHOD, RpcId, sameAuthenticationPrincipalIdentity } from '../api/rpc.ts'
 import type { Wire } from '../api/rpc.schema.ts'
 import {
   authenticationPrincipalIdentitySchema, rpcReceiptSchema, serverRequestSchema, serverResponseSchema,
@@ -592,7 +590,7 @@ export abstract class AbstractApiClient implements IApiClient {
     const current = this.initiatingPrincipal()
     const launchIsCurrent = current === undefined || initiating === undefined
       ? current === initiating
-      : sameAuthenticationPrincipal(current, initiating)
+      : sameAuthenticationPrincipalIdentity(current, initiating)
     if (!launchIsCurrent) {
       throw new Error(`unary ${method} initiating authentication identity changed`)
     }
@@ -600,7 +598,7 @@ export abstract class AbstractApiClient implements IApiClient {
       this.authenticationMismatch()
       throw new Error(`unary ${method} response is missing authentication identity`)
     }
-    if (initiating === undefined || sameAuthenticationPrincipal(initiating, settled)) return
+    if (initiating === undefined || sameAuthenticationPrincipalIdentity(initiating, settled)) return
     this.authenticationMismatch()
     throw new Error(`unary ${method} authentication identity mismatch`)
   }

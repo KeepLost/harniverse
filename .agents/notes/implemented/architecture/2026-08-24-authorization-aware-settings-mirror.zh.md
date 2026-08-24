@@ -14,7 +14,7 @@ Status: implemented
 
 `dsh-client-ui-settings` 为已认证连接拥有唯一的 `SettingsDescribeMirror`，并通过 `ctx.settingsScope.describe()` 暴露它。每个 namespace scope 和完整 Settings 界面都从这份共享 Host 响应派生，而不再发起另一项描述读取。该镜像只是已获授权答案的缓存，不是授权权威：Host 仍负责选择暴露的 namespace、脱敏 secret-role 字段、报告可写性，并强制执行每项读写。
 
-传输把每个已准入 principal 投影为 `AuthenticationPrincipalIdentity`：`{ kind: 'bypass' }`，或 `{ kind: 'grant', grantId, grantRevision }`。Grant name、capability、过期时间、浏览器 session material 和 access credential 都不会进入该身份。Grant id 加 revision 标识精确的授权 generation；bypass 则是[公钥 Grant 认证决策](2026-08-17-public-key-grant-authentication.md)确立的、显式且仅限回环的准入身份。
+传输把每个已准入 principal 投影为 `AuthenticationPrincipalIdentity`：`{ kind: 'bypass' }`，或 `{ kind: 'grant', grantId, grantRevision }`。Grant name、capability、过期时间、浏览器 session material 和 access credential 都不会进入该身份。Grant id 加 revision 标识精确的授权 generation；bypass 则是[公钥 Grant 认证决策](2026-08-17-public-key-grant-authentication.md)确立的、显式且仅限回环的准入身份。Inline-safe API wire 层拥有这份投影的结构比较；browser-safe connection 与 Fetch carrier 代码只导入该身份类型，不会把认证插件运行时值引入 client bundle。
 
 ## 共享镜像与写入折叠
 

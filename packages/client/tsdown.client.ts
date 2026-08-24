@@ -215,13 +215,13 @@ function clientConfig(id: string, entry: string): UserConfig {
       // or requires a specifier the frozen module table cannot answer.
       // Cross-plugin collaboration goes through cordis services instead.
       name: 'dsh-client-bundle-purity',
-      resolveId(source: string) {
+      resolveId(source: string, importer: string | undefined) {
         if (!source.startsWith('@deepseek-ai/')) return null
         if (CLIENT_EXTERNALS.includes(source)) return null // platform module: external wins
         if (VENDORED_LIBRARY.test(source)) return null // vendored library: inline, no shared identity
         if (INLINE_SAFE.test(source) || GENERATED_REMOTE.test(source)) return null // wire contribution: inline is the point
         throw new Error(
-          `client bundle purity: "${source}" is not a platform module (CLIENT_EXTERNALS), an inline-safe wire layer, or a generated /remote contribution — `
+          `client bundle purity: "${source}" imported by ${JSON.stringify(importer ?? '<entry>')} is not a platform module (CLIENT_EXTERNALS), an inline-safe wire layer, or a generated /remote contribution — `
           + 'cross-plugin value imports are forbidden; collaborate through cordis services (type-only imports are erased and never reach this gate)',
         )
       },

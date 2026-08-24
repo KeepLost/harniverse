@@ -153,6 +153,21 @@ export interface RpcResponse<T> {
   authentication?: AuthenticationPrincipalIdentity
 }
 
+/**
+ * Compare the non-secret principal identities carried by browser transports.
+ * @param left - one wire identity.
+ * @param right - the other wire identity.
+ * @returns whether both identify the same Host authorization generation.
+ */
+export function sameAuthenticationPrincipalIdentity(
+  left: AuthenticationPrincipalIdentity | undefined,
+  right: AuthenticationPrincipalIdentity | undefined,
+): boolean {
+  if (left?.kind === 'bypass') return right?.kind === 'bypass'
+  if (left?.kind !== 'grant' || right?.kind !== 'grant') return false
+  return left.grantId === right.grantId && left.grantRevision === right.grantRevision
+}
+
 // ---- Wire full forms: four named members of a discriminated union (discriminant = the four `type` literals) ----
 
 /** Call initiated by the client (wire carrier: POST /api/<method> body). */

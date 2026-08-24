@@ -3,10 +3,13 @@
  * the physical watch dependencies hidden behind virtual CSS Modules.
  */
 import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
+import { globSync } from 'node:fs'
+import ts from 'typescript'
 import { describe, expect, it, vi } from 'vitest'
 import { CLIENT_EXTERNALS, clientBundle } from '../packages/client/tsdown.client.ts'
 
-type ResolveId = (source: string) => null | { id: string; external: boolean }
+type ResolveId = (source: string, importer?: string) => null | { id: string; external: boolean }
 
 interface CssModulePlugin {
   name: string
@@ -87,6 +90,8 @@ describe('client bundle purity gate', () => {
   it('throws on any other @deepseek-ai leak', () => {
     expect(() => resolveId('@deepseek-ai/dsh-agent')).toThrow(/purity/)
     expect(() => resolveId('@deepseek-ai/dsh-client-web')).toThrow(/purity/)
+    expect(() => resolveId('@deepseek-ai/dsh-authentication', '/repo/client.js'))
+      .toThrow(/imported by "\/repo\/client\.js"/)
   })
 
   it('throws on cross-plugin value imports — bare plugin names and /client subpaths alike (the rewrite arm is gone)', () => {
@@ -100,6 +105,42 @@ describe('client bundle purity gate', () => {
     const clientChannels = CLIENT_EXTERNALS.filter(
       entry => entry.startsWith('@deepseek-ai/') && entry.endsWith('/client'))
     expect(clientChannels).toEqual(['@deepseek-ai/dsh-client-runtime/client'])
+  })
+
+  it('accepts every direct runtime package edge in client and inline wire source', () => {
+    const violations: string[] = []
+    const files = [
+      ...globSync('packages/*/*/src/client/**/*.{ts,tsx}'),
+      ...globSync('packages/host/apiproxy/src/api/**/*.{ts,tsx}'),
+      'packages/host/apiproxy/src/fetch/client.ts',
+    ].sort()
+    for (const file of files) {
+      const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true)
+      for (const statement of source.statements) {
+        let specifier: string | undefined
+        let runtime = false
+        if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
+          specifier = statement.moduleSpecifier.text
+          const clause = statement.importClause
+          runtime = clause === undefined
+            || (clause.phaseModifier !== ts.SyntaxKind.TypeKeyword && (clause.name !== undefined
+              || clause.namedBindings === undefined
+              || ts.isNamespaceImport(clause.namedBindings)
+              || clause.namedBindings.elements.some(element => !element.isTypeOnly)))
+        } else if (ts.isExportDeclaration(statement) && statement.moduleSpecifier !== undefined
+          && ts.isStringLiteral(statement.moduleSpecifier)) {
+          specifier = statement.moduleSpecifier.text
+          runtime = !statement.isTypeOnly
+        }
+        if (!runtime || specifier === undefined) continue
+        try {
+          resolveId(specifier)
+        } catch (error) {
+          violations.push(`${file}: ${specifier}: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+    }
+    expect(violations).toEqual([])
   })
 })
 

@@ -30,6 +30,7 @@ export type {
 export {
   RpcId,
   SESSION_SEARCH_RESULT_LIMIT,
+  sameAuthenticationPrincipalIdentity,
   transportError,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 export { AbstractApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'

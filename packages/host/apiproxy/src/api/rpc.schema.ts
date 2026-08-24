@@ -9,7 +9,7 @@ import { z } from 'zod'
 import type { z as zCore } from 'zod'
 type ZodIssue = zCore.core.$ZodIssue
 import type { ClientRequest, ClientResponse, RpcError, RpcId, RpcReceipt, ServerRequest, ServerResponse } from './rpc.ts'
-import { authenticationGrantId, type AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
+import type { AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
 
 /**
  * Wire widening of a contract type: widens every property (deeply) to `original | undefined`.
@@ -36,7 +36,7 @@ export const authenticationPrincipalIdentitySchema = z.discriminatedUnion('kind'
   z.object({ kind: z.literal('bypass') }),
   z.object({
     kind: z.literal('grant'),
-    grantId: z.string().min(1).transform(authenticationGrantId),
+    grantId: z.string().min(1),
     grantRevision: z.number().int().nonnegative(),
   }),
 ]) as unknown as z.ZodType<AuthenticationPrincipalIdentity>

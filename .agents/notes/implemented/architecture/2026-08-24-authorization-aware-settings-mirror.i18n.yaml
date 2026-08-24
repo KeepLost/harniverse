@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-24-authorization-aware-settings-mirror.md
-2026-08-24-authorization-aware-settings-mirror.md: ebb915687a6b99d6b2e2d791cf4b42286b88cc97
-2026-08-24-authorization-aware-settings-mirror.zh.md: 9c7a6e27e439903c3e42298f515d46946478c3ea
+2026-08-24-authorization-aware-settings-mirror.md: 0df1ce265ebdf4e918a271b60431f589d8f81152
+2026-08-24-authorization-aware-settings-mirror.zh.md: 8439e487dd7caf9889bd6c1953ce83d572bc5174
