@@ -18,7 +18,7 @@ const RECIPE_PREFIX = 'plugin:'
 const FIXED_ROWS = new Set(['agent-instructions'])
 
 const TOOLS_BY_PACKAGE: Readonly<Record<string, readonly string[]>> = {
-  '@deepseek-ai/dsh-agent-tool-presentation': [],
+  '@deepseek-ai/dsh-agent-tool-presentation': ['run_code'],
   '@deepseek-ai/dsh-compaction-tool-result-pruner': [],
   '@deepseek-ai/dsh-plan-mode': ['exit_plan_mode'],
   '@deepseek-ai/dsh-tool-ask-user': ['ask_user_question'],
@@ -183,11 +183,10 @@ function customizationOf(rowId: string, row: EntryOptions): CapabilityCustomizat
 function rowWithMemberSelection(
   row: EntryOptions,
   visible: ReadonlySet<string>,
-  nested = false,
 ): EntryOptions {
   const configured = structuredClone(row)
   if (configured.group && Array.isArray(configured.config)) {
-    configured.config = configured.config.map(child => rowWithMemberSelection(child as EntryOptions, visible, true))
+    configured.config = configured.config.map(child => rowWithMemberSelection(child as EntryOptions, visible))
     return configured
   }
   const tools = toolsOf(configured).map(member => member.name)
@@ -198,7 +197,7 @@ function rowWithMemberSelection(
       fetch: visible.has('web_fetch'),
     }
   }
-  if (nested && tools.length > 0) configured.disabled = !tools.some(name => visible.has(name))
+  if (tools.length > 0) configured.disabled = !tools.some(name => visible.has(name))
   return configured
 }
 
@@ -234,9 +233,10 @@ export async function compositionCatalog(
     const { row } = canonicalRecipe
     const id = `${RECIPE_PREFIX}${rowId}`
     const source = targetRows.get(rowId)
-    const loadedByDefault = targetProfile === undefined
-      ? parsed.some(candidate => defaultLoaded(candidate.rows.find(entry => entry.id === rowId)))
-      : defaultLoaded(source)
+    // A global target supplies overrides, not a union of Profile-native defaults.
+    // Treating any Profile's row as globally loaded leaks code-only capabilities
+    // such as `tool-presentation` into Profiles that never opted into them.
+    const loadedByDefault = targetProfile === undefined ? false : defaultLoaded(source)
     const members = membersOf(rowId, source ?? row)
     const customization = customizationOf(rowId, source ?? row)
     recipes.set(id, {
@@ -362,8 +362,8 @@ export function compositionPatches(
       continue
     }
     if (!entry.selected) continue
-    const inserted = structuredClone(recipe.canonical)
-    inserted.disabled = false
+    const inserted = memberConfigured ?? structuredClone(recipe.canonical)
+    if (memberConfigured === undefined) inserted.disabled = false
     if (configuration !== undefined) inserted.config = structuredClone(configuration)
     patches.push({ insert: [inserted] })
   }

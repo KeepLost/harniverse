@@ -19,7 +19,7 @@
 - `ctx.agentPresets.composeFrom(agentCtx, parentCtx): string | undefined` 让一个 agent 加入另一个 agent 已在运行的常驻组装，返回所加入的 preset id——父方未加入任何 preset 时返回 `undefined`，那是无 roster 的部署，不是错误。这是认父而非挂载，因此同步、且自身没有组装失败模式；调用方用错（上下文无 scope、agent 已加入过）仍会拒绝。
 - `ctx.agentPresets.composedPreset(agentCtx): string | undefined` 某个**活着的** agent 正在运行的 preset，从其 scope 链读取而不是从其会话读取——对于持久化 header 尚在构建中的 agent，这是唯一能拿到的答案。
 - `ctx.agentPresets.standingKeyFor(id?): Promise<ScopeKey>` 没有 agent 的宿主读取方（冷读记录）解析 preset 注册所用的常驻 scope key；确保挂载而不启动任何 agent、会话或轮次。与 `mount()` 一样拒绝损坏的 preset。
-- `ctx.agentPresets.capabilityRecipes(id?): Promise<CapabilityDescriptor[]>` 直接从健康 Profile YAML 文件读取部署级顶层插件配方集合，包括声明的内置 Tool 成员与 Persona 的 Profile 安全配置契约。传入 Profile 时使用该文件的原生选择、成员与配置默认值；读取配方不会挂载任何插件。
+- `ctx.agentPresets.capabilityRecipes(id?): Promise<CapabilityDescriptor[]>` 直接从健康 Profile YAML 文件读取部署级顶层插件配方集合，包括声明的内置 Tool 成员、Code Mode presentation 的 `run_code` member 与 Persona 的 Profile 安全配置契约。传入 Profile 时使用该文件的原生选择、成员与配置默认值；省略 Profile 时表示显式的全局 override，不会把任意 Profile 的原生行合并为全局默认值；读取配方不会挂载任何插件。
 - `ctx.agentPresets.compositionRuntime(agentCtx)` 返回为一个在线 Agent 捕获的不可变 generation id 与组装结果，供 Session“能力”视图使用。
 - `ctx.agentPresets.roots: readonly PresetRoot[]` 本 roster 实际扫描的根目录——全部已配置根目录按序在前，随后是推导出的 harness home 根目录。它不是 `config.roots`：判断「是否已组装 roster」应读它，从而由同一处推导决定。
 - `ctx.agentPresets.authorable: boolean` 上述根目录中是否有任一具备 `user` 信任级别，因而 preset 是否可创建。

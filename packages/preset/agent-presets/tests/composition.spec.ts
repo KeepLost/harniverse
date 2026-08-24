@@ -38,6 +38,48 @@ describe('Agent Profile composition recipes', () => {
     expect(minimal.descriptors.find(entry => entry.id === 'plugin:alpha')?.defaultLoaded).toBe(false)
   })
 
+  it('keeps code-only presentation opt-in in the global catalog and exposes run_code as a member', async () => {
+    const presets = ['standard', 'minimal', 'code', 'cordis'].map(shippedPreset)
+    const global = await compositionCatalog(presets)
+    const presentation = global.descriptors.find(entry => entry.id === 'plugin:tool-presentation')
+
+    expect(presentation?.defaultLoaded).toBe(false)
+    expect(presentation?.members).toContainEqual(expect.objectContaining({
+      name: 'run_code',
+      defaultVisible: true,
+    }))
+  })
+
+  it('does not insert code presentation into standard when its native defaults are selected', async () => {
+    const presets = ['standard', 'minimal', 'code', 'cordis'].map(shippedPreset)
+    const catalog = await compositionCatalog(presets, 'standard')
+    const patches = compositionPatches(catalog, catalog.descriptors.map(descriptor => selected(descriptor)))
+
+    expect(patches).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ insert: [expect.objectContaining({ id: 'tool-presentation' })] }),
+    ]))
+  })
+
+  it('compiles run_code member selection into an enabled or disabled presentation row', async () => {
+    const catalog = await compositionCatalog(['standard', 'code'].map(shippedPreset), 'standard')
+    const presentation = catalog.descriptors.find(entry => entry.id === 'plugin:tool-presentation')
+    if (presentation?.members === undefined) throw new Error('tool presentation must declare run_code')
+    const entryFor = (visible: boolean): CapabilityCatalogEntry[] => catalog.descriptors.map(descriptor => descriptor.id === 'plugin:tool-presentation'
+      ? {
+        ...selected(descriptor, true),
+        memberSelection: 'custom',
+        memberEntries: descriptor.members!.map(member => ({ ...member, visible })),
+      }
+      : selected(descriptor))
+
+    expect(compositionPatches(catalog, entryFor(true))).toContainEqual({
+      insert: [expect.objectContaining({ id: 'tool-presentation', disabled: false })],
+    })
+    expect(compositionPatches(catalog, entryFor(false))).toContainEqual({
+      insert: [expect.objectContaining({ id: 'tool-presentation', disabled: true })],
+    })
+  })
+
   it('compiles unloads and cross-Profile loads into native Include patches', async () => {
     const catalog = await compositionCatalog([shippedPreset('standard'), shippedPreset('minimal')], 'minimal')
     const entries = catalog.descriptors.map(descriptor => selected(

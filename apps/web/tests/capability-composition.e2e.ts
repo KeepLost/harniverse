@@ -78,3 +78,26 @@ it('assembles a changed Profile only for new Sessions', async () => {
     await existing.dispose()
   }
 }, 120_000)
+
+it('keeps standard native and code presentation explicitly Profile-scoped', async () => {
+  scaffold = await launchWebScaffold()
+  const ctx = scaffold.ctx
+  const standard = await ctx.agents.create({
+    sessionId: SessionId('capability-composition-standard-native'),
+    setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
+  })
+  const code = await ctx.agents.create({
+    sessionId: SessionId('capability-composition-code-presentation'),
+    setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'code').then(() => undefined),
+  })
+  try {
+    const standardPrompt = await ctx.systemPrompt.assemble({ scope: standard.agent })
+    const codePrompt = await ctx.systemPrompt.assemble({ scope: code.agent })
+    expect(standardPrompt.tools.some(schema => schema.name === 'read')).toBe(true)
+    expect(standardPrompt.tools.some(schema => schema.name === 'run_code')).toBe(false)
+    expect(codePrompt.tools.map(schema => schema.name)).toEqual(['run_code'])
+  } finally {
+    await code.dispose()
+    await standard.dispose()
+  }
+}, 120_000)
