@@ -18,11 +18,11 @@ Node 24 消费方任务采用单个包含七道门禁的模式，而非由 shell
 
 [scripts/publint-all.ts](../../../../scripts/publint-all.ts) 从 `packages/<group>/<pkg>` 发现包，并以根据 `availableParallelism()` 确定大小的 worker 池运行 `publint`。`DSH_PUBLINT_CONCURRENCY` 可以针对资源配置不同的本地机器和 CI runner 限制或提高 worker 数量。结果按包缓冲，并按确定性的包顺序打印，因此并行执行不会打乱各包的日志块。
 
-各门禁的包脚本仍是临时本地运行所用的命令入口。`hygiene` 继续作为聚合 `&&` 链，而 `doc-sync` 的成员列表由调度器管理（[通过门禁调度器运行 doc-sync](../../archived/process/2026-07-21-doc-sync-through-gate-scheduler.md)）。
+各门禁的包脚本仍是临时本地运行所用的命令入口。公开的 `test` 脚本会先完成完整 build，再运行 `test:unit`，因此源码级单元测试通过时不会漏掉 client-bundle 闭包验证。`check:all` 让其 `test:unit` 门禁依赖聚合器内唯一的 build 门禁，从而避免重复构建。`hygiene` 继续作为聚合 `&&` 链，而 `doc-sync` 的成员列表由调度器管理（[通过门禁调度器运行 doc-sync](../../archived/process/2026-07-21-doc-sync-through-gate-scheduler.md)）。
 
 ## 验证
 
-[scripts/run-gates.spec.ts](../../../../scripts/run-gates.spec.ts) 在执行器运行前拒绝无效图，锁定消费方清单和依赖边，并通过真实子进程验证信号终止。[scripts/publint-all.spec.ts](../../../../scripts/publint-all.spec.ts) 在下游产物消费方运行前拒绝缺失的公开导出。
+[scripts/run-gates.spec.ts](../../../../scripts/run-gates.spec.ts) 在执行器运行前拒绝无效图，锁定消费方清单和依赖边，包括 build 先于单元测试的顺序，并通过真实子进程验证信号终止。[scripts/publint-all.spec.ts](../../../../scripts/publint-all.spec.ts) 在下游产物消费方运行前拒绝缺失的公开导出。
 
 ## 曾考虑的替代方案
 

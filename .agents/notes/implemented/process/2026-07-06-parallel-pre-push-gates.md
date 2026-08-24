@@ -18,11 +18,11 @@ The Node 24 consumer job is one seven-gate mode rather than a shell-owned proces
 
 [scripts/publint-all.ts](../../../../scripts/publint-all.ts) discovers packages from `packages/<group>/<pkg>` and runs `publint` with a worker pool sized from `availableParallelism()`. `DSH_PUBLINT_CONCURRENCY` can cap or raise the worker count for local machines and CI runners with different resource profiles. Results are buffered per package and printed in deterministic package order, so parallel execution does not scramble each package's log block.
 
-The per-gate package scripts remain the vocabulary for ad hoc local runs. `hygiene` stays an aggregate `&&` chain, while `doc-sync` owns its member list in the scheduler ([doc-sync through the gate scheduler](../../archived/process/2026-07-21-doc-sync-through-gate-scheduler.md)).
+The per-gate package scripts remain the vocabulary for ad hoc local runs. The public `test` script runs the complete build before `test:unit`, so a source-level unit pass cannot omit client-bundle closure validation. `check:all` avoids a duplicate build by making its `test:unit` gate depend on the aggregate's single build gate. `hygiene` stays an aggregate `&&` chain, while `doc-sync` owns its member list in the scheduler ([doc-sync through the gate scheduler](../../archived/process/2026-07-21-doc-sync-through-gate-scheduler.md)).
 
 ## Verification
 
-[scripts/run-gates.spec.ts](../../../../scripts/run-gates.spec.ts) rejects invalid graphs before the executor runs, pins the consumer inventory and dependency edges, and exercises signal termination through a real child process. [scripts/publint-all.spec.ts](../../../../scripts/publint-all.spec.ts) rejects a missing public export before downstream artifact consumers run.
+[scripts/run-gates.spec.ts](../../../../scripts/run-gates.spec.ts) rejects invalid graphs before the executor runs, pins the consumer inventory and dependency edges including build-before-unit-test ordering, and exercises signal termination through a real child process. [scripts/publint-all.spec.ts](../../../../scripts/publint-all.spec.ts) rejects a missing public export before downstream artifact consumers run.
 
 ## Alternatives considered
 

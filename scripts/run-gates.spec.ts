@@ -92,6 +92,14 @@ describe('gate graph validation', () => {
     },
   )
 
+  it('runs the local complete test suite only after the build gate', () => {
+    const gates = withPnpmEntrypoint(() => gatesForMode('check-all'))
+    const test = gates.find(subject => subject.id === 'test')
+
+    expect(test?.displayCommand).toBe('pnpm run test:unit (after pnpm run build)')
+    expect(test?.needs).toEqual(['build'])
+  })
+
   it('keeps native Windows coverage blocking while portability inventory remains observational', () => {
     const gates = withPnpmEntrypoint(() => gatesForMode('ci-windows-complete'))
     const byId = new Map(gates.map(subject => [subject.id, subject]))

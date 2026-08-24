@@ -114,6 +114,19 @@ describe('virtualManifest', () => {
     }
   })
 
+  it('ignores a prefix-matching directory whose optional package was not materialized', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-notices-unmaterialized-'))
+    try {
+      const name = '@scope/pkg'
+      const store = join(root, 'store')
+      mkdirSync(join(store, `${name.replace('/', '+')}@1.0.0`, 'node_modules'), { recursive: true })
+
+      expect(virtualManifest(store, name)).toBeUndefined()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('returns undefined when neither the prefix nor the content scan finds the package', () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-notices-miss-'))
     try {
