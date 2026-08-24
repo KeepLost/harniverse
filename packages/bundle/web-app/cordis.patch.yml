@@ -29,6 +29,12 @@
     path: ':memory:'
     openAt: first-search
 
+- id: session-reference
+  name: '@deepseek-ai/dsh-session-reference'
+
+- id: file-reference-local
+  name: '@deepseek-ai/dsh-file-reference-local'
+
 - id: tools
   config:
     # TEMPORARY workaround: DSH_TOOLS_MODE (native|code|both) opts a whole dsh
@@ -271,6 +277,9 @@
 
     - id: ui-subagent
       name: '@deepseek-ai/dsh-client-ui-subagent'
+
+    - id: ui-reference
+      name: '@deepseek-ai/dsh-client-ui-reference'
 
     # Background jobs: the session-header list over the jobsBySession mirror.
     - id: ui-jobs

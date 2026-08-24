@@ -27,6 +27,7 @@
     {
       "path": "../../extensions/cordis-host-runner"
     },
+    { "path": "../../context/file-reference" },
     {
       "path": "../../goal/goal"
     },
@@ -51,6 +52,7 @@
     {
       "path": "../../settings/settings"
     },
+    { "path": "../../context/session-reference" },
     {
       "path": "../../typert/protocol"
     }

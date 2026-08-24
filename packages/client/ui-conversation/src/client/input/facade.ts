@@ -343,15 +343,17 @@ export class SessionInputShell implements SessionInput {
    * consume-token span branch: the machine sees an ordinary draft-changed
    * transaction (one undo step), no occurrence is minted — the chip look is
    * a scan-derived decoration, never state.
-   * @param text - the plain reference text to splice in (e.g. `/name `).
-   * @param span - pick-time span snapshot (draftRev CAS).
-   * @returns whether the text was applied.
+    * @param text - the plain reference text to splice in (e.g. `/name `).
+    * @param span - pick-time span snapshot (draftRev CAS).
+    * @param continueCompletion - whether to re-track completion at the replacement caret.
+    * @returns whether the text was applied.
    */
-  insertText(text: string, span: TokenSpan): boolean {
+  insertText(text: string, span: TokenSpan, continueCompletion = false): boolean {
     const snapshot = this.core.state
     if (span.draftRev !== snapshot.draftRev) return false
     const draft = snapshot.draft
     this.setDraft(draft.slice(0, span.start) + text + draft.slice(span.end))
+    if (continueCompletion) this.track(this.snapshot.draft, span.start + text.length)
     return true
   }
 

@@ -322,7 +322,11 @@ export class InputTriggerController {
       return actx.bail(actx, 'slash/input-begin-command', { claim: outcome.claim, span }) === true
     }
     if ('text' in outcome) {
-      return actx.bail(actx, 'slash/input-insert-text', { text: outcome.text, span }) === true
+      return actx.bail(actx, 'slash/input-insert-text', {
+        text: outcome.text,
+        span,
+        ...outcome.continue === undefined ? {} : { continue: outcome.continue },
+      }) === true
     }
     return actx.bail(actx, 'slash/input-insert-reference', { reference: outcome.insert, span }) === true
   }
@@ -365,7 +369,12 @@ export class InputTriggerController {
     const projection = this.project()
     for (const source of roster) {
       void source
-        .candidates(projection, { query: hit.query, position: hit.position, signal: controller.signal })
+        .candidates(projection, {
+          query: hit.query,
+          ...hit.quoted === undefined ? {} : { quoted: hit.quoted },
+          position: hit.position,
+          signal: controller.signal,
+        })
         .then(
           (items) => {
             if (controller.signal.aborted) return

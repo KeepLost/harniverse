@@ -98,6 +98,18 @@ describe('createFixtureApi commands/skills', () => {
     const missingSession = await api.skills.list(req({ sessionId: sid('fx-nope') }))
     expect(missingSession.result).toMatchObject({ ok: false, error: { code: 'session-not-found' } })
   })
+
+  it('serves file and session reference Remotes through the same fixture face', async () => {
+    const { rpc } = createFixtureFaces()
+    await expect(callRemote<{ path: string; kind: string }[]>(rpc, 'fileReferences/list', {
+      agentId: sid('fx-alpha'), query: 'README',
+    })).resolves.toEqual([{ path: 'README.md', kind: 'file' }])
+    await expect(callRemote<{ sessionId: SessionId; mention: string }[]>(rpc, 'sessionReferenceResolver/candidates', {
+      agentId: sid('fx-alpha'), query: 'beta',
+    })).resolves.toMatchObject([{ sessionId: sid('fx-beta'), mention: '@[Fixture 子会话](dsh-session:ImZ4LWJldGEi)' }])
+    await expect(rpc.call('/api', 'fileReferences/list', { args: { agentId: sid('fx-nope'), query: '' } }))
+      .resolves.toMatchObject({ ok: false, error: { code: 'session-not-found' } })
+  })
 })
 
 describe('FixtureApiClient command/skill dispatch', () => {

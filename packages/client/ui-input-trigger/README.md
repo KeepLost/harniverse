@@ -10,6 +10,8 @@ MenuView renders the menu store into the `conversation.input.overlay` slot (list
 
 The `/client` exports are the plugin body (`apply`/`inject`), `InputTriggerService`, `MenuViewInjected`, and the contract types. MenuView itself is internal — the slot registration closes over it.
 
+Quoted `@"path with spaces` tokens are carried through candidate requests, sectioned candidates render in one source group, and a continuation text outcome re-tracks the existing input transaction for directory descent.
+
 ## Model Experience
 
 None, as the trigger pipeline is browser presentation only — picks produce `CommandClaim`/`ReferenceInsert` data whose model-visible consequences (host command execution; inserted reference text riding an ordinary prompt) are owned by the consuming host and input-machine packages.

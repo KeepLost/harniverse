@@ -81,31 +81,31 @@ export function MenuView({ menu, onPick, onDismiss, t }: MenuViewProps) {
               {/* Source names key the dictionary open-endedly: the lookup chain
                   returns an unknown key verbatim, so an unregistered source
                   shows its raw name — hence the cast past the typed key union. */}
-              <div className={css.groupTitle} role="presentation" data-source={group.source}>{t(group.source as MenuKey)}</div>
+              {group.items.every(item => item.section === undefined) && <div className={css.groupTitle} role="presentation" data-source={group.source}>{t(group.source as MenuKey)}</div>}
               {group.status === 'pending'
                 ? <div className={css.loading} data-source={group.source}>{t('loading')}</div>
                 : group.items.map((item, index) => {
                   const active = highlight !== null && highlight.source === group.source && highlight.index === index
+                  const previous = index === 0 ? undefined : group.items[index - 1]?.section
                   return (
-                    <button
-                      key={`${group.source}:${item.name}`}
-                      id={optionId(group.source, index)}
-                      type="button"
-                      role="option"
-                      aria-selected={active}
-                      className={clsx(css.item, active && css.active)}
-                      // mousedown, not click: the textarea keeps focus (combobox
-                      // pattern) — preventing default stops the focus steal, and the
-                      // pick runs before any blur-driven teardown.
-                      onMouseDown={(ev) => {
-                        ev.preventDefault()
-                        onPick(group.source, index)
-                      }}
-                    >
-                      {item.icon !== undefined && <span className={css.itemIcon} aria-hidden>{item.icon}</span>}
-                      <span className={css.itemName}>{item.name}</span>
-                      {item.description !== undefined && <span className={css.itemDescription}>{item.description}</span>}
-                    </button>
+                    <Fragment key={`${group.source}:${item.name}`}>
+                      {item.section !== undefined && item.section !== previous && <div className={css.groupTitle} role="presentation">{item.section}</div>}
+                      <button
+                        id={optionId(group.source, index)}
+                        type="button"
+                        role="option"
+                        aria-selected={active}
+                        className={clsx(css.item, active && css.active)}
+                        onMouseDown={(ev) => {
+                          ev.preventDefault()
+                          onPick(group.source, index)
+                        }}
+                      >
+                        {item.icon !== undefined && <span className={css.itemIcon} aria-hidden>{item.icon}</span>}
+                        <span className={css.itemName}>{item.name}</span>
+                        {item.description !== undefined && <span className={css.itemDescription}>{item.description}</span>}
+                      </button>
+                    </Fragment>
                   )
                 })}
             </Fragment>

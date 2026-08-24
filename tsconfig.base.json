@@ -217,6 +217,7 @@
       "@deepseek-ai/dsh-client-ui-permission-presets": ["./packages/client/ui-permission-presets/src"],
       "@deepseek-ai/dsh-client-ui-skill": ["./packages/client/ui-skill/src"],
       "@deepseek-ai/dsh-client-ui-subagent": ["./packages/client/ui-subagent/src"],
+      "@deepseek-ai/dsh-client-ui-reference": ["./packages/client/ui-reference/src"],
       "@deepseek-ai/dsh-client-ui-settings-plugins": ["./packages/client/ui-settings-plugins/src"],
       "@deepseek-ai/dsh-client-ui-jobs": ["./packages/client/ui-jobs/src"],
       "@deepseek-ai/dsh-client-ui-plan": ["./packages/client/ui-plan/src"],

@@ -1652,6 +1652,32 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   }
 
   const summaryOf = (id: SessionId): SessionSummary | undefined => sessions.find(s => s.sessionId === id)
+  const fileReferences = (query: string): { path: string; kind: 'file' | 'directory' }[] => {
+    const candidates = [
+      { path: 'packages', kind: 'directory' as const },
+      { path: 'packages/client', kind: 'directory' as const },
+      { path: 'README.md', kind: 'file' as const },
+    ]
+    const needle = query.toLocaleLowerCase()
+    return candidates.filter(candidate => needle === '' || candidate.path.toLocaleLowerCase().includes(needle))
+  }
+  const sessionReferences = (query: string) => {
+    const candidates = [
+      {
+        sessionId: sid('fx-beta'), label: 'Fixture 子会话', cwd: '/tmp/fixture', createdAt: Date.now() - 60_000,
+        mention: '@[Fixture 子会话](dsh-session:ImZ4LWJldGEi)',
+      },
+      {
+        sessionId: sid('fx-gamma'), label: 'fx-gamma', cwd: '/tmp/fixture', createdAt: Date.now() - 120_000,
+        mention: '@[fx-gamma](dsh-session:ImZ4LWdhbW1hIg)',
+      },
+    ]
+    const needle = query.toLocaleLowerCase()
+    return candidates.filter(candidate => needle === ''
+      || candidate.sessionId.toLocaleLowerCase().includes(needle)
+      || candidate.cwd.toLocaleLowerCase().includes(needle)
+      || candidate.label.toLocaleLowerCase().includes(needle))
+  }
   /** Shared session guard for sessionId-addressed catalog routes: the error
    *  response when the session is unknown, undefined when it exists. */
   const requireSession = (request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<never>> | undefined => {
@@ -3114,6 +3140,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         args: {
           agentId: SessionId
           sessionId: SessionId
+          query?: string
           line?: string
           ref?: { id: string; revision: number }
           request?: { objective?: string; maxGoalRounds?: number }
@@ -3132,6 +3159,14 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         case 'goals/resume': return Promise.resolve(goalRemotes.resume(sessionId, args.ref as FxGoalRef))
         case 'goals/complete': return Promise.resolve(goalRemotes.complete(sessionId, args.ref as FxGoalRef))
         case 'goals/clear': return Promise.resolve(goalRemotes.clear(sessionId, args.ref as FxGoalRef))
+        case 'fileReferences/list': {
+          if (summaryOf(args.agentId) === undefined) return Promise.resolve({ ok: false, error: { code: 'session-not-found', message: `no session ${args.agentId}`, details: { sessionId: args.agentId } } })
+          return Promise.resolve({ ok: true, value: fileReferences(args.query ?? '') })
+        }
+        case 'sessionReferenceResolver/candidates': {
+          if (summaryOf(args.agentId) === undefined) return Promise.resolve({ ok: false, error: { code: 'session-not-found', message: `no session ${args.agentId}`, details: { sessionId: args.agentId } } })
+          return Promise.resolve({ ok: true, value: sessionReferences(args.query ?? '').filter(candidate => candidate.sessionId !== args.agentId) })
+        }
         default:
           return Promise.reject(new Error(`fixture connection RPC endpoint ${JSON.stringify(endpoint)} is unavailable`))
       }

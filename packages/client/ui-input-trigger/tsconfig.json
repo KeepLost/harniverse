@@ -24,6 +24,9 @@
       "path": "../ui-slots"
     },
     {
+      "path": "../../context/file-reference"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     }
   ]

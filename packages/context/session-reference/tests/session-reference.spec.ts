@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { CompactionId, compactCheckpointSource } from '@deepseek-ai/dsh-compaction'
 import { createUserMessage, CallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
+import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 import SessionReferenceResolver, {
   decodeSessionReferenceUri,
   encodeSessionReferenceUri,
@@ -41,6 +42,7 @@ class TestSessionQueryEngine extends SessionQueryEngine {
 async function harness(config: Config = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
+  await ctx.plugin(AgentRegistry)
   await ctx.plugin(TestSessionQueryEngine)
   await ctx.plugin(SessionReferenceResolver, config)
   return ctx
@@ -245,6 +247,29 @@ describe('session reference URI and inline mentions', () => {
 })
 
 describe('session reference discovery and preparation', () => {
+  it('prepares canonical mentions in the agent pre-step after downstream admission', async () => {
+    const ctx = await harness()
+    const target = ctx.sessions.create(SessionId('target'))
+    const source = ctx.sessions.create(SessionId('source'))
+    const agent = { ...fakeAgent(target), ctx } as Agent
+    const mention = formatSessionReferenceMention({ sessionId: source.id, label: 'Research' })
+    const message = createUserMessage({ content: [{ type: 'text', text: `inspect ${mention}` }], source: { kind: 'user' } })
+    await expect(agentEvents(ctx, agent).waterfall(
+      'agent/pre-step', { messages: [message], turn: 1, step: 1, signal: new AbortController().signal },
+      async () => ({ kind: 'enter' as const, messages: [message] }),
+    )).resolves.toMatchObject({ kind: 'enter', messages: [
+      { source: { kind: 'session-reference' } },
+      { source: { kind: 'user' }, content: [{ type: 'text', text: 'inspect @Research' }] },
+    ] })
+  })
+
+  it('publishes the observation capability on the candidate Remote', async () => {
+    const ctx = await harness()
+    expect(remoteMethods(ctx.sessionReferenceResolver)).toContainEqual({
+      method: 'remoteExportCandidates', exportName: 'candidates', invocation: { kind: 'direct' }, requiredCapability: 'harniverse.observe',
+    })
+  })
+
   it('matches candidate metadata and titles before ranking by cwd', async () => {
     const ctx = await harness()
     const target = ctx.sessions.create(SessionId('target'), { meta: { cwd: '/same', createdAt: 10 } })

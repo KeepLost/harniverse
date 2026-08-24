@@ -762,6 +762,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'fileReferences',
+    summary: 'Host capability for cancellable file-reference discovery.',
+    description: 'Host capability for cancellable file-reference discovery.',
+    methods: [
+      {
+        signature: 'abstract list(agent: Agent, query: string, signal: AbortSignal): Promise<FileReferenceCandidate[]>',
+        description: 'List deterministic path-only candidates in an Agent workspace.',
+        parameters: [{ name: 'agent', description: 'Agent whose workspace is searched.' }, { name: 'query', description: 'File-token query relative to the Agent workspace.' }, { name: 'signal', description: 'Cancellation signal for the discovery operation.' }],
+        returns: 'bounded file and directory candidates.',
+      },
+      {
+        signature: '@Remote({ exportName: \'list\', requiredCapability: \'harniverse.observe\' }) remoteExportList(agent: Agent, query: string, signal: AbortSignal): Promise<FileReferenceCandidate[]>',
+        description: 'Authenticated Harniverse Remote face for the discovery operation.',
+        parameters: [{ name: 'agent', description: 'Agent whose workspace is searched.' }, { name: 'query', description: 'File-token query relative to the Agent workspace.' }, { name: 'signal', description: 'Cancellation signal for the discovery operation.' }],
+        returns: 'bounded file and directory candidates.',
+      },
+    ],
+  },
+  {
     key: 'fs',
     summary: 'Abstract filesystem provider.',
     description: 'Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.',
@@ -1557,6 +1576,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'List reference candidates, ranked by working-directory affinity.',
         parameters: [{ name: 'agent', description: 'target agent; self is excluded and its cwd drives ranking.' }, { name: 'query', description: 'optional case-insensitive session-id/cwd/title substring.' }, { name: 'limit', description: 'optional positive result cap.' }, { name: 'signal', description: 'optional cancellation boundary for host autocomplete teardown.' }],
         returns: 'candidates labeled by latest title or, when absent, session id.',
+      },
+      {
+        signature: '@Remote({ exportName: \'candidates\', requiredCapability: \'harniverse.observe\' }) async remoteExportCandidates(agent: Agent, query: string, signal: AbortSignal): Promise<SessionReferenceMentionCandidate[]>',
+        description: 'Authenticated Remote face carrying canonical mentions for the browser.',
+        parameters: [{ name: 'agent', description: 'Agent whose workspace determines candidate visibility and ranking.' }, { name: 'query', description: 'Case-insensitive session id, cwd, or title query.' }, { name: 'signal', description: 'Cancellation signal for candidate discovery.' }],
+        returns: 'metadata-only candidates carrying canonical session mentions.',
       },
       {
         signature: 'async prepare( agent: Agent, content: ContentBlock[], references: SessionReferenceInput[], signal?: AbortSignal, ): Promise<PreparedReferencedMessage>',
@@ -3692,6 +3717,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface FileLocation {\n    path: string;\n    line?: number;\n}',
   },
   {
+    name: 'FileReferenceCandidate',
+    declaration: 'export interface FileReferenceCandidate {\n    path: string;\n    kind: \'file\' | \'directory\';\n}',
+  },
+  {
     name: 'FinishReason',
     declaration: 'export type FinishReason = FinishReasonMap[keyof FinishReasonMap];',
   },
@@ -4638,6 +4667,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionReferenceInput',
     declaration: 'export interface SessionReferenceInput {\n    sessionId: SessionId;\n    label?: string;\n}',
+  },
+  {
+    name: 'SessionReferenceMentionCandidate',
+    declaration: 'export interface SessionReferenceMentionCandidate extends SessionReferenceCandidate {\n    mention: string;\n}',
   },
   {
     name: 'SessionResultFilter',

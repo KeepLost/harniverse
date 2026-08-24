@@ -92,6 +92,15 @@ Exact-read consumer that prepares immutable cross-session message context.
 async listCandidates( agent: Agent, query: string = '', limit: number = this.config.candidateLimit, signal?: AbortSignal, ): Promise<SessionReferenceCandidate[]>
 
 /**
+ * Authenticated Remote face carrying canonical mentions for the browser.
+ * @param agent - Agent whose workspace determines candidate visibility and ranking.
+ * @param query - Case-insensitive session id, cwd, or title query.
+ * @param signal - Cancellation signal for candidate discovery.
+ * @returns metadata-only candidates carrying canonical session mentions.
+ */
+@Remote({ exportName: 'candidates', requiredCapability: 'harniverse.observe' }) async remoteExportCandidates(agent: Agent, query: string, signal: AbortSignal): Promise<SessionReferenceMentionCandidate[]>
+
+/**
  * Snapshot all references before enqueue and return one aggregated durable context.
  * @param agent - target agent; references to it are rejected.
  * @param content - already host-normalized readable message content.
@@ -104,5 +113,5 @@ async prepare( agent: Agent, content: ContentBlock[], references: SessionReferen
 
 Types: [Agent](core.md) · [ContentBlock](llm-streaming.md)
 
-Source: [`packages/context/session-reference/src/index.ts:70`](../../packages/context/session-reference/src/index.ts)
+Source: [`packages/context/session-reference/src/index.ts:72`](../../packages/context/session-reference/src/index.ts)
 <!-- END GENERATED cordis-surface -->

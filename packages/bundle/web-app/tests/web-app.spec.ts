@@ -107,6 +107,14 @@ describe('web-app runtime glue', () => {
     expect(patch).toMatch(
       /id: logger-console\s+name: '@deepseek-ai\/cordis-plugin-logger-console'\s+config:\s+levels:\s+default: 2/,
     )
+    expect(patch).toMatch(/id: session-reference\s+name: '@deepseek-ai\/dsh-session-reference'/)
+    expect(patch).toMatch(/id: file-reference-local\s+name: '@deepseek-ai\/dsh-file-reference-local'/)
+    expect(patch).toMatch(/id: ui-reference\s+name: '@deepseek-ai\/dsh-client-ui-reference'/)
+    expect(manifest.dependencies).toMatchObject({
+      '@deepseek-ai/dsh-client-ui-reference': 'workspace:^',
+      '@deepseek-ai/dsh-file-reference-local': 'workspace:^',
+      '@deepseek-ai/dsh-session-reference': 'workspace:^',
+    })
   })
 
   it('mounts dist serving, prompt section, bash variables, and prints the URL with the LAN snapshot', async () => {

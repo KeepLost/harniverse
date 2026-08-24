@@ -5,12 +5,13 @@
  * @module @deepseek-ai/dsh-session-reference
  */
 
-import { Context, Service } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import { createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { SessionSurfaceSnapshot, SessionTitleObservationResult } from '@deepseek-ai/dsh-session-query'
 import {
   DEFAULT_CANDIDATE_LIMIT,
@@ -21,7 +22,8 @@ import {
 } from './config.ts'
 import { retainReferencedSession, type ReferenceRetentionStats, type ReferencedSessionData } from './projection.ts'
 import { stringifyTagSafeJson } from './serialization.ts'
-import type { PreparedReferencedMessage, SessionReferenceCandidate, SessionReferenceInput, SessionReferenceSource } from './types.ts'
+import type { PreparedReferencedMessage, SessionReferenceCandidate, SessionReferenceInput, SessionReferenceMentionCandidate, SessionReferenceSource } from './types.ts'
+import { formatSessionReferenceMention, parseSessionReferenceText } from './uri.ts'
 
 export type * from './types.ts'
 export type { Config, SessionReferenceErrorCode } from './config.ts'
@@ -67,7 +69,7 @@ interface RenderedSource {
 }
 
 /** Exact-read consumer that prepares immutable cross-session message context. */
-export class SessionReferenceResolver extends Service {
+export class SessionReferenceResolver extends TypertRemoteService {
   static inject = ['sessionQuery']
   static Config: z<Config> = z.object({
     maxReferences: z.number().step(1).min(1).max(MAX_REFERENCES).default(MAX_REFERENCES),
@@ -98,6 +100,30 @@ export class SessionReferenceResolver extends Service {
         'SESSION_REFERENCE_INVALID_CONFIG',
       )
     }
+    ctx.on('agent/pre-step', async ({ agent, signal }, next): Promise<PreStepDecision> => {
+      const decision = await next()
+      if (decision.kind === 'reject') return decision
+      return { kind: 'enter', messages: await this.prepareDirectMessages(agent, decision.messages, signal) }
+    }, { prepend: true })
+  }
+
+  private async prepareDirectMessages(agent: Agent, messages: readonly UserMessage[], signal: AbortSignal): Promise<UserMessage[]> {
+    const prepared = await Promise.all(messages.map(async (message): Promise<UserMessage[]> => {
+      if (message.source.kind !== 'user') return [message]
+      const references: SessionReferenceInput[] = []
+      const content = message.content.map((block): ContentBlock => {
+        if (block.type !== 'text') return block
+        const parsed = parseSessionReferenceText(block.text)
+        references.push(...parsed.references)
+        return { type: 'text', text: parsed.text }
+      })
+      if (references.length === 0) return [message]
+      const resolved = await this.prepare(agent, content, references, signal)
+      const direct = freezeMessage({ ...message, content: resolved.content })
+      if (resolved.additionalContext === undefined) throw new Error('session-reference preparation omitted context for a canonical mention')
+      return [resolved.additionalContext, direct]
+    }))
+    return prepared.flat()
   }
 
   /**
@@ -156,6 +182,22 @@ export class SessionReferenceResolver extends Service {
         ...record.header.cwd === undefined ? {} : { cwd: record.header.cwd },
         createdAt: record.header.createdAt,
       }))
+  }
+
+  /**
+   * Authenticated Remote face carrying canonical mentions for the browser.
+   * @param agent - Agent whose workspace determines candidate visibility and ranking.
+   * @param query - Case-insensitive session id, cwd, or title query.
+   * @param signal - Cancellation signal for candidate discovery.
+   * @returns metadata-only candidates carrying canonical session mentions.
+   */
+  @Remote({ exportName: 'candidates', requiredCapability: 'harniverse.observe' })
+  async remoteExportCandidates(agent: Agent, query: string, signal: AbortSignal): Promise<SessionReferenceMentionCandidate[]> {
+    const candidates = await this.listCandidates(agent, query, this.config.candidateLimit, signal)
+    return candidates.map(candidate => ({
+      ...candidate,
+      mention: formatSessionReferenceMention({ sessionId: candidate.sessionId, label: candidate.label }),
+    }))
   }
 
   /**

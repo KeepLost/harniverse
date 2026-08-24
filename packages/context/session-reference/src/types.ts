@@ -49,6 +49,12 @@ export interface SessionReferenceCandidate {
   createdAt: number
 }
 
+/** Candidate with its canonical atomic Markdown mention ready for insertion. */
+export interface SessionReferenceMentionCandidate extends SessionReferenceCandidate {
+  /** Canonical `@[label](dsh-session:...)` representation. */
+  mention: string
+}
+
 /** Direct message content and optional referenced-session context. */
 export interface PreparedReferencedMessage {
   /** Readable message content after host mention tokens are removed. */

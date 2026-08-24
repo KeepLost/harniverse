@@ -11,6 +11,8 @@ export interface TriggerHit {
   readonly trigger: TriggerChar
   /** Text between the trigger char and the caret, live-filtered. */
   readonly query: string
+  /** Whether the active @ token began with an opening quote. */
+  readonly quoted?: boolean
   /** leading = draft trimmed (whitespace incl. newlines) starts with the token. */
   readonly position: TriggerPosition
   /** Token span; draftRev injected by the caller. */

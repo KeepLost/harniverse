@@ -10,6 +10,8 @@
 - `prepare(agent, content, references, signal?)` 会保留首次 mention 顺序、对 id 去重，并拒绝自引用或超过已配置不同源上限的情况。它会并行读取所有源，返回与输入脱离的内容，外加零个或一个聚合且带标识的 `UserMessage` 上下文。任何无效引用、读取失败、取消或预算失败，都会使准备操作在宿主调用 `followup()` 或 `steer()` 之前失败。
 - `encodeSessionReferenceUri()` 与 `decodeSessionReferenceUri()` 实现 `dsh-session:<base64url(JSON.stringify(sessionId))>`，因此每个 JavaScript 字符串 id 都能精确往返。`formatSessionReferenceMention()` 发出 `@[label](uri)`，`parseSessionReferenceText()` 将 Markdown mention 或裸规范 URI 替换为可读的 `@label` 文本，并返回结构化引用。解析器会拒绝显式 Markdown mention 中任何格式错误的 URI；只当 scheme 后跟非空、符合 base64url 形状的 payload 时，裸文本才被视为引用，匹配但非规范的候选项仍会失败。空 scheme mention 或只含标点符号的 scheme mention 仍是普通讨论文本。
 
+已认证的 `sessionReferenceResolver/candidates` Remote 会附带规范 mention，不会从标题重建身份。服务在下游 admission 后包装 `agent/pre-step`，解析规范用户 mention，并让不可信快照上下文紧跟可读的直接消息进入模型步骤。
+
 ## 快照语义
 
 准备阶段会对每个不同源调用一次 `ctx.sessionQuery.readSurface()`，入队后绝不重读。它仅投影折叠后当前表层中的用户直接发出的 `user/message`、assistant 文本，以及 `user/message` 检查点；这类检查点携带规范 `dsh-compaction` 源标记。对于已经包含固化前缀上下文的源提示词，投影只读取其对模型隐藏的显示内容，以防止快照递归传播。已遮蔽的压缩（compaction）前事件、工具、推理（reasoning）、上下文、除已标记 compact 检查点外的插件生成 user 消息，以及未完成的 assistant 分片均会被排除。因此，已压缩源只会提供最新检查点及其后保留的会话内容，不会还原已遮蔽的文本。
