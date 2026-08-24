@@ -202,6 +202,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `132d22be25` | Records build-before-unit verification as a repository-level requirement and removes obsolete host-agent sandbox escalation guidance without changing the product sandbox's plugin-owned confinement and approval rules. |
 | `af1ef802d0` | Adds idle-only Archived Session Web management, read-only archive previews, unarchive, and dependency-ordered deletion. |
 | `7a9f18df5e` | Carries the admitted identity in every connection `server-response` envelope so authenticated browser Remotes validate, and reads a cold listed Session's capability assembly from the standing generation of its recorded Profile without starting an agent, session, or turn. |
+| `6ef9ea1bc1` | Makes the Archived Sessions entry reachable from the collapsed sidebar rail and expands the rail before opening the archive panel. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
