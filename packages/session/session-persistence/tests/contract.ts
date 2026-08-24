@@ -21,6 +21,12 @@ export interface ContractBackend {
   dispose: () => Promise<void>
 }
 
+/** Optional backend-contract cases that require a native storage implementation. */
+export interface ContractOptions {
+  /** Exercise native history pagination with a compact synthetic large-provenance record. */
+  nativeLargeProvenanceHistory?: boolean
+}
+
 /** Build a minimal {@link SessionHeader} for a session id. */
 export function meta(id: string, cwd?: string): SessionHeader {
   return {
@@ -81,8 +87,15 @@ export function appendLog(session: Session, events: readonly SessionEvent[]): vo
 /**
  * Run the backend-agnostic contract suite. `make()` MUST return a fresh, empty
  * backend each call.
+ * @param name - backend label used in the generated suite name.
+ * @param make - factory for one isolated backend fixture.
+ * @param options - native backend cases supported by the fixture.
  */
-export function runPersistenceContract(name: string, make: () => Promise<ContractBackend>): void {
+export function runPersistenceContract(
+  name: string,
+  make: () => Promise<ContractBackend>,
+  options: ContractOptions = {},
+): void {
   describe(`SessionPersistence contract: ${name}`, () => {
     it('round-trips a session: create + append → load returns identical meta and byte-identical events', async () => {
       const { persistence, dispose } = await make()
@@ -392,6 +405,54 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         await dispose()
       }
     })
+
+    if (options.nativeLargeProvenanceHistory === true) {
+      it('readHistoryPage preserves a message group with very large provenance', async () => {
+        const { persistence, dispose } = await make()
+        try {
+          const m = meta('history-large-provenance', '/work')
+          const sourceCount = 131_072
+          const sourceEventSeqs = Array<number>(sourceCount).fill(1)
+          const log: SessionEvent[] = [
+            { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+            { type: 'assistant/chunk', seq: 1, time: 2, data: {
+              turn: 1,
+              step: 1,
+              chunk: { type: 'text-delta', index: 0, text: 'x' },
+            } },
+            {
+              type: 'assistant/message',
+              seq: 2,
+              time: 3,
+              data: {
+                turn: 1,
+                step: 1,
+                message: freezeMessage({
+                  id: MessageId('history-large-provenance-answer'),
+                  role: 'assistant',
+                  content: [{ type: 'text', text: 'x' }],
+                  source: { kind: 'model', provider: 'mock', model: 'mock' },
+                }),
+              },
+              surfaceOp: 'append',
+              sourceEventSeqs,
+            },
+          ]
+          await persistence.create(m)
+          await persistence.append(m.id, log)
+
+          const page = await persistence.readHistoryPage(m.id, { maxMessages: 1 })
+          expect(page.events.map(event => event.seq)).toEqual([1, 2])
+          const message = page.events[1]
+          expect(message?.type).toBe('assistant/message')
+          if (message?.type !== 'assistant/message') throw new Error('expected finalized assistant message')
+          expect(message.sourceEventSeqs).toEqual(sourceEventSeqs)
+          expect(page.hasMore).toBe(true)
+        } finally {
+          await dispose()
+        }
+      })
+    }
 
     // A preferred initial page must not widen its window merely because no
     // checkpoint exists. The decode-work bound this protects is measured in

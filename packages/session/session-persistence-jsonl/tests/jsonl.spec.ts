@@ -112,7 +112,7 @@ runPersistenceContract('jsonl-none', async () => {
       await rm(dir, { recursive: true, force: true })
     },
   }
-})
+}, { nativeLargeProvenanceHistory: true })
 
 // Two mounts share this temp root to exercise reload. `corruptTail` appends a partial,
 // newline-less fragment past the committed region so coordinator repair runs on real file bytes.

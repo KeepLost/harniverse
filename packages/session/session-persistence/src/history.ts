@@ -81,9 +81,12 @@ export function paginateSessionHistory(
       if (isAppendSurfaceEvent(event)) {
         count += 1
         const sources = (event as { sourceEventSeqs?: number[] }).sourceEventSeqs
-        const groupStart = sources !== undefined && sources.length > 0
-          ? Math.min(event.seq, ...sources)
-          : event.seq
+        let groupStart = event.seq
+        if (sources !== undefined) {
+          for (const source of sources) {
+            if (source < groupStart) groupStart = source
+          }
+        }
         if (count >= maxMessages && quotaCut === undefined) quotaCut = groupStart
       }
     }

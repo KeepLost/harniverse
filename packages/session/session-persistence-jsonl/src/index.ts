@@ -103,9 +103,12 @@ async function pageFromReverseRecords(
       count += 1
       if (count > request.maxMessages) continue
       const sources = (event as { sourceEventSeqs?: number[] }).sourceEventSeqs
-      cut = sources !== undefined && sources.length > 0
-        ? Math.min(event.seq, ...sources)
-        : event.seq
+      cut = event.seq
+      if (sources !== undefined) {
+        for (const source of sources) {
+          if (source < cut) cut = source
+        }
+      }
       if (
         count >= request.maxMessages
         && !(upper === undefined && request.preferLatestCheckpoint === true)

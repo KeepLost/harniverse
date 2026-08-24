@@ -404,6 +404,18 @@ async readHistoryPage( id: SessionId, request: SessionHistoryPageRequest, signal
 abstract readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
 
 /**
+ * Read the latest request header from one valid stored prefix without
+ * acquiring, preparing, or publishing a Session. First-party coordinators
+ * allow this observation to run beside another detached read of the same id;
+ * direct implementations inherit the safe logical fallback through
+ * {@link inspect}.
+ * @param id - persisted session to observe.
+ * @param signal - optional cancellation for backend work.
+ * @returns the latest logged request header, or `undefined` when none exists.
+ */
+async readRequestHeader(id: SessionId, signal?: AbortSignal): Promise<EpochHeader | undefined>
+
+/**
  * Lightweight listing from metadata, without a full-log parse.
  * @param signal - optional cancellation for backend listing work.
  * @returns one header per materialized session.
@@ -423,7 +435,7 @@ abstract list(signal?: AbortSignal): Promise<SessionHeader[]>
 abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]>
 ```
 
-Types: [SessionEvent](session.md) · [SessionId](core.md)
+Types: [EpochHeader](session.md) · [SessionEvent](session.md) · [SessionId](core.md)
 
-Source: [`packages/session/session-persistence/src/index.ts:89`](../../packages/session/session-persistence/src/index.ts)
+Source: [`packages/session/session-persistence/src/index.ts:91`](../../packages/session/session-persistence/src/index.ts)
 <!-- END GENERATED cordis-surface -->

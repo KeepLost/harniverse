@@ -71,7 +71,7 @@ runPersistenceContract('sqlite', async () => {
     persistence: ctx.sessionPersistence,
     dispose: async () => { await fiber.dispose() },
   }
-})
+}, { nativeLargeProvenanceHistory: true })
 
 // A file-backed database lets two mounts share rows across reload. `corruptTail` inserts invalid
 // JSON past the committed seq, exercising coordinator repair against real database rows.

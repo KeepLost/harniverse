@@ -4,7 +4,7 @@ import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionId, isJsonValue }
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE, DEFAULT_WRITE_BATCH_MAX_DELAY_MS, MAX_WRITE_BATCH_DELAY_MS,
-  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
+  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator, paginateSessionHistory,
   type PersistenceBackend, type SessionPersistenceSnapshot, type StoredPrefix, type StoredSuffix,
 } from '../src/index.ts'
 import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
@@ -262,6 +262,23 @@ runPersistenceContract('memory', async () => {
     persistence: ctx.sessionPersistence,
     dispose: async () => { await fiber.dispose() },
   }
+})
+
+it('paginates materialized history with very large provenance', () => {
+  const sourceCount = 131_072
+  const sourceEventSeqs = Array<number>(sourceCount).fill(1)
+  const events = oneTurnLog()
+  const message = events[3]
+  if (message?.type !== 'assistant/message') throw new Error('expected assistant message fixture')
+  events[3] = { ...message, sourceEventSeqs }
+
+  const page = paginateSessionHistory(events, { maxMessages: 1 })
+  expect(page.events.map(event => event.seq)).toEqual([1, 2, 3, 4, 5])
+  const pagedMessage = page.events[2]
+  expect(pagedMessage?.type).toBe('assistant/message')
+  if (pagedMessage?.type !== 'assistant/message') throw new Error('expected paged assistant message')
+  expect(pagedMessage.sourceEventSeqs).toEqual(sourceEventSeqs)
+  expect(page.hasMore).toBe(true)
 })
 
 describe('the inherited readRaw default', () => {

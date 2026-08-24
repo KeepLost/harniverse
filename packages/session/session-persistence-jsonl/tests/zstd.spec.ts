@@ -125,7 +125,7 @@ runPersistenceContract('jsonl-zstd', async () => {
       await rm(root, { recursive: true, force: true })
     },
   }
-})
+}, { nativeLargeProvenanceHistory: true })
 
 runCoordinatorContract('jsonl-zstd', async (): Promise<CoordinatorFixture> => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-jsonl-zstd-coordinator-'))

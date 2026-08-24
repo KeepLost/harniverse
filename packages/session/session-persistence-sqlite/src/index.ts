@@ -308,9 +308,12 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
       if (oldest === undefined) throw new Error('history page candidate query returned no oldest row')
       const event = rowToEvent(oldest)
       const sources = (event as { sourceEventSeqs?: number[] }).sourceEventSeqs
-      cut = sources !== undefined && sources.length > 0
-        ? Math.min(event.seq, ...sources)
-        : event.seq
+      cut = event.seq
+      if (sources !== undefined) {
+        for (const source of sources) {
+          if (source < cut) cut = source
+        }
+      }
     }
     // A checkpoint can sit just past the message quota, so the search reaches
     // below the quota cut — but only past CHECKPOINT_SEARCH_MESSAGE_BUDGET
