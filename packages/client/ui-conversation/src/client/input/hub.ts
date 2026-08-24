@@ -9,7 +9,7 @@
  * real host entity, so the sink is one unconditional prompt path.
  */
 import type { ClientContext, ISessions, SessionBinding, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import type { InputTriggerController } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import type { InputTriggerController, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 import { queueReadFaceOf } from '../queue/store.ts'
 import type { ComposerKeyboard, DraftAttachmentId, SessionInputResolver, SessionInput } from './contract.ts'
@@ -29,6 +29,7 @@ interface ConversationAttachmentFace {
     text: string,
     imageIds: readonly DraftAttachmentId[],
     mode: InputSubmitMode,
+    signal?: AbortSignal,
   ): Promise<void>
   releaseDraftImage(id: DraftAttachmentId): void
 }
@@ -75,7 +76,7 @@ export class InputHub implements SessionInputResolver {
       inputTriggers: () => this.controller(actx),
       popup: () => this.popup(actx),
       queue: queueReadFaceOf(session),
-      defaultSink: (text, imageIds, mode) => { this.sink(session, text, imageIds, mode) },
+      defaultSink: (text, imageIds, mode, signal) => this.sink(session, text, imageIds, mode, signal),
       steerQueue: () => { void this.steerQueue(session, shell) },
     })
     this.shells.set(id, shell)
@@ -92,11 +93,11 @@ export class InputHub implements SessionInputResolver {
         actx.on('slash/input-insert-text', req =>
           shell.insertText(req.text, req.span) ? true : undefined),
       ]
-      return () => {
+      return async () => {
         for (const off of offs) off()
         const drafts = shell.snapshot.imageIds
-        shell.dispose()
         this.shells.delete(id)
+        await shell.dispose()
         const conversation = this.rootCtx.get('conversation') as ConversationAttachmentFace | undefined
         for (const imageId of drafts) conversation?.releaseDraftImage(imageId)
       }
@@ -140,31 +141,22 @@ export class InputHub implements SessionInputResolver {
     return actx === undefined ? undefined : this.controller(actx)
   }
 
-  /**
-   * Default sink: optimistic clear + prompt. The session is always a real
-   * host entity (materialized when its workspace was picked), so there is
-   * exactly one path; a failed first prompt is an ordinary prompt failure
-   * (error strip via promptError, draft restored only while untouched).
-   */
+  /** Default sink: normalize one host prompt into the machine's SubmitOutcome currency. */
   private sink(
     session: SessionFace,
     text: string,
     imageIds: readonly DraftAttachmentId[],
     mode: InputSubmitMode,
-  ): void {
-    if (text === '' && imageIds.length === 0) return
-    const shell = this.shells.get(session.sessionId)
-    // Commit, not an editable clear: undo must not resurrect sent content.
-    shell?.commitSend(imageIds)
-    void this.conversation().sendSession(session, text, imageIds, mode).catch(() => {
-      if (this.shells.get(session.sessionId) === shell) {
-        shell?.restoreImages(imageIds)
-        if (shell?.snapshot.draft === '') shell.setDraft(text)
-        return
-      }
-      const conversation = this.rootCtx.get('conversation') as ConversationAttachmentFace | undefined
-      for (const id of imageIds) conversation?.releaseDraftImage(id)
-    })
+    signal: AbortSignal,
+  ): Promise<SubmitOutcome> {
+    if (text === '' && imageIds.length === 0) return Promise.resolve({ kind: 'success' })
+    return this.conversation().sendSession(session, text, imageIds, mode, signal).then(
+      () => ({ kind: 'success' as const }),
+      (error: unknown) => ({
+        kind: 'error' as const,
+        text: error instanceof Error ? error.message : String(error),
+      }),
+    )
   }
 
   /**

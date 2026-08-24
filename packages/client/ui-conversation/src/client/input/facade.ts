@@ -10,7 +10,7 @@ import type { ClientContext, ObservableSnapshot, SnapshotStore } from '@deepseek
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ArbitrateKey, ArbitrateOutcome, CommandClaim, ConsumeTokenRequest, PickOutcome,
-  ReferenceInsert, InputTriggerController, TokenSpan,
+  ReferenceInsert, InputTriggerController, SubmitOutcome, TokenSpan,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {
   DraftAttachmentId, EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
@@ -44,8 +44,20 @@ export interface SessionInputDeps {
    * order (the empty-draft accelerated-Enter gesture); absent = unsupported.
    */
   steerQueue?: (() => void) | undefined
-  /** The plain-message sink (send choreography / materialize fork — the hub owns it). */
-  defaultSink(text: string, imageIds: readonly DraftAttachmentId[], mode: InputSubmitMode): void
+  /** Plain-message sink; the signal owns serialization, upload, and Host admission teardown. */
+  defaultSink(
+    text: string,
+    imageIds: readonly DraftAttachmentId[],
+    mode: InputSubmitMode,
+    signal: AbortSignal,
+  ): Promise<SubmitOutcome>
+}
+
+/** The sole lifecycle owner and attachment reservation for one image-only send. */
+interface ImageSendAttempt {
+  readonly controller: AbortController
+  readonly draftSnapshot: string
+  readonly imageIds: readonly DraftAttachmentId[]
 }
 
 /** Guard tier from the machine phase. */
@@ -86,6 +98,11 @@ export class SessionInputShell implements SessionInput {
   private noticeSeq = 0
   private lastDraft = ''
   private imageIds: readonly DraftAttachmentId[] = []
+  /** One image-only send at a time; its ids remain visible but unavailable to later sends. */
+  private imageSend: ImageSendAttempt | undefined
+  /** Transaction completions retained until settlement so teardown can reach quiescence. */
+  private readonly completions = new Set<Promise<void>>()
+  private disposal: Promise<void> | undefined
   private disposed = false
   /** Draft persistence mirror (chat store write; receives the clipboard projection, never raw placeholders). */
   private mirrorFn: ((text: string) => void) | undefined
@@ -137,25 +154,16 @@ export class SessionInputShell implements SessionInput {
   }
 
   /**
-   * Restore a failed attempt before any images added after its admission.
-   * @param ids - failed attempt image ids.
-   */
-  restoreImages(ids: readonly DraftAttachmentId[]): void {
-    const current = new Set(this.imageIds)
-    this.imageIds = [...ids.filter(id => !current.has(id)), ...this.imageIds]
-    this.publish()
-  }
-
-  /**
-   * Clear the draft as a successful-send commit: no undo unit is recorded and
-   * the undo history is cut, so Ctrl/Cmd-Z cannot resurrect sent content
-   * (the command path gets the same discipline from submit-settled success).
+   * Commit a successful image-only send. Captured image ids leave regardless
+   * of later input ownership; the machine consumes the text snapshot and cuts
+   * undo history only while no command or adjudication transaction owns it.
    * @param imageIds - admitted image ids to remove from this draft.
+   * @param draftSnapshot - submitted text whose pure live suffix survives.
    */
-  commitSend(imageIds: readonly DraftAttachmentId[]): void {
+  commitSend(imageIds: readonly DraftAttachmentId[], draftSnapshot: string): void {
     const submitted = new Set(imageIds)
     this.imageIds = this.imageIds.filter(id => !submitted.has(id))
-    this.run(this.core.dispatch({ type: 'send-committed' }))
+    this.run(this.core.dispatch({ type: 'send-committed', draftSnapshot }))
   }
 
   /** Undo the latest transaction (InputBar intercepts the platform chord). */
@@ -196,8 +204,18 @@ export class SessionInputShell implements SessionInput {
    * dismisses and the menu tracks frozen.
    */
   submit(mode: InputSubmitMode = 'queue'): void {
+    if (this.disposed) return
     if (this.snapshot.draft.trim() === '' && this.imageIds.length > 0) {
-      if (this.snapshot.phase === 'plain') this.deps.defaultSink('', [...this.imageIds], mode)
+      if (this.snapshot.phase === 'plain' && this.imageSend === undefined) {
+        const imageIds = [...this.imageIds]
+        const attempt: ImageSendAttempt = {
+          controller: new AbortController(),
+          draftSnapshot: this.snapshot.draft,
+          imageIds,
+        }
+        this.imageSend = attempt
+        this.settleImageSend(attempt, () => this.deps.defaultSink('', imageIds, mode, attempt.controller.signal))
+      }
       return
     }
     this.run(this.core.dispatch({ type: 'enter', mode }))
@@ -349,10 +367,20 @@ export class SessionInputShell implements SessionInput {
 
   // ---- wiring-layer extras (not on the frozen SessionInput face) ----
 
-  /** Teardown: abort any in-flight attempt and stop accepting async settlements. */
-  dispose(): void {
+  /**
+   * Abort every owned transaction, stop publication, and await their complete
+   * sink/serialization/upload chains.
+   * @returns quiescence; repeated calls join the same disposal.
+   */
+  dispose(): Promise<void> {
+    if (this.disposal !== undefined) return this.disposal
     this.disposed = true
+    const imageSend = this.imageSend
+    this.imageSend = undefined
+    imageSend?.controller.abort()
     this.run(this.core.dispatch({ type: 'release' }))
+    this.disposal = this.drain()
+    return this.disposal
   }
 
   /** Read the live machine state (guard derivation reads here). */
@@ -398,7 +426,7 @@ export class SessionInputShell implements SessionInput {
         return
       }
       case 'default-sink': {
-        this.sinkSerialized(fx.draft, fx.mode)
+        this.sinkSerialized(fx.attempt, fx.draft, fx.mode)
         return
       }
       default:
@@ -413,37 +441,82 @@ export class SessionInputShell implements SessionInput {
    * send — notice + draft and chips retained, never a silent downgrade to
    * the clipboard text. Chip-free drafts skip the async detour.
    */
-  private sinkSerialized(draft: string, mode: InputSubmitMode): void {
-    const imageIds = [...this.imageIds]
+  private sinkSerialized(attempt: SubmitAttempt, draft: string, mode: InputSubmitMode): void {
+    this.own(this.serializeAndSubmit(attempt, draft, mode))
+  }
+
+  /** Reference fan-out and default sink form one retained transaction completion. */
+  private async serializeAndSubmit(attempt: SubmitAttempt, draft: string, mode: InputSubmitMode): Promise<void> {
+    const imageIds = this.availableImageIds()
     const occurrences = this.core.state.occurrences
     if (occurrences.length === 0) {
-      this.deps.defaultSink(draft.trim(), imageIds, mode)
+      await this.settleSubmit(
+        attempt,
+        () => this.deps.defaultSink(draft.trim(), imageIds, mode, attempt.signal),
+        imageIds,
+      )
       return
     }
     const inputTriggers = this.deps.inputTriggers?.()
-    const controller = new AbortController()
-    void Promise.all(occurrences.map(async (o) => {
+    const siblingController = new AbortController()
+    const signal = AbortSignal.any([attempt.signal, siblingController.signal])
+    const serializers = occurrences.map(async (o) => {
       if (inputTriggers === undefined) throw new Error(`no serializer for reference source "${o.source}"`)
-      return { offset: o.offset, text: await inputTriggers.serializeReference(o.source, o.ref, controller.signal) }
-    })).then(
-      (parts) => {
-        if (this.disposed) return
-        // Splice model forms over their placeholders (offsets are draft-time;
-        // parts arrive offset-sorted since the table is).
-        let out = ''
-        let cursor = 0
-        for (const part of parts) {
-          out += draft.slice(cursor, part.offset) + part.text
-          cursor = part.offset + 1
+      try {
+        return { offset: o.offset, text: await inputTriggers.serializeReference(o.source, o.ref, signal) }
+      } catch (error) {
+        if (!siblingController.signal.aborted) siblingController.abort(error)
+        throw error
+      }
+    })
+    const settled = await Promise.allSettled(serializers)
+    if (this.dead(attempt)) return
+    const failure = settled.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+    if (failure !== undefined) {
+      const message = failure.reason instanceof Error ? failure.reason.message : String(failure.reason)
+      this.run(this.core.dispatch({ type: 'submit-settled', attempt, ok: false, message }))
+      return
+    }
+    const parts = settled.map(result => (result as PromiseFulfilledResult<{ offset: number; text: string }>).value)
+    // Splice model forms over their placeholders (offsets are draft-time;
+    // parts arrive offset-sorted since the table is).
+    let out = ''
+    let cursor = 0
+    for (const part of parts) {
+      out += draft.slice(cursor, part.offset) + part.text
+      cursor = part.offset + 1
+    }
+    out += draft.slice(cursor)
+    await this.settleSubmit(
+      attempt,
+      () => this.deps.defaultSink(out.trim(), imageIds, mode, attempt.signal),
+      imageIds,
+    )
+  }
+
+  /** Settle one admission attempt; successful sends consume only their captured images. */
+  private settleSubmit(
+    attempt: SubmitAttempt,
+    operation: () => Promise<SubmitOutcome>,
+    imageIds: readonly DraftAttachmentId[] = [],
+  ): Promise<void> {
+    return this.invokeAsync(operation).then(
+      (outcome) => {
+        if (this.dead(attempt)) return
+        if (outcome.kind === 'success' && imageIds.length > 0) {
+          const submitted = new Set(imageIds)
+          this.imageIds = this.imageIds.filter(id => !submitted.has(id))
         }
-        out += draft.slice(cursor)
-        this.deps.defaultSink(out.trim(), imageIds, mode)
+        this.run(this.core.dispatch({
+          type: 'submit-settled', attempt, ok: outcome.kind === 'success', outcome,
+        }))
       },
       (error: unknown) => {
-        controller.abort()
-        if (this.disposed) return
-        const message = error instanceof Error ? error.message : String(error)
-        this.notify('error', message)
+        if (this.dead(attempt)) return
+        this.run(this.core.dispatch({
+          type: 'submit-settled', attempt, ok: false,
+          message: error instanceof Error ? error.message : String(error),
+        }))
       },
     )
   }
@@ -456,7 +529,7 @@ export class SessionInputShell implements SessionInput {
       this.run(this.core.dispatch({ type: 'adjudicated', attempt, outcome: undefined }))
       return
     }
-    inputTriggers.adjudicate(draft.trim(), attempt.signal).then(
+    this.own(this.invokeAsync(() => inputTriggers.adjudicate(draft.trim(), attempt.signal)).then(
       (outcome: PickOutcome) => {
         if (this.dead(attempt)) return
         this.run(this.core.dispatch({ type: 'adjudicated', attempt, outcome }))
@@ -466,26 +539,69 @@ export class SessionInputShell implements SessionInput {
         const message = error instanceof Error ? error.message : String(error)
         this.run(this.core.dispatch({ type: 'adjudication-failed', attempt, message }))
       },
-    )
+    ))
   }
 
   /** The submit transaction: claim.submit against the session scope; ok maps from the outcome kind. */
   private beginSubmit(attempt: SubmitAttempt, claim: CommandClaim, args: string): void {
-    Promise.resolve()
-      .then(() => claim.submit(args, this.deps.actx))
-      .then(
-        (outcome) => {
-          if (this.dead(attempt)) return
-          this.run(this.core.dispatch({
-            type: 'submit-settled', attempt, ok: outcome.kind === 'success', outcome,
-          }))
-        },
-        (error: unknown) => {
-          if (this.dead(attempt)) return
-          const message = error instanceof Error ? error.message : String(error)
-          this.run(this.core.dispatch({ type: 'submit-settled', attempt, ok: false, message }))
-        },
-      )
+    this.own(this.settleSubmit(
+      attempt,
+      () => Promise.resolve().then(() => claim.submit(args, this.deps.actx)),
+    ))
+  }
+
+  /** Settle an image-only lifecycle and release its attachment reservation exactly once. */
+  private settleImageSend(
+    attempt: ImageSendAttempt,
+    operation: () => Promise<SubmitOutcome>,
+  ): void {
+    this.own(this.invokeAsync(operation).then(
+      (outcome) => {
+        if (this.imageSend !== attempt) return
+        this.imageSend = undefined
+        if (this.disposed) return
+        if (outcome.kind === 'success') this.commitSend(attempt.imageIds, attempt.draftSnapshot)
+        else this.notify('error', outcome.text ?? 'prompt failed')
+      },
+      (error: unknown) => {
+        if (this.imageSend !== attempt) return
+        this.imageSend = undefined
+        if (!this.disposed) this.notify('error', error instanceof Error ? error.message : String(error))
+      },
+    ))
+  }
+
+  /** Invoke inside the owner boundary so synchronous provider throws become rejections. */
+  private invokeAsync<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return Promise.resolve(operation())
+    } catch (error) {
+      return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+    }
+  }
+
+  /** Draft image ids not reserved by the unresolved image-only lifecycle. */
+  private availableImageIds(): readonly DraftAttachmentId[] {
+    const reserved = this.imageSend?.imageIds
+    if (reserved === undefined) return [...this.imageIds]
+    const reservedIds = new Set(reserved)
+    return this.imageIds.filter(id => !reservedIds.has(id))
+  }
+
+  /** Retain one non-rejecting transaction completion until it settles. */
+  private own(completion: Promise<void>): void {
+    this.completions.add(completion)
+    void completion.then(
+      () => { this.completions.delete(completion) },
+      () => { this.completions.delete(completion) },
+    )
+  }
+
+  /** Join completions until none remain (a settling chain may register another). */
+  private async drain(): Promise<void> {
+    while (this.completions.size > 0) {
+      await Promise.allSettled([...this.completions])
+    }
   }
 
   /** Late-settlement guard: superseded attempts and disposed facades drop silently. */

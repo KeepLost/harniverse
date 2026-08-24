@@ -226,8 +226,8 @@ export interface InputState {
 /**
  * One in-flight submission attempt: the ONLY id concept in the submit plane.
  * Created on enter; carried by adjudicated/submit-settled events; stale
- * attempts are dropped (anti-backwash). release/session teardown aborts the
- * current attempt, keeping the promise bounded.
+ * attempts are dropped (anti-backwash). Release aborts the current attempt;
+ * the shell retains and drains its complete async chain before teardown ends.
  */
 export interface SubmitAttempt {
   readonly seq: number
@@ -271,11 +271,8 @@ export type InputEvent =
   | { readonly type: 'adjudicated'; readonly attempt: SubmitAttempt; readonly outcome: PickOutcome }
   | { readonly type: 'adjudication-failed'; readonly attempt: SubmitAttempt; readonly message: string }
   | { readonly type: 'submit-settled'; readonly attempt: SubmitAttempt; readonly ok: boolean; readonly outcome?: SubmitOutcome; readonly message?: string }
-  /**
-   * An ordinary (default-sink) send was accepted: clear the draft as a COMMIT —
-   * undo must not resurrect sent content (mirrors submit-settled's success arm).
-   */
-  | { readonly type: 'send-committed' }
+  /** An image-only send was accepted; consume its text snapshot only while the machine remains plain. */
+  | { readonly type: 'send-committed'; readonly draftSnapshot: string }
   | { readonly type: 'release' }
 
 /**
@@ -286,5 +283,5 @@ export type InputEvent =
 export type InputEffect =
   | { readonly type: 'adjudicate'; readonly attempt: SubmitAttempt; readonly draft: string }
   | { readonly type: 'begin-submit'; readonly attempt: SubmitAttempt; readonly claim: CommandClaim; readonly args: string }
-  | { readonly type: 'default-sink'; readonly draft: string; readonly mode: InputSubmitMode }
+  | { readonly type: 'default-sink'; readonly attempt: SubmitAttempt; readonly draft: string; readonly mode: InputSubmitMode }
   | { readonly type: 'notice'; readonly level: 'info' | 'error'; readonly text: string }

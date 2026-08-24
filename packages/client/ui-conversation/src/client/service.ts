@@ -138,20 +138,24 @@ export class ConversationController extends Service implements IConversation {
    * @param text - serialized prompt text.
    * @param imageIds - ordered draft-local attachment ids.
    * @param mode - queue or steer delivery selected by composer policy.
+   * @param signal - optional cancellation for image encoding and Host admission.
+   * @returns completion after Host acceptance and draft-image release.
    */
   async sendSession(
     session: SessionFace,
     text: string,
     imageIds: readonly DraftAttachmentId[],
     mode: InputSubmitMode,
+    signal?: AbortSignal,
   ): Promise<void> {
+    signal?.throwIfAborted()
     const attachments = this.draftImages(imageIds)
     if (attachments.length !== imageIds.length) {
       throw new Error('conversation.sendSession: one or more draft images are no longer available')
     }
-    const uploaded = await this.serializeImages(attachments.map(attachment => attachment.file))
+    const uploaded = await this.serializeImages(attachments.map(attachment => attachment.file), signal)
     const content = [...uploaded, ...(text === '' ? [] : [{ type: 'text' as const, text }])]
-    const result = await session.prompt(content, mode)
+    const result = await session.prompt(content, mode, signal)
     if (!result.ok) throw new Error(`conversation.send failed: ${result.error.code}: ${result.error.message}`)
     this.releaseDraftImages(attachments)
   }
@@ -313,13 +317,21 @@ export class ConversationController extends Service implements IConversation {
   }
 
   /** Convert browser files to canonical base64 prompt parts. */
-  private serializeImages(images: readonly File[]): Promise<Parameters<SessionFace['prompt']>[0]> {
-    return Promise.all(images.map(async file => ({
-      type: 'image' as const,
-      mediaType: imageMediaType(file.type),
-      data: bytesToBase64(new Uint8Array(await file.arrayBuffer())),
-      ...(file.name === '' ? {} : { name: file.name }),
-    })))
+  private serializeImages(
+    images: readonly File[],
+    signal?: AbortSignal,
+  ): Promise<Parameters<SessionFace['prompt']>[0]> {
+    return Promise.all(images.map(async (file) => {
+      signal?.throwIfAborted()
+      const data = await file.arrayBuffer()
+      signal?.throwIfAborted()
+      return {
+        type: 'image' as const,
+        mediaType: imageMediaType(file.type),
+        data: bytesToBase64(new Uint8Array(data)),
+        ...(file.name === '' ? {} : { name: file.name }),
+      }
+    }))
   }
 }
 

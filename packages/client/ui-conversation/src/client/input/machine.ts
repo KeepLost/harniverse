@@ -167,7 +167,7 @@ export class InputMachine {
       case 'adjudicated': return this.onAdjudicated(ev.attempt, ev.outcome)
       case 'adjudication-failed': return this.onAdjudicationFailed(ev.attempt, ev.message)
       case 'submit-settled': return this.onSubmitSettled(ev)
-      case 'send-committed': return this.onSendCommitted()
+      case 'send-committed': return this.onSendCommitted(ev.draftSnapshot)
       case 'release': return this.onRelease()
       default: return unreachable(ev)
     }
@@ -473,7 +473,9 @@ export class InputMachine {
       this.phase = 'adjudicating'
       return [{ type: 'adjudicate', attempt, draft: this.draft }]
     }
-    return [{ type: 'default-sink', draft: this.draft, mode }]
+    const attempt = this.beginAttempt(mode)
+    this.phase = 'submitting'
+    return [{ type: 'default-sink', attempt, draft: this.draft, mode }]
   }
 
   private onAdjudicated(attempt: SubmitAttempt, outcome: Extract<InputEvent, { type: 'adjudicated' }>['outcome']): InputEffect[] {
@@ -489,13 +491,15 @@ export class InputMachine {
         args: argsAfter(attempt.draftSnapshot, outcome.claim.token),
       }]
     }
-    // 'handled' (source dealt internally), {insert} (no enter-time span
-    // semantics), or a miss: all land plain; only the miss flows to the sink.
+    // 'handled' (source dealt internally) and {insert} (no enter-time span
+    // semantics) land plain; a miss retains this attempt through the sink.
+    if (outcome === undefined) {
+      this.phase = 'submitting'
+      return [{ type: 'default-sink', attempt, draft: attempt.draftSnapshot, mode: attempt.mode }]
+    }
     this.inflight = undefined
     this.phase = 'plain'
-    return outcome === undefined
-      ? [{ type: 'default-sink', draft: attempt.draftSnapshot, mode: attempt.mode }]
-      : []
+    return []
   }
 
   private onAdjudicationFailed(attempt: SubmitAttempt, message: string): InputEffect[] {
@@ -514,7 +518,13 @@ export class InputMachine {
       this.phase = 'plain'
       this.claim = undefined
       this.occurrences = []
-      this.adopt('')
+      // Text appended after the sent snapshot during the Host round-trip
+      // survives the commit; edits interleaved with committed content cannot
+      // be separated from it, so only a pure suffix is retained.
+      const snapshot = flight.attempt.draftSnapshot
+      this.adopt(this.draft !== snapshot && this.draft.startsWith(snapshot)
+        ? this.draft.slice(snapshot.length)
+        : '')
       // Committed content is gone for good: undo must not resurrect a sent draft.
       this.log = []
       this.redoStack = []
@@ -539,12 +549,14 @@ export class InputMachine {
     return [{ type: 'notice', level: 'error', text }]
   }
 
-  /** Ordinary send accepted: clear as a commit (no undo unit; sent content
-   *  must not be resurrectable — same discipline as submit-settled success). */
-  private onSendCommitted(): InputEffect[] {
+  /** Image-only send accepted: consume its snapshot only if no other transaction owns the machine. */
+  private onSendCommitted(draftSnapshot: string): InputEffect[] {
+    if (this.phase !== 'plain') return []
     this.claim = undefined
     this.occurrences = []
-    this.adopt('')
+    this.adopt(this.draft !== draftSnapshot && this.draft.startsWith(draftSnapshot)
+      ? this.draft.slice(draftSnapshot.length)
+      : '')
     this.log = []
     this.redoStack = []
     this.typingRun = undefined

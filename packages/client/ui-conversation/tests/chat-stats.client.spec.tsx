@@ -12,7 +12,9 @@ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import { StatsLine, contextOccupancy, deriveStats, formatDuration, formatTokens, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
+import {
+  StatsLine, cacheHitPercent, contextOccupancy, deriveStats, formatDuration, formatTokens, type StatsLineProps,
+} from '../src/client/chat/StatsLine.tsx'
 import { en, zh } from '../src/client/locales.ts'
 import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 
@@ -166,6 +168,22 @@ describe('formatters', () => {
     expect(formatDuration(45_230)).toBe('45.2s')
     expect(formatDuration(162_000)).toBe('2m42s')
   })
+
+  it.each([
+    [986, 14, '99'],
+    [995, 5, '99.5'],
+    [9_994, 6, '99.9'],
+    [9_995, 5, '99.95'],
+    [19_991, 9, '99.96'],
+    [19_997, 3, '99.99'],
+    [19_999, 1, '99.995'],
+    [39_999, 1, '99.998'],
+    [Number.MAX_SAFE_INTEGER - 1, 1, '99.99999999999999'],
+    [10_000, 0, '100'],
+  ])('formats %s cached and %s missed input tokens as %s percent', (cacheReadTokens, uncachedInputTokens, expected) => {
+    expect(cacheHitPercent({ cacheReadTokens, uncachedInputTokens, cacheWriteTokens: 0, outputTokens: 0 }))
+      .toBe(expected)
+  })
 })
 
 describe('StatsLine', () => {
@@ -203,6 +221,14 @@ describe('StatsLine', () => {
       contextPressure: {},
     })} />)
     expect(emptyView.container.textContent).toBe('')
+  })
+
+  it('renders the minimum precision that distinguishes a near-full cache hit', () => {
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsLine {...props(source, {
+      tokenUsage: { uncachedInputTokens: 5, outputTokens: 1, cacheReadTokens: 9_995, cacheWriteTokens: 0 },
+    })} />)
+    expect(view.container.textContent).toContain('Cache hit 99.95%')
   })
 
   it('reveals the full line in a delayed hover tooltip only while the row is clipped', () => {

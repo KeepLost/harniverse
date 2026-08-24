@@ -13,6 +13,12 @@ import { InputHub } from '../src/client/input/hub.ts'
 import { ConversationController, UnsupportedImageMediaTypeError } from '../src/client/service.ts'
 import { zh } from '../src/client/locales.ts'
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((res) => { resolve = res })
+  return { promise, resolve }
+}
+
 async function bench(readAttachment?: SessionFace['readAttachment']) {
   const runtime = await SlotTestRuntime.create()
   const prompt = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
@@ -96,6 +102,36 @@ describe('ConversationController', () => {
       await b.runtime.sessions.remove('s1')
       expect(b.root.draftImages([attachment.id])).toEqual([])
       expect(revoked).toHaveBeenCalledWith('blob:draft-1')
+    } finally {
+      created.mockRestore()
+      revoked.mockRestore()
+    }
+    await b.runtime.dispose()
+  })
+
+  it('aborts pending image encoding on scope disposal without reaching prompt', async () => {
+    const b = await bench()
+    const encoded = deferred<ArrayBuffer>()
+    const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:draft-pending')
+    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)
+    try {
+      const file = new File([Uint8Array.of(1)], 'pending.png', { type: 'image/png' })
+      const arrayBuffer = vi.spyOn(file, 'arrayBuffer').mockReturnValue(encoded.promise)
+      const [attachment] = b.root.createDraftImages([file])
+      if (attachment === undefined) throw new Error('draft attachment missing')
+      b.shell.addImages([attachment.id])
+      b.shell.submit('queue')
+      await vi.waitFor(() => { expect(arrayBuffer).toHaveBeenCalledOnce() })
+
+      let removed = false
+      const removal = b.runtime.sessions.remove('s1').then(() => { removed = true })
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(removed).toBe(false)
+      encoded.resolve(Uint8Array.of(1).buffer)
+      await removal
+
+      expect(b.prompt).not.toHaveBeenCalled()
+      expect(revoked).toHaveBeenCalledWith('blob:draft-pending')
     } finally {
       created.mockRestore()
       revoked.mockRestore()

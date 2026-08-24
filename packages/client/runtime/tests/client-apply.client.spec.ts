@@ -31,6 +31,11 @@ async function mount(): Promise<Bench> {
   const handle: ConnectionHandle = {
     api,
     isLoopback: true,
+    authentication: {
+      getSnapshot: () => ({ kind: 'bypass' }),
+      subscribe: () => () => {},
+      validate: () => true,
+    },
     hostDescription: {
       getSnapshot: () => undefined,
       subscribe: () => () => {},
@@ -91,7 +96,7 @@ describe('runtime client apply', () => {
     expect(workspaces.list.getSnapshot().items[0]?.workspaceId).toBe('w-new')
     // Mux sink and onConnected route without throwing (manager semantics own the behavior).
     bench.sinks?.onMuxEnvelope?.({ rpcId: 'r2' as never, payload: { type: 'stream/error', message: 'x' } as never })
-    bench.sinks?.onConnected?.({ bootId: 'boot' as never, version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true })
+    bench.sinks?.onConnected?.({ bootId: 'boot' as never, version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true }, { kind: 'bypass' })
   })
 
   it('selects the recent Workspace once when the first baselines have no current session', async () => {
@@ -104,7 +109,7 @@ describe('runtime client apply', () => {
     }))
     bench.api.onList = () => Promise.resolve(ok({ items: [] }))
 
-    bench.sinks?.onConnected?.({ bootId: 'boot' as never, version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true })
+    bench.sinks?.onConnected?.({ bootId: 'boot' as never, version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true }, { kind: 'bypass' })
     await flushMicrotasks()
 
     const sessions = bench.ctx.get('sessions') as SessionRuntime
