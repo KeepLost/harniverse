@@ -55,6 +55,7 @@ export interface RpcMethodMap {
   'workspace.insertBefore': WorkspaceApi['insertBefore']
   'workspace.insertSessionBefore': WorkspaceApi['insertSessionBefore']
   'workspace.archiveSession': WorkspaceApi['archiveSession']
+  'workspace.unarchiveSession': WorkspaceApi['unarchiveSession']
   'skill.list': SkillsApi['list']
   'agentPreset.list': AgentPresetsApi['list']
   'agentPreset.read': AgentPresetsApi['read']
@@ -114,6 +115,7 @@ export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: Auth
   'workspace.insertBefore': 'harniverse.operate',
   'workspace.insertSessionBefore': 'harniverse.operate',
   'workspace.archiveSession': 'harniverse.operate',
+  'workspace.unarchiveSession': 'harniverse.operate',
   'skill.list': 'harniverse.observe',
   'agentPreset.list': 'harniverse.observe',
   'agentPreset.read': 'harniverse.administer',
@@ -173,6 +175,7 @@ export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 
   'workspace.insertBefore': 'mutate',
   'workspace.insertSessionBefore': 'mutate',
   'workspace.archiveSession': 'mutate',
+  'workspace.unarchiveSession': 'mutate',
   'skill.list': 'read',
   'agentPreset.list': 'read',
   'agentPreset.read': 'read',

@@ -2470,6 +2470,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'resolution after durability.',
       },
       {
+        signature: 'unarchiveSession(sessionId: SessionId): Promise<void>',
+        description: 'Remove one Session from the registry-global archive set. The operation is idempotent so a stale browser can safely repair its archive projection.',
+        parameters: [{ name: 'sessionId', description: 'The Session to make visible again.' }],
+        returns: 'resolution after durability.',
+      },
+      {
         signature: 'removeSessionReferences(sessionId: SessionId): Promise<void>',
         description: 'Remove one deleted session from every workspace account and the archive set. The operation is idempotent; the caller commits authoritative Session deletion first so a failed metadata write can converge on retry.',
         parameters: [{ name: 'sessionId', description: 'deleted session identity.' }],

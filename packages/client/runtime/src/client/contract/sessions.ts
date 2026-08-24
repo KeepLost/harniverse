@@ -65,6 +65,12 @@ export interface ISessions {
 
   /** Clear the current selection into the no-session view state. */
   clear(): void
+  /** Read one archived Session without changing current navigation or resuming an Agent. */
+  openArchive(sessionId: SessionId): Promise<RpcResult<{ snapshot: import('../sessions/conversation.ts').ConversationSnapshot }>>
+  /** Load one older page for an archived Session preview. */
+  loadArchiveOlder(sessionId: SessionId): Promise<RpcResult<{ snapshot: import('../sessions/conversation.ts').ConversationSnapshot }>>
+  /** Permanently delete one Session through the Host deletion transaction. */
+  deleteSession(sessionId: SessionId): Promise<RpcResult<{ deleted: true; attachmentsRetained: true }>>
   /**
    * Search the Host's visible message-content index. Results stay
    * request-local; the list snapshot remains the metadata authority.

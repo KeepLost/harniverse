@@ -227,6 +227,14 @@ completeSessionDeletion(sessionId: SessionId): Promise<void>
 archiveSession(sessionId: SessionId): Promise<void>
 
 /**
+ * Remove one Session from the registry-global archive set. The operation is
+ * idempotent so a stale browser can safely repair its archive projection.
+ * @param sessionId - The Session to make visible again.
+ * @returns resolution after durability.
+ */
+unarchiveSession(sessionId: SessionId): Promise<void>
+
+/**
  * Remove one deleted session from every workspace account and the archive set.
  * The operation is idempotent; the caller commits authoritative Session
  * deletion first so a failed metadata write can converge on retry.

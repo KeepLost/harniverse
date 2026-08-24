@@ -80,18 +80,25 @@ async function harness(
 
   const factory: AgentFactory = {
     async createAgent(_ownerCtx, options) {
-      const session = ctx.sessions.create(
+      const session = ctx.sessions.prepare(
         options.sessionId,
         options.meta === undefined ? {} : { meta: options.meta },
       )
+      const detachSession = ctx.sessions.enter(session)
+      ctx.sessions.announce(session)
       const agent = stubAgent(session)
-      const unregister = ctx.agents.register(agent)
+      const dispose = async (): Promise<void> => {
+        detachAgent()
+        detachSession()
+      }
+      const detachAgent = ctx.agents.enter(agent, undefined, dispose, async () => {
+        await dispose()
+        return true
+      })
+      ctx.agents.announce(agent)
       return {
         agent,
-        dispose: () => {
-          unregister()
-          return Promise.resolve()
-        },
+        dispose,
       }
     },
     async resume() {
@@ -529,7 +536,7 @@ describe('Host Workspace increments', () => {
   })
 
   it('archives a session into the global set, keeps its accounting, and streams the set once', async () => {
-    const { api, root } = await harness()
+    const { api, ctx, root } = await harness()
     const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'archive-home') }))).workspace
     const sessionId = SessionId('session-to-archive')
     expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
@@ -545,11 +552,16 @@ describe('Host Workspace increments', () => {
       payload: { type: 'host/archived-sessions-changed', archivedSessionIds: [sessionId] },
     })
 
-    // Accounting and the session itself are untouched; list re-baselines the set.
+    // Accounting stays intact; the idle Agent is closed so the archive is cold.
     const listed = expectOk(await api.workspace.list(request({})))
     expect(listed.archivedSessionIds).toEqual([sessionId])
     expect(listed.items[0]?.sessionIds).toEqual([sessionId])
-    expect(expectOk(await api.sessions.list(request({}))).items.map(item => item.sessionId)).toContain(sessionId)
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
+
+    const blocked = await api.sessions.prompt(request({
+      sessionId, mode: 'queue', content: [{ type: 'text', text: 'should stay read-only' }],
+    }))
+    expect(blocked.result).toMatchObject({ ok: false, error: { code: 'agent-busy', details: { reason: 'SESSION_ARCHIVED' } } })
 
     // The idempotent repeat emits no second frame: the next observed frame is
     // the workspace-changed of a later attach, not another archive snapshot.
@@ -565,6 +577,26 @@ describe('Host Workspace increments', () => {
       ok: false,
       error: { code: 'session-not-found', details: { sessionId: 'session-ghost' } },
     })
+    expect(expectOk(await api.workspace.unarchiveSession(request({ sessionId }))).archivedSessionIds).toEqual([])
     abort.abort()
+  })
+
+  it('refuses to archive a session with a running Agent', async () => {
+    const { api, ctx, root } = await harness()
+    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'active-archive-home') }))).workspace
+    const sessionId = SessionId('active-session')
+    expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
+    const agent = ctx.agents.get(sessionId)
+    if (agent === undefined) throw new Error('test session did not publish an Agent')
+    ;(agent as unknown as { status: 'idle' | 'running' }).status = 'running'
+
+    const response = await api.workspace.archiveSession(request({ sessionId }))
+
+    expect(response.result).toMatchObject({
+      ok: false,
+      error: { code: 'agent-busy', details: { reason: 'SESSION_ACTIVE' } },
+    })
+    expect(ctx.agents.get(sessionId)).toBe(agent)
+    expect(expectOk(await api.workspace.list(request({}))).archivedSessionIds).toEqual([])
   })
 })

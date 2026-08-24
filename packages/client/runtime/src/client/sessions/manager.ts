@@ -11,6 +11,7 @@ import type {
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { mergeOrderedBaseline } from '../ordered-baseline.ts'
 import type { ConversationRuntime } from './conversation-assembler.ts'
+import type { ConversationSnapshot } from './conversation.ts'
 import type { SessionListEntry, TitledSessionSummary } from './lineage.ts'
 import { flattenLineage } from './lineage.ts'
 import type { PendingInteractionStatus } from './pending.ts'
@@ -607,6 +608,61 @@ export class SessionManager {
       }
       return result
     } catch (error) {
+      return transportError(error)
+    }
+  }
+
+  /**
+   * Open one listed session for read-only archive preview without selecting it.
+   * @param sessionId - archived session to preview.
+   * @returns the conversation snapshot or an RPC error.
+   */
+  async openArchive(sessionId: SessionId): Promise<RpcResult<{ snapshot: ConversationSnapshot }>> {
+    const summary = this.summaries.find(candidate => candidate.sessionId === sessionId)
+    if (summary === undefined) {
+      return {
+        ok: false,
+        error: { code: 'session-not-found', message: `session "${sessionId}" not found`, details: { sessionId } },
+      }
+    }
+    const session = this.get(sessionId)
+    await session.open()
+    const snapshot = session.getSnapshot()
+    if (snapshot.openError === null) return { ok: true, value: { snapshot } }
+    return { ok: false, error: snapshot.openError }
+  }
+
+  /**
+   * Extend one already-open archive preview backwards without selecting it.
+   * @param sessionId - archived session whose history should load older entries.
+   * @returns the extended conversation snapshot or an RPC error.
+   */
+  async loadArchiveOlder(sessionId: SessionId): Promise<RpcResult<{ snapshot: ConversationSnapshot }>> {
+    const session = this.sessions.get(sessionId)
+    if (session === undefined) {
+      return {
+        ok: false,
+        error: { code: 'session-not-found', message: `session "${sessionId}" is not previewed`, details: { sessionId } },
+      }
+    }
+    await session.loadOlder()
+    return { ok: true, value: { snapshot: session.getSnapshot() } }
+  }
+
+  /**
+   * Permanently delete one session and converge the local list on success.
+   * @param sessionId - session to delete.
+   * @returns the deletion result or an RPC error.
+   */
+  async deleteSession(sessionId: SessionId): Promise<RpcResult<{ deleted: true; attachmentsRetained: true }>> {
+    try {
+      const { result } = await this.api.sessions.delete({ sessionId })
+      if (result.ok) {
+        this.recordMutation({ kind: 'remove', sessionId })
+        this.drop(sessionId)
+      }
+      return result
+    } catch (error: unknown) {
       return transportError(error)
     }
   }

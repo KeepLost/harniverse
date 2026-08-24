@@ -309,6 +309,23 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
+   * Remove one Session from the registry-global archive set. The operation is
+   * idempotent so a stale browser can safely repair its archive projection.
+   * @param sessionId - The Session to make visible again.
+   * @returns resolution after durability.
+   */
+  unarchiveSession(sessionId: SessionId): Promise<void> {
+    return this.enqueueOperation(async () => {
+      const state = this.requireState()
+      if (!state.archivedSessionIds.includes(sessionId)) return
+      await this.setState({
+        ...state,
+        archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId),
+      })
+    })
+  }
+
+  /**
    * Remove one deleted session from every workspace account and the archive set.
    * The operation is idempotent; the caller commits authoritative Session
    * deletion first so a failed metadata write can converge on retry.

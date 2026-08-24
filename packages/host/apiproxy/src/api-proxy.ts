@@ -1233,6 +1233,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   const sessionClosures = new Map<SessionId, Promise<void>>()
   /** Durable delete operations, also the cold-resume/create admission fence. */
   const sessionDeletions = new Map<SessionId, Promise<{ error?: RpcError }>>()
+  /** Archive operations fence new interaction while an idle Agent is closing. */
+  const sessionArchives = new Map<SessionId, Promise<{ error?: RpcError }>>()
   /** Parent-scoped fork/delete serialization preserves immutable lineage. */
   const sessionLineageChains = new Map<SessionId, Promise<void>>()
   /** Client-chosen identity creation/resume, deduplicated across concurrent retries. */
@@ -1486,13 +1488,31 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   function sessionUnavailable(sessionId: SessionId): { error: RpcError } | undefined {
     const operation = sessionClosures.has(sessionId)
       ? 'closing'
-      : sessionDeletions.has(sessionId) ? 'being deleted' : undefined
+      : sessionDeletions.has(sessionId) ? 'being deleted'
+        : sessionArchives.has(sessionId) ? 'being archived' : undefined
     if (operation === undefined) return undefined
     return {
       error: {
         code: 'agent-busy',
         message: `session "${sessionId}" is ${operation}`,
-        details: { reason: operation === 'closing' ? 'SESSION_CLOSING' : 'SESSION_DELETING' },
+        details: {
+          reason: operation === 'closing'
+            ? 'SESSION_CLOSING'
+            : operation === 'being deleted' ? 'SESSION_DELETING' : 'SESSION_ARCHIVING',
+        },
+      },
+    }
+  }
+
+  /** Refuse model-facing mutations after the archive commit point. */
+  function archivedSessionUnavailable(sessionId: SessionId): { error: RpcError } | undefined {
+    const workspaceRegistry = ctx.get('workspaceRegistry')
+    if (workspaceRegistry === undefined || !workspaceRegistry.archivedSessionIds.includes(sessionId)) return undefined
+    return {
+      error: {
+        code: 'agent-busy',
+        message: `session "${sessionId}" is archived and read-only`,
+        details: { reason: 'SESSION_ARCHIVED' },
       },
     }
   }
@@ -1501,8 +1521,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   async function activeAgentFor(sessionId: SessionId) {
     const unavailable = sessionUnavailable(sessionId)
     if (unavailable !== undefined) return unavailable
+    const archived = archivedSessionUnavailable(sessionId)
+    if (archived !== undefined) return archived
     const found = await agentFor(sessionId)
-    return sessionUnavailable(sessionId) ?? found
+    return sessionUnavailable(sessionId) ?? archivedSessionUnavailable(sessionId) ?? found
   }
 
   /** Send one transient frame to every connected mux consumer. */
@@ -1596,6 +1618,54 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       .filter(pending => pending.sessionId === sessionId)
       .map(requestedFrame),
   ]
+
+  /** Close a legacy archived Agent once its current work reaches quiescence. */
+  async function closeArchivedAgentIfIdle(agent: Agent): Promise<void> {
+    const sessionId = agent.id
+    const workspaceRegistry = ctx.get('workspaceRegistry')
+    if (workspaceRegistry === undefined || !workspaceRegistry.archivedSessionIds.includes(sessionId)
+      || sessionClosures.has(sessionId) || sessionDeletions.has(sessionId)
+      || agent.status !== 'idle' || queueItems(agent).length > 0
+      || pendingInteractions(sessionId).length > 0) return
+    const closing = (async () => {
+      await (imageAdmissionChains.get(agent) ?? Promise.resolve())
+      await ctx.get('subagents')?.drainContinuableDescendants([agent])
+      const result = await ctx.agents.closeIfIdle(sessionId)
+      if (result === 'closed') {
+        ctx.sessions.emitClosed({
+          sessionId,
+          ...(agent.session.header.parentSession === undefined ? {} : { parentSessionId: agent.session.header.parentSession }),
+        })
+      }
+    })()
+    sessionClosures.set(sessionId, closing)
+    void closing.finally(() => {
+      if (sessionClosures.get(sessionId) === closing) sessionClosures.delete(sessionId)
+    }).catch((error: unknown) => {
+      ctx.logger.warn(`api-proxy: failed to close archived session "${sessionId}": ${String(error)}`)
+    })
+    await closing
+  }
+
+  async function closeArchivedAgents(): Promise<void> {
+    const workspaceRegistry = ctx.get('workspaceRegistry')
+    if (workspaceRegistry === undefined) return
+    await Promise.all(workspaceRegistry.archivedSessionIds.flatMap((sessionId) => {
+      const agent = ctx.agents.get(sessionId)
+      if (agent === undefined) return []
+      return [closeArchivedAgentIfIdle(agent).catch((error: unknown) => {
+        ctx.logger.warn(`api-proxy: legacy archived session "${sessionId}" could not be closed: ${String(error)}`)
+      })]
+    }))
+  }
+
+  ctx.on('agent/status', ({ agent, status }: { agent: Agent; status: AgentStatus }) => {
+    if (status === 'idle' && ctx.get('workspaceRegistry')?.archivedSessionIds.includes(agent.id)) {
+      void closeArchivedAgentIfIdle(agent).catch((error: unknown) => {
+        ctx.logger.warn(`api-proxy: archived session "${agent.id}" remained attached: ${String(error)}`)
+      })
+    }
+  })
 
   /** Sample live fields synchronously so the returned values share one JavaScript turn. */
   const attachedStatus = (session: Session): SessionStatusSnapshot => {
@@ -1896,6 +1966,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     checkPersistedIdentity: boolean,
     presetId?: string,
   ): Promise<Agent> {
+    const archived = archivedSessionUnavailable(sessionId)
+    if (archived !== undefined) throw new Error(archived.error.message)
     if (sessionDeletions.has(sessionId)) {
       throw new Error(`session "${sessionId}" is being deleted`)
     }
@@ -2444,6 +2516,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async create(request) {
         const sessionId = request.payload.sessionId ?? `session-${randomUUID()}` as SessionId
+        const archived = archivedSessionUnavailable(sessionId)
+        if (archived !== undefined) return err(request, archived.error)
         let workspace: Workspace | undefined
         if (request.payload.workspaceId !== undefined) {
           workspace = ctx.workspaceRegistry.get(brandWorkspaceId(request.payload.workspaceId))
@@ -3014,6 +3088,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       updateQueue(request) {
         const { sessionId, itemId, action } = request.payload
+        const archived = archivedSessionUnavailable(sessionId)
+        if (archived !== undefined) {
+          return Promise.resolve(err(request, archived.error))
+        }
         if (sessionClosures.has(sessionId)) {
           return Promise.resolve(err(request, {
             code: 'agent-busy',
@@ -3071,6 +3149,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       cancel(request) {
         const { sessionId } = request.payload
+        const archived = archivedSessionUnavailable(sessionId)
+        if (archived !== undefined) return Promise.resolve(err(request, archived.error))
         const agent = ctx.agents.get(sessionId)
         if (agent === undefined) {
           return Promise.resolve(err(request, {
@@ -3381,7 +3461,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     },
 
     workspace: {
-      list(request) {
+      async list(request) {
+        await closeArchivedAgents()
         return Promise.resolve(ok(request, {
           items: ctx.workspaceRegistry.list().map(workspaceView),
           archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds],
@@ -3485,16 +3566,143 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async archiveSession(request) {
         const { sessionId } = request.payload
+        if (ctx.workspaceRegistry.archivedSessionIds.includes(sessionId)) {
+          return ok(request, { archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds] })
+        }
+        const unavailable = sessionUnavailable(sessionId)
+        if (unavailable !== undefined && !sessionArchives.has(sessionId)) return err(request, unavailable.error)
+        let archive = sessionArchives.get(sessionId)
+        if (archive === undefined) {
+          archive = serializeSessionLineage(sessionId, async (): Promise<{ error?: RpcError }> => {
+            const session = ctx.sessions.get(sessionId)
+            const agent = ctx.agents.get(sessionId)
+            let archiveCommitted = false
+            if (session !== undefined && agent?.session === session) {
+              if (hasSubagentOwner(session, agent)) {
+                return { error: subagentOwnershipError(sessionId) }
+              }
+              if (agent.status === 'running' || queueItems(agent).length > 0 || pendingInteractions(sessionId).length > 0) {
+                return {
+                  error: {
+                    code: 'agent-busy',
+                    message: `session "${sessionId}" is active and cannot be archived`,
+                    details: { reason: 'SESSION_ACTIVE' },
+                  },
+                }
+              }
+              try {
+                await ctx.workspaceRegistry.archiveSession(sessionId)
+                archiveCommitted = true
+              } catch (error: unknown) {
+                if (error instanceof WorkspaceUnknownSessionError) {
+                  return {
+                    error: {
+                      code: 'session-not-found',
+                      message: error.message,
+                      details: { sessionId },
+                    },
+                  }
+                }
+                return {
+                  error: {
+                    code: 'internal',
+                    message: `failed to archive session "${sessionId}": ${String(error)}`,
+                    details: {},
+                  },
+                }
+              }
+              try {
+                await (imageAdmissionChains.get(agent) ?? Promise.resolve())
+                await ctx.get('subagents')?.drainContinuableDescendants([agent])
+                const closed = await ctx.agents.closeIfIdle(sessionId)
+                if (closed !== 'closed') {
+                  await ctx.workspaceRegistry.unarchiveSession(sessionId)
+                  return {
+                    error: {
+                      code: 'agent-busy',
+                      message: closed === 'busy'
+                        ? `session "${sessionId}" became active before it could be archived`
+                        : `session "${sessionId}" is no longer attached`,
+                      details: { reason: closed === 'busy' ? 'SESSION_ACTIVE' : 'SESSION_NOT_ATTACHED' },
+                    },
+                  }
+                }
+                ctx.sessions.emitClosed({
+                  sessionId,
+                  ...(session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession }),
+                })
+              } catch (error: unknown) {
+                try {
+                  await ctx.workspaceRegistry.unarchiveSession(sessionId)
+                } catch (rollbackError: unknown) {
+                  return {
+                    error: {
+                      code: 'internal',
+                      message: `failed to close session "${sessionId}" before archiving: ${String(error)}; archive rollback failed: ${String(rollbackError)}`,
+                      details: {},
+                    },
+                  }
+                }
+                return {
+                  error: {
+                    code: 'internal',
+                    message: `failed to close session "${sessionId}" before archiving: ${String(error)}`,
+                    details: {},
+                  },
+                }
+              }
+            }
+            if (!archiveCommitted) try {
+              await ctx.workspaceRegistry.archiveSession(sessionId)
+              return {}
+            } catch (error: unknown) {
+              if (error instanceof WorkspaceUnknownSessionError) {
+                return {
+                  error: {
+                    code: 'session-not-found',
+                    message: error.message,
+                    details: { sessionId },
+                  },
+                }
+              }
+              return {
+                error: {
+                  code: 'internal',
+                  message: `failed to archive session "${sessionId}": ${String(error)}`,
+                  details: {},
+                },
+              }
+            }
+            return {}
+          })
+          sessionArchives.set(sessionId, archive)
+          // The Host stream treats a disposed session as deleted unless an
+          // explicit close owns the id. Archiving closes an idle Agent but
+          // keeps the durable Session, so share that close fence here.
+          const closeFence = archive.then(() => undefined, () => undefined)
+          sessionClosures.set(sessionId, closeFence)
+          void archive.finally(() => {
+            if (sessionArchives.get(sessionId) === archive) sessionArchives.delete(sessionId)
+            if (sessionClosures.get(sessionId) === closeFence) sessionClosures.delete(sessionId)
+          }).catch(() => undefined)
+        }
+        const outcome = await archive
+        return outcome.error === undefined
+          ? ok(request, { archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds] })
+          : err(request, outcome.error)
+      },
+
+      async unarchiveSession(request) {
+        const { sessionId } = request.payload
+        const unavailable = sessionUnavailable(sessionId)
+        if (unavailable !== undefined) return err(request, unavailable.error)
         try {
-          await ctx.workspaceRegistry.archiveSession(sessionId)
+          await ctx.workspaceRegistry.unarchiveSession(sessionId)
         } catch (error: unknown) {
-          // Only the registry's unknown-session rejection is the business
-          // code; storage/durability failures propagate as internal errors.
-          if (!(error instanceof WorkspaceUnknownSessionError)) throw error
           return err(request, {
-            code: 'session-not-found',
-            message: error.message,
-            details: { sessionId },
+            code: 'internal',
+            message: `failed to unarchive session "${sessionId}": ${String(error)}`,
+            details: {},
           })
         }
         return ok(request, { archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds] })

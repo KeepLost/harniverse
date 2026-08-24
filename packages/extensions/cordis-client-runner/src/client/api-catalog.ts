@@ -360,8 +360,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'archiveSession(sessionId: SessionId): Promise<void>',
-        description: 'Archive a session into the registry-global set (hidden from grouping surfaces; session log and accounting slot remain). Archiving the current session clears the selection into the New Session view state.',
+        description: 'Archive an idle session into the registry-global set (hidden from grouping surfaces; session log and accounting slot remain). The Host closes an idle Agent and archived sessions become read-only.',
         parameters: [{ name: 'sessionId', description: 'session to archive.' }],
+      },
+      {
+        signature: 'unarchiveSession(sessionId: SessionId): Promise<void>',
+        description: 'Remove a session from the registry-global archive set without resuming it.',
+        parameters: [{ name: 'sessionId', description: 'session to make visible again.' }],
       },
     ],
   },

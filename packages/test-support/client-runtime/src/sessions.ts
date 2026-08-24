@@ -185,7 +185,7 @@ export class TestSessions implements ISessions {
   /** Calls observed on the service-level face, newest last. */
   readonly calls: {
     method: 'open' | 'openSubagent' | 'setSubagentCatalogOpen' | 'refreshSubagents'
-      | 'clear' | 'search' | 'fork'
+      | 'clear' | 'search' | 'fork' | 'openArchive' | 'loadArchiveOlder' | 'deleteSession'
     args: unknown[]
   }[] = []
 
@@ -447,6 +447,33 @@ export class TestSessions implements ISessions {
       draft.current = undefined
       draft.currentAddress = undefined
     })
+  }
+
+  /**
+   * Read a fixture snapshot without changing current selection.
+   * @param id - fixture session to preview.
+   */
+  openArchive(id: SessionId): ReturnType<ISessions['openArchive']> {
+    this.calls.push({ method: 'openArchive', args: [id] })
+    return Promise.resolve({ ok: true, value: { snapshot: this.require(id).session.getSnapshot() } })
+  }
+
+  /**
+   * Older-page fixture hook; tests drive snapshots explicitly when needed.
+   * @param id - fixture session whose older page is requested.
+   */
+  loadArchiveOlder(id: SessionId): ReturnType<ISessions['loadArchiveOlder']> {
+    this.calls.push({ method: 'loadArchiveOlder', args: [id] })
+    return Promise.resolve({ ok: true, value: { snapshot: this.require(id).session.getSnapshot() } })
+  }
+
+  /**
+   * Recorded archive deletion stub.
+   * @param id - fixture session to delete.
+   */
+  deleteSession(id: SessionId): ReturnType<ISessions['deleteSession']> {
+    this.calls.push({ method: 'deleteSession', args: [id] })
+    return Promise.resolve({ ok: true, value: { deleted: true, attachmentsRetained: true } })
   }
 
   /**

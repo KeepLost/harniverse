@@ -25,6 +25,24 @@ function summary(sessionId: SessionId, over: SummaryOver = {}) {
 }
 
 describe('instances', () => {
+  it('opens an archive preview without changing selection and removes it after deletion', async () => {
+    const api = new FakeApiClient()
+    api.onList = () => Promise.resolve(ok({ items: [summary(S1)] as never[] }))
+    api.onHistory = () => Promise.resolve(ok({ events: entries(plainTurn(0, 0, 'old', 'reply')) as never[], hasMore: false }))
+    const manager = new SessionManager(api, fakeRemote())
+    await manager.refreshList()
+
+    const opened = await manager.openArchive(S1)
+    expect(opened.ok).toBe(true)
+    expect(manager.getListSnapshot().current).toBeUndefined()
+    expect(api.callsOf('session.history')).toHaveLength(1)
+
+    const deleted = await manager.deleteSession(S1)
+    expect(deleted).toMatchObject({ ok: true, value: { deleted: true } })
+    expect(manager.getListSnapshot().items).toEqual([])
+    expect(api.callsOf('session.delete')).toEqual([{ sessionId: S1 }])
+  })
+
   it('lazily builds one resident instance per id and syncs the running bit from the list', async () => {
     const api = new FakeApiClient()
     api.onList = () => Promise.resolve(ok({ items: [summary(S1, { running: true })] as never[] }))

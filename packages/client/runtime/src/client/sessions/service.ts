@@ -31,6 +31,7 @@ import type { SessionFace } from '../contract/session.ts'
 import type { AgentContext, ISessions } from '../contract/sessions.ts'
 import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
 import type { ConversationRuntime } from './conversation-assembler.ts'
+import type { ConversationSnapshot } from './conversation.ts'
 import { SessionManager } from './manager.ts'
 import type { SessionRemotes } from './remotes.ts'
 import type { SessionListPhase, SessionSearchResultItem, SubagentCatalogSnapshot } from './manager.ts'
@@ -539,6 +540,21 @@ export class SessionRuntime implements ISessions {
       if (!renamed.ok) throw new Error(`fork child rename failed: ${renamed.error.code}: ${renamed.error.message}`)
     }
     return childId
+  }
+
+  /** Read one archived Session without changing the current selection. */
+  async openArchive(sessionId: SessionId): Promise<RpcResult<{ snapshot: ConversationSnapshot }>> {
+    return this.manager.openArchive(sessionId)
+  }
+
+  /** Load one older page for an archived Session preview. */
+  async loadArchiveOlder(sessionId: SessionId): Promise<RpcResult<{ snapshot: ConversationSnapshot }>> {
+    return this.manager.loadArchiveOlder(sessionId)
+  }
+
+  /** Permanently delete one Session through the Host deletion transaction. */
+  async deleteSession(sessionId: SessionId): Promise<RpcResult<{ deleted: true; attachmentsRetained: true }>> {
+    return this.manager.deleteSession(sessionId)
   }
 
   /**

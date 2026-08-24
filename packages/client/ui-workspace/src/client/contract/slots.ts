@@ -28,7 +28,7 @@ import type { HostObservable, PropsLocale, PropsRenderSlots, PropsRuntime, Props
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
-  SessionId, SessionSearchResultItem, WorkspaceId, WorkspaceView,
+  ConversationSnapshot, RpcResult, SessionId, SessionSearchResultItem, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { createWorkspaceViewStore } from '../stores.ts'
 
@@ -127,6 +127,14 @@ export type WorkspaceBrowserInjected = DirectoryPickingInjected & {
    * session clears the selection into the New Session view state.
    */
   archiveSession: (sessionId: SessionId) => Promise<void>
+  /** Remove a Session from the archive set without resuming it. */
+  unarchiveSession: (sessionId: SessionId) => Promise<void>
+  /** Open one archived Session for a read-only history preview. */
+  openArchive: (sessionId: SessionId) => Promise<RpcResult<{ snapshot: ConversationSnapshot }>>
+  /** Load one older page for an already-open archived preview. */
+  loadArchiveOlder: (sessionId: SessionId) => Promise<RpcResult<{ snapshot: ConversationSnapshot }>>
+  /** Permanently delete one Session through the Host deletion transaction. */
+  deleteSession: (sessionId: SessionId) => Promise<RpcResult<{ deleted: true; attachmentsRetained: true }>>
   /**
    * Reorder a session inside its Workspace account (DOM-insertBefore
    * semantics: omitted anchor appends to the end). The view refreshes from

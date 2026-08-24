@@ -1,0 +1,172 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.selectAll {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--dsw-text-secondary);
+  font-size: 12px;
+}
+
+.list {
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 8px 12px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.row:hover,
+.current {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.rowBody {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rowTitle {
+  overflow: hidden;
+  color: var(--dsw-text-primary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowMeta {
+  overflow: hidden;
+  color: var(--dsw-text-tertiary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.restore {
+  border: 0;
+  background: transparent;
+  color: var(--dsw-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.restore:hover {
+  color: var(--dsw-text-primary);
+}
+
+.empty,
+.status {
+  padding: 24px 12px;
+  color: var(--dsw-text-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.error {
+  padding: 8px 10px;
+  color: var(--dsw-alias-label-danger);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.warning {
+  color: var(--dsw-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.previewDialog {
+  width: min(720px, calc(100vw - 24px));
+}
+
+.previewContent {
+  max-height: min(78vh, 820px);
+}
+
+.previewFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.message {
+  padding: 10px 12px;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.message_user {
+  align-self: flex-end;
+  width: min(88%, 600px);
+  background: var(--dsw-alias-fill-l2);
+}
+
+.message_assistant {
+  align-self: flex-start;
+  width: min(96%, 660px);
+  background: var(--dsw-alias-fill-l1);
+  border: 1px solid var(--dsw-alias-border-l2);
+}
+
+.message_tool,
+.message_notice {
+  align-self: stretch;
+  background: var(--dsw-alias-fill-l2);
+  border: 1px solid var(--dsw-alias-border-l2);
+}
+
+.messageHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+  color: var(--dsw-text-tertiary);
+  font-size: 11px;
+}
+
+.noticeText {
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+  color: var(--dsw-text-secondary);
+  font: inherit;
+  font-size: 12px;
+  white-space: pre-wrap;
+}

@@ -76,6 +76,10 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     renameWorkspace: vi.fn(async () => {}),
     deleteWorkspace: vi.fn(async () => {}),
     archiveSession: vi.fn(async () => {}),
+    unarchiveSession: vi.fn(async () => {}),
+    openArchive: vi.fn(async () => ({ ok: false as const, error: { code: 'internal' as const, message: 'not configured', details: {} } })),
+    loadArchiveOlder: vi.fn(async () => ({ ok: false as const, error: { code: 'internal' as const, message: 'not configured', details: {} } })),
+    deleteSession: vi.fn(async () => ({ ok: true as const, value: { deleted: true as const, attachmentsRetained: true as const } })),
     insertWorkspaceBefore: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
@@ -95,6 +99,43 @@ function rerender(b: ReturnType<typeof mount>, overrides: Partial<WorkspaceBrows
 }
 
 describe('WorkspaceBrowser', () => {
+  it('opens the archive list, previews messages, and deletes selected sessions', async () => {
+    const openArchive = vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        snapshot: {
+          nodes: [{
+            kind: 'user', seq: 1, time: 1, content: [{ type: 'text', text: '旧消息' }], source: { kind: 'user' },
+          }],
+          hasMore: false,
+        } as never,
+      },
+    }))
+    const deleteSession = vi.fn(async () => ({
+      ok: true as const,
+      value: { deleted: true as const, attachmentsRetained: true as const },
+    }))
+    const b = mount({
+      useSessions: hook(sessionState([summary('archived-s', 2)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['archived-s'])], [sid('archived-s')])),
+      openArchive,
+      deleteSession,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '查看归档会话' }))
+    expect(screen.getByText('归档会话')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /archived-s/ }))
+    await waitFor(() => { expect(screen.getByText('旧消息')).toBeTruthy() })
+    expect(openArchive).toHaveBeenCalledWith(sid('archived-s'))
+
+    fireEvent.click(screen.getByRole('button', { name: '永久删除' }))
+    fireEvent.click(screen.getAllByRole('button', { name: '永久删除' })[1]!)
+    await waitFor(() => { expect(deleteSession).toHaveBeenCalledWith(sid('archived-s')) })
+    expect(deleteSession).toHaveBeenCalledTimes(1)
+
+    b.view.unmount()
+  })
+
   it('prunes deleted Workspace view state only after the Workspace baseline is ready', async () => {
     const pending = {
       ...workspaceState([]),
