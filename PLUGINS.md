@@ -206,6 +206,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `6ef9ea1bc1` | Makes the Archived Sessions entry reachable from the collapsed sidebar rail and expands the rail before opening the archive panel. |
 | `2c925a4f50` | Reserves the full width of the three desktop sidebar header actions so the archive control is not clipped or covered by the adjacent conversation column. |
 | `f7c1bc1308` | Refuses a composition plan whose selected recipes claim one member name, and compiles an already-stored tool-name conflict into a mountable generation so a Profile carrying one can still start a Session. |
+| `02ff1b54f8` | Keeps the vendored logger-console timestamp visible on dark terminals by using ANSI palette index 7 instead of dark index 8; log thresholds and message content remain unchanged. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
