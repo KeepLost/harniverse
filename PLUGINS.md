@@ -213,6 +213,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `fa35fa4edc` | Adds the opt-in Python `CodeRuntime` provider: fresh shell-free CPython subprocesses, hostile fd-3 JSONL validation, async bindings, resource/time/output limits, lossless JSON, cancellation, and quiescent disposal without changing shipped Profiles. |
 | `18fe061761` | Adds creation-time-fenced Windows process inspection and PTY teardown plus the opt-in owner-scoped persistent PowerShell tool, preserving existing POSIX behavior and leaving default Profile composition unchanged. |
 | `644e92524d` | Carries typed image attachments through slash-command adjudication, transport, and Host admission; commands must opt into images, handlers receive durable `ImageBlock` references, and failed or cancelled submissions retain draft resources. |
+| `64ed2f1efc` | Aligns the accepted upstream feature contracts in regression fixtures: Web reference rows insert into the actual Web layer, interrupted output remains visible after cancellation, command image arguments are explicit, and provider diagnostics are asserted separately from failure output. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
