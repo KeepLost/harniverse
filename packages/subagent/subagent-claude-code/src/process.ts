@@ -14,6 +14,7 @@ import type {
 import {
   scrubbedParentEnv,
   type SubprocessHandle,
+  type SubprocessOutcome,
   type SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 
@@ -81,6 +82,7 @@ export class ManagedClaudeCodeProcess implements SpawnedProcess {
   readonly stdin
   readonly stdout
   private readonly events = new EventEmitter()
+  private outcomeValue: SubprocessOutcome | undefined
   private exitCodeValue: number | null = null
   private signalCodeValue: NodeJS.Signals | null = null
   private killRequested = false
@@ -98,6 +100,7 @@ export class ManagedClaudeCodeProcess implements SpawnedProcess {
     this.events.on('error', () => {})
     void child.done.then(
       (outcome) => {
+        this.outcomeValue = outcome
         this.exitCodeValue = outcome.exitCode
         this.signalCodeValue = outcome.signal
         this.events.emit('exit', outcome.exitCode, outcome.signal)
@@ -123,6 +126,11 @@ export class ManagedClaudeCodeProcess implements SpawnedProcess {
     return this.signalCodeValue
   }
 
+  /** Exact direct-child outcome once the shared process owner settles it. */
+  get outcome(): SubprocessOutcome | undefined {
+    return this.outcomeValue
+  }
+
   /**
    * Route the SDK's termination request to the tree-scoped process owner.
    * @param _signal - SDK-selected signal; the shared seam owns its escalation ladder.
@@ -131,8 +139,7 @@ export class ManagedClaudeCodeProcess implements SpawnedProcess {
   kill(_signal: NodeJS.Signals): boolean {
     if (
       this.killRequested
-      || this.exitCodeValue !== null
-      || this.signalCodeValue !== null
+      || this.outcomeValue !== undefined
     ) {
       return false
     }

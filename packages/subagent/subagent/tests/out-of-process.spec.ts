@@ -118,11 +118,38 @@ describe('settleRunResult', () => {
     const result = await settleRunResult({
       attempt: async () => { throw new Error('pipe torn mid-cancel') },
       collectOutput: () => [{ type: 'text', text: 'partial' }],
+      collectDiagnostic: () => 'must not survive cancellation',
       cancelled: () => true,
       signal: controller.signal,
       onAbort,
     })
     expect(result).toEqual({ output: [{ type: 'text', text: 'partial' }], stopReason: 'aborted' })
+  })
+
+  it('limits a flattened diagnostic to 4096 UTF-8 bytes without splitting text', async () => {
+    const { controller, onAbort } = wiring()
+    const exact = 'x'.repeat(4_096)
+    const exactResult = await settleRunResult({
+      attempt: async () => { throw new Error('transport died') },
+      collectOutput: () => [],
+      collectDiagnostic: () => exact,
+      cancelled: () => false,
+      signal: controller.signal,
+      onAbort,
+    })
+    expect(exactResult.diagnostic).toBe(exact)
+
+    const result = await settleRunResult({
+      attempt: async () => { throw new Error('transport died') },
+      collectOutput: () => [],
+      collectDiagnostic: () => `safe:${'界'.repeat(2_000)}`,
+      cancelled: () => false,
+      signal: controller.signal,
+      onAbort,
+    })
+    expect(result.diagnostic?.endsWith('\n[diagnostic truncated]')).toBe(true)
+    expect(Buffer.byteLength(result.diagnostic ?? '', 'utf8')).toBeLessThanOrEqual(4_096)
+    expect(result.diagnostic).not.toContain('\uFFFD')
   })
 
   it('flattens a failure through a contained onError sink', async () => {

@@ -8,7 +8,7 @@ This package registers the fixed `claude-code` subagent provider. Each accepted 
 
 `start(request)` accepts only a non-empty sequence of text blocks and derives the child cwd from the parent Session. It creates one private `AbortController`, calls the official SDK `query()`, and publishes the run only after the SDK's `spawnClaudeCodeProcess` hook has supplied a live CLI handle owned by [`dsh-subprocess`](../../subprocess/subprocess/README.md). A failure or cancellation before publication closes the query, terminates any acquired process tree, waits for it to exit, and rejects `start()`.
 
-The SDK receives the exact concatenated text task. The provider iterates the complete SDK message stream and accepts only a `result` message with `subtype: "success"`, `is_error: false`, and a nonblank `result`, followed by normal iterator completion. Every SDK error subtype, an error-marked success, a missing answer, iterator failure, protocol failure, or process failure maps to `error`; the provider produces neither `max-tokens` nor `refusal`.
+The SDK receives the exact concatenated text task. The provider iterates the complete SDK message stream and accepts only a `result` message with `subtype: "success"`, `is_error: false`, and a nonblank `result`, followed by normal iterator completion. Every SDK error subtype, an error-marked success, a missing answer, iterator failure, protocol failure, or process failure maps to `error`; the provider produces neither `max-tokens` nor `refusal`. Failed published runs include a safe diagnostic with fixed product, stage, and category fields plus direct-process exit code or signal when observed; raw SDK errors and payloads remain only in Host error logging.
 
 Local cancellation wins the result race and maps to `aborted`. `dispose()` is idempotent: it aborts the run, asks the SDK query to close, invokes the shared process-tree termination escalation, and waits for whole-tree exit. SDK graceful close expresses protocol intent; the subprocess handle remains the authority for process quiescence. Result failure and independent teardown failure remain separate.
 
@@ -16,7 +16,7 @@ Local cancellation wins the result race and maps to `aborted`. `dispose()` is id
 
 The provider deliberately omits the SDK `settingSources` option. The official SDK therefore reads the host's normal user, project, and local Claude settings relative to the parent Session cwd, including native account state and product configuration. The provider neither copies nor filters those files and does not create or modify login state.
 
-Each query sets `persistSession: false` and disables `AskUserQuestion`. It supplies no `canUseTool`, elicitation, or dialog callback, so unattended interactions fail through the SDK instead of waiting for a user interface this provider does not own.
+Each query sets `persistSession: false` and disables `AskUserQuestion`. Its fixed callbacks deny tool approval, decline MCP elicitation, and cancel supported blocking dialogs, so unattended interactions never wait for a user interface this provider does not own. A failed run may include only the fixed request class and decision in its diagnostic; callback inputs are never copied.
 
 ## Capabilities and context
 
@@ -76,7 +76,7 @@ Independent of the parent request cache. Reuse depends only on Claude Code's own
 
 #### What the model sees
 
-Through `dsh-tool-subagent`, the parent sees only the strict final Claude Code answer or the consumer's exact error for a non-completed result. Claude Code reasoning, tool activity, intermediate messages, stderr, workspace diffs, usage, and product ids are not copied into the parent Session.
+Through `dsh-tool-subagent`, the parent sees only the strict final Claude Code answer or the consumer's error for a non-completed result. A failure may add a separate bounded `Diagnostic:` line containing fixed safe facts. Claude Code reasoning, tool activity, intermediate messages, raw errors, stderr, paths, prompts, environment values, credentials, protocol payloads, workspace diffs, usage, and product ids are not copied into the parent Session.
 
 #### Token effect
 
@@ -92,7 +92,7 @@ Append-only: the new tool result follows the reusable parent request prefix.
 - **Host settings are intentionally authoritative** — project and user settings can change model, tools, and behavior; the provider does not provide a filtered or hermetic production mode.
 - **Product installation and account state remain native** — a missing or incompatible `claude`, configuration error, or authentication failure is surfaced as a startup or run error; the plugin provides no installer or login flow.
 - **The SDK platform CLI remains in the install closure** — production ignores it in favor of the host `claude`, but the current SDK optional dependency is still installed and supplies the keyless compatibility fixture. Removing that payload belongs to the separate product installation-closure follow-up.
-- **No human interaction path** — `AskUserQuestion` is disabled and other interactive callbacks are absent, so tasks requiring new approval or input fail instead of suspending.
+- **No human interaction path** — `AskUserQuestion` is disabled, and fixed callbacks deny, decline, or cancel other supported interaction requests, so tasks requiring new approval or input fail instead of suspending.
 - **Final text only** — reasoning, intermediate messages, tool traffic, usage, stderr, and workspace diffs remain product-local.
 - **No optional shared capabilities** — output schemas, child personas, tool filtering, and harness depth enforcement are rejected by the shared service for this provider.
 - **No wall-clock timeout or side-effect rollback** — the caller cancels long work, and files or external systems changed before cancellation are not restored.

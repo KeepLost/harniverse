@@ -62,4 +62,20 @@ describe('outcome mapping helpers', () => {
       detail: 'Error: result failed; dispose failed: Error: reap failed',
     })
   })
+
+  it('keeps provider diagnostics separate in failed background outcomes', async () => {
+    await expect(settleRun({
+      id: SessionId('child-diagnostic'),
+      localAgent: undefined,
+      result: Promise.resolve({
+        output: [{ type: 'text', text: 'partial assistant text' }],
+        diagnostic: 'Claude Code denied a tool request',
+        stopReason: 'error',
+      }),
+      dispose: () => Promise.resolve(),
+    })).resolves.toEqual({
+      status: 'failed',
+      detail: 'error; diagnostic: Claude Code denied a tool request',
+    })
+  })
 })

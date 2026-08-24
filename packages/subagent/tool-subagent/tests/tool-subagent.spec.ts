@@ -181,6 +181,35 @@ describe('dsh-tool-subagent', () => {
     expect(text(result)).toContain('scripted subagent reply')
   })
 
+  it('presents provider diagnostics separately from preserved assistant output', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SubagentRuntime)
+    ctx.subagents.registerProvider({
+      name: 'diagnostic',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async () => ({
+        id: SessionId('diagnostic-child'),
+        localAgent: undefined,
+        result: Promise.resolve({
+          output: [{ type: 'text', text: 'partial assistant answer' }],
+          diagnostic: 'Product subagent failure (product: fixture; stage: run; category: failed)',
+          stopReason: 'error' as const,
+        }),
+        dispose: async () => {},
+      }),
+    })
+    await ctx.plugin(tool, { provider: 'diagnostic', maxDepth: 'provider-managed' })
+
+    const result = await callSubagent(ctx, { description: 'd', prompt: 'p' })
+    expect(text(result)).toContain('\nDiagnostic: Product subagent failure')
+    expect(text(result)).toContain(
+      '\nPartial output before the run ended:\npartial assistant answer',
+    )
+  })
+
   it('registers under a configurable toolName so multiple providers can coexist', async () => {
     // The defining multi-provider use case: two loads, two distinct tool names,
     // each bound to a different provider — the tool registry rejects duplicate

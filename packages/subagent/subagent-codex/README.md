@@ -10,9 +10,9 @@ This package registers the fixed `codex` subagent provider. Each accepted run st
 
 The published `run.result` starts exactly one turn. It accepts only notifications for that run's thread and turn, then waits for the authoritative `turn/completed` terminal notification. The latest `agentMessage` with `phase: "final_answer"` wins; when Codex emits no explicit final phase, the latest message with `phase: null` is the compatibility fallback. Commentary never replaces either answer, and a successful turn with no nonblank answer settles as an error.
 
-For command and file approvals, the unattended provider selects a non-approval decision offered by the request, preferring `cancel`; the stable 0.147.0 request shape without an offered-decision list falls back to `decline`. It answers permission requests with an empty turn-scoped permission set, answers user-input requests with no answers, and declines MCP elicitation. A request with no legal unattended response, or any unknown server request, fails the run.
+For command and file approvals, the unattended provider selects a non-approval decision offered by the request, preferring `cancel`; the stable 0.147.0 request shape without an offered-decision list falls back to `decline`. It answers permission requests with an empty turn-scoped permission set, answers user-input requests with no answers, and declines MCP elicitation. A request with no legal unattended response, or any unknown server request, fails the run. Failed runs may report only the fixed request class and decision; request and item payloads are never copied.
 
-Local cancellation wins the result race and maps to `aborted`. A failed turn whose `codexErrorInfo` is `contextWindowExceeded` maps to `max-tokens`; every other remote interrupted or failed turn maps to `error`, and the provider produces no `refusal`. `dispose()` is idempotent: it requests a best-effort `turn/interrupt` with both current ids when they are known, closes the JSON-RPC wire, ends stdin, invokes the shared process-tree termination escalation, and waits for whole-tree exit. Result failure and independent teardown failure remain separate.
+Local cancellation wins the result race and maps to `aborted`. A failed turn whose allowlisted `codexErrorInfo` category is `contextWindowExceeded` maps to `max-tokens`; every other remote interrupted or failed turn maps to `error`, and the provider produces no `refusal`. Non-completed and flattened results include a safe diagnostic with fixed product, stage, and allowlisted category fields, bounded numeric HTTP status when supplied by a recognized connection or stream variant, and independently observed process exit code or signal. Stderr is forwarded to the Host, but the provider recognizes only fixed approval-denial and sandbox-violation signatures and never copies raw stderr or protocol data into diagnostics. `dispose()` is idempotent: it requests a best-effort `turn/interrupt` with both current ids when they are known, closes the JSON-RPC wire, ends stdin, invokes the shared process-tree termination escalation, and waits for whole-tree exit. Result failure and independent teardown failure remain separate.
 
 ## Capabilities and context
 
@@ -70,7 +70,7 @@ Independent of the parent request cache. Reuse depends only on Codex's own provi
 
 #### What the model sees
 
-Through `dsh-tool-subagent`, the parent sees only the selected final Codex answer or the consumer's exact error for a non-completed result. Codex commentary, reasoning, tool activity, stderr, workspace diffs, and product ids are not copied into the parent Session.
+Through `dsh-tool-subagent`, the parent sees only the selected final Codex answer or the consumer's error for a non-completed result. A failure may add a separate bounded `Diagnostic:` line containing fixed safe facts. Codex commentary, reasoning, tool activity, raw stderr, protocol payloads, paths, prompts, environment values, credentials, workspace diffs, and product ids are not copied into the parent Session.
 
 #### Token effect
 
@@ -86,6 +86,6 @@ Append-only: the new tool result follows the reusable parent request prefix.
 - **Host-managed product installation and account state** — a missing or incompatible `codex`, configuration error, or authentication failure is surfaced as a startup or run error; the plugin provides no installer, login flow, or runtime version gate.
 - **Compatibility is pinned by development evidence** — upgrading from the verified 0.147.0 protocol baseline requires regenerating upstream schema evidence and rerunning handshake, answer-selection, approval, cancellation, keyless real-product, and credentialed DeepSeek nonce tests.
 - **No human approval path** — known unattended approval requests are denied and unknown server requests fail closed; deployments cannot configure an allow policy through this package.
-- **Final text only** — reasoning, commentary, intermediate messages, tool traffic, usage, stderr, and workspace diffs remain product-local.
+- **Final text plus safe failure facts** — reasoning, commentary, intermediate messages, tool traffic, usage, raw stderr, protocol payloads, and workspace diffs remain product-local.
 - **No optional shared capabilities** — output schemas, child personas, tool filtering, and harness depth enforcement are rejected by the shared service for this provider.
 - **No wall-clock timeout or side-effect rollback** — the caller cancels long work, and files or external systems changed before cancellation are not restored.

@@ -189,6 +189,39 @@ function failure(
   } as SDKResultMessage
 }
 
+function expectedFailureDiagnostic(
+  stage: 'query-run' | 'process',
+  category: string,
+  outcome?: Partial<SubprocessOutcome>,
+): string {
+  const fields = [
+    'product: Claude Code',
+    `stage: ${stage}`,
+    `category: ${category}`,
+  ]
+  if (outcome?.exitCode !== null && outcome?.exitCode !== undefined) {
+    fields.push(`exit code: ${outcome.exitCode}`)
+  }
+  if (outcome?.signal !== null && outcome?.signal !== undefined) {
+    fields.push(`signal: ${outcome.signal}`)
+  }
+  return `Product subagent failure (${fields.join('; ')})`
+}
+
+function permissionDenied(): SDKMessage {
+  return {
+    type: 'system',
+    subtype: 'permission_denied',
+    tool_name: 'Bash',
+    tool_use_id: 'tool-secret',
+    decision_reason_type: 'mode',
+    decision_reason: 'contains /private/secret.txt',
+    message: 'command with SECRET_TOKEN was denied',
+    uuid: '00000000-0000-4000-8000-000000000001',
+    session_id: 'session-secret',
+  } as SDKMessage
+}
+
 function queryFrom(
   messages: readonly SDKMessage[],
   after?: Error,
@@ -365,6 +398,7 @@ describe('task admission and package contracts', () => {
     child.stdout.end()
     await expect(run.result).resolves.toEqual({
       output: [],
+      diagnostic: expectedFailureDiagnostic('query-run', 'missing-result'),
       stopReason: 'error',
     })
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(
@@ -530,7 +564,7 @@ describe('official spawn projection', () => {
 })
 
 describe('query options and result mapping', () => {
-  it('builds the fixed unattended options over the scrubbed environment', () => {
+  it('builds the fixed unattended options over the scrubbed environment', async () => {
     vi.stubEnv('HOST_VISIBLE', 'visible')
     vi.stubEnv('HOST_SECRET_TOKEN', 'must-not-leak')
     vi.stubEnv('DSH_INTERNAL', 'must-not-leak')
@@ -565,15 +599,31 @@ describe('query options and result mapping', () => {
     })
     expect(options.env).not.toHaveProperty('HOST_SECRET_TOKEN')
     expect(options.env).not.toHaveProperty('DSH_INTERNAL')
-    for (const omitted of [
-      'settingSources',
-      'canUseTool',
-      'onElicitation',
-      'onUserDialog',
-      'supportedDialogKinds',
-    ]) {
+    for (const omitted of ['settingSources']) {
       expect(options).not.toHaveProperty(omitted)
     }
+    expect(options.supportedDialogKinds).toEqual(['refusal_fallback_prompt'])
+    const callbackSignal = new AbortController().signal
+    await expect(options.canUseTool!(
+      'Bash',
+      { command: 'cat /private/secret.txt', token: 'SECRET_TOKEN' },
+      { signal: callbackSignal, toolUseID: 'tool-1', requestId: 'request-1' },
+    )).resolves.toMatchObject({ behavior: 'deny' })
+    await expect(options.onElicitation!(
+      {
+        serverName: 'private-server',
+        message: 'enter SECRET_TOKEN',
+        requestedSchema: { type: 'object' },
+      },
+      { signal: callbackSignal },
+    )).resolves.toEqual({ action: 'decline' })
+    await expect(options.onUserDialog!(
+      {
+        dialogKind: 'refusal_fallback_prompt',
+        payload: { path: '/private/secret.txt', token: 'SECRET_TOKEN' },
+      },
+      { signal: callbackSignal },
+    )).resolves.toEqual({ behavior: 'cancelled' })
 
     const spawned = options.spawnClaudeCodeProcess!(sdkSpawnOptions())
     expect(spawned).toBeInstanceOf(ManagedClaudeCodeProcess)
@@ -588,17 +638,21 @@ describe('query options and result mapping', () => {
   it('accepts only a non-error success with a non-blank final result', () => {
     expect(successfulResult(success('exact final'))).toBe('exact final')
     expect(() => successfulResult(success('answer', true)))
-      .toThrow('marked as an error')
+      .toThrow(expectedFailureDiagnostic('query-run', 'invalid-success'))
     expect(() => successfulResult(success(' \n ')))
-      .toThrow('contained no answer')
+      .toThrow(expectedFailureDiagnostic('query-run', 'invalid-success'))
     expect(() => successfulResult(failure(
       'error_during_execution',
       ['first', 'second'],
-    ))).toThrow('first; second')
+    ))).toThrow(expectedFailureDiagnostic('query-run', 'error_during_execution'))
+    expect(() => successfulResult(failure(
+      'error_during_execution',
+      ['SECRET_TOKEN', '/private/secret.txt'],
+    ))).not.toThrow('SECRET_TOKEN')
     expect(() => successfulResult(failure(
       'error_max_turns',
       [],
-    ))).toThrow('error_max_turns')
+    ))).toThrow(expectedFailureDiagnostic('query-run', 'error_max_turns'))
   })
 
   it('consumes the complete stream and keeps the latest strict success', async () => {
@@ -613,7 +667,7 @@ describe('query options and result mapping', () => {
     })
     await expect(consumeClaudeQuery(
       queryFrom([{ type: 'system', subtype: 'init' } as SDKMessage]),
-    )).rejects.toThrow('ended without a result')
+    )).rejects.toThrow(expectedFailureDiagnostic('query-run', 'missing-result'))
   })
 })
 
@@ -657,6 +711,7 @@ describe('run publication, cancellation, and settlement', () => {
       )
       await expect(run.result).resolves.toEqual({
         output: [],
+        diagnostic: expectedFailureDiagnostic('query-run', subtype),
         stopReason: 'error',
       })
       expect(onError).toHaveBeenCalledWith(
@@ -667,6 +722,59 @@ describe('run publication, cancellation, and settlement', () => {
     }
   })
 
+  it('returns safe failure and unattended-decision facts without SDK payloads', async () => {
+    const fixture = fakeRun([
+      permissionDenied(),
+      failure('error_during_execution', [
+        'SECRET_TOKEN',
+        '/private/secret.txt',
+      ]),
+    ])
+    const run = await startClaudeCodeRun(request(), fixture.spec)
+    const result = await run.result
+    expect(result).toEqual({
+      output: [],
+      diagnostic: `${expectedFailureDiagnostic('query-run', 'error_during_execution')}\nClaude Code unattended decision (request: tool permission; decision: denied)`,
+      stopReason: 'error',
+    })
+    expect(result.diagnostic).not.toContain('SECRET_TOKEN')
+    expect(result.diagnostic).not.toContain('/private/secret.txt')
+    await run.dispose()
+  })
+
+  it('reports an early process exit without exposing the transport failure', async () => {
+    const child = fakeChild()
+    async function* stream(): AsyncGenerator<SDKMessage, void> {
+      child.settle({ exitCode: 23, signal: null })
+      await Promise.resolve()
+      throw new Error('SECRET_TOKEN from /private/transport')
+    }
+    queryMock.mockImplementation(({ options }) => {
+      options.spawnClaudeCodeProcess!(sdkSpawnOptions())
+      return Object.assign(stream(), { close: vi.fn() }) as unknown as Query
+    })
+    const run = await startClaudeCodeRun(request(), {
+      cwd: '/workspace',
+      executable: '/native/claude',
+      env: {},
+      disposeGraceMs: 5,
+      spawn: () => child.handle,
+    })
+    const result = await run.result
+    expect(result).toEqual({
+      output: [],
+      diagnostic: expectedFailureDiagnostic(
+        'process',
+        'process-exit',
+        { exitCode: 23, signal: null },
+      ),
+      stopReason: 'error',
+    })
+    expect(result.diagnostic).not.toContain('SECRET_TOKEN')
+    expect(result.diagnostic).not.toContain('/private/transport')
+    await run.dispose()
+  })
+
   it('fails closed when iteration rejects after a result', async () => {
     const fixture = fakeRun(
       [success('partial final')],
@@ -675,6 +783,7 @@ describe('run publication, cancellation, and settlement', () => {
     const run = await startClaudeCodeRun(request(), fixture.spec)
     await expect(run.result).resolves.toEqual({
       output: [],
+      diagnostic: expectedFailureDiagnostic('query-run', 'unknown'),
       stopReason: 'error',
     })
     await run.dispose()

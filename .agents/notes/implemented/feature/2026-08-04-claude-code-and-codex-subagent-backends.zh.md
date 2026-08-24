@@ -49,7 +49,7 @@ Codex 0.147.0 使用 Responses 协议，而 DeepSeek 的公开 OpenAI 兼容端�
 
 `@deepseek-ai/dsh-subagent-claude-code` 注册固定的 `claude-code` 提供方，并调用 `@anthropic-ai/claude-agent-sdk@0.3.220`。每次运行前，提供方经宿主 subprocess 执行世界解析固定名称 `claude`，并把准确路径作为 `pathToClaudeCodeExecutable` 交给 SDK；SDK 因此使用启动 DSH 的原生产品，而不是选择自身的 platform `optionalDependency`。Windows `.cmd` 或 `.bat` 路径会作为带引号、仅供本次 spawn 使用的环境展开值穿过 `cmd.exe /v:off`，因此路径中的百分号、与号和感叹号仍只是数据，且无需改变共享子进程约定。提供方使用官方 `query()` 入口点，并将 SDK 的 `spawnClaudeCodeProcess` 参数、cwd、环境和转发的信号交给 `dsh-subprocess`；其私有 `SpawnedProcess` 适配器只公开 SDK 所需的流、事件、终止和退出事实。
 
-公开配置包含与 Codex 兄弟提供方相同、由部署方负责的两个值：显式的 `env` 覆盖项，以及须为正有限值且不得大于仓库共享 `MAX_TIMER_DELAY_MS` 的 `disposeGraceMs`。每次运行都会创建自己的 `AbortController`，设置 `persistSession: false` 并禁用 `AskUserQuestion`。提供方故意省略 `settingSources`，因此 SDK 会相对于父会话 cwd 读取宿主机常规的用户、项目和本地 Claude 设置。它既不复制也不过滤这些设置，也不会创建或修改登录状态。提供方不设置 `canUseTool`、elicitation 或对话回调，因此无人值守交互会经 SDK 失败，而不会等待本提供方不负责的用户界面。
+公开配置包含与 Codex 兄弟提供方相同、由部署方负责的两个值：显式的 `env` 覆盖项，以及须为正有限值且不得大于仓库共享 `MAX_TIMER_DELAY_MS` 的 `disposeGraceMs`。每次运行都会创建自己的 `AbortController`，设置 `persistSession: false` 并禁用 `AskUserQuestion`。提供方故意省略 `settingSources`，因此 SDK 会相对于父会话 cwd 读取宿主机常规的用户、项目和本地 Claude 设置。它既不复制也不过滤这些设置，也不会创建或修改登录状态。固定 SDK 回调会拒绝工具审批、拒绝 MCP elicitation 并取消受支持的对话，因此无人值守交互会失败，而不会等待本提供方不负责的用户界面；其安全 diagnostic 投影由[失败事实决策](2026-08-24-product-subagent-failure-facts.md)负责。
 
 只有在 SDK `Query` 与受管的活动 CLI 句柄都已存在后，提供方才会发布运行。它会消费完整的 SDK 流；只有 `result` 消息具有 `subtype: "success"`、`is_error: false` 和非空白 `result`，且迭代器随后正常结束时，运行才会完成。所有 SDK 错误子类型、标记为错误的成功消息、结果缺失、迭代器失败、协议失败或进程失败都会成为 `error`。SDK 的轮次、预算和结构化输出限制不表示 token 窗口耗尽，而且 SDK 没有原生的拒绝终止状态，因此本提供方不会产生 `max-tokens` 或 `refusal`。本地取消会胜出并成为 `aborted`。
 
