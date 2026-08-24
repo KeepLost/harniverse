@@ -117,6 +117,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The host commits accepted images before session events; provider adapters resolve authorized durable references into provider-native content.',
   },
   {
+    key: 'fileReferences',
+    pkg: 'file-reference',
+    title: 'Agent workspace file-reference discovery',
+    mode: 'seam',
+    implementations: ['file-reference-local'],
+    consumers: ['client-ui-reference'],
+    note: 'The abstract service returns path-only candidates in the addressed Agent workspace; the local provider owns bounded indexing and the browser consumer renders capability-gated completion without reading file contents.',
+  },
+  {
     key: 'llm',
     pkg: 'llm',
     title: 'LLM adapter registry',
