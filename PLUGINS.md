@@ -203,6 +203,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `af1ef802d0` | Adds idle-only Archived Session Web management, read-only archive previews, unarchive, and dependency-ordered deletion. |
 | `7a9f18df5e` | Carries the admitted identity in every connection `server-response` envelope so authenticated browser Remotes validate, and reads a cold listed Session's capability assembly from the standing generation of its recorded Profile without starting an agent, session, or turn. |
 | `6ef9ea1bc1` | Makes the Archived Sessions entry reachable from the collapsed sidebar rail and expands the rail before opening the archive panel. |
+| `2c925a4f50` | Reserves the full width of the three desktop sidebar header actions so the archive control is not clipped or covered by the adjacent conversation column. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
