@@ -238,6 +238,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `4b4c4bf5be` | Refreshes the generated model-facing tool catalog for the invocation-mode schema. |
 | `64d85fe2f9` | Removes the legacy model-facing `run_in_background` field from subagent delegation; `mode: sync|async` is now the sole model scheduling contract while deployment defaults remain internal. |
 | `19b40e2c7b` | Adds `session_create` through the existing Session Delivery Definition/Provider/Consumer seam; creation uses `ctx.agents.create`, resolves the deployment model, mounts the requested Profile before publication, and returns the durable session identity. |
+| `1cd0fb8b59` | Normalizes sync and persistent async `subagent` results to Invocation receipts carrying `mode`, `invocationId`, and `sessionId`; the legacy receipt remains only for the internal one-shot Task route. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
