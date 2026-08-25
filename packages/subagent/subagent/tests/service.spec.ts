@@ -10,6 +10,7 @@ import SubagentRuntime, {
   SUBAGENT_DESCRIPTOR_VERSION,
   SubagentError,
   assertSubagentMaxDepth,
+  resolveChildProfile,
   type ResolvedSubagentStartRequest,
   type SubagentCapabilities,
   type SubagentProvider,
@@ -125,6 +126,36 @@ describe('SubagentRuntime', () => {
     expectTypeOf<Parameters<SubagentRuntime['start']>[1]>().toExtend<SubagentStartRequest>()
     expect('resume' in subagents).toBe(false)
     expect('resume' in provider).toBe(false)
+  })
+
+  it('validates and persists a resolved child profile without exposing mutable input', async () => {
+    const { subagents } = await service()
+    const provider = new StubProvider('profiled')
+    subagents.registerProvider(provider)
+    const profile = resolveChildProfile({
+      profileId: 'reviewer',
+      harnessId: 'native',
+      modelRouteId: 'safe',
+      tools: ['read'],
+      skills: [],
+      mcpServerIds: [],
+      childProfileIds: [],
+      workspaceCwd: 'packages/review',
+    }, {
+      harnessIds: ['native'],
+      modelRouteIds: ['safe'],
+      tools: ['read', 'write'],
+      skills: [],
+      mcpServerIds: [],
+      childProfileIds: [],
+      workspaceRoot: '/repo',
+      parentWorkspaceCwd: '/repo',
+    }, 1)
+
+    await subagents.start('profiled', baseRequest({ childProfile: profile }))
+    expect(provider.lastRequest?.childProfile).toEqual(profile)
+    expect(provider.lastRequest?.descriptor).toMatchObject({ childProfile: profile })
+    expect(provider.lastRequest?.descriptor.childProfile).not.toBe(profile)
   })
 
   it('does not expose manager teardown and treats a scoped drain as a no-op when no manager was bound', async () => {

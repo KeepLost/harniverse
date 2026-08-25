@@ -66,12 +66,16 @@ import type { ContinuableSetupContribution } from './activation-setup-registry.t
 import { listChildren as listSubagentChildren, listDescendants as listSubagentDescendants } from './list-children.ts'
 import type { SubagentDescendantListEntry, SubagentListEntry } from './list-children.ts'
 import { snapshotSubagentDescriptor } from './descriptor.ts'
+import { assertResolvedChildProfile, childProfileToolFilter } from './profile.ts'
 import { subagentIdentityProjectionDefinition, subagentTimingProjectionDefinition } from './projection.ts'
 
 export * from './out-of-process.ts'
 export { AssistantOutputFold, finalAssistantOutput } from './assistant-output.ts'
 export { SubagentRunId } from './types.ts'
 export type {
+  ChildProfileGrant,
+  ChildProfileSpec,
+  ResolvedChildProfile,
   ContinuableCreateRequest,
   ContinuableCreateSpec,
   ResolvedSubagentStartRequest,
@@ -83,6 +87,13 @@ export type {
   SubagentStopReason,
   SubagentStopReasonMap,
 } from './types.ts'
+export {
+  assertResolvedChildProfile,
+  childProfileToolFilter,
+  isWorkspaceDescendant,
+  parseResolvedChildProfile,
+  resolveChildProfile,
+} from './profile.ts'
 export {
   foldSubagentDescriptor,
   snapshotSubagentDescriptor,
@@ -416,10 +427,13 @@ export class SubagentRuntime extends Service {
     this.assertCapabilities(provider, request)
     assertSubagentMaxDepth(request.maxDepth)
     if (request.outputSchema !== undefined) assertObjectJsonSchema(request.outputSchema)
+    if (request.childProfile !== undefined) assertResolvedChildProfile(request.childProfile)
+    if (request.childProfile !== undefined) childProfileToolFilter(request.childProfile, request.toolFilter)
     const descriptor = snapshotSubagentDescriptor({
       mode: 'one-shot',
       provider: name,
       ...request.label !== undefined ? { label: request.label } : {},
+      ...request.childProfile !== undefined ? { childProfile: request.childProfile } : {},
     })
     const resolved: ResolvedSubagentStartRequest = { ...request, descriptor }
     return observeRun(this.emitLifecycle, name, request.parent, await provider.start(resolved))
@@ -482,7 +496,7 @@ export class SubagentRuntime extends Service {
     const needs: { when: boolean; cap: keyof SubagentCapabilities }[] = [
       { when: request.outputSchema !== undefined, cap: 'outputSchema' },
       { when: request.maxDepth !== undefined, cap: 'depthLimit' },
-      { when: request.toolFilter !== undefined, cap: 'toolFilter' },
+      { when: request.toolFilter !== undefined || request.childProfile !== undefined, cap: 'toolFilter' },
       { when: request.persona !== undefined, cap: 'persona' },
     ]
     for (const { when, cap } of needs) {

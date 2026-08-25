@@ -48,6 +48,7 @@ import {
 } from './child-agent.ts'
 import type { DelegatedPolicyOverrides } from './child-agent.ts'
 import { assertSubagentMaxDepth } from './depth.ts'
+import { assertResolvedChildProfile, childProfileToolFilter } from './profile.ts'
 import { seedDescriptorTurn } from './descriptor-seed.ts'
 import type { ContinuableCreateRequest, ContinuableCreateSpec, SubagentResult, SubagentStartRequest } from './types.ts'
 import type { ActivationObserver, ActivationTerminal } from './lifecycle.ts'
@@ -406,6 +407,10 @@ export class SubagentContinuationManager {
     this.assertAdmitting(parent)
     this.requirePersistence()
     assertSubagentMaxDepth(request.maxDepth)
+    if (request.childProfile !== undefined) assertResolvedChildProfile(request.childProfile)
+    const childToolFilter = request.childProfile === undefined
+      ? request.toolFilter
+      : childProfileToolFilter(request.childProfile, request.toolFilter)
     const childId = SessionId(randomUUID())
     const childDepth = resolveChildDepth(parent, request.maxDepth)
     // Snapshot before any await: invalid descriptor JSON rejects the call
@@ -420,6 +425,7 @@ export class SubagentContinuationManager {
       ...agentModel !== undefined ? { agentModel } : {},
       ...request.persona !== undefined ? { persona: request.persona } : {},
       ...request.toolFilter !== undefined ? { toolFilter: request.toolFilter } : {},
+      ...request.childProfile !== undefined ? { childProfile: request.childProfile } : {},
     })
     // Capture before the first await: a later parent switch belongs to the
     // parent's future, not to this child.
@@ -440,9 +446,16 @@ export class SubagentContinuationManager {
         childId,
         provider: spec.provider,
         parent,
-        create: { seed, meta: childSessionMeta(parent, childDepth, lineageSeedLength), delegatedPolicies },
+        create: {
+          seed,
+          meta: childSessionMeta(parent, childDepth, lineageSeedLength, request.childProfile?.workspaceCwd),
+          delegatedPolicies,
+        },
         agentOptions: resolveChildAgentOptions(parent, request.agentOptions, childDepth),
-        composition: { persona: request.persona, toolFilter: request.toolFilter },
+        composition: {
+          persona: request.persona,
+          toolFilter: childToolFilter,
+        },
         signal: spec.signal,
       })
       return this.submitMaterialized(
