@@ -825,6 +825,27 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+.subagentLink {
+  flex: none;
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  color: var(--dsw-alias-state-business-primary);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.subagentLink:hover {
+  text-decoration: underline;
+}
+
+.subagentLink:focus-visible {
+  outline: 1px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+}
+
 .noOutputText {
   color: var(--dsw-alias-label-caption);
 }

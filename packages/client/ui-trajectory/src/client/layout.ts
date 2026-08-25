@@ -10,6 +10,7 @@ import type {
   RequestInspectionSnapshot,
   RequestPromptChange,
   RequestView,
+  SessionId,
   ToolCallBlock,
   ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -18,6 +19,27 @@ import type {
   TrajectorySourceBlock,
 } from './trajectory-record.ts'
 import { formatElapsedSeconds } from './trajectory-record.ts'
+
+function subagentSessionId(meta: unknown): SessionId | undefined {
+  if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return undefined
+  const value = (meta as { childSessionId?: unknown }).childSessionId
+  return typeof value === 'string' && value !== '' ? value as SessionId : undefined
+}
+
+function subagentMode(meta: unknown): 'one-shot' | 'continuable' | undefined {
+  if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return undefined
+  const value = (meta as { mode?: unknown }).mode
+  return value === 'one-shot' || value === 'continuable' ? value : undefined
+}
+
+function subagentMetadata(meta: unknown): Pick<TrajectoryCellProps, 'subagentSessionId' | 'subagentMode'> {
+  const childSessionId = subagentSessionId(meta)
+  const mode = subagentMode(meta)
+  return {
+    ...(childSessionId === undefined ? {} : { subagentSessionId: childSessionId }),
+    ...(mode === undefined ? {} : { subagentMode: mode }),
+  }
+}
 
 /** One Message or Step group inside a turn. */
 export interface TrajectoryGroupModel {
@@ -438,6 +460,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
             outputDetail: detailResult(node),
             outputBlocks: node.content.map(block => sourceBlock(block)),
             ...resultPreview,
+            ...subagentMetadata(node.meta),
             callId: node.callId,
             isError: node.isError,
             timeSeconds: durationSeconds(node.time, node.callTime),
@@ -745,6 +768,7 @@ function expandAssistant(
             outputDetail: detailResult(result),
             outputBlocks: result.content.map(block => sourceBlock(block)),
             ...resultPreview,
+            ...subagentMetadata(result.meta),
             isError: result.isError,
           }
           : {}),
@@ -1021,6 +1045,7 @@ function expandSubCalls(
             outputDetail: detailResult(sub),
             outputBlocks: sub.content.map(block => sourceBlock(block)),
             ...resultPreview,
+            ...subagentMetadata(sub.meta),
             isError: sub.isError,
           }
           : {}),

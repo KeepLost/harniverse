@@ -91,6 +91,7 @@ describe('dsh-tool-subagent', () => {
     expect(result.value).toEqual({
       kind: 'foreground',
       runId: 'scripted-subagent:mock:parent-1',
+      subagentId: 'scripted-subagent:mock:parent-1',
       output: [{ type: 'text', text: 'child says hi' }],
     })
     expect(text(result)).toBe('child says hi')
@@ -717,7 +718,7 @@ describe('dsh-tool-subagent', () => {
         tools: ['read'],
       },
     })
-    expect(defined.isError).toBe(false)
+    expect(defined.isError, text(defined)).toBe(false)
     const delegated = await callSubagent(ctx, {
       description: 'profiled task',
       prompt: 'read the repository',
@@ -726,6 +727,29 @@ describe('dsh-tool-subagent', () => {
     expect(delegated.isError).toBe(false)
     expect(profileSeen).toMatchObject({ profileId: 'reviewer', revision: 1, harnessId: 'mock', modelRouteId: 'safe' })
     expect(routeSeen).toEqual({ provider: 'mock', model: 'safe-model' })
+  })
+
+  it('binds a default parent grant when Profile management is enabled', async () => {
+    const ctx = await setup({ provider: 'mock', enableProfileManagement: true }, {
+      onStart: (request) => { expect(request.agentOptions).toEqual({ provider: 'mock', model: 'parent-model' }) },
+    })
+    const parent = {
+      id: SessionId('profile-default-parent'),
+      options: { provider: 'mock', model: 'parent-model' },
+      session: { header: { version: 0, id: SessionId('profile-default-parent'), createdAt: 1, cwd: '/repo' } },
+    } as unknown as Agent
+    const defined = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('profile-default-define'),
+      name: 'child_profile_define',
+      agent: parent,
+      arguments: { profile_id: 'default-reviewer' },
+    })
+    expect(defined.isError, text(defined)).toBe(false)
+    const delegated = await callSubagent(ctx, {
+      description: 'default profile task', prompt: 'use the default route', profile_id: 'default-reviewer',
+    }, { agent: parent })
+    expect(delegated.isError).toBe(false)
   })
 
   it.each([

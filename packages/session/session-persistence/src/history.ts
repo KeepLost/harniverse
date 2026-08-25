@@ -32,6 +32,22 @@ export interface SessionHistoryPage {
   readonly hasMore: boolean
 }
 
+/** Request for one bounded raw-event page. */
+export interface SessionRawEventPageRequest {
+  /** Exclusive raw-event upper bound; omitted for the latest page. */
+  readonly beforeSeq?: number
+  /** Maximum number of raw events to return. */
+  readonly maxEvents: number
+}
+
+/** One bounded raw-event page. */
+export interface SessionRawEventPage {
+  /** Events remain in chronological raw-log order. */
+  readonly events: SessionEvent[]
+  /** Whether an earlier raw-event interval exists. */
+  readonly hasMore: boolean
+}
+
 /**
  * Locate the contiguous transaction prefix required to present one replacement
  * checkpoint without loading the older surface range it superseded.
@@ -102,4 +118,27 @@ export function paginateSessionHistory(
     events: events.filter(event => event.seq >= cut && (beforeSeq === undefined || event.seq < beforeSeq)),
     hasMore: cut > 0,
   }
+}
+
+/**
+ * Paginate an event window by raw sequence rather than display-message
+ * boundaries. This is the generic fallback for sequential third-party stores.
+ */
+export function paginateRawEventPage(
+  events: readonly SessionEvent[],
+  request: SessionRawEventPageRequest,
+): SessionRawEventPage {
+  const selected: SessionEvent[] = []
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index] as SessionEvent
+    if (request.beforeSeq !== undefined && event.seq >= request.beforeSeq) continue
+    selected.push(event)
+    if (selected.length > request.maxEvents) {
+      return {
+        events: selected.slice(0, request.maxEvents).reverse(),
+        hasMore: true,
+      }
+    }
+  }
+  return { events: selected.reverse(), hasMore: false }
 }

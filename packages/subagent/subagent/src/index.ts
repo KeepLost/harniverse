@@ -484,6 +484,16 @@ export class SubagentRuntime extends Service {
     return [...(this.profiles.get(parent)?.values() ?? [])]
   }
 
+  /** Whether the Host has already bound a private-profile grant to this Agent. */
+  hasChildProfileGrant(parent: Agent): boolean {
+    return this.profileGrants.has(parent)
+  }
+
+  /** Read the detached grant so a scoped management tool can reuse its defaults. */
+  getChildProfileGrant(parent: Agent): ChildProfileGrant | undefined {
+    return this.profileGrants.get(parent)
+  }
+
   /** Resolve one profile id from the exact parent's private namespace. */
   getChildProfile(parent: Agent, profileId: string): ResolvedChildProfile | undefined {
     return this.profiles.get(parent)?.get(profileId)
@@ -511,6 +521,22 @@ export class SubagentRuntime extends Service {
     }.bind(this), 'subagents.registerChildModelRoute()')
   }
 
+  /** Install one idempotent route for a deployment-derived parent default. */
+  ensureChildModelRoute(routeId: string, route: ChildModelRoute): void {
+    const existing = this.modelRoutes.get(routeId)
+    if (existing !== undefined) {
+      if (existing.provider !== route.provider || existing.model !== route.model) {
+        throw new SubagentError(`child model route "${routeId}" is bound to a different model`, 'DUPLICATE_PROFILE_ROUTE')
+      }
+      return
+    }
+    this.modelRoutes.set(routeId, Object.freeze({
+      provider: route.provider,
+      model: route.model,
+      ...route.fallbacks === undefined ? {} : { fallbacks: Object.freeze([...route.fallbacks]) },
+    }))
+  }
+
   /** Resolve a Profile route into the only model selection fields an Agent accepts. */
   resolveChildModelRoute(profile: ResolvedChildProfile): AgentOptions {
     return this.routeAttempts(profile)[0] as AgentOptions
@@ -518,7 +544,7 @@ export class SubagentRuntime extends Service {
 
   /** Resolve the primary route and its Host-owned ordered fallback attempts. */
   private routeAttempts(profile: ResolvedChildProfile): Array<{ provider: string; model: string; maxTokens?: number }> {
-    const route = this.modelRoutes.get(profile.modelRouteId)
+    const route = this.modelRoutes.get(profile.modelRouteId) ?? defaultParentRoute(profile.modelRouteId)
     if (route === undefined) {
       throw new SubagentError(`no child model route is registered for "${profile.modelRouteId}"`, 'PROFILE_ROUTE_UNAVAILABLE')
     }
@@ -744,6 +770,16 @@ export class SubagentRuntime extends Service {
       }
     }
   }
+}
+
+/** Recover a deployment-derived route after a restart from its opaque id. */
+function defaultParentRoute(routeId: string): ChildModelRoute | undefined {
+  if (!routeId.startsWith('parent:')) return undefined
+  const separator = routeId.indexOf(':', 'parent:'.length)
+  if (separator === -1) return undefined
+  const provider = routeId.slice('parent:'.length, separator)
+  const model = routeId.slice(separator + 1)
+  return provider === '' || model === '' ? undefined : { provider, model }
 }
 
 export default SubagentRuntime

@@ -14,7 +14,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { structuredPatch } from 'diff'
 import type {
-  AssistantRequestConfig, ConversationPromptSnapshot,
+  AssistantRequestConfig, ConversationPromptSnapshot, SessionId,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   AssistantMetricDetail, TrajectoryCellKind, TrajectoryCellProps, TrajectorySourceBlock,
@@ -387,6 +387,8 @@ export interface TrajectoryTableProps {
   inspectCallId?: string | null
   /** Acknowledge a consumed (or unresolvable) inspect request. */
   onInspectApplied?: (() => void) | undefined
+  /** Open the complete history of a child created by a delegation tool. */
+  onOpenSubagent?: ((sessionId: SessionId) => void) | undefined
 }
 
 /** Request-inspector fields shared by ordinary generation and compaction. */
@@ -1712,6 +1714,7 @@ export function TrajectoryTable({
   onToggleAssistant,
   inspectCallId = null,
   onInspectApplied,
+  onOpenSubagent,
 }: TrajectoryTableProps) {
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null)
   const [selectedRequest, setSelectedRequest] = useState<SelectedRequest | null>(null)
@@ -2505,6 +2508,22 @@ export function TrajectoryTable({
                                       {resultText}
                                     </span>
                                   </span>
+                                )}
+                                {record.cell.subagentSessionId !== undefined
+                                  && record.cell.subagentMode !== undefined
+                                  && onOpenSubagent !== undefined && (
+                                  <button
+                                    type="button"
+                                    className={css.subagentLink}
+                                    title={`打开子 Agent 历史 ${record.cell.subagentSessionId}`}
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      onOpenSubagent(record.cell.subagentSessionId as SessionId)
+                                    }}
+                                    onDoubleClick={(event) => { event.stopPropagation() }}
+                                  >
+                                    打开子 Agent 历史
+                                  </button>
                                 )}
                               </span>
                             )}

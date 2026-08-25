@@ -9,8 +9,10 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import { SessionPreparation } from '@deepseek-ai/dsh-session'
 import type { EpochHeader, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import type { SessionPersistenceRevision } from './revision.ts'
-import { paginateSessionHistory } from './history.ts'
-import type { SessionHistoryPage, SessionHistoryPageRequest } from './history.ts'
+import { paginateRawEventPage, paginateSessionHistory } from './history.ts'
+import type {
+  SessionHistoryPage, SessionHistoryPageRequest, SessionRawEventPage, SessionRawEventPageRequest,
+} from './history.ts'
 
 // Re-export the metadata vocabulary so Consumers import it from the Service Definition.
 export type { SessionHeader } from '@deepseek-ai/dsh-session'
@@ -56,13 +58,16 @@ export type {
   PersistenceBackend,
   PersistenceCoordinatorOptions,
   StoredHistoryPage,
+  StoredRawEventPage,
   StoredPrefix,
   StoredSuffix,
 } from './coordinator.ts'
 export {
-  CHECKPOINT_SEARCH_MESSAGE_BUDGET, paginateSessionHistory, replacementCheckpointStart,
+  CHECKPOINT_SEARCH_MESSAGE_BUDGET, paginateRawEventPage, paginateSessionHistory, replacementCheckpointStart,
 } from './history.ts'
-export type { SessionHistoryPage, SessionHistoryPageRequest } from './history.ts'
+export type {
+  SessionHistoryPage, SessionHistoryPageRequest, SessionRawEventPage, SessionRawEventPageRequest,
+} from './history.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -238,6 +243,36 @@ export abstract class SessionPersistence extends Service {
     }
     const inspected = await this.inspect(id, signal)
     const page = paginateSessionHistory(inspected.events, request)
+    return {
+      meta: structuredClone(inspected.meta),
+      events: page.events.map(event => structuredClone(event)),
+      hasMore: page.hasMore,
+    }
+  }
+
+  /**
+   * Read one raw-event page without resuming a Session. Concrete backends may
+   * seek directly to the tail; the default preserves the seam for third-party
+   * backends by paging a validated inspection.
+   * @param id - persisted session to read.
+   * @param request - exclusive upper bound and raw-event quota.
+   * @param signal - optional cancellation for backend read work.
+   * @returns detached metadata and a bounded raw-event page.
+   */
+  async readRawEventPage(
+    id: SessionId,
+    request: SessionRawEventPageRequest,
+    signal?: AbortSignal,
+  ): Promise<SessionRawEventPage & { readonly meta: SessionHeader }> {
+    if (!Number.isSafeInteger(request.maxEvents) || request.maxEvents < 1) {
+      throw new TypeError(`raw history maxEvents must be a positive safe integer, got ${String(request.maxEvents)}`)
+    }
+    if (request.beforeSeq !== undefined
+      && (!Number.isSafeInteger(request.beforeSeq) || request.beforeSeq < 0)) {
+      throw new TypeError(`raw history beforeSeq must be a non-negative safe integer, got ${String(request.beforeSeq)}`)
+    }
+    const inspected = await this.inspect(id, signal)
+    const page = paginateRawEventPage(inspected.events, request)
     return {
       meta: structuredClone(inspected.meta),
       events: page.events.map(event => structuredClone(event)),

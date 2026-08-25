@@ -17,10 +17,11 @@ import { randomBytes } from 'node:crypto'
 import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE, DEFAULT_WRITE_BATCH_MAX_DELAY_MS, MAX_WRITE_BATCH_DELAY_MS,
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator, SessionFormatUnsupportedError,
-  paginateSessionHistory, replacementCheckpointStart, CHECKPOINT_SEARCH_MESSAGE_BUDGET,
+  paginateRawEventPage, paginateSessionHistory, replacementCheckpointStart, CHECKPOINT_SEARCH_MESSAGE_BUDGET,
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
   type SessionInspection, type SessionPersistenceRevision as PersistenceRevision, type SessionRawArtifact,
-  type SessionHistoryPageRequest, type SessionHistoryPage, type StoredHistoryPage, type StoredPrefix,
+  type SessionHistoryPageRequest, type SessionHistoryPage, type SessionRawEventPage,
+  type SessionRawEventPageRequest, type StoredHistoryPage, type StoredRawEventPage, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import { decodeStorageRecord, isAppendSurfaceEvent } from '@deepseek-ai/dsh-session'
 import type { EpochHeader, SessionEvent, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
@@ -124,6 +125,26 @@ async function pageFromReverseRecords(
     events: selected.flat().filter(event => event.seq >= cut && (upper === undefined || event.seq < upper)),
     hasMore: cut > 0,
   }
+}
+
+/** Select one bounded raw-event page from reverse-decoded storage records. */
+async function rawEventPageFromReverseRecords(
+  records: Iterable<SessionEvent[]> | AsyncIterable<SessionEvent[]>,
+  request: SessionRawEventPageRequest,
+): Promise<SessionRawEventPage> {
+  const selected: SessionEvent[] = []
+  const upper = request.beforeSeq
+  for await (const record of records) {
+    for (let index = record.length - 1; index >= 0; index -= 1) {
+      const event = record[index] as SessionEvent
+      if (upper !== undefined && event.seq >= upper) continue
+      selected.push(event)
+      if (selected.length > request.maxEvents) {
+        return { events: selected.slice(0, request.maxEvents).reverse(), hasMore: true }
+      }
+    }
+  }
+  return { events: selected.reverse(), hasMore: false }
 }
 /**
  * Internal scheduling constant, not deployment configuration: balance
@@ -304,6 +325,14 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     return this.coordinator.readHistoryPage(id, request, signal)
   }
 
+  override readRawEventPage(
+    id: SessionId,
+    request: SessionRawEventPageRequest,
+    signal?: AbortSignal,
+  ): Promise<StoredRawEventPage> {
+    return this.coordinator.readRawEventPage(id, request, signal)
+  }
+
   // One method serves both public `list` and the backend hook; delegating it to
   // the coordinator would call this hook recursively.
 
@@ -369,6 +398,60 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
       // for malformed or legacy records that the bounded reader cannot decode.
       const stored = await this.readPrefix(path, id, signal)
       const page = paginateSessionHistory(stored.events, request)
+      return { meta: stored.meta, ...page }
+    }
+  }
+
+  /**
+   * Read a bounded raw-event page by decoding only the newest records needed
+   * for the requested sequence window. The stable file read still protects the
+   * revision boundary; it does not materialize the complete event log.
+   */
+  async loadRawEventPage(
+    id: SessionId,
+    request: SessionRawEventPageRequest,
+    signal?: AbortSignal,
+  ): Promise<StoredRawEventPage | undefined> {
+    signal?.throwIfAborted()
+    await this.ensureRootEncoding()
+    signal?.throwIfAborted()
+    const path = await this.findLog(id, signal)
+    if (path === undefined) return undefined
+    const { buffer } = await this.readStableFile(path, signal)
+    try {
+      if (this.compression === 'none') {
+        const headerEnd = buffer.indexOf(0x0A)
+        if (headerEnd === -1) throw new Error('empty or header-less session log')
+        const meta = parseHeaderMeta(buffer.subarray(0, headerEnd).toString('utf8'))
+        if (meta === undefined || meta.id !== id) throw new Error(`corrupt session log: invalid header line in "${path}"`)
+        const page = await rawEventPageFromReverseRecords(
+          reverseStorageRecords(buffer.subarray(headerEnd + 1)),
+          request,
+        )
+        return { meta, ...page }
+      }
+
+      const { frames } = scanZstdFrames(buffer)
+      if (frames.length === 0) throw new Error('empty or header-less Zstandard session log')
+      const headerFrame = frames[0]
+      if (headerFrame === undefined) throw new Error('empty or header-less Zstandard session log')
+      const header = await decompressZstdFrame(buffer.subarray(headerFrame.start, headerFrame.end))
+      const meta = parseHeaderMeta(header.subarray(0, -1).toString('utf8'))
+      if (meta === undefined || meta.id !== id) throw new Error(`corrupt session log: invalid header line in "${path}"`)
+      const page = await rawEventPageFromReverseRecords((async function* () {
+        for (let index = frames.length - 1; index >= 1; index -= 1) {
+          signal?.throwIfAborted()
+          const frame = frames[index]
+          if (frame === undefined) continue
+          const body = await decompressZstdFrame(buffer.subarray(frame.start, frame.end))
+          yield* reverseStorageRecords(body)
+        }
+      })(), request)
+      return { meta, ...page }
+    } catch {
+      if (signal?.aborted) signal.throwIfAborted()
+      const stored = await this.readPrefix(path, id, signal)
+      const page = paginateRawEventPage(stored.events, request)
       return { meta: stored.meta, ...page }
     }
   }

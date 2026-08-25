@@ -11,12 +11,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { assertSubagentMaxDepth, settleRun } from '@deepseek-ai/dsh-subagent'
 import type {
   ChildProfileSpec,
+  ChildProfileGrant,
   ResolvedChildProfile,
   SubagentProvider,
   SubagentResult,
@@ -265,8 +266,8 @@ function profileJson(profile: ResolvedChildProfile): JsonValue {
 function profileParameters() {
   return {
     profile_id: { type: 'string' as const, required: true as const, description: 'Parent-private profile id.' },
-    harness_id: { type: 'string' as const, required: true as const, description: 'Host-managed child harness id.' },
-    model_route_id: { type: 'string' as const, required: true as const, description: 'Host-managed model route id.' },
+    harness_id: { type: 'string' as const, description: 'Host-managed child harness id. Defaults to the configured delegation provider.' },
+    model_route_id: { type: 'string' as const, description: 'Host-managed model route id. Defaults to the parent current provider/model route.' },
     tools: { type: 'array' as const, items: { type: 'string' as const }, description: 'Requested child Tool ids.' },
     skills: { type: 'array' as const, items: { type: 'string' as const }, description: 'Requested child Skill ids.' },
     mcp_server_ids: { type: 'array' as const, items: { type: 'string' as const }, description: 'Requested MCP server ids.' },
@@ -281,8 +282,8 @@ function profileParameters() {
 
 type ProfileToolArgs = {
   profile_id: string
-  harness_id: string
-  model_route_id: string
+  harness_id?: string
+  model_route_id?: string
   tools?: string[]
   skills?: string[]
   mcp_server_ids?: string[]
@@ -294,11 +295,14 @@ type ProfileToolArgs = {
   scheduler_priority?: number
 }
 
-function profileSpecFromArgs(args: ProfileToolArgs): ChildProfileSpec {
+function profileSpecFromArgs(
+  args: ProfileToolArgs,
+  defaults: Pick<ChildProfileGrant, 'harnessIds' | 'modelRouteIds'>,
+): ChildProfileSpec {
   return {
     profileId: args.profile_id,
-    harnessId: args.harness_id,
-    modelRouteId: args.model_route_id,
+    harnessId: args.harness_id ?? defaults.harnessIds[0] as string,
+    modelRouteId: args.model_route_id ?? defaults.modelRouteIds[0] as string,
     ...args.tools !== undefined ? { tools: args.tools } : {},
     ...args.skills !== undefined ? { skills: args.skills } : {},
     ...args.mcp_server_ids !== undefined ? { mcpServerIds: args.mcp_server_ids } : {},
@@ -309,6 +313,40 @@ function profileSpecFromArgs(args: ProfileToolArgs): ChildProfileSpec {
     ...args.model_route_priority !== undefined ? { modelRoutePriority: args.model_route_priority } : {},
     ...args.scheduler_priority !== undefined ? { schedulerPriority: args.scheduler_priority } : {},
   }
+}
+
+/** Bind the current parent to the deployment-derived default Profile grant. */
+function ensureParentProfileGrant(
+  ctx: Context,
+  parent: Agent,
+  config: Config,
+): Pick<ChildProfileGrant, 'harnessIds' | 'modelRouteIds'> {
+  const existing = ctx.subagents.getChildProfileGrant(parent)
+  if (existing !== undefined) return existing
+  const harnessId = config.provider
+  const provider = parent.options.provider ?? config.agentOptions?.provider
+  const model = parent.options.model ?? config.agentOptions?.model
+  if (provider === undefined || model === undefined) {
+    throw new Error('child_profile_define requires a parent with a resolved provider and model route')
+  }
+  const modelRouteId = `parent:${provider}:${model}`
+  ctx.subagents.ensureChildModelRoute(modelRouteId, { provider, model })
+  if (!ctx.subagents.hasChildProfileGrant(parent)) {
+    const cwd = parent.session.header.cwd ?? process.cwd()
+    const grant: ChildProfileGrant = {
+      harnessIds: [harnessId],
+      modelRouteIds: [modelRouteId],
+      tools: ctx.tools.schemas(parent).map(schema => schema.name),
+      skills: [],
+      mcpServerIds: [],
+      childProfileIds: [],
+      workspaceRoot: cwd,
+      parentWorkspaceCwd: cwd,
+      ...typeof config.maxDepth === 'number' ? { maxDepth: config.maxDepth } : {},
+    }
+    ctx.subagents.registerChildProfileGrant(parent, grant)
+  }
+  return { harnessIds: [harnessId], modelRouteIds: [modelRouteId] }
 }
 
 /** Resolve the model's optional scheduling request into one execution route. */
@@ -421,6 +459,7 @@ export function apply(ctx: Context, config: Config): void {
               properties: {
                 kind: { type: 'string', required: true, const: 'foreground' },
                 runId: { type: 'string', required: true },
+                subagentId: { type: 'string', required: true },
                 output: { type: 'array', required: true, items: { type: 'json' } },
               },
             },
@@ -434,6 +473,13 @@ export function apply(ctx: Context, config: Config): void {
               ? `started subagent ${value.subagentId}`
               : outputValueText(value.output),
         }],
+        presentationMeta: (_args, value) => value.kind === 'background'
+          ? { kind: 'background', jobId: value.jobId }
+          : {
+            kind: 'subagent',
+            childSessionId: value.subagentId,
+            mode: value.kind === 'continuable' ? 'continuable' : 'one-shot',
+          },
       },
       // Children never mutate the parent session; the one parent-owned write
       // (tasks.start) is a synchronous commutative insertion.
@@ -511,7 +557,8 @@ export function apply(ctx: Context, config: Config): void {
           ...request,
           signal: exec.signal,
         })
-        return settleForegroundRun(run)
+        const result = await settleForegroundRun(run)
+        return { ...result, subagentId: run.id }
       },
     }))
   }
@@ -562,7 +609,10 @@ export function apply(ctx: Context, config: Config): void {
       isConcurrencySafe: () => true,
       async execute(args, exec) {
         if (!exec.agent) throw new Error('child_profile_define requires a calling agent')
-        return profileJson(ctx.subagents.defineChildProfile(exec.agent, profileSpecFromArgs(args as unknown as ProfileToolArgs)))
+        const defaults = ensureParentProfileGrant(ctx, exec.agent, config)
+        return await Promise.resolve(profileJson(
+          ctx.subagents.defineChildProfile(exec.agent, profileSpecFromArgs(args, defaults)),
+        ))
       },
     }))
     const disposeProfileList = ctx.tools.register(defineTool({
@@ -576,7 +626,7 @@ export function apply(ctx: Context, config: Config): void {
       isConcurrencySafe: () => true,
       async execute(_args, exec) {
         if (!exec.agent) throw new Error('child_profile_list requires a calling agent')
-        return ctx.subagents.listChildProfiles(exec.agent).map(profileJson)
+        return await Promise.resolve(ctx.subagents.listChildProfiles(exec.agent).map(profileJson))
       },
     }))
     ctx.effect(() => () => {

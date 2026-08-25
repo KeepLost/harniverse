@@ -1,7 +1,7 @@
 /** Shared trajectory record data and formatting contracts. */
 
 import type { HTMLAttributes } from 'react'
-import type { ConversationPromptSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConversationPromptSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** Closed set of trajectory record kinds. */
 export type TrajectoryCellKind =
@@ -77,6 +77,10 @@ export interface TrajectoryCellProps extends HTMLAttributes<HTMLDivElement> {
   resultPreviewMarkdown?: string
   /** Tool call id used to link message source blocks to tool records. */
   callId?: string
+  /** Child Session created by a subagent delegation, when the tool exposes one. */
+  subagentSessionId?: SessionId
+  /** Child mode required to route the addressed history view. */
+  subagentMode?: 'one-shot' | 'continuable'
   /** Tool-only result failure state. */
   isError?: boolean
   /** Own duration in seconds, or `null` when no duration is known. */

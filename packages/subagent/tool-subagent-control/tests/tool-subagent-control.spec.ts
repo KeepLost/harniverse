@@ -113,6 +113,80 @@ describe('dsh-tool-subagent-control', () => {
     expect(schemas[0]!.description).toContain('next turn')
   })
 
+  it('registers bounded subagent history and reads a child without resuming it', async () => {
+    const { ctx, parent } = await setup([textResponse('child answer')])
+    const started = await ctx.subagents.startContinuable({
+      provider: 'spawn',
+      label: 'history child',
+      request: { prompt: [{ type: 'text', text: 'inspect this' }], parent },
+      signal: testToolSignal,
+    })
+    await waitNoActivation(ctx, started.childId)
+
+    const result = await callTool(ctx, 'subagent_history', {
+      subagent_id: started.childId,
+      max_events: 20,
+    }, parent)
+
+    expect(result.isError, text(result)).toBe(false)
+    expect(text(result)).toContain(`"subagent_id": "${started.childId}"`)
+    expect(text(result)).toContain('assistant/message')
+    expect(ctx.agents.get(started.childId)).toBeUndefined()
+  })
+
+  it('pages raw child history with an exclusive sequence cursor', async () => {
+    const { ctx, parent } = await setup([textResponse('child answer')])
+    const started = await ctx.subagents.startContinuable({
+      provider: 'spawn',
+      label: 'paged history child',
+      request: { prompt: [{ type: 'text', text: 'inspect this' }], parent },
+      signal: testToolSignal,
+    })
+    await waitNoActivation(ctx, started.childId)
+
+    const first = await callTool(ctx, 'subagent_history', {
+      subagent_id: started.childId,
+      max_events: 1,
+    }, parent)
+    const firstPage = JSON.parse(text(first)) as {
+      events: { seq: number }[]
+      has_more: boolean
+      next_before_seq?: number
+    }
+    expect(firstPage.events).toHaveLength(1)
+    expect(firstPage.has_more).toBe(true)
+    expect(firstPage.next_before_seq).toBe(firstPage.events[0]!.seq)
+
+    const second = await callTool(ctx, 'subagent_history', {
+      subagent_id: started.childId,
+      before_seq: firstPage.next_before_seq,
+      max_events: 1,
+    }, parent)
+    const secondPage = JSON.parse(text(second)) as { events: { seq: number }[] }
+    expect(secondPage.events).toHaveLength(1)
+    expect(secondPage.events[0]!.seq).toBeLessThan(firstPage.events[0]!.seq)
+  })
+
+  it('rejects history reads from an unrelated caller', async () => {
+    const { ctx, parent } = await setup([textResponse('child answer')])
+    const started = await ctx.subagents.startContinuable({
+      provider: 'spawn',
+      label: 'private history child',
+      request: { prompt: [{ type: 'text', text: 'private' }], parent },
+      signal: testToolSignal,
+    })
+    await waitNoActivation(ctx, started.childId)
+    const stranger = ctx.agentLoop.create(SessionId('history-stranger'), { provider: 'mock', model: 'mock' })
+
+    const result = await callTool(ctx, 'subagent_history', {
+      subagent_id: started.childId,
+      max_events: 1,
+    }, stranger)
+
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('not a descendant')
+  })
+
   it('cold-resumes a settled child and reports the queued next turn', async () => {
     const { ctx, parent } = await setup([textResponse('first answer'), textResponse('second answer')])
     const started = await ctx.subagents.startContinuable({
