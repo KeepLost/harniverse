@@ -236,6 +236,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `71ebc17a96` | Changes the subagent presentation metadata to expose caller wait mode as `sync` or `async` instead of provider lifecycle terminology. |
 | `946c9f7e24` | Adds the model-facing `mode: sync|async` delegation input and validates async availability through the existing deployment policy. |
 | `4b4c4bf5be` | Refreshes the generated model-facing tool catalog for the invocation-mode schema. |
+| `64d85fe2f9` | Removes the legacy model-facing `run_in_background` field from subagent delegation; `mode: sync|async` is now the sole model scheduling contract while deployment defaults remain internal. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
