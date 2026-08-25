@@ -11,7 +11,7 @@ export const inject = ['tools', 'sessionDelivery']
 
 /** Register ordinary-session delivery and safe unload tools. */
 export function apply(ctx: Context): void {
-  ctx.tools.register(defineTool({
+  const messageTool = defineTool({
     name: 'session_send_message',
     description: 'Send a message to another ordinary session as its next FIFO turn. Returns after inbox acceptance and does not wait for a reply or turn completion.',
     parameters: {
@@ -42,7 +42,13 @@ export function apply(ctx: Context): void {
         signal: exec.signal,
       })
     },
-  }))
+  })
+  ctx.tools.register(messageTool)
+  ctx.tools.register({
+    ...messageTool,
+    name: 'session_message',
+    description: 'Send a message to another ordinary session as its next FIFO turn. Returns after inbox acceptance and does not wait for a reply or turn completion.',
+  })
   ctx.tools.register(defineTool({
     name: 'session_unload',
     description: 'Unload another idle ordinary session. Refuses running, queued, subagent-owned, or runtime-owned sessions so work is not interrupted.',

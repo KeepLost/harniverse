@@ -35,6 +35,7 @@ describe('session_send_message', () => {
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(LocalSessionDelivery)
     await ctx.plugin(tool)
+    expect(ctx.tools.get('session_message')).toBeDefined()
     const adapter = new GatedAdapter()
     ctx.llm.registerAdapter(['mock'], adapter)
     const sender = (await ctx.agents.create({
