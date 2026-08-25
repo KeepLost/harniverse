@@ -89,9 +89,9 @@ describe('dsh-tool-subagent', () => {
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected subagent success')
     expect(result.value).toEqual({
-      kind: 'foreground',
-      runId: 'scripted-subagent:mock:parent-1',
-      subagentId: 'scripted-subagent:mock:parent-1',
+      mode: 'sync',
+      invocationId: 'scripted-subagent:mock:parent-1',
+      sessionId: 'scripted-subagent:mock:parent-1',
       output: [{ type: 'text', text: 'child says hi' }],
     })
     expect(text(result)).toBe('child says hi')
@@ -1137,9 +1137,9 @@ describe('dsh-tool-subagent continuable background mode', () => {
       { agent: parent },
     )
     expect(started.isError).toBe(false)
-    const match = /^started subagent (\S+)$/.exec(text(started))
-    expect(match).not.toBeNull()
-    const [, childId] = match!
+    const receipt = started.isError ? undefined : started.value
+    expect(receipt).toMatchObject({ mode: 'async' })
+    const childId = receipt?.sessionId
     // No Task was created for the continuable child.
     expect(ctx.jobs.list(parent)).toEqual([])
 
@@ -1170,7 +1170,7 @@ describe('dsh-tool-subagent continuable background mode', () => {
     )
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected foreground subagent success')
-    expect(result.value).toMatchObject({ kind: 'foreground' })
+    expect(result.value).toMatchObject({ mode: 'sync' })
     expect(text(result)).toBe('continuable answer')
     expect(ctx.jobs.list(parent)).toEqual([])
   })
@@ -1226,9 +1226,9 @@ describe('dsh-tool-subagent continuable background mode', () => {
     expect(ctx.agents.get(cancelledChildId!)).toBeUndefined()
     await expect(ctx.sessionPersistence.load(cancelledChildId!)).rejects.toThrow(/not found/)
 
-    expect(succeeded.isError ? undefined : succeeded.value).toEqual({
-      kind: 'continuable',
-      subagentId: survivingChildId,
+    expect(succeeded.isError ? undefined : succeeded.value).toMatchObject({
+      mode: 'async',
+      sessionId: survivingChildId,
     })
     await vi.waitFor(() => {
       expect(ctx.agents.get(survivingChildId!)).toBeUndefined()

@@ -171,8 +171,9 @@ function withDiagnosticAndPartialText(error: string, result: SubagentResult): st
 }
 
 type ForegroundToolResult = {
-  readonly kind: 'foreground'
-  readonly runId: SubagentRun['id']
+  readonly mode: 'sync'
+  readonly invocationId: string
+  readonly sessionId: string
   readonly output: JsonValue[]
 }
 
@@ -190,8 +191,9 @@ async function settleForegroundRun(run: SubagentRun): Promise<ForegroundToolResu
         throw new Error(withDiagnosticAndPartialText(error, result))
       }
       return {
-        kind: 'foreground',
-        runId: run.id,
+        mode: 'sync',
+        invocationId: run.id,
+        sessionId: run.id,
         // Content blocks already cross durable JSON boundaries elsewhere;
         // the registry performs the authoritative lossless snapshot here.
         output: result.output as unknown as JsonValue[],
@@ -438,17 +440,18 @@ export function apply(ctx: Context, config: Config): void {
               type: 'object',
               additionalProperties: false,
               properties: {
-                kind: { type: 'string', required: true, const: 'continuable' },
-                subagentId: { type: 'string', required: true },
+                mode: { type: 'string', required: true, const: 'async' },
+                invocationId: { type: 'string', required: true },
+                sessionId: { type: 'string', required: true },
               },
             },
             {
               type: 'object',
               additionalProperties: false,
               properties: {
-                kind: { type: 'string', required: true, const: 'foreground' },
-                runId: { type: 'string', required: true },
-                subagentId: { type: 'string', required: true },
+                mode: { type: 'string', required: true, const: 'sync' },
+                invocationId: { type: 'string', required: true },
+                sessionId: { type: 'string', required: true },
                 output: { type: 'array', required: true, items: { type: 'json' } },
               },
             },
@@ -456,18 +459,17 @@ export function apply(ctx: Context, config: Config): void {
         },
         render: (_args, value) => [{
           type: 'text',
-          text: value.kind === 'background'
+          text: 'kind' in value
             ? `started background subagent task ${value.jobId}`
-            : value.kind === 'continuable'
-              ? `started subagent ${value.subagentId}`
-              : outputValueText(value.output),
+            : 'output' in value ? outputValueText(value.output) : `started subagent invocation ${value.invocationId}`,
         }],
-        presentationMeta: (_args, value) => value.kind === 'background'
+        presentationMeta: (_args, value) => 'kind' in value
           ? { kind: 'background', jobId: value.jobId }
           : {
             kind: 'subagent',
-            childSessionId: value.subagentId,
-            mode: value.kind === 'continuable' ? 'async' : 'sync',
+            childSessionId: value.sessionId,
+            mode: value.mode,
+            invocationId: value.invocationId,
           },
       },
       // Children never mutate the parent session; the one parent-owned write
@@ -513,7 +515,11 @@ export function apply(ctx: Context, config: Config): void {
               ...request,
               signal: exec.signal,
             })
-            return { kind: 'continuable' as const, subagentId: invocation.sessionId }
+            return {
+              mode: 'async' as const,
+              invocationId: invocation.invocationId,
+              sessionId: invocation.sessionId,
+            }
           }
           const jobs = ctx.get('jobs')
           if (jobs === undefined) {
@@ -550,7 +556,7 @@ export function apply(ctx: Context, config: Config): void {
           result: invocation.result,
           dispose: invocation.dispose,
         })
-        return { ...result, subagentId: invocation.sessionId }
+        return result
       },
     }))
   }
