@@ -478,7 +478,7 @@ export function apply(ctx: Context, config: Config): void {
           : {
             kind: 'subagent',
             childSessionId: value.subagentId,
-            mode: value.kind === 'continuable' ? 'continuable' : 'one-shot',
+            mode: value.kind === 'continuable' ? 'async' : 'sync',
           },
       },
       // Children never mutate the parent session; the one parent-owned write
