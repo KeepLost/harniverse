@@ -231,6 +231,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `230a59d2d9` | Makes hidden subagent descendants deletable with their cold parent while preserving leaf-only deletion for ordinary fork descendants. |
 | `8810402740` | Adds Web Trajectory child-history navigation and native raw-event paging for authorized `subagent_history` reads, with SQLite/JSONL bounded readers and documented third-party fallback behavior. |
 | `1b0ddfe6a8` | Adds the service-owned unified `sync`/`async` Invocation contract, routes tool-owned foreground and continuable paths through it, makes Agent teardown tolerate best-effort final flush failures, and corrects the cold-resume replacement regression fixture. |
+| `70516f51b5` | Adds the model-facing `session_inspect` Consumer with unified summary, message, raw-history, event-window, and lineage views, and updates shipped composition, generated catalog, and bilingual package documentation. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
