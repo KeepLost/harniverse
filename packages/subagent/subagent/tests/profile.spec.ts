@@ -38,6 +38,8 @@ describe('Child Profile resolution', () => {
       tools: ['read'],
       skills: ['review'],
       workspaceCwd: '/repo/packages/service',
+      maxDepth: 4,
+      maxTokens: 10_000,
     })
     expect(profile.digest).toMatch(/^[0-9a-f]{64}$/)
     expect(Object.isFrozen(profile)).toBe(true)

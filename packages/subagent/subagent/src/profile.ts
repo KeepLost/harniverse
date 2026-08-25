@@ -208,8 +208,12 @@ export function resolveChildProfile(
     mcpServerIds: assertUniqueSubset(spec.mcpServerIds ?? grant.mcpServerIds, grant.mcpServerIds, 'mcpServerIds'),
     childProfileIds: assertUniqueSubset(spec.childProfileIds ?? grant.childProfileIds, grant.childProfileIds, 'childProfileIds'),
     workspaceCwd: childWorkspace(grant.workspaceRoot, grant.parentWorkspaceCwd, spec.workspaceCwd),
-    ...spec.maxDepth !== undefined ? { maxDepth: spec.maxDepth } : {},
-    ...spec.maxTokens !== undefined ? { maxTokens: spec.maxTokens } : {},
+    ...spec.maxDepth !== undefined || grant.maxDepth !== undefined
+      ? { maxDepth: spec.maxDepth ?? grant.maxDepth }
+      : {},
+    ...spec.maxTokens !== undefined || grant.maxTokens !== undefined
+      ? { maxTokens: spec.maxTokens ?? grant.maxTokens }
+      : {},
     ...spec.modelRoutePriority !== undefined ? { modelRoutePriority: spec.modelRoutePriority } : {},
     ...spec.schedulerPriority !== undefined ? { schedulerPriority: spec.schedulerPriority } : {},
   }
