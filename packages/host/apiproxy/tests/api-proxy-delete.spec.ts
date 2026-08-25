@@ -34,7 +34,7 @@ async function harness(
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(UserQuestionService)
   ctx.provide('subagents', { drainContinuableDescendants: vi.fn(() => Promise.resolve()) } as never)
-  const removeSessionReferences = vi.fn(() => Promise.resolve())
+  const removeSessionReferences = vi.fn<(id: SessionId) => Promise<void>>(() => Promise.resolve())
   const pendingSessionDeletionIds = new Set<SessionId>()
   const beginSessionDeletion = vi.fn(async (id: SessionId) => { pendingSessionDeletionIds.add(id) })
   const completeSessionDeletion = vi.fn(async (id: SessionId) => { pendingSessionDeletionIds.delete(id) })
@@ -46,9 +46,9 @@ async function harness(
     completeSessionDeletion,
     removeSessionReferences,
   } as never)
-  const deleteStored = vi.fn(async () => {
+  const deleteStored = vi.fn<(id: SessionId) => Promise<boolean>>(async (id) => {
     await overrides.beforeDelete?.()
-    const record = records.find(candidate => candidate.header.id === targetId && candidate.persisted)
+    const record = records.find(candidate => candidate.header.id === id && candidate.persisted)
     if (record === undefined) return false
     record.persisted = false
     return true
@@ -112,6 +112,23 @@ describe('session.delete', () => {
     const live = await fixture.api.sessions.delete(request({ sessionId: SessionId('live') }))
     expect(live.result).toMatchObject({ ok: false, error: { code: 'agent-busy' } })
     expect(fixture.deleteStored).not.toHaveBeenCalled()
+    await fixture.ctx.fiber.dispose()
+  })
+
+  it('deletes hidden subagent descendants before their cold parent', async () => {
+    const childId = SessionId('private-child')
+    const grandchildId = SessionId('private-grandchild')
+    const fixture = await harness([
+      { header: target, live: false, persisted: true },
+      { header: { ...target, id: childId, createdAt: 2, parentSession: targetId, origin: 'subagent' }, live: false, persisted: true },
+      { header: { ...target, id: grandchildId, createdAt: 3, parentSession: childId, origin: 'subagent' }, live: false, persisted: true },
+    ])
+
+    const response = await fixture.api.sessions.delete(request({ sessionId: targetId }))
+
+    expect(response.result).toMatchObject({ ok: true, value: { deleted: true } })
+    expect(fixture.deleteStored.mock.calls.map(([id]) => id)).toEqual([grandchildId, childId, targetId])
+    expect(fixture.removeSessionReferences.mock.calls.map(([id]) => id)).toEqual([grandchildId, childId, targetId])
     await fixture.ctx.fiber.dispose()
   })
 

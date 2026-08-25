@@ -3253,16 +3253,41 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 broadcastHost({ type: 'host/session-removed', sessionId })
                 return {}
               }
-              const childSessionIds = records
-                .filter(record => record.header.parentSession === sessionId)
-                .map(record => record.header.id)
-              if (childSessionIds.length > 0) {
+              const recordsById = new Map(records.map(record => [record.header.id, record]))
+              const privateDescendantIds: SessionId[] = []
+              const blockingChildIds: SessionId[] = []
+              const pendingParents = [sessionId]
+              const visitedParents = new Set<SessionId>()
+              while (pendingParents.length > 0) {
+                const parentId = pendingParents.shift() as SessionId
+                if (!visitedParents.add(parentId)) continue
+                for (const record of records.filter(candidate => candidate.header.parentSession === parentId)) {
+                  if (record.header.origin !== 'subagent') {
+                    blockingChildIds.push(record.header.id)
+                    continue
+                  }
+                  if (record.persisted) privateDescendantIds.push(record.header.id)
+                  pendingParents.push(record.header.id)
+                }
+              }
+              if (blockingChildIds.length > 0) {
                 return {
                   error: {
                     code: 'session-has-children',
                     message: `session "${sessionId}" has descendants and cannot be deleted`,
-                    details: { sessionId, childSessionIds },
+                    details: { sessionId, childSessionIds: blockingChildIds },
                   },
+                }
+              }
+              for (const childId of privateDescendantIds) {
+                if (ctx.sessions.get(childId) !== undefined || sessionClosures.has(childId)) {
+                  return {
+                    error: {
+                      code: 'agent-busy',
+                      message: `subagent session "${childId}" is live; close it before deleting its parent`,
+                      details: { reason: 'SESSION_MUST_BE_CLOSED' },
+                    },
+                  }
                 }
               }
               if (ctx.sessions.get(sessionId) !== undefined) {
@@ -3278,12 +3303,18 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               if (persistence === undefined) {
                 return { error: { code: 'internal', message: 'session deletion requires persistence', details: {} } }
               }
-              await ctx.workspaceRegistry.beginSessionDeletion(sessionId)
-              await ctx.get('sessionProjectionCache')?.delete(target.header)
-              await persistence.delete(sessionId)
-              await ctx.workspaceRegistry.removeSessionReferences(sessionId)
-              await ctx.workspaceRegistry.completeSessionDeletion(sessionId)
-              broadcastHost({ type: 'host/session-removed', sessionId })
+              const deletionIds = [...privateDescendantIds].reverse()
+              deletionIds.push(sessionId)
+              for (const deletionId of deletionIds) {
+                const record = recordsById.get(deletionId)
+                if (record?.persisted !== true) continue
+                await ctx.workspaceRegistry.beginSessionDeletion(deletionId)
+                await ctx.get('sessionProjectionCache')?.delete(record.header)
+                await persistence.delete(deletionId)
+                await ctx.workspaceRegistry.removeSessionReferences(deletionId)
+                await ctx.workspaceRegistry.completeSessionDeletion(deletionId)
+                broadcastHost({ type: 'host/session-removed', sessionId: deletionId })
+              }
               return {}
             } catch (error: unknown) {
               return {
