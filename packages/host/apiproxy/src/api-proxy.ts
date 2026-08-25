@@ -2082,13 +2082,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         ...projections === undefined ? {} : { projections },
       }
     }
-    const items = ctx.sessions.list().map(summarizeAttached)
+    const items = ctx.sessions.list()
+      .filter(session => session.header.origin !== 'subagent')
+      .map(summarizeAttached)
     signal?.throwIfAborted()
     const attached = new Set(items.map(item => item.sessionId))
     const persistence = ctx.get('sessionPersistence')
     if (persistence !== undefined) {
       const cold = (await persistence.list(signal))
-        .filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
+        .filter(meta => !attached.has(meta.id) && meta.cwd !== undefined && meta.origin !== 'subagent')
       signal?.throwIfAborted()
       for (let offset = 0; offset < cold.length; offset += COLD_SUMMARY_BATCH_SIZE) {
         signal?.throwIfAborted()
@@ -4238,6 +4240,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             else pushSessionEvent(session, event)
           }),
           ctx.on('session/created', (session: Session) => {
+            if (session.header.origin === 'subagent') return
             if (bootstrapping) createdDuringBootstrap.push(session)
             else {
               subscribeWithReplay(session)
@@ -4245,6 +4248,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             }
           }),
           ctx.on('session/disposed', (session: Session) => {
+            if (session.header.origin === 'subagent') return
             liveOpenCalls.delete(session.id)
           }),
           ...jobs === undefined ? [] : [jobs.onJobsChanged((owner) => {
@@ -4328,6 +4332,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         let archivedSessionIds = ctx.workspaceRegistry.archivedSessionIds
         const disposers = [
           ctx.on('session/created', (session: Session) => {
+            if (session.header.origin === 'subagent') return
             queue.push(frame({
               type: 'host/session-added',
               sessionId: session.id,
@@ -4339,11 +4344,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             }))
           }),
           ctx.on('session/disposed', (session: Session) => {
+            if (session.header.origin === 'subagent') return
             queue.push(frame(sessionClosures.has(session.id)
               ? { type: 'host/session-status', sessionId: session.id, running: false }
               : { type: 'host/session-removed', sessionId: session.id }))
           }),
           ctx.on('agent/status', ({ agent, status }: { agent: Agent; status: AgentStatus }) => {
+            if (agent.session.header.origin === 'subagent') return
             queue.push(frame({ type: 'host/session-status', sessionId: agent.id, running: status === 'running' }))
           }),
           ctx.on('agent/error', ({ agent, error }: { agent: Agent; error: unknown }) => {
