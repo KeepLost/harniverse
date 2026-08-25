@@ -225,6 +225,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `6e5b88ca23` | Adds the parent-private Child Profile foundation: immutable resolved profile types, grant intersection and workspace boundary validation, native Tool/workspace application, and descriptor version 3 persistence. |
 | `966538a150` | Ensures omitted Child Profile depth/token limits inherit the parent's granted ceilings instead of becoming unbounded. |
 | `db0274419c` | Adds the parent-private Profile registry and revisioning, model-facing define/list plus `profile_id` delegation, opaque primary model-route resolution, native Skill/MCP setup enforcement, and SDK initialize-handshake propagation. |
+| `2723f9fe58` | Hides `origin: subagent` sessions from ordinary Host list/search summaries and Host session increments while preserving the parent-owned subagent catalog and descendant APIs. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
