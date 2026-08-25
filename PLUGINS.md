@@ -218,6 +218,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `113785ea1f` | Synchronizes the bilingual LLM streaming and Session type-equivalence contracts for replay envelopes, interrupted blocks, and cancellation-finalized assistant messages. |
 | `b7f4473eb4` | Keeps the Client TypeScript face isolated from Host `Context.sessions`: Client project references no longer pull Host-only projects, the API contract barrel leaves runtime schemas on their dedicated subpaths, and Session-reference type declarations use Client-safe `/types` entries. This restores the full Host/Client/Web build without widening the Client program into the Host service graph. |
 | `f7131338e2` | Declares `zod` as a runtime dependency of Session-reference so generated Host and Remote Typert artifacts load through their public exports in a fresh install, with regression coverage for both exports and the real Web startup path. |
+| `b9524bb737` | Moves Session-reference public `typert` and `remote` export coverage into the post-build built-bin smoke gate, preventing clean-build TypeScript ordering failures while proving both subpaths through plain Node; the repository rule now requires clean-build evidence for build/export changes. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
