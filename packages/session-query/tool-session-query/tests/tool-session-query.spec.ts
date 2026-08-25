@@ -272,6 +272,7 @@ describe('registration and schemas', () => {
       'session_search',
       'session_event_search',
       'session_status',
+      'session_inspect',
       'session_message_tail',
       'session_log_tail',
       'session_trace',
@@ -287,6 +288,7 @@ describe('registration and schemas', () => {
     const parallelArgs: Record<string, unknown> = {
       session_trace: {},
       session_status: {},
+      session_inspect: { view: 'summary' },
       session_message_tail: {},
       session_log_tail: {},
       session_event_trace: { seq: 0 },
@@ -452,6 +454,10 @@ describe('input validation and translation', () => {
     const tail = text(await mounted.call('session_message_tail', { limit: 1 }))
     expect(tail).toContain('tail message')
     expect(tail).toContain('Latest messages (1)')
+    const inspectedSummary = text(await mounted.call('session_inspect', { view: 'summary' }))
+    expect(inspectedSummary).toContain('Availability: live')
+    const inspectedMessages = text(await mounted.call('session_inspect', { view: 'messages', limit: 1 }))
+    expect(inspectedMessages).toContain('tail message')
     expect(errorCode(await mounted.call('session_message_tail', { limit: 51 })))
       .toBe('SESSION_QUERY_INVALID_LIMIT')
   })

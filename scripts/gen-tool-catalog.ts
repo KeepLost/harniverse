@@ -560,7 +560,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolSessionQuery)
     },
     note:
-      'The nine read-only tools separate title/time discovery, content matches, current-message tails, and complete raw-log reads while hiding provider cursors and binding exact observations to opaque session ids.',
+       'The read-only tools separate title/time discovery, content matches, unified session inspection, current-message tails, and complete raw-log reads while hiding provider cursors and binding exact observations to opaque session ids.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent',
@@ -584,6 +584,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       interrupt_agent: 'packages/subagent/tool-subagent-control/src/index.ts',
       list_agents: 'packages/subagent/tool-subagent-control/src/list-agents.ts',
       send_message: 'packages/subagent/tool-subagent-control/src/index.ts',
+      subagent_history: 'packages/subagent/tool-subagent-control/src/index.ts',
     },
     requires: ['ctx.tools', 'ctx.subagents', 'ctx.agents and ctx.sessionProjections (list_agents only)'],
     writes: ['tool/call', 'tool/result', 'child session events through ctx.subagents'],

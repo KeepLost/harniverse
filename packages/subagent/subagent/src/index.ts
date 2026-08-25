@@ -712,6 +712,16 @@ export class SubagentRuntime extends Service {
    */
   async invoke(
     name: string,
+    mode: 'sync',
+    request: SubagentStartRequest,
+  ): Promise<Extract<SubagentInvocation, { readonly mode: 'sync' }>>
+  async invoke(
+    name: string,
+    mode: 'async',
+    request: SubagentStartRequest,
+  ): Promise<Extract<SubagentInvocation, { readonly mode: 'async' }>>
+  async invoke(
+    name: string,
     mode: SubagentInvocationMode,
     request: SubagentStartRequest,
   ): Promise<SubagentInvocation> {

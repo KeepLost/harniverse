@@ -68,6 +68,7 @@ const TEXT_OUTPUT = {
 const PROMPT_TEXT =
   'Use session_find to locate prior sessions by current title, creation time, or raw-event activity time; session_find returns session metadata without content-match events or snippets. '
   + 'Use session_search to search prior-session content; session_search returns matching event seqs and snippets. Use session_event_search for content inside one session. '
+  + 'Use session_inspect for one authorized session view: summary, messages, history, event, or lineage. '
   + 'After discovery, session_log_tail reads complete raw events from the recent log; after a content hit, session_event_read reads a complete raw-event window around its seq. '
   + 'session_message_tail reads only the folded current model-message surface, not historical raw-log trajectory. Search and find results are cursor-free.'
 
@@ -118,6 +119,23 @@ export function apply(ctx: Context, config: Config): void {
     isConcurrencySafe: () => true,
     execute: (args, exec) => operations.executeSessionStatus(ctx, args, exec),
     presentCall: args => presentation.presentSessionTargetCall('Read status for', args),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'session_inspect',
+    description: 'Inspect one authorized session through a unified view: summary status, folded messages, raw history, one event, or lineage. Never resumes a cold session.',
+    parameters: toolInput.sessionInspectParameters,
+    output: TEXT_OUTPUT,
+    isConcurrencySafe: () => true,
+    execute: (args, exec) => operations.executeSessionInspect(
+      ctx,
+      args,
+      exec,
+      resolved.messageTailLimit,
+      resolved.logTailLimit,
+      MAX_LOG_TAIL_LIMIT,
+    ),
+    presentCall: args => presentation.presentSessionTargetCall(`Inspect ${args.view ?? 'session'}`, args),
   }))
 
   ctx.tools.register(defineTool({

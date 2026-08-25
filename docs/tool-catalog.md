@@ -36,9 +36,9 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-result-artifacts` | `artifact_read` | `ctx.tools`, `ctx.spillStore` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.agents`, `ctx.skills` | `tool/call`, `tool/result`, `user/message replacement catalogs via agent.inject()` | - | - |
 | `@deepseek-ai/dsh-tool-session-delivery` | `session_send_message`, `session_unload` | `ctx.tools`, `ctx.sessionDelivery`, `a calling Agent` | `tool/call`, `tool/result`, `target user/message through the selected Provider` | - | The tool confirms inbox acceptance only and never waits for target completion or a reply. |
-| `@deepseek-ai/dsh-tool-session-query` | `session_event_read`, `session_event_search`, `session_event_trace`, `session_find`, `session_log_tail`, `session_message_tail`, `session_search`, `session_status`, `session_trace` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for caller identity` | `tool/call`, `tool/result` | - | The nine read-only tools separate title/time discovery, content matches, current-message tails, and complete raw-log reads while hiding provider cursors and binding exact observations to opaque session ids. |
+| `@deepseek-ai/dsh-tool-session-query` | `session_event_read`, `session_event_search`, `session_event_trace`, `session_find`, `session_inspect`, `session_log_tail`, `session_message_tail`, `session_search`, `session_status`, `session_trace` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for caller identity` | `tool/call`, `tool/result` | - | The read-only tools separate title/time discovery, content matches, unified session inspection, current-message tails, and complete raw-log reads while hiding provider cursors and binding exact observations to opaque session ids. |
 | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`, `ctx.subagents`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped compositions load this package once per subagent backend, so the model additionally sees `subagent_fork` bound to the fork backend. Each instance's description, `run_in_background` parameter, and system-prompt policy follow its own `backgroundMode` and `enableRunInBackground`, so the two shipped schemas are not identical: `subagent` is `continuable` and defaults omitted calls to background with automatic settlement delivery, while `subagent_fork` stays `one-shot` and defaults them to foreground — see `packages/bundle/base/cordis.patch.yml` and `examples/acp-agent/cordis.yml`. |
-| `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`, `list_agents`, `send_message` | `ctx.tools`, `ctx.subagents`, `ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`, `tool/result`, `child session events through ctx.subagents` | - | The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries). |
+| `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`, `list_agents`, `send_message`, `subagent_history` | `ctx.tools`, `ctx.subagents`, `ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`, `tool/result`, `child session events through ctx.subagents` | - | The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries). |
 | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`, `ctx.systemPrompt`, `a live continuable in-process child Agent` | `tool/call`, `tool/result`, `a user-role message in the direct parent session` | - | Registered per continuable in-process child rather than globally, so this schema is visible only inside such a child and survives its global `toolFilter`. The same contribution installs the child-scoped `tool:report` prompt section, which this catalog does not render. The parent-facing `send_message` tool is installed independently. |
 | `@deepseek-ai/dsh-tool-jobs` | `job_kill`, `job_list`, `job_output` | `ctx.tools`, `ctx.jobs`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic background-job controller: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers' `ctx.jobs.start()`. |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
@@ -1642,6 +1642,54 @@ Find prior sessions by current title, creation time, or raw-event activity time.
 
 Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
 
+### `session_inspect`
+
+Inspect one authorized session through a unified view: summary status, folded messages, raw history, one event, or lineage. Never resumes a cold session.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Target session id. Omit for the current session."
+    },
+    "view": {
+      "type": "string",
+      "description": "View to inspect: summary status, folded messages, raw history, one event, or lineage.",
+      "enum": [
+        "summary",
+        "messages",
+        "history",
+        "event",
+        "lineage"
+      ]
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Maximum messages or raw events for messages/history views."
+    },
+    "seq": {
+      "type": "integer",
+      "description": "Event sequence for the event view."
+    },
+    "before": {
+      "type": "integer",
+      "description": "Complete raw events before seq for the event view."
+    },
+    "after": {
+      "type": "integer",
+      "description": "Complete raw events after seq for the event view."
+    }
+  },
+  "required": [
+    "view"
+  ]
+}
+```
+
+Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
+
 ### `session_log_tail`
 
 Read the latest complete raw SessionEvent trajectory from an authorized session, including shadowed and log-only events.
@@ -1826,7 +1874,7 @@ Read the authorized session lineage around one session, including complete visib
 
 Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
 
-The nine read-only tools separate title/time discovery, content matches, current-message tails, and complete raw-log reads while hiding provider cursors and binding exact observations to opaque session ids.
+The read-only tools separate title/time discovery, content matches, unified session inspection, current-message tails, and complete raw-log reads while hiding provider cursors and binding exact observations to opaque session ids.
 
 <a id="deepseek-aidsh-tool-subagent"></a>
 
@@ -1847,6 +1895,10 @@ Delegate a self-contained task to a subagent (a separate agent that works in its
     "prompt": {
       "type": "string",
       "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
+    },
+    "profile_id": {
+      "type": "string",
+      "description": "Optional parent-private Child Profile id. The host resolves and enforces its immutable snapshot."
     },
     "run_in_background": {
       "type": "boolean",
@@ -1931,6 +1983,35 @@ Send a message to a background subagent by its subagent id, continuing the same 
   "required": [
     "subagent_id",
     "message"
+  ]
+}
+```
+
+Source: [`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts)
+
+### `subagent_history`
+
+Read a bounded raw event history from one of your direct or nested subagents without resuming it. The result includes user/assistant messages, tool calls and results, lifecycle records, and sequence numbers. Use before_seq from a prior page to walk older history; only descendants of the calling agent are authorized.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "subagent_id": {
+      "type": "string",
+      "description": "The direct or nested subagent id returned by delegation or list_agents."
+    },
+    "before_seq": {
+      "type": "integer",
+      "description": "Read events before this sequence number for older-page traversal."
+    },
+    "max_events": {
+      "type": "integer",
+      "description": "Maximum complete raw events to return, from 1 through 50. Defaults to 50."
+    }
+  },
+  "required": [
+    "subagent_id"
   ]
 }
 ```
