@@ -97,16 +97,16 @@ describe('dsh-tool-subagent', () => {
     expect(text(result)).toBe('child says hi')
   })
 
-  it('exposes description + prompt + run_in_background to the model (no provider/type parameter)', async () => {
+  it('exposes description + prompt + mode to the model (no provider/type parameter)', async () => {
     const ctx = await setup({ provider: 'mock' })
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')
     expect(schema).toBeDefined()
     const props = (schema!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
-    expect(Object.keys(props).sort()).toEqual(['description', 'mode', 'profile_id', 'prompt', 'run_in_background'])
-    expect(schema!.description).toContain('job_output')
+    expect(Object.keys(props).sort()).toEqual(['description', 'mode', 'profile_id', 'prompt'])
+    expect(schema!.description).toContain('mode: async')
   })
 
-  it('omits run_in_background entirely when the instance disables it (schema and capability never disagree)', async () => {
+  it('keeps mode visible when async execution is disabled', async () => {
     const ctx = await setup({ provider: 'mock', enableRunInBackground: false })
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')
     const props = (schema!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
@@ -114,15 +114,15 @@ describe('dsh-tool-subagent', () => {
     expect(schema!.description).not.toContain('job_output')
   })
 
-  it('refuses a forced run_in_background at execution time when the instance disables it', async () => {
+  it('refuses async mode at execution time when the instance disables it', async () => {
     // Schema omission is advertising, not enforcement: the arg validator
     // allows undeclared keys, so the opt-out must also hold in execute().
     const ctx = await setup({ provider: 'mock', enableRunInBackground: false })
     const parent = { id: SessionId('sess-off'), inject: () => {}, options: {}, session: { header: { version: 0, id: 'sess-off', createdAt: 0 } } } as unknown as Agent
 
-    const forced = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true }, { agent: parent })
+    const forced = await callSubagent(ctx, { description: 'd', prompt: 'p', mode: 'async' }, { agent: parent })
     expect(forced.isError).toBe(true)
-    expect(text(forced)).toContain('run_in_background is disabled for this tool instance')
+    expect(text(forced)).toContain('mode: async is disabled for this tool instance')
     // The provider was never asked to start a child.
     expect(ctx.subagents.getProvider('mock')).toBeDefined()
     const foreground = await callSubagent(ctx, { description: 'd', prompt: 'p' }, { agent: parent })
@@ -141,7 +141,7 @@ describe('dsh-tool-subagent', () => {
       signal: testToolSignal,
       callId: CallId('subagent-background'),
       name: 'subagent',
-      arguments: { description: 'do work', prompt: 'Reply OK', run_in_background: true },
+      arguments: { description: 'do work', prompt: 'Reply OK', mode: 'async' },
     })).toEqual({ kind: 'parallel' })
   })
 
@@ -905,7 +905,7 @@ describe('dsh-tool-subagent background mode', () => {
       signal: testToolSignal,
       callId: CallId('resumable-one-shot'),
       name: 'subagent_resumable',
-      arguments: { description: 'work', prompt: 'go', run_in_background: true },
+      arguments: { description: 'work', prompt: 'go', mode: 'async' },
       agent: parent,
     })
 
@@ -917,7 +917,7 @@ describe('dsh-tool-subagent background mode', () => {
     const ctx = await backgroundSetup({ provider: 'mock', agentOptions: { model: 'child-model' } }, { reply: 'background answer' })
     const parent = ownerAgent(ctx, 'sess-parent')
 
-    const start = await callSubagent(ctx, { description: 'deep research', prompt: 'dig in', run_in_background: true }, { agent: parent })
+    const start = await callSubagent(ctx, { description: 'deep research', prompt: 'dig in', mode: 'async' }, { agent: parent })
     expect(start.isError).toBe(false)
     if (start.isError) throw new Error('expected background subagent success')
     expect(start.value).toEqual({ kind: 'background', jobId: 'subagent-1' })
@@ -945,7 +945,7 @@ describe('dsh-tool-subagent background mode', () => {
 
   it('fails loud when the tasks runtime is not loaded', async () => {
     const ctx = await setup({ provider: 'mock' })
-    const result = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true })
+    const result = await callSubagent(ctx, { description: 'd', prompt: 'p', mode: 'async' })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('background jobs unavailable: load @deepseek-ai/dsh-jobs')
   })
@@ -955,7 +955,7 @@ describe('dsh-tool-subagent background mode', () => {
     const parent = ownerAgent(ctx, 'sess-parent')
     const controller = new AbortController()
     controller.abort()
-    const result = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true }, { agent: parent, signal: controller.signal })
+    const result = await callSubagent(ctx, { description: 'd', prompt: 'p', mode: 'async' }, { agent: parent, signal: controller.signal })
     expect(result.isError).toBe(true)
     expect(result.error).toEqual({
       message: 'tool call aborted before dispatch',
@@ -979,7 +979,7 @@ describe('dsh-tool-subagent background mode', () => {
       signal: testToolSignal,
       callId: CallId('broken-start'),
       name: 'subagent_broken',
-      arguments: { description: 'broken', prompt: 'p', run_in_background: true },
+      arguments: { description: 'broken', prompt: 'p', mode: 'async' },
       agent: parent,
     })
     expect(text(started)).toBe('started background subagent task subagent-1')
@@ -1010,7 +1010,7 @@ describe('dsh-tool-subagent background mode', () => {
       signal: testToolSignal,
       callId: CallId('pending-start'),
       name: 'subagent_pending',
-      arguments: { description: 'pending', prompt: 'p', run_in_background: true },
+      arguments: { description: 'pending', prompt: 'p', mode: 'async' },
       agent: parent,
     })
     await ctx.tools.execute({
@@ -1059,8 +1059,8 @@ describe('dsh-tool-subagent background mode', () => {
     // Direct apply preserves omitted agentOptions instead of applying schema defaults.
     tool.apply(ctx, { provider: 'hanging', toolName: 'subagent_hang' })
 
-    const startOne = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('h1'), name: 'subagent_hang', arguments: { description: 'one', prompt: 'p', run_in_background: true }, agent: parent })
-    const startTwo = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('h2'), name: 'subagent_hang', arguments: { description: 'two', prompt: 'p', run_in_background: true }, agent: parent })
+    const startOne = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('h1'), name: 'subagent_hang', arguments: { description: 'one', prompt: 'p', mode: 'async' }, agent: parent })
+    const startTwo = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('h2'), name: 'subagent_hang', arguments: { description: 'two', prompt: 'p', mode: 'async' }, agent: parent })
     expect(text(startOne)).toBe('started background subagent task subagent-1')
     expect(text(startTwo)).toBe('started background subagent task subagent-2')
 
@@ -1120,15 +1120,15 @@ describe('dsh-tool-subagent continuable background mode', () => {
     expect(schema.description).not.toContain('job_output')
     expect(schema.description).not.toContain('job_kill')
     expect(schema.description).toContain('send_message')
-    expect(schema.description).toContain('runs in the background by default')
+    expect(schema.description).toContain('runs asynchronously by default')
     expect(schema.description).not.toContain('never poll or wait on it')
     const properties = (schema.parameters as {
       properties: Record<string, { description?: string }>
     }).properties
-    expect(properties.run_in_background?.description).toContain('Defaults to true')
+    expect(properties.mode?.description).toContain('sync')
     const assembly = await ctx.systemPrompt.assemble(assembleContextFor(parent))
     const guidance = assembly.sections.find(section => section.name === 'tool:subagent')
-    expect(guidance?.text).toContain('Use subagent in the background by default')
+    expect(guidance?.text).toContain('Use subagent asynchronously by default')
     expect(guidance?.text).toContain('runtime sends you a notice containing its outcome')
 
     const started = await callSubagent(
@@ -1161,11 +1161,11 @@ describe('dsh-tool-subagent continuable background mode', () => {
     expect(assembly.sections.find(section => section.name === 'tool:subagent')?.text).toBe('')
   })
 
-  it('waits for a continuable provider only when run_in_background is explicitly false', async () => {
+  it('waits for a continuable provider only when mode is explicitly sync', async () => {
     const { ctx, parent } = await continuableSetup()
     const result = await callSubagent(
       ctx,
-      { description: 'blocking work', prompt: 'dig in', run_in_background: false },
+      { description: 'blocking work', prompt: 'dig in', mode: 'sync' },
       { agent: parent },
     )
     expect(result.isError).toBe(false)
@@ -1208,7 +1208,7 @@ describe('dsh-tool-subagent continuable background mode', () => {
       signal,
       callId: CallId(callId),
       name: 'subagent_gated',
-      arguments: { description, prompt: 'work', run_in_background: true },
+      arguments: { description, prompt: 'work', mode: 'async' },
       agent: parent,
     })
     const cancelledResult = execute('continuable-cancelled', 'cancelled sibling', cancelled.signal)
@@ -1278,7 +1278,7 @@ describe('background preflight failure (no orphaned child, by construction)', ()
       signal: testToolSignal,
       callId: CallId('probe-1'),
       name: 'subagent_probe',
-      arguments: { description: 'd', prompt: 'p', run_in_background: true },
+      arguments: { description: 'd', prompt: 'p', mode: 'async' },
       agent: parent,
     })
     expect(result.isError).toBe(true)

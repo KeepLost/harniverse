@@ -42,8 +42,8 @@ export interface Config {
    */
   toolName?: string
   /**
-   * Expose `run_in_background` (default true). Disabled instances omit the
-   * parameter and reject forced background calls.
+   * Allow asynchronous invocations (default true). Disabled instances reject
+   * `mode: async` calls.
    */
   enableRunInBackground?: boolean
   /**
@@ -253,7 +253,6 @@ function providerWording(inheritsConversation: boolean): { description: string; 
 
 interface DelegationRunRequest {
   readonly mode?: 'sync' | 'async'
-  readonly run_in_background?: boolean
 }
 
 interface DelegationRunSpec {
@@ -355,25 +354,11 @@ function resolveDelegationRun(
   request: DelegationRunRequest,
   options: { readonly backgroundEnabled: boolean; readonly continuable: boolean },
 ): DelegationRunSpec {
-  if (request.mode !== undefined) {
-    if (!options.backgroundEnabled && request.mode === 'async') {
-      throw new Error('mode: async is disabled for this tool instance (enableRunInBackground: false)')
-    }
-    return { runInBackground: request.mode === 'async' }
-  }
-  if (!options.backgroundEnabled) {
-    // The validator permits undeclared keys, so schema omission also needs
-    // execution-time enforcement.
-    if (request.run_in_background === true) {
-      throw new Error('run_in_background is disabled for this tool instance (enableRunInBackground: false)')
-    }
-    return { runInBackground: false }
+  if (request.mode === 'async' && !options.backgroundEnabled) {
+    throw new Error('mode: async is disabled for this tool instance (enableRunInBackground: false)')
   }
   return {
-    // Continuable work is independently scheduled unless the caller explicitly
-    // needs the result before its next action. One-shot policy keeps its existing
-    // foreground default because its background result requires Task collection.
-    runInBackground: request.run_in_background ?? options.continuable,
+    runInBackground: request.mode === 'async' || (request.mode === undefined && options.continuable),
   }
 }
 
@@ -414,8 +399,8 @@ export function apply(ctx: Context, config: Config): void {
         // a separately installed capability, so this promise holds whenever the
         // continuable background path is reachable at all.
         ? continuable
-          ? ' This tool runs in the background by default, immediately returns a durable subagent id, and keeps the child conversation available for later turns. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message; `send_message` starts a later turn in the same child conversation. Set `run_in_background: false` only when your next action depends on receiving the result.'
-          : ' This call waits for the result by default. Set `run_in_background: true` to return a job id; collect with `job_output` and stop with `job_kill`.'
+          ? ' This tool runs asynchronously by default, immediately returns a durable subagent id, and keeps the child conversation available for later turns. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message; `send_message` starts a later turn in the same child conversation. Set `mode: sync` only when your next action depends on receiving the result.'
+          : ' This call waits for the result by default. Set `mode: async` to return an invocation id; collect or stop it with the configured control tools.'
         : ' This call waits for the subagent and returns its result.'),
       parameters: {
         description: {
@@ -437,14 +422,6 @@ export function apply(ctx: Context, config: Config): void {
           type: 'string' as const,
           description: 'Optional parent-private Child Profile id. The host resolves and enforces its immutable snapshot.',
         },
-        ...backgroundEnabled ? {
-          run_in_background: {
-            type: 'boolean' as const,
-            description: continuable
-              ? 'Whether to run in the background and return a durable subagent id immediately. Defaults to true. Set false to wait for the result when your next action depends on it.'
-              : 'Whether to run as a background job and return its id. Defaults to false; collect with job_output or stop with job_kill.',
-          },
-        } : {},
       },
       output: {
         schema: {
@@ -608,7 +585,7 @@ export function apply(ctx: Context, config: Config): void {
       order: SUBAGENT_SECTION_ORDER,
       text: context => disposeTool === undefined || ctx.tools.get(toolName, context.scope) === undefined
         ? ''
-        : `Use ${toolName} in the background by default. Start independent delegations together in one assistant message and continue useful work while they run. Set \`run_in_background: false\` only when your next action depends on that subagent's result. When a background run settles, the runtime sends you a notice containing its outcome and any final assistant message.`,
+        : `Use ${toolName} asynchronously by default. Start independent delegations together in one assistant message and continue useful work while they run. Set \`mode: sync\` only when your next action depends on that subagent's result. When an asynchronous run settles, the runtime sends you a notice containing its outcome and any final assistant message.`,
     })
   }
 
