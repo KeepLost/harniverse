@@ -520,13 +520,11 @@ export function apply(ctx: Context, config: Config): void {
           if (continuable) {
             // Resolves at inbox acceptance: the child owns its own turns from
             // there, so this call neither waits for nor collects a result.
-            const started = await ctx.subagents.startContinuable({
-              provider: config.provider,
-              label: args.description,
-              request,
+            const invocation = await ctx.subagents.invoke(config.provider, 'async', {
+              ...request,
               signal: exec.signal,
             })
-            return { kind: 'continuable' as const, subagentId: started.childId }
+            return { kind: 'continuable' as const, subagentId: invocation.sessionId }
           }
           const jobs = ctx.get('jobs')
           if (jobs === undefined) {
@@ -553,12 +551,17 @@ export function apply(ctx: Context, config: Config): void {
           return { kind: 'background' as const, jobId: id }
         }
 
-        const run: SubagentRun = await ctx.subagents.start(config.provider, {
+        const invocation = await ctx.subagents.invoke(config.provider, 'sync', {
           ...request,
           signal: exec.signal,
         })
-        const result = await settleForegroundRun(run)
-        return { ...result, subagentId: run.id }
+        const result = await settleForegroundRun({
+          id: invocation.sessionId,
+          localAgent: undefined,
+          result: invocation.result,
+          dispose: invocation.dispose,
+        })
+        return { ...result, subagentId: invocation.sessionId }
       },
     }))
   }

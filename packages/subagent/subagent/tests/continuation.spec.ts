@@ -168,6 +168,31 @@ function observeCancel(agent: Agent, callback: () => void): void {
 }
 
 describe('SubagentRuntime.startContinuable', () => {
+  it('returns one invocation vocabulary for synchronous and asynchronous waits', async () => {
+    const { ctx, parent } = await setup([textResponse('sync answer'), textResponse('async answer')])
+    const syncSpec = startSpec(parent)
+    const sync = await ctx.subagents.invoke('spawn', 'sync', {
+      ...syncSpec.request,
+      label: syncSpec.label,
+      signal: syncSpec.signal,
+    })
+    expect(sync.mode).toBe('sync')
+    expect(sync.sessionId).toBe(sync.invocationId)
+    expect((await sync.result).stopReason).toBe('completed')
+    await sync.dispose()
+
+    const asyncSpec = startSpec(parent)
+    const asyncInvocation = await ctx.subagents.invoke('spawn', 'async', {
+      ...asyncSpec.request,
+      label: asyncSpec.label,
+      signal: asyncSpec.signal,
+    })
+    expect(asyncInvocation.mode).toBe('async')
+    expect(asyncInvocation.sessionId).toMatch(/[0-9a-f-]{36}/)
+    expect(asyncInvocation.invocationId).toBe(asyncInvocation.messageId)
+    await waitNoActivation(ctx, asyncInvocation.sessionId)
+  })
+
   it('returns both identities at inbox acceptance, without waiting for the turn or the log', async () => {
     const { ctx, parent, adapter } = await setup([textResponse('first answer')])
     const enqueued: { id: MessageId; loggedYet: boolean }[] = []
@@ -1111,9 +1136,14 @@ describe('continuable review regressions', () => {
       message('must not cross parent replacement'),
     )
     await resumed.promise
+    const parentSeed = originalParent.agent.session.events.map(event => structuredClone(event))
     await originalParent.dispose()
+    // Reclaim the durable parent with the exact persisted prefix. Creating a
+    // fresh Session with an existing persisted id is correctly rejected unless
+    // its seed proves that it is the same durable session.
     const replacement = await ctx.agents.create({
       sessionId: parentId,
+      seed: parentSeed,
       agentOptions: { provider: 'mock', model: 'mock' },
     })
     releaseResume.resolve(undefined)

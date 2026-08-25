@@ -518,7 +518,11 @@ export class AgentLoop extends Service implements AgentFactory {
             try {
               await loopCtx.sessions.flush(session)
             } catch (error: unknown) {
-              failures.push(error)
+              // Session persistence is also attempted by the owning
+              // lifecycle, but a teardown must still release the Agent when
+              // that best-effort checkpoint fails. Explicit callers can
+              // still observe flush failures through sessions.flush().
+              loopCtx.logger.warn(`agent "${id}" final session flush failed during teardown: ${String(error)}`)
             }
           }
           if (failures.length === 1) throw failures[0]

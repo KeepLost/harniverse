@@ -45,6 +45,8 @@ import type {
   ChildModelRouteTarget,
   ResolvedSubagentStartRequest,
   SubagentCapabilities,
+  SubagentInvocation,
+  SubagentInvocationMode,
   SubagentProvider,
   SubagentRun,
   SubagentRunEndInfo,
@@ -52,6 +54,7 @@ import type {
   SubagentStartRequest,
 } from './types.ts'
 import type { ChildProfileGrant, ChildProfileSetup, ChildProfileSpec, ResolvedChildProfile } from './types.ts'
+import { SubagentInvocationId } from './types.ts'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import { SubagentError } from './error.ts'
 import { assertSubagentMaxDepth } from './depth.ts'
@@ -75,7 +78,7 @@ import { subagentIdentityProjectionDefinition, subagentTimingProjectionDefinitio
 
 export * from './out-of-process.ts'
 export { AssistantOutputFold, finalAssistantOutput } from './assistant-output.ts'
-export { SubagentRunId } from './types.ts'
+export { SubagentInvocationId, SubagentRunId } from './types.ts'
 export type {
   ChildProfileGrant,
   ChildProfileSpec,
@@ -87,6 +90,8 @@ export type {
   ContinuableCreateSpec,
   ResolvedSubagentStartRequest,
   SubagentCapabilities,
+  SubagentInvocation,
+  SubagentInvocationMode,
   SubagentProvider,
   SubagentResult,
   SubagentRun,
@@ -694,6 +699,51 @@ export class SubagentRuntime extends Service {
       descriptor,
     }
     return observeRun(this.emitLifecycle, name, request.parent, await provider.start(resolved))
+  }
+
+  /**
+   * Accept one invocation using the caller's waiting policy. The returned
+   * identity always names the durable child Session; provider lifecycle mode
+   * remains an implementation detail of this service.
+   * @param name - the provider to use.
+   * @param mode - whether to await the child result or return after admission.
+   * @param request - child label, prompt, parent, signal, and capabilities.
+   * @returns the accepted invocation handle.
+   */
+  async invoke(
+    name: string,
+    mode: SubagentInvocationMode,
+    request: SubagentStartRequest,
+  ): Promise<SubagentInvocation> {
+    if (mode === 'sync') {
+      const run = await this.start(name, request)
+      return {
+        mode,
+        invocationId: SubagentInvocationId(run.id),
+        sessionId: run.id,
+        result: run.result,
+        dispose: run.dispose,
+      }
+    }
+    if (request.outputSchema !== undefined) {
+      throw new SubagentError(
+        'async subagent invocations cannot request an output schema; inspect the durable child Session instead',
+        'UNSUPPORTED_CAPABILITY',
+      )
+    }
+    const { label: _label, signal, outputSchema: _outputSchema, ...continuableRequest } = request
+    const started = await this.startContinuable({
+      provider: name,
+      label: request.label ?? 'subagent invocation',
+      request: continuableRequest,
+      signal,
+    })
+    return {
+      mode,
+      invocationId: SubagentInvocationId(started.messageId),
+      sessionId: started.childId,
+      messageId: started.messageId,
+    }
   }
 
   /**
