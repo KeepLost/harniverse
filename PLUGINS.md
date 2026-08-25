@@ -216,6 +216,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `64ed2f1efc` | Aligns the accepted upstream feature contracts in regression fixtures: Web reference rows insert into the actual Web layer, interrupted output remains visible after cancellation, command image arguments are explicit, and provider diagnostics are asserted separately from failure output. |
 | `8926dce6ff` | Classifies the new `fileReferences` capability seam in generated service and event graphs, covering its Host implementation and Web consumer. |
 | `113785ea1f` | Synchronizes the bilingual LLM streaming and Session type-equivalence contracts for replay envelopes, interrupted blocks, and cancellation-finalized assistant messages. |
+| `b7f4473eb4` | Keeps the Client TypeScript face isolated from Host `Context.sessions`: Client project references no longer pull Host-only projects, the API contract barrel leaves runtime schemas on their dedicated subpaths, and Session-reference type declarations use Client-safe `/types` entries. This restores the full Host/Client/Web build without widening the Client program into the Host service graph. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
