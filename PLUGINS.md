@@ -223,6 +223,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `f7131338e2` | Declares `zod` as a runtime dependency of Session-reference so generated Host and Remote Typert artifacts load through their public exports in a fresh install, with regression coverage for both exports and the real Web startup path. |
 | `b9524bb737` | Moves Session-reference public `typert` and `remote` export coverage into the post-build built-bin smoke gate, preventing clean-build TypeScript ordering failures while proving both subpaths through plain Node; the repository rule now requires clean-build evidence for build/export changes. |
 | `6e5b88ca23` | Adds the parent-private Child Profile foundation: immutable resolved profile types, grant intersection and workspace boundary validation, native Tool/workspace application, and descriptor version 3 persistence. |
+| `966538a150` | Ensures omitted Child Profile depth/token limits inherit the parent's granted ceilings instead of becoming unbounded. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
