@@ -10,7 +10,7 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { SubagentStopReason } from '@deepseek-ai/dsh-subagent'
+import type { ResolvedChildProfile, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
 
 /** Parameters for the process-wide SDK handshake. */
 export interface InitializeParams {
@@ -22,6 +22,8 @@ export interface InitializeParams {
   model: string
   /** Optional positive output-token cap inherited by SDK-created agents and their in-process descendants. */
   maxTokens?: number
+  /** Host-resolved parent-private profile snapshot for this SDK child. */
+  childProfile?: ResolvedChildProfile
 }
 
 /** Wire-stable server identity returned by initialization. */

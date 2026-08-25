@@ -41,6 +41,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {
   ContinuableCreateRequest,
   ContinuableCreateSpec,
+  ChildModelRoute,
   ResolvedSubagentStartRequest,
   SubagentCapabilities,
   SubagentProvider,
@@ -49,6 +50,8 @@ import type {
   SubagentRunInfo,
   SubagentStartRequest,
 } from './types.ts'
+import type { ChildProfileGrant, ChildProfileSetup, ChildProfileSpec, ResolvedChildProfile } from './types.ts'
+import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import { SubagentError } from './error.ts'
 import { assertSubagentMaxDepth } from './depth.ts'
 import { createActivationObserver, createLifecycleEmitter, observeRun } from './lifecycle.ts'
@@ -66,7 +69,7 @@ import type { ContinuableSetupContribution } from './activation-setup-registry.t
 import { listChildren as listSubagentChildren, listDescendants as listSubagentDescendants } from './list-children.ts'
 import type { SubagentDescendantListEntry, SubagentListEntry } from './list-children.ts'
 import { snapshotSubagentDescriptor } from './descriptor.ts'
-import { assertResolvedChildProfile, childProfileToolFilter } from './profile.ts'
+import { assertResolvedChildProfile, childProfileToolFilter, resolveChildProfile } from './profile.ts'
 import { subagentIdentityProjectionDefinition, subagentTimingProjectionDefinition } from './projection.ts'
 
 export * from './out-of-process.ts'
@@ -76,6 +79,8 @@ export type {
   ChildProfileGrant,
   ChildProfileSpec,
   ResolvedChildProfile,
+  ChildModelRoute,
+  ChildProfileSetup,
   ContinuableCreateRequest,
   ContinuableCreateSpec,
   ResolvedSubagentStartRequest,
@@ -181,6 +186,10 @@ declare module '@deepseek-ai/cordis' {
 /** Named provider registry with one-shot runs, durable discovery, and continuable-child operations. */
 export class SubagentRuntime extends Service {
   private providers = new Map<string, SubagentProvider>()
+  private readonly profileGrants = new WeakMap<Agent, ChildProfileGrant>()
+  private readonly profiles = new WeakMap<Agent, Map<string, ResolvedChildProfile>>()
+  private readonly modelRoutes = new Map<string, ChildModelRoute>()
+  private readonly profileSetups = new Set<ChildProfileSetup>()
   private continuations: SubagentContinuationManager | undefined
   /** Deployment contributions composed into unpublished continuable children. */
   private readonly setupRegistry = new SubagentActivationSetupRegistry()
@@ -197,6 +206,8 @@ export class SubagentRuntime extends Service {
     ctx.inject(['agents'], (childCtx: Context) => {
       const manager = new SubagentContinuationManager(childCtx, {
         prepareContinuable: (name, request) => this.prepareContinuable(name, request),
+        supportsChildProfile: name => this.supportsChildProfile(name),
+        resolveChildModelRoute: profile => this.resolveChildModelRoute(profile),
         observeActivation: (provider, childId, parent) => this.observeActivation(provider, childId, parent),
       }, this.setupRegistry)
       this.continuations = manager
@@ -413,6 +424,128 @@ export class SubagentRuntime extends Service {
   }
 
   /**
+   * Bind the Host-computed capability grant to one exact live parent. The grant
+   * is never model-visible; it is only consumed by `defineChildProfile()`.
+   * @param parent - exact parent Agent receiving the private grant.
+   * @param grant - host-owned capabilities available to child profiles.
+   * @returns an effect disposer that revokes this exact binding.
+   */
+  registerChildProfileGrant(parent: Agent, grant: ChildProfileGrant): () => void {
+    if (this.profileGrants.has(parent)) {
+      throw new SubagentError(`a child profile grant is already bound to parent "${parent.id}"`, 'DUPLICATE_PROFILE_GRANT')
+    }
+    const detached = Object.freeze({
+      ...grant,
+      harnessIds: Object.freeze([...grant.harnessIds]),
+      modelRouteIds: Object.freeze([...grant.modelRouteIds]),
+      tools: Object.freeze([...grant.tools]),
+      skills: Object.freeze([...grant.skills]),
+      mcpServerIds: Object.freeze([...grant.mcpServerIds]),
+      childProfileIds: Object.freeze([...grant.childProfileIds]),
+    })
+    return this.ctx.effect(function* (this: SubagentRuntime) {
+      this.profileGrants.set(parent, detached)
+      yield () => {
+        if (this.profileGrants.get(parent) === detached) this.profileGrants.delete(parent)
+      }
+    }.bind(this), 'subagents.registerChildProfileGrant()')
+  }
+
+  /** Define or revise one parent-private profile from the parent's Host grant. */
+  defineChildProfile(parent: Agent, spec: ChildProfileSpec): ResolvedChildProfile {
+    const grant = this.profileGrants.get(parent)
+    if (grant === undefined) {
+      throw new SubagentError(`no child profile grant is bound to parent "${parent.id}"`, 'PROFILE_GRANT_UNAVAILABLE')
+    }
+    let profiles = this.profiles.get(parent)
+    if (profiles === undefined) {
+      profiles = new Map()
+      this.profiles.set(parent, profiles)
+    }
+    const previous = profiles.get(spec.profileId)
+    const profile = resolveChildProfile(spec, grant, (previous?.revision ?? 0) + 1)
+    profiles.set(profile.profileId, profile)
+    return profile
+  }
+
+  /** List only the exact parent's private resolved profile snapshots. */
+  listChildProfiles(parent: Agent): ResolvedChildProfile[] {
+    return [...(this.profiles.get(parent)?.values() ?? [])]
+  }
+
+  /** Resolve one profile id from the exact parent's private namespace. */
+  getChildProfile(parent: Agent, profileId: string): ResolvedChildProfile | undefined {
+    return this.profiles.get(parent)?.get(profileId)
+  }
+
+  /** Register one Host-owned opaque model route used by resolved profiles. */
+  registerChildModelRoute(routeId: string, route: ChildModelRoute): () => void {
+    if (this.modelRoutes.has(routeId)) {
+      throw new SubagentError(`a child model route named "${routeId}" is already registered`, 'DUPLICATE_PROFILE_ROUTE')
+    }
+    const detached = Object.freeze({ provider: route.provider, model: route.model })
+    return this.ctx.effect(function* (this: SubagentRuntime) {
+      this.modelRoutes.set(routeId, detached)
+      yield () => {
+        if (this.modelRoutes.get(routeId) === detached) this.modelRoutes.delete(routeId)
+      }
+    }.bind(this), 'subagents.registerChildModelRoute()')
+  }
+
+  /** Resolve a Profile route into the only model selection fields an Agent accepts. */
+  resolveChildModelRoute(profile: ResolvedChildProfile): AgentOptions {
+    const route = this.modelRoutes.get(profile.modelRouteId)
+    if (route === undefined) {
+      throw new SubagentError(`no child model route is registered for "${profile.modelRouteId}"`, 'PROFILE_ROUTE_UNAVAILABLE')
+    }
+    return {
+      provider: route.provider,
+      model: route.model,
+      ...profile.maxTokens !== undefined ? { maxTokens: profile.maxTokens } : {},
+    }
+  }
+
+  /** Register a trusted scoped contribution for Profile Skill/MCP integrations. */
+  registerChildProfileSetup(setup: ChildProfileSetup): () => void {
+    return this.ctx.effect(() => {
+      this.profileSetups.add(setup)
+      return () => { this.profileSetups.delete(setup) }
+    }, 'subagents.registerChildProfileSetup()')
+  }
+
+  /** Apply all registered Profile contributions during child creation. */
+  applyChildProfileSetup(childCtx: Context, profile: ResolvedChildProfile): void {
+    for (const setup of this.profileSetups) setup(childCtx, profile)
+    const child = childCtx.agent as Agent | undefined
+    if (child !== undefined && !this.profileGrants.has(child)) {
+      const revoke = this.registerChildProfileGrant(child, {
+        harnessIds: [profile.harnessId],
+        modelRouteIds: [profile.modelRouteId],
+        tools: profile.tools,
+        skills: profile.skills,
+        mcpServerIds: profile.mcpServerIds,
+        childProfileIds: profile.childProfileIds,
+        workspaceRoot: profile.workspaceCwd,
+        parentWorkspaceCwd: profile.workspaceCwd,
+        ...profile.maxDepth !== undefined ? { maxDepth: profile.maxDepth } : {},
+        ...profile.maxTokens !== undefined ? { maxTokens: profile.maxTokens } : {},
+      })
+      childCtx.effect(() => revoke, 'subagents.childProfileGrant()')
+    }
+    const tools = childCtx.get('tools')
+    if (tools !== undefined) {
+      const selectedMcp = new Set(profile.mcpServerIds)
+      const deniedMcpTools = tools.schemas()
+        .map(schema => schema.name)
+        .filter(name => name.startsWith('mcp__'))
+        .filter(name => !selectedMcp.has(name.slice('mcp__'.length).split('__', 1)[0] ?? ''))
+      if (deniedMcpTools.length > 0) tools.restrict({ deny: deniedMcpTools, includeOwn: true })
+    }
+    const skills = childCtx.get('skills' as never) as { restrict(filter: { allow: readonly string[]; includeOwn: true }): () => void } | undefined
+    if (skills !== undefined) skills.restrict({ allow: profile.skills, includeOwn: true })
+  }
+
+  /**
    * Establish a published child on the named provider. Capability and semantic
    * checks run before delegation. Provider ownership lasts until its promise
    * fulfills; a rejection therefore has no run for the caller to dispose and
@@ -424,18 +557,40 @@ export class SubagentRuntime extends Service {
    */
   async start(name: string, request: SubagentStartRequest): Promise<SubagentRun> {
     const provider = this.expectProvider(name)
+    const childProfile = request.childProfile
     this.assertCapabilities(provider, request)
-    assertSubagentMaxDepth(request.maxDepth)
+    const effectiveMaxDepth = childProfile?.maxDepth ?? request.maxDepth
+    assertSubagentMaxDepth(effectiveMaxDepth)
     if (request.outputSchema !== undefined) assertObjectJsonSchema(request.outputSchema)
-    if (request.childProfile !== undefined) assertResolvedChildProfile(request.childProfile)
-    if (request.childProfile !== undefined) childProfileToolFilter(request.childProfile, request.toolFilter)
+    if (childProfile !== undefined) {
+      if (provider.supportsChildProfile !== true) {
+        throw new SubagentError(
+          `subagent provider "${provider.name}" cannot enforce a Child Profile`,
+          'UNSUPPORTED_PROFILE',
+        )
+      }
+      assertResolvedChildProfile(childProfile)
+      if (childProfile.harnessId !== provider.name) {
+        throw new SubagentError(
+          `child profile harness "${childProfile.harnessId}" does not match provider "${provider.name}"`,
+          'PROFILE_HARNESS_MISMATCH',
+        )
+      }
+      childProfileToolFilter(childProfile, request.toolFilter)
+    }
     const descriptor = snapshotSubagentDescriptor({
       mode: 'one-shot',
       provider: name,
       ...request.label !== undefined ? { label: request.label } : {},
-      ...request.childProfile !== undefined ? { childProfile: request.childProfile } : {},
+      ...childProfile !== undefined ? { childProfile, maxDepth: effectiveMaxDepth } : {},
     })
-    const resolved: ResolvedSubagentStartRequest = { ...request, descriptor }
+    const { childProfile: _requestedProfile, ...requestWithoutProfile } = request
+    const resolved: ResolvedSubagentStartRequest = {
+      ...requestWithoutProfile,
+      ...childProfile !== undefined ? { childProfile } : {},
+      ...childProfile !== undefined ? { agentOptions: this.resolveChildModelRoute(childProfile) } : {},
+      descriptor,
+    }
     return observeRun(this.emitLifecycle, name, request.parent, await provider.start(resolved))
   }
 
@@ -457,6 +612,11 @@ export class SubagentRuntime extends Service {
       )
     }
     return provider.prepareContinuable(request)
+  }
+
+  /** Report whether a registered provider enforces the resolved profile contract. */
+  private supportsChildProfile(name: string): boolean {
+    return this.providers.get(name)?.supportsChildProfile === true
   }
 
   /** Look up a provider for dispatch or fail loud. */
@@ -496,7 +656,7 @@ export class SubagentRuntime extends Service {
     const needs: { when: boolean; cap: keyof SubagentCapabilities }[] = [
       { when: request.outputSchema !== undefined, cap: 'outputSchema' },
       { when: request.maxDepth !== undefined, cap: 'depthLimit' },
-      { when: request.toolFilter !== undefined || request.childProfile !== undefined, cap: 'toolFilter' },
+      { when: request.toolFilter !== undefined, cap: 'toolFilter' },
       { when: request.persona !== undefined, cap: 'persona' },
     ]
     for (const { when, cap } of needs) {

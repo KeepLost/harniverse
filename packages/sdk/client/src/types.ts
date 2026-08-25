@@ -7,6 +7,7 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { ResolvedChildProfile } from '@deepseek-ai/dsh-subagent'
 
 /** One server-to-client notification as received off the wire. */
 export interface HarnessNotification {
@@ -56,6 +57,8 @@ export interface DeepSeekHarnessOptions {
   model?: string
   /** Maximum output tokens for each conversation-model request. */
   maxTokens?: number
+  /** Immutable profile snapshot enforced by the child SDK server. */
+  childProfile?: ResolvedChildProfile
 }
 
 /** One owned session activity interval, from enqueue receipt through idle. */

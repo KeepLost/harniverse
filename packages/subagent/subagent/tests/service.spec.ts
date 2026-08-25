@@ -39,6 +39,7 @@ function baseRequest(overrides: Partial<SubagentStartRequest> = {}): SubagentSta
 
 class StubProvider implements SubagentProvider {
   readonly inheritsParentContext = false
+  readonly supportsChildProfile = true
   startCount = 0
   lastRequest: ResolvedSubagentStartRequest | undefined
 
@@ -132,9 +133,10 @@ describe('SubagentRuntime', () => {
     const { subagents } = await service()
     const provider = new StubProvider('profiled')
     subagents.registerProvider(provider)
+    subagents.registerChildModelRoute('safe', { provider: 'mock', model: 'safe-model' })
     const profile = resolveChildProfile({
       profileId: 'reviewer',
-      harnessId: 'native',
+      harnessId: 'profiled',
       modelRouteId: 'safe',
       tools: ['read'],
       skills: [],
@@ -142,7 +144,7 @@ describe('SubagentRuntime', () => {
       childProfileIds: [],
       workspaceCwd: 'packages/review',
     }, {
-      harnessIds: ['native'],
+      harnessIds: ['profiled'],
       modelRouteIds: ['safe'],
       tools: ['read', 'write'],
       skills: [],
@@ -154,8 +156,65 @@ describe('SubagentRuntime', () => {
 
     await subagents.start('profiled', baseRequest({ childProfile: profile }))
     expect(provider.lastRequest?.childProfile).toEqual(profile)
+    expect(provider.lastRequest?.agentOptions).toEqual({ provider: 'mock', model: 'safe-model' })
     expect(provider.lastRequest?.descriptor).toMatchObject({ childProfile: profile })
     expect(provider.lastRequest?.descriptor.childProfile).not.toBe(profile)
+  })
+
+  it('rejects a profile whose harness is not the selected provider', async () => {
+    const { subagents } = await service()
+    const provider = new StubProvider('spawn')
+    subagents.registerProvider(provider)
+    subagents.registerChildModelRoute('safe', { provider: 'mock', model: 'safe-model' })
+    const profile = resolveChildProfile({ profileId: 'remote', harnessId: 'sdk', modelRouteId: 'safe' }, {
+      harnessIds: ['sdk'], modelRouteIds: ['safe'], tools: [], skills: [], mcpServerIds: [], childProfileIds: [],
+      workspaceRoot: '/repo', parentWorkspaceCwd: '/repo',
+    }, 1)
+    await expect(subagents.start('spawn', baseRequest({ childProfile: profile })))
+      .rejects.toMatchObject({ code: 'PROFILE_HARNESS_MISMATCH' })
+    expect(provider.startCount).toBe(0)
+  })
+
+  it('keeps profile definitions private to the exact parent and revisions immutable children', async () => {
+    const { subagents } = await service()
+    const parent = fakeParent('profile-owner')
+    const other = fakeParent('other-owner')
+    subagents.registerChildModelRoute('safe', { provider: 'mock', model: 'safe-model' })
+    const revoke = subagents.registerChildProfileGrant(parent, {
+      harnessIds: ['native'],
+      modelRouteIds: ['safe'],
+      tools: ['read'],
+      skills: [],
+      mcpServerIds: [],
+      childProfileIds: [],
+      workspaceRoot: '/repo',
+      parentWorkspaceCwd: '/repo',
+      maxDepth: 3,
+    })
+    const first = subagents.defineChildProfile(parent, {
+      profileId: 'reviewer',
+      harnessId: 'native',
+      modelRouteId: 'safe',
+      tools: ['read'],
+    })
+    const second = subagents.defineChildProfile(parent, {
+      profileId: 'reviewer',
+      harnessId: 'native',
+      modelRouteId: 'safe',
+      tools: [],
+      maxDepth: 1,
+    })
+    expect(first.revision).toBe(1)
+    expect(second.revision).toBe(2)
+    expect(subagents.getChildProfile(parent, 'reviewer')).toEqual(second)
+    expect(subagents.listChildProfiles(other)).toEqual([])
+    expect(() => subagents.defineChildProfile(other, {
+      profileId: 'reviewer', harnessId: 'native', modelRouteId: 'safe',
+    })).toThrow(expect.objectContaining({ code: 'PROFILE_GRANT_UNAVAILABLE' }))
+    revoke()
+    expect(() => subagents.defineChildProfile(parent, {
+      profileId: 'reviewer', harnessId: 'native', modelRouteId: 'safe',
+    })).toThrow(expect.objectContaining({ code: 'PROFILE_GRANT_UNAVAILABLE' }))
   })
 
   it('does not expose manager teardown and treats a scoped drain as a no-op when no manager was bound', async () => {

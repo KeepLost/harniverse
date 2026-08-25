@@ -126,6 +126,7 @@ export async function startInProcessRun(
         ? request.toolFilter
         : childProfileToolFilter(request.childProfile, request.toolFilter),
     })
+    if (request.childProfile !== undefined) childCtx.get('subagents')?.applyChildProfileSetup(childCtx, request.childProfile)
     if (request.outputSchema !== undefined) {
       structured = attachStructuredRuntime(childCtx, request.outputSchema)
     }

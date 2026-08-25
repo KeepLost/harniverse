@@ -10,6 +10,7 @@
  */
 
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Context } from '@deepseek-ai/cordis'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
@@ -50,6 +51,12 @@ export interface ChildProfileGrant {
   readonly maxTokens?: number
 }
 
+/** Host-owned primary model selection behind one opaque Profile route id. */
+export interface ChildModelRoute {
+  readonly provider: string
+  readonly model: string
+}
+
 /** Immutable, detached profile passed to a child provider and cold resume. */
 export interface ResolvedChildProfile {
   readonly profileId: string
@@ -67,6 +74,9 @@ export interface ResolvedChildProfile {
   readonly modelRoutePriority?: number
   readonly schedulerPriority?: number
 }
+
+/** Trusted Host contribution applied inside a child creation scope. */
+export type ChildProfileSetup = (childCtx: Context, profile: ResolvedChildProfile) => void
 
 /** Identifies one accepted subagent run across its lifecycle event pair. */
 export type SubagentRunId = Branded<'SubagentRunId'>
@@ -348,6 +358,8 @@ export interface SubagentProvider {
   readonly name: string
   /** The start-time features this provider supports (see {@link SubagentCapabilities}). */
   readonly capabilities: SubagentCapabilities
+  /** Provider can receive and enforce a host-resolved Child Profile snapshot. */
+  readonly supportsChildProfile?: boolean
   /**
    * Whether the child sees the parent's completed-turn prefix. This is descriptive, not a
    * service-validated start capability: the model-facing tool derives truthful wording from it.
