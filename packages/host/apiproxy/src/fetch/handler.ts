@@ -78,6 +78,7 @@ import {
   subagentInterruptRequestSchema,
   subagentListRequestSchema,
   subagentPromptRequestSchema,
+  subagentProfilesRequestSchema,
 } from '../api/subagents.schema.ts'
 import { eventsMuxRequestSchema } from '../api/events.schema.ts'
 
@@ -117,6 +118,7 @@ const UNARY_ROUTES: UnaryRoutes = {
   'session.close': { schema: sessionCloseRequestSchema, invoke: (api, r) => api.sessions.close(r) },
   'session.delete': { schema: sessionDeleteRequestSchema, invoke: (api, r) => api.sessions.delete(r) },
   'subagent.list': { schema: subagentListRequestSchema, invoke: (api, r, signal) => api.subagents.list(r, signal) },
+  'subagent.profiles': { schema: subagentProfilesRequestSchema, invoke: (api, r) => api.subagents.profiles(r) },
   'subagent.history': { schema: subagentHistoryRequestSchema, invoke: (api, r, signal) => api.subagents.history(r, signal) },
   'subagent.prompt': { schema: subagentPromptRequestSchema, invoke: (api, r, signal) => api.subagents.prompt(r, signal) },
   'subagent.interrupt': { schema: subagentInterruptRequestSchema, invoke: (api, r) => api.subagents.interrupt(r) },

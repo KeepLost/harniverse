@@ -208,6 +208,27 @@ function clientConfig(id: string, entry: string): UserConfig {
     // opinion for table entries (external above wins), bundle everything else.
     noExternal: (id: string) => (CLIENT_EXTERNALS.includes(id) ? undefined : true),
     plugins: [{
+      // TypeScript consumes the built declaration-only API contract to keep
+      // Host Context augmentations out of the Client program. Bundling still
+      // needs the browser-safe source implementation for its runtime values.
+      name: 'dsh-client-contract-source',
+      resolveId(source: string) {
+        if (source === '@deepseek-ai/dsh-host-apiproxy/api') {
+          return resolvePath(REPOSITORY_ROOT, 'packages/host/apiproxy/src/api/index.ts')
+        }
+        if (source.startsWith('@deepseek-ai/dsh-host-apiproxy/api/')) {
+          return resolvePath(
+            REPOSITORY_ROOT,
+            'packages/host/apiproxy/src/api',
+            `${source.slice('@deepseek-ai/dsh-host-apiproxy/api/'.length)}.ts`,
+          )
+        }
+        if (source === '@deepseek-ai/dsh-host-apiproxy/client') {
+          return resolvePath(REPOSITORY_ROOT, 'packages/host/apiproxy/src/fetch/client.ts')
+        }
+        return null
+      },
+    }, {
       // Bundle purity gate (build-time mirror of the module-edge rules):
       // platform seed entries stay external, inline-safe wire layers inline,
       // and every other @deepseek-ai value import is a build error — a

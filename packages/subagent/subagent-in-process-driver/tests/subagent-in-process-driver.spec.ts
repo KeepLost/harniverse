@@ -9,7 +9,7 @@ import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
-import SubagentRuntime, { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
+import SubagentRuntime, { resolveChildProfile, snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { maxTokensResponse, MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { startInProcessRun } from '../src/index.ts'
@@ -54,6 +54,41 @@ function text(blocks: readonly { type: string; text?: string }[]): string {
 }
 
 describe('startInProcessRun', () => {
+  it('moves a failed Profile model request through the Host-owned fallback route', async () => {
+    const { ctx, parent, adapter } = await setup([
+      () => { throw new Error('primary unavailable') },
+      textResponse('fallback answer'),
+    ])
+    ctx.subagents.registerChildModelRoute('fallback-route', {
+      provider: 'mock',
+      model: 'primary-model',
+      fallbacks: [{ provider: 'mock', model: 'fallback-model' }],
+    })
+    const profile = resolveChildProfile({
+      profileId: 'fallback-profile',
+      harnessId: 'test',
+      modelRouteId: 'fallback-route',
+    }, {
+      harnessIds: ['test'],
+      modelRouteIds: ['fallback-route'],
+      tools: [],
+      skills: [],
+      mcpServerIds: [],
+      childProfileIds: [],
+      workspaceRoot: '/repo',
+      parentWorkspaceCwd: '/repo',
+    }, 1)
+    const run = await startInProcessRun({
+      ...request(parent),
+      childProfile: profile,
+      agentOptions: { provider: 'mock', model: 'primary-model' },
+    }, {})
+
+    await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
+    expect(adapter.requests.map(item => item.model)).toEqual(['primary-model', 'fallback-model'])
+    await run.dispose()
+  })
+
   it('returns only after publication, drives a fresh child, and disposes it', async () => {
     const { ctx, parent } = await setup([textResponse('driver answer')])
     const run = await startInProcessRun(request(parent), {})

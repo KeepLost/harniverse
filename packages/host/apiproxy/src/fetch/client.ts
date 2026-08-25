@@ -73,6 +73,7 @@ import {
   subagentHistoryValueSchema,
   subagentInterruptValueSchema,
   subagentListValueSchema,
+  subagentProfilesValueSchema,
   subagentPromptValueSchema,
 } from '../api/subagents.schema.ts'
 
@@ -113,6 +114,7 @@ export interface IApiClient {
   }
   subagents: {
     list(payload: RequestPayload<'subagent.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.list'>>>
+    profiles(payload: RequestPayload<'subagent.profiles'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.profiles'>>>
     history(payload: RequestPayload<'subagent.history'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.history'>>>
     prompt(payload: RequestPayload<'subagent.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.prompt'>>>
     interrupt(payload: RequestPayload<'subagent.interrupt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.interrupt'>>>
@@ -199,6 +201,7 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'session.close': sessionCloseValueSchema,
   'session.delete': sessionDeleteValueSchema,
   'subagent.list': subagentListValueSchema,
+  'subagent.profiles': subagentProfilesValueSchema,
   'subagent.history': subagentHistoryValueSchema,
   'subagent.prompt': subagentPromptValueSchema,
   'subagent.interrupt': subagentInterruptValueSchema,
@@ -489,6 +492,7 @@ export abstract class AbstractApiClient implements IApiClient {
 
   readonly subagents: IApiClient['subagents'] = {
     list: (payload, signal) => this.callUnary('subagent.list', payload, signal),
+    profiles: (payload, signal) => this.callUnary('subagent.profiles', payload, signal),
     history: (payload, signal) => this.callUnary('subagent.history', payload, signal),
     prompt: (payload, signal) => this.callUnary('subagent.prompt', payload, signal),
     interrupt: (payload, signal) => this.callUnary('subagent.interrupt', payload, signal),

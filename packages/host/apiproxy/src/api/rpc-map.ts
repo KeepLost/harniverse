@@ -40,6 +40,7 @@ export interface RpcMethodMap {
   'session.close': SessionsApi['close']
   'session.delete': SessionsApi['delete']
   'subagent.list': SubagentsApi['list']
+  'subagent.profiles': SubagentsApi['profiles']
   'subagent.history': SubagentsApi['history']
   'subagent.prompt': SubagentsApi['prompt']
   'subagent.interrupt': SubagentsApi['interrupt']
@@ -100,6 +101,7 @@ export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: Auth
   'session.close': 'harniverse.operate',
   'session.delete': 'harniverse.operate',
   'subagent.list': 'harniverse.observe',
+  'subagent.profiles': 'harniverse.observe',
   'subagent.history': 'harniverse.observe',
   'subagent.prompt': 'harniverse.operate',
   'subagent.interrupt': 'harniverse.operate',
@@ -160,6 +162,7 @@ export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 
   'session.close': 'mutate',
   'session.delete': 'mutate',
   'subagent.list': 'read',
+  'subagent.profiles': 'read',
   'subagent.history': 'read',
   'subagent.prompt': 'mutate',
   'subagent.interrupt': 'mutate',

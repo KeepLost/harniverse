@@ -148,7 +148,7 @@ Prefix-stable within a child: the statement never changes during the child's lif
 
 ## Known Limitations and Deferred Work
 
-- **Skill/MCP mounting and route fallback are still deferred** — the parent-private registry now owns profile grants and primary model-route resolution, but Profile Skill/MCP members still need to be projected through their native scoped registries, and route fallback/scheduler priority still need Host runtime contracts.
+- **Skill/MCP registry projection remains deployment-specific** — the Profile setup seam enforces the mounted Tool boundary and denies unselected MCP tools; deployments that expose richer native Skill/MCP registries must register their own scoped `ChildProfileSetup` contribution.
 
 - **ACP children remain one-shot and are not trace-enumerable** — an ACP run has no local child session in the parent's session corpus. An ACP `prepareContinuable` requires persisting the remote session id in provider-specific descriptor data and a per-child continuation advertisement, since ACP `loadSession` support is negotiated per child rather than established by the method's presence. Remote providers also require a separate Activation ownership contract with equivalent authenticated control and child-first quiescence before they support continuable children.
 - **No host-user continuation** — `followup()` requires the exact live direct parent. Only `interrupt()` accepts a durable parent-address user authority, because stopping a turn is idempotent and delivers no content; a future host adapter needs a concrete authenticated interaction before the seam gains a user delivery capability.

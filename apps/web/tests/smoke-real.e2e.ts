@@ -29,6 +29,7 @@ import { REPO_ROOT, connectFreshWorkspace, newEnglishPage, probeFreePort, requir
 
 const WEB_SURFACE_PROMPT = fileURLToPath(new URL('./snapshots/web-runtime-context/web-surface-prompt.expected.md', import.meta.url))
 const ENABLE_DEEPSEEK_OVERLAY = fileURLToPath(new URL('./enable-deepseek.overlay.yml', import.meta.url))
+const ENABLE_CHILD_PROFILE_OVERLAY = fileURLToPath(new URL('./enable-child-profile.overlay.yml', import.meta.url))
 
 function waitForReadyLine(child: ChildProcess): Promise<string> {
   return new Promise((resolveReady, reject) => {
@@ -59,6 +60,7 @@ async function rpc<T>(baseUrl: string, method: string, payload: unknown): Promis
       type: 'client-request',
       rpcId: `smoke-${method}`,
       method,
+      expectedPrincipal: { kind: 'bypass' },
       payload,
     }),
   })
@@ -161,7 +163,7 @@ describe('dsh web keyless CLI smoke', () => {
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
     const child = spawn(
       process.execPath,
-      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', '0'],
+      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), '--profile', 'web', '--port', '0'],
       {
         cwd: sessionsDir,
         env: {
@@ -184,6 +186,47 @@ describe('dsh web keyless CLI smoke', () => {
         : Promise.resolve()
       if (child.exitCode === null) child.kill('SIGTERM')
       await closed
+      expect(child.exitCode).toBe(0)
+      rmSync(sessionsDir, { recursive: true, force: true })
+    }
+  })
+
+  it('exposes the opt-in parent-private Profile catalog over HTTP and shuts down cleanly', async () => {
+    requireDist()
+    const sessionsDir = mkdtempSync(join(tmpdir(), 'dsh-web-child-profile-'))
+    const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
+    const child = spawn(
+      process.execPath,
+      [
+        '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'),
+        '--profile', 'web', '--patch', ENABLE_CHILD_PROFILE_OVERLAY,
+        '--dangerously-skip-authentication',
+      ],
+      {
+        cwd: sessionsDir,
+        env: {
+          ...process.env,
+          DSH_HOME: join(sessionsDir, '.dsh'),
+          DSH_AGENTS_HOME: join(sessionsDir, '.agents'),
+          TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
+    try {
+      const baseUrl = await waitForReadyLine(child)
+      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {})
+      const catalog = await rpc<{ profiles: unknown[] }>(baseUrl, 'subagent.profiles', {
+        parentSessionId: created.sessionId,
+      })
+      expect(catalog).toEqual({ profiles: [] })
+    } finally {
+      const closed = child.exitCode === null
+        ? new Promise<void>((resolveClose) => { child.once('close', () => { resolveClose() }) })
+        : Promise.resolve()
+      if (child.exitCode === null) child.kill('SIGTERM')
+      await closed
+      expect(child.exitCode).toBe(0)
       rmSync(sessionsDir, { recursive: true, force: true })
     }
   })

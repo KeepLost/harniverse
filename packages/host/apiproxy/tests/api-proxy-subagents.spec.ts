@@ -28,6 +28,7 @@ function bench(options: {
   /** Every registered projection unit throws on this child's payloads. */
   projectionsThrow?: true
   historyParent?: SessionId
+  profiles?: object[]
 } = {}) {
   const parent = { id: PARENT }
   const child = options.childStatus === undefined
@@ -82,7 +83,10 @@ function bench(options: {
   })
   const ctx = new Context()
   ctx.provide('agents', { get: getAgent })
-  ctx.provide('subagents', { listChildren, followup, interrupt })
+  ctx.provide('subagents', {
+    listChildren, followup, interrupt,
+    listChildProfiles: () => options.profiles ?? [],
+  } as never)
   ctx.provide('sessions', {
     get: (id: SessionId) => options.liveChild === true && id === CHILD
       ? { id: CHILD, header: childHeader, events: childEvents }
@@ -109,6 +113,16 @@ function bench(options: {
 }
 
 describe('subagent gateway', () => {
+  it('lists only the exact live parent\'s private Profile snapshots', async () => {
+    const profile = {
+      profileId: 'reviewer', revision: 1, digest: 'a'.repeat(64), harnessId: 'native', modelRouteId: 'safe',
+      tools: ['read'], skills: [], mcpServerIds: [], childProfileIds: [], workspaceCwd: '/repo',
+    }
+    const { api } = bench({ profiles: [profile] })
+    const response = await api.subagents.profiles(request({ parentSessionId: PARENT }))
+    expect(response.result).toEqual({ ok: true, value: { profiles: [profile] } })
+  })
+
   it('lists the complete catalog and reports exact live-parent availability', async () => {
     const { api, listChildren } = bench({ parentLive: false, entries: [
       {

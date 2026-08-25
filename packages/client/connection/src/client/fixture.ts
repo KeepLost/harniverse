@@ -2657,6 +2657,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     },
     subagents: {
       list: request => ok(request, { entries: [], parentAvailable: true }),
+      profiles: request => ok(request, { profiles: [] }),
       history: (request) => {
         const log = logs.get(request.payload.childSessionId) ?? []
         return Promise.resolve(ok(
@@ -3259,6 +3260,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.close': return this.api.sessions.close(request)
       case 'session.delete': return this.api.sessions.delete(request)
       case 'subagent.list': return this.api.subagents.list(request)
+      case 'subagent.profiles': return this.api.subagents.profiles(request)
       case 'subagent.history': return this.api.subagents.history(request)
       case 'subagent.prompt': return this.api.subagents.prompt(request, signal)
       case 'subagent.interrupt': return this.api.subagents.interrupt(request)

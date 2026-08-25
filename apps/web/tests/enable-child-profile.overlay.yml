@@ -1,0 +1,14 @@
+# Keyless Web smoke overlay: expose the parent-private Profile tools without
+# changing the shipped Web composition, and bind an ephemeral test port.
+- id: webserver
+  config:
+    host: 127.0.0.1
+    port: 0
+
+- id: tool-subagent
+  disabled: false
+  config:
+    provider: spawn
+    toolName: subagent
+    backgroundMode: continuable
+    enableProfileManagement: true

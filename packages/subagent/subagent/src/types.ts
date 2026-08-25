@@ -51,10 +51,18 @@ export interface ChildProfileGrant {
   readonly maxTokens?: number
 }
 
-/** Host-owned primary model selection behind one opaque Profile route id. */
+/** One concrete provider/model attempt owned by the Host. */
+export interface ChildModelRouteTarget {
+  readonly provider: string
+  readonly model: string
+}
+
+/** Host-owned model selection behind one opaque Profile route id. */
 export interface ChildModelRoute {
   readonly provider: string
   readonly model: string
+  /** Ordered attempts after the primary route fails. */
+  readonly fallbacks?: readonly ChildModelRouteTarget[]
 }
 
 /** Immutable, detached profile passed to a child provider and cold resume. */

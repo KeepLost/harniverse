@@ -42,6 +42,7 @@ import type {
   ContinuableCreateRequest,
   ContinuableCreateSpec,
   ChildModelRoute,
+  ChildModelRouteTarget,
   ResolvedSubagentStartRequest,
   SubagentCapabilities,
   SubagentProvider,
@@ -80,6 +81,7 @@ export type {
   ChildProfileSpec,
   ResolvedChildProfile,
   ChildModelRoute,
+  ChildModelRouteTarget,
   ChildProfileSetup,
   ContinuableCreateRequest,
   ContinuableCreateSpec,
@@ -190,6 +192,9 @@ export class SubagentRuntime extends Service {
   private readonly profiles = new WeakMap<Agent, Map<string, ResolvedChildProfile>>()
   private readonly modelRoutes = new Map<string, ChildModelRoute>()
   private readonly profileSetups = new Set<ChildProfileSetup>()
+  private readonly profilePriorities = new WeakMap<Agent, number>()
+  private readonly activeProfileAgents = new Map<Agent, number>()
+  private readonly priorityWaiters = new Set<() => void>()
   private continuations: SubagentContinuationManager | undefined
   /** Deployment contributions composed into unpublished continuable children. */
   private readonly setupRegistry = new SubagentActivationSetupRegistry()
@@ -203,6 +208,12 @@ export class SubagentRuntime extends Service {
   constructor(ctx: Context) {
     super(ctx, 'subagents')
     this.emitLifecycle = createLifecycleEmitter(this.ctx, parent => scopeTarget(this, parent))
+    ctx.on('agent/status', ({ agent, status }: { agent: Agent; status: 'idle' | 'running' }) => {
+      if (!this.profilePriorities.has(agent)) return
+      if (status === 'running') this.activeProfileAgents.set(agent, this.profilePriorities.get(agent) as number)
+      else this.activeProfileAgents.delete(agent)
+      for (const wake of this.priorityWaiters) wake()
+    })
     ctx.inject(['agents'], (childCtx: Context) => {
       const manager = new SubagentContinuationManager(childCtx, {
         prepareContinuable: (name, request) => this.prepareContinuable(name, request),
@@ -483,7 +494,15 @@ export class SubagentRuntime extends Service {
     if (this.modelRoutes.has(routeId)) {
       throw new SubagentError(`a child model route named "${routeId}" is already registered`, 'DUPLICATE_PROFILE_ROUTE')
     }
-    const detached = Object.freeze({ provider: route.provider, model: route.model })
+    const fallbacks: ChildModelRouteTarget[] = (route.fallbacks ?? []).map(target => Object.freeze({
+      provider: target.provider,
+      model: target.model,
+    }))
+    const detached = Object.freeze({
+      provider: route.provider,
+      model: route.model,
+      ...fallbacks.length === 0 ? {} : { fallbacks: Object.freeze(fallbacks) },
+    })
     return this.ctx.effect(function* (this: SubagentRuntime) {
       this.modelRoutes.set(routeId, detached)
       yield () => {
@@ -494,15 +513,20 @@ export class SubagentRuntime extends Service {
 
   /** Resolve a Profile route into the only model selection fields an Agent accepts. */
   resolveChildModelRoute(profile: ResolvedChildProfile): AgentOptions {
+    return this.routeAttempts(profile)[0] as AgentOptions
+  }
+
+  /** Resolve the primary route and its Host-owned ordered fallback attempts. */
+  private routeAttempts(profile: ResolvedChildProfile): Array<{ provider: string; model: string; maxTokens?: number }> {
     const route = this.modelRoutes.get(profile.modelRouteId)
     if (route === undefined) {
       throw new SubagentError(`no child model route is registered for "${profile.modelRouteId}"`, 'PROFILE_ROUTE_UNAVAILABLE')
     }
-    return {
-      provider: route.provider,
-      model: route.model,
+    return [route, ...(route.fallbacks ?? [])].map(target => ({
+      provider: target.provider,
+      model: target.model,
       ...profile.maxTokens !== undefined ? { maxTokens: profile.maxTokens } : {},
-    }
+    }))
   }
 
   /** Register a trusted scoped contribution for Profile Skill/MCP integrations. */
@@ -517,6 +541,19 @@ export class SubagentRuntime extends Service {
   applyChildProfileSetup(childCtx: Context, profile: ResolvedChildProfile): void {
     for (const setup of this.profileSetups) setup(childCtx, profile)
     const child = childCtx.agent as Agent | undefined
+    if (child !== undefined && profile.schedulerPriority !== undefined) {
+      this.profilePriorities.set(child, profile.schedulerPriority)
+      childCtx.effect(() => () => {
+        this.profilePriorities.delete(child)
+        this.activeProfileAgents.delete(child)
+        for (const wake of this.priorityWaiters) wake()
+      }, 'subagents.childProfileSchedulerPriority()')
+      childCtx.on('agent/pre-step', async ({ agent }: { agent: Agent }, next) => {
+        await this.waitForHigherPriority(agent)
+        return next()
+      })
+    }
+    if (child !== undefined) this.installRouteFallback(childCtx, profile)
     if (child !== undefined && !this.profileGrants.has(child)) {
       const revoke = this.registerChildProfileGrant(child, {
         harnessIds: [profile.harnessId],
@@ -543,6 +580,45 @@ export class SubagentRuntime extends Service {
     }
     const skills = childCtx.get('skills' as never) as { restrict(filter: { allow: readonly string[]; includeOwn: true }): () => void } | undefined
     if (skills !== undefined) skills.restrict({ allow: profile.skills, includeOwn: true })
+  }
+
+  /** Hold a lower-priority child at its next step while a higher one runs. */
+  private async waitForHigherPriority(agent: Agent): Promise<void> {
+    const priority = this.profilePriorities.get(agent)
+    if (priority === undefined) return
+    while ([...this.activeProfileAgents].some(([other, active]) => other !== agent && active > priority)) {
+      await new Promise<void>((resolve) => {
+        const wake = (): void => {
+          this.priorityWaiters.delete(wake)
+          resolve()
+        }
+        this.priorityWaiters.add(wake)
+      })
+    }
+  }
+
+  /** Install one scoped retry chain so a route failure cannot escape its Profile. */
+  private installRouteFallback(childCtx: Context, profile: ResolvedChildProfile): void {
+    const attempts = this.routeAttempts(profile)
+    if (attempts.length < 2) return
+    const attemptByStep = new Map<string, number>()
+    childCtx.on('agent/request', async ({ turn, step }: { turn: number; step: number }, next) => {
+      const index = attemptByStep.get(`${turn}:${step}`) ?? 0
+      const request = await next()
+      const route = attempts[index] as { provider: string; model: string; maxTokens?: number }
+      return { ...request, provider: route.provider, model: route.model }
+    })
+    childCtx.on('agent/request-error', async ({ turn, step, provider }: { turn: number; step: number; provider: string }, next) => {
+      const key = `${turn}:${step}`
+      const index = attemptByStep.get(key) ?? 0
+      const current = attempts[index] as { provider: string; model: string; maxTokens?: number }
+      if (provider !== current.provider || index + 1 >= attempts.length) return next()
+      attemptByStep.set(key, index + 1)
+      return { kind: 'retry' as const }
+    })
+    childCtx.on('agent/turn-stopping', ({ turn }: { turn: number }) => {
+      for (const key of attemptByStep.keys()) if (key.startsWith(`${turn}:`)) attemptByStep.delete(key)
+    })
   }
 
   /**

@@ -10,6 +10,24 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RpcRequest, RpcResponse } from './rpc.ts'
 import type { HistoryEntry, SessionProjectionsBlock } from './sessions.ts'
 
+/** Immutable Profile snapshot exposed over the browser-safe API. */
+export interface SubagentProfileSnapshot {
+  profileId: string
+  revision: number
+  digest: string
+  harnessId: string
+  modelRouteId: string
+  tools: readonly string[]
+  skills: readonly string[]
+  mcpServerIds: readonly string[]
+  childProfileIds: readonly string[]
+  workspaceCwd: string
+  maxDepth?: number
+  maxTokens?: number
+  modelRoutePriority?: number
+  schedulerPriority?: number
+}
+
 /** Complete durable direct-child catalog row. */
 export type SubagentListEntry =
   | {
@@ -73,6 +91,11 @@ export interface SubagentsApi {
     request: RpcRequest<{ parentSessionId: SessionId }>,
     signal?: AbortSignal,
   ): Promise<RpcResponse<SubagentCatalog>>
+
+  /** Lists the exact live parent's private resolved Profile snapshots. */
+  profiles(
+    request: RpcRequest<{ parentSessionId: SessionId }>,
+  ): Promise<RpcResponse<{ profiles: SubagentProfileSnapshot[] }>>
 
   /**
    * Reads one healthy catalog child's transcript — the in-memory snapshot of

@@ -10,7 +10,7 @@
 
 ```sh
 pnpm run build
-pnpm dsh web
+pnpm dsh --profile web
 ```
 
 首次运行会初始化 `$DSH_HOME/profiles/web` 并打印实际访问地址，通常为 `http://127.0.0.1:3080`。保持该终端运行。`$DSH_HOME` 默认为 `~/.dsh`，也负责保存认证 Grant（授权）、凭据、设置与会话。
@@ -62,7 +62,7 @@ agent 可以读取和编辑工作区文件、运行命令、委派工作并维�
 本机使用时保留默认回环监听。绑定所有接口必须直接使用 TLS；非回环 listener 会拒绝认证绕过。请提供证书与密钥，并声明浏览器访问服务器时使用的每个 DNS authority：
 
 ```sh
-pnpm dsh web \
+pnpm dsh --profile web \
   --host 0.0.0.0 \
   --tls-cert /absolute/path/to/cert.pem \
   --tls-key /absolute/path/to/key.pem \
