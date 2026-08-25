@@ -102,7 +102,7 @@ describe('dsh-tool-subagent', () => {
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')
     expect(schema).toBeDefined()
     const props = (schema!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
-    expect(Object.keys(props).sort()).toEqual(['description', 'profile_id', 'prompt', 'run_in_background'])
+    expect(Object.keys(props).sort()).toEqual(['description', 'mode', 'profile_id', 'prompt', 'run_in_background'])
     expect(schema!.description).toContain('job_output')
   })
 
@@ -110,7 +110,7 @@ describe('dsh-tool-subagent', () => {
     const ctx = await setup({ provider: 'mock', enableRunInBackground: false })
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')
     const props = (schema!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
-    expect(Object.keys(props).sort()).toEqual(['description', 'profile_id', 'prompt'])
+    expect(Object.keys(props).sort()).toEqual(['description', 'mode', 'profile_id', 'prompt'])
     expect(schema!.description).not.toContain('job_output')
   })
 

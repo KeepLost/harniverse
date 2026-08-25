@@ -252,6 +252,7 @@ function providerWording(inheritsConversation: boolean): { description: string; 
 }
 
 interface DelegationRunRequest {
+  readonly mode?: 'sync' | 'async'
   readonly run_in_background?: boolean
 }
 
@@ -354,6 +355,12 @@ function resolveDelegationRun(
   request: DelegationRunRequest,
   options: { readonly backgroundEnabled: boolean; readonly continuable: boolean },
 ): DelegationRunSpec {
+  if (request.mode !== undefined) {
+    if (!options.backgroundEnabled && request.mode === 'async') {
+      throw new Error('mode: async is disabled for this tool instance (enableRunInBackground: false)')
+    }
+    return { runInBackground: request.mode === 'async' }
+  }
   if (!options.backgroundEnabled) {
     // The validator permits undeclared keys, so schema omission also needs
     // execution-time enforcement.
@@ -420,6 +427,11 @@ export function apply(ctx: Context, config: Config): void {
           type: 'string',
           required: true,
           description: wording.promptDescription,
+        },
+        mode: {
+          type: 'string' as const,
+          enum: ['sync', 'async'] as const,
+          description: 'Whether to wait for the child result (`sync`) or return after accepting its next turn (`async`).',
         },
         profile_id: {
           type: 'string' as const,
