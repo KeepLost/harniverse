@@ -18,7 +18,8 @@ import {
   type AuthenticationPrincipal,
   type InboundAuthentication,
 } from '@deepseek-ai/dsh-authentication'
-import { RpcId, serverResponseSchema, type ClientRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { RpcId, type ClientRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { serverResponseSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import type { WebServer, WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
 import {
   API_PATH,

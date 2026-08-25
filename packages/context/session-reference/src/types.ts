@@ -1,7 +1,7 @@
 /** Public session-reference request, candidate, and preparation records. */
 
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionId, UserMessage } from '@deepseek-ai/dsh-session'
+import type { ContentBlock, UserMessage } from '@deepseek-ai/dsh-llm/types'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /** Durable source session, cited event seqs, and snapshot facts for prepared cross-session context. */
 export interface SessionReferenceSource {

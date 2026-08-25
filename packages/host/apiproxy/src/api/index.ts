@@ -84,12 +84,6 @@ export type {
 // ---- Errors and ids ----
 export { CONNECTION_AUTHENTICATED_METHOD, RpcId, sameAuthenticationPrincipalIdentity, transportError } from './rpc.ts'
 export type { RpcError, RpcErrorCode, RpcErrorDetailsMap, RpcResult } from './rpc.ts'
-export {
-  clientRequestSchema,
-  serverRequestSchema,
-  serverResponseSchema,
-} from './rpc.schema.ts'
-
 // ---- Fixed session-search product bounds ----
 export {
   SESSION_SEARCH_RESULT_LIMIT,

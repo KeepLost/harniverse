@@ -21,16 +21,7 @@
       "path": "../web-react"
     },
     {
-      "path": "../../host/apiproxy"
-    },
-    {
       "path": "../../interaction/commands"
-    },
-    {
-      "path": "../../core/agent"
-    },
-    {
-      "path": "../../core/tools"
     },
     {
       "path": "../../compaction/compaction"

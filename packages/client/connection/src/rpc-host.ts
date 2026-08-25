@@ -4,7 +4,6 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import {
-  clientRequestSchema,
   RpcId,
   type ClientRequest,
   type RpcError,
@@ -12,6 +11,7 @@ import {
   type RpcId as RpcIdType,
   type ServerResponse as RpcServerResponse,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { clientRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import { bridge, type FetchHandler } from './http-bridge.ts'
 import { authenticateIncoming, rejectUnauthorized } from './inbound-auth.ts'
 import { describeApiTrustRequest, isTrustedApiRequest } from './api-request-trust.ts'

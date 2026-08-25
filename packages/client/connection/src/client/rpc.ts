@@ -2,9 +2,9 @@
 
 import {
   RpcId,
-  serverResponseSchema,
   type ClientRequest,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { serverResponseSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import type { ClientConnectionRpc } from '../rpc.ts'
 import { randomUuid } from './random-uuid.ts'
 
