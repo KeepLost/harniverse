@@ -1922,6 +1922,14 @@ Delegate a self-contained task to a subagent (a separate agent that works in its
       "type": "string",
       "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
     },
+    "mode": {
+      "type": "string",
+      "description": "Whether to wait for the child result (`sync`) or return after accepting its next turn (`async`).",
+      "enum": [
+        "sync",
+        "async"
+      ]
+    },
     "profile_id": {
       "type": "string",
       "description": "Optional parent-private Child Profile id. The host resolves and enforces its immutable snapshot."
