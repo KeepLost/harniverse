@@ -233,6 +233,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `1b0ddfe6a8` | Adds the service-owned unified `sync`/`async` Invocation contract, routes tool-owned foreground and continuable paths through it, makes Agent teardown tolerate best-effort final flush failures, and corrects the cold-resume replacement regression fixture. |
 | `70516f51b5` | Adds the model-facing `session_inspect` Consumer with unified summary, message, raw-history, event-window, and lineage views, and updates shipped composition, generated catalog, and bilingual package documentation. |
 | `4904050e1c` | Adds the unified `session_message` naming alias for ordinary-session delivery, mounts it through Agent Profile composition, and updates generated catalog and bilingual package documentation. |
+| `71ebc17a96` | Changes the subagent presentation metadata to expose caller wait mode as `sync` or `async` instead of provider lifecycle terminology. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
