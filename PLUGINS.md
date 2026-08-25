@@ -230,6 +230,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `2723f9fe58` | Hides `origin: subagent` sessions from ordinary Host list/search summaries and Host session increments while preserving the parent-owned subagent catalog and descendant APIs. |
 | `230a59d2d9` | Makes hidden subagent descendants deletable with their cold parent while preserving leaf-only deletion for ordinary fork descendants. |
 | `8810402740` | Adds Web Trajectory child-history navigation and native raw-event paging for authorized `subagent_history` reads, with SQLite/JSONL bounded readers and documented third-party fallback behavior. |
+| `1b0ddfe6a8` | Adds the service-owned unified `sync`/`async` Invocation contract, routes tool-owned foreground and continuable paths through it, makes Agent teardown tolerate best-effort final flush failures, and corrects the cold-resume replacement regression fixture. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
