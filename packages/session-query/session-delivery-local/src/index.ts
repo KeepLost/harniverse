@@ -1,16 +1,19 @@
 /** Local-process ordinary-session delivery provider. */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { resolveSessionProfile } from '@deepseek-ai/dsh-agent-presets'
 import { installModelSelection, type Agent, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
-import { foldRequestHeader, type SessionId } from '@deepseek-ai/dsh-session'
+import { foldRequestHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import {
   SessionDelivery,
   type SessionDeliveryRequest,
   type SessionDeliveryReceipt,
+  type SessionCreateReceipt,
+  type SessionCreateRequest,
   type SessionUnloadReceipt,
   type SessionUnloadRequest,
 } from '@deepseek-ai/dsh-session-delivery'
@@ -132,6 +135,45 @@ export class LocalSessionDelivery extends SessionDelivery {
     if (result === 'busy') throw new Error('target session is running, under maintenance, or has pending messages')
     if (result === 'not-found') throw new Error('target session detached before unload acquired its lifecycle')
     return { unloaded: true }
+  }
+
+  /** Create an ordinary session only after its profile scope has composed successfully. */
+  async create(request: SessionCreateRequest): Promise<SessionCreateReceipt> {
+    request.signal.throwIfAborted()
+    if (this.ctx.agents.get(request.sender.id) !== request.sender) {
+      throw new Error('session creation requires the exact live sender Agent')
+    }
+    if (request.sender.session.header.origin === 'subagent') {
+      throw new Error('subagents cannot create ordinary sessions')
+    }
+    const defaultModel = this.ctx.get('agentDefaultModel')
+    const agentOptions = defaultModel?.currentSelection()
+    if (agentOptions === undefined) {
+      throw new Error('session creation requires a deployment default model')
+    }
+    const presets = this.ctx.get('agentPresets')
+    let agentProfile: string | undefined
+    if (presets !== undefined) {
+      agentProfile = (await presets.resolve(request.profileId)).id
+    }
+    const setup = presets === undefined
+      ? undefined
+      : async (agentCtx: Context) => { await presets.mount(agentCtx, agentProfile) }
+    const sessionId = SessionId(randomUUID())
+    await this.ctx.agents.create({
+      sessionId,
+      agentOptions,
+      signal: request.signal,
+      meta: {
+        ...request.sender.session.header.cwd === undefined ? {} : { cwd: request.sender.session.header.cwd },
+        ...agentProfile === undefined ? {} : { agentProfile },
+      },
+      ...setup === undefined ? {} : { setup },
+    })
+    return {
+      sessionId,
+      ...agentProfile === undefined ? {} : { agentProfile },
+    }
   }
 }
 

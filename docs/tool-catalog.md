@@ -35,7 +35,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-compaction-history` | `compaction_history_expand`, `compaction_history_search` | `ctx.tools`, `ctx.systemPrompt`, `ctx.compactionHistory`, `a calling Agent for Session identity` | `tool/call`, `tool/result` | - | The shipped tools search only committed summary checkpoints in the calling live Session. Expansion output treats recovered history as untrusted and applies configured depth and deterministic token-estimate caps. |
 | `@deepseek-ai/dsh-tool-result-artifacts` | `artifact_read` | `ctx.tools`, `ctx.spillStore` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.agents`, `ctx.skills` | `tool/call`, `tool/result`, `user/message replacement catalogs via agent.inject()` | - | - |
-| `@deepseek-ai/dsh-tool-session-delivery` | `session_message`, `session_send_message`, `session_unload` | `ctx.tools`, `ctx.sessionDelivery`, `a calling Agent` | `tool/call`, `tool/result`, `target user/message through the selected Provider` | - | The tool confirms inbox acceptance only and never waits for target completion or a reply. |
+| `@deepseek-ai/dsh-tool-session-delivery` | `session_create`, `session_message`, `session_send_message`, `session_unload` | `ctx.tools`, `ctx.sessionDelivery`, `a calling Agent` | `tool/call`, `tool/result`, `target user/message through the selected Provider` | - | The tool confirms inbox acceptance only and never waits for target completion or a reply. |
 | `@deepseek-ai/dsh-tool-session-query` | `session_event_read`, `session_event_search`, `session_event_trace`, `session_find`, `session_inspect`, `session_log_tail`, `session_message_tail`, `session_search`, `session_status`, `session_trace` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for caller identity` | `tool/call`, `tool/result` | - | The read-only tools separate title/time discovery, content matches, unified session inspection, current-message tails, and complete raw-log reads while hiding provider cursors and binding exact observations to opaque session ids. |
 | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`, `ctx.subagents`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped compositions load this package once per subagent backend, so the model additionally sees `subagent_fork` bound to the fork backend. Each instance's description, `mode` parameter, and system-prompt policy follow its own `backgroundMode` and `enableRunInBackground`, so `subagent` defaults to async durable child turns while `subagent_fork` defaults to sync result waits — see `packages/bundle/base/cordis.patch.yml` and `examples/acp-agent/cordis.yml`. |
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`, `list_agents`, `send_message`, `subagent_history` | `ctx.tools`, `ctx.subagents`, `ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`, `tool/result`, `child session events through ctx.subagents` | - | The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries). |
@@ -1396,6 +1396,24 @@ Source: [`packages/skill/tool-skill/src/index.ts`](../packages/skill/tool-skill/
 <a id="deepseek-aidsh-tool-session-delivery"></a>
 
 ## `@deepseek-ai/dsh-tool-session-delivery`
+
+### `session_create`
+
+Create a new persistent ordinary session in the current workspace. The session is returned after its Profile and model configuration are durably attached.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "profile_id": {
+      "type": "string",
+      "description": "Optional agent Profile id. The host resolves and validates the Profile before publication."
+    }
+  }
+}
+```
+
+Source: [`packages/session-query/tool-session-delivery/src/index.ts`](../packages/session-query/tool-session-delivery/src/index.ts)
 
 ### `session_message`
 

@@ -60,6 +60,8 @@ import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
 import SessionDelivery, {
   type SessionDeliveryReceipt,
   type SessionDeliveryRequest,
+  type SessionCreateReceipt,
+  type SessionCreateRequest,
   type SessionUnloadReceipt,
   type SessionUnloadRequest,
 } from '@deepseek-ai/dsh-session-delivery'
@@ -126,6 +128,10 @@ class CatalogSessionDelivery extends SessionDelivery {
   }
 
   unload(_request: SessionUnloadRequest): Promise<SessionUnloadReceipt> {
+    throw new Error('catalog-only delivery provider is not executable')
+  }
+
+  create(_request: SessionCreateRequest): Promise<SessionCreateReceipt> {
     throw new Error('catalog-only delivery provider is not executable')
   }
 }

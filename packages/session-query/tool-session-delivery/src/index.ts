@@ -50,6 +50,32 @@ export function apply(ctx: Context): void {
     description: 'Send a message to another ordinary session as its next FIFO turn. Returns after inbox acceptance and does not wait for a reply or turn completion.',
   })
   ctx.tools.register(defineTool({
+    name: 'session_create',
+    description: 'Create a new persistent ordinary session in the current workspace. The session is returned after its Profile and model configuration are durably attached.',
+    parameters: {
+      profile_id: { type: 'string', description: 'Optional agent Profile id. The host resolves and validates the Profile before publication.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          sessionId: { type: 'string', required: true },
+          agentProfile: { type: 'string' },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `Created persistent session ${value.sessionId}${value.agentProfile === undefined ? '' : ` with Profile ${value.agentProfile}`}.` }],
+    },
+    async execute(args, exec) {
+      if (exec.agent === undefined) throw new Error('session_create requires a calling agent')
+      return ctx.sessionDelivery.create({
+        sender: exec.agent,
+        ...(args.profile_id === undefined ? {} : { profileId: args.profile_id }),
+        signal: exec.signal,
+      })
+    },
+  }))
+  ctx.tools.register(defineTool({
     name: 'session_unload',
     description: 'Unload another idle ordinary session. Refuses running, queued, subagent-owned, or runtime-owned sessions so work is not interrupted.',
     parameters: {

@@ -28,6 +28,34 @@ class GatedAdapter extends LlmAdapter {
 }
 
 describe('session_send_message', () => {
+  it('creates a persistent ordinary session through the Agent factory', async () => {
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(AgentDefaultModel, { provider: 'mock', model: 'mock' })
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(LocalSessionDelivery)
+    await ctx.plugin(tool)
+    const sender = (await ctx.agents.create({
+      sessionId: SessionId('creator'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })).agent
+
+    const result = await ctx.tools.execute({
+      name: 'session_create',
+      arguments: {},
+      callId: CallId('create-call'),
+      signal: new AbortController().signal,
+      agent: sender,
+    })
+
+    expect(result.isError, JSON.stringify(result)).toBe(false)
+    expect(result.content.some(block => block.type === 'text' && block.text.includes('Created persistent session'))).toBe(true)
+    const created = ctx.agents.list().find(agent => agent.id !== sender.id)
+    expect(created).toBeDefined()
+    expect(created?.session.header.origin).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
   it('returns after live inbox acceptance without waiting for the target reply', async () => {
     const ctx = new Context()
     await mountAgentLoopTestDependencies(ctx)
