@@ -91,6 +91,7 @@ describe('dsh-tool-subagent', () => {
     expect(result.value).toEqual({
       kind: 'foreground',
       runId: 'scripted-subagent:mock:parent-1',
+      subagentId: 'scripted-subagent:mock:parent-1',
       output: [{ type: 'text', text: 'child says hi' }],
     })
     expect(text(result)).toBe('child says hi')
@@ -101,7 +102,7 @@ describe('dsh-tool-subagent', () => {
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')
     expect(schema).toBeDefined()
     const props = (schema!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
-    expect(Object.keys(props).sort()).toEqual(['description', 'prompt', 'run_in_background'])
+    expect(Object.keys(props).sort()).toEqual(['description', 'profile_id', 'prompt', 'run_in_background'])
     expect(schema!.description).toContain('job_output')
   })
 
@@ -109,7 +110,7 @@ describe('dsh-tool-subagent', () => {
     const ctx = await setup({ provider: 'mock', enableRunInBackground: false })
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')
     const props = (schema!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
-    expect(Object.keys(props).sort()).toEqual(['description', 'prompt'])
+    expect(Object.keys(props).sort()).toEqual(['description', 'profile_id', 'prompt'])
     expect(schema!.description).not.toContain('job_output')
   })
 
@@ -684,6 +685,71 @@ describe('dsh-tool-subagent', () => {
     expect(seen?.persona).toBe('You are the child.')
     expect(seen?.toolFilter).toMatchObject({ deny: ['subagent'] })
     expect(seen?.maxDepth).toBe(2)
+  })
+
+  it('defines a parent-private profile and delegates by profile_id', async () => {
+    let profileSeen: unknown
+    let routeSeen: unknown
+    const ctx = await setup({ provider: 'mock', enableProfileManagement: true }, {
+      onStart: (request) => { profileSeen = request.childProfile; routeSeen = request.agentOptions },
+    })
+    const parent = fakeAgent('profile-parent')
+    ctx.subagents.registerChildModelRoute('safe', { provider: 'mock', model: 'safe-model' })
+    ctx.subagents.registerChildProfileGrant(parent, {
+      harnessIds: ['mock'],
+      modelRouteIds: ['safe'],
+      tools: ['read'],
+      skills: [],
+      mcpServerIds: [],
+      childProfileIds: [],
+      workspaceRoot: '/repo',
+      parentWorkspaceCwd: '/repo',
+      maxDepth: 3,
+    })
+    const defined = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('profile-define'),
+      name: 'child_profile_define',
+      agent: parent,
+      arguments: {
+        profile_id: 'reviewer',
+        harness_id: 'mock',
+        model_route_id: 'safe',
+        tools: ['read'],
+      },
+    })
+    expect(defined.isError, text(defined)).toBe(false)
+    const delegated = await callSubagent(ctx, {
+      description: 'profiled task',
+      prompt: 'read the repository',
+      profile_id: 'reviewer',
+    }, { agent: parent })
+    expect(delegated.isError).toBe(false)
+    expect(profileSeen).toMatchObject({ profileId: 'reviewer', revision: 1, harnessId: 'mock', modelRouteId: 'safe' })
+    expect(routeSeen).toEqual({ provider: 'mock', model: 'safe-model' })
+  })
+
+  it('binds a default parent grant when Profile management is enabled', async () => {
+    const ctx = await setup({ provider: 'mock', enableProfileManagement: true }, {
+      onStart: (request) => { expect(request.agentOptions).toEqual({ provider: 'mock', model: 'parent-model' }) },
+    })
+    const parent = {
+      id: SessionId('profile-default-parent'),
+      options: { provider: 'mock', model: 'parent-model' },
+      session: { header: { version: 0, id: SessionId('profile-default-parent'), createdAt: 1, cwd: '/repo' } },
+    } as unknown as Agent
+    const defined = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('profile-default-define'),
+      name: 'child_profile_define',
+      agent: parent,
+      arguments: { profile_id: 'default-reviewer' },
+    })
+    expect(defined.isError, text(defined)).toBe(false)
+    const delegated = await callSubagent(ctx, {
+      description: 'default profile task', prompt: 'use the default route', profile_id: 'default-reviewer',
+    }, { agent: parent })
+    expect(delegated.isError).toBe(false)
   })
 
   it.each([

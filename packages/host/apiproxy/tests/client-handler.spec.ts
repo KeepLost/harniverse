@@ -80,6 +80,7 @@ function scriptedApi(overrides: {
     },
     subagents: {
       list: r => ok(r, { entries: [], parentAvailable: false }),
+      profiles: r => ok(r, { profiles: [] }),
       history: r => ok(r, { events: [], hasMore: false }),
       prompt: r => ok(r, { messageId: 'message-1' as never }),
       interrupt: r => ok(r, { accepted: true as const }),

@@ -6,7 +6,7 @@ SQLite 持久会话存储后端：第二个 `SessionPersistence` 提供方（见
 
 `locate(meta)` 返回 `undefined`：所有会话共享一个数据库，因此不存在真实、独立的逐会话 transcript（文本记录）路径。
 
-`readHistoryPage()` 使用索引的 `seq` 顺序查找最新 append-origin 消息候选，再读取一个连续的逻辑事件范围。即使请求范围从打包行内部开始，冷会话的倒序历史页也不需要重建完整日志。
+`readHistoryPage()` 使用索引的 `seq` 顺序查找最新 append-origin 消息候选，再读取一个连续的逻辑事件范围。`readRawEventPage()` 则限制原始事件数量，只选择满足配额所需的最新物理行，并解码有界逻辑范围。即使请求范围从打包行内部开始，冷会话的倒序页面也不需要重建完整日志。
 
 ## 存储模型
 
@@ -23,7 +23,7 @@ Schema 17 把普通 `SessionEvent` 存为标量行，把至少三个连续且相
 - **Append = 事务。**`append` 围绕批次运行 `BEGIN IMMEDIATE`：它验证 schema 所有权、从已解码物理尾部推导下一逻辑序列、按需实体化 `sessions` 行，并插入当前批次的标量或打包行。陈旧游标或批次中失败会完全回滚，使已存储日志和内存游标保持一致。普通追加不会重写此前的打包行。
 - **延迟实体化。**`create()` 只在内存记录意图，第一次 `append` 前不写行。已创建但从未 append 的会话没有 `sessions` 行，因此不在 `list()` 中（它精确报告有行的会话）。
 - **在 load 时关闭中断轮次。**`load()` 实现共享[崩溃恢复约定](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)：保留有效中断轮次，在一个事务中追加合成关闭事件，并只移除撕裂物理尾部。已提交解析错误或逻辑序列缺口使会话无法加载。修复会在写锁下重新验证物理 marker，因此陈旧恢复不能删除更新的有效后缀。
-- **物理行上的逻辑后缀。**`readFrom()` 与 `readHistoryPage()` 会检查可能包含请求序列的有界打包前驱，把它解码为一个逻辑范围，再只返回请求范围内的成员。
+- **物理行上的逻辑后缀。**`readFrom()`、`readHistoryPage()` 与 `readRawEventPage()` 会检查可能包含请求序列的有界打包前驱，把它解码为一个逻辑范围，再只返回请求范围内的成员。
 - **非修改式检查。**`inspect()` 返回不可变、平衡的逻辑视图，并可在内存中合成恢复 closer，但不会删除撕裂尾部行、追加恢复行或更改轻量修订。
 - **冷删除。**`delete(id)` 以一条语句移除 `sessions` 行，外键在同一事务中级联删除其事件行。共享协调器会拒绝实时或被独占 preparation 的身份，并把删除与同 id 操作串行化。重建同一 id 会获得新的 incarnation，因此其轻量 revision 不会与已删除生命周期冲突。
 - **轻量修订。**`listSnapshots(signal?)` 组合不可变存储与数据库文件身份、每实体化 incarnation id，以及在每个变更事务中递增的每会话计数器。完整前缀读取在同一个读事务中捕获该 revision 及其事件行，`readStoredRevision()` 则只查询 session 行来校验保留的 preparation。它在不解析事件行的情况下保持未变观察稳定，并区分独立存储和重建的同 id 日志。它在共享就绪和同步元数据查询前后检查取消；查询本身不可抢占。

@@ -10,7 +10,7 @@ Build once after cloning or updating Harniverse, then start the Web profile from
 
 ```sh
 pnpm run build
-pnpm dsh web
+pnpm dsh --profile web
 ```
 
 The first run initializes `$DSH_HOME/profiles/web` and prints the live URL, normally `http://127.0.0.1:3080`. Keep this terminal running. `$DSH_HOME` defaults to `~/.dsh` and also owns authentication Grants, credentials, settings, and sessions.
@@ -62,7 +62,7 @@ The agent can read and edit workspace files, run commands, delegate work, and ma
 Keep the default loopback listener for local use. Binding all interfaces requires direct TLS; authentication bypass is rejected on a non-loopback listener. Supply a certificate and key, and declare each DNS authority through which browsers reach the server:
 
 ```sh
-pnpm dsh web \
+pnpm dsh --profile web \
   --host 0.0.0.0 \
   --tls-cert /absolute/path/to/cert.pem \
   --tls-key /absolute/path/to/key.pem \

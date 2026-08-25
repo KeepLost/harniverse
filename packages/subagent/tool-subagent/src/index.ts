@@ -11,11 +11,18 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { assertSubagentMaxDepth, settleRun } from '@deepseek-ai/dsh-subagent'
-import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
+import type {
+  ChildProfileSpec,
+  ChildProfileGrant,
+  ResolvedChildProfile,
+  SubagentProvider,
+  SubagentResult,
+  SubagentRun,
+} from '@deepseek-ai/dsh-subagent'
 import type { JobOutcome } from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
@@ -76,6 +83,8 @@ export interface Config {
    * budget belongs to the child runtime or its own deployment.
    */
   maxDepth?: number | 'provider-managed'
+  /** Expose parent-private `child_profile_define` and `child_profile_list`. */
+  enableProfileManagement?: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -96,6 +105,7 @@ export const Config: z<Config> = z.object({
     deny: z.array(z.string()).default(undefined as unknown as string[]),
   }).default(undefined as unknown as { allow: string[]; deny: string[] }),
   maxDepth: z.union([z.natural().max(Number.MAX_SAFE_INTEGER), z.const('provider-managed' as const)]).default(3),
+  enableProfileManagement: z.boolean().default(false),
 })
 
 /** Render text blocks from the canonical JSON block array without trusting arbitrary values. */
@@ -249,6 +259,96 @@ interface DelegationRunSpec {
   readonly runInBackground: boolean
 }
 
+function profileJson(profile: ResolvedChildProfile): JsonValue {
+  return profile as unknown as JsonValue
+}
+
+function profileParameters() {
+  return {
+    profile_id: { type: 'string' as const, required: true as const, description: 'Parent-private profile id.' },
+    harness_id: { type: 'string' as const, description: 'Host-managed child harness id. Defaults to the configured delegation provider.' },
+    model_route_id: { type: 'string' as const, description: 'Host-managed model route id. Defaults to the parent current provider/model route.' },
+    tools: { type: 'array' as const, items: { type: 'string' as const }, description: 'Requested child Tool ids.' },
+    skills: { type: 'array' as const, items: { type: 'string' as const }, description: 'Requested child Skill ids.' },
+    mcp_server_ids: { type: 'array' as const, items: { type: 'string' as const }, description: 'Requested MCP server ids.' },
+    child_profile_ids: { type: 'array' as const, items: { type: 'string' as const }, description: 'Profiles this child may define.' },
+    workspace_cwd: { type: 'string' as const, description: 'Relative child workspace directory.' },
+    max_depth: { type: 'number' as const, description: 'Child depth ceiling.' },
+    max_tokens: { type: 'number' as const, description: 'Child token ceiling.' },
+    model_route_priority: { type: 'number' as const, description: 'Model route priority.' },
+    scheduler_priority: { type: 'number' as const, description: 'Scheduler priority.' },
+  }
+}
+
+type ProfileToolArgs = {
+  profile_id: string
+  harness_id?: string
+  model_route_id?: string
+  tools?: string[]
+  skills?: string[]
+  mcp_server_ids?: string[]
+  child_profile_ids?: string[]
+  workspace_cwd?: string
+  max_depth?: number
+  max_tokens?: number
+  model_route_priority?: number
+  scheduler_priority?: number
+}
+
+function profileSpecFromArgs(
+  args: ProfileToolArgs,
+  defaults: Pick<ChildProfileGrant, 'harnessIds' | 'modelRouteIds'>,
+): ChildProfileSpec {
+  return {
+    profileId: args.profile_id,
+    harnessId: args.harness_id ?? defaults.harnessIds[0] as string,
+    modelRouteId: args.model_route_id ?? defaults.modelRouteIds[0] as string,
+    ...args.tools !== undefined ? { tools: args.tools } : {},
+    ...args.skills !== undefined ? { skills: args.skills } : {},
+    ...args.mcp_server_ids !== undefined ? { mcpServerIds: args.mcp_server_ids } : {},
+    ...args.child_profile_ids !== undefined ? { childProfileIds: args.child_profile_ids } : {},
+    ...args.workspace_cwd !== undefined ? { workspaceCwd: args.workspace_cwd } : {},
+    ...args.max_depth !== undefined ? { maxDepth: args.max_depth } : {},
+    ...args.max_tokens !== undefined ? { maxTokens: args.max_tokens } : {},
+    ...args.model_route_priority !== undefined ? { modelRoutePriority: args.model_route_priority } : {},
+    ...args.scheduler_priority !== undefined ? { schedulerPriority: args.scheduler_priority } : {},
+  }
+}
+
+/** Bind the current parent to the deployment-derived default Profile grant. */
+function ensureParentProfileGrant(
+  ctx: Context,
+  parent: Agent,
+  config: Config,
+): Pick<ChildProfileGrant, 'harnessIds' | 'modelRouteIds'> {
+  const existing = ctx.subagents.getChildProfileGrant(parent)
+  if (existing !== undefined) return existing
+  const harnessId = config.provider
+  const provider = parent.options.provider ?? config.agentOptions?.provider
+  const model = parent.options.model ?? config.agentOptions?.model
+  if (provider === undefined || model === undefined) {
+    throw new Error('child_profile_define requires a parent with a resolved provider and model route')
+  }
+  const modelRouteId = `parent:${provider}:${model}`
+  ctx.subagents.ensureChildModelRoute(modelRouteId, { provider, model })
+  if (!ctx.subagents.hasChildProfileGrant(parent)) {
+    const cwd = parent.session.header.cwd ?? process.cwd()
+    const grant: ChildProfileGrant = {
+      harnessIds: [harnessId],
+      modelRouteIds: [modelRouteId],
+      tools: ctx.tools.schemas(parent).map(schema => schema.name),
+      skills: [],
+      mcpServerIds: [],
+      childProfileIds: [],
+      workspaceRoot: cwd,
+      parentWorkspaceCwd: cwd,
+      ...typeof config.maxDepth === 'number' ? { maxDepth: config.maxDepth } : {},
+    }
+    ctx.subagents.registerChildProfileGrant(parent, grant)
+  }
+  return { harnessIds: [harnessId], modelRouteIds: [modelRouteId] }
+}
+
 /** Resolve the model's optional scheduling request into one execution route. */
 function resolveDelegationRun(
   request: DelegationRunRequest,
@@ -321,6 +421,10 @@ export function apply(ctx: Context, config: Config): void {
           required: true,
           description: wording.promptDescription,
         },
+        profile_id: {
+          type: 'string' as const,
+          description: 'Optional parent-private Child Profile id. The host resolves and enforces its immutable snapshot.',
+        },
         ...backgroundEnabled ? {
           run_in_background: {
             type: 'boolean' as const,
@@ -355,6 +459,7 @@ export function apply(ctx: Context, config: Config): void {
               properties: {
                 kind: { type: 'string', required: true, const: 'foreground' },
                 runId: { type: 'string', required: true },
+                subagentId: { type: 'string', required: true },
                 output: { type: 'array', required: true, items: { type: 'json' } },
               },
             },
@@ -368,6 +473,13 @@ export function apply(ctx: Context, config: Config): void {
               ? `started subagent ${value.subagentId}`
               : outputValueText(value.output),
         }],
+        presentationMeta: (_args, value) => value.kind === 'background'
+          ? { kind: 'background', jobId: value.jobId }
+          : {
+            kind: 'subagent',
+            childSessionId: value.subagentId,
+            mode: value.kind === 'continuable' ? 'continuable' : 'one-shot',
+          },
       },
       // Children never mutate the parent session; the one parent-owned write
       // (tasks.start) is a synchronous commutative insertion.
@@ -379,15 +491,28 @@ export function apply(ctx: Context, config: Config): void {
           throw new Error('subagent tool requires a calling agent (exec.agent was undefined)')
         }
 
-        const maxDepth = typeof config.maxDepth === 'number' ? config.maxDepth : undefined
+        const childProfile = args.profile_id === undefined
+          ? undefined
+          : ctx.subagents.getChildProfile(parent, args.profile_id)
+        if (args.profile_id !== undefined && childProfile === undefined) {
+          throw new Error(`no parent-private child profile named "${args.profile_id}"`)
+        }
+        const maxDepth = childProfile?.maxDepth
+          ?? (typeof config.maxDepth === 'number' ? config.maxDepth : undefined)
+        const profileAgentOptions = childProfile === undefined
+          ? undefined
+          : ctx.subagents.resolveChildModelRoute(childProfile)
         const request = {
           label: args.description,
           prompt: [{ type: 'text', text: args.prompt }] as ContentBlock[],
           parent,
-          ...config.agentOptions !== undefined ? { agentOptions: config.agentOptions } : {},
+          ...profileAgentOptions !== undefined
+            ? { agentOptions: profileAgentOptions }
+            : config.agentOptions !== undefined ? { agentOptions: config.agentOptions } : {},
           ...config.persona !== undefined ? { persona: config.persona } : {},
           ...config.toolFilter !== undefined ? { toolFilter: config.toolFilter } : {},
           ...maxDepth !== undefined ? { maxDepth } : {},
+          ...childProfile !== undefined ? { childProfile } : {},
         }
 
         const runSpec = resolveDelegationRun(args, { backgroundEnabled, continuable })
@@ -432,7 +557,8 @@ export function apply(ctx: Context, config: Config): void {
           ...request,
           signal: exec.signal,
         })
-        return settleForegroundRun(run)
+        const result = await settleForegroundRun(run)
+        return { ...result, subagentId: run.id }
       },
     }))
   }
@@ -469,5 +595,43 @@ export function apply(ctx: Context, config: Config): void {
         ? ''
         : `Use ${toolName} in the background by default. Start independent delegations together in one assistant message and continue useful work while they run. Set \`run_in_background: false\` only when your next action depends on that subagent's result. When a background run settles, the runtime sends you a notice containing its outcome and any final assistant message.`,
     })
+  }
+
+  if (config.enableProfileManagement === true) {
+    const disposeProfileDefine = ctx.tools.register(defineTool({
+      name: 'child_profile_define',
+      description: 'Define or revise a parent-private Child Profile. The host rejects capabilities outside the parent grant.',
+      parameters: profileParameters(),
+      output: {
+        schema: { type: 'json' as const },
+        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+      },
+      isConcurrencySafe: () => true,
+      async execute(args, exec) {
+        if (!exec.agent) throw new Error('child_profile_define requires a calling agent')
+        const defaults = ensureParentProfileGrant(ctx, exec.agent, config)
+        return await Promise.resolve(profileJson(
+          ctx.subagents.defineChildProfile(exec.agent, profileSpecFromArgs(args, defaults)),
+        ))
+      },
+    }))
+    const disposeProfileList = ctx.tools.register(defineTool({
+      name: 'child_profile_list',
+      description: 'List the calling parent agent\'s private Child Profiles.',
+      parameters: {},
+      output: {
+        schema: { type: 'array' as const, items: { type: 'json' as const } },
+        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+      },
+      isConcurrencySafe: () => true,
+      async execute(_args, exec) {
+        if (!exec.agent) throw new Error('child_profile_list requires a calling agent')
+        return await Promise.resolve(ctx.subagents.listChildProfiles(exec.agent).map(profileJson))
+      },
+    }))
+    ctx.effect(() => () => {
+      disposeProfileDefine()
+      disposeProfileList()
+    }, 'tool-subagent.profile-tools()')
   }
 }

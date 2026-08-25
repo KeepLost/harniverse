@@ -1529,8 +1529,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
   /** Send one transient frame to every connected mux consumer. */
   function broadcast(payload: MuxFrame): void {
+    if ('sessionId' in payload && !ordinarySessionId(payload.sessionId)) return
     const envelope = frame(payload)
     for (const queue of muxQueues) queue.push(envelope)
+  }
+
+  /** Resolve ordinary-session visibility conservatively at every transient boundary. */
+  function ordinarySessionId(sessionId: SessionId): boolean {
+    const session = ctx.sessions.get(sessionId)
+    return session !== undefined && session.header.origin !== 'subagent'
   }
 
   function broadcastHost(payload: HostFrame): void {
@@ -1725,8 +1732,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         pending.onAbort = onAbort
         pendingQuestions.set(rpcId, pending)
         request.signal?.addEventListener('abort', onAbort, { once: true })
-        const envelope = questionRequestedFrame(pending)
-        for (const queue of muxQueues) queue.push(envelope)
+        if (ordinarySessionId(pending.sessionId)) {
+          const envelope = questionRequestedFrame(pending)
+          for (const queue of muxQueues) queue.push(envelope)
+        }
       })
     },
   })
@@ -1817,8 +1826,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
         pendingApprovals.set(pending.rpcId, pending)
         req.signal?.addEventListener('abort', onAbort, { once: true })
-        const envelope = requestedFrame(pending)
-        for (const queue of muxQueues) queue.push(envelope)
+        if (ordinarySessionId(pending.sessionId)) {
+          const envelope = requestedFrame(pending)
+          for (const queue of muxQueues) queue.push(envelope)
+        }
       })
     })
   }
@@ -2082,13 +2093,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         ...projections === undefined ? {} : { projections },
       }
     }
-    const items = ctx.sessions.list().map(summarizeAttached)
+    const items = ctx.sessions.list()
+      .filter(session => session.header.origin !== 'subagent')
+      .map(summarizeAttached)
     signal?.throwIfAborted()
     const attached = new Set(items.map(item => item.sessionId))
     const persistence = ctx.get('sessionPersistence')
     if (persistence !== undefined) {
       const cold = (await persistence.list(signal))
-        .filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
+        .filter(meta => !attached.has(meta.id) && meta.cwd !== undefined && meta.origin !== 'subagent')
       signal?.throwIfAborted()
       for (let offset = 0; offset < cold.length; offset += COLD_SUMMARY_BATCH_SIZE) {
         signal?.throwIfAborted()
@@ -3240,16 +3253,41 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 broadcastHost({ type: 'host/session-removed', sessionId })
                 return {}
               }
-              const childSessionIds = records
-                .filter(record => record.header.parentSession === sessionId)
-                .map(record => record.header.id)
-              if (childSessionIds.length > 0) {
+              const recordsById = new Map(records.map(record => [record.header.id, record]))
+              const privateDescendantIds: SessionId[] = []
+              const blockingChildIds: SessionId[] = []
+              const pendingParents = [sessionId]
+              const visitedParents = new Set<SessionId>()
+              while (pendingParents.length > 0) {
+                const parentId = pendingParents.shift() as SessionId
+                if (!visitedParents.add(parentId)) continue
+                for (const record of records.filter(candidate => candidate.header.parentSession === parentId)) {
+                  if (record.header.origin !== 'subagent') {
+                    blockingChildIds.push(record.header.id)
+                    continue
+                  }
+                  if (record.persisted) privateDescendantIds.push(record.header.id)
+                  pendingParents.push(record.header.id)
+                }
+              }
+              if (blockingChildIds.length > 0) {
                 return {
                   error: {
                     code: 'session-has-children',
                     message: `session "${sessionId}" has descendants and cannot be deleted`,
-                    details: { sessionId, childSessionIds },
+                    details: { sessionId, childSessionIds: blockingChildIds },
                   },
+                }
+              }
+              for (const childId of privateDescendantIds) {
+                if (ctx.sessions.get(childId) !== undefined || sessionClosures.has(childId)) {
+                  return {
+                    error: {
+                      code: 'agent-busy',
+                      message: `subagent session "${childId}" is live; close it before deleting its parent`,
+                      details: { reason: 'SESSION_MUST_BE_CLOSED' },
+                    },
+                  }
                 }
               }
               if (ctx.sessions.get(sessionId) !== undefined) {
@@ -3265,12 +3303,18 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               if (persistence === undefined) {
                 return { error: { code: 'internal', message: 'session deletion requires persistence', details: {} } }
               }
-              await ctx.workspaceRegistry.beginSessionDeletion(sessionId)
-              await ctx.get('sessionProjectionCache')?.delete(target.header)
-              await persistence.delete(sessionId)
-              await ctx.workspaceRegistry.removeSessionReferences(sessionId)
-              await ctx.workspaceRegistry.completeSessionDeletion(sessionId)
-              broadcastHost({ type: 'host/session-removed', sessionId })
+              const deletionIds = [...privateDescendantIds].reverse()
+              deletionIds.push(sessionId)
+              for (const deletionId of deletionIds) {
+                const record = recordsById.get(deletionId)
+                if (record?.persisted !== true) continue
+                await ctx.workspaceRegistry.beginSessionDeletion(deletionId)
+                await ctx.get('sessionProjectionCache')?.delete(record.header)
+                await persistence.delete(deletionId)
+                await ctx.workspaceRegistry.removeSessionReferences(deletionId)
+                await ctx.workspaceRegistry.completeSessionDeletion(deletionId)
+                broadcastHost({ type: 'host/session-removed', sessionId: deletionId })
+              }
               return {}
             } catch (error: unknown) {
               return {
@@ -3324,6 +3368,18 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: {},
           })
         }
+      },
+
+      profiles(request) {
+        const parent = ctx.agents.get(request.payload.parentSessionId)
+        if (parent === undefined) {
+          return Promise.resolve(err(request, {
+            code: 'subagent-parent-unavailable',
+            message: 'child Profiles require the exact live parent Agent',
+            details: { parentSessionId: request.payload.parentSessionId },
+          }))
+        }
+        return Promise.resolve(ok(request, { profiles: ctx.subagents.listChildProfiles(parent) }))
       },
 
       async history(request, signal) {
@@ -4178,6 +4234,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const bufferedEvents: Array<{ session: Session; event: SessionEvent }> = []
         const createdDuringBootstrap: Session[] = []
         let bootstrapping = true
+        const visibleSession = (session: Session): boolean => session.header.origin !== 'subagent'
+        const visibleSessionId = (sessionId: SessionId): boolean => ordinarySessionId(sessionId)
 
         const sessionEventFrame = (
           session: Session,
@@ -4205,10 +4263,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
 
         const pushSessionEvent = (session: Session, event: SessionEvent): void => {
+          if (!visibleSession(session)) return
           queue.push(sessionEventFrame(session, event, liveOpenCalls))
         }
 
         const subscribeWithReplay = (session: Session): void => {
+          if (!visibleSession(session)) return
           const cut = session.seq - 1
           replayCuts.set(session.id, cut)
           subscribeSession(queue, session)
@@ -4221,6 +4281,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
 
         const jobsFrame = (session: Session): RpcRequest<MuxFrame> | undefined => {
+          if (!visibleSession(session)) return undefined
           const views = jobs === undefined ? [] : jobViews(jobs.list(ctx.agents.get(session.id)))
           return views.length === 0
             ? undefined
@@ -4238,6 +4299,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             else pushSessionEvent(session, event)
           }),
           ctx.on('session/created', (session: Session) => {
+            if (session.header.origin === 'subagent') return
             if (bootstrapping) createdDuringBootstrap.push(session)
             else {
               subscribeWithReplay(session)
@@ -4245,10 +4307,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             }
           }),
           ctx.on('session/disposed', (session: Session) => {
+            if (session.header.origin === 'subagent') return
             liveOpenCalls.delete(session.id)
           }),
           ...jobs === undefined ? [] : [jobs.onJobsChanged((owner) => {
             if (owner !== undefined) {
+              if (!visibleSession(owner.session)) return
               // The exact owner instance the fence compares against, so the
               // push stays correct even while that Agent's scope is tearing
               // down and a lookup by id would already miss.
@@ -4258,6 +4322,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             // An unowned task is visible to every caller, so every subscribed
             // session's set changed with it.
             for (const session of ctx.sessions.list()) {
+              if (!visibleSession(session)) continue
               queue.push(frame({
                 type: 'session/jobs',
                 sessionId: session.id,
@@ -4266,7 +4331,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             }
           })],
         ]
-        const sessions = ctx.sessions.list()
+        const sessions = ctx.sessions.list().filter(visibleSession)
         const bootstrapSessions = new Set(sessions)
         for (const session of sessions) replayCuts.set(session.id, session.seq - 1)
         for (let index = 0; index < createdDuringBootstrap.length; index++) {
@@ -4275,10 +4340,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           replayCuts.set(session.id, session.seq - 1)
         }
         const transientFrames: RpcRequest<MuxFrame>[] = []
-        for (const pending of pendingQuestions.values()) transientFrames.push(questionRequestedFrame(pending))
+        for (const pending of pendingQuestions.values()) {
+          if (visibleSessionId(pending.sessionId)) transientFrames.push(questionRequestedFrame(pending))
+        }
         // Refresh recovery: still-pending approval questions replay with their
         // stable rpcId so a reconnecting client can still answer them.
-        for (const pending of pendingApprovals.values()) transientFrames.push(requestedFrame(pending))
+        for (const pending of pendingApprovals.values()) {
+          if (visibleSessionId(pending.sessionId)) transientFrames.push(requestedFrame(pending))
+        }
         // Queue and background-job snapshots are process-local baselines; they
         // replay on every open independently of durable event cursors.
         for (const session of bootstrapSessions) {
@@ -4328,6 +4397,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         let archivedSessionIds = ctx.workspaceRegistry.archivedSessionIds
         const disposers = [
           ctx.on('session/created', (session: Session) => {
+            if (session.header.origin === 'subagent') return
             queue.push(frame({
               type: 'host/session-added',
               sessionId: session.id,
@@ -4339,14 +4409,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             }))
           }),
           ctx.on('session/disposed', (session: Session) => {
+            if (session.header.origin === 'subagent') return
             queue.push(frame(sessionClosures.has(session.id)
               ? { type: 'host/session-status', sessionId: session.id, running: false }
               : { type: 'host/session-removed', sessionId: session.id }))
           }),
           ctx.on('agent/status', ({ agent, status }: { agent: Agent; status: AgentStatus }) => {
+            if (agent.session.header.origin === 'subagent') return
             queue.push(frame({ type: 'host/session-status', sessionId: agent.id, running: status === 'running' }))
           }),
           ctx.on('agent/error', ({ agent, error }: { agent: Agent; error: unknown }) => {
+            if (agent.session.header.origin === 'subagent') return
             queue.push(frame({ type: 'host/agent-error', sessionId: agent.id, message: errorChain(error) }))
           }),
           ctx.on('domain/changed', (change) => {

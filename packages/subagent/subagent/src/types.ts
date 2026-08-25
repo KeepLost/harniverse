@@ -10,11 +10,81 @@
  */
 
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Context } from '@deepseek-ai/cordis'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ObjectJsonSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
 import type { SubagentDescriptorData } from './descriptor.ts'
+
+/**
+ * A parent-owned request for one child execution environment. All references
+ * are opaque host-managed ids; a profile cannot carry commands, endpoints, or
+ * credentials.
+ */
+export interface ChildProfileSpec {
+  readonly profileId: string
+  readonly harnessId: string
+  readonly modelRouteId: string
+  readonly tools?: readonly string[]
+  readonly skills?: readonly string[]
+  readonly mcpServerIds?: readonly string[]
+  readonly childProfileIds?: readonly string[]
+  readonly workspaceCwd?: string
+  readonly maxDepth?: number
+  readonly maxTokens?: number
+  readonly modelRoutePriority?: number
+  readonly schedulerPriority?: number
+}
+
+/** Capabilities the host has granted to the parent that defines a profile. */
+export interface ChildProfileGrant {
+  readonly harnessIds: readonly string[]
+  readonly modelRouteIds: readonly string[]
+  readonly tools: readonly string[]
+  readonly skills: readonly string[]
+  readonly mcpServerIds: readonly string[]
+  readonly childProfileIds: readonly string[]
+  readonly workspaceRoot: string
+  readonly parentWorkspaceCwd: string
+  readonly maxDepth?: number
+  readonly maxTokens?: number
+}
+
+/** One concrete provider/model attempt owned by the Host. */
+export interface ChildModelRouteTarget {
+  readonly provider: string
+  readonly model: string
+}
+
+/** Host-owned model selection behind one opaque Profile route id. */
+export interface ChildModelRoute {
+  readonly provider: string
+  readonly model: string
+  /** Ordered attempts after the primary route fails. */
+  readonly fallbacks?: readonly ChildModelRouteTarget[]
+}
+
+/** Immutable, detached profile passed to a child provider and cold resume. */
+export interface ResolvedChildProfile {
+  readonly profileId: string
+  readonly revision: number
+  readonly digest: string
+  readonly harnessId: string
+  readonly modelRouteId: string
+  readonly tools: readonly string[]
+  readonly skills: readonly string[]
+  readonly mcpServerIds: readonly string[]
+  readonly childProfileIds: readonly string[]
+  readonly workspaceCwd: string
+  readonly maxDepth?: number
+  readonly maxTokens?: number
+  readonly modelRoutePriority?: number
+  readonly schedulerPriority?: number
+}
+
+/** Trusted Host contribution applied inside a child creation scope. */
+export type ChildProfileSetup = (childCtx: Context, profile: ResolvedChildProfile) => void
 
 /** Identifies one accepted subagent run across its lifecycle event pair. */
 export type SubagentRunId = Branded<'SubagentRunId'>
@@ -146,6 +216,8 @@ export interface SubagentStartRequest {
    * persona (strict `{{…}}` interpolation against the registered variables).
    */
   readonly persona?: string
+  /** Host-resolved parent-private profile, immutable across the child lifetime. */
+  readonly childProfile?: ResolvedChildProfile
 }
 
 /**
@@ -294,6 +366,8 @@ export interface SubagentProvider {
   readonly name: string
   /** The start-time features this provider supports (see {@link SubagentCapabilities}). */
   readonly capabilities: SubagentCapabilities
+  /** Provider can receive and enforce a host-resolved Child Profile snapshot. */
+  readonly supportsChildProfile?: boolean
   /**
    * Whether the child sees the parent's completed-turn prefix. This is descriptive, not a
    * service-validated start capability: the model-facing tool derives truthful wording from it.

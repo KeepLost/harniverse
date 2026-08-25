@@ -48,6 +48,7 @@ import {
 } from './child-agent.ts'
 import type { DelegatedPolicyOverrides } from './child-agent.ts'
 import { assertSubagentMaxDepth } from './depth.ts'
+import { assertResolvedChildProfile, childProfileToolFilter } from './profile.ts'
 import { seedDescriptorTurn } from './descriptor-seed.ts'
 import type { ContinuableCreateRequest, ContinuableCreateSpec, SubagentResult, SubagentStartRequest } from './types.ts'
 import type { ActivationObserver, ActivationTerminal } from './lifecycle.ts'
@@ -173,6 +174,10 @@ interface ContinuationHost {
    * @returns the provider's detached creation spec.
    */
   prepareContinuable(name: string, request: ContinuableCreateRequest): Promise<ContinuableCreateSpec>
+  /** Whether the named provider enforces a resolved Child Profile. */
+  supportsChildProfile(name: string): boolean
+  /** Resolve a Host-owned profile route for child Agent creation. */
+  resolveChildModelRoute(profile: import('./types.ts').ResolvedChildProfile): AgentOptions
   /**
    * Build the lifecycle observer for one Activation's residency epoch.
    * @param provider - the provider name recorded in the durable descriptor.
@@ -257,6 +262,7 @@ interface MaterializeInputs {
   }
   agentOptions: AgentOptions
   composition: { persona?: string | undefined; toolFilter?: ToolRestriction | undefined }
+  profile?: import('./types.ts').ResolvedChildProfile
   signal: AbortSignal
 }
 
@@ -405,13 +411,33 @@ export class SubagentContinuationManager {
     const parent = request.parent
     this.assertAdmitting(parent)
     this.requirePersistence()
-    assertSubagentMaxDepth(request.maxDepth)
+    const effectiveMaxDepth = request.childProfile?.maxDepth ?? request.maxDepth
+    assertSubagentMaxDepth(effectiveMaxDepth)
+    if (request.childProfile !== undefined) {
+      if (!this.host.supportsChildProfile(spec.provider)) {
+        throw new SubagentError('continuable Child Profile support is unavailable', 'UNSUPPORTED_PROFILE')
+      }
+      assertResolvedChildProfile(request.childProfile)
+      if (request.childProfile.harnessId !== spec.provider) {
+        throw new SubagentError(
+          `child profile harness "${request.childProfile.harnessId}" does not match provider "${spec.provider}"`,
+          'PROFILE_HARNESS_MISMATCH',
+        )
+      }
+    }
+    const childToolFilter = request.childProfile === undefined
+      ? request.toolFilter
+      : childProfileToolFilter(request.childProfile, request.toolFilter)
     const childId = SessionId(randomUUID())
-    const childDepth = resolveChildDepth(parent, request.maxDepth)
+    const childDepth = resolveChildDepth(parent, effectiveMaxDepth)
     // Snapshot before any await: invalid descriptor JSON rejects the call
     // before a child exists, and the detached value is what reaches the log.
-    const agentProvider = request.agentOptions?.provider ?? parent.options.provider
-    const agentModel = request.agentOptions?.model ?? parent.options.model
+    const profileAgentOptions = request.childProfile === undefined
+      ? undefined
+      : this.host.resolveChildModelRoute(request.childProfile)
+    const requestedAgentOptions = profileAgentOptions ?? request.agentOptions
+    const agentProvider = requestedAgentOptions?.provider ?? parent.options.provider
+    const agentModel = requestedAgentOptions?.model ?? parent.options.model
     const descriptor = snapshotSubagentDescriptor({
       mode: 'continuable',
       provider: spec.provider,
@@ -420,6 +446,7 @@ export class SubagentContinuationManager {
       ...agentModel !== undefined ? { agentModel } : {},
       ...request.persona !== undefined ? { persona: request.persona } : {},
       ...request.toolFilter !== undefined ? { toolFilter: request.toolFilter } : {},
+      ...request.childProfile !== undefined ? { childProfile: request.childProfile } : {},
     })
     // Capture before the first await: a later parent switch belongs to the
     // parent's future, not to this child.
@@ -440,9 +467,17 @@ export class SubagentContinuationManager {
         childId,
         provider: spec.provider,
         parent,
-        create: { seed, meta: childSessionMeta(parent, childDepth, lineageSeedLength), delegatedPolicies },
-        agentOptions: resolveChildAgentOptions(parent, request.agentOptions, childDepth),
-        composition: { persona: request.persona, toolFilter: request.toolFilter },
+        create: {
+          seed,
+          meta: childSessionMeta(parent, childDepth, lineageSeedLength, request.childProfile?.workspaceCwd),
+          delegatedPolicies,
+        },
+        agentOptions: resolveChildAgentOptions(parent, requestedAgentOptions, childDepth),
+        composition: {
+          persona: request.persona,
+          toolFilter: childToolFilter,
+        },
+        ...request.childProfile === undefined ? {} : { profile: request.childProfile },
         signal: spec.signal,
       })
       return this.submitMaterialized(
@@ -921,6 +956,7 @@ export class SubagentContinuationManager {
           ...descriptor.agentModel !== undefined ? { model: descriptor.agentModel } : {},
         },
         composition: { persona: descriptor.persona, toolFilter: descriptor.toolFilter },
+        ...descriptor.childProfile === undefined ? {} : { profile: descriptor.childProfile },
         signal: options.signal,
       })
     } catch (error: unknown) {
@@ -1001,6 +1037,7 @@ export class SubagentContinuationManager {
         appendDelegatedPolicyOverrides((childCtx.agent as Agent).session, create.delegatedPolicies)
       }
       applyChildComposition(childCtx, parent, inputs.composition)
+      if (inputs.profile !== undefined) this.ownerCtx.get('subagents')?.applyChildProfileSetup(childCtx, inputs.profile)
       return this.setupRegistry.apply(childCtx)
     }
     const observer = this.host.observeActivation(provider, childId, parent)

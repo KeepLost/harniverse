@@ -5,7 +5,7 @@ import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/clie
 import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   AssistantBlock, AssistantMessageNode, ConversationSnapshot,
-  SnapshotStore,
+  SessionId, SnapshotStore,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   TrajectoryTable,
@@ -71,6 +71,7 @@ export interface TrajectoryViewInjected {
   }
   loadOlder: () => Promise<boolean>
   setActualDuration: (actualDuration: boolean) => void
+  openSubagent?: (childSessionId: SessionId) => void
 }
 
 interface UsageLike {
@@ -118,7 +119,7 @@ function addUsage(
 }
 
 export function TrajectoryView({
-  useSession, useDuration, loadOlder, setActualDuration,
+  useSession, useDuration, loadOlder, setActualDuration, openSubagent,
   inspect, onInspectDone, t,
 }: ConvViewProps & InjectFace<TrajectoryViewInjected> & PropsLocale<'trajectory'>) {
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_TURN_IDS)
@@ -499,6 +500,7 @@ export function TrajectoryView({
           onToggleAssistant={toggleAssistant}
           inspectCallId={inspect?.callId ?? null}
           onInspectApplied={onInspectDone}
+          onOpenSubagent={openSubagent}
         />
       </div>
     </div>

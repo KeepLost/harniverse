@@ -39,7 +39,7 @@ function header(id: string, createdAt: number, extra: Partial<SessionHeader> = {
 }
 
 describe('sessions.list cold merge', () => {
-  it('verifies only small possibly-blank artifacts and treats every unavailable probe as visible', async () => {
+  it('verifies only visible small possibly-blank artifacts and hides private subagent sessions', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(UserQuestionService)
@@ -116,12 +116,7 @@ describe('sessions.list cold merge', () => {
     expect(byId['large-unknown']).toMatchObject({ blank: false, updatedAt: 300 })
     // false is monotonic, so this row skips stat/read and keeps cached recency.
     expect(byId['cached-nonblank']).toMatchObject({ blank: false, updatedAt: 1000 })
-    expect(byId['locationless']).toMatchObject({
-      blank: false,
-      updatedAt: 500,
-      parentSessionId: 'session-parent',
-      origin: 'subagent',
-    })
+    expect(byId['locationless']).toBeUndefined()
     expect(byId['vanished']).toMatchObject({ blank: false, updatedAt: 600 })
     expect(byId['read-failure']).toMatchObject({ blank: false, updatedAt: 700 })
     expect(readFrom).toHaveBeenCalledTimes(3)

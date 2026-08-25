@@ -12,7 +12,8 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf, type Scoped } from '@deepseek-ai/dsh-scope'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type SubagentRuntime from '@deepseek-ai/dsh-subagent'
-import type { SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
+import { parseResolvedChildProfile } from '@deepseek-ai/dsh-subagent'
+import type { ResolvedChildProfile, SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import type {
   InitializeParams,
@@ -55,6 +56,7 @@ export class HarnessSdkJsonRpcServer {
   private provider = 'deepseek-official'
   private model = 'deepseek-official'
   private maxTokens: number | undefined
+  private childProfile: ResolvedChildProfile | undefined
   private llmFiber: { dispose(): Promise<void> } | undefined
   private readonly sessions = new Map<string, SessionRecord>()
   private readonly sessionCreations = new Map<string, Promise<SessionRecord>>()
@@ -117,6 +119,12 @@ export class HarnessSdkJsonRpcServer {
     this.provider = params.provider
     this.model = params.model
     this.maxTokens = params.maxTokens
+    this.childProfile = params.childProfile === undefined
+      ? undefined
+      : parseResolvedChildProfile(params.childProfile)
+    if (this.childProfile !== undefined && this.cwd !== resolve(this.childProfile.workspaceCwd)) {
+      throw new Error('SDK Child Profile workspace cwd does not match the initialize cwd')
+    }
     if (!this.hasAdapterFor(this.provider)) {
       if (this.provider !== 'deepseek-official') throw new Error(`no adapter registered for provider "${this.provider}"`)
       this.llmFiber = await this.ctx.plugin(LlmDeepSeek, {})
@@ -220,6 +228,7 @@ export class HarnessSdkJsonRpcServer {
     // rows in the host plane, so this agent reads them from the global layer. A
     // deployment that configures a roster has to join one here first
     // (@deepseek-ai/dsh-agent-presets README, "Composing a child agent").
+    const profile = this.childProfile
     const handle = await this.ctx.agents.create({
       sessionId: SessionId(sessionId),
       meta: { cwd: this.cwd },
@@ -227,6 +236,13 @@ export class HarnessSdkJsonRpcServer {
         provider: this.provider,
         model: this.model,
         ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
+      },
+      ...profile === undefined ? {} : {
+        setup: (childCtx: Context): void => {
+          const subagents = childCtx.get('subagents')
+          if (subagents === undefined) throw new Error('SDK Child Profile requires the subagents service')
+          subagents.applyChildProfileSetup(childCtx, profile)
+        },
       },
     })
     const rec: SessionRecord = { handle }

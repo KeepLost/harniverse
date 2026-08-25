@@ -19,8 +19,8 @@ import {
 import type { EpochHeader, Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { SessionInspection, SessionLocation } from './index.ts'
-import { paginateSessionHistory } from './history.ts'
-import type { SessionHistoryPageRequest } from './history.ts'
+import { paginateRawEventPage, paginateSessionHistory } from './history.ts'
+import type { SessionHistoryPageRequest, SessionRawEventPageRequest } from './history.ts'
 import type { SessionPersistenceRevision } from './revision.ts'
 import { observeQueuedAbort, SessionPreparations } from './preparations.ts'
 import type { SessionPreparationReservation } from './preparations.ts'
@@ -124,6 +124,13 @@ export interface StoredHistoryPage {
   hasMore: boolean
 }
 
+/** Raw-event page returned by a seek-capable backend. */
+export interface StoredRawEventPage {
+  meta: SessionHeader
+  events: SessionEvent[]
+  hasMore: boolean
+}
+
 /**
  * The storage contract between {@link PersistenceCoordinator} and a concrete
  * backend: the minimal set of durable primitives the orchestration calls. A
@@ -195,6 +202,16 @@ export interface PersistenceBackend<TornMarker = unknown> {
     request: SessionHistoryPageRequest,
     signal?: AbortSignal,
   ): Promise<StoredHistoryPage | undefined>
+
+  /**
+   * Optional native backward raw-event page. Backends may stop after the
+   * requested number of decoded events instead of materializing the log.
+   */
+  loadRawEventPage?(
+    id: SessionId,
+    request: SessionRawEventPageRequest,
+    signal?: AbortSignal,
+  ): Promise<StoredRawEventPage | undefined>
 
   /**
    * Durably append a CONTIGUOUS batch, lazily materializing the session first
@@ -950,6 +967,35 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   }
 
   /**
+   * Read one detached raw-event page on the same per-id chain as writes.
+   * @param id - persisted session id.
+   * @param request - exclusive upper bound and raw-event quota.
+   * @param signal - optional cancellation for backend read work.
+   * @returns detached metadata and a bounded raw-event page.
+   */
+  readRawEventPage(
+    id: SessionId,
+    request: SessionRawEventPageRequest,
+    signal?: AbortSignal,
+  ): Promise<StoredRawEventPage> {
+    if (!Number.isSafeInteger(request.maxEvents) || request.maxEvents < 1) {
+      return Promise.reject(new TypeError(`raw history maxEvents must be a positive safe integer, got ${String(request.maxEvents)}`))
+    }
+    if (request.beforeSeq !== undefined
+      && (!Number.isSafeInteger(request.beforeSeq) || request.beforeSeq < 0)) {
+      return Promise.reject(new TypeError(`raw history beforeSeq must be a non-negative safe integer, got ${String(request.beforeSeq)}`))
+    }
+    try {
+      this.assertNotDeleting(id)
+    } catch (error: unknown) {
+      return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+    }
+    const retired = Promise.resolve(this.retirements.get(id))
+    const waited = signal === undefined ? retired : observeQueuedAbort(retired, signal, () => false)
+    return waited.then(() => this.serialize(id, () => this.readRawEventPageCore(id, request, signal), signal))
+  }
+
+  /**
    * Observe the latest logged request header without joining the per-id chain.
    *
    * `loadStored` returns a valid contiguous prefix and is non-mutating. Running
@@ -985,6 +1031,27 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }
     const whole = await this.readStoredPrefix(id, signal)
     const page = paginateSessionHistory(whole.events, request)
+    return { meta: whole.meta, events: page.events, hasMore: page.hasMore }
+  }
+
+  private async readRawEventPageCore(
+    id: SessionId,
+    request: SessionRawEventPageRequest,
+    signal?: AbortSignal,
+  ): Promise<StoredRawEventPage> {
+    signal?.throwIfAborted()
+    if (this.backend.loadRawEventPage !== undefined) {
+      const page = await this.backend.loadRawEventPage(id, request, signal)
+      signal?.throwIfAborted()
+      if (page === undefined) throw new Error(`session "${id}" not found`)
+      this.assertStoredId(id, page.meta)
+      this.assertVersion(page.meta)
+      const events = snapshotStoredEvents(page.events, id)
+      this.assertEventsSupported(page.meta, events)
+      return { meta: structuredClone(page.meta), events, hasMore: page.hasMore }
+    }
+    const whole = await this.readStoredPrefix(id, signal)
+    const page = paginateRawEventPage(whole.events, request)
     return { meta: whole.meta, events: page.events, hasMore: page.hasMore }
   }
 

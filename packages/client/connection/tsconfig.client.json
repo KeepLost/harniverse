@@ -28,13 +28,10 @@
       "path": "../../auth/authentication"
     },
     {
-      "path": "../../core/session"
+      "path": "../../host/apiproxy/tsconfig.client.json"
     },
     {
       "path": "../../core/tools"
-    },
-    {
-      "path": "../../host/apiproxy"
     },
     {
       "path": "../../interaction/commands"

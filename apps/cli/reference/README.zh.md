@@ -57,7 +57,7 @@ dsh --profile tui
 ```sh
 dsh web
 dsh web --host 0.0.0.0 --port 3000 --tls-cert ./server.crt --tls-key ./server.key
-dsh web --patch ./extra.cordis.yml
+dsh --profile web --patch ./extra.cordis.yml
 dsh web --dump-config
 dsh web --help
 ```

@@ -406,6 +406,39 @@ export function runPersistenceContract(
       }
     })
 
+    it('readRawEventPage returns bounded sequence pages without message grouping', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const m = meta('raw-history-page', '/work')
+        const log = oneTurnLog()
+        await persistence.create(m)
+        await persistence.append(m.id, log)
+
+        const tail = await persistence.readRawEventPage(m.id, { maxEvents: 2 })
+        expect(tail.events.map(event => event.seq)).toEqual([4, 5])
+        expect(tail.hasMore).toBe(true)
+
+        const middle = await persistence.readRawEventPage(m.id, {
+          beforeSeq: tail.events[0]!.seq,
+          maxEvents: 2,
+        })
+        expect(middle.events.map(event => event.seq)).toEqual([2, 3])
+        expect(middle.hasMore).toBe(true)
+
+        const oldest = await persistence.readRawEventPage(m.id, {
+          beforeSeq: middle.events[0]!.seq,
+          maxEvents: 2,
+        })
+        expect(oldest.events.map(event => event.seq)).toEqual([0, 1])
+        expect(oldest.hasMore).toBe(false)
+
+        await expect(persistence.readRawEventPage(m.id, { maxEvents: 0 })).rejects.toThrow('positive safe integer')
+        await expect(persistence.readRawEventPage(m.id, { beforeSeq: -1, maxEvents: 1 })).rejects.toThrow('non-negative safe integer')
+      } finally {
+        await dispose()
+      }
+    })
+
     if (options.nativeLargeProvenanceHistory === true) {
       it('readHistoryPage preserves a message group with very large provenance', async () => {
         const { persistence, dispose } = await make()

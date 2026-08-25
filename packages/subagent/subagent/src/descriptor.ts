@@ -24,6 +24,8 @@
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
+import type { ResolvedChildProfile } from './types.ts'
+import { parseResolvedChildProfile } from './profile.ts'
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
@@ -44,7 +46,7 @@ declare module '@deepseek-ai/dsh-session/types' {
  * Supporting another composition input is a deliberate version change, never
  * an implicit extra field.
  */
-export const SUBAGENT_DESCRIPTOR_VERSION = 2
+export const SUBAGENT_DESCRIPTOR_VERSION = 3
 
 /** Fields shared by every supported `subagent/descriptor` payload. */
 interface SubagentDescriptorBase {
@@ -54,6 +56,8 @@ interface SubagentDescriptorBase {
   readonly mode: 'one-shot' | 'continuable'
   /** The `ctx.subagents` provider name that established the child. */
   readonly provider: string
+  /** Parent-private resolved profile captured for provider setup and cold resume. */
+  readonly childProfile?: ResolvedChildProfile
 }
 
 /** A session-backed subagent that cannot be cold-resumed after its run. */
@@ -100,6 +104,7 @@ export interface OneShotSubagentDescriptorInput extends SubagentDescriptorInputB
   readonly mode: 'one-shot'
   /** Optional initial delegation `description` used as the durable creation label. */
   readonly label?: string
+  readonly childProfile?: ResolvedChildProfile
 }
 
 /** Input for a continuable child's durable identity and resumable composition. */
@@ -115,6 +120,7 @@ export interface ContinuableSubagentDescriptorInput extends SubagentDescriptorIn
   readonly persona?: string
   /** Requested child tool scoping. */
   readonly toolFilter?: ToolRestriction
+  readonly childProfile?: ResolvedChildProfile
 }
 
 /** Inputs {@link snapshotSubagentDescriptor} validates and detaches. */
@@ -127,6 +133,7 @@ const DESCRIPTOR_BASE_KEYS = [
   'mode',
   'provider',
   'label',
+  'childProfile',
 ] as const
 const ONE_SHOT_DESCRIPTOR_KEYS = new Set(DESCRIPTOR_BASE_KEYS)
 const CONTINUABLE_DESCRIPTOR_KEYS = new Set([
@@ -218,11 +225,15 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
   }
   if (mode === 'one-shot') {
     const label = optionalString(value, 'label')
+    const childProfile = Object.hasOwn(value, 'childProfile')
+      ? parseResolvedChildProfile(value['childProfile'])
+      : undefined
     return {
       version: SUBAGENT_DESCRIPTOR_VERSION,
       mode,
       provider,
       ...label !== undefined ? { label } : {},
+      ...childProfile !== undefined ? { childProfile } : {},
     }
   }
   const label = value['label']
@@ -235,6 +246,9 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
   const toolFilter = Object.hasOwn(value, 'toolFilter')
     ? parseToolFilter(value['toolFilter'])
     : undefined
+  const childProfile = Object.hasOwn(value, 'childProfile')
+    ? parseResolvedChildProfile(value['childProfile'])
+    : undefined
   return {
     version: SUBAGENT_DESCRIPTOR_VERSION,
     mode,
@@ -244,6 +258,7 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
     ...agentModel !== undefined ? { agentModel } : {},
     ...persona !== undefined ? { persona } : {},
     ...toolFilter !== undefined ? { toolFilter } : {},
+    ...childProfile !== undefined ? { childProfile } : {},
   }
 }
 
@@ -275,6 +290,7 @@ export function snapshotSubagentDescriptor(input: SubagentDescriptorInput): Suba
       mode: input.mode,
       provider: input.provider,
       ...input.label !== undefined ? { label: input.label } : {},
+      ...input.childProfile !== undefined ? { childProfile: input.childProfile } : {},
     }
     : {
       version: SUBAGENT_DESCRIPTOR_VERSION,
@@ -285,6 +301,7 @@ export function snapshotSubagentDescriptor(input: SubagentDescriptorInput): Suba
       ...input.agentModel !== undefined ? { agentModel: input.agentModel } : {},
       ...input.persona !== undefined ? { persona: input.persona } : {},
       ...input.toolFilter !== undefined ? { toolFilter: input.toolFilter } : {},
+      ...input.childProfile !== undefined ? { childProfile: input.childProfile } : {},
     }
   const snapshot = snapshotJsonValue(candidate)
   if (snapshot === undefined) {

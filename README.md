@@ -46,7 +46,7 @@ The build produces the Host, Client, and Web frontend artifacts used by the sour
 In terminal A, from the Harniverse checkout:
 
 ```sh
-pnpm dsh web
+pnpm dsh --profile web
 ```
 
 The first run initializes the `web` profile and prints the live URL. The default is `http://127.0.0.1:3080`. Keep terminal A running and open the printed URL in a browser.
@@ -112,7 +112,7 @@ After the first setup, start the same checkout with:
 
 ```sh
 cd harniverse
-pnpm dsh web
+pnpm dsh --profile web
 ```
 
 Stop it with `Ctrl+C`. Browser Grants, provider settings, profiles, and sessions remain in `$DSH_HOME`.
@@ -123,7 +123,7 @@ After updating the checkout, refresh dependencies and all runtime artifacts befo
 git pull
 pnpm install
 pnpm run build
-pnpm dsh web
+pnpm dsh --profile web
 ```
 
 ## Headless use
@@ -140,16 +140,16 @@ The invoking directory is the default workspace for headless execution. The comm
 
 Authentication remains enabled on the default loopback listener. Do not use `--dangerously-skip-authentication` as an installation shortcut. Non-loopback listeners require a TLS certificate and key; see the [Web UI guide](docs/user/guide/index.md#remote-access) before exposing Harniverse to another machine.
 
-For a container whose published port requires `0.0.0.0`, use the container launcher instead of invoking `dsh web` directly:
+For a container whose published port requires `0.0.0.0`, use the container launcher instead of invoking the Web profile directly:
 
 ```sh
 pnpm run web:container -- --port 3000
 ```
 
-`web:container` is not another profile or Web composition. The original `pnpm dsh web --host 0.0.0.0` command remains the direct deployment interface and still rejects startup without explicit certificate paths. The wrapper only creates or reuses the development certificate, handles trust setup, and then launches that same authenticated `web` profile with arguments equivalent to:
+`web:container` is not another profile or Web composition. The direct deployment interface is `pnpm dsh --profile web --host 0.0.0.0` and it still rejects startup without explicit certificate paths. The wrapper only creates or reuses the development certificate, handles trust setup, and then launches that same authenticated `web` profile with arguments equivalent to:
 
 ```sh
-pnpm dsh web \
+pnpm dsh --profile web \
   --host 0.0.0.0 \
   --port 3000 \
   --tls-cert "$DSH_HOME/tls/harniverse-dev-server.crt" \
@@ -174,7 +174,7 @@ Open `https://100.64.0.2:3000` from the remote device, install the development C
 
 ```sh
 export DSH_WEB_TRUSTED_ORIGINS=https://panel.example.test
-pnpm dsh web --host 0.0.0.0 --port 3000 \
+pnpm dsh --profile web --host 0.0.0.0 --port 3000 \
   --tls-cert /path/server.crt --tls-key /path/server.key \
   --trusted-host harniverse.example.test \
   --trusted-origin https://panel.example.test
@@ -193,7 +193,7 @@ The startup line shows the effective `hosts` and explicit `origins`. A rejected 
 - **A Tailscale browser receives `403 forbidden`** — use the server's exact Tailscale IP or MagicDNS name in the URL, add that same value to `DSH_WEB_TLS_HOSTS`, trust the generated CA on the browser device, and restart `pnpm run web:container`.
 - **A custom UI Origin receives `403 forbidden`** — keep its request Host in `--trusted-host`, then add the exact `https://host[:port]` Origin through `DSH_WEB_TRUSTED_ORIGINS` or `--trusted-origin`. This only changes the request-trust fence; the deployment must separately provide working CORS or a same-origin proxy. Paths, credentials, query strings, and wildcard Origins are rejected.
 - **The Web UI opens but cannot send** — configure and select a model, then select a workspace.
-- **Port 3080 is occupied** — select another loopback port with `pnpm dsh web --port <port>`.
+- **Port 3080 is occupied** — select another loopback port with `pnpm dsh --profile web --port <port>`.
 - **A container refuses `--host 0.0.0.0`** — run `pnpm run web:container -- --port 3000`; do not hand-write certificate files.
 
 ## Project relationship and status

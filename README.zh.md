@@ -46,7 +46,7 @@ pnpm run build
 在终端 A 中进入 Harniverse checkout 并运行：
 
 ```sh
-pnpm dsh web
+pnpm dsh --profile web
 ```
 
 首次运行会初始化 `web` profile 并打印实际访问地址，默认为 `http://127.0.0.1:3080`。保持终端 A 运行，然后在浏览器中打开该地址。
@@ -112,7 +112,7 @@ Web profile 会把信任策略和连接／认证事件输出到服务器终端�
 
 ```sh
 cd harniverse
-pnpm dsh web
+pnpm dsh --profile web
 ```
 
 使用 `Ctrl+C` 停止。浏览器 Grant、提供方设置、profile 与会话会保留在 `$DSH_HOME` 中。
@@ -123,7 +123,7 @@ pnpm dsh web
 git pull
 pnpm install
 pnpm run build
-pnpm dsh web
+pnpm dsh --profile web
 ```
 
 ## Headless 使用
@@ -140,16 +140,16 @@ pnpm dsh --profile headless "Summarize the current project"
 
 默认回环监听也会启用认证。不要把 `--dangerously-skip-authentication` 当作安装捷径。非回环监听必须提供 TLS 证书和密钥；向其他机器开放 Harniverse 前，请先阅读 [Web UI 指南](docs/user/guide/index.md#remote-access)。
 
-如果容器发布端口而必须绑定 `0.0.0.0`，不要直接调用 `dsh web`，改用容器启动器：
+如果容器发布端口而必须绑定 `0.0.0.0`，不要直接调用 Web profile，改用容器启动器：
 
 ```sh
 pnpm run web:container -- --port 3000
 ```
 
-`web:container` 不是另一个 profile，也不会使用另一套 Web 组合。原来的 `pnpm dsh web --host 0.0.0.0` 命令仍是直接部署入口，并且在没有显式证书路径时仍会拒绝启动。该包装器只负责创建或复用开发证书、处理信任设置，然后使用与下列参数等价的方式启动同一个需要认证的 `web` profile：
+`web:container` 不是另一个 profile，也不会使用另一套 Web 组合。直接部署入口是 `pnpm dsh --profile web --host 0.0.0.0`，在没有显式证书路径时仍会拒绝启动。该包装器只负责创建或复用开发证书、处理信任设置，然后使用与下列参数等价的方式启动同一个需要认证的 `web` profile：
 
 ```sh
-pnpm dsh web \
+pnpm dsh --profile web \
   --host 0.0.0.0 \
   --port 3000 \
   --tls-cert "$DSH_HOME/tls/harniverse-dev-server.crt" \
@@ -174,7 +174,7 @@ pnpm run web:container -- --port 3000
 
 ```sh
 export DSH_WEB_TRUSTED_ORIGINS=https://panel.example.test
-pnpm dsh web --host 0.0.0.0 --port 3000 \
+pnpm dsh --profile web --host 0.0.0.0 --port 3000 \
   --tls-cert /path/server.crt --tls-key /path/server.key \
   --trusted-host harniverse.example.test \
   --trusted-origin https://panel.example.test
@@ -193,7 +193,7 @@ pnpm dsh web --host 0.0.0.0 --port 3000 \
 - **Tailscale 浏览器收到 `403 forbidden`**：URL 使用服务器准确的 Tailscale IP 或 MagicDNS 名称，把同一个值加入 `DSH_WEB_TLS_HOSTS`，在浏览器设备信任生成的 CA，并重启 `pnpm run web:container`。
 - **自定义 UI Origin 收到 `403 forbidden`**：请求 Host 仍需位于 `--trusted-host`，再通过 `DSH_WEB_TRUSTED_ORIGINS` 或 `--trusted-origin` 添加精确的 `https://host[:port]` Origin。这只会改变请求信任栅栏；部署仍须单独提供可用的 CORS 或同源代理。路径、凭据、query string 和通配符 Origin 都会被拒绝。
 - **Web UI 可以打开但不能发送**：配置并选择模型，再选择工作区。
-- **3080 端口已被占用**：使用 `pnpm dsh web --port <port>` 选择其他回环端口。
+- **3080 端口已被占用**：使用 `pnpm dsh --profile web --port <port>` 选择其他回环端口。
 - **容器拒绝 `--host 0.0.0.0`**：使用 `pnpm run web:container -- --port 3000`，不要手工准备证书文件。
 
 ## 项目关系与状态

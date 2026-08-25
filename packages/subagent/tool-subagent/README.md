@@ -14,6 +14,8 @@ A foreground call passes the execution signal through startup and execution, awa
 
 `toolFilter` changes the child's global tool layer but is not a parent-derived authority ceiling. See the [agent-scope security non-goal](../../../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals).
 
+When the optional profile-management surface is enabled, `child_profile_define` and `child_profile_list` operate only on the exact calling Agent's private namespace. The delegation tool accepts `profile_id`; the Host resolves its immutable snapshot, model route, depth/token ceilings, workspace, and Tool boundary before startup. A missing or unauthorized profile is an error, never a fallback to the parent's default route.
+
 ## Config
 
 | Key | Meaning |
@@ -26,6 +28,7 @@ A foreground call passes the execution signal through startup and execution, awa
 | `persona` | Per-child persona; requires provider `persona` capability. |
 | `toolFilter` | Per-child global-tool restriction; requires `toolFilter` capability. |
 | `maxDepth` | Absolute delegation-depth cap, default `3` (`0` forbids delegation); a numeric cap requires the `depthLimit` capability and fails the mount without it. `'provider-managed'` sends no cap for an out-of-process provider whose budget belongs to the child harness. The tool stays visible at the cap; each attempted start checks the calling agent's current depth and returns an errored tool result when rejected. |
+| `enableProfileManagement` | Exposes `child_profile_define` and `child_profile_list`, default `false`; the Host must have bound a parent grant and model routes before the model can define a usable Profile. |
 
 ## Concurrency
 
@@ -37,7 +40,7 @@ Foreground and background calls are concurrency-safe: sibling delegations in one
 
 #### What the model sees
 
-The generated default [`subagent` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-subagent) under this instance's configured name while its provider exists. Provider context inheritance changes the tool and prompt descriptions. Enabled background mode adds `run_in_background`: continuable mode documents its `true` default, runtime settlement notice, and explicit foreground override, while one-shot mode documents its `false` default and the job id collected with `job_output` or stopped with `job_kill`. While the tool is visible in an assembly's scope, a `tool:<toolName>` system-prompt section tells the model to start independent continuable delegations together, keep working while they run, and choose foreground only when its next action depends on the result; a tool restriction removes both its schema and this guidance.
+The generated default [`subagent` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-subagent) under this instance's configured name while its provider exists. Provider context inheritance changes the tool and prompt descriptions. The schema includes optional `profile_id`; it never accepts a raw command, endpoint, credential, or Profile path. Enabled background mode adds `run_in_background`: continuable mode documents its `true` default, runtime settlement notice, and explicit foreground override, while one-shot mode documents its `false` default and the job id collected with `job_output` or stopped with `job_kill`. When profile management is enabled, the model additionally sees the parent-private define/list tools. While the tool is visible in an assembly's scope, a `tool:<toolName>` system-prompt section tells the model to start independent continuable delegations together, keep working while they run, and choose foreground only when its next action depends on the result; a tool restriction removes both its schema and this guidance.
 
 #### Token effect
 
@@ -80,3 +83,4 @@ Append-only; newly visible content follows the reusable request prefix and does 
 - **Background runs expose no result through this tool** — a one-shot task's final output is collected through the generic task surface, and a continuable child's output stays in its own session, read by its subagent id. The settlement notice states how that child ended and carries any final assistant message, but it is not this call's return value and cannot be awaited here.
 - **Duplicate names across waiting one-shot instances are detected late** (`TODO(subagent-dup-toolname)`) — continuable instances reserve their prompt-section name during plugin application, but preventing provider-registration rollback for waiting one-shot instances requires a registry of intended names.
 - **Child policy is fixed per instance** — another model, persona, tool filter, or depth cap requires another distinctly named tool.
+- **Profile route and scheduling policy are Host-owned** — the tool accepts opaque Profile references and priority fields, while the Host registry owns ordered model fallback attempts and priority gating. This Consumer does not choose provider endpoints or schedule siblings itself.

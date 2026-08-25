@@ -26,6 +26,7 @@ export class DeepSeekHarness implements AsyncDisposable {
   private readonly provider: string
   private readonly model: string
   private readonly maxTokens: number | undefined
+  private readonly childProfile: DeepSeekHarnessOptions['childProfile']
   private initialized: Promise<void> | undefined
   private closed = false
 
@@ -40,6 +41,7 @@ export class DeepSeekHarness implements AsyncDisposable {
     this.provider = options.provider ?? 'deepseek-official'
     this.model = options.model ?? 'deepseek-v4-flash'
     this.maxTokens = options.maxTokens
+    this.childProfile = options.childProfile
   }
 
   /**
@@ -68,6 +70,7 @@ export class DeepSeekHarness implements AsyncDisposable {
           provider: this.provider,
           model: this.model,
           ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
+          ...this.childProfile === undefined ? {} : { childProfile: this.childProfile },
         })
       } catch (error) {
         this.initialized = undefined

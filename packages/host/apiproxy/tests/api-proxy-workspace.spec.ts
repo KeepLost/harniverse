@@ -419,12 +419,8 @@ describe('session creation and Workspace membership', () => {
 })
 
 describe('Host Workspace increments', () => {
-  it('projects subagent origin in attached summaries and creation increments', async () => {
+  it('keeps subagent sessions out of the ordinary summaries and creation stream', async () => {
     const { api, ctx } = await harness()
-    const abort = new AbortController()
-    const stream: AsyncIterator<RpcRequest<HostFrame>> =
-      api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
-    const pending = nextHostFrame(stream)
     const childId = SessionId('session-subagent-child')
 
     ctx.sessions.create(childId, {
@@ -435,18 +431,9 @@ describe('Host Workspace increments', () => {
       },
     })
 
-    expect(await pending).toMatchObject({
-      payload: {
-        type: 'host/session-added',
-        sessionId: childId,
-        parentSessionId: 'session-parent',
-        origin: 'subagent',
-      },
-    })
-    expect(expectOk(await api.sessions.list(request({}))).items).toContainEqual(
-      expect.objectContaining({ sessionId: childId, origin: 'subagent' }),
+    expect(expectOk(await api.sessions.list(request({}))).items).not.toContainEqual(
+      expect.objectContaining({ sessionId: childId }),
     )
-    abort.abort()
   })
 
   it('streams committed Workspace and Session increments after empty baselines', async () => {

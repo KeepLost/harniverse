@@ -60,6 +60,7 @@ function completedTurnPrefix(parent: Agent): SessionEvent[] {
  */
 class ForkInProcessProvider implements SubagentProvider {
   readonly capabilities: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
+  readonly supportsChildProfile = true
   // Context contract: a forked child IS seeded with the parent's completed-turn prefix.
   readonly inheritsParentContext = true
 

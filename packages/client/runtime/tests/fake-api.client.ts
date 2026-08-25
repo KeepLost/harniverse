@@ -190,6 +190,8 @@ export class FakeApiClient implements IApiClient {
 
   onSubagentList: (payload: unknown) => Promise<RpcResponse<{ entries: never[]; parentAvailable: boolean }>>
     = () => Promise.resolve(ok({ entries: [], parentAvailable: true }))
+  onSubagentProfiles: (payload: unknown) => Promise<RpcResponse<{ profiles: never[] }>>
+    = () => Promise.resolve(ok({ profiles: [] }))
   onSubagentHistory: (payload: unknown) => Promise<RpcResponse<{ events: never[]; hasMore: boolean }>>
     = () => Promise.resolve(ok({ events: [], hasMore: false }))
   onSubagentPrompt: (payload: unknown) => Promise<RpcResponse<{ messageId: never }>>
@@ -200,6 +202,7 @@ export class FakeApiClient implements IApiClient {
 
   readonly subagents: IApiClient['subagents'] = {
     list: (payload: unknown) => this.record('subagent.list', payload, this.onSubagentList(payload)),
+    profiles: (payload: unknown) => this.record('subagent.profiles', payload, this.onSubagentProfiles(payload)),
     history: (payload: unknown) => this.record('subagent.history', payload, this.onSubagentHistory(payload)),
     prompt: (payload: unknown) => this.record('subagent.prompt', payload, this.onSubagentPrompt(payload)),
     interrupt: (payload: unknown) => this.record('subagent.interrupt', payload, this.onSubagentInterrupt(payload)),

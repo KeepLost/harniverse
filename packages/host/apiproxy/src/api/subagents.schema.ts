@@ -7,7 +7,34 @@ import type { Wire } from './rpc.schema.ts'
 import {
   contentBlockSchema, historyEntrySchema, sessionIdSchema, sessionProjectionsBlockSchema,
 } from './sessions.schema.ts'
-import type { SubagentListEntry } from './subagents.ts'
+import type { SubagentListEntry, SubagentProfileSnapshot } from './subagents.ts'
+
+const childProfileSchema = z.object({
+  profileId: z.string(),
+  revision: z.number().int().positive(),
+  digest: z.string().regex(/^[0-9a-f]{64}$/),
+  harnessId: z.string(),
+  modelRouteId: z.string(),
+  tools: z.array(z.string()),
+  skills: z.array(z.string()),
+  mcpServerIds: z.array(z.string()),
+  childProfileIds: z.array(z.string()),
+  workspaceCwd: z.string(),
+  maxDepth: z.number().int().nonnegative().optional(),
+  maxTokens: z.number().int().nonnegative().optional(),
+  modelRoutePriority: z.number().int().nonnegative().optional(),
+  schedulerPriority: z.number().int().nonnegative().optional(),
+}) satisfies z.ZodType<Wire<SubagentProfileSnapshot>>
+
+/** subagent.profiles response value. */
+export const subagentProfilesValueSchema = z.object({
+  profiles: z.array(childProfileSchema),
+}) satisfies z.ZodType<Wire<ResponseValue<'subagent.profiles'>>>
+
+/** subagent.profiles request payload. */
+export const subagentProfilesRequestSchema = z.object({
+  parentSessionId: sessionIdSchema,
+}) satisfies z.ZodType<Wire<RequestPayload<'subagent.profiles'>>>
 
 /** Healthy and diagnostic durable catalog rows. */
 export const subagentListEntrySchema = z.union([

@@ -41,6 +41,7 @@ export interface Config {
 class ScriptedSubagentProvider implements SubagentProvider {
   readonly capabilities: SubagentCapabilities
   readonly inheritsParentContext: boolean
+  readonly supportsChildProfile = true
 
   constructor(
     readonly name: string,

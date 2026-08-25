@@ -73,6 +73,19 @@ const NODES = [
   },
 ] as unknown as ConversationSnapshot['nodes']
 
+const SUBAGENT_NODES = [
+  { kind: 'user', seq: 1, time: 1_000, content: [], source: null },
+  {
+    kind: 'assistant', seq: 2, time: 2_000, turn: 1, step: 1,
+    blocks: [{ kind: 'tool-call', callId: 'c1', name: 'subagent', argsRaw: '{}' }],
+  },
+  {
+    kind: 'tool-result', seq: 3, time: 3_000, callId: 'c1', call: null, callTime: 2_200,
+    content: [{ type: 'text', text: 'child started' }], isError: false, callView: null, resultView: null,
+    meta: { childSessionId: 'child-1', mode: 'one-shot' },
+  },
+] as unknown as ConversationSnapshot['nodes']
+
 function historySnapshot(
   nodes: ConversationSnapshot['nodes'],
   inspection: Partial<TrajectorySnapshot> = {},
@@ -1165,6 +1178,22 @@ describe('TrajectoryView state', () => {
     )
     expect(screen.getByRole('button', { name: 'Use actual duration' }).getAttribute('aria-pressed'))
       .toBe('true')
+  })
+
+  it('opens a child history from the delegation result link', () => {
+    const openSubagent = vi.fn()
+    render(
+      <TrajectoryView
+        {...standaloneProps(SUBAGENT_NODES)}
+        {...standaloneHistory(historySnapshot(SUBAGENT_NODES))}
+        {...standaloneDuration()}
+        openSubagent={openSubagent}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '打开子 Agent 历史' }))
+
+    expect(openSubagent).toHaveBeenCalledWith('child-1')
   })
 
 

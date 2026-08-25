@@ -22,6 +22,7 @@ import {
   applyChildComposition,
   assertSubagentMaxDepth,
   captureDelegatedPolicyOverrides,
+  childProfileToolFilter,
   childSessionMeta,
   finalAssistantOutput,
   resolveChildAgentOptions,
@@ -121,8 +122,11 @@ export async function startInProcessRun(
     appendDelegatedPolicyOverrides((childCtx.agent as Agent).session, inherited)
     applyChildComposition(childCtx, parent, {
       persona: request.persona,
-      toolFilter: request.toolFilter,
+      toolFilter: request.childProfile === undefined
+        ? request.toolFilter
+        : childProfileToolFilter(request.childProfile, request.toolFilter),
     })
+    if (request.childProfile !== undefined) childCtx.get('subagents')?.applyChildProfileSetup(childCtx, request.childProfile)
     if (request.outputSchema !== undefined) {
       structured = attachStructuredRuntime(childCtx, request.outputSchema)
     }
@@ -131,7 +135,7 @@ export async function startInProcessRun(
 
   const handle = await parent.ctx.agents.create({
     sessionId: childId,
-    meta: childSessionMeta(parent, childDepth, activationBoundary),
+    meta: childSessionMeta(parent, childDepth, activationBoundary, request.childProfile?.workspaceCwd),
     ...seed !== undefined ? { seed } : {},
     agentOptions: resolveChildAgentOptions(parent, request.agentOptions, childDepth),
     signal: request.signal,

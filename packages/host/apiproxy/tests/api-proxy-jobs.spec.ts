@@ -117,6 +117,32 @@ describe('session/jobs subscription baseline', () => {
       startedAt: 0,
     })
   })
+
+  it('does not baseline or stream child-session events and jobs', async () => {
+    const { ctx } = await harness(true)
+    const childSession = ctx.sessions.create(SessionId('mux-private-child'), {
+      meta: { parentSession: SessionId('parent'), origin: 'subagent' },
+    })
+    const child = {
+      id: childSession.id,
+      session: childSession,
+      inbox: new Inbox(childSession, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+      status: 'idle',
+      ctx,
+    } as Agent
+    ctx.agents.register(child)
+    ctx.jobs.start({ ...producer('private child job').spec, owner: child })
+    childSession.append('turn/start', { turn: 1 })
+
+    const abort = new AbortController()
+    const frames: MuxFrame[] = []
+    for await (const envelope of api(ctx).events.mux({ rpcId: RpcId('t-private-child-mux'), payload: {} }, abort.signal)) {
+      frames.push(envelope.payload)
+      if (frames.some(frame => frame.type === 'session/subscribed')) abort.abort()
+    }
+
+    expect(frames.some(frame => 'sessionId' in frame && frame.sessionId === child.id)).toBe(false)
+  })
 })
 
 describe('session/jobs change pushes', () => {

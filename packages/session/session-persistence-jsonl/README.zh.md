@@ -31,7 +31,7 @@ JSONL 持久会话存储后端：`SessionPersistence` 的一个具体实现（`d
 
 `locate(meta)` 返回已解析项目/会话目录内固定 transcript 的 `{ kind: 'jsonl', path }`。它不执行文件系统 I/O：可以在目录或文件存在前返回目标，现有文件也只包含最近一次 flush 完成的前缀。
 
-`readHistoryPage()` 从未压缩产物尾部读取完整原始行，或从压缩产物末尾读取完整 Zstandard frame。找到所需 append-origin 消息边界后立即停止，并返回连续原始范围；损坏或旧布局会回退到完整的已校验前缀读取器。
+`readHistoryPage()` 从未压缩产物尾部读取完整原始行，或从压缩产物末尾读取完整 Zstandard frame。`readRawEventPage()` 使用相同的稳定尾部读取器，但在解码到所需数量的原始事件后停止。两者都只返回有界页面；损坏或旧布局会回退到完整的已校验前缀读取器。
 
 ## 物理编码
 

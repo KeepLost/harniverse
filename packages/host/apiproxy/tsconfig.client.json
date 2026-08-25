@@ -1,0 +1,25 @@
+{
+  "extends": "../../../tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo"
+  },
+  "include": [
+    "src/api/**/*.ts",
+    "src/fetch/client.ts"
+  ],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../auth/authentication" },
+    { "path": "../../core/session" },
+    { "path": "../../core/tools" },
+    { "path": "../../interaction/user-approval" },
+    { "path": "../../interaction/user-questions" },
+    { "path": "../../jobs/jobs" },
+    { "path": "../../llm/llm" },
+    { "path": "../../session/session-projection" },
+    { "path": "../../runtime-diagnostics/invariants" },
+    { "path": "../../util/brand" }
+  ]
+}

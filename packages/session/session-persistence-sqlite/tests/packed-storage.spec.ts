@@ -290,6 +290,17 @@ describe('packed SQLite persistence', () => {
     expect(older.events).toEqual(events.slice(1, 7))
     expect(older.hasMore).toBe(true)
 
+    const rawTail = await ctx.sessionPersistence.readRawEventPage(header.id, { maxEvents: 2 })
+    expect(rawTail.events).toEqual(events.slice(-2))
+    expect(rawTail.hasMore).toBe(true)
+
+    const rawOlder = await ctx.sessionPersistence.readRawEventPage(header.id, {
+      beforeSeq: rawTail.events[0]!.seq,
+      maxEvents: 2,
+    })
+    expect(rawOlder.events).toEqual(events.slice(-4, -2))
+    expect(rawOlder.hasMore).toBe(true)
+
     await fiber.dispose()
   })
 

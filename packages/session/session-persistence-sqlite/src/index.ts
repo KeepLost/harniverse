@@ -16,11 +16,12 @@ import { lstat, mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE, DEFAULT_WRITE_BATCH_MAX_DELAY_MS, MAX_WRITE_BATCH_DELAY_MS,
-  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator, replacementCheckpointStart,
+  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator, paginateRawEventPage, replacementCheckpointStart,
   CHECKPOINT_SEARCH_MESSAGE_BUDGET,
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
   type SessionInspection, type SessionPersistenceRevision as PersistenceRevision,
-  type SessionHistoryPageRequest, type StoredHistoryPage, type StoredPrefix, type StoredSuffix,
+  type SessionHistoryPageRequest, type SessionRawEventPageRequest, type StoredHistoryPage,
+  type StoredRawEventPage, type StoredPrefix, type StoredSuffix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { EpochHeader, SessionEvent, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
 import {
@@ -240,6 +241,14 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
     return this.coordinator.readHistoryPage(id, request, signal)
   }
 
+  override readRawEventPage(
+    id: SessionId,
+    request: SessionRawEventPageRequest,
+    signal?: AbortSignal,
+  ): Promise<StoredRawEventPage> {
+    return this.coordinator.readRawEventPage(id, request, signal)
+  }
+
   // One method serves both public `list` and the backend hook; delegating it to
   // the coordinator would call this hook recursively.
 
@@ -353,6 +362,34 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
       events: preserved.filter(event => event.seq >= cut && event.seq < upper),
       hasMore: cut > 0,
     }
+  }
+
+  /** Read a bounded raw-event page from the newest physical rows. */
+  async loadRawEventPage(
+    id: SessionId,
+    request: SessionRawEventPageRequest,
+    signal?: AbortSignal,
+  ): Promise<StoredRawEventPage | undefined> {
+    signal?.throwIfAborted()
+    await this.ready
+    signal?.throwIfAborted()
+    const row = this.rowFor(id)
+    if (row === undefined) return undefined
+    const upper = request.beforeSeq ?? Number.MAX_SAFE_INTEGER
+    const candidates = this.db.prepare(
+      `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+       FROM events
+       WHERE session_id = ? AND seq < ?
+       ORDER BY seq DESC LIMIT ?`,
+    ).all(id, upper, request.maxEvents + 1) as unknown as EventRow[]
+    signal?.throwIfAborted()
+    const oldest = candidates.at(-1)
+    if (oldest === undefined) return { meta: rowToMeta(row), events: [], hasMore: false }
+    const physical = this.physicalSpanFrom(id, oldest.seq, request.beforeSeq)
+    signal?.throwIfAborted()
+    const { preserved } = scanRows(physical.eventRows, physical.base)
+    const page = paginateRawEventPage(preserved, request)
+    return { meta: rowToMeta(row), events: page.events, hasMore: page.hasMore }
   }
 
   /**

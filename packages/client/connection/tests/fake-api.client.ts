@@ -159,6 +159,7 @@ export class FakeApiClient implements IApiClient {
       entries: [],
       parentAvailable: true,
     }))),
+    profiles: (payload: unknown) => this.record('subagent.profiles', payload, Promise.resolve(ok({ profiles: [] }))),
     history: (payload: unknown) => this.record('subagent.history', payload, Promise.resolve(ok({
       events: [],
       hasMore: false,

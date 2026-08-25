@@ -92,6 +92,7 @@ type ResolvedConfig = Required<Omit<Config, 'cwd' | 'maxTokens'>> & Pick<Config,
  */
 class SdkSubagentProvider implements SubagentProvider {
   readonly capabilities: SubagentCapabilities = NO_START_CAPABILITIES
+  readonly supportsChildProfile = true
   // Context contract: an out-of-process SDK child starts fresh — no parent conversation crosses the process boundary.
   readonly inheritsParentContext = false
 
@@ -101,10 +102,14 @@ class SdkSubagentProvider implements SubagentProvider {
     const spec: SdkRunSpec = {
       command: this.config.command,
       args: this.config.args,
-      cwd: resolveChildCwd('subagent-dsh-sdk', this.config.cwd, request.parent.session.header.cwd),
-      provider: this.config.provider,
-      model: this.config.model,
-      ...this.config.maxTokens === undefined ? {} : { maxTokens: this.config.maxTokens },
+      cwd: request.childProfile?.workspaceCwd
+        ?? resolveChildCwd('subagent-dsh-sdk', this.config.cwd, request.parent.session.header.cwd),
+      provider: request.agentOptions?.provider ?? this.config.provider,
+      model: request.agentOptions?.model ?? this.config.model,
+      ...(request.childProfile?.maxTokens ?? this.config.maxTokens) === undefined
+        ? {}
+        : { maxTokens: request.childProfile?.maxTokens ?? this.config.maxTokens },
+      ...request.childProfile === undefined ? {} : { childProfile: request.childProfile },
       env: this.config.env,
       shutdownTimeoutMs: this.config.shutdownTimeoutMs,
       disposeEofGraceMs: this.config.disposeEofGraceMs,

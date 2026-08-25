@@ -59,6 +59,33 @@ export function apply(ctx: Context): void {
           return session.getSnapshot().views.get('trajectory') !== before
         },
         setActualDuration: (value) => { duration.set(value) },
+        openSubagent: (childSessionId) => {
+          const openFromCatalog = (): void => {
+            const address = ctx.sessions.subagentAddress(childSessionId)
+            if (address !== undefined) {
+              ctx.sessions.openSubagent(address)
+              return
+            }
+            // After a fresh catalog pull, open() resolves the child through
+            // the runtime's authoritative catalog address.
+            ctx.sessions.open(childSessionId)
+          }
+          if (ctx.sessions.subagentAddress(childSessionId) !== undefined) {
+            openFromCatalog()
+            return
+          }
+          void ctx.sessions.refreshSubagents(sessionId)
+            .then(() => {
+              try {
+                openFromCatalog()
+              } catch {
+                // A stale or unhealthy child leaves the current trajectory selected.
+              }
+            })
+            .catch(() => {
+              // A failed refresh leaves the current trajectory selected.
+            })
+        },
       }
     },
   }, TrajectoryView))
