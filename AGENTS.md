@@ -45,7 +45,8 @@ pnpm run demo:acp        # ACP automation server; needs DEEPSEEK_API_KEY
 
 Use [dsh-pre-push-checks](.agents/skills/dsh-pre-push-checks/SKILL.md) before pushes; report commands run. Validate after `gh stack sync`; do not merge before checks pass.
 
-- Repository-level test completion includes `pnpm run build`; use `pnpm run test`, which enforces build-before-unit ordering. Use `pnpm run test:unit` only in a scheduler gate that depends on build or for explicitly focused diagnosis.
+- Completion includes `pnpm run build`; use `pnpm run test` for build-before-unit ordering. Use `pnpm run test:unit` only for build-dependent gates or focused diagnosis.
+- Build/export changes require `pnpm run clean && pnpm run build`; incremental builds can hide failures behind stale `lib/` artifacts.
 - Match evidence to the surface: focused tests for behavior, snapshots for visible output, `doc-sync` for docs, built checks for published paths, and real-API e2e for providers.
 - Do not default to the full suite or repeat passing checks for commit/push. CI owns exhaustive coverage and the platform matrix; rehearse all only by request, CI diagnosis, or repository-wide change.
 - `test:coverage`, not `test`, is the CI coverage gate ([testing policy](docs/testing.md)).
