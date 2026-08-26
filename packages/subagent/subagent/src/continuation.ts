@@ -130,6 +130,8 @@ export interface ContinuableStart {
   readonly childId: SessionId
   /** The accepted initial prompt's inbox message id. */
   readonly messageId: MessageId
+  /** The terminal result of the initial Activation epoch. */
+  readonly result: Promise<SubagentResult>
 }
 
 /**
@@ -242,6 +244,8 @@ interface Activation {
   announced: boolean
   /** Renewed whenever a settlement watcher must re-observe quiescence. */
   poke: PromiseWithResolvers<void>
+  /** Resolves with the terminal result of this Activation epoch. */
+  readonly result: PromiseWithResolvers<SubagentResult>
 }
 
 /** Inputs shared by fresh and resumed Activation materialization. */
@@ -404,7 +408,8 @@ export class SubagentContinuationManager {
    * The caller signal owns lookup, materialization, and admission only until
    * acceptance; afterwards the manager owns the Activation independently.
    * @param spec - provider, delegation request, and caller cancellation.
-   * @returns the durable child id and the accepted initial prompt's message id.
+   * @returns the durable child id, accepted initial prompt's message id, and
+   *   the initial Activation's terminal result promise.
    */
   async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart> {
     const request = spec.request
@@ -462,7 +467,7 @@ export class SubagentContinuationManager {
 
     const lineageSeedLength = prepared.seed?.length ?? 0
     const seed = seedDescriptorTurn(childId, prepared.seed, descriptor)
-    const messageId = await this.locks.run(childId, async () => {
+    const started = await this.locks.run(childId, async () => {
       const activation = await this.materialize({
         childId,
         provider: spec.provider,
@@ -480,15 +485,16 @@ export class SubagentContinuationManager {
         ...request.childProfile === undefined ? {} : { profile: request.childProfile },
         signal: spec.signal,
       })
-      return this.submitMaterialized(
+      const messageId = await this.submitMaterialized(
         activation,
         request.prompt,
         { kind: 'user' },
         parent,
         spec.signal,
       )
+      return { activation, messageId }
     })
-    return { childId, messageId }
+    return { childId, messageId: started.messageId, result: started.activation.result.promise }
   }
 
   /**
@@ -1074,6 +1080,7 @@ export class SubagentContinuationManager {
       accepted: new Set(),
       announced: false,
       poke: Promise.withResolvers<void>(),
+      result: Promise.withResolvers<SubagentResult>(),
     }
     // After transfer, any failure must dispose the created handle, remove the
     // Activation, and roll back parent ownership before rejecting.
@@ -1406,7 +1413,12 @@ export class SubagentContinuationManager {
     // race a parent watcher that resumes one microtask later, finds itself
     // childless and quiet, and disposes an Agent whose `cancel()` clears the
     // inbox this notice is sitting in.
-    this.notifySettlement(activation, activation.observer.terminal(failure))
+    const terminal = activation.observer.terminal(failure)
+    activation.result.resolve({
+      output: terminal.output ?? [],
+      stopReason: terminal.stopReason,
+    })
+    this.notifySettlement(activation, terminal)
     // Release ownership even on failure: a retained failed child would pin its
     // ancestors in `waiting` forever.
     this.releaseOwnership(childId)

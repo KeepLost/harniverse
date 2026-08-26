@@ -13,8 +13,8 @@
  * (`@deepseek-ai/dsh-subagent-spawn-in-process`, `-fork`, `-acp`) and the model-facing
  * consumer (`@deepseek-ai/dsh-tool-subagent`) are separate packages.
  *
- * Public operations express caller intent: `start` returns one published owned
- * one-shot run, `startContinuable` establishes a durable continuable child, and
+ * Public operations express caller intent: `start` is a deprecated legacy
+ * one-shot operation, `startContinuable` establishes a durable child, and
  * `followup` delivers later content without exposing whether the child is
  * resident. Continuable children never become a {@link SubagentRun}: the
  * continuation manager holds their `AgentHandle` directly and orders every turn
@@ -189,7 +189,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** Named provider registry with one-shot runs, durable discovery, and continuable-child operations. */
+/** Named provider registry with deprecated one-shot support and durable child operations. */
 export class SubagentRuntime extends Service {
   private providers = new Map<string, SubagentProvider>()
   private readonly profileGrants = new WeakMap<Agent, ChildProfileGrant>()
@@ -243,7 +243,8 @@ export class SubagentRuntime extends Service {
    * turn to start or for the message to reach the Session log; any earlier
    * failure rejects with no ids and rolls back the child entirely.
    * @param spec - provider, delegation request, and caller cancellation.
-   * @returns the durable child id and the accepted prompt's message id.
+   * @returns the durable child id, accepted prompt message id, and initial
+   *   Activation result promise.
    * @throws when continuation services are unavailable or materialization fails.
    */
   async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart> {
@@ -696,7 +697,11 @@ export class SubagentRuntime extends Service {
   }
 
   /**
-   * Establish a published child on the named provider. Capability and semantic
+   * Establish a published child on the named provider. This legacy operation
+   * returns a provider-owned one-shot run.
+   * @deprecated Use {@link startContinuable}; one-shot children are retained
+   * only for legacy providers and callers.
+   * Capability and semantic
    * checks run before delegation. Provider ownership lasts until its promise
    * fulfills; a rejection therefore has no run for the caller to dispose and
    * emits no run lifecycle events. Post-publication turn and infrastructure
@@ -758,19 +763,9 @@ export class SubagentRuntime extends Service {
     mode: Mode,
     request: SubagentStartRequest,
   ): Promise<Extract<SubagentInvocation, { readonly mode: Mode }>> {
-    if (mode === 'sync') {
-      const run = await this.start(name, request)
-      return {
-        mode,
-        invocationId: SubagentInvocationId(run.id),
-        sessionId: run.id,
-        result: run.result,
-        dispose: run.dispose,
-      } as Extract<SubagentInvocation, { readonly mode: Mode }>
-    }
     if (request.outputSchema !== undefined) {
       throw new SubagentError(
-        'async subagent invocations cannot request an output schema; inspect the durable child Session instead',
+        'subagent invocations cannot request an output schema; inspect the durable child Session instead',
         'UNSUPPORTED_CAPABILITY',
       )
     }
@@ -781,10 +776,16 @@ export class SubagentRuntime extends Service {
       request: continuableRequest,
       signal,
     })
-    return {
+    const identity = {
       mode,
       invocationId: SubagentInvocationId(started.messageId),
       sessionId: started.childId,
+    }
+    if (mode === 'sync') {
+      return { ...identity, result: started.result } as Extract<SubagentInvocation, { readonly mode: Mode }>
+    }
+    return {
+      ...identity,
       messageId: started.messageId,
     } as Extract<SubagentInvocation, { readonly mode: Mode }>
   }

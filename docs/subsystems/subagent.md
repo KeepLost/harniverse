@@ -100,7 +100,7 @@ interface SubagentStartRequest {
 
 `signal` is the single cancellation channel before and after readiness. The [subagent composition-controls Agent Note](../../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md) owns the persona, live global-tool filter, absolute-depth, and visibility-not-authority rationale.
 
-The caller-facing request does not carry catalog format details or continuation state. `SubagentRuntime.start()` resolves the detached one-shot descriptor after capability checks, then passes this provider-facing request to the selected transport; a continuable child never reaches `SubagentProvider.start()`:
+The caller-facing request does not carry catalog format details or continuation state. `SubagentRuntime.start()` is the deprecated legacy one-shot path; normal `SubagentRuntime.invoke()` calls use `startContinuable()` and the provider's detached continuable creation contribution:
 
 ```ts type-equiv
 /**
@@ -282,7 +282,7 @@ interface ContinuableCreateSpec {
 }
 ```
 
-The descriptor (`SubagentDescriptorData` in [descriptor.ts](../../packages/subagent/subagent/src/descriptor.ts)) is a mode-discriminated durable identity for every session-backed subagent. Both modes carry the provider name. A `one-shot` descriptor optionally carries a caller-owned display `label`; a `continuable` descriptor requires the delegation `description` as its durable creation label and additionally snapshots resolved child `agentOptions.provider`/`model` and optional `persona`/`toolFilter` for cold resume. It never snapshots the merge-extensible `AgentOptions` object, so an unrelated extension value cannot break continuation and a later composition input is a deliberate version change. It omits `subagentDepth` (cold resume trusts the persisted header's `delegationDepth` as the monotone floor) and `outputSchema` (one run or Activation's result contract, not durable identity).
+The descriptor (`SubagentDescriptorData` in [descriptor.ts](../../packages/subagent/subagent/src/descriptor.ts)) is a mode-discriminated durable identity for every session-backed subagent. Normal Invocation calls write `continuable` descriptors carrying the provider name, delegation label, and resolved child composition required for cold resume. The `one-shot` descriptor remains for deprecated legacy callers. Neither descriptor snapshots the merge-extensible `AgentOptions` object; `subagentDepth` and `outputSchema` remain per-Activation concerns rather than durable identity.
 
 A local one-shot provider appends the descriptor inside the child's initial turn before its first request. The continuation manager appends the descriptor after any provider-supplied lineage and before the initial prompt is admitted; `header.seedLength` remains the fork-lineage boundary: resume-time descriptor authority reads the child's own suffix, while the list-serving identity projection folds `subagent/descriptor` last-wins so the child's own descriptor overrides a fork-seeded ancestor's. The event is log-only: no `surfaceOp`, never in model history, and retained across compaction by the append-only log. Malformed current-version descriptors are corrupt; unsupported versions cannot be classified by this runtime.
 
@@ -309,7 +309,7 @@ type SubagentDescendantListEntry = SubagentListEntry & {
 
 ## The terminal result: `SubagentResult`
 
-The outcome of a one-shot run, resolved by `SubagentRun.result`. `structured` is present only after a requested `outputSchema` was successfully satisfied; requesting a schema does not guarantee it, and a provider may return `stopReason: 'error'` when the child fails or finishes without a valid capture. A non-`completed` `stopReason` means `output` may be partial — the consumer maps it to an `isError` tool result rather than reporting partial output as success. Optional `diagnostic` carries bounded provider-authored failure detail separately from assistant output.
+The terminal outcome of an Invocation's initial Activation epoch. A non-`completed` `stopReason` means `output` may be partial — the consumer maps it to an `isError` tool result rather than reporting partial output as success. Optional `diagnostic` carries bounded provider-authored failure detail separately from assistant output. Structured output schemas belong only to the deprecated one-shot run contract.
 
 ```ts type-equiv
 /**
@@ -369,7 +369,7 @@ interface SubagentStopReasonMap {
 
 ## A one-shot run: `SubagentRun`
 
-`SubagentRun` is the consumer-owned handle for a published one-shot child — one disposable foreground delegation with one result, never a durable child handle. Prompt submission, turn work, and infrastructure faults after publication belong to `result`. Consumers await that result and always dispose the run to reach quiescence. Child failures resolve with a non-completed stop reason; only unrepresentable infrastructure faults reject. A run has no steering and no resume: continuable conversations have no run at all, because the continuation manager holds their `AgentHandle` directly and orders every turn through the child's own inbox.
+`SubagentRun` is the **deprecated** consumer-owned handle for a published one-shot child — one disposable foreground delegation with one result, never a durable child handle. New callers use `SubagentInvocation`; its `sync` result is the initial Activation epoch's terminal outcome, while the durable child remains resumable. A run has no steering and no resume: the continuation manager holds a continuable child's `AgentHandle` directly and orders every turn through the child's own inbox.
 
 ```ts type-equiv
 /**
@@ -473,7 +473,7 @@ Provider `start()` fulfills with a published run. The service mints a unique `ru
 
 ## In-process backends: depth and seed
 
-The spawn and fork backends create an ordinary one-shot agent through `parent.ctx`, pass cancellation into core creation, and dispose through `AgentHandle`; a continuable child is instead created by the continuation manager through its own activation-owner scope. Provider removal blocks new starts without revoking accepted runs. Each child gets a new flat scope rather than inheriting parent registrations. Depth and fork seeding reuse existing agent and session vocabulary:
+The spawn and fork backends contribute detached creation data for continuable children; the continuation manager creates and owns each child through its activation-owner scope. Their deprecated one-shot provider starts still create an ordinary child through `parent.ctx` and dispose it through `AgentHandle`. Provider removal blocks new starts without revoking accepted legacy runs. Each child gets a new flat scope rather than inheriting parent registrations. Depth and fork seeding reuse existing agent and session vocabulary:
 
 - **Delegation depth** is durable `SessionHeader.delegationDepth` plus the merge-extensible runtime field `AgentOptions.subagentDepth`; absence means top-level depth zero, and the greater present value is authoritative. The seam owns both fields — the loop neither sets nor reads them — so an in-process child persists parent depth + 1, cold resume cannot lower it, and every start rejects a derived depth outside the safe-integer domain or above a defined absolute `request.maxDepth` cap.
 - **Fork seeding** uses [`CreateAgentOptions.seed`](core.md#creation-and-ownership) (a `SessionEvent[]` prefix threaded through `AgentLoop.createAgent` → `ctx.sessions.prepare({ seed })`, the same primitive `ctx.agents.resume()` uses). The fork backend passes a *balanced completed-turn prefix* of the parent's log — the parent's events up to and including its last `turn/end` — so the seed is contiguous-from-0 and the [invariants](../../packages/runtime-diagnostics/invariants) replay accepts it (the in-flight, unbalanced turn is excluded).
@@ -490,7 +490,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.subagents` — `SubagentRuntime`
 
-Named provider registry with one-shot runs, durable discovery, and continuable-child operations.
+Named provider registry with deprecated one-shot support and durable child operations.
 
 ```ts cordis-catalog
 /**
@@ -499,7 +499,8 @@ Named provider registry with one-shot runs, durable discovery, and continuable-c
  * turn to start or for the message to reach the Session log; any earlier
  * failure rejects with no ids and rolls back the child entirely.
  * @param spec - provider, delegation request, and caller cancellation.
- * @returns the durable child id and the accepted prompt's message id.
+ * @returns the durable child id, accepted prompt message id, and initial
+ *   Activation result promise.
  * @throws when continuation services are unavailable or materialization fails.
  */
 async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>
@@ -724,18 +725,6 @@ registerChildProfileSetup(setup: ChildProfileSetup): () => void
  * @param profile - immutable Profile snapshot selected for this child.
  */
 applyChildProfileSetup(childCtx: Context, profile: ResolvedChildProfile): void
-
-/**
- * Establish a published child on the named provider. Capability and semantic
- * checks run before delegation. Provider ownership lasts until its promise
- * fulfills; a rejection therefore has no run for the caller to dispose and
- * emits no run lifecycle events. Post-publication turn and infrastructure
- * failures settle through the returned run.
- * @param name - the provider to use.
- * @param request - child label, prompt, parent, signal, and optional capabilities.
- * @returns the published holder-owned run.
- */
-async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 
 /**
  * Accept one invocation using the caller's waiting policy. The returned

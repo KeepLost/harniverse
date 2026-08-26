@@ -10,6 +10,5 @@
   config:
     provider: spawn
     toolName: subagent
-    backgroundMode: continuable
     enableChildProfileDefine: true
     enableChildProfileList: true

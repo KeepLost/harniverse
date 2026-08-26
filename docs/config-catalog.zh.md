@@ -2969,10 +2969,9 @@ export interface Config {
    */
   enableRunInBackground?: boolean
   /**
-   * Background execution policy (default `one-shot`). `one-shot` defaults calls
-   * to foreground; `continuable` defaults them to background, requires a provider
-   * with the `prepareContinuable` capability, and returns the durable child id.
-   * Follow-up adapters remain independently optional.
+   * Legacy lifecycle setting retained for old deployment files.
+   * @deprecated Retained so old deployment files parse. It no longer selects a
+   * lifecycle; every invocation uses the continuable Session path.
    */
   backgroundMode?: 'one-shot' | 'continuable'
   /**

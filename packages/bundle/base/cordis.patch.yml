@@ -316,7 +316,6 @@
       config:
         provider: spawn
         toolName: subagent
-        backgroundMode: continuable
 
     - id: workflow-worker-thread
       name: '@deepseek-ai/dsh-workflow-worker-thread'

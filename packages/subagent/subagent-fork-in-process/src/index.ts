@@ -75,12 +75,9 @@ class ForkInProcessProvider implements SubagentProvider {
     })
   }
 
-  // TODO(fork-continuable-prefix-reuse): no shipped composition calls this —
-  // they bind fork to `backgroundMode: one-shot` because a continuable child's
-  // `report` tool and prompt section precede the inherited history, defeating
-  // the prefix reuse a fork exists for. Reopening needs a byte-identical child
-  // system prompt and tool schemas; see issue #2124 and
-  // .agents/notes/implemented/architecture/2026-08-10-fork-children-stay-one-shot.md.
+  // Continuable fork creation captures the parent's completed-turn prefix once.
+  // Child-scoped prompt or tool contributions may precede that prefix and
+  // therefore prevent byte-identical prefix reuse without changing semantics.
   prepareContinuable(request: ContinuableCreateRequest): Promise<ContinuableCreateSpec> {
     // The fork prefix is captured ONCE, at creation: it becomes part of the
     // child's own durable transcript, so a later cold resume replays that

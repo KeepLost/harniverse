@@ -10,5 +10,4 @@
         config:
           provider: spawn
           toolName: subagent
-          backgroundMode: continuable
           maxDepth: 2

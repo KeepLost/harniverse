@@ -1,9 +1,8 @@
 /**
  * Model-facing delegation through one configured `ctx.subagents` provider.
- * Provider lifecycle controls tool registration and context-sensitive schema
- * wording. Foreground calls always dispose the run after collection.
- * Background policy is selected by this plugin's configuration: asynchronous
- * calls always use the durable `ctx.subagents.invoke()` contract.
+ * Provider availability controls tool registration and context-sensitive schema
+ * wording. Every invocation uses the durable continuable Session path; `sync`
+ * only waits for the initial turn while `async` returns after admission.
  * @module @deepseek-ai/dsh-tool-subagent
  */
 
@@ -20,6 +19,7 @@ import type {
   ResolvedChildProfile,
   SubagentProvider,
   SubagentResult,
+  SubagentInvocation,
   SubagentRun,
 } from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -45,10 +45,9 @@ export interface Config {
    */
   enableRunInBackground?: boolean
   /**
-   * Background execution policy (default `one-shot`). `one-shot` defaults calls
-   * to foreground; `continuable` defaults them to background, requires a provider
-   * with the `prepareContinuable` capability, and returns the durable child id.
-   * Follow-up adapters remain independently optional.
+   * Legacy lifecycle setting retained for old deployment files.
+   * @deprecated Retained so old deployment files parse. It no longer selects a
+   * lifecycle; every invocation uses the continuable Session path.
    */
   backgroundMode?: 'one-shot' | 'continuable'
   /**
@@ -91,7 +90,7 @@ export const Config: z<Config> = z.object({
   provider: z.string().required(),
   toolName: z.string().default('subagent'),
   enableRunInBackground: z.boolean().default(true),
-  backgroundMode: z.union(['one-shot', 'continuable'] as const).default('one-shot'),
+  backgroundMode: z.union(['one-shot', 'continuable'] as const),
   // Prevent Schemastery from materializing omitted agentOptions as `{}`.
   agentOptions: z.object({
     provider: z.string(),
@@ -165,6 +164,8 @@ type ForegroundToolResult = {
   readonly invocationId: string
   readonly sessionId: string
   readonly output: JsonValue[]
+  /** Explicit marker for the deprecated one-shot escape hatch. */
+  readonly legacy?: true
 }
 
 type AsyncToolResult = {
@@ -177,8 +178,9 @@ function continuationInstruction(sessionId: string): string {
   return `Use session_message with session_id "${sessionId}" for a later turn and session_inspect with the same session_id to read its state or transcript.`
 }
 
-function completedInstruction(sessionId: string): string {
-  return `Use session_inspect with session_id "${sessionId}" to read its state or transcript. This completed one-shot Session does not accept later turns.`
+/** @deprecated Render the legacy one-shot route without advertising continuation. */
+function legacyCompletionInstruction(sessionId: string): string {
+  return `Use session_inspect with session_id "${sessionId}" to read its state or transcript. This legacy one-shot Session does not accept later turns.`
 }
 
 function renderInvocationResult(value: ForegroundToolResult | AsyncToolResult): string {
@@ -186,29 +188,24 @@ function renderInvocationResult(value: ForegroundToolResult | AsyncToolResult): 
     return `Started async subagent session ${value.sessionId} with invocation ${value.invocationId}. ${continuationInstruction(value.sessionId)}`
   }
   const output = outputValueText(value.output)
-  return `Subagent session ${value.sessionId} completed invocation ${value.invocationId}. ${completedInstruction(value.sessionId)}${output.length === 0 ? '' : `\n\nFinal output:\n${output}`}`
+  const instruction = value.legacy === true
+    ? legacyCompletionInstruction(value.sessionId)
+    : continuationInstruction(value.sessionId)
+  return `Subagent session ${value.sessionId} completed invocation ${value.invocationId}. ${instruction}${output.length === 0 ? '' : `\n\nFinal output:\n${output}`}`
 }
 
-/**
- * Collect and release one foreground run without letting disposal replace an
- * independent result failure.
- */
-async function settleForegroundRun(run: SubagentRun): Promise<ForegroundToolResult> {
+/** @deprecated Collect and release a legacy one-shot run. */
+async function settleLegacyRun(run: SubagentRun): Promise<ForegroundToolResult> {
   const [execution] = await Promise.allSettled([
     run.result.then((result): ForegroundToolResult => {
       const error = stopReasonError(result)
-      if (error !== undefined) {
-        // The registry converts this throw to isError; partial output is not
-        // success, but the preserved partial answer still reaches the parent.
-        throw new Error(withDiagnosticAndPartialText(error, result))
-      }
+      if (error !== undefined) throw new Error(withDiagnosticAndPartialText(error, result))
       return {
         mode: 'sync',
         invocationId: run.id,
         sessionId: run.id,
-        // Content blocks already cross durable JSON boundaries elsewhere;
-        // the registry performs the authoritative lossless snapshot here.
         output: result.output as unknown as JsonValue[],
+        legacy: true,
       }
     }),
   ])
@@ -223,6 +220,37 @@ async function settleForegroundRun(run: SubagentRun): Promise<ForegroundToolResu
     throw execution.reason
   }
   if (disposal.status === 'rejected') throw disposal.reason
+  return execution.value
+}
+
+/**
+ * Collect and release one foreground run without letting disposal replace an
+ * independent result failure.
+ */
+async function settleForegroundInvocation(
+  invocation: Extract<SubagentInvocation, { readonly mode: 'sync' }>,
+): Promise<ForegroundToolResult> {
+  const [execution] = await Promise.allSettled([
+    invocation.result.then((result): ForegroundToolResult => {
+      const error = stopReasonError(result)
+      if (error !== undefined) {
+        // The registry converts this throw to isError; partial output is not
+        // success, but the preserved partial answer still reaches the parent.
+        throw new Error(withDiagnosticAndPartialText(error, result))
+      }
+      return {
+        mode: 'sync',
+        invocationId: invocation.invocationId,
+        sessionId: invocation.sessionId,
+        // Content blocks already cross durable JSON boundaries elsewhere;
+        // the registry performs the authoritative lossless snapshot here.
+        output: result.output as unknown as JsonValue[],
+      }
+    }),
+  ])
+  if (execution.status === 'rejected') {
+    throw execution.reason
+  }
   return execution.value
 }
 
@@ -375,14 +403,15 @@ function profileGrantJson(grant: ChildProfileGrant): JsonValue {
 }
 
 /** Resolve the model's optional scheduling request into one execution route. */
-function resolveDelegationRun(
+function resolveDelegationMode(
   request: DelegationRunRequest,
-  options: { readonly backgroundEnabled: boolean; readonly continuable: boolean },
-): boolean {
-  if (request.mode === 'async' && !options.backgroundEnabled) {
+  backgroundEnabled: boolean,
+  legacyOneShot: boolean,
+): 'sync' | 'async' {
+  if (request.mode === 'async' && !backgroundEnabled) {
     throw new Error('mode: async is disabled for this tool instance (enableRunInBackground: false)')
   }
-  return request.mode === 'async' || (request.mode === undefined && options.continuable)
+  return request.mode ?? (legacyOneShot ? 'sync' : backgroundEnabled ? 'async' : 'sync')
 }
 
 export function apply(ctx: Context, config: Config): void {
@@ -394,7 +423,6 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error('tool-subagent: `toolFilter` is configured but names neither `allow` nor `deny` — remove the key or fill the filter')
   }
   const backgroundEnabled = config.enableRunInBackground !== false
-  const continuable = (config.backgroundMode ?? 'one-shot') === 'continuable'
   const toolName = config.toolName ?? 'subagent'
   // Mirror provider lifecycle because sibling load order and HMR replacement
   // can change provider availability while this fiber remains active.
@@ -410,18 +438,11 @@ export function apply(ctx: Context, config: Config): void {
       )
     }
     const wording = providerWording(provider.inheritsParentContext)
-    if (continuable && provider.prepareContinuable === undefined) {
-      throw new Error(
-        `tool-subagent: provider "${provider.name}" does not support \`backgroundMode: continuable\``,
-      )
-    }
     disposeTool = ctx.tools.register(defineTool({
       name: toolName,
       description: wording.description + (backgroundEnabled
-        ? continuable
-          ? ' This tool runs asynchronously by default, immediately returns the durable child Session id, and keeps the child conversation available for later turns. This subagent lifecycle is not a generic background job: never pass its Session id to `job_output`, `job_list`, or `job_kill`. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message. Use `session_message` with that Session id for a later turn and `session_inspect` to read the child state or transcript. Set `mode: sync` only when your next action depends on receiving the result.'
-          : ' This call waits for the result by default. Set `mode: async` to start a durable child Session. This subagent lifecycle is not a generic background job: never pass its Session id to `job_output`, `job_list`, or `job_kill`. Use `session_message` and `session_inspect` for that subagent.'
-        : ' This call waits for the subagent and returns its result.'),
+        ? ' This tool starts a durable continuable child Session asynchronously by default. This subagent lifecycle is not a generic background job: never pass its Session id to `job_output`, `job_list`, or `job_kill`. When the initial turn settles, the runtime sends the parent a notice containing its outcome and any final assistant message. Use `session_message` with that Session id for later turns and `session_inspect` to read the child state or transcript. Set `mode: sync` only when your next action depends on receiving the initial result.'
+        : ' This tool starts a durable continuable child Session and waits for its initial result. This subagent lifecycle is not a generic background job: never pass its Session id to `job_output`, `job_list`, or `job_kill`. Use `session_message` and `session_inspect` with that Session id.'),
       parameters: {
         description: {
           type: 'string',
@@ -463,6 +484,7 @@ export function apply(ctx: Context, config: Config): void {
               invocationId: { type: 'string', required: true },
               sessionId: { type: 'string', required: true },
               output: { type: 'array', required: true, items: { type: 'json' } },
+              legacy: { type: 'boolean', const: true },
             },
           }],
         },
@@ -513,14 +535,23 @@ export function apply(ctx: Context, config: Config): void {
           ...childProfile !== undefined ? { childProfile } : {},
         }
 
-        const runSpec = resolveDelegationRun(args, { backgroundEnabled, continuable })
-        if (runSpec) {
-          // Subagent lifecycles are Session/Invocation lifecycles, never generic
-          // background jobs. Use session controls for follow-up and inspection.
-          const invocation = await ctx.subagents.invoke(config.provider, 'async', {
+        const mode = resolveDelegationMode(args, backgroundEnabled, config.backgroundMode === 'one-shot')
+        if (mode === 'sync' && config.backgroundMode === 'one-shot') {
+          // @deprecated Preserve the explicit legacy escape hatch while the
+          // default Invocation path remains continuable for both wait modes.
+          const run = await ctx.subagents.start(config.provider, {
             ...request,
             signal: exec.signal,
           })
+          return await settleLegacyRun(run)
+        }
+        // Subagent lifecycles are Session/Invocation lifecycles, never generic
+        // background jobs. Both waiting policies use the continuable path.
+        const invocation = await ctx.subagents.invoke(config.provider, mode, {
+          ...request,
+          signal: exec.signal,
+        })
+        if (invocation.mode === 'async') {
           return {
             mode: 'async' as const,
             invocationId: invocation.invocationId,
@@ -528,17 +559,7 @@ export function apply(ctx: Context, config: Config): void {
           }
         }
 
-        const invocation = await ctx.subagents.invoke(config.provider, 'sync', {
-          ...request,
-          signal: exec.signal,
-        })
-        const result = await settleForegroundRun({
-          id: invocation.sessionId,
-          localAgent: undefined,
-          result: invocation.result,
-          dispose: invocation.dispose,
-        })
-        return result
+        return await settleForegroundInvocation(invocation)
       },
     }))
   }
@@ -563,7 +584,7 @@ export function apply(ctx: Context, config: Config): void {
     // A backend fiber may activate later; a misspelled provider remains visible in this log.
     ctx.logger.info(`subagent provider "${config.provider}" not registered yet; the "${config.toolName ?? 'subagent'}" tool will register when it appears`)
   }
-  if (backgroundEnabled && continuable) {
+  if (backgroundEnabled) {
     // The section follows provider availability without its own manual
     // lifecycle: empty text is omitted from rendered prompts while the tool is
     // absent, and the registration itself stays owned by this plugin fiber.
@@ -572,7 +593,7 @@ export function apply(ctx: Context, config: Config): void {
       order: SUBAGENT_SECTION_ORDER,
       text: context => disposeTool === undefined || ctx.tools.get(toolName, context.scope) === undefined
         ? ''
-        : `Use ${toolName} asynchronously by default. Start independent delegations together in one assistant message and continue useful work while they run. This subagent lifecycle is not a generic background job; never pass its Session id to job_output, job_list, or job_kill. The result identifies the durable child Session; use session_message with that session_id for later turns and session_inspect to read its state or transcript. Set \`mode: sync\` only when the next action depends on that subagent's result. When an asynchronous run settles, the runtime sends you a notice containing its outcome and any final assistant message.`,
+        : `Use ${toolName} asynchronously by default. Start independent delegations together in one assistant message and continue useful work while they run. This subagent lifecycle is not a generic background job; never pass its Session id to job_output, job_list, or job_kill. The result identifies the durable child Session; use session_message with that session_id for later turns and session_inspect to read its state or transcript. Set \`mode: sync\` only when the next action depends on that subagent's initial result. When an asynchronous run settles, the runtime sends you a notice containing its outcome and any final assistant message.`,
     })
   }
 

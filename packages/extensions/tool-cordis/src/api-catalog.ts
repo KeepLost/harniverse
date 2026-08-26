@@ -1947,14 +1947,14 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'subagents',
-    summary: 'Named provider registry with one-shot runs, durable discovery, and continuable-child operations.',
-    description: 'Named provider registry with one-shot runs, durable discovery, and continuable-child operations.',
+    summary: 'Named provider registry with deprecated one-shot support and durable child operations.',
+    description: 'Named provider registry with deprecated one-shot support and durable child operations.',
     methods: [
       {
         signature: 'async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>',
         description: 'Establish one durable continuable child and deliver its initial prompt. Resolves when the child\'s inbox accepts that prompt, without waiting for the turn to start or for the message to reach the Session log; any earlier failure rejects with no ids and rolls back the child entirely.',
         parameters: [{ name: 'spec', description: 'provider, delegation request, and caller cancellation.' }],
-        returns: 'the durable child id and the accepted prompt\'s message id.',
+        returns: 'the durable child id, accepted prompt message id, and initial Activation result promise.',
         throws: ['when continuation services are unavailable or materialization fails.'],
       },
       {
@@ -2085,12 +2085,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'applyChildProfileSetup(childCtx: Context, profile: ResolvedChildProfile): void',
         description: 'Apply all registered Profile contributions during child creation.',
         parameters: [{ name: 'childCtx', description: 'unpublished child scope receiving the resolved policy.' }, { name: 'profile', description: 'immutable Profile snapshot selected for this child.' }],
-      },
-      {
-        signature: 'async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>',
-        description: 'Establish a published child on the named provider. Capability and semantic checks run before delegation. Provider ownership lasts until its promise fulfills; a rejection therefore has no run for the caller to dispose and emits no run lifecycle events. Post-publication turn and infrastructure failures settle through the returned run.',
-        parameters: [{ name: 'name', description: 'the provider to use.' }, { name: 'request', description: 'child label, prompt, parent, signal, and optional capabilities.' }],
-        returns: 'the published holder-owned run.',
       },
       {
         signature: 'async invoke<Mode extends SubagentInvocationMode>( name: string, mode: Mode, request: SubagentStartRequest, ): Promise<Extract<SubagentInvocation, { readonly mode: Mode }>>',
@@ -3650,7 +3644,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ContinuableStart',
-    declaration: 'export interface ContinuableStart {\n    readonly childId: SessionId;\n    readonly messageId: MessageId;\n}',
+    declaration: 'export interface ContinuableStart {\n    readonly childId: SessionId;\n    readonly messageId: MessageId;\n    readonly result: Promise<SubagentResult>;\n}',
   },
   {
     name: 'ContinuableStartSpec',
@@ -5082,7 +5076,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentInvocation',
-    declaration: 'export type SubagentInvocation = {\n    readonly mode: \'sync\';\n    readonly invocationId: SubagentInvocationId;\n    readonly sessionId: SessionId;\n    readonly result: Promise<SubagentResult>;\n    readonly dispose: () => Promise<void>;\n} | {\n    readonly mode: \'async\';\n    readonly invocationId: SubagentInvocationId;\n    readonly sessionId: SessionId;\n    readonly messageId: MessageId;\n};',
+    declaration: 'export type SubagentInvocation = {\n    readonly mode: \'sync\';\n    readonly invocationId: SubagentInvocationId;\n    readonly sessionId: SessionId;\n    readonly result: Promise<SubagentResult>;\n} | {\n    readonly mode: \'async\';\n    readonly invocationId: SubagentInvocationId;\n    readonly sessionId: SessionId;\n    readonly messageId: MessageId;\n};',
   },
   {
     name: 'SubagentInvocationId',

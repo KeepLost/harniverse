@@ -580,13 +580,12 @@ const TOOL_PACKAGES: ToolPackage[] = [
       registerCatalogSubagentProvider(ctx, 'mock')
       await ctx.plugin(ToolSubagent, {
         provider: 'mock',
-        backgroundMode: 'continuable',
         enableChildProfileDefine: true,
         enableChildProfileList: true,
       })
     },
     note:
-      'This harvest matches the shipped continuable spawn-backed `subagent` plus its Standard, Code, and Cordis Child Profile management tools. Base omits the profile tools, Minimal omits delegation, and custom compositions may load provider-bound instances under distinct names and background policies.',
+      'This harvest matches the shipped continuable spawn-backed `subagent` plus its Standard, Code, and Cordis Child Profile management tools. Base omits the profile tools, Minimal omits delegation, and custom compositions may load provider-bound instances under distinct names.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent-control',
