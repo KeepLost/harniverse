@@ -241,6 +241,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `1cd0fb8b59` | Normalizes sync and persistent async `subagent` results to Invocation receipts carrying `mode`, `invocationId`, and `sessionId`; the legacy receipt remains only for the internal one-shot Task route. |
 | `47b1dc525f` | Changes the shipped fork delegation tool to the persistent Invocation lifecycle, removing the last shipped `backgroundMode: one-shot` composition. |
 | `e5dde45a8d` | Narrows the async Invocation receipt regression fixture through its public JSON boundary before reading the durable child Session id, restoring strict Host compilation. |
+| `60b37766c2` | Restores parseable shipped fork composition and lets private Agent-preset compaction history attach from the first published Session event when its realm did not observe the creation edge. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
