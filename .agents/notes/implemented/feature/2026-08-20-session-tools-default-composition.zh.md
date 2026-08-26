@@ -22,7 +22,7 @@ Status: implemented
 
 ## 后果
 
-- 交付的 Standard、Code、Cordis 与 Minimal Profile 暴露九个查询/读取工具，以及 `session_send_message` 和 `session_unload`。
+- 交付的 Standard、Code、Cordis 与 Minimal Profile 暴露 `session_create`、`session_message`、`session_unload`、`session_find`、`session_search`、`session_event_search` 与 `session_inspect`。
 - TUI 与 headless 组合从共享 base 行获得同一组工具。
 - 搜索在启动时保持惰性并使用可丢弃的内存索引；需要持久派生索引的部署仍可覆盖现有 path。
 - 该能力暴露部署可见的会话发现并执行进程内投递，因此现有不透明 id 与普通会话授权规则继续有效。

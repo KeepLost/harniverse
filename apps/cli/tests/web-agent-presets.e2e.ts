@@ -41,9 +41,8 @@ const MINIMAL_BASH_DESCRIPTION = `Run commands in a bash shell
 * Please avoid commands that may produce a very large amount of output.
 * Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.`
 const MINIMAL_TOOL_NAMES = [
-  'artifact_read', 'bash', 'session_event_read', 'session_event_search', 'session_event_trace',
-  'session_find', 'session_log_tail', 'session_message_tail', 'session_search', 'session_send_message', 'session_status', 'session_trace',
-  'session_unload', 'str_replace_editor',
+  'artifact_read', 'bash', 'session_create', 'session_event_search', 'session_find', 'session_inspect',
+  'session_message', 'session_search', 'session_unload', 'str_replace_editor',
 ]
 
 /**
@@ -232,13 +231,11 @@ describe('the shipped Web composition', () => {
       // excluded for the reason the TUI composition e2e excludes them — they
       // depend on ripgrep being present on the machine.
       expect(toolNames(ctx, handle.agent).filter(name => name !== 'glob' && name !== 'grep')).toEqual([
-        'artifact_read', 'ask_user_question', 'bash', 'compaction_history_expand',
-        'compaction_history_search', 'context_compact', 'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'interrupt_agent',
-        'job_kill', 'job_list', 'job_output', 'list_agents', 'ralph', 'read', 'read_image', 'send_message',
-        'session_event_read', 'session_event_search', 'session_event_trace', 'session_find', 'session_log_tail',
-        'session_message_tail', 'session_search',
-        'session_send_message', 'session_status', 'session_trace', 'session_unload',
-        'skill', 'subagent', 'subagent_fork', 'todo_write', 'update_goal',
+        'artifact_read', 'ask_user_question', 'bash', 'child_profile_define', 'child_profile_list',
+        'compaction_history_expand', 'compaction_history_search', 'context_compact', 'create_goal',
+        'edit', 'exit_plan_mode', 'get_goal', 'job_kill', 'job_list', 'job_output', 'ralph', 'read', 'read_image',
+        'session_create', 'session_event_search', 'session_find', 'session_inspect', 'session_message', 'session_search',
+        'session_unload', 'skill', 'subagent', 'todo_write', 'update_goal',
         'workflow', 'write',
       ])
       const compaction = ctx.agentPresets.serviceFor(handle.agent, 'compaction')
@@ -283,7 +280,7 @@ describe('the shipped Web composition', () => {
     })
     try {
       expect(toolNames(ctx, minimal.agent)).toEqual(expect.arrayContaining([
-        'session_search', 'session_send_message', 'session_status', 'session_unload',
+        'session_create', 'session_inspect', 'session_message', 'session_search', 'session_unload',
       ]))
       expect(toolNames(ctx, full.agent).length).toBeGreaterThan(10)
 

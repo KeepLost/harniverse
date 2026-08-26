@@ -69,6 +69,7 @@ const PROMPT_TEXT =
   'Use session_find to locate prior sessions by current title, creation time, or raw-event activity time; session_find returns session metadata without content-match events or snippets. '
   + 'Use session_search to search prior-session content; session_search returns matching event seqs and snippets. Use session_event_search for content inside one session. '
   + 'Use session_inspect for one authorized session view: summary, messages, history, event, or lineage; add seq to lineage to inspect one event\'s replacement and source relationships. '
+  + 'Use session_message to continue a known ordinary session or direct subagent session; inbox acceptance does not mean completion. A subagent result and settlement notice identify its durable Session id, which session_message and session_inspect accept as session_id. '
   + 'The messages view reads the folded current model-message surface, while history and event read complete raw events including shadowed and log-only trajectory. Search and find results are cursor-free.'
 
 /** Register discovery, search, and unified inspection tools with shared guidance. */

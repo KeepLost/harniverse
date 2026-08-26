@@ -384,6 +384,17 @@ abstract inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection
 async readHistoryPage( id: SessionId, request: SessionHistoryPageRequest, signal?: AbortSignal, ): Promise<SessionHistoryPage & { readonly meta: SessionHeader }>
 
 /**
+ * Read one raw-event page without resuming a Session. Concrete backends may
+ * seek directly to the tail; the default preserves the seam for third-party
+ * backends by paging a validated inspection.
+ * @param id - persisted session to read.
+ * @param request - exclusive upper bound and raw-event quota.
+ * @param signal - optional cancellation for backend read work.
+ * @returns detached metadata and a bounded raw-event page.
+ */
+async readRawEventPage( id: SessionId, request: SessionRawEventPageRequest, signal?: AbortSignal, ): Promise<SessionRawEventPage & { readonly meta: SessionHeader }>
+
+/**
  * Read the stored events from `fromSeq` onward — the read-from-seq
  * primitive for read models that resume from a watermark (e.g. a persisted
  * projection cache folding only the tail past its checkpoint). Unlike
@@ -437,5 +448,5 @@ abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot
 
 Types: [EpochHeader](session.md) · [SessionEvent](session.md) · [SessionId](core.md)
 
-Source: [`packages/session/session-persistence/src/index.ts:91`](../../packages/session/session-persistence/src/index.ts)
+Source: [`packages/session/session-persistence/src/index.ts:96`](../../packages/session/session-persistence/src/index.ts)
 <!-- END GENERATED cordis-surface -->

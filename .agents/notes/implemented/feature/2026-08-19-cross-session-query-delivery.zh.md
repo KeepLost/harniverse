@@ -18,6 +18,8 @@ session-query 工具把 cwd 过滤与访问权限混为一谈，也缺少直接�
 
 消息变更属于独立 capability seam：`dsh-session-delivery` 定义创建、inbox 接受与安全卸载；`dsh-session-delivery-local` 复用 live 普通 Agent，或按记录的模型和 preset 单飞恢复持久化普通会话；`dsh-tool-session-delivery` 注册 `session_create`、`session_message` 和 `session_unload`。普通投递使用 `Agent.followup()`；直属子会话投递使用 `SubagentRuntime.followup()`，以保留权威的直属父级授权、Activation 路由和 cold 恢复。两者都返回已接受的 message id，不等待回复或目标 turn 完成。卸载对 cold 目标幂等，并在 `AgentRegistry.closeIfIdle()` 原子预留 teardown 前拒绝 subagent、由运行时所有或仍拥有 child 的目标；该原语把运行中、maintenance 和排队输入都视为 busy，并在首次让出执行前关闭准入。
 
+模型约定通过身份把委派接入这些 Session 操作。原生同步和异步 `subagent` 结果都会渲染持久化 child Session id。`session_inspect` 可以读取两类结果 Session；异步可继续 child 还会把 `session_message` 指定为后续轮次入口，而已完成的同步一次性 child 会拒绝后续轮次。`session_create.agent_profile_id` 命名普通 Agent Profile，而 `subagent.child_profile_id` 与 `child_profile_define.child_profile_id` 命名私有 Child Profile。`child_profile_list` 同时返回当前 live parent 的可用 grant 和已定义 revision，使模型只请求可发现的不透明能力 id；即使父级私有定义注册表位于内存中，每个已启动 child 也会持久保存其 resolved immutable snapshot。
+
 ## 考虑过的替代方案
 
 **保留 cwd 作为权限。** 否决，因为所需契约明确把 cwd 变为可选语料过滤器，并允许通过不透明 id 执行精确跨 cwd 读取。
@@ -35,5 +37,6 @@ session-query 工具把 cwd 过滤与访问权限混为一谈，也缺少直接�
 - `session_find` 结果绝不暗示内容命中；`session_search` 结果始终标识一个内容命中。
 - `session_inspect` 的 history 和 event 视图保留 shadowed 与 log-only 轨迹；messages 仍是折叠后的当前模型消息视图。
 - 投递确认表示进程内 inbox 接受，不表示崩溃持久性或完成。
+- 每条原生 Invocation 确认都包含后续投递和检查 Consumer 所需的 child Session id。
 - 已交付的 base 默认挂载本地 delivery Provider 与两个模型 Consumer；Web bundle 关闭全局 Consumer 行，因此每个交付 Agent Profile 都在自己的作用域中挂载同一组工具。
 - 已交付 bundle 将 SQLite 后端设为 `openAt: first-search`，默认搜索工具可用，同时不会在启动时导入 SQLite。

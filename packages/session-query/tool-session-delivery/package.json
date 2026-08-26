@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-tool-session-delivery",
-  "description": "Model-facing ordinary-session message delivery tool",
+  "description": "Model-facing persistent Session creation, delivery, and unload tools",
   "version": "0.1.0-rc.5",
   "publishConfig": { "access": "public" },
   "repository": {

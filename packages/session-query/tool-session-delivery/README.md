@@ -10,7 +10,7 @@ Default `session_create`, `session_message`, and `session_unload` Consumer over 
 
 #### What the model sees
 
-The generated [`session_create`, `session_message`, and `session_unload` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-session-delivery) create a persistent session, deliver a later turn, or unload an idle target. Creation returns only after Profile/model setup is attached; delivery does not imply completion or a reply; direct-child delivery retains parent authorization and cold recovery; unload refuses targets with active, queued, subagent, or runtime-owned work.
+The generated [`session_create`, `session_message`, and `session_unload` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-session-delivery) create a persistent session, deliver a later turn, or unload an idle target. Creation accepts an ordinary `agent_profile_id`, returns only after Profile/model setup is attached, and sends no initial message; the model uses `session_message` with the returned Session id to start work. Delivery does not imply completion or a reply; direct-child delivery retains parent authorization and cold recovery; unload refuses targets with active, queued, subagent, or runtime-owned work.
 
 #### Token effect
 

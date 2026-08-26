@@ -119,8 +119,8 @@
       name: '@deepseek-ai/dsh-session-delivery-local'
 
     # Shared projection registry: subagent catalog identity (mode/label) folds
-    # through its registered units, so the `list_agents` surface below fails
-    # loud without it; web layers reuse this same mount for list rows.
+    # through its registered units; Web descendant and history views reuse this
+    # Host mount without creating a per-Agent registry.
     - id: session-projection
       name: '@deepseek-ai/dsh-session-projection'
 

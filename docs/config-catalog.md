@@ -1873,7 +1873,7 @@ export interface Config {
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-Source: [`packages/session/session-persistence-jsonl/src/index.ts:149`](../packages/session/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session/session-persistence-jsonl/src/index.ts:170`](../packages/session/session-persistence-jsonl/src/index.ts)
 
 <a id="deepseek-aidsh-session-persistence-sqlite"></a>
 
@@ -1918,7 +1918,7 @@ export interface Config {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-Source: [`packages/session/session-persistence-sqlite/src/index.ts:89`](../packages/session/session-persistence-sqlite/src/index.ts)
+Source: [`packages/session/session-persistence-sqlite/src/index.ts:90`](../packages/session/session-persistence-sqlite/src/index.ts)
 
 <a id="deepseek-aidsh-session-projection-cache"></a>
 
@@ -2900,9 +2900,9 @@ export interface Config {
   maxSearchResults?: number
   /** Cooperative indexed discovery/search deadline in milliseconds. Defaults to 30000. */
   searchTimeoutMs?: number
-  /** Default number of finalized messages returned by session_message_tail. */
+  /** Default number of finalized messages returned by the session_inspect messages view. */
   messageTailLimit?: number
-  /** Default number of complete raw events returned by session_log_tail. */
+  /** Default number of complete raw events returned by the session_inspect history view. */
   logTailLimit?: number
 }
 ```
@@ -2962,8 +2962,8 @@ export interface Config {
    */
   toolName?: string
   /**
-   * Expose `run_in_background` (default true). Disabled instances omit the
-   * parameter and reject forced background calls.
+   * Allow asynchronous invocations (default true). Disabled instances reject
+   * `mode: async` calls.
    */
   enableRunInBackground?: boolean
   /**
@@ -3003,12 +3003,16 @@ export interface Config {
    * budget belongs to the child runtime or its own deployment.
    */
   maxDepth?: number | 'provider-managed'
+  /** Expose parent-private `child_profile_define`. */
+  enableChildProfileDefine?: boolean
+  /** Expose parent-private `child_profile_list`. */
+  enableChildProfileList?: boolean
 }
 ```
 
 Depends on: [`AgentOptions`](subsystems/core.md)
 
-Source: [`packages/subagent/tool-subagent/src/index.ts:29`](../packages/subagent/tool-subagent/src/index.ts)
+Source: [`packages/subagent/tool-subagent/src/index.ts:36`](../packages/subagent/tool-subagent/src/index.ts)
 
 <a id="deepseek-aidsh-tool-subagent-report"></a>
 

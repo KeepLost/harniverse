@@ -149,10 +149,10 @@ const sessionInspectParameters = {
     enum: ['summary', 'messages', 'history', 'event', 'lineage'],
     description: 'View to inspect: summary status, folded messages, raw history, one event, or lineage.',
   },
-  limit: { type: 'integer', description: 'Maximum messages or raw events for messages/history views.' },
-  seq: { type: 'integer', description: 'Event sequence for the event view, or for event relationships in the lineage view.' },
-  before: { type: 'integer', description: 'Complete raw events before seq for the event view.' },
-  after: { type: 'integer', description: 'Complete raw events after seq for the event view.' },
+  limit: { type: 'integer', description: 'Maximum items for messages/history only. Defaults to 10 for messages and 20 for history; maximum 50.' },
+  seq: { type: 'integer', description: 'Required for event; optional for lineage to select one event\'s replacement and source relationships. Omit for Session lineage.' },
+  before: { type: 'integer', description: 'For event only, complete raw events before seq; maximum 50.' },
+  after: { type: 'integer', description: 'For event only, complete raw events after seq; maximum 50.' },
 } as const
 
 function buildSessionFilters(args: SessionFilterArgs): SessionResultFilter[] {

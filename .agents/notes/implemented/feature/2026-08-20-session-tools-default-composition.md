@@ -22,7 +22,7 @@ The shipped SQLite provider uses `openAt: first-search` with its existing in-mem
 
 ## Consequences
 
-- Standard, Code, Cordis, and Minimal shipped Profiles expose the nine query/read tools plus `session_send_message` and `session_unload`.
+- Standard, Code, Cordis, and Minimal shipped Profiles expose `session_create`, `session_message`, `session_unload`, `session_find`, `session_search`, `session_event_search`, and `session_inspect`.
 - TUI and headless compositions receive the same tools from the shared base rows.
 - Search remains lazy at startup and uses a disposable in-memory index; deployments that need a durable derived index can override the existing path.
 - The capability exposes deployment-visible session discovery and process-local delivery, so the existing opaque-id and ordinary-session authorization rules remain in force.

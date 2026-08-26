@@ -428,9 +428,16 @@ abstract deliver(request: SessionDeliveryRequest): Promise<SessionDeliveryReceip
  * @returns whether a live target was detached.
  */
 abstract unload(request: SessionUnloadRequest): Promise<SessionUnloadReceipt>
+
+/**
+ * Create and publish a fully composed ordinary session.
+ * @param request - exact live sender, optional Agent Profile, and cancellation.
+ * @returns the durable Session identity after composition and publication.
+ */
+abstract create(request: SessionCreateRequest): Promise<SessionCreateReceipt>
 ```
 
-Source: [`packages/session-query/session-delivery/src/index.ts:51`](../../packages/session-query/session-delivery/src/index.ts)
+Source: [`packages/session-query/session-delivery/src/index.ts:64`](../../packages/session-query/session-delivery/src/index.ts)
 
 <a id="ctxsessionquery--sessionqueryengine-abstract-seam"></a>
 

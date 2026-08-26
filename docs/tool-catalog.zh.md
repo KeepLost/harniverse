@@ -9,7 +9,7 @@
 
 英文源文件由系统**生成**，并通过 `pnpm run verify-tool-catalog`（`doc-sync`（文档同步门禁）的一部分）验证新鲜度；本中文文件作为经评审对侧通过双语配对维护。与 Cordis 目录（纯源码 AST 处理）不同，英文生成器会在真实上下文中**启动**每个工具插件并读取 `ctx.tools.schemas()`，因为工具 schema 无法通过静态分析完全确定，例如运行时展开的枚举、拼接的描述、由配置决定的名称以及使用原始 JSON Schema 的 MCP 工具。完整性守卫会 glob 匹配 `packages/*/tool-*`；如果生成器的启动 manifest（元数据清单）遗漏任何包，检查就会失败，因此新工具不会在无人察觉的情况下缺少文档。参见[工具 schema 目录 Agent Note](../.agents/notes/implemented/process/2026-07-02-tool-schema-catalog.md)。
 
-范围：`packages/*/tool-*` 下已发布的产品工具，每个工具均使用其**默认**配置启动；但如果某个 Config 字段是**必填项**且没有默认值，生成器就必须作出选择，对应包的说明会记录本页展示的是哪个分支。注册的工具**名称**可以是加载时配置，例如 `tool-subagent` 的 `toolName`，因此部署可能以不同名称或额外名称提供某个包；如果存在随产品发布的别名，对应包的说明会予以记录。`examples/` 中的演示工具（例如 `echo`）不在范围内，这与 Cordis 目录仅涵盖包的范围一致。
+范围：`packages/*/tool-*` 下的产品工具包。除非必填字段或交付配置会实质改变模型 schema，否则每个包都使用默认配置启动；对应包的说明会记录本页采集的分支。注册的工具名称可以由加载时配置决定，因此部署可能以不同名称或额外名称提供某个包。`examples/` 中的演示工具不在范围内，这与 Cordis 目录仅涵盖包的范围一致。
 
 ## 工具包映射
 
@@ -37,10 +37,10 @@
 | `@deepseek-ai/dsh-tool-compaction-history` | `compaction_history_expand`、`compaction_history_search` | `ctx.tools`、`ctx.systemPrompt`、`ctx.compactionHistory`、`a calling Agent for Session identity` | `tool/call`、`tool/result` | - | 随附工具只搜索调用方 live Session 中已提交的 summary checkpoint。展开输出把恢复历史视为不可信内容，并应用配置的深度与确定性 token 估算 cap。 |
 | `@deepseek-ai/dsh-tool-result-artifacts` | `artifact_read` | `ctx.tools`、`ctx.spillStore` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`、`ctx.agents`、`ctx.skills` | `tool/call`、`tool/result`、`user/message replacement catalogs via agent.inject()` | - | - |
-| `@deepseek-ai/dsh-tool-session-delivery` | `session_send_message`、`session_unload` | `ctx.tools`、`ctx.sessionDelivery`、`a calling Agent` | `tool/call`、`tool/result`、`target user/message through the selected Provider` | - | 该工具只确认 inbox 接受，绝不等待目标完成或回复。 |
-| `@deepseek-ai/dsh-tool-session-query` | `session_event_read`、`session_event_search`、`session_event_trace`、`session_find`、`session_log_tail`、`session_message_tail`、`session_search`、`session_status`、`session_trace` | `ctx.tools`、`ctx.systemPrompt`、`ctx.sessionQuery`、`a calling Agent for caller identity` | `tool/call`、`tool/result` | - | 这 9 个只读工具区分标题/时间发现、内容命中、当前消息尾部和完整原始日志读取，同时隐藏提供方游标，并把精确观察绑定到不透明 session id。 |
-| `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`、`ctx.subagents`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`child session events through the chosen provider` | `subagent`、`subagent_fork` | 注册的工具名称取决于加载时 `toolName` 配置（默认为 `subagent`）；上述 schema 对应默认值。随产品发布的组合会为每个 subagent 后端加载一次该包，因此模型还会看到绑定到 fork 后端的 `subagent_fork`。每个实例的描述、`run_in_background` 参数与 system prompt 策略取决于它自己的 `backgroundMode` 和 `enableRunInBackground`，因此两个随附 schema 并不相同：`subagent` 为 `continuable`，省略参数时默认后台运行，并由 runtime 自动投递结束结果；`subagent_fork` 保持 `one-shot`，省略参数时默认前台运行。详见 `packages/bundle/base/cordis.patch.yml` 和 `examples/acp-agent/cordis.yml`。 |
-| `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`、`list_agents`、`send_message` | `ctx.tools`、`ctx.subagents`、`ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`、`tool/result`、`child session events through ctx.subagents` | - | 这些是控制可继续后台 subagent 的全局命名工具：绑定提供方的 `tool-subagent` 实例注册不同的委派工具；本包注册一次 `send_message` 和 `interrupt_agent`，另由 `list_agents` 通过单独加载的 `/list-agents` 插件提供，其目录行使用 sessionProjections 和实时 Agent 注册表。 |
+| `@deepseek-ai/dsh-tool-session-delivery` | `session_create`、`session_message`、`session_unload` | `ctx.tools`、`ctx.sessionDelivery`、`a calling Agent` | `tool/call`、`tool/result`、`target user/message through the selected Provider` | - | 该工具只确认 inbox 接受，绝不等待目标完成或回复。 |
+| `@deepseek-ai/dsh-tool-session-query` | `session_event_search`、`session_find`、`session_inspect`、`session_search` | `ctx.tools`、`ctx.systemPrompt`、`ctx.sessionQuery`、`a calling Agent for caller identity` | `tool/call`、`tool/result` | - | 这些只读工具区分标题/时间发现、内容命中、统一会话检查、当前消息尾部和完整原始日志读取，同时隐藏提供方游标，并把精确观察绑定到不透明 session id。 |
+| `@deepseek-ai/dsh-tool-subagent` | `child_profile_define`、`child_profile_list`、`subagent` | `ctx.tools`、`ctx.subagents`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`child session events through the chosen provider` | `subagent` | 本次采集对应交付的 continuable spawn-backed `subagent`，以及 Standard、Code 和 Cordis 的 Child Profile 管理工具。Base 不包含 Profile 工具，Minimal 不包含委派；自定义组合可以用不同名称和后台策略加载绑定提供方的实例。 |
+| `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`、`list_agents`、`send_message`、`subagent_history` | `ctx.tools`、`ctx.subagents`、`ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`、`tool/result`、`child session events through ctx.subagents` | - | 这些是控制可继续后台 subagent 的全局命名工具：绑定提供方的 `tool-subagent` 实例注册不同的委派工具；本包注册一次 `send_message` 和 `interrupt_agent`，另由 `list_agents` 通过单独加载的 `/list-agents` 插件提供，其目录行使用 sessionProjections 和实时 Agent 注册表。 |
 | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`、`ctx.systemPrompt`、`a live continuable in-process child Agent` | `tool/call`、`tool/result`、`a user-role message in the direct parent session` | - | 按可继续的进程内子级注册，而非全局注册，因此该 schema 仅在这种子级内部可见，并且不受其全局 `toolFilter` 影响。同一份贡献还会安装子级作用域的 `tool:report` 系统提示词 section，本目录不渲染该 section。面向父级的 `send_message` 工具单独安装。 |
 | `@deepseek-ai/dsh-tool-jobs` | `job_kill`、`job_list`、`job_output` | `ctx.tools`、`ctx.jobs`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`user/message via agent.inject() for background completion notices` | - | 与任务种类无关的后台任务控制器：后台 bash 命令、PTY 发送和 subagent 都通过相同的 3 个工具读取、列出和终止。加载该插件会挂接控制器，从而启用生产方的 `ctx.jobs.start()`。 |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`、`owning Agent session` | `tool/call`、`todo/write`、`tool/result` | - | todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。 |
@@ -1401,9 +1401,27 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
 
 ## `@deepseek-ai/dsh-tool-session-delivery`
 
-### `session_send_message`
+### `session_create`
 
-把消息作为下一个 FIFO turn 发送到另一个普通会话。inbox 接受后立即返回，不等待回复或 turn 完成。
+在当前工作区创建新的持久化普通会话。该调用只创建会话，不发送初始消息；使用返回的 `sessionId` 调用 `session_message` 才会启动第一个 turn。会话在 Agent Profile 和模型配置完成持久附加后返回。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "agent_profile_id": {
+      "type": "string",
+      "description": "Optional ordinary Agent Profile id. This is not a Child Profile id. The host resolves and validates it before publication."
+    }
+  }
+}
+```
+
+来源：[`packages/session-query/tool-session-delivery/src/index.ts`](../packages/session-query/tool-session-delivery/src/index.ts)
+
+### `session_message`
+
+把消息作为下一个 FIFO turn 发送到另一个普通会话或直属 subagent 会话。inbox 接受后返回，不等待回复或 turn 完成。
 
 ```json
 {
@@ -1411,7 +1429,7 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
   "properties": {
     "session_id": {
       "type": "string",
-      "description": "Target ordinary session id."
+      "description": "Target ordinary session or direct subagent session id."
     },
     "message": {
       "type": "string",
@@ -1453,39 +1471,6 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
 <a id="deepseek-aidsh-tool-session-query"></a>
 
 ## `@deepseek-ai/dsh-tool-session-query`
-
-### `session_event_read`
-
-从一个已获授权的会话中读取围绕某一事件序号的完整原始 SessionEvent 窗口。
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "session_id": {
-      "type": "string",
-      "description": "Target session id. Omit for the current session."
-    },
-    "seq": {
-      "type": "integer",
-      "description": "Target event sequence number."
-    },
-    "before": {
-      "type": "integer",
-      "description": "Number of preceding complete raw events to include. Omit for none."
-    },
-    "after": {
-      "type": "integer",
-      "description": "Number of following complete raw events to include. Omit for none."
-    }
-  },
-  "required": [
-    "seq"
-  ]
-}
-```
-
-来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
 
 ### `session_event_search`
 
@@ -1541,31 +1526,6 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
   },
   "required": [
     "query"
-  ]
-}
-```
-
-来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
-
-### `session_event_trace`
-
-读取已获授权会话中某个事件的所有直接替换关系，以及该事件与其引用的来源事件之间的关系。
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "session_id": {
-      "type": "string",
-      "description": "Target session id. Omit for the current session."
-    },
-    "seq": {
-      "type": "integer",
-      "description": "Target event sequence number."
-    }
-  },
-  "required": [
-    "seq"
   ]
 }
 ```
@@ -1646,31 +1606,9 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
 
 来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
 
-### `session_log_tail`
+### `session_inspect`
 
-读取已授权会话中最新的完整原始 SessionEvent 轨迹，其中包括 shadowed 和 log-only 事件。
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "session_id": {
-      "type": "string",
-      "description": "Target session id. Omit for the current session."
-    },
-    "limit": {
-      "type": "integer",
-      "description": "Maximum complete raw events to return. Defaults to 20."
-    }
-  }
-}
-```
-
-来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
-
-### `session_message_tail`
-
-读取已授权会话中折叠后的当前模型消息 surface 尾部。这不是历史原始日志轨迹。
+通过统一视图检查一个已授权会话的摘要状态、折叠消息、原始历史、单个事件或 lineage。绝不恢复 cold 会话。
 
 ```json
 {
@@ -1680,11 +1618,37 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
       "type": "string",
       "description": "Target session id. Omit for the current session."
     },
+    "view": {
+      "type": "string",
+      "description": "View to inspect: summary status, folded messages, raw history, one event, or lineage.",
+      "enum": [
+        "summary",
+        "messages",
+        "history",
+        "event",
+        "lineage"
+      ]
+    },
     "limit": {
       "type": "integer",
-      "description": "Maximum finalized messages to return. Defaults to 10."
+      "description": "Maximum items for messages/history only. Defaults to 10 for messages and 20 for history; maximum 50."
+    },
+    "seq": {
+      "type": "integer",
+      "description": "Required for event; optional for lineage to select one event's replacement and source relationships. Omit for Session lineage."
+    },
+    "before": {
+      "type": "integer",
+      "description": "For event only, complete raw events before seq; maximum 50."
+    },
+    "after": {
+      "type": "integer",
+      "description": "For event only, complete raw events after seq; maximum 50."
     }
-  }
+  },
+  "required": [
+    "view"
+  ]
 }
 ```
 
@@ -1794,51 +1758,105 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
 
 来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
 
-### `session_status`
-
-读取已授权会话是否 live 及其 Agent 是否运行，且不恢复 cold 会话。
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "session_id": {
-      "type": "string",
-      "description": "Target session id. Omit for the current session."
-    }
-  }
-}
-```
-
-来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
-
-### `session_trace`
-
-读取围绕一个会话的已授权会话谱系，包括完整可见的祖先和后代关系。
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "session_id": {
-      "type": "string",
-      "description": "Target session id. Omit for the current session."
-    }
-  }
-}
-```
-
-来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
-
-这 9 个只读工具区分标题/时间发现、内容命中、当前消息尾部和完整原始日志读取，同时隐藏提供方游标，并把精确观察绑定到不透明 session id。
+这些只读工具区分标题/时间发现、内容命中、统一会话检查、当前消息尾部和完整原始日志读取，同时隐藏提供方游标，并把精确观察绑定到不透明 session id。
 
 <a id="deepseek-aidsh-tool-subagent"></a>
 
 ## `@deepseek-ai/dsh-tool-subagent`
 
+### `child_profile_define`
+
+在当前 parent Agent 的私有内存命名空间中定义或替换一份完整 Child Profile。省略能力数组表示继承 `child_profile_list` 显示的完整 grant，`[]` 表示不授予该类能力。Host 会拒绝 grant 之外的能力。把返回的 `profileId` 传给 `subagent.child_profile_id`。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "child_profile_id": {
+      "type": "string",
+      "description": "Id in this parent Agent's private Child Profile namespace. Defining an existing id replaces its complete specification with a new revision."
+    },
+    "harness_id": {
+      "type": "string",
+      "description": "Granted child harness id. Omit to use the configured delegation provider shown by child_profile_list."
+    },
+    "model_route_id": {
+      "type": "string",
+      "description": "Granted model route id. Omit to use the parent current route shown by child_profile_list."
+    },
+    "tools": {
+      "type": "array",
+      "description": "Granted child Tool ids. Omit to inherit every granted Tool; use [] for none.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "skills": {
+      "type": "array",
+      "description": "Granted child Skill ids. Omit to inherit every granted Skill; use [] for none.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "mcp_server_ids": {
+      "type": "array",
+      "description": "Granted MCP server ids. Omit to inherit every granted server; use [] for none.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "child_profile_ids": {
+      "type": "array",
+      "description": "Granted Child Profile ids this child may use for its own delegation. Omit to inherit all granted ids; use [] for none.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "workspace_cwd": {
+      "type": "string",
+      "description": "Relative directory inside the parent workspace. Omit to inherit the parent cwd."
+    },
+    "max_depth": {
+      "type": "number",
+      "description": "Non-negative child delegation-depth ceiling; cannot exceed the parent grant."
+    },
+    "max_tokens": {
+      "type": "number",
+      "description": "Non-negative child token ceiling; cannot exceed the parent grant."
+    },
+    "model_route_priority": {
+      "type": "number",
+      "description": "Model route priority."
+    },
+    "scheduler_priority": {
+      "type": "number",
+      "description": "Scheduler priority."
+    }
+  },
+  "required": [
+    "child_profile_id"
+  ]
+}
+```
+
+来源：[`packages/subagent/tool-subagent/src/index.ts`](../packages/subagent/tool-subagent/src/index.ts)
+
+### `child_profile_list`
+
+显示当前 parent Agent 可用的 Child Profile grant 和已定义的 Profile revision。Profile 定义只在该 live parent Agent 存续期间存在；每个已启动 child 都会持久保留其 resolved immutable snapshot。
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+来源：[`packages/subagent/tool-subagent/src/index.ts`](../packages/subagent/tool-subagent/src/index.ts)
+
 ### `subagent`
 
-将一项自包含任务委派给 subagent（在自身上下文中工作的独立 agent），用它卸载聚焦且独立的工作，例如研究、限定范围的实现或分析，以免消耗当前对话的上下文。subagent 会返回结果，但不会返回中间步骤。请提供完整、独立的提示词，因为它看不到当前对话。此调用默认等待结果。设置 `run_in_background: true` 可返回 job id；使用 `job_output` 收集结果，使用 `job_kill` 停止任务。
+把自包含任务委派给 subagent，也就是在自身上下文中工作的独立 agent，以卸载研究、限定范围的实现或分析等聚焦且独立的工作，避免消耗当前对话的上下文。subagent 返回结果，不返回中间步骤。请提供完整且独立的提示词，因为它看不到当前对话。该工具默认异步运行，立即返回持久化 child Session id，并让 child 对话可供后续 turn 使用。该次运行结算后，runtime 会向 parent 发送包含结局和最终 assistant 消息的通知。使用该 Session id 调用 `session_message` 可开始后续 turn，调用 `session_inspect` 可读取 child 状态或 transcript。仅当下一步动作依赖结果时才设置 `mode: sync`。
 
 ```json
 {
@@ -1852,9 +1870,17 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
       "type": "string",
       "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
     },
-    "run_in_background": {
-      "type": "boolean",
-      "description": "Whether to run as a background job and return its id. Defaults to false; collect with job_output or stop with job_kill."
+    "mode": {
+      "type": "string",
+      "description": "Whether to wait for the child result (`sync`) or return after accepting its initial turn (`async`). Omit to use this tool instance's advertised default.",
+      "enum": [
+        "sync",
+        "async"
+      ]
+    },
+    "child_profile_id": {
+      "type": "string",
+      "description": "Optional id from child_profile_list in this parent Agent's private Child Profile namespace. This is not an ordinary Agent Profile id."
     }
   },
   "required": [
@@ -1866,7 +1892,7 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
 
 来源：[`packages/subagent/tool-subagent/src/index.ts`](../packages/subagent/tool-subagent/src/index.ts)
 
-注册的工具名称取决于加载时 `toolName` 配置（默认为 `subagent`）；上述 schema 对应默认值。随产品发布的组合会为每个 subagent 后端加载一次该包，因此模型还会看到绑定到 fork 后端的 `subagent_fork`。每个实例的描述、`run_in_background` 参数与 system prompt 策略取决于它自己的 `backgroundMode` 和 `enableRunInBackground`，因此两个随附 schema 并不相同：`subagent` 为 `continuable`，省略参数时默认后台运行，并由 runtime 自动投递结束结果；`subagent_fork` 保持 `one-shot`，省略参数时默认前台运行。详见 `packages/bundle/base/cordis.patch.yml` 和 `examples/acp-agent/cordis.yml`。
+本次采集对应交付的 continuable spawn-backed `subagent`，以及 Standard、Code 和 Cordis 的 Child Profile 管理工具。Base 不包含 Profile 工具，Minimal 不包含委派；自定义组合可以用不同名称和后台策略加载绑定提供方的实例。
 
 <a id="deepseek-aidsh-tool-subagent-control"></a>
 
@@ -1935,6 +1961,35 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
   "required": [
     "subagent_id",
     "message"
+  ]
+}
+```
+
+来源：[`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts)
+
+### `subagent_history`
+
+读取某个直接或嵌套 subagent 的有界原始事件历史，且不恢复该 subagent。结果包含 user/assistant 消息、工具调用与结果、生命周期记录和序号。使用上一页返回的 `before_seq` 可向更早的历史翻页；只有调用 Agent 的后代才获准读取。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "subagent_id": {
+      "type": "string",
+      "description": "The direct or nested subagent id returned by delegation or list_agents."
+    },
+    "before_seq": {
+      "type": "integer",
+      "description": "Read events before this sequence number for older-page traversal."
+    },
+    "max_events": {
+      "type": "integer",
+      "description": "Maximum complete raw events to return, from 1 through 50. Defaults to 50."
+    }
+  },
+  "required": [
+    "subagent_id"
   ]
 }
 ```

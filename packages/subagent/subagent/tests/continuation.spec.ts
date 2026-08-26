@@ -599,7 +599,7 @@ describe('SubagentRuntime.followup residency routing', () => {
     await run.dispose()
 
     await expect(followup(ctx, parent, oneShotId, message('continue')))
-      .rejects.toThrow(/no supported continuation state/)
+      .rejects.toThrow(/do not retry session_message with this id/)
   })
 
   it('reports an unknown child id as unavailable', async () => {

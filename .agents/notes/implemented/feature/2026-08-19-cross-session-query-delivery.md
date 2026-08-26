@@ -18,6 +18,8 @@ The opt-in session-query Consumer no longer treats exact `cwd` equality as autho
 
 Message mutation is a separate capability seam: `dsh-session-delivery` defines creation, inbox acceptance, and safe unload; `dsh-session-delivery-local` reuses live ordinary Agents or single-flight resumes persisted ordinary sessions under their recorded model and preset; and `dsh-tool-session-delivery` registers `session_create`, `session_message`, and `session_unload`. Ordinary delivery uses `Agent.followup()`; direct-child delivery uses `SubagentRuntime.followup()` so direct-parent authorization, Activation routing, and cold recovery remain authoritative. Both return the accepted message id without awaiting a reply or target turn completion. Unload is idempotent for cold targets and rejects subagent, runtime-owned, or child-owning targets before `AgentRegistry.closeIfIdle()` atomically reserves teardown; that primitive treats running, maintenance, and queued input as busy and closes admission before yielding.
 
+The model contract joins delegation to these Session operations by identity. Native synchronous and asynchronous `subagent` results render the durable child Session id. `session_inspect` reads either result Session; an asynchronous continuable child also names `session_message` as its later-turn path, while a completed synchronous one-shot child rejects later turns. `session_create.agent_profile_id` names an ordinary Agent Profile, while `subagent.child_profile_id` and `child_profile_define.child_profile_id` name a private Child Profile. `child_profile_list` returns both the current live parent's available grant and its defined revisions, so the model can request only discoverable opaque capability ids; each started child persists its resolved immutable snapshot even though the parent-private definition registry is in memory.
+
 ## Alternatives considered
 
 **Retain cwd as authority.** Rejected because the requested contract deliberately makes cwd an optional corpus filter and permits exact cross-cwd reads by opaque id.
@@ -35,5 +37,6 @@ Message mutation is a separate capability seam: `dsh-session-delivery` defines c
 - `session_find` results never imply a content match; `session_search` results always identify one.
 - `session_inspect` history and event views preserve shadowed and log-only trajectory, while messages remains the folded current model-message view.
 - Delivery acknowledgement is process-local inbox acceptance, not crash durability or completion.
+- Every native Invocation acknowledgement includes the child Session id required by the follow-up and inspection Consumers.
 - The shipped base mounts the local delivery Provider and both model Consumers; the Web bundle disables the global Consumer rows so every shipped Agent Profile mounts the same tools in its own scope.
 - The SQLite backend uses `openAt: first-search` in shipped bundles, so the default search tools are usable without importing SQLite during startup.

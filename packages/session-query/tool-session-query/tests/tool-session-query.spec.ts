@@ -302,6 +302,11 @@ describe('registration and schemas', () => {
       .toContain('session_search returns matching event seqs and snippets')
     expect(assembly.sections.find(section => section.name === 'tool:session-query')?.text)
       .toContain('history and event read complete raw events')
+    expect(assembly.sections.find(section => section.name === 'tool:session-query')?.text)
+      .toContain('Use session_message to continue a known ordinary session or direct subagent session')
+    const inspect = mounted.ctx.tools.schemas().find(schema => schema.name === 'session_inspect')
+    expect(inspect?.parameters).toHaveProperty('properties.limit.description', expect.stringContaining('Defaults to 10 for messages and 20 for history; maximum 50'))
+    expect(inspect?.parameters).toHaveProperty('properties.seq.description', expect.stringContaining('Required for event'))
 
     await mounted.fiber.dispose()
     expect(mounted.ctx.tools.schemas().map(schema => schema.name)).toEqual([])

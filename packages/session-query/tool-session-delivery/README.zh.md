@@ -10,7 +10,7 @@
 
 #### 模型看到什么
 
-生成的 [`session_create`、`session_message` 和 `session_unload` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-session-delivery) 分别创建持久会话、投递后续 turn 或卸载空闲目标。创建会在 Profile/model 设置附加后返回；投递成功不表示完成或回复；直属子会话投递保留父级授权和冷恢复；卸载会拒绝仍有运行、排队、subagent 或运行时所有权工作的目标。
+生成的 [`session_create`、`session_message` 和 `session_unload` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-session-delivery) 分别创建持久会话、投递后续 turn 或卸载空闲目标。创建接受普通 `agent_profile_id`，会在 Profile/model 设置附加后返回，但不会发送初始消息；模型使用返回的 Session id 调用 `session_message` 才会启动工作。投递成功不表示完成或回复；直属子会话投递保留父级授权和冷恢复；卸载会拒绝仍有运行、排队、subagent 或运行时所有权工作的目标。
 
 #### Token 影响
 

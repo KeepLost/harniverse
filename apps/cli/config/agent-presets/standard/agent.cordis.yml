@@ -192,7 +192,8 @@
         provider: spawn
         toolName: subagent
         backgroundMode: continuable
-        enableProfileManagement: true
+        enableChildProfileDefine: true
+        enableChildProfileList: true
 
     # Product providers are host-plane singletons. Copy this preset, then
     # remove `disabled` from either ordinary tool row to expose that product

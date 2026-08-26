@@ -45,9 +45,9 @@ export function apply(ctx: Context): void {
   }))
   ctx.tools.register(defineTool({
     name: 'session_create',
-    description: 'Create a new persistent ordinary session in the current workspace. The session is returned after its Profile and model configuration are durably attached.',
+    description: 'Create a new persistent ordinary session in the current workspace. This only creates the session and does not send an initial message; use session_message with the returned sessionId to start its first turn. The session is returned after its Agent Profile and model configuration are durably attached.',
     parameters: {
-      profile_id: { type: 'string', description: 'Optional agent Profile id. The host resolves and validates the Profile before publication.' },
+      agent_profile_id: { type: 'string', description: 'Optional ordinary Agent Profile id. This is not a Child Profile id. The host resolves and validates it before publication.' },
     },
     output: {
       schema: {
@@ -61,10 +61,11 @@ export function apply(ctx: Context): void {
       render: (_args, value) => [{ type: 'text', text: `Created persistent session ${value.sessionId}${value.agentProfile === undefined ? '' : ` with Profile ${value.agentProfile}`}.` }],
     },
     async execute(args, exec) {
+      if ('profile_id' in args) throw new Error('profile_id was removed; use agent_profile_id')
       if (exec.agent === undefined) throw new Error('session_create requires a calling agent')
       return ctx.sessionDelivery.create({
         sender: exec.agent,
-        ...(args.profile_id === undefined ? {} : { profileId: args.profile_id }),
+        ...(args.agent_profile_id === undefined ? {} : { profileId: args.agent_profile_id }),
         signal: exec.signal,
       })
     },

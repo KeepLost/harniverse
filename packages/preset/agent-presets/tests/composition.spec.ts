@@ -114,6 +114,10 @@ describe('Agent Profile composition recipes', () => {
     const catalog = await compositionCatalog([shippedPreset('standard')], 'standard')
     const filesystem = catalog.descriptors.find(entry => entry.id === 'plugin:tool-fs')
     expect(filesystem?.members?.map(member => member.name)).toEqual(['edit', 'read', 'read_image', 'write'])
+    const delegation = catalog.descriptors.find(entry => entry.id === 'plugin:delegation')
+    expect(delegation?.members?.filter(member => member.defaultVisible).map(member => member.name)).toEqual(expect.arrayContaining([
+      'subagent', 'child_profile_define', 'child_profile_list',
+    ]))
     const persona = catalog.descriptors.find(entry => entry.id === 'plugin:persona')
     expect(persona).toMatchObject({ manageable: true, selectionManageable: false })
     expect(persona?.customization?.defaultValues).toMatchObject({
@@ -170,6 +174,36 @@ describe('Agent Profile composition recipes', () => {
         fetch: false,
         searchTimeoutMs: 60000,
       },
+    })
+  })
+
+  it('mounts only the selected Child Profile management member', async () => {
+    const catalog = await compositionCatalog([shippedPreset('standard')], 'standard')
+    const entries = catalog.descriptors.map((descriptor): CapabilityCatalogEntry => {
+      const base = selected(descriptor)
+      if (descriptor.id !== 'plugin:delegation') return base
+      if (descriptor.members === undefined) throw new Error('delegation recipe must declare members')
+      return {
+        ...base,
+        memberSelection: 'custom',
+        memberEntries: descriptor.members.map(member => ({
+          ...member,
+          visible: member.name === 'subagent' || member.name === 'child_profile_list',
+        })),
+      }
+    })
+
+    expect(compositionPatches(catalog, entries)).toContainEqual({
+      id: 'delegation',
+      config: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'tool-subagent',
+          config: expect.objectContaining({
+            enableChildProfileDefine: false,
+            enableChildProfileList: true,
+          }),
+        }),
+      ]),
     })
   })
 })

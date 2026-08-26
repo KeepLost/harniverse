@@ -28,6 +28,25 @@ class GatedAdapter extends LlmAdapter {
 }
 
 describe('session_message', () => {
+  it('describes the ordinary-session creation and direct-child continuation workflow', async () => {
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(AgentDefaultModel, { provider: 'mock', model: 'mock' })
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(LocalSessionDelivery)
+    await ctx.plugin(tool)
+
+    const create = ctx.tools.schemas().find(schema => schema.name === 'session_create')
+    const createProperties = (create?.parameters as { properties?: Record<string, unknown> }).properties ?? {}
+    expect(Object.keys(createProperties)).toEqual(['agent_profile_id'])
+    expect(create?.description).toContain('does not send an initial message')
+    expect(create?.description).toContain('session_message')
+    expect(ctx.tools.schemas().find(schema => schema.name === 'session_message')?.description)
+      .toContain('direct subagent')
+
+    await ctx.fiber.dispose()
+  })
+
   it('creates a persistent ordinary session through the Agent factory', async () => {
     const ctx = new Context()
     await mountAgentLoopTestDependencies(ctx)
@@ -53,6 +72,63 @@ describe('session_message', () => {
     const created = ctx.agents.list().find(agent => agent.id !== sender.id)
     expect(created).toBeDefined()
     expect(created?.session.header.origin).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('forwards agent_profile_id into the created Session identity', async () => {
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(AgentDefaultModel, { provider: 'mock', model: 'mock' })
+    await ctx.plugin(AgentLoop, { agents: [] })
+    ctx.provide('agentPresets', {
+      resolve: (id: string | undefined) => Promise.resolve({ id: id ?? 'standard' }),
+      mount: () => Promise.resolve(),
+    } as never)
+    await ctx.plugin(LocalSessionDelivery)
+    await ctx.plugin(tool)
+    const sender = (await ctx.agents.create({
+      sessionId: SessionId('profile-creator'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })).agent
+
+    const result = await ctx.tools.execute({
+      name: 'session_create',
+      arguments: { agent_profile_id: 'code' },
+      callId: CallId('profile-create-call'),
+      signal: new AbortController().signal,
+      agent: sender,
+    })
+
+    expect(result.isError, JSON.stringify(result)).toBe(false)
+    if (result.isError) throw new Error('expected session_create success')
+    expect(result.value).toMatchObject({ agentProfile: 'code' })
+    const created = ctx.agents.list().find(agent => agent.id !== sender.id)
+    expect(created?.session.header.agentProfile).toBe('code')
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects the removed profile_id instead of creating with the default Profile', async () => {
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(AgentDefaultModel, { provider: 'mock', model: 'mock' })
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(LocalSessionDelivery)
+    await ctx.plugin(tool)
+    const sender = (await ctx.agents.create({
+      sessionId: SessionId('legacy-profile-creator'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })).agent
+
+    const result = await ctx.tools.execute({
+      name: 'session_create',
+      arguments: { profile_id: 'standard' },
+      callId: CallId('legacy-profile-create-call'),
+      signal: new AbortController().signal,
+      agent: sender,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content.some(block => block.type === 'text' && block.text.includes('profile_id was removed; use agent_profile_id'))).toBe(true)
     await ctx.fiber.dispose()
   })
 

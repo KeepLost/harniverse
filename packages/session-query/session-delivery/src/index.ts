@@ -80,7 +80,11 @@ export abstract class SessionDelivery extends Service {
    */
   abstract unload(request: SessionUnloadRequest): Promise<SessionUnloadReceipt>
 
-  /** Create and publish a fully composed ordinary session. */
+  /**
+   * Create and publish a fully composed ordinary session.
+   * @param request - exact live sender, optional Agent Profile, and cancellation.
+   * @returns the durable Session identity after composition and publication.
+   */
   abstract create(request: SessionCreateRequest): Promise<SessionCreateReceipt>
 }
 

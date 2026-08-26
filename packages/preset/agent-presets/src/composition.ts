@@ -122,8 +122,17 @@ interface RecipeToolMember {
 function toolsOf(row: EntryOptions): RecipeToolMember[] {
   if (row.group && Array.isArray(row.config)) return row.config.flatMap(child => toolsOf(child as EntryOptions))
   if (row.name === '@deepseek-ai/dsh-tool-subagent') {
-    const config = row.config as { toolName?: unknown } | undefined
-    return [{ name: typeof config?.toolName === 'string' ? config.toolName : 'subagent', visible: row.disabled !== true }]
+    const config = row.config as {
+      toolName?: unknown
+      enableChildProfileDefine?: unknown
+      enableChildProfileList?: unknown
+    } | undefined
+    const visible = row.disabled !== true
+    return [
+      { name: typeof config?.toolName === 'string' ? config.toolName : 'subagent', visible },
+      ...config?.enableChildProfileDefine === true ? [{ name: 'child_profile_define', visible }] : [],
+      ...config?.enableChildProfileList === true ? [{ name: 'child_profile_list', visible }] : [],
+    ]
   }
   const config = row.config as { search?: unknown; fetch?: unknown } | undefined
   return [...TOOLS_BY_PACKAGE[row.name] ?? []].map(name => ({
@@ -196,6 +205,13 @@ function rowWithMemberSelection(
       ...(configured.config as Record<string, unknown> | undefined),
       search: visible.has('web_search'),
       fetch: visible.has('web_fetch'),
+    }
+  }
+  if (configured.name === '@deepseek-ai/dsh-tool-subagent') {
+    configured.config = {
+      ...(configured.config as Record<string, unknown> | undefined),
+      enableChildProfileDefine: visible.has('child_profile_define'),
+      enableChildProfileList: visible.has('child_profile_list'),
     }
   }
   if (tools.length > 0) configured.disabled = !tools.some(name => visible.has(name))

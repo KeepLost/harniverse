@@ -94,7 +94,10 @@ describe('dsh-tool-subagent', () => {
       sessionId: 'scripted-subagent:mock:parent-1',
       output: [{ type: 'text', text: 'child says hi' }],
     })
-    expect(text(result)).toBe('child says hi')
+    expect(text(result)).toContain('Subagent session scripted-subagent:mock:parent-1 completed')
+    expect(text(result)).toContain('Use session_inspect with session_id "scripted-subagent:mock:parent-1"')
+    expect(text(result)).not.toContain('session_message')
+    expect(text(result)).toContain('child says hi')
   })
 
   it('exposes description + prompt + mode to the model (no provider/type parameter)', async () => {
@@ -102,7 +105,7 @@ describe('dsh-tool-subagent', () => {
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')
     expect(schema).toBeDefined()
     const props = (schema!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
-    expect(Object.keys(props).sort()).toEqual(['description', 'mode', 'profile_id', 'prompt'])
+    expect(Object.keys(props).sort()).toEqual(['description', 'mode', 'prompt'])
     expect(schema!.description).toContain('mode: async')
   })
 
@@ -110,7 +113,7 @@ describe('dsh-tool-subagent', () => {
     const ctx = await setup({ provider: 'mock', enableRunInBackground: false })
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')
     const props = (schema!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
-    expect(Object.keys(props).sort()).toEqual(['description', 'mode', 'profile_id', 'prompt'])
+    expect(Object.keys(props).sort()).toEqual(['description', 'mode', 'prompt'])
     expect(schema!.description).not.toContain('job_output')
   })
 
@@ -229,8 +232,10 @@ describe('dsh-tool-subagent', () => {
 
     const viaSpawn = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c-spawn'), name: 'subagent', arguments: { description: 'd', prompt: 'p' }, agent: fakeAgent() })
     const viaAcp = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c-acp'), name: 'subagent_acp', arguments: { description: 'd', prompt: 'p' }, agent: fakeAgent() })
-    expect(text(viaSpawn)).toBe('from spawn')
-    expect(text(viaAcp)).toBe('from acp')
+    expect(text(viaSpawn)).toContain('from spawn')
+    expect(text(viaSpawn)).toContain('scripted-subagent:spawn:parent-1')
+    expect(text(viaAcp)).toContain('from acp')
+    expect(text(viaAcp)).toContain('scripted-subagent:acp:parent-1')
   })
 
   it('treats an unknown (plugin-added) stop reason as an isError result', async () => {
@@ -340,7 +345,8 @@ describe('dsh-tool-subagent', () => {
     await mock.mountScriptedProvider(ctx, { name: 'mock', reply: 'late but fine' })
     expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(true)
     const result = await callSubagent(ctx, { description: 'd', prompt: 'p' })
-    expect(text(result)).toBe('late but fine')
+    expect(text(result)).toContain('late but fine')
+    expect(text(result)).toContain('scripted-subagent:mock:parent-1')
   })
 
   it('keeps continuable guidance empty while its provider is absent', async () => {
@@ -687,10 +693,10 @@ describe('dsh-tool-subagent', () => {
     expect(seen?.maxDepth).toBe(2)
   })
 
-  it('defines a parent-private profile and delegates by profile_id', async () => {
+  it('defines a parent-private profile, exposes its grant, and delegates by child_profile_id', async () => {
     let profileSeen: unknown
     let routeSeen: unknown
-    const ctx = await setup({ provider: 'mock', enableProfileManagement: true }, {
+    const ctx = await setup({ provider: 'mock', enableChildProfileDefine: true, enableChildProfileList: true }, {
       onStart: (request) => { profileSeen = request.childProfile; routeSeen = request.agentOptions },
     })
     const parent = fakeAgent('profile-parent')
@@ -706,13 +712,20 @@ describe('dsh-tool-subagent', () => {
       parentWorkspaceCwd: '/repo',
       maxDepth: 3,
     })
+    const delegationSchema = ctx.tools.schemas().find(schema => schema.name === 'subagent')
+    const delegationProperties = (delegationSchema?.parameters as { properties?: Record<string, unknown> }).properties ?? {}
+    expect(Object.keys(delegationProperties).sort()).toEqual(['child_profile_id', 'description', 'mode', 'prompt'])
+    expect(delegationProperties).not.toHaveProperty('profile_id')
+    const defineSchema = ctx.tools.schemas().find(schema => schema.name === 'child_profile_define')
+    expect(defineSchema?.parameters).toHaveProperty('properties.child_profile_id')
+    expect(defineSchema?.parameters).not.toHaveProperty('properties.profile_id')
     const defined = await ctx.tools.execute({
       signal: testToolSignal,
       callId: CallId('profile-define'),
       name: 'child_profile_define',
       agent: parent,
       arguments: {
-        profile_id: 'reviewer',
+        child_profile_id: 'reviewer',
         harness_id: 'mock',
         model_route_id: 'safe',
         tools: ['read'],
@@ -722,15 +735,62 @@ describe('dsh-tool-subagent', () => {
     const delegated = await callSubagent(ctx, {
       description: 'profiled task',
       prompt: 'read the repository',
-      profile_id: 'reviewer',
+      child_profile_id: 'reviewer',
     }, { agent: parent })
     expect(delegated.isError).toBe(false)
     expect(profileSeen).toMatchObject({ profileId: 'reviewer', revision: 1, harnessId: 'mock', modelRouteId: 'safe' })
     expect(routeSeen).toEqual({ provider: 'mock', model: 'safe-model' })
+    const listed = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('profile-list'),
+      name: 'child_profile_list',
+      agent: parent,
+      arguments: {},
+    })
+    expect(listed.isError, text(listed)).toBe(false)
+    expect(listed.isError ? undefined : listed.value).toEqual({
+      grant: {
+        harnessIds: ['mock'],
+        modelRouteIds: ['safe'],
+        tools: ['read'],
+        skills: [],
+        mcpServerIds: [],
+        childProfileIds: [],
+        workspaceRoot: '/repo',
+        parentWorkspaceCwd: '/repo',
+        maxDepth: 3,
+      },
+      profiles: [expect.objectContaining({ profileId: 'reviewer', revision: 1 })],
+    })
+  })
+
+  it('rejects the removed profile_id instead of delegating with defaults', async () => {
+    let starts = 0
+    const ctx = await setup(
+      { provider: 'mock', enableChildProfileDefine: true, enableChildProfileList: true },
+      { onStart: () => { starts += 1 } },
+    )
+    const result = await callSubagent(ctx, {
+      description: 'profiled task',
+      prompt: 'use the requested profile',
+      profile_id: 'reviewer',
+    })
+
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('profile_id was removed; use child_profile_id')
+    expect(starts).toBe(0)
+  })
+
+  it('registers only the enabled Child Profile management tool', async () => {
+    const ctx = await setup({ provider: 'mock', enableChildProfileList: true })
+    const names = ctx.tools.schemas().map(schema => schema.name)
+
+    expect(names).toContain('child_profile_list')
+    expect(names).not.toContain('child_profile_define')
   })
 
   it('binds a default parent grant when Profile management is enabled', async () => {
-    const ctx = await setup({ provider: 'mock', enableProfileManagement: true }, {
+    const ctx = await setup({ provider: 'mock', enableChildProfileDefine: true, enableChildProfileList: true }, {
       onStart: (request) => { expect(request.agentOptions).toEqual({ provider: 'mock', model: 'parent-model' }) },
     })
     const parent = {
@@ -743,11 +803,11 @@ describe('dsh-tool-subagent', () => {
       callId: CallId('profile-default-define'),
       name: 'child_profile_define',
       agent: parent,
-      arguments: { profile_id: 'default-reviewer' },
+      arguments: { child_profile_id: 'default-reviewer' },
     })
     expect(defined.isError, text(defined)).toBe(false)
     const delegated = await callSubagent(ctx, {
-      description: 'default profile task', prompt: 'use the default route', profile_id: 'default-reviewer',
+      description: 'default profile task', prompt: 'use the default route', child_profile_id: 'default-reviewer',
     }, { agent: parent })
     expect(delegated.isError).toBe(false)
   })
@@ -1119,7 +1179,8 @@ describe('dsh-tool-subagent continuable background mode', () => {
     // Continuable delegation has no Task, so the schema promises no collection.
     expect(schema.description).not.toContain('job_output')
     expect(schema.description).not.toContain('job_kill')
-    expect(schema.description).toContain('send_message')
+    expect(schema.description).toContain('session_message')
+    expect(schema.description).not.toContain('`send_message`')
     expect(schema.description).toContain('runs asynchronously by default')
     expect(schema.description).not.toContain('never poll or wait on it')
     const properties = (schema.parameters as {
@@ -1129,6 +1190,8 @@ describe('dsh-tool-subagent continuable background mode', () => {
     const assembly = await ctx.systemPrompt.assemble(assembleContextFor(parent))
     const guidance = assembly.sections.find(section => section.name === 'tool:subagent')
     expect(guidance?.text).toContain('Use subagent asynchronously by default')
+    expect(guidance?.text).toContain('use session_message with that session_id')
+    expect(guidance?.text).toContain('session_inspect')
     expect(guidance?.text).toContain('runtime sends you a notice containing its outcome')
 
     const started = await callSubagent(
@@ -1144,6 +1207,8 @@ describe('dsh-tool-subagent continuable background mode', () => {
     }
     const childId = receipt.sessionId
     if (typeof childId !== 'string') throw new Error('expected durable child session id')
+    expect(text(started)).toContain(`Started async subagent session ${childId}`)
+    expect(text(started)).toContain(`session_message with session_id "${childId}"`)
     // No Task was created for the continuable child.
     expect(ctx.jobs.list(parent)).toEqual([])
 
@@ -1175,7 +1240,11 @@ describe('dsh-tool-subagent continuable background mode', () => {
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected foreground subagent success')
     expect(result.value).toMatchObject({ mode: 'sync' })
-    expect(text(result)).toBe('continuable answer')
+    expect(text(result)).toContain('Subagent session ')
+    expect(text(result)).toContain('Use session_inspect with session_id')
+    expect(text(result)).toContain('does not accept later turns')
+    expect(text(result)).not.toContain('session_message')
+    expect(text(result)).toContain('continuable answer')
     expect(ctx.jobs.list(parent)).toEqual([])
   })
 
