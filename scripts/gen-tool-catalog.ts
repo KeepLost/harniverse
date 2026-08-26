@@ -574,14 +574,14 @@ const TOOL_PACKAGES: ToolPackage[] = [
     source: 'packages/subagent/tool-subagent/src/index.ts',
     requires: ['ctx.tools', 'ctx.subagents', 'ctx.systemPrompt'],
     writes: ['tool/call', 'tool/result', 'child session events through the chosen provider'],
-    shippedNames: ['subagent', 'subagent_fork'],
+    shippedNames: ['subagent'],
     async mount(ctx) {
       await ctx.plugin(SubagentRuntime)
       registerCatalogSubagentProvider(ctx, 'mock')
       await ctx.plugin(ToolSubagent, { provider: 'mock' })
     },
     note:
-      'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped compositions load this package once per subagent backend, so the model additionally sees `subagent_fork` bound to the fork backend. Each instance\'s description, `mode` parameter, and system-prompt policy follow its own `backgroundMode` and `enableRunInBackground`, so `subagent` defaults to async durable child turns while `subagent_fork` defaults to sync result waits — see `packages/bundle/base/cordis.patch.yml` and `examples/acp-agent/cordis.yml`.',
+      'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. Shipped compositions expose one `subagent` entry backed by continuable spawn. Custom compositions may load additional provider-bound instances under distinct names and background policies.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent-control',

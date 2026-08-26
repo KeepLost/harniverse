@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-session-delivery-local",
-  "description": "Local live and persisted ordinary-session message delivery provider",
+  "description": "Local ordinary-session and direct-child message delivery provider",
   "version": "0.1.0-rc.5",
   "publishConfig": { "access": "public" },
   "repository": {
@@ -28,11 +28,13 @@
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session-delivery": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
-    "@deepseek-ai/dsh-session-persistence": "workspace:^"
+    "@deepseek-ai/dsh-session-persistence": "workspace:^",
+    "@deepseek-ai/dsh-subagent": "workspace:^"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-agent-default-model": { "optional": true },
-    "@deepseek-ai/dsh-session-persistence": { "optional": true }
+    "@deepseek-ai/dsh-session-persistence": { "optional": true },
+    "@deepseek-ai/dsh-subagent": { "optional": true }
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
@@ -43,6 +45,7 @@
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session-delivery": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
-    "@deepseek-ai/dsh-session-persistence": "workspace:^"
+    "@deepseek-ai/dsh-session-persistence": "workspace:^",
+    "@deepseek-ai/dsh-subagent": "workspace:^"
   }
 }

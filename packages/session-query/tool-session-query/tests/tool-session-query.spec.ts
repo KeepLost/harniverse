@@ -264,39 +264,22 @@ function errorCode(result: ToolExecutionResult): string | undefined {
 }
 
 describe('registration and schemas', () => {
-  it('registers distinct find, content-search, and raw-log tools with their prompt guidance, then disposes them', async () => {
+  it('registers discovery, content-search, and unified inspection tools with their prompt guidance, then disposes them', async () => {
     const mounted = await mount({ maxSearchResults: 7, searchTimeoutMs: 1234 })
     const names = mounted.ctx.tools.schemas().map(schema => schema.name)
     expect(names).toEqual([
       'session_find',
       'session_search',
       'session_event_search',
-      'session_status',
       'session_inspect',
-      'session_message_tail',
-      'session_log_tail',
-      'session_trace',
-      'session_event_trace',
-      'session_event_read',
     ])
     const sessionSchema = mounted.ctx.tools.schemas().find(schema => schema.name === 'session_search')
     expect(sessionSchema?.parameters).not.toHaveProperty('properties.cursor')
     expect(sessionSchema?.parameters).not.toHaveProperty('properties.limit')
     expect(sessionSchema?.parameters).toHaveProperty('properties.cwd')
     expect(mounted.ctx.tools.get('session_search')?.timeoutMs).toBe(1234)
-    expect(mounted.ctx.tools.get('session_trace')?.timeoutMs).toBeUndefined()
-    const parallelArgs: Record<string, unknown> = {
-      session_trace: {},
-      session_status: {},
-      session_inspect: { view: 'summary' },
-      session_message_tail: {},
-      session_log_tail: {},
-      session_event_trace: { seq: 0 },
-      session_event_read: { seq: 0 },
-    }
-    for (const [name, args] of Object.entries(parallelArgs)) {
-      expect(mounted.ctx.tools.get(name)?.isConcurrencySafe?.(args)).toBe(true)
-    }
+    expect(mounted.ctx.tools.get('session_inspect')?.timeoutMs).toBeUndefined()
+    expect(mounted.ctx.tools.get('session_inspect')?.isConcurrencySafe?.({ view: 'summary' })).toBe(true)
     expect(mounted.ctx.tools.get('session_search')?.output.render({}, 'rendered'))
       .toEqual([{ type: 'text', text: 'rendered' }])
     expect(mounted.ctx.tools.get('session_search')?.presentCall?.({ query: 'needle' }))
@@ -305,37 +288,20 @@ describe('registration and schemas', () => {
       .toEqual({ card: 'generic', kind: 'search', title: 'Search session events', rawInput: 'needle' })
     expect(mounted.ctx.tools.get('session_find')?.presentCall?.({ cwd: '/work' }))
       .toEqual({ card: 'generic', kind: 'search', title: 'Find prior sessions', rawInput: { cwd: '/work' } })
-    expect(mounted.ctx.tools.get('session_status')?.presentCall?.({}))
-      .toEqual({ card: 'generic', kind: 'read', title: 'Read status for current session' })
-    expect(mounted.ctx.tools.get('session_message_tail')?.presentCall?.({ session_id: 'other' }))
+    expect(mounted.ctx.tools.get('session_inspect')?.presentCall?.({ session_id: 'other', view: 'messages' }))
       .toEqual({
         card: 'generic',
         kind: 'read',
-        title: 'Read message tail from session other',
+        title: 'Inspect messages session other',
         rawInput: 'other',
       })
-    expect(mounted.ctx.tools.get('session_log_tail')?.presentCall?.({}))
-      .toEqual({ card: 'generic', kind: 'read', title: 'Read raw log tail from current session' })
-    expect(mounted.ctx.tools.get('session_trace')?.presentCall?.({}))
-      .toEqual({ card: 'generic', kind: 'read', title: 'Trace current session' })
-    expect(mounted.ctx.tools.get('session_trace')?.presentCall?.({ session_id: 'other' }))
-      .toEqual({ card: 'generic', kind: 'read', title: 'Trace session other', rawInput: 'other' })
-    expect(mounted.ctx.tools.get('session_event_trace')?.presentCall?.({ session_id: 'other', seq: 3 }))
-      .toEqual({
-        card: 'generic',
-        kind: 'read',
-        title: 'Trace event 3',
-        rawInput: { session_id: 'other', seq: 3 },
-      })
-    expect(mounted.ctx.tools.get('session_event_read')?.presentCall?.({ seq: 4 }))
-      .toEqual({ card: 'generic', kind: 'read', title: 'Read event 4', rawInput: { seq: 4 } })
     const assembly = await mounted.ctx.systemPrompt.assemble()
     expect(assembly.sections.find(section => section.name === 'tool:session-query')?.text)
       .toContain('session_find returns session metadata without content-match events or snippets')
     expect(assembly.sections.find(section => section.name === 'tool:session-query')?.text)
       .toContain('session_search returns matching event seqs and snippets')
     expect(assembly.sections.find(section => section.name === 'tool:session-query')?.text)
-      .toContain('session_log_tail reads complete raw events')
+      .toContain('history and event read complete raw events')
 
     await mounted.fiber.dispose()
     expect(mounted.ctx.tools.schemas().map(schema => schema.name)).toEqual([])
@@ -349,10 +315,7 @@ describe('registration and schemas', () => {
       ['session_find', {}, 'exclusive'],
       ['session_search', { query: 'q' }, 'exclusive'],
       ['session_event_search', { query: 'q' }, 'exclusive'],
-      ['session_trace', {}, 'parallel'],
-      ['session_event_trace', { seq: 0 }, 'parallel'],
-      ['session_event_read', { seq: 0 }, 'parallel'],
-      ['session_log_tail', {}, 'parallel'],
+      ['session_inspect', { view: 'lineage' }, 'parallel'],
     ] as const
 
     for (const [name, args, kind] of classifications) {
@@ -447,18 +410,18 @@ describe('input validation and translation', () => {
       { surfaceOp: 'append' },
     )
 
-    const status = text(await mounted.call('session_status', {}))
+    const status = text(await mounted.call('session_inspect', { view: 'summary' }))
     expect(status).toContain('Availability: live')
     expect(status).toContain('Loaded: yes')
     expect(status).toContain('Running: no')
-    const tail = text(await mounted.call('session_message_tail', { limit: 1 }))
+    const tail = text(await mounted.call('session_inspect', { view: 'messages', limit: 1 }))
     expect(tail).toContain('tail message')
     expect(tail).toContain('Latest messages (1)')
     const inspectedSummary = text(await mounted.call('session_inspect', { view: 'summary' }))
     expect(inspectedSummary).toContain('Availability: live')
     const inspectedMessages = text(await mounted.call('session_inspect', { view: 'messages', limit: 1 }))
     expect(inspectedMessages).toContain('tail message')
-    expect(errorCode(await mounted.call('session_message_tail', { limit: 51 })))
+    expect(errorCode(await mounted.call('session_inspect', { view: 'messages', limit: 51 })))
       .toBe('SESSION_QUERY_INVALID_LIMIT')
   })
 
@@ -710,25 +673,25 @@ describe('target identity and lineage visibility', () => {
     const mounted = await mount()
     createSession(mounted.ctx, 'outside', '/outside')
     const missing = await mounted.ctx.tools.execute({
-      name: 'session_trace',
-      arguments: {},
+      name: 'session_inspect',
+      arguments: { view: 'lineage' },
       callId: CallId('missing-agent'),
       signal: new AbortController().signal,
     })
     expect(errorCode(missing)).toBe('SESSION_QUERY_TOOL_MISSING_AGENT')
-    const allowed = await mounted.call('session_trace', { session_id: 'outside' })
+    const allowed = await mounted.call('session_inspect', { view: 'lineage', session_id: 'outside' })
     expect(allowed.isError).toBe(false)
     expect(text(allowed)).toContain('Session outside')
   })
 
   it('allows search and exact cross-session reads for a null-cwd caller', async () => {
     const mounted = await mount({}, null)
-    const own = await mounted.call('session_trace', {})
+    const own = await mounted.call('session_inspect', { view: 'lineage' })
     expect(own.isError).toBe(false)
     expect(text(own)).toContain('Session caller')
     expect((await mounted.call('session_search', { query: 'q' })).isError).toBe(false)
     createSession(mounted.ctx, 'other', undefined)
-    expect((await mounted.call('session_trace', { session_id: 'other' })).isError).toBe(false)
+    expect((await mounted.call('session_inspect', { view: 'lineage', session_id: 'other' })).isError).toBe(false)
   })
 
   it('accepts cross-cwd parent filters while missing parents remain empty', async () => {
@@ -925,7 +888,7 @@ describe('target identity and lineage visibility', () => {
     FakeQuery.titles.set(target.id, 'Target title')
     FakeQuery.titles.set(visible.id, 'Visible title')
 
-    const result = await mounted.call('session_trace', { session_id: target.id })
+    const result = await mounted.call('session_inspect', { view: 'lineage', session_id: target.id })
     const output = text(result)
     expect(output).toContain('Target title')
     expect(output).toContain('visible-child')
@@ -942,7 +905,7 @@ describe('target identity and lineage visibility', () => {
     createSession(mounted.ctx, hiddenB, '/outside', 3, hiddenA)
     const target = createSession(mounted.ctx, 'visible-cycle-target', '/work', 4, hiddenA)
 
-    const result = await mounted.call('session_trace', { session_id: target.id })
+    const result = await mounted.call('session_inspect', { view: 'lineage', session_id: target.id })
 
     expect(errorCode(result)).toBe('SESSION_QUERY_INVALID_LINEAGE')
     expect(text(result)).toBe('Error: session lineage is invalid')
@@ -985,7 +948,7 @@ describe('target identity and lineage visibility', () => {
     const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
     vi.spyOn(mounted.ctx.sessionQuery, 'traceSession').mockRejectedValueOnce(makeError())
 
-    const result = await mounted.call('session_trace', { session_id: target.id })
+    const result = await mounted.call('session_inspect', { view: 'lineage', session_id: target.id })
 
     expect(errorCode(result)).toBe(code)
     expect(text(result)).toBe(`Error: ${message}`)
@@ -994,11 +957,11 @@ describe('target identity and lineage visibility', () => {
   })
 
   it.each([
-    'session_event_trace',
-    'session_event_read',
-  ] as const)('sanitizes typed service diagnostics from %s', async (toolName) => {
+    ['lineage', 'traceEvent'],
+    ['event', 'readEvent'],
+  ] as const)('sanitizes typed service diagnostics from the %s inspection view', async (view, operation) => {
     const mounted = await mount()
-    const target = createSession(mounted.ctx, `${toolName}-failure-target`, '/work')
+    const target = createSession(mounted.ctx, `${view}-failure-target`, '/work')
     target.append(
       'user/message',
       createUserMessage({
@@ -1006,16 +969,16 @@ describe('target identity and lineage visibility', () => {
       }),
       { surfaceOp: 'append' },
     )
-    const secret = `event missing beside hidden-${toolName}-secret`
+    const secret = `event missing beside hidden-${view}-secret`
     const failure = new SessionQueryError(secret, 'SESSION_QUERY_EVENT_NOT_FOUND')
-    if (toolName === 'session_event_trace') {
+    if (operation === 'traceEvent') {
       vi.spyOn(mounted.ctx.sessionQuery, 'traceEvent').mockRejectedValueOnce(failure)
     } else {
       vi.spyOn(mounted.ctx.sessionQuery, 'readEvent').mockRejectedValueOnce(failure)
     }
     const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
 
-    const result = await mounted.call(toolName, { session_id: target.id, seq: 0 })
+    const result = await mounted.call('session_inspect', { view, session_id: target.id, seq: 0 })
 
     expect(errorCode(result)).toBe('SESSION_QUERY_EVENT_NOT_FOUND')
     expect(text(result)).toBe('Error: session event was not found')
@@ -1024,12 +987,12 @@ describe('target identity and lineage visibility', () => {
   })
 
   it.each([
-    'session_trace',
-    'session_event_trace',
-    'session_event_read',
-  ] as const)('forwards the exact signal to %s and waits for service cleanup', async (toolName) => {
+    ['lineage', 'traceSession', false],
+    ['lineage', 'traceEvent', true],
+    ['event', 'readEvent', true],
+  ] as const)('forwards the exact signal to the %s/%s inspection path and waits for service cleanup', async (view, operation, needsSeq) => {
     const mounted = await mount()
-    const target = createSession(mounted.ctx, `cancelled-${toolName}`, '/work')
+    const target = createSession(mounted.ctx, `cancelled-${operation}`, '/work')
     target.append(
       'user/message',
       createUserMessage({
@@ -1039,7 +1002,7 @@ describe('target identity and lineage visibility', () => {
     )
     const controller = new AbortController()
     const cancellation = new SessionQueryError(
-      `${toolName} cancelled`,
+      `${operation} cancelled`,
       'SESSION_QUERY_ABORTED',
     )
     const started = Promise.withResolvers<undefined>()
@@ -1063,21 +1026,21 @@ describe('target identity and lineage visibility', () => {
       signal.throwIfAborted()
       throw new Error('unreachable after exact tool cancellation')
     }
-    if (toolName === 'session_trace') {
+    if (operation === 'traceSession') {
       vi.spyOn(mounted.ctx.sessionQuery, 'traceSession')
         .mockImplementation((_sessionId, signal) => holdExactRead(signal))
-    } else if (toolName === 'session_event_trace') {
+    } else if (operation === 'traceEvent') {
       vi.spyOn(mounted.ctx.sessionQuery, 'traceEvent')
         .mockImplementation((_request, signal) => holdExactRead(signal))
     } else {
       vi.spyOn(mounted.ctx.sessionQuery, 'readEvent')
         .mockImplementation((_request, signal) => holdExactRead(signal))
     }
-    const args = toolName === 'session_trace'
-      ? { session_id: target.id }
-      : { session_id: target.id, seq: 0 }
+    const args = needsSeq
+      ? { view, session_id: target.id, seq: 0 }
+      : { view, session_id: target.id }
 
-    const pending = mounted.call(toolName, args, { signal: controller.signal })
+    const pending = mounted.call('session_inspect', args, { signal: controller.signal })
     let settled = false
     void pending.then(
       () => { settled = true },
@@ -1095,7 +1058,7 @@ describe('target identity and lineage visibility', () => {
     const result = await pending
     expect(active).toBe(false)
     expect(errorCode(result)).toBe('SESSION_QUERY_ABORTED')
-    expect(text(result)).toBe(`Error: ${toolName} cancelled`)
+    expect(text(result)).toBe(`Error: ${operation} cancelled`)
     expect(warn).not.toHaveBeenCalled()
   })
 
@@ -1114,8 +1077,8 @@ describe('target identity and lineage visibility', () => {
     const cancellation = new SessionQueryError('lineage trace cancelled', 'SESSION_QUERY_ABORTED')
 
     const pending = mounted.call(
-      'session_trace',
-      { session_id: target.id },
+      'session_inspect',
+      { view: 'lineage', session_id: target.id },
       { signal: controller.signal },
     )
     await traceStarted
@@ -1141,8 +1104,8 @@ describe('target identity and lineage visibility', () => {
     const cancellation = new SessionQueryError('lineage trace cancelled first', 'SESSION_QUERY_ABORTED')
 
     const pending = mounted.call(
-      'session_trace',
-      { session_id: target.id },
+      'session_inspect',
+      { view: 'lineage', session_id: target.id },
       { signal: controller.signal },
     )
     await traceStarted
@@ -1210,7 +1173,7 @@ describe('target identity and lineage visibility', () => {
       })))
     })
 
-    const output = text(await mounted.call('session_trace', { session_id: target.id }))
+    const output = text(await mounted.call('session_inspect', { view: 'lineage', session_id: target.id }))
     expect(output.slice(output.indexOf('Descendants:'))).toBe([
       'Descendants:',
       '- branch-first — untitled | 1970-01-01T00:00:00.030Z | live',
@@ -1226,12 +1189,12 @@ describe('target identity and lineage visibility', () => {
     const mounted = await mount()
     const root = createSession(mounted.ctx, 'visible-root', '/work', 5)
     const target = createSession(mounted.ctx, 'visible-target', '/work', 6, root.id)
-    const complete = text(await mounted.call('session_trace', { session_id: target.id }))
+    const complete = text(await mounted.call('session_inspect', { view: 'lineage', session_id: target.id }))
     expect(complete).toContain('visible-root')
 
     const missingParent = SessionId('missing-parent-secret')
     const incomplete = createSession(mounted.ctx, 'incomplete-target', '/work', 7, missingParent)
-    const redacted = text(await mounted.call('session_trace', { session_id: incomplete.id }))
+    const redacted = text(await mounted.call('session_inspect', { view: 'lineage', session_id: incomplete.id }))
     expect(redacted).toContain('[unresolved parent boundary]')
     expect(redacted).not.toContain(missingParent)
   })
@@ -1254,7 +1217,7 @@ describe('target identity and lineage visibility', () => {
       complete: true,
       root: unavailable,
     })
-    const output = text(await mounted.call('session_trace', { session_id: target.id }))
+    const output = text(await mounted.call('session_inspect', { view: 'lineage', session_id: target.id }))
     expect(output).toContain('Availability: unavailable')
     expect(output).toContain(mounted.caller.id)
     expect(output).toContain('persisted')
@@ -1288,7 +1251,7 @@ describe('target identity and lineage visibility', () => {
       ...lineage,
       target: { ...lineage.target, header: movedHeader },
     })
-    expect(errorCode(await mounted.call('session_trace', { session_id: target.id })))
+    expect(errorCode(await mounted.call('session_inspect', { view: 'lineage', session_id: target.id })))
       .toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
 
     const eventTrace = await mounted.ctx.sessionQuery.traceEvent({ sessionId: target.id, seq: 0 })
@@ -1296,7 +1259,7 @@ describe('target identity and lineage visibility', () => {
       ...eventTrace,
       session: movedHeader,
     })
-    expect(errorCode(await mounted.call('session_event_trace', { session_id: target.id, seq: 0 })))
+    expect(errorCode(await mounted.call('session_inspect', { view: 'lineage', session_id: target.id, seq: 0 })))
       .toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
 
     const eventWindow = await mounted.ctx.sessionQuery.readEvent({ sessionId: target.id, seq: 0 })
@@ -1304,7 +1267,7 @@ describe('target identity and lineage visibility', () => {
       ...eventWindow,
       session: movedHeader,
     })
-    expect(errorCode(await mounted.call('session_event_read', { session_id: target.id, seq: 0 })))
+    expect(errorCode(await mounted.call('session_inspect', { view: 'event', session_id: target.id, seq: 0 })))
       .toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
 
     FakeQuery.sessionSearch = () => Promise.resolve({
@@ -1351,7 +1314,7 @@ describe('target identity and lineage visibility', () => {
       session: header(mounted.caller.id, '/outside'),
     })
 
-    const allowed = await mounted.call('session_event_read', { seq: secret.seq })
+    const allowed = await mounted.call('session_inspect', { view: 'event', seq: secret.seq })
     expect(allowed.isError).toBe(false)
     expect(text(allowed)).toContain('same-id moved secret')
   })
@@ -2074,7 +2037,7 @@ describe('trace and exact read rendering', () => {
       })),
     ))
 
-    const output = text(await mounted.call('session_trace', { session_id: target.id }))
+    const output = text(await mounted.call('session_inspect', { view: 'lineage', session_id: target.id }))
     expect(output).toContain('Descendants:\n- deep-1 —')
     expect(output).toContain(`${'  '.repeat(depth - 1)}- deep-${depth} —`)
   })
@@ -2105,7 +2068,7 @@ describe('trace and exact read rendering', () => {
       },
       { surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] },
     )
-    const result = await mounted.call('session_event_trace', { session_id: session.id, seq: 0 })
+    const result = await mounted.call('session_inspect', { view: 'lineage', session_id: session.id, seq: 0 })
     expect(text(result)).toContain('Replacement chain: 1')
     expect(text(result)).toContain('Events cited directly as sources: none')
     expect(text(result)).toContain('Direct derived events: 1')
@@ -2146,7 +2109,8 @@ describe('trace and exact read rendering', () => {
       'context/message',
       { content: [{ type: 'text', text: 'after semantic text' }], source: { kind: 'plugin', plugin: 'test' } },
     )
-    const result = await mounted.call('session_event_read', {
+    const result = await mounted.call('session_inspect', {
+      view: 'event',
       session_id: session.id,
       seq: 1,
       before: 1,
@@ -2167,14 +2131,16 @@ describe('trace and exact read rendering', () => {
     session.append('step/start', { turn: 1, step: 1 })
     session.append('step/end', { turn: 1, step: 1 })
 
-    const trace = text(await mounted.call('session_event_trace', {
+    const trace = text(await mounted.call('session_inspect', {
+      view: 'lineage',
       session_id: session.id,
       seq: 0,
     }))
     expect(trace).toContain('Replaced by: none')
     expect(trace).toContain('Replacement chain: none')
 
-    const onlyAfter = text(await mounted.call('session_event_read', {
+    const onlyAfter = text(await mounted.call('session_inspect', {
+      view: 'event',
       session_id: session.id,
       seq: 0,
       after: 1,
@@ -2183,7 +2149,8 @@ describe('trace and exact read rendering', () => {
     expect(onlyAfter).toContain('"type": "step/start"')
     expect(onlyAfter).toContain('"type": "step/end"')
 
-    const onlyBefore = text(await mounted.call('session_event_read', {
+    const onlyBefore = text(await mounted.call('session_inspect', {
+      view: 'event',
       session_id: session.id,
       seq: 1,
       before: 1,
@@ -2194,12 +2161,12 @@ describe('trace and exact read rendering', () => {
   })
 
   it.each([
-    ['session_event_trace', { seq: -1 }],
-    ['session_event_read', { seq: Number.MAX_SAFE_INTEGER + 1 }],
-    ['session_event_read', { seq: 0, before: -1 }],
-    ['session_event_read', { seq: 0, after: 1.5 }, 'INVALID_ARGS'],
-  ])('rejects invalid exact-read integers for %s', async (name, args, expected = 'SESSION_QUERY_INVALID_FILTER') => {
+    [{ view: 'lineage', seq: -1 }],
+    [{ view: 'event', seq: Number.MAX_SAFE_INTEGER + 1 }],
+    [{ view: 'event', seq: 0, before: -1 }],
+    [{ view: 'event', seq: 0, after: 1.5 }, 'INVALID_ARGS'],
+  ])('rejects invalid exact-read integers for session_inspect', async (args, expected = 'SESSION_QUERY_INVALID_FILTER') => {
     const mounted = await mount()
-    expect(errorCode(await mounted.call(name, args))).toBe(expected)
+    expect(errorCode(await mounted.call('session_inspect', args))).toBe(expected)
   })
 })

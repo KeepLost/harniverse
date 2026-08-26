@@ -10,6 +10,7 @@
     { "path": "../../preset/agent-presets" },
     { "path": "../../core/session" },
     { "path": "../../session/session-persistence" },
+    { "path": "../../subagent/subagent" },
     { "path": "../session-delivery" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]

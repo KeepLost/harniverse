@@ -285,7 +285,12 @@ async function executeSessionInspect(
     case 'history':
       return executeLogTail(ctx, args, exec, defaultLogLimit, maxLimit)
     case 'lineage':
-      return executeSessionTrace(ctx, args, exec)
+      return args.seq === undefined
+        ? executeSessionTrace(ctx, args, exec)
+        : executeEventTrace(ctx, {
+          ...args.session_id === undefined ? {} : { session_id: args.session_id },
+          seq: args.seq,
+        }, exec)
     case 'event':
       if (args.seq === undefined) {
         throw new SessionQueryError('session_inspect event view requires seq', 'SESSION_QUERY_INVALID_FILTER')
@@ -406,7 +411,7 @@ async function collectPages<T>(
   }
 }
 
-/** Nine model-facing session-query operation implementations. */
+/** Public session-query operations and the exact-read helpers used by unified inspection. */
 export const operations = {
   executeSessionFind,
   executeSessionSearch,

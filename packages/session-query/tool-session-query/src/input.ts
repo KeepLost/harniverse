@@ -150,7 +150,7 @@ const sessionInspectParameters = {
     description: 'View to inspect: summary status, folded messages, raw history, one event, or lineage.',
   },
   limit: { type: 'integer', description: 'Maximum messages or raw events for messages/history views.' },
-  seq: { type: 'integer', description: 'Event sequence for the event view.' },
+  seq: { type: 'integer', description: 'Event sequence for the event view, or for event relationships in the lineage view.' },
   before: { type: 'integer', description: 'Complete raw events before seq for the event view.' },
   after: { type: 'integer', description: 'Complete raw events after seq for the event view.' },
 } as const

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-`ctx.sessionDelivery` 的本地 Provider。它使用部署默认模型，并在发布前挂载 Profile 来创建普通会话；也复用 live 普通 Agent，或按持久化会话记录的模型和 preset 单飞恢复 cold 普通会话。它拒绝向自身和 subagent 投递，调用 `Agent.followup()` 但不等待目标 turn，并且只卸载没有排队或运行时所有权工作的空闲普通会话。
+`ctx.sessionDelivery` 的本地 Provider。它使用部署默认模型，并在发布前挂载 Profile 来创建普通会话；也复用 live 普通 Agent，或按持久化会话记录的模型和 preset 单飞恢复 cold 普通会话。普通投递调用 `Agent.followup()`；直属子会话投递委托给 `ctx.subagents.followup()`，以保留权威的父级授权、Activation 路由和冷恢复。两条路径都不等待目标 turn；卸载仍只适用于没有排队或运行时所有权工作的空闲普通会话。
 
 ## 模型体验
 

@@ -1,4 +1,4 @@
-/** Model-facing adapter for ordinary-session message delivery. */
+/** Model-facing adapter for ordinary-session and direct-child message delivery. */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -9,13 +9,13 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 export const name = 'tool-session-delivery'
 export const inject = ['tools', 'sessionDelivery']
 
-/** Register ordinary-session delivery and safe unload tools. */
+/** Register session creation, unified delivery, and safe unload tools. */
 export function apply(ctx: Context): void {
-  const messageTool = defineTool({
-    name: 'session_send_message',
-    description: 'Send a message to another ordinary session as its next FIFO turn. Returns after inbox acceptance and does not wait for a reply or turn completion.',
+  ctx.tools.register(defineTool({
+    name: 'session_message',
+    description: 'Send a message to another ordinary session or a direct subagent session as its next FIFO turn. Returns after inbox acceptance and does not wait for a reply or turn completion.',
     parameters: {
-      session_id: { type: 'string', required: true, description: 'Target ordinary session id.' },
+      session_id: { type: 'string', required: true, description: 'Target ordinary session or direct subagent session id.' },
       message: { type: 'string', required: true, description: 'Message to deliver.' },
     },
     output: {
@@ -33,7 +33,7 @@ export function apply(ctx: Context): void {
       }],
     },
     async execute(args, exec) {
-      if (exec.agent === undefined) throw new Error('session_send_message requires a calling agent')
+      if (exec.agent === undefined) throw new Error('session_message requires a calling agent')
       const content: ContentBlock[] = [{ type: 'text', text: args.message }]
       return ctx.sessionDelivery.deliver({
         sender: exec.agent,
@@ -42,13 +42,7 @@ export function apply(ctx: Context): void {
         signal: exec.signal,
       })
     },
-  })
-  ctx.tools.register(messageTool)
-  ctx.tools.register({
-    ...messageTool,
-    name: 'session_message',
-    description: 'Send a message to another ordinary session as its next FIFO turn. Returns after inbox acceptance and does not wait for a reply or turn completion.',
-  })
+  }))
   ctx.tools.register(defineTool({
     name: 'session_create',
     description: 'Create a new persistent ordinary session in the current workspace. The session is returned after its Profile and model configuration are durably attached.',

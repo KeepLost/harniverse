@@ -27,7 +27,7 @@ class GatedAdapter extends LlmAdapter {
   }
 }
 
-describe('session_send_message', () => {
+describe('session_message', () => {
   it('creates a persistent ordinary session through the Agent factory', async () => {
     const ctx = new Context()
     await mountAgentLoopTestDependencies(ctx)
@@ -76,7 +76,7 @@ describe('session_send_message', () => {
     })).agent
 
     const result = await ctx.tools.execute({
-      name: 'session_send_message',
+      name: 'session_message',
       arguments: { session_id: target.id, message: 'do the next task' },
       callId: CallId('delivery-call'),
       signal: new AbortController().signal,
@@ -158,7 +158,7 @@ describe('session_send_message', () => {
       expect(ctx.agents.get(SessionId('cold-target'))).toBeUndefined()
 
       const result = await ctx.tools.execute({
-        name: 'session_send_message',
+        name: 'session_message',
         arguments: { session_id: 'cold-target', message: 'resume and continue' },
         callId: CallId('cold-delivery-call'),
         signal: new AbortController().signal,
