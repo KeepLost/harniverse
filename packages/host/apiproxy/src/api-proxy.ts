@@ -43,6 +43,7 @@ import type {
   SessionListMetadata, SessionProjectionsBlock, SessionSearchItem,
   QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, JobView, ToolEventView,
   SessionPendingInteraction, SessionStatusSnapshot, SessionWorkStatus, WorkspaceId, WorkspaceView,
+  ApiContractDescription, OperationView, OperationStatus,
 } from './api/index.ts'
 import { HostBootId } from './api/host.ts'
 import {
@@ -65,6 +66,7 @@ import type {} from '@deepseek-ai/dsh-session-projection'
 // Type-only: resolves `ctx.get('tasks')` to the background job registry.
 import type {} from '@deepseek-ai/dsh-jobs'
 import type { JobSnapshot } from '@deepseek-ai/dsh-jobs'
+import { JobId } from '@deepseek-ai/dsh-jobs/brand'
 // Type-only: resolves `ctx.get('sessionProjectionCache')` (the cold listing column).
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 // GoalError narrows domain rejections to their stable codes at the wire boundary.
@@ -97,6 +99,7 @@ import { imageLimitsProjectionSchema, sessionListMetadataProjectionSchema } from
 import { questionResponsePayloadSchema } from './api/questions.schema.ts'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from './api/rpc.ts'
 import { RpcId } from './api/rpc.ts'
+import { RPC_METHOD_METADATA } from './api/rpc-map.ts'
 import type {
   AskUserQuestionAnswer, AskUserQuestionItem, AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-questions'
@@ -152,6 +155,19 @@ function workStatusOf(events: readonly SessionEvent[], messageId: MessageId): Se
     }
   }
   return status
+}
+
+/** Convert durable message progress into the smaller operation lifecycle. */
+function operationStatusOf(status: SessionWorkStatus): OperationStatus {
+  if (status.state === 'queued') return 'accepted'
+  if (status.state === 'claimed') return 'running'
+  if (status.state === 'discarded') return 'cancelled'
+  if (status.state === 'settled') {
+    if (status.reason.kind === 'aborted' || status.reason.kind === 'interrupted') return 'cancelled'
+    if (status.reason.kind === 'error') return 'failed'
+    return 'succeeded'
+  }
+  return 'accepted'
 }
 
 /**
@@ -365,7 +381,11 @@ function paginateForward(
 
 /** Wrap an ok result echoing the request's rpcId. */
 function ok<T>(request: RpcRequest<unknown>, value: T): RpcResponse<T> {
-  return { rpcId: request.rpcId, result: { ok: true, value } }
+  return {
+    rpcId: request.rpcId,
+    result: { ok: true, value },
+    ...(request.requestId === undefined ? {} : { requestId: request.requestId }),
+  }
 }
 
 /**
@@ -429,7 +449,11 @@ async function buildModelCatalog(ctx: Context): Promise<{
 
 /** Wrap an error result echoing the request's rpcId. */
 function err<T>(request: RpcRequest<unknown>, error: RpcError): RpcResponse<T> {
-  return { rpcId: request.rpcId, result: { ok: false, error } }
+  return {
+    rpcId: request.rpcId,
+    result: { ok: false, error },
+    ...(request.requestId === undefined ? {} : { requestId: request.requestId }),
+  }
 }
 
 /**
@@ -563,6 +587,7 @@ function subscribeSession(queue: FrameQueue<RpcRequest<MuxFrame>>, session: Sess
  */
 function jobViews(snapshots: readonly JobSnapshot[]): JobView[] {
   return snapshots.map(job => ({
+    operationId: `job:${job.id}`,
     id: job.id,
     kind: job.kind,
     label: job.label,
@@ -1243,6 +1268,29 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   let workspaceCreationChain = Promise.resolve()
   const pendingQuestions = new Map<RpcId, PendingQuestion>()
   const pendingApprovals = new Map<RpcId, PendingApproval>()
+  const promptOperations = new Map<string, {
+    operationId: string
+    kind: 'session.prompt' | 'subagent.prompt'
+    sessionId: SessionId
+    messageId: MessageId
+    acceptedAt: number
+  }>()
+  const maxPromptOperations = 1024
+
+  function rememberPromptOperation(operation: {
+    operationId: string
+    kind: 'session.prompt' | 'subagent.prompt'
+    sessionId: SessionId
+    messageId: MessageId
+    acceptedAt: number
+  }): void {
+    while (promptOperations.size >= maxPromptOperations) {
+      const oldest = promptOperations.keys().next().value
+      if (oldest === undefined) break
+      promptOperations.delete(oldest)
+    }
+    promptOperations.set(operation.operationId, operation)
+  }
   const muxQueues = new Set<FrameQueue<RpcRequest<MuxFrame>>>()
   const hostQueues = new Set<FrameQueue<RpcRequest<HostFrame>>>()
   let settingsExposureRevision = 0
@@ -1268,6 +1316,81 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   ctx.on('capabilities/change', announceSettingsExposure)
   ctx.on('llm/adapters-updated', announceSettingsExposure)
   const imageAdmissionChains = new WeakMap<Agent, Promise<void>>()
+
+  /** Read one operation without exposing the underlying job or session record. */
+  async function operationGet(request: RpcRequest<{ operationId: string; sessionId?: SessionId }>): Promise<RpcResponse<OperationView>> {
+    const prompt = promptOperations.get(request.payload.operationId)
+    if (prompt !== undefined) {
+      if (request.payload.sessionId !== undefined && request.payload.sessionId !== prompt.sessionId) {
+        return err(request, {
+          code: 'operation-not-found',
+          message: `operation "${request.payload.operationId}" was not found`,
+          details: { operationId: request.payload.operationId },
+        })
+      }
+      try {
+        const state = await readSessionState(prompt.sessionId)
+        const status = workStatusOf(state.events, prompt.messageId)
+        return ok(request, {
+          operationId: prompt.operationId,
+          kind: prompt.kind,
+          status: operationStatusOf(status),
+          acceptedAt: prompt.acceptedAt,
+          sessionId: prompt.sessionId,
+          messageId: prompt.messageId,
+        })
+      } catch {
+        return err(request, {
+          code: 'operation-not-found',
+          message: `operation "${request.payload.operationId}" is no longer available`,
+          details: { operationId: request.payload.operationId },
+        })
+      }
+    }
+
+    if (!request.payload.operationId.startsWith('job:')) {
+      return err(request, {
+        code: 'operation-not-found',
+        message: `operation "${request.payload.operationId}" was not found`,
+        details: { operationId: request.payload.operationId },
+      })
+    }
+    const jobs = ctx.get('jobs')
+    if (jobs === undefined) {
+      return err(request, {
+        code: 'operation-not-found',
+        message: `operation "${request.payload.operationId}" was not found`,
+        details: { operationId: request.payload.operationId },
+      })
+    }
+    const caller = request.payload.sessionId === undefined ? undefined : ctx.agents.get(request.payload.sessionId)
+    try {
+      const jobId = JobId(request.payload.operationId.slice('job:'.length))
+      const job = jobs.get(jobId, caller)
+      const status: OperationStatus = job.status === 'running' || job.status === 'stopping'
+        ? 'running'
+        : job.status === 'completed'
+          ? 'succeeded'
+          : job.status === 'killed'
+            ? 'cancelled'
+            : 'failed'
+      return ok(request, {
+        operationId: request.payload.operationId,
+        kind: 'job',
+        status,
+        acceptedAt: job.startedAt,
+        ...job.finishedAt === undefined ? {} : { finishedAt: job.finishedAt },
+        ...job.ownerSession === undefined ? {} : { sessionId: job.ownerSession },
+        jobId: job.id,
+      })
+    } catch {
+      return err(request, {
+        code: 'operation-not-found',
+        message: `operation "${request.payload.operationId}" was not found`,
+        details: { operationId: request.payload.operationId },
+      })
+    }
+  }
 
   function serializeSessionLineage<T>(parentId: SessionId, operation: () => Promise<T>): Promise<T> {
     const result = (sessionLineageChains.get(parentId) ?? Promise.resolve()).then(operation)
@@ -2387,6 +2510,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   }
 
   return {
+    api: {
+      describe(request) {
+        return Promise.resolve(ok<ApiContractDescription>(request, {
+          version: 1,
+          methods: RPC_METHOD_METADATA.map(method => ({ ...method })),
+        }))
+      },
+    },
+    operations: {
+      get: operationGet,
+    },
     sessions: {
       // Attached sessions summarize from memory; persisted-but-unattached (cold)
       // sessions merge in from the persistence store so history survives restarts.
@@ -3031,7 +3165,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             const message: UserMessage = createUserMessage({ content: durable, source })
             if (mode === 'steer') agent.steer(message)
             else agent.followup(message)
-            return ok(request, { accepted: true as const, messageId: message.id })
+            const operationId = `operation:${randomUUID()}`
+            rememberPromptOperation({
+              operationId,
+              kind: 'session.prompt',
+              sessionId,
+              messageId: message.id,
+              acceptedAt: Date.now(),
+            })
+            return ok(request, { accepted: true as const, messageId: message.id, operationId })
           } catch (error: unknown) {
             if (error instanceof AttachmentError) {
               return err(request, {
@@ -3484,7 +3626,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             },
             signal,
           })
-          return ok(request, { messageId })
+          const operationId = `operation:${randomUUID()}`
+          rememberPromptOperation({
+            operationId,
+            kind: 'subagent.prompt',
+            sessionId: childSessionId,
+            messageId,
+            acceptedAt: Date.now(),
+          })
+          return ok(request, { messageId, operationId })
         } catch (error: unknown) {
           return subagentPromptError(request, error, signal)
         }

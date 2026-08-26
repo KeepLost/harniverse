@@ -139,7 +139,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async prompt(request) {
         return {
           rpcId: request.rpcId,
-          result: { ok: true, value: { accepted: true as const, messageId: 'message-1' as never } },
+          result: { ok: true, value: { accepted: true as const, messageId: 'message-1' as never, operationId: 'operation:prompt' } },
         }
       },
       async attachment(request) {
@@ -188,7 +188,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         }
         return {
           rpcId: request.rpcId,
-          result: { ok: true, value: { messageId: 'message-1' as never } },
+          result: { ok: true, value: { messageId: 'message-1' as never, operationId: 'operation:subagent' } },
         }
       },
       async interrupt(request) {
@@ -619,7 +619,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       childSessionId: 'child' as never,
       mode: 'continuable',
       content: [],
-    })).result).toEqual({ ok: true, value: { messageId: 'message-1' } })
+    })).result).toEqual({ ok: true, value: { messageId: 'message-1', operationId: 'operation:subagent' } })
     expect((await c.subagents.interrupt({
       parentSessionId: 'parent' as never,
       childSessionId: 'child' as never,
@@ -743,6 +743,31 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(JSON.stringify(body)).not.toContain('expiresAt')
   })
 
+  it('replays a mutating response for the same Idempotency-Key and rejects payload reuse', async () => {
+    const api = fakeApi()
+    const create = vi.fn(api.sessions.create.bind(api.sessions))
+    api.sessions.create = create
+    const handler = toFetchHandler(api)
+    const call = (rpcId: string, payload: unknown) => handler.fetch(new Request('http://x/api/session.create', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'create-once' },
+      body: JSON.stringify({ type: 'client-request', rpcId, method: 'session.create', payload }),
+    }))
+
+    const first = await call('idempotent-1', {})
+    const second = await call('idempotent-2', {})
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(await first.json()).toMatchObject({ rpcId: 'idempotent-1', result: { ok: true } })
+    expect(await second.json()).toMatchObject({ rpcId: 'idempotent-2', result: { ok: true } })
+
+    const conflict = await call('idempotent-3', { cwd: '/other' })
+    expect(await conflict.json()).toMatchObject({
+      rpcId: 'idempotent-3',
+      result: { ok: false, error: { code: 'idempotency-key-reused' } },
+    })
+    expect(create).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects a mutating request before route dispatch when the initiating principal changed', async () => {
     const principal: AuthenticationPrincipal = {
       kind: 'grant',
@@ -855,6 +880,16 @@ describe('handler carrier-layer statuses', () => {
     expect(response.status).toBe(200)
     const body = await response.json() as { rpcId: string; result: { ok: boolean; error?: { code: string } } }
     expect(body.rpcId).toBe('invalid-request')
+    expect(body.result.error?.code).toBe('bad-request')
+  })
+
+  it('preserves a readable requestId when rejecting a malformed envelope', async () => {
+    const response = await handler.fetch(new Request('http://x/api/session.list', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ requestId: 'request-correlatable', nope: true }),
+    }))
+    const body = await response.json() as { requestId?: string; result: { error?: { code: string } } }
+    expect(body.requestId).toBe('request-correlatable')
     expect(body.result.error?.code).toBe('bad-request')
   })
 

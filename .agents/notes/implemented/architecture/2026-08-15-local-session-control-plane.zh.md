@@ -30,6 +30,8 @@ Web API Proxy 已经服务本地浏览器 Session，但控制观测并不完整�
 
 这种关联描述生命周期，不代表输出因果所有权。多条 queued 或 steering 消息可以共用一个轮次，注入上下文或工具续行也可能影响其输出。控制面绝不会把某条 assistant 消息选作一个已获准 `MessageId` 的响应；[follow-up 所有权决策](2026-07-30-followup-enqueue-and-owned-runs.md)仍是权威。
 
+被接纳的 `session.prompt` 和 `subagent.prompt` 回执携带进程本地的 `operationId`。`operation.get` 通过进程内 operation registry 将 prompt id 映射到持久工作状态，并将 job id 映射到仍在运行的 registry 状态；Host 重启后无法恢复这些 operation id。查询视图携带生命周期与所有者身份，各领域方法仍然负责自己的结果数据。
+
 ### Close 与 delete
 
 `session.close` 属于 Agent 生命周期 teardown。它会阻止新的控制面准入、等待同 Session 的 admission chain、排空可续行后代，并调用 `AgentRegistry` 保留的工厂自有记忆化 disposer。AgentLoop 关闭准入、取消并排空、dispose Agent scope、flush 仍附加的确切 Session，随后 detach Agent 与 Session。Close 发送 `running: false`，并保留持久 Session 行。[Agent 生命周期决策](2026-06-18-agent-lifecycle-and-ownership-contracts.md)规定该顺序。
@@ -41,6 +43,8 @@ Web API Proxy 已经服务本地浏览器 Session，但控制观测并不完整�
 `host.describe.bootId` 标识一个 API Proxy 进程生命周期。`session.status` 返回该值与一个 Session 快照：attached/running/closing 状态、最后持久 seq、队列、任务和可回答的待处理交互。附加状态从实时 owner 同步采样；冷状态通过检查获得而不恢复 Agent，并带空的进程本地集合。
 
 重连到相同 `bootId` 时，可以按各自 generation 规则复用进程本地观察。即使 Session id 和持久 seq 不变，`bootId` 改变也会使这些观察失效。
+
+HTTP carrier 为写入型 method 接受 `Idempotency-Key`。条目按认证 principal 与 method 隔离，并发的相同请求共享一个 in-flight promise，只保留成功的业务响应；缓存有容量上限、24 小时过期，并在 Host 重启后清空。
 
 ## 考虑过的替代方案
 

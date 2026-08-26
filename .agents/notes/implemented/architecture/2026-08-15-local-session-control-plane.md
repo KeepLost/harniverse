@@ -30,6 +30,8 @@ Each Host stream queue is bounded by `streamQueueMaxFrames`. Overflow retains an
 
 This correlation is lifecycle, not causal output ownership. Several queued or steering messages can share one turn, and injected context or tool continuation can influence its output. The control plane never selects an assistant message as the response to one admitted `MessageId`; the [follow-up ownership decision](2026-07-30-followup-enqueue-and-owned-runs.md) remains authoritative.
 
+Accepted `session.prompt` and `subagent.prompt` receipts carry process-local `operationId` values. `operation.get` uses the in-process operation registry to map prompt ids to durable work status and job ids to live registry state; these operation ids are not recoverable after a Host restart. The view carries lifecycle and owner identities, while each domain method remains the owner of its result data.
+
 ### Close and delete
 
 `session.close` is Agent lifecycle teardown. It fences new control-plane admission, waits same-Session admission chains, drains continuable descendants, and invokes the factory-owned memoized disposer retained by `AgentRegistry`. AgentLoop closes admission, cancels and drains, disposes the Agent scope, flushes the exact still-attached Session, then detaches Agent and Session. A close emits `running: false` and preserves the durable Session row. The [Agent lifecycle decision](2026-06-18-agent-lifecycle-and-ownership-contracts.md) owns this ordering.
@@ -41,6 +43,8 @@ This correlation is lifecycle, not causal output ownership. Several queued or st
 `host.describe.bootId` identifies one API Proxy process lifetime. `session.status` returns that value with one Session snapshot: attached/running/closing state, last durable seq, queue, jobs, and answerable pending interactions. Attached state is sampled synchronously from live owners; cold state is inspected without resuming an Agent and has empty process-local collections.
 
 A reconnect to the same `bootId` may reuse process-local observations according to their individual generation rules. A changed `bootId` invalidates them even when Session ids and durable seqs are unchanged.
+
+The HTTP carriers accept `Idempotency-Key` for mutating methods. Entries are scoped by authenticated principal and method, share an in-flight promise for concurrent identical requests, retain only successful business responses, and use a bounded process-local cache with a 24-hour expiry. A Host restart clears the cache.
 
 ## Alternatives considered
 

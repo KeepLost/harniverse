@@ -334,6 +334,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Root interface of the unified API. New client-request domain = one new file pair + one field here + one map row.',
     methods: [
       {
+        signature: 'api?: ApiApi',
+        description: 'Contract discovery is optional on legacy hand-built test implementations.',
+        parameters: [],
+      },
+      {
         signature: 'downloads: DownloadsApi',
         description: 'Host-only download surfaces (GET, no wire envelope); absent from IApiClient.',
         parameters: [],
@@ -3171,6 +3176,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AgentStatusChangedData {\n    status: \'running\' | \'idle\';\n}',
   },
   {
+    name: 'ApiApi',
+    declaration: 'export interface ApiApi {\n    describe(request: RpcRequest<Record<string, never>>): Promise<RpcResponse<ApiContractDescription>>;\n}',
+  },
+  {
+    name: 'ApiContractDescription',
+    declaration: 'export interface ApiContractDescription {\n    version: 1;\n    methods: ApiMethodDescription[];\n}',
+  },
+  {
+    name: 'ApiMethodDescription',
+    declaration: 'export interface ApiMethodDescription {\n    method: string;\n    requiredCapability: AuthenticationCapability;\n    effect: \'read\' | \'mutate\';\n    stability: RpcMethodStability;\n    replacement?: string;\n}',
+  },
+  {
     name: 'ApprovalDecidedData',
     declaration: 'export interface ApprovalDecidedData {\n    approvalId: ApprovalRequestId;\n    outcome: ApprovalOutcome;\n    turn: number;\n    seq: number;\n}',
   },
@@ -4455,6 +4472,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type RequestHeaderReason = \'initial\' | \'resume\' | \'change\';',
   },
   {
+    name: 'RequestId',
+    declaration: 'export type RequestId = Branded<\'request-id\'>;',
+  },
+  {
     name: 'RequestImageAttachment',
     declaration: 'export interface RequestImageAttachment {\n    variantId: ImageVariantId;\n    attachment: ImageAttachmentRef;\n    data: Uint8Array;\n    mediaType: ImageMediaType;\n    bytes: number;\n    width: number;\n    height: number;\n    depth: \'uchar\';\n    space: \'srgb\';\n    hasAlpha: boolean;\n}',
   },
@@ -4515,8 +4536,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type RpcId = Branded<\'rpc-id\'>;',
   },
   {
+    name: 'RpcMethodStability',
+    declaration: 'export type RpcMethodStability = \'stable\' | \'deprecated\';',
+  },
+  {
     name: 'RpcReceipt',
     declaration: 'export type RpcReceipt = {\n    accepted: true;\n    authentication?: AuthenticationPrincipalIdentity;\n} | {\n    accepted: false;\n    reason: \'not-pending\' | \'bad-response\' | \'authentication-principal-mismatch\';\n    authentication?: AuthenticationPrincipalIdentity;\n};',
+  },
+  {
+    name: 'RpcRequest',
+    declaration: 'export interface RpcRequest<P> {\n    rpcId: RpcId;\n    payload: P;\n    principal?: AuthenticationPrincipal;\n    requestId?: RequestId;\n}',
+  },
+  {
+    name: 'RpcResponse',
+    declaration: 'export interface RpcResponse<T> {\n    rpcId: RpcId;\n    result: RpcResult<T>;\n    authentication?: AuthenticationPrincipalIdentity;\n    requestId?: RequestId;\n}',
   },
   {
     name: 'RpcResult',
@@ -4592,7 +4625,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ServerResponse',
-    declaration: 'export interface ServerResponse {\n    type: \'server-response\';\n    rpcId: RpcId;\n    result: RpcResult<unknown>;\n    authentication?: AuthenticationPrincipalIdentity;\n}',
+    declaration: 'export interface ServerResponse {\n    type: \'server-response\';\n    rpcId: RpcId;\n    result: RpcResult<unknown>;\n    authentication?: AuthenticationPrincipalIdentity;\n    requestId?: RequestId;\n}',
   },
   {
     name: 'SessionAvailability',

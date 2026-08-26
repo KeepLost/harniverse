@@ -114,4 +114,5 @@ const messageIdSchema = z.string() as unknown as z.ZodType<MessageId>
 /** subagent.prompt response value. */
 export const subagentPromptValueSchema = z.object({
   messageId: messageIdSchema,
+  operationId: z.string().min(1),
 }) satisfies z.ZodType<Wire<ResponseValue<'subagent.prompt'>>>

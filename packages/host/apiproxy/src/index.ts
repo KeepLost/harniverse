@@ -85,6 +85,8 @@ export class ApiProxyService extends Service implements ApiProxy {
   })
 
   readonly sessions: ApiProxy['sessions']
+  readonly api: NonNullable<ApiProxy['api']>
+  readonly operations: NonNullable<ApiProxy['operations']>
   readonly subagents: ApiProxy['subagents']
   readonly workspace: ApiProxy['workspace']
   readonly host: ApiProxy['host']
@@ -116,6 +118,9 @@ export class ApiProxyService extends Service implements ApiProxy {
         : { streamQueueMaxFrames: config.streamQueueMaxFrames }),
     })
     this.sessions = api.sessions
+    if (api.api === undefined || api.operations === undefined) throw new Error('api-proxy: contract and operation surfaces were not created')
+    this.api = api.api
+    this.operations = api.operations
     this.subagents = api.subagents
     this.workspace = api.workspace
     this.host = api.host

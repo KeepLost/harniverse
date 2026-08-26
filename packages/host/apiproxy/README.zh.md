@@ -24,6 +24,10 @@ Settings 分节中的 `reasoningEffort` 在 agent-default-model 插件配置中�
 
 分层与协议决策记录在 [GUI 分层与 RPC 协议 RFC](../../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md) 中；浏览器侧消费架构记录在 [Web 客户端架构 RFC](../../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md) 中。
 
+每次 client-request unary 调用除了传输交换使用的 `rpcId`，还会携带独立的 `requestId`；前者只属于一次 request/response 交换，后者是逻辑请求的关联 id，可以在重试时复用。认证响应会回传 request id。写入型 HTTP 调用还可以发送 `Idempotency-Key`；carrier 会按认证 principal 与 method 隔离它，对相同 payload 重放第一次成功的业务响应，对不同 payload 返回 `idempotency-key-reused`。进程内缓存有容量上限，并在 24 小时后过期。
+
+`api.describe` 返回带版本的静态公共 API 名录，包括每个 method 所需的 capability、读／写效果和稳定性元数据。`goal.*` 是 canonical Goal 接口。`settings.update` 暂时作为兼容接口保留，并在名录中标记为弃用，替代接口是 `settings.mutate`；是否移除留待后续兼容性决策。
+
 首个回答认领待处理请求之前，系统会对照该请求校验问题响应。多选题的回答项可以同时携带 `selected` 中的请求选项标签与非空 `custom` 文本；单选题的回答项必须二选一。标签重复、标签未知、id 不匹配、批次不完整以及自定义文本为空都会以 `bad-response` 拒绝。
 
 `session.history` 会读取已附加 Session 的内存状态，或通过 `SessionPersistence.readHistoryPage()` 读取冷会话页面，而不会恢复或发布 agent；没有原生 seam 的提供方会回退到检查。其后向模式按追加来源的消息边界分页：`maxMessages` 统计以追加方式进入 surface 的 `user/message` 和 `assistant/message` 事件，因此仅供模型使用的替换副本不占用配额。前向模式要求排他的 `afterSeq` 加正整数 `maxEvents`，返回下一段连续的原始事件区间且不携带投影。前向与后向字段不能混用。
@@ -44,11 +48,15 @@ Settings 分节中的 `reasoningEffort` 在 agent-default-model 插件配置中�
 
 `session.prompt` 返回确切获准消息的 `MessageId`；斜杠命令使用独立的 command API，绝不会进入该方法。`session.workStatus({sessionId, messageId})` 从持久 inbox 与轮次记录折叠出 `unknown`、`queued`、`claimed`、`discarded` 或 `settled`；claimed/settled 值携带轮次，settled 还携带持久 `turn/end` 原因。这是工作生命周期关联，不是 assistant 输出归因：多条消息可以共用一个轮次，API 绝不会把某条 assistant 消息命名为某次 prompt 的结果。
 
+被接纳的 `session.prompt` 和 `subagent.prompt` 回执还会携带 `operationId`。`operation.get` 根据持久化消息进度解析这些 id，并把可见的后台 job 映射为 `job:<jobId>` operation id。Operation 查询只暴露生命周期状态，不重复承载领域结果。
+
 `host.describe.bootId` 每个 API Proxy 实例只生成一次，用于跨 Host 重启隔离进程本地观察。`session.status` 在同一个 Session 切点返回该 boot id、attached/running/closing 状态、最后持久 seq、队列、任务和可回答的待处理交互；冷 Session 通过持久化检查而不恢复 Agent，其进程本地集合为空。`session.close` 会停止准入、排空可续行后代并完成 AgentLoop 的完全停稳 scope+flush teardown，同时保留持久 Session 列表项。`session.delete` 只接受冷的持久叶子 Session；按 parent 串行化使进行中的 fork 必须先发布，再执行叶子检查。Workspace 域中的持久标记用于区分恢复与从未存在的 id。删除先拦截延迟投影写回，再提交权威日志删除，最后幂等移除 workspace/archive 引用并清除标记，因此 cleanup 失败或重启后可由重试收敛。cleanup 完成后发送 `host/session-removed`，并报告 `attachmentsRetained: true`；共享的内容寻址附件不属于 Session 删除。
 
 待处理的 queued 输入属于实时控制平面约定，而非对话历史。网关根据持久 `agent/inbox/spliced` 变更派生完整的 `next-turn` 队列，并在每次变更后及重连时广播权威 `session/queue` 快照；待处理的 `next-step` steering（中途引导）不进入此 Web 投影。在 `next-step` 内，用户来源的消息携带 `steering` placement，而注入上下文（审批通知、任务完成、附加快照）携带 `context`，领取前不对外呈现。面向单条消息的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知仍供生命周期观察方使用，但不用于构建队列视图。`session.updateQueue` 通过 `MessageId` 寻址单个项；编辑和移除经已挂载 Agent 的 `Inbox.splice()` 修改队列。认领操作的纯删除 splice 会在 pre-step 准入前赢得竞态，因此之后的操作返回 `queue-item-not-found`。`session.cancel` 仅中止活动轮次并保留待处理 inbox 工作；取消达到完全停稳且结束中的轮次完成 flush 后，AgentLoop 按 FIFO 顺序认领下一条可唤醒消息，浏览器绝不重发或提升它。队列操作绝不恢复冷会话，客户端也绝不根据轮次或状态事件推断某项已退出队列。
 
 后台任务沿用同一种实时推送姿态。当组合中有 `ctx.jobs` 时，网关订阅它的变更订阅，并在注册表每一次改变某个会话可见内容的提交后——注册、转入 stopping、结算，以及 owner 销毁时的移除——广播一份完整的 `session/jobs` 快照，另外为每个已经有任务的会话发送订阅 baseline（没有 baseline 即表示空集；把集合清空的那次变更仍然发送 `[]`）。带 owner 的变更通过那个确切的 `Agent` 读取，因此推送在其 scope 拆除期间依然正确；baseline 读 `ctx.agents.get(sessionId)`，对没有活体 Agent 的会话只得到无主任务，且绝不恢复冷会话。无主变更向每一个已订阅会话扇出，因为无主任务对所有调用方可见。线路上的 `JobView` 丢弃 `ownerSession`、`reported` 和 `outputLimitBytes`：第一个由帧自身的 `sessionId` 携带，另外两个分别是内部通知位和模型呈现策略。没有该注册表的组合不发出这类帧。
+
+每个 job view 都包含从稳定 job id 推导出的 operation id，因此 client 可以用同一套查询 contract 观察 prompt、subagent delivery 和后台工作。job id 仍然是 registry 的资源身份；operation id 是跨领域的观察身份。
 
 Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.create({ path })` 会接纳已有的规范目录，并允许由 basename 派生的标题重复。`workspace.insertBefore({ workspaceId, beforeWorkspaceId? })` 提交一次注册表顺序移动并应答完整顺序；单纯重排序会通过 `host/workspace-order-changed` 推送同一份完整顺序，而未知来源或锚点返回 `workspace-not-found`。`workspace.delete` 只移除 Workspace 注册记录，`session.create` 接受可选的预分配 Session id，`host/workspace-changed`、`host/workspace-removed` 与 `host/session-added` 则以任意到达顺序携带已提交的增量。`workspace.archiveSession` 向注册表级全局归档集合添加一个会话，并应答完整的更新后集合；`workspace.list` 携带该集合作为重连基线，`host/archived-sessions-changed` 在每次持久变更后推送完整快照。归档只把会话从各分组视图中隐藏，不触碰其日志和 workspace 记账；既非活动会话也未持久化的会话以 `session-not-found` 失败。删除注册记录会保留目录和会话日志；相关 Session 仍留在 `session.list` 中，并进入 Ungrouped。`SessionSummary.blank` 与 `host/session-added` 帧携带是否已开始过轮次：客户端隐藏空白会话并按 workspace 复用它们，在首个 `host/session-status(running:true)` 时翻转 blank，并以 `session.list` 作为重连权威。已附加摘要折叠实时日志。冷摘要信任缓存的 `blank: false`，但把缓存的 `true` 与 cache miss 都视为未经验证；当 `locate()` 报告的工件不大于 `coldBlankProbeMaxBytes` 资格阈值（默认 1 KiB）时，网关通过 `readFrom()` 读取该 Session，同时折叠空白状态与最新真人 prompt。更大、无位置、已消失或不可读的工件保持可见。异步冷读取结束后，期间已附加的 Session 会改用实时日志生成摘要。`updatedAt` 依次采用实时折叠、小工件精确折叠或 projection cache，缺失时回退到 `createdAt`；拾起边界及其他写入都不会提升 Session 排序。
 
@@ -88,7 +96,7 @@ Host 会把每一种可能改变已授权 Settings namespace 集合的已提交�
 - **待处理交互状态位于宿主侧**：wire 使用 POST `/api/respond` 加 `RpcReceipt`；`src/api-proxy.ts` 中的表只处理问题，不包含审批条目。
 - **预留 seam 不进入 `RpcMethodMap`**：`prompt.mode: 'inject'` 和 `job.list` 是已记录的预留项；模型发现使用 `llm.models`。未知方法会在信封解析时直接失败，而不会返回「尚未实现」错误码。
 - **Session 删除不是安全擦除**：它保留共享附件，派生查询索引中的字节也可能留到索引下一次对账持久状态。该操作拒绝实时 Session 和任何存在持久或实时子级的 Session，而不定义级联或孤儿语义。
-- **没有协议版本字段**：客户端与宿主一同发布；只有出现独立发布的客户端后，`host.describe` 才会增加版本协商字段。
+- **尚无独立 wire 协商**：`api.describe` 会报告公共 contract version 1，但 client 与 host 仍然随同发布，独立版本部署之间还没有兼容性协商。
 - **搜索失败会包含提供方诊断信息**：网关是单用户本地服务。将其暴露给多名用户的载体必须用可安全公开的诊断信息替代内部搜索细节。
 - **Linux 原生选择器依赖桌面工具**：在 `native` 能力下，Zenity 和 KDialog 均未安装时，`host.pickDirectory` 会给出包含解决建议的错误提示；组合层面的回退是 browse 后端（见 [native 后端 README](../directory-picker-native/README.md)）。
 - **冷列表提示只向“保持可见、排序偏旧”降级**：projection cache miss 或陈旧的 `lastPromptAt` 会回退到 `createdAt`，除非符合资格的小工件提供精确折叠，因此最近工作过的大 Session 可能在下一个 checkpoint 前排得偏低。大于 `coldBlankProbeMaxBytes` 的空白工件，或来自不提供 `locate()` 的后端的空白工件会保持可见。该阈值在 `readFrom()` 前检查，而非由 persistence 强制，因此工件并发增长可能增加一次探测的读取成本，但不会改变空白状态的安全方向。[有界空白验证决策](../../../.agents/notes/implemented/bug-fix/2026-08-13-bounded-cold-blank-verification.md)规定了这个安全方向；权威且精确的最近时间索引仍属于[最后活动索引提案](../../../.agents/notes/proposed/architecture/2026-07-29-durable-last-activity-index.md)的范围。

@@ -30,6 +30,17 @@ export function RpcId(id: string): RpcId {
   return id as RpcId
 }
 
+/** Request correlation id: stable across retries of one logical client operation. */
+export type RequestId = Branded<'request-id'>
+
+/** Brand a raw request correlation id after the wire schema has validated it.
+ * @param id - validated non-empty request correlation id.
+ * @returns the branded request correlation id.
+ */
+export function RequestId(id: string): RequestId {
+  return id as RequestId
+}
+
 /** Error code → details type map (a second table isomorphic to RpcMethodMap). New code = one row here + one branch in the error schema. */
 export interface RpcErrorDetailsMap {
   /** The authenticated principal changed after the client initiated a mutation. */
@@ -103,6 +114,10 @@ export interface RpcErrorDetailsMap {
   'subagent-unauthorized': { childSessionId: SessionId }
   'subagent-delivery-unavailable': { childSessionId: SessionId }
   'internal': {}
+  /** The same idempotency key was reused with a different operation payload. */
+  'idempotency-key-reused': { key: string }
+  /** No operation with that id is visible in this Host process. */
+  'operation-not-found': { operationId: string }
 }
 
 /** Closed error-code union (the keys of RpcErrorDetailsMap). */
@@ -143,6 +158,8 @@ export interface RpcRequest<P> {
   payload: P
   /** Authenticated network identity; absent for in-process callers and server-originated frames. */
   principal?: AuthenticationPrincipal
+  /** Correlates retries and server-side operation records independently of rpcId. */
+  requestId?: RequestId
 }
 
 /** Signature-layer narrow form, response side: rpcId always echoes the matching request. */
@@ -151,6 +168,8 @@ export interface RpcResponse<T> {
   result: RpcResult<T>
   /** Host-verified non-secret identity attached by an authenticated unary carrier. */
   authentication?: AuthenticationPrincipalIdentity
+  /** Correlates the response with the logical client request. */
+  requestId?: RequestId
 }
 
 /**
@@ -178,6 +197,8 @@ export interface ClientRequest {
   payload: unknown
   /** Initiating identity required on mutating methods and checked by the authenticated Host carrier. */
   expectedPrincipal?: AuthenticationPrincipalIdentity
+  /** Correlation id stable across retries of one logical request. */
+  requestId?: RequestId
 }
 
 /** Response to a ClientRequest (wire carrier: the HTTP response body of that POST); rpcId echoed. */
@@ -187,6 +208,8 @@ export interface ServerResponse {
   result: RpcResult<unknown>
   /** Host-verified non-secret identity attached by an authenticated unary carrier. */
   authentication?: AuthenticationPrincipalIdentity
+  /** Correlation id copied from the initiating ClientRequest. */
+  requestId?: RequestId
 }
 
 /** Transport control method preceding every authenticated downstream stream. */

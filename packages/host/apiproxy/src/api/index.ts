@@ -17,9 +17,14 @@ import type { CredentialsApi } from './credentials.ts'
 import type { LlmApi } from './llm.ts'
 import type { DownloadsApi } from './downloads.ts'
 import type { ClientResponse, RpcReceipt } from './rpc.ts'
+import type { ApiApi } from './contract.ts'
+import type { OperationsApi } from './operations.ts'
 
 /** Root interface of the unified API. New client-request domain = one new file pair + one field here + one map row. */
 export interface ApiProxy {
+  /** Contract discovery is optional on legacy hand-built test implementations. */
+  api?: ApiApi
+  operations?: OperationsApi
   sessions: SessionsApi
   subagents: SubagentsApi
   host: HostApi
@@ -64,6 +69,8 @@ export type { SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSe
 export type { CredentialsApi, CredentialView } from './credentials.ts'
 export type { ConfigurableProviderView, DiscoveredModelView, LlmApi } from './llm.ts'
 export type { DownloadsApi } from './downloads.ts'
+export type { ApiApi, ApiContractDescription, ApiMethodDescription, RpcMethodStability } from './contract.ts'
+export type { OperationStatus, OperationView, OperationsApi } from './operations.ts'
 export type { ApprovalResponsePayload } from './approvals.ts'
 
 export type { QuestionResponsePayload } from './questions.ts'
@@ -82,7 +89,7 @@ export type {
 } from './rpc.ts'
 
 // ---- Errors and ids ----
-export { CONNECTION_AUTHENTICATED_METHOD, RpcId, sameAuthenticationPrincipalIdentity, transportError } from './rpc.ts'
+export { CONNECTION_AUTHENTICATED_METHOD, RequestId, RpcId, sameAuthenticationPrincipalIdentity, transportError } from './rpc.ts'
 export type { RpcError, RpcErrorCode, RpcErrorDetailsMap, RpcResult } from './rpc.ts'
 // ---- Fixed session-search product bounds ----
 export {
@@ -91,5 +98,5 @@ export {
 } from './session-search.ts'
 
 // ---- Method registry and derived generics ----
-export { legacyRpcCapability, RPC_METHOD_CAPABILITIES } from './rpc-map.ts'
+export { legacyRpcCapability, RPC_METHOD_CAPABILITIES, RPC_METHOD_EFFECTS, RPC_METHOD_METADATA } from './rpc-map.ts'
 export type { RequestPayload, ResponseValue, RpcMethodMap } from './rpc-map.ts'

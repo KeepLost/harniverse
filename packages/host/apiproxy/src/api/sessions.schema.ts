@@ -319,6 +319,7 @@ export const sessionPromptRequestSchema = z.object({
 export const sessionPromptValueSchema = z.object({
   accepted: z.literal(true),
   messageId: messageIdSchema,
+  operationId: z.string().min(1),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.prompt'>>>
 
 /** session.workStatus request payload. */

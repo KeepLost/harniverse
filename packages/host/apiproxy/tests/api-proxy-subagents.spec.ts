@@ -283,7 +283,7 @@ describe('subagent gateway', () => {
       parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable', content,
     }), signal)
     expect(response.result).toMatchObject({
-      ok: true, value: { messageId: 'message-1' },
+      ok: true, value: { messageId: 'message-1', operationId: expect.stringMatching(/^operation:/) },
     })
     expect(followup).toHaveBeenCalledWith(
       parent,

@@ -110,6 +110,7 @@ describe('session/jobs subscription baseline', () => {
     const [job] = baseline?.jobs ?? []
     expect(job?.startedAt).toBeTypeOf('number')
     expect({ ...job, startedAt: 0 }).toEqual({
+      operationId: 'job:bash-1',
       id: 'bash-1',
       kind: 'bash',
       label: 'pnpm run build',
@@ -176,7 +177,7 @@ describe('session/jobs change pushes', () => {
 
     const [frame] = await collected
     const fields: readonly string[] = Object.keys(frame?.jobs[0] ?? {})
-    expect([...fields].sort()).toEqual(['id', 'kind', 'label', 'startedAt', 'status'])
+    expect([...fields].sort()).toEqual(['id', 'kind', 'label', 'operationId', 'startedAt', 'status'])
   })
 
   it('fans an unowned change out to every subscribed session', async () => {

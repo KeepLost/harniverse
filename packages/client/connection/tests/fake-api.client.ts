@@ -74,8 +74,8 @@ export class FakeApiClient implements IApiClient {
   onSelectModel: (payload: ModelSelection & { sessionId: SessionId })
   => Promise<RpcResponse<{ selected: ModelSelection }>> =
     payload => Promise.resolve(ok({ selected: { provider: payload.provider, model: payload.model } }))
-  onPrompt: (payload: unknown) => Promise<RpcResponse<{ accepted: true; messageId: never }>>
-    = () => Promise.resolve(ok({ accepted: true as const, messageId: 'fake-message' as never }))
+  onPrompt: (payload: unknown) => Promise<RpcResponse<{ accepted: true; messageId: never; operationId: string }>>
+    = () => Promise.resolve(ok({ accepted: true as const, messageId: 'fake-message' as never, operationId: 'operation:fake' }))
   onAttachment: (payload: unknown) => Promise<RpcResponse<{ attachment: { attachmentId: never; mediaType: 'image/png'; bytes: number; width: number; height: number }; data: string }>> =
     () => Promise.resolve(ok({ attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 1, width: 1, height: 1 }, data: 'AA==' }))
   onUpdateQueue: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
@@ -154,6 +154,14 @@ export class FakeApiClient implements IApiClient {
     }))),
   }
 
+  readonly api: NonNullable<IApiClient['api']> = {
+    describe: () => Promise.resolve(ok({ version: 1 as const, methods: [] })),
+  }
+
+  readonly operations: NonNullable<IApiClient['operations']> = {
+    get: () => Promise.resolve(ok({ operationId: 'operation:fake', kind: 'session.prompt' as const, status: 'accepted' as const, acceptedAt: 0 })),
+  }
+
   readonly subagents: IApiClient['subagents'] = {
     list: (payload: unknown) => this.record('subagent.list', payload, Promise.resolve(ok({
       entries: [],
@@ -166,6 +174,7 @@ export class FakeApiClient implements IApiClient {
     }))),
     prompt: (payload: unknown) => this.record('subagent.prompt', payload, Promise.resolve(ok({
       messageId: 'fake-message' as never,
+      operationId: 'operation:fake',
     }))),
     interrupt: (payload: unknown) => this.record('subagent.interrupt', payload, Promise.resolve(ok({
       accepted: true as const,

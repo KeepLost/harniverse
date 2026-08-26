@@ -56,6 +56,8 @@ export type SubagentListEntry =
 /** Inbox identity returned once the continuation accepts one human message. */
 export interface SubagentPromptReceipt {
   messageId: MessageId
+  /** Operation that can be queried after this admission response. */
+  operationId: string
 }
 
 /** Uniform acknowledgement that one interrupt request was admitted. */
