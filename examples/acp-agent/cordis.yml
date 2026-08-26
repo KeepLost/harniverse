@@ -113,6 +113,14 @@
 - id: tool-subagent-report
   name: '@deepseek-ai/dsh-tool-subagent-report'
 
+# Unified persistent Session creation, continuation, and safe unload. Direct
+# continuable children use the same session_message route as ordinary Sessions.
+- id: session-delivery
+  name: '@deepseek-ai/dsh-session-delivery-local'
+
+- id: tool-session-delivery
+  name: '@deepseek-ai/dsh-tool-session-delivery'
+
 - id: tool-subagent
   name: '@deepseek-ai/dsh-tool-subagent'
   config:

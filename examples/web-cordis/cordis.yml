@@ -18,7 +18,8 @@
     provider: spawn
     toolName: subagent
     backgroundMode: continuable
-    enableProfileManagement: true
+    enableChildProfileDefine: true
+    enableChildProfileList: true
 
 - insert:
     - id: tool-cordis

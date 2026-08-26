@@ -93,6 +93,17 @@ describe('dsh-base bundle', () => {
     expect(rows.find(row => row.id === 'tool-session-delivery')).toMatchObject({
       name: '@deepseek-ai/dsh-tool-session-delivery',
     })
+    expect(rows.find(row => row.id === 'tool-subagent')).toMatchObject({
+      name: '@deepseek-ai/dsh-tool-subagent',
+    })
+    for (const id of [
+      'tool-subagent-control',
+      'tool-subagent-list-agents',
+      'tool-subagent-fork',
+      'tool-subagent-report',
+    ]) {
+      expect(rows.find(row => row.id === id)).toBeUndefined()
+    }
     expect(rows.find(row => row.id === 'tools')?.config).toBeUndefined()
   })
 

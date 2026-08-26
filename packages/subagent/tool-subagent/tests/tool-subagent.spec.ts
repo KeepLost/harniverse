@@ -89,40 +89,43 @@ describe('dsh-tool-subagent', () => {
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected subagent success')
     expect(result.value).toEqual({
-      kind: 'foreground',
-      runId: 'scripted-subagent:mock:parent-1',
-      subagentId: 'scripted-subagent:mock:parent-1',
+      mode: 'sync',
+      invocationId: 'scripted-subagent:mock:parent-1',
+      sessionId: 'scripted-subagent:mock:parent-1',
       output: [{ type: 'text', text: 'child says hi' }],
     })
-    expect(text(result)).toBe('child says hi')
+    expect(text(result)).toContain('Subagent session scripted-subagent:mock:parent-1 completed')
+    expect(text(result)).toContain('Use session_inspect with session_id "scripted-subagent:mock:parent-1"')
+    expect(text(result)).not.toContain('session_message')
+    expect(text(result)).toContain('child says hi')
   })
 
-  it('exposes description + prompt + run_in_background to the model (no provider/type parameter)', async () => {
+  it('exposes description + prompt + mode to the model (no provider/type parameter)', async () => {
     const ctx = await setup({ provider: 'mock' })
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')
     expect(schema).toBeDefined()
     const props = (schema!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
-    expect(Object.keys(props).sort()).toEqual(['description', 'profile_id', 'prompt', 'run_in_background'])
-    expect(schema!.description).toContain('job_output')
+    expect(Object.keys(props).sort()).toEqual(['description', 'mode', 'prompt'])
+    expect(schema!.description).toContain('mode: async')
   })
 
-  it('omits run_in_background entirely when the instance disables it (schema and capability never disagree)', async () => {
+  it('keeps mode visible when async execution is disabled', async () => {
     const ctx = await setup({ provider: 'mock', enableRunInBackground: false })
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')
     const props = (schema!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
-    expect(Object.keys(props).sort()).toEqual(['description', 'profile_id', 'prompt'])
+    expect(Object.keys(props).sort()).toEqual(['description', 'mode', 'prompt'])
     expect(schema!.description).not.toContain('job_output')
   })
 
-  it('refuses a forced run_in_background at execution time when the instance disables it', async () => {
+  it('refuses async mode at execution time when the instance disables it', async () => {
     // Schema omission is advertising, not enforcement: the arg validator
     // allows undeclared keys, so the opt-out must also hold in execute().
     const ctx = await setup({ provider: 'mock', enableRunInBackground: false })
     const parent = { id: SessionId('sess-off'), inject: () => {}, options: {}, session: { header: { version: 0, id: 'sess-off', createdAt: 0 } } } as unknown as Agent
 
-    const forced = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true }, { agent: parent })
+    const forced = await callSubagent(ctx, { description: 'd', prompt: 'p', mode: 'async' }, { agent: parent })
     expect(forced.isError).toBe(true)
-    expect(text(forced)).toContain('run_in_background is disabled for this tool instance')
+    expect(text(forced)).toContain('mode: async is disabled for this tool instance')
     // The provider was never asked to start a child.
     expect(ctx.subagents.getProvider('mock')).toBeDefined()
     const foreground = await callSubagent(ctx, { description: 'd', prompt: 'p' }, { agent: parent })
@@ -141,7 +144,7 @@ describe('dsh-tool-subagent', () => {
       signal: testToolSignal,
       callId: CallId('subagent-background'),
       name: 'subagent',
-      arguments: { description: 'do work', prompt: 'Reply OK', run_in_background: true },
+      arguments: { description: 'do work', prompt: 'Reply OK', mode: 'async' },
     })).toEqual({ kind: 'parallel' })
   })
 
@@ -229,8 +232,10 @@ describe('dsh-tool-subagent', () => {
 
     const viaSpawn = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c-spawn'), name: 'subagent', arguments: { description: 'd', prompt: 'p' }, agent: fakeAgent() })
     const viaAcp = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c-acp'), name: 'subagent_acp', arguments: { description: 'd', prompt: 'p' }, agent: fakeAgent() })
-    expect(text(viaSpawn)).toBe('from spawn')
-    expect(text(viaAcp)).toBe('from acp')
+    expect(text(viaSpawn)).toContain('from spawn')
+    expect(text(viaSpawn)).toContain('scripted-subagent:spawn:parent-1')
+    expect(text(viaAcp)).toContain('from acp')
+    expect(text(viaAcp)).toContain('scripted-subagent:acp:parent-1')
   })
 
   it('treats an unknown (plugin-added) stop reason as an isError result', async () => {
@@ -340,7 +345,8 @@ describe('dsh-tool-subagent', () => {
     await mock.mountScriptedProvider(ctx, { name: 'mock', reply: 'late but fine' })
     expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(true)
     const result = await callSubagent(ctx, { description: 'd', prompt: 'p' })
-    expect(text(result)).toBe('late but fine')
+    expect(text(result)).toContain('late but fine')
+    expect(text(result)).toContain('scripted-subagent:mock:parent-1')
   })
 
   it('keeps continuable guidance empty while its provider is absent', async () => {
@@ -687,10 +693,10 @@ describe('dsh-tool-subagent', () => {
     expect(seen?.maxDepth).toBe(2)
   })
 
-  it('defines a parent-private profile and delegates by profile_id', async () => {
+  it('defines a parent-private profile, exposes its grant, and delegates by child_profile_id', async () => {
     let profileSeen: unknown
     let routeSeen: unknown
-    const ctx = await setup({ provider: 'mock', enableProfileManagement: true }, {
+    const ctx = await setup({ provider: 'mock', enableChildProfileDefine: true, enableChildProfileList: true }, {
       onStart: (request) => { profileSeen = request.childProfile; routeSeen = request.agentOptions },
     })
     const parent = fakeAgent('profile-parent')
@@ -706,13 +712,20 @@ describe('dsh-tool-subagent', () => {
       parentWorkspaceCwd: '/repo',
       maxDepth: 3,
     })
+    const delegationSchema = ctx.tools.schemas().find(schema => schema.name === 'subagent')
+    const delegationProperties = (delegationSchema?.parameters as { properties?: Record<string, unknown> }).properties ?? {}
+    expect(Object.keys(delegationProperties).sort()).toEqual(['child_profile_id', 'description', 'mode', 'prompt'])
+    expect(delegationProperties).not.toHaveProperty('profile_id')
+    const defineSchema = ctx.tools.schemas().find(schema => schema.name === 'child_profile_define')
+    expect(defineSchema?.parameters).toHaveProperty('properties.child_profile_id')
+    expect(defineSchema?.parameters).not.toHaveProperty('properties.profile_id')
     const defined = await ctx.tools.execute({
       signal: testToolSignal,
       callId: CallId('profile-define'),
       name: 'child_profile_define',
       agent: parent,
       arguments: {
-        profile_id: 'reviewer',
+        child_profile_id: 'reviewer',
         harness_id: 'mock',
         model_route_id: 'safe',
         tools: ['read'],
@@ -722,15 +735,62 @@ describe('dsh-tool-subagent', () => {
     const delegated = await callSubagent(ctx, {
       description: 'profiled task',
       prompt: 'read the repository',
-      profile_id: 'reviewer',
+      child_profile_id: 'reviewer',
     }, { agent: parent })
     expect(delegated.isError).toBe(false)
     expect(profileSeen).toMatchObject({ profileId: 'reviewer', revision: 1, harnessId: 'mock', modelRouteId: 'safe' })
     expect(routeSeen).toEqual({ provider: 'mock', model: 'safe-model' })
+    const listed = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('profile-list'),
+      name: 'child_profile_list',
+      agent: parent,
+      arguments: {},
+    })
+    expect(listed.isError, text(listed)).toBe(false)
+    expect(listed.isError ? undefined : listed.value).toEqual({
+      grant: {
+        harnessIds: ['mock'],
+        modelRouteIds: ['safe'],
+        tools: ['read'],
+        skills: [],
+        mcpServerIds: [],
+        childProfileIds: [],
+        workspaceRoot: '/repo',
+        parentWorkspaceCwd: '/repo',
+        maxDepth: 3,
+      },
+      profiles: [expect.objectContaining({ profileId: 'reviewer', revision: 1 })],
+    })
+  })
+
+  it('rejects the removed profile_id instead of delegating with defaults', async () => {
+    let starts = 0
+    const ctx = await setup(
+      { provider: 'mock', enableChildProfileDefine: true, enableChildProfileList: true },
+      { onStart: () => { starts += 1 } },
+    )
+    const result = await callSubagent(ctx, {
+      description: 'profiled task',
+      prompt: 'use the requested profile',
+      profile_id: 'reviewer',
+    })
+
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('profile_id was removed; use child_profile_id')
+    expect(starts).toBe(0)
+  })
+
+  it('registers only the enabled Child Profile management tool', async () => {
+    const ctx = await setup({ provider: 'mock', enableChildProfileList: true })
+    const names = ctx.tools.schemas().map(schema => schema.name)
+
+    expect(names).toContain('child_profile_list')
+    expect(names).not.toContain('child_profile_define')
   })
 
   it('binds a default parent grant when Profile management is enabled', async () => {
-    const ctx = await setup({ provider: 'mock', enableProfileManagement: true }, {
+    const ctx = await setup({ provider: 'mock', enableChildProfileDefine: true, enableChildProfileList: true }, {
       onStart: (request) => { expect(request.agentOptions).toEqual({ provider: 'mock', model: 'parent-model' }) },
     })
     const parent = {
@@ -743,11 +803,11 @@ describe('dsh-tool-subagent', () => {
       callId: CallId('profile-default-define'),
       name: 'child_profile_define',
       agent: parent,
-      arguments: { profile_id: 'default-reviewer' },
+      arguments: { child_profile_id: 'default-reviewer' },
     })
     expect(defined.isError, text(defined)).toBe(false)
     const delegated = await callSubagent(ctx, {
-      description: 'default profile task', prompt: 'use the default route', profile_id: 'default-reviewer',
+      description: 'default profile task', prompt: 'use the default route', child_profile_id: 'default-reviewer',
     }, { agent: parent })
     expect(delegated.isError).toBe(false)
   })
@@ -905,7 +965,7 @@ describe('dsh-tool-subagent background mode', () => {
       signal: testToolSignal,
       callId: CallId('resumable-one-shot'),
       name: 'subagent_resumable',
-      arguments: { description: 'work', prompt: 'go', run_in_background: true },
+      arguments: { description: 'work', prompt: 'go', mode: 'async' },
       agent: parent,
     })
 
@@ -917,7 +977,7 @@ describe('dsh-tool-subagent background mode', () => {
     const ctx = await backgroundSetup({ provider: 'mock', agentOptions: { model: 'child-model' } }, { reply: 'background answer' })
     const parent = ownerAgent(ctx, 'sess-parent')
 
-    const start = await callSubagent(ctx, { description: 'deep research', prompt: 'dig in', run_in_background: true }, { agent: parent })
+    const start = await callSubagent(ctx, { description: 'deep research', prompt: 'dig in', mode: 'async' }, { agent: parent })
     expect(start.isError).toBe(false)
     if (start.isError) throw new Error('expected background subagent success')
     expect(start.value).toEqual({ kind: 'background', jobId: 'subagent-1' })
@@ -945,7 +1005,7 @@ describe('dsh-tool-subagent background mode', () => {
 
   it('fails loud when the tasks runtime is not loaded', async () => {
     const ctx = await setup({ provider: 'mock' })
-    const result = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true })
+    const result = await callSubagent(ctx, { description: 'd', prompt: 'p', mode: 'async' })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('background jobs unavailable: load @deepseek-ai/dsh-jobs')
   })
@@ -955,7 +1015,7 @@ describe('dsh-tool-subagent background mode', () => {
     const parent = ownerAgent(ctx, 'sess-parent')
     const controller = new AbortController()
     controller.abort()
-    const result = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true }, { agent: parent, signal: controller.signal })
+    const result = await callSubagent(ctx, { description: 'd', prompt: 'p', mode: 'async' }, { agent: parent, signal: controller.signal })
     expect(result.isError).toBe(true)
     expect(result.error).toEqual({
       message: 'tool call aborted before dispatch',
@@ -979,7 +1039,7 @@ describe('dsh-tool-subagent background mode', () => {
       signal: testToolSignal,
       callId: CallId('broken-start'),
       name: 'subagent_broken',
-      arguments: { description: 'broken', prompt: 'p', run_in_background: true },
+      arguments: { description: 'broken', prompt: 'p', mode: 'async' },
       agent: parent,
     })
     expect(text(started)).toBe('started background subagent task subagent-1')
@@ -1010,7 +1070,7 @@ describe('dsh-tool-subagent background mode', () => {
       signal: testToolSignal,
       callId: CallId('pending-start'),
       name: 'subagent_pending',
-      arguments: { description: 'pending', prompt: 'p', run_in_background: true },
+      arguments: { description: 'pending', prompt: 'p', mode: 'async' },
       agent: parent,
     })
     await ctx.tools.execute({
@@ -1059,8 +1119,8 @@ describe('dsh-tool-subagent background mode', () => {
     // Direct apply preserves omitted agentOptions instead of applying schema defaults.
     tool.apply(ctx, { provider: 'hanging', toolName: 'subagent_hang' })
 
-    const startOne = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('h1'), name: 'subagent_hang', arguments: { description: 'one', prompt: 'p', run_in_background: true }, agent: parent })
-    const startTwo = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('h2'), name: 'subagent_hang', arguments: { description: 'two', prompt: 'p', run_in_background: true }, agent: parent })
+    const startOne = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('h1'), name: 'subagent_hang', arguments: { description: 'one', prompt: 'p', mode: 'async' }, agent: parent })
+    const startTwo = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('h2'), name: 'subagent_hang', arguments: { description: 'two', prompt: 'p', mode: 'async' }, agent: parent })
     expect(text(startOne)).toBe('started background subagent task subagent-1')
     expect(text(startTwo)).toBe('started background subagent task subagent-2')
 
@@ -1119,16 +1179,19 @@ describe('dsh-tool-subagent continuable background mode', () => {
     // Continuable delegation has no Task, so the schema promises no collection.
     expect(schema.description).not.toContain('job_output')
     expect(schema.description).not.toContain('job_kill')
-    expect(schema.description).toContain('send_message')
-    expect(schema.description).toContain('runs in the background by default')
+    expect(schema.description).toContain('session_message')
+    expect(schema.description).not.toContain('`send_message`')
+    expect(schema.description).toContain('runs asynchronously by default')
     expect(schema.description).not.toContain('never poll or wait on it')
     const properties = (schema.parameters as {
       properties: Record<string, { description?: string }>
     }).properties
-    expect(properties.run_in_background?.description).toContain('Defaults to true')
+    expect(properties.mode?.description).toContain('sync')
     const assembly = await ctx.systemPrompt.assemble(assembleContextFor(parent))
     const guidance = assembly.sections.find(section => section.name === 'tool:subagent')
-    expect(guidance?.text).toContain('Use subagent in the background by default')
+    expect(guidance?.text).toContain('Use subagent asynchronously by default')
+    expect(guidance?.text).toContain('use session_message with that session_id')
+    expect(guidance?.text).toContain('session_inspect')
     expect(guidance?.text).toContain('runtime sends you a notice containing its outcome')
 
     const started = await callSubagent(
@@ -1137,17 +1200,23 @@ describe('dsh-tool-subagent continuable background mode', () => {
       { agent: parent },
     )
     expect(started.isError).toBe(false)
-    const match = /^started subagent (\S+)$/.exec(text(started))
-    expect(match).not.toBeNull()
-    const [, childId] = match!
+    const receipt = started.isError ? undefined : started.value
+    expect(receipt).toMatchObject({ mode: 'async' })
+    if (typeof receipt !== 'object' || receipt === null || Array.isArray(receipt)) {
+      throw new Error('expected async invocation receipt')
+    }
+    const childId = receipt.sessionId
+    if (typeof childId !== 'string') throw new Error('expected durable child session id')
+    expect(text(started)).toContain(`Started async subagent session ${childId}`)
+    expect(text(started)).toContain(`session_message with session_id "${childId}"`)
     // No Task was created for the continuable child.
     expect(ctx.jobs.list(parent)).toEqual([])
 
     await vi.waitFor(() => {
-      expect(ctx.agents.get(SessionId(childId!))).toBeUndefined()
+      expect(ctx.agents.get(SessionId(childId))).toBeUndefined()
     }, { timeout: 5_000 })
     // The child id names a durable session carrying its continuation descriptor.
-    const loaded = await ctx.sessionPersistence.load(SessionId(childId!))
+    const loaded = await ctx.sessionPersistence.load(SessionId(childId))
     expect(loaded.events.some(event => event.type === 'subagent/descriptor')).toBe(true)
     expect(loaded.events.some(event => event.type === 'assistant/message')).toBe(true)
   })
@@ -1161,17 +1230,21 @@ describe('dsh-tool-subagent continuable background mode', () => {
     expect(assembly.sections.find(section => section.name === 'tool:subagent')?.text).toBe('')
   })
 
-  it('waits for a continuable provider only when run_in_background is explicitly false', async () => {
+  it('waits for a continuable provider only when mode is explicitly sync', async () => {
     const { ctx, parent } = await continuableSetup()
     const result = await callSubagent(
       ctx,
-      { description: 'blocking work', prompt: 'dig in', run_in_background: false },
+      { description: 'blocking work', prompt: 'dig in', mode: 'sync' },
       { agent: parent },
     )
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected foreground subagent success')
-    expect(result.value).toMatchObject({ kind: 'foreground' })
-    expect(text(result)).toBe('continuable answer')
+    expect(result.value).toMatchObject({ mode: 'sync' })
+    expect(text(result)).toContain('Subagent session ')
+    expect(text(result)).toContain('Use session_inspect with session_id')
+    expect(text(result)).toContain('does not accept later turns')
+    expect(text(result)).not.toContain('session_message')
+    expect(text(result)).toContain('continuable answer')
     expect(ctx.jobs.list(parent)).toEqual([])
   })
 
@@ -1208,7 +1281,7 @@ describe('dsh-tool-subagent continuable background mode', () => {
       signal,
       callId: CallId(callId),
       name: 'subagent_gated',
-      arguments: { description, prompt: 'work', run_in_background: true },
+      arguments: { description, prompt: 'work', mode: 'async' },
       agent: parent,
     })
     const cancelledResult = execute('continuable-cancelled', 'cancelled sibling', cancelled.signal)
@@ -1226,9 +1299,9 @@ describe('dsh-tool-subagent continuable background mode', () => {
     expect(ctx.agents.get(cancelledChildId!)).toBeUndefined()
     await expect(ctx.sessionPersistence.load(cancelledChildId!)).rejects.toThrow(/not found/)
 
-    expect(succeeded.isError ? undefined : succeeded.value).toEqual({
-      kind: 'continuable',
-      subagentId: survivingChildId,
+    expect(succeeded.isError ? undefined : succeeded.value).toMatchObject({
+      mode: 'async',
+      sessionId: survivingChildId,
     })
     await vi.waitFor(() => {
       expect(ctx.agents.get(survivingChildId!)).toBeUndefined()
@@ -1278,7 +1351,7 @@ describe('background preflight failure (no orphaned child, by construction)', ()
       signal: testToolSignal,
       callId: CallId('probe-1'),
       name: 'subagent_probe',
-      arguments: { description: 'd', prompt: 'p', run_in_background: true },
+      arguments: { description: 'd', prompt: 'p', mode: 'async' },
       agent: parent,
     })
     expect(result.isError).toBe(true)

@@ -34,7 +34,7 @@ interface SubagentCapabilities {
 
 ## 单次启动请求
 
-工具层根据模型输入和自身配置构建此请求；服务在 `start` 之前针对指定提供方进行校验。必填的 `parent` 提供会话 cwd、谱系与委派深度。可选的 output schema、depth、工具过滤器和 persona 需要对应的能力 flag 匹配。不支持的 schema 在启动时即失败；进程内后端将 filter 和 persona 的作用域限定在子 agent 创建阶段，并通过强制 capture 工具实现所支持的 object-rooted schema。
+工具层根据模型输入和自身配置构建此请求；服务在 `start` 之前针对指定提供方进行校验。必填的 `parent` 提供会话 cwd、谱系与委派深度。可选的 output schema、depth、工具过滤器和 persona 需要对应的能力 flag 匹配。Host 解析的 `childProfile` 携带不可变的父级私有策略快照。不支持的 schema 在启动时即失败；进程内后端将 filter 和 persona 的作用域限定在子 agent 创建阶段，并通过强制 capture 工具实现所支持的 object-rooted schema。
 
 ```ts type-equiv
 /**
@@ -93,6 +93,8 @@ interface SubagentStartRequest {
    * persona (strict `{{…}}` interpolation against the registered variables).
    */
   readonly persona?: string
+  /** Host-resolved parent-private profile, immutable across the child lifetime. */
+  readonly childProfile?: ResolvedChildProfile
 }
 ```
 
@@ -430,6 +432,8 @@ interface SubagentProvider {
   readonly name: string
   /** The start-time features this provider supports (see {@link SubagentCapabilities}). */
   readonly capabilities: SubagentCapabilities
+  /** Provider can receive and enforce a host-resolved Child Profile snapshot. */
+  readonly supportsChildProfile?: boolean
   /**
    * Whether the child sees the parent's completed-turn prefix. This is descriptive, not a
    * service-validated start capability: the model-facing tool derives truthful wording from it.
@@ -641,6 +645,89 @@ getProvider(name: string): SubagentProvider | undefined
 list(): string[]
 
 /**
+ * Bind the Host-computed capability grant to one exact live parent. A model
+ * cannot supply or mutate the grant; a scoped management Consumer may project
+ * its detached snapshot for Profile authoring.
+ * @param parent - exact parent Agent receiving the private grant.
+ * @param grant - host-owned capabilities available to child profiles.
+ * @returns an effect disposer that revokes this exact binding.
+ */
+registerChildProfileGrant(parent: Agent, grant: ChildProfileGrant): () => void
+
+/**
+ * Define or revise one parent-private profile from the parent's Host grant.
+ * @param parent - exact live Agent that owns the private namespace.
+ * @param spec - complete requested profile specification.
+ * @returns the detached immutable resolved revision.
+ */
+defineChildProfile(parent: Agent, spec: ChildProfileSpec): ResolvedChildProfile
+
+/**
+ * List only the exact parent's private resolved profile snapshots.
+ * @param parent - exact live Agent that owns the private namespace.
+ * @returns current resolved revisions in definition order.
+ */
+listChildProfiles(parent: Agent): ResolvedChildProfile[]
+
+/**
+ * Whether the Host has already bound a private-profile grant to this Agent.
+ * @param parent - exact live Agent to inspect.
+ * @returns whether that Agent has a bound grant.
+ */
+hasChildProfileGrant(parent: Agent): boolean
+
+/**
+ * Read the detached grant so a scoped management tool can reuse its defaults.
+ * @param parent - exact live Agent to inspect.
+ * @returns the detached grant, or `undefined` when none is bound.
+ */
+getChildProfileGrant(parent: Agent): ChildProfileGrant | undefined
+
+/**
+ * Resolve one profile id from the exact parent's private namespace.
+ * @param parent - exact live Agent that owns the namespace.
+ * @param profileId - opaque private Profile id.
+ * @returns the current immutable revision, or `undefined` when absent.
+ */
+getChildProfile(parent: Agent, profileId: string): ResolvedChildProfile | undefined
+
+/**
+ * Register one Host-owned opaque model route used by resolved profiles.
+ * @param routeId - opaque route identity exposed through grants.
+ * @param route - Host-owned primary and fallback model selections.
+ * @returns an effect disposer that revokes this exact route.
+ */
+registerChildModelRoute(routeId: string, route: ChildModelRoute): () => void
+
+/**
+ * Install one idempotent route for a deployment-derived parent default.
+ * @param routeId - deterministic route identity.
+ * @param route - Host-owned primary selection; an existing matching route keeps its fallback chain.
+ */
+ensureChildModelRoute(routeId: string, route: ChildModelRoute): void
+
+/**
+ * Resolve a Profile route into the only model selection fields an Agent accepts.
+ * @param profile - immutable resolved Profile carrying the opaque route id.
+ * @returns the primary Agent model selection with the Profile token ceiling.
+ */
+resolveChildModelRoute(profile: ResolvedChildProfile): AgentOptions
+
+/**
+ * Register a trusted scoped contribution for Profile Skill/MCP integrations.
+ * @param setup - synchronous contribution installed before child publication.
+ * @returns an effect disposer that revokes future installations.
+ */
+registerChildProfileSetup(setup: ChildProfileSetup): () => void
+
+/**
+ * Apply all registered Profile contributions during child creation.
+ * @param childCtx - unpublished child scope receiving the resolved policy.
+ * @param profile - immutable Profile snapshot selected for this child.
+ */
+applyChildProfileSetup(childCtx: Context, profile: ResolvedChildProfile): void
+
+/**
  * Establish a published child on the named provider. Capability and semantic
  * checks run before delegation. Provider ownership lasts until its promise
  * fulfills; a rejection therefore has no run for the caller to dispose and
@@ -651,11 +738,22 @@ list(): string[]
  * @returns the published holder-owned run.
  */
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
+
+/**
+ * Accept one invocation using the caller's waiting policy. The returned
+ * identity always names the durable child Session; provider lifecycle mode
+ * remains an implementation detail of this service.
+ * @param name - the provider to use.
+ * @param mode - whether to await the child result or return after admission.
+ * @param request - child label, prompt, parent, signal, and capabilities.
+ * @returns the accepted invocation handle with its durable child Session id.
+ */
+async invoke<Mode extends SubagentInvocationMode>( name: string, mode: Mode, request: SubagentStartRequest, ): Promise<Extract<SubagentInvocation, { readonly mode: Mode }>>
 ```
 
-Types: [Agent](core.md) · [ContentBlock](llm-streaming.md) · [MessageId](llm-streaming.md) · [SessionId](core.md)
+Types: [Agent](core.md) · [AgentOptions](core.md) · [ContentBlock](llm-streaming.md) · [MessageId](llm-streaming.md) · [SessionId](core.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:171`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:194`](../../packages/subagent/subagent/src/index.ts)
 
 <a id="subagent-events"></a>
 
@@ -681,7 +779,7 @@ A published child settled. Scope-filtered dispatch uses the same delegating pare
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:166`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:189`](../../packages/subagent/subagent/src/index.ts)
 
 <a id="subagentprovider-added--emit"></a>
 
@@ -698,7 +796,7 @@ A provider became resolvable in the registry.
 'subagent/provider-added'(provider: SubagentProvider): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:140`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:163`](../../packages/subagent/subagent/src/index.ts)
 
 <a id="subagentprovider-removed--emit"></a>
 
@@ -715,7 +813,7 @@ A provider left the registry. Accepted runs remain holder-owned.
 'subagent/provider-removed'(name: string): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:146`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:169`](../../packages/subagent/subagent/src/index.ts)
 
 <a id="subagentstart--emit"></a>
 
@@ -739,5 +837,5 @@ A provider established a published child. For in-process providers, `ctx.agents.
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:157`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:180`](../../packages/subagent/subagent/src/index.ts)
 <!-- END GENERATED cordis-surface -->

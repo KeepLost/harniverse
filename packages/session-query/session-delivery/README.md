@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Provider-neutral `ctx.sessionDelivery` Definition for delivering one user-role message to another ordinary session as a later FIFO turn and safely unloading idle ordinary sessions. Delivery success means inbox acceptance only; it never means the target replied or completed work.
+Provider-neutral `ctx.sessionDelivery` Definition for creating persistent ordinary sessions, delivering one user-role message to another ordinary session as a later FIFO turn, and safely unloading idle ordinary sessions. Creation publishes only after model and Profile setup succeeds; delivery success means inbox acceptance only.
 
 ## Model Experience
 

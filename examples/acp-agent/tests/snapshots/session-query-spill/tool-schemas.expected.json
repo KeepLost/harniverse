@@ -270,31 +270,16 @@
       }
     },
     {
-      "name": "session_event_read",
-      "description": "Read a complete raw SessionEvent window around one event sequence from an authorized session.",
+      "name": "session_create",
+      "description": "Create a new persistent ordinary session in the current workspace. This only creates the session and does not send an initial message; use session_message with the returned sessionId to start its first turn. The session is returned after its Agent Profile and model configuration are durably attached.",
       "parameters": {
         "type": "object",
         "properties": {
-          "session_id": {
+          "agent_profile_id": {
             "type": "string",
-            "description": "Target session id. Omit for the current session."
-          },
-          "seq": {
-            "type": "integer",
-            "description": "Target event sequence number."
-          },
-          "before": {
-            "type": "integer",
-            "description": "Number of preceding complete raw events to include. Omit for none."
-          },
-          "after": {
-            "type": "integer",
-            "description": "Number of following complete raw events to include. Omit for none."
+            "description": "Optional ordinary Agent Profile id. This is not a Child Profile id. The host resolves and validates it before publication."
           }
-        },
-        "required": [
-          "seq"
-        ]
+        }
       }
     },
     {
@@ -349,26 +334,6 @@
         },
         "required": [
           "query"
-        ]
-      }
-    },
-    {
-      "name": "session_event_trace",
-      "description": "Read every direct replacement and relationship to a cited source event for one event in an authorized session.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "session_id": {
-            "type": "string",
-            "description": "Target session id. Omit for the current session."
-          },
-          "seq": {
-            "type": "integer",
-            "description": "Target event sequence number."
-          }
-        },
-        "required": [
-          "seq"
         ]
       }
     },
@@ -442,8 +407,8 @@
       }
     },
     {
-      "name": "session_log_tail",
-      "description": "Read the latest complete raw SessionEvent trajectory from an authorized session, including shadowed and log-only events.",
+      "name": "session_inspect",
+      "description": "Inspect one authorized session through a unified view: summary status, folded messages, raw history, one event, or lineage. Never resumes a cold session.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -451,28 +416,58 @@
             "type": "string",
             "description": "Target session id. Omit for the current session."
           },
+          "view": {
+            "type": "string",
+            "description": "View to inspect: summary status, folded messages, raw history, one event, or lineage.",
+            "enum": [
+              "summary",
+              "messages",
+              "history",
+              "event",
+              "lineage"
+            ]
+          },
           "limit": {
             "type": "integer",
-            "description": "Maximum complete raw events to return. Defaults to 20."
+            "description": "Maximum items for messages/history only. Defaults to 10 for messages and 20 for history; maximum 50."
+          },
+          "seq": {
+            "type": "integer",
+            "description": "Required for event; optional for lineage to select one event's replacement and source relationships. Omit for Session lineage."
+          },
+          "before": {
+            "type": "integer",
+            "description": "For event only, complete raw events before seq; maximum 50."
+          },
+          "after": {
+            "type": "integer",
+            "description": "For event only, complete raw events after seq; maximum 50."
           }
-        }
+        },
+        "required": [
+          "view"
+        ]
       }
     },
     {
-      "name": "session_message_tail",
-      "description": "Read the folded current model-message surface tail from an authorized session. This is not historical raw-log trajectory.",
+      "name": "session_message",
+      "description": "Send a message to another ordinary session or a direct subagent session as its next FIFO turn. Returns after inbox acceptance and does not wait for a reply or turn completion.",
       "parameters": {
         "type": "object",
         "properties": {
           "session_id": {
             "type": "string",
-            "description": "Target session id. Omit for the current session."
+            "description": "Target ordinary session or direct subagent session id."
           },
-          "limit": {
-            "type": "integer",
-            "description": "Maximum finalized messages to return. Defaults to 10."
+          "message": {
+            "type": "string",
+            "description": "Message to deliver."
           }
-        }
+        },
+        "required": [
+          "session_id",
+          "message"
+        ]
       }
     },
     {
@@ -575,53 +570,6 @@
       }
     },
     {
-      "name": "session_send_message",
-      "description": "Send a message to another ordinary session as its next FIFO turn. Returns after inbox acceptance and does not wait for a reply or turn completion.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "session_id": {
-            "type": "string",
-            "description": "Target ordinary session id."
-          },
-          "message": {
-            "type": "string",
-            "description": "Message to deliver."
-          }
-        },
-        "required": [
-          "session_id",
-          "message"
-        ]
-      }
-    },
-    {
-      "name": "session_status",
-      "description": "Read whether an authorized session is live and whether its Agent is running without resuming a cold session.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "session_id": {
-            "type": "string",
-            "description": "Target session id. Omit for the current session."
-          }
-        }
-      }
-    },
-    {
-      "name": "session_trace",
-      "description": "Read the authorized session lineage around one session, including complete visible ancestor and descendant relationships.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "session_id": {
-            "type": "string",
-            "description": "Target session id. Omit for the current session."
-          }
-        }
-      }
-    },
-    {
       "name": "session_unload",
       "description": "Unload another idle ordinary session. Refuses running, queued, subagent-owned, or runtime-owned sessions so work is not interrupted.",
       "parameters": {
@@ -655,7 +603,7 @@
     },
     {
       "name": "subagent",
-      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. This tool runs in the background by default, immediately returns a durable subagent id, and keeps the child conversation available for later turns. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message; `send_message` starts a later turn in the same child conversation. Set `run_in_background: false` only when your next action depends on receiving the result.",
+      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. This tool runs asynchronously by default, immediately returns the durable child Session id, and keeps the child conversation available for later turns. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message. Use `session_message` with that Session id for a later turn and `session_inspect` to read the child state or transcript. Set `mode: sync` only when your next action depends on receiving the result.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -667,9 +615,13 @@
             "type": "string",
             "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
           },
-          "run_in_background": {
-            "type": "boolean",
-            "description": "Whether to run in the background and return a durable subagent id immediately. Defaults to true. Set false to wait for the result when your next action depends on it."
+          "mode": {
+            "type": "string",
+            "description": "Whether to wait for the child result (`sync`) or return after accepting its initial turn (`async`). Omit to use this tool instance's advertised default.",
+            "enum": [
+              "sync",
+              "async"
+            ]
           }
         },
         "required": [
@@ -691,11 +643,43 @@
           "prompt": {
             "type": "string",
             "description": "The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new."
+          },
+          "mode": {
+            "type": "string",
+            "description": "Whether to wait for the child result (`sync`) or return after accepting its initial turn (`async`). Omit to use this tool instance's advertised default.",
+            "enum": [
+              "sync",
+              "async"
+            ]
           }
         },
         "required": [
           "description",
           "prompt"
+        ]
+      }
+    },
+    {
+      "name": "subagent_history",
+      "description": "Read a bounded raw event history from one of your direct or nested subagents without resuming it. The result includes user/assistant messages, tool calls and results, lifecycle records, and sequence numbers. Use before_seq from a prior page to walk older history; only descendants of the calling agent are authorized.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "subagent_id": {
+            "type": "string",
+            "description": "The direct or nested subagent id returned by delegation or list_agents."
+          },
+          "before_seq": {
+            "type": "integer",
+            "description": "Read events before this sequence number for older-page traversal."
+          },
+          "max_events": {
+            "type": "integer",
+            "description": "Maximum complete raw events to return, from 1 through 50. Defaults to 50."
+          }
+        },
+        "required": [
+          "subagent_id"
         ]
       }
     },

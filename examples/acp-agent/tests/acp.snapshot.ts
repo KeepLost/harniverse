@@ -433,10 +433,10 @@ const SCENARIOS: Scenario[] = [
   { name: 'subagent-parallel', hasModelTurn: true, recorded: false },
   { name: 'subagent-fork-in-process', hasModelTurn: true, recorded: true },
   { name: 'subagent-mixed', hasModelTurn: true, recorded: true },
-  // Authored continuable-subagent transcript: a background delegation returns
-  // only the durable subagent id, two send_message calls queue as later FIFO
+  // Authored continuable-subagent transcript: an async delegation returns
+  // the durable child Session id, two session_message calls queue as later FIFO
   // turns on that same child (the parent is never woken with their output),
-  // send_message to an unknown subagent id fails without delivering, and the
+  // session_message to an unknown Session id fails without delivering, and the
   // child's retained handle is disposed child-first at teardown despite a
   // failed final durability confirmation. That failed confirmation is also what
   // the settlement notice must report: the child's last turn claimed the third

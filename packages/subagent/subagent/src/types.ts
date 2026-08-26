@@ -12,7 +12,7 @@
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ObjectJsonSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
 import type { SubagentDescriptorData } from './descriptor.ts'
@@ -97,6 +97,33 @@ export type SubagentRunId = Branded<'SubagentRunId'>
 export function SubagentRunId(id: string): SubagentRunId {
   return id as SubagentRunId
 }
+
+/** Caller-visible waiting policy for one child-session invocation. */
+export type SubagentInvocationMode = 'sync' | 'async'
+
+/** Stable identity of one accepted invocation, independent of its Activation. */
+export type SubagentInvocationId = Branded<'SubagentInvocationId'>
+
+/** Brand a string as a {@link SubagentInvocationId}. */
+export function SubagentInvocationId(id: string): SubagentInvocationId {
+  return id as SubagentInvocationId
+}
+
+/** Unified result handle returned by the subagent service. */
+export type SubagentInvocation =
+  | {
+    readonly mode: 'sync'
+    readonly invocationId: SubagentInvocationId
+    readonly sessionId: SessionId
+    readonly result: Promise<SubagentResult>
+    readonly dispose: () => Promise<void>
+  }
+  | {
+    readonly mode: 'async'
+    readonly invocationId: SubagentInvocationId
+    readonly sessionId: SessionId
+    readonly messageId: MessageId
+  }
 
 /**
  * Observe-only identifying detail for a published subagent run, carried by

@@ -17,7 +17,7 @@ import {
 } from '@deepseek-ai/dsh-session-query'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { toolInput } from './input.ts'
-import type { SessionFindArgs, SessionSearchArgs } from './input.ts'
+import type { SessionFindArgs, SessionInspectArgs, SessionSearchArgs } from './input.ts'
 import { presentation } from './presentation.ts'
 import { serviceBoundary } from './service-boundary.ts'
 import { workspaceAccess } from './workspace-access.ts'
@@ -268,6 +268,48 @@ async function executeSessionStatus(
   return presentation.formatSessionStatus(status)
 }
 
+/** Dispatch the unified inspection view without resuming a cold Session. */
+async function executeSessionInspect(
+  ctx: Context,
+  args: SessionInspectArgs,
+  exec: ToolRunContext,
+  defaultMessageLimit: number,
+  defaultLogLimit: number,
+  maxLimit: number,
+): Promise<string> {
+  switch (args.view) {
+    case 'summary':
+      return executeSessionStatus(ctx, args, exec)
+    case 'messages':
+      return executeMessageTail(ctx, args, exec, defaultMessageLimit, maxLimit)
+    case 'history':
+      return executeLogTail(ctx, args, exec, defaultLogLimit, maxLimit)
+    case 'lineage':
+      return args.seq === undefined
+        ? executeSessionTrace(ctx, args, exec)
+        : executeEventTrace(ctx, {
+          ...args.session_id === undefined ? {} : { session_id: args.session_id },
+          seq: args.seq,
+        }, exec)
+    case 'event':
+      if (args.seq === undefined) {
+        throw new SessionQueryError('session_inspect event view requires seq', 'SESSION_QUERY_INVALID_FILTER')
+      }
+      return executeEventRead(ctx, {
+        ...args.session_id === undefined ? {} : { session_id: args.session_id },
+        seq: args.seq,
+        ...args.before === undefined ? {} : { before: args.before },
+        ...args.after === undefined ? {} : { after: args.after },
+      }, exec)
+    default:
+      return assertNeverInspectView(args.view)
+  }
+}
+
+function assertNeverInspectView(value: never): never {
+  throw new SessionQueryError(`unsupported session_inspect view ${String(value)}`, 'SESSION_QUERY_INVALID_FILTER')
+}
+
 async function executeMessageTail(
   ctx: Context,
   args: MessageTailArgs,
@@ -369,7 +411,7 @@ async function collectPages<T>(
   }
 }
 
-/** Nine model-facing session-query operation implementations. */
+/** Public session-query operations and the exact-read helpers used by unified inspection. */
 export const operations = {
   executeSessionFind,
   executeSessionSearch,
@@ -378,6 +420,7 @@ export const operations = {
   executeEventTrace,
   executeEventRead,
   executeSessionStatus,
+  executeSessionInspect,
   executeMessageTail,
   executeLogTail,
 }

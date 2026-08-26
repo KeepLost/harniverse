@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-提供方无关的 `ctx.sessionDelivery` Definition，用于将一条用户角色消息作为后续 FIFO turn 投递到另一个普通会话，并安全卸载空闲普通会话。投递成功只表示 inbox 已接受，不表示目标已经回复或完成工作。
+提供方无关的 `ctx.sessionDelivery` Definition，用于创建持久普通会话、将一条用户角色消息作为后续 FIFO turn 投递到另一个普通会话，并安全卸载空闲普通会话。只有模型和 Profile 设置成功后才发布创建结果；投递成功只表示 inbox 已接受。
 
 ## 模型体验
 

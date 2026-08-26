@@ -8,13 +8,13 @@
 
 每个插件实例把一个 `provider` 绑定到一个 `toolName`；模型不会收到提供方选择器。如需公开另一种传输，请加载另一个名称不同的实例。工具只在其提供方存在时注册，从而避免对同级加载顺序和提供方重新加载的依赖。工具描述遵循 `provider.inheritsParentContext`：新建子 agent（智能体）需要独立提示词，而 fork 子 agent 已能看到父级已完成轮次。
 
-前台调用会让执行信号贯穿启动和执行，等待 `run.result`，并且在返回前总会等待 `run.dispose()`。只有 `completed` 会返回规范值 `{ kind: 'foreground', runId, output: JsonValue[] }`，并渲染为相同的最终文本；中止、拒绝、token 上限和其他失败都会变成出错的工具结果。其消息会把可选的提供方撰写 `SubagentResult.diagnostic` 放在单独的 `Diagnostic:` 行下，再于另一标题后附加保留下来的部分 assistant 文本，因此两类文本都不会成为成功的 assistant 输出，被截断的回答也绝不会被悄悄丢弃。如果结果收集与 dispose（资源释放）都 reject，出错的结果会保留两项失败。
+同步调用会让执行信号贯穿启动和执行，等待 `run.result`，并且在返回前总会等待 `run.dispose()`。只有 `completed` 会返回规范值 `{ mode: 'sync', invocationId, sessionId, output: JsonValue[] }`；中止、拒绝、token 上限和其他失败都会变成出错的工具结果。其消息会把可选的提供方撰写 `SubagentResult.diagnostic` 放在单独的 `Diagnostic:` 行下，再于另一标题后附加保留下来的部分 assistant 文本，因此两类文本都不会成为成功的 assistant 输出，被截断的回答也绝不会被悄悄丢弃。如果结果收集与 dispose（资源释放）都 reject，出错的结果会保留两项失败。
 
-`backgroundMode` 同时选择后台路由与省略 `run_in_background` 时的默认行为。`one-shot` 默认在前台等待；显式传入 `true` 时，它会注册一个归父级所有的普通 Task，并返回规范值 `{ kind: 'background', jobId }`，渲染为 `started background subagent job <id>`，即使提供方支持可继续子 agent 也不例外。通用 Task 工具负责其后续状态、收集、取消和通知。`continuable` 在参数省略或为 `true` 时于后台运行；显式传入 `false` 时则在前台等待结果。其后台路由要求提供方具备 `prepareContinuable` 能力，调用 `ctx.subagents.startContinuable()`，并返回 `{ kind: 'continuable', subagentId }`，渲染为 `started subagent <childId>`。该路由在 inbox 接受时结算：子 agent 自此拥有自己的轮次，因此该调用既不等待也不收集结果。通过该 id 查看其 transcript（文本记录）仍是其详细输出的来源，可选的全局 `send_message` 工具则向其发送更多工作。每当子 agent 的 Activation 结束，继续执行服务都会投递一条结算通知，其中包含结束结果及可能存在的最终 assistant 消息，且这项投递不依赖 `report`。启动可继续工作不要求加载 `send_message`。见[后台 subagent Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-background-subagent-tasks.md)、[可继续的 subagent Agent Note](../../../.agents/notes/implemented/feature/2026-07-28-continuable-subagent-conversations.md)和[后台优先委派 Agent Note](../../../.agents/notes/implemented/feature/2026-08-11-background-first-continuable-delegation.md)。
+`backgroundMode` 仍是部署级默认策略。面向模型的 schema 使用 `mode: sync|async`：`sync` 等待终态的一次性结果，`async` 在接受持久化可继续 child 轮次后返回。可继续的异步工作要求提供方具备 `prepareContinuable`，通过统一 Invocation 服务启动，并保持 child 可接受后续消息。两种模式都会渲染持久化 child Session id；`session_inspect` 可以读取两类 Session，`session_message` 只继续异步 child。每当该 child 的 Activation 结束，继续执行服务会投递一条结算通知。
 
 `toolFilter` 会改变子 agent 的全局工具层，但不是从父级派生的权限上限。见 [agent 作用域的安全非目标](../../../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals)。
 
-启用可选的 Profile 管理面后，`child_profile_define` 和 `child_profile_list` 只操作调用方 Agent 的私有命名空间。委派工具接受 `profile_id`；Host 会在启动前解析 immutable snapshot、模型路由、深度/token 上限、工作区和工具边界。Profile 缺失或未授权时直接报错，不会回退到父级默认路由。
+启用可选的 Profile 管理面后，`child_profile_define` 和 `child_profile_list` 只操作调用方 Agent 的私有内存命名空间。`child_profile_list` 会在已有 revision 旁返回可用 grant；省略能力数组表示继承该 grant，显式空数组表示不授予该类能力。委派工具接受 `child_profile_id`；Host 会在启动前解析其 immutable snapshot、模型路由、深度/token 上限、工作区和工具边界。Profile 缺失或未授权时直接报错，不会回退到父级默认路由；父级注册表消失后，每个已启动 child 仍持久保留其 resolved snapshot。
 
 ## 配置
 
@@ -22,13 +22,14 @@
 |---|---|
 | `provider`（必填） | 提供方名称（`spawn`、`fork`、`acp` 等）。 |
 | `toolName` | 面向模型的名称，默认 `subagent`；每个已加载实例必须不同。 |
-| `enableRunInBackground` | 公开后台模式，默认 `true`；禁用时也会拒绝强制后台调用。 |
-| `backgroundMode` | 后台生命周期策略，默认 `one-shot`。`one-shot` 默认前台调用；`continuable` 默认后台调用，要求提供方具备 `prepareContinuable` 能力，并返回持久化子 agent ID，且不要求加载后续消息工具。 |
+| `enableRunInBackground` | 允许 `mode: async`，默认 `true`；禁用时拒绝异步调用。 |
+| `backgroundMode` | 内部默认策略，默认 `one-shot`；它决定省略 `mode` 时默认采用 `sync` 还是 `async`。面向模型的约定始终是 `mode: sync|async`。 |
 | `agentOptions` | 传给具体提供方的子 agent `provider`、`model` 和正整数 `maxTokens`；进程内提供方会用显式值覆盖继承的父级选项。 |
 | `persona` | 每个子 agent 独立的 persona；要求提供方具备 `persona` 能力。 |
 | `toolFilter` | 每个子 agent 独立的全局工具限制；要求提供方具备 `toolFilter` 能力。 |
 | `maxDepth` | 绝对委派深度上限，默认 `3`（`0` 禁止委派）；数值上限要求 `depthLimit` 能力，缺失时挂载失败。对于预算由子 harness 拥有的进程外提供方，`'provider-managed'` 不发送上限。工具在达到上限时仍然可见；每次尝试启动都会检查调用 agent 的当前深度，被拒绝时返回出错的工具结果。 |
-| `enableProfileManagement` | 公开 `child_profile_define` 和 `child_profile_list`，默认 `false`；Host 必须先绑定父级 grant 和模型路由，模型才能定义可用 Profile。 |
+| `enableChildProfileDefine` | 公开 `child_profile_define`，默认 `false`；Host 必须先绑定父级 grant 和模型路由，模型才能定义可用 Profile。 |
+| `enableChildProfileList` | 公开 `child_profile_list`，默认 `false`；列表会投影当前父级的精确 grant 与私有修订。 |
 
 ## 并发
 
@@ -40,7 +41,7 @@
 
 #### 模型看到的内容
 
-当提供方存在时，以当前实例配置的名称公开已生成的默认 [`subagent` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-subagent)。schema 包含可选的 `profile_id`，但不会接受原始命令、endpoint、凭据或 Profile 路径。提供方是否继承上下文会改变工具描述和提示词描述。启用后台模式会添加 `run_in_background`：可继续模式会记录其默认值为 `true`、运行时结算通知与显式前台覆盖；一次性模式会记录其默认值为 `false`，以及用 `job_output` 收集或用 `job_kill` 停止的 job id。启用 Profile 管理后，模型还会看到父级私有的 define/list 工具。当工具在本次组装的作用域中可见时，一个 `tool:<toolName>` 系统提示词 section 会指示模型同时启动相互独立的可继续委派、在它们运行时继续工作，并且仅当下一步动作依赖结果时选择前台；工具限制会同时移除其 schema 和这段指引。
+当提供方存在时，以当前实例配置的名称公开已生成的交付版 [`subagent` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-subagent)。schema 公开 `mode: sync|async` 和可选的 `child_profile_id`，但不会接受原始命令、endpoint、凭据或 Profile 路径。启用 Profile 管理后，模型还会看到父级私有的 define/list 工具及可用 grant。当工具在本次组装的作用域中可见时，一个 `tool:<toolName>` 系统提示词 section 会说明配置的异步默认策略，把 `session_message` 与 `session_inspect` 指定为继续和读取入口，并要求仅在下一步动作依赖结果时选择 `mode: sync`。
 
 #### Token 影响
 
@@ -54,7 +55,7 @@
 
 #### 模型看到的内容
 
-调用会保留描述和提示词。成功时只包含子 agent 的最终文本；其他结果变为 `Error: <message>`，可选的安全提供方详情会放在单独的 `Diagnostic:` 行中，并位于任何部分 assistant 输出之前。子 agent 中间步骤不会进入父级。
+调用会保留描述和提示词。成功时会标识持久化的一次性 child Session 与 Invocation，说明 `session_inspect` 接受该 Session id 而后续轮次不接受，然后包含子 agent 的最终文本。其他结果变为 `Error: <message>`，可选的安全提供方详情会放在单独的 `Diagnostic:` 行中，并位于任何部分 assistant 输出之前。子 agent 中间步骤不会进入父级。
 
 #### Token 影响
 
@@ -68,7 +69,7 @@
 
 #### 模型看到的内容
 
-在配置的可继续模式下，启动时返回内容恰为 `started subagent <childId>`；在配置的一次性模式下，则返回 `started background subagent job <id>`。一次性模式下，通用 Task 接口提供后续状态、最终输出、取消响应和通知。可继续模式下，本工具不返回自己的结果；子 agent 的结算会以[服务负责的通知](../subagent/README.md#settlement-notice)到达父级，独立加载的 `send_message` 工具会投递后续消息，而通过其 id 查看子 agent 的 transcript 即是其详细输出来源。
+异步调用会在 child 完成前同时渲染持久化 child Session id 与 Invocation id；同步调用会随最终结果渲染相同的身份。异步 child 的结算会以[服务负责的通知](../subagent/README.md#settlement-notice)到达父级。已交付的 `session_message` 工具负责直属 child 的后续消息，`session_inspect` 则按 Session id 读取 child transcript。
 
 #### Token 影响
 

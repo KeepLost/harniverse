@@ -47,6 +47,19 @@ export interface SessionUnloadReceipt {
   unloaded: boolean
 }
 
+/** Create one ordinary persistent session using the caller's current workspace. */
+export interface SessionCreateRequest {
+  sender: Agent
+  profileId?: string
+  signal: AbortSignal
+}
+
+/** Publication receipt for a newly created session. */
+export interface SessionCreateReceipt {
+  sessionId: SessionId
+  agentProfile?: string
+}
+
 /** Service Definition for ordinary-session message delivery. */
 export abstract class SessionDelivery extends Service {
   constructor(ctx: Context) {
@@ -66,6 +79,13 @@ export abstract class SessionDelivery extends Service {
    * @returns whether a live target was detached.
    */
   abstract unload(request: SessionUnloadRequest): Promise<SessionUnloadReceipt>
+
+  /**
+   * Create and publish a fully composed ordinary session.
+   * @param request - exact live sender, optional Agent Profile, and cancellation.
+   * @returns the durable Session identity after composition and publication.
+   */
+  abstract create(request: SessionCreateRequest): Promise<SessionCreateReceipt>
 }
 
 export default SessionDelivery

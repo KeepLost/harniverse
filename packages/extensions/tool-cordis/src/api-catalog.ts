@@ -1283,6 +1283,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'request', description: 'exact live sender, target identity, and cancellation.' }],
         returns: 'whether a live target was detached.',
       },
+      {
+        signature: 'abstract create(request: SessionCreateRequest): Promise<SessionCreateReceipt>',
+        description: 'Create and publish a fully composed ordinary session.',
+        parameters: [{ name: 'request', description: 'exact live sender, optional Agent Profile, and cancellation.' }],
+        returns: 'the durable Session identity after composition and publication.',
+      },
     ],
   },
   {
@@ -1347,6 +1353,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Read one display-history page without resuming a Session. Concrete backends may seek directly to the tail; the default preserves the seam for third-party backends by paging a validated inspection.',
         parameters: [{ name: 'id', description: 'persisted session to read.' }, { name: 'request', description: 'exclusive upper bound and message quota.' }, { name: 'signal', description: 'optional cancellation for backend read work.' }],
         returns: 'detached metadata and a contiguous raw-event page.',
+      },
+      {
+        signature: 'async readRawEventPage( id: SessionId, request: SessionRawEventPageRequest, signal?: AbortSignal, ): Promise<SessionRawEventPage & { readonly meta: SessionHeader }>',
+        description: 'Read one raw-event page without resuming a Session. Concrete backends may seek directly to the tail; the default preserves the seam for third-party backends by paging a validated inspection.',
+        parameters: [{ name: 'id', description: 'persisted session to read.' }, { name: 'request', description: 'exclusive upper bound and raw-event quota.' }, { name: 'signal', description: 'optional cancellation for backend read work.' }],
+        returns: 'detached metadata and a bounded raw-event page.',
       },
       {
         signature: 'abstract readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
@@ -2011,10 +2023,80 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the registered names.',
       },
       {
+        signature: 'registerChildProfileGrant(parent: Agent, grant: ChildProfileGrant): () => void',
+        description: 'Bind the Host-computed capability grant to one exact live parent. A model cannot supply or mutate the grant; a scoped management Consumer may project its detached snapshot for Profile authoring.',
+        parameters: [{ name: 'parent', description: 'exact parent Agent receiving the private grant.' }, { name: 'grant', description: 'host-owned capabilities available to child profiles.' }],
+        returns: 'an effect disposer that revokes this exact binding.',
+      },
+      {
+        signature: 'defineChildProfile(parent: Agent, spec: ChildProfileSpec): ResolvedChildProfile',
+        description: 'Define or revise one parent-private profile from the parent\'s Host grant.',
+        parameters: [{ name: 'parent', description: 'exact live Agent that owns the private namespace.' }, { name: 'spec', description: 'complete requested profile specification.' }],
+        returns: 'the detached immutable resolved revision.',
+      },
+      {
+        signature: 'listChildProfiles(parent: Agent): ResolvedChildProfile[]',
+        description: 'List only the exact parent\'s private resolved profile snapshots.',
+        parameters: [{ name: 'parent', description: 'exact live Agent that owns the private namespace.' }],
+        returns: 'current resolved revisions in definition order.',
+      },
+      {
+        signature: 'hasChildProfileGrant(parent: Agent): boolean',
+        description: 'Whether the Host has already bound a private-profile grant to this Agent.',
+        parameters: [{ name: 'parent', description: 'exact live Agent to inspect.' }],
+        returns: 'whether that Agent has a bound grant.',
+      },
+      {
+        signature: 'getChildProfileGrant(parent: Agent): ChildProfileGrant | undefined',
+        description: 'Read the detached grant so a scoped management tool can reuse its defaults.',
+        parameters: [{ name: 'parent', description: 'exact live Agent to inspect.' }],
+        returns: 'the detached grant, or `undefined` when none is bound.',
+      },
+      {
+        signature: 'getChildProfile(parent: Agent, profileId: string): ResolvedChildProfile | undefined',
+        description: 'Resolve one profile id from the exact parent\'s private namespace.',
+        parameters: [{ name: 'parent', description: 'exact live Agent that owns the namespace.' }, { name: 'profileId', description: 'opaque private Profile id.' }],
+        returns: 'the current immutable revision, or `undefined` when absent.',
+      },
+      {
+        signature: 'registerChildModelRoute(routeId: string, route: ChildModelRoute): () => void',
+        description: 'Register one Host-owned opaque model route used by resolved profiles.',
+        parameters: [{ name: 'routeId', description: 'opaque route identity exposed through grants.' }, { name: 'route', description: 'Host-owned primary and fallback model selections.' }],
+        returns: 'an effect disposer that revokes this exact route.',
+      },
+      {
+        signature: 'ensureChildModelRoute(routeId: string, route: ChildModelRoute): void',
+        description: 'Install one idempotent route for a deployment-derived parent default.',
+        parameters: [{ name: 'routeId', description: 'deterministic route identity.' }, { name: 'route', description: 'Host-owned primary selection; an existing matching route keeps its fallback chain.' }],
+      },
+      {
+        signature: 'resolveChildModelRoute(profile: ResolvedChildProfile): AgentOptions',
+        description: 'Resolve a Profile route into the only model selection fields an Agent accepts.',
+        parameters: [{ name: 'profile', description: 'immutable resolved Profile carrying the opaque route id.' }],
+        returns: 'the primary Agent model selection with the Profile token ceiling.',
+      },
+      {
+        signature: 'registerChildProfileSetup(setup: ChildProfileSetup): () => void',
+        description: 'Register a trusted scoped contribution for Profile Skill/MCP integrations.',
+        parameters: [{ name: 'setup', description: 'synchronous contribution installed before child publication.' }],
+        returns: 'an effect disposer that revokes future installations.',
+      },
+      {
+        signature: 'applyChildProfileSetup(childCtx: Context, profile: ResolvedChildProfile): void',
+        description: 'Apply all registered Profile contributions during child creation.',
+        parameters: [{ name: 'childCtx', description: 'unpublished child scope receiving the resolved policy.' }, { name: 'profile', description: 'immutable Profile snapshot selected for this child.' }],
+      },
+      {
         signature: 'async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>',
         description: 'Establish a published child on the named provider. Capability and semantic checks run before delegation. Provider ownership lasts until its promise fulfills; a rejection therefore has no run for the caller to dispose and emits no run lifecycle events. Post-publication turn and infrastructure failures settle through the returned run.',
         parameters: [{ name: 'name', description: 'the provider to use.' }, { name: 'request', description: 'child label, prompt, parent, signal, and optional capabilities.' }],
         returns: 'the published holder-owned run.',
+      },
+      {
+        signature: 'async invoke<Mode extends SubagentInvocationMode>( name: string, mode: Mode, request: SubagentStartRequest, ): Promise<Extract<SubagentInvocation, { readonly mode: Mode }>>',
+        description: 'Accept one invocation using the caller\'s waiting policy. The returned identity always names the durable child Session; provider lifecycle mode remains an implementation detail of this service.',
+        parameters: [{ name: 'name', description: 'the provider to use.' }, { name: 'mode', description: 'whether to await the child result or return after admission.' }, { name: 'request', description: 'child label, prompt, parent, signal, and capabilities.' }],
+        returns: 'the accepted invocation handle with its durable child Session id.',
       },
     ],
   },
@@ -3391,6 +3473,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CapabilityView {\n    readonly scope?: ScopeKey;\n    readonly scopes?: readonly ScopeKey[];\n    readonly cwd?: string;\n    readonly signal?: AbortSignal;\n    readonly agentProfile?: string;\n}',
   },
   {
+    name: 'ChildModelRoute',
+    declaration: 'export interface ChildModelRoute {\n    readonly provider: string;\n    readonly model: string;\n    readonly fallbacks?: readonly ChildModelRouteTarget[];\n}',
+  },
+  {
+    name: 'ChildModelRouteTarget',
+    declaration: 'export interface ChildModelRouteTarget {\n    readonly provider: string;\n    readonly model: string;\n}',
+  },
+  {
+    name: 'ChildProfileGrant',
+    declaration: 'export interface ChildProfileGrant {\n    readonly harnessIds: readonly string[];\n    readonly modelRouteIds: readonly string[];\n    readonly tools: readonly string[];\n    readonly skills: readonly string[];\n    readonly mcpServerIds: readonly string[];\n    readonly childProfileIds: readonly string[];\n    readonly workspaceRoot: string;\n    readonly parentWorkspaceCwd: string;\n    readonly maxDepth?: number;\n    readonly maxTokens?: number;\n}',
+  },
+  {
+    name: 'ChildProfileSetup',
+    declaration: 'export type ChildProfileSetup = (childCtx: Context, profile: ResolvedChildProfile) => void;',
+  },
+  {
+    name: 'ChildProfileSpec',
+    declaration: 'export interface ChildProfileSpec {\n    readonly profileId: string;\n    readonly harnessId: string;\n    readonly modelRouteId: string;\n    readonly tools?: readonly string[];\n    readonly skills?: readonly string[];\n    readonly mcpServerIds?: readonly string[];\n    readonly childProfileIds?: readonly string[];\n    readonly workspaceCwd?: string;\n    readonly maxDepth?: number;\n    readonly maxTokens?: number;\n    readonly modelRoutePriority?: number;\n    readonly schedulerPriority?: number;\n}',
+  },
+  {
     name: 'ClientResponse',
     declaration: 'export interface ClientResponse {\n    type: \'client-response\';\n    rpcId: RpcId;\n    result: RpcResult<unknown>;\n    expectedPrincipal?: AuthenticationPrincipalIdentity;\n}',
   },
@@ -4371,6 +4473,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ResolvedAlwaysRetryPolicy extends ResolvedRetryBackoff {\n    readonly mode: \'always\';\n}',
   },
   {
+    name: 'ResolvedChildProfile',
+    declaration: 'export interface ResolvedChildProfile {\n    readonly profileId: string;\n    readonly revision: number;\n    readonly digest: string;\n    readonly harnessId: string;\n    readonly modelRouteId: string;\n    readonly tools: readonly string[];\n    readonly skills: readonly string[];\n    readonly mcpServerIds: readonly string[];\n    readonly childProfileIds: readonly string[];\n    readonly workspaceCwd: string;\n    readonly maxDepth?: number;\n    readonly maxTokens?: number;\n    readonly modelRoutePriority?: number;\n    readonly schedulerPriority?: number;\n}',
+  },
+  {
     name: 'ResolvedCredential',
     declaration: 'export interface ResolvedCredential {\n    value: string;\n    source: string;\n}',
   },
@@ -4505,6 +4611,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionClosedEvent',
     declaration: 'export interface SessionClosedEvent {\n    readonly sessionId: SessionId;\n    readonly parentSessionId?: SessionId;\n}',
+  },
+  {
+    name: 'SessionCreateReceipt',
+    declaration: 'export interface SessionCreateReceipt {\n    sessionId: SessionId;\n    agentProfile?: string;\n}',
+  },
+  {
+    name: 'SessionCreateRequest',
+    declaration: 'export interface SessionCreateRequest {\n    sender: Agent;\n    profileId?: string;\n    signal: AbortSignal;\n}',
   },
   {
     name: 'SessionDeliveryReceipt',
@@ -4665,6 +4779,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionRawArtifact',
     declaration: 'export interface SessionRawArtifact {\n    readonly meta: SessionHeader;\n    readonly filename: string;\n    readonly content: string;\n}',
+  },
+  {
+    name: 'SessionRawEventPage',
+    declaration: 'export interface SessionRawEventPage {\n    readonly events: SessionEvent[];\n    readonly hasMore: boolean;\n}',
+  },
+  {
+    name: 'SessionRawEventPageRequest',
+    declaration: 'export interface SessionRawEventPageRequest {\n    readonly beforeSeq?: number;\n    readonly maxEvents: number;\n}',
   },
   {
     name: 'SessionRecord',
@@ -4959,8 +5081,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SubagentInterruptAuthority = {\n    readonly kind: \'user\';\n    readonly parentSessionId: SessionId;\n} | {\n    readonly kind: \'ancestor\';\n    readonly agent: Agent;\n};',
   },
   {
+    name: 'SubagentInvocation',
+    declaration: 'export type SubagentInvocation = {\n    readonly mode: \'sync\';\n    readonly invocationId: SubagentInvocationId;\n    readonly sessionId: SessionId;\n    readonly result: Promise<SubagentResult>;\n    readonly dispose: () => Promise<void>;\n} | {\n    readonly mode: \'async\';\n    readonly invocationId: SubagentInvocationId;\n    readonly sessionId: SessionId;\n    readonly messageId: MessageId;\n};',
+  },
+  {
+    name: 'SubagentInvocationId',
+    declaration: 'export type SubagentInvocationId = Branded<\'SubagentInvocationId\'>;',
+  },
+  {
+    name: 'SubagentInvocationMode',
+    declaration: 'export type SubagentInvocationMode = \'sync\' | \'async\';',
+  },
+  {
     name: 'SubagentProvider',
-    declaration: 'export interface SubagentProvider {\n    readonly name: string;\n    readonly capabilities: SubagentCapabilities;\n    readonly inheritsParentContext: boolean;\n    start(request: ResolvedSubagentStartRequest): Promise<SubagentRun>;\n    prepareContinuable?(request: ContinuableCreateRequest): Promise<ContinuableCreateSpec>;\n}',
+    declaration: 'export interface SubagentProvider {\n    readonly name: string;\n    readonly capabilities: SubagentCapabilities;\n    readonly supportsChildProfile?: boolean;\n    readonly inheritsParentContext: boolean;\n    start(request: ResolvedSubagentStartRequest): Promise<SubagentRun>;\n    prepareContinuable?(request: ContinuableCreateRequest): Promise<ContinuableCreateSpec>;\n}',
   },
   {
     name: 'SubagentReportDelivery',
@@ -4992,11 +5126,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentRuntime',
-    declaration: 'export class SubagentRuntime extends Service {\n    constructor(ctx: Context);\n    async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>;\n    async followup(parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions): Promise<MessageId>;\n    interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void;\n    async reportFrom(child: Agent, content: ContentBlock[], options: SubagentReportOptions): Promise<MessageId>;\n    registerContinuableSetup(contribution: ContinuableSetupContribution): () => void;\n    async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>;\n    listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>;\n    listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>;\n    registerProvider(provider: SubagentProvider): () => void;\n    getProvider(name: string): SubagentProvider | undefined;\n    list(): string[];\n    async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>;\n}',
+    declaration: 'export class SubagentRuntime extends Service {\n    constructor(ctx: Context);\n    async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>;\n    async followup(parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions): Promise<MessageId>;\n    interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void;\n    async reportFrom(child: Agent, content: ContentBlock[], options: SubagentReportOptions): Promise<MessageId>;\n    registerContinuableSetup(contribution: ContinuableSetupContribution): () => void;\n    async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>;\n    listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>;\n    listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>;\n    registerProvider(provider: SubagentProvider): () => void;\n    getProvider(name: string): SubagentProvider | undefined;\n    list(): string[];\n    registerChildProfileGrant(parent: Agent, grant: ChildProfileGrant): () => void;\n    defineChildProfile(parent: Agent, spec: ChildProfileSpec): ResolvedChildProfile;\n    listChildProfiles(parent: Agent): ResolvedChildProfile[];\n    hasChildProfileGrant(parent: Agent): boolean;\n    getChildProfileGrant(parent: Agent): ChildProfileGrant | undefined;\n    getChildProfile(parent: Agent, profileId: string): ResolvedChildProfile | undefined;\n    registerChildModelRoute(routeId: string /* …truncated — full shape in source */',
   },
   {
     name: 'SubagentStartRequest',
-    declaration: 'export interface SubagentStartRequest {\n    readonly label?: string;\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: ObjectJsonSchema;\n    readonly maxDepth?: number;\n    readonly toolFilter?: ToolRestriction;\n    readonly persona?: string;\n}',
+    declaration: 'export interface SubagentStartRequest {\n    readonly label?: string;\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: ObjectJsonSchema;\n    readonly maxDepth?: number;\n    readonly toolFilter?: ToolRestriction;\n    readonly persona?: string;\n    readonly childProfile?: ResolvedChildProfile;\n}',
   },
   {
     name: 'SubagentStopReason',

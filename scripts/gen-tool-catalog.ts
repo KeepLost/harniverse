@@ -60,6 +60,8 @@ import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
 import SessionDelivery, {
   type SessionDeliveryReceipt,
   type SessionDeliveryRequest,
+  type SessionCreateReceipt,
+  type SessionCreateRequest,
   type SessionUnloadReceipt,
   type SessionUnloadRequest,
 } from '@deepseek-ai/dsh-session-delivery'
@@ -126,6 +128,10 @@ class CatalogSessionDelivery extends SessionDelivery {
   }
 
   unload(_request: SessionUnloadRequest): Promise<SessionUnloadReceipt> {
+    throw new Error('catalog-only delivery provider is not executable')
+  }
+
+  create(_request: SessionCreateRequest): Promise<SessionCreateReceipt> {
     throw new Error('catalog-only delivery provider is not executable')
   }
 }
@@ -560,7 +566,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolSessionQuery)
     },
     note:
-      'The nine read-only tools separate title/time discovery, content matches, current-message tails, and complete raw-log reads while hiding provider cursors and binding exact observations to opaque session ids.',
+       'The read-only tools separate title/time discovery, content matches, unified session inspection, current-message tails, and complete raw-log reads while hiding provider cursors and binding exact observations to opaque session ids.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent',
@@ -568,14 +574,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
     source: 'packages/subagent/tool-subagent/src/index.ts',
     requires: ['ctx.tools', 'ctx.subagents', 'ctx.systemPrompt'],
     writes: ['tool/call', 'tool/result', 'child session events through the chosen provider'],
-    shippedNames: ['subagent', 'subagent_fork'],
+    shippedNames: ['subagent'],
     async mount(ctx) {
       await ctx.plugin(SubagentRuntime)
       registerCatalogSubagentProvider(ctx, 'mock')
-      await ctx.plugin(ToolSubagent, { provider: 'mock' })
+      await ctx.plugin(ToolSubagent, {
+        provider: 'mock',
+        backgroundMode: 'continuable',
+        enableChildProfileDefine: true,
+        enableChildProfileList: true,
+      })
     },
     note:
-      'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped compositions load this package once per subagent backend, so the model additionally sees `subagent_fork` bound to the fork backend. Each instance\'s description, `run_in_background` parameter, and system-prompt policy follow its own `backgroundMode` and `enableRunInBackground`, so the two shipped schemas are not identical: `subagent` is `continuable` and defaults omitted calls to background with automatic settlement delivery, while `subagent_fork` stays `one-shot` and defaults them to foreground — see `packages/bundle/base/cordis.patch.yml` and `examples/acp-agent/cordis.yml`.',
+      'This harvest matches the shipped continuable spawn-backed `subagent` plus its Standard, Code, and Cordis Child Profile management tools. Base omits the profile tools, Minimal omits delegation, and custom compositions may load provider-bound instances under distinct names and background policies.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent-control',
@@ -584,6 +595,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       interrupt_agent: 'packages/subagent/tool-subagent-control/src/index.ts',
       list_agents: 'packages/subagent/tool-subagent-control/src/list-agents.ts',
       send_message: 'packages/subagent/tool-subagent-control/src/index.ts',
+      subagent_history: 'packages/subagent/tool-subagent-control/src/index.ts',
     },
     requires: ['ctx.tools', 'ctx.subagents', 'ctx.agents and ctx.sessionProjections (list_agents only)'],
     writes: ['tool/call', 'tool/result', 'child session events through ctx.subagents'],
@@ -820,7 +832,7 @@ export function render(catalog: ToolCatalog): string {
     '',
     'This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any package is missing from the generator\'s boot manifest, so a new tool cannot be silently undocumented. See [the tool-schema-catalog Agent Note](../.agents/notes/implemented/process/2026-07-02-tool-schema-catalog.md).',
     '',
-    'Scope: shipped product tools under `packages/*/tool-*`, each booted with its DEFAULT config, except where a Config field is REQUIRED with no default — there the generator must choose, and the per-package note records which branch this page shows. The registered tool NAME can be a load-time config (e.g. `tool-subagent`\'s `toolName`), so a deployment may expose a package under a different or additional name — a per-package note records those shipped aliases where they exist. The `examples/` demo tools (e.g. `echo`) are excluded, matching the cordis catalog\'s packages-only scope.',
+    'Scope: product tool packages under `packages/*/tool-*`, each booted with its default config unless a required field or a shipped configuration materially changes the model schema; each package note records the harvested branch. A registered tool name can be load-time config, so a deployment may expose a package under a different or additional name. The `examples/` demo tools are excluded, matching the Cordis catalog\'s packages-only scope.',
     '',
     '## Tool Package Map',
     '',

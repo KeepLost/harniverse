@@ -158,7 +158,12 @@ export class CompactionHistory extends Service {
       this.indexes.delete(session.id)
     })
     ctx.on('session/event', (session, event) => {
-      this.indexEvent(this.requireIndex(session.id), event)
+      const index = this.indexes.get(session.id)
+      if (index === undefined || index.session !== session) {
+        this.attach(session)
+        return
+      }
+      this.indexEvent(index, event)
     })
   }
 

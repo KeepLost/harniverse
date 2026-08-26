@@ -45,6 +45,8 @@ import type {
   ChildModelRouteTarget,
   ResolvedSubagentStartRequest,
   SubagentCapabilities,
+  SubagentInvocation,
+  SubagentInvocationMode,
   SubagentProvider,
   SubagentRun,
   SubagentRunEndInfo,
@@ -52,6 +54,7 @@ import type {
   SubagentStartRequest,
 } from './types.ts'
 import type { ChildProfileGrant, ChildProfileSetup, ChildProfileSpec, ResolvedChildProfile } from './types.ts'
+import { SubagentInvocationId } from './types.ts'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import { SubagentError } from './error.ts'
 import { assertSubagentMaxDepth } from './depth.ts'
@@ -75,7 +78,7 @@ import { subagentIdentityProjectionDefinition, subagentTimingProjectionDefinitio
 
 export * from './out-of-process.ts'
 export { AssistantOutputFold, finalAssistantOutput } from './assistant-output.ts'
-export { SubagentRunId } from './types.ts'
+export { SubagentInvocationId, SubagentRunId } from './types.ts'
 export type {
   ChildProfileGrant,
   ChildProfileSpec,
@@ -87,6 +90,8 @@ export type {
   ContinuableCreateSpec,
   ResolvedSubagentStartRequest,
   SubagentCapabilities,
+  SubagentInvocation,
+  SubagentInvocationMode,
   SubagentProvider,
   SubagentResult,
   SubagentRun,
@@ -435,8 +440,9 @@ export class SubagentRuntime extends Service {
   }
 
   /**
-   * Bind the Host-computed capability grant to one exact live parent. The grant
-   * is never model-visible; it is only consumed by `defineChildProfile()`.
+   * Bind the Host-computed capability grant to one exact live parent. A model
+   * cannot supply or mutate the grant; a scoped management Consumer may project
+   * its detached snapshot for Profile authoring.
    * @param parent - exact parent Agent receiving the private grant.
    * @param grant - host-owned capabilities available to child profiles.
    * @returns an effect disposer that revokes this exact binding.
@@ -462,7 +468,12 @@ export class SubagentRuntime extends Service {
     }.bind(this), 'subagents.registerChildProfileGrant()')
   }
 
-  /** Define or revise one parent-private profile from the parent's Host grant. */
+  /**
+   * Define or revise one parent-private profile from the parent's Host grant.
+   * @param parent - exact live Agent that owns the private namespace.
+   * @param spec - complete requested profile specification.
+   * @returns the detached immutable resolved revision.
+   */
   defineChildProfile(parent: Agent, spec: ChildProfileSpec): ResolvedChildProfile {
     const grant = this.profileGrants.get(parent)
     if (grant === undefined) {
@@ -479,27 +490,49 @@ export class SubagentRuntime extends Service {
     return profile
   }
 
-  /** List only the exact parent's private resolved profile snapshots. */
+  /**
+   * List only the exact parent's private resolved profile snapshots.
+   * @param parent - exact live Agent that owns the private namespace.
+   * @returns current resolved revisions in definition order.
+   */
   listChildProfiles(parent: Agent): ResolvedChildProfile[] {
     return [...(this.profiles.get(parent)?.values() ?? [])]
   }
 
-  /** Whether the Host has already bound a private-profile grant to this Agent. */
+  /**
+   * Whether the Host has already bound a private-profile grant to this Agent.
+   * @param parent - exact live Agent to inspect.
+   * @returns whether that Agent has a bound grant.
+   */
   hasChildProfileGrant(parent: Agent): boolean {
     return this.profileGrants.has(parent)
   }
 
-  /** Read the detached grant so a scoped management tool can reuse its defaults. */
+  /**
+   * Read the detached grant so a scoped management tool can reuse its defaults.
+   * @param parent - exact live Agent to inspect.
+   * @returns the detached grant, or `undefined` when none is bound.
+   */
   getChildProfileGrant(parent: Agent): ChildProfileGrant | undefined {
     return this.profileGrants.get(parent)
   }
 
-  /** Resolve one profile id from the exact parent's private namespace. */
+  /**
+   * Resolve one profile id from the exact parent's private namespace.
+   * @param parent - exact live Agent that owns the namespace.
+   * @param profileId - opaque private Profile id.
+   * @returns the current immutable revision, or `undefined` when absent.
+   */
   getChildProfile(parent: Agent, profileId: string): ResolvedChildProfile | undefined {
     return this.profiles.get(parent)?.get(profileId)
   }
 
-  /** Register one Host-owned opaque model route used by resolved profiles. */
+  /**
+   * Register one Host-owned opaque model route used by resolved profiles.
+   * @param routeId - opaque route identity exposed through grants.
+   * @param route - Host-owned primary and fallback model selections.
+   * @returns an effect disposer that revokes this exact route.
+   */
   registerChildModelRoute(routeId: string, route: ChildModelRoute): () => void {
     if (this.modelRoutes.has(routeId)) {
       throw new SubagentError(`a child model route named "${routeId}" is already registered`, 'DUPLICATE_PROFILE_ROUTE')
@@ -521,7 +554,11 @@ export class SubagentRuntime extends Service {
     }.bind(this), 'subagents.registerChildModelRoute()')
   }
 
-  /** Install one idempotent route for a deployment-derived parent default. */
+  /**
+   * Install one idempotent route for a deployment-derived parent default.
+   * @param routeId - deterministic route identity.
+   * @param route - Host-owned primary selection; an existing matching route keeps its fallback chain.
+   */
   ensureChildModelRoute(routeId: string, route: ChildModelRoute): void {
     const existing = this.modelRoutes.get(routeId)
     if (existing !== undefined) {
@@ -537,7 +574,11 @@ export class SubagentRuntime extends Service {
     }))
   }
 
-  /** Resolve a Profile route into the only model selection fields an Agent accepts. */
+  /**
+   * Resolve a Profile route into the only model selection fields an Agent accepts.
+   * @param profile - immutable resolved Profile carrying the opaque route id.
+   * @returns the primary Agent model selection with the Profile token ceiling.
+   */
   resolveChildModelRoute(profile: ResolvedChildProfile): AgentOptions {
     return this.routeAttempts(profile)[0] as AgentOptions
   }
@@ -555,7 +596,11 @@ export class SubagentRuntime extends Service {
     }))
   }
 
-  /** Register a trusted scoped contribution for Profile Skill/MCP integrations. */
+  /**
+   * Register a trusted scoped contribution for Profile Skill/MCP integrations.
+   * @param setup - synchronous contribution installed before child publication.
+   * @returns an effect disposer that revokes future installations.
+   */
   registerChildProfileSetup(setup: ChildProfileSetup): () => void {
     return this.ctx.effect(() => {
       this.profileSetups.add(setup)
@@ -563,7 +608,11 @@ export class SubagentRuntime extends Service {
     }, 'subagents.registerChildProfileSetup()')
   }
 
-  /** Apply all registered Profile contributions during child creation. */
+  /**
+   * Apply all registered Profile contributions during child creation.
+   * @param childCtx - unpublished child scope receiving the resolved policy.
+   * @param profile - immutable Profile snapshot selected for this child.
+   */
   applyChildProfileSetup(childCtx: Context, profile: ResolvedChildProfile): void {
     for (const setup of this.profileSetups) setup(childCtx, profile)
     const child = childCtx.agent as Agent | undefined
@@ -694,6 +743,51 @@ export class SubagentRuntime extends Service {
       descriptor,
     }
     return observeRun(this.emitLifecycle, name, request.parent, await provider.start(resolved))
+  }
+
+  /**
+   * Accept one invocation using the caller's waiting policy. The returned
+   * identity always names the durable child Session; provider lifecycle mode
+   * remains an implementation detail of this service.
+   * @param name - the provider to use.
+   * @param mode - whether to await the child result or return after admission.
+   * @param request - child label, prompt, parent, signal, and capabilities.
+   * @returns the accepted invocation handle with its durable child Session id.
+   */
+  async invoke<Mode extends SubagentInvocationMode>(
+    name: string,
+    mode: Mode,
+    request: SubagentStartRequest,
+  ): Promise<Extract<SubagentInvocation, { readonly mode: Mode }>> {
+    if (mode === 'sync') {
+      const run = await this.start(name, request)
+      return {
+        mode,
+        invocationId: SubagentInvocationId(run.id),
+        sessionId: run.id,
+        result: run.result,
+        dispose: run.dispose,
+      } as Extract<SubagentInvocation, { readonly mode: Mode }>
+    }
+    if (request.outputSchema !== undefined) {
+      throw new SubagentError(
+        'async subagent invocations cannot request an output schema; inspect the durable child Session instead',
+        'UNSUPPORTED_CAPABILITY',
+      )
+    }
+    const { label: _label, signal, outputSchema: _outputSchema, ...continuableRequest } = request
+    const started = await this.startContinuable({
+      provider: name,
+      label: request.label ?? 'subagent invocation',
+      request: continuableRequest,
+      signal,
+    })
+    return {
+      mode,
+      invocationId: SubagentInvocationId(started.messageId),
+      sessionId: started.childId,
+      messageId: started.messageId,
+    } as Extract<SubagentInvocation, { readonly mode: Mode }>
   }
 
   /**

@@ -27,6 +27,16 @@ interface SessionFilterArgs {
   availability?: SessionAvailability[]
 }
 
+/** Unified inspection request over one authorized session view. */
+export interface SessionInspectArgs {
+  session_id?: string
+  view: 'summary' | 'messages' | 'history' | 'event' | 'lineage'
+  limit?: number
+  seq?: number
+  before?: number
+  after?: number
+}
+
 /** Model arguments for full-text search over session event content. */
 export interface SessionSearchArgs extends SessionFilterArgs {
   query: string
@@ -129,6 +139,20 @@ const messageTailParameters = {
 const logTailParameters = {
   session_id: { type: 'string', description: 'Target session id. Omit for the current session.' },
   limit: { type: 'integer', description: 'Maximum complete raw events to return. Defaults to 20.' },
+} as const
+
+const sessionInspectParameters = {
+  session_id: { type: 'string', description: 'Target session id. Omit for the current session.' },
+  view: {
+    type: 'string',
+    required: true,
+    enum: ['summary', 'messages', 'history', 'event', 'lineage'],
+    description: 'View to inspect: summary status, folded messages, raw history, one event, or lineage.',
+  },
+  limit: { type: 'integer', description: 'Maximum items for messages/history only. Defaults to 10 for messages and 20 for history; maximum 50.' },
+  seq: { type: 'integer', description: 'Required for event; optional for lineage to select one event\'s replacement and source relationships. Omit for Session lineage.' },
+  before: { type: 'integer', description: 'For event only, complete raw events before seq; maximum 50.' },
+  after: { type: 'integer', description: 'For event only, complete raw events after seq; maximum 50.' },
 } as const
 
 function buildSessionFilters(args: SessionFilterArgs): SessionResultFilter[] {
@@ -352,6 +376,7 @@ export const toolInput = {
   targetSessionParameter,
   messageTailParameters,
   logTailParameters,
+  sessionInspectParameters,
   buildSessionFilters,
   buildActivityRange,
   materializeParentSessionIds,

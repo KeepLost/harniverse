@@ -24,13 +24,13 @@ export const DEFAULT_MAX_SEARCH_RESULTS = 100
 
 /** Default cooperative deadline for indexed discovery or full-text search. */
 export const DEFAULT_SEARCH_TIMEOUT_MS = 30_000
-/** Default finalized-message count returned by `session_message_tail`. */
+/** Default finalized-message count returned by the `session_inspect` messages view. */
 export const DEFAULT_MESSAGE_TAIL_LIMIT = 10
-/** Hard model-facing finalized-message limit for one tail read. */
+/** Hard model-facing finalized-message limit for one inspection. */
 export const MAX_MESSAGE_TAIL_LIMIT = 50
-/** Default complete raw-event count returned by `session_log_tail`. */
+/** Default complete raw-event count returned by the `session_inspect` history view. */
 export const DEFAULT_LOG_TAIL_LIMIT = 20
-/** Hard model-facing complete raw-event limit for one tail read. */
+/** Hard model-facing complete raw-event limit for one inspection. */
 export const MAX_LOG_TAIL_LIMIT = 50
 
 /** Deployment-owned discovery/search count, timeout, and tail bounds. */
@@ -39,9 +39,9 @@ export interface Config {
   maxSearchResults?: number
   /** Cooperative indexed discovery/search deadline in milliseconds. Defaults to 30000. */
   searchTimeoutMs?: number
-  /** Default number of finalized messages returned by session_message_tail. */
+  /** Default number of finalized messages returned by the session_inspect messages view. */
   messageTailLimit?: number
-  /** Default number of complete raw events returned by session_log_tail. */
+  /** Default number of complete raw events returned by the session_inspect history view. */
   logTailLimit?: number
 }
 
@@ -68,10 +68,11 @@ const TEXT_OUTPUT = {
 const PROMPT_TEXT =
   'Use session_find to locate prior sessions by current title, creation time, or raw-event activity time; session_find returns session metadata without content-match events or snippets. '
   + 'Use session_search to search prior-session content; session_search returns matching event seqs and snippets. Use session_event_search for content inside one session. '
-  + 'After discovery, session_log_tail reads complete raw events from the recent log; after a content hit, session_event_read reads a complete raw-event window around its seq. '
-  + 'session_message_tail reads only the folded current model-message surface, not historical raw-log trajectory. Search and find results are cursor-free.'
+  + 'Use session_inspect for one authorized session view: summary, messages, history, event, or lineage; add seq to lineage to inspect one event\'s replacement and source relationships. '
+  + 'Use session_message to continue a known ordinary session or direct subagent session; inbox acceptance does not mean completion. A subagent result and settlement notice identify its durable Session id, which session_message and session_inspect accept as session_id. '
+  + 'The messages view reads the folded current model-message surface, while history and event read complete raw events including shadowed and log-only trajectory. Search and find results are cursor-free.'
 
-/** Register all nine tools and their shared model guidance. */
+/** Register discovery, search, and unified inspection tools with shared guidance. */
 export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
   ctx.systemPrompt.section({
@@ -111,72 +112,22 @@ export function apply(ctx: Context, config: Config): void {
   }))
 
   ctx.tools.register(defineTool({
-    name: 'session_status',
-    description: 'Read whether an authorized session is live and whether its Agent is running without resuming a cold session.',
-    parameters: toolInput.targetSessionParameter,
+    name: 'session_inspect',
+    description: 'Inspect one authorized session through a unified view: summary status, folded messages, raw history, one event, or lineage. Never resumes a cold session.',
+    parameters: toolInput.sessionInspectParameters,
     output: TEXT_OUTPUT,
     isConcurrencySafe: () => true,
-    execute: (args, exec) => operations.executeSessionStatus(ctx, args, exec),
-    presentCall: args => presentation.presentSessionTargetCall('Read status for', args),
+    execute: (args, exec) => operations.executeSessionInspect(
+      ctx,
+      args,
+      exec,
+      resolved.messageTailLimit,
+      resolved.logTailLimit,
+      MAX_LOG_TAIL_LIMIT,
+    ),
+    presentCall: args => presentation.presentSessionTargetCall(`Inspect ${args.view ?? 'session'}`, args),
   }))
 
-  ctx.tools.register(defineTool({
-    name: 'session_message_tail',
-    description: 'Read the folded current model-message surface tail from an authorized session. This is not historical raw-log trajectory.',
-    parameters: toolInput.messageTailParameters,
-    output: TEXT_OUTPUT,
-    isConcurrencySafe: () => true,
-    execute: (args, exec) => operations.executeMessageTail(ctx, args, exec, resolved.messageTailLimit, MAX_MESSAGE_TAIL_LIMIT),
-    presentCall: args => presentation.presentSessionTargetCall('Read message tail from', args),
-  }))
-
-  ctx.tools.register(defineTool({
-    name: 'session_log_tail',
-    description: 'Read the latest complete raw SessionEvent trajectory from an authorized session, including shadowed and log-only events.',
-    parameters: toolInput.logTailParameters,
-    output: TEXT_OUTPUT,
-    isConcurrencySafe: () => true,
-    execute: (args, exec) => operations.executeLogTail(ctx, args, exec, resolved.logTailLimit, MAX_LOG_TAIL_LIMIT),
-    presentCall: args => presentation.presentSessionTargetCall('Read raw log tail from', args),
-  }))
-
-  ctx.tools.register(defineTool({
-    name: 'session_trace',
-    description: 'Read the authorized session lineage around one session, including complete visible ancestor and descendant relationships.',
-    parameters: toolInput.targetSessionParameter,
-    output: TEXT_OUTPUT,
-    isConcurrencySafe: () => true,
-    execute: (args, exec) => operations.executeSessionTrace(ctx, args, exec),
-    presentCall: args => presentation.presentSessionTargetCall('Trace', args),
-  }))
-
-  ctx.tools.register(defineTool({
-    name: 'session_event_trace',
-    description: 'Read every direct replacement and relationship to a cited source event for one event in an authorized session.',
-    parameters: {
-      ...toolInput.targetSessionParameter,
-      seq: { type: 'integer', required: true, description: 'Target event sequence number.' },
-    },
-    output: TEXT_OUTPUT,
-    isConcurrencySafe: () => true,
-    execute: (args, exec) => operations.executeEventTrace(ctx, args, exec),
-    presentCall: args => presentation.presentEventTargetCall('Trace event', args),
-  }))
-
-  ctx.tools.register(defineTool({
-    name: 'session_event_read',
-    description: 'Read a complete raw SessionEvent window around one event sequence from an authorized session.',
-    parameters: {
-      ...toolInput.targetSessionParameter,
-      seq: { type: 'integer', required: true, description: 'Target event sequence number.' },
-      before: { type: 'integer', description: 'Number of preceding complete raw events to include. Omit for none.' },
-      after: { type: 'integer', description: 'Number of following complete raw events to include. Omit for none.' },
-    },
-    output: TEXT_OUTPUT,
-    isConcurrencySafe: () => true,
-    execute: (args, exec) => operations.executeEventRead(ctx, args, exec),
-    presentCall: args => presentation.presentEventTargetCall('Read event', args),
-  }))
 }
 
 function resolveConfig(config: Config): ResolvedConfig {

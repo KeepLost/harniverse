@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Model tools over `ctx.sessionQuery` with id-bound exact observations and optional discovery/search filtering. The package registers nine query/read tools, and the shipped base and Agent Profile compositions mount it by default.
+Model tools over `ctx.sessionQuery` with id-bound exact observations and optional discovery/search filtering. The package registers four discovery, search, and unified inspection tools, and the shipped base and Agent Profile compositions mount it by default.
 
 ## Configuration
 
@@ -10,12 +10,12 @@ Model tools over `ctx.sessionQuery` with id-bound exact observations and optiona
 |---|---:|---|
 | `maxSearchResults` | `100` | Maximum authorized non-self hits collected across internal provider pages |
 | `searchTimeoutMs` | `30000` | Cooperative deadline attached to indexed discovery and both full-text search tools |
-| `messageTailLimit` | `10` | Default folded current-message count returned by `session_message_tail`; at most 50 |
-| `logTailLimit` | `20` | Default complete raw-event count returned by `session_log_tail`; at most 50 |
+| `messageTailLimit` | `10` | Default folded current-message count returned by the `session_inspect` messages view; at most 50 |
+| `logTailLimit` | `20` | Default complete raw-event count returned by the `session_inspect` history view; at most 50 |
 
-The caller comes exclusively from `ToolExecution.exec.agent`. Exact targets are selected by opaque session id and every returned observation must retain that id; `cwd` is only an optional exact discovery/search filter, where omission leaves the deployment-visible corpus unconstrained and `null` selects sessions without a cwd. Discovery and search never expose provider cursors, offsets, page sizes, or a model-controlled limit. Because one operation consumes generation-bound provider cursors internally, `session_find` and both content-search tools execute exclusively with sibling tool calls; exact status, tail, trace, and read tools opt into parallel execution.
+The caller comes exclusively from `ToolExecution.exec.agent`. Exact targets are selected by opaque session id and every returned observation must retain that id; `cwd` is only an optional exact discovery/search filter, where omission leaves the deployment-visible corpus unconstrained and `null` selects sessions without a cwd. Discovery and search never expose provider cursors, offsets, page sizes, or a model-controlled limit. Because one operation consumes generation-bound provider cursors internally, `session_find` and both content-search tools execute exclusively with sibling tool calls; `session_inspect` opts into parallel execution.
 
-`session_find` discovers sessions by current title, creation time, raw-event activity time, and session metadata; its results contain no content-match event or snippet. `session_search` remains content full-text search and returns the strongest matching event with its seq and snippet. Both always omit the caller session. Requested parent ids are deduplicated and checked for existence before indexed work. A current-session `session_event_search` stops immediately before the step that invoked it. `session_status` never resumes cold sessions. `session_message_tail` returns only bounded finalized messages from the folded current surface, while `session_log_tail` returns bounded complete raw events including shadowed and log-only records. `session_event_read` renders every event in its bounded raw window as complete JSON.
+`session_find` discovers sessions by current title, creation time, raw-event activity time, and session metadata; its results contain no content-match event or snippet. `session_search` remains content full-text search and returns the strongest matching event with its seq and snippet. Both always omit the caller session. Requested parent ids are deduplicated and checked for existence before indexed work. A current-session `session_event_search` stops immediately before the step that invoked it. `session_inspect` dispatches summary status, folded messages, raw history, one event window, or lineage through one bounded read-only contract and never resumes cold sessions. Its messages view reads only the folded current surface; history and event render complete raw events including shadowed and log-only records. Adding `seq` to lineage inspects that event's replacement and source relationships.
 
 Every trusted `ctx.sessionQuery` call crosses one model-boundary sanitizer. Caller cancellation is checked first and preserved exactly. Available corpus and provider diagnostics, including safely inspectable nested causes, are logged internally on a best-effort basis; unprintable failures use a fixed log placeholder. Diagnostic formatting and error classification are independently guarded, so an unprintable cause cannot escape or prevent a safely classified outer error, while unsafe classification or logging falls back to the fixed `SESSION_QUERY_TOOL_FAILED` code and message. Local argument-validation and authorization errors retain their precise tool-owned messages.
 
@@ -32,7 +32,7 @@ The model receives one fixed prior-history guidance section.
 ##### Prior-history guidance
 
 ```markdown
-Use session_find to locate prior sessions by current title, creation time, or raw-event activity time; session_find returns session metadata without content-match events or snippets. Use session_search to search prior-session content; session_search returns matching event seqs and snippets. Use session_event_search for content inside one session. After discovery, session_log_tail reads complete raw events from the recent log; after a content hit, session_event_read reads a complete raw-event window around its seq. session_message_tail reads only the folded current model-message surface, not historical raw-log trajectory. Search and find results are cursor-free.
+Use session_find to locate prior sessions by current title, creation time, or raw-event activity time; session_find returns session metadata without content-match events or snippets. Use session_search to search prior-session content; session_search returns matching event seqs and snippets. Use session_event_search for content inside one session. Use session_inspect for one authorized session view: summary, messages, history, event, or lineage; add seq to lineage to inspect one event's replacement and source relationships. Use session_message to continue a known ordinary session or direct subagent session; inbox acceptance does not mean completion. A subagent result and settlement notice identify its durable Session id, which session_message and session_inspect accept as session_id. The messages view reads the folded current model-message surface, while history and event read complete raw events including shadowed and log-only trajectory. Search and find results are cursor-free.
 ```
 
 #### Token effect
@@ -47,11 +47,11 @@ Prefix-stable while the plugin and guidance text are unchanged.
 
 #### What the model sees
 
-The model sees the [nine generated session-query schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-session-query), including distinct `session_find`, `session_search`, `session_message_tail`, and `session_log_tail` contracts. Discovery/search filters add fixed schema tokens; `cwd` is accepted as an optional filter but is not rendered in results.
+The model sees the [four generated session-query schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-session-query): `session_find`, `session_search`, `session_event_search`, and the unified `session_inspect` contract. Discovery/search filters add fixed schema tokens; `cwd` is accepted as an optional filter but is not rendered in results.
 
 #### Token effect
 
-Nine fixed read-only schemas are sent on each request while visible.
+Four fixed read-only schemas are sent on each request while visible.
 
 #### KV Cache effect
 
@@ -61,7 +61,7 @@ Prefix-stable while tool visibility and definitions are unchanged.
 
 #### What the model sees
 
-Each successful call emits one plain-text block. Find results include current titles and activity metadata without content-match fields; content-search results include titles and best-match excerpts. Raw-tail and event-window reads include complete event JSON, while message tails remain the folded current model-message surface. Traces include all authorized relationships. The generic spill policy may replace oversized inline text with its preview, opaque locator, and retrieval hint.
+Each successful call emits one plain-text block. Find results include current titles and activity metadata without content-match fields; content-search results include titles and best-match excerpts. Inspection history and event views include complete event JSON, messages remain the folded current model-message surface, and lineage includes all authorized relationships. The generic spill policy may replace oversized inline text with its preview, opaque locator, and retrieval hint.
 
 #### Token effect
 

@@ -146,14 +146,15 @@ describe('tool-session-query with the real SQLite provider', () => {
     expect(byRawActivityText).toContain('Session persisted')
     expect(byRawActivityText).toContain('Matched activity: 1970-01-01T00:00:00.050Z')
 
-    const rawTail = await execute('session_log_tail', { session_id: persisted, limit: 3 })
+    const rawTail = await execute('session_inspect', { view: 'history', session_id: persisted, limit: 3 })
     expect(rawTail.isError).toBe(false)
     const rawTailText = rawTail.content.map(block => block.type === 'text' ? block.text : '').join('\n')
     expect(rawTailText).toContain('Raw log tail (3)')
     expect(rawTailText).toContain('"type": "session/title"')
     expect(rawTailText).toContain('"type": "turn/start"')
 
-    const rawWindow = await execute('session_event_read', {
+    const rawWindow = await execute('session_inspect', {
+      view: 'event',
       session_id: persisted,
       seq: 2,
       before: 1,
@@ -172,7 +173,7 @@ describe('tool-session-query with the real SQLite provider', () => {
     expect(persistedEvents.isError).toBe(false)
     expect(persistedEvents.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
       .toContain('seq 0')
-    const persistedStatus = await execute('session_status', { session_id: persisted })
+    const persistedStatus = await execute('session_inspect', { view: 'summary', session_id: persisted })
     expect(persistedStatus.isError).toBe(false)
     const statusText = persistedStatus.content.map(block => block.type === 'text' ? block.text : '').join('\n')
     expect(statusText).toContain('Availability: persisted')

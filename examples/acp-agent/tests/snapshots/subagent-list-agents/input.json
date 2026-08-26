@@ -8,7 +8,7 @@
     },
     {
       "op": "prompt",
-      "text": "Call the subagent tool once with run_in_background set to true, description 'Reply with CHILD_OK', and prompt 'Reply with exactly the word CHILD_OK and nothing else.'. Then reply with the single word STARTED. Do not call any other tool."
+      "text": "Call the subagent tool once with mode set to async, description 'Reply with CHILD_OK', and prompt 'Reply with exactly the word CHILD_OK and nothing else.'. Then reply with the single word STARTED. Do not call any other tool."
     },
     {
       "op": "waitForFile",

@@ -3,8 +3,8 @@
  * Provider lifecycle controls tool registration and context-sensitive schema
  * wording. Foreground calls always dispose the run after collection.
  * Background policy is selected by this plugin's configuration: one-shot
- * calls own a plain Task, while continuable calls use
- * `ctx.subagents.startContinuable()`.
+ * calls own a plain Task, while continuable calls use the asynchronous
+ * `ctx.subagents.invoke()` contract.
  * @module @deepseek-ai/dsh-tool-subagent
  */
 
@@ -42,8 +42,8 @@ export interface Config {
    */
   toolName?: string
   /**
-   * Expose `run_in_background` (default true). Disabled instances omit the
-   * parameter and reject forced background calls.
+   * Allow asynchronous invocations (default true). Disabled instances reject
+   * `mode: async` calls.
    */
   enableRunInBackground?: boolean
   /**
@@ -83,8 +83,10 @@ export interface Config {
    * budget belongs to the child runtime or its own deployment.
    */
   maxDepth?: number | 'provider-managed'
-  /** Expose parent-private `child_profile_define` and `child_profile_list`. */
-  enableProfileManagement?: boolean
+  /** Expose parent-private `child_profile_define`. */
+  enableChildProfileDefine?: boolean
+  /** Expose parent-private `child_profile_list`. */
+  enableChildProfileList?: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -105,7 +107,8 @@ export const Config: z<Config> = z.object({
     deny: z.array(z.string()).default(undefined as unknown as string[]),
   }).default(undefined as unknown as { allow: string[]; deny: string[] }),
   maxDepth: z.union([z.natural().max(Number.MAX_SAFE_INTEGER), z.const('provider-managed' as const)]).default(3),
-  enableProfileManagement: z.boolean().default(false),
+  enableChildProfileDefine: z.boolean().default(false),
+  enableChildProfileList: z.boolean().default(false),
 })
 
 /** Render text blocks from the canonical JSON block array without trusting arbitrary values. */
@@ -171,9 +174,32 @@ function withDiagnosticAndPartialText(error: string, result: SubagentResult): st
 }
 
 type ForegroundToolResult = {
-  readonly kind: 'foreground'
-  readonly runId: SubagentRun['id']
+  readonly mode: 'sync'
+  readonly invocationId: string
+  readonly sessionId: string
   readonly output: JsonValue[]
+}
+
+type AsyncToolResult = {
+  readonly mode: 'async'
+  readonly invocationId: string
+  readonly sessionId: string
+}
+
+function continuationInstruction(sessionId: string): string {
+  return `Use session_message with session_id "${sessionId}" for a later turn and session_inspect with the same session_id to read its state or transcript.`
+}
+
+function completedInstruction(sessionId: string): string {
+  return `Use session_inspect with session_id "${sessionId}" to read its state or transcript. This completed one-shot Session does not accept later turns.`
+}
+
+function renderInvocationResult(value: ForegroundToolResult | AsyncToolResult): string {
+  if (value.mode === 'async') {
+    return `Started async subagent session ${value.sessionId} with invocation ${value.invocationId}. ${continuationInstruction(value.sessionId)}`
+  }
+  const output = outputValueText(value.output)
+  return `Subagent session ${value.sessionId} completed invocation ${value.invocationId}. ${completedInstruction(value.sessionId)}${output.length === 0 ? '' : `\n\nFinal output:\n${output}`}`
 }
 
 /**
@@ -190,8 +216,9 @@ async function settleForegroundRun(run: SubagentRun): Promise<ForegroundToolResu
         throw new Error(withDiagnosticAndPartialText(error, result))
       }
       return {
-        kind: 'foreground',
-        runId: run.id,
+        mode: 'sync',
+        invocationId: run.id,
+        sessionId: run.id,
         // Content blocks already cross durable JSON boundaries elsewhere;
         // the registry performs the authoritative lossless snapshot here.
         output: result.output as unknown as JsonValue[],
@@ -252,7 +279,7 @@ function providerWording(inheritsConversation: boolean): { description: string; 
 }
 
 interface DelegationRunRequest {
-  readonly run_in_background?: boolean
+  readonly mode?: 'sync' | 'async'
 }
 
 interface DelegationRunSpec {
@@ -265,23 +292,23 @@ function profileJson(profile: ResolvedChildProfile): JsonValue {
 
 function profileParameters() {
   return {
-    profile_id: { type: 'string' as const, required: true as const, description: 'Parent-private profile id.' },
-    harness_id: { type: 'string' as const, description: 'Host-managed child harness id. Defaults to the configured delegation provider.' },
-    model_route_id: { type: 'string' as const, description: 'Host-managed model route id. Defaults to the parent current provider/model route.' },
-    tools: { type: 'array' as const, items: { type: 'string' as const }, description: 'Requested child Tool ids.' },
-    skills: { type: 'array' as const, items: { type: 'string' as const }, description: 'Requested child Skill ids.' },
-    mcp_server_ids: { type: 'array' as const, items: { type: 'string' as const }, description: 'Requested MCP server ids.' },
-    child_profile_ids: { type: 'array' as const, items: { type: 'string' as const }, description: 'Profiles this child may define.' },
-    workspace_cwd: { type: 'string' as const, description: 'Relative child workspace directory.' },
-    max_depth: { type: 'number' as const, description: 'Child depth ceiling.' },
-    max_tokens: { type: 'number' as const, description: 'Child token ceiling.' },
+    child_profile_id: { type: 'string' as const, required: true as const, description: 'Id in this parent Agent\'s private Child Profile namespace. Defining an existing id replaces its complete specification with a new revision.' },
+    harness_id: { type: 'string' as const, description: 'Granted child harness id. Omit to use the configured delegation provider shown by child_profile_list.' },
+    model_route_id: { type: 'string' as const, description: 'Granted model route id. Omit to use the parent current route shown by child_profile_list.' },
+    tools: { type: 'array' as const, items: { type: 'string' as const }, description: 'Granted child Tool ids. Omit to inherit every granted Tool; use [] for none.' },
+    skills: { type: 'array' as const, items: { type: 'string' as const }, description: 'Granted child Skill ids. Omit to inherit every granted Skill; use [] for none.' },
+    mcp_server_ids: { type: 'array' as const, items: { type: 'string' as const }, description: 'Granted MCP server ids. Omit to inherit every granted server; use [] for none.' },
+    child_profile_ids: { type: 'array' as const, items: { type: 'string' as const }, description: 'Granted Child Profile ids this child may use for its own delegation. Omit to inherit all granted ids; use [] for none.' },
+    workspace_cwd: { type: 'string' as const, description: 'Relative directory inside the parent workspace. Omit to inherit the parent cwd.' },
+    max_depth: { type: 'number' as const, description: 'Non-negative child delegation-depth ceiling; cannot exceed the parent grant.' },
+    max_tokens: { type: 'number' as const, description: 'Non-negative child token ceiling; cannot exceed the parent grant.' },
     model_route_priority: { type: 'number' as const, description: 'Model route priority.' },
     scheduler_priority: { type: 'number' as const, description: 'Scheduler priority.' },
   }
 }
 
 type ProfileToolArgs = {
-  profile_id: string
+  child_profile_id: string
   harness_id?: string
   model_route_id?: string
   tools?: string[]
@@ -300,7 +327,7 @@ function profileSpecFromArgs(
   defaults: Pick<ChildProfileGrant, 'harnessIds' | 'modelRouteIds'>,
 ): ChildProfileSpec {
   return {
-    profileId: args.profile_id,
+    profileId: args.child_profile_id,
     harnessId: args.harness_id ?? defaults.harnessIds[0] as string,
     modelRouteId: args.model_route_id ?? defaults.modelRouteIds[0] as string,
     ...args.tools !== undefined ? { tools: args.tools } : {},
@@ -320,7 +347,7 @@ function ensureParentProfileGrant(
   ctx: Context,
   parent: Agent,
   config: Config,
-): Pick<ChildProfileGrant, 'harnessIds' | 'modelRouteIds'> {
+): ChildProfileGrant {
   const existing = ctx.subagents.getChildProfileGrant(parent)
   if (existing !== undefined) return existing
   const harnessId = config.provider
@@ -346,7 +373,22 @@ function ensureParentProfileGrant(
     }
     ctx.subagents.registerChildProfileGrant(parent, grant)
   }
-  return { harnessIds: [harnessId], modelRouteIds: [modelRouteId] }
+  return ctx.subagents.getChildProfileGrant(parent) as ChildProfileGrant
+}
+
+function profileGrantJson(grant: ChildProfileGrant): JsonValue {
+  return {
+    harnessIds: [...grant.harnessIds],
+    modelRouteIds: [...grant.modelRouteIds],
+    tools: [...grant.tools],
+    skills: [...grant.skills],
+    mcpServerIds: [...grant.mcpServerIds],
+    childProfileIds: [...grant.childProfileIds],
+    workspaceRoot: grant.workspaceRoot,
+    parentWorkspaceCwd: grant.parentWorkspaceCwd,
+    ...(grant.maxDepth === undefined ? {} : { maxDepth: grant.maxDepth }),
+    ...(grant.maxTokens === undefined ? {} : { maxTokens: grant.maxTokens }),
+  }
 }
 
 /** Resolve the model's optional scheduling request into one execution route. */
@@ -354,19 +396,11 @@ function resolveDelegationRun(
   request: DelegationRunRequest,
   options: { readonly backgroundEnabled: boolean; readonly continuable: boolean },
 ): DelegationRunSpec {
-  if (!options.backgroundEnabled) {
-    // The validator permits undeclared keys, so schema omission also needs
-    // execution-time enforcement.
-    if (request.run_in_background === true) {
-      throw new Error('run_in_background is disabled for this tool instance (enableRunInBackground: false)')
-    }
-    return { runInBackground: false }
+  if (request.mode === 'async' && !options.backgroundEnabled) {
+    throw new Error('mode: async is disabled for this tool instance (enableRunInBackground: false)')
   }
   return {
-    // Continuable work is independently scheduled unless the caller explicitly
-    // needs the result before its next action. One-shot policy keeps its existing
-    // foreground default because its background result requires Task collection.
-    runInBackground: request.run_in_background ?? options.continuable,
+    runInBackground: request.mode === 'async' || (request.mode === undefined && options.continuable),
   }
 }
 
@@ -407,8 +441,8 @@ export function apply(ctx: Context, config: Config): void {
         // a separately installed capability, so this promise holds whenever the
         // continuable background path is reachable at all.
         ? continuable
-          ? ' This tool runs in the background by default, immediately returns a durable subagent id, and keeps the child conversation available for later turns. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message; `send_message` starts a later turn in the same child conversation. Set `run_in_background: false` only when your next action depends on receiving the result.'
-          : ' This call waits for the result by default. Set `run_in_background: true` to return a job id; collect with `job_output` and stop with `job_kill`.'
+          ? ' This tool runs asynchronously by default, immediately returns the durable child Session id, and keeps the child conversation available for later turns. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message. Use `session_message` with that Session id for a later turn and `session_inspect` to read the child state or transcript. Set `mode: sync` only when your next action depends on receiving the result.'
+          : ' This call waits for the result by default. Set `mode: async` to return a background task id; use model-visible job tools when the deployment provides them, otherwise choose `sync`.'
         : ' This call waits for the subagent and returns its result.'),
       parameters: {
         description: {
@@ -421,16 +455,15 @@ export function apply(ctx: Context, config: Config): void {
           required: true,
           description: wording.promptDescription,
         },
-        profile_id: {
+        mode: {
           type: 'string' as const,
-          description: 'Optional parent-private Child Profile id. The host resolves and enforces its immutable snapshot.',
+          enum: ['sync', 'async'] as const,
+          description: 'Whether to wait for the child result (`sync`) or return after accepting its initial turn (`async`). Omit to use this tool instance\'s advertised default.',
         },
-        ...backgroundEnabled ? {
-          run_in_background: {
-            type: 'boolean' as const,
-            description: continuable
-              ? 'Whether to run in the background and return a durable subagent id immediately. Defaults to true. Set false to wait for the result when your next action depends on it.'
-              : 'Whether to run as a background job and return its id. Defaults to false; collect with job_output or stop with job_kill.',
+        ...config.enableChildProfileDefine === true || config.enableChildProfileList === true ? {
+          child_profile_id: {
+            type: 'string' as const,
+            description: 'Optional id from child_profile_list in this parent Agent\'s private Child Profile namespace. This is not an ordinary Agent Profile id.',
           },
         } : {},
       },
@@ -449,17 +482,18 @@ export function apply(ctx: Context, config: Config): void {
               type: 'object',
               additionalProperties: false,
               properties: {
-                kind: { type: 'string', required: true, const: 'continuable' },
-                subagentId: { type: 'string', required: true },
+                mode: { type: 'string', required: true, const: 'async' },
+                invocationId: { type: 'string', required: true },
+                sessionId: { type: 'string', required: true },
               },
             },
             {
               type: 'object',
               additionalProperties: false,
               properties: {
-                kind: { type: 'string', required: true, const: 'foreground' },
-                runId: { type: 'string', required: true },
-                subagentId: { type: 'string', required: true },
+                mode: { type: 'string', required: true, const: 'sync' },
+                invocationId: { type: 'string', required: true },
+                sessionId: { type: 'string', required: true },
                 output: { type: 'array', required: true, items: { type: 'json' } },
               },
             },
@@ -467,35 +501,37 @@ export function apply(ctx: Context, config: Config): void {
         },
         render: (_args, value) => [{
           type: 'text',
-          text: value.kind === 'background'
+          text: 'kind' in value
             ? `started background subagent task ${value.jobId}`
-            : value.kind === 'continuable'
-              ? `started subagent ${value.subagentId}`
-              : outputValueText(value.output),
+            : renderInvocationResult(value),
         }],
-        presentationMeta: (_args, value) => value.kind === 'background'
+        presentationMeta: (_args, value) => 'kind' in value
           ? { kind: 'background', jobId: value.jobId }
           : {
             kind: 'subagent',
-            childSessionId: value.subagentId,
-            mode: value.kind === 'continuable' ? 'continuable' : 'one-shot',
+            childSessionId: value.sessionId,
+            mode: value.mode,
+            invocationId: value.invocationId,
           },
       },
       // Children never mutate the parent session; the one parent-owned write
       // (tasks.start) is a synchronous commutative insertion.
       isConcurrencySafe: () => true,
       async execute(args, exec) {
+        if ('profile_id' in args) {
+          throw new Error('profile_id was removed; use child_profile_id')
+        }
         const parent = exec.agent
         if (!parent) {
           // Non-agent callers provide no parent for delegation ownership.
           throw new Error('subagent tool requires a calling agent (exec.agent was undefined)')
         }
 
-        const childProfile = args.profile_id === undefined
+        const childProfile = args.child_profile_id === undefined
           ? undefined
-          : ctx.subagents.getChildProfile(parent, args.profile_id)
-        if (args.profile_id !== undefined && childProfile === undefined) {
-          throw new Error(`no parent-private child profile named "${args.profile_id}"`)
+          : ctx.subagents.getChildProfile(parent, args.child_profile_id)
+        if (args.child_profile_id !== undefined && childProfile === undefined) {
+          throw new Error(`no parent-private child profile named "${args.child_profile_id}"`)
         }
         const maxDepth = childProfile?.maxDepth
           ?? (typeof config.maxDepth === 'number' ? config.maxDepth : undefined)
@@ -520,13 +556,15 @@ export function apply(ctx: Context, config: Config): void {
           if (continuable) {
             // Resolves at inbox acceptance: the child owns its own turns from
             // there, so this call neither waits for nor collects a result.
-            const started = await ctx.subagents.startContinuable({
-              provider: config.provider,
-              label: args.description,
-              request,
+            const invocation = await ctx.subagents.invoke(config.provider, 'async', {
+              ...request,
               signal: exec.signal,
             })
-            return { kind: 'continuable' as const, subagentId: started.childId }
+            return {
+              mode: 'async' as const,
+              invocationId: invocation.invocationId,
+              sessionId: invocation.sessionId,
+            }
           }
           const jobs = ctx.get('jobs')
           if (jobs === undefined) {
@@ -553,12 +591,17 @@ export function apply(ctx: Context, config: Config): void {
           return { kind: 'background' as const, jobId: id }
         }
 
-        const run: SubagentRun = await ctx.subagents.start(config.provider, {
+        const invocation = await ctx.subagents.invoke(config.provider, 'sync', {
           ...request,
           signal: exec.signal,
         })
-        const result = await settleForegroundRun(run)
-        return { ...result, subagentId: run.id }
+        const result = await settleForegroundRun({
+          id: invocation.sessionId,
+          localAgent: undefined,
+          result: invocation.result,
+          dispose: invocation.dispose,
+        })
+        return result
       },
     }))
   }
@@ -593,14 +636,15 @@ export function apply(ctx: Context, config: Config): void {
       order: SUBAGENT_SECTION_ORDER,
       text: context => disposeTool === undefined || ctx.tools.get(toolName, context.scope) === undefined
         ? ''
-        : `Use ${toolName} in the background by default. Start independent delegations together in one assistant message and continue useful work while they run. Set \`run_in_background: false\` only when your next action depends on that subagent's result. When a background run settles, the runtime sends you a notice containing its outcome and any final assistant message.`,
+        : `Use ${toolName} asynchronously by default. Start independent delegations together in one assistant message and continue useful work while they run. The result identifies the durable child Session; use session_message with that session_id for later turns and session_inspect to read its state or transcript. Set \`mode: sync\` only when your next action depends on that subagent's result. When an asynchronous run settles, the runtime sends you a notice containing its outcome and any final assistant message.`,
     })
   }
 
-  if (config.enableProfileManagement === true) {
-    const disposeProfileDefine = ctx.tools.register(defineTool({
+  const profileToolDisposers: Array<() => void> = []
+  if (config.enableChildProfileDefine === true) {
+    profileToolDisposers.push(ctx.tools.register(defineTool({
       name: 'child_profile_define',
-      description: 'Define or revise a parent-private Child Profile. The host rejects capabilities outside the parent grant.',
+      description: 'Define or replace one complete Child Profile in the current parent Agent\'s private in-memory namespace. Omitted capability arrays inherit the full grant shown by child_profile_list; [] grants none. The host rejects capabilities outside that grant. Pass the returned profileId to subagent.child_profile_id.',
       parameters: profileParameters(),
       output: {
         schema: { type: 'json' as const },
@@ -614,24 +658,38 @@ export function apply(ctx: Context, config: Config): void {
           ctx.subagents.defineChildProfile(exec.agent, profileSpecFromArgs(args, defaults)),
         ))
       },
-    }))
-    const disposeProfileList = ctx.tools.register(defineTool({
+    })))
+  }
+  if (config.enableChildProfileList === true) {
+    profileToolDisposers.push(ctx.tools.register(defineTool({
       name: 'child_profile_list',
-      description: 'List the calling parent agent\'s private Child Profiles.',
+      description: 'Show the current parent Agent\'s available Child Profile grant and defined profile revisions. Profile definitions last for this live parent Agent; each started child durably retains its resolved immutable snapshot.',
       parameters: {},
       output: {
-        schema: { type: 'array' as const, items: { type: 'json' as const } },
+        schema: {
+          type: 'object' as const,
+          additionalProperties: false,
+          properties: {
+            grant: { type: 'json' as const, required: true },
+            profiles: { type: 'array' as const, required: true, items: { type: 'json' as const } },
+          },
+        },
         render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
       },
       isConcurrencySafe: () => true,
       async execute(_args, exec) {
         if (!exec.agent) throw new Error('child_profile_list requires a calling agent')
-        return await Promise.resolve(ctx.subagents.listChildProfiles(exec.agent).map(profileJson))
+        const grant = ensureParentProfileGrant(ctx, exec.agent, config)
+        return await Promise.resolve({
+          grant: profileGrantJson(grant),
+          profiles: ctx.subagents.listChildProfiles(exec.agent).map(profileJson),
+        })
       },
-    }))
+    })))
+  }
+  if (profileToolDisposers.length > 0) {
     ctx.effect(() => () => {
-      disposeProfileDefine()
-      disposeProfileList()
+      for (const dispose of profileToolDisposers) dispose()
     }, 'tool-subagent.profile-tools()')
   }
 }

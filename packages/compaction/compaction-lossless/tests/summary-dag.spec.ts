@@ -52,6 +52,19 @@ function appendSummary(session: Session, sourceSeqs: number[], text: string): nu
 }
 
 describe('lossless compaction summary DAG', () => {
+  it('attaches from the first event when the entered session was not announced in this realm', async () => {
+    ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(CompactionHistory)
+    const session = ctx.sessions.prepare()
+    const detach = ctx.sessions.enter(session)
+
+    appendText(session, 'entered before announcement')
+
+    expect(ctx.compactionHistory.stats(session.id)).toEqual({ summaries: 0, maxDepth: 0 })
+    detach()
+  })
+
   it('rebuilds leaf and condensed nodes with expandable source lineage', async () => {
     ctx = new Context()
     await ctx.plugin(SessionStore)

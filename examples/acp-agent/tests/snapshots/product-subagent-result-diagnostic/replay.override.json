@@ -3,8 +3,8 @@
     "kind": "chunks",
     "chunks": [
       { "type": "block-start", "index": 0, "blockType": "tool-call" },
-      { "type": "tool-call-delta", "index": 0, "id": "call_claude_foreground", "name": "subagent_codex", "argumentsDelta": "{\"description\":\"Observe Claude foreground diagnostic\",\"prompt\":\"Return the Claude diagnostic failure.\",\"run_in_background\":false}" },
-      { "type": "block-end", "index": 0, "block": { "type": "tool-call", "id": "call_claude_foreground", "name": "subagent_codex", "arguments": "{\"description\":\"Observe Claude foreground diagnostic\",\"prompt\":\"Return the Claude diagnostic failure.\",\"run_in_background\":false}" } },
+      { "type": "tool-call-delta", "index": 0, "id": "call_claude_foreground", "name": "subagent_codex", "argumentsDelta": "{\"description\":\"Observe Claude foreground diagnostic\",\"prompt\":\"Return the Claude diagnostic failure.\",\"mode\":\"sync\"}" },
+      { "type": "block-end", "index": 0, "block": { "type": "tool-call", "id": "call_claude_foreground", "name": "subagent_codex", "arguments": "{\"description\":\"Observe Claude foreground diagnostic\",\"prompt\":\"Return the Claude diagnostic failure.\",\"mode\":\"sync\"}" } },
       { "type": "usage", "usage": { "inputTokens": 10, "outputTokens": 5 } },
       { "type": "finish", "reason": { "kind": "tool-calls" } }
     ]
@@ -13,8 +13,8 @@
     "kind": "chunks",
     "chunks": [
       { "type": "block-start", "index": 0, "blockType": "tool-call" },
-      { "type": "tool-call-delta", "index": 0, "id": "call_claude_background", "name": "subagent_codex", "argumentsDelta": "{\"description\":\"Observe Claude background diagnostic\",\"prompt\":\"Return the Claude diagnostic failure.\",\"run_in_background\":true}" },
-      { "type": "block-end", "index": 0, "block": { "type": "tool-call", "id": "call_claude_background", "name": "subagent_codex", "arguments": "{\"description\":\"Observe Claude background diagnostic\",\"prompt\":\"Return the Claude diagnostic failure.\",\"run_in_background\":true}" } },
+      { "type": "tool-call-delta", "index": 0, "id": "call_claude_background", "name": "subagent_codex", "argumentsDelta": "{\"description\":\"Observe Claude background diagnostic\",\"prompt\":\"Return the Claude diagnostic failure.\",\"mode\":\"async\"}" },
+      { "type": "block-end", "index": 0, "block": { "type": "tool-call", "id": "call_claude_background", "name": "subagent_codex", "arguments": "{\"description\":\"Observe Claude background diagnostic\",\"prompt\":\"Return the Claude diagnostic failure.\",\"mode\":\"async\"}" } },
       { "type": "usage", "usage": { "inputTokens": 10, "outputTokens": 5 } },
       { "type": "finish", "reason": { "kind": "tool-calls" } }
     ]
@@ -33,8 +33,8 @@
     "kind": "chunks",
     "chunks": [
       { "type": "block-start", "index": 0, "blockType": "tool-call" },
-      { "type": "tool-call-delta", "index": 0, "id": "call_codex_foreground", "name": "subagent_codex", "argumentsDelta": "{\"description\":\"Observe Codex foreground diagnostic\",\"prompt\":\"Return the Codex diagnostic failure.\",\"run_in_background\":false}" },
-      { "type": "block-end", "index": 0, "block": { "type": "tool-call", "id": "call_codex_foreground", "name": "subagent_codex", "arguments": "{\"description\":\"Observe Codex foreground diagnostic\",\"prompt\":\"Return the Codex diagnostic failure.\",\"run_in_background\":false}" } },
+      { "type": "tool-call-delta", "index": 0, "id": "call_codex_foreground", "name": "subagent_codex", "argumentsDelta": "{\"description\":\"Observe Codex foreground diagnostic\",\"prompt\":\"Return the Codex diagnostic failure.\",\"mode\":\"sync\"}" },
+      { "type": "block-end", "index": 0, "block": { "type": "tool-call", "id": "call_codex_foreground", "name": "subagent_codex", "arguments": "{\"description\":\"Observe Codex foreground diagnostic\",\"prompt\":\"Return the Codex diagnostic failure.\",\"mode\":\"sync\"}" } },
       { "type": "usage", "usage": { "inputTokens": 10, "outputTokens": 5 } },
       { "type": "finish", "reason": { "kind": "tool-calls" } }
     ]
@@ -43,8 +43,8 @@
     "kind": "chunks",
     "chunks": [
       { "type": "block-start", "index": 0, "blockType": "tool-call" },
-      { "type": "tool-call-delta", "index": 0, "id": "call_codex_background", "name": "subagent_codex", "argumentsDelta": "{\"description\":\"Observe Codex background diagnostic\",\"prompt\":\"Return the Codex diagnostic failure.\",\"run_in_background\":true}" },
-      { "type": "block-end", "index": 0, "block": { "type": "tool-call", "id": "call_codex_background", "name": "subagent_codex", "arguments": "{\"description\":\"Observe Codex background diagnostic\",\"prompt\":\"Return the Codex diagnostic failure.\",\"run_in_background\":true}" } },
+      { "type": "tool-call-delta", "index": 0, "id": "call_codex_background", "name": "subagent_codex", "argumentsDelta": "{\"description\":\"Observe Codex background diagnostic\",\"prompt\":\"Return the Codex diagnostic failure.\",\"mode\":\"async\"}" },
+      { "type": "block-end", "index": 0, "block": { "type": "tool-call", "id": "call_codex_background", "name": "subagent_codex", "arguments": "{\"description\":\"Observe Codex background diagnostic\",\"prompt\":\"Return the Codex diagnostic failure.\",\"mode\":\"async\"}" } },
       { "type": "usage", "usage": { "inputTokens": 10, "outputTokens": 5 } },
       { "type": "finish", "reason": { "kind": "tool-calls" } }
     ]

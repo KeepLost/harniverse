@@ -25,7 +25,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
   it('boots every shipped tool package and harvests its model-facing schemas', async () => {
     const catalog = await collectToolCatalog()
     const names = catalog.flatMap(entry => entry.schemas.map(s => s.name)).sort()
-    expect(names).toEqual(['artifact_read', 'ask_user_question', 'bash', 'bash', 'compaction_history_expand', 'compaction_history_search', 'context_compact', 'cordis_define', 'cordis_inspect_list', 'cordis_inspect_query', 'cordis_inspect_self', 'cordis_run', 'cordis_stop', 'cordis_undefine', 'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep', 'interrupt_agent', 'job_kill', 'job_list', 'job_output', 'list_agents', 'lsp', 'pwsh', 'pwsh', 'ralph', 'read', 'read_image', 'report', 'run_code', 'schedule_create', 'schedule_delete', 'schedule_list', 'send_message', 'session_event_read', 'session_event_search', 'session_event_trace', 'session_find', 'session_log_tail', 'session_message_tail', 'session_search', 'session_send_message', 'session_status', 'session_trace', 'session_unload', 'skill', 'str_replace_editor', 'subagent', 'terminal_close', 'terminal_list', 'terminal_open', 'terminal_read', 'terminal_send', 'terminal_signal', 'todo_write', 'update_goal', 'web_fetch', 'web_search', 'workflow', 'write'])
+    expect(names).toEqual(['artifact_read', 'ask_user_question', 'bash', 'bash', 'child_profile_define', 'child_profile_list', 'compaction_history_expand', 'compaction_history_search', 'context_compact', 'cordis_define', 'cordis_inspect_list', 'cordis_inspect_query', 'cordis_inspect_self', 'cordis_run', 'cordis_stop', 'cordis_undefine', 'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep', 'interrupt_agent', 'job_kill', 'job_list', 'job_output', 'list_agents', 'lsp', 'pwsh', 'pwsh', 'ralph', 'read', 'read_image', 'report', 'run_code', 'schedule_create', 'schedule_delete', 'schedule_list', 'send_message', 'session_create', 'session_event_search', 'session_find', 'session_inspect', 'session_message', 'session_search', 'session_unload', 'skill', 'str_replace_editor', 'subagent', 'subagent_history', 'terminal_close', 'terminal_list', 'terminal_open', 'terminal_read', 'terminal_send', 'terminal_signal', 'todo_write', 'update_goal', 'web_fetch', 'web_search', 'workflow', 'write'])
     // Every tool carries a JSON-Schema `parameters` object (what the model sees).
     for (const entry of catalog) {
       for (const schema of entry.schemas) {
@@ -54,6 +54,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
       interrupt_agent: 'packages/subagent/tool-subagent-control/src/index.ts',
       list_agents: 'packages/subagent/tool-subagent-control/src/list-agents.ts',
       send_message: 'packages/subagent/tool-subagent-control/src/index.ts',
+      subagent_history: 'packages/subagent/tool-subagent-control/src/index.ts',
     })
   })
 
@@ -70,13 +71,12 @@ describe('gen-tool-catalog collectToolCatalog', () => {
     }
   })
 
-  it('records the shipped `subagent_fork` alias in a note (config-driven tool name)', async () => {
-    // `tool-subagent`'s registered name is the load-time `toolName` config, so the shipped
-    // agents surface this one package as both `subagent` and `subagent_fork`.
+  it('records the shipped delegation and Child Profile tools while retaining configurable custom instances', async () => {
     const catalog = await collectToolCatalog()
     const subagent = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-subagent')
-    expect(subagent?.schemas.map(s => s.name)).toEqual(['subagent'])
-    expect(subagent?.note).toMatch(/subagent_fork/)
+    expect(subagent?.schemas.map(s => s.name)).toEqual(['child_profile_define', 'child_profile_list', 'subagent'])
+    expect(subagent?.note).toMatch(/continuable spawn-backed `subagent`/)
+    expect(subagent?.note).toMatch(/custom compositions/)
   })
 })
 

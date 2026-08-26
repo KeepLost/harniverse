@@ -6,10 +6,6 @@
     path: ./fs.cordis.yml
     patches:
       - insert:
-          - id: session-delivery
-            name: '@deepseek-ai/dsh-session-delivery-local'
-          - id: tool-session-delivery
-            name: '@deepseek-ai/dsh-tool-session-delivery'
           - id: tool-session-query
             name: '@deepseek-ai/dsh-tool-session-query'
           - id: timeout-policy

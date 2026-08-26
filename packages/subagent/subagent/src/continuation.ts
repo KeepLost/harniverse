@@ -941,7 +941,7 @@ export class SubagentContinuationManager {
     if (descriptor === undefined || descriptor.mode !== 'continuable') {
       throw new SubagentError(
         `subagent "${childId}" has no supported continuation state and cannot be resumed; `
-        + 'do not retry send_message with this id',
+        + 'do not retry session_message with this id',
         'NOT_RESUMABLE',
       )
     }
