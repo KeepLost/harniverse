@@ -1139,15 +1139,19 @@ describe('dsh-tool-subagent continuable background mode', () => {
     expect(started.isError).toBe(false)
     const receipt = started.isError ? undefined : started.value
     expect(receipt).toMatchObject({ mode: 'async' })
-    const childId = receipt?.sessionId
+    if (typeof receipt !== 'object' || receipt === null || Array.isArray(receipt)) {
+      throw new Error('expected async invocation receipt')
+    }
+    const childId = receipt.sessionId
+    if (typeof childId !== 'string') throw new Error('expected durable child session id')
     // No Task was created for the continuable child.
     expect(ctx.jobs.list(parent)).toEqual([])
 
     await vi.waitFor(() => {
-      expect(ctx.agents.get(SessionId(childId!))).toBeUndefined()
+      expect(ctx.agents.get(SessionId(childId))).toBeUndefined()
     }, { timeout: 5_000 })
     // The child id names a durable session carrying its continuation descriptor.
-    const loaded = await ctx.sessionPersistence.load(SessionId(childId!))
+    const loaded = await ctx.sessionPersistence.load(SessionId(childId))
     expect(loaded.events.some(event => event.type === 'subagent/descriptor')).toBe(true)
     expect(loaded.events.some(event => event.type === 'assistant/message')).toBe(true)
   })
