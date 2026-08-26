@@ -50,7 +50,7 @@ type ToolExecutionResult =
 | `bash` | `{ kind: "background", jobId }` 或 `{ kind: "foreground" } & ShellRunResult` |
 | `terminal_open` ／ `terminal_list` ／ `terminal_send` ／ `terminal_read` ／ `terminal_signal` ／ `terminal_close` | 公开会话快照、有界的读取／发送 DTO、信号／关闭操作结果，或后台任务句柄 |
 | `job_output` ／ `job_list` ／ `job_kill` | 不含所有者或通知管理信息的公开任务快照 |
-| `subagent` | 后台任务句柄或 `{ kind: "foreground", runId, output: JsonValue[] }` |
+| `subagent` | `{ mode: "async", invocationId, sessionId }` 或 `{ mode: "sync", invocationId, sessionId, output: JsonValue[] }` |
 | `workflow` ／ `ralph` | `{ runId, agentsStarted, result: JsonValue }` |
 | `skill` | `{ name, provider, resourceBase?, content }` |
 | `todo_write` | `{ todos, counts }` |

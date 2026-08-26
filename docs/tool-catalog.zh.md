@@ -42,7 +42,7 @@
 | `@deepseek-ai/dsh-tool-subagent` | `child_profile_define`、`child_profile_list`、`subagent` | `ctx.tools`、`ctx.subagents`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`child session events through the chosen provider` | `subagent` | 本次采集对应交付的 continuable spawn-backed `subagent`，以及 Standard、Code 和 Cordis 的 Child Profile 管理工具。Base 不包含 Profile 工具，Minimal 不包含委派；自定义组合可以用不同名称和后台策略加载绑定提供方的实例。 |
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`、`list_agents`、`send_message`、`subagent_history` | `ctx.tools`、`ctx.subagents`、`ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`、`tool/result`、`child session events through ctx.subagents` | - | 这些是控制可继续后台 subagent 的全局命名工具：绑定提供方的 `tool-subagent` 实例注册不同的委派工具；本包注册一次 `send_message` 和 `interrupt_agent`，另由 `list_agents` 通过单独加载的 `/list-agents` 插件提供，其目录行使用 sessionProjections 和实时 Agent 注册表。 |
 | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`、`ctx.systemPrompt`、`a live continuable in-process child Agent` | `tool/call`、`tool/result`、`a user-role message in the direct parent session` | - | 按可继续的进程内子级注册，而非全局注册，因此该 schema 仅在这种子级内部可见，并且不受其全局 `toolFilter` 影响。同一份贡献还会安装子级作用域的 `tool:report` 系统提示词 section，本目录不渲染该 section。面向父级的 `send_message` 工具单独安装。 |
-| `@deepseek-ai/dsh-tool-jobs` | `job_kill`、`job_list`、`job_output` | `ctx.tools`、`ctx.jobs`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`user/message via agent.inject() for background completion notices` | - | 与任务种类无关的后台任务控制器：后台 bash 命令、PTY 发送和 subagent 都通过相同的 3 个工具读取、列出和终止。加载该插件会挂接控制器，从而启用生产方的 `ctx.jobs.start()`。 |
+| `@deepseek-ai/dsh-tool-jobs` | `job_kill`、`job_list`、`job_output` | `ctx.tools`、`ctx.jobs`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`user/message via agent.inject() for background completion notices` | - | 与任务种类无关的 shell/终端后台 job 控制器：后台 bash 命令、PowerShell 命令和 PTY 发送通过相同的 3 个工具读取、列出和终止。Subagent Session 使用独立的 Session/Invocation 控制，不进入此注册表。加载该插件会挂接控制器，从而启用生产方的 `ctx.jobs.start()`。 |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`、`owning Agent session` | `tool/call`、`todo/write`、`tool/result` | - | todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。 |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`、`ctx.workflowEngine`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents the script children)` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`、`web_search` | `ctx.tools`、`ctx.web`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。 |
@@ -1856,7 +1856,7 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
 
 ### `subagent`
 
-把自包含任务委派给 subagent，也就是在自身上下文中工作的独立 agent，以卸载研究、限定范围的实现或分析等聚焦且独立的工作，避免消耗当前对话的上下文。subagent 返回结果，不返回中间步骤。请提供完整且独立的提示词，因为它看不到当前对话。该工具默认异步运行，立即返回持久化 child Session id，并让 child 对话可供后续 turn 使用。该次运行结算后，runtime 会向 parent 发送包含结局和最终 assistant 消息的通知。使用该 Session id 调用 `session_message` 可开始后续 turn，调用 `session_inspect` 可读取 child 状态或 transcript。仅当下一步动作依赖结果时才设置 `mode: sync`。
+把自包含任务委派给 subagent，也就是在自身上下文中工作的独立 agent，以卸载研究、限定范围的实现或分析等聚焦且独立的工作，避免消耗当前对话的上下文。subagent 返回结果，不返回中间步骤。请提供完整且独立的提示词，因为它看不到当前对话。该工具默认异步运行，立即返回持久化 child Session id，并让 child 对话可供后续 turn 使用。这条 subagent 生命周期不是通用后台 job：绝不能把它的 Session id 传给 `job_output`、`job_list` 或 `job_kill`。该次运行结算后，runtime 会向 parent 发送包含结局和最终 assistant 消息的通知。使用该 Session id 调用 `session_message` 可开始后续 turn，调用 `session_inspect` 可读取 child 状态或 transcript。仅当下一步动作依赖结果时才设置 `mode: sync`。
 
 ```json
 {
@@ -1872,7 +1872,7 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
     },
     "mode": {
       "type": "string",
-      "description": "Whether to wait for the child result (`sync`) or return after accepting its initial turn (`async`). Omit to use this tool instance's advertised default.",
+      "description": "Whether to wait for the child result (`sync`) or return after accepting its initial turn (`async`). Async returns a durable child Session, not a generic job id; use session controls rather than job tools. Omit to use this tool instance's advertised default.",
       "enum": [
         "sync",
         "async"
@@ -2031,7 +2031,7 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
 
 ### `job_kill`
 
-根据 job id 请求取消正在运行的后台任务。此调用立即返回；任务的工作真正停止后，会以 killed 状态结算。
+根据 job id 请求取消正在运行的 shell 或终端后台 job。Subagent Session 由独立的 Session/Invocation 控制，不能传入此工具。此调用立即返回；job 的工作真正停止后，会以 killed 状态结算。
 
 ```json
 {
@@ -2039,7 +2039,7 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
   "properties": {
     "job_id": {
       "type": "string",
-      "description": "Job id returned by the tool that started the background work."
+      "description": "Job id returned by bash, pwsh, terminal_send, or another job-producing tool; do not use a subagent Session id."
     },
     "reason": {
       "type": "string",
@@ -2056,7 +2056,7 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
 
 ### `job_list`
 
-列出你的后台任务（包括正在运行和已完成的任务）及其 id、种类和状态。
+列出你的 shell 和终端后台 job（包括正在运行和已完成的 job）及其 id、种类和状态。Subagent Session 由独立控制面管理，不会出现在这里。
 
 ```json
 {
@@ -2069,7 +2069,7 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
 
 ### `job_output`
 
-读取后台任务。流式任务只返回自上次读取以来的输出；最终输出任务会在结算后返回结果。每个响应都以 `[status: ...]` 结尾。读取默认不阻塞；设置 `wait: true` 后，最长等待到配置的上限。
+读取 shell 或终端后台 job。Subagent Session id 在此无效。流式 job 只返回自上次读取以来的输出；最终输出 job 会在结算后返回结果。每个响应都以 `[status: ...]` 结尾。读取默认不阻塞；设置 `wait: true` 后，最长等待到配置的上限。
 
 ```json
 {
@@ -2077,7 +2077,7 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
   "properties": {
     "job_id": {
       "type": "string",
-      "description": "Job id returned by the tool that started the background work."
+      "description": "Job id returned by bash, pwsh, terminal_send, or another job-producing tool; do not use a subagent Session id."
     },
     "wait": {
       "type": "boolean",
@@ -2096,7 +2096,7 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
 
 来源：[`packages/jobs/tool-jobs/src/index.ts`](../packages/jobs/tool-jobs/src/index.ts)
 
-与任务种类无关的后台任务控制器：后台 bash 命令、PTY 发送和 subagent 都通过相同的 3 个工具读取、列出和终止。加载该插件会挂接控制器，从而启用生产方的 `ctx.jobs.start()`。
+与任务种类无关的 shell/终端后台 job 控制器：后台 bash 命令、PowerShell 命令和 PTY 发送通过相同的 3 个工具读取、列出和终止。Subagent Session 使用独立的 Session/Invocation 控制，不进入此注册表。加载该插件会挂接控制器，从而启用生产方的 `ctx.jobs.start()`。
 
 <a id="deepseek-aidsh-tool-todo"></a>
 

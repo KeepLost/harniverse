@@ -56,7 +56,9 @@ export class LocalFileReferenceService extends FileReferenceService {
       const fiber = this.promptFibers.get(agent)
       if (fiber === undefined) return
       this.promptFibers.delete(agent)
-      const task = fiber.dispose().catch((error: unknown) => { ctx.logger.warn(`file-reference-local: prompt cleanup failed: ${error instanceof Error ? error.message : String(error)}`) })
+      const disposal = fiber.dispose() as Promise<void> | undefined
+      if (disposal === undefined) return
+      const task = disposal.catch((error: unknown) => { ctx.logger.warn(`file-reference-local: prompt cleanup failed: ${error instanceof Error ? error.message : String(error)}`) })
       this.promptDisposals.add(task)
       void task.finally(() => { this.promptDisposals.delete(task) })
     }

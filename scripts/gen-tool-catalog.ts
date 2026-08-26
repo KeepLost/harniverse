@@ -643,7 +643,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolTasks)
     },
     note:
-      'The kind-agnostic background-job controller: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers\' `ctx.jobs.start()`.',
+      'The kind-agnostic shell/terminal background-job controller: background bash commands, PowerShell commands, and PTY sends are read, listed, and killed through the same three tools. Subagent Sessions use the separate Session/Invocation controls and never enter this registry. Loading the plugin attaches the controller that arms producers\' `ctx.jobs.start()`.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-todo',

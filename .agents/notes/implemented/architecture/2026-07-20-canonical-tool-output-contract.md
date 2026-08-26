@@ -50,7 +50,7 @@ The first-party tools preserve their existing Native text while returning domain
 | `bash` | `{ kind: "background", jobId }` or `{ kind: "foreground" } & ShellRunResult` |
 | `terminal_open` / `terminal_list` / `terminal_send` / `terminal_read` / `terminal_signal` / `terminal_close` | Public session snapshots, bounded read/send DTOs, signal/close outcomes, or a background job handle |
 | `job_output` / `job_list` / `job_kill` | Public task snapshots without owner or notification bookkeeping |
-| `subagent` | Background job handle or `{ kind: "foreground", runId, output: JsonValue[] }` |
+| `subagent` | `{ mode: "async", invocationId, sessionId }` or `{ mode: "sync", invocationId, sessionId, output: JsonValue[] }` |
 | `workflow` / `ralph` | `{ runId, agentsStarted, result: JsonValue }` |
 | `skill` | `{ name, provider, resourceBase?, content }` |
 | `todo_write` | `{ todos, counts }` |

@@ -14,7 +14,7 @@ Status: implemented
 
 `dsh-tool-subagent` 为每种调用形态（前台、一次性后台、可继续）都声明 `isConcurrencySafe: () => true`，因此同一 assistant 步骤中的同级委派会在循环的滚动池下重叠执行，上限为 `maxParallelToolCalls`，结果仍按模型顺序提交。
 
-该声明在结构上满足调度器的安全约定：子 agent 在自己的会话中工作，运行绝不变更父会话（启动时追加的 `sandbox/mode`、`approval/policy`、`subagent/descriptor` 只落在子 agent 自己的日志里），工具把输出返回给循环，由循环按顺序提交。一次性后台形态对父级拥有状态的唯一写入是通过 `tasks.start` 注册一个 Task——这是一次同步、可交换的插入，满足的是调度器 Agent Note 中的共享状态条款，而非更强的「无变更」性质。提供方 seam 要求针对不同子 agent 的并发启动和可继续准备分别隔离操作局部状态、取消、结算和清理。内置提供方满足这项约定：spawn 和 fork 在各次启动之间不保留可变状态，fork 只读取父级已完成轮次的前缀，进程外提供方按每次运行分配状态，继续执行管理器则为每次准备预留唯一的子 agent 身份和锁。
+该声明在结构上满足调度器的安全约定：子 agent 在自己的会话中工作，运行绝不变更父会话（启动时追加的 `sandbox/mode`、`approval/policy`、`subagent/descriptor` 只落在子 agent 自己的日志里），工具把输出返回给循环，由循环按顺序提交。异步 subagent invocation 通过 subagent runtime 发布 child Session/Invocation 身份，而不写入通用 job 注册表。提供方 seam 要求针对不同子 agent 的并发启动和可继续准备分别隔离操作局部状态、取消、结算和清理。内置提供方满足这项约定：spawn 和 fork 在各次启动之间不保留可变状态，fork 只读取父级已完成轮次的前缀，进程外提供方按每次运行分配状态，继续执行管理器则为每次准备预留唯一的子 agent 身份和锁。
 
 协调同级工作区效果是模型的职责，产品对后台、可继续和工作流子 agent 已经采取同样的立场。同类 harness 的做法一致：Claude Code 的 Task 工具无条件并发安全（上限 10）；oh-my-pi 的 task 工具默认归入其可重叠的 `shared` 类别；opencode 的 task 工具在其 SDK 下不设上限地运行；Codex 则把委派做成异步 spawn/wait 信箱，绕开了这个问题。
 
@@ -40,7 +40,7 @@ Status: implemented
 
 同级子 agent 可能在共享工作区或外部资源上发生竞态；这项协调由模型负责，正如模型对其他所有重叠子 agent 已经承担的那样。并发子 agent 还会争用 LLM 提供方配额；`maxParallelToolCalls` 只限制未结算的调用，不限制后台或可继续调用留下运行的子 agent。
 
-同一条消息中的两个一次性后台委派按分发竞态顺序获得各自模型可见的 job id（`subagent-<n>`）。这些 id 已被记录，因此回放仍然有效；但需要区分后台子 agent 的快照场景会继承与孪生子会话相同的确定性约束。
+同一条消息中的两个异步委派通过 subagent runtime 获得各自模型可见的 child Session 和 Invocation id。这些身份已被记录，因此回放仍然有效；但需要区分并发 child 的快照场景会继承与孪生子会话相同的确定性约束。
 
 有序提交可能让快速子 agent 的结果排在更早的缓慢同级之后等待，这是[调度器 Agent Note](2026-07-10-parallel-tool-call-execution.md)已经接受的取舍；实时界面仍会展示每个子 agent 各自的进度。
 

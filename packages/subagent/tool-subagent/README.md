@@ -10,7 +10,7 @@ Each plugin instance binds one `provider` to one `toolName`; the model receives 
 
 A synchronous call passes the execution signal through startup and execution, awaits `run.result`, and always awaits `run.dispose()` before returning. Only `completed` returns the canonical `{ mode: 'sync', invocationId, sessionId, output: JsonValue[] }`; abort, refusal, token limit, and other failures become errored tool results. Their message places optional provider-authored `SubagentResult.diagnostic` under a distinct `Diagnostic:` line, then appends preserved partial assistant text after its own heading, so neither text class becomes successful assistant output and a truncated answer is never silently lost. If result collection and disposal both reject, the errored result preserves both failures.
 
-`backgroundMode` remains deployment policy for the default `mode`. The model-facing schema uses `mode: sync|async`; `sync` waits for a terminal one-shot result, while `async` returns after accepting a durable continuable child turn. Continuable asynchronous work requires a provider with `prepareContinuable`, calls the unified Invocation service, and keeps the child available for later messages. Both modes render the durable child Session id. The shipped `session_inspect` reads either Session; `session_message` continues only the asynchronous child. The continuation service delivers one settlement notice whenever that child's Activation ends.
+`backgroundMode` remains deployment policy for the default `mode`. The model-facing schema uses `mode: sync|async`; `sync` waits for a terminal one-shot result, while `async` returns after accepting a durable continuable child turn. Every asynchronous subagent uses the unified Invocation service and its Session lifecycle; it never creates or reads a generic job. Continuable asynchronous work requires a provider with `prepareContinuable` and keeps the child available for later messages. Both modes render the durable child Session id. The shipped `session_inspect` reads either Session; `session_message` continues only the asynchronous child. The continuation service delivers one settlement notice whenever that child's Activation ends.
 
 `toolFilter` changes the child's global tool layer but is not a parent-derived authority ceiling. See the [agent-scope security non-goal](../../../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals).
 
@@ -33,7 +33,7 @@ When the optional profile-management surface is enabled, `child_profile_define` 
 
 ## Concurrency
 
-Foreground and background calls are concurrency-safe: sibling delegations in one assistant message overlap under the loop's rolling pool (`maxParallelToolCalls`), and results still commit in model order. Children work in their own sessions and a run never mutates the parent session; the one-shot background form's one parent-owned write — registering a Task — is a synchronous, commutative insertion that tolerates concurrent dispatch, so overlapping background calls acquire their job ids in dispatch-race order. Coordinating sibling workspace effects belongs to the model, exactly as it already does for background and continuable children. See the [parallel subagent Agent Note](../../../.agents/notes/implemented/feature/2026-08-09-parallel-subagent-delegations.md) and the [parallel tool-call Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md).
+Foreground and asynchronous calls are concurrency-safe: sibling delegations in one assistant message overlap under the loop's rolling pool (`maxParallelToolCalls`), and results still commit in model order. Children work in their own sessions and a run never mutates the parent session; asynchronous calls acquire durable child Session and Invocation ids through the subagent runtime, never generic job ids. Coordinating sibling workspace effects belongs to the model. See the [parallel subagent Agent Note](../../../.agents/notes/implemented/feature/2026-08-09-parallel-subagent-delegations.md) and the [parallel tool-call Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md).
 
 ## Model Experience
 
@@ -69,7 +69,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-An asynchronous call renders both the durable child Session id and Invocation id before the child runs to completion; a synchronous call renders the same identities with the final result. An asynchronous child's settlement reaches the parent as a [service-owned notice](../subagent/README.md#settlement-notice). The shipped `session_message` tool delivers direct-child follow-ups, and `session_inspect` reads the child's transcript by Session id.
+An asynchronous call renders both the durable child Session id and Invocation id before the child runs to completion; a synchronous call renders the same identities with the final result. An asynchronous child's settlement reaches the parent as a [service-owned notice](../subagent/README.md#settlement-notice). The shipped `session_message` tool delivers direct-child follow-ups, and `session_inspect` reads the child's transcript by Session id. `job_output`, `job_list`, and `job_kill` do not apply to this Session lifecycle.
 
 #### Token effect
 
@@ -82,6 +82,6 @@ Append-only; newly visible content follows the reusable request prefix and does 
 ## Known Limitations and Deferred Work
 
 - **Asynchronous runs expose no result through this tool** — the child's output stays in its own session, read by its session id. The settlement notice states how that child ended and carries any final assistant message, but it is not this call's return value and cannot be awaited here.
-- **Duplicate names across waiting one-shot instances are detected late** (`TODO(subagent-dup-toolname)`) — continuable instances reserve their prompt-section name during plugin application, but preventing provider-registration rollback for waiting one-shot instances requires a registry of intended names.
+- **Duplicate names across waiting instances are detected late** (`TODO(subagent-dup-toolname)`) — preventing provider-registration rollback for waiting instances requires a registry of intended names.
 - **Child policy is fixed per instance** — another model, persona, tool filter, or depth cap requires another distinctly named tool.
 - **Profile route and scheduling policy are Host-owned** — the tool accepts opaque Profile references and priority fields, while the Host registry owns ordered model fallback attempts and priority gating. This Consumer does not choose provider endpoints or schedule siblings itself.

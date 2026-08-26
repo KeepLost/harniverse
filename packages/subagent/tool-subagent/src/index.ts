@@ -2,9 +2,8 @@
  * Model-facing delegation through one configured `ctx.subagents` provider.
  * Provider lifecycle controls tool registration and context-sensitive schema
  * wording. Foreground calls always dispose the run after collection.
- * Background policy is selected by this plugin's configuration: one-shot
- * calls own a plain Task, while continuable calls use the asynchronous
- * `ctx.subagents.invoke()` contract.
+ * Background policy is selected by this plugin's configuration: asynchronous
+ * calls always use the durable `ctx.subagents.invoke()` contract.
  * @module @deepseek-ai/dsh-tool-subagent
  */
 
@@ -14,7 +13,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
-import { assertSubagentMaxDepth, settleRun } from '@deepseek-ai/dsh-subagent'
+import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent'
 import type {
   ChildProfileSpec,
   ChildProfileGrant,
@@ -23,7 +22,6 @@ import type {
   SubagentResult,
   SubagentRun,
 } from '@deepseek-ai/dsh-subagent'
-import type { JobOutcome } from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
 export const name = 'tool-subagent'
@@ -119,17 +117,6 @@ function outputValueText(values: JsonValue[]): string {
       && value.type === 'text' && typeof value.text === 'string')
     .map(value => value.text)
     .join('')
-}
-
-/** Settle pending startup without rejecting the task producer contract. */
-async function settleStart(start: Promise<SubagentRun>, signal: AbortSignal): Promise<JobOutcome> {
-  try {
-    return await settleRun(await start)
-  } catch (error: unknown) {
-    return signal.aborted
-      ? { status: 'killed' }
-      : { status: 'failed', detail: String(error) }
-  }
 }
 
 /** A non-`completed` stop reason means the child did not finish cleanly. */
@@ -282,10 +269,6 @@ interface DelegationRunRequest {
   readonly mode?: 'sync' | 'async'
 }
 
-interface DelegationRunSpec {
-  readonly runInBackground: boolean
-}
-
 function profileJson(profile: ResolvedChildProfile): JsonValue {
   return profile as unknown as JsonValue
 }
@@ -395,13 +378,11 @@ function profileGrantJson(grant: ChildProfileGrant): JsonValue {
 function resolveDelegationRun(
   request: DelegationRunRequest,
   options: { readonly backgroundEnabled: boolean; readonly continuable: boolean },
-): DelegationRunSpec {
+): boolean {
   if (request.mode === 'async' && !options.backgroundEnabled) {
     throw new Error('mode: async is disabled for this tool instance (enableRunInBackground: false)')
   }
-  return {
-    runInBackground: request.mode === 'async' || (request.mode === undefined && options.continuable),
-  }
+  return request.mode === 'async' || (request.mode === undefined && options.continuable)
 }
 
 export function apply(ctx: Context, config: Config): void {
@@ -437,12 +418,9 @@ export function apply(ctx: Context, config: Config): void {
     disposeTool = ctx.tools.register(defineTool({
       name: toolName,
       description: wording.description + (backgroundEnabled
-        // The completion notice is the continuation service's own behavior, not
-        // a separately installed capability, so this promise holds whenever the
-        // continuable background path is reachable at all.
         ? continuable
-          ? ' This tool runs asynchronously by default, immediately returns the durable child Session id, and keeps the child conversation available for later turns. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message. Use `session_message` with that Session id for a later turn and `session_inspect` to read the child state or transcript. Set `mode: sync` only when your next action depends on receiving the result.'
-          : ' This call waits for the result by default. Set `mode: async` to return a background task id; use model-visible job tools when the deployment provides them, otherwise choose `sync`.'
+          ? ' This tool runs asynchronously by default, immediately returns the durable child Session id, and keeps the child conversation available for later turns. This subagent lifecycle is not a generic background job: never pass its Session id to `job_output`, `job_list`, or `job_kill`. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message. Use `session_message` with that Session id for a later turn and `session_inspect` to read the child state or transcript. Set `mode: sync` only when your next action depends on receiving the result.'
+          : ' This call waits for the result by default. Set `mode: async` to start a durable child Session. This subagent lifecycle is not a generic background job: never pass its Session id to `job_output`, `job_list`, or `job_kill`. Use `session_message` and `session_inspect` for that subagent.'
         : ' This call waits for the subagent and returns its result.'),
       parameters: {
         description: {
@@ -458,7 +436,7 @@ export function apply(ctx: Context, config: Config): void {
         mode: {
           type: 'string' as const,
           enum: ['sync', 'async'] as const,
-          description: 'Whether to wait for the child result (`sync`) or return after accepting its initial turn (`async`). Omit to use this tool instance\'s advertised default.',
+          description: 'Whether to wait for the child result (`sync`) or return after accepting its initial turn (`async`). Async returns a durable child Session, not a generic job id; use session controls rather than job tools. Omit to use this tool instance\'s advertised default.',
         },
         ...config.enableChildProfileDefine === true || config.enableChildProfileList === true ? {
           child_profile_id: {
@@ -469,53 +447,37 @@ export function apply(ctx: Context, config: Config): void {
       },
       output: {
         schema: {
-          oneOf: [
-            {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                kind: { type: 'string', required: true, const: 'background' },
-                jobId: { type: 'string', required: true },
-              },
+          oneOf: [{
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              mode: { type: 'string', required: true, const: 'async' },
+              invocationId: { type: 'string', required: true },
+              sessionId: { type: 'string', required: true },
             },
-            {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                mode: { type: 'string', required: true, const: 'async' },
-                invocationId: { type: 'string', required: true },
-                sessionId: { type: 'string', required: true },
-              },
+          }, {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              mode: { type: 'string', required: true, const: 'sync' },
+              invocationId: { type: 'string', required: true },
+              sessionId: { type: 'string', required: true },
+              output: { type: 'array', required: true, items: { type: 'json' } },
             },
-            {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                mode: { type: 'string', required: true, const: 'sync' },
-                invocationId: { type: 'string', required: true },
-                sessionId: { type: 'string', required: true },
-                output: { type: 'array', required: true, items: { type: 'json' } },
-              },
-            },
-          ],
+          }],
         },
         render: (_args, value) => [{
           type: 'text',
-          text: 'kind' in value
-            ? `started background subagent task ${value.jobId}`
-            : renderInvocationResult(value),
+          text: renderInvocationResult(value),
         }],
-        presentationMeta: (_args, value) => 'kind' in value
-          ? { kind: 'background', jobId: value.jobId }
-          : {
-            kind: 'subagent',
-            childSessionId: value.sessionId,
-            mode: value.mode,
-            invocationId: value.invocationId,
-          },
+        presentationMeta: (_args, value) => ({
+          kind: 'subagent',
+          childSessionId: value.sessionId,
+          mode: value.mode,
+          invocationId: value.invocationId,
+        }),
       },
-      // Children never mutate the parent session; the one parent-owned write
-      // (tasks.start) is a synchronous commutative insertion.
+      // Children never mutate the parent session.
       isConcurrencySafe: () => true,
       async execute(args, exec) {
         if ('profile_id' in args) {
@@ -552,43 +514,18 @@ export function apply(ctx: Context, config: Config): void {
         }
 
         const runSpec = resolveDelegationRun(args, { backgroundEnabled, continuable })
-        if (runSpec.runInBackground) {
-          if (continuable) {
-            // Resolves at inbox acceptance: the child owns its own turns from
-            // there, so this call neither waits for nor collects a result.
-            const invocation = await ctx.subagents.invoke(config.provider, 'async', {
-              ...request,
-              signal: exec.signal,
-            })
-            return {
-              mode: 'async' as const,
-              invocationId: invocation.invocationId,
-              sessionId: invocation.sessionId,
-            }
-          }
-          const jobs = ctx.get('jobs')
-          if (jobs === undefined) {
-            throw new Error('background jobs unavailable: load @deepseek-ai/dsh-jobs and @deepseek-ai/dsh-tool-jobs')
-          }
-          // One-shot background child: job preflight finishes before the
-          // starter can spawn, and the task-owned signal covers startup.
-          const id = jobs.start({
-            kind: 'subagent',
-            label: args.description,
-            owner: parent,
-            run: () => {
-              const controller = new AbortController()
-              const start = ctx.subagents.start(config.provider, { ...request, signal: controller.signal })
-              return {
-                cancel: (reason?: string) => {
-                  controller.abort(reason ?? 'background subagent task killed')
-                },
-                done: settleStart(start, controller.signal),
-                // No readOutput: the child session owns intermediate detail.
-              }
-            },
+        if (runSpec) {
+          // Subagent lifecycles are Session/Invocation lifecycles, never generic
+          // background jobs. Use session controls for follow-up and inspection.
+          const invocation = await ctx.subagents.invoke(config.provider, 'async', {
+            ...request,
+            signal: exec.signal,
           })
-          return { kind: 'background' as const, jobId: id }
+          return {
+            mode: 'async' as const,
+            invocationId: invocation.invocationId,
+            sessionId: invocation.sessionId,
+          }
         }
 
         const invocation = await ctx.subagents.invoke(config.provider, 'sync', {
@@ -607,11 +544,10 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   // Register listeners before checking presence so no synchronous change is missed.
-  // TODO(subagent-dup-toolname): two waiting one-shot fibers configured with the
-  // same toolName collide when their provider appears, and the duplicate-name
-  // throw rolls back the provider registration. Continuable instances reserve
-  // their prompt-section name during apply() and fail earlier. Add an intent
-  // registry if the late one-shot collision occurs in a shipped composition.
+  // TODO(subagent-dup-toolname): two waiting fibers configured with the same
+  // toolName collide when their provider appears, and the duplicate-name throw
+  // rolls back the provider registration. Add an intent registry if the late
+  // collision occurs in a shipped composition.
   ctx.on('subagent/provider-added', (provider) => {
     if (provider.name === config.provider && disposeTool === undefined) mount(provider)
   })
@@ -636,7 +572,7 @@ export function apply(ctx: Context, config: Config): void {
       order: SUBAGENT_SECTION_ORDER,
       text: context => disposeTool === undefined || ctx.tools.get(toolName, context.scope) === undefined
         ? ''
-        : `Use ${toolName} asynchronously by default. Start independent delegations together in one assistant message and continue useful work while they run. The result identifies the durable child Session; use session_message with that session_id for later turns and session_inspect to read its state or transcript. Set \`mode: sync\` only when your next action depends on that subagent's result. When an asynchronous run settles, the runtime sends you a notice containing its outcome and any final assistant message.`,
+        : `Use ${toolName} asynchronously by default. Start independent delegations together in one assistant message and continue useful work while they run. This subagent lifecycle is not a generic background job; never pass its Session id to job_output, job_list, or job_kill. The result identifies the durable child Session; use session_message with that session_id for later turns and session_inspect to read its state or transcript. Set \`mode: sync\` only when the next action depends on that subagent's result. When an asynchronous run settles, the runtime sends you a notice containing its outcome and any final assistant message.`,
     })
   }
 

@@ -6,7 +6,7 @@ English | [中文](2026-08-11-bounded-background-job-admission.zh.md)
 
 ## Problem
 
-A model can start background Bash, PowerShell, PTY operations, and one-shot subagents in separate tool calls and later turns. The agent loop's `maxParallelToolCalls` limits only calls still executing inside one step; each background producer returns a job id immediately, so repeated starts can grow live processes or child work without bound.
+A model can start background Bash, PowerShell, and PTY operations in separate tool calls and later turns. The agent loop's `maxParallelToolCalls` limits only calls still executing inside one step; each background producer returns a job id immediately, so repeated starts can grow live processes or terminal work without bound.
 
 The process-local job registry already owns the exact job owner and the authoritative lifecycle state, but it retained terminal history beside live records and had no admission policy. Releasing capacity when cancellation was requested would also be incorrect: a `stopping` producer may still own its process, PTY, or child until `JobHooks.done` settles.
 
@@ -38,7 +38,7 @@ The task-provider suite covers the default and explicit limits, producer-before 
 
 ## Alternatives considered
 
-**Rely on `maxParallelToolCalls`.** Rejected because a background tool call releases its step slot as soon as it returns a job id; the setting cannot bound work that remains live across later steps and turns.
+**Rely on `maxParallelToolCalls`.** Rejected because a background tool call releases its step slot as soon as it returns a job id; the setting cannot bound shell or terminal work that remains live across later steps and turns.
 
 **Release capacity when `job_kill` succeeds.** Rejected because successful cancellation only changes the task to `stopping`. The producer may still hold the resource until `done` settles, so admitting a replacement immediately would exceed the configured live-resource bound.
 

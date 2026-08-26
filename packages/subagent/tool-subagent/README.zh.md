@@ -10,7 +10,7 @@
 
 同步调用会让执行信号贯穿启动和执行，等待 `run.result`，并且在返回前总会等待 `run.dispose()`。只有 `completed` 会返回规范值 `{ mode: 'sync', invocationId, sessionId, output: JsonValue[] }`；中止、拒绝、token 上限和其他失败都会变成出错的工具结果。其消息会把可选的提供方撰写 `SubagentResult.diagnostic` 放在单独的 `Diagnostic:` 行下，再于另一标题后附加保留下来的部分 assistant 文本，因此两类文本都不会成为成功的 assistant 输出，被截断的回答也绝不会被悄悄丢弃。如果结果收集与 dispose（资源释放）都 reject，出错的结果会保留两项失败。
 
-`backgroundMode` 仍是部署级默认策略。面向模型的 schema 使用 `mode: sync|async`：`sync` 等待终态的一次性结果，`async` 在接受持久化可继续 child 轮次后返回。可继续的异步工作要求提供方具备 `prepareContinuable`，通过统一 Invocation 服务启动，并保持 child 可接受后续消息。两种模式都会渲染持久化 child Session id；`session_inspect` 可以读取两类 Session，`session_message` 只继续异步 child。每当该 child 的 Activation 结束，继续执行服务会投递一条结算通知。
+`backgroundMode` 仍是部署级默认策略。面向模型的 schema 使用 `mode: sync|async`：`sync` 等待终态的一次性结果，`async` 在接受持久化可继续 child 轮次后返回。所有异步 subagent 都通过统一 Invocation 服务使用自身的 Session 生命周期，绝不会创建或读取通用 job。可继续的异步工作要求提供方具备 `prepareContinuable`，并保持 child 可接受后续消息。两种模式都会渲染持久化 child Session id；`session_inspect` 可以读取两类 Session，`session_message` 只继续异步 child。每当该 child 的 Activation 结束，继续执行服务会投递一条结算通知。
 
 `toolFilter` 会改变子 agent 的全局工具层，但不是从父级派生的权限上限。见 [agent 作用域的安全非目标](../../../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals)。
 
@@ -33,7 +33,7 @@
 
 ## 并发
 
-前台调用和后台调用均并发安全：同一条 assistant 消息中的同级委派会在循环的滚动池（`maxParallelToolCalls`）下重叠执行，结果仍按模型顺序提交。子 agent 在各自的会话中工作，一次运行绝不变更父会话；一次性后台形态对父级拥有状态的唯一写入是注册一个 Task——这是一次同步、可交换、能容忍并发分发的插入，因此重叠的后台调用按分发竞态顺序获得各自的 job id。协调同级工作区效果由模型负责，正如模型已经对后台和可继续子 agent 所承担的那样。见 [并行 subagent Agent Note](../../../.agents/notes/implemented/feature/2026-08-09-parallel-subagent-delegations.md) 和 [并行工具调用 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)。
+前台调用和异步调用均并发安全：同一条 assistant 消息中的同级委派会在循环的滚动池（`maxParallelToolCalls`）下重叠执行，结果仍按模型顺序提交。子 agent 在各自的会话中工作，一次运行绝不变更父会话；异步调用通过 subagent runtime 获得持久 child Session 和 Invocation id，绝不使用通用 job id。协调同级工作区效果由模型负责。见 [并行 subagent Agent Note](../../../.agents/notes/implemented/feature/2026-08-09-parallel-subagent-delegations.md) 和 [并行工具调用 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)。
 
 ## 模型体验
 
@@ -69,7 +69,7 @@
 
 #### 模型看到的内容
 
-异步调用会在 child 完成前同时渲染持久化 child Session id 与 Invocation id；同步调用会随最终结果渲染相同的身份。异步 child 的结算会以[服务负责的通知](../subagent/README.md#settlement-notice)到达父级。已交付的 `session_message` 工具负责直属 child 的后续消息，`session_inspect` 则按 Session id 读取 child transcript。
+异步调用会在 child 完成前同时渲染持久化 child Session id 与 Invocation id；同步调用会随最终结果渲染相同的身份。异步 child 的结算会以[服务负责的通知](../subagent/README.md#settlement-notice)到达父级。已交付的 `session_message` 工具负责直属 child 的后续消息，`session_inspect` 则按 Session id 读取 child transcript。`job_output`、`job_list` 和 `job_kill` 不适用于这条 Session 生命周期。
 
 #### Token 影响
 
@@ -81,7 +81,7 @@
 
 ## 已知限制与暂缓事项
 
-- **后台运行不通过本工具公开结果**：一次性任务的最终输出通过通用 Task 接口收集，可继续子 agent 的输出留在其自身会话中，按其 subagent id 读取。结算通知会说明该子 agent 如何结束，并携带可能存在的最终 assistant 消息，但它不是本次调用的返回值，也无法在此等待。
-- **等待中的一次性实例较晚才发现重复名称**（`TODO(subagent-dup-toolname)`）：可继续实例会在插件应用期间预留提示词 section 名称，但若要阻止等待中的一次性实例回滚提供方注册，仍需要一份预期名称注册表。
+- **异步运行不通过本工具公开结果**：child 的输出留在其自身会话中，按 Session id 读取。结算通知会说明该 child 如何结束，并携带可能存在的最终 assistant 消息，但它不是本次调用的返回值，也无法在此等待。
+- **等待中的实例较晚才发现重复名称**（`TODO(subagent-dup-toolname)`）：若要阻止等待中的实例回滚提供方注册，仍需要一份预期名称注册表。
 - **每个实例的子 agent 策略固定**：其他模型、persona、工具过滤器或深度上限都需要另一个名称不同的工具。
 - **Skill/MCP member 和 route fallback 仍由 Host 负责**：Profile 当前已执行主模型路由、工作区、工具和深度/token 边界；原生 Skill/MCP 投影以及多路由 fallback/scheduler 尚未由此 Consumer 暴露。

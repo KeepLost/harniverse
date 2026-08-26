@@ -6,9 +6,9 @@ Status: implemented
 
 ## 问题
 
-后台 bash 原本兼有两项职责：bash 执行器既运行进程，又管理 job id、所有权、增量读取、取消、完成监听器和面向模型的控制工具。新增后台 subagent 需要相同的生命周期与交互约定。如果每种长时间运行能力都独立实现该约定，就会重复隔离、清理、通知和提示词行为，还会让模型为每种生产方学习不同的收集与停止协议。
+后台 bash 原本兼有两项职责：bash 执行器既运行进程，又管理 job id、所有权、增量读取、取消、完成监听器和面向模型的控制工具。相同的生命周期覆盖 shell 与终端后台工作；异步 subagent 则使用其持久化 Session/Invocation 生命周期。若每种长时间运行能力都独立实现通用任务行为，就会重复隔离、清理、通知和提示词行为。
 
-任务注册表、控制工具与完成通知共同构成一项 harness 能力。bash 和 subagent 只提供执行专属的钩子，不拥有通用任务行为。
+任务注册表、控制工具与完成通知共同构成一项 harness 能力。shell 和终端生产方只提供执行专属的钩子，不拥有通用任务行为；subagent Session 通过独立控制工具管理。
 
 ## 决策
 
@@ -17,7 +17,7 @@ Status: implemented
 - `@deepseek-ai/dsh-jobs` 将运行中的工作注册为 `ctx.jobs`，并拥有 job id、授权、快照、读取、取消、等待、完成监听器与清理。
 - `@deepseek-ai/dsh-tool-jobs` 暴露 `job_output`、`job_list` 和 `job_kill`，注入完成通知，并提供后台任务的系统提示词指导。
 
-长时间运行工具是生产方。`dsh-tool-bash` 将 `ShellProcess` 适配为增量输出与进程取消；`dsh-tool-subagent` 将子运行适配为最终输出与子运行释放。bash 与 subagent 能力 seam 保持独立，不依赖会话或任务注册表。
+长时间运行的 shell 与终端工具是 job 生产方。`dsh-tool-bash` 将 `ShellProcess` 适配为增量输出与进程取消。subagent 能力 seam 使用 Session/Invocation 操作，并保持独立于任务注册表。
 
 `JobRegistry` 是 `@deepseek-ai/dsh-jobs` 中的 Service Definition；进程内 Service Provider 是 `@deepseek-ai/dsh-jobs-local` 中的 `LocalJobRegistry`（该拆分记录在[任务注册表约定 Agent Note](2026-07-26-job-registry-seam.md)中）。
 
@@ -85,7 +85,7 @@ job id 在运行时全局可见且可预测，因此注册表会授权每次访�
 
 ## 生产方显式启用
 
-每个生产方通过带默认值的配置，自行决定其 schema 是否暴露 `run_in_background`。`dsh-tool-bash`、`dsh-tool-terminal` 和每个 `dsh-tool-subagent` 实例都使用 `enableRunInBackground`，默认值为 true。禁用的实例会省略该参数；由于通用参数校验器允许未声明的键，它还会在执行时拒绝强制传入的后台参数。省略 schema 用于声明能力不可用；执行检查负责强制该约束。
+shell 和终端生产方通过带默认值的配置，自行决定其 schema 是否暴露 `run_in_background`。`dsh-tool-bash` 与 `dsh-tool-terminal` 使用 `enableRunInBackground`，默认值为 true。`dsh-tool-subagent` 改为暴露 `mode: sync|async`；异步能力仍由同一部署设置控制，但返回 Session/Invocation 回执而不是 job id。省略 schema 用于声明能力不可用；执行检查负责强制该约束。
 
 `ctx.jobs` 不改写生产方 schema。bundle 只转发其所拥有的生产方的配置。如果后台调用在没有附加控制器的情况下到达 `start()`，运行时防线会在执行前使其失败。
 
@@ -95,7 +95,7 @@ bash seam 暴露 `resolve`、`run` 和 `start`。`start(spec)` 返回一个 `She
 
 对于后台 bash，`dsh-tool-bash` 将调用方 agent 注册为所有者。其钩子将 `kill()` 映射为取消，将 `done` 映射为 completed 或 killed 的 `JobOutcome`，并将 `readOutput()` 映射为进程的有界增量输出，以及 spill 与沙箱通知。通用任务工具拥有 id、状态行、列表、等待和完成通知。
 
-对于后台 subagent，`dsh-tool-subagent` 创建由任务拥有的 `AbortController`，并在任务 starter 内启动提供方。无论提供方发布前后，取消都会中止同一个 signal。`done` 同时等待子运行结果和子运行释放，将已完成输出映射为最终结果，将中止映射为 `killed`，并将其他停止原因或基础设施失败映射为 `failed`。中间子历史保留在子会话中，不通过 `readOutput()` 暴露。
+对于异步 subagent，`dsh-tool-subagent` 调用 `ctx.subagents.invoke()` 并返回持久化 child Session 和 Invocation id。后续消息与读取使用 session 控制工具；中间活动保留在 child transcript 中，不创建 `ctx.jobs` 记录。
 
 ## 备选方案
 

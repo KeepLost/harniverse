@@ -18,7 +18,7 @@ Status: implemented
 
 尚未报告的完成按所有者当时在做什么来选择通道。繁忙的所有者走注入，保持原样。空闲的所有者用 `followup()` 唤醒。
 
-这采纳了[延续管理器](2026-08-06-manager-owned-subagent-settlement-delivery.md)已经为 subagent 结算所采用的交付规则，那里写着「用 steer 而非 inject 是刻意的……这是一条正确性规则，不是部署偏好」。两条路径不重叠：`tool-subagent` 只为一次性后台子 agent 注册 Task，而 continuable 分支在抵达那段代码之前就已返回，因此一个子 agent 恰好由两种机制中的一种交付。
+这采纳了[延续管理器](2026-08-06-manager-owned-subagent-settlement-delivery.md)已经为 subagent 结算所采用的交付规则，那里写着「用 steer 而非 inject 是刻意的……这是一条正确性规则，不是部署偏好」。两条路径不重叠：`tool-jobs` 负责 shell 与终端 job 通知，而 `tool-subagent` 通过 Session/Invocation 生命周期交付 subagent 结算。
 
 ### 繁忙的所有者保留注入
 

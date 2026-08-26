@@ -6,7 +6,7 @@ English | [中文](2026-08-06-manager-owned-subagent-settlement-delivery.zh.md)
 
 ## Problem
 
-Continuable background delegation was the one asynchronous operation a model could start but could not reach the end of. Every other shape has a retrieval primitive or a return value: a background bash command and a one-shot background subagent both settle through a Task that `job_output(wait: true)` can block on, a workflow and a foreground subagent return their result to the caller. A continuable background child returned only its durable id, and nothing existed that a parent could wait on or would be handed.
+Continuable background delegation was the one asynchronous operation a model could start but could not reach the end of. Background shell and terminal work settles through the generic job controller; a workflow and a foreground subagent return their result to the caller. A continuable background child returned only its durable id, and nothing existed that a parent could wait on or would be handed.
 
 [The report obligation](2026-08-06-continuable-child-report-obligation.md) closed the cooperative half of that gap by instructing the child to report before it finishes. Instruction cannot close the rest. A child stopped by a token ceiling, a model failure, cancellation, or teardown never reaches the point where it could comply — not rarely, but never — and those are precisely the endings a waiting parent most needs to hear about. The observable downstream symptoms were parents busy-polling `list_agents`, re-sending messages to children that had already settled, and deployments abandoning `subagent` for `workflow` because a workflow at least returns something.
 

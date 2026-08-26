@@ -6,7 +6,7 @@ English | [中文](2026-08-08-web-background-job-display.zh.md)
 
 ## Problem
 
-`ctx.jobs` already runs every long-lived piece of work the harness starts in the background — `bash`, `pwsh`, `pty-send`, and one-shot background subagents — but its only reader was the model. [`dsh-tool-jobs`](../../../../packages/jobs/tool-jobs/README.md) exposes `job_list`, `job_output`, and `job_kill`, and nothing else observed the registry.
+`ctx.jobs` runs long-lived shell and terminal work the harness starts in the background — `bash`, `pwsh`, and `pty-send` — but its only reader was the model. [`dsh-tool-jobs`](../../../../packages/jobs/tool-jobs/README.md) exposes `job_list`, `job_output`, and `job_kill`, and nothing else observed the registry.
 
 A human at the Web client therefore could not see that a build was running, could not distinguish a finished task from a stuck one, and could not stop one. The only trace was the `run_in_background` tool card that printed a job id somewhere earlier in the transcript, and that card never updates again.
 
@@ -89,7 +89,7 @@ Two clears keep it honest. On re-subscribe the manager drops the session's mirro
 
 [`@deepseek-ai/dsh-client-ui-jobs`](../../../../packages/client/ui-jobs/README.md) registers one entry in `conversation.session.header.actions`, ordered after the subagent catalog. Its own README owns the presentation contract; the decisions worth recording here are that the control does not render at all until the session has a task, that the live badge is omitted at zero so a history-only session keeps a quiet entry point, and that settled rows stay visible because a failed task's `detail` is the only place its failure is legible.
 
-A running one-shot background subagent therefore appears both there and in the subagent catalog. The two answer different questions — the catalog navigates into the child's transcript, this list is the only handle a cancellation can ever attach to — and suppressing `kind: 'subagent'` here would leave the cancellation phase with no entry point for exactly those tasks.
+Asynchronous subagent Sessions appear in the subagent catalog instead. The two views answer different questions: the catalog owns durable child-session navigation, while this list owns process-local shell and terminal jobs.
 
 ### What this deliberately does not do
 
@@ -131,6 +131,6 @@ Below it, [`jobs-local`](../../../../packages/jobs/jobs-local/tests/jobs.spec.ts
 
 **`stopping` is nearly unreachable today.** Only the model's `job_kill` produces it, so the state is rendered but rarely seen until human cancellation lands. It is in the union now because leaving a status out would have made that phase a wire change.
 
-**Two entry points for one running subagent.** Accepted deliberately, and bounded to one-shot background delegations. If it reads as noise in practice, the fix is presentational — the catalog row can cite the task rather than the task list hiding the kind.
+**One entry point per lifecycle.** Subagent catalog rows own durable Session navigation; this list owns process-local shell and terminal jobs. Keeping the identities separate avoids presenting a Session id as a generic job id.
 
 **A new non-root subpath needs its `paths` entry.** `@deepseek-ai/dsh-jobs/brand` had to be registered in `tsconfig.base.json` before the Typert analyzer would accept the reference. The failure mode is a confusing "not exported by" error from a generator far from the edit, so the entry is part of adding a subpath, not an optimization.
