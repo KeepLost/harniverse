@@ -12,7 +12,7 @@ summary 压缩会保留原始 append-only Session log，但从模型当前上下
 
 Harniverse 在 base、standard、code、Cordis 和 standalone headless 组合中选择 `@deepseek-ai/dsh-compaction-lossless` 作为 compaction Provider。它继承 `BasicCompactionEngine`，因此自动压力处理、overflow recovery、保留策略、摘要、取消、tool pairing、持久事件排序和 surface replacement 只保留一套实现。`auto` 默认值仍为 `true`，所有继承的策略字段仍可配置。
 
-该包还注册 `ctx.compactionHistory`，这是从每个 live Session 的 append-only event log 重建的内存 projection。`compaction/summary` 只有在匹配的 compact checkpoint 提交后才可搜索。leaf 节点引用 raw message seq；condensed 节点引用先前已提交 summary 节点，并单独保留该轮 replacement 新增的 raw message。稳定节点 id 由所属 Session id 和 summary event seq 推导。
+该包还注册 `ctx.compactionHistory`，这是从每个 live Session 的 append-only event log 重建的内存 projection。对应 lifecycle edge 能抵达所在 realm 时，projection 在 `session/created` 上挂接；否则，它会从 Session log 中已经存在的第一个已发布事件挂接，使私有 Agent preset realm 保持一致，而不要求 Host-plane ownership。`compaction/summary` 只有在匹配的 compact checkpoint 提交后才可搜索。leaf 节点引用 raw message seq；condensed 节点引用先前已提交 summary 节点，并单独保留该轮 replacement 新增的 raw message。稳定节点 id 由所属 Session id 和 summary event seq 推导。
 
 `@deepseek-ai/dsh-tool-compaction-history` 通过 `compaction_history_search` 和 `compaction_history_expand` 消费该服务。搜索对已提交 summary 文本执行不区分大小写的 all-term matching。展开会沿 parent link 读取，并可选返回 raw message source。配置会限制结果数、DAG 深度和确定性 token 估算；展开工具把 token cap 应用于包含 metadata 的完整渲染结果。
 

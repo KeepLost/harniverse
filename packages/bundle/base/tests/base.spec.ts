@@ -93,6 +93,11 @@ describe('dsh-base bundle', () => {
     expect(rows.find(row => row.id === 'tool-session-delivery')).toMatchObject({
       name: '@deepseek-ai/dsh-tool-session-delivery',
     })
+    expect(rows.find(row => row.id === 'tool-subagent-fork')?.config).toMatchObject({
+      provider: 'fork',
+      toolName: 'subagent_fork',
+      backgroundMode: 'continuable',
+    })
     expect(rows.find(row => row.id === 'tools')?.config).toBeUndefined()
   })
 
