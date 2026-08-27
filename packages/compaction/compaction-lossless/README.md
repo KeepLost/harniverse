@@ -41,7 +41,7 @@ The index is rebuilt from `Session.events` after resume or HMR. It is therefore 
 | `retainRatio` | `0.16` | Recent surface budget retained verbatim; mutually exclusive with `retainTokens`. |
 | `retainTokens` | unset | Absolute recent surface budget retained verbatim. |
 | `summarizationProvider` / `summarizationModel` | empty | Optional summary route; otherwise the routed conversation target is used. |
-| `maxTokens` | `8192` | Summary generation cap. |
+| `maxTokens` | `8192` | Upper bound for summary generation; the selected model cap and remaining context window can reduce it. |
 | `compactionRetries` | `1` | Additional pressure compaction attempts. |
 | `maxOverflowRetries` | `1` | Context-overflow recovery retry cap. |
 | `modelPolicies` | `[]` | Exact provider/model policy overrides. |

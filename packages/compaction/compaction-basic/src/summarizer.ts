@@ -10,6 +10,8 @@ import type {
   ContentBlock, FinishReason, GenerateOptions, Message, TokenUsage, ToolSchema,
 } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { estimateHeader, estimateMessage } from '@deepseek-ai/dsh-token-meter'
+import type { EpochHeader } from '@deepseek-ai/dsh-session'
 
 interface SummaryConfig {
   readonly summarizationProvider: string
@@ -129,13 +131,13 @@ export async function summarizeWithLlm(
   const configured = config.summarizationProvider.length === 0
     ? undefined
     : { provider: config.summarizationProvider, model: config.summarizationModel }
-  const agentTarget = agent.options.provider !== undefined
+  const fallbackAgentTarget = agent.options.provider !== undefined
     && agent.options.provider.length > 0
     && agent.options.model !== undefined
     && agent.options.model.length > 0
     ? { provider: agent.options.provider, model: agent.options.model }
     : undefined
-  const target = configured ?? latest ?? agentTarget
+  const target = configured ?? latest ?? fallbackAgentTarget
   if (target === undefined) {
     throw new Error(
       'no provider/model available for summarization: set both BasicCompactionConfig summarization fields, route one request, or set both AgentOptions fields',
@@ -143,20 +145,52 @@ export async function summarizeWithLlm(
   }
 
   const assembler = new BlockAssembler()
+  const instruction = createUserMessage({
+    content: [{ type: 'text', text: COMPACTION_INSTRUCTION }],
+    source: { kind: 'plugin', plugin: 'dsh-compaction-basic' },
+  })
   const messages: Message[] = [
     ...input.messages,
-    createUserMessage({
-      content: [{ type: 'text', text: COMPACTION_INSTRUCTION }],
-      source: { kind: 'plugin', plugin: 'dsh-compaction-basic' },
-    }),
+    instruction,
   ]
+  const info = await ctx.llm.resolveModelInfo(target.provider, target.model, signal)
+  const sameLatestTarget = latest?.provider === target.provider && latest.model === target.model
+  const sameAgentTarget = agent.options.provider !== undefined
+    && agent.options.model !== undefined
+    && agent.options.provider === target.provider
+    && agent.options.model === target.model
+  const conversationCap = sameLatestTarget
+    ? latest.maxTokens
+    : sameAgentTarget ? agent.options.maxTokens : undefined
+  const header: EpochHeader = {
+    config: { provider: target.provider, model: target.model },
+    ...input.system === undefined ? {} : { system: input.system },
+    ...input.tools === undefined ? {} : { tools: [...input.tools] },
+  }
+  const inputTokens = estimateHeader(header)
+    + messages.reduce((total, message) => total + estimateMessage(message), 0)
+  const remainingContext = info.context === undefined
+    ? Number.MAX_SAFE_INTEGER
+    : info.context.contextWindow - inputTokens
+  const maxTokens = Math.min(
+    config.maxTokens,
+    conversationCap ?? Number.MAX_SAFE_INTEGER,
+    info.defaultMaxTokens ?? Number.MAX_SAFE_INTEGER,
+    remainingContext,
+  )
+  if (maxTokens < 1) {
+    throw new Error(
+      `summarization input leaves no output capacity for ${target.provider}/${target.model} `
+      + `(estimated input ${inputTokens} tokens, context window ${info.context?.contextWindow ?? 'unknown'})`,
+    )
+  }
   const options: GenerateOptions = {
     provider: target.provider,
     model: target.model,
     messages,
     ...input.system === undefined ? {} : { system: input.system },
     ...input.tools === undefined ? {} : { tools: [...input.tools] },
-    maxTokens: config.maxTokens,
+    maxTokens,
     sessionId: agent.session.id,
     purpose: 'compaction',
     ...signal === undefined ? {} : { signal },
@@ -176,7 +210,7 @@ export async function summarizeWithLlm(
     llmStreamCall: true,
     provider: options.provider,
     model: options.model,
-    maxTokens: config.maxTokens,
+    maxTokens,
     ...(assembler.usage === undefined ? {} : { usage: assembler.usage }),
   }
 }
