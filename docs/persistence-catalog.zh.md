@@ -199,7 +199,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 类型：[StreamChunk](subsystems/llm-streaming.md)
 
-来源：[`packages/core/session/src/types.ts:276`](../packages/core/session/src/types.ts)
+来源：[`packages/core/session/src/types.ts:277`](../packages/core/session/src/types.ts)
 
 <a id="assistantmessage--surface"></a>
 
@@ -212,12 +212,19 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
  * the model output and its accounting travel together (there is no separate
  * usage record). `usage` is absent when the adapter reported none.
  */
-'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage }
+'assistant/message': {
+  turn: number
+  step: number
+  message: AssistantMessage
+  usage?: TokenUsage
+  /** True when this message is the visible prefix finalized by cancellation. */
+  interrupted?: true
+}
 ```
 
 类型：[TokenUsage](subsystems/llm-streaming.md)
 
-来源：[`packages/core/session/src/types.ts:283`](../packages/core/session/src/types.ts)
+来源：[`packages/core/session/src/types.ts:284`](../packages/core/session/src/types.ts)
 
 ### `command/*`
 
@@ -481,6 +488,17 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/llm/llm-retry/src/types.ts:11`](../packages/llm/llm-retry/src/types.ts)
 
+<a id="llmwire-attempt--log-only"></a>
+
+#### `llm/wire-attempt` — log-only
+
+```ts persistence-catalog
+/** Provider-wire facts for one adapter attempt; conversation content stays in the session log. */
+'llm/wire-attempt': LlmWireAttemptEventData
+```
+
+来源：[`packages/core/session/src/types.ts:332`](../packages/core/session/src/types.ts)
+
 ### `permission/*`
 
 <a id="permissionpreset--log-only"></a>
@@ -530,7 +548,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'request/context': RequestContext
 ```
 
-来源：[`packages/core/session/src/types.ts:321`](../packages/core/session/src/types.ts)
+来源：[`packages/core/session/src/types.ts:330`](../packages/core/session/src/types.ts)
 
 <a id="requestheader--log-only"></a>
 
@@ -544,7 +562,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-来源：[`packages/core/session/src/types.ts:316`](../packages/core/session/src/types.ts)
+来源：[`packages/core/session/src/types.ts:325`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
