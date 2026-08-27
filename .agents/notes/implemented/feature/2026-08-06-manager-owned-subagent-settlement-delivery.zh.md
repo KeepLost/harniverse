@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-可继续后台委派是模型唯一一种能够发起、却无法抵达终点的异步操作。其他每一种形态都有取回原语或返回值：后台 bash 命令与一次性后台 subagent 都通过 Task 结算，`job_output(wait: true)` 可以阻塞等待；workflow 与前台 subagent 会把结果返回给调用方。可继续后台 child 只返回它持久化的 id，而父级既没有可等待的对象，也不会被交付任何东西。
+可继续后台委派是模型唯一一种能够发起、却无法抵达终点的异步操作。后台 shell 和终端工作通过通用 job 控制器结算；workflow 与前台 subagent 会把结果返回给调用方。可继续后台 child 只返回它持久化的 id，而父级既没有可等待的对象，也不会被交付任何东西。
 
 [报告义务](2026-08-06-continuable-child-report-obligation.md)通过要求 child 在结束前上报，补上了这一缺口中协作的那一半。指令无法补上其余部分。被 token 上限、模型失败、取消或拆卸终止的 child 永远走不到能够遵守的那一步——不是很少，而是从不——而这些恰恰是等待中的父级最需要被告知的结束方式。可观察到的下游症状包括：父级忙轮询 `list_agents`、向已经结算的 child 反复发送消息，以及部署放弃 `subagent` 转用 `workflow`，因为 workflow 至少会返回点什么。
 

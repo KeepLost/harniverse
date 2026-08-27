@@ -8,9 +8,9 @@
 
 每个插件实例把一个 `provider` 绑定到一个 `toolName`；模型不会收到提供方选择器。如需公开另一种传输，请加载另一个名称不同的实例。工具只在其提供方存在时注册，从而避免对同级加载顺序和提供方重新加载的依赖。工具描述遵循 `provider.inheritsParentContext`：新建子 agent（智能体）需要独立提示词，而 fork 子 agent 已能看到父级已完成轮次。
 
-同步调用会让执行信号贯穿启动和执行，等待 `run.result`，并且在返回前总会等待 `run.dispose()`。只有 `completed` 会返回规范值 `{ mode: 'sync', invocationId, sessionId, output: JsonValue[] }`；中止、拒绝、token 上限和其他失败都会变成出错的工具结果。其消息会把可选的提供方撰写 `SubagentResult.diagnostic` 放在单独的 `Diagnostic:` 行下，再于另一标题后附加保留下来的部分 assistant 文本，因此两类文本都不会成为成功的 assistant 输出，被截断的回答也绝不会被悄悄丢弃。如果结果收集与 dispose（资源释放）都 reject，出错的结果会保留两项失败。
+`sync` 会让执行信号贯穿可继续 child 的准入，并等待初始 Activation 结果。只有 `completed` 会返回规范值 `{ mode: 'sync', invocationId, sessionId, output: JsonValue[] }`；中止、拒绝、token 上限和其他失败都会变成出错的工具结果。其消息会把可选的提供方撰写 `SubagentResult.diagnostic` 放在单独的 `Diagnostic:` 行下，再于另一标题后附加保留下来的部分 assistant 文本，因此两类文本都不会成为成功的 assistant 输出，被截断的回答也绝不会被悄悄丢弃。初始 Activation 结算后，持久化 child Session 仍可接受后续轮次。
 
-`backgroundMode` 仍是部署级默认策略。面向模型的 schema 使用 `mode: sync|async`：`sync` 等待终态的一次性结果，`async` 在接受持久化可继续 child 轮次后返回。可继续的异步工作要求提供方具备 `prepareContinuable`，通过统一 Invocation 服务启动，并保持 child 可接受后续消息。两种模式都会渲染持久化 child Session id；`session_inspect` 可以读取两类 Session，`session_message` 只继续异步 child。每当该 child 的 Activation 结束，继续执行服务会投递一条结算通知。
+`mode: sync|async` 只决定等待策略，不决定生命周期。两种模式都通过统一 Invocation 服务建立持久化可继续 child Session：`sync` 等待初始 Activation 结果，`async` 在接受初始 child 轮次后返回。所有调用都使用 Session 生命周期，绝不会创建或读取通用 job。两种模式都会渲染持久化 child Session id；`session_inspect` 和 `session_message` 都可以读取或继续该 Session。每当该 child 的 Activation 结束，继续执行服务会投递一条结算通知。
 
 `toolFilter` 会改变子 agent 的全局工具层，但不是从父级派生的权限上限。见 [agent 作用域的安全非目标](../../../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals)。
 
@@ -23,7 +23,7 @@
 | `provider`（必填） | 提供方名称（`spawn`、`fork`、`acp` 等）。 |
 | `toolName` | 面向模型的名称，默认 `subagent`；每个已加载实例必须不同。 |
 | `enableRunInBackground` | 允许 `mode: async`，默认 `true`；禁用时拒绝异步调用。 |
-| `backgroundMode` | 内部默认策略，默认 `one-shot`；它决定省略 `mode` 时默认采用 `sync` 还是 `async`。面向模型的约定始终是 `mode: sync|async`。 |
+| `backgroundMode` | **已弃用。** 保留它只是为了让旧部署文件继续解析；它不再选择生命周期。启用后台调用时，省略 `mode` 默认 `async`，否则默认 `sync`。 |
 | `agentOptions` | 传给具体提供方的子 agent `provider`、`model` 和正整数 `maxTokens`；进程内提供方会用显式值覆盖继承的父级选项。 |
 | `persona` | 每个子 agent 独立的 persona；要求提供方具备 `persona` 能力。 |
 | `toolFilter` | 每个子 agent 独立的全局工具限制；要求提供方具备 `toolFilter` 能力。 |
@@ -33,7 +33,7 @@
 
 ## 并发
 
-前台调用和后台调用均并发安全：同一条 assistant 消息中的同级委派会在循环的滚动池（`maxParallelToolCalls`）下重叠执行，结果仍按模型顺序提交。子 agent 在各自的会话中工作，一次运行绝不变更父会话；一次性后台形态对父级拥有状态的唯一写入是注册一个 Task——这是一次同步、可交换、能容忍并发分发的插入，因此重叠的后台调用按分发竞态顺序获得各自的 job id。协调同级工作区效果由模型负责，正如模型已经对后台和可继续子 agent 所承担的那样。见 [并行 subagent Agent Note](../../../.agents/notes/implemented/feature/2026-08-09-parallel-subagent-delegations.md) 和 [并行工具调用 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)。
+前台调用和异步调用均并发安全：同一条 assistant 消息中的同级委派会在循环的滚动池（`maxParallelToolCalls`）下重叠执行，结果仍按模型顺序提交。子 agent 在各自的会话中工作，一次运行绝不变更父会话；异步调用通过 subagent runtime 获得持久 child Session 和 Invocation id，绝不使用通用 job id。协调同级工作区效果由模型负责。见 [并行 subagent Agent Note](../../../.agents/notes/implemented/feature/2026-08-09-parallel-subagent-delegations.md) 和 [并行工具调用 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)。
 
 ## 模型体验
 
@@ -41,11 +41,11 @@
 
 #### 模型看到的内容
 
-当提供方存在时，以当前实例配置的名称公开已生成的交付版 [`subagent` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-subagent)。schema 公开 `mode: sync|async` 和可选的 `child_profile_id`，但不会接受原始命令、endpoint、凭据或 Profile 路径。启用 Profile 管理后，模型还会看到父级私有的 define/list 工具及可用 grant。当工具在本次组装的作用域中可见时，一个 `tool:<toolName>` 系统提示词 section 会说明配置的异步默认策略，把 `session_message` 与 `session_inspect` 指定为继续和读取入口，并要求仅在下一步动作依赖结果时选择 `mode: sync`。
+当提供方存在时，以当前实例配置的名称公开已生成的交付版 [`subagent` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-subagent)。schema 公开 `mode: sync|async` 和可选的 `child_profile_id`，但不会接受原始命令、endpoint、凭据或 Profile 路径。启用 Profile 管理后，模型还会看到父级私有的 define/list 工具及可用 grant。当工具在本次组装的作用域中可见时，一个 `tool:<toolName>` 系统提示词 section 会说明异步默认策略，把 `session_message` 与 `session_inspect` 指定为继续和读取入口，并要求仅在下一步动作依赖初始结果时选择 `mode: sync`。
 
 #### Token 影响
 
-每个父级请求都会产生固定的 schema token 开销；每个提供方实例增加一个 schema，每个可继续实例还会增加一个简短的系统提示词 section。
+每个父级请求都会产生固定的 schema token 开销；每个提供方实例增加一个 schema，每个启用异步调用的实例还会增加一个简短的系统提示词 section。
 
 #### KV Cache 影响
 
@@ -55,7 +55,7 @@
 
 #### 模型看到的内容
 
-调用会保留描述和提示词。成功时会标识持久化的一次性 child Session 与 Invocation，说明 `session_inspect` 接受该 Session id 而后续轮次不接受，然后包含子 agent 的最终文本。其他结果变为 `Error: <message>`，可选的安全提供方详情会放在单独的 `Diagnostic:` 行中，并位于任何部分 assistant 输出之前。子 agent 中间步骤不会进入父级。
+调用会保留描述和提示词。成功时会标识持久化的可继续 child Session 与 Invocation，说明可以使用 `session_message` 向该 Session 发送后续轮次，然后包含初始轮次的最终文本。其他结果变为 `Error: <message>`，可选的安全提供方详情会放在单独的 `Diagnostic:` 行中，并位于任何部分 assistant 输出之前。子 agent 中间步骤不会进入父级。
 
 #### Token 影响
 
@@ -69,11 +69,11 @@
 
 #### 模型看到的内容
 
-异步调用会在 child 完成前同时渲染持久化 child Session id 与 Invocation id；同步调用会随最终结果渲染相同的身份。异步 child 的结算会以[服务负责的通知](../subagent/README.md#settlement-notice)到达父级。已交付的 `session_message` 工具负责直属 child 的后续消息，`session_inspect` 则按 Session id 读取 child transcript。
+异步调用会在 child 完成前同时渲染持久化 child Session id 与 Invocation id；同步调用会随最终结果渲染相同的身份。异步 child 的结算会以[服务负责的通知](../subagent/README.md#settlement-notice)到达父级。已交付的 `session_message` 工具负责直属 child 的后续消息，`session_inspect` 则按 Session id 读取 child transcript。`job_output`、`job_list` 和 `job_kill` 不适用于这条 Session 生命周期。
 
 #### Token 影响
 
-确认消息会被保留；一次性最终输出只在收集或注入时进入父级历史，而可继续子 agent 的输出绝不会通过本工具返回——其结算通知独立于任何工具结果到达。
+确认消息会被保留；同步初始结果会在收集时进入父级历史，而异步 child 的输出留在其自身 Session 中，结算通知独立于任何工具结果到达。
 
 #### KV Cache 影响
 
@@ -81,7 +81,7 @@
 
 ## 已知限制与暂缓事项
 
-- **后台运行不通过本工具公开结果**：一次性任务的最终输出通过通用 Task 接口收集，可继续子 agent 的输出留在其自身会话中，按其 subagent id 读取。结算通知会说明该子 agent 如何结束，并携带可能存在的最终 assistant 消息，但它不是本次调用的返回值，也无法在此等待。
-- **等待中的一次性实例较晚才发现重复名称**（`TODO(subagent-dup-toolname)`）：可继续实例会在插件应用期间预留提示词 section 名称，但若要阻止等待中的一次性实例回滚提供方注册，仍需要一份预期名称注册表。
+- **异步运行不通过本工具公开结果**：child 的输出留在其自身会话中，按 Session id 读取。结算通知会说明该 child 如何结束，并携带可能存在的最终 assistant 消息，但它不是本次调用的返回值，也无法在此等待。
+- **等待中的实例较晚才发现重复名称**（`TODO(subagent-dup-toolname)`）：若要阻止等待中的实例回滚提供方注册，仍需要一份预期名称注册表。
 - **每个实例的子 agent 策略固定**：其他模型、persona、工具过滤器或深度上限都需要另一个名称不同的工具。
 - **Skill/MCP member 和 route fallback 仍由 Host 负责**：Profile 当前已执行主模型路由、工作区、工具和深度/token 边界；原生 Skill/MCP 投影以及多路由 fallback/scheduler 尚未由此 Consumer 暴露。

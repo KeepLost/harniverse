@@ -8,7 +8,7 @@
 import { z } from 'zod'
 import type { z as zCore } from 'zod'
 type ZodIssue = zCore.core.$ZodIssue
-import type { ClientRequest, ClientResponse, RpcError, RpcId, RpcReceipt, ServerRequest, ServerResponse } from './rpc.ts'
+import type { ClientRequest, ClientResponse, RequestId, RpcError, RpcId, RpcReceipt, ServerRequest, ServerResponse } from './rpc.ts'
 import type { AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
 
 /**
@@ -30,6 +30,9 @@ export type Wire<T> = T extends readonly (infer E)[] ? Wire<E>[]
  * failure (the handler substitutes a sentinel when a request's id is unreadable).
  */
 export const rpcIdSchema = z.string() as unknown as z.ZodType<RpcId>
+
+/** Request correlation id; unlike rpcId it may be reused for a retry. */
+export const requestIdSchema = z.string().min(1) as unknown as z.ZodType<RequestId>
 
 /** Stable non-secret principal identity carried by authenticated transports. */
 export const authenticationPrincipalIdentitySchema = z.discriminatedUnion('kind', [
@@ -88,6 +91,8 @@ export const rpcErrorSchema: z.ZodType<RpcError> = z.discriminatedUnion('code', 
   z.object({ code: z.literal('subagent-unauthorized'), message: z.string(), details: z.object({ childSessionId: z.string() }) }),
   z.object({ code: z.literal('subagent-delivery-unavailable'), message: z.string(), details: z.object({ childSessionId: z.string() }) }),
   z.object({ code: z.literal('internal'), message: z.string(), details: z.object({}) }),
+  z.object({ code: z.literal('idempotency-key-reused'), message: z.string(), details: z.object({ key: z.string().min(1) }) }),
+  z.object({ code: z.literal('operation-not-found'), message: z.string(), details: z.object({ operationId: z.string().min(1) }) }),
 ]) as unknown as z.ZodType<RpcError>
 
 /**
@@ -114,6 +119,7 @@ export const clientRequestSchema = z.object({
   method: z.string(),
   payload: z.unknown(),
   expectedPrincipal: authenticationPrincipalIdentitySchema.optional(),
+  requestId: requestIdSchema.optional(),
 }) as unknown as z.ZodType<ClientRequest>
 
 /** ServerResponse full form (result.value stays wide). */
@@ -122,6 +128,7 @@ export const serverResponseSchema = z.object({
   rpcId: rpcIdSchema,
   result: rpcResultSchema(z.unknown().optional()),
   authentication: authenticationPrincipalIdentitySchema,
+  requestId: requestIdSchema.optional(),
 }) as unknown as z.ZodType<ServerResponse>
 
 /** ServerRequest full form (payload stays wide). */

@@ -67,7 +67,7 @@ function scriptedApi(overrides: {
       }),
       rename: r => ok(r, { title: 'renamed', seq: 0 }),
       fork: r => ok(r, { sessionId: sid('s-fork') }),
-      prompt: r => ok(r, { accepted: true as const, messageId: MessageId('m-prompt') }),
+      prompt: r => ok(r, { accepted: true as const, messageId: MessageId('m-prompt'), operationId: 'operation:prompt' }),
       attachment: r => ok(r, {
         attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
         data: 'AA==',
@@ -82,7 +82,7 @@ function scriptedApi(overrides: {
       list: r => ok(r, { entries: [], parentAvailable: false }),
       profiles: r => ok(r, { profiles: [] }),
       history: r => ok(r, { events: [], hasMore: false }),
-      prompt: r => ok(r, { messageId: 'message-1' as never }),
+      prompt: r => ok(r, { messageId: 'message-1' as never, operationId: 'operation:subagent' }),
       interrupt: r => ok(r, { accepted: true as const }),
       ...overrides.subagents,
     },

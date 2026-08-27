@@ -580,13 +580,12 @@ const TOOL_PACKAGES: ToolPackage[] = [
       registerCatalogSubagentProvider(ctx, 'mock')
       await ctx.plugin(ToolSubagent, {
         provider: 'mock',
-        backgroundMode: 'continuable',
         enableChildProfileDefine: true,
         enableChildProfileList: true,
       })
     },
     note:
-      'This harvest matches the shipped continuable spawn-backed `subagent` plus its Standard, Code, and Cordis Child Profile management tools. Base omits the profile tools, Minimal omits delegation, and custom compositions may load provider-bound instances under distinct names and background policies.',
+      'This harvest matches the shipped continuable spawn-backed `subagent` plus its Standard, Code, and Cordis Child Profile management tools. Base omits the profile tools, Minimal omits delegation, and custom compositions may load provider-bound instances under distinct names.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent-control',
@@ -643,7 +642,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolTasks)
     },
     note:
-      'The kind-agnostic background-job controller: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers\' `ctx.jobs.start()`.',
+      'The kind-agnostic shell/terminal background-job controller: background bash commands, PowerShell commands, and PTY sends are read, listed, and killed through the same three tools. Subagent Sessions use the separate Session/Invocation controls and never enter this registry. Loading the plugin attaches the controller that arms producers\' `ctx.jobs.start()`.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-todo',

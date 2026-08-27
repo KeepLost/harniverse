@@ -1,7 +1,7 @@
 /**
  * The durable subagent-child descriptor: the versioned, model-hidden
  * `subagent/descriptor` session event that identifies every session-backed
- * subagent and records whether it is one-shot or continuable. Continuable
+ * subagent and records whether legacy one-shot or continuable. Continuable
  * descriptors additionally preserve the declared composition required for
  * cold resume. Providers append it turn-enclosed in the child's initial turn.
  *
@@ -60,7 +60,9 @@ interface SubagentDescriptorBase {
   readonly childProfile?: ResolvedChildProfile
 }
 
-/** A session-backed subagent that cannot be cold-resumed after its run. */
+/** Legacy descriptor for a session-backed subagent that cannot be cold-resumed.
+ * @deprecated Retained for reading and legacy callers during migration.
+ */
 export interface OneShotSubagentDescriptorData extends SubagentDescriptorBase {
   readonly mode: 'one-shot'
   /**
@@ -99,7 +101,9 @@ interface SubagentDescriptorInputBase {
   readonly provider: string
 }
 
-/** Input for a one-shot child's durable identity. */
+/** Input for a legacy one-shot child's durable identity.
+ * @deprecated Retained for legacy callers during migration.
+ */
 export interface OneShotSubagentDescriptorInput extends SubagentDescriptorInputBase {
   readonly mode: 'one-shot'
   /** Optional initial delegation `description` used as the durable creation label. */

@@ -18,7 +18,7 @@ The delivery machinery was never the obstacle. `Agent.send(message, target, wake
 
 An unreported completion picks its lane from what the owner is doing. A busy owner is injected, unchanged. An idle owner is woken with `followup()`.
 
-This adopts the delivery rule the [continuation manager](2026-08-06-manager-owned-subagent-settlement-delivery.md) already ships for subagent settlement, where "steering rather than injecting is deliberate … This is a correctness rule, not a deployment preference." The two paths do not overlap: `tool-subagent` registers a Task only for a one-shot background child and returns `continuable` before reaching that code, so a child is delivered by exactly one of the two mechanisms.
+This adopts the delivery rule the [continuation manager](2026-08-06-manager-owned-subagent-settlement-delivery.md) already ships for subagent settlement, where "steering rather than injecting is deliberate … This is a correctness rule, not a deployment preference." The two paths do not overlap: `tool-jobs` owns shell and terminal job notices, while `tool-subagent` delivers subagent settlement through the Session/Invocation lifecycle.
 
 ### The busy owner keeps injection
 

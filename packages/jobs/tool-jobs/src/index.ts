@@ -259,11 +259,12 @@ export function apply(ctx: Context, config: Config): void {
   // Producers may start work only while a controller is attached.
   ctx.jobs.attachController('tool-jobs')
 
-  // Cross-call guidance follows the bash section and precedes product sections.
+  // Cross-call guidance follows the shell sections and excludes subagent
+  // Session ids, which are managed by the subagent/session controls.
   ctx.systemPrompt.section({
     name: 'tool:jobs',
     order: 106,
-    text: 'Track every background job id you start. You are notified in-session when a job finishes — do not busy-poll or sleep on one; keep working on independent steps and do not duplicate a running job\'s work. Before giving a final answer, collect every still-relevant job with job_output (set wait: true only when you are genuinely blocked on it), and job_kill jobs that stopped mattering.',
+    text: 'Track every background job id returned by bash, pwsh, or terminal_send. These ids are not subagent Session ids: never pass a subagent Session id to job_output, job_list, or job_kill. You are notified in-session when a job finishes — do not busy-poll or sleep on one; keep working on independent steps and do not duplicate a running job\'s work. Before giving a final answer, collect every still-relevant shell or terminal job with job_output (set wait: true only when you are genuinely blocked on it), and job_kill jobs that stopped mattering.',
   })
 
   // Use the exact lifecycle owner; reusable ids could resolve to a replacement.
@@ -301,13 +302,13 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'job_output',
-    description: 'Read a background job. Stream jobs return only output since the previous read; '
+    description: 'Read a shell or terminal background job. Subagent Session ids are not valid here. Stream jobs return only output since the previous read; '
       + 'final-output jobs return their result after settlement. Every response ends with '
       + '`[status: ...]`. Reads are non-blocking unless `wait: true`, which waits up to the configured cap.',
     // A timed-out wait returns job state rather than a TOOL_TIMEOUT error, so
     // this tool owns its deadline instead of using ToolDefinition.timeoutMs.
     parameters: {
-      job_id: { type: 'string', required: true, description: 'Job id returned by the tool that started the background work.' },
+      job_id: { type: 'string', required: true, description: 'Job id returned by bash, pwsh, terminal_send, or another job-producing tool; do not use a subagent Session id.' },
       wait: { type: 'boolean', description: 'Block until the job reaches a terminal status or the timeout expires. A timed-out wait returns [status: running] and leaves the job alive.' },
       timeout_ms: { type: 'number', description: 'Max wait in milliseconds (only meaningful with wait: true). Defaults to the configured wait timeout; capped by the configured maximum.' },
     },
@@ -341,7 +342,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'job_list',
-    description: 'List your background jobs (running and finished) with their ids, kinds, and statuses.',
+    description: 'List your shell and terminal background jobs (running and finished) with their ids, kinds, and statuses. Subagent Sessions are managed separately and do not appear here.',
     parameters: {},
     output: {
       schema: { type: 'array', items: PUBLIC_TASK_SCHEMA },
@@ -361,9 +362,9 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'job_kill',
-    description: 'Request cancellation of a running background job by job id. Returns immediately; the job settles as killed once its work actually stops.',
+    description: 'Request cancellation of a running shell or terminal background job by job id. Subagent Sessions are managed separately and must not be passed here. Returns immediately; the job settles as killed once its work actually stops.',
     parameters: {
-      job_id: { type: 'string', required: true, description: 'Job id returned by the tool that started the background work.' },
+      job_id: { type: 'string', required: true, description: 'Job id returned by bash, pwsh, terminal_send, or another job-producing tool; do not use a subagent Session id.' },
       reason: { type: 'string', description: 'Optional short reason, recorded in the log and forwarded to the job.' },
     },
     finalizeContent: finalizeTaskContent,

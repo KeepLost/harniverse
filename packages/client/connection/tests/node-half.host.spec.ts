@@ -871,6 +871,15 @@ describe('connection node half', () => {
 
     expect(denied.state).toMatchObject({ status: 403, body: 'forbidden' })
     expect(handler).not.toHaveBeenCalled()
+
+    const staticDenied = fakeResponse()
+    await routes[0]!.handler(
+      fakePost({ host: 'harness.example' }, '/api/session.create', {
+        type: 'client-request', rpcId: 'rpc-static-denied', method: 'session.create', payload: {},
+      }),
+      staticDenied.response,
+    )
+    expect(staticDenied.state).toMatchObject({ status: 403, body: 'forbidden' })
     await remove()
     await fiber.dispose()
   })

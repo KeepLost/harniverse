@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`ctx.jobs` 已经承载了 harness 在后台启动的全部长时工作——`bash`、`pwsh`、`pty-send`，以及一次性后台 subagent——但它唯一的读者是模型。[`dsh-tool-jobs`](../../../../packages/jobs/tool-jobs/README.md) 暴露了 `job_list`、`job_output` 和 `job_kill`，除此之外没有任何东西观察这个注册表。
+`ctx.jobs` 已经承载了 harness 在后台启动的长时 shell 和终端工作——`bash`、`pwsh` 和 `pty-send`——但它唯一的读者是模型。[`dsh-tool-jobs`](../../../../packages/jobs/tool-jobs/README.md) 暴露了 `job_list`、`job_output` 和 `job_kill`，除此之外没有任何东西观察这个注册表。
 
 于是 Web 端的人类看不到构建正在跑，分不清一个任务是已经完成还是卡死，也无法把它停掉。唯一的痕迹是 transcript 里更早某处那张打印了 job id 的 `run_in_background` 工具卡片，而那张卡片此后再也不会更新。
 
@@ -89,7 +89,7 @@ abstract onJobsChanged(listener: JobsChangedListener): () => void
 
 [`@deepseek-ai/dsh-client-ui-jobs`](../../../../packages/client/ui-jobs/README.md) 在 `conversation.session.header.actions` 注册一个条目，排在 subagent 目录之后。呈现契约归它自己的 README；值得记在这里的决策是：会话没有任务时控件根本不渲染；活跃角标为零时省略，让只剩历史的会话保留一个安静的入口；终态行保持可见，因为失败任务的 `detail` 是其失败唯一可读之处。
 
-因此一个运行中的一次性后台 subagent 会同时出现在那里和 subagent 目录里。两者回答不同的问题——目录负责进入子会话的 transcript，而这个列表是中断能力唯一可能附着的句柄——在这里屏蔽 `kind: 'subagent'` 会让中断那一期恰好对这批任务没有入口。
+异步 subagent Session 则出现在 subagent 目录中。两种视图回答不同的问题：目录负责持久 child Session 的导航，这里负责进程内 shell 和终端 job。
 
 ### 刻意不做的事
 
@@ -131,6 +131,6 @@ abstract onJobsChanged(listener: JobsChangedListener): () => void
 
 **`stopping` 今天几乎不可达。** 只有模型的 `job_kill` 会产生它，所以这个状态会被渲染但在人类中断落地之前很少见到。现在就纳入联合类型，是因为把它留在外面会让那一期变成一次线路变更。
 
-**一个运行中的 subagent 有两个入口。** 这是刻意接受的，且被限制在一次性后台委派这一种情况。如果实际用起来读着像噪声，修法是呈现层的——可以让目录行引用那个任务，而不是让任务列表隐藏这个 kind。
+**每种生命周期一个入口。** Subagent 目录行负责持久 Session 导航；这里负责进程内 shell 和终端 job。分离两种身份，避免把 Session id 展示为通用 job id。
 
 **新增非根子路径必须补 `paths` 条目。** `@deepseek-ai/dsh-jobs/brand` 得先登记进 `tsconfig.base.json`，Typert 分析器才会接受该引用。它的故障表现是一条来自远离改动处的生成器的、令人困惑的「not exported by」错误，所以这个条目是新增子路径的组成部分，而不是优化。

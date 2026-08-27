@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-模型可以在不同工具调用和后续回合中启动后台 Bash、PowerShell、PTY 操作与一次性 subagent。agent loop 的 `maxParallelToolCalls` 只限制单个步骤中尚未返回的调用；每个后台生产方会立即返回 job id，因此反复启动会让仍存活的进程或子工作无限增长。
+模型可以在不同工具调用和后续回合中启动后台 Bash、PowerShell 与 PTY 操作。agent loop 的 `maxParallelToolCalls` 只限制单个步骤中尚未返回的调用；每个后台生产方会立即返回 job id，因此反复启动会让仍存活的进程或终端工作无限增长。
 
 进程内任务注册表已经拥有确切任务 owner 与权威生命周期状态，但终止历史和实时记录保存在一起，且没有准入策略。在请求取消时立即释放容量也不正确：处于 `stopping` 的生产方仍可能拥有进程、PTY 或子任务，直到 `JobHooks.done` 结算。
 
@@ -38,7 +38,7 @@ owner 与服务释放保留现有顺序：请求取消，在生产方释放资�
 
 ## 曾考虑的替代方案
 
-**依赖 `maxParallelToolCalls`。**否决，因为后台工具调用一返回 job id 就会释放其步骤槽位；该设置无法限制在后续步骤和回合中继续存活的工作。
+**依赖 `maxParallelToolCalls`。**否决，因为后台工具调用一返回 job id 就会释放其步骤槽位；该设置无法限制在后续步骤和回合中继续存活的 shell 或终端工作。
 
 **在 `job_kill` 成功时释放容量。**否决，因为取消成功只会把任务改为 `stopping`。生产方在 `done` 结算前仍可能持有资源，立即准入替代任务会突破已配置的实时资源上限。
 

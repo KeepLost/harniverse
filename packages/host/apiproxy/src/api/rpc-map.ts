@@ -16,6 +16,9 @@ import type { LlmApi } from './llm.ts'
 import type { SubagentsApi } from './subagents.ts'
 import type { RpcResponse } from './rpc.ts'
 import type { AuthenticationCapability } from '@deepseek-ai/dsh-authentication'
+import type { ApiApi } from './contract.ts'
+import type { ApiMethodDescription } from './contract.ts'
+import type { OperationsApi } from './operations.ts'
 
 /**
  * Method name → method signature. Signatures are the single source of truth; payload/value
@@ -23,6 +26,8 @@ import type { AuthenticationCapability } from '@deepseek-ai/dsh-authentication'
  * request (command.execute): the carrier passes its request signal, never a wire field.
  */
 export interface RpcMethodMap {
+  'api.describe': ApiApi['describe']
+  'operation.get': OperationsApi['get']
   'session.list': SessionsApi['list']
   'session.search': SessionsApi['search']
   'session.create': SessionsApi['create']
@@ -84,6 +89,8 @@ export interface RpcMethodMap {
 
 /** Required effect capability for every legacy unary endpoint. */
 export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: AuthenticationCapability } = {
+  'api.describe': 'harniverse.observe',
+  'operation.get': 'harniverse.observe',
   'session.list': 'harniverse.observe',
   'session.search': 'harniverse.observe',
   'session.create': 'harniverse.operate',
@@ -145,6 +152,8 @@ export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: Auth
 
 /** Whether each unary method mutates Host or durable application state. */
 export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 'mutate' } = {
+  'api.describe': 'read',
+  'operation.get': 'read',
   'session.list': 'read',
   'session.search': 'read',
   'session.create': 'mutate',
@@ -228,6 +237,18 @@ export function legacyRpcCapability(endpoint: string): AuthenticationCapability 
   if (endpoint === 'respond') return 'harniverse.operate'
   return undefined
 }
+
+/** Public metadata for contract discovery, kept derived from the two policy maps above. */
+export const RPC_METHOD_METADATA: readonly ApiMethodDescription[] = Object.keys(RPC_METHOD_CAPABILITIES).map((method) => {
+  const stability = method === 'settings.update' ? 'deprecated' as const : 'stable' as const
+  return {
+    method,
+    requiredCapability: RPC_METHOD_CAPABILITIES[method as keyof RpcMethodMap],
+    effect: RPC_METHOD_EFFECTS[method as keyof RpcMethodMap],
+    stability,
+    ...(method === 'settings.update' ? { replacement: 'settings.mutate' } : {}),
+  }
+})
 
 /** Business request payload of method K (reaches through the RpcRequest narrow form to payload). */
 export type RequestPayload<K extends keyof RpcMethodMap> = Parameters<RpcMethodMap[K]>[0]['payload']

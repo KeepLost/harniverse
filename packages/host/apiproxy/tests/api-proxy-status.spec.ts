@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -43,6 +43,34 @@ async function harness(): Promise<{ ctx: Context; session: Session; agent: Agent
 }
 
 describe('session.status', () => {
+  it('discovers the canonical API registry and exposes prompt operations', async () => {
+    const { ctx, session, agent, api } = await harness()
+    Object.assign(agent, { followup: vi.fn() })
+    const described = valueOf(await api.api!.describe(request({})))
+    expect(described.version).toBe(1)
+    expect(described.methods).toEqual(expect.arrayContaining([
+      expect.objectContaining({ method: 'goal.edit', stability: 'stable' }),
+      expect.objectContaining({ method: 'settings.update', stability: 'deprecated', replacement: 'settings.mutate' }),
+      expect.objectContaining({ method: 'operation.get', effect: 'read' }),
+    ]))
+
+    const accepted = valueOf(await api.sessions.prompt(request({
+      sessionId: session.id,
+      mode: 'queue',
+      content: [{ type: 'text', text: 'operation test' }],
+    })))
+    expect(accepted.operationId).toMatch(/^operation:/)
+    const operation = valueOf(await api.operations!.get(request({ operationId: accepted.operationId, sessionId: session.id })))
+    expect(operation).toMatchObject({
+      operationId: accepted.operationId,
+      kind: 'session.prompt',
+      status: 'accepted',
+      sessionId: session.id,
+      messageId: accepted.messageId,
+    })
+    await ctx.fiber.dispose()
+  })
+
   it('returns one boot-fenced snapshot of durable and process-local state', async () => {
     const { ctx, session, agent, api } = await harness()
     const message = createUserMessage({
@@ -83,6 +111,14 @@ describe('session.status', () => {
       queue: [{ id: message.id, placement: 'queued' }],
       jobs: [{ kind: 'bash', label: 'pnpm test', status: 'running' }],
       interactions: [{ payload: { type: 'question/requested', sessionId: session.id } }],
+    })
+    const job = status.jobs[0]
+    expect(job?.operationId).toBe('job:bash-1')
+    const jobOperation = valueOf(await api.operations!.get(request({
+      operationId: job?.operationId ?? '', sessionId: session.id,
+    })))
+    expect(jobOperation).toMatchObject({
+      operationId: 'job:bash-1', kind: 'job', status: 'running', sessionId: session.id, jobId: 'bash-1',
     })
     expect(valueOf(await api.host.describe(request({}))).bootId).toBe(described.bootId)
 

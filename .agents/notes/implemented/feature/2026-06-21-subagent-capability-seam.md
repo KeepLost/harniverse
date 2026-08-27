@@ -71,6 +71,6 @@ Registry and tool tests replace only the nondeterministic child with a package-l
 ## Consequences
 
 - **Recursion.** Without a bound, an in-process child can see the delegation tool and recurse. The in-process backends implement the optional absolute depth limit and scoped live-global `toolFilter`; ACP advertises both capabilities off and rejects such a request. The [subagent composition-controls Agent Note](2026-07-12-subagent-persona-tool-filter-and-depth.md) owns their exact semantics and security limits.
-- **Blocking the parent turn.** Foreground collection holds the parent's step open for the child's full duration. Background delegation uses the shared `ctx.jobs` runtime and generic `job_*` tools, the same collection mechanism as background bash; the subagent seam itself remains task-agnostic.
+- **Blocking the parent turn.** Foreground collection holds the parent's step open for the child's full duration. Asynchronous delegation uses the durable Session/Invocation lifecycle and session controls; generic `ctx.jobs` remains the shell and terminal background-work seam, while the subagent seam itself remains task-agnostic.
 - **Live progress.** Only lifecycle + the final result surface; a per-chunk child→parent update stream is deferred with the background redesign.
 - **ACP client surface.** Proxying `fs`/`terminal` from the ACP child back to the parent (a shared-workspace mode) is future work; the backend advertises neither capability, so the child self-serves in its own process.

@@ -12,30 +12,25 @@ subagent 需要与其他长时间运行的工具相同的启动、收集、列�
 
 ## 决策
 
-每个 `dsh-tool-subagent` 实例都可以公开 `run_in_background`，由 `enableRunInBackground` 控制，且默认启用。禁用该功能的实例不包含此参数，并会在执行时拒绝强制传入的后台参数。提供方选择仍属于部署配置，因此一个实例仍然只为一个提供方注册一个名称可区分的工具。
+每个 `dsh-tool-subagent` 实例都会公开 `mode: sync|async`；`enableRunInBackground` 控制异步模式是否可用，且默认启用。禁用该功能的实例不包含 mode 参数，并会在执行时拒绝强制传入 async。提供方选择仍属于部署配置，因此一个实例仍然只为一个提供方注册一个名称可区分的工具。
 
-后台 subagent 使用[通用后台任务运行时](../architecture/2026-06-20-generic-long-running-tool-runtime.md)。`job_output`、`job_list` 和 `job_kill` 负责收集、列出、取消、完成通知和提示词引导；系统不提供 subagent 专用的配套工具。
+异步 subagent 使用 `ctx.subagents.invoke()` 并返回持久化 child Session 和 Invocation id。后续消息与读取使用 `session_message` 和 `session_inspect`；通用 `job_*` 工具不适用于这条生命周期。
 
 前台调用保留其同步约定：等待提供方启动和 `run.result`；仅当状态为 `completed` 时返回最终文本；将其他终止原因映射为出错的工具结果；并且始终在返回前释放该运行。
 
-对于后台调用，工具会验证父级，并在调用 `ctx.jobs.start()` 前拒绝已中止的执行信号。任务运行时会在调用生产者启动器前，预检控制 API 和拥有者清理。该启动器创建独立的 `AbortController` 并启动 `ctx.subagents.start()`；返回 id 之后，工具调用的信号不再拥有该子级。
+对于异步调用，工具会验证父级，并在调用 `ctx.subagents.invoke()` 前拒绝已中止的执行信号。Invocation 服务拥有持久化 child Session 及其生命周期；接受后，工具调用的信号不再拥有 child 的后续轮次。
 
-任务注册按以下方式映射 subagent seam：
-
-- `kind` 为 `subagent`，`label` 为模型提供的描述，`owner` 为父 agent（智能体）。
-- `cancel(reason?)` 中止任务自有的控制器。同一个信号同时覆盖尚未完成的提供方启动和已发布 run 的剩余工作。
-- `done` 等待提供方启动、子级结果和 `run.dispose()`。已完成的运行返回最终文本，已中止的运行变为 `killed`，其他停止原因变为 `failed`。启动、结果和资源释放失败会转换为失败结果，而不是被拒绝的任务 Promise。
-- `readOutput` 不存在。任务存活期间，`job_output` 只返回状态；结算后，它以幂等方式返回最终输出。中间的子级活动仍保留在子会话中。
+异步结果包含 `{ mode: 'async', invocationId, sessionId }`。中间活动和最终输出由 child transcript 持有；parent 通过 subagent runtime 接收结算，而不是通过通用 job 记录。
 
 ## 生命周期
 
-后台 subagent 归属于其父 agent，不会在拥有者关闭后持久存续。任务运行时将清理附加到对应拥有者的确切作用域。agent 资源释放会取消任务，并在 `AgentHandle.dispose()` 完成前等待启动回滚或子级资源释放，避免泄漏子 agent 和会话。
+child Session 通过持久化谱系归属于 parent。Invocation 服务负责 child 激活清理，并将 Session 身份与 shell、终端通用 job 的所有权分开。
 
 完成通知会发送给启动时捕获的确切拥有者。如果拥有者清理过程已经释放了注入目标，该通知将被丢弃；生命周期保证是清理，而不是通知。
 
 ## 模型引导
 
-通用任务提示词教会模型一套共享的做法：保留 id；继续独立工作，而不是忙等轮询；在回答前收集相关任务；终止无关工作。subagent schema 只补充说明：后台模式返回 job id，且 `job_output` 用于收集结果。无论模型是否遵循提示词，授权和拥有者清理都会强制执行运行时边界。
+subagent 提示词要求模型保留 child Session id、继续处理独立工作、使用 `session_message` 进行后续轮次，并使用 `session_inspect` 读取状态或 transcript。schema 与 runtime 共同强制 Session id 不得传给通用 `job_*` 工具。
 
 ## 备选方案
 
@@ -49,7 +44,7 @@ subagent 需要与其他长时间运行的工具相同的启动、收集、列�
 
 ### 隔离客户端不做拥有者检查
 
-agent 和日志可能以会话为作用域，但任务注册表和可预测 id 属于运行时全局范围。因此，通用拥有者防线同样适用于 subagent 和所有其他生产者。
+subagent 身份按会话作用域且持久化，而通用 job id 仍在 shell 与终端工作中属于运行时全局范围。因此两条控制路径分别执行身份和所有权边界。
 
 ### 增量子 transcript 输出
 
@@ -57,8 +52,8 @@ agent 和日志可能以会话为作用域，但任务注册表和可预测 id �
 
 ## 测试
 
-单元测试覆盖固定了停止原因映射、在报告前释放资源、启动与结果失败、对预中止的拒绝、从启动调用信号分离、在提供方发布前后取消、通过真实任务工具收集、无控制器的预检防线、运行时缺失失败，以及每实例 schema 开关。快照覆盖固定了面向模型的 schema。
+单元测试覆盖 sync 与 async invocation 结果、持久化 Session/Invocation 身份、预中止拒绝、提供方失败、结算行为、独立 Session 控制工具，以及每实例异步开关。快照覆盖固定了面向模型的 schema。
 
 ## 影响
 
-父级可以并行分派慢速委派任务，并通过与 bash 共用的任务控制来收集结果。子级工作不再占用启动它的工具调用，但在收集、终止或拥有者释放之前可以继续消耗资源。提示词引导鼓励收集；拥有者清理则提供硬性生命周期边界。需要同步委派的部署可以按工具实例禁用后台模式。
+父级可以并行分派慢速委派，并在 child Session 运行时继续处理有用工作。子级工作不再占用启动它的工具调用；后续轮次使用 Session 控制工具，结算通过通知到达。需要同步委派的部署可以按工具实例不提供异步模式。

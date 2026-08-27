@@ -2521,7 +2521,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         if (mode === 'steer' && replays.has(id)) {
           // Steering: the durable user/message lands inside the current turn; the replay continues.
           append(id, { type: 'user/message', surfaceOp: 'append', data: message })
-          return ok(request, { accepted: true as const, messageId: message.id })
+          return ok(request, { accepted: true as const, messageId: message.id, operationId: `operation:${message.id}` })
         }
         const turn = nextTurn.get(id) ?? 0
         nextTurn.set(id, turn + 1)
@@ -2557,7 +2557,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
               })()
               : `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`,
         )
-        return ok(request, { accepted: true as const, messageId: message.id })
+        return ok(request, { accepted: true as const, messageId: message.id, operationId: `operation:${message.id}` })
       },
       attachment: (request) => {
         const stored = attachments.get(String(request.payload.attachmentId))
@@ -2667,6 +2667,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       },
       prompt: request => Promise.resolve(ok(request, {
         messageId: `fixture-message-${request.payload.childSessionId}` as never,
+        operationId: `operation:fixture-message-${request.payload.childSessionId}`,
       })),
       interrupt: request => Promise.resolve(ok(request, { accepted: true as const })),
     },
@@ -3200,14 +3201,14 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
  * moves to the isomorphic pipeline (InProcessApiClient over toFetchHandler(fixtureImpl)).
  */
 export class FixtureApiClient extends AbstractApiClient {
-  private readonly api: ApiProxy
+  private readonly fixtureApi: ApiProxy
   /** Generic Remote caller backed by the same in-memory state as the legacy fixture API. */
   readonly rpc: ClientConnectionRpc
 
   constructor() {
     super()
     const world = createFixtureWorld(fixtureOptionsFromLocation())
-    this.api = world.api
+    this.fixtureApi = world.api
     this.rpc = world.rpc
   }
 
@@ -3221,7 +3222,8 @@ export class FixtureApiClient extends AbstractApiClient {
     signal?: AbortSignal,
   ): Promise<RpcResponse<ResponseValue<K>>> {
     const request = rpcRequest(payload)
-    const full: ClientRequest = { type: 'client-request', rpcId: request.rpcId, method, payload }
+    const requestId = this.mintRequestId()
+    const full: ClientRequest = { type: 'client-request', rpcId: request.rpcId, requestId, method, payload }
     this.onEnvelope(full)
     const response = await this.dispatch(
       method,
@@ -3231,9 +3233,10 @@ export class FixtureApiClient extends AbstractApiClient {
     const authentication = { kind: 'bypass' as const }
     const fullResponse: ServerResponse = {
       type: 'server-response', rpcId: response.rpcId, result: response.result, authentication,
+      requestId,
     }
     this.onEnvelope(fullResponse)
-    return { ...response, authentication }
+    return { ...response, authentication, requestId }
   }
 
   /** Method-key dispatch into the in-memory contract impl (a real carrier routes by URL path instead). */
@@ -3243,63 +3246,67 @@ export class FixtureApiClient extends AbstractApiClient {
     signal: AbortSignal,
   ): Promise<RpcResponse<unknown>> {
     switch (method) {
-      case 'session.list': return this.api.sessions.list(request)
-      case 'session.search': return this.api.sessions.search(request, signal)
-      case 'session.create': return this.api.sessions.create(request)
-      case 'session.history': return this.api.sessions.history(request)
-      case 'session.status': return this.api.sessions.status(request)
-      case 'session.workStatus': return this.api.sessions.workStatus(request)
-      case 'session.models': return this.api.sessions.models(request)
-      case 'session.selectModel': return this.api.sessions.selectModel(request)
-      case 'session.rename': return this.api.sessions.rename(request)
-      case 'session.fork': return this.api.sessions.fork(request)
-      case 'session.prompt': return this.api.sessions.prompt(request)
-      case 'session.attachment': return this.api.sessions.attachment(request)
-      case 'session.updateQueue': return this.api.sessions.updateQueue(request)
-      case 'session.cancel': return this.api.sessions.cancel(request)
-      case 'session.close': return this.api.sessions.close(request)
-      case 'session.delete': return this.api.sessions.delete(request)
-      case 'subagent.list': return this.api.subagents.list(request)
-      case 'subagent.profiles': return this.api.subagents.profiles(request)
-      case 'subagent.history': return this.api.subagents.history(request)
-      case 'subagent.prompt': return this.api.subagents.prompt(request, signal)
-      case 'subagent.interrupt': return this.api.subagents.interrupt(request)
-      case 'host.describe': return this.api.host.describe(request)
-      case 'host.pickDirectory': return this.api.host.pickDirectory(request, new AbortController().signal)
-      case 'host.listDirectory': return this.api.host.listDirectory(request, new AbortController().signal)
-      case 'host.createDirectory': return this.api.host.createDirectory(request)
-      case 'host.openPath': return this.api.host.openPath(request, new AbortController().signal)
-      case 'workspace.list': return this.api.workspace.list(request)
-      case 'workspace.create': return this.api.workspace.create(request)
-      case 'workspace.rename': return this.api.workspace.rename(request)
-      case 'workspace.delete': return this.api.workspace.delete(request)
-      case 'workspace.insertBefore': return this.api.workspace.insertBefore(request)
-      case 'workspace.insertSessionBefore': return this.api.workspace.insertSessionBefore(request)
-      case 'workspace.archiveSession': return this.api.workspace.archiveSession(request)
-      case 'workspace.unarchiveSession': return this.api.workspace.unarchiveSession(request)
-      case 'skill.list': return this.api.skills.list(request)
-      case 'agentPreset.list': return this.api.agentPresets.list(request)
-      case 'agentPreset.read': return this.api.agentPresets.read(request)
-      case 'agentPreset.copy': return this.api.agentPresets.copy(request)
-      case 'agentPreset.openDocument': return this.api.agentPresets.openDocument(request, new AbortController().signal)
-      case 'agentPreset.remove': return this.api.agentPresets.remove(request)
-      case 'goal.create': return this.api.goals.create(request)
-      case 'goal.edit': return this.api.goals.edit(request)
-      case 'goal.pause': return this.api.goals.pause(request)
-      case 'goal.resume': return this.api.goals.resume(request)
-      case 'goal.complete': return this.api.goals.complete(request)
-      case 'goal.clear': return this.api.goals.clear(request)
-      case 'settings.describe': return this.api.settings.describe(request)
-      case 'settings.openDocument': return this.api.settings.openDocument(request, signal)
-      case 'settings.update': return this.api.settings.update(request)
-      case 'settings.replace': return this.api.settings.replace(request)
-      case 'settings.mutate': return this.api.settings.mutate(request)
-      case 'credentials.describe': return this.api.credentials.describe(request)
-      case 'credentials.set': return this.api.credentials.set(request)
-      case 'credentials.unset': return this.api.credentials.unset(request)
-      case 'llm.providers': return this.api.llm.providers(request)
-      case 'llm.models': return this.api.llm.models(request)
-      case 'llm.discoverModels': return this.api.llm.discoverModels(request, signal)
+      case 'api.describe': return this.fixtureApi.api?.describe(request)
+        ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'API contract discovery is unavailable', details: {} } } })
+      case 'operation.get': return this.fixtureApi.operations?.get(request)
+        ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'operation lookup is unavailable', details: {} } } })
+      case 'session.list': return this.fixtureApi.sessions.list(request)
+      case 'session.search': return this.fixtureApi.sessions.search(request, signal)
+      case 'session.create': return this.fixtureApi.sessions.create(request)
+      case 'session.history': return this.fixtureApi.sessions.history(request)
+      case 'session.status': return this.fixtureApi.sessions.status(request)
+      case 'session.workStatus': return this.fixtureApi.sessions.workStatus(request)
+      case 'session.models': return this.fixtureApi.sessions.models(request)
+      case 'session.selectModel': return this.fixtureApi.sessions.selectModel(request)
+      case 'session.rename': return this.fixtureApi.sessions.rename(request)
+      case 'session.fork': return this.fixtureApi.sessions.fork(request)
+      case 'session.prompt': return this.fixtureApi.sessions.prompt(request)
+      case 'session.attachment': return this.fixtureApi.sessions.attachment(request)
+      case 'session.updateQueue': return this.fixtureApi.sessions.updateQueue(request)
+      case 'session.cancel': return this.fixtureApi.sessions.cancel(request)
+      case 'session.close': return this.fixtureApi.sessions.close(request)
+      case 'session.delete': return this.fixtureApi.sessions.delete(request)
+      case 'subagent.list': return this.fixtureApi.subagents.list(request)
+      case 'subagent.profiles': return this.fixtureApi.subagents.profiles(request)
+      case 'subagent.history': return this.fixtureApi.subagents.history(request)
+      case 'subagent.prompt': return this.fixtureApi.subagents.prompt(request, signal)
+      case 'subagent.interrupt': return this.fixtureApi.subagents.interrupt(request)
+      case 'host.describe': return this.fixtureApi.host.describe(request)
+      case 'host.pickDirectory': return this.fixtureApi.host.pickDirectory(request, new AbortController().signal)
+      case 'host.listDirectory': return this.fixtureApi.host.listDirectory(request, new AbortController().signal)
+      case 'host.createDirectory': return this.fixtureApi.host.createDirectory(request)
+      case 'host.openPath': return this.fixtureApi.host.openPath(request, new AbortController().signal)
+      case 'workspace.list': return this.fixtureApi.workspace.list(request)
+      case 'workspace.create': return this.fixtureApi.workspace.create(request)
+      case 'workspace.rename': return this.fixtureApi.workspace.rename(request)
+      case 'workspace.delete': return this.fixtureApi.workspace.delete(request)
+      case 'workspace.insertBefore': return this.fixtureApi.workspace.insertBefore(request)
+      case 'workspace.insertSessionBefore': return this.fixtureApi.workspace.insertSessionBefore(request)
+      case 'workspace.archiveSession': return this.fixtureApi.workspace.archiveSession(request)
+      case 'workspace.unarchiveSession': return this.fixtureApi.workspace.unarchiveSession(request)
+      case 'skill.list': return this.fixtureApi.skills.list(request)
+      case 'agentPreset.list': return this.fixtureApi.agentPresets.list(request)
+      case 'agentPreset.read': return this.fixtureApi.agentPresets.read(request)
+      case 'agentPreset.copy': return this.fixtureApi.agentPresets.copy(request)
+      case 'agentPreset.openDocument': return this.fixtureApi.agentPresets.openDocument(request, new AbortController().signal)
+      case 'agentPreset.remove': return this.fixtureApi.agentPresets.remove(request)
+      case 'goal.create': return this.fixtureApi.goals.create(request)
+      case 'goal.edit': return this.fixtureApi.goals.edit(request)
+      case 'goal.pause': return this.fixtureApi.goals.pause(request)
+      case 'goal.resume': return this.fixtureApi.goals.resume(request)
+      case 'goal.complete': return this.fixtureApi.goals.complete(request)
+      case 'goal.clear': return this.fixtureApi.goals.clear(request)
+      case 'settings.describe': return this.fixtureApi.settings.describe(request)
+      case 'settings.openDocument': return this.fixtureApi.settings.openDocument(request, signal)
+      case 'settings.update': return this.fixtureApi.settings.update(request)
+      case 'settings.replace': return this.fixtureApi.settings.replace(request)
+      case 'settings.mutate': return this.fixtureApi.settings.mutate(request)
+      case 'credentials.describe': return this.fixtureApi.credentials.describe(request)
+      case 'credentials.set': return this.fixtureApi.credentials.set(request)
+      case 'credentials.unset': return this.fixtureApi.credentials.unset(request)
+      case 'llm.providers': return this.fixtureApi.llm.providers(request)
+      case 'llm.models': return this.fixtureApi.llm.models(request)
+      case 'llm.discoverModels': return this.fixtureApi.llm.discoverModels(request, signal)
     }
   }
 
@@ -3309,7 +3316,7 @@ export class FixtureApiClient extends AbstractApiClient {
     onOpen?: () => void,
     onAuthenticated?: (identity: { readonly kind: 'bypass' }) => void,
   ): AsyncIterable<RpcRequest<MuxFrame>> {
-    return this.tapStream(this.api.events.mux(rpcRequest(payload), signal), onOpen, onAuthenticated)
+    return this.tapStream(this.fixtureApi.events.mux(rpcRequest(payload), signal), onOpen, onAuthenticated)
   }
 
   protected override openHost(
@@ -3318,7 +3325,7 @@ export class FixtureApiClient extends AbstractApiClient {
     onOpen?: () => void,
     onAuthenticated?: (identity: { readonly kind: 'bypass' }) => void,
   ): AsyncIterable<RpcRequest<HostFrame>> {
-    return this.tapStream(this.api.events.host(rpcRequest(payload), signal), onOpen, onAuthenticated)
+    return this.tapStream(this.fixtureApi.events.host(rpcRequest(payload), signal), onOpen, onAuthenticated)
   }
 
   private async *tapStream<F extends MuxFrame | HostFrame>(
@@ -3345,7 +3352,7 @@ export class FixtureApiClient extends AbstractApiClient {
    */
   override async respond(message: ClientResponse): Promise<RpcReceipt> {
     this.onEnvelope(message)
-    return this.api.respond(message)
+    return this.fixtureApi.respond(message)
   }
 }
 

@@ -36,6 +36,19 @@ async function agentOf(ctx: Context): Promise<{ agent: Agent; dispose: () => voi
   return { agent, dispose: ctx.agents.register(agent) }
 }
 
+async function scopedAgentOf(ctx: Context): Promise<{
+  agent: Agent
+  dispose: () => void
+  scope: ReturnType<Context['plugin']>
+}> {
+  const root = await mkdtemp(join(tmpdir(), 'harniverse-file-reference-scoped-agent-'))
+  roots.push(root)
+  const scope = ctx.plugin(() => {})
+  const session = ctx.sessions.create(SessionId('file-reference-scoped-agent'), { meta: { cwd: root } })
+  const agent = { id: session.id, options: {}, session, status: 'idle', ctx: scope.ctx } as unknown as Agent
+  return { agent, dispose: ctx.agents.register(agent), scope }
+}
+
 describe('LocalFileReferenceService', () => {
   it('searches the Agent cwd and exposes read guidance only when read is visible', async () => {
     const ctx = await harness()
@@ -68,5 +81,19 @@ describe('LocalFileReferenceService', () => {
     expect(invalidate).toHaveBeenCalledOnce()
     dispose()
     expect(close).toHaveBeenCalledOnce()
+  })
+
+  it('does not warn when an Agent scope already disposed its prompt fiber', async () => {
+    const ctx = await harness()
+    const { dispose, scope } = await scopedAgentOf(ctx)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    await ctx.plugin(LocalFileReferenceService)
+
+    await scope.dispose()
+    dispose()
+
+    expect(warnings).toEqual([])
+    await ctx.fiber.dispose()
   })
 })

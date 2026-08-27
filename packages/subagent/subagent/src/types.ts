@@ -98,7 +98,7 @@ export function SubagentRunId(id: string): SubagentRunId {
   return id as SubagentRunId
 }
 
-/** Caller-visible waiting policy for one child-session invocation. */
+/** Caller-visible waiting policy for one continuable child-session invocation. */
 export type SubagentInvocationMode = 'sync' | 'async'
 
 /** Stable identity of one accepted invocation, independent of its Activation. */
@@ -109,14 +109,17 @@ export function SubagentInvocationId(id: string): SubagentInvocationId {
   return id as SubagentInvocationId
 }
 
-/** Unified result handle returned by the subagent service. */
+/**
+ * Unified result handle for one continuable child Session. `sync` waits for
+ * the initial Activation epoch; `async` returns when that epoch accepts its
+ * initial prompt.
+ */
 export type SubagentInvocation =
   | {
     readonly mode: 'sync'
     readonly invocationId: SubagentInvocationId
     readonly sessionId: SessionId
     readonly result: Promise<SubagentResult>
-    readonly dispose: () => Promise<void>
   }
   | {
     readonly mode: 'async'
@@ -179,6 +182,8 @@ export interface SubagentRunEndInfo {
  * gated by {@link SubagentProvider.prepareContinuable} instead. Each flag
  * corresponds one-to-one to a {@link SubagentStartRequest} option: `depthLimit`
  * to `maxDepth`; the other names match.
+ * @deprecated These capabilities belong to the retained one-shot provider
+ * start path; continuable creation is validated by method presence.
  */
 export interface SubagentCapabilities {
   readonly outputSchema: boolean
@@ -351,6 +356,7 @@ export interface SubagentResult {
  * delegation with one result; continuable conversations have no run — the
  * continuation manager holds their `AgentHandle` directly and orders every
  * turn through the child's own inbox.
+ * @deprecated Use {@link SubagentInvocation} and the continuable Session path.
  */
 export interface SubagentRun {
   /**
@@ -402,6 +408,8 @@ export interface SubagentProvider {
    */
   readonly inheritsParentContext: boolean
   /**
+   * @deprecated One-shot provider starts are retained for legacy callers only;
+   * all model-facing invocations use {@link prepareContinuable}.
    * Establish a ONE-SHOT child and return its handle after publication.
    * The service has already validated that every requested start-time
    * capability is supported and resolved `request.descriptor`, so a

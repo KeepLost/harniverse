@@ -17,6 +17,7 @@ export const taskIdSchema = z.string().min(1) as unknown as z.ZodType<JobId>
  * not knowable at this boundary.
  */
 export const taskViewSchema = z.object({
+  operationId: z.string().min(1).optional(),
   id: taskIdSchema,
   kind: z.string().min(1),
   label: z.string().min(1),

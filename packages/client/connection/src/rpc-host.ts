@@ -5,13 +5,14 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import {
   RpcId,
+  RequestId,
   type ClientRequest,
   type RpcError,
   type RpcErrorDetailsMap,
   type RpcId as RpcIdType,
   type ServerResponse as RpcServerResponse,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { clientRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
+import { clientRequestSchema, serverResponseSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import { bridge, type FetchHandler } from './http-bridge.ts'
 import { authenticateIncoming, rejectUnauthorized } from './inbound-auth.ts'
 import { describeApiTrustRequest, isTrustedApiRequest } from './api-request-trust.ts'
@@ -41,6 +42,14 @@ interface ConnectionRpcInterceptor {
 }
 
 type RpcFailureReporter = (endpoint: string, error: unknown) => void
+
+interface IdempotencyEntry {
+  fingerprint: string
+  expiresAt: number
+  response: Promise<RpcServerResponse | undefined>
+}
+
+const IDEMPOTENCY_STORES = new WeakMap<ConnectionRpcHandler, Map<string, IdempotencyEntry>>()
 
 function principalDetails(principal: AuthenticationPrincipal): string {
   if (principal.kind === 'bypass') return 'principal=bypass'
@@ -258,6 +267,37 @@ function rpcFetchHandler(
   reportFailure: RpcFailureReporter,
 ): FetchHandler {
   const authentication = authenticationPrincipalIdentity(principal)
+  const idempotency = IDEMPOTENCY_STORES.get(handler) ?? new Map<string, IdempotencyEntry>()
+  IDEMPOTENCY_STORES.set(handler, idempotency)
+  const idempotencyTtlMs = 24 * 60 * 60 * 1000
+  const maxIdempotencyEntries = 1024
+
+  function idempotencyScope(endpoint: string, key: string): string {
+    return `${JSON.stringify(authentication)}\u0000${endpoint}\u0000${key}`
+  }
+
+  function purgeExpiredIdempotency(now: number): void {
+    for (const [scope, entry] of idempotency) {
+      if (entry.expiresAt <= now) idempotency.delete(scope)
+    }
+  }
+
+  function makeRoomForIdempotency(): void {
+    while (idempotency.size >= maxIdempotencyEntries) {
+      const oldest = idempotency.keys().next().value
+      if (oldest === undefined) return
+      idempotency.delete(oldest)
+    }
+  }
+
+  function replayResponse(body: RpcServerResponse, message: ClientRequest): Response {
+    return Response.json({
+      ...body,
+      rpcId: message.rpcId,
+      ...(message.requestId === undefined ? {} : { requestId: message.requestId }),
+    })
+  }
+
   return {
     async fetch(request: Request): Promise<Response> {
       const endpoint = endpointFromPath(channel, new URL(request.url).pathname)
@@ -287,12 +327,52 @@ function rpcFetchHandler(
           code: 'bad-request',
           message: `method ${JSON.stringify(message.method)} does not match endpoint ${JSON.stringify(endpoint)}`,
           details: { issues: [] },
-        }, authentication)
+        }, authentication, message.requestId)
       }
 
+      const idempotencyKey = request.headers.get('idempotency-key')?.trim()
+      const run = async (): Promise<Response> => {
+        try {
+          const result = await handler({ endpoint, payload: message.payload, signal: request.signal, principal })
+          return fullResponse(message.rpcId, result, authentication, message.requestId)
+        } catch (error) {
+          reportFailure(endpoint, error)
+          return new Response('internal handler failure', { status: 500 })
+        }
+      }
+      if (idempotencyKey !== undefined && idempotencyKey !== '') {
+        purgeExpiredIdempotency(Date.now())
+        const scope = idempotencyScope(endpoint, idempotencyKey)
+        const fingerprint = JSON.stringify(message.payload)
+        const existing = idempotency.get(scope)
+        if (existing !== undefined) {
+          if (existing.fingerprint !== fingerprint) {
+            return errorResponse(message.rpcId, {
+              code: 'idempotency-key-reused',
+              message: 'Idempotency-Key was already used with a different payload',
+              details: { key: idempotencyKey },
+            }, authentication, message.requestId)
+          }
+          const cached = await existing.response
+          return cached === undefined ? run() : replayResponse(cached, message)
+        }
+        const response = run()
+        const cachedResponse = response.then(async (result) => {
+          if (result.status !== 200) return undefined
+          return serverResponseSchema.parse(await result.clone().json())
+        })
+        makeRoomForIdempotency()
+        idempotency.set(scope, {
+          fingerprint,
+          expiresAt: Date.now() + idempotencyTtlMs,
+          response: cachedResponse,
+        })
+        const body = await cachedResponse
+        return body === undefined ? response : replayResponse(body, message)
+      }
       try {
         const result = await handler({ endpoint, payload: message.payload, signal: request.signal, principal })
-        return fullResponse(message.rpcId, result, authentication)
+        return fullResponse(message.rpcId, result, authentication, message.requestId)
       } catch (error) {
         reportFailure(endpoint, error)
         return new Response('internal handler failure', { status: 500 })
@@ -307,12 +387,14 @@ function invalidEnvelopeResponse(
   authentication: AuthenticationPrincipalIdentity,
 ): Response {
   const rawId = (body as { rpcId?: unknown } | null)?.rpcId
+  const rawRequestId = (body as { requestId?: unknown } | null)?.requestId
   const rpcId = typeof rawId === 'string' ? RpcId(rawId) : INVALID_REQUEST_RPC_ID
+  const requestId = typeof rawRequestId === 'string' ? RequestId(rawRequestId) : undefined
   return errorResponse(rpcId, {
     code: 'bad-request',
     message: 'invalid client-request message',
     details: { issues },
-  }, authentication)
+  }, authentication, requestId)
 }
 
 function endpointFromPath(channel: string, pathname: string): string | undefined {
@@ -330,8 +412,9 @@ function errorResponse(
   rpcId: RpcIdType,
   error: RpcError,
   authentication: AuthenticationPrincipalIdentity,
+  requestId?: RequestId,
 ): Response {
-  return fullResponse(rpcId, { ok: false, error }, authentication)
+  return fullResponse(rpcId, { ok: false, error }, authentication, requestId)
 }
 
 /**
@@ -343,8 +426,12 @@ function fullResponse(
   rpcId: RpcIdType,
   result: RpcServerResponse['result'],
   authentication: AuthenticationPrincipalIdentity,
+  requestId?: RequestId,
 ): Response {
-  const body: RpcServerResponse = { type: 'server-response', rpcId, result, authentication }
+  const body: RpcServerResponse = {
+    type: 'server-response', rpcId, result, authentication,
+    ...(requestId === undefined ? {} : { requestId }),
+  }
   return Response.json(body)
 }
 

@@ -6,9 +6,9 @@ English | [中文](2026-06-20-generic-long-running-tool-runtime.zh.md)
 
 ## Problem
 
-Background bash originally combined two responsibilities: the bash executor ran processes and also managed job ids, ownership, incremental reads, cancellation, completion listeners, and model-facing control tools. Adding background subagents required the same lifecycle and interaction contract. Implementing that contract independently for every long-running capability would duplicate isolation, cleanup, notification, and prompt behavior while teaching the model a different collect-and-stop protocol for each producer.
+Background bash originally combined two responsibilities: the bash executor ran processes and also managed job ids, ownership, incremental reads, cancellation, completion listeners, and model-facing control tools. The same lifecycle covers shell and terminal background work; asynchronous subagents use their durable Session/Invocation lifecycle instead. Implementing generic task behavior independently for every long-running capability would duplicate isolation, cleanup, notification, and prompt behavior.
 
-The job registry, control tools, and completion notices form one harness capability. Bash and subagents should supply execution-specific hooks without owning generic task behavior.
+The job registry, control tools, and completion notices form one harness capability. Shell and terminal producers supply execution-specific hooks without owning generic task behavior; subagent Sessions are controlled separately.
 
 ## Decision
 
@@ -17,7 +17,7 @@ The `jobs/` package group owns background-job semantics:
 - `@deepseek-ai/dsh-jobs` registers running work as `ctx.jobs` and owns job ids, authorization, snapshots, reads, cancellation, waiting, completion listeners, and cleanup.
 - `@deepseek-ai/dsh-tool-jobs` exposes `job_output`, `job_list`, and `job_kill`, injects completion notices, and supplies the background-job system-prompt guidance.
 
-Long-running tools are producers. `dsh-tool-bash` adapts a `ShellProcess` into incremental output and process cancellation; `dsh-tool-subagent` adapts a child run into final output and child disposal. The bash and subagent capability seams remain independent of sessions and the job registry.
+Long-running shell and terminal tools are job producers. `dsh-tool-bash` adapts a `ShellProcess` into incremental output and process cancellation. The subagent capability seam uses Session/Invocation operations and remains independent of the job registry.
 
 `JobRegistry` is the Service Definition in `@deepseek-ai/dsh-jobs`; the process-local provider is `LocalJobRegistry` in `@deepseek-ai/dsh-jobs-local` (the [task-registry contract Agent Note](2026-07-26-job-registry-seam.md) records that split).
 
@@ -85,7 +85,7 @@ The runtime marks a terminal task `reported` when a read or wait delivers it, wh
 
 ## Producer opt-in
 
-Each producer owns whether its schema exposes `run_in_background` through defaulted config. `dsh-tool-bash`, `dsh-tool-terminal`, and each `dsh-tool-subagent` instance use `enableRunInBackground`, defaulting to true. A disabled instance omits the parameter and also rejects a forced background argument at execution because the generic argument validator permits undeclared keys. Schema omission advertises the capability; the execution check enforces it.
+Shell and terminal producers own whether their schema exposes `run_in_background` through defaulted config. `dsh-tool-bash` and `dsh-tool-terminal` use `enableRunInBackground`, defaulting to true. `dsh-tool-subagent` instead exposes `mode: sync|async`; async availability is controlled by the same deployment setting but returns a Session/Invocation receipt rather than a job id. Schema omission advertises the capability; the execution check enforces it.
 
 `ctx.jobs` does not rewrite producer schemas. A bundle forwards configuration only for producers it owns. If a background call reaches `start()` without an attached controller, the runtime fence fails before execution.
 
@@ -95,7 +95,7 @@ The bash seam exposes `resolve`, `run`, and `start`. `start(spec)` returns a `Sh
 
 For background bash, `dsh-tool-bash` registers the calling agent as owner. Its hooks map `kill()` to cancellation, `done` to a completed or killed `JobOutcome`, and `readOutput()` to the process's bounded incremental output plus spill and sandbox notices. Generic task tools own ids, status lines, listing, waiting, and completion notices.
 
-For background subagents, `dsh-tool-subagent` creates a task-owned `AbortController` and begins provider startup inside the task starter. Cancellation aborts the same signal before or after provider publication. `done` awaits both the child result and child disposal, maps completed output to a final result, maps abort to `killed`, and maps other stop reasons or infrastructure failures to `failed`. Intermediate child history remains in the child session and is not exposed through `readOutput()`.
+For asynchronous subagents, `dsh-tool-subagent` calls `ctx.subagents.invoke()` and returns the durable child Session and Invocation ids. Follow-up and inspection use the session controls; the child transcript retains intermediate activity and no `ctx.jobs` record is created.
 
 ## Alternatives considered
 

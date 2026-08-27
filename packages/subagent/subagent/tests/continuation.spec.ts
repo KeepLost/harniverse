@@ -169,7 +169,7 @@ function observeCancel(agent: Agent, callback: () => void): void {
 
 describe('SubagentRuntime.startContinuable', () => {
   it('returns one invocation vocabulary for synchronous and asynchronous waits', async () => {
-    const { ctx, parent } = await setup([textResponse('sync answer'), textResponse('async answer')])
+    const { ctx, parent } = await setup([textResponse('sync answer'), textResponse('async answer'), textResponse('follow-up answer')])
     const syncSpec = startSpec(parent)
     const sync = await ctx.subagents.invoke('spawn', 'sync', {
       ...syncSpec.request,
@@ -177,9 +177,10 @@ describe('SubagentRuntime.startContinuable', () => {
       signal: syncSpec.signal,
     })
     expect(sync.mode).toBe('sync')
-    expect(sync.sessionId).toBe(sync.invocationId)
     expect((await sync.result).stopReason).toBe('completed')
-    await sync.dispose()
+    expect('dispose' in sync).toBe(false)
+    await followup(ctx, parent, sync.sessionId, message('follow-up'))
+    await waitNoActivation(ctx, sync.sessionId)
 
     const asyncSpec = startSpec(parent)
     const asyncInvocation = await ctx.subagents.invoke('spawn', 'async', {

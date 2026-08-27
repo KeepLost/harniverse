@@ -8,9 +8,9 @@ The model-facing delegation tool over one configured `ctx.subagents` provider. C
 
 Each plugin instance binds one `provider` to one `toolName`; the model receives no provider selector. Load another distinctly named instance to expose another transport. The tool registers only while its provider exists, avoiding sibling load-order and provider-reload dependencies. Its description follows `provider.inheritsParentContext`: fresh children require standalone prompts, while forked children already see completed parent turns.
 
-A synchronous call passes the execution signal through startup and execution, awaits `run.result`, and always awaits `run.dispose()` before returning. Only `completed` returns the canonical `{ mode: 'sync', invocationId, sessionId, output: JsonValue[] }`; abort, refusal, token limit, and other failures become errored tool results. Their message places optional provider-authored `SubagentResult.diagnostic` under a distinct `Diagnostic:` line, then appends preserved partial assistant text after its own heading, so neither text class becomes successful assistant output and a truncated answer is never silently lost. If result collection and disposal both reject, the errored result preserves both failures.
+`sync` passes the execution signal through continuable admission and waits for the initial Activation result. Only `completed` returns the canonical `{ mode: 'sync', invocationId, sessionId, output: JsonValue[] }`; abort, refusal, token limit, and other failures become errored tool results. Their message places optional provider-authored `SubagentResult.diagnostic` under a distinct `Diagnostic:` line, then appends preserved partial assistant text after its own heading, so neither text class becomes successful assistant output and a truncated answer is never silently lost. The durable child Session remains available for later turns after the initial Activation settles.
 
-`backgroundMode` remains deployment policy for the default `mode`. The model-facing schema uses `mode: sync|async`; `sync` waits for a terminal one-shot result, while `async` returns after accepting a durable continuable child turn. Continuable asynchronous work requires a provider with `prepareContinuable`, calls the unified Invocation service, and keeps the child available for later messages. Both modes render the durable child Session id. The shipped `session_inspect` reads either Session; `session_message` continues only the asynchronous child. The continuation service delivers one settlement notice whenever that child's Activation ends.
+`mode: sync|async` is a waiting policy, not a lifecycle selector. Both modes use the unified Invocation service to establish a durable continuable child Session; `sync` waits for the initial Activation result, while `async` returns after accepting the initial child turn. Every invocation uses the Session lifecycle and never creates or reads a generic job. Both modes render the durable child Session id, and the shipped `session_inspect` plus `session_message` can inspect and continue it. The continuation service delivers one settlement notice whenever that child's Activation ends.
 
 `toolFilter` changes the child's global tool layer but is not a parent-derived authority ceiling. See the [agent-scope security non-goal](../../../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals).
 
@@ -23,7 +23,7 @@ When the optional profile-management surface is enabled, `child_profile_define` 
 | `provider` (required) | Provider name (`spawn`, `fork`, `acp`, ...). |
 | `toolName` | Model-facing name, default `subagent`; distinct for every loaded instance. |
 | `enableRunInBackground` | Allows `mode: async`, default `true`; disabling rejects asynchronous calls. |
-| `backgroundMode` | Internal default policy, default `one-shot`; it selects whether omitted `mode` defaults to `sync` or `async`. The model-facing contract remains `mode: sync|async`. |
+| `backgroundMode` | **Deprecated.** Retained so old deployment files parse; it no longer selects a lifecycle. Omitted `mode` defaults to `async` when background invocation is enabled, otherwise `sync`. |
 | `agentOptions` | Provider-specific child `provider`, `model`, and positive `maxTokens`; the in-process provider treats explicit values as overrides of inherited parent options. |
 | `persona` | Per-child persona; requires provider `persona` capability. |
 | `toolFilter` | Per-child global-tool restriction; requires `toolFilter` capability. |
@@ -33,7 +33,7 @@ When the optional profile-management surface is enabled, `child_profile_define` 
 
 ## Concurrency
 
-Foreground and background calls are concurrency-safe: sibling delegations in one assistant message overlap under the loop's rolling pool (`maxParallelToolCalls`), and results still commit in model order. Children work in their own sessions and a run never mutates the parent session; the one-shot background form's one parent-owned write — registering a Task — is a synchronous, commutative insertion that tolerates concurrent dispatch, so overlapping background calls acquire their job ids in dispatch-race order. Coordinating sibling workspace effects belongs to the model, exactly as it already does for background and continuable children. See the [parallel subagent Agent Note](../../../.agents/notes/implemented/feature/2026-08-09-parallel-subagent-delegations.md) and the [parallel tool-call Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md).
+Foreground and asynchronous calls are concurrency-safe: sibling delegations in one assistant message overlap under the loop's rolling pool (`maxParallelToolCalls`), and results still commit in model order. Children work in their own sessions and a run never mutates the parent session; asynchronous calls acquire durable child Session and Invocation ids through the subagent runtime, never generic job ids. Coordinating sibling workspace effects belongs to the model. See the [parallel subagent Agent Note](../../../.agents/notes/implemented/feature/2026-08-09-parallel-subagent-delegations.md) and the [parallel tool-call Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md).
 
 ## Model Experience
 
@@ -41,11 +41,11 @@ Foreground and background calls are concurrency-safe: sibling delegations in one
 
 #### What the model sees
 
-The generated shipped [`subagent` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-subagent) exposes `mode: sync|async` and optional `child_profile_id`; it never accepts a raw command, endpoint, credential, or Profile path. When profile management is enabled, the model additionally sees the parent-private define/list tools and their available grant. While the tool is visible in an assembly's scope, a `tool:<toolName>` system-prompt section explains the configured asynchronous default, names `session_message` and `session_inspect` as the continuation/read path, and tells the model to choose `mode: sync` only when its next action depends on the result.
+The generated shipped [`subagent` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-subagent) exposes `mode: sync|async` and optional `child_profile_id`; it never accepts a raw command, endpoint, credential, or Profile path. When profile management is enabled, the model additionally sees the parent-private define/list tools and their available grant. While the tool is visible in an assembly's scope, a `tool:<toolName>` system-prompt section explains the asynchronous default, names `session_message` and `session_inspect` as the continuation/read path, and tells the model to choose `mode: sync` only when its next action depends on the initial result.
 
 #### Token effect
 
-Fixed schema cost per parent request; each provider instance adds one schema, and each continuable instance adds one short system-prompt section.
+Fixed schema cost per parent request; each provider instance adds one schema, and each instance with background invocation enabled adds one short system-prompt section.
 
 #### KV Cache effect
 
@@ -55,7 +55,7 @@ Prefix-stable while provider instances, names, descriptions, and schemas are unc
 
 #### What the model sees
 
-The call retains the description and prompt. Success identifies the durable one-shot child Session and Invocation, states that `session_inspect` accepts that Session id and later turns do not, then includes the child's final text. Other outcomes become `Error: <message>`, with optional safe provider detail on a separate `Diagnostic:` line before any partial assistant output. Intermediate child steps stay out of the parent.
+The call retains the description and prompt. Success identifies the durable continuable child Session and Invocation, states that `session_message` can address that Session later, then includes the initial turn's final text. Other outcomes become `Error: <message>`, with optional safe provider detail on a separate `Diagnostic:` line before any partial assistant output. Intermediate child steps stay out of the parent.
 
 #### Token effect
 
@@ -69,11 +69,11 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-An asynchronous call renders both the durable child Session id and Invocation id before the child runs to completion; a synchronous call renders the same identities with the final result. An asynchronous child's settlement reaches the parent as a [service-owned notice](../subagent/README.md#settlement-notice). The shipped `session_message` tool delivers direct-child follow-ups, and `session_inspect` reads the child's transcript by Session id.
+An asynchronous call renders both the durable child Session id and Invocation id before the child runs to completion; a synchronous call renders the same identities with the final result. An asynchronous child's settlement reaches the parent as a [service-owned notice](../subagent/README.md#settlement-notice). The shipped `session_message` tool delivers direct-child follow-ups, and `session_inspect` reads the child's transcript by Session id. `job_output`, `job_list`, and `job_kill` do not apply to this Session lifecycle.
 
 #### Token effect
 
-The acknowledgement is retained; a one-shot final output enters parent history only when collected or injected, while a continuable child's output never returns through this tool — its settlement notice arrives independently of any tool result.
+The acknowledgement is retained; a synchronous initial result enters parent history when collected, while an asynchronous child's output stays in its own Session and its settlement notice arrives independently of the tool result.
 
 #### KV Cache effect
 
@@ -82,6 +82,6 @@ Append-only; newly visible content follows the reusable request prefix and does 
 ## Known Limitations and Deferred Work
 
 - **Asynchronous runs expose no result through this tool** — the child's output stays in its own session, read by its session id. The settlement notice states how that child ended and carries any final assistant message, but it is not this call's return value and cannot be awaited here.
-- **Duplicate names across waiting one-shot instances are detected late** (`TODO(subagent-dup-toolname)`) — continuable instances reserve their prompt-section name during plugin application, but preventing provider-registration rollback for waiting one-shot instances requires a registry of intended names.
+- **Duplicate names across waiting instances are detected late** (`TODO(subagent-dup-toolname)`) — preventing provider-registration rollback for waiting instances requires a registry of intended names.
 - **Child policy is fixed per instance** — another model, persona, tool filter, or depth cap requires another distinctly named tool.
 - **Profile route and scheduling policy are Host-owned** — the tool accepts opaque Profile references and priority fields, while the Host registry owns ordered model fallback attempts and priority gating. This Consumer does not choose provider endpoints or schedule siblings itself.

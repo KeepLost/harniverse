@@ -43,6 +43,8 @@ import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/a
 import { askUserQuestionAnswerSchema, questionResponsePayloadSchema } from '../src/api/questions.schema.ts'
 import { goalEditRequestSchema } from '../src/api/goals.schema.ts'
 import { subagentPromptRequestSchema } from '../src/api/subagents.schema.ts'
+import { apiDescribeValueSchema } from '../src/api/contract.schema.ts'
+import { operationGetValueSchema } from '../src/api/operations.schema.ts'
 
 describe('RpcId', () => {
   it('brands a raw string at zero runtime cost', () => {
@@ -86,6 +88,7 @@ describe('rpcErrorSchema', () => {
     // The credentials producer still emits this code, so the branch has to stay.
     expect(rpcErrorSchema.parse({ code: 'credential-rejected', message: 'm', details: { ref: 'r' } }).code).toBe('credential-rejected')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
+    expect(rpcErrorSchema.parse({ code: 'idempotency-key-reused', message: 'm', details: { key: 'k' } }).code).toBe('idempotency-key-reused')
   })
 
   it('rejects a known code with missing details', () => {
@@ -93,6 +96,13 @@ describe('rpcErrorSchema', () => {
     expect(() => rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: {} })).toThrow()
     expect(() => rpcErrorSchema.parse({ code: 'command-error', message: 'm' })).toThrow()
     expect(() => rpcErrorSchema.parse({ code: 'nope', message: 'm', details: {} })).toThrow()
+  })
+})
+
+describe('control-plane additions', () => {
+  it('validates contract discovery and operation lookup values', () => {
+    expect(apiDescribeValueSchema.parse({ version: 1, methods: [{ method: 'goal.edit', requiredCapability: 'harniverse.operate', effect: 'mutate', stability: 'stable' }] })).toMatchObject({ version: 1 })
+    expect(operationGetValueSchema.parse({ operationId: 'operation:1', kind: 'session.prompt', status: 'accepted', acceptedAt: 1 })).toMatchObject({ operationId: 'operation:1' })
   })
 })
 
@@ -113,6 +123,7 @@ describe('wire full-form schemas', () => {
     const rq = { type: 'server-request', rpcId: 'r2', method: 'session/event', payload: { a: 1 } }
     const cr = { type: 'client-response', rpcId: 'r2', result: { ok: true, value: null } }
     expect(clientRequestSchema.parse(cq).method).toBe('session.list')
+    expect(clientRequestSchema.parse({ ...cq, requestId: 'request-1' }).requestId).toBe('request-1')
     expect(serverResponseSchema.parse(sr).rpcId).toBe('r1')
     expect(serverRequestSchema.parse(rq).method).toBe('session/event')
     expect(clientResponseSchema.parse(cr).rpcId).toBe('r2')
@@ -300,7 +311,7 @@ describe('sessions domain schemas', () => {
       sessionId: 's1', mode: 'queue', content: [],
     }).clientTimeZone).toBeUndefined()
     expect(() => sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'inject', content: [] })).toThrow()
-    expect(sessionPromptValueSchema.parse({ accepted: true, messageId: 'm1' })).toEqual({ accepted: true, messageId: 'm1' })
+    expect(sessionPromptValueSchema.parse({ accepted: true, messageId: 'm1', operationId: 'operation:1' })).toEqual({ accepted: true, messageId: 'm1', operationId: 'operation:1' })
     expect(() => sessionPromptValueSchema.parse({ accepted: true })).toThrow()
     expect(() => sessionPromptValueSchema.parse({
       accepted: true, command: { kind: 'success', text: 'Goal set' },

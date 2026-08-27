@@ -83,6 +83,8 @@ export type SessionWorkStatus =
 export interface PromptReceipt {
   accepted: true
   messageId: MessageId
+  /** Operation that can be queried after this admission response. */
+  operationId: string
 }
 
 /** Backward message pages for display, or forward event pages for synchronization. */

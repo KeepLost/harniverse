@@ -2,13 +2,13 @@
 
 [English](README.md) | 中文
 
-`ctx.jobs` 的面向模型控制器：三个与 kind 无关的工具、完成通知和一个后台工作提示词区段。加载该插件会附加 `ctx.jobs.start()` 所要求的控制器。
+`ctx.jobs` 的面向模型控制器：三个用于 shell 和终端后台工作的 kind 无关工具、完成通知和一个后台工作提示词区段。Subagent Session 不是 job，应通过 subagent/session 控制工具管理。加载该插件会附加 `ctx.jobs.start()` 所要求的控制器。
 
 ## 工具
 
-- `job_output(job_id, wait?, timeout_ms?)` 默认以非阻塞方式读取。流任务只返回下一个增量；最终输出任务在终止后返回结果。每个响应都以 `[status: ...]` 结尾。`wait: true` 最多等待到配置上限，超时时仍让运行中的任务保持存活。
-- `job_list()` 以 `<id> [<kind>] <status> — <label>` 返回调用方可见的任务。
-- `job_kill(job_id, reason?)` 立即请求取消并转发已记录的原因。终止任务返回非消费式快照。
+- `job_output(job_id, wait?, timeout_ms?)` 默认以非阻塞方式读取 shell 或终端 job。流任务只返回下一个增量；最终输出任务在终止后返回结果。每个响应都以 `[status: ...]` 结尾。`wait: true` 最多等待到配置上限，超时时仍让运行中的 job 保持存活。Subagent Session id 在此无效。
+- `job_list()` 以 `<id> [<kind>] <status> — <label>` 返回调用方可见的 shell 和终端 job；Subagent Session 不会出现在这里。
+- `job_kill(job_id, reason?)` 立即请求取消 shell 或终端 job 并转发已记录的原因。Subagent Session 通过独立的 subagent/session 控制工具管理。终止 job 返回非消费式快照。
 
 三个工具都使用通用 UI 卡片：output 和 list 使用 `read`，kill 使用 `execute`。
 
@@ -48,7 +48,7 @@
 ##### 后台任务指引
 
 ```markdown
-Track every background job id you start. You are notified in-session when a job finishes — do not busy-poll or sleep on one; keep working on independent steps and do not duplicate a running job's work. Before giving a final answer, collect every still-relevant job with job_output (set wait: true only when you are genuinely blocked on it), and job_kill jobs that stopped mattering.
+Track every background job id returned by bash, pwsh, or terminal_send. These ids are not subagent Session ids: never pass a subagent Session id to job_output, job_list, or job_kill. You are notified in-session when a job finishes — do not busy-poll or sleep on one; keep working on independent steps and do not duplicate a running job's work. Before giving a final answer, collect every still-relevant shell or terminal job with job_output (set wait: true only when you are genuinely blocked on it), and job_kill jobs that stopped mattering.
 ```
 
 #### Token 影响

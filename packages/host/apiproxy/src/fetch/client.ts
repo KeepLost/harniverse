@@ -10,7 +10,7 @@ import type { AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentic
 import type { ApiProxy, HostFrame, MuxFrame } from '../api/index.ts'
 import { isMutatingRpcMethod, type RequestPayload, type ResponseValue, type RpcMethodMap } from '../api/rpc-map.ts'
 import type { ClientRequest, ClientResponse, RpcMessage, RpcReceipt, RpcRequest, RpcResponse, ServerRequest } from '../api/rpc.ts'
-import { CONNECTION_AUTHENTICATED_METHOD, RpcId, sameAuthenticationPrincipalIdentity } from '../api/rpc.ts'
+import { CONNECTION_AUTHENTICATED_METHOD, RequestId, RpcId, sameAuthenticationPrincipalIdentity } from '../api/rpc.ts'
 import type { Wire } from '../api/rpc.schema.ts'
 import {
   authenticationPrincipalIdentitySchema, rpcReceiptSchema, serverRequestSchema, serverResponseSchema,
@@ -76,6 +76,8 @@ import {
   subagentProfilesValueSchema,
   subagentPromptValueSchema,
 } from '../api/subagents.schema.ts'
+import { apiDescribeValueSchema } from '../api/contract.schema.ts'
+import { operationGetValueSchema } from '../api/operations.schema.ts'
 
 /**
  * Client consumption face of the contract (shape a): same domain tree as ApiProxy, but unary
@@ -94,6 +96,12 @@ import {
  * Derived per method key from RpcMethodMap so a map row addition updates this mechanically.
  */
 export interface IApiClient {
+  api: {
+    describe(payload: RequestPayload<'api.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'api.describe'>>>
+  }
+  operations: {
+    get(payload: RequestPayload<'operation.get'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'operation.get'>>>
+  }
   sessions: {
     list(payload: RequestPayload<'session.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.list'>>>
     search(payload: RequestPayload<'session.search'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.search'>>>
@@ -184,6 +192,8 @@ export interface IApiClient {
  * mirror of the handler's request table; key coverage compiler-enforced against RpcMethodMap).
  */
 const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseValue<K>>> } = {
+  'api.describe': apiDescribeValueSchema,
+  'operation.get': operationGetValueSchema,
   'session.list': sessionListValueSchema,
   'session.search': sessionSearchValueSchema,
   'session.create': sessionCreateValueSchema,
@@ -327,6 +337,10 @@ export abstract class AbstractApiClient implements IApiClient {
     return RpcId(crypto.randomUUID())
   }
 
+  protected mintRequestId(): RequestId {
+    return RequestId(crypto.randomUUID())
+  }
+
   /**
    * Shared POST leg of both C→S carriers (callUnary/respond): JSON body,
    * optional default timeout merged with the caller's external signal, non-2xx → transport throw.
@@ -372,7 +386,7 @@ export abstract class AbstractApiClient implements IApiClient {
       throw new Error(`cannot initiate mutating ${method} without an authenticated principal`)
     }
     const message: ClientRequest = {
-      type: 'client-request', rpcId: this.mintRpcId(), method, payload,
+      type: 'client-request', rpcId: this.mintRpcId(), requestId: this.mintRequestId(), method, payload,
       ...(expectedPrincipal === undefined ? {} : { expectedPrincipal }),
     }
     this.onEnvelope(message)
@@ -383,12 +397,14 @@ export abstract class AbstractApiClient implements IApiClient {
     }
     const full = serverResponseSchema.parse(raw)
     if (full.rpcId !== message.rpcId) throw new Error(`rpcId mismatch for ${method}: sent ${message.rpcId}, got ${full.rpcId}`)
+    if (full.requestId !== undefined && full.requestId !== message.requestId) throw new Error(`requestId mismatch for ${method}: sent ${message.requestId}, got ${full.requestId}`)
     this.validateUnaryAuthentication(method, initiatingPrincipal, full.authentication)
     this.onEnvelope(full)
     if (!full.result.ok) {
       return {
         rpcId: full.rpcId,
         result: full.result,
+        ...(full.requestId === undefined ? {} : { requestId: full.requestId }),
         ...(full.authentication === undefined ? {} : { authentication: full.authentication }),
       }
     }
@@ -398,6 +414,7 @@ export abstract class AbstractApiClient implements IApiClient {
     return {
       rpcId: full.rpcId,
       result: { ok: true, value },
+      ...(full.requestId === undefined ? {} : { requestId: full.requestId }),
       ...(full.authentication === undefined ? {} : { authentication: full.authentication }),
     }
   }
@@ -470,6 +487,14 @@ export abstract class AbstractApiClient implements IApiClient {
   }
 
   // ---- IApiClient API (arrow properties so destructured/passed references stay bound) ----
+
+  readonly api: NonNullable<IApiClient['api']> = {
+    describe: (payload, signal) => this.callUnary('api.describe', payload, signal),
+  }
+
+  readonly operations: NonNullable<IApiClient['operations']> = {
+    get: (payload, signal) => this.callUnary('operation.get', payload, signal),
+  }
 
   readonly sessions: IApiClient['sessions'] = {
     list: (payload, signal) => this.callUnary('session.list', payload, signal),

@@ -15,6 +15,8 @@ import type { JobId } from '@deepseek-ai/dsh-jobs/brand'
  * presentation policy that never reaches a human surface.
  */
 export interface JobView {
+  /** Stable operation lookup identity derived from the registry job id. */
+  operationId?: string
   /** Registry-issued `<kind>-N` identity, stable for the task's whole life. */
   id: JobId
   /**

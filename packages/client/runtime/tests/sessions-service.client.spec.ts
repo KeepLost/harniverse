@@ -627,7 +627,7 @@ describe('blank mirror', () => {
     // In flight: still blank (the flip point is the success response, which
     // proves the user message reached the host log).
     expect(session.getSnapshot().blank).toBe(true)
-    gate.resolve(ok({ accepted: true as const, messageId: 'accepted-message' as never }))
+    gate.resolve(ok({ accepted: true as const, messageId: 'accepted-message' as never, operationId: 'operation:accepted' }))
     await send
     expect(session.getSnapshot().blank).toBe(false)
     await Promise.resolve()
