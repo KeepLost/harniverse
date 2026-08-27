@@ -41,7 +41,7 @@
 | `retainRatio` | `0.16` | 原样保留的 recent surface 预算；与 `retainTokens` 互斥。 |
 | `retainTokens` | 未设置 | 原样保留的绝对 recent surface 预算。 |
 | `summarizationProvider` / `summarizationModel` | 空 | 可选 summary route；否则使用 routed conversation target。 |
-| `maxTokens` | `8192` | summary generation cap。 |
+| `maxTokens` | `8192` | summary generation 上限；选定模型上限和剩余上下文窗口可能进一步降低它。 |
 | `compactionRetries` | `1` | 额外压力压缩尝试次数。 |
 | `maxOverflowRetries` | `1` | context-overflow recovery retry cap。 |
 | `modelPolicies` | `[]` | 精确 provider/model policy override。 |

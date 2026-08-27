@@ -1275,6 +1275,27 @@ describe('default one-shot summarizer', () => {
     expect(instruction?.type === 'text' ? instruction.text : '').toContain('## Primary Request and Intent')
   })
 
+  it('does not exceed the summarization model cap or remaining context window', async () => {
+    const { ctx, adapter, compact } = await summarizerHarness(
+      [{ type: 'text', text: 'bounded summary' }],
+      undefined,
+      MODEL,
+      { auto: false, maxTokens: 131_072 },
+    )
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockResolvedValue({
+      provider: MODEL,
+      id: MODEL,
+      name: MODEL,
+      context: { contextWindow: 1_500 },
+      defaultMaxTokens: 2_000,
+    })
+
+    await compact.runSummarize(promptInput('history'), agent(conversation(1), MODEL), SIGNAL)
+
+    expect(adapter.lastOptions?.maxTokens).toBeLessThan(2_000)
+    expect(adapter.lastOptions?.maxTokens).toBeGreaterThan(0)
+  })
+
   it('replays the conversation prefix and appends the instruction as the final message', async () => {
     const { adapter, compact } = await summarizerHarness([{ type: 'text', text: 'summary' }])
     const tools = [{ name: 'do_thing', description: 'd', parameters: { type: 'object' } }]

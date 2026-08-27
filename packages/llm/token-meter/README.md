@@ -15,6 +15,8 @@ The estimator has no settings. It intentionally uses one fixed heuristic: four c
 - `measure(session, requestHeader?)` returns request pressure and the current priced surface at one consumed-log revision.
 - `estimateMessage(message)` prices one message with the fixed heuristic.
 
+The same pure estimator helpers (`estimateContent`, `estimateHeader`, `estimateMessage`, `estimateSystemTokens`, and `estimateToolsTokens`) are exported for consumers that must budget a request before dispatch, including auxiliary compaction calls.
+
 `measure()` synchronizes once and returns one detached, deeply immutable snapshot. `totalTokens` is request-and-response pressure, while `surfaceTokens` is the surface-only heuristic total and equals the sum of `nodes[].tokens`. A `requestHeader` override affects pressure fields only; the surface fields still describe the current session. Every call clones the positional nodes, so measurement is O(surface).
 
 The fold tracks full request-header snapshots, step boundaries, surface appends and replacements, successful assistant messages, provider usage, and the chunk seqs cited by each assistant message. Provider usage is reused only when the latest successful call's canonical request envelope matches the measured envelope and its total is no lower than that call's full heuristic anchor; a later success replaces the earlier anchor. Otherwise the complete current envelope and surface are estimated. Surface changes remain signed relative to a matching anchor, including negative deltas after shrinking replacements.

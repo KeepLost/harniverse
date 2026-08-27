@@ -377,6 +377,19 @@ describe('compactNow through the real loop', () => {
     await agent.whenIdle()
     expect(adapter.requests).toHaveLength(2)
   })
+
+  it('can retry after a cancelled manual compaction without reporting a changed conversation', async () => {
+    const harness = await loopHarness()
+    const { agent, compact } = harness
+    await seedHistory(harness)
+    const controller = new AbortController()
+    compact.duringSummary = () => { controller.abort(new Error('operator cancelled')) }
+
+    await expect(compact.compactNow(agent, controller.signal)).rejects.toThrow('operator cancelled')
+    compact.duringSummary = undefined
+
+    await expect(compact.compactNow(agent, SIGNAL)).resolves.not.toBeNull()
+  })
 })
 
 describe('compactNow transaction and failure classification', () => {
