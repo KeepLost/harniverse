@@ -14,6 +14,8 @@ This document records the exact DeepSeek Harness plugin baseline imported by Har
 
 The two baseline commits have the same Git tree. All downstream statements therefore describe `440d2ae5a4..HEAD` without upstream-version ambiguity. The official inventory below covers first-party packages under `packages/*/*`; vendored Cordis packages are framework dependencies, while `apps/*` are launchers and assembled application hosts.
 
+Workspace inspection implementation tracking: `25214e03ad`.
+
 ## Official Plugin Inventory
 
 <!-- official-inventory-start -->
