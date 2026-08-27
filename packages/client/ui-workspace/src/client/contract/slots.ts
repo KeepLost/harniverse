@@ -22,15 +22,17 @@
  * and a hole has exactly one declaring entry — they carry the same owner
  * contract and the same occupant.
  */
-import type { HostObservable, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { HostObservable, InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pull the owner SlotMap merges into programs that resolve the
 // runtime shares below.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {
   ConversationSnapshot, RpcResult, SessionId, SessionSearchResultItem, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { createWorkspaceViewStore } from '../stores.ts'
+import type { IWorkspaces } from '@deepseek-ai/dsh-client-runtime/client'
+import type { createWorkspaceInspectorStore, createWorkspaceViewStore } from '../stores.ts'
 
 /**
  * Owner share of the directory-flow holes: the complete conversation between
@@ -174,4 +176,21 @@ export type WorkspacePickerProps =
   & PropsRenderSlots<'conversation.hero.workspace.directoryFlow'>
   & Omit<WorkspacePickerInjected, 'hooks'>
   & DirectoryPickingHooks
+  & PropsLocale<'workspace'>
+
+/** Callbacks used by both workspace inspector registrations. */
+export type WorkspaceInspectorInjected = {
+  /** Open the existing details column without starting an inspection request. */
+  openDetails: () => void
+  listFiles: IWorkspaces['listFiles']
+  readFile: IWorkspaces['readFile']
+  gitStatus: IWorkspaces['gitStatus']
+  gitCommits: IWorkspaces['gitCommits']
+  gitDiff: IWorkspaces['gitDiff']
+}
+
+export type WorkspaceInspectorProps =
+  PropsRuntime<'conversation.details.workspaceInspector'>
+  & PropsStore<ReturnType<typeof createWorkspaceInspectorStore>>
+  & InjectFace<WorkspaceInspectorInjected>
   & PropsLocale<'workspace'>

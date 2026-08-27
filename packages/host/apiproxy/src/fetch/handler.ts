@@ -83,6 +83,10 @@ import {
 import { eventsMuxRequestSchema } from '../api/events.schema.ts'
 import { apiDescribeRequestSchema } from '../api/contract.schema.ts'
 import { operationGetRequestSchema } from '../api/operations.schema.ts'
+import { workspaceFilesListRequestSchema, workspaceFilesReadRequestSchema } from '../api/workspace-files.schema.ts'
+import {
+  workspaceGitCommitsRequestSchema, workspaceGitDiffRequestSchema, workspaceGitStatusRequestSchema,
+} from '../api/workspace-git.schema.ts'
 
 /**
  * Unary dispatch table, keyed by (and compiler-locked to) RpcMethodMap: a map row without a
@@ -147,6 +151,11 @@ const UNARY_ROUTES: UnaryRoutes = {
   'workspace.insertSessionBefore': { schema: workspaceInsertSessionBeforeRequestSchema, invoke: (api, r) => api.workspace.insertSessionBefore(r) },
   'workspace.archiveSession': { schema: workspaceArchiveSessionRequestSchema, invoke: (api, r) => api.workspace.archiveSession(r) },
   'workspace.unarchiveSession': { schema: workspaceUnarchiveSessionRequestSchema, invoke: (api, r) => api.workspace.unarchiveSession(r) },
+  'workspace.files.list': { schema: workspaceFilesListRequestSchema, invoke: (api, r, signal) => api.workspaceFiles?.list(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } }) },
+  'workspace.files.read': { schema: workspaceFilesReadRequestSchema, invoke: (api, r, signal) => api.workspaceFiles?.read(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } }) },
+  'workspace.git.status': { schema: workspaceGitStatusRequestSchema, invoke: (api, r, signal) => api.workspaceGit?.status(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace Git inspection is unavailable', details: {} } } }) },
+  'workspace.git.commits': { schema: workspaceGitCommitsRequestSchema, invoke: (api, r, signal) => api.workspaceGit?.commits(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace Git inspection is unavailable', details: {} } } }) },
+  'workspace.git.diff': { schema: workspaceGitDiffRequestSchema, invoke: (api, r, signal) => api.workspaceGit?.diff(r, signal) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace Git inspection is unavailable', details: {} } } }) },
   'skill.list': { schema: skillListRequestSchema, invoke: (api, r) => api.skills.list(r) },
   'agentPreset.list': { schema: agentPresetListRequestSchema, invoke: (api, r) => api.agentPresets.list(r) },
   'agentPreset.read': { schema: agentPresetReadRequestSchema, invoke: (api, r) => api.agentPresets.read(r) },

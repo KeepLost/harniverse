@@ -344,7 +344,8 @@ describe('details inject API', () => {
     const b = await bench()
     const entry = b.entryOf('details')
     const injected = (entry.inject as unknown as () => DetailsInjected)()
-    expect(Object.keys(injected)).toEqual(['closeDetails'])
+    expect(Object.keys(injected)).toEqual(['closeDetails', 'workspaceInspectorAvailable'])
+    expect(injected.workspaceInspectorAvailable).toBe(true)
     injected.closeDetails()
     expect(b.layoutFake.closeDetails).toHaveBeenCalledTimes(1)
     // The shared handle: details resolves the SAME instance conversation writes.

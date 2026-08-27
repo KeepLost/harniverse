@@ -6,6 +6,7 @@
  * share from the return type.
  */
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
+import type { WorkspaceFileEntry, WorkspaceGitCommit, WorkspaceGitStatusEntry } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** Browser-local order account for the hierarchy-free flat Session list. */
 export const FLAT_SESSION_ORDER_KEY = '__flat_session_order__'
@@ -82,6 +83,51 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
       setSessionOrder: (d, accountKey: string, order: string[]) => {
         d.sessionOrderByAccount[accountKey] = order
       },
+    },
+  })
+}
+
+/** Ephemeral data and selection shared by the right inspector and center view. */
+export type WorkspaceInspectorState = {
+  filePanel: boolean
+  gitPanel: boolean
+  directories: Record<string, { entries: WorkspaceFileEntry[]; truncated: boolean; loading: boolean; error?: string }>
+  openFile: {
+    workspaceId: string
+    path: string
+    content?: string
+    loading: boolean
+    error?: string
+    truncated?: boolean
+  } | null
+  git: {
+    branch: string | null
+    entries: WorkspaceGitStatusEntry[]
+    commits: WorkspaceGitCommit[]
+    loading: boolean
+    error?: string
+    truncated?: boolean
+  } | null
+}
+
+type WorkspaceInspectorActions = {
+  setFilePanel: (draft: WorkspaceInspectorState, open: boolean) => void
+  setGitPanel: (draft: WorkspaceInspectorState, open: boolean) => void
+  setDirectory: (draft: WorkspaceInspectorState, key: string, value: WorkspaceInspectorState['directories'][string]) => void
+  setOpenFile: (draft: WorkspaceInspectorState, value: WorkspaceInspectorState['openFile']) => void
+  setGit: (draft: WorkspaceInspectorState, value: WorkspaceInspectorState['git']) => void
+}
+
+/** Create the page-lifetime workspace inspector store; it deliberately has no persistence. */
+export function createWorkspaceInspectorStore(): EngineStoreHandle<WorkspaceInspectorState, WorkspaceInspectorActions> {
+  return defineStore({
+    init: (): WorkspaceInspectorState => ({ filePanel: false, gitPanel: false, directories: {}, openFile: null, git: null }),
+    actions: {
+      setFilePanel: (d, open) => { d.filePanel = open },
+      setGitPanel: (d, open) => { d.gitPanel = open },
+      setDirectory: (d, key, value) => { d.directories[key] = value },
+      setOpenFile: (d, value) => { d.openFile = value },
+      setGit: (d, value) => { d.git = value },
     },
   })
 }

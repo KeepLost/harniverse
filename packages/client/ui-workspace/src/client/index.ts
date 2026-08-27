@@ -12,11 +12,15 @@ import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots.ts'
-import { createWorkspaceViewStore } from './stores.ts'
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type { WorkspaceBrowserInjected, WorkspaceInspectorInjected, WorkspacePickerInjected } from './contract/slots.ts'
+import { createWorkspaceInspectorStore, createWorkspaceViewStore } from './stores.ts'
 import { WorkspaceBrowser } from './WorkspaceBrowser.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, zh, type WorkspaceKey } from './locales.ts'
+import { WorkspaceInspector, WorkspaceInspectorView } from './WorkspaceInspector.tsx'
+import { WorkspaceInspectorButton } from './WorkspaceInspectorButton.tsx'
 
 export type {
   DirectoryFlowOwnerProps, DirectoryFlowSlotName, DirectoryPickingHooks, DirectoryPickingInjected,
@@ -129,5 +133,45 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
     },
     WorkspacePicker,
+  ))
+  const inspectorStore = createWorkspaceInspectorStore()
+  const inspectorInjected = (): WorkspaceInspectorInjected => ({
+    openDetails: () => { ctx.get('layout')?.openDetails() },
+    listFiles: (workspaceId, path, signal) => ctx.workspaces.listFiles(workspaceId, path, signal),
+    readFile: (workspaceId, path, signal) => ctx.workspaces.readFile(workspaceId, path, signal),
+    gitStatus: (workspaceId, signal) => ctx.workspaces.gitStatus(workspaceId, signal),
+    gitCommits: (workspaceId, limit, signal) => ctx.workspaces.gitCommits(workspaceId, limit, signal),
+    gitDiff: (workspaceId, path, staged, signal) => ctx.workspaces.gitDiff(workspaceId, path, staged, signal),
+  })
+  ctx.slots.inject('details', () => ctx.slots.inject('conversation.details.workspaceInspector', () => ctx.slots.register(
+    {
+      name: 'conversation.details.workspaceInspector',
+      store: inspectorStore,
+      inject: inspectorInjected,
+      locale: NS,
+    },
+    WorkspaceInspector,
+  )))
+  ctx.slots.inject('conversation.view', () => ctx.slots.register(
+    {
+      name: 'conversation.view',
+      id: 'workspace',
+      order: 20,
+      label: () => '工作区',
+      locale: NS,
+      store: inspectorStore,
+      inject: inspectorInjected,
+    },
+    WorkspaceInspectorView,
+  ))
+  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register(
+    {
+      name: 'conversation.session.header.utilities',
+      id: 'workspace-inspector',
+      order: 20,
+      locale: NS,
+      inject: inspectorInjected,
+    },
+    WorkspaceInspectorButton,
   ))
 }

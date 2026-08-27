@@ -19,6 +19,8 @@ import type { DownloadsApi } from './downloads.ts'
 import type { ClientResponse, RpcReceipt } from './rpc.ts'
 import type { ApiApi } from './contract.ts'
 import type { OperationsApi } from './operations.ts'
+import type { WorkspaceFilesApi } from './workspace-files.ts'
+import type { WorkspaceGitApi } from './workspace-git.ts'
 
 /** Root interface of the unified API. New client-request domain = one new file pair + one field here + one map row. */
 export interface ApiProxy {
@@ -29,6 +31,10 @@ export interface ApiProxy {
   subagents: SubagentsApi
   host: HostApi
   workspace: WorkspaceApi
+  /** Optional only for legacy hand-built implementations; the Host service always provides it. */
+  workspaceFiles?: WorkspaceFilesApi
+  /** Optional only for legacy hand-built implementations; the Host service always provides it. */
+  workspaceGit?: WorkspaceGitApi
   skills: SkillsApi
   agentPresets: AgentPresetsApi
   events: EventsApi
@@ -61,6 +67,8 @@ export type {
 } from './subagents.ts'
 export type { JobView } from './jobs.ts'
 export type { WorkspaceApi, WorkspaceId, WorkspaceView } from './workspace.ts'
+export type { WorkspaceFileEntry, WorkspaceFilesApi } from './workspace-files.ts'
+export type { WorkspaceGitApi, WorkspaceGitCommit, WorkspaceGitStatusEntry } from './workspace-git.ts'
 export type { SkillsApi, SkillEntry } from './skills.ts'
 export type { AgentPresetsApi, AgentPresetEntry } from './agent-presets.ts'
 export type { EventsApi, MuxFrame, HostFrame, QueuedInboxItem, ToolCallView, ToolEventView, ToolResultView } from './events.ts'

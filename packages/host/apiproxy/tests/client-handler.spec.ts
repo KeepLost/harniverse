@@ -29,6 +29,8 @@ function scriptedApi(overrides: {
   settings?: Partial<ApiProxy['settings']>
   credentials?: Partial<ApiProxy['credentials']>
   llm?: Partial<ApiProxy['llm']>
+  workspaceFiles?: Partial<NonNullable<ApiProxy['workspaceFiles']>>
+  workspaceGit?: Partial<NonNullable<ApiProxy['workspaceGit']>>
   respond?: ApiProxy['respond']
 } = {}): ApiProxy {
   async function *empty<F>(): AsyncGenerator<RpcRequest<F>> { /* no frames */ }
@@ -105,6 +107,17 @@ function scriptedApi(overrides: {
       insertSessionBefore: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' } }),
       archiveSession: r => ok(r, { archivedSessionIds: [r.payload.sessionId] }),
       unarchiveSession: r => ok(r, { archivedSessionIds: [] }),
+    },
+    workspaceFiles: {
+      list: r => ok(r, { path: r.payload.path ?? '.', entries: [], truncated: false }),
+      read: r => ok(r, { path: r.payload.path, content: 'stub', bytes: 4, truncated: false }),
+      ...overrides.workspaceFiles,
+    },
+    workspaceGit: {
+      status: r => ok(r, { branch: 'main', entries: [], truncated: false }),
+      commits: r => ok(r, { commits: [], truncated: false }),
+      diff: r => ok(r, { diff: '', truncated: false }),
+      ...overrides.workspaceGit,
     },
     skills: { list: r => ok(r, { skills: [] }), ...overrides.skills },
     agentPresets: {
@@ -447,6 +460,18 @@ describe('workspace domain round trip', () => {
     if (created.result.ok) expect(created.result.value.created).toBe(true)
     const archivedResponse = await c.workspace.archiveSession({ sessionId: 's-arch' as never })
     expect(archivedResponse.result).toEqual({ ok: true, value: { archivedSessionIds: ['s-arch'] } })
+  })
+
+  it('routes read-only file and Git inspection through their workspace-scoped methods', async () => {
+    const c = client(scriptedApi())
+
+    expect((await c.workspaceFiles.list({ workspaceId: 'w1' as never, path: '.hidden' })).result)
+      .toEqual({ ok: true, value: { path: '.hidden', entries: [], truncated: false } })
+    expect((await c.workspaceFiles.read({ workspaceId: 'w1' as never, path: 'README.md' })).result)
+      .toEqual({ ok: true, value: { path: 'README.md', content: 'stub', bytes: 4, truncated: false } })
+    expect((await c.workspaceGit.status({ workspaceId: 'w1' as never })).result.ok).toBe(true)
+    expect((await c.workspaceGit.commits({ workspaceId: 'w1' as never, limit: 10 })).result.ok).toBe(true)
+    expect((await c.workspaceGit.diff({ workspaceId: 'w1' as never, staged: true })).result.ok).toBe(true)
   })
 
   it('rejects a pathless create payload at the handler schema', async () => {

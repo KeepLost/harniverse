@@ -116,6 +116,14 @@ import {
   readApiRemoteSessionHistoryPage,
 } from '@deepseek-ai/dsh-api-remotes'
 import { canOpenNativePath, openNativePath, openNativeTextFile } from './native-path-opener.ts'
+import {
+  listWorkspaceFiles,
+  readWorkspaceFile,
+  WorkspaceInspectorError,
+  workspaceGitCommits,
+  workspaceGitDiff,
+  workspaceGitStatus,
+} from './workspace-inspector.ts'
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
@@ -1206,6 +1214,47 @@ function workspaceNotFound<T>(request: RpcRequest<unknown>, workspaceId: string)
     message: `workspace "${workspaceId}" not found`,
     details: { workspaceId },
   })
+}
+
+/** Map expected filesystem/Git inspection failures without exposing Host command output. */
+function workspaceInspectionFailure<T>(
+  request: RpcRequest<unknown>,
+  workspaceId: string,
+  path: string,
+  error: unknown,
+  signal: AbortSignal,
+): RpcResponse<T> {
+  if (signal.aborted) {
+    return err(request, { code: 'cancelled', message: 'workspace inspection was cancelled', details: {} })
+  }
+  if (!(error instanceof WorkspaceInspectorError)) {
+    return err(request, { code: 'internal', message: 'workspace inspection failed', details: {} })
+  }
+  const inspectedPath = error.path ?? path
+  switch (error.code) {
+    case 'workspace-path-invalid':
+    case 'workspace-entry-not-found':
+    case 'workspace-entry-not-readable':
+    case 'workspace-entry-type-invalid':
+    case 'workspace-file-binary':
+      return err(request, {
+        code: error.code,
+        message: error.message,
+        details: { workspaceId, path: inspectedPath },
+      })
+    case 'workspace-git-not-repository':
+      return err(request, {
+        code: error.code,
+        message: error.message,
+        details: { workspaceId },
+      })
+    case 'workspace-git-failed':
+      return err(request, {
+        code: error.code,
+        message: error.message,
+        details: { workspaceId, operation: error.operation ?? 'unknown' },
+      })
+  }
 }
 
 /** Wire projection of one workspace entity (the workspace.* value row). */
@@ -3912,6 +3961,66 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           })
         }
         return ok(request, { archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds] })
+      },
+    },
+
+    workspaceFiles: {
+      async list(request, signal) {
+        const { workspaceId } = request.payload
+        const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
+        if (workspace === undefined) return workspaceNotFound(request, workspaceId)
+        const path = request.payload.path ?? '.'
+        try {
+          return ok(request, await listWorkspaceFiles(workspace.path, path, signal))
+        } catch (error: unknown) {
+          return workspaceInspectionFailure(request, workspaceId, path, error, signal)
+        }
+      },
+
+      async read(request, signal) {
+        const { workspaceId, path } = request.payload
+        const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
+        if (workspace === undefined) return workspaceNotFound(request, workspaceId)
+        try {
+          return ok(request, await readWorkspaceFile(workspace.path, path, signal))
+        } catch (error: unknown) {
+          return workspaceInspectionFailure(request, workspaceId, path, error, signal)
+        }
+      },
+    },
+
+    workspaceGit: {
+      async status(request, signal) {
+        const { workspaceId } = request.payload
+        const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
+        if (workspace === undefined) return workspaceNotFound(request, workspaceId)
+        try {
+          return ok(request, await workspaceGitStatus(workspace.path, signal))
+        } catch (error: unknown) {
+          return workspaceInspectionFailure(request, workspaceId, '.', error, signal)
+        }
+      },
+
+      async commits(request, signal) {
+        const { workspaceId, limit = 50 } = request.payload
+        const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
+        if (workspace === undefined) return workspaceNotFound(request, workspaceId)
+        try {
+          return ok(request, await workspaceGitCommits(workspace.path, limit, signal))
+        } catch (error: unknown) {
+          return workspaceInspectionFailure(request, workspaceId, '.', error, signal)
+        }
+      },
+
+      async diff(request, signal) {
+        const { workspaceId, path, staged = false } = request.payload
+        const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
+        if (workspace === undefined) return workspaceNotFound(request, workspaceId)
+        try {
+          return ok(request, await workspaceGitDiff(workspace.path, path, staged, signal))
+        } catch (error: unknown) {
+          return workspaceInspectionFailure(request, workspaceId, path ?? '.', error, signal)
+        }
       },
     },
 

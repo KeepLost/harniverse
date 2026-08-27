@@ -19,6 +19,8 @@ import type { AuthenticationCapability } from '@deepseek-ai/dsh-authentication'
 import type { ApiApi } from './contract.ts'
 import type { ApiMethodDescription } from './contract.ts'
 import type { OperationsApi } from './operations.ts'
+import type { WorkspaceFilesApi } from './workspace-files.ts'
+import type { WorkspaceGitApi } from './workspace-git.ts'
 
 /**
  * Method name → method signature. Signatures are the single source of truth; payload/value
@@ -62,6 +64,11 @@ export interface RpcMethodMap {
   'workspace.insertSessionBefore': WorkspaceApi['insertSessionBefore']
   'workspace.archiveSession': WorkspaceApi['archiveSession']
   'workspace.unarchiveSession': WorkspaceApi['unarchiveSession']
+  'workspace.files.list': WorkspaceFilesApi['list']
+  'workspace.files.read': WorkspaceFilesApi['read']
+  'workspace.git.status': WorkspaceGitApi['status']
+  'workspace.git.commits': WorkspaceGitApi['commits']
+  'workspace.git.diff': WorkspaceGitApi['diff']
   'skill.list': SkillsApi['list']
   'agentPreset.list': AgentPresetsApi['list']
   'agentPreset.read': AgentPresetsApi['read']
@@ -125,6 +132,11 @@ export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: Auth
   'workspace.insertSessionBefore': 'harniverse.operate',
   'workspace.archiveSession': 'harniverse.operate',
   'workspace.unarchiveSession': 'harniverse.operate',
+  'workspace.files.list': 'harniverse.observe',
+  'workspace.files.read': 'harniverse.observe',
+  'workspace.git.status': 'harniverse.observe',
+  'workspace.git.commits': 'harniverse.observe',
+  'workspace.git.diff': 'harniverse.observe',
   'skill.list': 'harniverse.observe',
   'agentPreset.list': 'harniverse.observe',
   'agentPreset.read': 'harniverse.administer',
@@ -188,6 +200,11 @@ export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 
   'workspace.insertSessionBefore': 'mutate',
   'workspace.archiveSession': 'mutate',
   'workspace.unarchiveSession': 'mutate',
+  'workspace.files.list': 'read',
+  'workspace.files.read': 'read',
+  'workspace.git.status': 'read',
+  'workspace.git.commits': 'read',
+  'workspace.git.diff': 'read',
   'skill.list': 'read',
   'agentPreset.list': 'read',
   'agentPreset.read': 'read',

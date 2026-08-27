@@ -6,7 +6,10 @@
  * the concrete class. Widening this interface is the explicit act of
  * widening what features may do to the workspaces domain.
  */
-import type { DirectoryListing, SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type {
+  DirectoryListing, SessionId, WorkspaceFileEntry, WorkspaceGitCommit,
+  WorkspaceGitStatusEntry, WorkspaceId, WorkspaceView,
+} from '@deepseek-ai/dsh-api-remotes/client'
 import type { WorkspaceListState } from '../workspaces/service.ts'
 import type { ObservableSnapshot } from './store.ts'
 
@@ -58,6 +61,35 @@ export interface IWorkspaces {
    * @param path - absolute or host-resolvable path.
    */
   openPath(path: string): Promise<void>
+  /** List one lazy-loaded directory level inside a registered Workspace. */
+  listFiles(workspaceId: WorkspaceId, path?: string, signal?: AbortSignal): Promise<{
+    path: string
+    entries: WorkspaceFileEntry[]
+    truncated: boolean
+  }>
+  /** Read one UTF-8 text file inside a registered Workspace. */
+  readFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
+    path: string
+    content: string
+    bytes: number
+    truncated: boolean
+  }>
+  /** Read the current read-only Git status for a Workspace. */
+  gitStatus(workspaceId: WorkspaceId, signal?: AbortSignal): Promise<{
+    branch: string | null
+    entries: WorkspaceGitStatusEntry[]
+    truncated: boolean
+  }>
+  /** Read a bounded read-only Git history for a Workspace. */
+  gitCommits(workspaceId: WorkspaceId, limit?: number, signal?: AbortSignal): Promise<{
+    commits: WorkspaceGitCommit[]
+    truncated: boolean
+  }>
+  /** Read the current working-tree or staged diff for a Workspace path. */
+  gitDiff(workspaceId: WorkspaceId, path?: string, staged?: boolean, signal?: AbortSignal): Promise<{
+    diff: string
+    truncated: boolean
+  }>
   /**
    * Rename a Workspace.
    * @param workspaceId - target workspace.

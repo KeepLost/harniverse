@@ -2,7 +2,8 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  DirectoryListing, IApiClient, RpcError,
+  DirectoryListing, IApiClient, RpcError, WorkspaceFileEntry, WorkspaceGitCommit,
+  WorkspaceGitStatusEntry,
   SessionId, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '../contract/store.ts'
@@ -266,6 +267,55 @@ export class WorkspaceRuntime implements IWorkspaces {
     if (!response.result.ok) {
       throw new Error(`path open failed: ${response.result.error.message}`)
     }
+  }
+
+  async listFiles(workspaceId: WorkspaceId, path?: string, signal?: AbortSignal): Promise<{
+    path: string
+    entries: WorkspaceFileEntry[]
+    truncated: boolean
+  }> {
+    const response = await this.api.workspaceFiles.list({ workspaceId, ...(path === undefined ? {} : { path }) }, signal)
+    if (!response.result.ok) throw new Error(`workspace file listing failed: ${response.result.error.message}`)
+    return response.result.value
+  }
+
+  async readFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
+    path: string
+    content: string
+    bytes: number
+    truncated: boolean
+  }> {
+    const response = await this.api.workspaceFiles.read({ workspaceId, path }, signal)
+    if (!response.result.ok) throw new Error(`workspace file read failed: ${response.result.error.message}`)
+    return response.result.value
+  }
+
+  async gitStatus(workspaceId: WorkspaceId, signal?: AbortSignal): Promise<{
+    branch: string | null
+    entries: WorkspaceGitStatusEntry[]
+    truncated: boolean
+  }> {
+    const response = await this.api.workspaceGit.status({ workspaceId }, signal)
+    if (!response.result.ok) throw new Error(`workspace Git status failed: ${response.result.error.message}`)
+    return response.result.value
+  }
+
+  async gitCommits(workspaceId: WorkspaceId, limit?: number, signal?: AbortSignal): Promise<{
+    commits: WorkspaceGitCommit[]
+    truncated: boolean
+  }> {
+    const response = await this.api.workspaceGit.commits({ workspaceId, ...(limit === undefined ? {} : { limit }) }, signal)
+    if (!response.result.ok) throw new Error(`workspace Git history failed: ${response.result.error.message}`)
+    return response.result.value
+  }
+
+  async gitDiff(workspaceId: WorkspaceId, path?: string, staged = false, signal?: AbortSignal): Promise<{
+    diff: string
+    truncated: boolean
+  }> {
+    const response = await this.api.workspaceGit.diff({ workspaceId, staged, ...(path === undefined ? {} : { path }) }, signal)
+    if (!response.result.ok) throw new Error(`workspace Git diff failed: ${response.result.error.message}`)
+    return response.result.value
   }
 
   /**

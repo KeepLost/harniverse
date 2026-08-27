@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -323,6 +323,51 @@ describe('workspace.create', () => {
     expect(secondResult.workspace.workspaceId).not.toBe(firstResult.workspace.workspaceId)
     expect(expectOk(await api.workspace.list(request({}))).items.map(workspace => workspace.path))
       .toEqual([second, first])
+  })
+})
+
+describe('workspace file inspection', () => {
+  it('resolves workspace ids, preserves hidden entries, and returns structured containment errors', async () => {
+    const { api, root } = await harness()
+    const project = stageDir(root, 'inspected')
+    mkdirSync(join(project, '.hidden'))
+    writeFileSync(join(project, 'README.md'), 'workspace text')
+    const outside = stageDir(root, 'outside')
+    writeFileSync(join(outside, 'secret.txt'), 'outside')
+    symlinkSync(outside, join(project, 'escape'), 'dir')
+    const workspace = expectOk(await api.workspace.create(request({ path: project }))).workspace
+    if (api.workspaceFiles === undefined || api.workspaceGit === undefined) {
+      throw new Error('workspace inspection surfaces are unavailable')
+    }
+
+    const listed = expectOk(await api.workspaceFiles.list(
+      request({ workspaceId: workspace.workspaceId }),
+      new AbortController().signal,
+    ))
+    expect(listed.entries.map(entry => entry.name)).toContain('.hidden')
+    const read = expectOk(await api.workspaceFiles.read(
+      request({ workspaceId: workspace.workspaceId, path: 'README.md' }),
+      new AbortController().signal,
+    ))
+    expect(read.content).toBe('workspace text')
+
+    const escaped = await api.workspaceFiles.read(
+      request({ workspaceId: workspace.workspaceId, path: 'escape/secret.txt' }),
+      new AbortController().signal,
+    )
+    expect(escaped.result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'workspace-path-invalid',
+        details: { workspaceId: workspace.workspaceId, path: 'escape/secret.txt' },
+      },
+    })
+
+    const missing = await api.workspaceGit.status(
+      request({ workspaceId: 'missing' as WorkspaceId }),
+      new AbortController().signal,
+    )
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'workspace-not-found' } })
   })
 })
 
