@@ -19,6 +19,7 @@ import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekAdapter, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekFileStore } from '@deepseek-ai/dsh-llm-deepseek'
+import type { LlmWireAttempt, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { httpErrorCode } from '../src/adapter.ts'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
@@ -110,6 +111,31 @@ async function drain(adapter: DeepSeekAdapter): Promise<void> {
 }
 
 describe('DeepSeekAdapter against a mock server', () => {
+  it('reports compact wire metadata for a successful request', async () => {
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const records: LlmWireAttempt[] = []
+    const chunks: StreamChunk[] = []
+    for await (const chunk of adapterOf({ baseURL: server.url }).stream({
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+      messages: [createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })],
+      wireExchangeId: 'deepseek-exchange',
+      onWireAttempt: record => records.push(record),
+    })) chunks.push(chunk)
+
+    expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'stop' } })
+    expect(records).toHaveLength(1)
+    expect(records[0]).toMatchObject({
+      exchangeId: 'deepseek-exchange',
+      api: 'openai-completions',
+      provider: 'deepseek-official',
+      outcome: 'success',
+      response: { status: 200 },
+      request: { bytes: expect.any(Number), fingerprint: expect.any(String) },
+    })
+    expect(records[0]?.request).not.toHaveProperty('parameters.messages')
+  })
+
   it('falls back to one all-inline image request when Files resolution fails', async () => {
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const files = new DeepSeekFileStore({

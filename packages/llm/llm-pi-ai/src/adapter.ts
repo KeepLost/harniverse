@@ -40,6 +40,9 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions,
+  LlmFailure,
+  LlmWireAttempt,
+  LlmWireAttemptOutcome,
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
@@ -47,6 +50,7 @@ import type {
   ResolvedRetryPolicy,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
+import { wireDiagnosticHeaders, wireRequestMetadata } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
@@ -81,6 +85,55 @@ export interface PiAiAdapterOptions {
    * conversion because its stored replay state is unusable by this build.
    */
   onReplayDegrade?: (detail: { provider: string; model: string; reason: string }) => void
+}
+
+interface WireAttemptState {
+  readonly attempt: number
+  readonly request: ReturnType<typeof wireRequestMetadata>
+  readonly startedAt: number
+  response?: { status: number; headers?: Record<string, string> }
+  reported: boolean
+}
+
+function wireUrl(model: Model<Api>): string {
+  const path = model.api === 'openai-responses'
+    ? '/responses'
+    : model.api === 'anthropic-messages'
+      ? '/messages'
+      : '/chat/completions'
+  return `${model.baseUrl.replace(/\/$/u, '')}${path}`
+}
+
+function wireFailure(error: unknown): LlmFailure {
+  if (error instanceof LlmError) return error.failure
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    code: 'PI_AI_ERROR',
+  }
+}
+
+/** Recover the status and provider message pi-ai embeds in SDK errors. */
+function enrichWireFailure(failure: LlmFailure): LlmFailure {
+  if (failure.status !== undefined) return failure
+  const match = /^(\d{3}):\s*(\{.*\})$/u.exec(failure.message)
+  if (match === null) return failure
+  const bodyText = match[2]
+  if (bodyText === undefined) return failure
+  const status = Number(match[1])
+  let message = failure.message
+  try {
+    const body = JSON.parse(bodyText) as { message?: unknown }
+    if (typeof body.message === 'string') message = body.message
+  } catch {
+    // The SDK status line remains useful when its embedded body is not JSON.
+  }
+  return { ...failure, message, status }
+}
+
+function wireOutcome(reason: Extract<StreamChunk, { type: 'finish' }>['reason'], response: WireAttemptState['response']): LlmWireAttemptOutcome {
+  if (reason.kind === 'aborted') return 'aborted'
+  if (reason.kind === 'error') return response !== undefined && response.status >= 400 ? 'http-error' : 'stream-error'
+  return 'success'
 }
 
 /** Copy profile stream knobs into pi-ai's common option vocabulary. */
@@ -302,6 +355,53 @@ export class PiAiAdapter extends LlmAdapter {
       : AbortSignal.any([options.signal, consumer.signal])
     const streamIdleTimeoutMs = profile.streamIdleTimeoutMs
     using watchdog = idleWatchdog(upstream, streamIdleTimeoutMs, 'LLM_STREAM_IDLE_TIMEOUT')
+    const exchangeId = options.wireExchangeId ?? crypto.randomUUID()
+    let attemptNumber = 0
+    let activeAttempt: WireAttemptState | undefined
+    const report = (outcome: LlmWireAttemptOutcome, failure?: LlmFailure): void => {
+      const attempt = activeAttempt
+      if (attempt === undefined || attempt.reported || options.onWireAttempt === undefined) return
+      attempt.reported = true
+      const response = attempt.response
+      const record: LlmWireAttempt = {
+        exchangeId,
+        attempt: attempt.attempt,
+        api: String(model.api),
+        provider: options.provider,
+        model: options.model,
+        url: wireUrl(model),
+        method: 'POST',
+        request: attempt.request,
+        ...response === undefined ? {} : { response },
+        ...failure === undefined ? {} : { failure },
+        outcome,
+        durationMs: Math.max(0, Date.now() - attempt.startedAt),
+      }
+      options.onWireAttempt(record)
+    }
+    const onPayload = options.onWireAttempt === undefined
+      ? undefined
+      : (payload: unknown): undefined => {
+        activeAttempt = {
+          attempt: ++attemptNumber,
+          request: wireRequestMetadata(payload),
+          startedAt: Date.now(),
+          reported: false,
+        }
+        return undefined
+      }
+    const onResponse = options.onWireAttempt === undefined
+      ? undefined
+      : (response: { status: number; headers: Record<string, string> }): void => {
+        if (activeAttempt === undefined) return
+        activeAttempt.response = {
+          status: response.status,
+          ...(() => {
+            const headers = wireDiagnosticHeaders(response.headers)
+            return headers === undefined ? {} : { headers }
+          })(),
+        }
+      }
 
     try {
       const containsImage = options.messages.some(message => contentHasImage(message.content))
@@ -328,6 +428,8 @@ export class PiAiAdapter extends LlmAdapter {
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
+        ...onPayload === undefined ? {} : { onPayload },
+        ...onResponse === undefined ? {} : { onResponse },
         signal: watchdog.signal,
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
@@ -344,6 +446,15 @@ export class PiAiAdapter extends LlmAdapter {
             exhausted = true
             return
           }
+          if (result.value.type === 'finish') {
+            const failure = result.value.reason.kind === 'error' || result.value.reason.kind === 'aborted'
+              ? enrichWireFailure(result.value.reason.failure)
+              : undefined
+            if (failure?.status !== undefined && activeAttempt !== undefined && activeAttempt.response === undefined) {
+              activeAttempt.response = { status: failure.status }
+            }
+            report(wireOutcome(result.value.reason, activeAttempt?.response), failure)
+          }
           yield result.value
         }
       } finally {
@@ -358,13 +469,21 @@ export class PiAiAdapter extends LlmAdapter {
       }
     } catch (error: unknown) {
       if (timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT') !== undefined) {
+        report('stream-error', wireFailure(error))
         throw new LlmError(`pi-ai stream idle timeout after ${streamIdleTimeoutMs}ms`, 'TIMEOUT', { cause: error })
       }
       if (options.signal?.aborted) {
+        report('aborted', enrichWireFailure(wireFailure(error)))
         throw new LlmError('pi-ai request aborted by caller', 'ABORTED', { cause: error })
       }
+      report('stream-error', enrichWireFailure(wireFailure(error)))
       throw error
     } finally {
+      if (activeAttempt !== undefined && !activeAttempt.reported) {
+        report(options.signal?.aborted ? 'aborted' : 'stream-error', options.signal?.aborted
+          ? wireFailure(new LlmError('pi-ai request aborted by caller', 'ABORTED'))
+          : wireFailure(new LlmError('pi-ai stream ended before a terminal result', 'STREAM_CLOSED')))
+      }
       consumer.abort('pi-ai stream consumer stopped')
     }
   }

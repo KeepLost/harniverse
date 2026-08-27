@@ -514,8 +514,14 @@ interface GenerateOptions {
    * generation policy. Ordinary conversation requests leave it unset.
    */
   purpose?: 'compaction' | 'session-title'
+  /** Runtime-only exchange id supplied by the agent loop for wire diagnostics. */
+  wireExchangeId?: string
+  /** Runtime-only observer for one completed provider-wire attempt. */
+  onWireAttempt?: (attempt: LlmWireAttempt) => void
 }
 ```
+
+agent loop 会在需要将提供方尝试与 append-only Session 日志关联时提供这些仅限运行时使用的网络字段。适配器通过 `onWireAttempt` 报告紧凑的请求与响应事实；生成的 `llm/wire-attempt` 事件引用请求快照和历史截点，不复制对话消息、系统文本或工具。
 
 模型响应为何停止由可合并扩展的原因表示。提供方终态失败携带流式约定的 [`LlmFailure`](#llmfailure)：
 
@@ -853,7 +859,7 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Source: [`packages/llm/llm/src/index.ts:284`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:285`](../../packages/llm/llm/src/index.ts)
 
 <a id="llm-events"></a>
 
@@ -902,5 +908,5 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 'llm/stream'(this: LlmRuntime, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
 ```
 
-Source: [`packages/llm/llm/src/index.ts:64`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:65`](../../packages/llm/llm/src/index.ts)
 <!-- END GENERATED cordis-surface -->

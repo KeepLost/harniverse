@@ -142,12 +142,30 @@ describe('session-log invariants', () => {
     enclosed.append('turn/start', { turn: 1 })
     enclosed.append('step/start', { turn: 1, step: 1 })
     expect(() => enclosed.append('todo/write', { todos: [] })).not.toThrow()
-    expect(() => enclosed.append('request/header', {
+    const header = enclosed.append('request/header', {
       header: { config: { provider: 'mock', model: 'mock' } },
       reason: 'initial',
-    } as never)).not.toThrow()
-    expect(() => enclosed.append('request/context', {
+    } as never)
+    const context = enclosed.append('request/context', {
       provider: 'mock', model: 'mock',
+    })
+    expect(() => enclosed.append('llm/wire-attempt', {
+      exchangeId: 'wire-invariant',
+      attempt: 1,
+      api: 'mock',
+      provider: 'mock',
+      model: 'mock',
+      url: 'mock://model',
+      method: 'POST',
+      request: { bytes: 0, fingerprint: 'test' },
+      response: { status: 200 },
+      outcome: 'success',
+      durationMs: 0,
+      turn: 1,
+      step: 1,
+      historyCutSeq: context.seq,
+      requestHeaderSeq: header.seq,
+      requestContextSeq: context.seq,
     })).not.toThrow()
 
     const outside = (await setup()).ctx.sessions.create()
@@ -161,6 +179,21 @@ describe('session-log invariants', () => {
       model: 'm',
       contextWindow: 128_000,
     })).toThrow(/outside any open turn/)
+    expect(() => outside.append('llm/wire-attempt', {
+      exchangeId: 'wire-outside',
+      attempt: 1,
+      api: 'mock',
+      provider: 'mock',
+      model: 'm',
+      url: 'mock://model',
+      method: 'POST',
+      request: { bytes: 0, fingerprint: 'test' },
+      outcome: 'success',
+      durationMs: 0,
+      turn: 1,
+      step: 1,
+      requestHeaderSeq: 0,
+    })).toThrow(/open is turn null\/step null/)
     // The owning plugin decides whether a merge-extensible event is log-only.
     const appendUnknown = outside.append.bind(outside) as (type: string, data: unknown) => unknown
     expect(() => { appendUnknown('plugin/marker', {}) }).not.toThrow()

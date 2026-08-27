@@ -71,7 +71,7 @@ turn/start
      step/start
      append entered messages as user/message
      derive model history from the log
-     agent/request -> llm/stream -> assistant/chunk* -> assistant/message
+      agent/request -> llm/stream -> llm/wire-attempt + assistant/chunk* -> assistant/message
      tool/call* -> tools/pre-execute -> tools/execute -> tools/post-execute -> tools/finalize-result -> tool/result*
      step/end
      tools owe another request, or next-step input arrived -> claim -> next step
@@ -91,7 +91,7 @@ Details: the [sequence diagram](agent-lifecycle.md), the [tool pipeline](tool-ex
 
 ## Session log
 
-The session log is the source of the context the model sees. `deriveMessages()` projects model history from it, and raw `assistant/chunk` events preserve replay and UI fidelity. Fork, resume, transcripts, telemetry, and persistence all derive from this stream.
+The session log is the source of the context the model sees. `deriveMessages()` projects model history from it, and raw `assistant/chunk` events preserve replay and UI fidelity. Fork, resume, transcripts, telemetry, and persistence all derive from this stream. The non-surface `llm/wire-attempt` event adds adapter transport facts without copying conversation content.
 
 **Model-visible means logged.** Anything that reaches a model request must be reconstructable from the log, and a runtime invariant asserts it. This is why a new model-visible input requires a new session event: extend `SessionEventMap` and render from the log.
 

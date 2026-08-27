@@ -108,6 +108,8 @@ interface SessionEventMap {
    * changes. It does not participate in request reconstruction or header equality.
    */
   'request/context': RequestContext
+  /** Provider-wire facts for one adapter attempt; conversation content stays in the session log. */
+  'llm/wire-attempt': LlmWireAttemptEventData
   /**
    * Marks the end of a constructor seed. Events before it have smaller seq
    * values and came from the seed (resume, fork, or replay); this lifecycle
@@ -198,6 +200,25 @@ interface RequestContext {
   model: string
   /** Maximum combined request and response context in tokens, when advertised. */
   contextWindow?: number
+}
+```
+
+### The wire-attempt event: `llm/wire-attempt`
+
+`llm/wire-attempt` records one actual adapter attempt without duplicating the conversation. Its session indexes identify the history cut, full request header, and route context used to assemble the request; its compact wire fields preserve the protocol parameters, canonical request fingerprint and size, response status and selected diagnostic headers, timing, and normalized failure. A replay can rebuild the request from the cited Session events and compare its provider status and error to the recorded result.
+
+```ts type-equiv
+/** Session index fields that bind one wire attempt to the exact log snapshot it used. */
+interface LlmWireAttemptEventData extends LlmWireAttempt {
+  /** Turn and step containing the logical model request. */
+  readonly turn: number
+  readonly step: number
+  /** Last Session event available when the request was assembled, if non-empty. */
+  readonly historyCutSeq?: number
+  /** Full request/header snapshot used by the request. */
+  readonly requestHeaderSeq: number
+  /** Route metadata snapshot used by the request, when one was logged. */
+  readonly requestContextSeq?: number
 }
 ```
 

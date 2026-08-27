@@ -75,7 +75,7 @@ turn/start
      step/start
      append entered messages as user/message
      derive model history from the log
-     agent/request -> llm/stream -> assistant/chunk* -> assistant/message
+     agent/request -> llm/stream -> llm/wire-attempt + assistant/chunk* -> assistant/message
      tool/call* -> tools/pre-execute -> tools/execute -> tools/post-execute -> tools/finalize-result -> tool/result*
      step/end
      tools owe another request, or next-step input arrived -> claim -> next step
@@ -95,7 +95,7 @@ Agent teardown 由 AgentLoop 的单一完全停稳边界持有。它依次拒绝
 
 ## 会话日志
 
-会话日志是模型所见上下文的来源。`deriveMessages()` 从中投影出模型历史，原始 `assistant/chunk` 事件则保证回放和 UI 保真。fork、恢复、transcript（文本记录）、遥测和持久化都派生自该事件流。
+会话日志是模型所见上下文的来源。`deriveMessages()` 从中投影出模型历史，原始 `assistant/chunk` 事件则保证回放和 UI 保真。fork、恢复、transcript（文本记录）、遥测和持久化都派生自该事件流。非 surface 的 `llm/wire-attempt` 事件补充适配器传输事实，但不复制对话内容。
 
 **模型可见即已记录。** 抵达模型请求的一切都必须能从日志重建，并由一项运行时不变量断言这一点。因此，新增一项模型可见输入就需要新增一个会话事件：扩展 `SessionEventMap` 并从日志渲染。
 

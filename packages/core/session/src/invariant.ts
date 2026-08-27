@@ -119,6 +119,18 @@ function validateEvent(
       requireOpenStep(trace, 'assistant/message', event.data.turn, event.data.step, fail)
       break
     }
+    case 'llm/wire-attempt': {
+      requireOpenStep(trace, 'llm/wire-attempt', event.data.turn, event.data.step, fail)
+      const references = [
+        event.data.historyCutSeq,
+        event.data.requestHeaderSeq,
+        event.data.requestContextSeq,
+      ]
+      if (references.some(seq => seq !== undefined && seq >= event.seq)) {
+        fail(`llm/wire-attempt references event seq ${event.seq} or a later event`)
+      }
+      break
+    }
     case 'tool/call': {
       requireOpenStep(trace, 'tool/call', event.data.turn, event.data.step, fail)
       pendingCalls = { kind: 'add', callId: event.data.callId }

@@ -508,8 +508,14 @@ interface GenerateOptions {
    * generation policy. Ordinary conversation requests leave it unset.
    */
   purpose?: 'compaction' | 'session-title'
+  /** Runtime-only exchange id supplied by the agent loop for wire diagnostics. */
+  wireExchangeId?: string
+  /** Runtime-only observer for one completed provider-wire attempt. */
+  onWireAttempt?: (attempt: LlmWireAttempt) => void
 }
 ```
+
+The agent loop supplies the runtime-only wire fields when a provider attempt must be correlated with the append-only Session log. Adapters report compact request and response facts through `onWireAttempt`; the resulting `llm/wire-attempt` event cites the request snapshots and history cut instead of copying conversation messages, system text, or tools.
 
 Why a model response stopped is a merge-extensible reason. Terminal provider failures carry the streaming contract's [`LlmFailure`](#llmfailure):
 
@@ -847,7 +853,7 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Source: [`packages/llm/llm/src/index.ts:284`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:285`](../../packages/llm/llm/src/index.ts)
 
 <a id="llm-events"></a>
 
@@ -896,5 +902,5 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 'llm/stream'(this: LlmRuntime, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
 ```
 
-Source: [`packages/llm/llm/src/index.ts:64`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:65`](../../packages/llm/llm/src/index.ts)
 <!-- END GENERATED cordis-surface -->

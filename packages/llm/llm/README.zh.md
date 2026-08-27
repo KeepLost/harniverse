@@ -24,6 +24,8 @@
 - `ctx.llm.prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>` 在一次精确模型查询中解析配置、脱耦的上下文元数据以及标明哪些字段由适配器默认值填入的标记，再将当前适配器注册和不可变重试策略捕获为一次可取消、一次性调用。
 - `ctx.llm.stream(options: GenerateOptions): AsyncIterable<StreamChunk>` 将一次模型调用流式输出为原始分片（token 级增量）。消费方使用 `BlockAssembler` 将分片组装为块／消息。
 
+agent loop 构造的请求会携带仅限运行时使用的 `wireExchangeId` 与 `onWireAttempt` 字段。适配器通过回调报告紧凑的传输事实；loop 将其作为 `llm/wire-attempt` 追加到会话，并引用会话的请求快照与历史截点。对话内容仍由 Session 日志负责，网络记录只保存适配器参数、请求 fingerprint 与大小、响应状态和诊断 header、耗时以及可用于比较回放的归一化错误。
+
 `LlmRuntime` 将最终适配器选择、同步分发、迭代器构造和迭代期间的失败，统一转换为流协议唯一的终止形式：`finish { kind: 'error' | 'aborted', failure }`。部分增量输出后发生失败时，内容块可能仍未闭合；消费方会丢弃这些不完整输出。`llm/stream` middleware、嵌套调用、适配器清理和下游消费方的错误仍会抛出，因为它们属于插件或消费方失败，而非模型请求结果。已准备调用会暴露随其确切适配器注册一同捕获的不可变重试策略；完全由 middleware 处理的路由没有服务策略。
 
 询问端点属于配置期针对**草稿**的操作，以 settings namespace 而非提供方路由为键——界面正在新增的提供方还不存在，也就没有路由可点名。但请求仍可**点名**它正在编辑的路由，而已经描述该路由的适配器会用自己的知识作答，无需联网；路由名称和 `baseURL` 至少需要提供一项。除此之外，请求携带端点、协议，以及一条 harness 只用于这一次询问、绝不存储的凭据。这里既不读取也不写入 settings 或 credentials；返回内容是界面可以提供给用户采纳的候选元数据，而不是已注册的 catalog。`LlmDiscoveredModel` 除 `id` 外每个字段都是可选的，因为大多数提供方列表只公布 id；采纳其中一条的界面仍要补上其适配器所需的容量。重复与不可用的 id 会被丢弃，无人服务的 namespace 以 `NO_DISCOVERY` 失败，既不点名路由也不给端点的请求以 `INVALID_DISCOVERY` 失败。
@@ -41,6 +43,7 @@
 | 事件 | 模式 | 用途 |
 |---|---|---|
 | `llm/stream` | waterfall | 拦截／包装每次流式模型调用，用于缓存、日志或路由 |
+| `llm/wire-attempt` | 回调／会话事件 | 在不重复对话历史的情况下记录一次适配器传输尝试 |
 
 ### 扩展点
 

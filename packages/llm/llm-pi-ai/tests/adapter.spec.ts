@@ -8,6 +8,7 @@ import type {
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
 import LlmRuntime, { createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
+import type { LlmWireAttempt, StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -57,6 +58,59 @@ beforeEach(() => {
 })
 
 describe('PiAiAdapter provider routing', () => {
+  it('reports one compact wire record without copying conversation fields', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const adapter = adapterOf({ deepseek: { api: 'openai-completions', baseURL: server.url, models: [{ id: 'm' }] } })
+    const records: LlmWireAttempt[] = []
+    const chunks: StreamChunk[] = []
+    for await (const chunk of adapter.stream({
+      provider: 'deepseek',
+      model: 'm',
+      messages: [createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })],
+      wireExchangeId: 'exchange-1',
+      onWireAttempt: record => records.push(record),
+    })) chunks.push(chunk)
+
+    expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'stop' } })
+    expect(records).toHaveLength(1)
+    expect(records[0]).toMatchObject({
+      exchangeId: 'exchange-1',
+      attempt: 1,
+      api: 'openai-completions',
+      provider: 'deepseek',
+      model: 'm',
+      method: 'POST',
+      outcome: 'success',
+      response: { status: 200 },
+      request: { bytes: expect.any(Number), fingerprint: expect.any(String) },
+    })
+    expect(records[0]?.request).not.toHaveProperty('parameters.messages')
+    expect(records[0]?.request).not.toHaveProperty('parameters.tools')
+  })
+
+  it('reports provider status and normalized failure facts for an HTTP error', async () => {
+    const server = await mockServer([{
+      status: 400,
+      body: JSON.stringify({ error: { message: 'bad request', type: 'invalid_request_error', code: 'bad' } }),
+    }])
+    const adapter = adapterOf({ deepseek: { api: 'openai-completions', baseURL: server.url, models: [{ id: 'm' }] } })
+    const records: LlmWireAttempt[] = []
+    const chunks: StreamChunk[] = []
+    for await (const chunk of adapter.stream({
+      provider: 'deepseek', model: 'm', messages: [], wireExchangeId: 'exchange-error',
+      onWireAttempt: record => records.push(record),
+    })) chunks.push(chunk)
+
+    expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'error' } })
+    expect(records).toHaveLength(1)
+    expect(records[0]).toMatchObject({
+      exchangeId: 'exchange-error',
+      outcome: 'http-error',
+      response: { status: 400 },
+      failure: { code: 'INVALID_REQUEST', message: 'bad request', status: 400 },
+    })
+  })
+
   it('resolves a catalog model dynamically and uses a private endpoint', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url)
