@@ -70,6 +70,20 @@ function conversationTarget(
   return { provider: agent.options.provider, model: agent.options.model }
 }
 
+/** Wait for an active turn to settle while preserving command cancellation. */
+function waitForAgentIdle(agent: Agent, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted()
+  if (agent.status !== 'running') return Promise.resolve()
+  const aborted = Promise.withResolvers<never>()
+  const onAbort = (): void => {
+    aborted.reject(signal.reason)
+  }
+  signal.addEventListener('abort', onAbort, { once: true })
+  return Promise.race([agent.whenIdle(), aborted.promise]).finally(() => {
+    signal.removeEventListener('abort', onAbort)
+  })
+}
+
 const thresholdRatioSchema = z.number()
 const retainRatioSchema = z.number()
 const retainTokensSchema = z.number().step(1).min(0)
@@ -122,6 +136,7 @@ export class BasicCompactionEngine extends CompactionEngine {
   private readonly warnedPressureConfigTargets = new Set<string>()
   private readonly overflowRetries = new WeakMap<Agent, number>()
   private readonly overflowAgents = new WeakMap<Session, Agent>()
+  private readonly overflowMaxTokens = new WeakMap<Agent, number>()
 
   constructor(ctx: Context, config: BasicCompactionConfig = {}) {
     super(ctx)
@@ -165,7 +180,10 @@ export class BasicCompactionEngine extends CompactionEngine {
     })
 
     ctx.on('agent/status', ({ agent, status }) => {
-      if (status === 'idle') this.overflowRetries.delete(agent)
+      if (status === 'idle') {
+        this.overflowRetries.delete(agent)
+        this.overflowMaxTokens.delete(agent)
+      }
     })
 
     // A successful response starts a fresh overflow-recovery sequence even
@@ -173,7 +191,66 @@ export class BasicCompactionEngine extends CompactionEngine {
     ctx.on('session/event', (session, event) => {
       if (event.type !== 'assistant/message') return
       const agent = this.overflowAgents.get(session)
-      if (agent !== undefined) this.overflowRetries.delete(agent)
+      if (agent !== undefined) {
+        this.overflowRetries.delete(agent)
+        this.overflowMaxTokens.delete(agent)
+      }
+    })
+
+    // Account for the current input before dispatch. The normal pressure hook
+    // runs before newly claimed user messages are appended, so this second
+    // boundary is what prevents input plus the configured output reservation
+    // from reaching the provider as an avoidable 400.
+    ctx.on('agent/request', async ({ agent, signal }, next) => {
+      const proposed = await next()
+      signal.throwIfAborted()
+      let info
+      try {
+        info = await ctx.llm.resolveModelInfo(proposed.provider, proposed.model, signal)
+      } catch (_error: unknown) {
+        signal.throwIfAborted()
+        return proposed
+      }
+      const contextWindow = info.context?.contextWindow
+      if (contextWindow === undefined) return proposed
+
+      const target = { provider: proposed.provider, model: proposed.model }
+      const policy = resolveTargetPolicy(this.config, target)
+      let spec
+      try {
+        spec = resolveCompactSpec(policy, contextWindow)
+      } catch (_error: unknown) {
+        signal.throwIfAborted()
+        return proposed
+      }
+
+      let measurement = ctx.tokenMeter.measure(agent.session)
+      if (measurement.totalTokens >= spec.thresholdTokens) {
+        try {
+          const result = await this.compactIfNeeded(agent, 'pressure', signal)
+          if (result !== null) {
+            this.overflowMaxTokens.delete(agent)
+            measurement = ctx.tokenMeter.measure(agent.session)
+          }
+        } catch (error: unknown) {
+          signal.throwIfAborted()
+          const message = error instanceof Error ? error.message : String(error)
+          ctx.logger.warn(`request pressure compaction failed: ${message}; continuing with a reduced output budget`)
+        }
+      }
+
+      const configuredMaxTokens = proposed.maxTokens ?? info.defaultMaxTokens
+      const previousOverflowCap = this.overflowMaxTokens.get(agent)
+      if (configuredMaxTokens === undefined && previousOverflowCap === undefined) return proposed
+      const availableTokens = Math.max(1, contextWindow - measurement.totalTokens)
+      const maxTokens = Math.min(
+        configuredMaxTokens ?? Number.MAX_SAFE_INTEGER,
+        previousOverflowCap ?? Number.MAX_SAFE_INTEGER,
+        availableTokens,
+      )
+      if (maxTokens >= (configuredMaxTokens ?? Number.MAX_SAFE_INTEGER)
+        && previousOverflowCap === undefined) return proposed
+      return { ...proposed, maxTokens }
     })
 
     ctx.on('agent/request-error', async (
@@ -187,6 +264,17 @@ export class BasicCompactionEngine extends CompactionEngine {
       const policy = resolveTargetPolicy(this.config, target)
       const retries = this.overflowRetries.get(agent) ?? 0
       if (retries >= policy.maxOverflowRetries) return next()
+
+      const currentMaxTokens = agent.session.requestHeader()?.config.maxTokens
+      if (currentMaxTokens !== undefined && currentMaxTokens > 1) {
+        const reducedMaxTokens = Math.max(1, Math.floor(currentMaxTokens / 2))
+        this.overflowMaxTokens.set(agent, reducedMaxTokens)
+        ctx.logger.warn(
+          `context-overflow request exceeded ${target.provider}/${target.model} capacity; `
+          + `retrying with maxTokens=${reducedMaxTokens}`,
+        )
+        return { kind: 'retry' }
+      }
 
       const generation = agent.session.surface.replaceGeneration
       let result: CompactionResult | null
@@ -381,6 +469,9 @@ export class BasicCompactionEngine extends CompactionEngine {
     sourceCommandId?: CommandId,
   ): Promise<CompactionResult | null> {
     signal.throwIfAborted()
+    if (agent.status === 'running') {
+      return waitForAgentIdle(agent, signal).then(() => this.compactNow(agent, signal, sourceCommandId))
+    }
     try {
       return agent.runMaintenance(async (agentSignal) => {
         const operationSignal = AbortSignal.any([agentSignal, signal])

@@ -461,6 +461,7 @@ export class ReactLoopAgent implements Agent {
     signal: AbortSignal,
   ): Promise<{ request: GenerateOptions; preparedCall?: PreparedLlmCall }> {
     const { session } = this
+    const surfaceGeneration = session.surface.replaceGeneration
 
     // A loop instance starts from its declared route, restoring only an explicit
     // effort owned by that exact model. Later steps re-resolve marked defaults.
@@ -531,9 +532,15 @@ export class ReactLoopAgent implements Agent {
     }
     signal.throwIfAborted()
 
+    // A request listener may complete an automatic compaction before returning
+    // its config. Rebuild the derived history so the retry/request uses the
+    // committed replacement rather than the pre-compaction message snapshot.
+    const requestMessages = session.surface.replaceGeneration === surfaceGeneration
+      ? boundaryMessages
+      : session.deriveMessages()
     const request = markAgentLoopRequest(deepFreeze({
       ...header.config,
-      messages: boundaryMessages,
+      messages: requestMessages,
       ...header.system !== undefined ? { system: header.system } : {},
       ...header.tools !== undefined ? { tools: header.tools } : {},
       sessionId: this.session.id,

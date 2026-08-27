@@ -1534,6 +1534,43 @@ describe('automatic listener and loader composition', () => {
     expect(compact.calls).toHaveLength(1)
   })
 
+  it('reduces the output budget when the current input leaves less room than maxTokens', async () => {
+    const ctx = createContext(1_000)
+    const compact = new TestCompactionEngine(ctx, {
+      thresholdRatio: 0.99,
+      retainTokens: 10,
+    })
+    const owner = agent(conversation(1, 'x'.repeat(1_500)), MODEL)
+
+    const resolved = await agentEvents(ctx, owner).waterfall(
+      'agent/request',
+      { turn: 2, step: 1, signal: SIGNAL },
+      () => Promise.resolve({ provider: MODEL, model: MODEL, maxTokens: 900 }),
+    )
+
+    expect(resolved.maxTokens).toBeGreaterThan(0)
+    expect(resolved.maxTokens).toBeLessThan(900)
+    expect(compact.calls).toHaveLength(0)
+  })
+
+  it('runs pressure compaction after the current turn input crosses the threshold', async () => {
+    const ctx = createContext(1_000)
+    const compact = new TestCompactionEngine(ctx, {
+      thresholdRatio: 0.5,
+      retainTokens: 10,
+    })
+    const owner = agent(conversation(4), MODEL)
+
+    await agentEvents(ctx, owner).waterfall(
+      'agent/request',
+      { turn: 5, step: 1, signal: SIGNAL },
+      () => Promise.resolve({ provider: MODEL, model: MODEL, maxTokens: 900 }),
+    )
+
+    expect(compact.calls).toHaveLength(1)
+    expect(owner.session.events.some(event => event.type === 'compaction/summary')).toBe(true)
+  })
+
   it('skips pre-step pressure when the step signal is already aborted', async () => {
     const ctx = createContext()
     const compact = new TestCompactionEngine(ctx, {

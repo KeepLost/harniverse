@@ -70,7 +70,7 @@ export interface CompactionAgentContext {
 export interface ManualCompactAgentContext extends CompactionAgentContext {
   /**
    * Run a non-turn maintenance operation only while the agent is idle, withholding later
-   * waking input until it settles.
+   * waking input until it settles. Callers may wait for `whenIdle()` before invoking it.
    * @param task - operation whose fulfillment or rejection is preserved, with an agent-owned cancellation signal.
    * @throws synchronously when the agent is already active.
    * @returns the task promise.

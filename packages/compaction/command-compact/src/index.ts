@@ -25,7 +25,7 @@ function expectedFailure(error: ManualCompactionError): CommandResult {
     case 'busy':
       return {
         kind: 'error',
-        text: 'Compaction is unavailable because this process has an active compaction, or the agent is not idle.',
+        text: 'Compaction is unavailable because another compaction is active or the session has not reached a closed-turn boundary.',
       }
     case 'cancelled':
       return { kind: 'error', text: 'Compaction cancelled.' }

@@ -1,6 +1,8 @@
-# Agent Note: 下一轮次开始时清空 todo 计划条
+# Agent Note: 早期 TODO 计划生命周期决定
 
-Status: implemented
+Status: implemented；TODO 生命周期部分已被取代
+
+下文的 TODO 生命周期决定已由[保留 TODO 可见性并恢复模型上下文压力](2026-08-27-todo-and-context-recovery.md)取代。历史理由与替代方案仍保留作背景；当前投影契约以新说明为准。
 
 [English](2026-07-28-todo-plan-clears-on-next-turn.md) | 中文
 
@@ -10,11 +12,11 @@ Status: implemented
 
 ## 决策
 
-常驻计划是其后没有更晚 `turn/start` 的最近一次 `todo/write`。`turn/end` 保留列表可见，以便用户阅读回答时仍能看到刚完成的清单；下一次 `turn/start` 将其清空，直至模型再次写入。
+历史决定：常驻计划是其后没有更晚 `turn/start` 的最近一次 `todo/write`。当前契约改为跨越轮次边界保留最近一次 `todo/write`，直到新的写入替换它，包括会话停止后的未完成工作。
 
 ### 宿主投影（web）
 
-`dsh-tool-todo` 的 `todos` 投影单元折叠该规则：`apply` 从每个 `todo/write` 取完整列表，并在每个 `turn/start` 返回 `null`（`stateVersion` 2）。载体（`dsh-host-apiproxy`）在历史记录尾部的 `projections` 块中提供该值，并以 `session/projection` 帧推送；web dock 经 `useProjection('todos')` 读取。无密钥 fixture（测试前置数据）镜像同一折叠，供组装后的快照使用。
+早期 `dsh-tool-todo` 的 `todos` 投影单元在每个 `turn/start` 返回 `null`（`stateVersion` 2）以折叠该规则；当前单元跨越轮次边界保留最近的完整列表。载体（`dsh-host-apiproxy`）在历史记录尾部的 `projections` 块中提供该值，并以 `session/projection` 帧推送；web dock 经 `useProjection('todos')` 读取。无密钥 fixture（测试前置数据）镜像当前折叠，供组装后的快照使用。
 
 ### TUI 实时路径
 
@@ -28,4 +30,4 @@ Status: implemented
 
 ## 后果
 
-宿主投影与 TUI 面板共用同一生命周期规则；重新打开会话仅在其后没有更晚轮次开始时恢复计划。部分取代 [web todo 展示](2026-07-23-web-todo-display.md)与 [`todo_write` 工具](2026-06-29-todo-write-tool.md)中「会话级常驻计划」的表述：事件溯源、last-write-wins 替换与两个渲染面仍归那些 Agent Note；本 Agent Note 拥有轮次边界清空。覆盖：tool-todo 投影对 turn/start 清空与 turn/end 保留的规格测试、供组装 web 快照的 fixture 推送帧清空，以及启动下一轮次并固定计划条已消失这一结果的 TUI 快照。
+历史上宿主投影与 TUI 面板共用轮次边界清空规则；当前宿主投影与 web 面板保留最近计划，直到新的写入替换它。事件溯源、last-write-wins 替换与两个渲染面仍记录在 [web todo 展示](2026-07-23-web-todo-display.md) 与 [`todo_write` 工具](2026-06-29-todo-write-tool.md)中；当前生命周期与恢复行为以新 Agent Note 为准。原有测试覆盖作为已取代行为的历史证据保留。
