@@ -50,6 +50,53 @@ export interface LlmFailure {
   readonly requestId?: ProviderRequestId
 }
 
+/** Outcome of one provider-wire attempt, before any agent-level retry. */
+export type LlmWireAttemptOutcome =
+  | 'success'
+  | 'http-error'
+  | 'stream-error'
+  | 'transport-error'
+  | 'aborted'
+
+/**
+ * Provider-wire facts that complement the durable Session event log without
+ * copying its conversation history. The request parameters exclude messages,
+ * tools, and other context fields; those are reconstructed from Session.
+ */
+export interface LlmWireAttempt {
+  /** Stable id for one logical adapter dispatch. */
+  readonly exchangeId: string
+  /** One-based attempt number inside the adapter dispatch. */
+  readonly attempt: number
+  /** Adapter protocol identifier, such as `openai-completions`. */
+  readonly api: string
+  /** Registered Harness provider route. */
+  readonly provider: string
+  /** Provider-owned model id. */
+  readonly model: string
+  /** Final endpoint selected by the adapter. */
+  readonly url: string
+  /** HTTP method used by the adapter. */
+  readonly method: string
+  /** Request facts sufficient to validate reconstruction without retaining its body. */
+  readonly request: {
+    readonly bytes: number
+    readonly fingerprint: string
+    readonly parameters?: Record<string, unknown>
+  }
+  /** Response status and diagnostic headers, when a response arrived. */
+  readonly response?: {
+    readonly status: number
+    readonly headers?: Record<string, string>
+  }
+  /** Final adapter/provider failure, when the attempt did not complete successfully. */
+  readonly failure?: LlmFailure
+  /** Normalized outcome of this one wire attempt. */
+  readonly outcome: LlmWireAttemptOutcome
+  /** Wall-clock duration from request dispatch to terminal observation. */
+  readonly durationMs: number
+}
+
 /** Plain text visible to the end user. */
 export interface TextBlock {
   type: 'text'
@@ -371,4 +418,8 @@ export interface GenerateOptions {
    * generation policy. Ordinary conversation requests leave it unset.
    */
   purpose?: 'compaction' | 'session-title'
+  /** Runtime-only exchange id supplied by the agent loop for wire diagnostics. */
+  wireExchangeId?: string
+  /** Runtime-only observer for one completed provider-wire attempt. */
+  onWireAttempt?: (attempt: LlmWireAttempt) => void
 }

@@ -24,6 +24,8 @@ An adapter registry plus a single streaming call API, interceptable via a waterf
 - `ctx.llm.prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>` Resolve a config plus detached context metadata and markers for fields supplied by adapter defaults in one exact-model lookup, then capture its current adapter registration and immutable retry policy as one cancellable, one-shot call.
 - `ctx.llm.stream(options: GenerateOptions): AsyncIterable<StreamChunk>` Stream one model call as raw chunks (token-level deltas). Consumers assemble the chunks into blocks/messages with `BlockAssembler`.
 
+Agent-loop requests carry runtime-only `wireExchangeId` and `onWireAttempt` fields. Adapters report compact transport facts through the callback; the loop appends them as `llm/wire-attempt` with references to the session's request snapshots and history cut. Conversation content remains owned by the Session log, while the wire record preserves adapter parameters, request fingerprint and size, response status and diagnostic headers, timing, and normalized failure needed to compare a replay.
+
 `LlmRuntime` normalizes failures from final adapter selection, synchronous dispatch, iterator construction, and iteration into the stream protocol's single terminal form: `finish { kind: 'error' | 'aborted', failure }`. A failure after partial deltas may leave content blocks open; consumers discard that incomplete output. Errors from `llm/stream` middleware, nested calls, adapter cleanup, and downstream consumers remain thrown because they are plugin or consumer failures rather than model-request outcomes. A prepared call exposes the immutable retry policy captured with its exact adapter registration; a route handled entirely by middleware has no serving policy.
 
 Interrogating an endpoint is configuration-time work over a *draft*, keyed by settings namespace rather than by provider route — the provider a surface is adding does not exist yet, so there is no route to name. The request may still *name* a route it is editing, and an adapter that already describes that route answers from its own knowledge without a network call; `baseURL` is optional and one of the two is required. The request otherwise carries the endpoint, the protocol, and a credential the harness uses for that one interrogation and never stores — nothing here reads or writes settings or credentials, and the reply is candidate metadata a surface may offer for adoption, never a registered catalog. `LlmDiscoveredModel` makes every field but `id` optional because most provider listings disclose an id and nothing else; a surface adopting one still owes the capacities its adapter requires. Duplicate and unusable ids are dropped, an unserved namespace fails with `NO_DISCOVERY`, and a request naming neither a route nor an endpoint fails with `INVALID_DISCOVERY`.
@@ -41,6 +43,7 @@ Exact-model metadata is a separate correctness query, not a catalog decoration o
 | Event | Mode | Purpose |
 |---|---|---|
 | `llm/stream` | waterfall | Intercept/wrap every streaming model call for caching, logging, or routing |
+| `llm/wire-attempt` | callback/session event | Record one adapter transport attempt without duplicating conversation history |
 
 ### Extension points
 

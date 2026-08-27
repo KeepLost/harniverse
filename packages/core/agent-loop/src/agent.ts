@@ -16,7 +16,7 @@ import type {
   RequestErrorAction,
 } from '@deepseek-ai/dsh-agent'
 import { Inbox, agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
-import type { GenerateOptions, LlmCallConfig, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmCallConfig, LlmWireAttempt, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
 import {
   BlockAssembler,
   LlmError,
@@ -538,6 +538,21 @@ export class ReactLoopAgent implements Agent {
     const requestMessages = session.surface.replaceGeneration === surfaceGeneration
       ? boundaryMessages
       : session.deriveMessages()
+    const requestHeaderSeq = session.events.findLast(event => event.type === 'request/header')?.seq
+    if (requestHeaderSeq === undefined) throw new Error('agent request header was not logged before wire dispatch')
+    const requestContextSeq = session.events.findLast(event => event.type === 'request/context')?.seq
+    const historyCutSeq = session.events.at(-1)?.seq
+    const wireExchangeId = crypto.randomUUID()
+    const onWireAttempt = (attempt: LlmWireAttempt): void => {
+      session.append('llm/wire-attempt', {
+        ...attempt,
+        turn,
+        step,
+        ...historyCutSeq === undefined ? {} : { historyCutSeq },
+        requestHeaderSeq,
+        ...requestContextSeq === undefined ? {} : { requestContextSeq },
+      })
+    }
     const request = markAgentLoopRequest(deepFreeze({
       ...header.config,
       messages: requestMessages,
@@ -545,6 +560,8 @@ export class ReactLoopAgent implements Agent {
       ...header.tools !== undefined ? { tools: header.tools } : {},
       sessionId: this.session.id,
       signal,
+      wireExchangeId,
+      onWireAttempt,
     }))
     return { request, ...preparedCall === undefined ? {} : { preparedCall } }
   }

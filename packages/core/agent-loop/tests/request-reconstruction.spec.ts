@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { createUserMessage, LlmError, ReasoningEffortId  } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, LlmModelReasoningInfo, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelReasoningInfo, LlmResolvedModelInfo, LlmWireAttempt, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
@@ -16,6 +16,29 @@ import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
+
+class WireMockAdapter extends MockAdapter {
+  override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    for await (const chunk of super.stream(options)) {
+      if (chunk.type === 'finish') {
+        const record: LlmWireAttempt = {
+          exchangeId: options.wireExchangeId ?? 'missing-exchange',
+          attempt: 1,
+          api: 'mock',
+          provider: options.provider,
+          model: options.model,
+          url: 'mock://model',
+          method: 'POST',
+          request: { bytes: 0, fingerprint: 'test' },
+          outcome: 'success',
+          durationMs: 0,
+        }
+        options.onWireAttempt?.(record)
+      }
+      yield chunk
+    }
+  }
+}
 
 async function harness(adapter: MockAdapter, persona = 'stable base') {
   return harnessRoutes([['mock', adapter]], persona)
@@ -71,6 +94,29 @@ function registerEcho(ctx: Context) {
 }
 
 describe('request stability across the loop', () => {
+  it('binds each wire attempt to its session request snapshots', async () => {
+    const adapter = new WireMockAdapter([textResponse('done')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('wire-index'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const wire = agent.session.events.find(event => event.type === 'llm/wire-attempt')
+    expect(wire?.type).toBe('llm/wire-attempt')
+    if (wire?.type !== 'llm/wire-attempt') throw new Error('wire attempt was not logged')
+    const header = agent.session.events.findLast(event => event.type === 'request/header')
+    expect(wire.data).toMatchObject({
+      exchangeId: expect.any(String),
+      turn: 1,
+      step: 1,
+      requestHeaderSeq: header?.seq,
+      historyCutSeq: expect.any(Number),
+    })
+    expect(wire.seq).toBeGreaterThan(wire.data.historyCutSeq ?? -1)
+    expect(wire.data.request).not.toHaveProperty('parameters.messages')
+  })
+
   it('each step request within a turn append-extends the previous, frozen end to end', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'echo', { text: 'one' }, 'first'),

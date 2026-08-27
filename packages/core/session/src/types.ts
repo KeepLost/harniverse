@@ -5,6 +5,7 @@ import type {
   LlmCallConfig,
   LlmCallConfigAdapterDefaults,
   LlmFailure,
+  LlmWireAttempt,
   StreamChunk,
   TokenUsage,
   ToolResultMessage,
@@ -327,6 +328,8 @@ export interface SessionEventMap {
    * changes. It does not participate in request reconstruction or header equality.
    */
   'request/context': RequestContext
+  /** Provider-wire facts for one adapter attempt; conversation content stays in the session log. */
+  'llm/wire-attempt': LlmWireAttemptEventData
   /**
    * Marks the end of a constructor seed. Events before it have smaller seq
    * values and came from the seed (resume, fork, or replay); this lifecycle
@@ -350,6 +353,19 @@ export interface SessionEventMap {
    * so tolerating concurrent writers needs a signal beyond the log.
    */
   'session/end-seed': Record<string, never>
+}
+
+/** Session index fields that bind one wire attempt to the exact log snapshot it used. */
+export interface LlmWireAttemptEventData extends LlmWireAttempt {
+  /** Turn and step containing the logical model request. */
+  readonly turn: number
+  readonly step: number
+  /** Last Session event available when the request was assembled, if non-empty. */
+  readonly historyCutSeq?: number
+  /** Full request/header snapshot used by the request. */
+  readonly requestHeaderSeq: number
+  /** Route metadata snapshot used by the request, when one was logged. */
+  readonly requestContextSeq?: number
 }
 
 /** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */

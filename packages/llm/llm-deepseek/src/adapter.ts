@@ -8,12 +8,27 @@
  * @module dsh-llm-deepseek/adapter
  */
 
-import { attributionHeaders, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, LlmAdapter, LlmError, ProviderRequestId, QUOTA_EXCEEDED_CODE, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import {
+  attributionHeaders,
+  CONTEXT_WINDOW_EXCEEDED_CODE,
+  isContextWindowExceededError,
+  isQuotaExceededError,
+  LlmAdapter,
+  LlmError,
+  ProviderRequestId,
+  QUOTA_EXCEEDED_CODE,
+  ReasoningEffortId,
+  wireDiagnosticHeaders,
+  wireRequestMetadata,
+} from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions,
+  LlmFailure,
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
+  LlmWireAttempt,
+  LlmWireAttemptOutcome,
   ResolvedRetryPolicy,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
@@ -189,6 +204,14 @@ function providerRetryAfterMs(value: string | null): number | undefined {
 function requestId(headers: Headers): ReturnType<typeof ProviderRequestId> | undefined {
   const value = headers.get('x-request-id') ?? headers.get('x-deepseek-request-id')
   return value === null || value.length === 0 ? undefined : ProviderRequestId(value)
+}
+
+function wireFailure(error: unknown): LlmFailure {
+  if (error instanceof LlmError) return error.failure
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    code: 'TRANSPORT',
+  }
 }
 
 function staleFileDetail(error?: WireError['error']): boolean {
@@ -497,18 +520,67 @@ export class DeepSeekAdapter extends LlmAdapter {
         : {},
     }
 
-    const send = async (requestBody: WireRequest): Promise<Response> => {
+    const exchangeId = options.wireExchangeId ?? crypto.randomUUID()
+    let attemptNumber = 0
+    const report = (
+      attempt: {
+        readonly attempt: number
+        readonly request: ReturnType<typeof wireRequestMetadata>
+        readonly startedAt: number
+      },
+      outcome: LlmWireAttemptOutcome,
+      response?: Response,
+      failure?: LlmFailure,
+    ): void => {
+      if (options.onWireAttempt === undefined) return
+      const responseHeaders: Record<string, string> = {}
+      response?.headers.forEach((value, key) => { responseHeaders[key] = value })
+      const diagnosticHeaders = wireDiagnosticHeaders(responseHeaders)
+      const responseInfo = response === undefined
+        ? undefined
+        : {
+          status: response.status,
+          ...diagnosticHeaders === undefined ? {} : { headers: diagnosticHeaders },
+        }
+      const record: LlmWireAttempt = {
+        exchangeId,
+        attempt: attempt.attempt,
+        api: 'openai-completions',
+        provider: options.provider,
+        model: options.model,
+        url: `${connection.baseURL}/chat/completions`,
+        method: 'POST',
+        request: attempt.request,
+        ...responseInfo === undefined ? {} : { response: responseInfo },
+        ...failure === undefined ? {} : { failure },
+        outcome,
+        durationMs: Math.max(0, Date.now() - attempt.startedAt),
+      }
+      options.onWireAttempt(record)
+    }
+
+    const send = async (requestBody: WireRequest): Promise<{
+      readonly response: Response
+      readonly attempt: { readonly attempt: number; readonly request: ReturnType<typeof wireRequestMetadata>; readonly startedAt: number }
+    }> => {
       // TODO(http): adopt the Cordis HTTP service when shared transport configuration
       // outweighs its additional runtime dependencies.
+      const attempt = {
+        attempt: ++attemptNumber,
+        request: wireRequestMetadata(requestBody),
+        startedAt: Date.now(),
+      }
       try {
-        return await fetch(`${connection.baseURL}/chat/completions`, {
+        const response = await fetch(`${connection.baseURL}/chat/completions`, {
           method: 'POST',
           headers,
           body: JSON.stringify(requestBody),
           signal,
         })
+        return { response, attempt }
       } catch (error: unknown) {
         // The outer stream distinguishes caller cancellation and watchdog expiry.
+        report(attempt, signal.aborted ? 'aborted' : 'transport-error', undefined, wireFailure(error))
         if (signal.aborted) throw error
         // fetch wraps every transport failure (DNS, refused connection, TLS,
         // proxy) in a bare `TypeError: fetch failed` whose actionable detail
@@ -522,18 +594,25 @@ export class DeepSeekAdapter extends LlmAdapter {
       }
     }
 
-    let response = await send(body)
+    let sent = await send(body)
+    let response = sent.response
     let parsedError: WireError['error']
     if (!response.ok) {
       try { parsedError = (await response.json() as WireError).error } catch { /* status remains authoritative */ }
       if (prepared !== undefined && staleFileDetail(parsedError)) {
+        report(sent.attempt, 'http-error', response, {
+          message: parsedError?.message ?? `DeepSeek API error (HTTP ${response.status})`,
+          code: httpErrorCode(response.status, parsedError),
+          status: response.status,
+        })
         await this.files.clear(deepSeekFileScope(connection.baseURL, apiKey))
         body = await serializeRequest(
           options,
           connection.defaults,
           this.imageSerialization(prepared, connection, apiKey, signal, 'base64'),
         )
-        response = await send(body)
+        sent = await send(body)
+        response = sent.response
         parsedError = undefined
       }
     }
@@ -550,16 +629,32 @@ export class DeepSeekAdapter extends LlmAdapter {
       }
       const delay = providerRetryAfterMs(response.headers.get('retry-after'))
       const id = requestId(response.headers)
-      throw new LlmError(message, httpErrorCode(response.status, providerError), {
+      const failure: LlmFailure = {
+        message,
+        code: httpErrorCode(response.status, providerError),
         status: response.status,
         ...delay === undefined ? {} : { providerRetryAfterMs: delay },
         ...id === undefined ? {} : { requestId: id },
+      }
+      report(sent.attempt, 'http-error', response, failure)
+      throw new LlmError(message, failure.code, {
+        status: response.status,
+        ...failure.providerRetryAfterMs === undefined ? {} : { providerRetryAfterMs: failure.providerRetryAfterMs },
+        ...failure.requestId === undefined ? {} : { requestId: failure.requestId },
       })
     }
     if (!response.body) {
-      throw new LlmError('DeepSeek API returned no response body', 'EMPTY_RESPONSE')
+      const failure = new LlmError('DeepSeek API returned no response body', 'EMPTY_RESPONSE')
+      report(sent.attempt, 'stream-error', response, failure.failure)
+      throw failure
     }
 
-    yield* translate(parseSse(response.body, onComment))
+    try {
+      yield* translate(parseSse(response.body, onComment))
+      report(sent.attempt, 'success', response)
+    } catch (error: unknown) {
+      report(sent.attempt, signal.aborted ? 'aborted' : 'stream-error', response, wireFailure(error))
+      throw error
+    }
   }
 }
