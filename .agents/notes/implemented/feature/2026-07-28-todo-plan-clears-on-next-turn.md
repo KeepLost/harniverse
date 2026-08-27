@@ -1,6 +1,8 @@
-# Agent Note: Todo plan strip clears on the next turn
+# Agent Note: Earlier TODO plan lifetime decision
 
-Status: implemented
+Status: implemented; partially superseded for TODO lifetime
+
+The TODO lifetime decision below is superseded by [preserve TODO visibility and context recovery](2026-08-27-todo-and-context-recovery.md). The historical rationale and alternatives remain useful context; the newer note owns the current projection contract.
 
 English | [中文](2026-07-28-todo-plan-clears-on-next-turn.zh.md)
 
@@ -10,11 +12,11 @@ English | [中文](2026-07-28-todo-plan-clears-on-next-turn.zh.md)
 
 ## Decision
 
-The standing plan is the latest `todo/write` that is not followed by a later `turn/start`. `turn/end` keeps the list visible so the finished checklist remains while the user reads the answer; the next `turn/start` clears it until the model writes again.
+Historical decision: the standing plan was the latest `todo/write` that was not followed by a later `turn/start`. The current contract instead retains the latest `todo/write` across turn boundaries until a newer write replaces it, including unfinished work after a stopped session.
 
 ### Host projection (web)
 
-`dsh-tool-todo`'s `todos` projection unit folds the rule: `apply` takes the whole list from each `todo/write` and returns `null` on each `turn/start` (`stateVersion` 2). Carriers (`dsh-host-apiproxy`) serve that value on the history tail `projections` block and push `session/projection` frames; the web dock reads it through `useProjection('todos')`. The keyless fixture mirrors the same fold for assembled snapshots.
+The former `dsh-tool-todo` projection unit folded the rule by returning `null` on each `turn/start` (`stateVersion` 2). The current unit retains the latest whole list across turn boundaries. Carriers (`dsh-host-apiproxy`) serve that value on the history tail `projections` block and push `session/projection` frames; the web dock reads it through `useProjection('todos')`. The keyless fixture mirrors the current fold for assembled snapshots.
 
 ### TUI live path
 
@@ -28,4 +30,4 @@ The former TUI's `renderEvent` switch cleared its local plan panel on `turn/star
 
 ## Consequences
 
-The host projection and the TUI panel share one lifetime rule; reopening a session restores a plan only when no later turn has started. Partial supersession of the session-long standing-plan wording in [web todo display](2026-07-23-web-todo-display.md) and [`todo_write` tool](2026-06-29-todo-write-tool.md): event-sourcing, last-write-wins replacement, and the two render surfaces stay there; this note owns turn-boundary clearance. Coverage: tool-todo projection specs for turn/start clear + turn/end keep, fixture push-frame clearance for the assembled web snapshot, plus the TUI snapshot that starts the next turn and pins the strip gone.
+The historical host projection and TUI panel shared the turn-boundary clearing rule. The current host projection and web panel retain the latest plan until a newer write replaces it. Event-sourcing, last-write-wins replacement, and the two render surfaces remain documented in [web todo display](2026-07-23-web-todo-display.md) and [`todo_write` tool](2026-06-29-todo-write-tool.md); the current lifetime and recovery behavior belong to the newer Agent Note. The original coverage remains as historical evidence for the superseded behavior.

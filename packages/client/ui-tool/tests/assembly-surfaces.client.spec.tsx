@@ -112,12 +112,12 @@ describe('todo_write assembly (product registrations, no outlet twins)', () => {
     expect([...panel!.querySelectorAll('li')].map(li => li.getAttribute('data-status')))
       .toEqual(['completed', 'in_progress', 'pending'])
 
-    // Next turn retires the standing plan (host pushes null): the strip
-    // clears while the historical row stays in the flow.
+    // A stopped/new turn does not retire the standing plan: the user can still
+    // inspect the checklist while the historical row stays in the flow.
     await runtime.flush()
-    runtime.sessions.behavior(SID).projections.set('todos', null)
+    runtime.sessions.behavior(SID).projections.set('todos', TODOS)
     await waitFor(() => {
-      expect(view.container.querySelector('[data-testid="todo-panel"]')).toBeNull()
+      expect(view.container.querySelector('[data-testid="todo-panel"]')).not.toBeNull()
     })
     expect(view.container.querySelector('[data-tool="todo_write"]')).not.toBeNull()
     await runtime.dispose()

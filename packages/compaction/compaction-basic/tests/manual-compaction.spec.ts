@@ -338,7 +338,7 @@ describe('compactNow through the real loop', () => {
     expect(types).toEqual(['compaction/start', 'compaction/summary', 'compaction/end'])
   })
 
-  it('reports busy without summarizing when a prompt already owns the next turn', async () => {
+  it('waits for a prompt already in flight before compacting its settled history', async () => {
     const harness = await loopHarness()
     const { agent, compact, adapter } = harness
     await seedHistory(harness)
@@ -347,12 +347,13 @@ describe('compactNow through the real loop', () => {
       content: [{ type: 'text', text: 'first in line' }],
       source: { kind: 'user' },
     }))
-    expect((await rejection(() => compact.compactNow(agent, SIGNAL))).code).toBe('busy')
-    expect(compact.calls).toHaveLength(0)
+    const result = await compact.compactNow(agent, SIGNAL)
+    expect(result).not.toBeNull()
+    expect(compact.calls).toHaveLength(1)
 
     await agent.whenIdle()
     expect(adapter.requests).toHaveLength(2)
-    expect(agent.session.events.some(event => event.type === 'compaction/start')).toBe(false)
+    expect(agent.session.events.some(event => event.type === 'compaction/start')).toBe(true)
   })
 
   it('releases turn admission after a summarizer failure and records the failed attempt', async () => {

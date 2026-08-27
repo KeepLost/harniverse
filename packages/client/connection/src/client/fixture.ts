@@ -1132,8 +1132,8 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
   if (type === 'goal/change') {
     return [{ type: 'session/projection', sessionId: id, key: 'goal', value: backscanGoal(log), seq: event.seq }]
   }
-  // Standing-plan fold: writes replace the list; turn/start clears it (null).
-  if (type === 'todo/write' || type === 'turn/start') {
+  // Standing-plan fold: writes replace the list; turn boundaries do not clear it.
+  if (type === 'todo/write') {
     return [{
       type: 'session/projection',
       sessionId: id,
@@ -1350,14 +1350,12 @@ function compareSearchCandidates(a: FixtureSearchCandidate, b: FixtureSearchCand
 }
 
 /**
- * Current plan projection over the full log (host parallel: latest todo/write
- * with no later turn/start; a new turn retires the previous plan).
+ * Current plan projection over the full log (host parallel: latest todo/write).
  */
 function backscanTodos(log: readonly SessionEvent[]): TodoItem[] | undefined {
   for (let i = log.length - 1; i >= 0; i--) {
     const event = log[i]
     if (event === undefined) continue
-    if (event.type === 'turn/start') return undefined
     if (event.type === 'todo/write') return event.data.todos
   }
   return undefined

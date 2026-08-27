@@ -224,9 +224,10 @@ export function apply(ctx: Context, config: Config): void {
 
   // The unit child activates only when a projection registry is composed
   // (headless assemblies without the seam stay unaffected). Standing-plan fold:
-  // latest whole todo/write list, cleared by the next turn/start (turn/end keeps
-  // the finished checklist visible); null before the first write or after a
-  // later turn begins; every other event returns the same state reference.
+  // latest whole todo/write list remains visible until a later write replaces it;
+  // null before the first write; every other event returns the same state
+  // reference. Keeping the list across turn boundaries lets users inspect an
+  // unfinished plan after a stopped session.
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.register<'todos', TodoItem[] | null>({
       key: 'todos',
@@ -234,7 +235,6 @@ export function apply(ctx: Context, config: Config): void {
       init: () => null,
       apply: (state, event) => {
         if (event.type === 'todo/write') return event.data.todos
-        if (event.type === 'turn/start') return null
         return state
       },
       view: state => state,
