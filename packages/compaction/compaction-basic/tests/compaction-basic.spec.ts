@@ -103,7 +103,11 @@ function promptInput(text: string): SummarizationInput {
 }
 
 /** Closed two-message turns followed by one open turn for durable compaction events. */
-function conversation(turns = 4, text = 'fixture '.repeat(40).trim()): Session {
+function conversation(
+  turns = 4,
+  text = 'fixture '.repeat(40).trim(),
+  usage?: TokenUsage,
+): Session {
   const session = Session.create(SessionId(`conversation-${turns}`))
   for (let turn = 1; turn <= turns; turn += 1) {
     session.append('turn/start', { turn })
@@ -121,6 +125,7 @@ function conversation(turns = 4, text = 'fixture '.repeat(40).trim()): Session {
     session.append('assistant/message', {
       turn,
       step: 1,
+      ...usage === undefined ? {} : { usage },
       message: createMessage({
         role: 'assistant',
         content: [{ type: 'text', text: `${text} assistant ${turn}` }],
@@ -952,6 +957,28 @@ describe('compaction region transaction', () => {
     expect(summarizedText(input)).toContain('fixture user 1')
   })
 
+  it('projects a matching provider usage anchor onto the selected prefix', async () => {
+    const ctx = createContext(100_000)
+    const compact = service({ auto: false }, ctx)
+    const session = conversation(3, '历史上下文 '.repeat(80), {
+      inputTokens: 8_000,
+      outputTokens: 1_000,
+    })
+    const measurement = ctx.tokenMeter.measure(session)
+    expect(measurement.baseline.kind).toBe('usage')
+    const nodes = session.surface.nodes
+    const selectedTokens = measurement.nodes.slice(0, 2)
+      .reduce((total, node) => total + node.tokens, 0)
+
+    await compact.compactRegion(nodes[0]!, nodes[1]!, agent(session, MODEL), SIGNAL)
+
+    expect(compact.calls[0]!.input.providerAnchor).toEqual({
+      provider: MODEL,
+      model: MODEL,
+      tokens: measurement.totalTokens - (measurement.surfaceTokens - selectedTokens),
+    })
+  })
+
   it.each([
     ['start missing', 9_001, undefined, /start seq 9001 not found/],
     ['end missing', undefined, 9_002, /end seq 9002 not found/],
@@ -1294,6 +1321,98 @@ describe('default one-shot summarizer', () => {
 
     expect(adapter.lastOptions?.maxTokens).toBeLessThan(2_000)
     expect(adapter.lastOptions?.maxTokens).toBeGreaterThan(0)
+  })
+
+  it('does not dispatch a summary when its input leaves no output capacity', async () => {
+    const { ctx, adapter, compact } = await summarizerHarness(
+      [{ type: 'text', text: 'unreachable summary' }],
+      undefined,
+      MODEL,
+      { auto: false, maxTokens: 64 },
+    )
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockResolvedValue({
+      provider: MODEL,
+      id: MODEL,
+      name: MODEL,
+      context: { contextWindow: 128 },
+    })
+
+    await expect(compact.runSummarize(
+      promptInput('history that cannot fit'),
+      agent(conversation(1), MODEL),
+      SIGNAL,
+    )).rejects.toThrow(/summarization input leaves no output capacity/)
+
+    expect(adapter.lastOptions).toBeUndefined()
+  })
+
+  it('honors model output capacity without turning it into a request default', async () => {
+    const { ctx, adapter, compact } = await summarizerHarness(
+      [{ type: 'text', text: 'bounded summary' }],
+      undefined,
+      MODEL,
+      { auto: false, maxTokens: 131_072 },
+    )
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockResolvedValue({
+      provider: MODEL,
+      id: MODEL,
+      name: MODEL,
+      context: { contextWindow: 100_000 },
+      maxOutputTokens: 2_048,
+    })
+
+    await compact.runSummarize(promptInput('history'), agent(conversation(1), MODEL), SIGNAL)
+
+    expect(adapter.lastOptions?.maxTokens).toBe(2_048)
+  })
+
+  it('uses a matching provider usage anchor before reserving summary output', async () => {
+    const { ctx, adapter, compact } = await summarizerHarness(
+      [{ type: 'text', text: 'bounded summary' }],
+      undefined,
+      MODEL,
+      { auto: false, maxTokens: 131_072 },
+    )
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockResolvedValue({
+      provider: MODEL,
+      id: MODEL,
+      name: MODEL,
+      context: { contextWindow: 20_000 },
+      maxOutputTokens: 10_000,
+    })
+    const input = {
+      ...promptInput('history'),
+      providerAnchor: { provider: MODEL, model: MODEL, tokens: 14_000 },
+    } as SummarizationInput
+
+    await compact.runSummarize(input, agent(conversation(1), MODEL), SIGNAL)
+
+    expect(adapter.lastOptions?.maxTokens).toBeGreaterThan(0)
+    expect(adapter.lastOptions?.maxTokens).toBeLessThan(2_000)
+  })
+
+  it('does not reuse a provider usage anchor for another summary model', async () => {
+    const { ctx, adapter, compact } = await summarizerHarness(
+      [{ type: 'text', text: 'bounded summary' }],
+      undefined,
+      MODEL,
+      { auto: false, maxTokens: 131_072 },
+    )
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockResolvedValue({
+      provider: MODEL,
+      id: MODEL,
+      name: MODEL,
+      context: { contextWindow: 20_000 },
+      maxOutputTokens: 10_000,
+    })
+    const input = {
+      ...promptInput('history'),
+      providerAnchor: { provider: 'other', model: MODEL, tokens: 14_000 },
+    } as SummarizationInput
+
+    await compact.runSummarize(input, agent(conversation(1), MODEL), SIGNAL)
+
+    expect(adapter.lastOptions?.maxTokens).toBe(10_000)
   })
 
   it('replays the conversation prefix and appends the instruction as the final message', async () => {

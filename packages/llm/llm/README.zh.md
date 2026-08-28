@@ -19,7 +19,7 @@
 - `ctx.llm.discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<LlmDiscoveredModel[]>` 询问某个端点它公布了哪些模型。
 - `ctx.llm.providerRetryPolicy(provider: string): ResolvedRetryPolicy` 返回注册时捕获的提供方自身的重试策略，并解析 normal 默认值。
 - `ctx.llm.listModels(provider: string): Promise<LlmModelInfo[]>` 发现某个已注册提供方当前公布的模型。
-- `ctx.llm.resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>` 从拥有该精确路由的适配器中，解析并校验确切模型身份，以及可用上下文、输出默认值和推理（reasoning）元数据；异步适配器可选地支持取消。
+- `ctx.llm.resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>` 从拥有该精确路由的适配器中，解析并校验确切模型身份，以及可用上下文、输出能力、输出默认值和推理（reasoning）元数据；异步适配器可选地支持取消。
 - `ctx.llm.resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>` 校验显式推理强度，并填入适配器配置的调用默认值，但不自动调整。
 - `ctx.llm.prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>` 在一次精确模型查询中解析配置、脱耦的上下文元数据以及标明哪些字段由适配器默认值填入的标记，再将当前适配器注册和不可变重试策略捕获为一次可取消、一次性调用。
 - `ctx.llm.stream(options: GenerateOptions): AsyncIterable<StreamChunk>` 将一次模型调用流式输出为原始分片（token 级增量）。消费方使用 `BlockAssembler` 将分片组装为块／消息。
@@ -34,9 +34,9 @@ agent loop 构造的请求会携带仅限运行时使用的 `wireExchangeId` 与
 
 每个拓扑提交点——适配器路由注册或 dispose、目录条目出现或撤回——都会在变更之后发出无载荷的 `llm/adapters-updated` 事件，消费方因此会重新读取 `listProviders()`/`listModels()`/`listConfigurableProviders()`，而不是轮询。观察者故障会被记录并隔离，不能否决变更；只有带 `INVARIANT` 码的故障会在通知完所有观察者后重新抛出。
 
-确切模型元数据是独立的正确性查询，不是 catalog 装饰或全局 LLM 设置。`resolveModelInfo()` 会向拥有精确提供方／模型路由的适配器查询一次；适配器可以描述未列出的动态模型。缺少 `context` 表示模型容量未知；缺少 `defaultMaxTokens` 表示继续沿用提供方自身的输出默认值；缺少 `reasoning` 则表示推理能力不可用。无效的身份、上下文、输出默认值或推理元数据会以 `INVALID_MODEL_INFO`、`INVALID_MODEL_CONTEXT`、`INVALID_MODEL_MAX_TOKENS` 或 `INVALID_MODEL_REASONING` 失败。
+确切模型元数据是独立的正确性查询，不是 catalog 装饰或全局 LLM 设置。`resolveModelInfo()` 会向拥有精确提供方／模型路由的适配器查询一次；适配器可以描述未列出的动态模型。缺少 `context` 表示上下文容量未知；缺少 `maxOutputTokens` 表示输出能力未知；缺少 `defaultMaxTokens` 表示继续沿用提供方自身的输出默认值；缺少 `reasoning` 则表示推理能力不可用。无效的身份、上下文、输出能力、输出默认值或推理元数据会以 `INVALID_MODEL_INFO`、`INVALID_MODEL_CONTEXT`、`INVALID_MODEL_MAX_TOKENS` 或 `INVALID_MODEL_REASONING` 失败。
 
-`defaultMaxTokens` 是适配器配置的单次请求输出上限，不是模型硬上限。仅当请求省略 `maxTokens` 时，`resolveCallConfig()` 才会填入该值；显式上限优先。推理标识符是由适配器定义的不透明字符串，而非核心枚举：同一次解析只接受与已公布标识符完全一致的值，在存在 `defaultEffort` 时填入它，否则保留提供方默认值。异步模型解析器会接收调用方信号，并且必须在取消后尽快结算。`prepareCall()` 还会返回同一次查询得到的、与适配器内部状态分离的上下文元数据，通过 `adapterDefaults` 标明填入了哪些 `maxTokens` 和 `reasoningEffort` 字段，并在请求头记录和最终分发期间始终保留同一项精确的适配器注册。因此，HMR（热模块替换）不会把一个适配器的能力结果与另一个适配器的请求混用；复用其一次性句柄或更改调用配置字段会以 `INVALID_PREPARED_CALL` 失败。不支持的显式或配置推理强度会在提供方 I/O 前以 `UNSUPPORTED_REASONING_EFFORT` 失败。
+`maxOutputTokens` 是适配器解析出的模型输出能力，本身绝不会成为请求值。`defaultMaxTokens` 仍是适配器配置的单次请求输出上限，而不是模型硬上限；仅当请求省略 `maxTokens` 时，`resolveCallConfig()` 才会填入该值，显式上限优先。推理标识符是由适配器定义的不透明字符串，而非核心枚举：同一次解析只接受与已公布标识符完全一致的值，在存在 `defaultEffort` 时填入它，否则保留提供方默认值。异步模型解析器会接收调用方信号，并且必须在取消后尽快结算。`prepareCall()` 还会返回同一次查询得到的、与适配器内部状态分离的上下文元数据，通过 `adapterDefaults` 标明填入了哪些 `maxTokens` 和 `reasoningEffort` 字段，并在请求头记录和最终分发期间始终保留同一项精确的适配器注册。因此，HMR（热模块替换）不会把一个适配器的能力结果与另一个适配器的请求混用；复用其一次性句柄或更改调用配置字段会以 `INVALID_PREPARED_CALL` 失败。不支持的显式或配置推理强度会在提供方 I/O 前以 `UNSUPPORTED_REASONING_EFFORT` 失败。
 
 ### 事件
 
@@ -47,7 +47,7 @@ agent loop 构造的请求会携带仅限运行时使用的 `wireExchangeId` 与
 
 ### 扩展点
 
-- 继承 `LlmAdapter` 并调用 `ctx.llm.registerAdapter(providers, adapter)`，添加一条或多条提供方路由。`GenerateOptions.provider` 选择适配器；`GenerateOptions.model` 属于适配器，可以动态解析。覆盖 `providerRetryPolicy()` 以提供由提供方定义的恢复配置，覆盖 `providerInfo()` 和异步 `listModels()` 以公开 selector 元数据；精确身份、容量、输出默认值或可选推理强度可用时，实现 `resolveModel()`；异步解析器必须响应其可选的取消 signal。默认实现使用有界的 normal 重试策略，将路由和模型 id 用作名称，不公布模型，也不返回容量、输出默认值或推理元数据。
+- 继承 `LlmAdapter` 并调用 `ctx.llm.registerAdapter(providers, adapter)`，添加一条或多条提供方路由。`GenerateOptions.provider` 选择适配器；`GenerateOptions.model` 属于适配器，可以动态解析。覆盖 `providerRetryPolicy()` 以提供由提供方定义的恢复配置，覆盖 `providerInfo()` 和异步 `listModels()` 以公开 selector 元数据；精确身份、上下文或输出容量、输出默认值或可选推理强度可用时，实现 `resolveModel()`；异步解析器必须响应其可选的取消 signal。默认实现使用有界的 normal 重试策略，将路由和模型 id 用作名称，不公布模型，也不返回容量、输出默认值或推理元数据。
 - 包装 `llm/stream` 时，通过 `ctx.on()` waterfall listener 实现缓存、日志或路由。包装层如果在已经发出分片后重试，就没有可持久记录的尝试边界；因此，随产品交付的 agent 重试策略改用 `agent/request-error`。
 
 ### 消息（`message.ts`）与内容块（`types.ts`）

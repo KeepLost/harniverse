@@ -58,6 +58,7 @@ class CatalogAdapter extends ScriptedAdapter {
     private readonly contexts: Readonly<Record<string, LlmModelContext>> = {},
     private readonly reasoning: Readonly<Record<string, LlmModelReasoningInfo>> = {},
     private readonly defaultMaxTokens: Readonly<Record<string, number>> = {},
+    private readonly maxOutputTokens: Readonly<Record<string, number>> = {},
   ) {
     super(SCRIPT)
   }
@@ -81,6 +82,7 @@ class CatalogAdapter extends ScriptedAdapter {
       ...this.contexts[model] === undefined ? {} : { context: this.contexts[model] },
       ...this.reasoning[model] === undefined ? {} : { reasoning: this.reasoning[model] },
       ...this.defaultMaxTokens[model] === undefined ? {} : { defaultMaxTokens: this.defaultMaxTokens[model] },
+      ...this.maxOutputTokens[model] === undefined ? {} : { maxOutputTokens: this.maxOutputTokens[model] },
     })
   }
 }
@@ -680,6 +682,25 @@ describe('LlmRuntime', () => {
     expect(preparedExplicit.adapterDefaults).toEqual({})
   })
 
+  it('preserves model output capacity without materializing a request default', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['route'], new CatalogAdapter(
+      { id: 'route', name: 'Route' },
+      [],
+      {},
+      {},
+      {},
+      { model: 32_768 },
+    ))
+
+    await expect(ctx.llm.resolveModelInfo('route', 'model')).resolves.toMatchObject({
+      maxOutputTokens: 32_768,
+    })
+    const unspecified = { provider: 'route', model: 'model' }
+    await expect(ctx.llm.resolveCallConfig(unspecified)).resolves.toBe(unspecified)
+  })
+
   it.each([0, 1.5, Number.MAX_SAFE_INTEGER + 1])(
     'rejects invalid adapter-owned default maxTokens %s',
     async (defaultMaxTokens) => {
@@ -688,6 +709,23 @@ describe('LlmRuntime', () => {
       const adapter = new class extends ScriptedAdapter {
         override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
           return Promise.resolve({ provider, id: model, name: model, defaultMaxTokens })
+        }
+      }(SCRIPT)
+      ctx.llm.registerAdapter(['route'], adapter)
+
+      await expect(ctx.llm.resolveModelInfo('route', 'model'))
+        .rejects.toMatchObject({ code: 'INVALID_MODEL_MAX_TOKENS' })
+    },
+  )
+
+  it.each([0, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid adapter-owned maximum output capacity %s',
+    async (maxOutputTokens) => {
+      const ctx = new Context()
+      await ctx.plugin(LlmRuntime)
+      const adapter = new class extends ScriptedAdapter {
+        override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+          return Promise.resolve({ provider, id: model, name: model, maxOutputTokens })
         }
       }(SCRIPT)
       ctx.llm.registerAdapter(['route'], adapter)

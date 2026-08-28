@@ -427,6 +427,7 @@ describe('catalog routes with per-model configuration', () => {
     // chose, so it must not arrive as the request default.
     expect(info.context).toEqual({ contextWindow: 4096 })
     expect(info.name).toBe(catalogModel.name)
+    expect(info.maxOutputTokens).toBe(catalogModel.maxTokens)
     expect(info.defaultMaxTokens).toBeUndefined()
     // An explicit list replaces the catalog rather than adding to it.
     expect((await ctx.llm.listModels('deepseek')).map(model => model.id)).toEqual([catalogModel.id])

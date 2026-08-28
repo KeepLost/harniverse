@@ -21,6 +21,8 @@ The same pure estimator helpers (`estimateContent`, `estimateHeader`, `estimateM
 
 The fold tracks full request-header snapshots, step boundaries, surface appends and replacements, successful assistant messages, provider usage, and the chunk seqs cited by each assistant message. Provider usage is reused only when the latest successful call's canonical request envelope matches the measured envelope and its total is no lower than that call's full heuristic anchor; a later success replaces the earlier anchor. Otherwise the complete current envelope and surface are estimated. Surface changes remain signed relative to a matching anchor, including negative deltas after shrinking replacements.
 
+A consumer selecting a prefix from the same measured envelope can project that matching Provider anchor onto the prefix by subtracting the unselected surface nodes' heuristic price. `dsh-compaction-basic` uses this conservative residual for a same-model summary budget, while another model or an estimated baseline receives no portable anchor.
+
 Usage accounting sums disjoint input, cache-read, cache-write, and output buckets; reasoning is not added again. Every successful call records an assistant anchor, including content-less calls. An explicit empty `sourceEventSeqs` list means a known empty provider stream, while an absent legacy list conservatively treats the durable assistant output as provider output.
 
 ## Session projections

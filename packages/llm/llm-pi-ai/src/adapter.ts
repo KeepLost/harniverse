@@ -325,6 +325,7 @@ export class PiAiAdapter extends LlmAdapter {
         name: resolvedModel.name,
         inputModalities: [...resolvedModel.input],
         context: { contextWindow: resolvedModel.contextWindow },
+        maxOutputTokens: resolvedModel.maxTokens,
         ...configuredMaxTokens === undefined ? {} : { defaultMaxTokens: configuredMaxTokens },
         ...reasoningInfo(resolvedModel, defaultLevel),
       }

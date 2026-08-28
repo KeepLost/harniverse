@@ -19,6 +19,9 @@ interface SummaryConfig {
   readonly maxTokens: number
 }
 
+/** Reserve retained after request pricing to absorb tokenizer and wire framing error. */
+const CONTEXT_SAFETY_TOKENS = 4_096
+
 /** Tags wrapping the structured summary inside the landed checkpoint node. */
 const SUMMARY_OPEN_TAG = '<compacted-summary>'
 const SUMMARY_CLOSE_TAG = '</compacted-summary>'
@@ -84,6 +87,12 @@ export interface SummarizationInput {
   readonly tools?: readonly ToolSchema[]
   /** The shadowed region, in surface order, that precedes the compaction instruction. */
   readonly messages: readonly Message[]
+  /** Provider-anchored price projected onto this prefix, when the latest matching call reported usage. */
+  readonly providerAnchor?: {
+    readonly provider: string
+    readonly model: string
+    readonly tokens: number
+  }
 }
 
 /** Safe summary content plus the exact auxiliary call envelope recorded with it. */
@@ -167,21 +176,32 @@ export async function summarizeWithLlm(
     ...input.system === undefined ? {} : { system: input.system },
     ...input.tools === undefined ? {} : { tools: [...input.tools] },
   }
-  const inputTokens = estimateHeader(header)
+  const estimatedInputTokens = estimateHeader(header)
     + messages.reduce((total, message) => total + estimateMessage(message), 0)
-  const remainingContext = info.context === undefined
+  const anchoredInputTokens = input.providerAnchor?.provider === target.provider
+    && input.providerAnchor.model === target.model
+    ? input.providerAnchor.tokens + estimateMessage(instruction)
+    : undefined
+  const inputTokens = Math.max(estimatedInputTokens, anchoredInputTokens ?? 0)
+  const contextWindow = info.context?.contextWindow
+  const contextSafetyTokens = contextWindow === undefined
+    ? 0
+    : Math.min(CONTEXT_SAFETY_TOKENS, Math.floor(contextWindow / 4))
+  const remainingContext = contextWindow === undefined
     ? Number.MAX_SAFE_INTEGER
-    : info.context.contextWindow - inputTokens
+    : contextWindow - inputTokens - contextSafetyTokens
   const maxTokens = Math.min(
     config.maxTokens,
     conversationCap ?? Number.MAX_SAFE_INTEGER,
+    info.maxOutputTokens ?? Number.MAX_SAFE_INTEGER,
     info.defaultMaxTokens ?? Number.MAX_SAFE_INTEGER,
     remainingContext,
   )
   if (maxTokens < 1) {
     throw new Error(
       `summarization input leaves no output capacity for ${target.provider}/${target.model} `
-      + `(estimated input ${inputTokens} tokens, context window ${info.context?.contextWindow ?? 'unknown'})`,
+      + `(budgeted input ${inputTokens} tokens, safety reserve ${contextSafetyTokens} tokens, `
+      + `context window ${contextWindow})`,
     )
   }
   const options: GenerateOptions = {
