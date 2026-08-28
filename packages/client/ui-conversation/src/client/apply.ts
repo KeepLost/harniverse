@@ -446,12 +446,10 @@ export function apply(ctx: Context): void {
     locale: NS,
     children: {
       'conversation.details.tool': { kind: 'single', scope: 'session' },
-      'conversation.details.workspaceInspector': { kind: 'single', scope: 'session' },
     },
     store: chatStore,
     inject: (): DetailsInjected => ({
       closeDetails: () => { layout.closeDetails() },
-      workspaceInspectorAvailable: true,
     }),
   }, DetailsPanel)
 

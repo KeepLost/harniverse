@@ -1,11 +1,11 @@
 /**
- * Workspace plugin, browser half. Two registrations: WorkspaceBrowser fills
- * the sidebar shell's `sidebar.workspaces` hole (the whole browsing region),
- * and WorkspacePicker fills the conversation hero's picker hole
- * (`conversation.hero.workspace` — both hero forms). Both read real Host
- * Workspaces through the global useWorkspaces hook, and each declares its
- * own `single` directory-flow child hole for the composed picker package's
- * client half (see the contract module doc). Export discipline:
+ * Workspace plugin, browser half. WorkspaceBrowser fills the sidebar's
+ * `sidebar.workspaces` hole, WorkspacePicker fills
+ * `conversation.hero.workspace`, WorkspaceWorkbench fills the shell's
+ * root-scoped `workbench` hole, and its button fills the Session-header
+ * utility hole. The entries read real Host Workspaces through standard
+ * runtime hooks; browser and picker each declare a `single` directory-flow
+ * child hole for the composed picker package (see the contract module doc). Export discipline:
  * packages/client/AGENTS.md.
  */
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
@@ -14,13 +14,13 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { WorkspaceBrowserInjected, WorkspaceInspectorInjected, WorkspacePickerInjected } from './contract/slots.ts'
-import { createWorkspaceInspectorStore, createWorkspaceViewStore } from './stores.ts'
+import type { WorkspaceBrowserInjected, WorkspacePickerInjected, WorkspaceWorkbenchInjected } from './contract/slots.ts'
+import { createWorkspaceViewStore, createWorkspaceWorkbenchStore } from './stores.ts'
 import { WorkspaceBrowser } from './WorkspaceBrowser.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, zh, type WorkspaceKey } from './locales.ts'
-import { WorkspaceInspector, WorkspaceInspectorView } from './WorkspaceInspector.tsx'
-import { WorkspaceInspectorButton } from './WorkspaceInspectorButton.tsx'
+import { WorkspaceWorkbench } from './WorkspaceWorkbench.tsx'
+import { WorkspaceWorkbenchButton } from './WorkspaceWorkbenchButton.tsx'
 
 export type {
   DirectoryFlowOwnerProps, DirectoryFlowSlotName, DirectoryPickingHooks, DirectoryPickingInjected,
@@ -46,7 +46,7 @@ const NS = 'workspace'
  * provides a waitable service. apply therefore depends on each slot
  * declaration through `slots.inject()` instead of assuming order.
  */
-export const inject = ['slots', 'sessions', 'workspaces', 'locale']
+export const inject = ['slots', 'sessions', 'workspaces', 'locale', 'layout']
 
 /**
  * Register the browser and picker once their slot declarations are on the
@@ -134,44 +134,35 @@ export function apply(ctx: ClientContext): void {
     },
     WorkspacePicker,
   ))
-  const inspectorStore = createWorkspaceInspectorStore()
-  const inspectorInjected = (): WorkspaceInspectorInjected => ({
-    openDetails: () => { ctx.get('layout')?.openDetails() },
+  const workbenchStore = createWorkspaceWorkbenchStore()
+  const workbenchInjected = (): WorkspaceWorkbenchInjected => ({
+    openWorkbench: () => { ctx.layout.openWorkbench() },
+    closeWorkbench: () => { ctx.layout.closeWorkbench() },
     listFiles: (workspaceId, path, signal) => ctx.workspaces.listFiles(workspaceId, path, signal),
+    searchFiles: (workspaceId, query, signal) => ctx.workspaces.searchFiles(workspaceId, query, signal),
     readFile: (workspaceId, path, signal) => ctx.workspaces.readFile(workspaceId, path, signal),
+    readBinaryFile: (workspaceId, path, signal) => ctx.workspaces.readBinaryFile(workspaceId, path, signal),
     gitStatus: (workspaceId, signal) => ctx.workspaces.gitStatus(workspaceId, signal),
     gitCommits: (workspaceId, limit, signal) => ctx.workspaces.gitCommits(workspaceId, limit, signal),
     gitDiff: (workspaceId, path, staged, signal) => ctx.workspaces.gitDiff(workspaceId, path, staged, signal),
   })
-  ctx.slots.inject('details', () => ctx.slots.inject('conversation.details.workspaceInspector', () => ctx.slots.register(
+  ctx.slots.inject('workbench', () => ctx.slots.register(
     {
-      name: 'conversation.details.workspaceInspector',
-      store: inspectorStore,
-      inject: inspectorInjected,
+      name: 'workbench',
+      store: workbenchStore,
+      inject: workbenchInjected,
       locale: NS,
     },
-    WorkspaceInspector,
-  )))
-  ctx.slots.inject('conversation.view', () => ctx.slots.register(
-    {
-      name: 'conversation.view',
-      id: 'workspace',
-      order: 20,
-      label: () => '工作区',
-      locale: NS,
-      store: inspectorStore,
-      inject: inspectorInjected,
-    },
-    WorkspaceInspectorView,
+    WorkspaceWorkbench,
   ))
   ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register(
     {
       name: 'conversation.session.header.utilities',
-      id: 'workspace-inspector',
+      id: 'workspace-workbench',
       order: 20,
       locale: NS,
-      inject: inspectorInjected,
+      inject: workbenchInjected,
     },
-    WorkspaceInspectorButton,
+    WorkspaceWorkbenchButton,
   ))
 }

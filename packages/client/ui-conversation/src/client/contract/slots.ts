@@ -120,10 +120,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * `cwd` as display-only, for shortening workspace-rooted paths.
      * A per-tool renderer belongs in the keyed `tool.call.toolview` seat
      * instead; this one is the whole panel.
-     */
+    */
     'conversation.details.tool': { kind: 'single'; scope: 'session'; owner: DetailsToolOwnerProps }
-    /** Optional workspace-level read-only inspector rendered below tool details. */
-    'conversation.details.workspaceInspector': { kind: 'single'; scope: 'session'; owner: {} }
     /**
      * The composer takeover chain: entries are selector-routed replacements
      * of the default InputBar. Declared by this package's 'conversation'
@@ -721,12 +719,10 @@ export type ChatViewSlotProps =
 export interface DetailsInjected {
   /** Close the details panel (layout geometry stays with ctx.layout). */
   closeDetails: () => void
-  /** Whether an optional workspace inspector contribution is mounted. */
-  workspaceInspectorAvailable?: boolean
 }
 
 /** Full details-slot props: selection store, Tool output seat, injected close callback, and locale. */
-export type DetailsSlotProps = PropsRuntime<'details'> & PropsRenderSlots<'conversation.details.tool' | 'conversation.details.workspaceInspector'>
+export type DetailsSlotProps = PropsRuntime<'details'> & PropsRenderSlots<'conversation.details.tool'>
   & PropsStore<ChatStore> & DetailsInjected & PropsLocale<'conversation'>
 
 /** Owner share common to the hero / New-Session Workspace pickers. */

@@ -37,6 +37,27 @@ export const DETAILS_MIN = 300
 export const DETAILS_MAX = 520
 /** Details width before any user drag. */
 export const DETAILS_DEFAULT = 360
+/** Details switches to a full-frame drawer below this width. */
+export const DETAILS_DRAWER_BREAKPOINT = 760
+/** Workspace workbench drag clamp floor. */
+export const WORKBENCH_MIN = 560
+/** Workspace workbench drag clamp ceiling. */
+export const WORKBENCH_MAX = 1040
+/** Workspace workbench width before any user drag. */
+export const WORKBENCH_DEFAULT = 760
+/** Center floor while the wider workspace workbench is docked. */
+export const WORKBENCH_CENTER_MIN = 480
+/** Workbench switches to a full-frame drawer below this width. */
+export const WORKBENCH_DRAWER_BREAKPOINT = 1320
+
+/** Mode-specific right-column constraints. */
+export interface RightColumnLimits { centerMin: number; rightMin: number; rightMax: number }
+
+const DETAILS_LIMITS: RightColumnLimits = {
+  centerMin: CENTER_MIN,
+  rightMin: DETAILS_MIN,
+  rightMax: DETAILS_MAX,
+}
 
 /**
  * Clamp a panel width into its contract range.
@@ -57,19 +78,25 @@ export function clampWidth(px: number, min: number, max: number): number {
  * @param viewport - available frame width in px.
  * @param sidebar - sidebar width preference in px (0 = closed).
  * @param details - details width preference in px (0 = closed).
+ * @param limits - active right mode's center and width constraints.
  * @returns resolved widths; details 0 means visually closed (never unmounted), while a closed sidebar keeps its compact rail.
  */
-export function computeColumns(viewport: number, sidebar: number, details: number): Columns {
+export function computeColumns(
+  viewport: number,
+  sidebar: number,
+  details: number,
+  limits: RightColumnLimits = DETAILS_LIMITS,
+): Columns {
   // The sidebar is fixed at its preference (or the rail) — it never concedes.
   const s = sidebar === 0 ? SIDEBAR_COLLAPSED : clampWidth(sidebar, SIDEBAR_MIN, SIDEBAR_MAX)
-  const d0 = details === 0 ? 0 : clampWidth(details, DETAILS_MIN, DETAILS_MAX)
+  const d0 = details === 0 ? 0 : clampWidth(details, limits.rightMin, limits.rightMax)
 
   // Step 1: everything fits at preferred widths.
-  if (s + d0 + CENTER_MIN <= viewport) return { sidebar: s, center: viewport - s - d0, details: d0 }
+  if (s + d0 + limits.centerMin <= viewport) return { sidebar: s, center: viewport - s - d0, details: d0 }
 
   // Step 2: shrink details toward its minimum.
-  const d1 = d0 === 0 ? 0 : Math.max(DETAILS_MIN, viewport - s - CENTER_MIN)
-  if (s + d1 + CENTER_MIN <= viewport) return { sidebar: s, center: CENTER_MIN, details: d1 }
+  const d1 = d0 === 0 ? 0 : Math.max(limits.rightMin, viewport - s - limits.centerMin)
+  if (s + d1 + limits.centerMin <= viewport) return { sidebar: s, center: limits.centerMin, details: d1 }
 
   // Step 3: auto-close details (derived — preferences untouched); center
   // absorbs any remaining deficit (may drop below CENTER_MIN).

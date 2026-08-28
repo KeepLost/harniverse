@@ -36,6 +36,16 @@ export type BakedActions<T, A extends ActionsDecl<T>> = {
   [K in keyof A]: A[K] extends (draft: T, ...params: infer P) => void ? (...params: P) => void : never
 }
 
+/** Persist a selected JSON projection while rebuilding transient state from init. */
+export interface StorePersistence<T> {
+  /** localStorage key before an optional session-scope suffix. */
+  name: string
+  /** Select the JSON-compatible value written after each state change. */
+  select: (state: T) => unknown
+  /** Validate and merge the stored value into a fresh initial state. */
+  restore: (stored: unknown, initial: T) => T
+}
+
 /**
  * Store declaration spec: initial-state factory (a lambda so every instance
  * gets a fresh state), optional persistence key (mechanical, framework-run),
@@ -43,7 +53,7 @@ export type BakedActions<T, A extends ActionsDecl<T>> = {
  */
 export interface StoreSpec<T, A extends ActionsDecl<T>> {
   init: () => T
-  persist?: string
+  persist?: string | StorePersistence<T>
   actions: A
 }
 

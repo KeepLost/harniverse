@@ -65,7 +65,9 @@ export interface RpcMethodMap {
   'workspace.archiveSession': WorkspaceApi['archiveSession']
   'workspace.unarchiveSession': WorkspaceApi['unarchiveSession']
   'workspace.files.list': WorkspaceFilesApi['list']
+  'workspace.files.search': WorkspaceFilesApi['search']
   'workspace.files.read': WorkspaceFilesApi['read']
+  'workspace.files.readBinary': WorkspaceFilesApi['readBinary']
   'workspace.git.status': WorkspaceGitApi['status']
   'workspace.git.commits': WorkspaceGitApi['commits']
   'workspace.git.diff': WorkspaceGitApi['diff']
@@ -133,7 +135,9 @@ export const RPC_METHOD_CAPABILITIES: { readonly [K in keyof RpcMethodMap]: Auth
   'workspace.archiveSession': 'harniverse.operate',
   'workspace.unarchiveSession': 'harniverse.operate',
   'workspace.files.list': 'harniverse.observe',
+  'workspace.files.search': 'harniverse.observe',
   'workspace.files.read': 'harniverse.observe',
+  'workspace.files.readBinary': 'harniverse.observe',
   'workspace.git.status': 'harniverse.observe',
   'workspace.git.commits': 'harniverse.observe',
   'workspace.git.diff': 'harniverse.observe',
@@ -201,7 +205,9 @@ export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 
   'workspace.archiveSession': 'mutate',
   'workspace.unarchiveSession': 'mutate',
   'workspace.files.list': 'read',
+  'workspace.files.search': 'read',
   'workspace.files.read': 'read',
+  'workspace.files.readBinary': 'read',
   'workspace.git.status': 'read',
   'workspace.git.commits': 'read',
   'workspace.git.diff': 'read',

@@ -17,7 +17,7 @@ chain-kind slot 会反转键控路由：条目自行提名，而不是由分发�
 
 标准工具包接口（`SessionStandardProps`、`GlobalStandardProps`）在这里声明为空，由运行时包合并（与 SlotMap key 相同的 declare-merge 模式）。renderer 会把运行时会话和 Workspace observable source 绑定为 selector 钩子。Inject factory 参数从声明派生（`InjectParams`）：会话 slot 获得 `sessionId`；声明 store 时追加 baked `actions`；没有其他参数，数据访问位于 apply 闭包的 ctx 中。
 
-store 家族（输入 `defineStore` 规范／输出 `StoreHandle<T, A>`）为 store seat 建模：`init` 推断状态 schema；`actions` 是完整的 draft-transform 写入集合；`BakedActions` 移除 draft 参数，成为组件和 inject factory 收到的回调。`defineStore` 值实现位于运行时包（引擎所属位置），并满足这里导出的 `DefineStore` 约定。引擎产物与 renderer host 约定携带裸快照 source（`getSnapshot`／`subscribe`），绝不携带 React 钩子；钩子绑定属于渲染机制，只有 props 约定钩子类型（`SnapshotSelectorHook`）位于这里。
+store 家族（输入 `defineStore` 规范／输出 `StoreHandle<T, A>`）为 store seat 建模：`init` 推断状态 schema；`actions` 是完整的 draft-transform 写入集合；`BakedActions` 移除 draft 参数，成为组件和 inject factory 收到的回调。可选 `persist` 接受用于完整状态 JSON 存储的 key，或带 `select` 与 `restore` 的 `StorePersistence<T>`，后者持久化经校验的投影，并从新鲜初始状态重建临时字段。`defineStore` 值实现位于运行时包（引擎所属位置），并满足这里导出的 `DefineStore` 约定。引擎产物与 renderer host 约定携带裸快照 source（`getSnapshot`／`subscribe`），绝不携带 React 钩子；钩子绑定属于渲染机制，只有 props 约定钩子类型（`SnapshotSelectorHook`）位于这里。
 
 `SlotCore` 在构造时预置 `'root'` slot，并强制执行加载时验证（注册未声明 slot、重复声明子项、在两个 scope 下使用同一个共享 handle、chain 注册缺少 `select`，这些情况都在 register 时抛出）。条目的 disposer 会递归移除其声明的子 slot：账本行、贡献和 store 挂载都会随同一生命周期结束而移除。每个 key 还携带一个 declaration epoch（声明代次），它只在声明与移除时递增；运行时将其用于 [`ctx.slots.inject`](../runtime/README.md#slot-declaration-injection)，且与普通条目版本相互独立。`renderer.ts` 携带安装约定（`SlotRenderer`、`SlotRendererHost`）以及 `StaleAuthorizationError`／`SlotOwnershipError`；实现在 web-react 中，安装则在外壳启动中完成。
 

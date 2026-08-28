@@ -33,6 +33,10 @@ async function createRuntime(): Promise<SlotTestRuntime> {
   const runtime = await SlotTestRuntime.create()
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.provide('locale', locale)
+  runtime.provide('layout', {
+    toggleSidebar: vi.fn(), openDetails: vi.fn(), closeDetails: vi.fn(),
+    openWorkbench: vi.fn(), closeWorkbench: vi.fn(),
+  })
   runtime.slots.installLocale(locale)
   return runtime
 }

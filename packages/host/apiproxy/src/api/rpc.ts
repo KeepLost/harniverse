@@ -62,6 +62,8 @@ export interface RpcErrorDetailsMap {
   'workspace-entry-not-readable': { workspaceId: string; path: string }
   'workspace-entry-type-invalid': { workspaceId: string; path: string }
   'workspace-file-binary': { workspaceId: string; path: string }
+  'workspace-file-preview-unsupported': { workspaceId: string; path: string }
+  'workspace-file-too-large': { workspaceId: string; path: string }
   'workspace-git-not-repository': { workspaceId: string }
   'workspace-git-failed': { workspaceId: string; operation: string }
   'directory-unreadable': { path: string }

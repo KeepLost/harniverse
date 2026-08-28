@@ -20,7 +20,7 @@ import type {
 // Store contract types are ui-slots authority; re-exported beside the engine
 // so store consumers get one import path.
 export type {
-  ActionsDecl, BakedActions, BoundActions, StoreFactory, StoreHandle, StoreInstance, StoreSpec,
+  ActionsDecl, BakedActions, BoundActions, StoreFactory, StoreHandle, StoreInstance, StorePersistence, StoreSpec,
 } from '@deepseek-ai/dsh-client-ui-slots'
 
 /** Minimal observable snapshot source: Session objects and snapshot stores both satisfy it. */
@@ -38,6 +38,13 @@ export interface SnapshotStore<T> extends ObservableSnapshot<T> {
    * @param next - next state.
    */
   set(next: T): void
+}
+
+/** Engine persistence also accepts whole-value storage for direct callers. */
+type SnapshotPersistence<T> = {
+  name: string
+  select?: (state: T) => unknown
+  restore?: (stored: unknown, initial: T) => T
 }
 
 /**
@@ -84,12 +91,12 @@ function rafBatch(notify: () => void): () => void {
  * @returns the store.
  */
 export function createSnapshotStore<T>(
-  init: T, opts?: { flush?: 'raf' | 'sync'; persist?: { name: string } }): SnapshotStore<T> {
+  init: T, opts?: { flush?: 'raf' | 'sync'; persist?: SnapshotPersistence<T> }): SnapshotStore<T> {
   // Immer enters through produce() in update() below (identical semantics to
   // the immer middleware without its setState-signature mutator generics).
   const withSelector = subscribeWithSelector(() => init)
   const api: StoreApi<T> = createStore<T>()(withSelector)
-  if (opts?.persist) attachPersistence(api, opts.persist.name)
+  if (opts?.persist) attachPersistence(api, opts.persist)
 
   let subscribe = (fn: () => void) => api.subscribe(fn)
   if (opts?.flush === 'raf') {
@@ -124,7 +131,8 @@ export function createSnapshotStore<T>(
  * because the corruption happens before serialization. Storage failures
  * (quota, private mode) only disable persistence, never break the store.
  */
-function attachPersistence<T>(api: StoreApi<T>, name: string): void {
+function attachPersistence<T>(api: StoreApi<T>, persistence: SnapshotPersistence<T>): void {
+  const { name } = persistence
   // Non-browser runs (node e2e booting the client tree) have no localStorage:
   // persistence silently disables — same contract as a storage failure, minus
   // the per-store console noise a ReferenceError would produce.
@@ -132,14 +140,15 @@ function attachPersistence<T>(api: StoreApi<T>, name: string): void {
   try {
     const raw = localStorage.getItem(name)
     if (raw !== null) {
-      api.setState(devFreeze(JSON.parse(raw) as T), true)
+      const stored = JSON.parse(raw) as unknown
+      api.setState(devFreeze(persistence.restore?.(stored, api.getState()) ?? stored as T), true)
     }
   } catch (error) {
     console.error(`snapshot store '${name}' rehydration failed:`, error)
   }
   api.subscribe((state) => {
     try {
-      localStorage.setItem(name, JSON.stringify(state))
+      localStorage.setItem(name, JSON.stringify(persistence.select?.(state) ?? state))
     } catch (error) {
       console.error(`snapshot store '${name}' persistence failed:`, error)
     }
@@ -209,12 +218,24 @@ export function defineStore<T, A extends ActionsDecl<T>>(
   return {
     spec: decl,
     create(scopeKey?: string): EngineStoreInstance<T, A> {
-      const persistKey = decl.persist === undefined
+      const persistName = decl.persist === undefined
         ? undefined
-        : scopeKey === undefined ? decl.persist : `${decl.persist}.${scopeKey}`
+        : typeof decl.persist === 'string' ? decl.persist : decl.persist.name
+      const persistKey = persistName === undefined
+        ? undefined
+        : scopeKey === undefined ? persistName : `${persistName}.${scopeKey}`
+      const persistence = persistKey === undefined
+        ? undefined
+        : typeof decl.persist === 'string'
+          ? {
+            name: persistKey,
+            select: (state: T): unknown => state,
+            restore: (stored: unknown): T => stored as T,
+          }
+          : { ...decl.persist, name: persistKey }
       const store = createSnapshotStore<T>(
         decl.init(),
-        persistKey !== undefined ? { persist: { name: persistKey } } : undefined)
+        persistence !== undefined ? { persist: persistence } : undefined)
       const actions = {} as Record<string, (...params: unknown[]) => void>
       for (const key of Object.keys(decl.actions)) {
         const mutate = decl.actions[key] as (draft: T, ...params: unknown[]) => void

@@ -589,6 +589,51 @@ describe('createFixtureApi', () => {
     expect(reused.result.value).toMatchObject({ created: false, workspace: { workspaceId: 'fx-ws-fixture' } })
   })
 
+  it('serves deterministic read-only Workspace files and Git data', async () => {
+    const api = createFixtureApi()
+    const workspaceId = 'fx-ws-fixture' as WorkspaceId
+    if (api.workspaceFiles === undefined || api.workspaceGit === undefined) throw new Error('fixture inspection surfaces missing')
+
+    await expect(api.workspaceFiles.list(req({ workspaceId }), new AbortController().signal)).resolves.toMatchObject({
+      result: { ok: true, value: { path: '', entries: [{ path: 'src' }, { path: 'README.md' }, { path: 'pixel.png' }] } },
+    })
+    await expect(api.workspaceFiles.search(req({ workspaceId, query: 'index' }), new AbortController().signal)).resolves.toMatchObject({
+      result: { ok: true, value: { entries: [{ path: 'src/index.ts' }] } },
+    })
+    await expect(api.workspaceFiles.search(req({ workspaceId, query: ' index ' }), new AbortController().signal)).resolves.toMatchObject({
+      result: { ok: true, value: { entries: [{ path: 'src/index.ts' }] } },
+    })
+    await expect(api.workspaceFiles.search(req({ workspaceId, query: 'src' }), new AbortController().signal)).resolves.toMatchObject({
+      result: { ok: true, value: { entries: [] } },
+    })
+    const read = await api.workspaceFiles.read(req({ workspaceId, path: 'README.md' }), new AbortController().signal)
+    if (!read.result.ok) throw new Error('fixture text read failed')
+    expect(read.result.value.content).toContain('Fixture Workspace')
+    expect(read.result.value.truncated).toBe(false)
+    await expect(api.workspaceFiles.readBinary(req({ workspaceId, path: 'pixel.png' }), new AbortController().signal)).resolves.toMatchObject({
+      result: { ok: true, value: { mediaType: 'image/png', bytes: 68 } },
+    })
+    const status = await api.workspaceGit.status(req({ workspaceId }), new AbortController().signal)
+    if (!status.result.ok) throw new Error('fixture Git status failed')
+    expect(status.result.value.branch).toBe('fixture/main')
+    expect(status.result.value.entries.some(entry => entry.path === 'src/index.ts')).toBe(true)
+    await expect(api.workspaceGit.commits(req({ workspaceId }), new AbortController().signal)).resolves.toMatchObject({
+      result: { ok: true, value: { commits: [{ subject: 'Seed fixture workspace' }] } },
+    })
+    const diff = await api.workspaceGit.diff(req({ workspaceId, path: 'src/index.ts', staged: false }), new AbortController().signal)
+    if (!diff.result.ok) throw new Error('fixture Git diff failed')
+    expect(diff.result.value.diff).toContain('diff --git a/src/index.ts')
+
+    const aborted = new AbortController()
+    aborted.abort()
+    await expect(api.workspaceFiles.list(req({ workspaceId }), aborted.signal)).resolves.toMatchObject({
+      result: { ok: false, error: { code: 'cancelled' } },
+    })
+    await expect(api.workspaceGit.status(req({ workspaceId: 'missing' as WorkspaceId }), new AbortController().signal)).resolves.toMatchObject({
+      result: { ok: false, error: { code: 'workspace-not-found' } },
+    })
+  })
+
   it('workspace.create on a fresh path mints a new entity and pushes host/workspace-changed', async () => {
     const api = createFixtureApi()
     const abort = new AbortController()

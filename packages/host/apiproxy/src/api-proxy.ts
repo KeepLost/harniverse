@@ -118,7 +118,9 @@ import {
 import { canOpenNativePath, openNativePath, openNativeTextFile } from './native-path-opener.ts'
 import {
   listWorkspaceFiles,
+  readWorkspaceBinary,
   readWorkspaceFile,
+  searchWorkspaceFiles,
   WorkspaceInspectorError,
   workspaceGitCommits,
   workspaceGitDiff,
@@ -1237,6 +1239,8 @@ function workspaceInspectionFailure<T>(
     case 'workspace-entry-not-readable':
     case 'workspace-entry-type-invalid':
     case 'workspace-file-binary':
+    case 'workspace-file-preview-unsupported':
+    case 'workspace-file-too-large':
       return err(request, {
         code: error.code,
         message: error.message,
@@ -3977,12 +3981,34 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
       },
 
+      async search(request, signal) {
+        const { workspaceId, query } = request.payload
+        const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
+        if (workspace === undefined) return workspaceNotFound(request, workspaceId)
+        try {
+          return ok(request, await searchWorkspaceFiles(workspace.path, query, signal))
+        } catch (error: unknown) {
+          return workspaceInspectionFailure(request, workspaceId, '.', error, signal)
+        }
+      },
+
       async read(request, signal) {
         const { workspaceId, path } = request.payload
         const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
         if (workspace === undefined) return workspaceNotFound(request, workspaceId)
         try {
           return ok(request, await readWorkspaceFile(workspace.path, path, signal))
+        } catch (error: unknown) {
+          return workspaceInspectionFailure(request, workspaceId, path, error, signal)
+        }
+      },
+
+      async readBinary(request, signal) {
+        const { workspaceId, path } = request.payload
+        const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
+        if (workspace === undefined) return workspaceNotFound(request, workspaceId)
+        try {
+          return ok(request, await readWorkspaceBinary(workspace.path, path, signal))
         } catch (error: unknown) {
           return workspaceInspectionFailure(request, workspaceId, path, error, signal)
         }

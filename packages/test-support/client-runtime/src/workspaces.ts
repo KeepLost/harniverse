@@ -130,6 +130,36 @@ export class TestWorkspaces implements IWorkspaces {
     return { path, content: '', bytes: 0, truncated: false }
   }
 
+  async searchFiles(workspaceId: WorkspaceId, query: string, signal?: AbortSignal): Promise<{
+    entries: WorkspaceFileEntry[]
+    truncated: boolean
+  }> {
+    this.calls.push({ method: 'searchFiles', args: [workspaceId, query, signal] })
+    const stub = this.stubs.get('searchFiles')
+    if (stub !== undefined) return await stub(workspaceId, query, signal) as {
+      entries: WorkspaceFileEntry[]
+      truncated: boolean
+    }
+    return { entries: [], truncated: false }
+  }
+
+  async readBinaryFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
+    path: string
+    dataBase64: string
+    mediaType: string
+    bytes: number
+  }> {
+    this.calls.push({ method: 'readBinaryFile', args: [workspaceId, path, signal] })
+    const stub = this.stubs.get('readBinaryFile')
+    if (stub !== undefined) return await stub(workspaceId, path, signal) as {
+      path: string
+      dataBase64: string
+      mediaType: string
+      bytes: number
+    }
+    return { path, dataBase64: '', mediaType: 'image/png', bytes: 0 }
+  }
+
   async gitStatus(workspaceId: WorkspaceId, signal?: AbortSignal): Promise<{
     branch: string | null
     entries: WorkspaceGitStatusEntry[]

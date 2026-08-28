@@ -331,7 +331,10 @@ describe('workspace file inspection', () => {
     const { api, root } = await harness()
     const project = stageDir(root, 'inspected')
     mkdirSync(join(project, '.hidden'))
+    mkdirSync(join(project, 'src'))
     writeFileSync(join(project, 'README.md'), 'workspace text')
+    writeFileSync(join(project, 'src', 'Workbench.tsx'), 'export {}')
+    writeFileSync(join(project, 'pixel.png'), Buffer.from([0, 1, 2]))
     const outside = stageDir(root, 'outside')
     writeFileSync(join(outside, 'secret.txt'), 'outside')
     symlinkSync(outside, join(project, 'escape'), 'dir')
@@ -350,6 +353,18 @@ describe('workspace file inspection', () => {
       new AbortController().signal,
     ))
     expect(read.content).toBe('workspace text')
+    const searched = expectOk(await api.workspaceFiles.search(
+      request({ workspaceId: workspace.workspaceId, query: 'workbench' }),
+      new AbortController().signal,
+    ))
+    expect(searched.entries).toEqual([
+      { name: 'Workbench.tsx', path: 'src/Workbench.tsx', kind: 'file' },
+    ])
+    const binary = expectOk(await api.workspaceFiles.readBinary(
+      request({ workspaceId: workspace.workspaceId, path: 'pixel.png' }),
+      new AbortController().signal,
+    ))
+    expect(binary).toMatchObject({ dataBase64: 'AAEC', mediaType: 'image/png', bytes: 3 })
 
     const escaped = await api.workspaceFiles.read(
       request({ workspaceId: workspace.workspaceId, path: 'escape/secret.txt' }),

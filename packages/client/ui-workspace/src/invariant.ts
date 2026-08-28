@@ -16,9 +16,9 @@ export const inject = ['invariants']
 
 /**
  * No runtime invariant: a pure-consumer plugin registering presentational
- * components into two host-declared slots plus its locale dictionaries — its
- * inject face is stateless RPC wrappers plus a create-and-open call; it
- * emits no cordis events and owns no cross-plugin mutable state.
+ * browser, picker, workbench, and header entries plus locale dictionaries.
+ * Its RPC wrappers are read-only, its declared store owns view state only,
+ * and it emits no Cordis events or model-visible data.
  */
 const install: InvariantInstaller = () => {}
 

@@ -32,7 +32,7 @@ import type {
   ConversationSnapshot, RpcResult, SessionId, SessionSearchResultItem, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { IWorkspaces } from '@deepseek-ai/dsh-client-runtime/client'
-import type { createWorkspaceInspectorStore, createWorkspaceViewStore } from '../stores.ts'
+import type { createWorkspaceViewStore, createWorkspaceWorkbenchStore } from '../stores.ts'
 
 /**
  * Owner share of the directory-flow holes: the complete conversation between
@@ -178,19 +178,24 @@ export type WorkspacePickerProps =
   & DirectoryPickingHooks
   & PropsLocale<'workspace'>
 
-/** Callbacks used by both workspace inspector registrations. */
-export type WorkspaceInspectorInjected = {
-  /** Open the existing details column without starting an inspection request. */
-  openDetails: () => void
+/** Read-only Workspace workbench callbacks supplied by the apply world. */
+export type WorkspaceWorkbenchInjected = {
+  /** Open the workbench without starting an inspection request. */
+  openWorkbench: () => void
+  /** Close the workbench while retaining its Workspace-local viewing state. */
+  closeWorkbench: () => void
   listFiles: IWorkspaces['listFiles']
+  searchFiles: IWorkspaces['searchFiles']
   readFile: IWorkspaces['readFile']
+  readBinaryFile: IWorkspaces['readBinaryFile']
   gitStatus: IWorkspaces['gitStatus']
   gitCommits: IWorkspaces['gitCommits']
   gitDiff: IWorkspaces['gitDiff']
 }
 
-export type WorkspaceInspectorProps =
-  PropsRuntime<'conversation.details.workspaceInspector'>
-  & PropsStore<ReturnType<typeof createWorkspaceInspectorStore>>
-  & InjectFace<WorkspaceInspectorInjected>
+/** Full top-level workbench props: session runtime, shared store, callbacks, and locale. */
+export type WorkspaceWorkbenchProps =
+  PropsRuntime<'workbench'>
+  & PropsStore<ReturnType<typeof createWorkspaceWorkbenchStore>>
+  & InjectFace<WorkspaceWorkbenchInjected>
   & PropsLocale<'workspace'>

@@ -1590,6 +1590,17 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     }
     return crumbs
   }
+  const fixtureWorkspaceFiles = [
+    { name: 'src', path: 'src', kind: 'directory' as const },
+    { name: 'README.md', path: 'README.md', kind: 'file' as const },
+    { name: 'pixel.png', path: 'pixel.png', kind: 'file' as const },
+    { name: 'index.ts', path: 'src/index.ts', kind: 'file' as const },
+  ]
+  const fixtureTextFiles = new Map([
+    ['README.md', '# Fixture Workspace\n\nRead-only workbench fixture.\n'],
+    ['src/index.ts', 'export const fixtureWorkbench = true\n'],
+  ])
+  const fixturePixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
   const mint = (): ReturnType<typeof RpcId> => RpcId(`fx-rpc-${nextRpc++}`)
   /** Resident pending approval (stable rpcId: every mux open replays the same id while unanswered, matching host replay semantics). */
   const pendingApprovalRpcId = mint()
@@ -1684,6 +1695,20 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       code: 'session-not-found',
       message: `no session ${request.payload.sessionId}`,
       details: { sessionId: request.payload.sessionId },
+    })
+  }
+  const requireWorkspaceInspection = <P extends { workspaceId: WorkspaceId }>(
+    request: RpcRequest<P>,
+    signal: AbortSignal,
+  ): Promise<RpcResponse<never>> | undefined => {
+    if (signal.aborted) {
+      return err<P, never>(request, { code: 'cancelled', message: 'fixture Workspace inspection was aborted', details: {} })
+    }
+    if (workspaces.some(workspace => workspace.workspaceId === request.payload.workspaceId)) return undefined
+    return err<P, never>(request, {
+      code: 'workspace-not-found',
+      message: `workspace "${request.payload.workspaceId}" not found`,
+      details: { workspaceId: request.payload.workspaceId },
     })
   }
   const setRunning = (id: SessionId, running: boolean): void => {
@@ -2850,6 +2875,81 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         return ok(request, { archivedSessionIds: [...archivedSessionIds] })
       },
     },
+    workspaceFiles: {
+      list: (request, signal) => {
+        const missing = requireWorkspaceInspection(request, signal)
+        if (missing !== undefined) return missing
+        const path = request.payload.path ?? ''
+        const entries = path === ''
+          ? fixtureWorkspaceFiles.filter(entry => !entry.path.includes('/'))
+          : path === 'src' ? fixtureWorkspaceFiles.filter(entry => entry.path.startsWith('src/')) : undefined
+        if (entries === undefined) {
+          return err(request, { code: 'workspace-entry-not-found', message: `fixture path ${path} was not found`, details: { workspaceId: request.payload.workspaceId, path } })
+        }
+        return ok(request, { path, entries: entries.map(entry => ({ ...entry })), truncated: false })
+      },
+      search: (request, signal) => {
+        const missing = requireWorkspaceInspection(request, signal)
+        if (missing !== undefined) return missing
+        const query = request.payload.query.trim().toLowerCase()
+        const entries = fixtureWorkspaceFiles
+          .filter(entry => entry.kind === 'file' && entry.name.toLowerCase().includes(query))
+          .map(entry => ({ ...entry }))
+        return ok(request, { entries, truncated: false })
+      },
+      read: (request, signal) => {
+        const missing = requireWorkspaceInspection(request, signal)
+        if (missing !== undefined) return missing
+        const content = fixtureTextFiles.get(request.payload.path)
+        if (content === undefined) {
+          return err(request, { code: 'workspace-file-binary', message: `fixture path ${request.payload.path} is not text`, details: { workspaceId: request.payload.workspaceId, path: request.payload.path } })
+        }
+        return ok(request, {
+          path: request.payload.path, content, bytes: new TextEncoder().encode(content).byteLength, truncated: false,
+        })
+      },
+      readBinary: (request, signal) => {
+        const missing = requireWorkspaceInspection(request, signal)
+        if (missing !== undefined) return missing
+        return request.payload.path === 'pixel.png'
+          ? ok(request, { path: 'pixel.png', dataBase64: fixturePixel, mediaType: 'image/png', bytes: 68 })
+          : err(request, { code: 'workspace-file-preview-unsupported', message: `fixture path ${request.payload.path} has no binary preview`, details: { workspaceId: request.payload.workspaceId, path: request.payload.path } })
+      },
+    },
+    workspaceGit: {
+      status: (request, signal) => {
+        const missing = requireWorkspaceInspection(request, signal)
+        if (missing !== undefined) return missing
+        return ok(request, {
+          branch: 'fixture/main',
+          entries: [
+            { path: 'src/index.ts', indexStatus: ' ', worktreeStatus: 'M' },
+            { path: 'notes.txt', indexStatus: '?', worktreeStatus: '?' },
+          ],
+          truncated: false,
+        })
+      },
+      commits: (request, signal) => {
+        const missing = requireWorkspaceInspection(request, signal)
+        if (missing !== undefined) return missing
+        return ok(request, {
+          commits: [{
+            hash: '0123456789abcdef0123456789abcdef01234567', shortHash: '0123456',
+            authorName: 'Fixture Author', authorEmail: 'fixture@example.invalid',
+            authoredAt: '2026-01-01T00:00:00.000Z', subject: 'Seed fixture workspace',
+          }],
+          truncated: false,
+        })
+      },
+      diff: (request, signal) => {
+        const missing = requireWorkspaceInspection(request, signal)
+        if (missing !== undefined) return missing
+        return ok(request, {
+          diff: `diff --git a/${request.payload.path ?? 'src/index.ts'} b/${request.payload.path ?? 'src/index.ts'}\n-old fixture\n+new fixture\n`,
+          truncated: false,
+        })
+      },
+    },
     agentPresets: {
       // Both trusts appear, because a surface must present a locally authored
       // preset differently from one the deployment vetted.
@@ -3284,7 +3384,11 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'workspace.unarchiveSession': return this.fixtureApi.workspace.unarchiveSession(request)
       case 'workspace.files.list': return this.fixtureApi.workspaceFiles?.list(request, signal)
         ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } })
+      case 'workspace.files.search': return this.fixtureApi.workspaceFiles?.search(request, signal)
+        ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } })
       case 'workspace.files.read': return this.fixtureApi.workspaceFiles?.read(request, signal)
+        ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } })
+      case 'workspace.files.readBinary': return this.fixtureApi.workspaceFiles?.readBinary(request, signal)
         ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace file inspection is unavailable', details: {} } } })
       case 'workspace.git.status': return this.fixtureApi.workspaceGit?.status(request, signal)
         ?? Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'workspace Git inspection is unavailable', details: {} } } })

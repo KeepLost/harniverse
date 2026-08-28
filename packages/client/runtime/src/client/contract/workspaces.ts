@@ -67,12 +67,24 @@ export interface IWorkspaces {
     entries: WorkspaceFileEntry[]
     truncated: boolean
   }>
+  /** Search regular-file names recursively inside a registered Workspace. */
+  searchFiles(workspaceId: WorkspaceId, query: string, signal?: AbortSignal): Promise<{
+    entries: WorkspaceFileEntry[]
+    truncated: boolean
+  }>
   /** Read one UTF-8 text file inside a registered Workspace. */
   readFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
     path: string
     content: string
     bytes: number
     truncated: boolean
+  }>
+  /** Read one complete, bounded image or PDF inside a registered Workspace. */
+  readBinaryFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
+    path: string
+    dataBase64: string
+    mediaType: string
+    bytes: number
   }>
   /** Read the current read-only Git status for a Workspace. */
   gitStatus(workspaceId: WorkspaceId, signal?: AbortSignal): Promise<{

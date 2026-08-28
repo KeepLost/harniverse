@@ -65,7 +65,7 @@ function rawResultText(block: ToolCallBlock): string {
 
 export function DetailsPanel({
   useSession, useSessions, sessionId, useStore, renderSlot, closeDetails,
-  workspaceInspectorAvailable, t,
+  t,
 }: DetailsPanelProps) {
   const selection = useStore(s => s.selection)
   // Session workspace root: an omitted or relative terminal cwd resolves
@@ -94,7 +94,6 @@ export function DetailsPanel({
         </button>
       </div>
       <div className={css.body}>
-        {workspaceInspectorAvailable === true && renderSlot('conversation.details.workspaceInspector', {}, { fallback: null })}
         {selection === null || callId === undefined
           ? <div className={css.empty}>{t('details.empty')}</div>
           : material === null

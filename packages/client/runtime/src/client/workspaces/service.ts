@@ -279,6 +279,15 @@ export class WorkspaceRuntime implements IWorkspaces {
     return response.result.value
   }
 
+  async searchFiles(workspaceId: WorkspaceId, query: string, signal?: AbortSignal): Promise<{
+    entries: WorkspaceFileEntry[]
+    truncated: boolean
+  }> {
+    const response = await this.api.workspaceFiles.search({ workspaceId, query }, signal)
+    if (!response.result.ok) throw new Error(`workspace file search failed: ${response.result.error.message}`)
+    return response.result.value
+  }
+
   async readFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
     path: string
     content: string
@@ -287,6 +296,17 @@ export class WorkspaceRuntime implements IWorkspaces {
   }> {
     const response = await this.api.workspaceFiles.read({ workspaceId, path }, signal)
     if (!response.result.ok) throw new Error(`workspace file read failed: ${response.result.error.message}`)
+    return response.result.value
+  }
+
+  async readBinaryFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
+    path: string
+    dataBase64: string
+    mediaType: string
+    bytes: number
+  }> {
+    const response = await this.api.workspaceFiles.readBinary({ workspaceId, path }, signal)
+    if (!response.result.ok) throw new Error(`workspace binary file read failed: ${response.result.error.message}`)
     return response.result.value
   }
 

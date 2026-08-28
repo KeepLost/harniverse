@@ -87,47 +87,160 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
   })
 }
 
-/** Ephemeral data and selection shared by the right inspector and center view. */
-export type WorkspaceInspectorState = {
-  filePanel: boolean
-  gitPanel: boolean
-  directories: Record<string, { entries: WorkspaceFileEntry[]; truncated: boolean; loading: boolean; error?: string }>
-  openFile: {
-    workspaceId: string
-    path: string
-    content?: string
-    loading: boolean
-    error?: string
-    truncated?: boolean
-  } | null
-  git: {
-    branch: string | null
-    entries: WorkspaceGitStatusEntry[]
-    commits: WorkspaceGitCommit[]
-    loading: boolean
-    error?: string
-    truncated?: boolean
-  } | null
+/** Primary navigation section in the Workspace workbench. */
+export type WorkbenchSection = 'files' | 'search' | 'changes'
+/** Renderer selected for one read-only document tab. */
+export type WorkbenchPreviewKind = 'markdown' | 'html' | 'code' | 'text' | 'csv' | 'image' | 'pdf' | 'diff'
+/** Git status side whose diff entries are visible. */
+export type WorkbenchGitArea = 'worktree' | 'staged'
+
+/** One open file or Git diff, including its ephemeral request result. */
+export interface WorkbenchTab {
+  id: string
+  path: string
+  title: string
+  kind: WorkbenchPreviewKind
+  loading: boolean
+  language?: string
+  content?: string
+  dataBase64?: string
+  mediaType?: string
+  bytes?: number
+  truncated?: boolean
+  error?: string
 }
 
-type WorkspaceInspectorActions = {
-  setFilePanel: (draft: WorkspaceInspectorState, open: boolean) => void
-  setGitPanel: (draft: WorkspaceInspectorState, open: boolean) => void
-  setDirectory: (draft: WorkspaceInspectorState, key: string, value: WorkspaceInspectorState['directories'][string]) => void
-  setOpenFile: (draft: WorkspaceInspectorState, value: WorkspaceInspectorState['openFile']) => void
-  setGit: (draft: WorkspaceInspectorState, value: WorkspaceInspectorState['git']) => void
+/** One lazily loaded directory level. */
+export interface WorkbenchDirectory {
+  entries: WorkspaceFileEntry[]
+  truncated: boolean
+  loading: boolean
+  error?: string
 }
 
-/** Create the page-lifetime workspace inspector store; it deliberately has no persistence. */
-export function createWorkspaceInspectorStore(): EngineStoreHandle<WorkspaceInspectorState, WorkspaceInspectorActions> {
+/** Current file-name query and its bounded result. */
+export interface WorkbenchSearch {
+  query: string
+  entries: WorkspaceFileEntry[]
+  truncated: boolean
+  loading: boolean
+  error?: string
+}
+
+/** Current read-only Git status and recent history. */
+export interface WorkbenchGit {
+  branch: string | null
+  entries: WorkspaceGitStatusEntry[]
+  commits: WorkspaceGitCommit[]
+  loading: boolean
+  truncated: boolean
+  error?: string
+}
+
+/** Complete ephemeral viewing account for one Workspace id. */
+export interface WorkspaceWorkbenchAccount {
+  section: WorkbenchSection
+  directories: Record<string, WorkbenchDirectory>
+  expandedDirectories: Record<string, boolean>
+  tabs: WorkbenchTab[]
+  activeTabId: string | null
+  search: WorkbenchSearch
+  gitArea: WorkbenchGitArea
+  git: WorkbenchGit | null
+}
+
+/** Ephemeral read-only workbench state, explicitly isolated by Workspace id. */
+export interface WorkspaceWorkbenchState {
+  byWorkspace: Record<string, WorkspaceWorkbenchAccount>
+}
+
+type WorkspaceWorkbenchActions = {
+  ensureWorkspace: (draft: WorkspaceWorkbenchState, workspaceId: string) => void
+  retainWorkspaces: (draft: WorkspaceWorkbenchState, workspaceIds: readonly string[]) => void
+  setSection: (draft: WorkspaceWorkbenchState, workspaceId: string, section: WorkbenchSection) => void
+  setDirectory: (draft: WorkspaceWorkbenchState, workspaceId: string, path: string, value: WorkbenchDirectory) => void
+  setDirectoryExpanded: (draft: WorkspaceWorkbenchState, workspaceId: string, path: string, expanded: boolean) => void
+  openTab: (draft: WorkspaceWorkbenchState, workspaceId: string, tab: WorkbenchTab) => void
+  updateTab: (draft: WorkspaceWorkbenchState, workspaceId: string, tab: WorkbenchTab) => void
+  selectTab: (draft: WorkspaceWorkbenchState, workspaceId: string, tabId: string) => void
+  closeTab: (draft: WorkspaceWorkbenchState, workspaceId: string, tabId: string) => void
+  setSearch: (draft: WorkspaceWorkbenchState, workspaceId: string, value: WorkbenchSearch) => void
+  setGitArea: (draft: WorkspaceWorkbenchState, workspaceId: string, area: WorkbenchGitArea) => void
+  setGit: (draft: WorkspaceWorkbenchState, workspaceId: string, value: WorkbenchGit) => void
+}
+
+function defaultWorkbenchAccount(): WorkspaceWorkbenchAccount {
+  return {
+    section: 'files',
+    directories: {},
+    expandedDirectories: { '': true },
+    tabs: [],
+    activeTabId: null,
+    search: { query: '', entries: [], truncated: false, loading: false },
+    gitArea: 'worktree',
+    git: null,
+  }
+}
+
+function workbenchAccount(draft: WorkspaceWorkbenchState, workspaceId: string): WorkspaceWorkbenchAccount {
+  return draft.byWorkspace[workspaceId] ??= defaultWorkbenchAccount()
+}
+
+/**
+ * Create the page-lifetime Workspace workbench store; file and Git data are never persisted.
+ * @returns a root-scoped store handle partitioned by Workspace id.
+ */
+export function createWorkspaceWorkbenchStore(): EngineStoreHandle<WorkspaceWorkbenchState, WorkspaceWorkbenchActions> {
   return defineStore({
-    init: (): WorkspaceInspectorState => ({ filePanel: false, gitPanel: false, directories: {}, openFile: null, git: null }),
+    init: (): WorkspaceWorkbenchState => ({ byWorkspace: {} }),
     actions: {
-      setFilePanel: (d, open) => { d.filePanel = open },
-      setGitPanel: (d, open) => { d.gitPanel = open },
-      setDirectory: (d, key, value) => { d.directories[key] = value },
-      setOpenFile: (d, value) => { d.openFile = value },
-      setGit: (d, value) => { d.git = value },
+      ensureWorkspace: (d, workspaceId) => {
+        const account = workbenchAccount(d, workspaceId)
+        account.directories = Object.fromEntries(
+          Object.entries(account.directories).filter(([, directory]) => !directory.loading),
+        )
+        account.tabs = account.tabs.filter(tab => !tab.loading)
+        if (account.activeTabId !== null && !account.tabs.some(tab => tab.id === account.activeTabId)) {
+          account.activeTabId = account.tabs.at(-1)?.id ?? null
+        }
+        if (account.search.loading) account.search = { query: account.search.query, entries: [], truncated: false, loading: false }
+        if (account.git?.loading === true) account.git = null
+      },
+      retainWorkspaces: (d, workspaceIds) => {
+        const retained = new Set(workspaceIds)
+        if (Object.keys(d.byWorkspace).every(key => retained.has(key))) return
+        d.byWorkspace = Object.fromEntries(Object.entries(d.byWorkspace).filter(([key]) => retained.has(key)))
+      },
+      setSection: (d, workspaceId, section) => { workbenchAccount(d, workspaceId).section = section },
+      setDirectory: (d, workspaceId, path, value) => { workbenchAccount(d, workspaceId).directories[path] = value },
+      setDirectoryExpanded: (d, workspaceId, path, expanded) => {
+        workbenchAccount(d, workspaceId).expandedDirectories[path] = expanded
+      },
+      openTab: (d, workspaceId, tab) => {
+        const account = workbenchAccount(d, workspaceId)
+        const index = account.tabs.findIndex(entry => entry.id === tab.id)
+        if (index === -1) account.tabs.push(tab)
+        else account.tabs[index] = tab
+        account.activeTabId = tab.id
+      },
+      updateTab: (d, workspaceId, tab) => {
+        const account = workbenchAccount(d, workspaceId)
+        const index = account.tabs.findIndex(entry => entry.id === tab.id)
+        if (index !== -1) account.tabs[index] = tab
+      },
+      selectTab: (d, workspaceId, tabId) => { workbenchAccount(d, workspaceId).activeTabId = tabId },
+      closeTab: (d, workspaceId, tabId) => {
+        const account = workbenchAccount(d, workspaceId)
+        const index = account.tabs.findIndex(entry => entry.id === tabId)
+        if (index === -1) return
+        account.tabs.splice(index, 1)
+        if (account.activeTabId === tabId) {
+          account.activeTabId = account.tabs[Math.min(index, account.tabs.length - 1)]?.id ?? null
+        }
+      },
+      setSearch: (d, workspaceId, value) => { workbenchAccount(d, workspaceId).search = value },
+      setGitArea: (d, workspaceId, area) => { workbenchAccount(d, workspaceId).gitArea = area },
+      setGit: (d, workspaceId, value) => { workbenchAccount(d, workspaceId).git = value },
     },
   })
 }

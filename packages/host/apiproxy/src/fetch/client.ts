@@ -78,7 +78,10 @@ import {
 } from '../api/subagents.schema.ts'
 import { apiDescribeValueSchema } from '../api/contract.schema.ts'
 import { operationGetValueSchema } from '../api/operations.schema.ts'
-import { workspaceFilesListValueSchema, workspaceFilesReadValueSchema } from '../api/workspace-files.schema.ts'
+import {
+  workspaceFilesListValueSchema, workspaceFilesReadBinaryValueSchema,
+  workspaceFilesReadValueSchema, workspaceFilesSearchValueSchema,
+} from '../api/workspace-files.schema.ts'
 import {
   workspaceGitCommitsValueSchema, workspaceGitDiffValueSchema, workspaceGitStatusValueSchema,
 } from '../api/workspace-git.schema.ts'
@@ -150,7 +153,9 @@ export interface IApiClient {
   }
   workspaceFiles: {
     list(payload: RequestPayload<'workspace.files.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.files.list'>>>
+    search(payload: RequestPayload<'workspace.files.search'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.files.search'>>>
     read(payload: RequestPayload<'workspace.files.read'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.files.read'>>>
+    readBinary(payload: RequestPayload<'workspace.files.readBinary'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.files.readBinary'>>>
   }
   workspaceGit: {
     status(payload: RequestPayload<'workspace.git.status'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.git.status'>>>
@@ -242,7 +247,9 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'workspace.archiveSession': workspaceArchiveSessionValueSchema,
   'workspace.unarchiveSession': workspaceUnarchiveSessionValueSchema,
   'workspace.files.list': workspaceFilesListValueSchema,
+  'workspace.files.search': workspaceFilesSearchValueSchema,
   'workspace.files.read': workspaceFilesReadValueSchema,
+  'workspace.files.readBinary': workspaceFilesReadBinaryValueSchema,
   'workspace.git.status': workspaceGitStatusValueSchema,
   'workspace.git.commits': workspaceGitCommitsValueSchema,
   'workspace.git.diff': workspaceGitDiffValueSchema,
@@ -566,7 +573,9 @@ export abstract class AbstractApiClient implements IApiClient {
 
   readonly workspaceFiles: IApiClient['workspaceFiles'] = {
     list: (payload, signal) => this.callUnary('workspace.files.list', payload, signal),
+    search: (payload, signal) => this.callUnary('workspace.files.search', payload, signal),
     read: (payload, signal) => this.callUnary('workspace.files.read', payload, signal),
+    readBinary: (payload, signal) => this.callUnary('workspace.files.readBinary', payload, signal),
   }
 
   readonly workspaceGit: IApiClient['workspaceGit'] = {

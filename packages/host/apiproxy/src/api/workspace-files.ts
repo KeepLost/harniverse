@@ -22,6 +22,15 @@ export interface WorkspaceFilesApi {
     truncated: boolean
   }>>
 
+  /** Search regular-file names recursively under fixed scan and result bounds. */
+  search(request: RpcRequest<{
+    workspaceId: WorkspaceId
+    query: string
+  }>, signal: AbortSignal): Promise<RpcResponse<{
+    entries: WorkspaceFileEntry[]
+    truncated: boolean
+  }>>
+
   /** Read a fixed-size UTF-8 prefix of one canonically contained regular file. */
   read(request: RpcRequest<{
     workspaceId: WorkspaceId
@@ -32,5 +41,16 @@ export interface WorkspaceFilesApi {
     /** Full file size at the read handle. */
     bytes: number
     truncated: boolean
+  }>>
+
+  /** Read one complete, bounded image or PDF as base64 for a browser object URL. */
+  readBinary(request: RpcRequest<{
+    workspaceId: WorkspaceId
+    path: string
+  }>, signal: AbortSignal): Promise<RpcResponse<{
+    path: string
+    dataBase64: string
+    mediaType: string
+    bytes: number
   }>>
 }

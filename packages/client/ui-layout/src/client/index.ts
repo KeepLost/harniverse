@@ -1,19 +1,21 @@
 /**
  * Layout plugin, browser half: one register() call contributes AppFrame into
  * the runtime's built-in 'root' slot and, in the same breath, declares the
- * four child slots (declaration = exclusive render authority), seats the
+ * five child slots (declaration = exclusive render authority), seats the
  * layout store (panel geometry), and wires the panel-action service face.
  * ctx.layout is the cross-plugin panel-action contract; navigation state lives
  * with the runtime sessions service. A second effect seats the theme
  * presenter, which projects ctx.theme snapshots onto document.body.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type { PanelActions } from './service.ts'
 import { AppFrame } from './AppFrame.tsx'
 import { createLayoutStore } from './stores.ts'
 import { LayoutController } from './service.ts'
 import { ThemePresenter } from './theme-presenter.ts'
+import { en, zh, type LayoutKey } from './locales.ts'
 
 // Contract exports only (export-convergence rule: cross-package consumers
 // keep a symbol exported; test-only/package-internal symbols live off /src).
@@ -31,9 +33,14 @@ declare module '@deepseek-ai/cordis' {
 }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** Shell layout accessibility copy. */
+    layout: LayoutKey
+  }
+
   interface SlotMap {
     // The 'root' entry itself is the runtime's built-in slot (declared
-    // there); these four are the frame's children, declared by the same
+    // there); these five are the frame's children, declared by the same
     // register() call that contributes AppFrame. Session owners never pass
     // sessionId: the framework injects it as a standard prop.
     /**
@@ -70,6 +77,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * `session` scope, and `ctx.layout` owns whether the column is open.
      */
     'details': { kind: 'single'; scope: 'session'; owner: DetailsOwnerProps }
+    /** Workspace-oriented root surface sharing the physical right region with details. */
+    'workbench': { kind: 'single'; scope: 'root'; owner: WorkbenchOwnerProps }
     /**
      * Frame-wide floating layer, above every column and outside their scroll
      * containers. Deliberately generic and unowned by any feature: a badge, a
@@ -104,25 +113,32 @@ export interface ConvOwnerProps {}
 /** Details owner share: empty — sessionId arrives as a framework-standard prop. */
 export interface DetailsOwnerProps {}
 
+/** Workbench owner share: empty — current Session and Workspace arrive through global hooks. */
+export interface WorkbenchOwnerProps {}
+
 /** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
-export const inject = ['slots', 'theme']
+export const inject = ['slots', 'theme', 'locale']
 
 /**
  * Client plugin body: provide ctx.layout, then one register() call — AppFrame
- * into 'root' with the four child-slot declarations, the layout store seat,
+  * into 'root' with the five child-slot declarations, the layout store seat,
  * and the inject hook that hands the store's bound actions to the service.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  ctx.effect(() => ctx.locale.register('layout', { zh, en }), 'ui-layout: dictionaries')
+
   const layout = new LayoutController()
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
     const disposeRegistration = ctx.slots.register({
       name: 'root',
+      locale: 'layout',
       children: {
         'sidebar': { kind: 'single', scope: 'root' },
         'conversation': { kind: 'single', scope: 'session-maybe' },
         'details': { kind: 'single', scope: 'session' },
+        'workbench': { kind: 'single', scope: 'root' },
         'shell.overlay': { kind: 'list', scope: 'root' },
       },
       // Exclusive store: the factory itself — the framework instantiates per
