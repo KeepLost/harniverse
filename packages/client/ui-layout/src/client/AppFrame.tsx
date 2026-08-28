@@ -78,19 +78,21 @@ function DetailsColumn(props: { children?: ReactNode; drawer: boolean; blocked: 
       const first = focusable[0]
       ;(first ?? panel).focus()
     }
+    const onDocumentKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      props.onDismiss()
+    }
+    document.addEventListener('keydown', onDocumentKeyDown)
     return () => {
+      document.removeEventListener('keydown', onDocumentKeyDown)
       const target = restoreFocus.current
       restoreFocus.current = null
       if (target?.isConnected === true) target.focus()
     }
-  }, [props.drawer])
+  }, [props.drawer, props.onDismiss])
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (!props.drawer) return
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      props.onDismiss()
-      return
-    }
     if (event.key !== 'Tab') return
     const focusable = visibleFocusableDescendants(event.currentTarget)
     if (focusable.length === 0) {

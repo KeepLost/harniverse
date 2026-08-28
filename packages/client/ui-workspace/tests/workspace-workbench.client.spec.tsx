@@ -140,7 +140,7 @@ describe('workbench presentation units', () => {
     const entry: WorkspaceFileEntry = { name: 'x.ts', path: 'src/x.ts', kind: 'file' }
     view.rerender(<SearchPanel query="x" entries={[entry]} loading={false} truncated error="search failed" t={t} onQuery={onQuery} onOpen={onOpen} />)
     expect(view.getByText('search failed')).toBeTruthy()
-    expect(view.getByText(/仅显示前 200/)).toBeTruthy()
+    expect(view.getByText('搜索已达到上限，部分匹配文件可能未显示；请缩小搜索范围')).toBeTruthy()
     fireEvent.click(view.getByRole('button', { name: /src\/x\.ts/ }))
     expect(onOpen).toHaveBeenCalledWith(entry)
   })

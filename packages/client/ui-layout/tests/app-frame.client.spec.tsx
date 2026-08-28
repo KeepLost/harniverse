@@ -430,6 +430,18 @@ describe('AppFrame', () => {
     expect(document.activeElement).toBe(getByTestId('sidebar-content'))
   })
 
+  it('closes a drawer on Escape after its focused descendant loses focus', () => {
+    frameWidth = 1200
+    const { frame, instance, getByRole } = mountFrame()
+    act(() => { instance.actions.openWorkbench() })
+    getByRole('button', { name: 'Workbench first' }).blur()
+    expect(document.activeElement).toBe(document.body)
+
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+
+    expect(frame.hasAttribute('data-right-drawer')).toBe(false)
+  })
+
   it('labels the session-details drawer independently', () => {
     frameWidth = 800
     const { frame, instance, getByRole } = mountFrame()
