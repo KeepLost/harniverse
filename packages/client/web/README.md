@@ -6,7 +6,7 @@ Web shell kernel: `new AppWebEntry(el, seams?).run()` mounts the whole client th
 
 Shell self-sufficiency (web2 hard rule): the kernel value-imports no plugin package — the boot status store and signals are hand-rolled here (`loader-status.ts`), so the loading page works while (and especially when) plugins fail. The app-shell assembly (`@deepseek-ai/dsh-client-app-shell`, a shell-owned pseudo entry with no npm package behind it) is the only module registered through `registerStatic`; it inject-waits on slots/sessions/layout like any plugin.
 
-Before parsing the plugin manifest, the shell enrolls or reauthenticates a browser-held P-256 device key through the static authentication routes. It owns the short browser-session renewal after the gate unmounts. Logout stops and drains an exchange already in flight before clearing the resulting Cookie, so background renewal cannot undo the local logout.
+Before parsing the plugin manifest, the shell enrolls or reauthenticates a browser-held P-256 device key through the static authentication routes. It owns short browser-session renewal after the gate unmounts: a personal device renews at half-life, bounds each exchange to ten seconds, retries transient failure with capped exponential backoff even after the old Cookie expires, and wakes due renewal on focus, visible-tab restoration, or network recovery. A valid Cookie without a renewable device key does not release the ordinary application. Logout aborts and drains an exchange already in flight before clearing any resulting Cookie, so background renewal cannot undo the local logout.
 
 `PLATFORM_MODULES` (src/platform.ts) is the single source of truth for shared modules: seed-table keys, tsdown client externals, and the Vite alias set are its projections.
 

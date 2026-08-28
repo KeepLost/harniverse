@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-17-public-key-grant-authentication.md
-2026-08-17-public-key-grant-authentication.md: 86eeebbac5ce9a3b228faf4145087963c5fd0620
-2026-08-17-public-key-grant-authentication.zh.md: 57b6f9e8dd3273a1541e5a3b5c75530b86a20099
+2026-08-17-public-key-grant-authentication.md: e5e0e5a7070b1c23674444127c83a81102f892f9
+2026-08-17-public-key-grant-authentication.zh.md: 4c58dfc9339b267f90205c563dbf3f5da04b70f8

@@ -118,6 +118,18 @@ describe('browser authentication gate', () => {
     expect(fetch).toHaveBeenNthCalledWith(3, '/auth/exchange', expect.objectContaining({ method: 'POST' }))
   })
 
+  it('does not admit a cookie-only authenticated session without a renewable device key', async () => {
+    deviceApi.read.mockResolvedValue(undefined)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(Response.json({
+      mode: 'authenticated', sealed: false, authenticated: true,
+    })))
+    const authenticated = vi.fn()
+    const view = render(<AuthenticationGate onAuthenticated={authenticated} />)
+
+    expect(await view.findByRole('button', { name: '配对个人设备' })).toBeTruthy()
+    expect(authenticated).not.toHaveBeenCalled()
+  })
+
   it('keeps temporary-device keys in memory only', async () => {
     deviceApi.read.mockResolvedValue(undefined)
     deviceApi.generate.mockResolvedValue({ privateKey: { type: 'private' }, publicKey: 'temporary-spki' })
@@ -196,7 +208,9 @@ describe('browser authentication gate', () => {
     maintainBrowserSession({
       name: 'tablet', kind: 'device', privateKey: { type: 'private' } as CryptoKey, grantId: 'grant-id',
     }, '2026-08-17T00:00:31.000Z', recover)
-    await vi.advanceTimersByTimeAsync(20_667)
+    await vi.advanceTimersByTimeAsync(15_499)
+    expect(fetch).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
 
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(deviceApi.sign).toHaveBeenCalledWith({ type: 'private' }, 'renew-me')
@@ -215,7 +229,7 @@ describe('browser authentication gate', () => {
     maintainBrowserSession({
       name: 'tablet', kind: 'device', privateKey: { type: 'private' } as CryptoKey, grantId: 'grant-id',
     }, '2026-08-17T00:00:09.000Z')
-    await vi.advanceTimersByTimeAsync(5_999)
+    await vi.advanceTimersByTimeAsync(4_499)
     expect(fetch).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(1)
     expect(fetch).toHaveBeenCalledTimes(2)
@@ -234,11 +248,56 @@ describe('browser authentication gate', () => {
     maintainBrowserSession({
       name: 'tablet', kind: 'device', privateKey: { type: 'private' } as CryptoKey, grantId: 'grant-id',
     }, '2026-08-17T00:00:09.000Z', recover)
-    await vi.advanceTimersByTimeAsync(6_000)
+    await vi.advanceTimersByTimeAsync(4_500)
     expect(fetch).toHaveBeenCalledTimes(2)
-    await vi.advanceTimersByTimeAsync(3_000)
+    await vi.advanceTimersByTimeAsync(4_500)
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(recover).toHaveBeenCalledOnce()
+  })
+
+  it('times out a hung renewal and reauthenticates after the old session expires', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    vi.setSystemTime(new Date('2026-08-17T00:00:00.000Z'))
+    deviceApi.sign.mockResolvedValue('renewal-proof')
+    const fetch = vi.fn()
+      .mockImplementationOnce((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => { reject(new DOMException('aborted', 'AbortError')) }, { once: true })
+      }))
+      .mockResolvedValueOnce(Response.json({ id: 'retry-id', payload: 'retry-me', expiresAt: '2026-08-17T00:00:30.000Z' }))
+      .mockResolvedValueOnce(Response.json({ authenticated: true, expiresAt: '2026-08-17T00:10:00.000Z' }))
+    vi.stubGlobal('fetch', fetch)
+    const recover = vi.fn()
+
+    maintainBrowserSession({
+      name: 'tablet', kind: 'device', privateKey: { type: 'private' } as CryptoKey, grantId: 'grant-id',
+    }, '2026-08-17T00:00:21.000Z', recover)
+    await vi.advanceTimersByTimeAsync(21_500)
+
+    expect(fetch).toHaveBeenCalledTimes(3)
+    expect(deviceApi.sign).toHaveBeenCalledWith({ type: 'private' }, 'retry-me')
+    expect(recover).not.toHaveBeenCalled()
+  })
+
+  it('renews immediately on focus after the scheduled deadline was missed', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    vi.setSystemTime(new Date('2026-08-17T00:00:00.000Z'))
+    deviceApi.sign.mockResolvedValue('wake-proof')
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ id: 'wake-id', payload: 'wake-me', expiresAt: '2026-08-17T00:12:00.000Z' }))
+      .mockResolvedValueOnce(Response.json({ authenticated: true, expiresAt: '2026-08-17T00:20:00.000Z' }))
+    vi.stubGlobal('fetch', fetch)
+    const recover = vi.fn()
+
+    maintainBrowserSession({
+      name: 'tablet', kind: 'device', privateKey: { type: 'private' } as CryptoKey, grantId: 'grant-id',
+    }, '2026-08-17T00:10:00.000Z', recover)
+    vi.setSystemTime(new Date('2026-08-17T00:11:00.000Z'))
+    window.dispatchEvent(new Event('focus'))
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(deviceApi.sign).toHaveBeenCalledWith({ type: 'private' }, 'wake-me')
+    expect(recover).not.toHaveBeenCalled()
   })
 
   it('drains an in-flight renewal before logout clears the resulting cookie', async () => {
@@ -256,7 +315,7 @@ describe('browser authentication gate', () => {
     maintainBrowserSession({
       name: 'tablet', kind: 'device', privateKey: { type: 'private' } as CryptoKey, grantId: 'grant-id',
     }, '2026-08-17T00:00:31.000Z')
-    await vi.advanceTimersByTimeAsync(20_667)
+    await vi.advanceTimersByTimeAsync(15_500)
     const logout = logoutBrowserSession()
     await vi.advanceTimersByTimeAsync(0)
     expect(fetch).toHaveBeenCalledTimes(2)
