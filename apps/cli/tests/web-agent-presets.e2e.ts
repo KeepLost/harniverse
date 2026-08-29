@@ -9,7 +9,7 @@ import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { resolveSessionProfile, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
 import { applyChildComposition, childSessionMeta } from '@deepseek-ai/dsh-subagent'
@@ -18,6 +18,7 @@ import type { LosslessCompactionEngine } from '@deepseek-ai/dsh-compaction-lossl
 import type {} from '@deepseek-ai/dsh-compaction-tool-result-pruner'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-tools'
+import type { UserMcpServerConfig } from '@deepseek-ai/dsh-mcp-user-config'
 // Type-only: resolves `ctx.get('sessionProjections')` and `ctx.get('tokenMeter')`.
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-token-meter'
@@ -34,6 +35,25 @@ const EXAMPLES_INSTALL_ANCHOR = join(REPO_ROOT, 'examples/package.json')
 const MINIMAL_PROMPT = 'You are a helpful software engineer assistant.'
 const MINIMAL_SHELL = process.platform === 'win32' ? 'pwsh' : 'bash'
 const MINIMAL_TOOL_NAMES = [MINIMAL_SHELL, 'str_replace_editor']
+const MCP_FIXTURE_SERVER = join(REPO_ROOT, 'packages/mcp/mcp-client/tests/fixture-server.ts')
+const MCP_FIXTURE_CWD = join(REPO_ROOT, 'packages/mcp/mcp-client')
+
+function mcpFixtureServer(id: string, enabled = true): UserMcpServerConfig {
+  return {
+    id,
+    enabled,
+    transport: 'stdio',
+    serverName: id,
+    command: process.execPath,
+    args: [MCP_FIXTURE_SERVER],
+    env: {},
+    cwd: MCP_FIXTURE_CWD,
+    headers: {},
+    toolCallTimeoutMs: 15_000,
+    failOnStartupError: true,
+    reconnect: { enabled: false, initialDelayMs: 500, maxDelayMs: 30_000, maxAttempts: 1 },
+  }
+}
 
 /**
  * Boot the shipped Web composition, minus the rows that would bind a port,
@@ -225,7 +245,7 @@ describe('the shipped Web composition', () => {
         'compaction_history_expand', 'compaction_history_search', 'context_compact', 'create_goal',
         'edit', 'exit_plan_mode', 'get_goal', 'job_kill', 'job_list', 'job_output', 'ralph', 'read', 'read_image',
         'session_create', 'session_event_search', 'session_find', 'session_inspect', 'session_message', 'session_search',
-        'session_unload', 'skill', 'subagent', 'todo_write', 'update_goal',
+        'session_unload', 'skill', 'subagent', 'todo_write', 'update_goal', 'web_fetch', 'web_search',
         'workflow', 'write',
       ])
       const compaction = ctx.agentPresets.serviceFor(handle.agent, 'compaction')
@@ -257,6 +277,88 @@ describe('the shipped Web composition', () => {
       await handle.dispose()
     }
   })
+
+  it('loads enabled user MCP entries into Standard-family profiles without leaking them to Minimal', async () => {
+    await ctx.settings.replace(settingsNamespace('mcp'), {
+      servers: [mcpFixtureServer('user-tools'), mcpFixtureServer('disabled-tools', false)],
+    })
+    const standard = await ctx.agents.create({
+      sessionId: SessionId(`preset-mcp-standard-${randomUUID()}`),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
+    })
+    const coded = await ctx.agents.create({
+      sessionId: SessionId(`preset-mcp-code-${randomUUID()}`),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'code').then(() => undefined),
+    })
+    const cordis = await ctx.agents.create({
+      sessionId: SessionId(`preset-mcp-cordis-${randomUUID()}`),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'cordis').then(() => undefined),
+    })
+    const minimal = await ctx.agents.create({
+      sessionId: SessionId(`preset-mcp-minimal-${randomUUID()}`),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
+    })
+    try {
+      const mcpTool = 'mcp__user-tools__add'
+      const disabledTool = 'mcp__disabled-tools__add'
+      await vi.waitFor(() => {
+        expect(toolNames(ctx, standard.agent)).toContain(mcpTool)
+        expect(toolNames(ctx, cordis.agent)).toContain(mcpTool)
+        expect(toolNames(ctx, coded.agent)).toContain(mcpTool)
+      }, { timeout: 15_000 })
+
+      expect(toolNames(ctx, standard.agent)).not.toContain(disabledTool)
+      expect(toolNames(ctx, cordis.agent)).not.toContain(disabledTool)
+      expect(toolNames(ctx, coded.agent)).not.toContain(disabledTool)
+      expect(toolNames(ctx, minimal.agent)).toEqual(MINIMAL_TOOL_NAMES)
+
+      const standardAssembly = await ctx.systemPrompt.assemble({ scope: standard.agent })
+      expect(standardAssembly.tools.map(tool => tool.name)).toContain(mcpTool)
+      const codeAssembly = await ctx.systemPrompt.assemble({ scope: coded.agent })
+      expect(codeAssembly.tools.map(tool => tool.name)).toEqual(['run_code'])
+      expect(codeAssembly.sections.find(section => section.name === 'tools:sdk')?.text).toContain(mcpTool)
+    } finally {
+      await minimal.dispose()
+      await cordis.dispose()
+      await coded.dispose()
+      await standard.dispose()
+      await ctx.settings.replace(settingsNamespace('mcp'), { servers: [] })
+    }
+  }, 120_000)
+
+  it('auto-discovers a project Hook in Standard but not Minimal through the shipped Loader', async () => {
+    const project = await mkdtemp(join(tmpdir(), 'dsh-preset-hooks-project-'))
+    const hookPath = join(project, '.dsh', 'hooks', 'claude-code.json')
+    await mkdir(dirname(hookPath), { recursive: true })
+    await writeFile(hookPath, JSON.stringify({ hooks: {
+      SessionStart: [{ matcher: 'startup', hooks: [{
+        type: 'command',
+        command: `printf '%s\\n' '${JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'standard project hook' } }).replaceAll("'", "'\\\"'\\\"'")}'`,
+      }] }],
+    } }))
+
+    const standard = await ctx.agents.create({
+      sessionId: SessionId(`preset-hooks-standard-${randomUUID()}`),
+      meta: { cwd: project },
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
+    })
+    const minimal = await ctx.agents.create({
+      sessionId: SessionId(`preset-hooks-minimal-${randomUUID()}`),
+      meta: { cwd: project },
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
+    })
+    try {
+      await vi.waitFor(() => {
+        expect(standard.agent.inbox.nextStep.some(message =>
+          message.content.some(block => block.type === 'text' && block.text.includes('standard project hook')))).toBe(true)
+      }, { timeout: 15_000 })
+      expect(JSON.stringify(minimal.agent.inbox.nextStep)).not.toContain('standard project hook')
+      expect(toolNames(ctx, minimal.agent)).toEqual(MINIMAL_TOOL_NAMES)
+    } finally {
+      await minimal.dispose()
+      await standard.dispose()
+    }
+  }, 120_000)
 
   it('keeps two differently composed sessions independent', async () => {
     const full = await ctx.agents.create({
@@ -326,7 +428,8 @@ describe('the shipped Web composition', () => {
       expect(toolNames(ctx, coded.agent)).not.toContain('str_replace_editor')
       const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
       expect(sdk).not.toContain('str_replace_editor')
-      expect(sdk).not.toContain('web_search')
+      expect(sdk).toContain('web_search')
+      expect(sdk).toContain('web_fetch')
       expect(ctx.agentPresets.serviceFor(coded.agent, 'toolResultPruner')).toBeUndefined()
 
       // The presentation is this agent's alone: the deployment default is

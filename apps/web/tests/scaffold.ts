@@ -23,7 +23,7 @@
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
 // assertConsumed for the teardown fixture-consumption check).
 import { existsSync } from 'node:fs'
-import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -376,26 +376,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   const webSearch = options.webSearch ?? (options.deepSeekSearch === undefined
     ? undefined
     : { provider: 'deepseek-official', ...options.deepSeekSearch } as const)
-  let presetRoot = SHIPPED_PRESET_DIR
-  try {
-    if (webSearch !== undefined) {
-      presetRoot = join(workspaceCwd, '.search-enabled-presets')
-      await cp(SHIPPED_PRESET_DIR, presetRoot, { recursive: true })
-      const standardPreset = join(presetRoot, 'standard', 'agent.cordis.yml')
-      const source = await readFile(standardPreset, 'utf8')
-      const disabled = '  config:\n    search: false\n    fetch: false\n    searchTimeoutMs: 60000'
-      const enabled = '  config:\n    search: true\n    fetch: false\n    searchTimeoutMs: 60000'
-      if (!source.includes(disabled)) throw new Error('standard preset Web tool config no longer matches the search opt-in fixture')
-      await writeFile(standardPreset, source.replace(disabled, enabled), 'utf8')
-    }
-  } catch (error) {
-    const failures: unknown[] = [error]
-    await rm(workspaceCwd, { recursive: true, force: true }).catch((cleanupError: unknown) => failures.push(cleanupError))
-    await rm(persistenceRoot, { recursive: true, force: true }).catch((cleanupError: unknown) => failures.push(cleanupError))
-    restoreSkillRootEnvironment()
-    if (failures.length > 1) throw new AggregateError(failures, 'web scaffold preset setup failed and cleanup was incomplete')
-    throw error
-  }
+  // Standard-family Web tools are shipped enabled; a search scenario only
+  // replaces the provider and narrows fetch back off through its overlay.
+  const presetRoot = SHIPPED_PRESET_DIR
   const patches: PatchOptions[] = [
     ...basePatches,
     ...surfacePatches,

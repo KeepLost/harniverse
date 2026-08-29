@@ -43,6 +43,7 @@ async function boot(): Promise<{ ctx: Context; settingsFiber: Fiber; pluginFiber
     includeSearchContent: false,
     searchContentMaxChars: 10,
     maxChars: 100,
+    enableFetch: true,
   })
   await pluginFiber.await()
   return { ctx, settingsFiber, pluginFiber }

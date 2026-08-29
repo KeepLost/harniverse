@@ -12,7 +12,13 @@ export type {
   HookOutput,
   MatcherGroup,
   MatcherMode,
+  HookConfigDiscovery,
+  HookConfigLayer,
+  HookConfigSnapshot,
+  HookConfigSource,
+  HookConfigSourceFailure,
 } from './types.ts'
+export { discoverHookConfigSources, readHookConfigSnapshot } from './discovery.ts'
 export { matcherDiagnostic, matchesMatcher } from './matcher.ts'
 export { parseHookOutput } from './codec.ts'
 export { DEFAULT_HOOK_TIMEOUT_MS, runHook } from './runner.ts'

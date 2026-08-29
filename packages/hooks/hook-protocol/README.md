@@ -16,6 +16,7 @@ Codex deliberately reimplements a *subset* of the Claude Code hook protocol — 
 | Merge N hooks | `mergeHookOutputs(outputs)` → most-restrictive `MergedHookOutcome` | — |
 | Durable record | `appendHookInvoked` / `appendHookResult` (`hook/*` session events; the result's `decision`/`stderrSummary` derive from the `HookOutput` here) | calls them around each invocation |
 | Detached-run quiescence | `createDetachedRuns()` — track fire-and-forget run chains; `drain()` aborts, then awaits them | passes `signal` to each detached `runHook`, registers `drain` as its effect disposer |
+| Config discovery | `discoverHookConfigSources()` resolves generic layer paths; `readHookConfigSnapshot()` reads and freezes each source with isolated failures | chooses the dialect parser and merges healthy source results |
 
 ## Primitives
 
@@ -24,6 +25,14 @@ Codex deliberately reimplements a *subset* of the Claude Code hook protocol — 
 - **`parseHookOutput(exitCode, stdout, stderr, expectedEventName?)`** decodes exit status and structured stdout. Exit 2 blocks with stderr; other failures are non-blocking. A matching hook-specific permission decision overrides the legacy top-level decision; mismatched or missing event discriminators suppress only event-specific fields. Top-level fields remain event-agnostic, and successful non-JSON output is left to the bridge.
 - **`mergeHookOutputs(outputs)`** — fold the results of every hook that matched one point: permission precedence **deny > ask > allow**, halt sticky on the first `continue:false`, block reasons joined with `\n\n`, `additionalContext`/`systemMessages` accumulated in order.
 - **`createDetachedRuns()`** — quiescence tracking for the emit-shaped points, which run detached (no extension point awaits them). The bridge tracks each run chain — the hook run PLUS its continuation — and registers `drain()` as its effect disposer: drain fires the tracker's abort `signal` (so a still-running hook process is killed via `runHook`, not awaited out to its timeout), then resolves once every tracked chain has settled. `fiber.dispose()` resolving therefore means no detached hook work is left to fire into a disposed context ([defensive patterns](../../../docs/defensive-patterns.md): dispose must reach quiescence).
+
+## Automatic Source Discovery
+
+When a bridge omits `configPath`, it calls `discoverHookConfigSources()` at the start of each hook event and loads the resulting files with `readHookConfigSnapshot()`. Sources run in `user`, `project`, `plugin`, `policy` order; each resolved path is included once, and a read or parser failure removes only that source from the event snapshot. The default is one project source, `hooks.json`, relative to the session cwd; no product-specific official path is assumed.
+
+Relative user, plugin, and policy paths require `discovery.root` and resolve against that configured root; absolute paths may be used without a root. Relative project paths resolve against the session cwd and are omitted when the event has no session cwd, never against `process.cwd()`. A relative `discovery.root` itself follows the process launch cwd, which is configuration resolution rather than a project-source fallback.
+
+The returned source descriptors, parsed JSON values, and snapshot collections are frozen. Absent optional files are ignored; other read or parse failures are retained per source. Bridges parse and merge one snapshot before running any command, so edits made while a serial event is executing apply to the next event. This helper performs no watcher, trust, hash, or approval operation; automatic discovery therefore requires the deployment to trust the configured roots and every command they contain.
 
 ## `hook/*` session events
 

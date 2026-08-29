@@ -1,6 +1,6 @@
 /**
  * Parse Claude Code's event-to-matcher-group hook format into shared {@link MatcherGroup}s.
- * Only command hooks run; other hook types are returned as skipped so the
+ * Only enabled command hooks run; other hook types are returned as skipped so the
  * bridge can warn. Plugin-root and project-directory substitutions are applied
  * to commands at parse time.
  * @module @deepseek-ai/dsh-hooks-claude-code/config
@@ -48,6 +48,10 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
+function isDisabled(value: Record<string, unknown>): boolean {
+  return value.disabled === true || value.enabled === false
+}
+
 /**
  * Apply `${CLAUDE_PLUGIN_ROOT}` / `${CLAUDE_PROJECT_DIR}` substitution to a command string.
  * @param command - the raw command from config.
@@ -64,10 +68,11 @@ export function substituteCommand(command: string, vars: SubstitutionVars): stri
 /**
  * Parse either a settings `hooks` value or a bare `hooks.json` event map. Malformed entries are
  * ignored rather than failing boot; unsupported events are ignored before their groups are parsed,
- * non-command hooks are returned in `skipped`, and substitutions are applied to every surviving
- * command. Matcher fields on UserPromptSubmit and Stop are discarded because those events have no
- * matcher subject. A matcher-bearing supported runnable group with an invalid regex throws a
- * `SyntaxError`, allowing the bridge to reject the complete config before listener registration.
+ * non-command hooks are returned in `skipped`, disabled groups/hooks are omitted, and substitutions
+ * are applied to every surviving command. Matcher fields on UserPromptSubmit and Stop are discarded
+ * because those events have no matcher subject. A matcher-bearing supported runnable group with an
+ * invalid regex throws a `SyntaxError`, allowing the bridge to reject the complete config before
+ * listener registration. Both `disabled: true` and `enabled: false` disable a group or hook.
  *
  * @param raw - the parsed JSON config: a settings object with a `hooks` key, or the bare
  *   event map.
@@ -90,10 +95,12 @@ export function parseClaudeCodeConfig(raw: unknown, vars: SubstitutionVars = {})
     for (const rawGroup of rawGroups) {
       const group = asObject(rawGroup)
       if (!group || !Array.isArray(group.hooks)) continue
+      if (isDisabled(group)) continue
       const commands: MatcherGroup['hooks'] = []
       for (const rawHook of group.hooks) {
         const hook = asObject(rawHook)
         if (!hook) continue
+        if (isDisabled(hook)) continue
         const type = typeof hook.type === 'string' ? hook.type : 'command'
         if (type !== 'command') {
           skipped.push({ event, type })

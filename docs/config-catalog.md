@@ -832,16 +832,21 @@ Source: [`packages/bundle/headless/src/index.ts:31`](../packages/bundle/headless
 Requires: `shell`
 
 ```ts config-catalog
-/** Plugin config: where the CC hook config lives + substitution roots. */
+/** Plugin config: an explicit CC config or generic automatic discovery roots. */
 export interface Config {
   /**
    * Path to a `hooks.json` or a settings file whose `hooks` key holds the config.
    * Process-level: read once at load, a relative path resolves against the process
-   * launch cwd, so one config applies to the whole process.
-   * TODO(per-session-hook-config): per-session discovery of a project-local
-   * `hooks.json` from each `session/new.cwd`.
+   * launch cwd, and it is a complete override of automatic discovery.
    */
-  configPath: string
+  configPath?: string
+  /**
+   * Optional generic source lists used when `configPath` is omitted. Relative
+   * project paths resolve against each session cwd; other relative paths resolve
+    * against `root`. With no options, the bridge discovers its dialect-specific
+    * user file and `.dsh/hooks/claude-code.json` in the session cwd.
+   */
+  discovery?: HookConfigDiscovery | undefined
   /**
    * Replaces `${CLAUDE_PLUGIN_ROOT}` in command strings (the plugin's root dir).
    */
@@ -861,7 +866,9 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-claude-code/src/index.ts:45`](../packages/hooks/hooks-claude-code/src/index.ts)
+Depends on: [`HookConfigDiscovery`](../packages/hooks/hook-protocol/src/index.ts)
+
+Source: [`packages/hooks/hooks-claude-code/src/index.ts:50`](../packages/hooks/hooks-claude-code/src/index.ts)
 
 <a id="deepseek-aidsh-hooks-codex"></a>
 
@@ -870,15 +877,21 @@ Source: [`packages/hooks/hooks-claude-code/src/index.ts:45`](../packages/hooks/h
 Requires: `shell`
 
 ```ts config-catalog
-/** Plugin config: where the Codex hooks.json lives + the model name for payloads. */
+/** Plugin config: an explicit Codex config or generic automatic discovery roots. */
 export interface Config {
   /**
    * Path to a Codex `hooks.json`. Process-level: read once at load, a relative
-   * path resolves against the process launch cwd.
-   * TODO(per-session-hook-config): per-session project-local discovery from each
-   * `session/new.cwd`.
+   * path resolves against the process launch cwd, and it is a complete override
+   * of automatic discovery.
    */
-  configPath: string
+  configPath?: string
+  /**
+   * Optional generic source lists used when `configPath` is omitted. Relative
+   * project paths resolve against each session cwd; other relative paths resolve
+    * against `root`. With no options, the bridge discovers its dialect-specific
+    * user file and `.dsh/hooks/codex.json` in the session cwd.
+   */
+  discovery?: HookConfigDiscovery | undefined
   /** The model name stamped on every payload (Codex includes `model` on each event). */
   model?: string
   /** Default per-hook timeout in ms when a hook sets none (Codex default: 600000). */
@@ -888,7 +901,9 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-codex/src/index.ts:44`](../packages/hooks/hooks-codex/src/index.ts)
+Depends on: [`HookConfigDiscovery`](../packages/hooks/hook-protocol/src/index.ts)
+
+Source: [`packages/hooks/hooks-codex/src/index.ts:49`](../packages/hooks/hooks-codex/src/index.ts)
 
 <a id="deepseek-aidsh-host-apiproxy"></a>
 
@@ -1429,6 +1444,8 @@ export interface StdioConfig {
    * unique across live mcp-client instances.
    */
   serverName: string
+  /** Optional owner key allowing the same public namespace in separate scoped registries. */
+  reservationKey?: string | undefined
   /** Executable used to start the server. */
   command: string
   /** Arguments passed directly, without shell interpolation. */
@@ -1455,6 +1472,8 @@ export interface StreamableHttpConfig {
    * unique across live mcp-client instances.
    */
   serverName: string
+  /** Optional owner key allowing the same public namespace in separate scoped registries. */
+  reservationKey?: string | undefined
   /** MCP endpoint URL. */
   url: string
   /** Additional headers attached to MCP requests. */
@@ -1480,7 +1499,60 @@ export interface ReconnectConfig {
 }
 ```
 
-Source: [`packages/mcp/mcp-client/src/index.ts:99`](../packages/mcp/mcp-client/src/index.ts)
+Source: [`packages/mcp/mcp-client/src/index.ts:102`](../packages/mcp/mcp-client/src/index.ts)
+
+<a id="deepseek-aidsh-mcp-user-config"></a>
+
+## `@deepseek-ai/dsh-mcp-user-config`
+
+Requires: `settings` · `tools`
+
+```ts config-catalog
+/** Single Loader config schema; provider rows carry the base settings layer. */
+export interface Config {
+  /** Select the host settings owner or a profile-scoped consumer. */
+  role: McpUserConfigRole
+  /** Composition defaults used by provider rows; consumer rows must leave this empty. */
+  servers: UserMcpServerConfig[]
+}
+
+/** Loader role for one named plugin row. */
+export type McpUserConfigRole = 'provider' | 'consumer'
+
+/** One user-configured MCP server after schema defaults are applied. */
+export interface UserMcpServerConfig {
+  /** Stable key used to reconcile this entry across settings updates. */
+  id: string
+  /** Disabled entries do not create a child plugin or expose tools. */
+  enabled: boolean
+  /** MCP transport selected for this entry. */
+  transport: 'stdio' | 'streamable-http'
+  /** Stable namespace used in model-facing tool names. */
+  serverName: string
+  /** Stdio executable. */
+  command?: string
+  /** Stdio arguments. */
+  args: string[]
+  /** Stdio environment additions; values are secret settings fields. */
+  env: Record<string, string>
+  /** Stdio working directory. */
+  cwd: string
+  /** Streamable HTTP endpoint. */
+  url?: string
+  /** Streamable HTTP headers; values are secret settings fields. */
+  headers: Record<string, string>
+  /** Per-tool-call timeout in milliseconds. */
+  toolCallTimeoutMs: number
+  /** Whether this child rejects activation after its initial connection fails. */
+  failOnStartupError: boolean
+  /** Child reconnect policy. */
+  reconnect: ReconnectConfig
+}
+```
+
+Depends on: [`ReconnectConfig`](../packages/mcp/mcp-client/src/index.ts)
+
+Source: [`packages/mcp/mcp-user-config/src/index.ts:103`](../packages/mcp/mcp-user-config/src/index.ts)
 
 <a id="deepseek-aidsh-message-feedback"></a>
 
@@ -3274,14 +3346,14 @@ export interface Config {
   maxBodyChars?: number
   /** Default fetch timeout in milliseconds, within Node's timer range. */
   timeoutMs?: number
-  /** Maximum number of same-origin redirect hops to follow. */
+  /** Must be zero; redirects are disabled by fixed security policy. */
   maxRedirects?: number
   /** `User-Agent` header sent on every request. */
   userAgent?: string
 }
 ```
 
-Source: [`packages/web/web-fetch-http/src/index.ts:34`](../packages/web/web-fetch-http/src/index.ts)
+Source: [`packages/web/web-fetch-http/src/index.ts:35`](../packages/web/web-fetch-http/src/index.ts)
 
 <a id="deepseek-aidsh-web-firecrawl"></a>
 
@@ -3304,6 +3376,8 @@ export interface Config {
   searchContentMaxChars?: number
   /** Maximum characters returned from a Scrape markdown body. */
   maxChars?: number
+  /** Allow the remote Scrape endpoint to act as a fetch provider. Defaults false. */
+  enableFetch?: boolean
 }
 ```
 

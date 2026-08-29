@@ -71,7 +71,7 @@ A preset may publish display text in an optional `preset.yml` beside its composi
 
 ```yaml
 name: 极简模式
-description: 仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。
+description: 仅提供 POSIX Bash 或 Windows PowerShell 与 str_replace_editor，并在模型不可见的内部执行自动 lossless compaction 与 summary DAG。
 permissionPreset: workspace-write
 ```
 

@@ -166,7 +166,7 @@ describe('Firecrawl providers', () => {
 })
 
 describe('Firecrawl aggregate plugin', () => {
-  it('registers search and fetch together and disposes both on HMR unload', async () => {
+  it('registers search and explicitly enabled fetch together and disposes both on HMR unload', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) =>
       requestURL(input).includes('/scrape')
         ? jsonResponse({ data: { markdown: 'body' } })
@@ -176,12 +176,24 @@ describe('Firecrawl aggregate plugin', () => {
       searchProvider: firecrawlPlugin.FIRECRAWL_PROVIDER_ID,
       fetchProvider: firecrawlPlugin.FIRECRAWL_PROVIDER_ID,
     })
-    const fiber = await ctx.plugin(firecrawlPlugin, { apiKey: 'firecrawl-key' })
+    const fiber = await ctx.plugin(firecrawlPlugin, { apiKey: 'firecrawl-key', enableFetch: true })
     await expect(ctx.web.search({ query: 'q' })).resolves.toMatchObject({ sources: [], truncated: false })
     await expect(ctx.web.fetch({ url: 'https://requested.test' })).resolves.toMatchObject({ body: { content: 'body' } })
     await fiber.dispose()
     await expect(ctx.web.search({ query: 'q' })).rejects.toMatchObject({ code: 'WEB_PROVIDER_CONFIGURED_MISSING' })
     await expect(ctx.web.fetch({ url: 'https://requested.test' })).rejects.toMatchObject({ code: 'WEB_PROVIDER_CONFIGURED_MISSING' })
+  })
+
+  it('does not register remote fetch by default', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebRuntime, {
+      searchProvider: firecrawlPlugin.FIRECRAWL_PROVIDER_ID,
+      fetchProvider: firecrawlPlugin.FIRECRAWL_PROVIDER_ID,
+    })
+    const fiber = await ctx.plugin(firecrawlPlugin, { apiKey: 'firecrawl-key' })
+    await expect(ctx.web.fetch({ url: 'https://requested.test' }))
+      .rejects.toMatchObject({ code: 'WEB_PROVIDER_CONFIGURED_MISSING' })
+    await fiber.dispose()
   })
 
   it('uses the namespace plugin export shape', () => { expect('default' in firecrawlPlugin).toBe(false) })

@@ -16,6 +16,7 @@ Codex 有意重新实现了 Claude Code hook 协议的一个*子集*，包括相
 | 合并 N 个 hook | `mergeHookOutputs(outputs)` → 最严格的 `MergedHookOutcome` | （无） |
 | 持久记录 | `appendHookInvoked` / `appendHookResult`（`hook/*` 会话事件；结果的 `decision`／`stderrSummary` 从此处的 `HookOutput` 派生） | 在每次调用前后调用它们 |
 | 脱离运行的完全停稳 | `createDetachedRuns()`：跟踪触发后不等待的运行链；`drain()` 先 abort，再等待它们 | 将 `signal` 传给每个脱离的 `runHook`，并将 `drain` 注册为 effect disposer |
+| 配置发现 | `discoverHookConfigSources()` 解析通用分层路径；`readHookConfigSnapshot()` 读取并冻结每个来源，同时隔离失败 | 选择方言解析器，并合并健康来源的结果 |
 
 ## 原语
 
@@ -24,6 +25,14 @@ Codex 有意重新实现了 Claude Code hook 协议的一个*子集*，包括相
 - **`parseHookOutput(exitCode, stdout, stderr, expectedEventName?)`** 解码退出状态与结构化 stdout。退出码为 2 时，会以 stderr 内容阻止执行；其他失败不阻塞。匹配的 hook 特定权限决策会覆盖遗留顶层决策；事件判别字段不匹配或缺失只会抑制事件特定字段。顶层字段仍与事件无关，成功但非 JSON 的输出会留给桥接处理。
 - **`mergeHookOutputs(outputs)`**：折叠在一个点上匹配的每个 hook 结果：权限优先级为 **deny > ask > allow**，从首个 `continue:false` 起，halt 状态保持不变，阻塞原因用 `\n\n` 连接，`additionalContext`／`systemMessages` 按顺序累积。
 - **`createDetachedRuns()`**：跟踪以 emit 形式脱离运行的点是否完全停稳（没有扩展点等待它们）。桥接会跟踪每条运行链，包括 hook 运行及其 continuation，并将 `drain()` 注册为 effect disposer。drain 会触发 tracker 的 abort `signal`（因此仍在运行的 hook 进程会通过 `runHook` 终止，而不是等待到超时），随后在所有已跟踪链结算后 resolve。因此 `fiber.dispose()` resolve 时，不会遗留任何可能作用于已 dispose（资源释放）的上下文的脱离 hook 工作（见 [防御模式](../../../docs/defensive-patterns.md)：dispose 必须达到完全停稳）。
+
+## 自动来源发现
+
+桥接省略 `configPath` 时，会在每个 hook 事件开始时调用 `discoverHookConfigSources()`，再用 `readHookConfigSnapshot()` 加载所得文件。来源按 `user`、`project`、`plugin`、`policy` 顺序运行；每个解析后的路径最多加入一次，读取或解析失败只会移除该事件快照中的对应来源。默认只有一个项目来源，即相对于会话 cwd 的 `hooks.json`；这里不假定任何产品专属的官方路径。
+
+相对的 user、plugin、policy 路径必须配置 `discovery.root`，并根据该 root 解析；没有 root 时可以使用绝对路径。相对的 project 路径相对于会话 cwd 解析；事件没有会话 cwd 时会省略这些来源，绝不会改用 `process.cwd()`。相对的 `discovery.root` 自身遵循进程启动 cwd，这是配置解析规则，不是项目来源回退。
+
+返回的来源描述符、解析后的 JSON 值以及快照集合都会被冻结。不存在的可选文件会被忽略；其他读取或解析失败会按来源保留。桥接会在运行任何命令前先解析并合并一个完整快照，因此串行事件执行期间的文件修改会在下一个事件生效。此 helper 不创建 watcher，也不执行信任、哈希或审批；所以自动发现要求部署方信任配置的 root 以及其中的每个命令。
 
 ## `hook/*` 会话事件
 

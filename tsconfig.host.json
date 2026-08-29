@@ -307,6 +307,7 @@
     { "path": "./packages/hooks/hooks-claude-code" },
     { "path": "./packages/hooks/hooks-codex" },
     { "path": "./packages/mcp/mcp-client" },
+    { "path": "./packages/mcp/mcp-user-config" },
     { "path": "./packages/capability/capabilities" },
     { "path": "./packages/host/apiproxy" },
     { "path": "./packages/host/directory-picker" },

@@ -18,6 +18,10 @@ function shippedPreset(id: string): AgentPreset {
   return { id, trust: 'system', path: resolve(shipped, id, 'agent.cordis.yml') }
 }
 
+function conflictPreset(): AgentPreset {
+  return { id: 'conflict', trust: 'system', path: resolve(fixtures, 'conflict', 'agent.cordis.yml') }
+}
+
 function selected(descriptor: CapabilityDescriptor, value = descriptor.defaultLoaded): CapabilityCatalogEntry {
   return {
     ...descriptor,
@@ -84,26 +88,26 @@ describe('Agent Profile composition recipes', () => {
     const catalog = await compositionCatalog([shippedPreset('standard'), shippedPreset('minimal')], 'minimal')
     const entries = catalog.descriptors.map(descriptor => selected(
       descriptor,
-      descriptor.id === 'plugin:tool-bash' ? true : descriptor.defaultLoaded,
+      descriptor.id === 'plugin:tool-result-artifacts' ? true : descriptor.defaultLoaded,
     ))
     const patches = compositionPatches(catalog, entries)
 
     expect(patches).toEqual(expect.arrayContaining([
-      expect.objectContaining({ insert: [expect.objectContaining({ id: 'tool-bash', disabled: false })] }),
+      expect.objectContaining({ insert: [expect.objectContaining({ id: 'tool-result-artifacts', disabled: false })] }),
     ]))
   })
 
   it('keeps a stored tool-name conflict mountable by disabling the shadowed source row', async () => {
-    // `persistent-shell` and `tool-bash` both register `bash`. A Profile that
+    // `tool-bash-persistent` and `tool-bash` both register `bash`. A Profile that
     // stored both as selected must still mount: two registrations under one
     // name fail the whole generation, leaving the Session with no composition.
-    const catalog = await compositionCatalog([shippedPreset('standard'), shippedPreset('minimal')], 'standard')
+    const catalog = await compositionCatalog([shippedPreset('standard'), conflictPreset()], 'standard')
     const entries = catalog.descriptors.map(descriptor => selected(
       descriptor,
-      descriptor.id === 'plugin:persistent-shell' ? true : descriptor.defaultLoaded,
+      descriptor.id === 'plugin:tool-bash-persistent' ? true : descriptor.defaultLoaded,
     ))
     expect(entries.filter(entry => entry.selected).map(entry => entry.id))
-      .toEqual(expect.arrayContaining(['plugin:persistent-shell', 'plugin:tool-bash']))
+      .toEqual(expect.arrayContaining(['plugin:tool-bash-persistent', 'plugin:tool-bash']))
 
     const patches = compositionPatches(catalog, entries)
 
@@ -193,17 +197,20 @@ describe('Agent Profile composition recipes', () => {
       }
     })
 
-    expect(compositionPatches(catalog, entries)).toContainEqual({
-      id: 'delegation',
-      config: expect.arrayContaining([
-        expect.objectContaining({
-          id: 'tool-subagent',
-          config: expect.objectContaining({
-            enableChildProfileDefine: false,
-            enableChildProfileList: true,
-          }),
-        }),
-      ]),
+    const delegation = compositionPatches(catalog, entries).find(patch => patch.id === 'delegation')
+    expect(delegation).toBeDefined()
+    if (delegation?.config === undefined || !Array.isArray(delegation.config)) {
+      throw new Error('delegation patch must carry an entry list')
+    }
+    const configEntries = delegation.config as readonly unknown[]
+    const subagent = configEntries.find((entry): entry is Record<string, unknown> => {
+      if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return false
+      return (entry as Record<string, unknown>).id === 'tool-subagent'
+    })
+    expect(subagent).toBeDefined()
+    expect(subagent?.config).toMatchObject({
+      enableChildProfileDefine: false,
+      enableChildProfileList: true,
     })
   })
 })

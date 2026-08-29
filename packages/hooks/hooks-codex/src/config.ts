@@ -1,6 +1,6 @@
 /**
  * Parse Codex's five-event hook subset into shared {@link MatcherGroup}s. Only synchronous command
- * hooks run; other types and `async: true` commands are recorded as skipped. Codex performs no
+ * enabled hooks run; other types and `async: true` commands are recorded as skipped. Codex performs no
  * command substitution.
  * @module @deepseek-ai/dsh-hooks-codex/config
  */
@@ -31,12 +31,18 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
+function isDisabled(value: Record<string, unknown>): boolean {
+  return value.disabled === true || value.enabled === false
+}
+
 /**
  * Parse a wrapped or bare Codex event map. Unknown events and malformed entries are ignored rather
- * than failing boot; unsupported or asynchronous hooks are returned in `skipped`. Matcher fields on
+ * than failing boot; unsupported or asynchronous hooks are returned in `skipped`, and disabled
+ * groups/hooks are omitted. Matcher fields on
  * UserPromptSubmit and Stop are discarded because those events have no matcher subject. A
  * matcher-bearing runnable group with an invalid regex throws a `SyntaxError`, allowing the bridge
- * to reject the complete config before listener registration.
+ * to reject the complete config before listener registration. Both `disabled: true` and
+ * `enabled: false` disable a group or hook.
  * @param raw - the parsed JSON config: a `{ hooks: … }` wrapper or the bare event map.
  * @returns the runnable per-event groups plus the skipped hooks with their reasons.
  */
@@ -57,10 +63,12 @@ export function parseCodexConfig(raw: unknown): ParsedCodexConfig {
     for (const rawGroup of rawGroups) {
       const group = asObject(rawGroup)
       if (!group || !Array.isArray(group.hooks)) continue
+      if (isDisabled(group)) continue
       const commands: MatcherGroup['hooks'] = []
       for (const rawHook of group.hooks) {
         const hook = asObject(rawHook)
         if (!hook) continue
+        if (isDisabled(hook)) continue
         const type = typeof hook.type === 'string' ? hook.type : 'command'
         if (type !== 'command') { skipped.push({ event, reason: `unsupported "${type}" hook` }); continue }
         /* jscpd:ignore-end */

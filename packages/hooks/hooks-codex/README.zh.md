@@ -19,7 +19,14 @@
 ```ts
 import type { Config } from '@deepseek-ai/dsh-hooks-codex'
 const config: Config = {
-  configPath: '/path/to/.codex/hooks.json', // required
+  configPath: '/path/to/hooks.json', // optional: complete override
+  discovery: {                           // optional: used only when configPath is omitted
+    root: '/path/to/hook-sources',
+    user: ['user.json'],
+    project: ['.dsh/hooks/codex.json'],
+    plugin: ['plugin.json'],
+    policy: ['policy.json'],
+  },
   model: 'deepseek-v4',                      // optional: stamped on every payload (Codex includes `model`)
   defaultTimeoutMs: 600_000,                 // optional: per-hook timeout when a hook sets none
   stderrSummaryMaxChars: 500,                // optional: char cap on the hook/result event's persisted stderr summary
@@ -30,11 +37,13 @@ const config: Config = {
 
 ```yaml
 - dsh-hooks-codex:
-    configPath: ./.codex/hooks.json
+    configPath: ./.codex/hooks.json # omit for automatic discovery
     model: deepseek-v4
 ```
 
-配置只在加载时解析**一次**。`configPath` 是**进程级**配置：相对路径在加载时根据进程启动 cwd 解析，而非每会话解析（`TODO(per-session-hook-config)`）。读取／解析失败会被隔离处理（记录 + 不注册任何内容）；实际消费 matcher 的事件所带的无效 matcher 正则属于此类失败，并报告其 pattern 与事件。只运行同步 `type: 'command'` hook；非 command 或 `async: true` hook 会被解析并跳过，同时记录警告。hook 接受 `timeout` 或 `timeoutSec` alias；两者都未设置时，使用协议参考默认值 `DEFAULT_HOOK_TIMEOUT_MS`（来自 `dsh-hook-protocol`，10 分钟）。五个桥接支持点之外的事件会在解析时丢弃。
+存在 `configPath` 时，配置在加载时解析一次，并完整替代自动发现；相对路径根据进程启动 cwd 解析。省略它时，桥接会在每个事件开始时发现并解析新的来源快照。来源按 `user`、`project`、`plugin`、`policy` 顺序运行；不存在的可选文件会被忽略，坏来源只会记录警告并跳过，不会禁用健康来源。没有 `discovery` 对象时，shipped 默认读取 `$DSH_HOME/hooks/codex.json`（回退到 `~/.dsh`）以及当前会话 cwd 下的 `.dsh/hooks/codex.json`。提供 `discovery` 时，只覆盖其中明确命名的层；显式空数组会禁用该层的默认值。project 路径相对于当前会话 cwd，其他相对路径必须配置 `discovery.root`，项目路径绝不会以 `process.cwd()` 作为回退。事件执行期间不会重新读取来源，文件修改在下一个事件生效。
+
+只运行已启用的同步 `type: 'command'` hook；`disabled: true` 或 `enabled: false` 会省略 group 或 hook，非 command 或 `async: true` hook 会被解析并跳过，同时记录警告。读取／解析失败会被隔离，包括实际消费 matcher 的事件所带的无效 matcher 正则。hook 接受 `timeout` 或 `timeoutSec` alias；两者都未设置时，使用协议参考默认值 `DEFAULT_HOOK_TIMEOUT_MS`（来自 `dsh-hook-protocol`，10 分钟）。自动发现不提供信任、哈希或审批层；只应对信任其 hook 命令的 root 启用。五个桥接支持点之外的事件会在解析时丢弃。
 
 hook 本身会在 agent（智能体）的会话工作区中运行：对 agent scope 点，桥接会将会话 `cwd` 作为 hook 进程工作目录，因此 hook 作用于用户项目树，而非服务器启动目录。
 
@@ -97,4 +106,4 @@ hook 不返回上下文时没有成本。Hook 文本取决于数据，会被记�
 - **`PostToolUse` 只支持部分功能：** 支持阻塞反馈与 JSON `additionalContext`，但不会强制执行 `{"continue": false}`，非 shell 工具参数会缩减为 `{ command }`，结构化工具输出会在 `tool_response` 中展平为文本。
 - **`Stop` 只支持部分功能：** 阻塞会强制另一个模型轮次，但 `stop_hook_active` 始终为 `false`，`last_assistant_message` 始终为 `null`，且不会强制执行 `{"continue": false}`。因此，无条件阻塞 hook 会在每个步骤中强制 continuation，除非它自我限制（`TODO(stop-loop-guard)`）。
 - **通用 payload 与输出字段只支持部分功能：** 每个已映射事件都报告静态配置的 `model` 与 `permission_mode: "default"`，而非当前 Codex 运行时值。`systemMessage` 会被记录并触发警告，但不呈现，`{"continue": false}` 会被记录但不会应用 Codex 事件特定停止行为（`TODO(hook-continue-false)`）。
-- **配置加载与执行只支持部分功能：** 一个进程级 `configPath` 会在加载时解析；尚未实现 Codex 的活动用户层、项目层、会话层、系统／托管层和插件层、信任控制与内联 `config.toml` hook 形式（`TODO(per-session-hook-config)`）。只运行同步 `command` handler，忽略 `statusMessage` 与 `commandWindows` 等当前元数据，匹配 handler 串行运行，而非使用 Codex 的并发启动语义。
+- **配置加载与执行只支持部分功能：** 只支持上述通用配置 root；未经仓库证据确认的 Codex 专属路径、信任控制与内联 `config.toml` hook 形式不在实现中。只运行同步 `command` handler，忽略 `statusMessage` 与 `commandWindows` 等当前元数据，匹配 handler 串行运行，而非使用 Codex 的并发启动语义。

@@ -426,9 +426,20 @@
 
     - id: web-firecrawl
       name: '@deepseek-ai/dsh-web-firecrawl'
+      config:
+        enableFetch: false
 
     - id: web-fetch-http
       name: '@deepseek-ai/dsh-web-fetch-http'
+
+    # Own the one user MCP settings namespace on the host plane. Profile rows
+    # consume this service and create their own scoped client children; this
+    # provider has no model-facing tools, so Minimal remains MCP-free.
+    - id: mcp-user-config-settings
+      name: '@deepseek-ai/dsh-mcp-user-config'
+      config:
+        role: provider
+        servers: []
 
     - id: tool-web
       name: '@deepseek-ai/dsh-tool-web'

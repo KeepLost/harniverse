@@ -1,6 +1,6 @@
 # Agent Note: Agent Profile capability defaults and user extension disclosure
 
-Status: proposed
+Status: rejected — superseded by the shipped implementation note
 
 English | [中文](2026-08-29-agent-profile-capability-defaults.zh.md)
 
@@ -11,6 +11,8 @@ The four shipped Agent Profiles do not yet express their intended product roles.
 The existing [shipped tool-roster decision](../../implemented/feature/2026-07-31-even-out-shipped-tool-rosters.md) records the earlier common roster, the dependency-only MCP integration, and the disabled fetch posture. This proposal deliberately supersedes those parts when the corresponding implementation lands; the unrelated surface-roster and tool-ownership decisions remain authoritative.
 
 ## Proposal
+
+This proposal was superseded by the shipped implementation recorded in [Shipped Agent Profile capability defaults](../../implemented/architecture/2026-08-30-agent-profile-capability-defaults.md).
 
 ### Profile roles
 

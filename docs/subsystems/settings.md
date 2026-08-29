@@ -169,6 +169,29 @@ type SettingsUpdateSource = 'update' | 'provider'
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxmcpuserconfigsettings--mcpuserconfigsettingsservice"></a>
+
+### `ctx.mcpUserConfigSettings` — `McpUserConfigSettingsService`
+
+Read/watch-only view of the host-owned `mcp` settings scope.
+
+```ts cordis-catalog
+/**
+ * Return the current validated user server list.
+ * @returns the current validated user server list.
+ */
+get(): McpUserConfigSettingsConfig
+
+/**
+ * Subscribe to validated settings replacements and return the disposer.
+ * @param callback - invoked after each committed settings replacement.
+ * @returns the disposer that removes the subscription.
+ */
+watch(callback: (next: McpUserConfigSettingsConfig, prev: McpUserConfigSettingsConfig) => void | Promise<void>): () => void
+```
+
+Source: [`packages/mcp/mcp-user-config/src/index.ts:116`](../../packages/mcp/mcp-user-config/src/index.ts)
+
 <a id="ctxsettings--settingsprovider-abstract-seam"></a>
 
 ### `ctx.settings` — `SettingsProvider` (abstract seam)

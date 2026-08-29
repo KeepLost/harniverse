@@ -55,6 +55,8 @@ export interface Config {
   searchContentMaxChars?: number
   /** Maximum characters returned from a Scrape markdown body. */
   maxChars?: number
+  /** Allow the remote Scrape endpoint to act as a fetch provider. Defaults false. */
+  enableFetch?: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -64,6 +66,7 @@ export const Config: z<Config> = z.object({
   includeSearchContent: z.boolean().default(false),
   searchContentMaxChars: z.number().step(1).min(1).default(FIRECRAWL_DEFAULT_SEARCH_CONTENT_MAX_CHARS),
   maxChars: z.number().step(1).min(1).default(FIRECRAWL_DEFAULT_MAX_CHARS),
+  enableFetch: z.boolean().default(false),
 })
 
 /** Settings namespace for Firecrawl's endpoint, credential, and bounded content options. */
@@ -105,10 +108,12 @@ export function apply(ctx: Context, config: Config): void {
       available: () => search.available(),
       search: (request, signal) => search.search(request, signal),
     },
-    fetch: {
-      available: () => fetch.available(),
-      fetch: (request, signal) => fetch.fetch(request, signal),
-    },
+    ...current().enableFetch === true ? {
+      fetch: {
+        available: () => fetch.available(),
+        fetch: (request, signal) => fetch.fetch(request, signal),
+      },
+    } : {},
   }
   ctx.web.registerProvider(provider)
 }

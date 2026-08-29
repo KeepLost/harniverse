@@ -11,7 +11,14 @@ A native cordis plugin could do everything this bridge does — more powerfully,
 ```ts
 import type { Config } from '@deepseek-ai/dsh-hooks-claude-code'
 const config: Config = {
-  configPath: '/path/to/hooks.json', // required: a hooks.json or a settings file with a `hooks` key
+  configPath: '/path/to/hooks.json', // optional: complete override; a hooks.json or settings file with a `hooks` key
+  discovery: {                     // optional: used only when configPath is omitted
+    root: '/path/to/hook-sources',
+    user: ['user.json'],
+    project: ['.dsh/hooks/claude-code.json'],
+    plugin: ['plugin.json'],
+    policy: ['policy.json'],
+  },
   pluginRoot: '/path/to/plugin',     // optional: replaces ${CLAUDE_PLUGIN_ROOT} in command strings
   projectDir: '/path/to/project',    // optional: replaces ${CLAUDE_PROJECT_DIR} AND sets the hook env var; defaults to the session cwd when omitted
   defaultTimeoutMs: 600_000,         // optional: per-hook timeout when a hook sets none (CC default)
@@ -23,12 +30,14 @@ In a `cordis.yml`:
 
 ```yaml
 - dsh-hooks-claude-code:
-    configPath: ./.claude/hooks.json
+    configPath: ./.claude/hooks.json # omit for automatic discovery
     pluginRoot: ./.claude/plugins/my-plugin
     projectDir: .
 ```
 
-The config is parsed **once** at load. `configPath` is **process-level**: a relative path resolves against the process's launch cwd at load time, so a single config applies to the whole process — there is no per-session (`session/new.cwd`) config discovery yet (`TODO(per-session-hook-config)`). A read/parse failure is contained — including an invalid regex matcher on an event that consumes matchers, reported with its pattern and event — and the bridge logs a warning and registers nothing rather than crashing boot (a typo'd path must not take the agent down). Only shell-form `type: 'command'` hooks run; an `http`/`mcp_tool`/`prompt`/`agent` hook is parsed-and-skipped with a warning. A hook with no per-hook `timeout` runs under the protocol's reference default (`DEFAULT_HOOK_TIMEOUT_MS` from `dsh-hook-protocol`, 10 minutes — the CC default).
+When `configPath` is present, the config is parsed once at load and completely replaces automatic discovery; a relative path resolves against the process launch cwd. When it is omitted, the bridge discovers and parses a fresh source snapshot at the start of each event. Sources run in `user`, `project`, `plugin`, `policy` order; absent optional files are ignored, while a bad source is warned and skipped without disabling healthy sources. With no `discovery` object, the shipped defaults read `$DSH_HOME/hooks/claude-code.json` (falling back to `~/.dsh`) and `.dsh/hooks/claude-code.json` in the session cwd. A supplied `discovery` object overrides only the layers it names; an explicitly empty array disables that layer's defaults. Project paths are relative to the current session cwd, while other relative paths require `discovery.root`, and no project path uses `process.cwd()` as a fallback. Source edits become effective on the next event, and a source is not reread during the event's serial hook execution.
+
+Only enabled shell-form `type: 'command'` hooks run; `disabled: true` or `enabled: false` omits a group or hook, while an `http`/`mcp_tool`/`prompt`/`agent` hook is parsed-and-skipped with a warning. A read/parse failure is contained, including an invalid regex matcher on an event that consumes matchers. A hook with no per-hook `timeout` runs under the protocol's reference default (`DEFAULT_HOOK_TIMEOUT_MS` from `dsh-hook-protocol`, 10 minutes — the CC default). Automatic discovery has no trust, hash, or approval layer; mount it only for roots whose hook commands are trusted.
 
 The hooks **themselves** run in the agent's session workspace: for the agent-scoped points the bridge passes the session's `cwd` (the `session/new.cwd`) as the hook process's working directory, so a hook's `pwd`/relative-path/marker operates in the user's project tree, not the server launch dir.
 
@@ -94,4 +103,4 @@ A blocked prompt sends no request and invalidates nothing. Denial, feedback, and
 - **`SubagentStart` and `SubagentStop` are partial:** both report a constant `agent_type` of `general-purpose` and use the child session id where Claude Code reports the parent session. Start context is best-effort and can only reach a live in-process child, while stop is observe-only and cannot block the subagent or feed it context. Start omits `transcript_path`; stop also omits `agent_transcript_path`, `last_assistant_message`, `background_tasks`, and `session_crons` and always reports `stop_hook_active: false`.
 - **`Stop` is partial:** blocking forces another model turn, but `stop_hook_active` is always `false`, `last_assistant_message`, `background_tasks`, and `session_crons` are omitted, and the consecutive-block cap is not implemented (`TODO(stop-loop-guard)`). An unconditionally blocking hook therefore force-continues every step unless it self-limits.
 - **Common payload and output fields are partial:** mapped event payloads omit `prompt_id`, `transcript_path`, `permission_mode`, and `effort` where Claude Code would provide them. `systemMessage` is logged + warned but not surfaced; `{"continue": false}` is recorded but does not halt the run; `suppressOutput`, `stopReason`, and `terminalSequence` are not applied (`TODO(hook-continue-false)`).
-- **Handler and config support is partial:** only shell-form command handlers run. `http`, `mcp_tool`, `prompt`, and `agent` handlers are skipped; command-handler options such as `args`, `async`, `asyncRewake`, `shell`, `if`, `once`, and `statusMessage` are not honored. Matching handlers run serially and are not deduplicated, whereas Claude Code runs them in parallel and deduplicates identical handlers. One process-level `configPath` is parsed once at load; Claude Code's layered project, user, plugin, and policy discovery and live reload are not implemented (`TODO(per-session-hook-config)`).
+- **Handler and config support is partial:** only shell-form command handlers run. `http`, `mcp_tool`, `prompt`, and `agent` handlers are skipped; command-handler options such as `args`, `async`, `asyncRewake`, `shell`, `if`, `once`, and `statusMessage` are not honored. Matching handlers run serially and are not deduplicated, whereas Claude Code runs them in parallel and deduplicates identical handlers. Automatic discovery uses the generic configured roots described above rather than Claude Code's unverified product-specific locations or trust model.

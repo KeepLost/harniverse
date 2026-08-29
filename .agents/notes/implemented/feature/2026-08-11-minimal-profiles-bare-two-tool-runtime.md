@@ -4,6 +4,8 @@ Status: implemented
 
 English | [中文](2026-08-11-minimal-profiles-bare-two-tool-runtime.zh.md)
 
+> The Web Minimal facts in this note were superseded by [Shipped Agent Profile capability defaults](../architecture/2026-08-30-agent-profile-capability-defaults.md). Its standalone JSON-RPC facts remain current for that separate process-owned composition.
+
 ## Problem
 
 The Web `minimal` preset and standalone JSON-RPC minimal composition exposed persistent `bash` and `str_replace_editor`, but their supporting services did not match the intended training runtime. Both mounted context compaction, while the Web preset inherited the host's sandboxed filesystem and the JSON-RPC composition mounted `fs-sandbox` plus filesystem policy. A long session could therefore replace history, and the editor advertised and enforced a filesystem policy that the bare local reference runtime does not have.

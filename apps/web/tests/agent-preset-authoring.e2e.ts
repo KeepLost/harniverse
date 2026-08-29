@@ -270,7 +270,7 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
         result: { value?: { sessions: unknown[] } }
       }
       return JSON.stringify(body.result.value?.sessions ?? body.result)
-    }, { timeout: 15_000 }).toContain('"agentPreset":"cordis"')
+    }, { timeout: 15_000 }).toContain('"agentProfile":"cordis"')
   }, 60_000)
 
   it('drove every surface without a page error or a stream warning', () => {

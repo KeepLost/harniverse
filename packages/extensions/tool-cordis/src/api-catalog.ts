@@ -1121,6 +1121,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'mcpUserConfigSettings',
+    summary: 'Read/watch-only view of the host-owned `mcp` settings scope.',
+    description: 'Read/watch-only view of the host-owned `mcp` settings scope.',
+    methods: [
+      {
+        signature: 'get(): McpUserConfigSettingsConfig',
+        description: 'Return the current validated user server list.',
+        parameters: [],
+        returns: 'the current validated user server list.',
+      },
+      {
+        signature: 'watch(callback: (next: McpUserConfigSettingsConfig, prev: McpUserConfigSettingsConfig) => void | Promise<void>): () => void',
+        description: 'Subscribe to validated settings replacements and return the disposer.',
+        parameters: [{ name: 'callback', description: 'invoked after each committed settings replacement.' }],
+        returns: 'the disposer that removes the subscription.',
+      },
+    ],
+  },
+  {
     key: 'messageFeedback',
     summary: 'Storage-domain sidecar service.',
     description: 'Storage-domain sidecar service. It inspects persisted Session history and never creates or resumes an Agent or Session.',
@@ -4210,6 +4229,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ManualCompactAgentContext extends CompactionAgentContext {\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n}',
   },
   {
+    name: 'McpUserConfigSettingsConfig',
+    declaration: 'export interface McpUserConfigSettingsConfig {\n    servers: UserMcpServerConfig[];\n}',
+  },
+  {
     name: 'Message',
     declaration: 'export interface Message {\n    readonly id: MessageId;\n    readonly role: \'system\' | \'user\' | \'assistant\';\n    readonly content: ContentBlock[];\n    readonly source: MessageSource;\n}',
   },
@@ -4484,6 +4507,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ReasoningEffortId',
     declaration: 'export type ReasoningEffortId = Branded<\'ReasoningEffortId\'>;',
+  },
+  {
+    name: 'ReconnectConfig',
+    declaration: 'export interface ReconnectConfig {\n    enabled?: boolean;\n    initialDelayMs?: number;\n    maxDelayMs?: number;\n    maxAttempts?: number;\n}',
   },
   {
     name: 'RedactedSecret',
@@ -5572,6 +5599,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TypertTypeModel',
     declaration: 'export interface TypertTypeModel {\n    readonly name: string;\n    readonly declaration: string;\n}',
+  },
+  {
+    name: 'UserMcpServerConfig',
+    declaration: 'export interface UserMcpServerConfig {\n    id: string;\n    enabled: boolean;\n    transport: \'stdio\' | \'streamable-http\';\n    serverName: string;\n    command?: string;\n    args: string[];\n    env: Record<string, string>;\n    cwd: string;\n    url?: string;\n    headers: Record<string, string>;\n    toolCallTimeoutMs: number;\n    failOnStartupError: boolean;\n    reconnect: ReconnectConfig;\n}',
   },
   {
     name: 'UserMessage',

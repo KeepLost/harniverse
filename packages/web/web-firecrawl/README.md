@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-A [Firecrawl](https://www.firecrawl.dev) aggregate provider for the harness [web capability seam](../web/README.md) (`ctx.web`). It registers one provider id, `firecrawl`, with both Search (`POST /v2/search`) and markdown Scrape (`POST /v2/scrape`) capabilities. It uses native `fetch`, not a vendor SDK.
+A [Firecrawl](https://www.firecrawl.dev) aggregate provider for the harness [web capability seam](../web/README.md) (`ctx.web`). It registers one provider id, `firecrawl`, with Search (`POST /v2/search`) by default and optional markdown Scrape (`POST /v2/scrape`) capability. It uses native `fetch`, not a vendor SDK.
 
 This is a function/namespace plugin with `inject: ['web']`. It contributes to `ctx.web`, does not replace the aggregate service, and does not add AI answer, crawl, or extract tools. A mounted credentials service is authoritative. Only when that seam is absent does the provider read the launching environment. The Firecrawl credential reference is resolved independently for every search and fetch operation; the basic Firecrawl API also permits anonymous requests, so an absent key is allowed.
 
@@ -16,6 +16,7 @@ This is a function/namespace plugin with `inject: ['web']`. It contributes to `c
 | `includeSearchContent` | `false` | When true, Search requests `scrapeOptions.formats: ['markdown']` and maps bounded per-result content into `snippet`. |
 | `searchContentMaxChars` | `10000` | Maximum characters of optional Search markdown/raw content included in each `snippet`. |
 | `maxChars` | `100000` | Maximum characters returned from a Scrape markdown body. |
+| `enableFetch` | `false` | Explicitly register the remote Scrape adapter as a fetch provider. |
 
 ```yaml
 - id: web-firecrawl
@@ -23,9 +24,10 @@ This is a function/namespace plugin with `inject: ['web']`. It contributes to `c
   config:
     apiKeyEnv: FIRECRAWL_API_KEY
     includeSearchContent: false
+    enableFetch: false
 ```
 
-`apiKey` has `role('secret')`. When a key is configured, Search and Scrape send `Authorization: Bearer <key>` and `redirect: 'error'`; anonymous requests omit the authorization header. No request follows a redirect.
+`apiKey` has `role('secret')`. When a key is configured, Search and an explicitly enabled Scrape adapter send `Authorization: Bearer <key>` and `redirect: 'error'`; anonymous requests omit the authorization header. No request follows a redirect. Scrape is disabled by default because the remote Firecrawl service, not the local HTTP provider, resolves the requested target; use it only in a deployment that trusts and controls that remote boundary.
 
 ## Mapping
 
@@ -51,11 +53,11 @@ This provider makes no additional model inference request; search content and so
 
 No direct invalidation; the named consumer owns any request-prefix changes.
 
-### Markdown fetch result
+### Markdown fetch result (explicit opt-in)
 
 #### What the model sees
 
-The model receives the `maxChars`-bounded markdown body as a text fetch result through [`dsh-tool-web`](../tool-web/README.md). The Firecrawl key, target transport metadata, and API wrapper remain hidden.
+ The model receives the `maxChars`-bounded markdown body as a text fetch result through [`dsh-tool-web`](../tool-web/README.md) only when `enableFetch: true` is explicitly configured. The Firecrawl key, target transport metadata, and API wrapper remain hidden.
 
 #### Token effect
 
@@ -70,3 +72,4 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 - Search content uses the existing `snippet` field because the current web seam has no source-level content field; larger or structured content waits on a provider-neutral contract.
 - Firecrawl Search result counts and Scrape body bounds are provider-side optimizations plus consumer-visible caps; the aggregate seam still owns `maxResults` source truncation.
 - Target status and URL depend on Firecrawl metadata. When absent, the adapter uses the requested URL and the API response status as the available fallback.
+- Remote Scrape is not a local public-target policy. It is disabled by default; the hardened local `web-fetch-http` provider is the shipped fetch path.

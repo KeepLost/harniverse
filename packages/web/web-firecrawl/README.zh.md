@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-由 [Firecrawl](https://www.firecrawl.dev) 支持的 harness [web 能力 seam](../web/README.md)（`ctx.web`）聚合 provider。它注册一个 `firecrawl` provider，同时提供 Search（`POST /v2/search`）和 markdown Scrape（`POST /v2/scrape`）能力，使用原生 `fetch`，不依赖厂商 SDK。
+由 [Firecrawl](https://www.firecrawl.dev) 支持的 harness [web 能力 seam](../web/README.md)（`ctx.web`）聚合 provider。它注册一个 `firecrawl` provider，默认提供 Search（`POST /v2/search`），并可选提供 markdown Scrape（`POST /v2/scrape`）能力，使用原生 `fetch`，不依赖厂商 SDK。
 
 这是一个带有 `inject: ['web']` 的函数／命名空间插件。它向 `ctx.web` 提供能力，不替换 aggregate service，也不新增 AI answer、crawl 或 extract 工具。已挂载的凭据服务具有权威性；只有没有该 seam 时才读取启动环境。每次 search 和 fetch 操作都会独立解析 Firecrawl 凭据引用；Firecrawl 基础 API 也允许匿名请求，因此未配置 key 是合法的。
 
@@ -16,6 +16,7 @@
 | `includeSearchContent` | `false` | 启用时 Search 请求 `scrapeOptions.formats: ['markdown']`，并把每项受限内容映射到 `snippet`。 |
 | `searchContentMaxChars` | `10000` | 每项 Search `snippet` 中可选 markdown/raw content 的最大字符数。 |
 | `maxChars` | `100000` | Scrape markdown body 返回的最大字符数。 |
+| `enableFetch` | `false` | 显式注册远程 Scrape adapter 作为 fetch provider。 |
 
 ```yaml
 - id: web-firecrawl
@@ -23,9 +24,10 @@
   config:
     apiKeyEnv: FIRECRAWL_API_KEY
     includeSearchContent: false
+    enableFetch: false
 ```
 
-`apiKey` 带有 `role('secret')`。配置 key 时，Search 和 Scrape 发送 `Authorization: Bearer <key>` 与 `redirect: 'error'`；匿名请求省略 authorization header。任何请求都不会跟随重定向。
+`apiKey` 带有 `role('secret')`。配置 key 时，Search 和显式启用的 Scrape adapter 发送 `Authorization: Bearer <key>` 与 `redirect: 'error'`；匿名请求省略 authorization header。任何请求都不会跟随重定向。Scrape 默认关闭，因为请求目标由远程 Firecrawl service 而非本地 HTTP provider 解析；只有在部署明确信任并控制该远程边界时才启用。
 
 ## 映射
 
@@ -51,11 +53,11 @@ Scrape 发送 `{url, formats: ['markdown']}`，把返回的 `markdown`（缺少�
 
 不会直接导致失效；请求前缀变化由上述消费方负责。
 
-### Markdown fetch 结果
+### Markdown fetch 结果（显式 opt-in）
 
 #### 模型看到什么
 
-模型通过 [`dsh-tool-web`](../tool-web/README.md) 接收作为 text fetch 结果的、受 `maxChars` 限制的 markdown body。Firecrawl key、目标传输元数据和 API 包装不会暴露。
+只有在显式配置 `enableFetch: true` 时，模型才会通过 [`dsh-tool-web`](../tool-web/README.md) 接收作为 text fetch 结果的、受 `maxChars` 限制的 markdown body。Firecrawl key、目标传输元数据和 API 包装不会暴露。
 
 #### Token 影响
 
@@ -70,3 +72,4 @@ Scrape 发送 `{url, formats: ['markdown']}`，把返回的 `markdown`（缺少�
 - Search 内容使用现有 `snippet` 字段，因为当前 web seam 没有 source 级 content 字段；更大的或结构化内容等待 provider-neutral 合同。
 - Search 结果数量和 Scrape body 限制既是 provider 侧优化也是消费方可见限制；aggregate seam 仍负责 `maxResults` 的最终 source 截断。
 - 目标状态和 URL 依赖 Firecrawl 元数据；缺少时使用请求 URL 与 API 响应状态作为可用回退。
+- 远程 Scrape 不是本地公共目标策略，默认关闭；shipped fetch 路径是经过加固的 `web-fetch-http` provider。

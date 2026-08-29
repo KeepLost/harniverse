@@ -1,6 +1,6 @@
 # Agent Note: Agent Profile 能力默认值与用户扩展披露
 
-Status: proposed
+Status: rejected — superseded by the shipped implementation note
 
 [English](2026-08-29-agent-profile-capability-defaults.md) | 中文
 
@@ -11,6 +11,8 @@ Status: proposed
 现有的[交付工具清单决策](../../implemented/feature/2026-07-31-even-out-shipped-tool-rosters.md)记录了早期的共同清单、仅依赖形式的 MCP 集成和关闭抓取的姿态。本提案在相应实现落地后有意取代其中的这些部分；与它们无关的 surface 清单和工具归属决策仍然有效。
 
 ## 提案
+
+本提案已由[已发布 Agent Profile 能力默认值](../../implemented/architecture/2026-08-30-agent-profile-capability-defaults.md)中记录的已发布实现取代。
 
 ### Profile 角色
 

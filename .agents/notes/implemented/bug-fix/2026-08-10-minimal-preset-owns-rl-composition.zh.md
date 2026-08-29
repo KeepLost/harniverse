@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-08-10-minimal-preset-owns-rl-composition.md) | 中文
 
+> 本 note 描述的 Web Minimal runtime 后来由[已发布 Agent Profile 能力默认值](../architecture/2026-08-30-agent-profile-capability-defaults.md)取代：当前 Web Profile 使用 one-shot 平台 shell 工具和内部 lossless recovery Provider。standalone JSON-RPC composition 仍然独立。
+
 ## 问题
 
 随附 Web 配置同时由两个位置定义与 Claude SWE 兼容的 RL agent（智能体）：进程级 `core-web.cordis.yml` patch，以及逐会话的 `minimal` preset。[agent preset](../architecture/2026-08-03-per-session-agent-presets.md) 成为 agent 组合边界后，preset 中带作用域的 `deployment:persona` 会用陈旧的 coding-agent 文本遮蔽 overlay 修正过的全局 persona。overlay 测试没有挂载 preset，而 preset 测试启动时没有 overlay，因此两者都没有覆盖用户实际选择的组合。

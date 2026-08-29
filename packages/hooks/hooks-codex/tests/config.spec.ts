@@ -56,6 +56,17 @@ describe('parseCodexConfig', () => {
     expect(config.Stop).toEqual([{ hooks: [{ command: 's.sh' }] }])
   })
 
+  it('omits disabled groups and hooks from the runnable config', () => {
+    const { config } = parseCodexConfig({ PreToolUse: [
+      { disabled: true, hooks: [{ type: 'command', command: 'disabled-group.sh' }] },
+      { hooks: [
+        { enabled: false, type: 'command', command: 'disabled-hook.sh' },
+        { type: 'command', command: 'enabled.sh' },
+      ] },
+    ] })
+    expect(config.PreToolUse).toEqual([{ hooks: [{ command: 'enabled.sh' }] }])
+  })
+
   it('omits the matcher key for a match-all group', () => {
     const { config } = parseCodexConfig({ Stop: [{ hooks: [{ type: 'command', command: 's.sh' }] }] })
     expect('matcher' in config.Stop![0]!).toBe(false)
