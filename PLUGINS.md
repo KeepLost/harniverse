@@ -258,6 +258,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `64a19c1f41` | Publishes adapter-resolved model output capacity separately from request defaults and makes compaction summary calls combine matching Provider usage with model-aware output and remaining-context bounds. |
 | `06b0506f77` | Renews browser sessions through repeated device-possession exchange with half-life scheduling, bounded retry, lifecycle wakeups, quiescent logout, and renewable-key admission for ordinary authenticated pages. |
 | `6fdf45691a` | Adds the plugin-native Workspace navigation/preview redesign: top-level Files/Changes/Search tabs, Host-compiled include/exclude glob filters, shared docked/drawer preview state, `shell.overlay` composition, sidebar-safe geometry, focus lifecycle, semantic-token enforcement, and authenticated browser ARIA/interaction coverage. |
+| `094f2004af` | Adds the provider-neutral WebRuntime registry and explicit search/fetch selection, Tavily/Brave/Kagi/Firecrawl providers, Firecrawl Search/Scrape mapping, HTTP fetch defaults, Web Settings provider controls, and model-facing untrusted Web-content boundaries. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
