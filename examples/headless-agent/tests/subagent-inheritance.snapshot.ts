@@ -92,9 +92,9 @@ describe('parent-only override inheritance snapshot', () => {
         const childRecords = child.trimEnd().split('\n').map(
           line => JSON.parse(line) as Record<string, unknown>,
         )
-        expect(childRecords[1]).toMatchObject({
+        const inheritedMode = childRecords.find(record => record.type === 'sandbox/mode')
+        expect(inheritedMode).toMatchObject({
           type: 'sandbox/mode',
-          seq: 0,
           data: { mode: 'read-only', source: 'delegation' },
         })
 

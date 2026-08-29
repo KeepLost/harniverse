@@ -129,6 +129,8 @@ Use the ralph tool ONLY when the direct human explicitly asks for a Ralph loop o
 
 Use subagent asynchronously by default. Start independent delegations together in one assistant message and continue useful work while they run. This subagent lifecycle is not a generic background job; never pass its Session id to job_output, job_list, or job_kill. The result identifies the durable child Session; use session_message with that session_id for later turns and session_inspect to read its state or transcript. Set `mode: sync` only when the next action depends on that subagent's initial result. When an asynchronous run settles, the runtime sends you a notice containing its outcome and any final assistant message.
 
+Deliver your result with the report tool before you finish: call it once with a self-contained answer. The agent that started you shares your workspace but does not automatically receive your transcript, tool output, or reasoning, so a closing remark such as "done" leaves it nothing it can use. Report earlier as well whenever a partial finding changes what that agent should do next; reporting never ends your turn.
+
 ## Writing code for run_code
 
 `run_code` takes two required arguments: `code` — the body of an async TypeScript function (erasable syntax only — no `enum` or namespaces; type annotations are advisory, the code runs type-stripped) — and `description`, a short summary of what the program does. Inside the program:
@@ -291,6 +293,11 @@ interface ToolArgsMap {
     limit?: number;
     /** 0-based UTF-8 byte cursor within the first selected line. Use only a cursor returned by read. */
     line_byte_offset?: number;
+  } & Record<string, JsonValue>;
+  /** Report selected content to the agent that started you. Call this once before you finish, with a self-contained final result, and earlier for progress or findings that change what that agent does next. That agent shares your workspace but does not automatically receive your transcript, tool output, or reasoning, so finishing your work is not itself a result. Reporting does not end your turn or finish your work, and only your direct parent receives it. A failed call may still have arrived, so do not blindly repeat it. */
+  report: {
+    /** Actionable content for your parent; summarize conclusions and reference relevant shared paths. */
+    output: string;
   } & Record<string, JsonValue>;
   /** Send a message to a background subagent by its subagent id, continuing the same conversation. It becomes the subagent's next turn: if it is still working, the message waits until its current turn finishes, so it cannot redirect work already underway. This call returns no answer from the subagent — only confirmation that the message was delivered — so use it to give it more work. A failure means the message was NOT delivered. */
   send_message: {
@@ -569,6 +576,9 @@ interface ToolOutputMap {
       offset: number;
       lineByteOffset: number;
     };
+  };
+  report: {
+    messageId: string;
   };
   send_message: {
     messageId: string;

@@ -46,6 +46,203 @@
       }
     },
     {
+      "name": "cordis_define",
+      "description": "Define an immutable Cordis Package. For a new Plugin, use kind:\"new\" and provide only a semantic prefix of 3–6 lowercase English letters; the Host returns the final pluginId and packageId. To modify an existing Plugin, use kind:\"existing\" with its exact pluginId to append a Package without overwriting older versions. Provide at least one of code.host and code.client. Each value is a plain JavaScript function body that returns a Cordis Plugin; no TypeScript, JSX, or import transformation occurs. Query Inspect before depending on a Service, Event, Builtin, Slot, or token. Define only validates parameters and syntax and records source: it does not request approval, execute apply, or change currentPackageId. On success, call cordis_run with the returned IDs.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "plugin": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "new"
+                  },
+                  "idPrefix": {
+                    "type": "string",
+                    "description": "Suggested semantic prefix of 3–6 lowercase English letters; the Host adds a unique numeric suffix."
+                  }
+                },
+                "required": [
+                  "kind",
+                  "idPrefix"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "existing"
+                  },
+                  "pluginId": {
+                    "type": "string",
+                    "description": "Exact ID of an existing Plugin; the new Package is appended to that instance."
+                  }
+                },
+                "required": [
+                  "kind",
+                  "pluginId"
+                ]
+              }
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "Short, readable Package name."
+          },
+          "purpose": {
+            "type": "string",
+            "description": "One-sentence, user-facing description of the Package purpose."
+          },
+          "code": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "host": {
+                "type": "string",
+                "description": "Plain JavaScript function body that returns the Host-half Cordis Plugin."
+              },
+              "client": {
+                "type": "string",
+                "description": "Plain JavaScript function body that returns the browser Client-half Cordis Plugin."
+              }
+            }
+          }
+        },
+        "required": [
+          "plugin",
+          "name",
+          "purpose",
+          "code"
+        ]
+      }
+    },
+    {
+      "name": "cordis_inspect_list",
+      "description": "List every Cordis Inspect Provider currently known to the Host, including local Host Providers and the latest manifests synchronized from the Client. Each entry includes its platform, purpose, read-only methods, and input/output schemas. Call this Tool before creating or modifying a Package, then select the provider and method for cordis_inspect_query from its result. Do not guess names or treat an Inspect method as a business Service that Plugin code can call.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "cordis_inspect_query",
+      "description": "Run a read-only query explicitly declared by an Inspect Provider. platform, provider, and method must come from cordis_inspect_list, and input must satisfy that method's schema. Use this Tool before cordis_define to read exact Service methods, Event modes, Builtin signatures, Tool schemas, theme tokens, or live Slot trees and props. Host queries run locally. A Client query waits for the first valid page response and remains pending until a page answers or the Tool is cancelled. This Tool cannot invoke business Service methods or modify the runtime. For Service.listService and Event.listEvents, query without input to navigate the compact signature directory, then query the exact service or event for its structured contract and referenced types. For Slots.listSubTree, query without root to navigate the compact tree, then query the exact root for its complete registration contract and props.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string",
+            "description": "Runtime platform that owns the Provider.",
+            "enum": [
+              "host",
+              "client"
+            ]
+          },
+          "provider": {
+            "type": "string",
+            "description": "Exact Provider ID returned by cordis_inspect_list."
+          },
+          "method": {
+            "type": "string",
+            "description": "Exact method name declared by the Provider manifest."
+          },
+          "input": {
+            "description": "Optional query input; it must satisfy the method input schema."
+          }
+        },
+        "required": [
+          "platform",
+          "provider",
+          "method"
+        ]
+      }
+    },
+    {
+      "name": "cordis_inspect_self",
+      "description": "Inspect dynamic Cordis objects owned by the current Session at increasing levels of detail. With no IDs, list only Plugin summaries. With pluginId alone, return version pointers, the latest Run, and every Package summary. Only pluginId plus packageId returns that immutable Package's Host/Client source and runtime diagnostics. packageId cannot be supplied alone. Query an exact Package before handling @pluginId, repairing an asynchronous failure, or defining an updated version. This Tool is read-only: it neither executes code nor changes version pointers.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pluginId": {
+            "type": "string",
+            "description": "Stable Plugin ID returned by cordis_define or injected by @pluginId; omit it to list every current Plugin."
+          },
+          "packageId": {
+            "type": "string",
+            "description": "Exact immutable Package ID owned by pluginId; when specified, source and diagnostics are returned."
+          }
+        }
+      }
+    },
+    {
+      "name": "cordis_run",
+      "description": "Activate one exact Package of a dynamic Plugin. Use mode:\"run\" for the first activation, restarting currentPackageId, or rollback. When current exists, use mode:\"update\" to switch to a different Package, even if the Plugin is currently stopped. An unauthorized Client Package creates an approval request and returns awaiting-approval; an authorized Package returns starting and continues asynchronously in the browser. Neither result waits for the final outcome inside the Tool. currentPackageId changes only after complete success; on failure, the old current and target next remain. Asynchronous success, rejection, or technical failure is reported through state and steering. After a technical failure, read diagnostics with cordis_inspect_self, correct the same Plugin, and retry autonomously. Do not request approval again after the user rejects it.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pluginId": {
+            "type": "string",
+            "description": "Stable Plugin ID returned by cordis_define."
+          },
+          "packageId": {
+            "type": "string",
+            "description": "Exact immutable Package ID to activate under that Plugin."
+          },
+          "mode": {
+            "type": "string",
+            "description": "Use run for the first activation, restarting current, or rollback; use update to switch from current to a different Package.",
+            "enum": [
+              "run",
+              "update"
+            ]
+          }
+        },
+        "required": [
+          "pluginId",
+          "packageId",
+          "mode"
+        ]
+      }
+    },
+    {
+      "name": "cordis_stop",
+      "description": "Stop the current Run of a dynamic Plugin and cancel unfinished approval or activation requests. Retain the Plugin, every immutable Package, grants, currentPackageId, and nextPackageId so it can later run or update directly. Stopping an already stopped Plugin succeeds idempotently. Use this Tool to disable effects temporarily; use cordis_undefine for permanent removal.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pluginId": {
+            "type": "string",
+            "description": "Stable dynamic Plugin ID to stop."
+          }
+        },
+        "required": [
+          "pluginId"
+        ]
+      }
+    },
+    {
+      "name": "cordis_undefine",
+      "description": "Permanently remove a dynamic Plugin owned by the current Session. If it is running or awaiting approval, first stop it and cancel the request, then delete every Package, grant, and version pointer. After this returns, its pluginId, packageIds, @ reference, and Package business views are invalid; historical cards retain only a \"Plugin removed\" record. Do not call this Tool when versions must remain available for restart or rollback; use cordis_stop instead.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pluginId": {
+            "type": "string",
+            "description": "Stable dynamic Plugin ID to remove permanently."
+          }
+        },
+        "required": [
+          "pluginId"
+        ]
+      }
+    },
+    {
       "name": "create_goal",
       "description": "Create one persisted same-session completion goal when the current direct human request is a long-running objective that should continue across autonomous goal rounds. You may infer that intent without requiring the user to say \"create a goal\". Do not use this for trivial single-turn work. Execution rejects non-human and subagent authority.",
       "parameters": {
@@ -201,43 +398,6 @@
       }
     },
     {
-      "name": "lsp",
-      "description": "Query a language server for precise code navigation. operation is one of goToDefinition, findReferences, goToImplementation, hover. line and character are one-based UTF-16 cursor coordinates. findReferences includes the declaration.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "operation": {
-            "type": "string",
-            "description": "goToDefinition, findReferences, goToImplementation, or hover.",
-            "enum": [
-              "goToDefinition",
-              "findReferences",
-              "goToImplementation",
-              "hover"
-            ]
-          },
-          "file_path": {
-            "type": "string",
-            "description": "The source file to query, relative to the workspace or absolute."
-          },
-          "line": {
-            "type": "number",
-            "description": "One-based line of the cursor."
-          },
-          "character": {
-            "type": "number",
-            "description": "One-based UTF-16 column of the cursor."
-          }
-        },
-        "required": [
-          "operation",
-          "file_path",
-          "line",
-          "character"
-        ]
-      }
-    },
-    {
       "name": "ralph",
       "description": "Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools.",
       "parameters": {
@@ -282,6 +442,43 @@
         },
         "required": [
           "file_path"
+        ]
+      }
+    },
+    {
+      "name": "report",
+      "description": "Report selected content to the agent that started you. Call this once before you finish, with a self-contained final result, and earlier for progress or findings that change what that agent does next. That agent shares your workspace but does not automatically receive your transcript, tool output, or reasoning, so finishing your work is not itself a result. Reporting does not end your turn or finish your work, and only your direct parent receives it. A failed call may still have arrived, so do not blindly repeat it.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "output": {
+            "type": "string",
+            "description": "Actionable content for your parent; summarize conclusions and reference relevant shared paths."
+          }
+        },
+        "required": [
+          "output"
+        ]
+      }
+    },
+    {
+      "name": "run_code",
+      "description": "Execute a TypeScript program against the available tools. Takes two required arguments: `code`, the BODY of an async function (erasable syntax only; top-level `await` and `return` work), and `description`, a short summary of what the program does. Call tools as `await tools.name(args)` per the declarations in the system prompt. Only what you print or return comes back — curate it.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "The program: the body of an async TypeScript function."
+          },
+          "description": {
+            "type": "string",
+            "description": "Clear, concise description of what this program does in active voice, 5-10 words (shown in the UI). Examples: \"Count TODO markers across packages\"; \"Read failing test and its fixture\"; \"Rename config key in every cordis.yml\"."
+          }
+        },
+        "required": [
+          "code",
+          "description"
         ]
       }
     },

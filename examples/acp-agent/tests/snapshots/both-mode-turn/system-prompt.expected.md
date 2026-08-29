@@ -13,7 +13,7 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 Check the [exit code: N] marker on every bash result; investigate failures before moving on.
 
-Track every background job id you start. You are notified in-session when a job finishes — do not busy-poll or sleep on one; keep working on independent steps and do not duplicate a running job's work. Before giving a final answer, collect every still-relevant job with job_output (set wait: true only when you are genuinely blocked on it), and job_kill jobs that stopped mattering.
+Track every background job id returned by bash, pwsh, or terminal_send. These ids are not subagent Session ids: never pass a subagent Session id to job_output, job_list, or job_kill. You are notified in-session when a job finishes — do not busy-poll or sleep on one; keep working on independent steps and do not duplicate a running job's work. Before giving a final answer, collect every still-relevant shell or terminal job with job_output (set wait: true only when you are genuinely blocked on it), and job_kill jobs that stopped mattering.
 
 Use goal tools for one long-running completion objective in the current session. create_goal may infer goal intent from a direct human request in any language; do not create a goal for routine single-turn work. Call get_goal before update_goal and copy its exact goal_id and revision. After session resume or fork, an active goal is disarmed: when a human asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least 3 consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.
 
@@ -21,7 +21,7 @@ Use the workflow tool ONLY when the user explicitly asks for a workflow or for l
 
 Use the ralph tool ONLY when the direct human explicitly asks for a Ralph loop or fresh-agent iterative execution. Each Ralph round starts a fresh child with no conversation seed and uses the shared workspace as durable memory. Completion and blockers are worker reports, not independent evaluation. Use same-session goal tools for ordinary long-running objectives, and plain subagents or workflows for bounded delegation and fan-out.
 
-Use subagent asynchronously by default. Start independent delegations together in one assistant message and continue useful work while they run. The result identifies the durable child Session; use session_message with that session_id for later turns and session_inspect to read its state or transcript. Set `mode: sync` only when your next action depends on that subagent's result. When an asynchronous run settles, the runtime sends you a notice containing its outcome and any final assistant message.
+Use subagent asynchronously by default. Start independent delegations together in one assistant message and continue useful work while they run. This subagent lifecycle is not a generic background job; never pass its Session id to job_output, job_list, or job_kill. The result identifies the durable child Session; use session_message with that session_id for later turns and session_inspect to read its state or transcript. Set `mode: sync` only when the next action depends on that subagent's initial result. When an asynchronous run settles, the runtime sends you a notice containing its outcome and any final assistant message.
 
 ## Writing code for run_code
 
@@ -84,18 +84,18 @@ interface ToolArgsMap {
     /** The agent id of the running agent to interrupt. */
     agent_id: string;
   } & Record<string, JsonValue>;
-  /** Request cancellation of a running background job by job id. Returns immediately; the job settles as killed once its work actually stops. */
+  /** Request cancellation of a running shell or terminal background job by job id. Subagent Sessions are managed separately and must not be passed here. Returns immediately; the job settles as killed once its work actually stops. */
   job_kill: {
-    /** Job id returned by the tool that started the background work. */
+    /** Job id returned by bash, pwsh, terminal_send, or another job-producing tool; do not use a subagent Session id. */
     job_id: string;
     /** Optional short reason, recorded in the log and forwarded to the job. */
     reason?: string;
   } & Record<string, JsonValue>;
-  /** List your background jobs (running and finished) with their ids, kinds, and statuses. */
+  /** List your shell and terminal background jobs (running and finished) with their ids, kinds, and statuses. Subagent Sessions are managed separately and do not appear here. */
   job_list: Record<string, JsonValue>;
-  /** Read a background job. Stream jobs return only output since the previous read; final-output jobs return their result after settlement. Every response ends with `[status: ...]`. Reads are non-blocking unless `wait: true`, which waits up to the configured cap. */
+  /** Read a shell or terminal background job. Subagent Session ids are not valid here. Stream jobs return only output since the previous read; final-output jobs return their result after settlement. Every response ends with `[status: ...]`. Reads are non-blocking unless `wait: true`, which waits up to the configured cap. */
   job_output: {
-    /** Job id returned by the tool that started the background work. */
+    /** Job id returned by bash, pwsh, terminal_send, or another job-producing tool; do not use a subagent Session id. */
     job_id: string;
     /** Block until the job reaches a terminal status or the timeout expires. A timed-out wait returns [status: running] and leaves the job alive. */
     wait?: boolean;
@@ -154,22 +154,22 @@ interface ToolArgsMap {
     /** The exact skill name from the available skills list. */
     name: string;
   } & Record<string, JsonValue>;
-  /** Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. This tool runs asynchronously by default, immediately returns the durable child Session id, and keeps the child conversation available for later turns. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message. Use `session_message` with that Session id for a later turn and `session_inspect` to read the child state or transcript. Set `mode: sync` only when your next action depends on receiving the result. */
+  /** Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. This tool starts a durable continuable child Session asynchronously by default. This subagent lifecycle is not a generic background job: never pass its Session id to `job_output`, `job_list`, or `job_kill`. When the initial turn settles, the runtime sends the parent a notice containing its outcome and any final assistant message. Use `session_message` with that Session id for later turns and `session_inspect` to read the child state or transcript. Set `mode: sync` only when your next action depends on receiving the initial result. */
   subagent: {
     /** A short (3-5 word) description of the delegated task, for display. */
     description: string;
     /** The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs. */
     prompt: string;
-    /** Whether to wait for the child result (`sync`) or return after accepting its initial turn (`async`). Omit to use this tool instance's advertised default. */
+    /** Whether to wait for the child result (`sync`) or return after accepting its initial turn (`async`). Async returns a durable child Session, not a generic job id; use session controls rather than job tools. Omit to use this tool instance's advertised default. */
     mode?: "sync" | "async";
   } & Record<string, JsonValue>;
-  /** Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This call waits for the subagent and returns its result. */
+  /** Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This tool starts a durable continuable child Session and waits for its initial result. This subagent lifecycle is not a generic background job: never pass its Session id to `job_output`, `job_list`, or `job_kill`. Use `session_message` and `session_inspect` with that Session id. */
   subagent_fork: {
     /** A short (3-5 word) description of the delegated task, for display. */
     description: string;
     /** The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new. */
     prompt: string;
-    /** Whether to wait for the child result (`sync`) or return after accepting its initial turn (`async`). Omit to use this tool instance's advertised default. */
+    /** Whether to wait for the child result (`sync`) or return after accepting its initial turn (`async`). Async returns a durable child Session, not a generic job id; use session controls rather than job tools. Omit to use this tool instance's advertised default. */
     mode?: "sync" | "async";
   } & Record<string, JsonValue>;
   /** Read a bounded raw event history from one of your direct or nested subagents without resuming it. The result includes user/assistant messages, tool calls and results, lifecycle records, and sequence numbers. Use before_seq from a prior page to walk older history; only descendants of the calling agent are authorized. */
@@ -414,9 +414,6 @@ interface ToolOutputMap {
     content: string;
   };
   subagent: {
-    kind: "background";
-    jobId: string;
-  } | {
     mode: "async";
     invocationId: string;
     sessionId: string;
@@ -425,11 +422,9 @@ interface ToolOutputMap {
     invocationId: string;
     sessionId: string;
     output: JsonValue[];
+    legacy?: true;
   };
   subagent_fork: {
-    kind: "background";
-    jobId: string;
-  } | {
     mode: "async";
     invocationId: string;
     sessionId: string;
@@ -438,6 +433,7 @@ interface ToolOutputMap {
     invocationId: string;
     sessionId: string;
     output: JsonValue[];
+    legacy?: true;
   };
   subagent_history: string;
   todo_write: {
