@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-本家族提供与提供方无关的 web 搜索和抓取操作，以及消费这些操作的面向模型工具。
+本家族提供与提供方无关的 web 搜索和抓取操作，以及消费这些操作的面向模型工具。提供方可以实现其中一项或两项操作；模型可以显式选择已注册提供方，或使用该操作配置的默认提供方。
 
 | 包 | 职责 | ctx key |
 |---|---|---|
@@ -10,6 +10,10 @@
 | [`web-search-exa/`](web-search-exa/README.md) | 通过 Exa 提供 web 搜索 | 注册到 `ctx.web` |
 | [`web-search-perplexity/`](web-search-perplexity/README.md) | 通过 Perplexity 提供 web 搜索 | 注册到 `ctx.web` |
 | [`web-search-deepseek/`](web-search-deepseek/README.md) | 提供 DeepSeek 原生 web 搜索 | 注册到 `ctx.web` |
+| [`web-search-tavily/`](web-search-tavily/README.md) | 通过 Tavily 提供 web 搜索 | 注册到 `ctx.web` |
+| [`web-search-brave/`](web-search-brave/README.md) | 通过 Brave 提供 web 搜索 | 注册到 `ctx.web` |
+| [`web-search-kagi/`](web-search-kagi/README.md) | 通过 Kagi 提供 web 搜索 | 注册到 `ctx.web` |
+| [`web-firecrawl/`](web-firecrawl/README.md) | 提供 Firecrawl Search 与 Scrape | 注册到 `ctx.web` |
 | [`web-fetch-http/`](web-fetch-http/README.md) | 抓取公共 HTTP 和 HTTPS 资源 | 注册到 `ctx.web` |
 | [`tool-web/`](tool-web/README.md) | 向模型公开 web 搜索和抓取 | 注册到 `ctx.tools` |
 

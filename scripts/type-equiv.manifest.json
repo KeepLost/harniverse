@@ -1371,6 +1371,21 @@
       "source": "packages/web/web/src/types.ts"
     },
     {
+      "doc": "docs/subsystems/web.md",
+      "symbol": "WebProviderCapability",
+      "source": "packages/web/web/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/web.md",
+      "symbol": "WebProvider",
+      "source": "packages/web/web/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/web.md",
+      "symbol": "WebProviderInfo",
+      "source": "packages/web/web/src/types.ts"
+    },
+    {
       "doc": "docs/subsystems/spill.md",
       "symbol": "SaveTextSpill",
       "source": "packages/spill/spill/src/types.ts"

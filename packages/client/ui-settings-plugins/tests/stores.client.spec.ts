@@ -5,14 +5,18 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { stubSettingsScope, type StubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
-import { CardForm, numberField, selectField, textField } from '../src/client/card-form.ts'
+import { CardForm, booleanField, numberField, selectField, textField } from '../src/client/card-form.ts'
 import { AgentLoopCardController, type AgentLoopSettings } from '../src/client/agent-loop-card-controller.ts'
 import { BashCardController, type BashSettings } from '../src/client/bash-card-controller.ts'
 import {
   WebSearchCardController,
   type DeepSeekWebSearchSettings,
   type ExaWebSearchSettings,
+  type BraveWebSearchSettings,
+  type FirecrawlWebSearchSettings,
+  type KagiWebSearchSettings,
   type PerplexityWebSearchSettings,
+  type TavilyWebSearchSettings,
   type WebSettings,
 } from '../src/client/web-search-card-controller.ts'
 
@@ -55,19 +59,39 @@ function webSearchController(credentials = credentialsApi({
   const deepseek = stubSettingsScope<DeepSeekWebSearchSettings>()
   const exa = stubSettingsScope<ExaWebSearchSettings>()
   const perplexity = stubSettingsScope<PerplexityWebSearchSettings>()
+  const tavily = stubSettingsScope<TavilyWebSearchSettings>()
+  const brave = stubSettingsScope<BraveWebSearchSettings>()
+  const kagi = stubSettingsScope<KagiWebSearchSettings>()
+  const firecrawl = stubSettingsScope<FirecrawlWebSearchSettings>()
   const controller = new WebSearchCardController(
-    { selector: selector.scope, deepseek: deepseek.scope, exa: exa.scope, perplexity: perplexity.scope },
+    {
+      selector: selector.scope,
+      deepseek: deepseek.scope,
+      exa: exa.scope,
+      perplexity: perplexity.scope,
+      tavily: tavily.scope,
+      brave: brave.scope,
+      kagi: kagi.scope,
+      firecrawl: firecrawl.scope,
+    },
     credentials.api,
   )
   selector.publish({
     status: 'ready', writable: true,
-    value: { searchProvider: 'deepseek-official' },
-    base: { searchProvider: 'deepseek-official' }, user: {},
+    value: { searchProvider: 'deepseek-official', fetchProvider: 'http' },
+    base: { searchProvider: 'deepseek-official', fetchProvider: 'http' }, user: {},
   })
   deepseek.publish({ status: 'ready', writable: true, value: {}, base: {}, user: {} })
   exa.publish({ status: 'ready', writable: true, value: {}, base: {}, user: {} })
   perplexity.publish({ status: 'ready', writable: true, value: {}, base: {}, user: {} })
-  return { selector, deepseek, exa, perplexity, credentials, controller, face: controller.inject() }
+  tavily.publish({ status: 'ready', writable: true, value: {}, base: {}, user: {} })
+  brave.publish({ status: 'ready', writable: true, value: {}, base: {}, user: {} })
+  kagi.publish({ status: 'ready', writable: true, value: {}, base: {}, user: {} })
+  firecrawl.publish({ status: 'ready', writable: true, value: {}, base: {}, user: {} })
+  return {
+    selector, deepseek, exa, perplexity, tavily, brave, kagi, firecrawl,
+    credentials, controller, face: controller.inject(),
+  }
 }
 
 describe('CardForm', () => {
@@ -315,6 +339,20 @@ describe('CardForm', () => {
     expect(subject.field('provider')).toMatchObject({ text: '', overridden: false, invalid: false })
   })
 
+  it('converts boolean drafts to boolean settings values', async () => {
+    const host = stubSettingsScope<Record<string, unknown>>()
+    const subject = new CardForm(host.scope, [booleanField('includeContent')])
+    acceptWrites(host)
+    host.publish({ status: 'ready', writable: true, value: { includeContent: false }, user: {} })
+
+    subject.actions().edit('includeContent', 'true')
+    expect(subject.field('includeContent')).toEqual({ text: 'true', overridden: true, invalid: false })
+
+    await subject.save()
+
+    expect(host.set).toHaveBeenCalledWith('includeContent', true)
+  })
+
   it('allows aggregate owners to unsubscribe from form publications', () => {
     const { subject } = form()
     const listener = vi.fn()
@@ -444,7 +482,7 @@ describe('AgentLoopCardController', () => {
 })
 
 describe('WebSearchCardController', () => {
-  it('projects all four scopes and stages provider selection', () => {
+  it('projects all provider scopes and stages provider selection', () => {
     const { face, selector } = webSearchController()
 
     expect(face.hooks.webSearchCard.getSnapshot()).toMatchObject({
@@ -453,12 +491,67 @@ describe('WebSearchCardController', () => {
       deepseek: { available: true },
       exa: { available: true },
       perplexity: { available: true },
+      tavily: { available: true },
+      brave: { available: true },
+      kagi: { available: true },
+      firecrawl: { available: true },
+      selectedFetchProvider: 'http',
     })
 
     face.edit('selector.searchProvider', 'exa')
 
     expect(face.hooks.webSearchCard.getSnapshot()).toMatchObject({ selectedProvider: 'exa', dirty: true })
     expect(selector.set).not.toHaveBeenCalled()
+  })
+
+  it('projects both capability selectors and routes every added provider field', () => {
+    const { face } = webSearchController()
+
+    face.edit('selector.fetchProvider', 'firecrawl')
+    face.edit('tavily.includeRawContent', 'true')
+    face.edit('brave.maxResults', '6')
+    face.edit('kagi.baseURL', 'https://kagi.test')
+    face.edit('firecrawl.includeSearchContent', 'true')
+    face.edit('firecrawl.searchContentMaxChars', '2000')
+    face.edit('firecrawl.maxChars', '4000')
+
+    const state = face.hooks.webSearchCard.getSnapshot()
+    expect(state).toMatchObject({ selectedFetchProvider: 'firecrawl', dirty: true })
+    expect(state.tavily.includeRawContent.text).toBe('true')
+    expect(state.brave.maxResults.text).toBe('6')
+    expect(state.kagi.baseURL.text).toBe('https://kagi.test')
+    expect(state.firecrawl).toMatchObject({
+      includeSearchContent: { text: 'true' },
+      searchContentMaxChars: { text: '2000' },
+      maxChars: { text: '4000' },
+    })
+  })
+
+  it('writes Firecrawl credentials once when search and fetch both select it', async () => {
+    const fixture = webSearchController()
+    acceptWrites(fixture.selector)
+    acceptWrites(fixture.firecrawl)
+    await vi.waitFor(() => {
+      expect(fixture.credentials.describe).toHaveBeenCalledWith({ refs: ['FIRECRAWL_API_KEY'] })
+    })
+    fixture.credentials.describe.mockImplementation(({ refs }: { refs: string[] }) => Promise.resolve({
+      rpcId: 'c-firecrawl' as never,
+      result: { ok: true as const, value: { credentials: { [refs[0]!]: { configured: true, writable: true } } } },
+    }))
+    fixture.face.edit('selector.searchProvider', 'firecrawl')
+    fixture.face.edit('selector.fetchProvider', 'firecrawl')
+    fixture.face.edit('firecrawl.apiKey', ' firecrawl-secret ')
+    fixture.face.edit('firecrawl.includeSearchContent', 'true')
+    fixture.face.edit('firecrawl.maxChars', '8000')
+
+    await fixture.controller.save()
+
+    expect(fixture.credentials.set).toHaveBeenCalledTimes(1)
+    expect(fixture.credentials.set).toHaveBeenCalledWith({ ref: 'FIRECRAWL_API_KEY', value: 'firecrawl-secret' })
+    expect(fixture.selector.set).toHaveBeenCalledWith('searchProvider', 'firecrawl')
+    expect(fixture.selector.set).toHaveBeenCalledWith('fetchProvider', 'firecrawl')
+    expect(fixture.firecrawl.set).toHaveBeenCalledWith('includeSearchContent', true)
+    expect(fixture.firecrawl.set).toHaveBeenCalledWith('maxChars', 8000)
   })
 
   it('routes every provider field with unambiguous addresses', () => {
@@ -565,6 +658,10 @@ describe('WebSearchCardController', () => {
       expect(fixture.credentials.describe).toHaveBeenCalledWith({ refs: ['DEEPSEEK_API_KEY'] })
       expect(fixture.credentials.describe).toHaveBeenCalledWith({ refs: ['EXA_API_KEY'] })
       expect(fixture.credentials.describe).toHaveBeenCalledWith({ refs: ['PERPLEXITY_API_KEY'] })
+      expect(fixture.credentials.describe).toHaveBeenCalledWith({ refs: ['TAVILY_API_KEY'] })
+      expect(fixture.credentials.describe).toHaveBeenCalledWith({ refs: ['BRAVE_API_KEY'] })
+      expect(fixture.credentials.describe).toHaveBeenCalledWith({ refs: ['KAGI_API_KEY'] })
+      expect(fixture.credentials.describe).toHaveBeenCalledWith({ refs: ['FIRECRAWL_API_KEY'] })
     })
     fixture.credentials.describe.mockImplementation(({ refs }: { refs: string[] }) => Promise.resolve({
       rpcId: 'c-3' as never,
@@ -573,6 +670,10 @@ describe('WebSearchCardController', () => {
     fixture.face.edit('deepseek.apiKey', ' deepseek-secret ')
     fixture.face.edit('exa.apiKey', ' exa-secret ')
     fixture.face.edit('perplexity.apiKey', ' perplexity-secret ')
+    fixture.face.edit('tavily.apiKey', ' tavily-secret ')
+    fixture.face.edit('brave.apiKey', ' brave-secret ')
+    fixture.face.edit('kagi.apiKey', ' kagi-secret ')
+    fixture.face.edit('firecrawl.apiKey', ' firecrawl-secret ')
 
     await fixture.controller.save()
 
@@ -580,6 +681,10 @@ describe('WebSearchCardController', () => {
       [{ ref: 'DEEPSEEK_API_KEY', value: 'deepseek-secret' }],
       [{ ref: 'EXA_API_KEY', value: 'exa-secret' }],
       [{ ref: 'PERPLEXITY_API_KEY', value: 'perplexity-secret' }],
+      [{ ref: 'TAVILY_API_KEY', value: 'tavily-secret' }],
+      [{ ref: 'BRAVE_API_KEY', value: 'brave-secret' }],
+      [{ ref: 'KAGI_API_KEY', value: 'kagi-secret' }],
+      [{ ref: 'FIRECRAWL_API_KEY', value: 'firecrawl-secret' }],
     ])
     expect(fixture.face.hooks.webSearchCard.getSnapshot()).toMatchObject({ dirty: false, failed: false })
   })

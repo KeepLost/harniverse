@@ -138,7 +138,10 @@ describe('ui-settings-plugins apply', () => {
     await vi.waitFor(() => { expect(describeCredentials).toHaveBeenCalledTimes(1) })
   })
 
-  it.each(['EXA_API_KEY', 'PERPLEXITY_API_KEY'])('invalidates the matching %s credential only', async (ref) => {
+  it.each([
+    'EXA_API_KEY', 'PERPLEXITY_API_KEY', 'TAVILY_API_KEY', 'BRAVE_API_KEY',
+    'KAGI_API_KEY', 'FIRECRAWL_API_KEY',
+  ])('invalidates the matching %s credential only', async (ref) => {
     const { ctx, slots, describeCredentials } = await bench()
     declareRoot(slots)
     await ctx.plugin({ inject: [...inject], apply }).await()

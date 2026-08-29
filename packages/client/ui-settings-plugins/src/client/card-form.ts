@@ -150,6 +150,24 @@ export function positiveIntegerField(field: string): CardFieldSpec {
 }
 
 /**
+ * A boolean field. Empty clears the field; any other draft must be the text
+ * representation of a boolean or the save is blocked.
+ * @param field - field name inside the namespace section.
+ * @returns the field's conversion spec.
+ */
+export function booleanField(field: string): CardFieldSpec {
+  return {
+    field,
+    format: value => typeof value === 'boolean' ? String(value) : '',
+    parse: (text) => {
+      if (text === '') return { kind: 'clear' }
+      if (text === 'true' || text === 'false') return { kind: 'set', value: text === 'true' }
+      return undefined
+    },
+  }
+}
+
+/**
  * A free-text field. An empty draft clears the field, so emptying the control
  * and saving is the same gesture as resetting it.
  * @param field - field name inside the namespace section.

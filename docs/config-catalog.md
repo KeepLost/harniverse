@@ -3216,20 +3216,19 @@ Source: [`packages/interaction/user-approval/src/index.ts:177`](../packages/inte
 
 ```ts config-catalog
 /**
- * Config for the web seam. `searchProvider` / `fetchProvider` pin which provider
- * wins for each capability; both are optional (a single registered usable
- * provider auto-selects). Operational overrides such as environment variables
- * must feed these same fields rather than introduce a hidden priority chain.
+ * Config for the web seam. `searchProvider` / `fetchProvider` set the capability
+ * defaults; both are optional. Operational overrides such as environment
+ * variables must feed these same fields rather than introduce a hidden fallback.
  */
 export interface WebRuntimeConfig {
-  /** Explicit search provider id. Omitted = auto-select when exactly one usable. */
+  /** Default search provider id. Omitted = require an explicit operation provider. */
   readonly searchProvider?: string
-  /** Explicit fetch provider id. Omitted = auto-select when exactly one usable. */
+  /** Default fetch provider id. Omitted = require an explicit operation provider. */
   readonly fetchProvider?: string
 }
 ```
 
-Source: [`packages/web/web/src/index.ts:56`](../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:65`](../packages/web/web/src/index.ts)
 
 <a id="deepseek-aidsh-web-app"></a>
 
@@ -3283,6 +3282,54 @@ export interface Config {
 ```
 
 Source: [`packages/web/web-fetch-http/src/index.ts:34`](../packages/web/web-fetch-http/src/index.ts)
+
+<a id="deepseek-aidsh-web-firecrawl"></a>
+
+## `@deepseek-ai/dsh-web-firecrawl`
+
+Requires: `web`
+
+```ts config-catalog
+/** Configuration for Firecrawl Search/Scrape and its live settings section. */
+export interface Config {
+  /** Optional literal Firecrawl key; prefer `apiKeyEnv` for persisted configuration. */
+  apiKey?: string
+  /** Credential reference resolved separately for each search or fetch. */
+  apiKeyEnv?: string
+  /** Endpoint base; `/v2/search` and `/v2/scrape` are appended. */
+  baseURL?: string
+  /** Ask Search to include markdown/raw content in each result. Defaults false. */
+  includeSearchContent?: boolean
+  /** Maximum characters of optional per-result search content. */
+  searchContentMaxChars?: number
+  /** Maximum characters returned from a Scrape markdown body. */
+  maxChars?: number
+}
+```
+
+Source: [`packages/web/web-firecrawl/src/index.ts:45`](../packages/web/web-firecrawl/src/index.ts)
+
+<a id="deepseek-aidsh-web-search-brave"></a>
+
+## `@deepseek-ai/dsh-web-search-brave`
+
+Requires: `web`
+
+```ts config-catalog
+/** Configuration for Brave Search and its live settings section. */
+export interface Config {
+  /** Literal subscription token; prefer `apiKeyEnv` for persisted configuration. */
+  apiKey?: string
+  /** Credential reference resolved for each search. */
+  apiKeyEnv?: string
+  /** Brave web endpoint base; `/search` is appended. */
+  baseURL?: string
+  /** Default result count when an operation omits `maxResults`. */
+  maxResults?: number
+}
+```
+
+Source: [`packages/web/web-search-brave/src/index.ts:33`](../packages/web/web-search-brave/src/index.ts)
 
 <a id="deepseek-aidsh-web-search-deepseek"></a>
 
@@ -3338,6 +3385,26 @@ export interface Config {
 
 Source: [`packages/web/web-search-exa/src/index.ts:43`](../packages/web/web-search-exa/src/index.ts)
 
+<a id="deepseek-aidsh-web-search-kagi"></a>
+
+## `@deepseek-ai/dsh-web-search-kagi`
+
+Requires: `web`
+
+```ts config-catalog
+/** Configuration for Kagi and its live settings section. */
+export interface Config {
+  /** Literal Kagi token; prefer `apiKeyEnv` for persisted configuration. */
+  apiKey?: string
+  /** Credential reference resolved for each search. */
+  apiKeyEnv?: string
+  /** Kagi API base; `/search` is appended. */
+  baseURL?: string
+}
+```
+
+Source: [`packages/web/web-search-kagi/src/index.ts:29`](../packages/web/web-search-kagi/src/index.ts)
+
 <a id="deepseek-aidsh-web-search-perplexity"></a>
 
 ## `@deepseek-ai/dsh-web-search-perplexity`
@@ -3363,6 +3430,30 @@ export interface Config {
 ```
 
 Source: [`packages/web/web-search-perplexity/src/index.ts:37`](../packages/web/web-search-perplexity/src/index.ts)
+
+<a id="deepseek-aidsh-web-search-tavily"></a>
+
+## `@deepseek-ai/dsh-web-search-tavily`
+
+Requires: `web`
+
+```ts config-catalog
+/** Configuration for the Tavily provider and its live settings section. */
+export interface Config {
+  /** Literal Tavily key; prefer `apiKeyEnv` for persisted configuration. */
+  apiKey?: string
+  /** Credential reference resolved for each search. */
+  apiKeyEnv?: string
+  /** Endpoint base; `/search` is appended. */
+  baseURL?: string
+  /** Request Tavily's optional raw result content. */
+  includeRawContent?: boolean
+  /** Default result count when a request omits `maxResults`. */
+  maxResults?: number
+}
+```
+
+Source: [`packages/web/web-search-tavily/src/index.ts:33`](../packages/web/web-search-tavily/src/index.ts)
 
 <a id="deepseek-aidsh-workflow-worker-thread"></a>
 

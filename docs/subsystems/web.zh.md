@@ -2,13 +2,13 @@
 
 [English](web.md) | 中文
 
-Web 访问 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md)，在同一个 `ctx.web` 服务上横跨**两项操作**（search 与 fetch），并拆分到多个包：Service Definition（[dsh-web](../../packages/web/web)，`ctx.web` + 提供方注册表）、Service Provider（[dsh-web-search-exa](../../packages/web/web-search-exa)、[dsh-web-search-perplexity](../../packages/web/web-search-perplexity)、[dsh-web-search-deepseek](../../packages/web/web-search-deepseek)、[dsh-web-fetch-http](../../packages/web/web-fetch-http)）与 Consumer（[dsh-tool-web](../../packages/web/tool-web)，即 `web_search`/`web_fetch` 工具 schema）。Web 是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。更换 search 提供方不会改变模型必须提交的 `queries` 数组，更换 fetch 提供方也不会改变模型请求 URL 的方式。
+Web 访问 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md)，在同一个 `ctx.web` 服务上横跨**两项操作**（search 与 fetch），并拆分到多个包：Service Definition（[dsh-web](../../packages/web/web)，`ctx.web` + 提供方注册表）、Service Provider（[dsh-web-search-exa](../../packages/web/web-search-exa)、[dsh-web-search-perplexity](../../packages/web/web-search-perplexity)、[dsh-web-search-deepseek](../../packages/web/web-search-deepseek)、[dsh-web-search-tavily](../../packages/web/web-search-tavily)、[dsh-web-search-brave](../../packages/web/web-search-brave)、[dsh-web-search-kagi](../../packages/web/web-search-kagi)、[dsh-web-firecrawl](../../packages/web/web-firecrawl)、[dsh-web-fetch-http](../../packages/web/web-fetch-http)）与 Consumer（[dsh-tool-web](../../packages/web/tool-web)，即 `web_search`/`web_fetch` 工具 schema）。Web 是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。更换 search 提供方不会改变模型必须提交的 `queries` 数组，更换 fetch 提供方也不会改变模型请求 URL 的方式。
 
 源码：[`packages/web/web/src/types.ts`](../../packages/web/web/src/types.ts)
 
 ## 为什么一项能力包含两项操作
 
-搜索与抓取既不共享请求 schema，也不共享业务逻辑，但它们被有意设计为同一个 `ctx.web` 中间层：一个提供方选择策略的所有者、一套中止与错误词汇，以及一个面向产品的「此 harness 如何访问 Web」配置界面。代价是服务上并行的 `searchX`／`fetchX` 方法对；这种并行是有意为之，而不是遗漏了可抽取的共性。提供方注册的是**能力**（`WebSearchProvider` 或 `WebFetchProvider`），而非工具；面向模型的名称、schema、提示词引导与展示全部集中在唯一的消费方 `dsh-tool-web` 中。
+搜索与抓取既不共享请求 schema，也不共享业务逻辑，但它们被有意设计为同一个 `ctx.web` 中间层：一个提供方选择策略的所有者、一套中止与错误词汇，以及一个面向产品的「此 harness 如何访问 Web」配置界面。代价是服务上并行的 `searchX`／`fetchX` 方法对；这种并行是有意为之，而不是遗漏了可抽取的共性。提供方以带有可选能力的聚合 `WebProvider` 注册，而非工具；面向模型的名称、schema、提示词引导与展示全部集中在唯一的消费方 `dsh-tool-web` 中。
 
 ## 搜索请求与结果
 
@@ -20,12 +20,15 @@ Web 访问 seam 是一个[能力 seam](../../.agents/notes/implemented/architect
 
 ```ts type-equiv
 /**
- * What one search-capable backend can return. The model-facing argument is just
- * a query; `maxResults` is a `dsh-tool-web`-layer bound passed through unchanged
- * and enforced on the way back by the seam (see {@link WebSearchResult}).
+ * What one search-capable backend can return. `provider` selects the backend
+ * through the WebRuntime; `maxResults` is a `dsh-tool-web`-layer bound passed
+ * through unchanged and enforced on the way back by the seam (see
+ * {@link WebSearchResult}).
  */
 interface WebSearchRequest {
   readonly query: string
+  /** Optional provider id; omitted means use the WebRuntime search default. */
+  readonly provider?: string
   /**
    * Upper bound on returned sources; the seam truncates to it. Omitted = no
    * bound. `dsh-tool-web` always sets it. A provider whose API supports a
@@ -75,13 +78,16 @@ interface WebSearchSource {
 
 ```ts type-equiv
 /**
- * What one fetch-capable backend is asked to retrieve. The request deliberately
- * omits timeout, format, prompt, and extraction controls: cancellation is a
- * direct execution argument, while presentation and higher-level LLM concerns
- * belong outside safe retrieval.
+ * What one fetch-capable backend is asked to retrieve. `provider` selects the
+ * backend through the WebRuntime. The request deliberately omits timeout,
+ * format, prompt, and extraction controls: cancellation is a direct execution
+ * argument, while presentation and higher-level LLM concerns belong outside
+ * safe retrieval.
  */
 interface WebFetchRequest {
   readonly url: string
+  /** Optional provider id; omitted means use the WebRuntime fetch default. */
+  readonly provider?: string
 }
 ```
 
@@ -121,15 +127,40 @@ type WebFetchBody =
   | { readonly kind: 'text'; readonly content: string }
 ```
 
+```ts type-equiv
+/** Capability names exposed by one aggregate Web provider. */
+type WebProviderCapability = 'search' | 'fetch'
+```
+
+```ts type-equiv
+/** One provider's optional Web capabilities, registered as one lifecycle unit. */
+interface WebProvider {
+  /** Stable provider id, unique within each capability it implements. */
+  readonly id: string
+  /** Search implementation, when this provider supports search. */
+  readonly search?: Omit<WebSearchProvider, 'id'>
+  /** Fetch implementation, when this provider supports fetch. */
+  readonly fetch?: Omit<WebFetchProvider, 'id'>
+}
+```
+
+```ts type-equiv
+/** Non-secret provider catalog entry exposed to discovery surfaces. */
+interface WebProviderInfo {
+  readonly id: string
+  readonly capabilities: readonly WebProviderCapability[]
+}
+```
+
 ## 提供方可用性
 
-提供方的 `available(): boolean` 是一个廉价的本地检查（凭证是否存在、配置是否可解析），**禁止发起网络调用**。它是执行时选择提供方的输入，而不是健康检查系统：`search()`／`fetch()` 会读取它来选择可用的提供方。选择失败时，调用方会收到可据以分支处理的结构化 `WebError`；其错误代码和消息会说明缺失的 id 或存在歧义的候选集。
+提供方的 `available(): boolean` 是一个廉价的本地检查（凭证来源、配置是否可解析），**禁止发起网络调用**。它是执行时选择提供方的输入，而不是健康检查系统：`search()`／`fetch()` 会读取它来检查明确选择的提供方。选择失败时，调用方会收到结构化 `WebError`。
 
-选择从不依赖注册顺序、配置顺序或 HMR（热模块替换）顺序：一项能力要么有显式的提供方 id（配置 `searchProvider`／`fetchProvider`，或填充同一字段的对应环境变量），要么在恰好只有一个可用提供方注册时自动选择；如果存在多个可用提供方却未配置 id，则抛出 `WEB_PROVIDER_AMBIGUOUS`，而不会选用最先注册的提供方。
+选择从不依赖注册顺序、配置顺序或 HMR（热模块替换）顺序：一次操作的显式 `provider` id 优先于配置的 `searchProvider`／`fetchProvider` 默认值。两者都没有时抛出 `WEB_PROVIDER_DEFAULT_MISSING`；运行时不会自动选择或回退到其他提供方。
 
 ## 错误
 
-`WebError extends HarnessError`（[core.md](core.md) 错误分类体系），带有 `code: string`（开放式，与其他 seam 的错误一致——`LlmError`、`SubagentError`），而非封闭联合类型：提供方可以在不修改 `dsh-web` 的情况下抛出自己的错误代码，消费方必须容忍未知错误代码。错误代码按所有者划分。共享的 `WebRuntime` 约定会抛出与 seam 无关的错误代码：`WEB_PROVIDER_UNAVAILABLE`、`WEB_PROVIDER_CONFIGURED_MISSING`、`WEB_PROVIDER_CONFIGURED_UNAVAILABLE`、`WEB_PROVIDER_AMBIGUOUS`、`WEB_DUPLICATE_PROVIDER`（注册时的编程错误，类似 `LlmRuntime` 的 `DUPLICATE_ADAPTER`）、`WEB_ABORTED`，以及 `WEB_PROVIDER_ERROR`（提供方自身故障经 seam 暴露时使用的兜底代码，包括 DNS、连接被拒绝、TLS 等网络或传输故障）。抓取传输层错误代码由 `dsh-web-fetch-http` 实现拥有，不同的抓取后端无需抛出它们：`WEB_INVALID_URL`、`WEB_BLOCKED_URL`、`WEB_REDIRECT_BLOCKED`、`WEB_FETCH_TOO_LARGE`、`WEB_FETCH_TIMEOUT`、`WEB_UNSUPPORTED_CONTENT_TYPE`。
+`WebError extends HarnessError`（[core.md](core.md) 错误分类体系），带有 `code: string`（开放式，与其他 seam 的错误一致——`LlmError`、`SubagentError`），而非封闭联合类型：提供方可以在不修改 `dsh-web` 的情况下抛出自己的错误代码，消费方必须容忍未知错误代码。错误代码按所有者划分。共享的 `WebRuntime` 约定会抛出与 seam 无关的错误代码：`WEB_PROVIDER_DEFAULT_MISSING`、`WEB_PROVIDER_CONFIGURED_MISSING`、`WEB_PROVIDER_CONFIGURED_UNAVAILABLE`、`WEB_PROVIDER_INVALID`、`WEB_DUPLICATE_PROVIDER`（注册时的编程错误，类似 `LlmRuntime` 的 `DUPLICATE_ADAPTER`）、`WEB_ABORTED`，以及 `WEB_PROVIDER_ERROR`（提供方自身故障经 seam 暴露时使用的兜底代码，包括 DNS、连接被拒绝、TLS 等网络或传输故障）。抓取传输层错误代码由 `dsh-web-fetch-http` 实现拥有，不同的抓取后端无需抛出它们：`WEB_INVALID_URL`、`WEB_BLOCKED_URL`、`WEB_REDIRECT_BLOCKED`、`WEB_FETCH_TOO_LARGE`、`WEB_FETCH_TIMEOUT`、`WEB_UNSUPPORTED_CONTENT_TYPE`。
 
 ## 服务
 
@@ -154,9 +185,7 @@ Selection semantics (resolved at execution time, never order-dependent):
 - A configured id that is registered and `available()` → that provider.
 - A configured id not registered → `WEB_PROVIDER_CONFIGURED_MISSING`.
 - A configured id registered but unavailable → `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`.
-- No id configured, exactly one registered usable provider → that provider.
-- No id configured, multiple usable providers → `WEB_PROVIDER_AMBIGUOUS`.
-- No id configured, no usable provider → `WEB_PROVIDER_UNAVAILABLE`.
+- No operation or configured id → `WEB_PROVIDER_DEFAULT_MISSING`.
 
 ```ts cordis-catalog
 /**
@@ -178,11 +207,25 @@ registerSearchProvider(provider: WebSearchProvider): () => void
 registerFetchProvider(provider: WebFetchProvider): () => void
 
 /**
+ * Register one provider's available capabilities as one lifecycle unit.
+ * @param provider - the aggregate provider and its optional capabilities.
+ * @returns the disposer that unregisters every capability contributed by the provider.
+ */
+registerProvider(provider: WebProvider): () => void
+
+/**
+ * List registered provider ids and their capability kinds without secrets.
+ * @param capability - optionally limit entries to providers supporting this capability.
+ * @returns detached provider catalog entries sorted by provider id.
+ */
+listProviders(capability?: WebProviderCapability): WebProviderInfo[]
+
+/**
  * Run one search through the selected provider. Resolves the provider at call
  * time with the selection rules above; throws {@link WebError} when the
  * capability cannot run. The seam enforces `request.maxResults` on the result:
  * if the provider over-returns, `sources[]` is truncated and `truncated` set.
- * @param request - the query and optional result limit.
+ * @param request - the query, optional provider id, and result limit.
  * @param signal - optional cancellation signal forwarded to the provider.
  * @returns the provider's results, capped to `request.maxResults`.
  */
@@ -192,12 +235,12 @@ async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearch
  * Retrieve one URL through the selected provider. Resolves the provider at
  * call time with the selection rules above; throws {@link WebError} when the
  * capability cannot run. A non-2xx response is a result, not a throw.
- * @param request - the URL plus retrieval options.
+ * @param request - the URL and optional provider id.
  * @param signal - optional cancellation signal forwarded to the provider.
  * @returns the retrieval outcome; non-2xx responses resolve descriptively.
  */
 async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>
 ```
 
-Source: [`packages/web/web/src/index.ts:89`](../../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:99`](../../packages/web/web/src/index.ts)
 <!-- END GENERATED cordis-surface -->

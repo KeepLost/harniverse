@@ -402,6 +402,7 @@
       name: '@deepseek-ai/dsh-web'
       config:
         searchProvider: !!js process.env.DSH_WEB_SEARCH_PROVIDER ?? 'deepseek-official'
+        fetchProvider: !!js process.env.DSH_WEB_FETCH_PROVIDER ?? 'http'
 
     - id: web-search-deepseek
       name: '@deepseek-ai/dsh-web-search-deepseek'
@@ -413,6 +414,21 @@
 
     - id: web-search-perplexity
       name: '@deepseek-ai/dsh-web-search-perplexity'
+
+    - id: web-search-tavily
+      name: '@deepseek-ai/dsh-web-search-tavily'
+
+    - id: web-search-brave
+      name: '@deepseek-ai/dsh-web-search-brave'
+
+    - id: web-search-kagi
+      name: '@deepseek-ai/dsh-web-search-kagi'
+
+    - id: web-firecrawl
+      name: '@deepseek-ai/dsh-web-firecrawl'
+
+    - id: web-fetch-http
+      name: '@deepseek-ai/dsh-web-fetch-http'
 
     - id: tool-web
       name: '@deepseek-ai/dsh-tool-web'

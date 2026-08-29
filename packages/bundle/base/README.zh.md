@@ -8,7 +8,7 @@ patch 在自身上按平台门控两个 shell 栈：`bash-sandbox`/`tool-bash` �
 
 行集合及其设计依据以行内注释写在 patch 文件里；[生成的组合图](../../../apps/cli/composition.md)负责渲染它。
 
-随附的 Web 配置行会挂载 `ctx.web` 服务及全部三个官方搜索提供方：被选为默认值的 `deepseek-official`、`exa` 与 `perplexity`，分别使用 `DEEPSEEK_API_KEY`、`EXA_API_KEY` 与 `PERPLEXITY_API_KEY`。`tool-web` 行把 `search` 与 `fetch` 都设为 `false`，因此共享 base 不会向任何模型请求贡献 `web_search` 或 `web_fetch`。部署在选定自己的路由策略后，可以替换完整的 `tool-web` 配置来启用搜索；届时 `$DSH_WEB_SEARCH_PROVIDER`、浏览器中的实时 `web.searchProvider` 设置及无密钥挂载提供方仍保留各自的提供方选择行为。该组合包不挂载抓取提供方。
+随附的 Web 配置行会挂载 `ctx.web` 服务、`deepseek-official`、`exa`、`perplexity`、`tavily`、`brave` 与 `kagi` 官方搜索提供方、同时提供 Search／Scrape 能力的聚合 `firecrawl` 提供方，以及匿名 `http` 抓取提供方。默认选择分别是 `deepseek-official` 与 `http`；每个提供方在每次操作时解析自己的凭据引用。`tool-web` 行把 `search` 与 `fetch` 都设为 `false`，因此共享 base 不会向任何模型请求贡献 `web_search` 或 `web_fetch`。部署在选定自己的路由策略后，可以替换完整的 `tool-web` 配置来启用工具；`$DSH_WEB_SEARCH_PROVIDER`、`$DSH_WEB_FETCH_PROVIDER` 与浏览器中的实时 Web 默认值负责选择提供方，但不会增加 fallback。搜索与抓取提供方仍可分别选择，而 Firecrawl 在一个提供方 ID 下拥有两项能力。
 
 ## 模型体验
 

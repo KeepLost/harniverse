@@ -69,7 +69,7 @@ The inventory is grouped by package directory. Every listed package is an offici
 | `todo` | 1 | `tool-todo` |
 | `typert` | 4 | `generator`, `loader`, `protocol`, `registry` |
 | `util` | 7 | `atomic-write`, `brand`, `home-paths`, `launch-environment`, `native-command`, `output-retention`, `timeout` |
-| `web` | 6 | `tool-web`, `web`, `web-fetch-http`, `web-search-deepseek`, `web-search-exa`, `web-search-perplexity` |
+| `web` | 10 | `tool-web`, `web`, `web-fetch-http`, `web-firecrawl`, `web-search-brave`, `web-search-deepseek`, `web-search-exa`, `web-search-kagi`, `web-search-perplexity`, `web-search-tavily` |
 | `workflow` | 4 | `tool-ralph`, `tool-workflow`, `workflow`, `workflow-worker-thread` |
 | `workspace` | 1 | `workspace` |
 <!-- official-inventory-end -->
@@ -109,12 +109,16 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `@deepseek-ai/dsh-capabilities` | Scoped recipe registry, inherited Agent composition, dependency planner, and generation selection coordinator | Enabled by `dsh-base`; registers no model-facing capability by itself. |
 | `@deepseek-ai/dsh-host-capability-management` | Static Profile-recipe and Host-provider adapters plus authorized catalog/plan/apply/Session Remote | Enabled by `dsh-web-app`; observation requires `harniverse.observe`, mutation requires `harniverse.administer`. |
 | `@deepseek-ai/dsh-client-ui-settings-capabilities` | Global/Profile assembly editor, plan preview, and read-only Session capability view | Enabled by `dsh-web-app` as a Plugins Settings tab and conversation view. |
+| `@deepseek-ai/dsh-web-search-tavily` | Tavily Search provider for `ctx.web` | Mounted by `dsh-base`; model-facing tools remain disabled there by default. |
+| `@deepseek-ai/dsh-web-search-brave` | Brave Search provider for `ctx.web` | Mounted by `dsh-base`; model-facing tools remain disabled there by default. |
+| `@deepseek-ai/dsh-web-search-kagi` | Kagi Search provider for `ctx.web` | Mounted by `dsh-base`; model-facing tools remain disabled there by default. |
+| `@deepseek-ai/dsh-web-firecrawl` | Firecrawl aggregate Search/Scrape provider for `ctx.web` | Mounted by `dsh-base`; model-facing tools remain disabled there by default. |
 
 ### Modified Official Plugin Families
 
 | Area | Official packages changed by Harniverse |
 |---|---|
-| Model and Web defaults | `dsh-base`, `dsh-web`, `dsh-web-search-exa`, `dsh-web-search-perplexity`, `dsh-client-ui-settings-models`, `dsh-client-ui-settings-plugins` |
+| Model and Web defaults | `dsh-base`, `dsh-web`, `dsh-web-fetch-http`, `dsh-web-firecrawl`, `dsh-web-search-brave`, `dsh-web-search-deepseek`, `dsh-web-search-exa`, `dsh-web-search-kagi`, `dsh-web-search-perplexity`, `dsh-web-search-tavily`, `dsh-client-ui-settings-models`, `dsh-client-ui-settings-plugins` |
 | Session control and reconnect | `dsh-agent`, `dsh-agent-loop`, `dsh-session`, `dsh-host-apiproxy`, `dsh-client-connection`, `dsh-client-runtime`, `dsh-session-persistence`, `dsh-session-persistence-jsonl`, `dsh-session-persistence-sqlite`, `dsh-session-projection-cache`, `dsh-workspace` |
 | Agent Profile identity and composition | `dsh-agent-presets`, `dsh-host-apiproxy`, `dsh-permission-presets`, `dsh-client-runtime`, `dsh-client-ui-agent-preset`, session persistence/query Providers, and in-process subagent composition |
 | Result retention and bounded file access | `dsh-tools`, `dsh-spill`, `dsh-spill-local`, `dsh-spill-policy`, `dsh-tool-fs`, `dsh-tool-fs-search`, `dsh-tool-str-replace-editor`, `dsh-client-ui-tool`, `dsh-compaction`, `dsh-token-meter` |
@@ -137,7 +141,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | Composition surface | Current Harniverse change |
 |---|---|
 | `dsh-base` model adapters | Native `dsh-llm-deepseek` remains installed but defaults disabled; official `dsh-llm-pi-ai` is the enabled vendor-neutral adapter. |
-| `dsh-base` Web providers | Existing Exa and Perplexity providers are mounted beside DeepSeek; provider selection is live settings-backed. |
+| `dsh-base` Web providers | DeepSeek, Exa, Perplexity, Tavily, Brave, and Kagi provide search; Firecrawl provides aggregate Search/Scrape; HTTP provides fetch. Search and fetch defaults are live settings-backed and explicit operation provider ids never fall back. |
 | `dsh-base` model Web tools | `dsh-tool-web` remains loaded with both search and fetch disabled by default. |
 | `dsh-base` result policy | Legacy `dsh-spill-policy` and `dsh-compaction-tool-result-pruner` rows default disabled; `dsh-tool-result-artifacts` handles finalized-result retention and `artifact_read`. |
 | `dsh-base` compaction | `dsh-compaction-lossless` replaces the official basic row while inheriting its automatic transaction policy; `dsh-tool-compaction` exposes one direct retained-tail request and `dsh-tool-compaction-history` exposes bounded recall. Web moves the Provider and history Consumer behind standard, code, and Cordis Agent presets, and moves the direct-only Consumer behind standard and Cordis; minimal remains uncompacted. |
