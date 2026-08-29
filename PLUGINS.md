@@ -266,6 +266,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `6fdf45691a` | Adds the plugin-native Workspace navigation/preview redesign: top-level Files/Changes/Search tabs, Host-compiled include/exclude glob filters, shared docked/drawer preview state, `shell.overlay` composition, sidebar-safe geometry, focus lifecycle, semantic-token enforcement, and authenticated browser ARIA/interaction coverage. |
 | `094f2004af` | Adds the provider-neutral WebRuntime registry and explicit search/fetch selection, Tavily/Brave/Kagi/Firecrawl providers, Firecrawl Search/Scrape mapping, HTTP fetch defaults, Web Settings provider controls, and model-facing untrusted Web-content boundaries. |
 | `03cfedff74` | Admits each new Web provider's settings namespace to the api-proxy configuration allowlist, so the Settings card serves live Tavily/Brave/Kagi/Firecrawl forms instead of the unavailable notice, and realigns the provider-selection, tool-schema, and untrusted-artifact regression fixtures with the shipped contracts. |
+| `1a0d968c4d` | Ships the four Profile capability defaults: Minimal's hidden lossless recovery, Standard-family user Skills/Hooks/MCP loading and disclosure, settings-owned scoped MCP consumers, dialect-specific Hook discovery, hardened public-only Web fetch, and corresponding real-composition, generated-catalog, and bilingual documentation updates. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
