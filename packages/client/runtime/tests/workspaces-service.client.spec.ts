@@ -195,11 +195,15 @@ describe('WorkspaceRuntime', () => {
     const workspaces = new WorkspaceRuntime(ctx, api, sessions)
     const signal = new AbortController().signal
 
-    await expect(workspaces.searchFiles(wid('alpha'), 'main', signal)).resolves.toEqual({ entries: [], truncated: false })
+    await expect(workspaces.searchFiles(wid('alpha'), 'main', {
+      include: ['*.ts', '  '], exclude: ['dist/'],
+    }, signal)).resolves.toEqual({ entries: [], truncated: false })
     await expect(workspaces.readBinaryFile(wid('alpha'), 'pixel.png', signal)).resolves.toEqual({
       path: '', dataBase64: '', mediaType: 'image/png', bytes: 0,
     })
-    expect(api.callsOf('workspace.files.search')).toEqual([{ workspaceId: wid('alpha'), query: 'main' }])
+    expect(api.callsOf('workspace.files.search')).toEqual([{
+      workspaceId: wid('alpha'), query: 'main', include: ['*.ts'], exclude: ['dist/'],
+    }])
     expect(api.callsOf('workspace.files.readBinary')).toEqual([{ workspaceId: wid('alpha'), path: 'pixel.png' }])
 
     api.workspaceFiles.search = () => Promise.resolve(err({ code: 'internal', message: 'search unavailable', details: {} }))

@@ -13,6 +13,19 @@ import type {
 import type { WorkspaceListState } from '../workspaces/service.ts'
 import type { ObservableSnapshot } from './store.ts'
 
+/**
+ * Optional glob scoping for one Workspace file search.
+ *
+ * Both lists are bounded by the Host wire schema; an omitted list means no
+ * caller-supplied filter for that direction.
+ */
+export interface WorkspaceSearchFilters {
+  /** Only files matching one of these patterns are returned. */
+  include?: string[]
+  /** Files and directory subtrees matching one of these patterns are skipped. */
+  exclude?: string[]
+}
+
 /** The workspaces-service face injected as `ctx.workspaces`. */
 export interface IWorkspaces {
   /** The useWorkspaces standard feed (read face — writes stay inside the domain). */
@@ -67,8 +80,16 @@ export interface IWorkspaces {
     entries: WorkspaceFileEntry[]
     truncated: boolean
   }>
-  /** Search regular-file names recursively inside a registered Workspace. */
-  searchFiles(workspaceId: WorkspaceId, query: string, signal?: AbortSignal): Promise<{
+  /**
+   * Search regular-file names recursively inside a registered Workspace.
+   *
+   * `filters.include` and `filters.exclude` are glob lists whose scope follows
+   * each pattern's shape: no `/` filters basenames at any depth (`*.py`), a `/`
+   * filters the whole relative path, and a trailing `/` covers a directory
+   * subtree (`dist/`). An absent or empty exclude list applies the Host's
+   * default dependency and build-output skips.
+   */
+  searchFiles(workspaceId: WorkspaceId, query: string, filters?: WorkspaceSearchFilters, signal?: AbortSignal): Promise<{
     entries: WorkspaceFileEntry[]
     truncated: boolean
   }>

@@ -19,7 +19,7 @@ import { createWorkspaceViewStore, createWorkspaceWorkbenchStore } from './store
 import { WorkspaceBrowser } from './WorkspaceBrowser.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, zh, type WorkspaceKey } from './locales.ts'
-import { WorkspaceWorkbench } from './WorkspaceWorkbench.tsx'
+import { WorkspaceWorkbench, WorkspaceWorkbenchPreviewOverlay } from './WorkspaceWorkbench.tsx'
 import { WorkspaceWorkbenchButton } from './WorkspaceWorkbenchButton.tsx'
 
 export type {
@@ -139,7 +139,7 @@ export function apply(ctx: ClientContext): void {
     openWorkbench: () => { ctx.layout.openWorkbench() },
     closeWorkbench: () => { ctx.layout.closeWorkbench() },
     listFiles: (workspaceId, path, signal) => ctx.workspaces.listFiles(workspaceId, path, signal),
-    searchFiles: (workspaceId, query, signal) => ctx.workspaces.searchFiles(workspaceId, query, signal),
+    searchFiles: (workspaceId, query, filters, signal) => ctx.workspaces.searchFiles(workspaceId, query, filters, signal),
     readFile: (workspaceId, path, signal) => ctx.workspaces.readFile(workspaceId, path, signal),
     readBinaryFile: (workspaceId, path, signal) => ctx.workspaces.readBinaryFile(workspaceId, path, signal),
     gitStatus: (workspaceId, signal) => ctx.workspaces.gitStatus(workspaceId, signal),
@@ -154,6 +154,19 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
     },
     WorkspaceWorkbench,
+  ))
+  // The preview surface is a second registration over the SAME store handle:
+  // it lives in the frame-wide overlay layer so it can slide over the
+  // conversation, which the workbench column (overflow-clipped) cannot do.
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register(
+    {
+      name: 'shell.overlay',
+      id: 'workspace-workbench-preview',
+      order: 10,
+      store: workbenchStore,
+      locale: NS,
+    },
+    WorkspaceWorkbenchPreviewOverlay,
   ))
   ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register(
     {

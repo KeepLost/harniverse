@@ -2,7 +2,7 @@
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   DirectoryListing, IWorkspaces, SessionId, SnapshotStore, WorkspaceFileEntry, WorkspaceGitCommit,
-  WorkspaceGitStatusEntry, WorkspaceId, WorkspaceListState, WorkspaceView,
+  WorkspaceGitStatusEntry, WorkspaceId, WorkspaceListState, WorkspaceSearchFilters, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { workspaceListState } from './fixtures.ts'
 import type { Stabilizer } from './fixtures.ts'
@@ -130,13 +130,18 @@ export class TestWorkspaces implements IWorkspaces {
     return { path, content: '', bytes: 0, truncated: false }
   }
 
-  async searchFiles(workspaceId: WorkspaceId, query: string, signal?: AbortSignal): Promise<{
+  async searchFiles(
+    workspaceId: WorkspaceId,
+    query: string,
+    filters?: WorkspaceSearchFilters,
+    signal?: AbortSignal,
+  ): Promise<{
     entries: WorkspaceFileEntry[]
     truncated: boolean
   }> {
-    this.calls.push({ method: 'searchFiles', args: [workspaceId, query, signal] })
+    this.calls.push({ method: 'searchFiles', args: [workspaceId, query, filters, signal] })
     const stub = this.stubs.get('searchFiles')
-    if (stub !== undefined) return await stub(workspaceId, query, signal) as {
+    if (stub !== undefined) return await stub(workspaceId, query, filters, signal) as {
       entries: WorkspaceFileEntry[]
       truncated: boolean
     }

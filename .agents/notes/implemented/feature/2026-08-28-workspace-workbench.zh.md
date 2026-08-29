@@ -14,21 +14,21 @@ Workspace 检查被拆在一个狭小的详情栏文件树和单独的会话视�
 
 `dsh-client-ui-layout` 在现有 Session 作用域 `details` slot 旁声明根作用域 `workbench` slot。二者占用同一个物理右侧区域，并通过 `LayoutController` 互斥。布局 store 只按已解析的 Workspace id 持久化模式、打开状态以及彼此独立的 details／workbench 宽度；侧边栏与当前记账保持临时状态。Workspace 基线解析前发生的操作使用不持久化的 Session 临时记账，并在记账成为权威后迁移。关闭且宽度为零的占用项保持挂载，但进入 inert 状态并从可访问性树隐藏。面板在低于各模式断点，或让步求解无法保留最小停靠宽度时成为模态全框 drawer：被覆盖的外壳进入 inert 状态，CSS 隐藏控件不会进入焦点循环，焦点被约束并在关闭后恢复，Escape 会关闭当前占用项。其分隔条支持键盘操作，双击会重置当前模式的宽度。
 
-`dsh-client-ui-workspace` 向该 slot 贡献一个 `WorkspaceWorkbench`，并贡献一个 Session 页头入口。工作台 store 位于根作用域，按 Workspace id 分隔目录、展开路径、标签、搜索、Git 状态和活动文档。因此记账到同一 Workspace 的 Session 共享一份查看状态。当前 Session 的显式 Workspace 成员关系优先；当 registry 记账尚未到达时，工作目录匹配会接住该 Session。只有 Workspace 基线就绪后才会裁剪已删除的 Workspace 记账。
+`dsh-client-ui-workspace` 向该 slot 贡献一个 `WorkspaceWorkbench`，向 `shell.overlay` 贡献一个配套组件，并贡献一个 Session 页头入口。工作台与预览注册共享一个在 `apply` 内创建的根作用域 store handle；它按 Workspace id 分隔目录、展开路径、标签、预览可见性、glob 限定搜索、Git 状态和活动文档。因此记账到同一 Workspace 的 Session 共享一份查看状态。当前 Session 的显式 Workspace 成员关系优先；当 registry 记账尚未到达时，工作目录匹配会接住该 Session。只有 Workspace 基线就绪后才会裁剪已删除的 Workspace 记账。[工作台导航、overlay 预览与 glob 决定](2026-08-28-workbench-navigation-preview-and-glob.md)负责其呈现与筛选语义。
 
 工作台自动加载根目录并按需加载嵌套目录。每次 Workspace 转换都会中止活动请求集合并推进 generation fence；同一目录、标签、搜索或 Git 记账的后续请求也会中止前一个请求。回调在发布前同时检查请求 signal 与 generation。重新进入记账时会移除被中断的 loading 记录，使其能够再次请求。文件内容、base64 二进制数据、搜索结果与 Git 响应都只存在浏览器内存中，不会进入持久化投影。
 
 ## Authenticated inspection contract
 
-现有 `workspace.files.*` 认证 RPC 族负责文件列表、递归文件名搜索、UTF-8 读取和二进制预览读取。搜索遍历普通目录且不跟随符号链接，并在扫描 20,000 个条目或得到 200 个结果时停止。候选文件使用 no-follow、非阻塞 descriptor，因此 FIFO 或其他特殊文件无法在普通文件检查前占满 Host 文件系统线程池。文本读取保留 1 MiB UTF-8 前缀契约。二进制读取只接受白名单图片与 PDF 扩展名，读取最大 8 MiB 的完整普通文件，并返回 base64 与媒体类型；超限和不支持的文件会失败，而不是产生损坏的部分预览。每个方法都要求 `harniverse.observe`，并分类为 read。
+现有 `workspace.files.*` 认证 RPC 族负责文件列表、递归文件名搜索、UTF-8 读取和二进制预览读取。搜索遍历普通目录且不跟随符号链接，在扫描 20,000 个条目或得到 200 个结果时停止，并按照[筛选决定](2026-08-28-workbench-navigation-preview-and-glob.md)接受有界包含／排除 glob。候选文件使用 no-follow、非阻塞 descriptor，因此 FIFO 或其他特殊文件无法在普通文件检查前占满 Host 文件系统线程池。文本读取保留 1 MiB UTF-8 前缀契约。二进制读取只接受白名单图片与 PDF 扩展名，读取最大 8 MiB 的完整普通文件，并返回 base64 与媒体类型；超限和不支持的文件会失败，而不是产生损坏的部分预览。每个方法都要求 `harniverse.observe`，并分类为 read。
 
 Git 状态、提交以及暂存区或工作区 diff 继续由 `workspace.git.*` 提供。浏览器不暴露修改操作。Host 在 POSIX 上把 Git 遍历绑定到已打开的目录 descriptor，禁用仓库配置的 fsmonitor 与外部 diff 执行，只向 Git 提供清理后的环境，并施加 10 秒操作 deadline。规范工作树根或 Git 元数据逃出已注册 Workspace 根的仓库会被拒绝。未跟踪的工作区条目通过普通文件预览打开，因为 Git 无法为索引外内容生成统一 diff。
 
 ## Preview boundary
 
-文本分类按路径选择 Markdown、HTML、高亮代码、纯文本或有界 CSV 表格。HTML 使用空 sandbox 的 `srcDoc` frame。图片与 PDF 使用从认证 RPC 字节创建的 object URL；数据变化或标签关闭时浏览器会撤销相应 URL。PDF 使用 sandbox frame。统一 Git 输出作为带行角色颜色的文本渲染，不会被解释为 markup。
+文本分类按路径选择 Markdown、HTML、高亮代码、纯文本或有界 CSV 表格。HTML 使用 `sandbox="allow-same-origin"` 的 `srcDoc` frame，同时仍禁止脚本、表单、弹窗和顶层导航。图片与 PDF 使用从认证 RPC 字节创建的 object URL；数据变化或标签关闭时浏览器会撤销相应 URL。PDF 使用相同的 sandbox frame 边界。统一 Git 输出作为带行角色颜色的文本渲染，不会被解释为 markup。
 
-工作台通过具名 CSS container query 调整内部布局：狭窄面板和移动 drawer 宽度会把导航与活动文档显示为两个独立视图，较宽面板则同时保留活动栏、导航器和文档面板。
+文件、变更和搜索是工作台顶部的同级页签。活动文档是独立且由焦点管理的非模态 surface：工作台停靠时，它占用 `shell.overlay` 并覆盖对话；drawer 模式下，由于 overlay 层为 inert，它会切换为占满整个工作台。[专门的呈现决定](2026-08-28-workbench-navigation-preview-and-glob.md)记录其几何与备选方案。
 
 ## Alternatives considered
 

@@ -8,16 +8,20 @@ describe('createWorkspaceWorkbenchStore', () => {
     actions.setSection('a', 'search')
     actions.setDirectory('a', '', { entries: [], truncated: false, loading: false })
     actions.openTab('a', { id: 'file:a.ts', path: 'a.ts', title: 'a.ts', kind: 'code', loading: false, content: 'a' })
-    actions.setSearch('a', { query: 'a', entries: [], truncated: false, loading: false })
+    actions.setSearch('a', {
+      query: 'a', include: '*.ts', exclude: 'dist/', filtersOpen: true,
+      entries: [], truncated: false, loading: false,
+    })
     actions.setGit('a', { branch: 'main', entries: [], commits: [], truncated: false, loading: false })
     actions.ensureWorkspace('a')
     actions.ensureWorkspace('b')
 
     expect(store.getSnapshot().byWorkspace.a).toMatchObject({
-      section: 'search', activeTabId: 'file:a.ts', search: { query: 'a' }, git: { branch: 'main' },
+      section: 'search', activeTabId: 'file:a.ts', previewOpen: true,
+      search: { query: 'a', include: '*.ts', exclude: 'dist/', filtersOpen: true }, git: { branch: 'main' },
     })
     expect(store.getSnapshot().byWorkspace.b).toMatchObject({
-      section: 'files', tabs: [], activeTabId: null, git: null,
+      section: 'files', tabs: [], activeTabId: null, previewOpen: false, git: null,
     })
   })
 
@@ -30,26 +34,48 @@ describe('createWorkspaceWorkbenchStore', () => {
     actions.updateTab('a', { id: 'missing', path: 'missing', title: 'missing', kind: 'text', loading: false })
     actions.closeTab('a', 'missing')
     actions.closeTab('a', 'two')
+    actions.setPreviewOpen('a', false)
+    actions.selectTab('a', 'three')
     actions.ensureWorkspace('b')
     actions.retainWorkspaces(['a'])
 
     expect(store.getSnapshot().byWorkspace.a?.tabs.map(tab => tab.id)).toEqual(['one', 'three'])
     expect(store.getSnapshot().byWorkspace.a?.activeTabId).toBe('three')
+    expect(store.getSnapshot().byWorkspace.a?.previewOpen).toBe(true)
     expect(store.getSnapshot().byWorkspace.b).toBeUndefined()
   })
 
   it('drops interrupted loading records when a Workspace becomes active again', () => {
     const { store, actions } = createWorkspaceWorkbenchStore().create()
     actions.setDirectory('a', '', { entries: [], truncated: false, loading: true })
+    actions.setDirectory('a', 'src', { entries: [], truncated: false, loading: true })
+    actions.setDirectoryExpanded('a', 'src', true)
     actions.openTab('a', { id: 'loading', path: 'loading', title: 'loading', kind: 'text', loading: true })
-    actions.setSearch('a', { query: 'x', entries: [], truncated: false, loading: true })
+    actions.setSearch('a', {
+      query: 'x', include: '*.py', exclude: '', filtersOpen: true,
+      entries: [], truncated: false, loading: true,
+    })
     actions.setGit('a', { branch: null, entries: [], commits: [], truncated: false, loading: true })
 
     actions.ensureWorkspace('a')
 
     expect(store.getSnapshot().byWorkspace.a).toMatchObject({
       directories: {}, tabs: [], activeTabId: null,
-      search: { query: 'x', loading: false }, git: null,
+      expandedDirectories: {}, previewOpen: false,
+      search: { query: 'x', include: '*.py', filtersOpen: true, loading: false }, git: null,
     })
+  })
+
+  it('dismisses without losing tabs and closes the surface with the final tab', () => {
+    const { store, actions } = createWorkspaceWorkbenchStore().create()
+    actions.openTab('a', { id: 'one', path: 'one', title: 'one', kind: 'text', loading: false })
+    actions.setPreviewOpen('a', false)
+
+    expect(store.getSnapshot().byWorkspace.a).toMatchObject({
+      tabs: [{ id: 'one' }], activeTabId: 'one', previewOpen: false,
+    })
+    actions.selectTab('a', 'one')
+    actions.closeTab('a', 'one')
+    expect(store.getSnapshot().byWorkspace.a).toMatchObject({ tabs: [], activeTabId: null, previewOpen: false })
   })
 })

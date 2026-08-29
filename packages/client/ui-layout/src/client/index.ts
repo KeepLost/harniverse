@@ -77,7 +77,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * `session` scope, and `ctx.layout` owns whether the column is open.
      */
     'details': { kind: 'single'; scope: 'session'; owner: DetailsOwnerProps }
-    /** Workspace-oriented root surface sharing the physical right region with details. */
+    /**
+     * Workspace-oriented root surface sharing the physical right region with
+     * details. The occupant receives the frame's resolved occupancy mode so a
+     * surface of its own can pick between a frame-wide overlay (docked: the
+     * center column still exists) and an in-column presentation (drawer: the
+     * region covers the frame and the overlay layer is inert).
+     */
     'workbench': { kind: 'single'; scope: 'root'; owner: WorkbenchOwnerProps }
     /**
      * Frame-wide floating layer, above every column and outside their scroll
@@ -88,8 +94,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      *
      * This is the additive seat for a frame-wide surface of your own: a fresh
      * `id` is added beside the shipped entries instead of replacing them.
+     *
+     * Entries receive the frame's resolved occupancy mode. Pure geometry is
+     * published on the frame as CSS so presentation stays out of component data.
      */
-    'shell.overlay': { kind: 'list'; scope: 'root' }
+    'shell.overlay': { kind: 'list'; scope: 'root'; owner: ShellOverlayOwnerProps }
   }
 }
 
@@ -113,8 +122,38 @@ export interface ConvOwnerProps {}
 /** Details owner share: empty — sessionId arrives as a framework-standard prop. */
 export interface DetailsOwnerProps {}
 
-/** Workbench owner share: empty — current Session and Workspace arrive through global hooks. */
-export interface WorkbenchOwnerProps {}
+/**
+ * Overlay-layer owner share: the frame geometry a frame-wide surface needs.
+ *
+ * Resolved track widths are published as `--dsh-frame-sidebar-width` and
+ * `--dsh-frame-right-width` on the frame element for pure-CSS alignment; only
+ * occupancy facts are component logic.
+ */
+export interface ShellOverlayOwnerProps {
+  /** Selected right occupant, including while its region is closed. */
+  rightMode: 'details' | 'workbench'
+  /** True while the selected right occupant is visible. */
+  rightOpen: boolean
+  /** True while the visible right occupant covers the frame as a drawer. */
+  rightDrawer: boolean
+}
+
+/**
+ * Workbench owner share: the frame's resolved right-region occupancy.
+ *
+ * Current Session and Workspace arrive through global hooks; only geometry the
+ * frame alone resolves is passed here. The frame publishes the region's px
+ * width as the `--dsh-frame-right-width` custom property on the frame element,
+ * which is how an overlay entry aligns its edge with this column.
+ */
+export interface WorkbenchOwnerProps {
+  /**
+   * True when the region covers the frame as a modal drawer (narrow viewport or
+   * a fully conceded column). While true the frame's `shell.overlay` layer is
+   * inert, so a companion surface must render inside this column instead.
+   */
+  drawer: boolean
+}
 
 /** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
 export const inject = ['slots', 'theme', 'locale']

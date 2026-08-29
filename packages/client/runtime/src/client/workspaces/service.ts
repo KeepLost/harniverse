@@ -9,7 +9,7 @@ import type {
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
 import type { SessionsPort, SessionsPortList } from '../contract/sessions-port.ts'
-import type { IWorkspaces } from '../contract/workspaces.ts'
+import type { IWorkspaces, WorkspaceSearchFilters } from '../contract/workspaces.ts'
 import { WorkspaceManager, type WorkspaceListPhase } from './manager.ts'
 
 /** Workspace list plus the two-baseline readiness and default-target projection. */
@@ -279,11 +279,21 @@ export class WorkspaceRuntime implements IWorkspaces {
     return response.result.value
   }
 
-  async searchFiles(workspaceId: WorkspaceId, query: string, signal?: AbortSignal): Promise<{
+  async searchFiles(workspaceId: WorkspaceId, query: string, filters?: WorkspaceSearchFilters, signal?: AbortSignal): Promise<{
     entries: WorkspaceFileEntry[]
     truncated: boolean
   }> {
-    const response = await this.api.workspaceFiles.search({ workspaceId, query }, signal)
+    // Empty lists are omitted rather than sent: the Host reads an absent
+    // exclude list as "apply the defaults", which an empty array also means,
+    // and an empty include list must not look like a deliberate filter.
+    const include = filters?.include?.filter(pattern => pattern.trim() !== '') ?? []
+    const exclude = filters?.exclude?.filter(pattern => pattern.trim() !== '') ?? []
+    const response = await this.api.workspaceFiles.search({
+      workspaceId,
+      query,
+      ...(include.length === 0 ? {} : { include }),
+      ...(exclude.length === 0 ? {} : { exclude }),
+    }, signal)
     if (!response.result.ok) throw new Error(`workspace file search failed: ${response.result.error.message}`)
     return response.result.value
   }

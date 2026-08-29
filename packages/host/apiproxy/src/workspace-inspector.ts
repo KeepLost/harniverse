@@ -2,6 +2,9 @@ import { spawn } from 'node:child_process'
 import { constants, type Dirent, type Stats } from 'node:fs'
 import { open, opendir, realpath, stat, type FileHandle } from 'node:fs/promises'
 import { extname, isAbsolute, relative, resolve, sep } from 'node:path'
+import {
+  compileGlobFilter, WORKSPACE_SEARCH_DEFAULT_EXCLUDES,
+} from './api/workspace-glob.ts'
 
 /** Maximum immediate children returned by one directory listing. */
 export const WORKSPACE_DIRECTORY_ENTRY_LIMIT = 2_000
@@ -42,6 +45,23 @@ export class WorkspaceInspectorError extends Error {
     super(message)
     this.name = 'WorkspaceInspectorError'
   }
+}
+
+/**
+ * Optional glob scoping for one recursive search.
+ *
+ * Patterns follow the workspace glob contract (workspace-glob.ts): a pattern
+ * without `/` filters basenames at any depth, one with `/` filters the whole
+ * relative path, and a trailing `/` covers a directory subtree.
+ */
+export interface WorkspaceSearchFilters {
+  /** Only files matching one of these patterns are returned; absent means every file. */
+  include?: readonly string[]
+  /**
+   * Files and directory subtrees matching one of these patterns are skipped.
+   * Absent or empty applies WORKSPACE_SEARCH_DEFAULT_EXCLUDES instead.
+   */
+  exclude?: readonly string[]
 }
 
 /** One workspace-relative directory child or search result. */
@@ -283,14 +303,27 @@ export async function listWorkspaceFiles(
  * @param root - registered canonical Workspace root.
  * @param query - case-insensitive file-name substring.
  * @param signal - caller cancellation signal.
+ * @param filters - optional include/exclude globs; an absent or empty exclude
+ *   list applies the default dependency and build-output skips.
  * @returns bounded matching files and whether either search limit was reached.
  */
 export async function searchWorkspaceFiles(
   root: string,
   query: string,
   signal: AbortSignal,
+  filters: WorkspaceSearchFilters = {},
 ): Promise<{ entries: WorkspaceFileEntry[]; truncated: boolean }> {
   const needle = query.trim().toLowerCase()
+  // Caller excludes replace the defaults rather than adding to them: a user who
+  // writes an exclude list is scoping the search deliberately, and a hidden
+  // extra list would make `dist/**` unsearchable with no way to opt out.
+  const include = compileGlobFilter(filters.include, 'pass')
+  const exclude = compileGlobFilter(
+    filters.exclude === undefined || filters.exclude.length === 0
+      ? WORKSPACE_SEARCH_DEFAULT_EXCLUDES
+      : filters.exclude,
+    'reject',
+  )
   const directories = ['.']
   const entries: WorkspaceFileEntry[] = []
   let scanned = 0
@@ -306,8 +339,16 @@ export async function searchWorkspaceFiles(
       scanned++
       const childPath = path === '.' ? child.name : `${path}/${child.name}`
       if (child.isDirectory()) {
+        // Prune here rather than at match time: an excluded tree must not cost
+        // scan budget, and an anchored include list makes the rest unreachable.
+        if (exclude.matchesDirectory(childPath) || !include.mayContainMatch(childPath)) continue
         directories.push(childPath)
-      } else if (child.isFile() && child.name.toLowerCase().includes(needle)) {
+      } else if (
+        child.isFile()
+        && child.name.toLowerCase().includes(needle)
+        && include.matches(childPath)
+        && !exclude.matches(childPath)
+      ) {
         entries.push({ name: child.name, path: childPath, kind: 'file' })
         if (entries.length >= WORKSPACE_FILE_SEARCH_RESULT_LIMIT) return { entries, truncated: true }
       }
@@ -655,7 +696,7 @@ export async function workspaceGitDiff(
 ): Promise<{ diff: string; truncated: boolean }> {
   await assertGitRepository(root, signal)
   const result = await runGit(root, [
-    'diff', '--no-ext-diff', '--no-textconv', '--relative', ...(staged ? ['--cached'] : []), '--', ...gitPath(root, path),
+    '--literal-pathspecs', 'diff', '--no-ext-diff', '--no-textconv', '--relative', ...(staged ? ['--cached'] : []), '--', ...gitPath(root, path),
   ], signal, 'diff')
   const truncated = result.overflow || Buffer.byteLength(result.stdout) > WORKSPACE_DIFF_BYTE_LIMIT
   return { diff: truncateUtf8(result.stdout, WORKSPACE_DIFF_BYTE_LIMIT), truncated }

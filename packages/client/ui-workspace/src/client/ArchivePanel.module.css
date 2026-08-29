@@ -3,6 +3,10 @@
   flex-direction: column;
   min-height: 0;
   height: 100%;
+  /* The message list scrolls across elevated archive cards, so its scrollbar
+     inherits the l2 pair instead of the base-surface indirection. */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 .toolbar {
@@ -19,7 +23,7 @@
   align-items: center;
   gap: 7px;
   min-width: 0;
-  color: var(--dsw-text-secondary);
+  color: var(--dsw-alias-label-secondary);
   font-size: 12px;
 }
 
@@ -59,7 +63,7 @@
 
 .rowTitle {
   overflow: hidden;
-  color: var(--dsw-text-primary);
+  color: var(--dsw-alias-label-primary);
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -67,7 +71,7 @@
 
 .rowMeta {
   overflow: hidden;
-  color: var(--dsw-text-tertiary);
+  color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -76,32 +80,32 @@
 .restore {
   border: 0;
   background: transparent;
-  color: var(--dsw-text-secondary);
+  color: var(--dsw-alias-label-secondary);
   font-size: 11px;
   cursor: pointer;
 }
 
 .restore:hover {
-  color: var(--dsw-text-primary);
+  color: var(--dsw-alias-label-primary);
 }
 
 .empty,
 .status {
   padding: 24px 12px;
-  color: var(--dsw-text-tertiary);
+  color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
   text-align: center;
 }
 
 .error {
   padding: 8px 10px;
-  color: var(--dsw-alias-label-danger);
+  color: var(--dsw-alias-state-error-primary);
   font-size: 12px;
   white-space: pre-wrap;
 }
 
 .warning {
-  color: var(--dsw-text-secondary);
+  color: var(--dsw-alias-label-secondary);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -135,20 +139,20 @@
 .message_user {
   align-self: flex-end;
   width: min(88%, 600px);
-  background: var(--dsw-alias-fill-l2);
+  background: var(--dsw-alias-bg-layer-2);
 }
 
 .message_assistant {
   align-self: flex-start;
   width: min(96%, 660px);
-  background: var(--dsw-alias-fill-l1);
+  background: var(--dsw-alias-bg-layer-1);
   border: 1px solid var(--dsw-alias-border-l2);
 }
 
 .message_tool,
 .message_notice {
   align-self: stretch;
-  background: var(--dsw-alias-fill-l2);
+  background: var(--dsw-alias-bg-layer-2);
   border: 1px solid var(--dsw-alias-border-l2);
 }
 
@@ -157,7 +161,7 @@
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 6px;
-  color: var(--dsw-text-tertiary);
+  color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
 }
 
@@ -165,7 +169,7 @@
   max-height: 260px;
   margin: 0;
   overflow: auto;
-  color: var(--dsw-text-secondary);
+  color: var(--dsw-alias-label-secondary);
   font: inherit;
   font-size: 12px;
   white-space: pre-wrap;

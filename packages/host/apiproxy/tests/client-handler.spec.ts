@@ -485,6 +485,16 @@ describe('workspace domain round trip', () => {
     expect(response.result.ok).toBe(false)
     if (!response.result.ok) expect(response.result.error.code).toBe('bad-request')
   })
+
+  it('rejects an oversized Workspace search glob list at the handler schema', async () => {
+    const response = await client(scriptedApi()).workspaceFiles.search({
+      workspaceId: 'w1' as never,
+      query: 'README',
+      include: Array.from({ length: 21 }, (_, index) => `file-${String(index)}.ts`),
+    })
+    expect(response.result.ok).toBe(false)
+    if (!response.result.ok) expect(response.result.error.code).toBe('bad-request')
+  })
 })
 
 describe('SSE stream path', () => {

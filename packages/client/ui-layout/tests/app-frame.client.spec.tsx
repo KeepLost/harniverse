@@ -132,6 +132,18 @@ beforeEach(() => {
   vi.stubGlobal('cancelAnimationFrame', (h: number) => { clearTimeout(h) })
   window.innerWidth = frameWidth
   Element.prototype.getBoundingClientRect = function () {
+    const className = typeof this.className === 'string' ? this.className : ''
+    if (className.includes('sidebarCol')) {
+      return { width: 280, height: 1080, top: 0, left: 0, right: 280, bottom: 1080, x: 0, y: 0, toJSON: () => ({}) }
+    }
+    if (className.includes('detailsCol')) {
+      const columns = /^(\d+)px minmax\(0, 1fr\) (\d+)px$/.exec(this.parentElement?.style.gridTemplateColumns ?? '')
+      const width = Number(columns?.[2] ?? 0)
+      return {
+        width, height: 1080, top: 0, left: frameWidth - width, right: frameWidth,
+        bottom: 1080, x: frameWidth - width, y: 0, toJSON: () => ({}),
+      }
+    }
     return { width: frameWidth, height: 1080, top: 0, left: 0, right: frameWidth, bottom: 1080, x: 0, y: 0, toJSON: () => ({}) }
   }
   // jsdom lacks pointer capture: emulate per-element so hasPointerCapture gates pass.
@@ -302,9 +314,12 @@ describe('AppFrame', () => {
     frameWidth = 1250
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
     expect(tracks(frame)).toEqual([280, 330])
+    expect(frame.style.getPropertyValue('--dsh-frame-sidebar-width')).toBe('280px')
+    expect(frame.style.getPropertyValue('--dsh-frame-right-width')).toBe('330px')
     frameWidth = 1920
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
     expect(tracks(frame)).toEqual([280, 360])
+    expect(frame.style.getPropertyValue('--dsh-frame-right-width')).toBe('360px')
   })
 
   it('drag handles disappear for collapsed columns', () => {
@@ -319,12 +334,19 @@ describe('AppFrame', () => {
   })
 
   it('switches the physical right region to the workbench with its own width', () => {
-    const { frame, instance, getByTestId, queryByTestId } = mountFrame()
+    const { frame, instance, slotCalls, getByTestId, queryByTestId } = mountFrame()
     act(() => { instance.actions.openWorkbench() })
     expect(tracks(frame)).toEqual([280, 760])
+    expect(frame.style.getPropertyValue('--dsh-frame-right-width')).toBe('760px')
     expect(getByTestId('workbench-content')).toBeTruthy()
     expect(queryByTestId('details-content')).toBeNull()
     expect(frame.getAttribute('data-right-mode')).toBe('workbench')
+    expect(slotCalls.filter(call => call.key === 'workbench').at(-1)?.props).toEqual({ drawer: false })
+    expect(slotCalls.filter(call => call.key === 'shell.overlay').at(-1)?.props).toEqual({
+      rightMode: 'workbench',
+      rightOpen: true,
+      rightDrawer: false,
+    })
     const column = getByTestId('workbench-content').parentElement
     act(() => { instance.actions.closeWorkbench() })
     expect(column?.hasAttribute('inert')).toBe(true)
@@ -404,13 +426,20 @@ describe('AppFrame', () => {
 
   it('renders the workbench as a full-frame drawer below its breakpoint without changing width', () => {
     frameWidth = 1200
-    const { frame, instance, getByRole, getByTestId } = mountFrame()
+    const { frame, instance, slotCalls, getByRole, getByTestId } = mountFrame()
     getByTestId('sidebar-content').focus()
     act(() => { instance.actions.openWorkbench() })
     expect(tracks(frame)).toEqual([280, 0])
+    expect(frame.style.getPropertyValue('--dsh-frame-right-width')).toBe('0px')
     expect(frame.hasAttribute('data-right-drawer')).toBe(true)
     expect(getByTestId('workbench-content').parentElement?.hasAttribute('data-right-drawer')).toBe(true)
     expect(instance.getSnapshot().rightByAccount['']?.widths.workbench).toBe(760)
+    expect(slotCalls.filter(call => call.key === 'workbench').at(-1)?.props).toEqual({ drawer: true })
+    expect(slotCalls.filter(call => call.key === 'shell.overlay').at(-1)?.props).toEqual({
+      rightMode: 'workbench',
+      rightOpen: true,
+      rightDrawer: true,
+    })
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
     const dialog = getByRole('dialog', { name: '工作区工作台' })
     expect(dialog.getAttribute('aria-modal')).toBe('true')
@@ -440,6 +469,20 @@ describe('AppFrame', () => {
     fireEvent.keyDown(document.body, { key: 'Escape' })
 
     expect(frame.hasAttribute('data-right-drawer')).toBe(false)
+  })
+
+  it('restores focus outside when a docked control becomes a closed drawer', () => {
+    const { frame, instance, getByRole, getByTestId } = mountFrame()
+    act(() => { instance.actions.openWorkbench() })
+    getByRole('button', { name: 'Workbench first' }).focus()
+
+    frameWidth = 1200
+    act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
+    const dialog = getByRole('dialog', { name: '工作区工作台' })
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+
+    expect(frame.hasAttribute('data-right-drawer')).toBe(false)
+    expect(document.activeElement).toBe(getByTestId('sidebar-content'))
   })
 
   it('labels the session-details drawer independently', () => {

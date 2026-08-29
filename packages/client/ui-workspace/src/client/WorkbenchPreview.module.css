@@ -1,0 +1,444 @@
+/* Workbench file preview: an independent surface that slides in from the LEFT
+ * and covers the conversation, because opening a file moves attention to file
+ * content rather than splitting it.
+ *
+ * Two placements, decided by the frame's own occupancy:
+ *  - docked   the surface rides the frame-wide overlay layer, right edge butted
+ *             against the workbench column via --dsh-frame-right-width;
+ *  - drawer   the workbench column already covers the frame and that overlay
+ *             layer is inert, so the surface fills its host instead.
+ *
+ * The overlay layer is click-through (AppFrame .overlayLayer) and its direct
+ * children opt back in, so the closed surface must not remain a hit target:
+ * .hidden withdraws pointer events and visibility after the slide. */
+
+.overlayClip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: var(--dsh-frame-right-width, 0px);
+  width: min(
+    720px,
+    max(340px, 44vw),
+    calc(100% - var(--dsh-frame-sidebar-width, 0px) - var(--dsh-frame-right-width, 0px))
+  );
+  overflow: hidden;
+  /* shell.overlay opts direct children into hit testing. This wrapper is only
+     a clip; the surface inside owns the actual interactive rectangle. */
+  pointer-events: none !important;
+}
+
+.overlayClip > .host {
+  inset: 0;
+  width: auto;
+  pointer-events: auto;
+}
+
+.host {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: auto;
+  /* Butt against the workbench column's left edge. The property is published
+     by ui-layout on the frame element; 0 keeps the surface full-width if the
+     frame ever renders without it. */
+  right: var(--dsh-frame-right-width, 0px);
+  /* Cover only the conversation, never the sidebar. At the workbench drawer
+     breakpoint the center track is at least 480px, so this remains useful
+     without crossing its left edge. */
+  width: min(
+    720px,
+    max(340px, 44vw),
+    calc(100% - var(--dsh-frame-sidebar-width, 0px) - var(--dsh-frame-right-width, 0px))
+  );
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  box-sizing: border-box;
+  border-right: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+  box-shadow: var(--dsw-shadow-lv2);
+  /* The preview renders elevated document chrome and scrolls inside its body;
+     keep both scrollbar states on the same l2 surface family. */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+  transition: transform var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+/* Closed: slid off the left edge, inert, and hidden once the slide finishes so
+   it leaves the accessibility tree without unmounting (tabs survive a close). */
+.hidden {
+  transform: translateX(-100%);
+  pointer-events: none;
+  visibility: hidden;
+  transition:
+    transform var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    visibility 0s linear var(--ds-transition-duration-slow);
+}
+
+/* In-column placement: the workbench region covers the frame, so the surface
+   is a plain block filling its host rather than a positioned overlay. */
+.docked {
+  position: static;
+  right: auto;
+  width: auto;
+  flex: 1;
+  transform: none;
+  border-right: 0;
+  box-shadow: none;
+}
+
+.docked.hidden {
+  display: none;
+}
+
+.tabStrip {
+  display: flex;
+  flex: none;
+  min-height: 38px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.documentTab {
+  display: flex;
+  min-width: 110px;
+  max-width: 190px;
+  height: 38px;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 10px;
+  border: 0;
+  border-right: 1px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-tertiary);
+  background: transparent;
+  transition: background var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.documentTab:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.documentTab[data-active] {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.tabSelect {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: var(--dsw-font-xxs-12);
+  cursor: pointer;
+}
+
+.tabSelect > span:first-child {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabClose {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tabClose:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.loadingDot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-business-primary);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% { opacity: 0.25; }
+}
+
+.previewPane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.previewHeader {
+  display: flex;
+  min-height: 38px;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.previewPath {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.previewHeader small {
+  flex: none;
+  color: var(--dsw-alias-label-dimmed);
+  font: var(--dsw-font-xxxs-11);
+  white-space: nowrap;
+}
+
+.closeButton {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.closeButton:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.previewBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.previewNotice {
+  flex: none;
+  padding: 7px 12px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-state-warn-label);
+  background: var(--dsw-alias-state-warn-tertiary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.previewError {
+  margin: 24px;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-state-error-primary);
+  border-radius: 8px;
+  color: var(--dsw-alias-state-error-primary);
+  font: var(--dsw-font-xxs-12);
+  overflow-wrap: anywhere;
+}
+
+.emptyPreview {
+  display: flex;
+  height: 100%;
+  min-height: 180px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxs-12);
+  text-align: center;
+}
+
+.emptyPreview strong {
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-s-strong-14);
+}
+
+.emptyMark {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 4px;
+  place-items: center;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-bg-layer-2);
+  font: var(--dsw-font-m-18);
+  font-family: var(--ds-font-family-code);
+}
+
+.markdownPreview {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 24px 30px 48px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.codePreview {
+  min-width: max-content;
+  padding: 12px;
+}
+
+.codePreview > div {
+  margin: 0;
+}
+
+.textPreview,
+.diffPreview {
+  min-width: max-content;
+  min-height: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 18px 20px 40px;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-markdown-code-block);
+  font-family: var(--ds-font-family-code);
+  tab-size: 2;
+}
+
+.textPreview {
+  min-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diffPreview {
+  display: flex;
+  flex-direction: column;
+}
+
+.diffPreview span {
+  display: block;
+  min-height: 19px;
+  padding: 0 10px;
+  white-space: pre;
+}
+
+.diffPreview span[data-kind='add'] {
+  color: var(--dsw-alias-state-success-primary);
+  background: var(--dsw-alias-state-success-tertiary);
+}
+
+.diffPreview span[data-kind='delete'] {
+  color: var(--dsw-alias-state-error-primary);
+  background: var(--dsw-alias-state-error-secondary);
+}
+
+.diffPreview span[data-kind='range'] {
+  color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.diffPreview span[data-kind='header'] {
+  color: var(--dsw-alias-label-tertiary);
+  font-weight: 600;
+}
+
+.htmlPreview,
+.pdfPreview {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--dsw-alias-bg-base);
+}
+
+.imagePreview {
+  display: grid;
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: 24px;
+  place-items: center;
+  background-image:
+    linear-gradient(45deg, var(--dsw-alias-bg-layer-2) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--dsw-alias-bg-layer-2) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--dsw-alias-bg-layer-2) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--dsw-alias-bg-layer-2) 75%);
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
+}
+
+.imagePreview img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  box-shadow: var(--dsw-shadow-lv2);
+}
+
+.csvWrap {
+  position: relative;
+  min-width: max-content;
+  padding-bottom: 36px;
+}
+
+.csvTable {
+  border-spacing: 0;
+  border-collapse: separate;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.csvTable th,
+.csvTable td {
+  max-width: 280px;
+  padding: 7px 10px;
+  overflow: hidden;
+  border-right: 1px solid var(--dsw-alias-border-l1);
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.csvTable th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-2);
+  font: var(--dsw-font-xxs-strong-12);
+}
+
+.csvTable tr:nth-child(even) td {
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .host,
+  .hidden {
+    transition: none;
+  }
+
+  .loadingDot {
+    animation: none;
+  }
+}

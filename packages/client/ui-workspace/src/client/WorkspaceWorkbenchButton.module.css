@@ -1,0 +1,31 @@
+/* Session-header entry point, matched to the neighbouring Session-log capsule
+   (session-log-export/HeaderAction.module.css): 32px tall, 18px radius, an l2
+   hairline over a transparent fill. The two buttons sit in the same 8px-gapped
+   utilities row, so they share one recipe rather than each inventing chrome. */
+
+.workbenchButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 111px;
+  height: 32px;
+  padding: 6px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 18px;
+  color: var(--dsw-alias-label-primary);
+  background: transparent;
+  font: var(--dsw-font-xs-13);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.workbenchButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.workbenchButton > span,
+.workbenchButton > svg {
+  flex: none;
+}

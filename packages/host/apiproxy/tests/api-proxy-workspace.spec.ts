@@ -347,6 +347,7 @@ describe('workspace file inspection', () => {
       request({ workspaceId: workspace.workspaceId }),
       new AbortController().signal,
     ))
+    expect(listed.path).toBe('')
     expect(listed.entries.map(entry => entry.name)).toContain('.hidden')
     const read = expectOk(await api.workspaceFiles.read(
       request({ workspaceId: workspace.workspaceId, path: 'README.md' }),
@@ -354,7 +355,7 @@ describe('workspace file inspection', () => {
     ))
     expect(read.content).toBe('workspace text')
     const searched = expectOk(await api.workspaceFiles.search(
-      request({ workspaceId: workspace.workspaceId, query: 'workbench' }),
+      request({ workspaceId: workspace.workspaceId, query: 'workbench', include: ['src/**/*.tsx'], exclude: ['dist/'] }),
       new AbortController().signal,
     ))
     expect(searched.entries).toEqual([

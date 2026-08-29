@@ -118,9 +118,21 @@ export interface WorkbenchDirectory {
   error?: string
 }
 
-/** Current file-name query and its bounded result. */
+/**
+ * Current file-name query, its glob scoping, and its bounded result.
+ *
+ * Filters are kept as the raw comma-separated strings the operator typed so an
+ * in-progress pattern is never lost on a re-render; splitting happens at the
+ * request boundary.
+ */
 export interface WorkbenchSearch {
   query: string
+  /** Comma-separated include globs, e.g. `*.py, src/**` — empty means every file. */
+  include: string
+  /** Comma-separated exclude globs; empty applies the Host's default skips. */
+  exclude: string
+  /** Whether the glob fields are revealed (a filter in force keeps them open). */
+  filtersOpen: boolean
   entries: WorkspaceFileEntry[]
   truncated: boolean
   loading: boolean
@@ -144,6 +156,11 @@ export interface WorkspaceWorkbenchAccount {
   expandedDirectories: Record<string, boolean>
   tabs: WorkbenchTab[]
   activeTabId: string | null
+  /**
+   * Whether the preview surface is revealed. Closing it retains the tabs, so
+   * reopening a file returns to the same set rather than reloading it.
+   */
+  previewOpen: boolean
   search: WorkbenchSearch
   gitArea: WorkbenchGitArea
   git: WorkbenchGit | null
@@ -165,6 +182,7 @@ type WorkspaceWorkbenchActions = {
   selectTab: (draft: WorkspaceWorkbenchState, workspaceId: string, tabId: string) => void
   closeTab: (draft: WorkspaceWorkbenchState, workspaceId: string, tabId: string) => void
   setSearch: (draft: WorkspaceWorkbenchState, workspaceId: string, value: WorkbenchSearch) => void
+  setPreviewOpen: (draft: WorkspaceWorkbenchState, workspaceId: string, open: boolean) => void
   setGitArea: (draft: WorkspaceWorkbenchState, workspaceId: string, area: WorkbenchGitArea) => void
   setGit: (draft: WorkspaceWorkbenchState, workspaceId: string, value: WorkbenchGit) => void
 }
@@ -176,10 +194,16 @@ function defaultWorkbenchAccount(): WorkspaceWorkbenchAccount {
     expandedDirectories: { '': true },
     tabs: [],
     activeTabId: null,
-    search: { query: '', entries: [], truncated: false, loading: false },
+    previewOpen: false,
+    search: emptyWorkbenchSearch(),
     gitArea: 'worktree',
     git: null,
   }
+}
+
+/** A search account with no query, no filters, and no result. */
+function emptyWorkbenchSearch(): WorkbenchSearch {
+  return { query: '', include: '', exclude: '', filtersOpen: false, entries: [], truncated: false, loading: false }
 }
 
 function workbenchAccount(draft: WorkspaceWorkbenchState, workspaceId: string): WorkspaceWorkbenchAccount {
@@ -196,14 +220,25 @@ export function createWorkspaceWorkbenchStore(): EngineStoreHandle<WorkspaceWork
     actions: {
       ensureWorkspace: (d, workspaceId) => {
         const account = workbenchAccount(d, workspaceId)
+        const interruptedDirectories = Object.entries(account.directories)
+          .filter(([, directory]) => directory.loading)
+          .map(([path]) => path)
         account.directories = Object.fromEntries(
           Object.entries(account.directories).filter(([, directory]) => !directory.loading),
         )
+        if (interruptedDirectories.length > 0) {
+          account.expandedDirectories = Object.fromEntries(
+            Object.entries(account.expandedDirectories).filter(([path]) => !interruptedDirectories.some(root => (
+              root === '' || path === root || path.startsWith(`${root}/`)
+            ))),
+          )
+        }
         account.tabs = account.tabs.filter(tab => !tab.loading)
+        if (account.tabs.length === 0) account.previewOpen = false
         if (account.activeTabId !== null && !account.tabs.some(tab => tab.id === account.activeTabId)) {
           account.activeTabId = account.tabs.at(-1)?.id ?? null
         }
-        if (account.search.loading) account.search = { query: account.search.query, entries: [], truncated: false, loading: false }
+        if (account.search.loading) account.search = { ...account.search, entries: [], truncated: false, loading: false }
         if (account.git?.loading === true) account.git = null
       },
       retainWorkspaces: (d, workspaceIds) => {
@@ -222,13 +257,19 @@ export function createWorkspaceWorkbenchStore(): EngineStoreHandle<WorkspaceWork
         if (index === -1) account.tabs.push(tab)
         else account.tabs[index] = tab
         account.activeTabId = tab.id
+        // Opening a document is the gesture that reveals the preview surface.
+        account.previewOpen = true
       },
       updateTab: (d, workspaceId, tab) => {
         const account = workbenchAccount(d, workspaceId)
         const index = account.tabs.findIndex(entry => entry.id === tab.id)
         if (index !== -1) account.tabs[index] = tab
       },
-      selectTab: (d, workspaceId, tabId) => { workbenchAccount(d, workspaceId).activeTabId = tabId },
+      selectTab: (d, workspaceId, tabId) => {
+        const account = workbenchAccount(d, workspaceId)
+        account.activeTabId = tabId
+        account.previewOpen = true
+      },
       closeTab: (d, workspaceId, tabId) => {
         const account = workbenchAccount(d, workspaceId)
         const index = account.tabs.findIndex(entry => entry.id === tabId)
@@ -237,8 +278,12 @@ export function createWorkspaceWorkbenchStore(): EngineStoreHandle<WorkspaceWork
         if (account.activeTabId === tabId) {
           account.activeTabId = account.tabs[Math.min(index, account.tabs.length - 1)]?.id ?? null
         }
+        // The last tab closing retires the surface: an empty preview covering
+        // the conversation would be chrome with nothing to show.
+        if (account.tabs.length === 0) account.previewOpen = false
       },
       setSearch: (d, workspaceId, value) => { workbenchAccount(d, workspaceId).search = value },
+      setPreviewOpen: (d, workspaceId, open) => { workbenchAccount(d, workspaceId).previewOpen = open },
       setGitArea: (d, workspaceId, area) => { workbenchAccount(d, workspaceId).gitArea = area },
       setGit: (d, workspaceId, value) => { workbenchAccount(d, workspaceId).git = value },
     },

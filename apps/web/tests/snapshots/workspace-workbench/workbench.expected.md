@@ -5,19 +5,19 @@
     - button "Close workspace workbench":
       - img
     - navigation "Workspace tools":
-      - button "Files" [pressed]:
-        - img
-        - text: Files
-      - button "Search":
-        - img
-        - text: Search
-      - button "Changes":
-        - img
-        - text: Changes
-    - region "Workspace navigation":
-      - strong: Files
+      - tablist:
+        - tab "Files" [selected]:
+          - img
+          - text: Files
+        - tab "Changes":
+          - img
+          - text: Changes
+        - tab "Search":
+          - img
+          - text: Search
       - button "Refresh file tree":
         - img
+    - tabpanel "Files":
       - button ".git":
         - img
         - img

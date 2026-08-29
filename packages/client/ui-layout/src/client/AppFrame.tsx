@@ -30,7 +30,7 @@ export type AppFrameProps =
   & PropsStore<ReturnType<typeof createLayoutStore>>
   & PropsLocale<'layout'>
 
-const FOCUSABLE_SELECTOR = 'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+const FOCUSABLE_SELECTOR = 'iframe, button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 function visibleFocusableDescendants(root: HTMLElement): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)].filter((element) => {
@@ -44,6 +44,18 @@ function visibleFocusableDescendants(root: HTMLElement): HTMLElement[] {
     }
     return true
   })
+}
+
+function canRestoreFocus(element: HTMLElement): boolean {
+  if (!element.isConnected || !element.matches(FOCUSABLE_SELECTOR)) return false
+  let current: HTMLElement | null = element
+  while (current !== null) {
+    if (current.hidden || current.hasAttribute('inert') || current.getAttribute('aria-hidden') === 'true') return false
+    const style = window.getComputedStyle(current)
+    if (style.display === 'none' || style.visibility === 'hidden') return false
+    current = current.parentElement
+  }
+  return true
 }
 
 function FrameRegion(props: { children?: ReactNode; className: string | undefined; blocked: boolean; overlay?: boolean }) {
@@ -88,7 +100,10 @@ function DetailsColumn(props: { children?: ReactNode; drawer: boolean; blocked: 
       document.removeEventListener('keydown', onDocumentKeyDown)
       const target = restoreFocus.current
       restoreFocus.current = null
-      if (target?.isConnected === true) target.focus()
+      if (target !== null && canRestoreFocus(target)) target.focus()
+      else if (document.activeElement instanceof HTMLElement && panel.contains(document.activeElement)) {
+        visibleFocusableDescendants(document.body).find(element => !panel.contains(element))?.focus()
+      }
     }
   }, [props.drawer, props.onDismiss])
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
@@ -241,20 +256,34 @@ export function AppFrame({
     if (retainedAccounts !== null) actions.retainRightAccounts(retainedAccounts)
   }, [actions, retainedAccounts])
 
-  // Track the frame's own box (not the window): rAF-throttled ResizeObserver.
+  // Track the frame and its animated grid tracks: rAF-throttled observation
+  // keeps the frame-wide overlay aligned with the actual used geometry, not
+  // just the next target widths React has assigned to the grid.
   useEffect(() => {
     const el = frameRef.current
     /* v8 ignore next -- the ref is always attached by effect time: the frame div renders unconditionally. */
     if (el === null) return
+    const sidebar = el.querySelector<HTMLElement>(`.${css.sidebarCol}`)
+    const details = el.querySelector<HTMLElement>(`.${css.detailsCol}`)
     let raf: number | null = null
     const observer = new ResizeObserver(() => {
       raf ??= requestAnimationFrame(() => {
         raf = null
         const width = el.getBoundingClientRect().width
         if (width > 0) setViewport(width)
+        const frameBox = el.getBoundingClientRect()
+        const sidebarWidth = sidebar?.getBoundingClientRect().width
+        const detailsLeft = details?.getBoundingClientRect().left
+        if (sidebarWidth !== undefined) el.style.setProperty('--dsh-frame-sidebar-width', `${String(sidebarWidth)}px`)
+        if (detailsLeft !== undefined) {
+          const rightWidth = el.hasAttribute('data-right-drawer') ? 0 : Math.max(0, frameBox.right - detailsLeft)
+          el.style.setProperty('--dsh-frame-right-width', `${String(rightWidth)}px`)
+        }
       })
     })
     observer.observe(el)
+    if (sidebar !== null) observer.observe(sidebar)
+    if (details !== null) observer.observe(details)
     return () => {
       observer.disconnect()
       if (raf !== null) cancelAnimationFrame(raf)
@@ -317,7 +346,15 @@ export function AppFrame({
     <div
       ref={frameRef}
       className={css.frame}
-      style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
+      style={{
+        gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px`,
+        // Initial target widths, published for surfaces outside the columns
+        // (the shell.overlay layer spans the whole frame and has no other way
+        // to learn where a column's edge sits). The observer above refines
+        // them to the animated used widths after layout.
+        '--dsh-frame-sidebar-width': `${String(cols.sidebar)}px`,
+        '--dsh-frame-right-width': `${String(cols.details)}px`,
+      } as React.CSSProperties}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
       data-details-collapsed={cols.details === 0 || undefined}
       data-right-mode={right.mode}
@@ -348,11 +385,15 @@ export function AppFrame({
           label={t(right.mode === 'workbench' ? 'drawer.workbench' : 'drawer.details')}
           onDismiss={closeRight}
         >
-          {right.mode === 'workbench' ? renderSlot('workbench', {}) : renderSlot('details', {})}
+          {right.mode === 'workbench' ? renderSlot('workbench', { drawer: rightDrawer }) : renderSlot('details', {})}
         </DetailsColumn>
       </>
       <FrameRegion className={css.overlayLayer} blocked={rightDrawer} overlay>
-        {renderSlot('shell.overlay', {})}
+        {renderSlot('shell.overlay', {
+          rightMode: right.mode,
+          rightOpen,
+          rightDrawer,
+        })}
       </FrameRegion>
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
       {!rightDrawer && !sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} value={cols.sidebar} min={SIDEBAR_MIN} max={SIDEBAR_MAX} label={t('resize.sidebar')} onSet={actions.setSidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}

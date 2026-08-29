@@ -1,29 +1,28 @@
+import { useCallback, useDeferredValue, useEffect, useRef } from 'react'
+import clsx from 'clsx'
 import {
-  useCallback, useDeferredValue, useEffect, useRef, useState,
-} from 'react'
-import {
-  CodeBlock, IconBranchOutline16, IconChevronDownOutline14, IconChevronLeftOutline14,
-  IconChevronRightOutline14, IconCloseOutline16, IconFolderClose16, IconFolderOpen16,
-  IconRefreshOutline16, IconSearchOutline16, MarkdownText,
+  IconBranchOutline16, IconChevronDownOutline14, IconChevronRightOutline14,
+  IconCloseOutline16, IconFolderClose16, IconFolderOpen16,
+  IconRefreshOutline16, IconSearchOutline16,
+  IconSettingsOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkspaceFileEntry } from '@deepseek-ai/dsh-client-runtime/client'
-import type { WorkspaceWorkbenchProps } from './contract/slots.ts'
+import type { WorkspacePreviewOverlayProps, WorkspaceWorkbenchProps } from './contract/slots.ts'
 import type {
-  WorkbenchDirectory, WorkbenchGitArea, WorkbenchPreviewKind, WorkbenchSection,
-  WorkbenchTab,
+  WorkbenchDirectory, WorkbenchGitArea, WorkbenchSearch, WorkbenchSection, WorkbenchTab,
 } from './stores.ts'
+import { previewType } from './preview-kind.ts'
+import { WorkbenchPreview } from './WorkbenchPreview.tsx'
 import css from './WorkspaceWorkbench.module.css'
 
 type WorkbenchTranslate = WorkspaceWorkbenchProps['t']
 
-const BINARY_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'ico', 'jpeg', 'jpg', 'pdf', 'png', 'svg', 'webp'])
-const LANGUAGE_BY_EXTENSION: Readonly<Record<string, string>> = {
-  c: 'c', cc: 'cpp', cpp: 'cpp', css: 'css', go: 'go', h: 'c', hpp: 'cpp',
-  java: 'java', js: 'javascript', json: 'json', jsonc: 'jsonc', jsx: 'jsx',
-  kt: 'kotlin', mjs: 'javascript', php: 'php', py: 'python', rb: 'ruby', rs: 'rust',
-  scss: 'scss', sh: 'bash', sql: 'sql', swift: 'swift', toml: 'toml', ts: 'typescript',
-  tsx: 'tsx', vue: 'vue', xml: 'xml', yaml: 'yaml', yml: 'yaml', zsh: 'bash',
-}
+/** Section tabs in render order; the glyph is the affordance on a narrow region. */
+const SECTIONS: ReadonlyArray<{ section: WorkbenchSection; labelKey: 'workbench.files' | 'workbench.search' | 'workbench.changes' }> = [
+  { section: 'files', labelKey: 'workbench.files' },
+  { section: 'changes', labelKey: 'workbench.changes' },
+  { section: 'search', labelKey: 'workbench.search' },
+]
 
 function basename(path: string): string {
   /* v8 ignore next -- split always returns at least one element, including for an empty string. */
@@ -36,55 +35,27 @@ function extension(path: string): string {
   return index === -1 ? '' : name.slice(index + 1).toLowerCase()
 }
 
-/** Resolve a file path to its read-only preview renderer. */
-export function previewType(path: string): { kind: WorkbenchPreviewKind; language?: string } {
-  const ext = extension(path)
-  if (ext === 'md' || ext === 'mdx') return { kind: 'markdown' }
-  if (ext === 'htm' || ext === 'html') return { kind: 'html' }
-  if (ext === 'csv') return { kind: 'csv' }
-  if (ext === 'pdf') return { kind: 'pdf' }
-  if (BINARY_EXTENSIONS.has(ext)) return { kind: 'image' }
-  const language = LANGUAGE_BY_EXTENSION[ext]
-  return language === undefined ? { kind: 'text' } : { kind: 'code', language }
-}
-
-export interface CsvPreview {
-  rows: string[][]
-  truncated: boolean
-}
-
-/** Parse enough RFC-4180-style CSV for a bounded preview table. */
-export function parseCsvPreview(content: string, maxRows = 100, maxColumns = 50): CsvPreview {
-  const rows: string[][] = []
-  let row: string[] = []
-  let field = ''
-  let quoted = false
-  let truncated = false
-  const pushRow = (): boolean => {
-    row.push(field)
-    field = ''
-    if (row.length > maxColumns) {
-      row = row.slice(0, maxColumns)
-      truncated = true
+/** Split a comma-separated glob field without breaking brace alternatives or character classes. */
+export function globPatterns(field: string): string[] {
+  const patterns: string[] = []
+  let start = 0
+  let braceDepth = 0
+  let inClass = false
+  for (let index = 0; index < field.length; index++) {
+    const character = field.charAt(index)
+    if (character === '[' && !inClass) inClass = true
+    else if (character === ']' && inClass) inClass = false
+    else if (!inClass && character === '{') braceDepth++
+    else if (!inClass && character === '}' && braceDepth > 0) braceDepth--
+    else if (!inClass && braceDepth === 0 && character === ',') {
+      const pattern = field.slice(start, index).trim()
+      if (pattern !== '') patterns.push(pattern)
+      start = index + 1
     }
-    rows.push(row)
-    row = []
-    return rows.length >= maxRows
   }
-  for (let index = 0; index < content.length; index++) {
-    const char = content.charAt(index)
-    if (quoted) {
-      if (char === '"' && content[index + 1] === '"') { field += '"'; index++ }
-      else if (char === '"') quoted = false
-      else field += char
-    } else if (char === '"' && field === '') quoted = true
-    else if (char === ',') { row.push(field); field = '' }
-    else if (char === '\n') {
-      if (pushRow()) return { rows, truncated: index < content.length - 1 || truncated }
-    } else if (char !== '\r') field += char
-  }
-  if (field !== '' || row.length > 0) pushRow()
-  return { rows, truncated }
+  const pattern = field.slice(start).trim()
+  if (pattern !== '') patterns.push(pattern)
+  return patterns
 }
 
 type RequestRunner = <T>(
@@ -153,14 +124,15 @@ export function DirectoryChildren(props: {
   return (
     <>
       {directory.entries.map((entry) => {
-        const inset = { paddingLeft: `${String(10 + props.depth * 14)}px` }
+        // 22px per level, matching the sidebar tree (16px slot + 6px gap).
+        const inset = { paddingLeft: `${String(8 + props.depth * 22)}px` }
         if (entry.kind === 'directory') {
           const open = props.expanded[entry.path] === true
           return (
             <div key={entry.path}>
               <button type="button" className={css.treeRow} style={inset} aria-expanded={open} onClick={() => { props.onToggle(entry.path) }}>
-                {open ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
-                {open ? <IconFolderOpen16 /> : <IconFolderClose16 />}
+                <span className={css.treeGlyph}>{open ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}</span>
+                <span className={css.treeGlyph}>{open ? <IconFolderOpen16 /> : <IconFolderClose16 />}</span>
                 <span>{entry.name}</span>
               </button>
               {open && <DirectoryChildren {...props} path={entry.path} depth={props.depth + 1} />}
@@ -176,11 +148,12 @@ export function DirectoryChildren(props: {
             key={entry.path}
             className={css.treeRow}
             style={inset}
+            data-workbench-focus-path={entry.path}
             data-active={props.activePath === entry.path || undefined}
             aria-current={props.activePath === entry.path ? 'page' : undefined}
             onClick={() => { props.onOpen(entry) }}
           >
-            <span className={css.fileGlyph}>{extension(entry.path).slice(0, 3).toUpperCase() || 'TXT'}</span>
+            <span className={clsx(css.treeGlyph, css.fileGlyph)}>{extension(entry.path).slice(0, 3).toUpperCase() || 'TXT'}</span>
             <span>{entry.name}</span>
           </button>
         )
@@ -194,14 +167,21 @@ export function DirectoryChildren(props: {
 /** Package-internal file-search presentation, exported for direct component accounting. */
 export function SearchPanel(props: {
   query: string
+  include: string
+  exclude: string
+  filtersOpen: boolean
   entries: WorkspaceFileEntry[]
   loading: boolean
   truncated: boolean
   error?: string
   t: WorkbenchTranslate
   onQuery: (query: string) => void
+  onInclude: (patterns: string) => void
+  onExclude: (patterns: string) => void
+  onToggleFilters: () => void
   onOpen: (entry: WorkspaceFileEntry) => void
 }) {
+  const filtered = props.include.trim() !== '' || props.exclude.trim() !== ''
   return (
     <div className={css.searchPanel}>
       <label className={css.searchBox}>
@@ -214,13 +194,56 @@ export function SearchPanel(props: {
           onChange={(event) => { props.onQuery(event.currentTarget.value) }}
         />
       </label>
+      <button
+        type="button"
+        className={css.filterToggle}
+        data-active={filtered || undefined}
+        aria-expanded={props.filtersOpen || filtered}
+        onClick={() => { if (!filtered) props.onToggleFilters() }}
+      >
+        <IconSettingsOutline16 size={12} />
+        <span>{props.t(filtered ? 'workbench.filtersActive' : 'workbench.filters')}</span>
+      </button>
+      {(props.filtersOpen || filtered) && (
+        <div className={css.filterFields}>
+          <label className={css.filterField}>
+            <span>{props.t('workbench.filterInclude')}</span>
+            <input
+              type="text"
+              value={props.include}
+              placeholder="*.py, src/**"
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(event) => { props.onInclude(event.currentTarget.value) }}
+            />
+          </label>
+          <label className={css.filterField}>
+            <span>{props.t('workbench.filterExclude')}</span>
+            <input
+              type="text"
+              value={props.exclude}
+              placeholder="dist/, *.min.js"
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(event) => { props.onExclude(event.currentTarget.value) }}
+            />
+          </label>
+          <span className={css.filterHint}>{props.t('workbench.filterHint')}</span>
+        </div>
+      )}
       {props.loading && <div className={css.navStatus}>{props.t('workbench.fileSearchLoading')}</div>}
       {props.error !== undefined && <div className={css.navError}>{props.error}</div>}
       {!props.loading && props.query.trim() !== '' && props.entries.length === 0 && props.error === undefined
         && <div className={css.navStatus}>{props.t('workbench.fileSearchEmpty')}</div>}
       <div className={css.searchResults}>
         {props.entries.map(entry => (
-          <button type="button" key={entry.path} className={css.searchResult} onClick={() => { props.onOpen(entry) }}>
+          <button
+            type="button"
+            key={entry.path}
+            className={css.searchResult}
+            data-workbench-focus-path={entry.path}
+            onClick={() => { props.onOpen(entry) }}
+          >
             <strong>{entry.name}</strong>
             <span>{entry.path}</span>
           </button>
@@ -253,7 +276,7 @@ export function ChangesPanel(props: {
     <div className={css.changesPanel}>
       <div className={css.gitHeader}>
         <span>{props.branch === null ? props.t('workbench.gitChanges') : props.t('workbench.gitBranch', { name: props.branch })}</span>
-        <button type="button" aria-label={props.t('workbench.gitRefresh')} onClick={props.onRefresh}><IconRefreshOutline16 /></button>
+        <button type="button" className={css.iconButton} aria-label={props.t('workbench.gitRefresh')} onClick={props.onRefresh}><IconRefreshOutline16 /></button>
       </div>
       <div className={css.segmented}>
         <button type="button" data-active={props.area === 'worktree' || undefined} aria-pressed={props.area === 'worktree'} onClick={() => { props.onArea('worktree') }}>{props.t('workbench.gitWorktree')}</button>
@@ -271,12 +294,13 @@ export function ChangesPanel(props: {
               type="button"
               key={`${props.area}:${entry.path}`}
               className={css.changeRow}
+              data-workbench-focus-path={entry.path}
               onClick={() => {
                 if (untracked) props.onOpenFile({ name: basename(entry.path), path: entry.path, kind: 'file' })
                 else props.onOpenDiff(entry)
               }}
             >
-              <span data-status={status}>{status}</span>
+              <span className={css.changeStatus} data-status={status}>{status}</span>
               <span title={entry.path}>{entry.path}</span>
             </button>
           )
@@ -293,164 +317,6 @@ export function ChangesPanel(props: {
           </div>
         ))}
       </div>
-    </div>
-  )
-}
-
-function useObjectUrl(tab: WorkbenchTab | undefined): string | undefined {
-  const [url, setUrl] = useState<string>()
-  useEffect(() => {
-    if (tab?.dataBase64 === undefined || tab.mediaType === undefined || typeof URL.createObjectURL !== 'function') {
-      setUrl(undefined)
-      return
-    }
-    const binary = atob(tab.dataBase64)
-    const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
-    const next = URL.createObjectURL(new Blob([bytes], { type: tab.mediaType }))
-    setUrl(next)
-    return () => { URL.revokeObjectURL(next) }
-  }, [tab?.dataBase64, tab?.mediaType])
-  return url
-}
-
-/** Package-internal bounded CSV presentation, exported for direct component accounting. */
-export function CsvTable({ content, t }: { content: string; t: WorkbenchTranslate }) {
-  const parsed = parseCsvPreview(content)
-  const [header, ...body] = parsed.rows
-  if (header === undefined) return <div className={css.emptyPreview}>{t('workbench.csvEmpty')}</div>
-  return (
-    <div className={css.csvWrap}>
-      <table className={css.csvTable}>
-        <thead><tr>{header.map((cell, index) => <th key={index}>{cell}</th>)}</tr></thead>
-        <tbody>{body.map((row, rowIndex) => (
-          <tr key={rowIndex}>{row.map((cell, columnIndex) => <td key={columnIndex}>{cell}</td>)}</tr>
-        ))}</tbody>
-      </table>
-      {parsed.truncated && <div className={css.previewNotice}>{t('workbench.csvTruncated')}</div>}
-    </div>
-  )
-}
-
-/** Package-internal unified-diff presentation, exported for direct component accounting. */
-export function DiffPreview({ content }: { content: string }) {
-  return (
-    <pre className={css.diffPreview}>
-      {content.split('\n').map((line, index) => {
-        const kind = line.startsWith('+++') || line.startsWith('---')
-          ? 'header'
-          : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'delete' : line.startsWith('@@') ? 'range' : undefined
-        return <span key={index} data-kind={kind}>{line}{'\n'}</span>
-      })}
-    </pre>
-  )
-}
-
-/** Package-internal document-tab presentation, exported for direct component accounting. */
-export function TabStrip(props: {
-  tabs: WorkbenchTab[]
-  activeTabId: string | null
-  onSelect: (id: string) => void
-  onClose: (id: string) => void
-  t: WorkbenchTranslate
-}) {
-  return (
-    <div className={css.tabStrip} role="tablist" tabIndex={-1} aria-label={props.t('workbench.tabsAria')}>
-      {props.tabs.map((tab, index) => (
-        <div
-          key={tab.id}
-          className={css.documentTab}
-          data-active={props.activeTabId === tab.id || undefined}
-        >
-          <button
-            type="button"
-            id={`workspace-workbench-tab-${encodeURIComponent(tab.id)}`}
-            role="tab"
-            aria-controls="workspace-workbench-panel"
-            aria-selected={props.activeTabId === tab.id}
-            tabIndex={props.activeTabId === tab.id ? 0 : -1}
-            className={css.tabSelect}
-            onClick={() => { props.onSelect(tab.id) }}
-            onKeyDown={(event) => {
-              let next = index
-              if (event.key === 'ArrowLeft') next = (index + props.tabs.length - 1) % props.tabs.length
-              else if (event.key === 'ArrowRight') next = (index + 1) % props.tabs.length
-              else if (event.key === 'Home') next = 0
-              else if (event.key === 'End') next = props.tabs.length - 1
-              else return
-              event.preventDefault()
-              const nextTab = props.tabs[next]
-              /* v8 ignore next -- navigation derives an in-range index from the rendered non-empty tab list. */
-              if (nextTab === undefined) throw new Error('tab navigation produced an invalid index')
-              props.onSelect(nextTab.id)
-              event.currentTarget.closest('[role="tablist"]')?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus()
-            }}
-          >
-            <span>{tab.title}</span>
-            {tab.loading && <span className={css.loadingDot} aria-label={props.t('workbench.tabLoading')} />}
-          </button>
-          <button
-            type="button"
-            aria-label={props.t('workbench.tabClose', { name: tab.title })}
-            className={css.tabClose}
-            onClick={(event) => {
-              const tablist = event.currentTarget.closest<HTMLElement>('[role="tablist"]') as HTMLElement
-              const nextIndex = Math.min(index, props.tabs.length - 2)
-              props.onClose(tab.id)
-              queueMicrotask(() => {
-                if (nextIndex >= 0) tablist.querySelectorAll<HTMLElement>('[role="tab"]')[nextIndex]?.focus()
-                else tablist.focus()
-              })
-            }}
-          ><IconCloseOutline16 size={12} /></button>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-/** Package-internal preview dispatcher, exported for direct component accounting. */
-export function FilePreview({ tab, onBack, t }: { tab: WorkbenchTab | undefined; onBack: () => void; t: WorkbenchTranslate }) {
-  const objectUrl = useObjectUrl(tab)
-  if (tab === undefined) {
-    return (
-      <div className={css.emptyPreview}>
-        <div className={css.emptyMark}>W</div>
-        <strong>{t('workbench.previewEmptyTitle')}</strong>
-        <span>{t('workbench.previewEmptyDescription')}</span>
-      </div>
-    )
-  }
-  let body
-  if (tab.loading) body = <div className={css.emptyPreview}>{t('workbench.previewReading', { name: tab.title })}</div>
-  else if (tab.error !== undefined) body = <div className={css.previewError}>{tab.error}</div>
-  else if (tab.content === undefined && objectUrl === undefined) body = <div className={css.emptyPreview}>{t('workbench.previewUnavailable')}</div>
-  else {
-    const content = tab.content as string
-    switch (tab.kind) {
-      case 'markdown': body = <article className={css.markdownPreview}><MarkdownText text={content} /></article>; break
-      case 'html': body = <iframe className={css.htmlPreview} title={tab.title} sandbox="" referrerPolicy="no-referrer" srcDoc={content} />; break
-      case 'code': body = <div className={css.codePreview}><CodeBlock code={content} lang={tab.language} /></div>; break
-      case 'text': body = <pre className={css.textPreview}>{tab.content}</pre>; break
-      case 'csv': body = <CsvTable content={content} t={t} />; break
-      case 'diff': body = <DiffPreview content={content} />; break
-      case 'image': body = <div className={css.imagePreview}><img src={objectUrl} alt={tab.title} /></div>; break
-      case 'pdf': body = <iframe className={css.pdfPreview} title={tab.title} sandbox="" src={objectUrl} />; break
-    }
-  }
-  return (
-    <div
-      id="workspace-workbench-panel"
-      className={css.previewPane}
-      role="tabpanel"
-      aria-labelledby={`workspace-workbench-tab-${encodeURIComponent(tab.id)}`}
-    >
-      <div className={css.previewHeader}>
-        <button type="button" className={css.mobileBack} aria-label={t('workbench.previewBack')} onClick={onBack}><IconChevronLeftOutline14 /></button>
-        <span title={tab.path}>{tab.path}</span>
-        {tab.bytes !== undefined && <small>{tab.bytes.toLocaleString()} B</small>}
-      </div>
-      <div className={css.previewBody}>{body}</div>
-      {tab.truncated && <div className={css.previewNotice}>{t('workbench.previewTruncated')}</div>}
     </div>
   )
 }
@@ -473,7 +339,6 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
   const account = props.useStore(state => workspaceId === undefined ? undefined : state.byWorkspace[workspaceId])
   const activeTab = account?.tabs.find(tab => tab.id === account.activeTabId)
   const runRequest = useRequestFence(workspaceId)
-  const [mobilePreview, setMobilePreview] = useState(false)
 
   useEffect(() => {
     if (retainedWorkspaces !== null) {
@@ -509,7 +374,6 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     const existing = account?.tabs.find(tab => tab.id === id)
     if (existing !== undefined && existing.error === undefined) {
       props.actions.selectTab(workspaceId, id)
-      setMobilePreview(true)
       return
     }
     const descriptor = previewType(entry.path)
@@ -518,7 +382,6 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
       ...(descriptor.language === undefined ? {} : { language: descriptor.language }),
     }
     props.actions.openTab(workspaceId, pending)
-    setMobilePreview(true)
     if (descriptor.kind === 'image' || descriptor.kind === 'pdf') {
       runRequest(
         signal => props.readBinaryFile(workspace.workspaceId, entry.path, signal),
@@ -586,7 +449,6 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     const existing = account.tabs.find(tab => tab.id === id)
     if (existing !== undefined && existing.error === undefined) {
       props.actions.selectTab(workspaceId, id)
-      setMobilePreview(true)
       return
     }
     const pending: WorkbenchTab = {
@@ -596,7 +458,6 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
       kind: 'diff', language: 'diff', loading: true,
     }
     props.actions.openTab(workspaceId, pending)
-    setMobilePreview(true)
     runRequest(
       signal => props.gitDiff(workspace.workspaceId, entry.path, staged, signal),
       (value) => { props.actions.updateTab(workspaceId, { ...pending, content: value.diff, truncated: value.truncated, loading: false }) },
@@ -605,37 +466,57 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     )
   }, [account, props.actions, props.gitDiff, props.t, runRequest, workspace, workspaceId])
 
-  const query = account?.search.query ?? ''
-  const deferredQuery = useDeferredValue(query)
+  const search = account?.search
+  const query = search?.query ?? ''
+  const include = search?.include ?? ''
+  const exclude = search?.exclude ?? ''
+  // One deferred trigger over the whole request shape: a filter edit re-runs the
+  // search exactly the way a query edit does.
+  const requestKey = `${query}\u0000${include}\u0000${exclude}`
+  const deferredKey = useDeferredValue(requestKey)
   useEffect(() => {
-    if (workspaceId === undefined || workspace === undefined || account?.section !== 'search' || query !== deferredQuery) return
-    const needle = deferredQuery.trim()
+    if (workspaceId === undefined || workspace === undefined || account?.section !== 'search' || requestKey !== deferredKey) return
+    const needle = query.trim()
     if (needle === '') return
-    props.actions.setSearch(workspaceId, { query, entries: [], truncated: false, loading: true })
+    props.actions.setSearch(workspaceId, {
+      query, include, exclude, filtersOpen: account.search.filtersOpen, entries: [], truncated: false, loading: true,
+    })
     let cancel = (): void => {}
     const timer = window.setTimeout(() => {
       cancel = runRequest(
-        signal => props.searchFiles(workspace.workspaceId, needle, signal),
-        (value) => { props.actions.setSearch(workspaceId, { query, ...value, loading: false }) },
-        (error) => { props.actions.setSearch(workspaceId, { query, entries: [], truncated: false, loading: false, error }) },
+        signal => props.searchFiles(
+          workspace.workspaceId,
+          needle,
+          { include: globPatterns(include), exclude: globPatterns(exclude) },
+          signal,
+        ),
+        (value) => {
+          props.actions.setSearch(workspaceId, {
+            query, include, exclude, filtersOpen: account.search.filtersOpen, ...value, loading: false,
+          })
+        },
+        (error) => {
+          props.actions.setSearch(workspaceId, {
+            query, include, exclude, filtersOpen: account.search.filtersOpen, entries: [], truncated: false, loading: false, error,
+          })
+        },
         'search',
       )
     }, 180)
     return () => { window.clearTimeout(timer); cancel() }
-  }, [account?.section, deferredQuery, props.actions, props.searchFiles, query, runRequest, workspace, workspaceId])
-
-  const selectSection = (section: WorkbenchSection): void => {
-    /* v8 ignore next -- section controls render only after a Workspace resolves. */
-    if (workspaceId === undefined) return
-    props.actions.setSection(workspaceId, section)
-    setMobilePreview(false)
-  }
+  }, [
+    account?.search.filtersOpen, account?.section, deferredKey, exclude, include, props.actions,
+    props.searchFiles, query, requestKey, runRequest, workspace, workspaceId,
+  ])
 
   if (workspace === undefined || workspaceId === undefined) {
     return (
       <aside className={css.root} aria-label={props.t('workbench.aria')}>
-        <header className={css.header}><strong>{props.t('workbench.label')}</strong><button type="button" aria-label={props.t('workbench.close')} onClick={props.closeWorkbench}><IconCloseOutline16 /></button></header>
-        <div className={css.emptyPreview}>{props.t('workbench.noWorkspace')}</div>
+        <header className={css.header}>
+          <strong className={css.headerTitle}>{props.t('workbench.label')}</strong>
+          <button type="button" className={css.iconButton} aria-label={props.t('workbench.close')} onClick={props.closeWorkbench}><IconCloseOutline16 /></button>
+        </header>
+        <div className={css.emptyState}>{props.t('workbench.noWorkspace')}</div>
       </aside>
     )
   }
@@ -643,87 +524,193 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
   const section = account?.section ?? 'files'
   const directories = account?.directories ?? {}
   const expanded = account?.expandedDirectories ?? { '': true }
-  const search = account?.search ?? { query: '', entries: [], truncated: false, loading: false }
+  const searchAccount: WorkbenchSearch = search
+    ?? { query: '', include: '', exclude: '', filtersOpen: false, entries: [], truncated: false, loading: false }
   const git = account?.git
   /* v8 ignore next -- the changes section exists only on an initialized default account. */
   const gitArea = account?.gitArea ?? 'worktree'
+  const drawerPreviewOpen = props.drawer && account?.previewOpen === true
+  const setSearchField = (patch: Partial<WorkbenchSearch>): void => {
+    const next = { ...searchAccount, entries: [], truncated: false, loading: false, ...patch }
+    delete next.error
+    props.actions.setSearch(workspaceId, next)
+  }
   return (
-    <aside
-      className={css.root}
-      aria-label={props.t('workbench.aria')}
-      data-mobile-preview={mobilePreview && activeTab !== undefined || undefined}
-    >
+    <aside className={css.root} data-preview={drawerPreviewOpen || undefined} aria-label={props.t('workbench.aria')}>
       <header className={css.header}>
-        <div><span>{props.t('workbench.label')}</span><strong title={workspace.path}>{workspace.title}</strong></div>
-        <button type="button" aria-label={props.t('workbench.close')} onClick={props.closeWorkbench}><IconCloseOutline16 /></button>
+        <div className={css.headerText}>
+          <span className={css.headerLabel}>{props.t('workbench.label')}</span>
+          <strong className={css.headerTitle} title={workspace.path}>{workspace.title}</strong>
+        </div>
+        <button type="button" className={css.iconButton} aria-label={props.t('workbench.close')} onClick={props.closeWorkbench}><IconCloseOutline16 /></button>
       </header>
-      <div className={css.workbenchBody}>
-        <nav className={css.activityBar} aria-label={props.t('workbench.tools')}>
-          <button type="button" data-active={section === 'files' || undefined} aria-pressed={section === 'files'} onClick={() => { selectSection('files') }}><IconFolderOpen16 /><span>{props.t('workbench.files')}</span></button>
-          <button type="button" data-active={section === 'search' || undefined} aria-pressed={section === 'search'} onClick={() => { selectSection('search') }}><IconSearchOutline16 /><span>{props.t('workbench.search')}</span></button>
-          <button type="button" data-active={section === 'changes' || undefined} aria-pressed={section === 'changes'} onClick={() => { selectSection('changes') }}><IconBranchOutline16 /><span>{props.t('workbench.changes')}</span></button>
-        </nav>
-        <section className={css.navigator} aria-label={props.t('workbench.navigation')}>
-          <div className={css.navigatorTitle}>
-            <strong>{section === 'files' ? props.t('workbench.files') : section === 'search' ? props.t('workbench.search') : props.t('workbench.sourceControl')}</strong>
-            {section === 'files' && <button type="button" aria-label={props.t('workbench.refreshFiles')} onClick={() => { loadDirectory('') }}><IconRefreshOutline16 /></button>}
-          </div>
-          <div className={css.navigatorBody}>
-            {section === 'files' && (
-              <DirectoryChildren
-                path=""
-                depth={0}
-                directories={directories}
-                expanded={expanded}
-                activePath={activeTab?.kind === 'diff' ? undefined : activeTab?.path}
-                t={props.t}
-                onToggle={(path) => {
-                  const open = expanded[path] !== true
-                  props.actions.setDirectoryExpanded(workspaceId, path, open)
-                  if (open && directories[path] === undefined) loadDirectory(path)
-                }}
-                onOpen={openFile}
-              />
-            )}
-            {section === 'search' && (
-              <SearchPanel
-                {...search}
-                t={props.t}
-                onQuery={(next) => {
-                  props.actions.setSearch(workspaceId, { query: next, entries: [], truncated: false, loading: false })
-                }}
-                onOpen={openFile}
-              />
-            )}
-            {section === 'changes' && (
-              <ChangesPanel
-                area={gitArea}
-                branch={git?.branch ?? null}
-                statusEntries={git?.entries ?? []}
-                commits={git?.commits ?? []}
-                loading={git?.loading ?? true}
-                truncated={git?.truncated ?? false}
-                {...(git?.error === undefined ? {} : { error: git.error })}
-                t={props.t}
-                onArea={(area) => { props.actions.setGitArea(workspaceId, area) }}
-                onRefresh={loadGit}
-                onOpenDiff={openDiff}
-                onOpenFile={openFile}
-              />
-            )}
-          </div>
-        </section>
-        <main className={css.documentArea}>
-          <TabStrip
-            tabs={account?.tabs ?? []}
-            activeTabId={account?.activeTabId ?? null}
-            t={props.t}
-            onSelect={(id) => { props.actions.selectTab(workspaceId, id); setMobilePreview(true) }}
-            onClose={(id) => { props.actions.closeTab(workspaceId, id) }}
-          />
-          <FilePreview tab={activeTab} t={props.t} onBack={() => { setMobilePreview(false) }} />
-        </main>
-      </div>
+      <nav className={css.sectionTabs} aria-label={props.t('workbench.tools')}>
+        <div className={css.sectionTabList} role="tablist">
+          {SECTIONS.map((entry, index) => (
+            <button
+              key={entry.section}
+              type="button"
+              id={`workspace-workbench-section-${entry.section}`}
+              role="tab"
+              className={css.sectionTab}
+              data-active={section === entry.section || undefined}
+              aria-controls="workspace-workbench-navigation"
+              aria-selected={section === entry.section}
+              tabIndex={section === entry.section ? 0 : -1}
+              title={props.t(entry.labelKey)}
+              onClick={() => { props.actions.setSection(workspaceId, entry.section) }}
+              onKeyDown={(event) => {
+                let next = index
+                if (event.key === 'ArrowLeft') next = (index + SECTIONS.length - 1) % SECTIONS.length
+                else if (event.key === 'ArrowRight') next = (index + 1) % SECTIONS.length
+                else if (event.key === 'Home') next = 0
+                else if (event.key === 'End') next = SECTIONS.length - 1
+                else return
+                event.preventDefault()
+                const nextSection = SECTIONS[next]
+                /* v8 ignore next -- navigation derives an in-range index from the fixed non-empty section list. */
+                if (nextSection === undefined) throw new Error('section navigation produced an invalid index')
+                props.actions.setSection(workspaceId, nextSection.section)
+                event.currentTarget.closest('[role="tablist"]')?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus()
+              }}
+            >
+              {entry.section === 'files' && <IconFolderOpen16 size={14} />}
+              {entry.section === 'search' && <IconSearchOutline16 size={14} />}
+              {entry.section === 'changes' && <IconBranchOutline16 size={14} />}
+              <span>{props.t(entry.labelKey)}</span>
+            </button>
+          ))}
+        </div>
+        {section === 'files' && (
+          <button
+            type="button"
+            className={clsx(css.iconButton, css.sectionTabSpacer)}
+            aria-label={props.t('workbench.refreshFiles')}
+            onClick={() => { loadDirectory('') }}
+          ><IconRefreshOutline16 /></button>
+        )}
+      </nav>
+      <section
+        id="workspace-workbench-navigation"
+        className={css.navigator}
+        role="tabpanel"
+        aria-labelledby={`workspace-workbench-section-${section}`}
+      >
+        <div className={css.navigatorBody}>
+          {section === 'files' && (
+            <DirectoryChildren
+              path=""
+              depth={0}
+              directories={directories}
+              expanded={expanded}
+              activePath={activeTab?.kind === 'diff' ? undefined : activeTab?.path}
+              t={props.t}
+              onToggle={(path) => {
+                const open = expanded[path] !== true
+                props.actions.setDirectoryExpanded(workspaceId, path, open)
+                if (open && directories[path] === undefined) loadDirectory(path)
+              }}
+              onOpen={openFile}
+            />
+          )}
+          {section === 'search' && (
+            <SearchPanel
+              {...searchAccount}
+              t={props.t}
+              onQuery={(next) => { setSearchField({ query: next }) }}
+              onInclude={(next) => { setSearchField({ include: next }) }}
+              onExclude={(next) => { setSearchField({ exclude: next }) }}
+              onToggleFilters={() => {
+                props.actions.setSearch(workspaceId, { ...searchAccount, filtersOpen: !searchAccount.filtersOpen })
+              }}
+              onOpen={openFile}
+            />
+          )}
+          {section === 'changes' && (
+            <ChangesPanel
+              area={gitArea}
+              branch={git?.branch ?? null}
+              statusEntries={git?.entries ?? []}
+              commits={git?.commits ?? []}
+              loading={git?.loading ?? true}
+              truncated={git?.truncated ?? false}
+              {...(git?.error === undefined ? {} : { error: git.error })}
+              t={props.t}
+              onArea={(area) => { props.actions.setGitArea(workspaceId, area) }}
+              onRefresh={loadGit}
+              onOpenDiff={openDiff}
+              onOpenFile={openFile}
+            />
+          )}
+        </div>
+      </section>
+      {/* Drawer mode: the region already covers the frame and the shell's
+          overlay layer is inert, so preview renders here instead of there. */}
+      {props.drawer && (
+        <WorkbenchPreview
+          tabs={account?.tabs ?? []}
+          activeTabId={account?.activeTabId ?? null}
+          open={account?.previewOpen ?? false}
+          focusScopeKey={workspaceId}
+          {...(activeTab?.path === undefined ? {} : { focusReturnPath: activeTab.path })}
+          placement="in-column"
+          t={props.t}
+          onSelect={(id) => { props.actions.selectTab(workspaceId, id) }}
+          onClose={(id) => { props.actions.closeTab(workspaceId, id) }}
+          onDismiss={() => { props.actions.setPreviewOpen(workspaceId, false) }}
+        />
+      )}
     </aside>
+  )
+}
+
+/**
+ * The preview companion for the docked case: same store, rendered into the
+ * frame-wide overlay layer so the surface can slide over the conversation.
+ *
+ * Registered separately from the workbench because the two live in different
+ * frame regions; they share one store handle, so tabs and open-state are the
+ * same facts on both sides.
+ */
+export function WorkspaceWorkbenchPreviewOverlay(props: WorkspacePreviewOverlayProps) {
+  const sessionId = props.useSessions((state) => {
+    const current = state.current
+    return current !== undefined && state.byId[current]?.blank === false ? current : undefined
+  })
+  const sessionCwd = props.useSessions(state => sessionId === undefined ? undefined : state.byId[sessionId]?.cwd)
+  const workspaceId = props.useWorkspaces(state => (
+    sessionId === undefined
+      ? undefined
+      : (state.items.find(item => item.sessionIds.includes(sessionId))
+        ?? state.items.find(item => item.path === sessionCwd))?.workspaceId as string | undefined
+  ))
+  const account = props.useStore(state => workspaceId === undefined ? undefined : state.byWorkspace[workspaceId])
+  const activeTab = account?.tabs.find(tab => tab.id === account.activeTabId)
+  useEffect(() => {
+    return () => {
+      if (workspaceId !== undefined) props.actions.setPreviewOpen(workspaceId, false)
+    }
+  }, [props.actions, workspaceId])
+  useEffect(() => {
+    if (
+      workspaceId !== undefined
+      && account?.previewOpen === true
+      && (!props.rightOpen || props.rightMode !== 'workbench')
+    ) props.actions.setPreviewOpen(workspaceId, false)
+  }, [account?.previewOpen, props.actions, props.rightMode, props.rightOpen, workspaceId])
+  if (workspaceId === undefined || props.rightDrawer || !props.rightOpen || props.rightMode !== 'workbench') return null
+  return (
+    <WorkbenchPreview
+      tabs={account?.tabs ?? []}
+      activeTabId={account?.activeTabId ?? null}
+      open={account?.previewOpen === true}
+      focusScopeKey={workspaceId}
+      {...(activeTab?.path === undefined ? {} : { focusReturnPath: activeTab.path })}
+      placement="overlay"
+      t={props.t}
+      onSelect={(id) => { props.actions.selectTab(workspaceId, id) }}
+      onClose={(id) => { props.actions.closeTab(workspaceId, id) }}
+      onDismiss={() => { props.actions.setPreviewOpen(workspaceId, false) }}
+    />
   )
 }

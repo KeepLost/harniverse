@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type { WorkspaceFileEntry } from './workspace-files.ts'
+import { WORKSPACE_GLOB_LIST_LIMIT, WORKSPACE_GLOB_PATTERN_LIMIT } from './workspace-files.ts'
 import { workspaceIdSchema } from './workspace.schema.ts'
 
 const workspaceFileEntrySchema = z.object({
@@ -23,10 +24,20 @@ export const workspaceFilesListValueSchema = z.object({
   truncated: z.boolean(),
 }) satisfies z.ZodType<Wire<ResponseValue<'workspace.files.list'>>>
 
+/**
+ * One glob list: bounded in both length and per-pattern size so a pattern list
+ * cannot become an unbounded compilation input.
+ */
+const workspaceGlobListSchema = z.array(
+  z.string().trim().min(1).max(WORKSPACE_GLOB_PATTERN_LIMIT),
+).max(WORKSPACE_GLOB_LIST_LIMIT)
+
 /** Wire validator for one bounded file-name search request. */
 export const workspaceFilesSearchRequestSchema = z.object({
   workspaceId: workspaceIdSchema,
   query: z.string().trim().min(1).max(200),
+  include: workspaceGlobListSchema.optional(),
+  exclude: workspaceGlobListSchema.optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'workspace.files.search'>>>
 
 /** Wire validator for one bounded file-name search result. */

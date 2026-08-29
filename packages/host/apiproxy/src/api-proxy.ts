@@ -3973,7 +3973,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const { workspaceId } = request.payload
         const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
         if (workspace === undefined) return workspaceNotFound(request, workspaceId)
-        const path = request.payload.path ?? '.'
+        const path = request.payload.path ?? ''
         try {
           return ok(request, await listWorkspaceFiles(workspace.path, path, signal))
         } catch (error: unknown) {
@@ -3982,11 +3982,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async search(request, signal) {
-        const { workspaceId, query } = request.payload
+        const { workspaceId, query, include, exclude } = request.payload
         const workspace = ctx.workspaceRegistry.get(brandWorkspaceId(workspaceId))
         if (workspace === undefined) return workspaceNotFound(request, workspaceId)
         try {
-          return ok(request, await searchWorkspaceFiles(workspace.path, query, signal))
+          return ok(request, await searchWorkspaceFiles(workspace.path, query, signal, {
+            ...(include === undefined ? {} : { include }),
+            ...(exclude === undefined ? {} : { exclude }),
+          }))
         } catch (error: unknown) {
           return workspaceInspectionFailure(request, workspaceId, '.', error, signal)
         }

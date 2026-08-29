@@ -199,3 +199,15 @@ export type WorkspaceWorkbenchProps =
   & PropsStore<ReturnType<typeof createWorkspaceWorkbenchStore>>
   & InjectFace<WorkspaceWorkbenchInjected>
   & PropsLocale<'workspace'>
+
+/**
+ * Props of the preview companion registered into the shell's overlay layer.
+ *
+ * The surface needs no inspection callbacks: the workbench performs every read
+ * and the two registrations share one store handle, so this side only renders
+ * what the shared account already holds.
+ */
+export type WorkspacePreviewOverlayProps =
+  PropsRuntime<'shell.overlay'>
+  & PropsStore<ReturnType<typeof createWorkspaceWorkbenchStore>>
+  & PropsLocale<'workspace'>

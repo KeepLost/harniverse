@@ -8,9 +8,10 @@ import type {
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import {
-  ChangesPanel, CsvTable, DiffPreview, DirectoryChildren, FilePreview, SearchPanel, TabStrip,
-  WorkspaceWorkbench, parseCsvPreview, previewType,
+  ChangesPanel, DirectoryChildren, globPatterns, SearchPanel, WorkspaceWorkbench, WorkspaceWorkbenchPreviewOverlay,
 } from '../src/client/WorkspaceWorkbench.tsx'
+import { CsvTable, DiffPreview, FilePreview, TabStrip, WorkbenchPreview } from '../src/client/WorkbenchPreview.tsx'
+import { parseCsvPreview, previewType } from '../src/client/preview-kind.ts'
 import { WorkspaceWorkbenchButton } from '../src/client/WorkspaceWorkbenchButton.tsx'
 import type { WorkspaceWorkbenchProps } from '../src/client/contract/slots.ts'
 import { zh } from '../src/client/locales.ts'
@@ -35,14 +36,25 @@ type Services = Pick<WorkspaceWorkbenchProps,
 
 function mountWorkbench(
   overrides: Partial<Services> = {},
-  options: { current?: SessionId | undefined; workspaces?: WorkspaceView[]; baselinesReady?: boolean } = {},
+  options: {
+    current?: SessionId | undefined
+    workspaces?: WorkspaceView[]
+    baselinesReady?: boolean
+    drawer?: boolean
+    rightMode?: 'details' | 'workbench'
+    rightOpen?: boolean
+  } = {},
 ) {
   let current = 'current' in options ? options.current : sid('s-a')
+  let rightMode = options.rightMode ?? 'workbench'
+  let rightOpen = options.rightOpen ?? true
   const workspaces = options.workspaces ?? [workspace('a', 's-a'), workspace('b', 's-b')]
   const instance = createWorkspaceWorkbenchStore().create()
   const services: Services = {
     listFiles: vi.fn(async (_workspaceId: WorkspaceId, path?: string, _signal?: AbortSignal) => ({ path: path ?? '', entries: [], truncated: false })),
-    searchFiles: vi.fn(async (_workspaceId: WorkspaceId, _query: string, _signal?: AbortSignal) => ({ entries: [], truncated: false })),
+    searchFiles: vi.fn(async (
+      _workspaceId: WorkspaceId, _query: string, _filters, _signal?: AbortSignal,
+    ) => ({ entries: [], truncated: false })),
     readFile: vi.fn(async (_workspaceId: WorkspaceId, path: string, _signal?: AbortSignal) => ({ path, content: '', bytes: 0, truncated: false })),
     readBinaryFile: vi.fn(async (_workspaceId: WorkspaceId, path: string, _signal?: AbortSignal) => ({ path, dataBase64: '', mediaType: 'image/png', bytes: 0 })),
     gitStatus: vi.fn(async (_workspaceId: WorkspaceId, _signal?: AbortSignal) => ({ branch: null, entries: [], truncated: false })),
@@ -65,14 +77,27 @@ function mountWorkbench(
     current, phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
   })
   const element = () => (
-    <WorkspaceWorkbench
-      useSessions={selector => selector(sessionState())}
-      useWorkspaces={selector => selector(workspaceState())}
-      useStore={bindSnapshotSelector(instance)}
-      actions={instance.actions}
-      t={t}
-      {...services}
-    />
+    <>
+      <WorkspaceWorkbench
+        useSessions={selector => selector(sessionState())}
+        useWorkspaces={selector => selector(workspaceState())}
+        useStore={bindSnapshotSelector(instance)}
+        actions={instance.actions}
+        drawer={options.drawer ?? false}
+        t={t}
+        {...services}
+      />
+      <WorkspaceWorkbenchPreviewOverlay
+        useSessions={selector => selector(sessionState())}
+        useWorkspaces={selector => selector(workspaceState())}
+        useStore={bindSnapshotSelector(instance)}
+        actions={instance.actions}
+        rightMode={rightMode}
+        rightOpen={rightOpen}
+        rightDrawer={options.drawer ?? false}
+        t={t}
+      />
+    </>
   )
   const view = render(element())
   return {
@@ -80,6 +105,11 @@ function mountWorkbench(
     instance,
     services,
     switchSession(next: string) { current = sid(next); view.rerender(element()) },
+    setRight(next: { mode?: 'details' | 'workbench'; open?: boolean }) {
+      rightMode = next.mode ?? rightMode
+      rightOpen = next.open ?? rightOpen
+      view.rerender(element())
+    },
   }
 }
 
@@ -130,15 +160,30 @@ describe('workbench presentation units', () => {
 
   it('renders and drives search result, empty, error, loading, and truncation states', () => {
     const onQuery = vi.fn()
+    const onInclude = vi.fn()
+    const onExclude = vi.fn()
+    const onToggleFilters = vi.fn()
     const onOpen = vi.fn()
-    const view = render(<SearchPanel query="x" entries={[]} loading truncated={false} t={t} onQuery={onQuery} onOpen={onOpen} />)
+    const common = {
+      query: 'x', include: '', exclude: '', filtersOpen: false, entries: [], loading: true, truncated: false,
+      t, onQuery, onInclude, onExclude, onToggleFilters, onOpen,
+    }
+    const view = render(<SearchPanel {...common} />)
     expect(view.getByText('正在搜索…')).toBeTruthy()
     fireEvent.change(view.getByRole('searchbox'), { target: { value: 'next' } })
     expect(onQuery).toHaveBeenCalledWith('next')
-    view.rerender(<SearchPanel query="x" entries={[]} loading={false} truncated={false} t={t} onQuery={onQuery} onOpen={onOpen} />)
+    fireEvent.click(view.getByRole('button', { name: '筛选范围' }))
+    expect(onToggleFilters).toHaveBeenCalledOnce()
+    view.rerender(<SearchPanel {...common} include="*.py" filtersOpen loading={false} />)
+    fireEvent.change(view.getByLabelText('包含文件'), { target: { value: '*.ts' } })
+    fireEvent.change(view.getByLabelText('排除文件'), { target: { value: 'dist/' } })
+    expect(onInclude).toHaveBeenCalledWith('*.ts')
+    expect(onExclude).toHaveBeenCalledWith('dist/')
+    expect(view.getByRole('button', { name: '已筛选范围' }).getAttribute('data-active')).not.toBeNull()
+    view.rerender(<SearchPanel {...common} loading={false} />)
     expect(view.getByText('没有匹配文件')).toBeTruthy()
     const entry: WorkspaceFileEntry = { name: 'x.ts', path: 'src/x.ts', kind: 'file' }
-    view.rerender(<SearchPanel query="x" entries={[entry]} loading={false} truncated error="search failed" t={t} onQuery={onQuery} onOpen={onOpen} />)
+    view.rerender(<SearchPanel {...common} entries={[entry]} loading={false} truncated error="search failed" />)
     expect(view.getByText('search failed')).toBeTruthy()
     expect(view.getByText('搜索已达到上限，部分匹配文件可能未显示；请缩小搜索范围')).toBeTruthy()
     fireEvent.click(view.getByRole('button', { name: /src\/x\.ts/ }))
@@ -219,6 +264,28 @@ describe('workbench presentation units', () => {
     expect(onSelect).toHaveBeenCalledWith('b')
     expect(onClose).toHaveBeenCalledWith('a')
 
+    const inactive = render(
+      <TabStrip
+        tabs={[tabs[0]!, tabs[1]!, { id: 'c', path: 'c', title: 'C', kind: 'text', loading: false }]}
+        activeTabId="a"
+        t={t}
+        onSelect={onSelect}
+        onClose={onClose}
+      />,
+    )
+    fireEvent.click(screen.getAllByRole('button', { name: '关闭 B' }).at(-1)!)
+    inactive.rerender(
+      <TabStrip
+        tabs={[tabs[0]!, { id: 'c', path: 'c', title: 'C', kind: 'text', loading: false }]}
+        activeTabId="a"
+        t={t}
+        onSelect={onSelect}
+        onClose={onClose}
+      />,
+    )
+    await waitFor(() => { expect(document.activeElement).toBe(inactive.getByRole('tab', { name: /^A/ })) })
+    inactive.unmount()
+
     const finalClose = screen.getByRole('button', { name: '关闭 B' })
     finalClose.focus()
     fireEvent.click(finalClose)
@@ -232,46 +299,158 @@ describe('workbench presentation units', () => {
     const createObjectURL = vi.fn(() => `blob:${String(++objectId)}`)
     const revokeObjectURL = vi.fn()
     vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL })
-    const onBack = vi.fn()
-    const view = render(<FilePreview tab={undefined} t={t} onBack={onBack} />)
+    const onDismiss = vi.fn()
+    const view = render(<FilePreview tab={undefined} t={t} onDismiss={onDismiss} />)
     expect(view.getByText('打开文件开始预览')).toBeTruthy()
 
     const tab = (kind: NonNullable<Parameters<typeof FilePreview>[0]['tab']>['kind'], content?: string) => ({
       id: kind, path: `${kind}.file`, title: kind, kind, loading: false, ...(content === undefined ? {} : { content }),
     })
-    view.rerender(<FilePreview tab={{ ...tab('text'), loading: true }} t={t} onBack={onBack} />)
+    view.rerender(<FilePreview tab={{ ...tab('text'), loading: true }} t={t} onDismiss={onDismiss} />)
     expect(view.getByText(/正在读取 text/)).toBeTruthy()
-    view.rerender(<FilePreview tab={{ ...tab('text'), error: 'read failed' }} t={t} onBack={onBack} />)
+    view.rerender(<FilePreview tab={{ ...tab('text'), error: 'read failed' }} t={t} onDismiss={onDismiss} />)
     expect(view.getByText('read failed')).toBeTruthy()
-    view.rerender(<FilePreview tab={tab('text')} t={t} onBack={onBack} />)
+    view.rerender(<FilePreview tab={tab('text')} t={t} onDismiss={onDismiss} />)
     expect(view.getByText('无法生成此文件的预览')).toBeTruthy()
 
-    view.rerender(<FilePreview tab={tab('html', '<h1>HTML</h1>')} t={t} onBack={onBack} />)
-    expect(view.getByTitle('html').getAttribute('sandbox')).toBe('')
-    view.rerender(<FilePreview tab={{ ...tab('code', 'const x = 1'), language: 'typescript' }} t={t} onBack={onBack} />)
+    view.rerender(<FilePreview tab={tab('html', '<h1>HTML</h1>')} t={t} onDismiss={onDismiss} />)
+    expect(view.getByTitle('html').getAttribute('sandbox')).toBe('allow-same-origin')
+    view.rerender(<FilePreview tab={{ ...tab('code', 'const x = 1'), language: 'typescript' }} t={t} onDismiss={onDismiss} />)
     expect(view.container.querySelector('pre')?.textContent).toBe('const x = 1')
-    view.rerender(<FilePreview tab={{ ...tab('text', 'plain'), bytes: 5, truncated: true }} t={t} onBack={onBack} />)
+    view.rerender(<FilePreview tab={{ ...tab('text', 'plain'), bytes: 5, truncated: true }} t={t} onDismiss={onDismiss} />)
     expect(view.getByText('plain')).toBeTruthy()
     expect(view.getByText('5 B')).toBeTruthy()
     expect(view.getByText(/文本预览上限/)).toBeTruthy()
-    fireEvent.click(view.getByRole('button', { name: '返回文件导航' }))
-    expect(onBack).toHaveBeenCalledOnce()
-    view.rerender(<FilePreview tab={tab('csv', 'a,b\n1,2')} t={t} onBack={onBack} />)
+    fireEvent.click(view.getByRole('button', { name: '关闭文件预览' }))
+    expect(onDismiss).toHaveBeenCalledOnce()
+    view.rerender(<FilePreview tab={tab('csv', 'a,b\n1,2')} t={t} onDismiss={onDismiss} />)
     expect(view.getByRole('table')).toBeTruthy()
-    view.rerender(<FilePreview tab={tab('diff', '@@ -1 +1 @@\n-old\n+new')} t={t} onBack={onBack} />)
+    view.rerender(<FilePreview tab={tab('diff', '@@ -1 +1 @@\n-old\n+new')} t={t} onDismiss={onDismiss} />)
     expect(view.getByText('+new')).toBeTruthy()
-    view.rerender(<FilePreview tab={tab('markdown', '# Markdown')} t={t} onBack={onBack} />)
+    view.rerender(<FilePreview tab={tab('markdown', '# Markdown')} t={t} onDismiss={onDismiss} />)
     expect(view.getByRole('heading', { name: 'Markdown' })).toBeTruthy()
 
-    view.rerender(<FilePreview tab={{ ...tab('image'), dataBase64: 'AA==', mediaType: 'image/png' }} t={t} onBack={onBack} />)
+    view.rerender(<FilePreview tab={{ ...tab('image'), dataBase64: 'AA==', mediaType: 'image/png' }} t={t} onDismiss={onDismiss} />)
     await waitFor(() => { expect(view.getByRole('img').getAttribute('src')).toBe('blob:1') })
-    view.rerender(<FilePreview tab={{ ...tab('pdf'), dataBase64: 'AA==', mediaType: 'application/pdf' }} t={t} onBack={onBack} />)
-    await waitFor(() => { expect(view.getByTitle('pdf').getAttribute('src')).toBe('blob:2') })
+    view.rerender(<FilePreview tab={{ ...tab('image'), id: 'image-a', dataBase64: 'AA==', mediaType: 'image/png' }} t={t} onDismiss={onDismiss} />)
+    await waitFor(() => { expect(view.getByRole('img').getAttribute('src')).toBe('blob:2') })
+    view.rerender(<FilePreview tab={{ ...tab('image'), id: 'image-b', dataBase64: 'AA==', mediaType: 'image/png' }} t={t} onDismiss={onDismiss} />)
+    await waitFor(() => { expect(view.getByRole('img').getAttribute('src')).toBe('blob:3') })
+    view.rerender(<FilePreview tab={{ ...tab('pdf'), dataBase64: 'AA==', mediaType: 'application/pdf' }} t={t} onDismiss={onDismiss} />)
+    await waitFor(() => { expect(view.getByTitle('pdf').getAttribute('src')).toBe('blob:4') })
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:1')
+    view.rerender(<FilePreview tab={{ ...tab('image'), dataBase64: '%%%', mediaType: 'image/png' }} t={t} onDismiss={onDismiss} />)
+    await waitFor(() => { expect(view.getByText('无法生成此文件的预览')).toBeTruthy() })
+  })
+
+  it('manages preview entry focus, dismisses only it on Escape, and restores focus', async () => {
+    const opener = document.createElement('button')
+    document.body.append(opener)
+    opener.focus()
+    const onDismiss = vi.fn()
+    const outerEscape = vi.fn()
+    const onOuterKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') outerEscape()
+    }
+    document.addEventListener('keydown', onOuterKeyDown)
+    const tab = { id: 'readme', path: 'README.md', title: 'README.md', kind: 'text' as const, loading: false, content: 'body' }
+    const view = render(
+      <WorkbenchPreview
+        tabs={[tab]}
+        activeTabId="readme"
+        open
+        placement="overlay"
+        t={t}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        onDismiss={onDismiss}
+      />,
+    )
+    const preview = view.getByRole('region', { name: '工作区文件预览' })
+    expect(preview.getAttribute('aria-modal')).toBeNull()
+    await waitFor(() => { expect(preview.contains(document.activeElement)).toBe(true) })
+    const first = view.getByRole('tab', { name: 'README.md' })
+    first.focus()
+    const latestDismiss = vi.fn()
+    view.rerender(
+      <WorkbenchPreview
+        tabs={[tab]}
+        activeTabId="readme"
+        open
+        placement="overlay"
+        t={t}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        onDismiss={latestDismiss}
+      />,
+    )
+    expect(document.activeElement).toBe(first)
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' })
+    expect(latestDismiss).toHaveBeenCalledOnce()
+    expect(onDismiss).not.toHaveBeenCalled()
+    expect(outerEscape).not.toHaveBeenCalled()
+    view.rerender(
+      <WorkbenchPreview
+        tabs={[tab]}
+        activeTabId="readme"
+        open={false}
+        placement="overlay"
+        t={t}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        onDismiss={latestDismiss}
+      />,
+    )
+    await waitFor(() => { expect(document.activeElement).toBe(opener) })
+    expect(view.container.querySelector('[inert]')).toBeTruthy()
+    document.removeEventListener('keydown', onOuterKeyDown)
+    opener.remove()
+  })
+
+  it('enters an already-open document preview on the selected document tab', async () => {
+    const opener = document.createElement('button')
+    document.body.append(opener)
+    opener.focus()
+    const tabs = [
+      { id: 'first', path: 'first.md', title: 'first.md', kind: 'text' as const, loading: false, content: 'one' },
+      { id: 'second', path: 'second.md', title: 'second.md', kind: 'text' as const, loading: false, content: 'two' },
+    ]
+    const view = render(
+      <WorkbenchPreview
+        tabs={tabs}
+        activeTabId="second"
+        open={false}
+        placement="overlay"
+        t={t}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    )
+    view.rerender(
+      <WorkbenchPreview
+        tabs={tabs}
+        activeTabId="second"
+        open
+        placement="overlay"
+        t={t}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    )
+    await waitFor(() => { expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'second.md' })) })
+    opener.remove()
   })
 })
 
 describe('workspace preview helpers', () => {
+  it('splits glob fields only at top-level commas', () => {
+    expect(globPatterns('*.{ts,tsx}, [a,b].py, src/**, ,')).toEqual(['*.{ts,tsx}', '[a,b].py', 'src/**'])
+    expect(globPatterns('stray}, {open,nested')).toEqual(['stray}', '{open,nested'])
+    expect(globPatterns('')).toEqual([])
+  })
+
   it('classifies every shipped preview family', () => {
     expect(previewType('README.md')).toEqual({ kind: 'markdown' })
     expect(previewType('page.html')).toEqual({ kind: 'html' })
@@ -358,11 +537,11 @@ describe('WorkspaceWorkbench', () => {
     fireEvent.click(view.getByRole('button', { name: /^PNGbad\.png$/ }))
     expect(await view.findByText('binary failed')).toBeTruthy()
 
-    fireEvent.click(view.getByRole('button', { name: '搜索' }))
+    fireEvent.click(view.getByRole('tab', { name: '搜索' }))
     fireEvent.change(view.getByRole('searchbox'), { target: { value: 'bad' } })
     expect(await view.findByText('search failed')).toBeTruthy()
     searchFiles.mockImplementationOnce((
-      _workspaceId: WorkspaceId, _query: string, signal?: AbortSignal,
+      _workspaceId: WorkspaceId, _query: string, _filters: Parameters<Services['searchFiles']>[2], signal?: AbortSignal,
     ) => new Promise((_resolve, reject) => {
       signal?.addEventListener('abort', () => { reject(new Error('cancelled search')) }, { once: true })
     }))
@@ -373,7 +552,7 @@ describe('WorkspaceWorkbench', () => {
     fireEvent.change(view.getByRole('searchbox'), { target: { value: 'brief' } })
     fireEvent.change(view.getByRole('searchbox'), { target: { value: '' } })
 
-    fireEvent.click(view.getByRole('button', { name: '变更' }))
+    fireEvent.click(view.getByRole('tab', { name: '变更' }))
     expect(await view.findByText('git failed')).toBeTruthy()
     gitCommits.mockRejectedValueOnce(new Error('history failed'))
     gitStatus.mockResolvedValueOnce({
@@ -424,7 +603,9 @@ describe('WorkspaceWorkbench', () => {
     const mounted = mountWorkbench({ listFiles, searchFiles, readFile, gitStatus, gitCommits, gitDiff })
 
     await waitFor(() => { expect(listFiles).toHaveBeenCalledWith(wid('a'), undefined, expect.any(AbortSignal)) })
-    expect(screen.getByRole('button', { name: '文件' }).getAttribute('aria-pressed')).toBe('true')
+    const sectionTabs = screen.getAllByRole('tab').slice(0, 3)
+    expect(sectionTabs.map(tab => tab.textContent)).toEqual(['文件', '变更', '搜索'])
+    expect(screen.getByRole('tab', { name: '文件' }).getAttribute('aria-selected')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: /^MDREADME\.md$/ }))
     expect(await screen.findByRole('heading', { name: 'Workbench title' })).toBeTruthy()
     expect(readFile).toHaveBeenCalledWith(wid('a'), 'README.md', expect.any(AbortSignal))
@@ -437,18 +618,30 @@ describe('WorkspaceWorkbench', () => {
     expect(screen.getByRole('button', { name: /main\.ts/ })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /src/ }))
 
-    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
-    expect(screen.getByRole('button', { name: '搜索' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('tab', { name: '搜索' }))
+    expect(screen.getByRole('tab', { name: '搜索' }).getAttribute('aria-selected')).toBe('true')
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索工作区文件' }), { target: { value: 'main' } })
-    await waitFor(() => { expect(searchFiles).toHaveBeenCalledWith(wid('a'), 'main', expect.any(AbortSignal)) })
+    await waitFor(() => {
+      expect(searchFiles).toHaveBeenCalledWith(
+        wid('a'), 'main', { include: [], exclude: [] }, expect.any(AbortSignal),
+      )
+    })
+    fireEvent.click(screen.getByRole('button', { name: '筛选范围' }))
+    fireEvent.change(screen.getByLabelText('包含文件'), { target: { value: '*.{ts,tsx}, src/**' } })
+    fireEvent.change(screen.getByLabelText('排除文件'), { target: { value: 'dist/' } })
+    await waitFor(() => {
+      expect(searchFiles).toHaveBeenLastCalledWith(
+        wid('a'), 'main', { include: ['*.{ts,tsx}', 'src/**'], exclude: ['dist/'] }, expect.any(AbortSignal),
+      )
+    })
     fireEvent.click(await screen.findByRole('button', { name: /src\/main\.ts/ }))
     await waitFor(() => { expect(readFile).toHaveBeenCalledWith(wid('a'), 'src/main.ts', expect.any(AbortSignal)) })
     expect(mounted.container.querySelector('pre')?.textContent).toBe('export const ready = true')
     fireEvent.click(screen.getByRole('tab', { name: 'README.md' }))
     fireEvent.click(screen.getByRole('button', { name: '关闭 main.ts' }))
-    fireEvent.click(screen.getByRole('button', { name: '返回文件导航' }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭文件预览' }))
 
-    fireEvent.click(screen.getByRole('button', { name: '变更' }))
+    fireEvent.click(screen.getByRole('tab', { name: '变更' }))
     await waitFor(() => { expect(gitStatus).toHaveBeenCalledWith(wid('a'), expect.any(AbortSignal)) })
     fireEvent.click(await screen.findByRole('button', { name: /M.*src\/main\.ts/ }))
     await waitFor(() => { expect(gitDiff).toHaveBeenCalledWith(wid('a'), 'src/main.ts', false, expect.any(AbortSignal)) })
@@ -463,7 +656,7 @@ describe('WorkspaceWorkbench', () => {
     fireEvent.click(screen.getByRole('button', { name: /M.*src\/main\.ts/ }))
     expect(gitDiff.mock.calls.filter(call => call[2] === true)).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: '工作区' }))
-    fireEvent.click(screen.getByRole('button', { name: '文件' }))
+    fireEvent.click(screen.getByRole('tab', { name: '文件' }))
   })
 
   it('creates and revokes object URLs for bounded binary previews', async () => {
@@ -487,6 +680,48 @@ describe('WorkspaceWorkbench', () => {
     await waitFor(() => { expect(revokeObjectURL).toHaveBeenCalledWith('blob:pixel') })
   })
 
+  it('switches the drawer workbench wholly to preview and retains tabs on dismiss', async () => {
+    const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
+    const view = mountWorkbench({
+      listFiles: vi.fn(async () => ({ path: '', entries: [readme], truncated: false })),
+      readFile: vi.fn(async () => ({ path: 'README.md', content: 'drawer body', bytes: 11, truncated: false })),
+    }, { drawer: true })
+
+    fireEvent.click(await view.findByRole('button', { name: /^MDREADME\.md$/ }))
+    expect(await view.findByRole('region', { name: '工作区文件预览' })).toBeTruthy()
+    expect(view.container.querySelectorAll('#workspace-workbench-panel')).toHaveLength(1)
+    const root = view.getByLabelText('工作区工作台')
+    expect(root.hasAttribute('data-preview')).toBe(true)
+    fireEvent.click(view.getByRole('button', { name: '关闭文件预览' }))
+    await waitFor(() => { expect(root.hasAttribute('data-preview')).toBe(false) })
+    expect(view.instance.getSnapshot().byWorkspace.a).toMatchObject({
+      tabs: [{ id: 'file:README.md' }], previewOpen: false,
+    })
+  })
+
+  it('withdraws and clears a docked preview when the workbench closes or switches', async () => {
+    const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
+    const view = mountWorkbench({
+      listFiles: vi.fn(async () => ({ path: '', entries: [readme], truncated: false })),
+      readFile: vi.fn(async () => ({ path: 'README.md', content: 'body', bytes: 4, truncated: false })),
+    })
+
+    fireEvent.click(await view.findByRole('button', { name: /^MDREADME\.md$/ }))
+    expect(await view.findByRole('region', { name: '工作区文件预览' })).toBeTruthy()
+    act(() => { view.setRight({ open: false }) })
+    expect(view.queryByRole('region', { name: '工作区文件预览' })).toBeNull()
+    await waitFor(() => { expect(view.instance.getSnapshot().byWorkspace.a?.previewOpen).toBe(false) })
+    expect(view.instance.getSnapshot().byWorkspace.a?.tabs).toHaveLength(1)
+
+    act(() => {
+      view.setRight({ open: true })
+      view.instance.actions.setPreviewOpen(wid('a'), true)
+    })
+    expect(await view.findByRole('region', { name: '工作区文件预览' })).toBeTruthy()
+    act(() => { view.setRight({ mode: 'details' }) })
+    await waitFor(() => { expect(view.instance.getSnapshot().byWorkspace.a?.previewOpen).toBe(false) })
+  })
+
   it('retains failed Git sibling requests under the Workspace cancellation fence', async () => {
     let historySignal: AbortSignal | undefined
     const gitStatus = vi.fn().mockRejectedValue(new Error('status failed'))
@@ -498,7 +733,7 @@ describe('WorkspaceWorkbench', () => {
     }))
     const view = mountWorkbench({ gitStatus, gitCommits })
 
-    fireEvent.click(view.getByRole('button', { name: '变更' }))
+    fireEvent.click(view.getByRole('tab', { name: '变更' }))
     await waitFor(() => { expect(historySignal).toBeDefined() })
     expect(view.queryByText('status failed')).toBeNull()
 

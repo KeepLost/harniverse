@@ -7,7 +7,7 @@ import { apply, inject } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { WorkspaceBrowser } from '../src/client/WorkspaceBrowser.tsx'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
-import { WorkspaceWorkbench } from '../src/client/WorkspaceWorkbench.tsx'
+import { WorkspaceWorkbench, WorkspaceWorkbenchPreviewOverlay } from '../src/client/WorkspaceWorkbench.tsx'
 import type { WorkspaceWorkbenchInjected } from '../src/client/contract/slots.ts'
 
 // The service reads its initial locale from the browser; these specs assert
@@ -61,14 +61,14 @@ async function bench() {
 type HoleName =
   | 'sidebar.workspaces'
   | 'conversation.hero.workspace'
-  | 'conversation.empty.workspace'
   | 'conversation.session.header.utilities'
   | 'workbench'
+  | 'shell.overlay'
 
 /** Declare any subset of the holes with a single root registration ('root' is a single slot). */
 function declare(slots: SlotRegistry, ...names: HoleName[]): () => void {
   const children = Object.fromEntries(names.map(name => [name, {
-    kind: name === 'conversation.session.header.utilities' ? 'list' : 'single',
+    kind: name === 'conversation.session.header.utilities' || name === 'shell.overlay' ? 'list' : 'single',
     scope: name === 'conversation.session.header.utilities' ? 'session' : 'root',
   }]))
   return slots.register({ name: 'root', children } as never, () => null)
@@ -91,10 +91,9 @@ describe('ui-workspace apply', () => {
 
     const after = await bench()
     await after.ctx.plugin({ inject: [...inject], apply }).await()
-    declare(after.slots, 'conversation.hero.workspace', 'conversation.empty.workspace')
+    declare(after.slots, 'conversation.hero.workspace')
     await Promise.resolve()
     expect(after.slots.entries('conversation.hero.workspace')[0]!.component).toBe(WorkspacePicker)
-    // expect(after.slots.entries('conversation.empty.workspace')[0]!.component).toBe(WorkspacePicker)
   })
 
   it('routes browser actions and picker creation to the services', async () => {
@@ -139,14 +138,14 @@ describe('ui-workspace apply', () => {
 
   it('registers one top-level workbench and routes its authenticated read callbacks', async () => {
     const b = await bench()
-    declare(b.slots, 'workbench', 'conversation.session.header.utilities')
+    declare(b.slots, 'workbench', 'shell.overlay', 'conversation.session.header.utilities')
     await b.ctx.plugin({ inject: [...inject], apply }).await()
 
     expect(b.slots.entries('workbench')[0]!.component).toBe(WorkspaceWorkbench)
     const injected = (b.slots.entries('workbench')[0]!.inject as () => WorkspaceWorkbenchInjected)()
     const signal = new AbortController().signal
     await injected.listFiles('ws' as never, 'src', signal)
-    await injected.searchFiles('ws' as never, 'needle', signal)
+    await injected.searchFiles('ws' as never, 'needle', { include: ['*.ts'], exclude: ['dist/'] }, signal)
     await injected.readFile('ws' as never, 'README.md', signal)
     await injected.readBinaryFile('ws' as never, 'pixel.png', signal)
     await injected.gitStatus('ws' as never, signal)
@@ -156,7 +155,8 @@ describe('ui-workspace apply', () => {
     injected.closeWorkbench()
 
     expect(b.listFiles).toHaveBeenCalledWith('ws', 'src', signal)
-    expect(b.searchFiles).toHaveBeenCalledWith('ws', 'needle', signal)
+    expect(b.searchFiles).toHaveBeenCalledWith('ws', 'needle', { include: ['*.ts'], exclude: ['dist/'] }, signal)
+    expect(b.slots.entries('shell.overlay')[0]!.component).toBe(WorkspaceWorkbenchPreviewOverlay)
     expect(b.readFile).toHaveBeenCalledWith('ws', 'README.md', signal)
     expect(b.readBinaryFile).toHaveBeenCalledWith('ws', 'pixel.png', signal)
     expect(b.gitStatus).toHaveBeenCalledWith('ws', signal)
@@ -206,14 +206,14 @@ describe('ui-workspace apply', () => {
 
   it('unregisters every entry on teardown', async () => {
     const b = await bench()
-    declare(b.slots, 'sidebar.workspaces', 'conversation.hero.workspace', 'conversation.empty.workspace', 'workbench', 'conversation.session.header.utilities')
+    declare(b.slots, 'sidebar.workspaces', 'conversation.hero.workspace', 'workbench', 'shell.overlay', 'conversation.session.header.utilities')
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     await fiber.dispose()
     expect(b.slots.entries('sidebar.workspaces')).toHaveLength(0)
     expect(b.slots.entries('conversation.hero.workspace')).toHaveLength(0)
     expect(b.slots.entries('workbench')).toHaveLength(0)
+    expect(b.slots.entries('shell.overlay')).toHaveLength(0)
     expect(b.slots.entries('conversation.session.header.utilities')).toHaveLength(0)
-    // expect(b.slots.entries('conversation.empty.workspace')).toHaveLength(0)
   })
 })

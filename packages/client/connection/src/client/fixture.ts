@@ -37,6 +37,9 @@ import type {
   ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
+import {
+  compileGlobFilter, WORKSPACE_SEARCH_DEFAULT_EXCLUDES,
+} from '@deepseek-ai/dsh-host-apiproxy/api/workspace-glob'
 import { AbstractApiClient, RpcId, SESSION_SEARCH_RESULT_LIMIT } from './api.ts'
 import { randomUuid } from './random-uuid.ts'
 import type { ClientConnectionRpc } from '../rpc.ts'
@@ -1595,6 +1598,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     { name: 'README.md', path: 'README.md', kind: 'file' as const },
     { name: 'pixel.png', path: 'pixel.png', kind: 'file' as const },
     { name: 'index.ts', path: 'src/index.ts', kind: 'file' as const },
+    { name: 'index.js', path: 'dist/index.js', kind: 'file' as const },
   ]
   const fixtureTextFiles = new Map([
     ['README.md', '# Fixture Workspace\n\nRead-only workbench fixture.\n'],
@@ -2892,8 +2896,18 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         const missing = requireWorkspaceInspection(request, signal)
         if (missing !== undefined) return missing
         const query = request.payload.query.trim().toLowerCase()
+        const include = compileGlobFilter(request.payload.include, 'pass')
+        const exclude = compileGlobFilter(
+          request.payload.exclude === undefined || request.payload.exclude.length === 0
+            ? WORKSPACE_SEARCH_DEFAULT_EXCLUDES
+            : request.payload.exclude,
+          'reject',
+        )
         const entries = fixtureWorkspaceFiles
-          .filter(entry => entry.kind === 'file' && entry.name.toLowerCase().includes(query))
+          .filter(entry => entry.kind === 'file'
+            && entry.name.toLowerCase().includes(query)
+            && include.matches(entry.path)
+            && !exclude.matches(entry.path))
           .map(entry => ({ ...entry }))
         return ok(request, { entries, truncated: false })
       },

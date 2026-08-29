@@ -1,0 +1,12 @@
+- region "Workspace file preview":
+  - tablist "Open workspace files":
+    - tab "README.md" [selected]
+    - button "Close README.md":
+      - img
+  - tabpanel "README.md":
+    - text: ⁨README.md⁩ 40 B
+    - button "Close file preview":
+      - img
+    - article:
+      - heading "Workbench E2E" [level=1]
+      - paragraph: Authenticated preview.

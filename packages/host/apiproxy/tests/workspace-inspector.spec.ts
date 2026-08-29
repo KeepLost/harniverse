@@ -92,6 +92,33 @@ describe('workspace file inspection', () => {
     })
   })
 
+  it('scopes file-name search with include/exclude globs and applies default skips', async () => {
+    const root = tempWorkspace()
+    mkdirSync(join(root, 'src'))
+    mkdirSync(join(root, 'tests'))
+    mkdirSync(join(root, 'dist'))
+    writeFileSync(join(root, 'src', 'main.py'), '')
+    writeFileSync(join(root, 'src', 'main.ts'), '')
+    writeFileSync(join(root, 'tests', 'main.py'), '')
+    writeFileSync(join(root, 'dist', 'main.py'), '')
+
+    const defaults = await searchWorkspaceFiles(root, 'main', new AbortController().signal, {
+      include: ['*.py'],
+    })
+    expect(defaults.entries.map(entry => entry.path)).toEqual(['src/main.py', 'tests/main.py'])
+
+    const explicit = await searchWorkspaceFiles(root, 'main', new AbortController().signal, {
+      include: ['*.py'],
+      exclude: ['tests/'],
+    })
+    expect(explicit.entries.map(entry => entry.path)).toEqual(['dist/main.py', 'src/main.py'])
+
+    const anchored = await searchWorkspaceFiles(root, 'main', new AbortController().signal, {
+      include: ['src/**'],
+    })
+    expect(anchored.entries.map(entry => entry.path)).toEqual(['src/main.py', 'src/main.ts'])
+  })
+
   it('bounds recursive file-name search results', async () => {
     const root = tempWorkspace()
     for (let index = 0; index <= WORKSPACE_FILE_SEARCH_RESULT_LIMIT; index++) {
@@ -254,6 +281,24 @@ describe('workspace git inspection', () => {
     expect(diff.diff).toContain('tracked.txt')
     expect(diff.truncated).toBe(true)
     expect(Buffer.byteLength(diff.diff)).toBeLessThanOrEqual(1024 * 1024)
+  })
+
+  it('treats a Git diff filename as a literal pathspec', async () => {
+    const root = tempWorkspace()
+    await execFileAsync('git', ['init', root])
+    await execFileAsync('git', ['-C', root, 'config', 'user.name', 'Inspector Test'])
+    await execFileAsync('git', ['-C', root, 'config', 'user.email', 'inspector@example.invalid'])
+    writeFileSync(join(root, 'a*b'), 'first\n')
+    writeFileSync(join(root, 'axxb'), 'first\n')
+    await execFileAsync('git', ['-C', root, 'add', '--', 'a*b', 'axxb'])
+    await execFileAsync('git', ['-C', root, 'commit', '-m', 'initial'])
+    writeFileSync(join(root, 'a*b'), 'changed\n')
+    writeFileSync(join(root, 'axxb'), 'also changed\n')
+
+    const diff = await workspaceGitDiff(root, 'a*b', false, new AbortController().signal)
+
+    expect(diff.diff).toContain('a*b')
+    expect(diff.diff).not.toContain('axxb')
   })
 
   it('honors an already-aborted signal before starting Git', async () => {

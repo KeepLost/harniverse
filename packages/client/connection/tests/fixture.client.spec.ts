@@ -606,6 +606,16 @@ describe('createFixtureApi', () => {
     await expect(api.workspaceFiles.search(req({ workspaceId, query: 'src' }), new AbortController().signal)).resolves.toMatchObject({
       result: { ok: true, value: { entries: [] } },
     })
+    await expect(api.workspaceFiles.search(req({
+      workspaceId, query: 'index', include: ['*.ts'], exclude: ['src/'],
+    }), new AbortController().signal)).resolves.toMatchObject({
+      result: { ok: true, value: { entries: [] } },
+    })
+    await expect(api.workspaceFiles.search(req({
+      workspaceId, query: 'index', include: ['*.{js,ts}'], exclude: [],
+    }), new AbortController().signal)).resolves.toMatchObject({
+      result: { ok: true, value: { entries: [{ path: 'src/index.ts' }] } },
+    })
     const read = await api.workspaceFiles.read(req({ workspaceId, path: 'README.md' }), new AbortController().signal)
     if (!read.result.ok) throw new Error('fixture text read failed')
     expect(read.result.value.content).toContain('Fixture Workspace')

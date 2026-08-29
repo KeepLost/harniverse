@@ -61,9 +61,9 @@
 .noteInput {
   width: 260px;
   padding: 6px 8px;
-  border: 1px solid var(--dsw-alias-border-secondary);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
-  background: var(--dsw-alias-bg-primary);
+  background: var(--dsw-specific-input-major);
   color: var(--dsw-alias-label-primary);
   font: inherit;
   font-size: 13px;
@@ -81,8 +81,8 @@
 }
 
 .noteSave {
-  background: var(--dsw-alias-interactive-bg-primary);
-  color: var(--dsw-alias-label-inverse);
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
 }
 
 .noteSave:disabled {
