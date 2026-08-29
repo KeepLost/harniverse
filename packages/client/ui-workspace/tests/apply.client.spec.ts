@@ -7,6 +7,8 @@ import { apply, inject } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { WorkspaceBrowser } from '../src/client/WorkspaceBrowser.tsx'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
+import { WorkspaceWorkbench, WorkspaceWorkbenchPreviewOverlay } from '../src/client/WorkspaceWorkbench.tsx'
+import type { WorkspaceWorkbenchInjected } from '../src/client/contract/slots.ts'
 
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
@@ -32,29 +34,49 @@ async function bench() {
   const renameSession = vi.fn(async (title: string) => ({ ok: true, value: { title, seq: 1 } }))
   const binding = vi.fn(() => ({ session: { rename: renameSession } }))
   const fork = vi.fn(async () => 'forked' as never)
+  const openWorkbench = vi.fn()
+  const closeWorkbench = vi.fn()
+  const listFiles = vi.fn(async () => ({ path: '', entries: [], truncated: false }))
+  const searchFiles = vi.fn(async () => ({ entries: [], truncated: false }))
+  const readFile = vi.fn(async (_workspaceId, path: string) => ({ path, content: '', bytes: 0, truncated: false }))
+  const readBinaryFile = vi.fn(async (_workspaceId, path: string) => ({ path, dataBase64: '', mediaType: 'image/png', bytes: 0 }))
+  const gitStatus = vi.fn(async () => ({ branch: null, entries: [], truncated: false }))
+  const gitCommits = vi.fn(async () => ({ commits: [], truncated: false }))
+  const gitDiff = vi.fn(async () => ({ diff: '', truncated: false }))
   ctx.provide('workspaces', {
     create, startSession, rename, insertSessionBefore,
+    listFiles, searchFiles, readFile, readBinaryFile, gitStatus, gitCommits, gitDiff,
   } as never)
   ctx.provide('sessions', { open, clear, search, searchResultLimit: 20, binding, fork } as never)
+  ctx.provide('layout', { openWorkbench, closeWorkbench } as never)
   const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
   return {
     ctx, slots: ctx.get('slots') as SlotRegistry, locale, create, startSession, rename,
     insertSessionBefore, open, clear, search, renameSession, binding, fork,
+    openWorkbench, closeWorkbench, listFiles, searchFiles, readFile, readBinaryFile, gitStatus, gitCommits, gitDiff,
   }
 }
 
-type HoleName = 'sidebar.workspaces' | 'conversation.hero.workspace' | 'conversation.empty.workspace'
+type HoleName =
+  | 'sidebar.workspaces'
+  | 'conversation.hero.workspace'
+  | 'conversation.session.header.utilities'
+  | 'workbench'
+  | 'shell.overlay'
 
 /** Declare any subset of the holes with a single root registration ('root' is a single slot). */
 function declare(slots: SlotRegistry, ...names: HoleName[]): () => void {
-  const children = Object.fromEntries(names.map(name => [name, { kind: 'single', scope: 'root' }]))
+  const children = Object.fromEntries(names.map(name => [name, {
+    kind: name === 'conversation.session.header.utilities' || name === 'shell.overlay' ? 'list' : 'single',
+    scope: name === 'conversation.session.header.utilities' ? 'session' : 'root',
+  }]))
   return slots.register({ name: 'root', children } as never, () => null)
 }
 
 describe('ui-workspace apply', () => {
   it('declares the services it drives', () => {
-    expect(inject).toEqual(['slots', 'sessions', 'workspaces', 'locale'])
+    expect(inject).toEqual(['slots', 'sessions', 'workspaces', 'locale', 'layout'])
   })
 
   it('registers browser and pickers for declarations arriving before or after apply', async () => {
@@ -69,10 +91,9 @@ describe('ui-workspace apply', () => {
 
     const after = await bench()
     await after.ctx.plugin({ inject: [...inject], apply }).await()
-    declare(after.slots, 'conversation.hero.workspace', 'conversation.empty.workspace')
+    declare(after.slots, 'conversation.hero.workspace')
     await Promise.resolve()
     expect(after.slots.entries('conversation.hero.workspace')[0]!.component).toBe(WorkspacePicker)
-    // expect(after.slots.entries('conversation.empty.workspace')[0]!.component).toBe(WorkspacePicker)
   })
 
   it('routes browser actions and picker creation to the services', async () => {
@@ -115,6 +136,36 @@ describe('ui-workspace apply', () => {
     expect(b.create).toHaveBeenCalledWith({ path: '/tmp/project' })
   })
 
+  it('registers one top-level workbench and routes its authenticated read callbacks', async () => {
+    const b = await bench()
+    declare(b.slots, 'workbench', 'shell.overlay', 'conversation.session.header.utilities')
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+
+    expect(b.slots.entries('workbench')[0]!.component).toBe(WorkspaceWorkbench)
+    const injected = (b.slots.entries('workbench')[0]!.inject as () => WorkspaceWorkbenchInjected)()
+    const signal = new AbortController().signal
+    await injected.listFiles('ws' as never, 'src', signal)
+    await injected.searchFiles('ws' as never, 'needle', { include: ['*.ts'], exclude: ['dist/'] }, signal)
+    await injected.readFile('ws' as never, 'README.md', signal)
+    await injected.readBinaryFile('ws' as never, 'pixel.png', signal)
+    await injected.gitStatus('ws' as never, signal)
+    await injected.gitCommits('ws' as never, 10, signal)
+    await injected.gitDiff('ws' as never, 'README.md', true, signal)
+    injected.openWorkbench()
+    injected.closeWorkbench()
+
+    expect(b.listFiles).toHaveBeenCalledWith('ws', 'src', signal)
+    expect(b.searchFiles).toHaveBeenCalledWith('ws', 'needle', { include: ['*.ts'], exclude: ['dist/'] }, signal)
+    expect(b.slots.entries('shell.overlay')[0]!.component).toBe(WorkspaceWorkbenchPreviewOverlay)
+    expect(b.readFile).toHaveBeenCalledWith('ws', 'README.md', signal)
+    expect(b.readBinaryFile).toHaveBeenCalledWith('ws', 'pixel.png', signal)
+    expect(b.gitStatus).toHaveBeenCalledWith('ws', signal)
+    expect(b.gitCommits).toHaveBeenCalledWith('ws', 10, signal)
+    expect(b.gitDiff).toHaveBeenCalledWith('ws', 'README.md', true, signal)
+    expect(b.openWorkbench).toHaveBeenCalledOnce()
+    expect(b.closeWorkbench).toHaveBeenCalledOnce()
+  })
+
   it('declares the two directory-flow holes and reports their occupancy per surface', async () => {
     const b = await bench()
     declare(b.slots, 'sidebar.workspaces', 'conversation.hero.workspace')
@@ -155,12 +206,14 @@ describe('ui-workspace apply', () => {
 
   it('unregisters every entry on teardown', async () => {
     const b = await bench()
-    declare(b.slots, 'sidebar.workspaces', 'conversation.hero.workspace', 'conversation.empty.workspace')
+    declare(b.slots, 'sidebar.workspaces', 'conversation.hero.workspace', 'workbench', 'shell.overlay', 'conversation.session.header.utilities')
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     await fiber.dispose()
     expect(b.slots.entries('sidebar.workspaces')).toHaveLength(0)
     expect(b.slots.entries('conversation.hero.workspace')).toHaveLength(0)
-    // expect(b.slots.entries('conversation.empty.workspace')).toHaveLength(0)
+    expect(b.slots.entries('workbench')).toHaveLength(0)
+    expect(b.slots.entries('shell.overlay')).toHaveLength(0)
+    expect(b.slots.entries('conversation.session.header.utilities')).toHaveLength(0)
   })
 })

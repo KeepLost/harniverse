@@ -120,7 +120,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * `cwd` as display-only, for shortening workspace-rooted paths.
      * A per-tool renderer belongs in the keyed `tool.call.toolview` seat
      * instead; this one is the whole panel.
-     */
+    */
     'conversation.details.tool': { kind: 'single'; scope: 'session'; owner: DetailsToolOwnerProps }
     /**
      * The composer takeover chain: entries are selector-routed replacements

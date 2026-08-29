@@ -2,13 +2,14 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  DirectoryListing, IApiClient, RpcError,
+  DirectoryListing, IApiClient, RpcError, WorkspaceFileEntry, WorkspaceGitCommit,
+  WorkspaceGitStatusEntry,
   SessionId, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
 import type { SessionsPort, SessionsPortList } from '../contract/sessions-port.ts'
-import type { IWorkspaces } from '../contract/workspaces.ts'
+import type { IWorkspaces, WorkspaceSearchFilters } from '../contract/workspaces.ts'
 import { WorkspaceManager, type WorkspaceListPhase } from './manager.ts'
 
 /** Workspace list plus the two-baseline readiness and default-target projection. */
@@ -266,6 +267,85 @@ export class WorkspaceRuntime implements IWorkspaces {
     if (!response.result.ok) {
       throw new Error(`path open failed: ${response.result.error.message}`)
     }
+  }
+
+  async listFiles(workspaceId: WorkspaceId, path?: string, signal?: AbortSignal): Promise<{
+    path: string
+    entries: WorkspaceFileEntry[]
+    truncated: boolean
+  }> {
+    const response = await this.api.workspaceFiles.list({ workspaceId, ...(path === undefined ? {} : { path }) }, signal)
+    if (!response.result.ok) throw new Error(`workspace file listing failed: ${response.result.error.message}`)
+    return response.result.value
+  }
+
+  async searchFiles(workspaceId: WorkspaceId, query: string, filters?: WorkspaceSearchFilters, signal?: AbortSignal): Promise<{
+    entries: WorkspaceFileEntry[]
+    truncated: boolean
+  }> {
+    // Empty lists are omitted rather than sent: the Host reads an absent
+    // exclude list as "apply the defaults", which an empty array also means,
+    // and an empty include list must not look like a deliberate filter.
+    const include = filters?.include?.filter(pattern => pattern.trim() !== '') ?? []
+    const exclude = filters?.exclude?.filter(pattern => pattern.trim() !== '') ?? []
+    const response = await this.api.workspaceFiles.search({
+      workspaceId,
+      query,
+      ...(include.length === 0 ? {} : { include }),
+      ...(exclude.length === 0 ? {} : { exclude }),
+    }, signal)
+    if (!response.result.ok) throw new Error(`workspace file search failed: ${response.result.error.message}`)
+    return response.result.value
+  }
+
+  async readFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
+    path: string
+    content: string
+    bytes: number
+    truncated: boolean
+  }> {
+    const response = await this.api.workspaceFiles.read({ workspaceId, path }, signal)
+    if (!response.result.ok) throw new Error(`workspace file read failed: ${response.result.error.message}`)
+    return response.result.value
+  }
+
+  async readBinaryFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
+    path: string
+    dataBase64: string
+    mediaType: string
+    bytes: number
+  }> {
+    const response = await this.api.workspaceFiles.readBinary({ workspaceId, path }, signal)
+    if (!response.result.ok) throw new Error(`workspace binary file read failed: ${response.result.error.message}`)
+    return response.result.value
+  }
+
+  async gitStatus(workspaceId: WorkspaceId, signal?: AbortSignal): Promise<{
+    branch: string | null
+    entries: WorkspaceGitStatusEntry[]
+    truncated: boolean
+  }> {
+    const response = await this.api.workspaceGit.status({ workspaceId }, signal)
+    if (!response.result.ok) throw new Error(`workspace Git status failed: ${response.result.error.message}`)
+    return response.result.value
+  }
+
+  async gitCommits(workspaceId: WorkspaceId, limit?: number, signal?: AbortSignal): Promise<{
+    commits: WorkspaceGitCommit[]
+    truncated: boolean
+  }> {
+    const response = await this.api.workspaceGit.commits({ workspaceId, ...(limit === undefined ? {} : { limit }) }, signal)
+    if (!response.result.ok) throw new Error(`workspace Git history failed: ${response.result.error.message}`)
+    return response.result.value
+  }
+
+  async gitDiff(workspaceId: WorkspaceId, path?: string, staged = false, signal?: AbortSignal): Promise<{
+    diff: string
+    truncated: boolean
+  }> {
+    const response = await this.api.workspaceGit.diff({ workspaceId, staged, ...(path === undefined ? {} : { path }) }, signal)
+    if (!response.result.ok) throw new Error(`workspace Git diff failed: ${response.result.error.message}`)
+    return response.result.value
   }
 
   /**

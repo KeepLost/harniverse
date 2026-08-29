@@ -6,19 +6,18 @@
 }
 
 /* Preview card (figma session hover card): 244 wide, r12, pad 12/16, the
- * menu card's elevation. Surface is #2C2C2E in both themes (figma value,
- * light/dark identical), so a component-level variable, not a theme token.
- * Hit-testable on purpose: resting the pointer on the card holds it open
- * (HoverCard's grace close), which a `pointer-events: none` card cannot do. */
+ * menu card's elevation. The theme-owned tooltip alias keeps the surface
+ * readable in both palettes. Hit-testable on purpose: resting the pointer on
+ * the card holds it open (HoverCard's grace close), which a
+ * `pointer-events: none` card cannot do. */
 .card {
-  --dsw-hovercard-bg: #2C2C2E;
   position: fixed;
   z-index: 100;
   box-sizing: border-box;
   width: 244px;
   padding: 12px 16px;
   border-radius: 12px;
-  background: var(--dsw-hovercard-bg);
+  background: var(--dsw-alias-tooltip-bg);
   box-shadow: var(--dsw-shadow-lv3);
 }
 

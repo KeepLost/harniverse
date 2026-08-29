@@ -82,8 +82,8 @@
   flex: none;
   border-radius: 999px;
   padding: 3px 8px;
-  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary) 12%, transparent);
-  color: var(--dsw-alias-state-warning-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 12%, transparent);
+  color: var(--dsw-alias-state-warn-primary);
   font-size: 11px;
   line-height: 16px;
   font-weight: 600;
@@ -120,7 +120,7 @@
 }
 
 .findings li[data-diagnostic-severity='warning'] {
-  border-left-color: var(--dsw-alias-state-warning-primary);
+  border-left-color: var(--dsw-alias-state-warn-primary);
 }
 
 .findings li[data-diagnostic-severity='error'] {

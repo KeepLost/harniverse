@@ -248,7 +248,7 @@ export function standardKitMembers(files: readonly ScannedFile[], interfaceName:
 }
 
 /**
- * Names in the type index that seed texts mention, word-bounded — ONE level, not
+ * Names in the type index that seed type declarations mention, word-bounded — ONE level, not
  * a transitive closure. The catalog expands an owner-props contract exactly one
  * step: the owner interface carries the interaction protocol in its own member
  * documentation, while the shapes its fields reference belong to the subsystems
@@ -263,9 +263,10 @@ export function referencedTypeNames(
   index: ReadonlyMap<string, TypeDeclaration>,
 ): string[] {
   const found: string[] = []
+  const source = seeds.map(text => text.replaceAll(/\/\*[\s\S]*?\*\//gu, '').replaceAll(/\/\/.*$/gmu, '')).join('\n')
   for (const name of index.keys()) {
     const pattern = new RegExp(`\\b${name}\\b`)
-    if (seeds.some(text => pattern.test(text))) found.push(name)
+    if (pattern.test(source)) found.push(name)
   }
   return found.sort()
 }

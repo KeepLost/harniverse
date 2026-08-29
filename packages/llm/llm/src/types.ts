@@ -321,6 +321,8 @@ export interface LlmModelReasoningInfo {
 export interface LlmResolvedModelInfo extends LlmModelInfo {
   /** Provider-owned context capacity when known. */
   context?: LlmModelContext
+  /** Adapter-resolved maximum output capacity; it never becomes a request default. */
+  maxOutputTokens?: number
   /** Adapter-configured per-request output cap materialized when callers omit one. */
   defaultMaxTokens?: number
   /** Adapter-owned selectable reasoning levels when exposed. */

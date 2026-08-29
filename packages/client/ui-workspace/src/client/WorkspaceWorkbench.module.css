@@ -1,0 +1,540 @@
+/* Read-only Workspace workbench.
+ *
+ * Geometry follows the sidebar's own cell spec (rows/Rows.module.css): 34px
+ * rows, radius 8, a 22px indent step, and hover fills from the interactive
+ * tokens — the two surfaces sit side by side, so their rhythms must agree.
+ *
+ * Navigation sections are peer tabs along the top edge. The document region is
+ * NOT part of this column: preview is a separate surface (see
+ * WorkbenchPreview.module.css) that slides in from the left over the
+ * conversation, because opening a file moves attention to file content. */
+
+.root {
+  container: workbench / inline-size;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+  font: var(--dsw-font-xs-13);
+  /* The navigation scrolls past the elevated Git selector and inherits the
+     selector's l2 surface family for a consistent scrollbar pair. */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+/* In drawer mode the preview is a whole-panel switch, not a split. Keep the
+   navigation mounted so its tree/search state survives, but remove its chrome
+   from layout and keyboard navigation while file content owns attention. */
+.root[data-preview] > .header,
+.root[data-preview] > .sectionTabs,
+.root[data-preview] > .navigator {
+  display: none;
+}
+
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 52px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.headerText {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.headerLabel {
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxxs-11);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.headerTitle {
+  overflow: hidden;
+  font: var(--dsw-font-s-strong-14);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iconButton {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.iconButton:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* Section tabs along the top edge: three peers (files, changes, search).
+   34px controls inside 4px padding over a 1px rule = a 43px band. */
+.sectionTabs {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 4px 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.sectionTabList {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.sectionTab {
+  display: inline-flex;
+  height: 34px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  font: var(--dsw-font-xs-13);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.sectionTab:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.sectionTab[data-active] {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-active);
+  font: var(--dsw-font-xs-strong-13);
+}
+
+.sectionTabSpacer {
+  margin-left: auto;
+}
+
+.navigator {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  background: var(--dsw-alias-bg-base);
+}
+
+.navigatorBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 8px 12px;
+}
+
+/* Tree rows mirror the sidebar cell: 34px, radius 8, 22px indent step. */
+.treeRow {
+  display: flex;
+  width: 100%;
+  height: 34px;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-primary);
+  background: transparent;
+  font: var(--dsw-font-s-14);
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+
+.treeRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.treeRow[data-active] {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.treeRow > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.treeGlyph {
+  display: inline-flex;
+  width: 16px;
+  height: 20px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* File-type stamp in the 16px leading slot: 3 characters at the smallest
+   role, tracked in so an extension like TSX still fits the glyph box. */
+.fileGlyph {
+  font: var(--dsw-font-xxxs-11);
+  font-family: var(--ds-font-family-code);
+  letter-spacing: -0.06em;
+}
+
+.inertRow {
+  display: flex;
+  height: 34px;
+  align-items: center;
+  padding: 0 8px;
+  overflow: hidden;
+  color: var(--dsw-alias-label-dimmed);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.navStatus,
+.navError {
+  padding: 10px 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.navError {
+  color: var(--dsw-alias-state-error-primary);
+  overflow-wrap: anywhere;
+}
+
+.searchPanel,
+.changesPanel {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+}
+
+.searchBox {
+  display: flex;
+  height: 34px;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  margin-bottom: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-specific-input-major);
+  transition: border-color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.searchBox:focus-within {
+  border-color: var(--dsw-alias-state-business-primary);
+}
+
+.searchBox input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: var(--dsw-alias-label-primary);
+  background: transparent;
+  font: var(--dsw-font-s-14);
+}
+
+.searchBox input::placeholder {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+/* Glob filters: collapsed by default so the common filename lookup stays a
+   single field, expanded when the query needs include/exclude scoping. */
+.filterToggle {
+  display: inline-flex;
+  height: 26px;
+  flex: none;
+  align-self: flex-start;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  font: var(--dsw-font-xxs-12);
+  cursor: pointer;
+  transition: background var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.filterToggle:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.filterToggle[data-active] {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.filterFields {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.filterField {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.filterField > span {
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxxs-11);
+}
+
+.filterField input {
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  outline: 0;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-specific-input-major);
+  font: var(--dsw-font-xxs-12);
+  font-family: var(--ds-font-family-code);
+}
+
+.filterField input:focus {
+  border-color: var(--dsw-alias-state-business-primary);
+}
+
+.filterField input::placeholder {
+  color: var(--dsw-alias-label-dimmed);
+  font-family: var(--dsw-font-family);
+}
+
+.filterHint {
+  color: var(--dsw-alias-label-dimmed);
+  font: var(--dsw-font-xxxs-11);
+}
+
+.searchResults,
+.changeList,
+.commitList {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Search hit: filename over its workspace-relative path, the sidebar's
+   two-line result cell (48px, radius 8). */
+.searchResult {
+  display: flex;
+  width: 100%;
+  min-height: 48px;
+  box-sizing: border-box;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-primary);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.searchResult:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.searchResult strong {
+  overflow: hidden;
+  font: var(--dsw-font-s-14);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.searchResult span {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxs-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gitHeader {
+  display: flex;
+  min-height: 34px;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.gitHeader > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.segmented {
+  display: grid;
+  flex: none;
+  grid-template-columns: 1fr 1fr;
+  margin: 6px 0 8px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.segmented button {
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  font: var(--dsw-font-xxs-12);
+  cursor: pointer;
+  transition: background var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.segmented button:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.segmented button[data-active] {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-button-elevated-fill);
+  font: var(--dsw-font-xxs-strong-12);
+}
+
+.changeRow {
+  display: grid;
+  height: 34px;
+  box-sizing: border-box;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-primary);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.changeRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.changeStatus {
+  color: var(--dsw-alias-state-warn-primary);
+  font: var(--dsw-font-xxxs-strong-11);
+  font-family: var(--ds-font-family-code);
+  text-align: center;
+}
+
+.changeRow > span:last-child {
+  overflow: hidden;
+  font: var(--dsw-font-s-14);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.historyHeading {
+  flex: none;
+  margin-top: 10px;
+  padding: 10px 8px 6px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxxs-11);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.commitRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 8px;
+  padding: 6px 8px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.commitRow code {
+  color: var(--dsw-alias-state-business-primary);
+  font: var(--dsw-font-xxs-12);
+  font-family: var(--ds-font-family-code);
+}
+
+.commitRow span {
+  overflow: hidden;
+  font: var(--dsw-font-xxs-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commitRow time {
+  grid-column: 2;
+  color: var(--dsw-alias-label-dimmed);
+  font: var(--dsw-font-xxxs-11);
+}
+
+.emptyState {
+  display: flex;
+  height: 100%;
+  min-height: 180px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxs-12);
+  text-align: center;
+}
+
+/* A narrow region drops the tab labels to their glyphs: the three peers stay
+   visible rather than one of them scrolling out of reach. */
+@container workbench (max-width: 380px) {
+  .sectionTab > span {
+    display: none;
+  }
+
+  .sectionTab {
+    padding: 0 8px;
+  }
+}

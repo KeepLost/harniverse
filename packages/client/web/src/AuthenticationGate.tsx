@@ -81,7 +81,7 @@ function parseEnrollment(value: unknown): EnrollmentStatus {
   return value as EnrollmentStatus
 }
 
-async function exchangeBrowserSession(device: BrowserDevice): Promise<string> {
+async function exchangeBrowserSession(device: BrowserDevice, signal?: AbortSignal): Promise<string> {
   if (device.grantId === undefined) throw new Error('设备尚未获批准')
   markStartup('auth-challenge-start')
   const challenge = await responseJson(await fetch('/auth/challenge', {
@@ -89,6 +89,7 @@ async function exchangeBrowserSession(device: BrowserDevice): Promise<string> {
     credentials: 'same-origin',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ grantId: device.grantId, purpose: 'browser-session' }),
+    ...signal === undefined ? {} : { signal },
   }), '设备挑战失败') as { id: string; payload: string }
   markStartup('auth-challenge-end')
   measureStartup('auth-challenge', 'auth-challenge-start', 'auth-challenge-end')
@@ -99,6 +100,7 @@ async function exchangeBrowserSession(device: BrowserDevice): Promise<string> {
     credentials: 'same-origin',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ challengeId: challenge.id, signature }),
+    ...signal === undefined ? {} : { signal },
   }), '设备认证失败')
   markStartup('auth-exchange-end')
   measureStartup('auth-exchange', 'auth-exchange-start', 'auth-exchange-end')
@@ -115,6 +117,13 @@ export interface BrowserSessionRenewal {
 }
 
 const activeRenewals = new Set<BrowserSessionRenewal>()
+const RENEWAL_REQUEST_TIMEOUT_MS = 10_000
+const RENEWAL_RETRY_BASE_MS = 1_000
+const RENEWAL_RETRY_MAX_MS = 10_000
+
+function isAuthenticationRejection(reason: unknown): boolean {
+  return reason instanceof Error && reason.message.endsWith('(401)')
+}
 
 /** Keep a browser session short while renewing it through device possession. */
 export function maintainBrowserSession(
@@ -124,54 +133,134 @@ export function maintainBrowserSession(
 ): BrowserSessionRenewal {
   let timer: ReturnType<typeof setTimeout> | undefined
   let inFlight: Promise<void> | undefined
+  let inFlightAbort: AbortController | undefined
   let stopped = false
+  let deadline = Date.parse(expiresAt)
+  let renewAt = Number.POSITIVE_INFINITY
+  let terminalDeadline = false
+  let retryAttempt = 0
 
-  const schedule = (expiry: string): void => {
+  const isStopped = (): boolean => stopped
+
+  const clearTimer = (): void => {
+    if (timer !== undefined) clearTimeout(timer)
+    timer = undefined
+  }
+
+  const arm = (delay: number, action: () => void): void => {
     if (stopped) return
-    const deadline = Date.parse(expiry)
-    const remaining = deadline - Date.now()
-    if (!Number.isFinite(deadline) || remaining <= 0) {
-      recover()
-      return
-    }
-    const lead = Math.min(30_000, Math.max(1, Math.floor(remaining / 3)))
-    const delay = Math.max(1, remaining - lead)
+    clearTimer()
     timer = setTimeout(() => {
       timer = undefined
-      const operation = exchangeBrowserSession(device).then(
-        (nextExpiry) => {
-          if (stopped) return
-          const nextDeadline = Date.parse(nextExpiry)
-          if (!Number.isFinite(nextDeadline) || nextDeadline <= Date.now()) {
-            recover()
-          } else if (nextDeadline <= deadline) {
-            timer = setTimeout(() => { if (!stopped) recover() }, Math.max(1, nextDeadline - Date.now()))
-          } else {
-            schedule(nextExpiry)
-          }
-        },
-        () => { if (!stopped) recover() },
-      )
-      inFlight = operation
-      void operation.finally(() => {
-        if (inFlight === operation) inFlight = undefined
-      })
-    }, delay)
+      action()
+    }, Math.max(1, delay))
+  }
+
+  const schedule = (): void => {
+    if (stopped) return
+    const remaining = deadline - Date.now()
+    if (!Number.isFinite(deadline)) {
+      recoverOnce()
+      return
+    }
+    if (terminalDeadline) {
+      arm(remaining, recoverOnce)
+      return
+    }
+    renewAt = Date.now() + Math.max(1, Math.floor(Math.max(0, remaining) / 2))
+    arm(renewAt - Date.now(), renewNow)
+  }
+
+  const scheduleRetry = (): void => {
+    retryAttempt += 1
+    const delay = Math.min(
+      RENEWAL_RETRY_MAX_MS,
+      RENEWAL_RETRY_BASE_MS * 2 ** Math.min(30, retryAttempt - 1),
+    )
+    arm(delay, renewNow)
+  }
+
+  const removeWakeListeners = (): void => {
+    window.removeEventListener('focus', onFocus)
+    window.removeEventListener('online', onOnline)
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+  }
+
+  function recoverOnce(): void {
+    if (stopped) return
+    stopped = true
+    clearTimer()
+    inFlightAbort?.abort()
+    removeWakeListeners()
+    activeRenewals.delete(renewal)
+    recover()
+  }
+
+  function renewNow(): void {
+    if (isStopped() || terminalDeadline || inFlight !== undefined) return
+    clearTimer()
+    const priorDeadline = deadline
+    const controller = new AbortController()
+    inFlightAbort = controller
+    const timeout = setTimeout(() => { controller.abort() }, RENEWAL_REQUEST_TIMEOUT_MS)
+    const operation = (async (): Promise<void> => {
+      try {
+        const nextExpiry = await exchangeBrowserSession(device, controller.signal)
+        if (isStopped()) return
+        const nextDeadline = Date.parse(nextExpiry)
+        if (!Number.isFinite(nextDeadline) || nextDeadline <= Date.now()) {
+          recoverOnce()
+          return
+        }
+        deadline = nextDeadline
+        retryAttempt = 0
+        terminalDeadline = nextDeadline <= priorDeadline
+        schedule()
+      } catch (reason) {
+        if (isStopped()) return
+        if (isAuthenticationRejection(reason)) {
+          recoverOnce()
+        } else {
+          scheduleRetry()
+        }
+      } finally {
+        clearTimeout(timeout)
+        inFlight = undefined
+        inFlightAbort = undefined
+      }
+    })()
+    inFlight = operation
+  }
+
+  function onFocus(): void {
+    if (Date.now() >= renewAt) renewNow()
+  }
+
+  function onOnline(): void {
+    renewNow()
+  }
+
+  function onVisibilityChange(): void {
+    if (document.visibilityState === 'visible' && Date.now() >= renewAt) renewNow()
   }
 
   const renewal: BrowserSessionRenewal = {
     async stop() {
       if (!stopped) {
         stopped = true
-        if (timer !== undefined) clearTimeout(timer)
-        timer = undefined
+        clearTimer()
+        inFlightAbort?.abort()
+        removeWakeListeners()
         activeRenewals.delete(renewal)
       }
       await inFlight?.catch(() => {})
     },
   }
   activeRenewals.add(renewal)
-  schedule(expiresAt)
+  window.addEventListener('focus', onFocus)
+  window.addEventListener('online', onOnline)
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  schedule()
   return renewal
 }
 
@@ -206,7 +295,7 @@ export function AuthenticationGate({ onAuthenticated }: {
       await renewal.current?.stop()
       renewal.current = maintainBrowserSession(candidate, expiresAt)
     } catch (reason) {
-      if (candidate.kind === 'device' && reason instanceof Error && reason.message.endsWith('(401)')) await clearBrowserDevice()
+      if (candidate.kind === 'device' && isAuthenticationRejection(reason)) await clearBrowserDevice()
       throw reason
     }
     if (management) {
@@ -262,7 +351,11 @@ export function AuthenticationGate({ onAuthenticated }: {
           setStatus(next)
           return
         }
-        onAuthenticated()
+        if (next.mode === 'bypass') {
+          onAuthenticated()
+          return
+        }
+        startTransition(() => { setStatus(next) })
         return
       }
       startTransition(() => { setStatus(next) })

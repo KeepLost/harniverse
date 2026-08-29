@@ -6,7 +6,7 @@ Web 外壳内核：`new AppWebEntry(el, seams?).run()` 通过两阶段启动（w
 
 外壳自给自足（web2 硬性规则）：内核不对任何插件包执行值导入；启动状态 store 与信号在这里手写（`loader-status.ts`），因此即使插件失败，加载页面仍能工作，而此时这一点尤其重要。app-shell 组装（`@deepseek-ai/dsh-client-app-shell`，由外壳拥有、背后没有 npm 包的伪配置项）是唯一通过 `registerStatic` 注册的模块；它与任何插件一样，通过 inject 等待 slots/sessions/layout。
 
-外壳在解析插件 manifest 之前，通过静态认证路由 enrollment 或重新认证浏览器持有的 P-256 设备密钥。认证 gate 卸载后，外壳继续拥有短期浏览器会话续期。Logout 会先停止并排空已启动的交换，再清除交换产生的 Cookie，因此后台续期不能撤销本地 logout。
+外壳在解析插件 manifest 之前，通过静态认证路由 enrollment 或重新认证浏览器持有的 P-256 设备密钥。认证 gate 卸载后，外壳继续拥有短期浏览器会话续期：个人设备在半生命周期续期，每次交换最多等待十秒；瞬时失败会按有上限的指数退避重试，即使旧 Cookie 已过期也不停止；窗口聚焦、标签页恢复可见或网络恢复时会唤醒已到期续期。只有有效 Cookie 却没有可续期设备密钥时，普通应用不会被放行。Logout 会中止并排空已启动的交换，再清除交换可能产生的 Cookie，因此后台续期不能撤销本地 logout。
 
 `PLATFORM_MODULES`（src/platform.ts）是共享模块接口的唯一真源：种子表 key、tsdown 客户端 external 和 vite alias 集都是它的投影。
 

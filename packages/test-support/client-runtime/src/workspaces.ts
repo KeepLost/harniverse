@@ -1,7 +1,8 @@
 /** Test-owned workspaces face: the renderer standard-kit observable plus recorded actions. */
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
-  DirectoryListing, IWorkspaces, SessionId, SnapshotStore, WorkspaceId, WorkspaceListState, WorkspaceView,
+  DirectoryListing, IWorkspaces, SessionId, SnapshotStore, WorkspaceFileEntry, WorkspaceGitCommit,
+  WorkspaceGitStatusEntry, WorkspaceId, WorkspaceListState, WorkspaceSearchFilters, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { workspaceListState } from './fixtures.ts'
 import type { Stabilizer } from './fixtures.ts'
@@ -95,6 +96,114 @@ export class TestWorkspaces implements IWorkspaces {
   async openPath(path: string): Promise<void> {
     this.calls.push({ method: 'openPath', args: [path] })
     await (this.stubs.get('openPath')?.(path) as Promise<void> | undefined)
+  }
+
+  async listFiles(workspaceId: WorkspaceId, path?: string, signal?: AbortSignal): Promise<{
+    path: string
+    entries: WorkspaceFileEntry[]
+    truncated: boolean
+  }> {
+    this.calls.push({ method: 'listFiles', args: [workspaceId, path, signal] })
+    const stub = this.stubs.get('listFiles')
+    if (stub !== undefined) return await stub(workspaceId, path, signal) as {
+      path: string
+      entries: WorkspaceFileEntry[]
+      truncated: boolean
+    }
+    return { path: path ?? '', entries: [], truncated: false }
+  }
+
+  async readFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
+    path: string
+    content: string
+    bytes: number
+    truncated: boolean
+  }> {
+    this.calls.push({ method: 'readFile', args: [workspaceId, path, signal] })
+    const stub = this.stubs.get('readFile')
+    if (stub !== undefined) return await stub(workspaceId, path, signal) as {
+      path: string
+      content: string
+      bytes: number
+      truncated: boolean
+    }
+    return { path, content: '', bytes: 0, truncated: false }
+  }
+
+  async searchFiles(
+    workspaceId: WorkspaceId,
+    query: string,
+    filters?: WorkspaceSearchFilters,
+    signal?: AbortSignal,
+  ): Promise<{
+    entries: WorkspaceFileEntry[]
+    truncated: boolean
+  }> {
+    this.calls.push({ method: 'searchFiles', args: [workspaceId, query, filters, signal] })
+    const stub = this.stubs.get('searchFiles')
+    if (stub !== undefined) return await stub(workspaceId, query, filters, signal) as {
+      entries: WorkspaceFileEntry[]
+      truncated: boolean
+    }
+    return { entries: [], truncated: false }
+  }
+
+  async readBinaryFile(workspaceId: WorkspaceId, path: string, signal?: AbortSignal): Promise<{
+    path: string
+    dataBase64: string
+    mediaType: string
+    bytes: number
+  }> {
+    this.calls.push({ method: 'readBinaryFile', args: [workspaceId, path, signal] })
+    const stub = this.stubs.get('readBinaryFile')
+    if (stub !== undefined) return await stub(workspaceId, path, signal) as {
+      path: string
+      dataBase64: string
+      mediaType: string
+      bytes: number
+    }
+    return { path, dataBase64: '', mediaType: 'image/png', bytes: 0 }
+  }
+
+  async gitStatus(workspaceId: WorkspaceId, signal?: AbortSignal): Promise<{
+    branch: string | null
+    entries: WorkspaceGitStatusEntry[]
+    truncated: boolean
+  }> {
+    this.calls.push({ method: 'gitStatus', args: [workspaceId, signal] })
+    const stub = this.stubs.get('gitStatus')
+    if (stub !== undefined) return await stub(workspaceId, signal) as {
+      branch: string | null
+      entries: WorkspaceGitStatusEntry[]
+      truncated: boolean
+    }
+    return { branch: null, entries: [], truncated: false }
+  }
+
+  async gitCommits(workspaceId: WorkspaceId, limit?: number, signal?: AbortSignal): Promise<{
+    commits: WorkspaceGitCommit[]
+    truncated: boolean
+  }> {
+    this.calls.push({ method: 'gitCommits', args: [workspaceId, limit, signal] })
+    const stub = this.stubs.get('gitCommits')
+    if (stub !== undefined) return await stub(workspaceId, limit, signal) as {
+      commits: WorkspaceGitCommit[]
+      truncated: boolean
+    }
+    return { commits: [], truncated: false }
+  }
+
+  async gitDiff(workspaceId: WorkspaceId, path?: string, staged?: boolean, signal?: AbortSignal): Promise<{
+    diff: string
+    truncated: boolean
+  }> {
+    this.calls.push({ method: 'gitDiff', args: [workspaceId, path, staged, signal] })
+    const stub = this.stubs.get('gitDiff')
+    if (stub !== undefined) return await stub(workspaceId, path, staged, signal) as {
+      diff: string
+      truncated: boolean
+    }
+    return { diff: '', truncated: false }
   }
 
   /**

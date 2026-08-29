@@ -94,6 +94,17 @@ export class FakeApiClient implements IApiClient {
     () => Promise.resolve(ok({ path: null }))
   onOpenPath: (payload: unknown) => Promise<RpcResponse<{ opened: true }>> =
     () => Promise.resolve(ok({ opened: true as const }))
+  readonly workspaceFiles: IApiClient['workspaceFiles'] = {
+    list: payload => this.record('workspace.files.list', payload, Promise.resolve(ok({ path: '', entries: [], truncated: false }))),
+    search: payload => this.record('workspace.files.search', payload, Promise.resolve(ok({ entries: [], truncated: false }))),
+    read: payload => this.record('workspace.files.read', payload, Promise.resolve(ok({ path: '', content: '', bytes: 0, truncated: false }))),
+    readBinary: payload => this.record('workspace.files.readBinary', payload, Promise.resolve(ok({ path: '', dataBase64: '', mediaType: 'image/png', bytes: 0 }))),
+  }
+  readonly workspaceGit: IApiClient['workspaceGit'] = {
+    status: payload => this.record('workspace.git.status', payload, Promise.resolve(ok({ branch: null, entries: [], truncated: false }))),
+    commits: payload => this.record('workspace.git.commits', payload, Promise.resolve(ok({ commits: [], truncated: false }))),
+    diff: payload => this.record('workspace.git.diff', payload, Promise.resolve(ok({ diff: '', truncated: false }))),
+  }
 
   onListDirectory: (payload: unknown) => Promise<RpcResponse<{
     path: string

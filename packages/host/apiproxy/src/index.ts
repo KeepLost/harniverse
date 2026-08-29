@@ -89,6 +89,8 @@ export class ApiProxyService extends Service implements ApiProxy {
   readonly operations: NonNullable<ApiProxy['operations']>
   readonly subagents: ApiProxy['subagents']
   readonly workspace: ApiProxy['workspace']
+  readonly workspaceFiles: NonNullable<ApiProxy['workspaceFiles']>
+  readonly workspaceGit: NonNullable<ApiProxy['workspaceGit']>
   readonly host: ApiProxy['host']
   readonly goals: ApiProxy['goals']
   readonly skills: ApiProxy['skills']
@@ -123,6 +125,11 @@ export class ApiProxyService extends Service implements ApiProxy {
     this.operations = api.operations
     this.subagents = api.subagents
     this.workspace = api.workspace
+    if (api.workspaceFiles === undefined || api.workspaceGit === undefined) {
+      throw new Error('api-proxy: workspace inspection surfaces were not created')
+    }
+    this.workspaceFiles = api.workspaceFiles
+    this.workspaceGit = api.workspaceGit
     this.host = api.host
     this.goals = api.goals
     this.skills = api.skills

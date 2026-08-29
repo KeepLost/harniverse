@@ -230,8 +230,8 @@
 }
 
 .warning {
-  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary) 9%, transparent);
-  color: var(--dsw-alias-state-warning-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 9%, transparent);
+  color: var(--dsw-alias-state-warn-primary);
 }
 
 .filters {
@@ -416,7 +416,7 @@
 .primary {
   border-color: var(--dsw-alias-state-business-primary) !important;
   background: var(--dsw-alias-state-business-primary) !important;
-  color: var(--dsw-alias-label-on-color) !important;
+  color: var(--dsw-alias-label-primary-foreground) !important;
 }
 
 .plan {

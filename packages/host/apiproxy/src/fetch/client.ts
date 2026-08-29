@@ -78,6 +78,13 @@ import {
 } from '../api/subagents.schema.ts'
 import { apiDescribeValueSchema } from '../api/contract.schema.ts'
 import { operationGetValueSchema } from '../api/operations.schema.ts'
+import {
+  workspaceFilesListValueSchema, workspaceFilesReadBinaryValueSchema,
+  workspaceFilesReadValueSchema, workspaceFilesSearchValueSchema,
+} from '../api/workspace-files.schema.ts'
+import {
+  workspaceGitCommitsValueSchema, workspaceGitDiffValueSchema, workspaceGitStatusValueSchema,
+} from '../api/workspace-git.schema.ts'
 
 /**
  * Client consumption face of the contract (shape a): same domain tree as ApiProxy, but unary
@@ -143,6 +150,17 @@ export interface IApiClient {
     insertSessionBefore(payload: RequestPayload<'workspace.insertSessionBefore'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.insertSessionBefore'>>>
     archiveSession(payload: RequestPayload<'workspace.archiveSession'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.archiveSession'>>>
     unarchiveSession(payload: RequestPayload<'workspace.unarchiveSession'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.unarchiveSession'>>>
+  }
+  workspaceFiles: {
+    list(payload: RequestPayload<'workspace.files.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.files.list'>>>
+    search(payload: RequestPayload<'workspace.files.search'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.files.search'>>>
+    read(payload: RequestPayload<'workspace.files.read'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.files.read'>>>
+    readBinary(payload: RequestPayload<'workspace.files.readBinary'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.files.readBinary'>>>
+  }
+  workspaceGit: {
+    status(payload: RequestPayload<'workspace.git.status'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.git.status'>>>
+    commits(payload: RequestPayload<'workspace.git.commits'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.git.commits'>>>
+    diff(payload: RequestPayload<'workspace.git.diff'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.git.diff'>>>
   }
   skills: {
     list(payload: RequestPayload<'skill.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'skill.list'>>>
@@ -228,6 +246,13 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'workspace.insertSessionBefore': workspaceInsertSessionBeforeValueSchema,
   'workspace.archiveSession': workspaceArchiveSessionValueSchema,
   'workspace.unarchiveSession': workspaceUnarchiveSessionValueSchema,
+  'workspace.files.list': workspaceFilesListValueSchema,
+  'workspace.files.search': workspaceFilesSearchValueSchema,
+  'workspace.files.read': workspaceFilesReadValueSchema,
+  'workspace.files.readBinary': workspaceFilesReadBinaryValueSchema,
+  'workspace.git.status': workspaceGitStatusValueSchema,
+  'workspace.git.commits': workspaceGitCommitsValueSchema,
+  'workspace.git.diff': workspaceGitDiffValueSchema,
   'skill.list': skillListValueSchema,
   'agentPreset.list': agentPresetListValueSchema,
   'agentPreset.read': agentPresetReadValueSchema,
@@ -544,6 +569,19 @@ export abstract class AbstractApiClient implements IApiClient {
     insertSessionBefore: (payload, signal) => this.callUnary('workspace.insertSessionBefore', payload, signal),
     archiveSession: (payload, signal) => this.callUnary('workspace.archiveSession', payload, signal),
     unarchiveSession: (payload, signal) => this.callUnary('workspace.unarchiveSession', payload, signal),
+  }
+
+  readonly workspaceFiles: IApiClient['workspaceFiles'] = {
+    list: (payload, signal) => this.callUnary('workspace.files.list', payload, signal),
+    search: (payload, signal) => this.callUnary('workspace.files.search', payload, signal),
+    read: (payload, signal) => this.callUnary('workspace.files.read', payload, signal),
+    readBinary: (payload, signal) => this.callUnary('workspace.files.readBinary', payload, signal),
+  }
+
+  readonly workspaceGit: IApiClient['workspaceGit'] = {
+    status: (payload, signal) => this.callUnary('workspace.git.status', payload, signal),
+    commits: (payload, signal) => this.callUnary('workspace.git.commits', payload, signal),
+    diff: (payload, signal) => this.callUnary('workspace.git.diff', payload, signal),
   }
 
   readonly skills: IApiClient['skills'] = {

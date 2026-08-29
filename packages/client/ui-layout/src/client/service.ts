@@ -27,6 +27,10 @@ export interface ILayout {
   openDetails(): void
   /** Close the details panel. */
   closeDetails(): void
+  /** Open the workspace workbench in the shared right region. */
+  openWorkbench(): void
+  /** Close the workspace workbench while retaining its width. */
+  closeWorkbench(): void
 }
 
 /** Cross-plugin panel-action face (ctx.layout). */
@@ -57,6 +61,16 @@ export class LayoutController implements ILayout {
   /** Close the details panel. */
   closeDetails(): void {
     this.#require().closeDetails()
+  }
+
+  /** Open the workspace workbench in the shared right region. */
+  openWorkbench(): void {
+    this.#require().openWorkbench()
+  }
+
+  /** Close the workspace workbench while retaining its width. */
+  closeWorkbench(): void {
+    this.#require().closeWorkbench()
   }
 
   #require(): PanelActions {

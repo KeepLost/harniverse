@@ -29,6 +29,8 @@ function scriptedApi(overrides: {
   settings?: Partial<ApiProxy['settings']>
   credentials?: Partial<ApiProxy['credentials']>
   llm?: Partial<ApiProxy['llm']>
+  workspaceFiles?: Partial<NonNullable<ApiProxy['workspaceFiles']>>
+  workspaceGit?: Partial<NonNullable<ApiProxy['workspaceGit']>>
   respond?: ApiProxy['respond']
 } = {}): ApiProxy {
   async function *empty<F>(): AsyncGenerator<RpcRequest<F>> { /* no frames */ }
@@ -105,6 +107,19 @@ function scriptedApi(overrides: {
       insertSessionBefore: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' } }),
       archiveSession: r => ok(r, { archivedSessionIds: [r.payload.sessionId] }),
       unarchiveSession: r => ok(r, { archivedSessionIds: [] }),
+    },
+    workspaceFiles: {
+      list: r => ok(r, { path: r.payload.path ?? '.', entries: [], truncated: false }),
+      search: r => ok(r, { entries: [{ name: r.payload.query, path: r.payload.query, kind: 'file' as const }], truncated: false }),
+      read: r => ok(r, { path: r.payload.path, content: 'stub', bytes: 4, truncated: false }),
+      readBinary: r => ok(r, { path: r.payload.path, dataBase64: 'AA==', mediaType: 'image/png', bytes: 1 }),
+      ...overrides.workspaceFiles,
+    },
+    workspaceGit: {
+      status: r => ok(r, { branch: 'main', entries: [], truncated: false }),
+      commits: r => ok(r, { commits: [], truncated: false }),
+      diff: r => ok(r, { diff: '', truncated: false }),
+      ...overrides.workspaceGit,
     },
     skills: { list: r => ok(r, { skills: [] }), ...overrides.skills },
     agentPresets: {
@@ -449,8 +464,34 @@ describe('workspace domain round trip', () => {
     expect(archivedResponse.result).toEqual({ ok: true, value: { archivedSessionIds: ['s-arch'] } })
   })
 
+  it('routes read-only file and Git inspection through their workspace-scoped methods', async () => {
+    const c = client(scriptedApi())
+
+    expect((await c.workspaceFiles.list({ workspaceId: 'w1' as never, path: '.hidden' })).result)
+      .toEqual({ ok: true, value: { path: '.hidden', entries: [], truncated: false } })
+    expect((await c.workspaceFiles.read({ workspaceId: 'w1' as never, path: 'README.md' })).result)
+      .toEqual({ ok: true, value: { path: 'README.md', content: 'stub', bytes: 4, truncated: false } })
+    expect((await c.workspaceFiles.search({ workspaceId: 'w1' as never, query: 'README' })).result)
+      .toEqual({ ok: true, value: { entries: [{ name: 'README', path: 'README', kind: 'file' }], truncated: false } })
+    expect((await c.workspaceFiles.readBinary({ workspaceId: 'w1' as never, path: 'pixel.png' })).result)
+      .toEqual({ ok: true, value: { path: 'pixel.png', dataBase64: 'AA==', mediaType: 'image/png', bytes: 1 } })
+    expect((await c.workspaceGit.status({ workspaceId: 'w1' as never })).result.ok).toBe(true)
+    expect((await c.workspaceGit.commits({ workspaceId: 'w1' as never, limit: 10 })).result.ok).toBe(true)
+    expect((await c.workspaceGit.diff({ workspaceId: 'w1' as never, staged: true })).result.ok).toBe(true)
+  })
+
   it('rejects a pathless create payload at the handler schema', async () => {
     const response = await client(scriptedApi()).workspace.create({} as never)
+    expect(response.result.ok).toBe(false)
+    if (!response.result.ok) expect(response.result.error.code).toBe('bad-request')
+  })
+
+  it('rejects an oversized Workspace search glob list at the handler schema', async () => {
+    const response = await client(scriptedApi()).workspaceFiles.search({
+      workspaceId: 'w1' as never,
+      query: 'README',
+      include: Array.from({ length: 21 }, (_, index) => `file-${String(index)}.ts`),
+    })
     expect(response.result.ok).toBe(false)
     if (!response.result.ok) expect(response.result.error.code).toBe('bad-request')
   })

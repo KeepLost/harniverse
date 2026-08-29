@@ -188,6 +188,30 @@ describe('WorkspaceManager', () => {
 })
 
 describe('WorkspaceRuntime', () => {
+  it('routes authenticated file search and bounded binary preview reads through the API client', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
+    const signal = new AbortController().signal
+
+    await expect(workspaces.searchFiles(wid('alpha'), 'main', {
+      include: ['*.ts', '  '], exclude: ['dist/'],
+    }, signal)).resolves.toEqual({ entries: [], truncated: false })
+    await expect(workspaces.readBinaryFile(wid('alpha'), 'pixel.png', signal)).resolves.toEqual({
+      path: '', dataBase64: '', mediaType: 'image/png', bytes: 0,
+    })
+    expect(api.callsOf('workspace.files.search')).toEqual([{
+      workspaceId: wid('alpha'), query: 'main', include: ['*.ts'], exclude: ['dist/'],
+    }])
+    expect(api.callsOf('workspace.files.readBinary')).toEqual([{ workspaceId: wid('alpha'), path: 'pixel.png' }])
+
+    api.workspaceFiles.search = () => Promise.resolve(err({ code: 'internal', message: 'search unavailable', details: {} }))
+    api.workspaceFiles.readBinary = () => Promise.resolve(err({ code: 'internal', message: 'preview unavailable', details: {} }))
+    await expect(workspaces.searchFiles(wid('alpha'), 'main')).rejects.toThrow('search unavailable')
+    await expect(workspaces.readBinaryFile(wid('alpha'), 'pixel.png')).rejects.toThrow('preview unavailable')
+  })
+
   it('settles startup core when both baselines confirm there is no session to open', async () => {
     const ctx = new Context()
     const settled = vi.fn()

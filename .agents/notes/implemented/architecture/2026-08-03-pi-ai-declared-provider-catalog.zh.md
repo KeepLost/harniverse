@@ -18,7 +18,7 @@ Status: implemented
 - `provider.ts` 构造路由的 `Provider`。保持 catalog 协议不变的 catalog 路由会**复用**已安装提供方，只替换 `getModels()`；其余路由都由 `createProvider()` 基于一张协议表构造，表中条目正是 pi-ai 自己的提供方工厂所用的 `@earendil-works/pi-ai/api/*.lazy` factory。该表刻意窄于 pi-ai 的完整 API 集合——只保留 profile 能用密钥、端点与标头完整描述的协议，因此 Bedrock（SigV4 加 region）、Vertex（project、location、ADC）、Azure（提供方环境加 api-version）与 Codex（OAuth）不在其中，而不是被当作无法认证的路由提供出去。catalog 路由仍可经自己的 provider 抵达它们；被拒的只有显式覆盖。
 - `adapter.ts` 把每次解析变成一份**不可变快照**——profiles 加上持有这些 provider 的 `createModels()` 集合——每个操作都在自己第一个 `await` 之前整体捕获一份。
 
-- 模型**显式配置**的 `maxTokens` 会成为 seam 的 `defaultMaxTokens`；从已安装 catalog 继承来的那份不会：pi-ai 要求 `Model.maxTokens` 表示模型的输出*能力*，而 `defaultMaxTokens` 是部署选定、发给未点名上限的请求的那个值，把前者物化成后者会让每个请求都被一个无人选择的数字封顶。
+- 物化后的 `Model.maxTokens` 无论来自配置、继承还是路由回退，都会作为 `maxOutputTokens` 到达 seam。只有模型**显式配置**的值还会成为 `defaultMaxTokens`：pi-ai 要求 `Model.maxTokens` 表示模型输出*能力*，而请求默认值是部署选定、发给未点名上限调用的那个值。分开两个字段后，有界辅助消费方可以读取能力，而不会让每个普通请求都被一个无人选择的数字封顶。
 
 ### 快照，而不是共享集合
 
@@ -59,7 +59,7 @@ pi-ai 的 `Models` 自带一套凭据概念——按提供方 ID 索引的 `Cred
 
 ## Consequences
 
-配置一个提供方不再取决于 pi-ai 的发布节奏。网关、自建服务，或比锁定 catalog 更新的模型，都是一次 `settings.yaml` 编辑，陈旧的上下文窗口也能就地更正。废弃的 `/compat` 导入已经消失，因此 pi-ai 删除它不再是破坏性事件。`defaultMaxTokens` 现在会在部署明确给出时从配置中传入，不会从 catalog 元数据里发明一个上限。
+配置一个提供方不再取决于 pi-ai 的发布节奏。网关、自建服务，或比锁定 catalog 更新的模型，都是一次 `settings.yaml` 编辑，陈旧容量也能就地更正。废弃的 `/compat` 导入已经消失，因此 pi-ai 删除它不再是破坏性事件。每个已解析模型都会报告物化后的输出能力；`defaultMaxTokens` 则只来自显式配置，未配置时普通请求仍沿用提供方默认值。
 
 代价是：声明式路由会让 `settings.yaml` 变长，因为它必须自报端点、协议与模型 id。`api` 作用于整条路由，因此混合协议的 catalog 路由无法承载另一种协议的模型——把它拆成两个路由键是变通办法。没有任何环节查询提供方的 `/models`，因此模型列表的新鲜度只到最近一次编辑为止。有一种情形下报错形状发生变化：auth 解析不出任何值的路由，现在会在任何网络调用之前把 pi-ai 自己的诊断作为错误 `finish` 分片呈现，而此前的适配器会发出无密钥请求并呈现提供方的 401。
 

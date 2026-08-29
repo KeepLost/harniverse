@@ -22,15 +22,17 @@
  * and a hole has exactly one declaring entry — they carry the same owner
  * contract and the same occupant.
  */
-import type { HostObservable, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { HostObservable, InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pull the owner SlotMap merges into programs that resolve the
 // runtime shares below.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {
   ConversationSnapshot, RpcResult, SessionId, SessionSearchResultItem, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { createWorkspaceViewStore } from '../stores.ts'
+import type { IWorkspaces } from '@deepseek-ai/dsh-client-runtime/client'
+import type { createWorkspaceViewStore, createWorkspaceWorkbenchStore } from '../stores.ts'
 
 /**
  * Owner share of the directory-flow holes: the complete conversation between
@@ -174,4 +176,38 @@ export type WorkspacePickerProps =
   & PropsRenderSlots<'conversation.hero.workspace.directoryFlow'>
   & Omit<WorkspacePickerInjected, 'hooks'>
   & DirectoryPickingHooks
+  & PropsLocale<'workspace'>
+
+/** Read-only Workspace workbench callbacks supplied by the apply world. */
+export type WorkspaceWorkbenchInjected = {
+  /** Open the workbench without starting an inspection request. */
+  openWorkbench: () => void
+  /** Close the workbench while retaining its Workspace-local viewing state. */
+  closeWorkbench: () => void
+  listFiles: IWorkspaces['listFiles']
+  searchFiles: IWorkspaces['searchFiles']
+  readFile: IWorkspaces['readFile']
+  readBinaryFile: IWorkspaces['readBinaryFile']
+  gitStatus: IWorkspaces['gitStatus']
+  gitCommits: IWorkspaces['gitCommits']
+  gitDiff: IWorkspaces['gitDiff']
+}
+
+/** Full top-level workbench props: session runtime, shared store, callbacks, and locale. */
+export type WorkspaceWorkbenchProps =
+  PropsRuntime<'workbench'>
+  & PropsStore<ReturnType<typeof createWorkspaceWorkbenchStore>>
+  & InjectFace<WorkspaceWorkbenchInjected>
+  & PropsLocale<'workspace'>
+
+/**
+ * Props of the preview companion registered into the shell's overlay layer.
+ *
+ * The surface needs no inspection callbacks: the workbench performs every read
+ * and the two registrations share one store handle, so this side only renders
+ * what the shared account already holds.
+ */
+export type WorkspacePreviewOverlayProps =
+  PropsRuntime<'shell.overlay'>
+  & PropsStore<ReturnType<typeof createWorkspaceWorkbenchStore>>
   & PropsLocale<'workspace'>

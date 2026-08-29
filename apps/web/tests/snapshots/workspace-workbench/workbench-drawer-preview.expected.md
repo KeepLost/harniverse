@@ -1,0 +1,16 @@
+- region "Workspace file preview":
+  - tablist "Open workspace files":
+    - tab "README.md"
+    - button "Close README.md":
+      - img
+    - tab "tracked.ts"
+    - button "Close tracked.ts":
+      - img
+    - tab "tracked.ts · changed" [selected]
+    - button "Close tracked.ts · changed":
+      - img
+  - tabpanel "tracked.ts · changed":
+    - text: ⁨tracked.ts⁩
+    - button "Close file preview":
+      - img
+    - text: diff --git a/tracked.ts b/tracked.ts index 6ace33e..81a1053 100644 --- a/tracked.ts +++ b/tracked.ts @@ -1 +1 @@ -export const state = 1 +export const state = 2

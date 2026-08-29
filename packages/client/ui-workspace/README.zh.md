@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-共享 Workspace 浏览器与选择器插件。`WorkspaceBrowser` 填充侧边栏的 `sidebar.workspaces` slot，`WorkspacePicker` 则填充页面局部 Session Intent 主视觉区的 `conversation.hero.workspace` slot；两个界面使用同一套 Workspace 菜单和添加流程。
+共享 Workspace 浏览器、选择器与只读工作台插件。`WorkspaceBrowser` 填充侧边栏的 `sidebar.workspaces` slot，`WorkspacePicker` 填充页面局部 Session Intent 主视觉区的 `conversation.hero.workspace` slot，`WorkspaceWorkbench` 则填充外壳根作用域的 `workbench` slot。
 
 该浏览器通过全局运行时钩子将 Session 行渲染为分组或扁平形式，并负责 Workspace 添加／重命名／重排序以及 Session 重排序。每个 Workspace 会记住自身是关闭还是显示 Session；打开后默认显示五条 Session，其余条目通过临时的**展开其余**控件显示，而关闭并重新打开整个 Workspace 后会恢复为五条。从 Workspace 行创建 Session 时会先打开该分组，使 Session 状态到达后新行保持可见。Workspace 列表基线就绪后，浏览器持久化的展开状态与 Session 顺序记录只保留当前 Workspace id、Ungrouped 和单列表记账。视图选项把分组方式和每个记账各自的一份浏览器持久化 Session 顺序放在一起：真实 Workspace 从 `WorkspaceView.sessionIds` 初始化，Ungrouped 和跨 Workspace 的单列表则从最近更新时间顺序初始化。**手动排序**和**最近更新**在两种呈现方式下都可用。进入最近更新时会执行一次完整的时间排序，后续 user prompt 或 steer 会将对应 Session 置顶一次；进入手动排序则保留所有当前位置并停用后续置顶。两种模式下的拖拽都会编辑当前顺序；真实 Workspace 在手动模式下的拖拽还会更新 Host Session 记账，而 Ungrouped 和单列表因没有单一 Workspace 记账，其顺序始终只保存在浏览器本地。单列表没有父级层次，因此不显示空的左侧状态槽；Session 存在可见状态时仍保留该槽。无论采用哪种 Session 顺序，Workspace 拖拽顺序都由 Host 持久化。
 
@@ -10,13 +10,15 @@
 
 该选择器通过全局 `useWorkspaces` hook 列出真实的 Host Workspace 实体。选择 Workspace 会调用 slot owner 的 `onPick` 回调，重新定位前端 Session 对象。不同的规范化路径即使 basename 和显示标题相同，仍会作为由 id 区分的独立 Workspace；侧边栏的悬停详情会显示完整路径。每个注册各自声明一个**目录流子 slot**（`single` kind：`conversation.hero.workspace.directoryFlow`／`sidebar.workspaces.directoryFlow`），由组合的选择器包 client half 填入其选取交互——今天是 [`-native`](../../host/directory-picker-native/README.md) 后端的无渲染 OS 选择器驱动，`-browse` 组合下则是应用内浏览对话框。平铺显示的 **添加工作区…** 操作仅在当前界面的 slot 被占用时渲染（每次菜单渲染读取占用状态；slot 为空意味着该组合没有目录选择能力——seam 文档化的无流程默认行为，此时侧边栏区头直接不渲染添加按钮，而非留下一个点了没反应的按钮）。本包持有触发与接纳：占用方通过 slot 的属主交互约定（`open`/`busy`/`onPicked`/`onCancel`/`onError`）每次打开上报一个所选路径，owner 通过对象层接纳它，并等待 Workspace 列表投影刷新后才选中已提交的 Workspace；取消操作不会显示提示，错误落入可重试的文件夹对话框，其 **重新选择** 会重新打开流程。添加只有一条路径：占用者自带的新建文件夹能力已经覆盖了全新目录，因此不再单设按名称创建的对话框。菜单只在确有多个目标可选时出现——没有 Workspace 可列时，锚点手势直接拉起流程，而不是弹出只有一行的浮层；在列表基线落地前，空列表不算最终结果。运行时 Session 与 Workspace 服务负责物化。Workspace 行内的 Delete 操作会打开确认框，说明保留边界、阻止重复提交，并在失败时保持打开；成功后，该分组会被移除，其 Session 则留在 Ungrouped 下。Session 行内的 Rename 操作打开同款浏览器持有的对话框，并以该行的显示标题预填：客户端不设名称冲突规则（host 负责规范化，可能以 `title-invalid` 拒绝，错误渲染在对话框告警区）；确认未修改的标题是有意允许的——这正是把当前自动标题钉住、不再被重新生成覆盖的手势。Session 行内的 Archive 操作不经确认对话框直接提交（非破坏性：日志和 workspace 记账席位保持不变），通过 `ctx.workspaces.archiveSession` 归档；归档集合回声落地后，该行从所有分组视图——workspace 分组、Ungrouped、内容搜索和平铺列表——中消失，失败只作为控制台诊断输出，树保持不变。空白的「新会话」行只是占位符：不渲染行菜单和时间标签（其中还没有发生任何事），重命名、fork 和归档都从首条提示词落地后才可用。
 
+Session 页头通过与相邻 Session-log 控件一致的胶囊操作打开 `WorkspaceWorkbench`。工作台占用 `ui-layout` 的共用右侧区域并与会话详情互斥，文件、变更和搜索作为三个同级页签位于顶部。根作用域工作台 store 按 Workspace id 保存彼此独立的内存记账，因此同一 Workspace 的多个 Session 会共享文档标签、目录展开、文件名搜索、glob 字段和 Git 导航，而不同 Workspace 不会继承这些状态。搜索接受逗号分隔的包含与排除 glob：`*.py` 这类不含分隔符的模式匹配任意深度的 basename，`src/**` 这类路径模式匹配相对路径，`dist/` 这类尾斜杠模式排除整个目录子树。外壳只持久化各 Workspace 的右侧模式、打开状态以及彼此独立的 details／workbench 宽度；文件内容、二进制数据、Git 结果和搜索结果都不进入浏览器持久化。根目录会自动加载，嵌套目录按需加载；切换 Workspace 会中止在途读取并推进 generation fence，迟到结果无法发布；同一资源的新请求也会取代前一个请求。经过认证的 `workspace.files.*` API 提供上述有界递归搜索、1 MiB UTF-8 文本前缀，以及最大 8 MiB 的完整白名单图片／PDF 数据；它不提供公开文件 URL，也不跟随符号链接。Git 状态、暂存区或工作区 diff 与最近提交均保持只读。打开文件会从左侧显示独立且由焦点管理的非模态预览：工作台停靠时，预览占用 `shell.overlay` 并覆盖对话直至工作台边缘；drawer 模式下，由于 overlay 层为 inert，预览会切换为占满整个工作台。关闭预览会在先前焦点目标仍可操作时恢复焦点并保留文档标签；关闭或切换工作台会清除预览可见性并保留这些标签，关闭最后一个标签则会收起预览。标签页可渲染 Markdown、沙箱 HTML、高亮代码、折行文本、有界 CSV 表格、统一 diff、图片 object URL 和沙箱 PDF frame；标签变化或关闭时会撤销 object URL。确定性客户端 fixture 实现这些只读界面，Grant 认证浏览器 E2E 则通过 ARIA golden 固定桌面交互与模态移动 drawer。
+
 Workspace 和 Session 悬浮卡片会复制对应行被截断的值：激活 Workspace 卡片会写入其完整目录路径，激活非空白 Session 卡片则会写入其完整显示标题。临时的空白「新会话」卡片保持只读，因为其本地化标签是占位文案，并非会话内容。只有浏览器接受剪贴板写入后，卡片才会显示由字典提供的已复制状态。
 
 Session 行内的 fork 操作在源会话最后一个已完成轮次处 fork，在客户端递增继承的持久化标题后再打开子会话；尾部半角或全角括号编号会原样式递增，无编号标题追加 ` (1)`。源会话与子会话在 workspace 组内始终作为同级行展示，谱系只保留为 session 数据。Fork 或改名失败都不会改变当前选中项，改名失败时已创建的子会话仍会留在列表中。
 
 Session 行渲染运行时的实时 `pendingInteraction` 分类：审批显示**等待审批**，计划审阅显示**计划待审**，普通问题显示**等待回答**。每个待处理交互都使用一枚琥珀色警告点，优先级高于运行指示器；普通行的悬浮卡片重复显示本地化状态，普通行和搜索结果行则都以相同文本提供面向辅助技术的视觉隐藏标签。运行状态使用蓝色指示器及其隐藏标签；空闲行会保留空的状态槽位。
 
-两个目标 slot 都由其他插件声明，因此 `apply` 使用 `slots.inject()` 在各自的声明生命周期内完成注册，并在目标 slot 的声明恢复后重新注册。
+浏览器、选择器、工作台、预览 overlay 和 Session 页头目标 slot 均由其他插件声明，因此 `apply` 使用 `slots.inject()` 在各自的声明生命周期内完成注册，并在目标 slot 的声明恢复后重新注册。工作台与预览注册共享一个在 `apply` 内创建的 store handle；组件不会跨包读取 layout store。`layout` 是显式服务依赖，因为工作台打开与关闭不能静默退化为无操作。
 
 共享侧边栏投影会隐藏持久化 Session 摘要中带有 `origin: 'subagent'` 的行；用户从所选父级的 subagent 页头目录进入这些对话。每个可见的普通行都会在经不间断的 subagent 谱系可达的任一后代运行时继承蓝色活动指示器；其悬停与无障碍文本会报告确切的运行中后代数量，同时不会把空闲 parent 描述为正在运行。普通 fork 仍然可见，并会终止此聚合，因为仅有谱系不会设置该 origin。待处理的用户交互优先于会话自身的运行中状态，二者无论哪一项存在都会保持为行的主要状态，而后代活动仍作为独立的悬停与无障碍状态保留。两者均不存在时，后代活动优先于绿色的未查看完成提醒；最后一个运行中的后代停止后，该提醒会重新出现。运行时仍保留隐藏行，供对话、标题与已寻址传输状态使用。
 
@@ -34,3 +36,4 @@ Session 行渲染运行时的实时 `pendingInteraction` 分类：审批显示**
 - **归档 Session 只读**：浏览器提供归档列表、分页消息预览、取消归档，以及单个或批量永久删除；删除 Session 会为全局垃圾回收保留共享附件。
 - **待处理的用户交互不会聚合到折叠的分组上**：折叠分组内正在等待的行不会点亮分组头指示，只有展开该分组后才可见。
 - **原生文件夹选择依赖本地 Host 载体**：在 `-native` 组合下，进程内部署或远程浏览器部署无法打开本地操作系统对话框；模态框会显示平台故障，并允许重试。可远程的选取是 `-browse` 组合的应用内流程。
+- **Office 文档预览暂缓**：工作台不渲染 `.docx`、`.xlsx` 或 `.pptx`；用户可以看到这些文件，但需要外部应用读取其内容。

@@ -63,7 +63,10 @@ function rawResultText(block: ToolCallBlock): string {
   return parts.join('\n')
 }
 
-export function DetailsPanel({ useSession, useSessions, sessionId, useStore, renderSlot, closeDetails, t }: DetailsPanelProps) {
+export function DetailsPanel({
+  useSession, useSessions, sessionId, useStore, renderSlot, closeDetails,
+  t,
+}: DetailsPanelProps) {
   const selection = useStore(s => s.selection)
   // Session workspace root: an omitted or relative terminal cwd resolves
   // against it, which the pure presenter cannot see.

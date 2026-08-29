@@ -347,12 +347,18 @@ function prepareCompaction(
     || selectedNodes.some((node, index) => node.seq !== selection.shadowedSeqs[index])) {
     throw new SurfaceChangedError('compaction: selected surface changed before summarization began')
   }
+  const shadowedTokenCount = selectedNodes.reduce((total, node) => total + node.tokens, 0)
   return {
     ...selection,
     measurement,
     selectedNodes,
-    shadowedTokenCount: selectedNodes.reduce((total, node) => total + node.tokens, 0),
-    input: buildSummarizationInput(session, selection.shadowedSeqs),
+    shadowedTokenCount,
+    input: buildSummarizationInput(
+      session,
+      selection.shadowedSeqs,
+      measurement,
+      shadowedTokenCount,
+    ),
   }
 }
 
@@ -498,6 +504,8 @@ function completeCompaction(
 function buildSummarizationInput(
   session: Session,
   shadowedSeqs: readonly number[],
+  measurement: TokenMeasurement,
+  shadowedTokenCount: number,
 ): SummarizationInput {
   const header = session.requestHeader()
   const events = session.events
@@ -510,6 +518,18 @@ function buildSummarizationInput(
     ...header?.system === undefined ? {} : { system: header.system },
     ...header?.tools === undefined ? {} : { tools: header.tools },
     messages: regionMessages,
+    ...measurement.baseline.kind !== 'usage' || header === undefined
+      ? {}
+      : {
+        providerAnchor: {
+          provider: header.config.provider,
+          model: header.config.model,
+          tokens: Math.max(
+            0,
+            measurement.totalTokens - (measurement.surfaceTokens - shadowedTokenCount),
+          ),
+        },
+      },
   }
 }
 

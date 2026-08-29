@@ -11,11 +11,16 @@ import type { PanelActions } from '@deepseek-ai/dsh-client-ui-layout/src/client/
 function fakePanels(): PanelActions {
   return {
     setSidebar: vi.fn(),
-    setDetails: vi.fn(),
+    setActiveRightAccount: vi.fn(),
+    setRightWidth: vi.fn(),
+    resetRightWidth: vi.fn(),
+    retainRightAccounts: vi.fn(),
     toggleSidebar: vi.fn(),
     setNarrow: vi.fn(),
     openDetails: vi.fn(),
     closeDetails: vi.fn(),
+    openWorkbench: vi.fn(),
+    closeWorkbench: vi.fn(),
   }
 }
 
@@ -28,12 +33,16 @@ describe('LayoutController', () => {
     service.toggleSidebar()
     service.openDetails()
     service.closeDetails()
+    service.openWorkbench()
+    service.closeWorkbench()
 
     expect(panels.toggleSidebar).toHaveBeenCalledTimes(1)
     expect(panels.openDetails).toHaveBeenCalledTimes(1)
     expect(panels.closeDetails).toHaveBeenCalledTimes(1)
+    expect(panels.openWorkbench).toHaveBeenCalledTimes(1)
+    expect(panels.closeWorkbench).toHaveBeenCalledTimes(1)
     expect(panels.setSidebar).not.toHaveBeenCalled()
-    expect(panels.setDetails).not.toHaveBeenCalled()
+    expect(panels.setRightWidth).not.toHaveBeenCalled()
   })
 
   it('fails loud before the root entry wired its actions', () => {
@@ -41,6 +50,8 @@ describe('LayoutController', () => {
     expect(() => { service.toggleSidebar() }).toThrow(/panel actions not wired/)
     expect(() => { service.openDetails() }).toThrow(/panel actions not wired/)
     expect(() => { service.closeDetails() }).toThrow(/panel actions not wired/)
+    expect(() => { service.openWorkbench() }).toThrow(/panel actions not wired/)
+    expect(() => { service.closeWorkbench() }).toThrow(/panel actions not wired/)
   })
 
   it('re-attach overwrites the stale action set (entry re-register)', () => {

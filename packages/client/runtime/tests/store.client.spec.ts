@@ -103,9 +103,14 @@ describe('createSnapshotStore', () => {
       setItem: (k: string, v: string) => { backing.set(k, v) },
       removeItem: (k: string) => { backing.delete(k) },
     })
-    const store = createSnapshotStore<string>('', { persist: { name: 'spec-draft' } })
+    const persistence = {
+      name: 'spec-draft',
+      select: (state: string): unknown => state,
+      restore: (stored: unknown): string => String(stored),
+    }
+    const store = createSnapshotStore<string>('', { persist: persistence })
     store.set('hello')
-    const revived = createSnapshotStore<string>('', { persist: { name: 'spec-draft' } })
+    const revived = createSnapshotStore<string>('', { persist: persistence })
     expect(revived.getSnapshot()).toBe('hello')
   })
 
@@ -116,11 +121,39 @@ describe('createSnapshotStore', () => {
       setItem: (k: string, v: string) => { backing.set(k, v) },
       removeItem: (k: string) => { backing.delete(k) },
     })
-    const store = createSnapshotStore(init(), { persist: { name: 'spec-store' } })
+    const persistence = {
+      name: 'spec-store',
+      select: (state: State): unknown => state,
+      restore: (stored: unknown): State => stored as State,
+    }
+    const store = createSnapshotStore(init(), { persist: persistence })
     store.update((d) => { d.a.n = 42 })
     expect(backing.has('spec-store')).toBe(true)
-    const revived = createSnapshotStore(init(), { persist: { name: 'spec-store' } })
+    const revived = createSnapshotStore(init(), { persist: persistence })
     expect(revived.getSnapshot().a.n).toBe(42)
+  })
+
+  it('persists a projection and restores it over fresh transient state', () => {
+    const backing = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => backing.get(k) ?? null,
+      setItem: (k: string, v: string) => { backing.set(k, v) },
+      removeItem: (k: string) => { backing.delete(k) },
+    })
+    const persistence = {
+      name: 'spec-projection',
+      select: (state: { durable: number; transient: number }): unknown => ({ durable: state.durable }),
+      restore: (stored: unknown, initial: { durable: number; transient: number }) => ({
+        ...initial,
+        durable: (stored as { durable: number }).durable,
+      }),
+    }
+    const store = createSnapshotStore({ durable: 1, transient: 10 }, { persist: persistence })
+    store.update((draft) => { draft.durable = 2; draft.transient = 20 })
+    expect(JSON.parse(backing.get('spec-projection')!)).toEqual({ durable: 2 })
+
+    const revived = createSnapshotStore({ durable: 0, transient: 99 }, { persist: persistence })
+    expect(revived.getSnapshot()).toEqual({ durable: 2, transient: 99 })
   })
 })
 

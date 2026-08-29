@@ -1,0 +1,26 @@
+- dialog "Workspace workbench":
+  - complementary "Workspace workbench":
+    - text: Workspace
+    - strong: workspace
+    - button "Close workspace workbench":
+      - img
+    - navigation "Workspace tools":
+      - tablist:
+        - tab "Files" [selected]:
+          - img
+          - text: Files
+        - tab "Changes":
+          - img
+          - text: Changes
+        - tab "Search":
+          - img
+          - text: Search
+      - button "Refresh file tree":
+        - img
+    - tabpanel "Files":
+      - button ".git":
+        - img
+        - img
+        - text: .git
+      - button "MD README.md"
+      - button "TS tracked.ts"

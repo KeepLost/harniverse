@@ -21,6 +21,8 @@
 
 fold 跟踪完整请求标头快照、步骤边界、表层追加与替换、成功 assistant 消息、提供方用量，以及每条 assistant 消息引用的分片 seq。只有当最新成功调用的规范请求 envelope 与已测量 envelope 匹配，且其总量不低于该调用的完整启发式锚点时，才会复用提供方用量；后续成功会替换较早锚点。否则会对当前 envelope 与表层进行完整估算。表层变更保持相对于匹配锚点的带符号值，包括缩减替换后的负 delta。
 
+从同一待测 envelope 选择前缀的消费方，可以减去未选表层节点的启发式价格，把匹配的 Provider 锚点投影到该前缀。`dsh-compaction-basic` 会把这份保守残差用于同模型摘要预算；另一模型或启发式 baseline 不会得到可移用的锚点。
+
 用量计量会求和不重叠的输入、cache-read、cache-write 与输出 bucket；不会再次添加推理（reasoning）。每次成功调用都会记录一个 assistant 锚点，包括无内容调用。显式的空 `sourceEventSeqs` 列表表示已知空提供方流；遗留记录缺少该列表时，fold 会保守地将持久 assistant 输出视为提供方输出。
 
 ## 会话投影

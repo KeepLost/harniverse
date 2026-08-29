@@ -40,6 +40,14 @@
   min-width: 0;
   overflow: hidden;
   border-left: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+}
+
+.detailsCol[data-right-drawer] {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  border-left: 0;
 }
 
 /* The details subtree stays mounted at zero width, so its border must not paint

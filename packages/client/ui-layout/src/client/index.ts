@@ -1,19 +1,21 @@
 /**
  * Layout plugin, browser half: one register() call contributes AppFrame into
  * the runtime's built-in 'root' slot and, in the same breath, declares the
- * four child slots (declaration = exclusive render authority), seats the
+ * five child slots (declaration = exclusive render authority), seats the
  * layout store (panel geometry), and wires the panel-action service face.
  * ctx.layout is the cross-plugin panel-action contract; navigation state lives
  * with the runtime sessions service. A second effect seats the theme
  * presenter, which projects ctx.theme snapshots onto document.body.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type { PanelActions } from './service.ts'
 import { AppFrame } from './AppFrame.tsx'
 import { createLayoutStore } from './stores.ts'
 import { LayoutController } from './service.ts'
 import { ThemePresenter } from './theme-presenter.ts'
+import { en, zh, type LayoutKey } from './locales.ts'
 
 // Contract exports only (export-convergence rule: cross-package consumers
 // keep a symbol exported; test-only/package-internal symbols live off /src).
@@ -31,9 +33,14 @@ declare module '@deepseek-ai/cordis' {
 }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** Shell layout accessibility copy. */
+    layout: LayoutKey
+  }
+
   interface SlotMap {
     // The 'root' entry itself is the runtime's built-in slot (declared
-    // there); these four are the frame's children, declared by the same
+    // there); these five are the frame's children, declared by the same
     // register() call that contributes AppFrame. Session owners never pass
     // sessionId: the framework injects it as a standard prop.
     /**
@@ -71,6 +78,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'details': { kind: 'single'; scope: 'session'; owner: DetailsOwnerProps }
     /**
+     * Workspace-oriented root surface sharing the physical right region with
+     * details. The occupant receives the frame's resolved occupancy mode so a
+     * surface of its own can pick between a frame-wide overlay (docked: the
+     * center column still exists) and an in-column presentation (drawer: the
+     * region covers the frame and the overlay layer is inert).
+     */
+    'workbench': { kind: 'single'; scope: 'root'; owner: WorkbenchOwnerProps }
+    /**
      * Frame-wide floating layer, above every column and outside their scroll
      * containers. Deliberately generic and unowned by any feature: a badge, a
      * toast stack or a status pill all belong here, and entries order among
@@ -79,8 +94,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      *
      * This is the additive seat for a frame-wide surface of your own: a fresh
      * `id` is added beside the shipped entries instead of replacing them.
+     *
+     * Entries receive the frame's resolved occupancy mode. Pure geometry is
+     * published on the frame as CSS so presentation stays out of component data.
      */
-    'shell.overlay': { kind: 'list'; scope: 'root' }
+    'shell.overlay': { kind: 'list'; scope: 'root'; owner: ShellOverlayOwnerProps }
   }
 }
 
@@ -104,25 +122,62 @@ export interface ConvOwnerProps {}
 /** Details owner share: empty — sessionId arrives as a framework-standard prop. */
 export interface DetailsOwnerProps {}
 
+/**
+ * Overlay-layer owner share: the frame geometry a frame-wide surface needs.
+ *
+ * Resolved track widths are published as `--dsh-frame-sidebar-width` and
+ * `--dsh-frame-right-width` on the frame element for pure-CSS alignment; only
+ * occupancy facts are component logic.
+ */
+export interface ShellOverlayOwnerProps {
+  /** Selected right occupant, including while its region is closed. */
+  rightMode: 'details' | 'workbench'
+  /** True while the selected right occupant is visible. */
+  rightOpen: boolean
+  /** True while the visible right occupant covers the frame as a drawer. */
+  rightDrawer: boolean
+}
+
+/**
+ * Workbench owner share: the frame's resolved right-region occupancy.
+ *
+ * Current Session and Workspace arrive through global hooks; only geometry the
+ * frame alone resolves is passed here. The frame publishes the region's px
+ * width as the `--dsh-frame-right-width` custom property on the frame element,
+ * which is how an overlay entry aligns its edge with this column.
+ */
+export interface WorkbenchOwnerProps {
+  /**
+   * True when the region covers the frame as a modal drawer (narrow viewport or
+   * a fully conceded column). While true the frame's `shell.overlay` layer is
+   * inert, so a companion surface must render inside this column instead.
+   */
+  drawer: boolean
+}
+
 /** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
-export const inject = ['slots', 'theme']
+export const inject = ['slots', 'theme', 'locale']
 
 /**
  * Client plugin body: provide ctx.layout, then one register() call — AppFrame
- * into 'root' with the four child-slot declarations, the layout store seat,
+  * into 'root' with the five child-slot declarations, the layout store seat,
  * and the inject hook that hands the store's bound actions to the service.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  ctx.effect(() => ctx.locale.register('layout', { zh, en }), 'ui-layout: dictionaries')
+
   const layout = new LayoutController()
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
     const disposeRegistration = ctx.slots.register({
       name: 'root',
+      locale: 'layout',
       children: {
         'sidebar': { kind: 'single', scope: 'root' },
         'conversation': { kind: 'single', scope: 'session-maybe' },
         'details': { kind: 'single', scope: 'session' },
+        'workbench': { kind: 'single', scope: 'root' },
         'shell.overlay': { kind: 'list', scope: 'root' },
       },
       // Exclusive store: the factory itself — the framework instantiates per
