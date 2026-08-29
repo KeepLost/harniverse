@@ -258,7 +258,7 @@ describe('normalizeSessionLog', () => {
       data: {
         content: [{
           type: 'text',
-          text: `Full formatted result stored at: ${ctx.cwd}/.spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Use read with offset/limit, or grep this path to search within it.`,
+          text: `Full formatted result stored at: ${ctx.cwd}/.spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Pass this locator unchanged to the configured artifact reader.`,
         }],
       },
     })
@@ -285,13 +285,33 @@ describe('normalizeSessionLog', () => {
     expect(out).not.toContain('8a7b6c5d4e3f')
   })
 
+  it('keeps the sentence period after an inline spill notice locator', () => {
+    // The token ends at the artifact name, so the notice's own period survives
+    // outside it. Tying the boundary to the retrieval wording instead would
+    // absorb the period the moment that Consumer-owned prose changes.
+    const ev = JSON.stringify({
+      type: 'tool/result', seq: 2, time: 5,
+      data: {
+        content: [{
+          type: 'text',
+          text: '(Omitted 850 bytes. Full formatted result stored at: '
+            + 'local-spill:v1:c22bc3f1d2af/8a7b6c5d4e3f-bash-result.txt. '
+            + 'Pass this locator unchanged to the configured artifact reader.)',
+        }],
+      },
+    })
+    const out = normalizeSessionLog(`${header({ cwd: ctx.cwd })}\n${ev}\n`, ctx)
+    expect(out).toContain('{{spillLocator:bash-result.txt}}. Pass this locator unchanged')
+    expect(out).not.toContain('bash-result.txt.}}')
+  })
+
   it('scrubs macOS /private aliases for local spill paths', () => {
     const ev = JSON.stringify({
       type: 'tool/result', seq: 2, time: 5,
       data: {
         content: [{
           type: 'text',
-          text: `Full formatted result stored at: /private${ctx.cwd}/.spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Use read with offset/limit, or grep this path to search within it.`,
+          text: `Full formatted result stored at: /private${ctx.cwd}/.spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Pass this locator unchanged to the configured artifact reader.`,
         }],
       },
     })
@@ -321,7 +341,7 @@ describe('normalizeSessionLog', () => {
       data: {
         content: [{
           type: 'text',
-          text: 'Full formatted result stored at: /tmp/dsh-acp-snapshot-spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Use read with offset/limit, or grep this path to search within it.',
+          text: 'Full formatted result stored at: /tmp/dsh-acp-snapshot-spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Pass this locator unchanged to the configured artifact reader.',
         }],
       },
     })
@@ -336,7 +356,7 @@ describe('normalizeSessionLog', () => {
       data: {
         content: [{
           type: 'text',
-          text: 'Full formatted result stored at: /tmp/dsh-acp-snap-012345678/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Use read with offset/limit, or grep this path to search within it.',
+          text: 'Full formatted result stored at: /tmp/dsh-acp-snap-012345678/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Pass this locator unchanged to the configured artifact reader.',
         }],
       },
     })
@@ -351,7 +371,7 @@ describe('normalizeSessionLog', () => {
       data: {
         content: [{
           type: 'text',
-          text: String.raw`Full formatted result stored at: C:\t\dsh-acp-snap-012345678\session-c22bc3f1d2af\8a7b6c5d4e3f-bash.txt. Use read with offset/limit, or grep this path to search within it.`,
+          text: String.raw`Full formatted result stored at: C:\t\dsh-acp-snap-012345678\session-c22bc3f1d2af\8a7b6c5d4e3f-bash.txt. Pass this locator unchanged to the configured artifact reader.`,
         }],
       },
     })
@@ -516,7 +536,7 @@ describe('tokenizeSessionFixtureCwd', () => {
 describe('extractSnapshotSpillPaths', () => {
   it('maps each spill filename to its full matched path, last match wins per name', () => {
     const log = [
-      'Full formatted result stored at: /tmp/dsh-acp-snapshot-spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Use read with offset/limit, or grep this path to search within it.',
+      'Full formatted result stored at: /tmp/dsh-acp-snapshot-spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Pass this locator unchanged to the configured artifact reader.',
       'stale copy at /tmp/dsh-acp-snap-012345678/session-aaaaaaaaaaaa/bbbbbbbbbbbb-grep.txt then',
       'fresh copy at /tmp/dsh-acp-snap-012345678/session-cccccccccccc/dddddddddddd-grep.txt then',
     ].join('\n')

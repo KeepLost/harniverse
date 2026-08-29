@@ -22,11 +22,11 @@ Status: implemented
 | `@deepseek-ai/dsh-spill-local` | 本地后端：在宿主文件系统中提供私有、会话作用域的文件存储。 |
 | `@deepseek-ai/dsh-spill-policy` | 工具结果策略插件：包装分发后的最终文本结果，并以保留预览和 spill 定位符替换超大结果。 |
 
-系统不增加专用的面向模型消费方包。消费方是现有 `ctx.tools` 执行流水线：`dsh-spill-policy` 通过 `tools/post-execute` waterfall（瀑布式事件）使用最终工具结果，模型则按照后端随定位符返回的检索提示读取内容。
+系统不增加专用的面向模型消费方包。消费方是现有 `ctx.tools` 执行流水线：`dsh-spill-policy` 通过 `tools/post-execute` waterfall（瀑布式事件）使用最终工具结果，并自行负责在返回的定位符旁组合检索指引。
 
 ### spill seam
 
-存储 seam 保持最小化：保存文本，并返回定位符与检索提示。
+存储 seam 保持最小化：保存文本，并返回不透明定位符与其精确字节数。
 
 ```ts ignore-check
 interface SpillStore {
@@ -84,7 +84,7 @@ interface Config {
 ```text
 <retained preview>
 
-(Omitted N bytes. Full formatted result stored at: /.../session-.../....txt. Use read with offset/limit, or grep this path to search within it.)
+(Omitted N bytes. Full formatted result stored at: local-spill:v1:<session>/<artifact>. Pass this locator unchanged to the configured artifact reader.)
 ```
 
 如果 `ctx.spillStore.saveText()` 失败（权限、ENOSPC、后端不可用），或调用没有会话所有者，或未加载后端，插件会记录原因并原样返回结果。spill 失败绝不会把成功的工具调用变为 `isError` 结果，也不会隐藏内联结果。
@@ -133,7 +133,7 @@ ctx.tools.register(defineTool({
 保留与 spill 存储相互独立：
 
 - `@deepseek-ai/dsh-output-retention` 负责预览机制（`TextRetainer`、`ItemRetainer` 和省略元数据）。
-- `@deepseek-ai/dsh-spill` 负责保存最终文本，并返回定位符与检索提示。
+- `@deepseek-ai/dsh-spill` 负责保存最终文本，并返回不透明定位符与其精确字节数。
 - `@deepseek-ai/dsh-spill-policy` 在工具流水线中应用默认的最终结果策略，将前两者组合起来。
 
 最终结果策略不能取代由工具负责的提前 spill。部分有用内容并不存在于最终 `ToolExecutionResult.content` 中：
@@ -166,16 +166,14 @@ ctx.tools.register(defineTool({
 - `dsh-spill` 单元测试锁定 seam 约定：注册为 `ctx.spillStore`、每个上下文只允许一种实现，并在 dispose（资源释放）时释放。
 - `dsh-spill-local` 单元测试覆盖 `saveText`、`encodeSegment` 清理（分隔符／波浪号／完整路径段的点／空值）、会话哈希目录、仅所有者权限、每次保存生成不同路径、配置根目录／私有根目录，以及存储失败时的拒绝。
 - `dsh-spill-policy` 单元测试通过 `ctx.tools.execute` 驱动真实工具：禁用模式下无操作、替换超大文本、小结果／非文本结果保持不变、跳过 `read`、尽力回退（保存失败／无后端／无所有者），以及下游组合（限制已替换结果、保留 `additionalContexts`）。
-- `dsh-tool-web` 集成测试驱动 `web_fetch`，其实际执行路径经过 `ctx.tools.execute`，并使用真实的 `spill-local` 后端与策略；测试证明只有刻意加入的 spill 提示会改变模型可见文本，而 spill 文件保存完整的格式化结果。
+- `dsh-tool-web` 集成测试驱动 `web_fetch`，其实际执行路径经过 `ctx.tools.execute`，并使用真实的 `spill-local` 后端、策略与 `artifact_read` 消费方；测试证明只有刻意加入的 spill 提示会改变模型可见文本、该提示携带的是不透明定位符而非存储路径，且把定位符交回 `artifact_read` 分页即可取回完整的格式化结果。
 - `tui-agent` 示例加载 `spill-local` 与 `spill-policy`，因此其无密钥 Loader／PTY 冒烟测试会执行真实加载路径（namespace-plugin 导出形态与 `inject`）。
 
 ## 影响
 
 默认策略只能看见最终格式化文本。它无法保留已经由提供方限制的内部内容，也无法保留从未成为结果一部分的运行时产物。第一版聚焦最终结果 spill 而不是提前 spill，因此可以接受这一限制；由工具负责的提前 spill 仍属于后续工作。
 
-本地后端返回真实路径，使 v1 保持简单并符合已经验证的 agent（智能体）工具行为；seam 本身只承诺一个不透明定位符加检索提示，所以远程后端可以返回非文件定位符。
-
-本地后端的价值取决于现有 `read`／`grep` 工具能否检查返回的本地路径，即使 spill 目录位于会话 cwd 之外。目前这一条件成立，因为文件系统策略会记录观察结果并设置写保护，但不会把读取限制在工作区内。未来的工作区限制策略必须显式允许本地 spill 路径，或改用检索提示指向受支持读取器的非文件 spill 后端。
+seam 只承诺一个不透明定位符，所以远程后端可以返回非文件定位符。本地后端返回带版本的令牌而非文件系统路径，使检索不依赖工作区文件系统策略：spill 产物只能通过配置的产物读取器获取，因此把 `read`／`grep` 限制在工作区内也不会让已 spill 的结果无法取回，模型也不会看到任何存储路径。
 
 **快照缺口。** 目前没有 ACP 快照场景覆盖 transcript（文本记录）可见的 `web_fetch` spill 提示。ACP 快照 harness 在无密钥环境中回放，无法访问实时 web，而 `web_fetch` spill 需要一个真实的超上限 HTTP 正文；确定性场景需要一个预置的 loopback fetch 目标，但当前回放树尚未接线（示例根本没有加载 `tool-web`）。该行为改由 `dsh-tool-web` 针对 loopback server 的集成测试覆盖。弥补该缺口属于后续工作：把 `tool-web` 和预置 fetch 目标接入 ACP 示例，然后录制 `web-fetch-spill` 场景。
 
@@ -185,7 +183,7 @@ ctx.tools.register(defineTool({
 
 **要求每个工具通过保留声明选择加入。** v1 不予采纳，因为目标是实现类似 Claude Code 通用工具结果持久化的默认行为。只需一个 `maxInlineBytes` 部署配置项即可验证该形态。
 
-**把 `tool-results` 建成宽泛的工具结果平台。** 不予采纳：宽泛的包名会诱使系统把保留策略、结果替换、预览措辞、搜索和提前 spill 合并进一个 seam。可共享的存储部分更小：保存文本，并返回定位符与检索提示。
+**把 `tool-results` 建成宽泛的工具结果平台。** 不予采纳：宽泛的包名会诱使系统把保留策略、结果替换、预览措辞、搜索和提前 spill 合并进一个 seam。可共享的存储部分更小：保存文本，并返回不透明定位符。
 
 **使用 `ctx.fs.writeText` 或面向模型的 `write` 工具。** 不予采纳：工作区文件系统写入带有项目文件语义、写入／编辑策略、观察状态和面向用户的副作用。spill 文件是运行时产物，不是由模型编写的工作区改动。现有 `read` 工具之后可以检查它们，但创建操作属于运行时 spill seam。
 

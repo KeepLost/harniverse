@@ -54,6 +54,7 @@
     "@deepseek-ai/dsh-spill-policy": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tool-call-timeout-policy": "workspace:^",
+    "@deepseek-ai/dsh-tool-result-artifacts": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/dsh-web": "workspace:^",
     "@deepseek-ai/dsh-web-fetch-http": "workspace:^",

@@ -22,11 +22,11 @@ A thin spill storage seam plus a default spill policy plugin, in a new `packages
 | `@deepseek-ai/dsh-spill-local` | Local backend: private, session-scoped file storage on the host filesystem. |
 | `@deepseek-ai/dsh-spill-policy` | Tool-result policy plugin: wraps final text results after dispatch and replaces oversized results with a retained preview plus a spill locator. |
 
-There is no dedicated model-facing Consumer package. The Consumer is the existing `ctx.tools` execution pipeline: `dsh-spill-policy` consumes final tool results through the `tools/post-execute` waterfall, and the model follows the backend-supplied retrieval hint for the returned locator.
+There is no dedicated model-facing Consumer package. The Consumer is the existing `ctx.tools` execution pipeline: `dsh-spill-policy` consumes final tool results through the `tools/post-execute` waterfall and owns the retrieval guidance it composes beside the returned locator.
 
 ### Spill seam
 
-The storage seam is minimal: save text and return a locator plus retrieval hint.
+The storage seam is minimal: save text and return an opaque locator plus its exact byte count.
 
 ```ts ignore-check
 interface SpillStore {
@@ -84,7 +84,7 @@ The replacement text is intentionally generic because the policy only knows the 
 ```text
 <retained preview>
 
-(Omitted N bytes. Full formatted result stored at: /.../session-.../....txt. Use read with offset/limit, or grep this path to search within it.)
+(Omitted N bytes. Full formatted result stored at: local-spill:v1:<session>/<artifact>. Pass this locator unchanged to the configured artifact reader.)
 ```
 
 If `ctx.spillStore.saveText()` fails (permissions, ENOSPC, backend unavailable), or the call has no session owner, or no backend is loaded, the plugin logs the reason and returns the original result unchanged. Spill failure never turns a successful tool call into an `isError` result or hides the inline result.
@@ -133,7 +133,7 @@ This separation is important. `web-fetch-http` still owns resource caps (`maxRes
 Retention is separate from spill storage:
 
 - `@deepseek-ai/dsh-output-retention` owns preview mechanics (`TextRetainer`, `ItemRetainer`, and omitted metadata).
-- `@deepseek-ai/dsh-spill` owns saving final text and returning a locator plus retrieval hint.
+- `@deepseek-ai/dsh-spill` owns saving final text and returning an opaque locator plus its exact byte count.
 - `@deepseek-ai/dsh-spill-policy` applies the default final-result policy in the tool pipeline, composing the two.
 
 The final-result policy cannot replace tool-owned early spill. Some useful content is not present in final `ToolExecutionResult.content`:
@@ -166,16 +166,14 @@ Those cases can consume `ctx.spillStore` directly in later work. They are not pa
 - `dsh-spill` unit tests pin the seam contract: registration as `ctx.spillStore`, one-implementation-per-context, and disposal release.
 - `dsh-spill-local` unit tests cover `saveText`, `encodeSegment` sanitization (separators/tilde/whole-segment dots/empty), the session-hash directory, owner-only permissions, distinct paths per save, the configured/private root, and a storage-failure rejection.
 - `dsh-spill-policy` unit tests drive real tools through `ctx.tools.execute`: disabled-mode no-op, oversized-text replacement, small/non-text passthrough, `read` skip, best-effort fallback (save failure / no backend / no owner), and downstream-composition (bounding a replaced result, preserving `additionalContexts`).
-- `dsh-tool-web` integration drives `web_fetch` through `ctx.tools.execute` with the real `spill-local` backend + policy, proving the model-facing text changes only by the deliberate spill notice while the spill file holds the full formatted result.
+- `dsh-tool-web` integration drives `web_fetch` through `ctx.tools.execute` with the real `spill-local` backend + policy + the `artifact_read` Consumer, proving the model-facing text changes only by the deliberate spill notice, that the notice carries an opaque locator rather than a storage path, and that paging the locator back through `artifact_read` recovers the full formatted result.
 - The `tui-agent` example loads `spill-local` + `spill-policy`, so its keyless Loader/PTY smoke exercises the real load path (the namespace-plugin export shape + `inject`).
 
 ## Consequences
 
 The default policy only sees final formatted text. It cannot preserve provider-internal content that was already capped or runtime artifacts that were never part of the result. This is acceptable for the first cut because the showcase is final-result spill, not early spill; tool-owned early spill remains deferred work.
 
-Returning real paths from the local backend keeps v1 simple and matches proven agent-tool behavior, while the seam itself only promises an opaque locator plus retrieval hint so remote backends can return non-file locators.
-
-The local-backend value proposition depends on the existing `read`/`grep` tools being able to inspect the returned local path, even when the spill directory is outside the session cwd. That holds today because the filesystem policy records observations and write guards but does not confine reads to the workspace. A future workspace-confinement policy must either allow local spill paths explicitly or use a non-file spill backend whose retrieval hint points at a supported reader.
+The seam promises only an opaque locator, so remote backends can return non-file locators. The local backend returns a versioned token instead of a filesystem path, which keeps retrieval independent of the workspace filesystem policy: a spill artifact is reachable only through the configured artifact reader, so confining `read`/`grep` to the workspace cannot strand a spilled result, and no storage path is exposed to the model.
 
 **Snapshot gap.** No ACP snapshot scenario covers the transcript-visible `web_fetch` spill notice yet. The ACP snapshot harness replays keyless and cannot hit the live web, and a `web_fetch` spill requires a real over-cap HTTP body; a deterministic scenario would need a seeded loopback fetch target the replay tree does not currently wire (the examples do not load `tool-web` at all). The behavior is covered instead by the `dsh-tool-web` integration test against a loopback server. Closing the gap is follow-up work: wire `tool-web` + a seeded fetch target into the ACP example, then record a `web-fetch-spill` scenario.
 
@@ -185,7 +183,7 @@ The policy can become too large if it starts owning tool-specific semantics. It 
 
 **Require each tool to opt in with a retention declaration.** Rejected for v1: the goal is a default behavior similar to Claude Code's generic tool-result persistence. A single `maxInlineBytes` deployment knob is enough to prove the shape.
 
-**Make `tool-results` a broad tool-result platform.** Rejected: a broad package name invites retention policy, result replacement, preview wording, search, and early spill into one seam. The shared storage part is smaller: save text and return a locator plus retrieval hint.
+**Make `tool-results` a broad tool-result platform.** Rejected: a broad package name invites retention policy, result replacement, preview wording, search, and early spill into one seam. The shared storage part is smaller: save text and return an opaque locator.
 
 **Use `ctx.fs.writeText` or the model-facing `write` tool.** Rejected: workspace filesystem writes carry project-file semantics, write/edit policy, observation state, and user-facing side effects. Spill files are runtime artifacts, not model-authored workspace edits. The existing `read` tool may inspect them later, but creation belongs to the runtime spill seam.
 

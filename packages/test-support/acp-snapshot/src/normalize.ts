@@ -29,17 +29,26 @@ const FILE_URI_PATH_PREFIX_RE = /(?:^|[^a-z0-9+.-])file:\/\/\/?$/i
 
 /** A UUID v4 string, the shape `randomUUID()` produces for session ids. */
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
+/**
+ * A spill artifact's stable trailing name. A dot belongs to the name only when
+ * more name characters follow, so a sentence-ending period after the artifact
+ * is never absorbed. The boundary is a property of the name alone: it must not
+ * depend on the retrieval guidance that follows, which the Consumer owns and
+ * has changed before.
+ */
+const SPILL_NAME = String.raw`[A-Za-z0-9_~-]+(?:\.[A-Za-z0-9_~-]+)*`
 const LOCAL_SPILL_PATH_RE = new RegExp(
-  String.raw`\{\{cwd\}\}[\\/]\.spill[\\/]session-[0-9a-f]{12}[\\/][0-9a-f]{12}-([A-Za-z0-9._~-]+?)`
-  + String.raw`(?=\. Use read with offset/limit|[\s)]|$)`,
+  String.raw`\{\{cwd\}\}[\\/]\.spill[\\/]session-[0-9a-f]{12}[\\/][0-9a-f]{12}-(${SPILL_NAME})`,
   'g',
 )
 const SNAPSHOT_SPILL_PATH_RE = new RegExp(
-  String.raw`(?:[A-Za-z]:)?[\\/](?:tmp|t)[\\/](?:dsh-acp-snap-[0-9a-f]{9}|dsh-acp-snapshot-spill)[\\/]session-[0-9a-f]{12}[\\/][0-9a-f]{12}-([A-Za-z0-9._~-]+?)`
-  + String.raw`(?=\. Use read with offset/limit|[\s)]|$)`,
+  String.raw`(?:[A-Za-z]:)?[\\/](?:tmp|t)[\\/](?:dsh-acp-snap-[0-9a-f]{9}|dsh-acp-snapshot-spill)[\\/]session-[0-9a-f]{12}[\\/][0-9a-f]{12}-(${SPILL_NAME})`,
   'g',
 )
-const OPAQUE_LOCAL_SPILL_RE = /local-spill:v1:[0-9a-f]{12}\/[0-9a-f]{12}-([A-Za-z0-9._~-]+)/g
+const OPAQUE_LOCAL_SPILL_RE = new RegExp(
+  String.raw`local-spill:v1:[0-9a-f]{12}\/[0-9a-f]{12}-(${SPILL_NAME})`,
+  'g',
+)
 
 /**
  * Extract every snapshot-mode spill path from a session log, keyed by spill

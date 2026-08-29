@@ -8911,6 +8911,9 @@ importers:
       '@deepseek-ai/dsh-tool-call-timeout-policy':
         specifier: workspace:^
         version: link:../../guard/timeout-policy
+      '@deepseek-ai/dsh-tool-result-artifacts':
+        specifier: workspace:^
+        version: link:../../spill/tool-result-artifacts
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
