@@ -237,9 +237,9 @@ describe('web e2e: agent-preset selection', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-agent-preset-slash-catalog'))
     const composer = page.locator('textarea:enabled').last()
 
-    // `minimal` mounts neither the compaction group nor plan mode nor local
-    // skill discovery, so the catalog the composer warmed under the
-    // deployment default must not survive the switch.
+    // `minimal` mounts internal compaction but no direct compaction tool, plan
+    // mode, or local skill discovery, so the catalog the composer warmed under
+    // the deployment default must not survive the switch.
     await composer.fill('/')
     await expect.poll(() => menuOptions(page), { timeout: 15_000 })
       .not.toEqual(expect.arrayContaining([expect.stringContaining(SKILL_NAME)]))

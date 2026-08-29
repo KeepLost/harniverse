@@ -103,7 +103,7 @@ describe('the shipped shell composition (real bundle layers)', () => {
 describe('shipped agent presets gate both shell tools by platform', () => {
   const presetRoot = resolve(fileURLToPath(new URL('../package.json', import.meta.url)), '..', 'config', 'agent-presets')
 
-  it.each(['standard', 'code', 'cordis'])('preset %s gates its shell tool rows by platform', (preset) => {
+  it.each(['standard', 'code', 'minimal', 'cordis'])('preset %s gates its shell tool rows by platform', (preset) => {
     const entries: unknown = yaml.load(
       readFileSync(join(presetRoot, preset, 'agent.cordis.yml'), 'utf8'),
       { schema: entryListSchema },
@@ -122,16 +122,4 @@ describe('shipped agent presets gate both shell tools by platform', () => {
     }
   })
 
-  it('minimal mounts no shell tool row at all (its shell is the PTY stack)', () => {
-    const entries: unknown = yaml.load(
-      readFileSync(join(presetRoot, 'minimal', 'agent.cordis.yml'), 'utf8'),
-      { schema: entryListSchema },
-    )
-    if (!Array.isArray(entries)) throw new TypeError('minimal preset must parse to an entry array')
-    for (const id of ['tool-bash', 'tool-pwsh']) {
-      expect(entries.some(entry => (
-        typeof entry === 'object' && entry !== null && (entry as Record<string, unknown>).id === id
-      )), `${id} must be absent from minimal`).toBe(false)
-    }
-  })
 })

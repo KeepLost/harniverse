@@ -32,18 +32,8 @@ const WEB_PATCH = join(REPO_ROOT, 'packages/bundle/web-app/cordis.patch.yml')
 const INSTALL_ANCHOR = join(REPO_ROOT, 'apps/cli/package.json')
 const EXAMPLES_INSTALL_ANCHOR = join(REPO_ROOT, 'examples/package.json')
 const MINIMAL_PROMPT = 'You are a helpful software engineer assistant.'
-const MINIMAL_BASH_DESCRIPTION = `Run commands in a bash shell
-* When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
-* You don't have access to the internet via this tool.
-* You do have access to a mirror of common linux and python packages via apt and pip.
-* State is persistent across command calls and discussions with the user.
-* To inspect a particular line range of a file, e.g. lines 10-25, try 'sed -n 10,25p /path/to/the/file'.
-* Please avoid commands that may produce a very large amount of output.
-* Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.`
-const MINIMAL_TOOL_NAMES = [
-  'artifact_read', 'bash', 'session_create', 'session_event_search', 'session_find', 'session_inspect',
-  'session_message', 'session_search', 'session_unload', 'str_replace_editor',
-]
+const MINIMAL_SHELL = process.platform === 'win32' ? 'pwsh' : 'bash'
+const MINIMAL_TOOL_NAMES = [MINIMAL_SHELL, 'str_replace_editor']
 
 /**
  * Boot the shipped Web composition, minus the rows that would bind a port,
@@ -248,7 +238,7 @@ describe('the shipped Web composition', () => {
     }
   })
 
-  it('composes the exact RL prompt, coding tools, and artifact recovery from `minimal`', async () => {
+  it('composes the exact RL prompt, two coding tools, and internal recovery from `minimal`', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('preset-minimal'),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
@@ -259,11 +249,10 @@ describe('the shipped Web composition', () => {
         { name: 'deployment:persona', text: MINIMAL_PROMPT },
       ])
       expect(assembly.tools.map(tool => tool.name)).toEqual(MINIMAL_TOOL_NAMES)
-      expect(assembly.tools.find(tool => tool.name === 'bash')?.description).toBe(MINIMAL_BASH_DESCRIPTION)
       expect(JSON.stringify(assembly.tools.find(tool => tool.name === 'str_replace_editor')?.parameters))
         .toContain('Absolute path')
-      expect(ctx.agentPresets.serviceFor(handle.agent, 'compaction')).toBeUndefined()
-      expect(handle.agent.ctx.get('compaction')).toBeUndefined()
+      expect((ctx.agentPresets.serviceFor(handle.agent, 'compaction') as LosslessCompactionEngine).config.auto).toBe(true)
+      expect(ctx.agentPresets.serviceFor(handle.agent, 'compactionHistory')).toBeDefined()
     } finally {
       await handle.dispose()
     }
@@ -279,9 +268,7 @@ describe('the shipped Web composition', () => {
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })
     try {
-      expect(toolNames(ctx, minimal.agent)).toEqual(expect.arrayContaining([
-        'session_create', 'session_inspect', 'session_message', 'session_search', 'session_unload',
-      ]))
+      expect(toolNames(ctx, minimal.agent)).toEqual(MINIMAL_TOOL_NAMES)
       expect(toolNames(ctx, full.agent).length).toBeGreaterThan(10)
 
       await minimal.dispose()
@@ -423,7 +410,7 @@ describe('the shipped Web composition', () => {
     }
   })
 
-  it('shows a minimal agent the global layer and default session tools but no loader tool', async () => {
+  it('shows a minimal agent the global layer but no loader tool', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId(`preset-skills-minimal-${randomUUID()}`),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
