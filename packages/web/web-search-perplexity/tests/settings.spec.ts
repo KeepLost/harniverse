@@ -7,7 +7,7 @@ import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import WebRuntime from '@deepseek-ai/dsh-web'
 import * as perplexityPlugin from '@deepseek-ai/dsh-web-search-perplexity'
-import { WEB_SEARCH_PERPLEXITY_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-web-search-perplexity'
+import { PERPLEXITY_PROVIDER_ID, WEB_SEARCH_PERPLEXITY_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-web-search-perplexity'
 
 class MemorySettings extends SettingsProvider {
   doc: Record<string, unknown> = {}
@@ -35,7 +35,7 @@ function jsonResponse(body: unknown): Response {
 
 async function boot(): Promise<{ ctx: Context; settingsFiber: Fiber; pluginFiber: Fiber }> {
   const ctx = new Context()
-  await ctx.plugin(WebRuntime, {})
+  await ctx.plugin(WebRuntime, { searchProvider: PERPLEXITY_PROVIDER_ID })
   const settingsFiber = ctx.plugin(MemorySettings)
   await settingsFiber.await()
   const pluginFiber = ctx.plugin(perplexityPlugin, {

@@ -102,7 +102,7 @@ describe('artifact_read real Loader composition through cordis.yml', () => {
       value: { text: '组合🙂', nextCursor: 'loader-cursor' },
       content: [{
         type: 'text',
-        text: '组合🙂\n\nartifact_read cursor="loader-cursor"',
+        text: '--- BEGIN UNTRUSTED ARTIFACT CONTENT ---\n组合🙂\n--- END UNTRUSTED ARTIFACT CONTENT ---\n\nartifact_read cursor="loader-cursor"',
       }],
     })
   }, 30_000)

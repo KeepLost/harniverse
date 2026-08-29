@@ -108,9 +108,10 @@ describe('tool-call timeout policy over the migrated web tools', () => {
     const byName = new Map(ctx.tools.schemas().map(s => [s.name, s]))
     const fetchParams = byName.get('web_fetch')!.parameters as { properties: Record<string, unknown> }
     const searchParams = byName.get('web_search')!.parameters as { properties: Record<string, unknown> }
-    expect(Object.keys(fetchParams.properties)).toEqual(['url'])
+    expect(Object.keys(fetchParams.properties)).toEqual(['url', 'provider'])
     expect('timeout_ms' in fetchParams.properties).toBe(false)
-    expect(Object.keys(searchParams.properties)).toEqual(['queries'])
+    expect(Object.keys(searchParams.properties)).toEqual(['queries', 'provider'])
+    expect('timeout_ms' in searchParams.properties).toBe(false)
   })
 })
 

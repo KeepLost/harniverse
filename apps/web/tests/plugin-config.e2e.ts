@@ -206,6 +206,26 @@ describe('web e2e: plugin configuration section', () => {
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
+  it('serves a downstream provider section instead of refusing its namespace', async () => {
+    // A provider's own settings namespace reaches the browser only through the
+    // api-proxy allowlist, so a card whose namespace was never admitted renders
+    // the unavailable notice with no form at all.
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-plugin-config-tavily'))
+    const dialog = await openPlugins()
+    if (await dialog.getByLabel('搜索提供方').count() === 0) {
+      await dialog.getByText('网页搜索', { exact: true }).click()
+    }
+    const provider = dialog.getByLabel('搜索提供方')
+    await provider.waitFor({ timeout: 10_000 })
+
+    await provider.selectOption('tavily')
+
+    await dialog.getByLabel('Tavily API Key').waitFor({ timeout: 10_000 })
+    expect(await dialog.getByText('本部署未提供该搜索提供方。').count()).toBe(0)
+    expect(await dialog.getByLabel('默认结果数').count()).toBe(1)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
     expect(tripwire.warnings).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, ['section.expected.md'])

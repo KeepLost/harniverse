@@ -7,7 +7,7 @@ import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import WebRuntime from '@deepseek-ai/dsh-web'
 import * as exaPlugin from '@deepseek-ai/dsh-web-search-exa'
-import { WEB_SEARCH_EXA_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-web-search-exa'
+import { EXA_PROVIDER_ID, WEB_SEARCH_EXA_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-web-search-exa'
 
 class MemorySettings extends SettingsProvider {
   doc: Record<string, unknown> = {}
@@ -35,7 +35,7 @@ function jsonResponse(body: unknown): Response {
 
 async function boot(): Promise<{ ctx: Context; settingsFiber: Fiber; pluginFiber: Fiber }> {
   const ctx = new Context()
-  await ctx.plugin(WebRuntime, {})
+  await ctx.plugin(WebRuntime, { searchProvider: EXA_PROVIDER_ID })
   const settingsFiber = ctx.plugin(MemorySettings)
   await settingsFiber.await()
   const pluginFiber = ctx.plugin(exaPlugin, {
