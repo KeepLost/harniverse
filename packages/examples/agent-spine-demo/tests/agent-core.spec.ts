@@ -4,7 +4,7 @@ import { join, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import { renderPrompt, TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
+import { renderContextSnapshot, renderPrompt, TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as agentCore from '../src/index.ts'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -286,7 +286,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect(agent?.id).toBe(agent?.session.id)
     expect(agent?.id).toMatch(/^main-session-/)
     const assembly = await ctx.get('systemPrompt')!.assemble()
-    expect(assembly.sections.find(s => s.name === 'deployment:persona')?.text).toBe('You are main.')
+    expect(renderContextSnapshot(assembly)).toContain('You are main.')
     await ctx.fiber.dispose()
   })
 
@@ -331,7 +331,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect(ctx.get('agentLoop')).toBeDefined()
     expect(ctx.get('agents')?.list()).toHaveLength(0)
     const assembly = await ctx.get('systemPrompt')!.assemble()
-    expect(assembly.sections.find(s => s.name === 'deployment:persona')?.text).toBe('')
+    expect(assembly.contexts).toEqual([{ name: 'deployment:persona', text: '' }])
     await ctx.fiber.dispose()
   })
 
@@ -375,7 +375,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       const firstRequestText = adapter.requests[0]?.messages.map(messageText).join('\n')
       expect(firstRequestText).toContain('hi')
       expect(firstRequestText).toContain('bundled project rule')
-      expect(adapter.requests[0]?.system).toContain('You are an AI agent powered by DeepSeek Harness.')
+      expect(adapter.requests[0]?.system).toContain('You are an AI agent powered by Harniverse.')
       expect(adapter.requests[0]?.system).not.toContain('bundled project rule')
       await handle.dispose()
       await ctx.fiber.dispose()
@@ -723,8 +723,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect(ctx.tools.schemas()).toEqual([])
     ctx.systemPrompt.context({ name: 'policy', order: 0, text: 'hidden policy' })
     expect((await ctx.systemPrompt.assemble()).contexts).toEqual([])
-    expect(renderPrompt(await ctx.systemPrompt.assemble()))
-      .toBe('You are a helpful software engineer assistant.')
+    expect(renderPrompt(await ctx.systemPrompt.assemble())).toBe('')
 
     await ctx.fiber.dispose()
   })

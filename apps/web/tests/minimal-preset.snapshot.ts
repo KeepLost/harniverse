@@ -16,15 +16,9 @@ const PROMPT = 'Reply exactly MINIMAL_PRESET_REQUEST_OK and stop.'
 describe('minimal agent preset', () => {
   let scaffold: WebScaffold
   let agentHandle: AgentHandle
-  let disposeInjectedPrompt: () => void
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({ replayFixture: FIXTURE })
-    disposeInjectedPrompt = scaffold.ctx.systemPrompt.section({
-      name: 'test:injected-prompt',
-      order: 999,
-      text: 'THIS TEXT MUST NOT REACH THE MODEL.',
-    })
     agentHandle = await scaffold.ctx.agents.create({
       sessionId: SessionId('minimal-preset-smoke'),
       meta: { cwd: scaffold.workspaceCwd, agentProfile: 'minimal' },
@@ -36,17 +30,12 @@ describe('minimal agent preset', () => {
   afterAll(async () => {
     const failures: unknown[] = []
     await agentHandle?.dispose().catch((error: unknown) => failures.push(error))
-    try {
-      disposeInjectedPrompt?.()
-    } catch (error: unknown) {
-      failures.push(error)
-    }
     await scaffold?.close().catch((error: unknown) => failures.push(error))
     if (failures.length === 1) throw failures[0]
     if (failures.length > 1) throw new AggregateError(failures, 'minimal preset smoke teardown failed')
   })
 
-  it('sends the exact RL prompt and schemas, then executes the one-shot shell and editor', async () => {
+  it('sends the shared identity and dynamic persona with the exact schemas, then executes the one-shot shell and editor', async () => {
     agentHandle.agent.followup(createUserMessage({
       content: [{ type: 'text', text: PROMPT }],
       source: { kind: 'user' },
@@ -57,7 +46,9 @@ describe('minimal agent preset', () => {
     if (requestHeader === undefined) throw new Error('the minimal agent issued no model request')
     expect(agentHandle.agent.session.events.some(event => event.type === 'user/message'
       && event.data.source.kind === 'plugin'
-      && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt')).toBe(false)
+      && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt'
+      && JSON.stringify(event.data.content).includes('You are a helpful software engineer assistant.')))
+      .toBe(true)
     const shellName = process.platform === 'win32' ? 'pwsh' : 'bash'
     const shellCommand = process.platform === 'win32' ? "Write-Output 'MINIMAL_SHELL_OK'" : "printf 'MINIMAL_SHELL_OK\\n'"
     const signal = new AbortController().signal
@@ -96,7 +87,11 @@ describe('minimal agent preset', () => {
         "editor": "Here's the content of {{cwd}}/preset-smoke.txt with line numbers (which has a total of 2 lines):
            1  MINIMAL_EDITOR_OK
            2",
-        "prompt": "You are a helpful software engineer assistant.",
+        "prompt": "You are an AI agent powered by Harniverse.
+
+      Check the [exit code: N] marker on every bash result; investigate failures before moving on.
+
+      When you successfully create or modify files, mention the primary outputs in your final response. To make those and any other changed-file references clickable in Web, format them as Markdown inline code using the exact file-tool path, or a basename when unique among the files changed in that turn.",
         "shell": "MINIMAL_SHELL_OK",
       }
     `)

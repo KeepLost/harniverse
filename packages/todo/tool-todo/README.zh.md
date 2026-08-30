@@ -20,7 +20,7 @@
 
 该开关会同时改变面向模型的指令与接受的输入——`true` 要求模型标记每个正在推进的任务并接受任意数量；`false` 要求恰好一个，并以 `Error: invalid todos: at most one task may be in_progress (got <n>)` 拒绝标记更多的调用。持久日志不变式**不**跟随它：在允许并行时写下的日志，在部署收紧策略之后仍必须可回放，因此不变式对活跃数量保持沉默。
 
-`autoContinueIncomplete` 可选地在已等待的 `agent/turn-stopping` 边界检查最近列表；如果仍有 `pending` 或 `in_progress` 项，就向下一轮排入一条带插件来源的用户消息。默认值为 `false`；随附的 coding 组合使用默认消息 `Continue working on the incomplete TODO items.` 并限制连续自动续轮为八轮。`autoContinueMessage` 可修改消息，`maxAutoContinueTurns` 可修改上限。若下一轮已有待处理消息，则不会自动排入；todo 列表发生变化或收到非续轮的用户角色消息时会重置连续计数。
+`autoContinueIncomplete` 可选地在已等待的 `agent/turn-stopping` 边界检查最近列表；如果仍有 `pending` 或 `in_progress` 项，就向下一轮排入一条系统注入的续作消息。为了兼容当前 wire，它在 Session surface 上仍表示为 `user/message`，但 source 携带 `form: 'system-injection'`，不是人工用户请求。默认值为 `false`；随附的 coding 组合使用默认消息 “This is an automatic system-injected continuation, not a user request. Continue working on incomplete TODO items. If all TODO items are complete, mark every item `completed` before stopping.” 并限制连续自动续轮为八轮。`autoContinueMessage` 可修改消息，`maxAutoContinueTurns` 可修改上限。若下一轮已有待处理消息，则不会自动排入；todo 列表发生变化或收到非续轮的用户角色消息时会重置连续计数。
 
 ## 验证
 
@@ -72,7 +72,7 @@ token 用量会随模型每次提交的完整列表增长，且这些调用参�
 
 #### 模型看到的内容
 
-启用后，未完成的列表会在自然的轮次停止边界触发一条带插件来源的用户消息。该消息排入下一轮，而不是在当前轮 steering 出下一步，并在达到配置的连续轮次上限后停止。
+启用后，未完成的列表会在自然的轮次停止边界触发一条系统注入的续作消息。为了兼容协议，持久消息仍是 user 角色，但 source 会把它与人工请求区分开来。该消息排入下一轮，而不是在当前轮 steering 出下一步，并在达到配置的连续轮次上限后停止。
 
 #### Token 影响
 

@@ -169,7 +169,7 @@ describe('agent-instructions resume snapshot', () => {
     })
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('supersedes an incompatible baseline when precedence changed offline', async () => {
+  it('updates an offline baseline when a local overlay is removed', async () => {
     let cwd = ''
     let sessionPath = ''
     const result = await runLoaderSmoke({
@@ -188,13 +188,11 @@ describe('agent-instructions resume snapshot', () => {
         cwd = runCwd
         await mkdir(join(runCwd, '.git'), { recursive: true })
         await writeFile(join(runCwd, 'AGENTS.md'), 'Current AGENTS rule.\n')
-        await writeFile(join(runCwd, 'CLAUDE.md'), 'Current CLAUDE rule.\n')
         sessionPath = await seedVisibleBaseline(join(runCwd, '.sessions'), runCwd, {
           files: [
-            { name: 'CLAUDE.md', content: 'Old CLAUDE rule.' },
+            { name: 'AGENTS.local.md', content: 'Old local rule.' },
             { name: 'AGENTS.md', content: 'Old AGENTS rule.' },
           ],
-          instructionFileCandidates: ['CLAUDE.md', 'AGENTS.md'],
         })
       },
       inspect: async () => {
@@ -213,14 +211,13 @@ describe('agent-instructions resume snapshot', () => {
             content?: Array<{ type?: string; text?: string }>
           }
         })
-        const baselines = records.filter(record => record.type === 'user/message'
-          && record.data?.source?.kind === 'agent-instructions'
-          && record.data.source.baseline === true)
-        expect(baselines).toHaveLength(2)
-        const replacement = JSON.stringify(baselines.at(-1)?.data?.content)
-        expect(replacement).toContain('replaces all earlier workspace instruction baselines')
-        expect(replacement.indexOf('Instructions from: AGENTS.md'))
-          .toBeLessThan(replacement.indexOf('Instructions from: CLAUDE.md'))
+        const workspaceEvents = records.filter(record => record.type === 'user/message'
+          && record.data?.source?.kind === 'agent-instructions',
+        )
+        expect(workspaceEvents.filter(record => record.data?.source?.baseline === true)).toHaveLength(1)
+        const replacement = JSON.stringify(workspaceEvents.at(-1)?.data?.content)
+        expect(replacement).toContain('Updated instructions from: AGENTS.md')
+        expect(replacement).not.toContain('Instructions from: AGENTS.local.md')
       },
     })
 

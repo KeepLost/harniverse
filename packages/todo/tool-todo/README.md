@@ -20,7 +20,7 @@ The list belongs to the ONE agent session that called the tool. There is no suba
 
 The flag moves the model-facing instruction and the accepted input together — `true` asks the model to mark every actively worked task and accepts any number, `false` asks for exactly one and rejects a call marking more with `Error: invalid todos: at most one task may be in_progress (got <n>)`. The durable-log invariant does NOT follow it: a log written while parallel work was allowed must still replay after a deployment tightens the policy, so the invariant stays silent on the active count.
 
-`autoContinueIncomplete` optionally queues a plugin-attributed user message at the awaited `agent/turn-stopping` boundary when the latest list still contains `pending` or `in_progress` items. The default is `false`; shipped coding compositions enable it with the default message `Continue working on the incomplete TODO items.` and an eight-turn consecutive cap. `autoContinueMessage` changes that message, and `maxAutoContinueTurns` changes the cap. A pending next-turn message suppresses the automatic enqueue, while a changed todo list or non-continuation user-role message resets the consecutive count.
+`autoContinueIncomplete` optionally queues a system-injected continuation at the awaited `agent/turn-stopping` boundary when the latest list still contains `pending` or `in_progress` items. It is represented as a `user/message` on the current Session surface for wire compatibility, but its source carries `form: 'system-injection'` and it is not a human user request. The default is `false`; shipped coding compositions enable it with the default message “This is an automatic system-injected continuation, not a user request. Continue working on incomplete TODO items. If all TODO items are complete, mark every item `completed` before stopping.” and an eight-turn consecutive cap. `autoContinueMessage` changes that message, and `maxAutoContinueTurns` changes the cap. A pending next-turn message suppresses the automatic enqueue, while a changed todo list or non-continuation user-role message resets the consecutive count.
 
 ## Validation
 
@@ -72,7 +72,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-When enabled, an unfinished list causes a plugin-attributed user message at the natural turn-stopping boundary. The message is queued for the next turn rather than steering another step in the current turn, and stops after the configured consecutive-turn cap.
+When enabled, an unfinished list causes a system-injected continuation at the natural turn-stopping boundary. The durable message remains user-role for protocol compatibility, but its source distinguishes it from a human request. It is queued for the next turn rather than steering another step in the current turn, and stops after the configured consecutive-turn cap.
 
 #### Token effect
 

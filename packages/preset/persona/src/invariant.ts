@@ -16,8 +16,7 @@ export const inject = ['invariants']
 
 /**
  * No runtime invariant: this row owns no event stream or mutable runtime data — it registers one
- * prompt section and the prompt registry owns identity, complete-prompt enforcement, shadowing,
- * and disposal.
+ * dynamic persona context and the prompt registry owns identity, shadowing, and disposal.
  */
 const install: InvariantInstaller = () => {}
 

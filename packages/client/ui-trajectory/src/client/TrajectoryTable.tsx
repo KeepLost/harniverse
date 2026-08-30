@@ -814,6 +814,11 @@ function messageSourceLabel(source: unknown): string {
   if (kind === 'user') return 'User'
   if (kind === 'plugin') {
     const plugin = properties.plugin
+    if (properties.form === 'system-injection') {
+      return typeof plugin === 'string' && plugin !== ''
+        ? `System injection · ${plugin}`
+        : 'System injection'
+    }
     return typeof plugin === 'string' && plugin !== ''
       ? `Plugin · ${plugin}`
       : 'Plugin'

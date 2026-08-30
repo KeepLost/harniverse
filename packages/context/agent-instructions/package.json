@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-agent-instructions",
-  "description": "Workspace context loader for AGENTS.md/CLAUDE.md instruction files",
+  "description": "Workspace instruction loader for AGENTS.md and supported custom instruction files",
   "version": "0.1.0-rc.5",
   "publishConfig": {
     "access": "public"

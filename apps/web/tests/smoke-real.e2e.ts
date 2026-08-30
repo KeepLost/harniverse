@@ -307,10 +307,11 @@ describe('dsh web keyless CLI smoke', () => {
       }
       const workspaceMessage = captured.messages?.find(message =>
         message.role === 'user' && message.content?.includes('web-workspace-context-probe'))
-      const systemMessage = captured.messages?.find(message => message.role === 'system')
+      const runtimeContextMessage = captured.messages?.find(message =>
+        message.role === 'user' && message.content?.includes('DeepSeek Harness Web GUI'))
       const expectedWebSection = readFileSync(WEB_SURFACE_PROMPT, 'utf8').trimEnd()
         .replace('{{webUrl}}', baseUrl)
-      expect(systemMessage?.content).toContain(expectedWebSection)
+      expect(runtimeContextMessage?.content).toContain(expectedWebSection)
       expect(workspaceMessage).toMatchInlineSnapshot(`
         {
           "content": "<system-reminder>

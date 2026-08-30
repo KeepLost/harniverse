@@ -93,7 +93,7 @@ async function bootWeb(
     { id: 'webserver', disabled: true },
     // The web bundle's runtime row injects `webServer`, so it cannot
     // activate without the bound port disabled above. It owns dist serving
-    // and the URL prompt line — surface glue, not anything that decides an
+    // and the URL context — surface glue, not anything that decides an
     // agent's capabilities, which is all this file asserts.
     { id: 'web-runtime', disabled: true },
     { id: 'session-telemetry-otel', disabled: true },
@@ -258,7 +258,7 @@ describe('the shipped Web composition', () => {
     }
   })
 
-  it('composes the exact RL prompt, two coding tools, and internal recovery from `minimal`', async () => {
+  it('composes the shared prompt path, two coding tools, and internal recovery from `minimal`', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('preset-minimal'),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
@@ -266,7 +266,15 @@ describe('the shipped Web composition', () => {
     try {
       const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent })
       expect(assembly.sections).toEqual([
+        { name: 'harness:identity', text: 'You are an AI agent powered by Harniverse.' },
+        { name: 'context:file-reference', text: '' },
+        { name: 'tool:bash', text: 'Check the [exit code: N] marker on every bash result; investigate failures before moving on.' },
+        { name: 'ui:deliverable-file-references', text: 'When you successfully create or modify files, mention the primary outputs in your final response. To make those and any other changed-file references clickable in Web, format them as Markdown inline code using the exact file-tool path, or a basename when unique among the files changed in that turn.' },
+      ])
+      expect(assembly.contexts).toEqual([
         { name: 'deployment:persona', text: MINIMAL_PROMPT },
+        { name: 'sandbox:policy', text: '' },
+        { name: 'approval:policy', text: '' },
       ])
       expect(assembly.tools.map(tool => tool.name)).toEqual(MINIMAL_TOOL_NAMES)
       expect(JSON.stringify(assembly.tools.find(tool => tool.name === 'str_replace_editor')?.parameters))
@@ -326,7 +334,7 @@ describe('the shipped Web composition', () => {
     }
   }, 120_000)
 
-  it('auto-discovers a project Hook in Standard but not Minimal through the shipped Loader', async () => {
+  it('keeps project Hook bridges disabled by default in Standard and Minimal', async () => {
     const project = await mkdtemp(join(tmpdir(), 'dsh-preset-hooks-project-'))
     const hookPath = join(project, '.dsh', 'hooks', 'claude-code.json')
     await mkdir(dirname(hookPath), { recursive: true })
@@ -348,10 +356,7 @@ describe('the shipped Web composition', () => {
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })
     try {
-      await vi.waitFor(() => {
-        expect(standard.agent.inbox.nextStep.some(message =>
-          message.content.some(block => block.type === 'text' && block.text.includes('standard project hook')))).toBe(true)
-      }, { timeout: 15_000 })
+      expect(JSON.stringify(standard.agent.inbox.nextStep)).not.toContain('standard project hook')
       expect(JSON.stringify(minimal.agent.inbox.nextStep)).not.toContain('standard project hook')
       expect(toolNames(ctx, minimal.agent)).toEqual(MINIMAL_TOOL_NAMES)
     } finally {

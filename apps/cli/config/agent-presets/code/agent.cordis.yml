@@ -39,13 +39,15 @@
   config:
     maxBytes: 65536
 
-# Standard-family profiles actively load configured user Hooks. Minimal omits
-# these bridges so its evaluation surface remains deterministic and narrow.
+# Standard-family profiles keep these compatibility bridges available for
+# explicit opt-in, but do not load them by default.
 - id: hooks-claude-code
   name: '@deepseek-ai/dsh-hooks-claude-code'
+  disabled: true
 
 - id: hooks-codex
   name: '@deepseek-ai/dsh-hooks-codex'
+  disabled: true
 
 - id: mcp-user-config
   name: '@deepseek-ai/dsh-mcp-user-config'

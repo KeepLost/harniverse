@@ -6,11 +6,11 @@ English | [中文](2026-07-21-local-instruction-overlay.zh.md)
 
 ## Problem
 
-Personal, git-ignored guidance (`AGENTS.local.md` / `CLAUDE.local.md`) is a Claude Code convention for per-developer overrides that are deliberately not committed. The [agent-instructions plugin](2026-06-24-workspace-context.md) loaded only one candidate per directory, so a `.local.` name could only be reached by adding it to `instructionFileCandidates`, where — because a directory has one winner — it would *shadow* the committed base file instead of supplementing it. That inverts the additive "base plus personal overlay" model the names evoke, and it was off by default.
+Personal, git-ignored guidance (`AGENTS.local.md`) provides per-developer overrides that are deliberately not committed. The [agent-instructions plugin](2026-06-24-workspace-context.md) loaded only one candidate per directory, so a `.local.` name could only be reached by adding it to `instructionFileCandidates`, where — because a directory has one winner — it would *shadow* the committed base file instead of supplementing it. That inverts the additive "base plus personal overlay" model the name evokes, and it was off by default.
 
 ## Decision
 
-The plugin loads a second, independent candidate list per project directory. `localInstructionFileCandidates` defaults to `['AGENTS.local.md', 'CLAUDE.local.md']` and is resolved with the same same-directory validation as `instructionFileCandidates`. In every project directory from the root to the session cwd, the plugin loads the base candidates and then, additively, the local candidates; the local files are ordered after the base files so their guidance takes precedence within the byte budget. Both lists load in full under [per-directory content dedup](2026-07-21-instruction-load-all-dedup.md). An empty `localInstructionFileCandidates` disables the overlay.
+The plugin loads a second, independent candidate list per project directory. `localInstructionFileCandidates` defaults to `['AGENTS.local.md']` and is resolved with the same same-directory validation as `instructionFileCandidates`; the removed `CLAUDE.local.md` name is ignored even when explicitly listed. In every project directory from the root to the session cwd, the plugin loads the base candidates and then, additively, the local candidates; the local files are ordered after the base files so their guidance takes precedence within the byte budget. Both lists load in full under [per-directory content dedup](2026-07-21-instruction-load-all-dedup.md). An empty `localInstructionFileCandidates` disables the overlay.
 
 The default lives in the plugin `Config` schema rather than a product `cordis.yml`, so every embedder (TUI, ACP, headless) reads `.local.` files consistently and a deployment overrides or disables the behavior in one place. This is symmetric with the plugin-owned `instructionFileCandidates` default.
 
@@ -24,7 +24,7 @@ The base and local candidates in one directory must stay independent across base
 
 **Higher-priority first-wins (`.local.` loaded instead of the base file).** Rejected: a personal overlay that replaces the committed file drops shared project guidance whenever the overlay exists, which is the opposite of the additive Claude Code model.
 
-**Keep it opt-in through `instructionFileCandidates`.** Rejected: one directory has a single winner, so a `.local.` name added to that list shadows the base file rather than supplementing it. The packages guidance to keep opt-ins out of shipped defaults is outweighed here by strong prior art and the user-facing expectation that `.local.` files are always read.
+**Keep `AGENTS.local.md` opt-in through `instructionFileCandidates`.** Rejected: one directory has a single winner, so a `.local.` name added to that list shadows the base file rather than supplementing it. The packages guidance to keep opt-ins out of shipped defaults is outweighed here by the user-facing expectation that the supported `AGENTS.local.md` overlay is always read.
 
 **Default at the product `cordis.yml` level instead of the plugin schema.** Rejected: it would enable `.local.` only for whichever entry point remembered to opt in, splitting behavior across TUI/ACP/headless and duplicating a value that belongs beside the existing candidate default.
 

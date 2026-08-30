@@ -67,7 +67,7 @@ export interface Config {
   packChunks?: boolean
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
   persistenceCompression?: JsonlCompression
-  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
+  /** Controls automatic AGENTS.md and custom instruction loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
   skills?: agentCore.SkillConfig
@@ -130,7 +130,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/context/agent-instructions/src/config.ts:18`](../packages/context/agent-instructions/src/config.ts)
+Source: [`packages/context/agent-instructions/src/config.ts:19`](../packages/context/agent-instructions/src/config.ts)
 
 <a id="deepseek-aidsh-agent-loop"></a>
 
@@ -1703,18 +1703,14 @@ Source: [`packages/interaction/permission-presets/src/index.ts:140`](../packages
 Requires: `systemPrompt`
 
 ```ts config-catalog
-/** Plugin config: the persona text this composition contributes. */
+/** Plugin config: the dynamic persona text this composition contributes. */
 export interface Config {
   /**
-   * Persona prose rendered as the `deployment:persona` section. A template:
+   * Persona prose rendered as the `deployment:persona` context. A template:
    * complete `{{…}}` groups interpolate strictly against registered prompt
-   * variables. Empty text drops the section at render, matching the registry.
+   * variables. Empty text drops the context at render, matching the registry.
    */
   text: string
-  /** Make this persona the complete system prompt, suppressing every other section. */
-  complete?: boolean
-  /** Suppress dynamic runtime-context snapshots for this persona's agent scope. */
-  includeRuntimeContext?: boolean
 }
 ```
 
@@ -2588,12 +2584,12 @@ Source: [`packages/e2b/subprocess-e2b/src/index.ts:25`](../packages/e2b/subproce
 ```ts config-catalog
 /** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.persona} for its contract). */
 export interface Config {
-  /** Include the fixed DeepSeek Harness identity before the deployment persona (default true). */
+  /** Include the fixed Harniverse identity before all other system sections (default true). */
   includeHarnessIdentity?: boolean
   /** Include dynamic runtime-context snapshots in model history (default true). */
   includeRuntimeContext?: boolean
   /**
-   * Deployment-wide order-0 persona template. A scoped section named
+   * Deployment-wide order-0 persona template. A scoped context named
    * `deployment:persona` shadows it; `{{variable}}` references are strict.
    */
   persona?: string
@@ -3049,7 +3045,7 @@ export interface Config {
    */
   agentOptions?: AgentOptions
   /**
-   * Per-child persona that shadows `deployment:persona`. Requires the
+   * Per-child persona that shadows the dynamic `deployment:persona` context. Requires the
    * provider's `persona` capability; omission preserves the deployment persona.
    */
   persona?: string
@@ -3142,9 +3138,9 @@ export interface Config {
    * rejected.
    */
   allowParallelInProgress: boolean
-  /** Whether to queue a new user message when a turn stops with unfinished todos. */
+  /** Whether to queue a system-injected continuation when a turn stops with unfinished todos. */
   autoContinueIncomplete?: boolean
-  /** The plugin-attributed message queued for an unfinished todo list. */
+  /** The message body queued for an unfinished todo list; its source is system-injection. */
   autoContinueMessage?: string
   /** Maximum consecutive automatic continuation turns before the plugin stops. */
   maxAutoContinueTurns?: number
@@ -3314,8 +3310,8 @@ export interface Config {
   /** Print the URL line on activation; a non-interactive layer can turn it off. */
   printUrl: boolean
   /**
-   * Register the model-visible surface context (the `app:web-surface` prompt
-   * section and the `DSH_WEB_URL` bash variable). A one-shot non-interactive
+   * Register the model-visible surface context (the `app:web-surface` dynamic
+   * context and the `DSH_WEB_URL` bash variable). A one-shot non-interactive
    * layer can turn it off when its user is not in the GUI, so the
    * orientation text would be false.
    */

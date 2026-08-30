@@ -20,7 +20,7 @@ declare module '@deepseek-ai/dsh-system-prompt' {
   }
 }
 
-/** Merge-extensible agent creation options. Persona belongs to system-prompt sections. */
+/** Merge-extensible agent creation options. Persona belongs to system-prompt dynamic context. */
 export interface AgentOptions {
   /** Provider route (must have a registered adapter at call time). */
   provider?: string

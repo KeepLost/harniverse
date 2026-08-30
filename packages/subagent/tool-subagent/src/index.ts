@@ -55,7 +55,7 @@ export interface Config {
    */
   agentOptions?: AgentOptions
   /**
-   * Per-child persona that shadows `deployment:persona`. Requires the
+   * Per-child persona that shadows the dynamic `deployment:persona` context. Requires the
    * provider's `persona` capability; omission preserves the deployment persona.
    */
   persona?: string

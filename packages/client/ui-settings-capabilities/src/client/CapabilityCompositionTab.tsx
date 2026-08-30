@@ -166,11 +166,11 @@ function CapabilityRow({
               <legend className={css.visuallyHidden}>{t('configuration')}</legend>
               {entry.customization.fields.map((field) => {
                 const value = configValues[field.id]
-                const fieldName = entry.id === 'plugin:persona'
-                  ? t(field.id === 'text' ? 'personaText' : field.id === 'complete' ? 'personaComplete' : 'personaRuntimeContext')
+                const fieldName = entry.id === 'plugin:persona' && field.id === 'text'
+                  ? t('personaText')
                   : field.name
-                const fieldDescription = entry.id === 'plugin:persona'
-                  ? t(field.id === 'text' ? 'personaTextDescription' : field.id === 'complete' ? 'personaCompleteDescription' : 'personaRuntimeContextDescription')
+                const fieldDescription = entry.id === 'plugin:persona' && field.id === 'text'
+                  ? t('personaTextDescription')
                   : field.description
                 if (field.kind === 'boolean') {
                   return (

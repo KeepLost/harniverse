@@ -1,7 +1,7 @@
 # The `minimal` agent preset is a controlled two-tool coding composition.
 #
-# Its persona is complete, so no deployment prompt section can add context. The
-# shell is one-shot and platform-specific; filesystem reads and editor writes
+# Its persona uses the same dynamic context path as every other Agent Profile.
+# The shell is one-shot and platform-specific; filesystem reads and editor writes
 # use the host sandbox provider. Automatic compaction remains an internal
 # recovery service, without model-facing compaction or history tools.
 
@@ -9,8 +9,6 @@
   name: '@deepseek-ai/dsh-persona'
   config:
     text: You are a helpful software engineer assistant.
-    complete: true
-    includeRuntimeContext: false
 
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'

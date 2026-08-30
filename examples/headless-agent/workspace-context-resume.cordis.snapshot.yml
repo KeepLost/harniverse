@@ -1,6 +1,7 @@
 # Keyless real-Loader composition for workspace-instruction resume
-# reconciliation. The test seeds one persisted baseline, changes AGENTS.md
-# while the session is offline, then resumes through the public agent service.
+# reconciliation. The test seeds one persisted baseline, changes the active
+# instruction files while the session is offline, then resumes through the
+# public agent service.
 
 - id: persistence
   name: '@deepseek-ai/dsh-session-persistence-jsonl'

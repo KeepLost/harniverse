@@ -105,7 +105,7 @@ describe('todo_write tool through the agent loop', () => {
     ])
   })
 
-  it('queues a plugin user message after a stopped turn with incomplete todos', async () => {
+  it('queues a system-injected continuation after a stopped turn with incomplete todos', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('call-1', 'todo_write', { todos: [{ content: 'finish the task', status: 'in_progress' }] }),
       textResponse('I stopped before finishing.'),
@@ -114,7 +114,6 @@ describe('todo_write tool through the agent loop', () => {
     ])
     const ctx = await harness(adapter, {
       autoContinueIncomplete: true,
-      autoContinueMessage: 'Continue the incomplete TODO items.',
     })
     const agent = ctx.agentLoop.create(SessionId('it-todo-continuation'), { provider: 'mock', model: 'mock' })
 
@@ -123,17 +122,36 @@ describe('todo_write tool through the agent loop', () => {
 
     const continuationMessages = agent.session.events.filter(event => event.type === 'user/message'
       && event.data.source.kind === 'plugin'
-      && event.data.source.plugin === 'tool-todo')
+      && event.data.source.plugin === 'tool-todo'
+      && event.data.source.form === 'system-injection')
     expect(continuationMessages).toHaveLength(1)
     const continuation = continuationMessages[0]
     if (continuation?.type !== 'user/message') throw new Error('missing continuation message')
     expect(continuation.data.content).toEqual([
-      { type: 'text', text: 'Continue the incomplete TODO items.' },
+      {
+        type: 'text',
+        text: 'This is an automatic system-injected continuation, not a user request. Continue working on incomplete TODO items. If all TODO items are complete, mark every item `completed` before stopping.',
+      },
     ])
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
     expect(agent.session.events.findLast(event => event.type === 'todo/write')?.data.todos).toEqual([
       { content: 'finish the task', status: 'completed' },
     ])
+  })
+
+  it('does not queue a continuation when every todo is already completed', async () => {
+    const ctx = await harness(new MockAdapter([textResponse('done')]), {
+      autoContinueIncomplete: true,
+    })
+    const agent = ctx.agentLoop.create(SessionId('it-todo-complete'), { provider: 'mock', model: 'mock' })
+
+    agent.session.append('todo/write', { todos: [{ content: 'already done', status: 'completed' }] })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'check the list' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    expect(agent.session.events.filter(event => event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === 'tool-todo')).toHaveLength(0)
   })
 
   it('stops automatic continuation at the configured consecutive-turn limit', async () => {
@@ -156,6 +174,7 @@ describe('todo_write tool through the agent loop', () => {
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(3)
     expect(agent.session.events.filter(event => event.type === 'user/message'
       && event.data.source.kind === 'plugin'
-      && event.data.source.plugin === 'tool-todo')).toHaveLength(2)
+      && event.data.source.plugin === 'tool-todo'
+      && event.data.source.form === 'system-injection')).toHaveLength(2)
   })
 })

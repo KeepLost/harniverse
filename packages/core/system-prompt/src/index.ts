@@ -120,14 +120,14 @@ export interface PromptAssembly {
 }
 
 /**
- * The deployment persona's section name and order. Exported because a
+ * The deployment persona's context name and order. Exported because a
  * composition can replace this slot — an agent preset shadows the
- * deployment's persona with its own — and both sides naming the same section
+ * deployment's persona with its own — and both sides naming the same context
  * is what makes the replacement work rather than duplicate.
  */
 export const PERSONA_SECTION = 'deployment:persona'
 
-/** Prompt order of the persona slot; the first section a model reads. */
+/** Prompt order of the persona slot; it follows the negative-order contexts. */
 export const PERSONA_ORDER = 0
 
 /** Valid variable names: how they are written between the braces. */
@@ -184,12 +184,12 @@ function compareToolNames(a: ToolSchema, b: ToolSchema): number {
 
 /** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.persona} for its contract). */
 export interface Config {
-  /** Include the fixed DeepSeek Harness identity before the deployment persona (default true). */
+  /** Include the fixed Harniverse identity before all other system sections (default true). */
   includeHarnessIdentity?: boolean
   /** Include dynamic runtime-context snapshots in model history (default true). */
   includeRuntimeContext?: boolean
   /**
-   * Deployment-wide order-0 persona template. A scoped section named
+   * Deployment-wide order-0 persona template. A scoped context named
    * `deployment:persona` shadows it; `{{variable}}` references are strict.
    */
   persona?: string
@@ -358,10 +358,10 @@ export class SystemPrompt extends Service {
       this.section({
         name: 'harness:identity',
         order: -100,
-        text: 'You are an AI agent powered by DeepSeek Harness.',
+        text: 'You are an AI agent powered by Harniverse.',
       })
     }
-    this.section({
+    this.context({
       name: PERSONA_SECTION,
       order: PERSONA_ORDER,
       // The fallback narrows the optional input type; the schema already defaults it.

@@ -8,7 +8,7 @@ English | [中文](2026-06-24-workspace-context.zh.md)
 
 Repository guidance such as `AGENTS.md` belongs in a coding session's effective context so project conventions, build commands, and review rules arrive without repeated user pasting. The stdio and ACP products need the same behavior, isolated by session cwd: a global system-prompt section leaks one workspace's files into another live ACP session.
 
-Neighboring products establish useful conventions but differ in details. Codex treats `AGENTS.md` as native, Claude Code uses `CLAUDE.md` and familiar system-reminder-style user context, and opencode supports both names with one winner per directory plus lazy nested discovery. The harness needs cross-tool compatibility without loading duplicate or contradictory files from the same scope.
+Neighboring products establish useful conventions but differ in details. Codex treats `AGENTS.md` as native, while other products use different instruction names and loading rules. The harness uses its own explicit `AGENTS.md` contract rather than treating Claude Code file names as compatible runtime inputs.
 
 The lifecycle has two distinct classes of content. The initial applicable chain is injected once before the first request. Nested files, edits, candidate switches, and removals happen later and join the same durable append-only history.
 
@@ -20,7 +20,7 @@ The plugin does not statically inject `fs`. Providerless product trees therefore
 
 ### File Names And Precedence
 
-The default per-directory candidate list is `['AGENTS.md', 'CLAUDE.md']`. The list is configurable as `instructionFileCandidates`, and `AGENTS.md` is an ordinary first candidate rather than a hidden priority. In one directory, only the first existing regular-file candidate loads. With defaults, `AGENTS.md` is native and `CLAUDE.md` is a compatibility fallback. A second list, `localInstructionFileCandidates` (default `['AGENTS.local.md', 'CLAUDE.local.md']`), loads an additive local overlay after the base file in the same directory; the [default local overlay](2026-07-21-local-instruction-overlay.md) owns that decision.
+The default per-directory candidate list is `['AGENTS.md']`. The list is configurable as `instructionFileCandidates`, and every existing supported candidate loads in configured order, with per-directory trimmed-content dedup. A second list, `localInstructionFileCandidates` (default `['AGENTS.local.md']`), loads an additive local overlay after the base file in the same directory; the [default local overlay](2026-07-21-local-instruction-overlay.md) owns that decision. `CLAUDE.md` and `CLAUDE.local.md` are unsupported names and are filtered even when explicitly configured.
 
 Candidate entries are same-directory file names. Empty entries, `.`/`..`, and entries containing `/` or `\` are ignored. Other same-directory names can be opted into explicitly; rule directories and import semantics are outside this contract.
 
@@ -70,7 +70,7 @@ There is intentionally no watcher. Detection occurs at the next successful struc
 
 **Always leave prepared workspace context in the inbox.** Rejected because context prepared during pre-step would then survive the current request and start a second model step by itself. The inbox remains the staging and rejection fallback, while an entering pre-step owns atomic delivery with its final batch.
 
-**Load both `AGENTS.md` and `CLAUDE.md` in one directory.** Rejected because repositories in transition commonly duplicate guidance across both files. Ordered candidates make precedence explicit and configurable.
+**Load both `AGENTS.md` and a removed compatibility name in one directory.** Rejected: `CLAUDE.md` and `CLAUDE.local.md` are not supported candidates. Other same-directory custom names remain explicitly configurable.
 
 **Parse rendered headings or hidden comments to recover loaded state.** Rejected because instruction prose can contain the same text, causing silent false positives. Persisted JSON metadata provides an unambiguous state channel that is invisible to the model.
 
@@ -86,4 +86,4 @@ The system is event-driven rather than watch-driven. Edits are not visible at th
 
 ## Deferred
 
-Bash-derived path reporting, recursive startup scans, file watchers, lowercase defaults, `.claude/CLAUDE.md`, `.claude/rules/*.md`, import directives, ACP `additionalDirectories`, trust acknowledgements, and model-generated summaries are deferred. Project-directory `.local.` overlays now load by default (the [default local overlay](2026-07-21-local-instruction-overlay.md) owns that decision); a user-global overlay, directory rule systems, and imports still need their own precedence and trust designs.
+Bash-derived path reporting, recursive startup scans, file watchers, lowercase defaults, `.claude/CLAUDE.md`, `.claude/rules/*.md`, import directives, ACP `additionalDirectories`, trust acknowledgements, and model-generated summaries are deferred or unsupported as separately documented. Project-directory `AGENTS.local.md` overlays now load by default (the [default local overlay](2026-07-21-local-instruction-overlay.md) owns that decision); a user-global overlay, directory rule systems, and imports still need their own precedence and trust designs.

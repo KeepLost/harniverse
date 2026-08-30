@@ -46,9 +46,9 @@ export interface Config {
    * rejected.
    */
   allowParallelInProgress: boolean
-  /** Whether to queue a new user message when a turn stops with unfinished todos. */
+  /** Whether to queue a system-injected continuation when a turn stops with unfinished todos. */
   autoContinueIncomplete?: boolean
-  /** The plugin-attributed message queued for an unfinished todo list. */
+  /** The message body queued for an unfinished todo list; its source is system-injection. */
   autoContinueMessage?: string
   /** Maximum consecutive automatic continuation turns before the plugin stops. */
   maxAutoContinueTurns?: number
@@ -58,7 +58,7 @@ export interface Config {
 export const Config: z<Config> = z.object({
   allowParallelInProgress: z.boolean().required(),
   autoContinueIncomplete: z.boolean().default(false),
-  autoContinueMessage: z.string().min(1).default('Continue working on the incomplete TODO items.'),
+  autoContinueMessage: z.string().min(1).default('This is an automatic system-injected continuation, not a user request. Continue working on incomplete TODO items. If all TODO items are complete, mark every item `completed` before stopping.'),
   maxAutoContinueTurns: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(8),
 })
 
@@ -81,7 +81,8 @@ const DESCRIPTION_SINGLE =
 const DESCRIPTION_TAIL =
   'Mark a todo '
   + '`completed` the moment it is done (do not batch completions), and allow no '
-  + '`in_progress` item only once all work is complete. Skip the list for trivial '
+  + '`in_progress` item only once all work is complete. When all TODO items are '
+  + 'complete, mark every item `completed` before stopping. Skip the list for trivial '
   + 'single-step tasks. Statuses: `pending` (not started), `in_progress` (being '
   + 'worked on now), `completed` (finished).'
 
@@ -148,7 +149,8 @@ const todosProjectionSchema: ZodType<TodoItem[] | null> = zod.union([
 export function apply(ctx: Context, config: Config): void {
   const allowParallel = config.allowParallelInProgress
   const autoContinueIncomplete = config.autoContinueIncomplete ?? false
-  const autoContinueMessage = config.autoContinueMessage ?? 'Continue working on the incomplete TODO items.'
+  const autoContinueMessage = config.autoContinueMessage
+    ?? 'This is an automatic system-injected continuation, not a user request. Continue working on incomplete TODO items. If all TODO items are complete, mark every item `completed` before stopping.'
   const maxAutoContinueTurns = config.maxAutoContinueTurns ?? 8
   const continuationStates = new Map<Agent, ContinuationState>()
 
@@ -213,7 +215,7 @@ export function apply(ctx: Context, config: Config): void {
       try {
         agent.followup(createUserMessage({
           content: [{ type: 'text', text: autoContinueMessage }],
-          source: { kind: 'plugin', plugin: name },
+          source: { kind: 'plugin', plugin: name, form: 'system-injection' },
         }))
       } catch (error: unknown) {
         state.consecutive -= 1

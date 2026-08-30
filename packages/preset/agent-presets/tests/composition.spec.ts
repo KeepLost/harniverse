@@ -125,20 +125,17 @@ describe('Agent Profile composition recipes', () => {
     const persona = catalog.descriptors.find(entry => entry.id === 'plugin:persona')
     expect(persona).toMatchObject({ manageable: true, selectionManageable: false })
     expect(persona?.customization?.defaultValues).toMatchObject({
-      complete: false,
-      includeRuntimeContext: true,
+      text: 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.',
     })
   })
 
-  it('compiles resolved Persona configuration as a complete native row config', async () => {
+  it('compiles resolved Persona configuration as a native row config', async () => {
     const catalog = await compositionCatalog([shippedPreset('standard')], 'standard')
     const entries = catalog.descriptors.map((descriptor): CapabilityCatalogEntry => ({
       ...selected(descriptor),
       ...descriptor.id === 'plugin:persona' ? {
         effectiveConfig: {
           text: 'You are a review specialist.',
-          complete: true,
-          includeRuntimeContext: false,
         },
       } : {},
     }))
@@ -148,8 +145,6 @@ describe('Agent Profile composition recipes', () => {
       id: 'persona',
       config: {
         text: 'You are a review specialist.',
-        complete: true,
-        includeRuntimeContext: false,
       },
     })
   })

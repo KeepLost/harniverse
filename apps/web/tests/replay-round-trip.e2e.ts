@@ -33,6 +33,15 @@ const MODE = webSnapshotMode()
 // drift apart.
 const PROMPT = 'Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop.'
 
+function runtimeContexts(events: readonly SessionEvent[]): string[] {
+  return events.flatMap((event) => {
+    if (event.type !== 'user/message'
+      || event.data.source.kind !== 'plugin'
+      || event.data.source.plugin !== '@deepseek-ai/dsh-system-prompt') return []
+    return event.data.content.flatMap(block => block.type === 'text' ? [block.text] : [])
+  })
+}
+
 describe('web e2e: fresh round trip through the real assembly', () => {
   let scaffold: WebScaffold
   let browser: Browser
@@ -79,13 +88,15 @@ describe('web e2e: fresh round trip through the real assembly', () => {
     }
   }, 200_000)
 
-  it('records the Web surface, source checkout, and session cwd in the request header', async () => {
+  it('records the Web surface, source checkout, and session cwd in the request input', async () => {
     if (settledSessionId === undefined) throw new Error('the drive turn did not publish a session id')
     const agent = scaffold.ctx.agents.get(settledSessionId)
     if (agent === undefined) throw new Error(`the settled Web agent ${settledSessionId} is no longer live`)
     const system = agent.session.requestHeader()?.system
     if (system === undefined) throw new Error('the settled Web request has no system prompt')
-    const prefix = system.split('\n\n').slice(0, 4).join('\n\n')
+    const context = runtimeContexts(sessionEvents).find(text => text.includes('DeepSeek Harness Web GUI'))
+    if (context === undefined) throw new Error('the settled Web request has no runtime context')
+    const prefix = `${system}\n\n${context}`
       .split(REPO_ROOT).join('{{sourceRoot}}')
       .split(join(scaffold.workspaceCwd, 'workspace')).join('{{cwd}}')
       .split(scaffold.baseUrl).join('{{webUrl}}')

@@ -162,7 +162,7 @@ function membersOf(rowId: string, row: EntryOptions): CapabilityMemberDescriptor
 
 function customizationOf(rowId: string, row: EntryOptions): CapabilityCustomizationDescriptor | undefined {
   if (rowId !== 'persona') return undefined
-  const config = row.config as { text?: unknown; complete?: unknown; includeRuntimeContext?: unknown } | undefined
+  const config = row.config as { text?: unknown } | undefined
   return {
     fields: [{
       id: 'text',
@@ -171,21 +171,9 @@ function customizationOf(rowId: string, row: EntryOptions): CapabilityCustomizat
       description: 'Identity and behavioral context contributed to the system prompt.',
       required: true,
       multiline: true,
-    }, {
-      id: 'complete',
-      kind: 'boolean',
-      name: 'Complete system prompt',
-      description: 'Suppress every other system-prompt section.',
-    }, {
-      id: 'includeRuntimeContext',
-      kind: 'boolean',
-      name: 'Runtime context',
-      description: 'Include dynamic runtime-context snapshots.',
     }],
     defaultValues: {
       text: typeof config?.text === 'string' ? config.text : '',
-      complete: config?.complete === true,
-      includeRuntimeContext: config?.includeRuntimeContext !== false,
     },
   }
 }
