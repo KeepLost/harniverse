@@ -72,11 +72,11 @@ describe('preset discovery', () => {
   it('reports one preset per directory holding a composition, ordered by id', async () => {
     const found = await scanRoot(SYSTEM)
 
-    expect(found.map(preset => preset.id)).toEqual(['minimal', 'standard'])
+    expect(found.map(preset => preset.id)).toEqual(['conflict', 'minimal', 'standard'])
     expect(found[0]).toEqual({
-      id: 'minimal',
+      id: 'conflict',
       trust: 'system',
-      path: join(SYSTEM.path, 'minimal', COMPOSITION_FILE),
+      path: join(SYSTEM.path, 'conflict', COMPOSITION_FILE),
     })
   })
 

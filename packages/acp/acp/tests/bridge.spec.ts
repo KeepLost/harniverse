@@ -82,7 +82,10 @@ describe('automation-only ACP bridge', () => {
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
     await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
-    expect(harness.adapter.requests[0]?.system).toContain(`Automation persona for mock in ${process.cwd()}.`)
+    expect(harness.adapter.requests[0]?.system).toBe('You are an AI agent powered by Harniverse.')
+    expect(harness.adapter.requests[0]?.messages.some(message => message.content.some(block =>
+      block.type === 'text' && block.text.includes(`Automation persona for mock in ${process.cwd()}.`),
+    ))).toBe(true)
   })
 
   it('requires one absolute workspace and no MCP servers', async () => {

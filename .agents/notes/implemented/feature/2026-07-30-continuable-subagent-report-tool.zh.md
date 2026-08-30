@@ -104,7 +104,7 @@ ACP（Agent Client Protocol）快照 harness 新增 `waitForSubagentTurnEnd`，�
 - 工具返回 parent 消息的稳定 `MessageId`。静默投递没有 `InboxItemId`；唤醒投递会产生一个单独的 inbox 条目实例。
 - 只有确切的驻留 child 才能报告，且只能报告给根据持久化谱系推导的确切在线直接 parent。服务不接受接收方参数，也不提供离线 fallback。
 - 唤醒投递是校验后的默认模式：它会恰好创建一个后续 FIFO 轮次，绝不 steering 已开始的轮次。静默投递则绝不会启动 parent 请求。
-- parent 接受后取消或 dispose child 不会撤回报告。接受前，child dispose、drain、parent 丢失或调用方取消都会拒绝操作。
+- parent 接受后取消或 dispose child 不会撤回报告。接受前，child dispose、drain、parent 丢失、调用方取消或 parent 进入 closing lifecycle 都会拒绝操作。
 - 新建和恢复的 Activation 都会在发布前组合当前设置贡献。新授权等待下一个 Activation 才生效，而已驻留 child 的授权撤销立即生效。
 - 单元覆盖固定可见性、allow-list 行为、两种投递模式、稳定的消息与发送方身份、嵌套路由、无效发送方、缺失的 parent、取消、drain、撤销竞争，以及不存在 Task 或隐式最终报告。
 - 无密钥整体组装快照证明真实 child 工具、那一个被唤醒的 parent 轮次、持久化 parent 封装，以及 parent 后续消费。
@@ -115,4 +115,4 @@ ACP（Agent Client Protocol）快照 harness 新增 `waitForSubagentTurnEnd`，�
 
 唤醒投递可能在嵌套 child 频繁报告时放大模型工作量。通过 `reportDelivery` 交由部署所有者控制，可以限制该风险，但无法完全消除。
 
-注册表中的存在性就是 parent 在线信号。宿主拥有的 parent 如果已开始 `AgentHandle.dispose()` 但尚未完成其作用域清理，仍可能接受并追加一条本进程不会再处理的报告。要弥合这个缺口，需要 Agent 层面的 dispose 开始信号，不能由 subagent 层推断。
+Agent admission cutoff 是 report 使用的 parent 在线信号。宿主拥有的 parent 一旦开始 `AgentHandle.dispose()`，就会在作用域清理前拒绝新的 report；cutoff 前接受的 report 仍保留在其 transcript 中，但 closing parent 不会在本进程中处理它。继续执行管理器拥有的 parent 也会通过自己的 admission boundary 拒绝同一个 closing window。

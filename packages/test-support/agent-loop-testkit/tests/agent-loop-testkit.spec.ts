@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { mountAgentLoopTestDependencies } from '../src/index.ts'
 
 describe('dsh-agent-loop-testkit', () => {
@@ -12,7 +12,9 @@ describe('dsh-agent-loop-testkit', () => {
       tools: { mode: 'native' },
     })
 
-    expect(renderPrompt(await ctx.systemPrompt.assemble())).toContain('Test persona.')
+    const assembly = await ctx.systemPrompt.assemble()
+    expect(renderPrompt(assembly)).toBe('You are an AI agent powered by Harniverse.')
+    expect(renderContextSnapshot(assembly)).toContain('Test persona.')
     await expect(ctx.plugin(AgentLoop, { agents: [] })).resolves.toBeDefined()
 
     await ctx.fiber.dispose()

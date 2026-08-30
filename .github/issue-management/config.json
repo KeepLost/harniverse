@@ -1,9 +1,11 @@
 {
-  "organization": "deepseek-harness",
-  "repository": "deepseek-harness",
+  "repositoryOwner": "KeepLost",
+  "repository": "harniverse",
+  "projectOwner": "KeepLost",
+  "projectOwnerType": "user",
   "projectNumber": 1,
-  "projectTitle": "DSH Issue Management",
-  "lifecycleActor": "dsh-issue-management",
+  "projectTitle": "Harniverse Issue Management",
+  "lifecycleActor": "harniverse-issue-management",
   "priorityField": "Priority",
   "allowUnassignedOwner": true,
   "statuses": [

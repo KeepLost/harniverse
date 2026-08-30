@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { open, type FileHandle } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -23,7 +23,7 @@ import {
 const execFileAsync = promisify(execFile)
 
 function tempWorkspace(): string {
-  return mkdtempSync(join(tmpdir(), 'dsh-workspace-inspector-'))
+  return realpathSync(mkdtempSync(join(tmpdir(), 'dsh-workspace-inspector-')))
 }
 
 describe('workspace file inspection', () => {

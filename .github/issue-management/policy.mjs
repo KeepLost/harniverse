@@ -52,6 +52,15 @@ for (const status of ['In progress', 'In review']) {
 if (typeof config.lifecycleActor !== 'string' || !config.lifecycleActor) {
   throw new Error('config.lifecycleActor 未设置')
 }
+if (typeof config.repositoryOwner !== 'string' || !config.repositoryOwner) {
+  throw new Error('config.repositoryOwner 未设置')
+}
+if (typeof config.projectOwner !== 'string' || !config.projectOwner) {
+  throw new Error('config.projectOwner 未设置')
+}
+if (!['organization', 'user'].includes(config.projectOwnerType)) {
+  throw new Error('config.projectOwnerType 必须为 organization 或 user')
+}
 
 /**
  * Return Markdown outside balanced details elements.
@@ -416,10 +425,10 @@ async function graphql(query, variables) {
 }
 
 async function issueSnapshot(number, status = undefined) {
-  const issue = await api(`/repos/${config.organization}/${config.repository}/issues/${number}`)
+  const issue = await api(`/repos/${config.repositoryOwner}/${config.repository}/issues/${number}`)
   if (issue.pull_request) return null
   const values = await api(
-    `/repos/${config.organization}/${config.repository}/issues/${number}/issue-field-values?per_page=100`,
+    `/repos/${config.repositoryOwner}/${config.repository}/issues/${number}/issue-field-values?per_page=100`,
   )
   const field = (name) => values.find((value) => value.issue_field_name === name)
   return {
@@ -440,24 +449,25 @@ async function issueSnapshot(number, status = undefined) {
 async function projectContext(number, includeStatusActor = false) {
   const data = await graphql(
     `query(
-      $organization: String!
+      $repositoryOwner: String!
       $repository: String!
+      $projectOwner: String!
       $number: Int!
       $project: Int!
+      $projectOwnerIsUser: Boolean!
       $includeStatusActor: Boolean!
     ) {
-      organization(login: $organization) {
+      user(login: $projectOwner) @include(if: $projectOwnerIsUser) {
         projectV2(number: $project) {
-          id
-          title
-          fields(first: 50) {
-            nodes {
-              ... on ProjectV2SingleSelectField { id name options { id name } }
-            }
-          }
+          ...projectDetails
         }
       }
-      repository(owner: $organization, name: $repository) {
+      organization(login: $projectOwner) @skip(if: $projectOwnerIsUser) {
+        projectV2(number: $project) {
+          ...projectDetails
+        }
+      }
+      repository(owner: $repositoryOwner, name: $repository) {
         issue(number: $number) {
           id
           timelineItems(last: 100, itemTypes: [PROJECT_V2_ITEM_STATUS_CHANGED_EVENT])
@@ -481,16 +491,27 @@ async function projectContext(number, includeStatusActor = false) {
           }
         }
       }
+    }
+    fragment projectDetails on ProjectV2 {
+      id
+      title
+      fields(first: 50) {
+        nodes {
+          ... on ProjectV2SingleSelectField { id name options { id name } }
+        }
+      }
     }`,
     {
-      organization: config.organization,
+      repositoryOwner: config.repositoryOwner,
       repository: config.repository,
+      projectOwner: config.projectOwner,
       number,
       project: config.projectNumber,
+      projectOwnerIsUser: config.projectOwnerType === 'user',
       includeStatusActor,
     },
   )
-  const project = data.organization?.projectV2
+  const project = data.user?.projectV2 ?? data.organization?.projectV2
   const issue = data.repository?.issue
   if (!project || project.title !== config.projectTitle) throw new Error('目标 Project 不存在或标题不匹配')
   if (!issue) throw new Error(`#${number} 不存在`)
@@ -557,14 +578,14 @@ async function setStatus(number, status) {
 
 async function upsertAudit(number, errors) {
   const comments = await api(
-    `/repos/${config.organization}/${config.repository}/issues/${number}/comments?per_page=100`,
+    `/repos/${config.repositoryOwner}/${config.repository}/issues/${number}/comments?per_page=100`,
   )
   const existing = comments.find(
     (comment) => comment.user?.type === 'Bot' && comment.body?.includes(AUDIT_MARKER),
   )
   if (errors.length === 0) {
     if (existing) {
-      await api(`/repos/${config.organization}/${config.repository}/issues/comments/${existing.id}`, {
+      await api(`/repos/${config.repositoryOwner}/${config.repository}/issues/comments/${existing.id}`, {
         method: 'DELETE',
       })
     }
@@ -573,13 +594,13 @@ async function upsertAudit(number, errors) {
   const body = `${AUDIT_MARKER}\n⚠️ Issue policy 未通过：\n\n${errors.map((error) => `- ${error}`).join('\n')}`
   if (existing) {
     if (existing.body === body) return
-    await api(`/repos/${config.organization}/${config.repository}/issues/comments/${existing.id}`, {
+    await api(`/repos/${config.repositoryOwner}/${config.repository}/issues/comments/${existing.id}`, {
       method: 'PATCH',
       body: JSON.stringify({ body }),
       headers: { 'Content-Type': 'application/json' },
     })
   } else {
-    await api(`/repos/${config.organization}/${config.repository}/issues/${number}/comments`, {
+    await api(`/repos/${config.repositoryOwner}/${config.repository}/issues/${number}/comments`, {
       method: 'POST',
       body: JSON.stringify({ body }),
       headers: { 'Content-Type': 'application/json' },
@@ -598,7 +619,7 @@ async function auditIssue(number, extraErrors = [], status = undefined) {
 async function resolvingReferencesSnapshot(number, pull) {
   const references = parseReferences({
     body: pull.body ?? '',
-    repository: `${config.organization}/${config.repository}`,
+    repository: `${config.repositoryOwner}/${config.repository}`,
   })
   const issues = new Map()
   for (const issueNumber of references.all) {
@@ -614,23 +635,33 @@ async function resolvingReferencesSnapshot(number, pull) {
 
 async function pullRequestSnapshot(number) {
   const [pull, reviewRequests, reviews] = await Promise.all([
-    api(`/repos/${config.organization}/${config.repository}/pulls/${number}`),
-    api(`/repos/${config.organization}/${config.repository}/pulls/${number}/requested_reviewers`),
-    api(`/repos/${config.organization}/${config.repository}/pulls/${number}/reviews?per_page=100`),
+    api(`/repos/${config.repositoryOwner}/${config.repository}/pulls/${number}`),
+    api(`/repos/${config.repositoryOwner}/${config.repository}/pulls/${number}/requested_reviewers`),
+    api(`/repos/${config.repositoryOwner}/${config.repository}/pulls/${number}/reviews?per_page=100`),
   ])
-  const resolving = await resolvingReferencesSnapshot(number, pull)
-  return {
-    ...resolving,
+  const snapshot = {
     isDraft: pull.draft,
     authorType: pull.user?.type ?? 'User',
     reviewRequestCount: reviewRequests.users.length + reviewRequests.teams.length,
     reviewCount: reviews.length,
     labels: pull.labels.map((label) => label.name),
   }
+  if (!requiresPullRequestPolicy(snapshot)) {
+    return {
+      ...snapshot,
+      references: { all: [], resolving: [], related: [] },
+      issues: new Map(),
+    }
+  }
+  const resolving = await resolvingReferencesSnapshot(number, pull)
+  return {
+    ...resolving,
+    ...snapshot,
+  }
 }
 
 async function lifecyclePullRequestSnapshot(number) {
-  const pull = await api(`/repos/${config.organization}/${config.repository}/pulls/${number}`)
+  const pull = await api(`/repos/${config.repositoryOwner}/${config.repository}/pulls/${number}`)
   return resolvingReferencesSnapshot(number, pull)
 }
 

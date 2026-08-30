@@ -47,9 +47,9 @@ describe('MessageFeedbackService public contract', () => {
     expect(binding.serviceKey).toBe('messageFeedback')
     expect(binding.namespace).toBe('messageFeedback')
     expect(remoteMethods(ctx.messageFeedback)).toEqual([
-      { method: 'list', invocation: { kind: 'direct' } },
-      { method: 'put', invocation: { kind: 'direct' } },
-      { method: 'delete', invocation: { kind: 'direct' } },
+      { method: 'list', invocation: { kind: 'direct' }, requiredCapability: 'harniverse.observe' },
+      { method: 'put', invocation: { kind: 'direct' }, requiredCapability: 'harniverse.operate' },
+      { method: 'delete', invocation: { kind: 'direct' }, requiredCapability: 'harniverse.operate' },
     ])
   })
 

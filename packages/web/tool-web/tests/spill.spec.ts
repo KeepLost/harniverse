@@ -34,6 +34,7 @@ import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => void
 
+let testFetchPluginCounter = 0
 let server: Server
 let base: string
 let handler: Handler
@@ -44,11 +45,46 @@ const BODY = 'X'.repeat(4000) // formatted result is well over the policy cap
 const MAX_INLINE_BYTES = 1000 // leaves room for a head/tail preview beside the notice
 const ARTIFACT_PAGE_CHARS = 1000 // several pages for a ~4KB artifact: exercises cursor continuation
 
+/** Route a public test hostname to the loopback fixture without weakening production URL policy. */
+function loopbackFetchPlugin(targetPort: number): {
+  name: string
+  inject: string[]
+  apply: (context: Context) => void
+} {
+  return {
+    name: `test-web-fetch-spill-${++testFetchPluginCounter}`,
+    inject: ['web'],
+    apply: (context) => {
+      context.web.registerFetchProvider(new WebFetchLocal.HttpFetchProvider({
+        maxUrlLength: 2048,
+        maxResponseBytes: 5_000_000,
+        maxBodyChars: 500_000,
+        timeoutMs: 30_000,
+        maxRedirects: 0,
+        userAgent: 'spill-test',
+      }, {
+        resolveHostname: async () => [{ address: '93.184.216.34', family: 4 }],
+        request: async (url, _address, options) => {
+          const target = new URL(url)
+          target.hostname = '127.0.0.1'
+          target.port = String(targetPort)
+          return await fetch(target, {
+            method: 'GET',
+            redirect: 'manual',
+            headers: { 'user-agent': options.userAgent },
+            signal: options.signal,
+          })
+        },
+      }))
+    },
+  }
+}
+
 beforeEach(async () => {
   handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(BODY) }
   server = createServer((req, res) => { handler(req, res) })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  base = `http://public.test:${(server.address() as AddressInfo).port}`
   spillRoot = mkdtempSync(join(tmpdir(), 'dsh-spill-web-'))
 
   ctx = new Context()
@@ -57,7 +93,7 @@ beforeEach(async () => {
   await ctx.plugin(WebRuntime, { fetchProvider: WebFetchLocal.LOCAL_FETCH_PROVIDER_ID })
   // Provider cap generous so the tool returns a large formatted result; the
   // policy cap is what triggers the spill (the Agent Note's separation of concerns).
-  await ctx.plugin(WebFetchLocal, { maxBodyChars: 500_000 })
+  await ctx.plugin(loopbackFetchPlugin((server.address() as AddressInfo).port))
   await ctx.plugin(LocalSpillStore, { root: spillRoot })
   await ctx.plugin(SpillPolicy, { maxInlineBytes: MAX_INLINE_BYTES })
   // The retrieval Consumer the spill notice sends the model to. Composing it

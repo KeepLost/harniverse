@@ -11,7 +11,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
@@ -50,6 +50,13 @@ const NATIVE = '@deepseek-ai/dsh-host-directory-picker-native'
 const BROWSE = '@deepseek-ai/dsh-host-directory-picker-browse'
 const NATIVE_SURFACE = '@deepseek-ai/dsh-client-ui-directory-picker-native'
 const BROWSE_SURFACE = '@deepseek-ai/dsh-client-ui-directory-picker-browse'
+const TEST_CERT_BODY_PATH = fileURLToPath(new URL('../../webserver/tests/fixtures/test-cert.der.b64', import.meta.url))
+const TEST_KEY_BODY_PATH = fileURLToPath(new URL('../../webserver/tests/fixtures/test-key.der.b64', import.meta.url))
+
+/** Wrap the shared test DER material for Node's TLS parser. */
+function pem(label: 'CERTIFICATE' | 'PRIVATE KEY', body: string): string {
+  return `-----BEGIN ${label}-----\n${body}\n-----END ${label}-----\n`
+}
 
 /**
  * Loader-visible stand-in for a client surface package: the surfaces belong to
@@ -90,15 +97,25 @@ afterEach(async () => {
 /** Write a two-row cordis.yml (webserver + chooser), then boot it through the real Loader. */
 async function loadComposition(
   bindHost: '127.0.0.1' | '0.0.0.0',
-  options: { failSurface?: boolean } = {},
+  options: { failSurface?: boolean; tls?: boolean } = {},
 ): Promise<{ ctx: Context; configPath: string }> {
   root = await mkdtemp(join(tmpdir(), 'dsh-directory-picker-auto-'))
   const configPath = join(root, 'cordis.yml')
+  const certPath = join(root, 'test-cert.pem')
+  const keyPath = join(root, 'test-key.pem')
+  if (options.tls === true) {
+    await writeFile(certPath, pem('CERTIFICATE', (await readFile(TEST_CERT_BODY_PATH, 'utf8')).trim()))
+    await writeFile(keyPath, pem('PRIVATE KEY', (await readFile(TEST_KEY_BODY_PATH, 'utf8')).trim()), { mode: 0o600 })
+  }
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-host-webserver'",
     '  config:',
     `    host: '${bindHost}'`,
     '    port: 0',
+    ...(options.tls === true ? [
+      `    tlsCertPath: ${JSON.stringify(certPath)}`,
+      `    tlsKeyPath: ${JSON.stringify(keyPath)}`,
+    ] : []),
     `- name: '${AUTO}'`,
     '',
   ].join('\n'))
@@ -207,7 +224,7 @@ describe('real Loader composition', () => {
 
   it('mounts the browse backend for an all-interfaces bind even on an attended host', { timeout: 60_000 }, async () => {
     stubAttendedHost()
-    const { ctx } = await loadComposition('0.0.0.0')
+    const { ctx } = await loadComposition('0.0.0.0', { tls: true })
 
     expect(entryNames(ctx)).toContain(BROWSE)
     expect(entryNames(ctx)).toContain(BROWSE_SURFACE)

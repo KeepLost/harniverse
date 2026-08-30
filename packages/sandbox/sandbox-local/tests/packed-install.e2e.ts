@@ -37,6 +37,7 @@ const WORKSPACE_CLOSURE = [
   'packages/core/scope',
   'packages/llm/llm',
   'packages/typert/protocol',
+  'packages/auth/authentication',
   'packages/attachment/attachment',
   'packages/util/brand',
   'packages/util/timeout',
