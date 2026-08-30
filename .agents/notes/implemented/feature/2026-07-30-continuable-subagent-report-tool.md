@@ -104,7 +104,7 @@ A post-creation revocation check can reject the Activation only after the Agent 
 - The tool returns the parent message's stable `MessageId`. Quiet delivery has no `InboxItemId`; waking delivery has a separate inbox occurrence.
 - Only the exact resident child may report, and only to the exact live direct parent derived from durable lineage. The service has no recipient parameter or offline fallback.
 - Waking delivery is the validated default: it creates exactly one later FIFO turn and never steers an open turn. Quiet delivery never starts a parent request.
-- Child cancellation or disposal after parent acceptance does not retract the report. Before acceptance, child disposal, drain, parent loss, or caller cancellation rejects the operation.
+- Child cancellation or disposal after parent acceptance does not retract the report. Before acceptance, child disposal, drain, parent loss, caller cancellation, or the parent's closing lifecycle rejects the operation.
 - Fresh and resumed Activations compose current setup contributions before publication. Grants wait for the next Activation; revocation is immediate for resident children.
 - Unit coverage pins visibility, allow-list behavior, both delivery modes, stable message and sender identities, nested routing, invalid senders, absent parents, cancellation, drain, revocation races, and the absence of Jobs or implicit final reporting.
 - The keyless assembled snapshot proves the real child tool, the one waking parent turn, durable parent framing, and later parent consumption.
@@ -115,4 +115,4 @@ The acceptance boundary is weaker than durable end-to-end delivery. A crash can 
 
 Waking delivery can amplify model work when nested children report frequently. Deployment ownership through `reportDelivery` bounds but does not remove that risk.
 
-Registry presence is the parent liveness signal. A host-owned parent whose `AgentHandle.dispose()` has started but has not yet unwound its scope can still accept and append a report that it will not act on in this process. Closing that gap requires an Agent-level disposal-start signal rather than subagent-layer inference.
+The Agent admission cutoff is the parent liveness signal for reporting. A host-owned parent whose `AgentHandle.dispose()` has started rejects new reports before its scope unwinds; reports accepted before the cutoff remain in its transcript, but the closing parent will not act on them in this process. A continuation-manager-owned parent rejects the same closing window through its admission boundary.

@@ -1,21 +1,16 @@
 name: E2E (real DeepSeek API)
 
-# Real-API end-to-end suite (`pnpm run test:e2e`). Unlike ci.yml this job
-# consumes the DEEPSEEK_API_KEY_EXTERNAL secret (mapped to the env var
-# DEEPSEEK_API_KEY the tests read) and hits the external API at
-# https://api.deepseek.com (DEEPSEEK_BASE_URL is pinned to it explicitly so a
-# stray repo-root .env can't redirect the run).
+# Real-API end-to-end suite (`pnpm run test:e2e`). This is a manual-only,
+# credentialed workflow: it consumes the DEEPSEEK_API_KEY_EXTERNAL secret
+# (mapped to the env var DEEPSEEK_API_KEY the tests read) and hits the external
+# API at https://api.deepseek.com (DEEPSEEK_BASE_URL is pinned to it explicitly
+# so a stray repo-root .env can't redirect the run).
 #
-# pull_request IS a trigger, but GitHub withholds repo secrets from BOTH forked
-# PRs and Dependabot PRs (the latter are same-repo, fork==false, but still
-# keyless). The job-level `if:` below skips the whole job for those untrusted
-# PRs. The Dependabot test keys on the PR AUTHOR (pull_request.user.login), not
-# github.actor (the run trigger) — a maintainer reopening a Dependabot PR would
-# make github.actor human while the PR is still keyless. When the job runs, the
-# secret is expected, so the preflight hard-fails if it's missing (a missing
-# secret would otherwise make the self-skipping suite report a false green). A
-# job skipped by a job-level `if:` reports as a SUCCESSFUL check, so this
-# workflow is safe to use as a required status check if desired.
+# The workflow is intentionally not attached to push, pull_request, or schedule
+# events while external API credentials are not part of the development loop.
+# If a pull-request trigger is restored later, keep the secret isolation below:
+# GitHub withholds repository secrets from forked and Dependabot PRs, and the
+# job must skip those untrusted requests rather than use pull_request_target.
 #
 # SECURITY — NEVER change this trigger to `pull_request_target`. `pull_request`
 # checks out and runs the PR's HEAD code WITHOUT secrets for forks, which is what
@@ -25,22 +20,15 @@ name: E2E (real DeepSeek API)
 # The fork/secret model and its public-repo implications are recorded in
 # .agents/notes/implemented/testing/2026-06-19-real-api-e2e-ci.md.
 #
-# Note: scheduled triggers are auto-disabled after 60 days of repo inactivity;
-# push/pull_request/workflow_dispatch act as backstops.
+# Re-enable push, pull_request, or schedule only after a deliberate credential
+# and cost/quota decision.
 on:
   workflow_dispatch:
-  push:
-    branches: [main, master]
-  pull_request:
-  schedule:
-    # 00:17 UTC nightly = 08:17 Asia/Shanghai — off the top-of-hour cron stampede.
-    - cron: '17 0 * * *'
 
-# Cancel a superseded PR run (it is on a stale commit); never cancel a
-# push/schedule run — it is already producing the post-merge/nightly signal.
+# Manual runs should finish once started so an operator gets a complete result.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 # Least privilege: this job only reads the repo to run tests.
 permissions:
@@ -55,8 +43,8 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     name: e2e
-    # Run on every trusted event. Skip untrusted PRs (forks + Dependabot) where
-    # the secret is withheld — they would otherwise hard-fail the preflight.
+    # Keep this guard if a pull_request trigger is restored: skip untrusted PRs
+    # (forks + Dependabot) where the secret is withheld.
     if: >-
       github.event_name != 'pull_request'
       || !(github.event.pull_request.head.repo.fork || github.event.pull_request.user.login == 'dependabot[bot]')
