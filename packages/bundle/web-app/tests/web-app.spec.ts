@@ -1,7 +1,7 @@
 /**
  * Web runtime glue behavior: dist resolution through the bundle's own hook,
  * the frontend-static child claiming the fallback seat, the web-surface
- * prompt section and bash runtime variables, and URL-line printing with the
+ * prompt context and bash runtime variables, and URL-line printing with the
  * runtime's bind-dependent LAN snapshot.
  */
 
@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt, { renderContextSnapshot } from '@deepseek-ai/dsh-system-prompt'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { apply, Config, internals } from '../src/index.ts'
 
@@ -150,12 +150,14 @@ describe('web-app runtime glue', () => {
     expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567 (LAN: http://192.168.1.5:4567)')
     expect(log).toHaveBeenCalledWith('dsh web trust: hosts=["192.168.1.5","lab.internal"] origins=["https://ui.example.test"] same-origin-only=false')
     const assembly = await ctx.systemPrompt.assemble()
-    expect(assembly.sections.find(entry => entry.name === 'harness:source')?.text).toContain('DeepSeek Harness implementation checkout')
-    const section = assembly.sections.find(entry => entry.name === 'app:web-surface')
-    expect(section?.text).toContain('http://127.0.0.1:4567')
+    expect(assembly.sections.some(entry => entry.name === 'harness:source')).toBe(false)
+    const context = assembly.contexts.find(entry => entry.name === 'app:web-surface')
+    const renderedContext = renderContextSnapshot(assembly)
+    expect(renderedContext).toContain('Harniverse implementation checkout')
+    expect(context?.text).toContain('http://127.0.0.1:4567')
     // The single update contract: the receiver is always on; no-refresh
     // reloads additionally need the rebuild watcher.
-    expect(section?.text).toContain('pnpm run dev:web')
+    expect(context?.text).toContain('pnpm run dev:web')
     const webRuntime = contributions.find(contribution => contribution.name === 'web-runtime')
     expect(webRuntime?.resolve()).toEqual({ DSH_WEB_URL: 'http://127.0.0.1:4567' })
     await ctx.fiber.dispose()
@@ -171,12 +173,12 @@ describe('web-app runtime glue', () => {
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
     const assembly = await ctx.systemPrompt.assemble()
-    expect(assembly.sections.find(entry => entry.name === 'app:web-surface')?.text)
+    expect(assembly.contexts.find(entry => entry.name === 'app:web-surface')?.text)
       .toContain('rebuilding the affected Web artifacts')
     await ctx.fiber.dispose()
   })
 
-  it('skips the surface context when disabled (the one-shot layer): no prompt section, no bash variables', async () => {
+  it('skips the surface context when disabled (the one-shot layer): no prompt context, no bash variables', async () => {
     stageDist()
     const ctx = new Context()
     ctx.provide('webServer', fakeHttpServer().server)
@@ -191,8 +193,8 @@ describe('web-app runtime glue', () => {
     await ctx.plugin(SystemPrompt, { persona: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     const assembly = await ctx.systemPrompt.assemble()
-    expect(assembly.sections.some(entry => entry.name === 'app:web-surface')).toBe(false)
-    expect(assembly.sections.some(entry => entry.name === 'harness:source')).toBe(false)
+    expect(assembly.contexts.some(entry => entry.name === 'app:web-surface')).toBe(false)
+    expect(assembly.contexts.some(entry => entry.name === 'harness:source')).toBe(false)
     expect(contributions).toEqual([])
     await ctx.fiber.dispose()
   })

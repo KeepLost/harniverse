@@ -20,8 +20,8 @@
 | `resolveProfileDir` / `initProfile` / `loadProfile` / `readProfileManifest` / `writeProfileManifest` / `resolveBundleDir` / `composeEntries` / `healProfilesModuleFallback` / `PROFILE_TEMPLATES` / `DEFAULT_PROFILE_BUNDLES` / `PROFILES_DIR` / `PROFILE_PATCH_FILENAME` | Profile 机制（见 [Profile](#profiles)） |
 | `boot(binName, absoluteConfigPath, patches?, prepare?, bareModuleBaseUrl?)` | 创建根上下文，向 Loader `!!js` 配置表达式暴露 `dshHomePath(...segments)` 并安装 Loader，在配置树条目挂载前执行可选的宿主准备操作（`prepare` 可以使用 Loader，也可以提供由启动器拥有的上下文插槽），再挂载并等待 include 树结算，断言所有条目均已加载并激活，最后返回根上下文——失败时 dispose（资源释放）部分构造的上下文，并以带标签的错误 reject；可选模块基准与 `mountRootInclude` 的解析语义相同 |
 | `renderConfigDump(binName, absoluteConfigPath, layers, warn?)` | 使用 include 自己的解析器和补丁算法（`entryListSchema`/`applyEntryPatches`）离线合成基础配置与带标签的覆盖层，使结果与 `boot()` 挂载的内容一致，再渲染为 YAML，并原样保留 `!!js` 表达式；每段来源于同一文件且由相同补丁层修改的连续行之前都有一条 `# ==` 注释，标明该文件和这些补丁层，输出仍是一份可加载的文档；未匹配到行的补丁连同其层标签交给 `warn`（默认：一行 stderr），读取、解析或字段验证失败则抛出 |
-| `addHarnessSourceSection(ctx, sourceRoot)` | 添加全局 `harness:source` 提示词段落（顺序紧随 harness 身份、位于 persona 之前），告知 agent（智能体）DSH 实现代码 checkout 的磁盘路径，同时提醒它不得据此推断当前工作目录，而应使用 `pwd`；如果已启动树没有此项服务，则不执行操作并返回 `undefined`。这里的服务是 `systemPrompt`；该段落注册到它的 fiber，因此开发环境 HMR 重新加载系统提示词后，它会消失直至下次启动 |
-| `HARNESS_SOURCE_SECTION` | `'harness:source'` 段落名称，供 `addHarnessSourceSection` 注册使用 |
+| `addHarnessSourceContext(ctx, sourceRoot)` | 添加全局 `harness:source` 动态上下文（顺序紧随 harness 身份、位于 persona 之前），告知 agent（智能体）Harniverse 实现代码 checkout 的磁盘路径，并说明它是 DeepSeek Harness（DSH）的下游项目；同时声明 Harniverse 是完全独立的第三方产品，保留的 DSH 实现部分适用 DSH 开源许可证，并提醒不得据此推断当前工作目录，而应使用 `pwd`；如果已启动树没有此项服务，则不执行操作并返回 `undefined`。这里的服务是 `systemPrompt`；该上下文注册到它的 fiber，因此开发环境 HMR 重新加载系统提示词后，它会消失直至下次启动 |
+| `HARNESS_SOURCE_CONTEXT` | `'harness:source'` 上下文名称，供 `addHarnessSourceContext` 注册使用 |
 
 Loader 结算会在导入或生命周期失败时返回拒绝结果，并携带失败的配置项与阶段；`boot()` 会 dispose 部分构造的上下文，并用 bin 名称包装该失败。结算后遗留的配置项由独立审计处理：`assertEntriesLoaded` 将已启用却没有 fiber 的配置项转换为 rejection 并列出每个未解析插件；`assertEntriesActivated` 会显式等待每个失败的 fiber，把原始错误堆栈写入启动 rejection，并列出每个等待中配置项尚未解析的服务。抛出错误前，审计会通过一个进程级检查点标记这些 rejection 的确切原因，从而让 `installFailLoud` 将 Loader 的重复通知合并为一次，而所有无关的未处理 rejection 仍然致命。
 
@@ -46,11 +46,11 @@ profile 是位于 `$DSH_HOME/profiles/<name>` 下的目录（harness home 由 [`
 
 ## 模型体验
 
-模型通过此包加载的插件树间接受到影响；该树决定最终应用中的提示词、schema、消息和模型适配器。唯一贡献模型可见文本的导出 `addHarnessSourceSection`，也只有在消费方启动后调用它时才会产生影响。
+模型通过此包加载的插件树间接受到影响；该树决定最终应用中的提示词、schema、消息和模型适配器。唯一贡献模型可见上下文的导出 `addHarnessSourceContext`，也只有在消费方启动后调用它时才会产生影响。
 
 #### KV Cache 影响
 
-`boot()` 不会直接使缓存失效；消费方调用 `addHarnessSourceSection` 时，会在系统提示词靠前位置、逐请求内容之前添加一行短文本，因此不会使跨轮次缓存失效。请求前缀的其他任何变化均由相应的具名消费方负责。
+`boot()` 不会直接使缓存失效；消费方调用 `addHarnessSourceContext` 时，会将一行短文本放入下一次 runtime 快照，静态请求前缀保持不变。请求前缀的其他任何变化均由相应的具名消费方负责。
 
 ## 已知限制与暂缓事项
 

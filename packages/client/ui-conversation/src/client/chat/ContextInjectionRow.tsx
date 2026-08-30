@@ -39,7 +39,9 @@ export function ContextInjectionRow({ content, source, provenance, form, t }: Co
       className={css.root}
       icon={<IconBrowseOutline16 size={14} />}
       chevronClassName={css.chevron}
-      title={t(provenance.role === 'recall' ? 'message.contextRecall' : 'message.contextInjection')}
+      title={t(provenance.role === 'recall'
+        ? 'message.contextRecall'
+        : form === 'system-injection' ? 'message.systemInjection' : 'message.contextInjection')}
       collapsedContent={provenance.label === null ? undefined : (
         /* ToolRow's separator shape: an aria-hidden dot, so the accessible name
            stays the two readable parts and the two disclosure rows expose one

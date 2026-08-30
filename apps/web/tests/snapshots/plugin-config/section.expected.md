@@ -42,7 +42,16 @@
           - option "DeepSeek" [selected]
           - option "Exa"
           - option "Perplexity"
+          - option "Tavily"
+          - option "Brave"
+          - option "Kagi"
+          - option "Firecrawl"
         - paragraph: 新的网页搜索将使用这个提供方。
+        - text: 抓取提供方
+        - combobox "抓取提供方":
+          - option "HTTP" [selected]
+          - option "Firecrawl"
+        - paragraph: 抓取网页时使用的提供方。
         - text: DeepSeek API Key 未配置密钥；配置之前搜索不可用。
         - textbox "DeepSeek API Key"
         - paragraph: 不写入设置文件。留空表示保持当前密钥。

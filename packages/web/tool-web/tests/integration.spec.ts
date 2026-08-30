@@ -23,6 +23,42 @@ const testToolSignal = new AbortController().signal
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => void
 
+let testFetchPluginCounter = 0
+
+function loopbackFetchPlugin(targetPort: number, timeoutMs: number): {
+  name: string
+  inject: string[]
+  apply: (context: Context) => void
+} {
+  return {
+    name: `test-web-fetch-${++testFetchPluginCounter}`,
+    inject: ['web'],
+    apply: (context) => {
+      context.web.registerFetchProvider(new WebFetchLocal.HttpFetchProvider({
+        maxUrlLength: 2048,
+        maxResponseBytes: 5_000_000,
+        maxBodyChars: 100_000,
+        timeoutMs,
+        maxRedirects: 0,
+        userAgent: 'integration-test',
+      }, {
+        resolveHostname: async () => [{ address: '93.184.216.34', family: 4 }],
+        request: async (url, _address, options) => {
+          const target = new URL(url)
+          target.hostname = '127.0.0.1'
+          target.port = String(targetPort)
+          return await fetch(target, {
+            method: 'GET',
+            redirect: 'manual',
+            headers: { 'user-agent': options.userAgent },
+            signal: options.signal,
+          })
+        },
+      }))
+    },
+  }
+}
+
 let server: Server
 let base: string
 let handler: Handler
@@ -33,13 +69,13 @@ beforeEach(async () => {
   handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<h1>Hello</h1><p>World</p>') }
   server = createServer((req, res) => { handler(req, res) })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  base = `http://public.test:${(server.address() as AddressInfo).port}`
 
   ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(WebRuntime, { searchProvider: WebSearchExa.EXA_PROVIDER_ID, fetchProvider: WebFetchLocal.LOCAL_FETCH_PROVIDER_ID })
-  await ctx.plugin(WebFetchLocal, {})
+  await ctx.plugin(loopbackFetchPlugin((server.address() as AddressInfo).port, 30_000))
   await ctx.plugin(WebSearchExa, { apiKey: 'exa-key', baseURL: 'https://api.exa.test' })
   // The shipped deployment shape: the tool-call budget is declared by tool-web
   // config (default 30s, attached as ToolDefinition.timeoutMs) and enforced by
@@ -108,9 +144,10 @@ describe('tool-call timeout policy over the migrated web tools', () => {
     const byName = new Map(ctx.tools.schemas().map(s => [s.name, s]))
     const fetchParams = byName.get('web_fetch')!.parameters as { properties: Record<string, unknown> }
     const searchParams = byName.get('web_search')!.parameters as { properties: Record<string, unknown> }
-    expect(Object.keys(fetchParams.properties)).toEqual(['url'])
+    expect(Object.keys(fetchParams.properties)).toEqual(['url', 'provider'])
     expect('timeout_ms' in fetchParams.properties).toBe(false)
-    expect(Object.keys(searchParams.properties)).toEqual(['queries'])
+    expect(Object.keys(searchParams.properties)).toEqual(['queries', 'provider'])
+    expect('timeout_ms' in searchParams.properties).toBe(false)
   })
 })
 
@@ -128,14 +165,14 @@ describe('tool-call timeout returns TOOL_TIMEOUT (deadline wins over a slow fetc
     openSockets = []
     slowServer = createServer((_req, res) => { openSockets.push(res) })
     await new Promise<void>(resolve => slowServer.listen(0, '127.0.0.1', resolve))
-    slowBase = `http://127.0.0.1:${(slowServer.address() as AddressInfo).port}`
+    slowBase = `http://slow.test:${(slowServer.address() as AddressInfo).port}`
 
     tctx = new Context()
     await tctx.plugin(SystemPrompt)
     await tctx.plugin(ToolRuntime)
     await tctx.plugin(WebRuntime, { fetchProvider: WebFetchLocal.LOCAL_FETCH_PROVIDER_ID })
     // Provider backstop well ABOVE the tool-call budget, so the policy wins.
-    await tctx.plugin(WebFetchLocal, { timeoutMs: 30_000 })
+    await tctx.plugin(loopbackFetchPlugin((slowServer.address() as AddressInfo).port, 30_000))
     await tctx.plugin(TimeoutPolicy)
     // The tool-call budget is declared by tool-web config, enforced by the policy.
     tfiber = await tctx.plugin(ToolWeb, { fetchTimeoutMs: 50 })
@@ -165,8 +202,21 @@ describe('tool-call timeout returns TOOL_TIMEOUT (deadline wins over a slow fetc
       maxResponseBytes: 5_000_000,
       maxBodyChars: 100_000,
       timeoutMs: 50,
-      maxRedirects: 5,
+      maxRedirects: 0,
       userAgent: 'integration-test',
+    }, {
+      resolveHostname: async () => [{ address: '93.184.216.34', family: 4 }],
+      request: async (url, _address, options) => {
+        const target = new URL(url)
+        target.hostname = '127.0.0.1'
+        target.port = String((slowServer.address() as AddressInfo).port)
+        return await fetch(target, {
+          method: 'GET',
+          redirect: 'manual',
+          headers: { 'user-agent': options.userAgent },
+          signal: options.signal,
+        })
+      },
     })
     const err = await direct.fetch({ url: slowBase }).then(
       () => undefined,

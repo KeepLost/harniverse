@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-06-24-web-capability-seam.md) | 中文
 
+聚合提供方注册表与显式选择扩展见[Web provider aggregation and explicit selection](2026-08-29-web-provider-registry-and-selection.md)。
+
 ## 问题
 
 harness 需要面向模型的 web 工具，但不能将模型约定绑定到某一家厂商的 API 形状上。搜索是当前的压力点：从一开始就同时支持 Exa 搜索和 Perplexity 搜索——两种刻意不同的提供方形状（Exa 返回扁平的 `results[]`，每项包含 `{title, url, highlights, publishedDate}`；Perplexity 返回一段生成式回答加引用列表）——正是用来证明归一化的 web 约定并非只是镜像某一家厂商。Fetch 是另一项独立操作：匿名公开 HTTP(S) fetch 后端涉及传输、安全、重定向、解码和大小限制等关注点，与提供方支撑的搜索并不相同。
@@ -19,7 +21,7 @@ harness 需要面向模型的 web 工具，但不能将模型约定绑定到某�
 Web 访问是一个一等能力 seam，遵循[能力 seam Agent Note](2026-06-13-capability-seams.md)：
 
 1. `@deepseek-ai/dsh-web`（`packages/web/web`）拥有 `ctx.web`、提供方注册、提供方选择、共享的请求/结果词汇，以及 web 特有的错误。
-2. 提供方包实现具体后端并向 `ctx.web` 注册能力，例如 `@deepseek-ai/dsh-web-search-exa`、`@deepseek-ai/dsh-web-search-perplexity`、`@deepseek-ai/dsh-web-search-deepseek` 和 `@deepseek-ai/dsh-web-fetch-http`。
+2. 提供方包实现具体后端并向 `ctx.web` 注册能力，例如 `@deepseek-ai/dsh-web-search-exa`、`@deepseek-ai/dsh-web-search-perplexity`、`@deepseek-ai/dsh-web-search-deepseek`、`@deepseek-ai/dsh-web-search-tavily`、`@deepseek-ai/dsh-web-search-brave`、`@deepseek-ai/dsh-web-search-kagi`、聚合 `@deepseek-ai/dsh-web-firecrawl` 和 `@deepseek-ai/dsh-web-fetch-http`。
 3. `@deepseek-ai/dsh-tool-web`（`packages/web/tool-web`）拥有面向模型的 `web_search` 和 `web_fetch` 工具 schema、提示词段落、参数校验、结果格式化，以及通过 `ctx.web` 实现的工具展示。
 
 提供方不注册工具。提供方注册能力。`dsh-tool-web` 是面向模型的名称、描述、提示词引导、JSON Schema、展示的唯一所有者。
@@ -34,23 +36,24 @@ Web 访问是一个一等能力 seam，遵循[能力 seam Agent Note](2026-06-13
 
 这使模型 schema 保持稳定，而不将插件加载顺序、凭证状态或 HMR（热模块替换）时序纳入面向模型的约定。如果 web 搜索已启用但不存在可用的搜索提供方，`web_search` 仍然可见，执行时以结构化的 `WebError`（如 `WEB_PROVIDER_UNAVAILABLE` 或 `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`）失败。如果某个提供方在 `dsh-tool-web` 之后出现，下一次执行即可使用它而无需更改 schema。如果某个提供方在调用过程中消失，执行以结构化的 `WebError` 失败，而不是静默选择另一个提供方或回退到 `UNKNOWN_TOOL`。
 
-该 seam 刻意不暴露任何观察面——没有注册表变更事件，也没有聚合的能力状态查询。不可用性是调用方通过执行观察到的事实：`search()`/`fetch()` 在调用时解析提供方，并抛出命名了失败原因的结构化 `WebError`。[观察面 Agent Note](../../archived/simplification/2026-07-04-drop-unconsumed-web-observation-surface.md) 记录了这一判断：基于调用的派生选择与基于启用的注册使得没有消费方需要变更信号或独立于执行和错误路由的可用性探测；未来的提供方状态面板会重新引入它实际消费的最小信号或查询。
+该 seam 通过 `listProviders(capability?)` 暴露小型、非敏感的提供方目录。它是发现元数据而不是健康查询：`search()`/`fetch()` 在调用时解析选定的提供方，`dsh-tool-web` 通过动态提示词上下文发布当前 id。目录不包含凭证或异步健康结论。
 
 ## 包拓扑
 
-由三个包构成的 Service Definition / Service Provider / Consumer 拆分沿用 bash 和 filesystem 的模式，但*接口*包更接近 LLM（大语言模型） seam。`LlmRuntime`（`packages/llm/llm/src/index.ts`）是一个按名称键控的提供方注册表：`registerAdapter(models, adapter)` 将适配器存入 `Map`、返回 disposer、对重复键抛出 `DUPLICATE_ADAPTER`、在解析时抛出 `NO_ADAPTER`。`ctx.web` 沿用该注册表形状，但有两种能力类别和更丰富的选择策略（配置的提供方 id，或在恰好只有一个可用提供方注册时自动选择），因此执行时抛出的 `WebError` 能解释搜索或 fetch 能力为何无法运行。
+由三个包构成的 Service Definition / Service Provider / Consumer 拆分沿用 bash 和 filesystem 的模式，但*接口*包更接近 LLM（大语言模型） seam。`LlmRuntime`（`packages/llm/llm/src/index.ts`）是一个按名称键控的提供方注册表：`registerAdapter(models, adapter)` 将适配器存入 `Map`、返回 disposer、对重复键抛出 `DUPLICATE_ADAPTER`、在解析时抛出 `NO_ADAPTER`。`ctx.web` 沿用该注册表形状，但有两种能力类别和显式的操作提供方覆盖能力默认值的选择策略，因此执行时抛出的 `WebError` 能解释搜索或 fetch 能力为何无法运行。
 
 依赖方向与 bash 和 filesystem 一致：
 
 ```text
-@deepseek-ai/dsh-tool-web  --depends on-->  @deepseek-ai/dsh-web  <--depends on--  @deepseek-ai/dsh-web-search-exa
-        consumer                                 interface                       implementation
-                                                                 <--depends on--  @deepseek-ai/dsh-web-search-perplexity
-                                                                                  implementation
-                                                                 <--depends on--  @deepseek-ai/dsh-web-search-deepseek
-                                                                                  implementation
-                                                                 <--depends on--  @deepseek-ai/dsh-web-fetch-http
-                                                                                  implementation
+@deepseek-ai/dsh-tool-web -> @deepseek-ai/dsh-web
+@deepseek-ai/dsh-web -> @deepseek-ai/dsh-web-search-exa
+@deepseek-ai/dsh-web -> @deepseek-ai/dsh-web-search-perplexity
+@deepseek-ai/dsh-web -> @deepseek-ai/dsh-web-search-deepseek
+@deepseek-ai/dsh-web -> @deepseek-ai/dsh-web-search-tavily
+@deepseek-ai/dsh-web -> @deepseek-ai/dsh-web-search-brave
+@deepseek-ai/dsh-web -> @deepseek-ai/dsh-web-search-kagi
+@deepseek-ai/dsh-web -> @deepseek-ai/dsh-web-firecrawl
+@deepseek-ai/dsh-web -> @deepseek-ai/dsh-web-fetch-http
 ```
 
 运行时，提供方包向 `ctx.web` 注册能力；`tool-web` 向 `ctx.tools` 注册稳定的工具并通过 seam 执行：
@@ -60,6 +63,10 @@ flowchart LR
   exa["@deepseek-ai/dsh-web-search-exa"] -->|registerSearchProvider| web["@deepseek-ai/dsh-web / ctx.web"]
   perplexity["@deepseek-ai/dsh-web-search-perplexity"] -->|registerSearchProvider| web
   deepseek["@deepseek-ai/dsh-web-search-deepseek"] -->|registerSearchProvider| web
+  tavily["@deepseek-ai/dsh-web-search-tavily"] -->|registerProvider| web
+  brave["@deepseek-ai/dsh-web-search-brave"] -->|registerProvider| web
+  kagi["@deepseek-ai/dsh-web-search-kagi"] -->|registerProvider| web
+  firecrawl["@deepseek-ai/dsh-web-firecrawl"] -->|registerProvider| web
   fetchLocal["@deepseek-ai/dsh-web-fetch-http"] -->|registerFetchProvider| web
   toolWeb["@deepseek-ai/dsh-tool-web"] -->|search/fetch| web
   toolWeb -->|ctx.tools.register| webSearch["tool: web_search"]
@@ -74,7 +81,7 @@ flowchart LR
 
 ## `ctx.web` 约定
 
-`ctx.web` 是一个提供方注册表加上一个带提供方选择的执行 API。注册表部分与 `LlmRuntime` 保持接近：每种能力类别一个 `Map<id, provider>`，`registerSearchProvider`/`registerFetchProvider` 方法返回 disposer，重复 id 抛出 `WebError`，执行时解析在选定提供方缺失或不可用时抛出异常。权威签名见 `packages/web/web/src/types.ts`；seam 的形状：
+`ctx.web` 是一个提供方注册表加上一个带提供方选择的执行 API。注册表部分与 `LlmRuntime` 保持接近：每种能力类别一个 `Map<id, provider>`，聚合的 `registerProvider` 与单能力包装方法返回 disposer，重复 id 抛出 `WebError`，执行时解析在选定提供方缺失或不可用时抛出异常。权威签名见 `packages/web/web/src/types.ts`；seam 的形状：
 
 ```ts
 import type { WebFetchRequest, WebFetchResult, WebSearchRequest, WebSearchResult } from '@deepseek-ai/dsh-web'
@@ -94,6 +101,8 @@ interface WebFetchProvider {
 interface WebRuntime {
   registerSearchProvider(provider: WebSearchProvider): () => void
   registerFetchProvider(provider: WebFetchProvider): () => void
+  registerProvider(provider: WebProvider): () => void
+  listProviders(capability?: WebProviderCapability): WebProviderInfo[]
 
   search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>
   fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>
@@ -108,7 +117,7 @@ interface WebRuntime {
 
 提供方可用性与能力选择是两个独立概念，但都保持最小化。提供方仅报告该具体实现是否可用，通过廉价的本地检查（如凭证是否存在、端点配置是否可解析）。提供方的 `available()` 禁止发起网络调用。
 
-`LlmRuntime` 完全没有状态类型：可用性通过注册表成员资格加解析时抛出来表达。`ctx.web` 遵循同样的纪律。seam 不暴露聚合的能力状态查询——`search()`/`fetch()` 在每次调用时根据配置的提供方 id、已注册的提供方和每个提供方廉价的本地 `available()` 布尔值派生选择结果，选择失败就是执行时抛出的结构化 `WebError`。需要知道某项能力能否运行的调用方通过执行并路由该错误来获知；没有任何东西作为可变服务状态存储。
+`LlmRuntime` 完全没有状态类型：可用性通过注册表成员资格加解析时抛出来表达。`ctx.web` 遵循同样的纪律。`listProviders()` 返回非敏感目录而不是健康查询；`search()`/`fetch()` 在每次调用时根据操作提供方 id、配置的能力默认值、已注册的提供方和每个提供方廉价的本地 `available()` 布尔值派生选择结果，选择失败就是执行时抛出的结构化 `WebError`。
 
 该布尔值是选择的输入，而非健康系统。`tool-web` 从不直接调用提供方的 `available()`——它进入 seam 的唯一路径是 `search()`/`fetch()`——因此选择策略只有一个所有者。
 
@@ -116,15 +125,12 @@ interface WebRuntime {
 
 | 情况 | 执行行为 |
 |---|---|
-| 配置的提供方 id 已注册且 `available() === true` | 运行该提供方 |
-| 配置的提供方 id 未注册 | 以 `WEB_PROVIDER_CONFIGURED_MISSING` 失败 |
-| 配置的提供方 id 已注册但不可用 | 以 `WEB_PROVIDER_CONFIGURED_UNAVAILABLE` 失败 |
-| 未配置提供方 id，且该类别恰好有一个已注册且可用的提供方 | 运行该唯一提供方 |
-| 未配置提供方 id，且该类别无已注册提供方 | 以 `WEB_PROVIDER_UNAVAILABLE` 失败 |
-| 未配置提供方 id，且该类别有多个可用提供方已注册 | 以 `WEB_PROVIDER_AMBIGUOUS` 失败，而非按注册顺序选择 |
-| 未配置提供方 id，且有提供方存在但均不可用 | 以 `WEB_PROVIDER_UNAVAILABLE` 失败 |
+| 操作提供方 id 已注册且 `available() === true` | 运行该提供方 |
+| 选定的提供方 id 未注册 | 以 `WEB_PROVIDER_CONFIGURED_MISSING` 失败 |
+| 选定的提供方 id 已注册但不可用 | 以 `WEB_PROVIDER_CONFIGURED_UNAVAILABLE` 失败 |
+| 操作和能力默认值都没有提供方 id | 以 `WEB_PROVIDER_DEFAULT_MISSING` 失败 |
 
-「唯一提供方自动选择」规则面向测试、演示和简单部署。产品配置设置显式提供方 id：
+产品配置设置能力默认值，模型操作可以用 provider id 覆盖它：
 
 ```yaml
 - id: web
@@ -151,13 +157,14 @@ interface WebRuntime {
 
 运维覆盖走同一条显式选择路径：`DSH_WEB_SEARCH_PROVIDER=perplexity` 等同于配置 `searchProvider: perplexity`，而非 `dsh-tool-web` 内部的隐式优先级链。
 
-`ctx.web.search()` 和 `ctx.web.fetch()` 在执行时按上述选择规则解析提供方。如果选定的能力不可用，它们抛出带有结构化代码的 `WebError`，如 `WEB_PROVIDER_UNAVAILABLE`、`WEB_PROVIDER_CONFIGURED_MISSING`、`WEB_PROVIDER_CONFIGURED_UNAVAILABLE` 或 `WEB_PROVIDER_AMBIGUOUS`。如果未显式配置提供方且不存在可用提供方，执行错误是通用的 `WEB_PROVIDER_UNAVAILABLE` 情况；刻意不提供对每个不可用提供方的诊断汇总。
+`ctx.web.search()` 和 `ctx.web.fetch()` 在执行时按上述选择规则解析提供方。操作提供方 id 会覆盖能力默认值。如果两者都不存在，执行错误是 `WEB_PROVIDER_DEFAULT_MISSING`；未知或不可用的选定 id 直接失败，运行时绝不会选择或重试其他提供方。`listProviders(capability?)` 为发现提供已注册的非敏感 id。
 
 ## 搜索请求与结果 schema
 
-面向模型的 `web_search` 工具很小。唯一的面向模型参数是：
+面向模型的 `web_search` 工具很小。其面向模型参数是：
 
 - `query`：必填字符串。
+- `provider`：可选提供方 id；省略时使用配置的搜索默认值。
 
 `max_results` 不暴露给模型。它是 `dsh-tool-web` 层的决策：工具设定结果上限——`searchMaxResults` 插件配置，默认 `8`（与 OpenCode 的 Exa 默认值对齐），类似 `dsh-tool-fs` 的 `readLimit`——并作为 `WebSearchRequest` 上的 `maxResults` 传给 seam。将其排除在模型 schema 之外意味着模型只需提问，产品控制返回多少上下文；该字段日后可以提升为面向模型的参数而不破坏 seam。
 
@@ -173,6 +180,7 @@ seam 请求不携带提供方特有的控制——没有 Perplexity 模型选择
 ```ts
 interface WebSearchRequest {
   readonly query: string
+  readonly provider?: string
   /** Upper bound on returned sources; the seam truncates to it. Omitted = no bound. `dsh-tool-web` always sets it. */
   readonly maxResults?: number
 }
@@ -204,6 +212,7 @@ Exa 搜索将提供方扁平 `results[]` 的每一项映射为 `WebSearchSource`
 seam 请求比 OpenCode 的面向模型工具更小：
 
 - `url`：必填 HTTP(S) URL。
+- `provider`：可选提供方 id；省略时使用配置的抓取默认值。
 
 seam 请求刻意不包含逐调用超时、`format`、`prompt` 或提供方特有的提取控制。取消通过直接的可选执行信号实现，fetch 提供方拥有一个部署配置的超时兜底。`format` 是对已获取资源的展示决策；`prompt` 是更高层的 LLM 摘要指令；Firecrawl、Exa、Tavily 或 Parallel 等提取 API 可能不暴露具体的 HTTP 响应。如果产品日后需要提供方支撑的页面提取，那是一个独立的 `web_extract` 能力或对本 seam 的刻意扩展——提取语义绝不通过将每个 HTTP 字段设为可选来偷渡进 `web_fetch`。
 
@@ -212,6 +221,7 @@ HTTP 状态码是已获取资源状态的一部分，不自动构成工具失败
 ```ts
 export interface WebFetchRequest {
   readonly url: string
+  readonly provider?: string
 }
 
 export interface WebFetchResult {
@@ -246,7 +256,7 @@ SSRF/私有网络防护（阻断私有、回环、链路本地、多播及其他
 
 `dsh-tool-web` 拥有两个 `ToolDefinition`：`web_search` 和 `web_fetch`。它拥有面向模型的 JSON Schema、snake_case 参数名、提示词段落、结果渲染为 `ContentBlock[]`、`presentCall` 和 `presentResult`。
 
-`dsh-tool-web` 禁止枚举提供方或直接调用提供方的 `available()`。它进入 seam 的唯一路径是 `ctx.web.search()`/`ctx.web.fetch()`。这将提供方选择保持在单一层；否则工具包可能判定某个提供方可用，而执行时解析出不同的状态。
+`dsh-tool-web` 禁止直接调用提供方的 `available()`。它通过动态提示词上下文发布 `ctx.web.listProviders()` 返回的非敏感提供方 id，而进入 seam 的执行唯一路径仍是 `ctx.web.search()`/`ctx.web.fetch()`。这将提供方选择保持在单一层。
 
 工具注册是最小化的稳定同步：插件启动时，`dsh-tool-web` 的 `Config`（`search?: boolean`、`fetch?: boolean`，均默认 `true`）启用或禁用每个 web 工具；已启用的工具通过基于 effect 的注册表以 fiber 作用域的 disposer 注册；任何工具都不会仅因其选定的提供方缺失、不可用或存在歧义而被 dispose；dispose `tool-web` fiber 时自动拆除其注册。
 
@@ -260,10 +270,9 @@ SSRF/私有网络防护（阻断私有、回环、链路本地、多播及其他
 
 `dsh-web` 定义 `WebError extends HarnessError`，带有稳定的错误码，仅覆盖调用方可能合理分支的状态：
 
-- `WEB_PROVIDER_UNAVAILABLE`
+- `WEB_PROVIDER_DEFAULT_MISSING`
 - `WEB_PROVIDER_CONFIGURED_MISSING`
 - `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`
-- `WEB_PROVIDER_AMBIGUOUS`
 - `WEB_DUPLICATE_PROVIDER`
 - `WEB_INVALID_URL`
 - `WEB_BLOCKED_URL`
@@ -274,7 +283,7 @@ SSRF/私有网络防护（阻断私有、回环、链路本地、多播及其他
 - `WEB_UNSUPPORTED_CONTENT_TYPE`
 - `WEB_PROVIDER_ERROR`
 
-`WEB_DUPLICATE_PROVIDER` 在 `registerSearchProvider`/`registerFetchProvider` 发现该能力类别中已有相同 id 时同步抛出（类似 `LlmRuntime` 的 `DUPLICATE_ADAPTER`）；它是注册时的编程错误而非执行结果，但共享 `WebError` 码空间，使调用方看到统一的分类体系。`WEB_PROVIDER_ERROR` 是提供方自身失败通过 seam 浮出的兜底码，包括 `web-fetch-http` 中的网络/传输失败（DNS、连接拒绝、TLS）；刻意不设单独的 `WEB_NETWORK` 码——提供方设置描述性消息，使模型和日志能区分网络失败与提供方 API 失败。
+`WEB_DUPLICATE_PROVIDER` 在提供方注册方法发现该能力类别中已有相同 id 时同步抛出（类似 `LlmRuntime` 的 `DUPLICATE_ADAPTER`）；它是注册时的编程错误而非执行结果，但共享 `WebError` 码空间，使调用方看到统一的分类体系。`WEB_PROVIDER_ERROR` 是提供方自身失败通过 seam 浮出的兜底码，包括 `web-fetch-http` 中的网络/传输失败（DNS、连接拒绝、TLS）；刻意不设单独的 `WEB_NETWORK` 码——提供方设置描述性消息，使模型和日志能区分网络失败与提供方 API 失败。
 
 工具执行让这些错误流经 `ToolRuntime.execute()`，后者已将 `HarnessError` 转换为带结构化元数据的错误工具结果。模型得到可读的错误消息；钩子、测试和 UI 代码可以根据稳定的错误码路由。
 
@@ -296,9 +305,9 @@ SSRF/私有网络防护（阻断私有、回环、链路本地、多播及其他
 
 很有吸引力，因为两半不共享请求 schema 和业务逻辑，各自能干净地映射到 shell/fs 的三包模板上，且 `WebRuntime` 上的 `Search`/`Fetch` 方法对重复也会消失。否决，因为共享的机制——提供方 id 注册表、不依赖注册顺序的选择策略、abort 传播、`WebError` 分类体系，以及面向产品的「这个 harness 如何触达 web」配置 API——是真实存在的，否则会在两个几乎相同的 seam 之间重复。一个 `ctx.web` 中间层给产品一个统一的注入和配置对象，给提供方选择一个唯一的所有者。代价是并行的 `searchX`/`fetchX` 方法对，这是有意接受的。
 
-### 选择第一个注册的提供方
+### 隐式提供方选择
 
-否决。注册顺序不是产品策略。它可能随配置顺序、插件加载、HMR 或重构而变化。提供方选择必须是显式的，或仅在恰好只有一个可用提供方时自动选择。
+否决。注册顺序和唯一提供方特例都不是产品策略。提供方选择是操作显式 id 或配置的能力默认值。
 
 ### 将 Firecrawl/Exa/Tavily/Parallel 提取视为 fetch
 
@@ -314,7 +323,7 @@ SSRF/私有网络防护（阻断私有、回环、链路本地、多播及其他
 
 **Perplexity 引用可能稀疏。** 一条引用可能只有 URL。将 `title` 和 `snippet` 设为可选使 seam 保持诚实，但意味着 `tool-web` 需要渲染回退标签。
 
-**稳定的工具注册将配置错误推迟到执行时。** 当产品启用了 web 访问时，保持工具可见是正确的；但期望 web 搜索可用的产品应用应当明确暴露结构化的 `WEB_PROVIDER_CONFIGURED_MISSING`/`WEB_PROVIDER_CONFIGURED_UNAVAILABLE`/`WEB_PROVIDER_AMBIGUOUS` 失败，避免用户直到模型调用工具后才发现配置问题。
+**稳定的工具注册将配置错误推迟到执行时。** 当产品启用了 web 访问时，保持工具可见是正确的；但期望 web 搜索可用的产品应用应当明确暴露结构化的 `WEB_PROVIDER_DEFAULT_MISSING`/`WEB_PROVIDER_CONFIGURED_MISSING`/`WEB_PROVIDER_CONFIGURED_UNAVAILABLE` 失败，避免用户直到模型调用工具后才发现配置问题。
 
 **提供方状态可能在启动后变化。** 一个工具可能在步骤开始时组装的请求中可见，但在执行前失去其提供方。执行路径重新解析并以结构化错误失败。
 
@@ -334,5 +343,5 @@ SSRF/私有网络防护（阻断私有、回环、链路本地、多播及其他
 
 ## 开放问题
 
-- 产品应用包是否应在启动时探测 web 配置（当 web 被显式配置时将 `WEB_PROVIDER_CONFIGURED_MISSING`、`WEB_PROVIDER_CONFIGURED_UNAVAILABLE` 和 `WEB_PROVIDER_AMBIGUOUS` 视为致命错误），还是将配置错误留到首次执行时浮出？
+- 产品应用包是否应在启动时探测 web 配置，还是将缺失或不可用的配置提供方留到首次执行时浮出？
 - 在已交付的权限系统（[沙箱与审批](../feature/2026-07-06-sandbox.md)、[web 权限预设](../feature/2026-07-23-web-permission-and-approval.md)）中，公开 web 访问的权限策略应放在哪里：`tools/execute` 上的专用 web 权限插件、提供方配置，还是两者兼有？

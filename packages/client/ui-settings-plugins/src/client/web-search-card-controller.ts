@@ -1,9 +1,9 @@
-/** Aggregate staged form for the Web search selector and its three providers. */
+/** Aggregate staged form for the Web selectors and their provider settings. */
 
 import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import { createSnapshotStore, type SettingsScope, type SettingsScopeSnapshot, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  CardForm, positiveIntegerField, selectField, textField,
+  CardForm, booleanField, positiveIntegerField, selectField, textField,
   type CardActions, type CardFieldState, type CardShell,
 } from './card-form.ts'
 
@@ -15,16 +15,30 @@ export const WEB_SEARCH_DEEPSEEK_NS = 'web-search-deepseek'
 export const WEB_SEARCH_EXA_NS = 'web-search-exa'
 /** Perplexity provider settings namespace. */
 export const WEB_SEARCH_PERPLEXITY_NS = 'web-search-perplexity'
+/** Tavily provider settings namespace. */
+export const WEB_SEARCH_TAVILY_NS = 'web-search-tavily'
+/** Brave provider settings namespace. */
+export const WEB_SEARCH_BRAVE_NS = 'web-search-brave'
+/** Kagi provider settings namespace. */
+export const WEB_SEARCH_KAGI_NS = 'web-search-kagi'
+/** Firecrawl provider settings namespace shared by search and fetch. */
+export const WEB_FIRECRAWL_NS = 'web-firecrawl'
 
 /** Provider ids accepted by the Web runtime selector. */
-export const WEB_SEARCH_PROVIDER_IDS = ['deepseek-official', 'exa', 'perplexity'] as const
+export const WEB_SEARCH_PROVIDER_IDS = [
+  'deepseek-official', 'exa', 'perplexity', 'tavily', 'brave', 'kagi', 'firecrawl',
+] as const
 /** A selectable Web search provider id. */
 export type WebSearchProviderId = typeof WEB_SEARCH_PROVIDER_IDS[number]
+/** Provider ids accepted by the Web fetch selector. */
+export const WEB_FETCH_PROVIDER_IDS = ['http', 'firecrawl'] as const
+/** A selectable Web fetch provider id. */
+export type WebFetchProviderId = typeof WEB_FETCH_PROVIDER_IDS[number]
 
 const API_KEY_FIELD = 'apiKey'
 
 /** Live Web selector settings. */
-export interface WebSettings { searchProvider?: string }
+export interface WebSettings { searchProvider?: string; fetchProvider?: string }
 
 /** Live DeepSeek Web search settings. */
 export interface DeepSeekWebSearchSettings {
@@ -54,6 +68,36 @@ export interface PerplexityWebSearchSettings {
   searchRecency?: 'day' | 'week' | 'month' | 'year'
 }
 
+/** Live Tavily Web search settings. */
+export interface TavilyWebSearchSettings {
+  apiKeyEnv?: string
+  baseURL?: string
+  includeRawContent?: boolean
+  maxResults?: number
+}
+
+/** Live Brave Web search settings. */
+export interface BraveWebSearchSettings {
+  apiKeyEnv?: string
+  baseURL?: string
+  maxResults?: number
+}
+
+/** Live Kagi Web search settings. */
+export interface KagiWebSearchSettings {
+  apiKeyEnv?: string
+  baseURL?: string
+}
+
+/** Live Firecrawl Web search and fetch settings. */
+export interface FirecrawlWebSearchSettings {
+  apiKeyEnv?: string
+  baseURL?: string
+  includeSearchContent?: boolean
+  searchContentMaxChars?: number
+  maxChars?: number
+}
+
 interface CredentialState {
   ref: string
   configured: boolean
@@ -68,7 +112,10 @@ interface ProviderCredentialState extends CardShell {
 }
 
 /** Selector form projected into the aggregate card. */
-export interface WebSearchSelectorState extends CardShell { searchProvider: CardFieldState }
+export interface WebSearchSelectorState extends CardShell {
+  searchProvider: CardFieldState
+  fetchProvider: CardFieldState
+}
 
 /** DeepSeek provider form projected into the aggregate card. */
 export interface DeepSeekWebSearchState extends ProviderCredentialState {
@@ -95,13 +142,44 @@ export interface PerplexityWebSearchState extends ProviderCredentialState {
   searchRecency: CardFieldState
 }
 
+/** Tavily provider form projected into the aggregate card. */
+export interface TavilyWebSearchState extends ProviderCredentialState {
+  baseURL: CardFieldState
+  includeRawContent: CardFieldState
+  maxResults: CardFieldState
+}
+
+/** Brave provider form projected into the aggregate card. */
+export interface BraveWebSearchState extends ProviderCredentialState {
+  baseURL: CardFieldState
+  maxResults: CardFieldState
+}
+
+/** Kagi provider form projected into the aggregate card. */
+export interface KagiWebSearchState extends ProviderCredentialState {
+  baseURL: CardFieldState
+}
+
+/** Firecrawl provider form projected into the aggregate card. */
+export interface FirecrawlWebSearchState extends ProviderCredentialState {
+  baseURL: CardFieldState
+  includeSearchContent: CardFieldState
+  searchContentMaxChars: CardFieldState
+  maxChars: CardFieldState
+}
+
 /** Complete state rendered by the single Web search card. */
 export interface WebSearchCardState extends CardShell {
   selectedProvider: WebSearchProviderId
+  selectedFetchProvider: WebFetchProviderId
   selector: WebSearchSelectorState
   deepseek: DeepSeekWebSearchState
   exa: ExaWebSearchState
   perplexity: PerplexityWebSearchState
+  tavily: TavilyWebSearchState
+  brave: BraveWebSearchState
+  kagi: KagiWebSearchState
+  firecrawl: FirecrawlWebSearchState
 }
 
 /** The registration-side face injected into the Web search card. */
@@ -109,12 +187,16 @@ export interface WebSearchCardFace extends CardActions {
   hooks: { webSearchCard: SnapshotStore<WebSearchCardState> }
 }
 
-/** Four settings scopes aggregated by the Web search card. */
+/** Settings scopes aggregated by the Web search card. */
 export interface WebSearchScopes {
   selector: SettingsScope<WebSettings>
   deepseek: SettingsScope<DeepSeekWebSearchSettings>
   exa: SettingsScope<ExaWebSearchSettings>
   perplexity: SettingsScope<PerplexityWebSearchSettings>
+  tavily: SettingsScope<TavilyWebSearchSettings>
+  brave: SettingsScope<BraveWebSearchSettings>
+  kagi: SettingsScope<KagiWebSearchSettings>
+  firecrawl: SettingsScope<FirecrawlWebSearchSettings>
 }
 
 /** Owns the selector, all provider drafts, and provider credential reads. */
@@ -123,16 +205,24 @@ export class WebSearchCardController {
   private readonly deepseekForm: CardForm<DeepSeekWebSearchSettings>
   private readonly exaForm: CardForm<ExaWebSearchSettings>
   private readonly perplexityForm: CardForm<PerplexityWebSearchSettings>
+  private readonly tavilyForm: CardForm<TavilyWebSearchSettings>
+  private readonly braveForm: CardForm<BraveWebSearchSettings>
+  private readonly kagiForm: CardForm<KagiWebSearchSettings>
+  private readonly firecrawlForm: CardForm<FirecrawlWebSearchSettings>
   private readonly store: SnapshotStore<WebSearchCardState>
   private readonly credentials: Record<WebSearchProviderId, CredentialState> = {
     'deepseek-official': credential('DEEPSEEK_API_KEY'),
     exa: credential('EXA_API_KEY'),
     perplexity: credential('PERPLEXITY_API_KEY'),
+    tavily: credential('TAVILY_API_KEY'),
+    brave: credential('BRAVE_API_KEY'),
+    kagi: credential('KAGI_API_KEY'),
+    firecrawl: credential('FIRECRAWL_API_KEY'),
   }
   private saving = false
 
   /**
-   * @param scopes - the selector and three provider settings scopes.
+   * @param scopes - the selector and provider settings scopes.
    * @param api - wire face used for write-only provider credentials.
    */
   constructor(
@@ -141,6 +231,7 @@ export class WebSearchCardController {
   ) {
     this.selectorForm = new CardForm(scopes.selector, [
       selectField('searchProvider', WEB_SEARCH_PROVIDER_IDS),
+      selectField('fetchProvider', WEB_FETCH_PROVIDER_IDS),
     ])
     this.deepseekForm = new CardForm(
       scopes.deepseek,
@@ -165,6 +256,31 @@ export class WebSearchCardController {
         selectField('searchRecency', ['day', 'week', 'month', 'year']),
       ],
       [{ field: API_KEY_FIELD, write: value => this.writeKey('perplexity', value) }],
+    )
+    this.tavilyForm = new CardForm(
+      scopes.tavily,
+      [
+        textField('baseURL'), booleanField('includeRawContent'), positiveIntegerField('maxResults'),
+      ],
+      [{ field: API_KEY_FIELD, write: value => this.writeKey('tavily', value) }],
+    )
+    this.braveForm = new CardForm(
+      scopes.brave,
+      [textField('baseURL'), positiveIntegerField('maxResults')],
+      [{ field: API_KEY_FIELD, write: value => this.writeKey('brave', value) }],
+    )
+    this.kagiForm = new CardForm(
+      scopes.kagi,
+      [textField('baseURL')],
+      [{ field: API_KEY_FIELD, write: value => this.writeKey('kagi', value) }],
+    )
+    this.firecrawlForm = new CardForm(
+      scopes.firecrawl,
+      [
+        textField('baseURL'), booleanField('includeSearchContent'),
+        positiveIntegerField('searchContentMaxChars'), positiveIntegerField('maxChars'),
+      ],
+      [{ field: API_KEY_FIELD, write: value => this.writeKey('firecrawl', value) }],
     )
 
     this.store = createSnapshotStore(this.projection())
@@ -194,7 +310,7 @@ export class WebSearchCardController {
   /**
    * Save selector and provider forms in fixed order. Writes are non-transactional:
    * successful forms settle while each failed form retains its own drafts.
-   * @returns settlement after all four forms have attempted their writes.
+   * @returns settlement after the selector and all provider forms have attempted their writes.
    */
   async save(): Promise<void> {
     const shells = this.forms().map(form => form.shell())
@@ -222,30 +338,53 @@ export class WebSearchCardController {
   private projection(): WebSearchCardState {
     const selector = this.selectorState()
     const selectedProvider = providerId(selector.searchProvider.text)
+    const selectedFetchProvider = fetchProviderId(selector.fetchProvider.text)
     const deepseek = this.deepseekState()
     const exa = this.exaState()
     const perplexity = this.perplexityState()
+    const tavily = this.tavilyState()
+    const brave = this.braveState()
+    const kagi = this.kagiState()
+    const firecrawl = this.firecrawlState()
     const selected = selectedProvider === 'deepseek-official'
       ? deepseek
-      : selectedProvider === 'exa' ? exa : perplexity
-    const forms = [selector, deepseek, exa, perplexity]
+      : selectedProvider === 'exa' ? exa
+        : selectedProvider === 'perplexity' ? perplexity
+          : selectedProvider === 'tavily' ? tavily
+            : selectedProvider === 'brave' ? brave
+              : selectedProvider === 'kagi' ? kagi : firecrawl
+    const selectedProviders = selectedFetchProvider === 'firecrawl' && selectedProvider !== 'firecrawl'
+      ? [selected, firecrawl]
+      : [selected]
+    const forms = [selector, deepseek, exa, perplexity, tavily, brave, kagi, firecrawl]
     return {
       available: selector.available,
-      writable: selector.writable || (selected.available && (selected.writable || selected.apiKeyWritable)),
+      writable: selector.writable || selectedProviders.some(provider => (
+        provider.available && (provider.writable || provider.apiKeyWritable)
+      )),
       dirty: forms.some(form => form.dirty),
       invalid: forms.some(form => form.invalid),
       saving: this.saving,
       failed: forms.some(form => form.failed),
       selectedProvider,
+      selectedFetchProvider,
       selector,
       deepseek,
       exa,
       perplexity,
+      tavily,
+      brave,
+      kagi,
+      firecrawl,
     }
   }
 
   private selectorState(): WebSearchSelectorState {
-    return { ...this.selectorForm.shell(), searchProvider: this.selectorForm.field('searchProvider') }
+    return {
+      ...this.selectorForm.shell(),
+      searchProvider: this.selectorForm.field('searchProvider'),
+      fetchProvider: this.selectorForm.field('fetchProvider'),
+    }
   }
 
   private deepseekState(): DeepSeekWebSearchState {
@@ -279,6 +418,40 @@ export class WebSearchCardController {
     }
   }
 
+  private tavilyState(): TavilyWebSearchState {
+    return {
+      ...this.providerShell('tavily', this.tavilyForm),
+      baseURL: this.tavilyForm.field('baseURL'),
+      includeRawContent: this.tavilyForm.field('includeRawContent'),
+      maxResults: this.tavilyForm.field('maxResults'),
+    }
+  }
+
+  private braveState(): BraveWebSearchState {
+    return {
+      ...this.providerShell('brave', this.braveForm),
+      baseURL: this.braveForm.field('baseURL'),
+      maxResults: this.braveForm.field('maxResults'),
+    }
+  }
+
+  private kagiState(): KagiWebSearchState {
+    return {
+      ...this.providerShell('kagi', this.kagiForm),
+      baseURL: this.kagiForm.field('baseURL'),
+    }
+  }
+
+  private firecrawlState(): FirecrawlWebSearchState {
+    return {
+      ...this.providerShell('firecrawl', this.firecrawlForm),
+      baseURL: this.firecrawlForm.field('baseURL'),
+      includeSearchContent: this.firecrawlForm.field('includeSearchContent'),
+      searchContentMaxChars: this.firecrawlForm.field('searchContentMaxChars'),
+      maxChars: this.firecrawlForm.field('maxChars'),
+    }
+  }
+
   private providerShell<T>(provider: WebSearchProviderId, form: CardForm<T>): ProviderCredentialState {
     const state = this.credentials[provider]
     return {
@@ -292,8 +465,13 @@ export class WebSearchCardController {
   private forms(): readonly [
     CardForm<WebSettings>, CardForm<DeepSeekWebSearchSettings>,
     CardForm<ExaWebSearchSettings>, CardForm<PerplexityWebSearchSettings>,
+    CardForm<TavilyWebSearchSettings>, CardForm<BraveWebSearchSettings>,
+    CardForm<KagiWebSearchSettings>, CardForm<FirecrawlWebSearchSettings>,
   ] {
-    return [this.selectorForm, this.deepseekForm, this.exaForm, this.perplexityForm]
+    return [
+      this.selectorForm, this.deepseekForm, this.exaForm, this.perplexityForm,
+      this.tavilyForm, this.braveForm, this.kagiForm, this.firecrawlForm,
+    ]
   }
 
   private addressActions(address: string): CardActions {
@@ -302,6 +480,10 @@ export class WebSearchCardController {
     if (prefix === 'deepseek') return this.deepseekForm.actions()
     if (prefix === 'exa') return this.exaForm.actions()
     if (prefix === 'perplexity') return this.perplexityForm.actions()
+    if (prefix === 'tavily') return this.tavilyForm.actions()
+    if (prefix === 'brave') return this.braveForm.actions()
+    if (prefix === 'kagi') return this.kagiForm.actions()
+    if (prefix === 'firecrawl') return this.firecrawlForm.actions()
     throw new Error(`web search card has no form ${prefix}`)
   }
 
@@ -310,7 +492,11 @@ export class WebSearchCardController {
       return this.scopes.deepseek
     }
     if (provider === 'exa') return this.scopes.exa
-    return this.scopes.perplexity
+    if (provider === 'perplexity') return this.scopes.perplexity
+    if (provider === 'tavily') return this.scopes.tavily
+    if (provider === 'brave') return this.scopes.brave
+    if (provider === 'kagi') return this.scopes.kagi
+    return this.scopes.firecrawl
   }
 
   private ref(provider: WebSearchProviderId): string {
@@ -373,7 +559,11 @@ function credential(ref: string): CredentialState {
 function defaultRef(provider: WebSearchProviderId): string {
   if (provider === 'deepseek-official') return 'DEEPSEEK_API_KEY'
   if (provider === 'exa') return 'EXA_API_KEY'
-  return 'PERPLEXITY_API_KEY'
+  if (provider === 'perplexity') return 'PERPLEXITY_API_KEY'
+  if (provider === 'tavily') return 'TAVILY_API_KEY'
+  if (provider === 'brave') return 'BRAVE_API_KEY'
+  if (provider === 'kagi') return 'KAGI_API_KEY'
+  return 'FIRECRAWL_API_KEY'
 }
 
 function refOf(snapshot: SettingsScopeSnapshot<{ apiKeyEnv?: string }>, fallback: string): string {
@@ -383,6 +573,10 @@ function refOf(snapshot: SettingsScopeSnapshot<{ apiKeyEnv?: string }>, fallback
 
 function providerId(value: string): WebSearchProviderId {
   return WEB_SEARCH_PROVIDER_IDS.find(provider => provider === value) ?? 'deepseek-official'
+}
+
+function fetchProviderId(value: string): WebFetchProviderId {
+  return WEB_FETCH_PROVIDER_IDS.find(provider => provider === value) ?? 'http'
 }
 
 function addressPrefix(address: string): string {

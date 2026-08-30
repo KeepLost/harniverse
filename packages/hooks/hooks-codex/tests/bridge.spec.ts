@@ -1,8 +1,8 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -13,6 +13,7 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import * as HooksCodex from '@deepseek-ai/dsh-hooks-codex'
+import type { HookConfigDiscovery } from '@deepseek-ai/dsh-hook-protocol'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 /**
@@ -37,6 +38,31 @@ function script(dir: string, name: string, body: string): string {
 }
 function writeHooks(dir: string, hooks: unknown): void {
   writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks }))
+}
+
+function writeDefaultProjectHooks(dir: string, hooks: unknown): void {
+  const path = join(dir, '.dsh', 'hooks', 'codex.json')
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, JSON.stringify({ hooks }))
+}
+
+async function autoHarness(
+  adapter: MockAdapter,
+  discovery?: HookConfigDiscovery,
+  beforeHooks?: (ctx: Context) => void,
+): Promise<{ ctx: Context; hooks: import('@deepseek-ai/cordis').Fiber }> {
+  const ctx = new Context()
+  await mountAgentLoopTestDependencies(ctx)
+  await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(LocalSubprocessRuntime)
+  await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
+  beforeHooks?.(ctx)
+  const hooks = await ctx.plugin(HooksCodex, {
+    model: 'test-model',
+    ...discovery !== undefined ? { discovery } : {},
+  })
+  ctx.llm.registerAdapter(['mock'], adapter)
+  return { ctx, hooks }
 }
 
 async function harness(dir: string, adapter: MockAdapter, beforeHooks?: (ctx: Context) => void): Promise<Context> {
@@ -234,5 +260,139 @@ describe('hooks-codex bridge', () => {
     expect(unwrapped.name).toBe('hooks-codex')
     expect(unwrapped.inject).toEqual(['shell'])
     expect(typeof unwrapped.apply).toBe('function')
+  })
+})
+
+describe('hooks-codex bridge — automatic discovery', () => {
+  it('omits configPath and discovers the default hooks.json independently per session cwd', async () => {
+    const firstDir = configDir()
+    const secondDir = configDir()
+    writeDefaultProjectHooks(firstDir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }] })
+    writeDefaultProjectHooks(secondDir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 0' }] }] })
+
+    const adapter = new MockAdapter([textResponse('second session ran')])
+    const { ctx, hooks } = await autoHarness(adapter)
+    const first = await ctx.agents.create({
+      sessionId: SessionId('auto-codex-first'),
+      meta: { cwd: firstDir },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    first.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'first' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, first.agent)
+
+    const second = await ctx.agents.create({
+      sessionId: SessionId('auto-codex-second'),
+      meta: { cwd: secondDir },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    second.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'second' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, second.agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(events(first.agent).some(event => event.type === 'hook/invoked')).toBe(true)
+    expect(events(second.agent).some(event => event.type === 'hook/invoked')).toBe(true)
+    await first.dispose()
+    await second.dispose()
+    await hooks.dispose()
+  })
+
+  it('treats an explicit configPath as a complete override of discovered sources', async () => {
+    const explicitDir = configDir()
+    const projectDir = configDir()
+    writeHooks(explicitDir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 0' }] }] })
+    writeHooks(projectDir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }] })
+
+    const adapter = new MockAdapter([textResponse('explicit config won')])
+    const ctx = await harness(explicitDir, adapter)
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('explicit-codex-override'),
+      meta: { cwd: projectDir },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, handle.agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(events(handle.agent).filter(event => event.type === 'hook/invoked')).toHaveLength(1)
+    await handle.dispose()
+  })
+
+  it('takes source changes on the next event while the current event keeps its immutable snapshot', async () => {
+    const projectDir = configDir()
+    const hooksPath = join(projectDir, '.dsh', 'hooks', 'codex.json')
+    const replacementPath = join(projectDir, 'replacement.json')
+    const markerPath = join(projectDir, 'same-event-ran')
+    writeFileSync(replacementPath, JSON.stringify({ hooks: {
+      UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }],
+    } }))
+    writeDefaultProjectHooks(projectDir, {
+      UserPromptSubmit: [{ hooks: [
+        { type: 'command', command: `cp "${replacementPath}" "${hooksPath}"` },
+        { type: 'command', command: `touch "${markerPath}"` },
+      ] }],
+    })
+
+    const adapter = new MockAdapter([textResponse('first event ran')])
+    const { ctx, hooks } = await autoHarness(adapter)
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('auto-codex-reload'),
+      meta: { cwd: projectDir },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'first' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, handle.agent)
+    expect(existsSync(markerPath)).toBe(true)
+
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'second' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, handle.agent)
+    expect(adapter.requests).toHaveLength(1)
+    expect(events(handle.agent).filter(event => event.type === 'hook/invoked')).toHaveLength(3)
+    await handle.dispose()
+    await hooks.dispose()
+  })
+
+  it('continues with healthy sources when a configured source is unreadable', async () => {
+    const root = configDir()
+    const projectDir = configDir()
+    writeFileSync(join(root, 'bad.json'), '{')
+    writeHooks(projectDir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }] })
+    const warn = vi.fn()
+    const adapter = new MockAdapter([textResponse('should not run')])
+    const { ctx, hooks } = await autoHarness(adapter, {
+      root,
+      user: ['bad.json'],
+      project: ['hooks.json'],
+    }, (context) => { context.logger.warn = warn as never })
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('auto-codex-bad-source'),
+      meta: { cwd: projectDir },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, handle.agent)
+
+    expect(adapter.requests).toHaveLength(0)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('bad.json'))
+    await handle.dispose()
+    await hooks.dispose()
+  })
+
+  it('disposes automatic-discovery listeners', async () => {
+    const projectDir = configDir()
+    writeHooks(projectDir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }] })
+    const adapter = new MockAdapter([textResponse('listener removed')])
+    const { ctx, hooks } = await autoHarness(adapter)
+    await hooks.dispose()
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('auto-codex-disposed'),
+      meta: { cwd: projectDir },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, handle.agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(events(handle.agent).some(event => event.type === 'hook/invoked')).toBe(false)
+    await handle.dispose()
   })
 })

@@ -8,7 +8,7 @@ Status: implemented
 
 `AGENTS.md` 等仓库指引应当进入编码会话的有效上下文，使项目约定、构建命令和评审规则无需由用户反复粘贴即可生效。stdio 与 ACP（Agent Client Protocol）产品需要具备相同行为，并按会话 cwd 隔离：全局系统提示词章节会把一个工作区的文件泄漏到另一个仍在运行的 ACP 会话中。
 
-相邻产品形成了值得借鉴的约定，但具体做法各不相同。Codex 原生使用 `AGENTS.md`；Claude Code 使用 `CLAUDE.md`，并采用熟悉的 system-reminder 风格用户上下文；opencode 同时支持这两个名称，每个目录只选一个胜出者，并延迟发现嵌套文件。harness 需要跨工具兼容，同时避免从同一作用域加载重复或互相矛盾的文件。
+相邻产品形成了值得借鉴的约定，但具体做法各不相同。Codex 原生使用 `AGENTS.md`，其他产品则有不同的指令名称和加载规则。harness 使用自己明确的 `AGENTS.md` 契约，而不是把 Claude Code 文件名作为运行时兼容输入。
 
 生命周期中有两类截然不同的内容。初始适用文件链在第一次请求前一次性注入。嵌套文件、编辑、候选项切换和移除发生在其后，进入同一份持久的仅追加历史。
 
@@ -20,7 +20,7 @@ Status: implemented
 
 ### 文件名与优先级
 
-默认的逐目录候选列表是 `['AGENTS.md', 'CLAUDE.md']`。该列表可通过 `instructionFileCandidates` 配置；`AGENTS.md` 是普通的第一候选项，而不是隐藏优先级。一个目录中只加载第一个存在的普通文件候选项。使用默认值时，`AGENTS.md` 是原生文件，`CLAUDE.md` 是兼容性回退。第二个列表 `localInstructionFileCandidates`（默认为 `['AGENTS.local.md', 'CLAUDE.local.md']`）会在同一目录的基础文件后加载叠加式本地覆盖层；[默认本地覆盖层记录](2026-07-21-local-instruction-overlay.md)负责说明该决策。
+默认的逐目录候选列表是 `['AGENTS.md']`。该列表可通过 `instructionFileCandidates` 配置；每个受支持的现存候选项都会按配置顺序加载，并按目录进行去除首尾空白后的内容去重。第二个列表 `localInstructionFileCandidates`（默认为 `['AGENTS.local.md']`）会在同一目录的基础文件后加载叠加式本地覆盖层；[默认本地覆盖层记录](2026-07-21-local-instruction-overlay.md)负责说明该决策。`CLAUDE.md` 与 `CLAUDE.local.md` 不是受支持的名称，即使显式配置也会被过滤。
 
 候选条目必须是同一目录中的文件名。空条目、`.`／`..`，以及包含 `/` 或 `\` 的条目会被忽略。其他同目录名称可以显式选择加入；规则目录和导入语义不属于本约定。
 
@@ -70,7 +70,7 @@ shell 命令不会触发发现。本地 bash 调用会启动全新的 shell，�
 
 **始终把准备好的 workspace 上下文留在 inbox 中。** 不予采纳，因为在 pre-step 中准备的上下文会因此在当前请求结束后继续留存，并自行启动第二个模型步骤。inbox 仍作为暂存区以及 reject 时的后备，而进入步骤的 pre-step 负责随最终批次原子投递。
 
-**在一个目录中同时加载 `AGENTS.md` 和 `CLAUDE.md`。** 不予采纳，因为正在迁移的仓库通常会在两个文件中重复指引。按顺序排列的候选项让优先级显式且可配置。
+**在一个目录中同时加载 `AGENTS.md` 和已移除的兼容名称。** 不予采纳：`CLAUDE.md` 与 `CLAUDE.local.md` 不是受支持的候选项。其他同目录自定义名称仍可显式配置。
 
 **解析渲染后的标题或隐藏注释以恢复已加载状态。** 不予采纳，因为指令正文可能包含相同文本，导致无提示的误报。持久化 JSON 元数据提供明确且对模型不可见的状态通道。
 
@@ -86,4 +86,4 @@ shell 命令不会触发发现。本地 bash 调用会启动全新的 shell，�
 
 ## 延后事项
 
-从 bash 派生路径报告、递归启动扫描、文件监视器、小写默认名称、`.claude/CLAUDE.md`、`.claude/rules/*.md`、导入指令、ACP `additionalDirectories`、信任确认和模型生成摘要均延后处理。项目目录中的 `.local.` 覆盖层现已默认加载（[默认本地覆盖层记录](2026-07-21-local-instruction-overlay.md)负责说明该决策）；用户全局覆盖层、目录规则系统和导入仍需要各自的优先级与信任设计。
+从 bash 派生路径报告、递归启动扫描、文件监视器、小写默认名称、`.claude/CLAUDE.md`、`.claude/rules/*.md`、导入指令、ACP `additionalDirectories`、信任确认和模型生成摘要均延后处理或按单独契约不支持。项目目录中的 `AGENTS.local.md` 覆盖层现已默认加载（[默认本地覆盖层记录](2026-07-21-local-instruction-overlay.md)负责说明该决策）；用户全局覆盖层、目录规则系统和导入仍需要各自的优先级与信任设计。

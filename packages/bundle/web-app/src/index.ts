@@ -4,7 +4,7 @@
  * manifest field). The plugin owns the browser-surface glue: it resolves
  * the built frontend dist (workspace knowledge of this bundle, never user
  * config), mounts the `frontend-static` fallback owner over it, registers the
- * harness-source and web-surface prompt sections, the bash-visible web runtime
+ * harness-source and web-surface dynamic contexts, the bash-visible web runtime
  * variable, and the URL line. App command-line values arrive through the
  * `webStartup` service expressions in the bundle patch.
  * @module @deepseek-ai/dsh-web-app
@@ -15,7 +15,7 @@ import { networkInterfaces } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { addHarnessSourceSection } from '@deepseek-ai/dsh-app-boot'
+import { addHarnessSourceContext } from '@deepseek-ai/dsh-app-boot'
 import * as FrontendStatic from '@deepseek-ai/dsh-host-frontend-static'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -39,8 +39,8 @@ export interface Config {
   /** Print the URL line on activation; a non-interactive layer can turn it off. */
   printUrl: boolean
   /**
-   * Register the model-visible surface context (the `app:web-surface` prompt
-   * section and the `DSH_WEB_URL` bash variable). A one-shot non-interactive
+   * Register the model-visible surface context (the `app:web-surface` dynamic
+   * context and the `DSH_WEB_URL` bash variable). A one-shot non-interactive
    * layer can turn it off when its user is not in the GUI, so the
    * orientation text would be false.
    */
@@ -106,7 +106,7 @@ function webSurfacePrompt(webUrl: string): string {
   const updateContract = 'The client-plugin HMR receiver is active, but client-plugin changes reload without a refresh only while '
     + '`pnpm run dev:web` is also running from this same checkout to rebuild their bundles; verify that watcher before promising automatic updates. '
     + 'Every other change — the apps/web shell and plain packages — requires rebuilding the affected Web artifacts and verifying this existing URL after a page refresh. '
-  return `You are interacting with the user through the DeepSeek Harness Web GUI at ${webUrl}. `
+  return `You are interacting with the user through the Harniverse Web GUI at ${webUrl}. `
     + 'When the user refers to "this page", "this GUI", or "this app" without naming another target, they mean this GUI. '
     + 'The browser provides no implicit DOM, route, or screenshot context. '
     + updateContract
@@ -139,7 +139,7 @@ function resolveDistIndex(): string {
 export const internals: { resolveDistIndex: () => string } = { resolveDistIndex }
 
 /**
- * Mount the Web runtime: dist serving, surface prompt, the bash runtime
+ * Mount the Web runtime: dist serving, surface context, the bash runtime
  * variable, and the URL line.
  * @param ctx - plugin context carrying the webServer service.
  * @param config - validated {@link Config}.
@@ -154,8 +154,8 @@ export function apply(ctx: Context, config: Config): void {
   })
   if (config.surfaceContext) {
     ctx.inject(['systemPrompt'], (promptCtx) => {
-      addHarnessSourceSection(promptCtx, SOURCE_ROOT)
-      promptCtx.systemPrompt.section({
+      addHarnessSourceContext(promptCtx, SOURCE_ROOT)
+      promptCtx.systemPrompt.context({
         name: 'app:web-surface',
         order: -98,
         text: () => webSurfacePrompt(localWebUrl(promptCtx)),
@@ -165,7 +165,7 @@ export function apply(ctx: Context, config: Config): void {
       runtimeCtx.shellEnv.register({
         name: 'web-runtime',
         variables: {
-          [DSH_WEB_URL]: { description: 'Canonical local URL of the DeepSeek Harness Web GUI serving this session.' },
+          [DSH_WEB_URL]: { description: 'Canonical local URL of the Harniverse Web GUI serving this session.' },
         },
         resolve: () => ({ [DSH_WEB_URL]: localWebUrl(runtimeCtx) }),
       })

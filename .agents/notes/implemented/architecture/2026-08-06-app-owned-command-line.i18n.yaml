@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-06-app-owned-command-line.md
-2026-08-06-app-owned-command-line.md: 6d84ba457564ef250e1acfbcc71fcc91b1d49aee
-2026-08-06-app-owned-command-line.zh.md: f964f7a7de7aae7e97b52fbc572443352dc5ae26
+2026-08-06-app-owned-command-line.md: e167316da99b13d188695411bf955e385f2430f4
+2026-08-06-app-owned-command-line.zh.md: aac6e21f5fa2e59ea83c0667a6b371064b4a2425

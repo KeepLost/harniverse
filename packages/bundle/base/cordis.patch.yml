@@ -402,6 +402,7 @@
       name: '@deepseek-ai/dsh-web'
       config:
         searchProvider: !!js process.env.DSH_WEB_SEARCH_PROVIDER ?? 'deepseek-official'
+        fetchProvider: !!js process.env.DSH_WEB_FETCH_PROVIDER ?? 'http'
 
     - id: web-search-deepseek
       name: '@deepseek-ai/dsh-web-search-deepseek'
@@ -413,6 +414,32 @@
 
     - id: web-search-perplexity
       name: '@deepseek-ai/dsh-web-search-perplexity'
+
+    - id: web-search-tavily
+      name: '@deepseek-ai/dsh-web-search-tavily'
+
+    - id: web-search-brave
+      name: '@deepseek-ai/dsh-web-search-brave'
+
+    - id: web-search-kagi
+      name: '@deepseek-ai/dsh-web-search-kagi'
+
+    - id: web-firecrawl
+      name: '@deepseek-ai/dsh-web-firecrawl'
+      config:
+        enableFetch: false
+
+    - id: web-fetch-http
+      name: '@deepseek-ai/dsh-web-fetch-http'
+
+    # Own the one user MCP settings namespace on the host plane. Profile rows
+    # consume this service and create their own scoped client children; this
+    # provider has no model-facing tools, so Minimal remains MCP-free.
+    - id: mcp-user-config-settings
+      name: '@deepseek-ai/dsh-mcp-user-config'
+      config:
+        role: provider
+        servers: []
 
     - id: tool-web
       name: '@deepseek-ai/dsh-tool-web'

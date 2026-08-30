@@ -3,7 +3,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
-import WebRuntime, { WEB_SETTINGS_NAMESPACE, type WebSearchProvider } from '@deepseek-ai/dsh-web'
+import WebRuntime, { WEB_SETTINGS_NAMESPACE, type WebFetchProvider, type WebSearchProvider } from '@deepseek-ai/dsh-web'
 import { describe, expect, it } from 'vitest'
 
 class MemorySettings extends SettingsProvider {
@@ -31,15 +31,28 @@ function provider(id: string): WebSearchProvider {
   }
 }
 
-async function boot(searchProvider = 'deepseek-official') {
+function fetchProvider(id: string): WebFetchProvider {
+  return {
+    id,
+    available: () => true,
+    fetch: () => Promise.resolve({
+      url: 'https://example.com', statusCode: 200,
+      body: { kind: 'text', content: id }, truncated: false,
+    }),
+  }
+}
+
+async function boot(searchProvider = 'deepseek-official', fetchProviderId = 'http') {
   const ctx = new Context()
-  const webFiber = ctx.plugin(WebRuntime, { searchProvider })
+  const webFiber = ctx.plugin(WebRuntime, { searchProvider, fetchProvider: fetchProviderId })
   await webFiber.await()
   const settingsFiber = ctx.plugin(MemorySettings)
   await settingsFiber.await()
   ctx.web.registerSearchProvider(provider('deepseek-official'))
   ctx.web.registerSearchProvider(provider('exa'))
   ctx.web.registerSearchProvider(provider('perplexity'))
+  ctx.web.registerFetchProvider(fetchProvider('http'))
+  ctx.web.registerFetchProvider(fetchProvider('firecrawl'))
   return { ctx, webFiber, settingsFiber }
 }
 
@@ -53,6 +66,24 @@ describe('WebRuntime settings section', () => {
 
     await bench.ctx.settings.replace(WEB_SETTINGS_NAMESPACE, {})
     await expect(bench.ctx.web.search({ query: 'q' })).resolves.toMatchObject({ content: 'deepseek-official' })
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('uses a live fetch default override and clearing it restores composition', async () => {
+    const bench = await boot('deepseek-official', 'http')
+    await expect(bench.ctx.web.fetch({ url: 'https://example.com' })).resolves.toMatchObject({
+      body: { content: 'http' },
+    })
+
+    await bench.ctx.settings.update(WEB_SETTINGS_NAMESPACE, { fetchProvider: 'firecrawl' })
+    await expect(bench.ctx.web.fetch({ url: 'https://example.com' })).resolves.toMatchObject({
+      body: { content: 'firecrawl' },
+    })
+
+    await bench.ctx.settings.replace(WEB_SETTINGS_NAMESPACE, {})
+    await expect(bench.ctx.web.fetch({ url: 'https://example.com' })).resolves.toMatchObject({
+      body: { content: 'http' },
+    })
     await bench.ctx.fiber.dispose()
   })
 

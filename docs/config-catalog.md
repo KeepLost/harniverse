@@ -67,7 +67,7 @@ export interface Config {
   packChunks?: boolean
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
   persistenceCompression?: JsonlCompression
-  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
+  /** Controls automatic AGENTS.md and custom instruction loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
   skills?: agentCore.SkillConfig
@@ -130,7 +130,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/context/agent-instructions/src/config.ts:18`](../packages/context/agent-instructions/src/config.ts)
+Source: [`packages/context/agent-instructions/src/config.ts:19`](../packages/context/agent-instructions/src/config.ts)
 
 <a id="deepseek-aidsh-agent-loop"></a>
 
@@ -832,16 +832,21 @@ Source: [`packages/bundle/headless/src/index.ts:31`](../packages/bundle/headless
 Requires: `shell`
 
 ```ts config-catalog
-/** Plugin config: where the CC hook config lives + substitution roots. */
+/** Plugin config: an explicit CC config or generic automatic discovery roots. */
 export interface Config {
   /**
    * Path to a `hooks.json` or a settings file whose `hooks` key holds the config.
    * Process-level: read once at load, a relative path resolves against the process
-   * launch cwd, so one config applies to the whole process.
-   * TODO(per-session-hook-config): per-session discovery of a project-local
-   * `hooks.json` from each `session/new.cwd`.
+   * launch cwd, and it is a complete override of automatic discovery.
    */
-  configPath: string
+  configPath?: string
+  /**
+   * Optional generic source lists used when `configPath` is omitted. Relative
+   * project paths resolve against each session cwd; other relative paths resolve
+    * against `root`. With no options, the bridge discovers its dialect-specific
+    * user file and `.dsh/hooks/claude-code.json` in the session cwd.
+   */
+  discovery?: HookConfigDiscovery | undefined
   /**
    * Replaces `${CLAUDE_PLUGIN_ROOT}` in command strings (the plugin's root dir).
    */
@@ -861,7 +866,9 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-claude-code/src/index.ts:45`](../packages/hooks/hooks-claude-code/src/index.ts)
+Depends on: [`HookConfigDiscovery`](../packages/hooks/hook-protocol/src/index.ts)
+
+Source: [`packages/hooks/hooks-claude-code/src/index.ts:50`](../packages/hooks/hooks-claude-code/src/index.ts)
 
 <a id="deepseek-aidsh-hooks-codex"></a>
 
@@ -870,15 +877,21 @@ Source: [`packages/hooks/hooks-claude-code/src/index.ts:45`](../packages/hooks/h
 Requires: `shell`
 
 ```ts config-catalog
-/** Plugin config: where the Codex hooks.json lives + the model name for payloads. */
+/** Plugin config: an explicit Codex config or generic automatic discovery roots. */
 export interface Config {
   /**
    * Path to a Codex `hooks.json`. Process-level: read once at load, a relative
-   * path resolves against the process launch cwd.
-   * TODO(per-session-hook-config): per-session project-local discovery from each
-   * `session/new.cwd`.
+   * path resolves against the process launch cwd, and it is a complete override
+   * of automatic discovery.
    */
-  configPath: string
+  configPath?: string
+  /**
+   * Optional generic source lists used when `configPath` is omitted. Relative
+   * project paths resolve against each session cwd; other relative paths resolve
+    * against `root`. With no options, the bridge discovers its dialect-specific
+    * user file and `.dsh/hooks/codex.json` in the session cwd.
+   */
+  discovery?: HookConfigDiscovery | undefined
   /** The model name stamped on every payload (Codex includes `model` on each event). */
   model?: string
   /** Default per-hook timeout in ms when a hook sets none (Codex default: 600000). */
@@ -888,7 +901,9 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-codex/src/index.ts:44`](../packages/hooks/hooks-codex/src/index.ts)
+Depends on: [`HookConfigDiscovery`](../packages/hooks/hook-protocol/src/index.ts)
+
+Source: [`packages/hooks/hooks-codex/src/index.ts:49`](../packages/hooks/hooks-codex/src/index.ts)
 
 <a id="deepseek-aidsh-host-apiproxy"></a>
 
@@ -1429,6 +1444,8 @@ export interface StdioConfig {
    * unique across live mcp-client instances.
    */
   serverName: string
+  /** Optional owner key allowing the same public namespace in separate scoped registries. */
+  reservationKey?: string | undefined
   /** Executable used to start the server. */
   command: string
   /** Arguments passed directly, without shell interpolation. */
@@ -1455,6 +1472,8 @@ export interface StreamableHttpConfig {
    * unique across live mcp-client instances.
    */
   serverName: string
+  /** Optional owner key allowing the same public namespace in separate scoped registries. */
+  reservationKey?: string | undefined
   /** MCP endpoint URL. */
   url: string
   /** Additional headers attached to MCP requests. */
@@ -1480,7 +1499,60 @@ export interface ReconnectConfig {
 }
 ```
 
-Source: [`packages/mcp/mcp-client/src/index.ts:99`](../packages/mcp/mcp-client/src/index.ts)
+Source: [`packages/mcp/mcp-client/src/index.ts:102`](../packages/mcp/mcp-client/src/index.ts)
+
+<a id="deepseek-aidsh-mcp-user-config"></a>
+
+## `@deepseek-ai/dsh-mcp-user-config`
+
+Requires: `settings` · `tools`
+
+```ts config-catalog
+/** Single Loader config schema; provider rows carry the base settings layer. */
+export interface Config {
+  /** Select the host settings owner or a profile-scoped consumer. */
+  role: McpUserConfigRole
+  /** Composition defaults used by provider rows; consumer rows must leave this empty. */
+  servers: UserMcpServerConfig[]
+}
+
+/** Loader role for one named plugin row. */
+export type McpUserConfigRole = 'provider' | 'consumer'
+
+/** One user-configured MCP server after schema defaults are applied. */
+export interface UserMcpServerConfig {
+  /** Stable key used to reconcile this entry across settings updates. */
+  id: string
+  /** Disabled entries do not create a child plugin or expose tools. */
+  enabled: boolean
+  /** MCP transport selected for this entry. */
+  transport: 'stdio' | 'streamable-http'
+  /** Stable namespace used in model-facing tool names. */
+  serverName: string
+  /** Stdio executable. */
+  command?: string
+  /** Stdio arguments. */
+  args: string[]
+  /** Stdio environment additions; values are secret settings fields. */
+  env: Record<string, string>
+  /** Stdio working directory. */
+  cwd: string
+  /** Streamable HTTP endpoint. */
+  url?: string
+  /** Streamable HTTP headers; values are secret settings fields. */
+  headers: Record<string, string>
+  /** Per-tool-call timeout in milliseconds. */
+  toolCallTimeoutMs: number
+  /** Whether this child rejects activation after its initial connection fails. */
+  failOnStartupError: boolean
+  /** Child reconnect policy. */
+  reconnect: ReconnectConfig
+}
+```
+
+Depends on: [`ReconnectConfig`](../packages/mcp/mcp-client/src/index.ts)
+
+Source: [`packages/mcp/mcp-user-config/src/index.ts:103`](../packages/mcp/mcp-user-config/src/index.ts)
 
 <a id="deepseek-aidsh-message-feedback"></a>
 
@@ -1631,18 +1703,14 @@ Source: [`packages/interaction/permission-presets/src/index.ts:140`](../packages
 Requires: `systemPrompt`
 
 ```ts config-catalog
-/** Plugin config: the persona text this composition contributes. */
+/** Plugin config: the dynamic persona text this composition contributes. */
 export interface Config {
   /**
-   * Persona prose rendered as the `deployment:persona` section. A template:
+   * Persona prose rendered as the `deployment:persona` context. A template:
    * complete `{{…}}` groups interpolate strictly against registered prompt
-   * variables. Empty text drops the section at render, matching the registry.
+   * variables. Empty text drops the context at render, matching the registry.
    */
   text: string
-  /** Make this persona the complete system prompt, suppressing every other section. */
-  complete?: boolean
-  /** Suppress dynamic runtime-context snapshots for this persona's agent scope. */
-  includeRuntimeContext?: boolean
 }
 ```
 
@@ -2516,12 +2584,12 @@ Source: [`packages/e2b/subprocess-e2b/src/index.ts:25`](../packages/e2b/subproce
 ```ts config-catalog
 /** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.persona} for its contract). */
 export interface Config {
-  /** Include the fixed DeepSeek Harness identity before the deployment persona (default true). */
+  /** Include the fixed Harniverse identity before all other system sections (default true). */
   includeHarnessIdentity?: boolean
   /** Include dynamic runtime-context snapshots in model history (default true). */
   includeRuntimeContext?: boolean
   /**
-   * Deployment-wide order-0 persona template. A scoped section named
+   * Deployment-wide order-0 persona template. A scoped context named
    * `deployment:persona` shadows it; `{{variable}}` references are strict.
    */
   persona?: string
@@ -2977,7 +3045,7 @@ export interface Config {
    */
   agentOptions?: AgentOptions
   /**
-   * Per-child persona that shadows `deployment:persona`. Requires the
+   * Per-child persona that shadows the dynamic `deployment:persona` context. Requires the
    * provider's `persona` capability; omission preserves the deployment persona.
    */
   persona?: string
@@ -3070,9 +3138,9 @@ export interface Config {
    * rejected.
    */
   allowParallelInProgress: boolean
-  /** Whether to queue a new user message when a turn stops with unfinished todos. */
+  /** Whether to queue a system-injected continuation when a turn stops with unfinished todos. */
   autoContinueIncomplete?: boolean
-  /** The plugin-attributed message queued for an unfinished todo list. */
+  /** The message body queued for an unfinished todo list; its source is system-injection. */
   autoContinueMessage?: string
   /** Maximum consecutive automatic continuation turns before the plugin stops. */
   maxAutoContinueTurns?: number
@@ -3216,20 +3284,19 @@ Source: [`packages/interaction/user-approval/src/index.ts:177`](../packages/inte
 
 ```ts config-catalog
 /**
- * Config for the web seam. `searchProvider` / `fetchProvider` pin which provider
- * wins for each capability; both are optional (a single registered usable
- * provider auto-selects). Operational overrides such as environment variables
- * must feed these same fields rather than introduce a hidden priority chain.
+ * Config for the web seam. `searchProvider` / `fetchProvider` set the capability
+ * defaults; both are optional. Operational overrides such as environment
+ * variables must feed these same fields rather than introduce a hidden fallback.
  */
 export interface WebRuntimeConfig {
-  /** Explicit search provider id. Omitted = auto-select when exactly one usable. */
+  /** Default search provider id. Omitted = require an explicit operation provider. */
   readonly searchProvider?: string
-  /** Explicit fetch provider id. Omitted = auto-select when exactly one usable. */
+  /** Default fetch provider id. Omitted = require an explicit operation provider. */
   readonly fetchProvider?: string
 }
 ```
 
-Source: [`packages/web/web/src/index.ts:56`](../packages/web/web/src/index.ts)
+Source: [`packages/web/web/src/index.ts:65`](../packages/web/web/src/index.ts)
 
 <a id="deepseek-aidsh-web-app"></a>
 
@@ -3243,8 +3310,8 @@ export interface Config {
   /** Print the URL line on activation; a non-interactive layer can turn it off. */
   printUrl: boolean
   /**
-   * Register the model-visible surface context (the `app:web-surface` prompt
-   * section and the `DSH_WEB_URL` bash variable). A one-shot non-interactive
+   * Register the model-visible surface context (the `app:web-surface` dynamic
+   * context and the `DSH_WEB_URL` bash variable). A one-shot non-interactive
    * layer can turn it off when its user is not in the GUI, so the
    * orientation text would be false.
    */
@@ -3275,14 +3342,64 @@ export interface Config {
   maxBodyChars?: number
   /** Default fetch timeout in milliseconds, within Node's timer range. */
   timeoutMs?: number
-  /** Maximum number of same-origin redirect hops to follow. */
+  /** Must be zero; redirects are disabled by fixed security policy. */
   maxRedirects?: number
   /** `User-Agent` header sent on every request. */
   userAgent?: string
 }
 ```
 
-Source: [`packages/web/web-fetch-http/src/index.ts:34`](../packages/web/web-fetch-http/src/index.ts)
+Source: [`packages/web/web-fetch-http/src/index.ts:35`](../packages/web/web-fetch-http/src/index.ts)
+
+<a id="deepseek-aidsh-web-firecrawl"></a>
+
+## `@deepseek-ai/dsh-web-firecrawl`
+
+Requires: `web`
+
+```ts config-catalog
+/** Configuration for Firecrawl Search/Scrape and its live settings section. */
+export interface Config {
+  /** Optional literal Firecrawl key; prefer `apiKeyEnv` for persisted configuration. */
+  apiKey?: string
+  /** Credential reference resolved separately for each search or fetch. */
+  apiKeyEnv?: string
+  /** Endpoint base; `/v2/search` and `/v2/scrape` are appended. */
+  baseURL?: string
+  /** Ask Search to include markdown/raw content in each result. Defaults false. */
+  includeSearchContent?: boolean
+  /** Maximum characters of optional per-result search content. */
+  searchContentMaxChars?: number
+  /** Maximum characters returned from a Scrape markdown body. */
+  maxChars?: number
+  /** Allow the remote Scrape endpoint to act as a fetch provider. Defaults false. */
+  enableFetch?: boolean
+}
+```
+
+Source: [`packages/web/web-firecrawl/src/index.ts:45`](../packages/web/web-firecrawl/src/index.ts)
+
+<a id="deepseek-aidsh-web-search-brave"></a>
+
+## `@deepseek-ai/dsh-web-search-brave`
+
+Requires: `web`
+
+```ts config-catalog
+/** Configuration for Brave Search and its live settings section. */
+export interface Config {
+  /** Literal subscription token; prefer `apiKeyEnv` for persisted configuration. */
+  apiKey?: string
+  /** Credential reference resolved for each search. */
+  apiKeyEnv?: string
+  /** Brave web endpoint base; `/search` is appended. */
+  baseURL?: string
+  /** Default result count when an operation omits `maxResults`. */
+  maxResults?: number
+}
+```
+
+Source: [`packages/web/web-search-brave/src/index.ts:33`](../packages/web/web-search-brave/src/index.ts)
 
 <a id="deepseek-aidsh-web-search-deepseek"></a>
 
@@ -3338,6 +3455,26 @@ export interface Config {
 
 Source: [`packages/web/web-search-exa/src/index.ts:43`](../packages/web/web-search-exa/src/index.ts)
 
+<a id="deepseek-aidsh-web-search-kagi"></a>
+
+## `@deepseek-ai/dsh-web-search-kagi`
+
+Requires: `web`
+
+```ts config-catalog
+/** Configuration for Kagi and its live settings section. */
+export interface Config {
+  /** Literal Kagi token; prefer `apiKeyEnv` for persisted configuration. */
+  apiKey?: string
+  /** Credential reference resolved for each search. */
+  apiKeyEnv?: string
+  /** Kagi API base; `/search` is appended. */
+  baseURL?: string
+}
+```
+
+Source: [`packages/web/web-search-kagi/src/index.ts:29`](../packages/web/web-search-kagi/src/index.ts)
+
 <a id="deepseek-aidsh-web-search-perplexity"></a>
 
 ## `@deepseek-ai/dsh-web-search-perplexity`
@@ -3363,6 +3500,30 @@ export interface Config {
 ```
 
 Source: [`packages/web/web-search-perplexity/src/index.ts:37`](../packages/web/web-search-perplexity/src/index.ts)
+
+<a id="deepseek-aidsh-web-search-tavily"></a>
+
+## `@deepseek-ai/dsh-web-search-tavily`
+
+Requires: `web`
+
+```ts config-catalog
+/** Configuration for the Tavily provider and its live settings section. */
+export interface Config {
+  /** Literal Tavily key; prefer `apiKeyEnv` for persisted configuration. */
+  apiKey?: string
+  /** Credential reference resolved for each search. */
+  apiKeyEnv?: string
+  /** Endpoint base; `/search` is appended. */
+  baseURL?: string
+  /** Request Tavily's optional raw result content. */
+  includeRawContent?: boolean
+  /** Default result count when a request omits `maxResults`. */
+  maxResults?: number
+}
+```
+
+Source: [`packages/web/web-search-tavily/src/index.ts:33`](../packages/web/web-search-tavily/src/index.ts)
 
 <a id="deepseek-aidsh-workflow-worker-thread"></a>
 

@@ -39,6 +39,19 @@
   config:
     maxBytes: 65536
 
+# Standard-family profiles keep these compatibility bridges available for
+# explicit opt-in, but do not load them by default.
+- id: hooks-claude-code
+  name: '@deepseek-ai/dsh-hooks-claude-code'
+  disabled: true
+
+- id: hooks-codex
+  name: '@deepseek-ai/dsh-hooks-codex'
+  disabled: true
+
+- id: mcp-user-config
+  name: '@deepseek-ai/dsh-mcp-user-config'
+
 # ── shell ───────────────────────────────────────────────────────────────────
 
 # `shell-env` stays in the HOST composition: `apps/cli/src/web.ts` injects it to
@@ -257,8 +270,8 @@
 - id: tool-web
   name: '@deepseek-ai/dsh-tool-web'
   config:
-    search: false
-    fetch: false
+    search: true
+    fetch: true
     searchTimeoutMs: 60000
 
 # ── presentation ────────────────────────────────────────────────────────────

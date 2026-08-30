@@ -47,6 +47,49 @@ declare module '@deepseek-ai/dsh-session/types' {
  */
 export type HookDialect = 'claude-code' | 'codex'
 
+/** Discovery layers for automatically loaded hook configuration sources. */
+export type HookConfigLayer = 'user' | 'project' | 'plugin' | 'policy'
+
+/**
+ * Generic configured roots for automatic hook discovery. Relative project paths
+ * resolve against the current session cwd; all other relative paths resolve
+ * against `root`. The bridge supplies its dialect parser after the shared
+ * loader reads each source.
+ */
+export interface HookConfigDiscovery {
+  /** Base directory for relative user, plugin, and policy paths. */
+  root?: string | undefined
+  /** User-layer paths relative to `root`; no user paths are assumed by default. */
+  user?: string[] | undefined
+  /** Project-layer paths relative to the session cwd; defaults to `hooks.json`. */
+  project?: string[] | undefined
+  /** Plugin-layer paths relative to `root`; no plugin paths are assumed by default. */
+  plugin?: string[] | undefined
+  /** Policy-layer paths relative to `root`; no policy paths are assumed by default. */
+  policy?: string[] | undefined
+}
+
+/** One resolved source file in an automatic discovery snapshot. */
+export interface HookConfigSource {
+  readonly layer: HookConfigLayer
+  readonly path: string
+}
+
+/** One source that could not be read or parsed for an automatic snapshot. */
+export interface HookConfigSourceFailure {
+  readonly source: HookConfigSource
+  readonly error: unknown
+}
+
+/** A frozen, per-event set of healthy parsed sources and isolated failures. */
+export interface HookConfigSnapshot<T> {
+  readonly loaded: readonly {
+    readonly source: HookConfigSource
+    readonly value: T
+  }[]
+  readonly failures: readonly HookConfigSourceFailure[]
+}
+
 /**
  * One configured command hook (the `{ type: 'command', command, timeout? }`
  * shape shared by both dialects). Non-command hook types (CC's `prompt`/`agent`/

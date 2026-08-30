@@ -579,6 +579,8 @@ export function contextBody(
       return recalledSessions(props.source) === null
         ? opaque
         : { rendered: 'recall', summary: null, body: <RecallBody {...props} /> }
+    case 'system-injection':
+      return { rendered: 'system-injection', summary: null, body: <OpaqueBody {...props} /> }
     case null:
       return opaque
     /* v8 ignore next 4 -- closed-union backstop; the compiler rejects a new

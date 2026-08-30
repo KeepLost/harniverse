@@ -1,8 +1,8 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -15,6 +15,7 @@ import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import SubagentRuntime, { SubagentRunId } from '@deepseek-ai/dsh-subagent'
 import * as HooksClaude from '@deepseek-ai/dsh-hooks-claude-code'
+import type { HookConfigDiscovery } from '@deepseek-ai/dsh-hook-protocol'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 /**
@@ -51,9 +52,10 @@ async function harness(configDir: string, adapter: MockAdapter, beforeHooks?: (c
 
 /** {@link harness}, also exposing the bridge's fiber for tests that dispose it. */
 async function harnessWithFiber(
-  configDir: string,
+  configDir: string | undefined,
   adapter: MockAdapter,
   beforeHooks?: (ctx: Context) => void,
+  discovery?: HookConfigDiscovery,
 ): Promise<{ ctx: Context; hooks: Fiber }> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
@@ -61,7 +63,10 @@ async function harnessWithFiber(
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
   beforeHooks?.(ctx)
-  const hooks = await ctx.plugin(HooksClaude, { configPath: join(configDir, 'hooks.json') })
+  const hooks = await ctx.plugin(HooksClaude, {
+    ...configDir !== undefined ? { configPath: join(configDir, 'hooks.json') } : {},
+    ...discovery !== undefined ? { discovery } : {},
+  })
   ctx.llm.registerAdapter(['mock'], adapter)
   return { ctx, hooks }
 }
@@ -72,6 +77,24 @@ function waitForIdle(_ctx: Context, agent: Agent): Promise<void> {
 
 function events(agent: Agent): SessionEvent[] {
   return [...agent.session.events]
+}
+
+async function autoHarness(
+  adapter: MockAdapter,
+  discovery?: HookConfigDiscovery,
+  beforeHooks?: (ctx: Context) => void,
+): Promise<{ ctx: Context; hooks: Fiber }> {
+  return harnessWithFiber(undefined, adapter, beforeHooks, discovery)
+}
+
+function writeProjectHooks(dir: string, hooks: unknown): void {
+  writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks }))
+}
+
+function writeDefaultProjectHooks(dir: string, hooks: unknown): void {
+  const path = join(dir, '.dsh', 'hooks', 'claude-code.json')
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, JSON.stringify({ hooks }))
 }
 
 /**
@@ -271,6 +294,179 @@ describe('hooks-claude-code bridge — SessionStart', () => {
     await waitForIdle(ctx, agent)
 
     expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('project uses tabs')
+  })
+})
+
+describe('hooks-claude-code bridge — automatic discovery', () => {
+  it('loads the shipped user-global file under DSH_HOME by default', async () => {
+    const userHome = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-home-'))
+    const projectDir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-project-'))
+    dirs.push(userHome, projectDir)
+    mkdirSync(join(userHome, 'hooks'))
+    const script = join(userHome, 'hooks', 'context.sh')
+    writeFileSync(script, '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"global claude hook"}}\'\n')
+    chmodSync(script, 0o755)
+    writeFileSync(join(userHome, 'hooks', 'claude-code.json'), JSON.stringify({ hooks: {
+      UserPromptSubmit: [{ hooks: [{ type: 'command', command: script }] }],
+    } }))
+
+    const previousHome = process.env.DSH_HOME
+    process.env.DSH_HOME = userHome
+    try {
+      const adapter = new MockAdapter([textResponse('ok')])
+      const { ctx, hooks } = await autoHarness(adapter)
+      const handle = await ctx.agents.create({
+        sessionId: SessionId('auto-claude-user-global'),
+        meta: { cwd: projectDir },
+        agentOptions: { provider: 'mock', model: 'mock' },
+      })
+      handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, handle.agent)
+
+      expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('global claude hook')
+      await handle.dispose()
+      await hooks.dispose()
+    } finally {
+      if (previousHome === undefined) Reflect.deleteProperty(process.env, 'DSH_HOME')
+      else process.env.DSH_HOME = previousHome
+    }
+  })
+
+  it('omits configPath and discovers the default hooks.json independently per session cwd', async () => {
+    const firstDir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-project-'))
+    const secondDir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-project-'))
+    dirs.push(firstDir, secondDir)
+    writeDefaultProjectHooks(firstDir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }] })
+    writeDefaultProjectHooks(secondDir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 0' }] }] })
+
+    const adapter = new MockAdapter([textResponse('second session ran')])
+    const { ctx, hooks } = await autoHarness(adapter)
+    const first = await ctx.agents.create({
+      sessionId: SessionId('auto-claude-first'),
+      meta: { cwd: firstDir },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    first.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'first' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, first.agent)
+
+    const second = await ctx.agents.create({
+      sessionId: SessionId('auto-claude-second'),
+      meta: { cwd: secondDir },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    second.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'second' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, second.agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(events(first.agent).some(event => event.type === 'hook/invoked')).toBe(true)
+    expect(events(second.agent).some(event => event.type === 'hook/invoked')).toBe(true)
+    await first.dispose()
+    await second.dispose()
+    await hooks.dispose()
+  })
+
+  it('treats an explicit configPath as a complete override of discovered sources', async () => {
+    const explicitDir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-explicit-'))
+    const projectDir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-project-'))
+    dirs.push(explicitDir, projectDir)
+    writeProjectHooks(explicitDir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 0' }] }] })
+    writeProjectHooks(projectDir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }] })
+
+    const adapter = new MockAdapter([textResponse('explicit config won')])
+    const ctx = await harness(explicitDir, adapter)
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('explicit-claude-override'),
+      meta: { cwd: projectDir },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, handle.agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(events(handle.agent).filter(event => event.type === 'hook/invoked')).toHaveLength(1)
+    await handle.dispose()
+  })
+
+  it('takes source changes on the next event while the current event keeps its immutable snapshot', async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-project-'))
+    dirs.push(projectDir)
+    const hooksPath = join(projectDir, '.dsh', 'hooks', 'claude-code.json')
+    const replacementPath = join(projectDir, 'replacement.json')
+    const markerPath = join(projectDir, 'same-event-ran')
+    writeFileSync(replacementPath, JSON.stringify({ hooks: {
+      UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }],
+    } }))
+    writeDefaultProjectHooks(projectDir, {
+      UserPromptSubmit: [{ hooks: [
+        { type: 'command', command: `cp "${replacementPath}" "${hooksPath}"` },
+        { type: 'command', command: `touch "${markerPath}"` },
+      ] }],
+    })
+
+    const adapter = new MockAdapter([textResponse('first event ran')])
+    const { ctx, hooks } = await autoHarness(adapter)
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('auto-claude-reload'),
+      meta: { cwd: projectDir },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'first' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, handle.agent)
+    expect(existsSync(markerPath)).toBe(true)
+
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'second' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, handle.agent)
+    expect(adapter.requests).toHaveLength(1)
+    expect(events(handle.agent).filter(event => event.type === 'hook/invoked')).toHaveLength(3)
+    await handle.dispose()
+    await hooks.dispose()
+  })
+
+  it('continues with healthy sources when a configured source is unreadable', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-discovery-'))
+    const projectDir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-project-'))
+    dirs.push(root, projectDir)
+    writeFileSync(join(root, 'bad.json'), '{')
+    writeProjectHooks(projectDir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }] })
+    const warn = vi.fn()
+    const adapter = new MockAdapter([textResponse('should not run')])
+    const { ctx, hooks } = await autoHarness(adapter, {
+      root,
+      user: ['bad.json'],
+      project: ['hooks.json'],
+    }, (context) => { context.logger.warn = warn as never })
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('auto-claude-bad-source'),
+      meta: { cwd: projectDir },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, handle.agent)
+
+    expect(adapter.requests).toHaveLength(0)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('bad.json'))
+    await handle.dispose()
+    await hooks.dispose()
+  })
+
+  it('disposes automatic-discovery listeners', async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-project-'))
+    dirs.push(projectDir)
+    writeProjectHooks(projectDir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }] })
+    const adapter = new MockAdapter([textResponse('listener removed')])
+    const { ctx, hooks } = await autoHarness(adapter)
+    await hooks.dispose()
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('auto-claude-disposed'),
+      meta: { cwd: projectDir },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, handle.agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(events(handle.agent).some(event => event.type === 'hook/invoked')).toBe(false)
+    await handle.dispose()
   })
 })
 

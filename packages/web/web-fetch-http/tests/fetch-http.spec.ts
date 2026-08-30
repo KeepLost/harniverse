@@ -6,14 +6,14 @@ import WebRuntime from '@deepseek-ai/dsh-web'
 import { HttpFetchProvider, LOCAL_FETCH_PROVIDER_ID } from '@deepseek-ai/dsh-web-fetch-http'
 import type { HttpFetchLimits } from '@deepseek-ai/dsh-web-fetch-http'
 import * as fetchPlugin from '@deepseek-ai/dsh-web-fetch-http'
-import { classifyContentType, decoderForCharset, isSameOrigin, parseCharset, validateFetchUrl } from '../src/policy.ts'
+import { classifyContentType, decoderForCharset, isPublicIp, parseCharset, validateFetchUrl } from '../src/policy.ts'
 
 const limits: HttpFetchLimits = {
   maxUrlLength: 2048,
   maxResponseBytes: 5_000_000,
   maxBodyChars: 100_000,
   timeoutMs: 5_000,
-  maxRedirects: 5,
+  maxRedirects: 0,
   userAgent: 'test-agent/1.0',
 }
 
@@ -21,14 +21,15 @@ type Handler = (req: IncomingMessage, res: ServerResponse) => void
 
 let server: Server
 let base: string
+let port: number
 let handler: Handler
 
 beforeEach(async () => {
   handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('default') }
   server = createServer((req, res) => { handler(req, res) })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-  const { port } = server.address() as AddressInfo
-  base = `http://127.0.0.1:${port}`
+  port = (server.address() as AddressInfo).port
+  base = `http://public.test:${port}`
 })
 
 afterEach(async () => {
@@ -37,7 +38,19 @@ afterEach(async () => {
 })
 
 function provider(overrides: Partial<HttpFetchLimits> = {}): HttpFetchProvider {
-  return new HttpFetchProvider({ ...limits, ...overrides })
+  return new HttpFetchProvider({ ...limits, ...overrides }, {
+    resolveHostname: async () => [{ address: '93.184.216.34', family: 4 }],
+    request: async (url, _address, options) => {
+      const target = new URL(url)
+      target.hostname = '127.0.0.1'
+      return await fetch(target, {
+        method: 'GET',
+        redirect: 'manual',
+        headers: { 'user-agent': options.userAgent },
+        signal: options.signal,
+      })
+    },
+  })
 }
 
 describe('policy helpers', () => {
@@ -49,6 +62,29 @@ describe('policy helpers', () => {
     expect(() => validateFetchUrl(`https://example.com/${'a'.repeat(3000)}`, 2048)).toThrow(expect.objectContaining({ code: 'WEB_INVALID_URL' }))
   })
 
+  it.each([
+    'http://0.0.0.0/',
+    'http://10.0.0.1/',
+    'http://127.0.0.1/',
+    'http://169.254.169.254/',
+    'http://192.168.1.1/',
+    'http://[::1]/',
+    'http://[fd00::1]/',
+    'http://[fe80::1]/',
+    'http://[ff02::1]/',
+    'http://[::ffff:127.0.0.1]/',
+  ])('rejects a non-public literal before network access: %s', (url) => {
+    expect(() => validateFetchUrl(url, 2048)).toThrow(expect.objectContaining({ code: 'WEB_BLOCKED_URL' }))
+  })
+
+  it('classifies public and non-public IP addresses', () => {
+    expect(isPublicIp('93.184.216.34')).toBe(true)
+    expect(isPublicIp('192.0.2.1')).toBe(false)
+    expect(isPublicIp('2001:4860:4860::8888')).toBe(true)
+    expect(isPublicIp('2001:db8::1')).toBe(false)
+    expect(isPublicIp('::ffff:93.184.216.34')).toBe(false)
+  })
+
   it('classifies content types', () => {
     expect(classifyContentType('text/html; charset=utf-8')).toBe('html')
     expect(classifyContentType('application/xhtml+xml')).toBe('html')
@@ -56,12 +92,6 @@ describe('policy helpers', () => {
     expect(classifyContentType('application/json')).toBe('text')
     expect(classifyContentType('image/png')).toBeUndefined()
     expect(classifyContentType(null)).toBeUndefined()
-  })
-
-  it('compares origins', () => {
-    expect(isSameOrigin(new URL('https://a.com/x'), new URL('https://a.com/y'))).toBe(true)
-    expect(isSameOrigin(new URL('https://a.com'), new URL('https://b.com'))).toBe(false)
-    expect(isSameOrigin(new URL('http://a.com'), new URL('https://a.com'))).toBe(false)
   })
 
   it('parses the charset parameter', () => {
@@ -106,6 +136,13 @@ describe('HttpFetchProvider success', () => {
     const result = await provider().fetch({ url: base })
     expect(result.statusCode).toBe(404)
     expect(result.body).toEqual({ kind: 'text', content: 'nope' })
+  })
+
+  it('handles a no-body HTTP status without creating an invalid Response', async () => {
+    handler = (_req, res) => { res.writeHead(204, { 'content-type': 'text/plain' }); res.end() }
+    const result = await provider().fetch({ url: base })
+    expect(result.statusCode).toBe(204)
+    expect(result.body).toEqual({ kind: 'text', content: '' })
   })
 })
 
@@ -170,106 +207,29 @@ describe('HttpFetchProvider caps', () => {
 })
 
 describe('HttpFetchProvider redirects', () => {
-  it('follows a same-origin redirect and reports the final URL', async () => {
-    handler = (req, res) => {
-      if (req.url === '/start') { res.writeHead(302, { location: '/end' }); res.end() }
-      else { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('arrived') }
-    }
-    const result = await provider().fetch({ url: `${base}/start` })
-    expect(result.body.content).toBe('arrived')
-    expect(result.url).toBe(`${base}/end`)
-  })
-
-  it('blocks a cross-origin redirect with WEB_REDIRECT_BLOCKED', async () => {
-    handler = (_req, res) => { res.writeHead(302, { location: 'https://example.com/' }); res.end() }
-    await expect(provider().fetch({ url: base }))
-      .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED' }))
-  })
-
-  it('re-validates a redirect target, rejecting same-origin credentials in the Location', async () => {
-    const { port } = server.address() as AddressInfo
-    handler = (_req, res) => { res.writeHead(302, { location: `http://user:pass@127.0.0.1:${port}/` }); res.end() }
-    await expect(provider().fetch({ url: base }))
-      .rejects.toThrow(expect.objectContaining({ code: 'WEB_BLOCKED_URL' }))
-  })
-
-  it('rejects exceeding the redirect hop cap', async () => {
-    handler = (req, res) => {
-      const n = Number(new URL(req.url ?? '/', base).searchParams.get('n') ?? '0')
-      res.writeHead(302, { location: `/?n=${n + 1}` })
-      res.end()
-    }
-    await expect(provider({ maxRedirects: 2 }).fetch({ url: `${base}/?n=0` }))
-      .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED' }))
-  })
-
-  it('follows exactly maxRedirects hops: a chain landing on the Nth redirect succeeds', async () => {
-    // maxRedirects: 2 → /?n=0 → /?n=1 → /?n=2(200). Exactly 2 redirects + 1
-    // final = 3 requests; the cap is inclusive of the landing request.
+  it.each([300, 301, 302, 303, 305, 306, 307, 308])('rejects HTTP %i redirects without contacting the target', async (status) => {
     let requests = 0
+    let targetHits = 0
     handler = (req, res) => {
       requests++
-      const n = Number(new URL(req.url ?? '/', base).searchParams.get('n') ?? '0')
-      if (n >= 2) { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('landed') }
-      else { res.writeHead(302, { location: `/?n=${n + 1}` }); res.end() }
-    }
-    const result = await provider({ maxRedirects: 2 }).fetch({ url: `${base}/?n=0` })
-    expect(result.body.content).toBe('landed')
-    expect(requests).toBe(3)
-  })
-
-  it('makes exactly maxRedirects+1 requests before blocking an over-long chain', async () => {
-    // maxRedirects: 2 on an infinite chain: requests at n=0,1,2 (the 3rd is the
-    // over-limit redirect, refused before its Location is followed) = 3 total.
-    let requests = 0
-    handler = (req, res) => {
-      requests++
-      const n = Number(new URL(req.url ?? '/', base).searchParams.get('n') ?? '0')
-      res.writeHead(302, { location: `/?n=${n + 1}` })
+      if (req.url === '/start') {
+        res.writeHead(status, { location: `http://target.test:${port}/target` })
+      } else {
+        targetHits++
+        res.writeHead(200, { 'content-type': 'text/plain' })
+      }
       res.end()
     }
-    await expect(provider({ maxRedirects: 2 }).fetch({ url: `${base}/?n=0` }))
-      .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED', message: 'exceeded the maximum of 2 redirects' }))
-    expect(requests).toBe(3)
-  })
-
-  it('reports an over-limit redirect as "exceeded", not cross-origin, even when the over-limit hop points cross-origin', async () => {
-    // The redirect budget is checked BEFORE the over-limit hop's target is
-    // origin-validated, so the diagnosis is "exceeded", not "cross-origin".
-    handler = (req, res) => {
-      const n = Number(new URL(req.url ?? '/', base).searchParams.get('n') ?? '0')
-      const location = n === 0 ? '/?n=1' : 'https://example.com/'
-      res.writeHead(302, { location })
-      res.end()
-    }
-    await expect(provider({ maxRedirects: 1 }).fetch({ url: `${base}/?n=0` }))
-      .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED', message: 'exceeded the maximum of 1 redirects' }))
-  })
-
-  it('maxRedirects: 0 follows no redirect but still fetches a direct 200', async () => {
-    handler = (req, res) => {
-      if (req.url === '/r') { res.writeHead(302, { location: '/done' }); res.end() }
-      else { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('direct') }
-    }
-    await expect(provider({ maxRedirects: 0 }).fetch({ url: `${base}/r` }))
+    await expect(provider().fetch({ url: `${base}/start` }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED' }))
-    const direct = await provider({ maxRedirects: 0 }).fetch({ url: `${base}/done` })
-    expect(direct.body.content).toBe('direct')
+    expect(requests).toBe(1)
+    expect(targetHits).toBe(0)
   })
 
-  it('treats a redirect without a Location header as a provider error', async () => {
+  it('rejects a redirect without a Location header under the same fixed policy', async () => {
     handler = (_req, res) => { res.writeHead(302); res.end() }
     await expect(provider().fetch({ url: base }))
-      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
-  })
-
-  it('follows a relative same-origin redirect', async () => {
-    handler = (req, res) => {
-      if (req.url === '/a') { res.writeHead(301, { location: 'b' }); res.end() }
-      else { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('landed') }
-    }
-    const result = await provider().fetch({ url: `${base}/a` })
-    expect(result.body.content).toBe('landed')
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED' }))
   })
 })
 
@@ -277,6 +237,69 @@ describe('HttpFetchProvider invalid URLs and abort', () => {
   it('rejects a non-http scheme before any network access', async () => {
     await expect(provider().fetch({ url: 'ftp://example.com' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_INVALID_URL' }))
+  })
+
+  it.each([
+    'http://127.0.0.1:1/',
+    'http://10.0.0.1/',
+    'http://[::ffff:127.0.0.1]/',
+  ])('rejects a non-public literal before invoking transport: %s', async (url) => {
+    let lookups = 0
+    let requests = 0
+    const guardedProvider = new HttpFetchProvider(limits, {
+      resolveHostname: async () => {
+        lookups++
+        return [{ address: '93.184.216.34', family: 4 }]
+      },
+      request: async () => {
+        requests++
+        return new Response('unexpected', { headers: { 'content-type': 'text/plain' } })
+      },
+    })
+    await expect(guardedProvider.fetch({ url }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_BLOCKED_URL' }))
+    expect(lookups).toBe(0)
+    expect(requests).toBe(0)
+  })
+
+  it('fails closed when DNS resolution fails before invoking transport', async () => {
+    let requests = 0
+    const guardedProvider = new HttpFetchProvider(limits, {
+      resolveHostname: async () => { throw new Error('DNS unavailable') },
+      request: async () => {
+        requests++
+        return new Response('unexpected', { headers: { 'content-type': 'text/plain' } })
+      },
+    })
+    await expect(guardedProvider.fetch({ url: 'http://unresolvable.test/' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+    expect(requests).toBe(0)
+  })
+
+  it('fails closed when DNS returns a mixed public and non-public answer set', async () => {
+    let requests = 0
+    const guardedProvider = new HttpFetchProvider(limits, {
+      resolveHostname: async () => [
+        { address: '93.184.216.34', family: 4 },
+        { address: '192.168.1.1', family: 4 },
+      ],
+      request: async () => {
+        requests++
+        return new Response('unexpected', { headers: { 'content-type': 'text/plain' } })
+      },
+    })
+    await expect(guardedProvider.fetch({ url: 'http://mixed.test/' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_BLOCKED_URL' }))
+    expect(requests).toBe(0)
+  })
+
+  it('fails closed when DNS returns no addresses', async () => {
+    const guardedProvider = new HttpFetchProvider(limits, {
+      resolveHostname: async () => [],
+      request: async () => new Response('unexpected', { headers: { 'content-type': 'text/plain' } }),
+    })
+    await expect(guardedProvider.fetch({ url: 'http://empty.test/' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
   })
 
   it('rejects credentials in the URL', async () => {
@@ -320,8 +343,8 @@ describe('HttpFetchProvider invalid URLs and abort', () => {
   })
 
   it('maps a connection failure to WEB_PROVIDER_ERROR', async () => {
-    // Port 1 on loopback is not listening: a real connection failure (not abort).
-    await expect(provider().fetch({ url: 'http://127.0.0.1:1/' }))
+    // Port 1 on loopback is not listening: a real connection failure through the test transport.
+    await expect(provider().fetch({ url: 'http://public.test:1/' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
   })
 
@@ -342,10 +365,10 @@ describe('HttpFetchProvider body cancellation on error paths', () => {
     return { response, cancelled: () => cancelled }
   }
 
-  it('cancels the body when a cross-origin redirect is blocked', async () => {
+  it('cancels the body when a redirect is blocked', async () => {
     const { response, cancelled } = fakeResponse({ status: 302, headers: {}, location: 'https://elsewhere.test/' })
     vi.stubGlobal('fetch', vi.fn(async () => response))
-    await expect(provider().fetch({ url: 'http://127.0.0.1:9/' }))
+    await expect(provider().fetch({ url: 'http://public.test:9/' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED' }))
     expect(cancelled()).toBe(true)
   })
@@ -353,7 +376,7 @@ describe('HttpFetchProvider body cancellation on error paths', () => {
   it('cancels the body when an unsupported charset is rejected', async () => {
     const { response, cancelled } = fakeResponse({ status: 200, headers: { 'content-type': 'text/plain; charset=not-a-charset' } })
     vi.stubGlobal('fetch', vi.fn(async () => response))
-    await expect(provider().fetch({ url: 'http://127.0.0.1:9/' }))
+    await expect(provider().fetch({ url: 'http://public.test:9/' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_UNSUPPORTED_CONTENT_TYPE' }))
     expect(cancelled()).toBe(true)
   })
@@ -361,8 +384,8 @@ describe('HttpFetchProvider body cancellation on error paths', () => {
   it('cancels the body when a redirect has no Location header', async () => {
     const { response, cancelled } = fakeResponse({ status: 302, headers: {} })
     vi.stubGlobal('fetch', vi.fn(async () => response))
-    await expect(provider().fetch({ url: 'http://127.0.0.1:9/' }))
-      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+    await expect(provider().fetch({ url: 'http://public.test:9/' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_REDIRECT_BLOCKED' }))
     expect(cancelled()).toBe(true)
   })
 })
@@ -372,10 +395,10 @@ describe('web-fetch-http plugin registration', () => {
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
     const fiber = await ctx.plugin(fetchPlugin, {})
-    await expect(ctx.web.fetch({ url: `${base}/` }))
-      .resolves.toMatchObject({ statusCode: 200 })
+    await expect(ctx.web.fetch({ url: 'http://127.0.0.1:1/' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_BLOCKED_URL' }))
     await fiber.dispose()
-    await expect(ctx.web.fetch({ url: `${base}/` }))
+    await expect(ctx.web.fetch({ url: 'http://127.0.0.1:1/' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_CONFIGURED_MISSING' }))
   })
 
@@ -408,22 +431,29 @@ describe('web-fetch-http plugin registration', () => {
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
     await expect(ctx.plugin(fetchPlugin, { maxRedirects: 1.5 }))
-      .rejects.toThrow(/maxRedirects must be a non-negative integer/)
+      .rejects.toThrow(/maxRedirects must be 0 because redirects are disabled/)
   })
 
   it('rejects a negative redirect cap at construction', async () => {
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
     await expect(ctx.plugin(fetchPlugin, { maxRedirects: -1 }))
-      .rejects.toThrow(/maxRedirects must be a non-negative integer/)
+      .rejects.toThrow(/maxRedirects must be 0 because redirects are disabled/)
   })
 
-  it('accepts maxRedirects: 0 (follow no redirects) as valid config', async () => {
+  it('rejects a positive redirect cap at construction', async () => {
+    const ctx = new Context()
+    await ctx.plugin(WebRuntime, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
+    await expect(ctx.plugin(fetchPlugin, { maxRedirects: 1 }))
+      .rejects.toThrow(/maxRedirects must be 0 because redirects are disabled/)
+  })
+
+  it('accepts maxRedirects: 0 as valid config', async () => {
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { fetchProvider: LOCAL_FETCH_PROVIDER_ID })
     const fiber = await ctx.plugin(fetchPlugin, { maxRedirects: 0 })
-    await expect(ctx.web.fetch({ url: `${base}/` }))
-      .resolves.toMatchObject({ statusCode: 200 })
+    await expect(ctx.web.fetch({ url: 'http://127.0.0.1:1/' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_BLOCKED_URL' }))
     await fiber.dispose()
   })
 })

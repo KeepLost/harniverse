@@ -18,7 +18,7 @@ The controls answer different questions:
 
 | Control | Question | Result |
 |---|---|---|
-| `persona` | What role instructions replace the deployment persona for this child? | A child-local prompt section shadows `deployment:persona` |
+| `persona` | What role instructions replace the deployment persona for this child? | A child-local prompt context shadows `deployment:persona` |
 | `toolFilter` | Which deployment-global tools enter this child's visible tool view? | A scoped restriction filters globals before child-local tools are added |
 | `maxDepth` | How deep may this delegation tree grow? | A start whose child depth exceeds the absolute cap is rejected |
 
@@ -26,9 +26,9 @@ The controls answer different questions:
 
 ### Persona is a scoped shadow
 
-The persona control changes one child without changing deployment-wide prompt assembly. During unpublished setup, an in-process provider registers a child-scoped section named `deployment:persona`; ordinary most-specific-wins resolution replaces the global section only in that child's assemblies.
+The persona control changes one child without changing deployment-wide prompt assembly. During unpublished setup, an in-process provider registers a child-scoped context named `deployment:persona`; ordinary most-specific-wins resolution replaces the global context only in that child's assemblies.
 
-The value has the same strict template semantics as the deployment persona. Omitting it inherits the deployment section through the global layer; an explicit empty string shadows the global persona with an empty section. Parent and sibling personas never enter the child's flat scope.
+The value has the same strict template semantics as the deployment persona. Omitting it inherits the deployment context through the global layer; an explicit empty string shadows the global persona with an empty context. Parent and sibling personas never enter the child's flat scope.
 
 This uses the normal system-prompt registration mechanism rather than a second persona channel. The first prompt therefore sees the same named contribution that later prompts and prompt-inspection tools see.
 

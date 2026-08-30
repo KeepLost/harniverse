@@ -30,7 +30,8 @@ import { WebSearchCard } from './WebSearchCard.tsx'
 import { AGENT_LOOP_NS, AgentLoopCardController } from './agent-loop-card-controller.ts'
 import { SHELL_NS, BashCardController } from './bash-card-controller.ts'
 import {
-  WEB_NS, WEB_SEARCH_DEEPSEEK_NS, WEB_SEARCH_EXA_NS, WEB_SEARCH_PERPLEXITY_NS,
+  WEB_FIRECRAWL_NS, WEB_NS, WEB_SEARCH_BRAVE_NS, WEB_SEARCH_DEEPSEEK_NS,
+  WEB_SEARCH_EXA_NS, WEB_SEARCH_KAGI_NS, WEB_SEARCH_PERPLEXITY_NS, WEB_SEARCH_TAVILY_NS,
   WebSearchCardController,
 } from './web-search-card-controller.ts'
 import { en, zh } from './locales.ts'
@@ -69,6 +70,10 @@ export function apply(ctx: ClientContext): void {
     deepseek: ctx.settingsScope.bind({ namespace: WEB_SEARCH_DEEPSEEK_NS }),
     exa: ctx.settingsScope.bind({ namespace: WEB_SEARCH_EXA_NS }),
     perplexity: ctx.settingsScope.bind({ namespace: WEB_SEARCH_PERPLEXITY_NS }),
+    tavily: ctx.settingsScope.bind({ namespace: WEB_SEARCH_TAVILY_NS }),
+    brave: ctx.settingsScope.bind({ namespace: WEB_SEARCH_BRAVE_NS }),
+    kagi: ctx.settingsScope.bind({ namespace: WEB_SEARCH_KAGI_NS }),
+    firecrawl: ctx.settingsScope.bind({ namespace: WEB_FIRECRAWL_NS }),
   }, api)
 
   // The credential a card reports is not part of any settings section, so its

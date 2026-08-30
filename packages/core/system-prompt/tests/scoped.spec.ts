@@ -33,10 +33,10 @@ describe('scoped sections', () => {
   it('a scoped persona shadows deployment:persona for that scope only (either order)', async () => {
     const ctx = await mount({ persona: 'You are the deployment.' })
     const scope = await mintScope(ctx, 'child')
-    scope.ctx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: 'You run tests.' })
+    scope.ctx.systemPrompt.context({ name: 'deployment:persona', order: 0, text: 'You run tests.' })
 
-    const scoped = renderPrompt(await ctx.systemPrompt.assemble({ scope: scopeKeyOf(scope) }))
-    const global = renderPrompt(await ctx.systemPrompt.assemble())
+    const scoped = renderContextSnapshot(await ctx.systemPrompt.assemble({ scope: scopeKeyOf(scope) }))
+    const global = renderContextSnapshot(await ctx.systemPrompt.assemble())
     expect(scoped).toContain('You run tests.')
     expect(scoped).not.toContain('You are the deployment.')
     expect(global).toContain('You are the deployment.')
@@ -87,8 +87,8 @@ describe('scoped variables', () => {
     ctx.systemPrompt.variable('mode', () => 'normal')
     scope.ctx.systemPrompt.variable('mode', () => 'strict')
 
-    expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: scopeKeyOf(scope) }))).toContain('Mode: strict.')
-    expect(renderPrompt(await ctx.systemPrompt.assemble())).toContain('Mode: normal.')
+    expect(renderContextSnapshot(await ctx.systemPrompt.assemble({ scope: scopeKeyOf(scope) }))).toContain('Mode: strict.')
+    expect(renderContextSnapshot(await ctx.systemPrompt.assemble())).toContain('Mode: normal.')
   })
 
   it('same-layer duplicates throw; scoped layer cleans up on dispose', async () => {
@@ -118,9 +118,9 @@ describe('scoped variables', () => {
       return 'first'
     })
 
-    expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: key }))).toContain('Mode: first.')
+    expect(renderContextSnapshot(await ctx.systemPrompt.assemble({ scope: key }))).toContain('Mode: first.')
     expect(calls).toEqual(['first'])
-    expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: key }))).toContain('Mode: replacement.')
+    expect(renderContextSnapshot(await ctx.systemPrompt.assemble({ scope: key }))).toContain('Mode: replacement.')
     expect(calls).toEqual(['first', 'replacement'])
   })
 })

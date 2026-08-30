@@ -12,7 +12,7 @@ Web agent（智能体）既无法识别承载当前会话的 GUI，也不知道�
 
 ## 决策
 
-常规 `dsh web` 组合会挂载 Web 组合包的 `web-runtime` 插件，由它发布一个规范的回环 URL，同时将其作为模型可见的界面定位信息和受管 shell 事实。`app:web-surface` 提示词段说明：未加限定的指代指向此 GUI，并给出 URL；`DSH_WEB_URL` 会把同样的事实传入每次前台或受管后台 bash 调用。该段保留「不会隐式获得 DOM、路由或截图」这一边界，也不声称局域网别名等于浏览器中的实际地址。拥有完整提示词的 profile 会把该配置行的 `surfaceContext` 设为 false，并且不会收到该提示词段和该受管变量；Web 启动器也会使用同一项设置来抑制其源码 checkout 提示词段。
+常规 `dsh web` 组合会挂载 Web 组合包的 `web-runtime` 插件，由它发布一个规范的回环 URL，同时将其作为模型可见的界面定位信息和受管 shell 事实。`app:web-surface` 动态上下文说明：未加限定的指代指向此 GUI，并给出 URL；`DSH_WEB_URL` 会把同样的事实传入每次前台或受管后台 bash 调用。该上下文保留「不会隐式获得 DOM、路由或截图」这一边界，也不声称局域网别名等于浏览器中的实际地址。不挂载 Web surface 的 profile 会把该配置行的 `surfaceContext` 设为 false，并且不会收到该上下文和该受管变量；Web 启动器也会使用同一项设置来抑制其源码 checkout 上下文。
 
 提示词让 agent 而非用户负责隐藏的启动约定。HMR（热模块替换）接收端始终挂载，但客户端插件要自动重新加载，还需要在同一检出中运行 `pnpm run dev:web` 监听进程，agent 会在承诺无需刷新即可更新前验证这一点。外壳和其他普通包的变更仍然需要重新构建受影响的产物并刷新现有 URL。除非用户要求，agent 不会启动替代 GUI。
 
@@ -22,7 +22,7 @@ Web agent（智能体）既无法识别承载当前会话的 GUI，也不知道�
 
 ## 验证
 
-无密钥的 fresh-round-trip 浏览器场景会启动已交付的 Web 组合，驱动真实的回放会话，对包含 URL 的系统提示词前缀生成快照，并调用组装后的 bash 工具，证明 `$DSH_WEB_URL` 与实际绑定的运行时一致。真实 CLI 冒烟测试会启动 `dsh web` 并捕获模型提供方请求，从而固定完整的双命令开发约定。`dev:web` watcher 测试会在源码发生变化后重新构建隔离的客户端 bundle；浏览器 HMR 场景会启动 `dsh web`，修改初始 roster 中的 bundle，并在页面 identity 不变的情况下观察新 DOM。真实 Vite 子进程测试要求服务模式在给出改用完整宿主的纠正信息后自然退出，并通过插桩 `Server.listen()` 证明它从未被调用。真实 loader Web 服务器测试会在进程完成绑定后改写静态资源，并证明同一端口返回新的字节。这些断言检查提示词状态、进程退出状态、shell 输出、DOM identity 和 HTTP 字节，而不是 agent 的成功声明。
+无密钥的 fresh-round-trip 浏览器场景会启动已交付的 Web 组合，驱动真实的回放会话，对包含 URL 的 runtime-context 消息生成快照，并调用组装后的 bash 工具，证明 `$DSH_WEB_URL` 与实际绑定的运行时一致。真实 CLI 冒烟测试会启动 `dsh web` 并捕获模型提供方请求，从而固定完整的双命令开发约定。`dev:web` watcher 测试会在源码发生变化后重新构建隔离的客户端 bundle；浏览器 HMR 场景会启动 `dsh web`，修改初始 roster 中的 bundle，并在页面 identity 不变的情况下观察新 DOM。真实 Vite 子进程测试要求服务模式在给出改用完整宿主的纠正信息后自然退出，并通过插桩 `Server.listen()` 证明它从未被调用。真实 loader Web 服务器测试会在进程完成绑定后改写静态资源，并证明同一端口返回新的字节。这些断言检查提示词状态、进程退出状态、shell 输出、DOM identity 和 HTTP 字节，而不是 agent 的成功声明。
 
 ## 考虑过的替代方案
 

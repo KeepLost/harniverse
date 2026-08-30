@@ -1,5 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
-import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt, { renderContextSnapshot } from '@deepseek-ai/dsh-system-prompt'
 import { createScope, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import { describe, expect, it } from 'vitest'
 import * as Persona from '@deepseek-ai/dsh-persona'
@@ -11,10 +11,10 @@ async function harness(deploymentPersona: string): Promise<Context> {
   return ctx
 }
 
-/** The rendered text of the persona slot as one scope sees it. */
+/** The assembled text of the dynamic persona slot as one scope sees it. */
 async function personaText(ctx: Context, scope?: ScopeKey): Promise<string | undefined> {
   const assembly = await ctx.systemPrompt.assemble(scope === undefined ? {} : { scope })
-  return assembly.sections.find(section => section.name === PERSONA_SECTION)?.text
+  return assembly.contexts.find(context => context.name === PERSONA_SECTION)?.text
 }
 
 describe('the persona row', () => {
@@ -22,7 +22,7 @@ describe('the persona row', () => {
     const ctx = await harness('deployment identity')
 
     await expect(ctx.plugin(Persona, { text: 'composition identity' }))
-      .rejects.toThrow(/"deployment:persona" is already registered/)
+      .rejects.toThrow(/prompt context "deployment:persona" is already registered/)
   })
 
   it('shadows the deployment default for one scope only', async () => {
@@ -55,7 +55,7 @@ describe('the persona row', () => {
     await createScope(ctx, key).ctx.plugin(Persona, { text: '' })
 
     // The slot is still occupied, so the deployment persona is gone for this
-    // agent; an empty section is dropped when the prompt renders.
+    // agent; an empty context is dropped from the runtime snapshot.
     expect(await personaText(ctx, key)).toBe('')
     expect(await personaText(ctx)).toBe('deployment identity')
   })
@@ -72,57 +72,40 @@ describe('the persona row', () => {
     expect(await personaText(ctx, key)).toBe('deployment identity')
   })
 
-  it('interpolates prompt variables strictly, like any other section', async () => {
+  it('interpolates prompt variables strictly, like any other context', async () => {
     const ctx = await harness('')
     const key: ScopeKey = { agent: 'a1' }
     ctx.systemPrompt.variable('model', () => 'deepseek-v4-pro')
 
     await createScope(ctx, key).ctx.plugin(Persona, { text: 'You run on {{model}}.' })
 
-    // `assemble()` keeps section text uninterpolated; `renderPrompt()` is the
+    // `assemble()` keeps context text uninterpolated; `renderContextSnapshot()` is the
     // stage that resolves `{{…}}` against the assembly's variables.
     expect(await personaText(ctx, key)).toBe('You run on {{model}}.')
-    expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: key })))
+    expect(renderContextSnapshot(await ctx.systemPrompt.assemble({ scope: key })))
       .toContain('You run on deepseek-v4-pro.')
   })
 
-  it('makes a complete persona the exact prompt after every other contribution', async () => {
+  it('keeps the persona dynamic while other system sections remain visible', async () => {
     const ctx = await harness('deployment identity')
     const key: ScopeKey = { agent: 'a1' }
     const scope = createScope(ctx, key)
     ctx.systemPrompt.section({ name: 'global:extra', order: 100, text: 'global guidance' })
 
-    await scope.ctx.plugin(Persona, { text: 'Only this.', complete: true })
+    await scope.ctx.plugin(Persona, { text: 'Only this.' })
     scope.ctx.on('system-prompt/assemble', async (assembly, _context, next) => {
       assembly.sections.push({ name: 'late:extra', text: 'late guidance' })
       return next()
     }, { prepend: true })
 
     const assembly = await ctx.systemPrompt.assemble({ scope: key })
-    expect(assembly.sections).toEqual([{ name: PERSONA_SECTION, text: 'Only this.' }])
-    expect(renderPrompt(assembly)).toBe('Only this.')
-  })
-
-  it('can suppress runtime context for its scope without changing the global assembly', async () => {
-    const ctx = await harness('deployment identity')
-    const key: ScopeKey = { agent: 'a1' }
-    const scope = createScope(ctx, key)
-    ctx.systemPrompt.context({ name: 'policy', order: 1, text: 'global policy' })
-
-    const fiber = await scope.ctx.plugin(Persona, {
-      text: 'Only this.',
-      includeRuntimeContext: false,
-    })
-    const suppressed = await ctx.systemPrompt.assemble({ scope: key })
-    expect(suppressed.contexts).toEqual([])
-    const global = await ctx.systemPrompt.assemble()
-    expect(global.contexts).toEqual([
-      { name: 'policy', text: 'global policy' },
+    expect(assembly.sections).toEqual([
+      { name: 'harness:identity', text: 'You are an AI agent powered by Harniverse.' },
+      { name: 'global:extra', text: 'global guidance' },
+      { name: 'late:extra', text: 'late guidance' },
     ])
-
-    await fiber.dispose()
-    expect((await ctx.systemPrompt.assemble({ scope: key })).contexts).toEqual([
-      { name: 'policy', text: 'global policy' },
+    expect(assembly.contexts).toEqual([
+      { name: PERSONA_SECTION, text: 'Only this.' },
     ])
   })
 
@@ -136,6 +119,7 @@ describe('the persona row', () => {
     }, { inject: ['systemPrompt'] }))
 
     expect((await ctx.systemPrompt.assemble({ scope: key })).contexts).toEqual([
+      { name: PERSONA_SECTION, text: 'Scoped identity.' },
       { name: 'policy', text: 'global policy' },
     ])
   })

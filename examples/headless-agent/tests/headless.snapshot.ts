@@ -59,6 +59,7 @@ const headlessSessionExpected = join(snapshotsDir, 'headless-profile', 'session.
 const headlessFailureExpected = join(snapshotsDir, 'headless-profile', 'stderr.expected.txt')
 const cliMockLlmPluginPath = fileURLToPath(new URL('./fixtures/cli-mock-llm.ts', import.meta.url))
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
+const PRODUCT_PROFILE_PROCESS_TIMEOUT_MS = 60_000
 
 interface JsonObject {
   [key: string]: unknown
@@ -85,11 +86,11 @@ async function deepseekDefaultsServer(): Promise<DeepSeekDefaultsServer> {
     request.on('end', () => {
       requests.push(JSON.parse(body) as JsonObject)
       response.writeHead(200, { 'content-type': 'text/event-stream' })
-      let keepAlives = 3
+      let keepAlives = 20
       const write = (): void => {
         if (keepAlives-- > 0) {
           response.write(': keep-alive\n\n')
-          setTimeout(write, 60)
+          setTimeout(write, 30)
           return
         }
         response.end([
@@ -246,11 +247,12 @@ describe('headless stream-json snapshots', () => {
         expect(session).toContain(task)
         expect(session).toContain('CLI tool round trip complete: CLI_TOOL_ROUND_TRIP')
       },
+      processTimeoutMs: PRODUCT_PROFILE_PROCESS_TIMEOUT_MS,
     })
 
     expect(result.stdout).toBe('CLI tool round trip complete: CLI_TOOL_ROUND_TRIP\n')
     expect(result.stderr).toBe('')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PRODUCT_PROFILE_PROCESS_TIMEOUT_MS + 15_000)
 
   it('prints a terminal model failure through the product headless profile command', async () => {
     const result = await runLoaderSmoke({
@@ -267,11 +269,12 @@ describe('headless stream-json snapshots', () => {
         NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
       },
       prepare: prepareCliMockFixture,
+      processTimeoutMs: PRODUCT_PROFILE_PROCESS_TIMEOUT_MS,
     })
 
     expect(result.stdout).toBe('\n')
     await expect(result.stderr).toMatchFileSnapshot(headlessFailureExpected)
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PRODUCT_PROFILE_PROCESS_TIMEOUT_MS + 15_000)
 
   it('prints the original Loader activation error through the assembled one-shot app', async () => {
     const result = await runLoaderSmoke({

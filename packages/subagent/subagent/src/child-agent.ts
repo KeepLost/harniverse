@@ -144,7 +144,7 @@ export const SUBAGENT_DELEGATION_CONTEXT
 /**
  * Compose one child inside its creation window: join its parent's preset,
  * register the fixed delegation-scope statement, then apply the child's own
- * shadowing persona section and tool restriction, all owned by the child's
+ * shadowing persona context and tool restriction, all owned by the child's
  * scope and therefore invisible to its parent and siblings. Creation and cold
  * resume both pass through here.
  *
@@ -172,7 +172,7 @@ export function applyChildComposition(
   // Order 120: after the sandbox:policy (110) and approval:policy (115) sentences.
   childCtx.systemPrompt.context({ name: 'subagent:delegation', order: 120, text: SUBAGENT_DELEGATION_CONTEXT })
   if (composition.persona !== undefined) {
-    childCtx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: composition.persona })
+    childCtx.systemPrompt.context({ name: 'deployment:persona', order: 0, text: composition.persona })
   }
   if (composition.toolFilter !== undefined) childCtx.tools.restrict(composition.toolFilter)
 }

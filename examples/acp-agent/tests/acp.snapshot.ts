@@ -62,7 +62,6 @@ const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
 const PARTIAL_LANDLOCK_CONFIG = fileURLToPath(new URL('../partial-landlock.cordis.yml', import.meta.url))
 const PWSH_CONFIG = fileURLToPath(new URL('./pwsh.cordis.yml', import.meta.url))
-const PERSISTENT_PWSH_CONFIG = fileURLToPath(new URL('./persistent-pwsh.cordis.yml', import.meta.url))
 const BACKGROUND_TASK_ADMISSION_CONFIG = fileURLToPath(
   new URL('../background-job-admission.cordis.yml', import.meta.url),
 )
@@ -150,8 +149,8 @@ const SCENARIOS: Scenario[] = [
   },
   // Product-subagent scenarios are authored schema-isolation fixtures: they
   // reuse the stable text-turn transcript so only Loader-composed headers and
-  // tool sidecars vary. Model output and usage are not evidence here, so record
-  // mode must not replace them with live-API output.
+  // prompt/tool sidecars vary. Model output and usage are not evidence here, so
+  // record mode must not replace them with live-API output.
   {
     name: 'product-subagent-codex',
     hasModelTurn: true,
@@ -176,7 +175,6 @@ const SCENARIOS: Scenario[] = [
     overridden: true,
     pinsHeader: true,
     headerClass: 'product-subagent-result-diagnostic',
-    systemPromptSource: 'product-subagent-codex',
     configPath: PRODUCT_SUBAGENT_RESULT_DIAGNOSTIC_CONFIG,
   },
   {
@@ -273,15 +271,6 @@ const SCENARIOS: Scenario[] = [
     // binary skip the run (fixtures stay guarded). The recorded turn writes
     // PWSH_OK via [Console]::Out.Write so the fixture carries no platform
     // newline and one recording replays on every host.
-    pwshOnly: true,
-  },
-  {
-    name: 'persistent-pwsh-tool-turn',
-    hasModelTurn: true,
-    recorded: true,
-    pinsHeader: true,
-    headerClass: 'persistent-pwsh',
-    configPath: PERSISTENT_PWSH_CONFIG,
     pwshOnly: true,
   },
   // Authored keyless replay through a test-only partial-Landlock provider:
@@ -419,20 +408,61 @@ const SCENARIOS: Scenario[] = [
   // Cancelling a live bash call relies on POSIX process-group termination;
   // Windows bash process-tree kill is deferred with the Bash execution domain.
   { name: 'cancel-tool-calls', hasModelTurn: true, recorded: false, overridden: true, posixOnly: true },
-  { name: 'subagent-spawn-in-process', hasModelTurn: true, recorded: true },
+  {
+    name: 'subagent-spawn-in-process',
+    hasModelTurn: true,
+    recorded: true,
+    pinsChildToolSchemas: [1],
+    pinsChildSystemPrompts: [1],
+  },
   // Keyless authored scenario: the child ends at max-tokens with an empty
   // usage-only assistant/message after earlier text and a tool call. The
   // parent's tool result must retain that assistant output and stop reason.
-  { name: 'subagent-max-tokens-partial', hasModelTurn: true, recorded: false },
-  { name: 'subagent-multi', hasModelTurn: true, recorded: true },
-  // Authored keyless replay: one assistant message carries two subagent calls
-  // and the parent log pins call/call/result/result instead of the serial
-  // interleaving. The twin delegations must stay identical: replay binds child
-  // scripts and harvest order nondeterministically across concurrent children
-  // (XXX(concurrent-subagents) in dsh-llm-replay).
-  { name: 'subagent-parallel', hasModelTurn: true, recorded: false },
-  { name: 'subagent-fork-in-process', hasModelTurn: true, recorded: true },
-  { name: 'subagent-mixed', hasModelTurn: true, recorded: true },
+  {
+    name: 'subagent-max-tokens-partial',
+    hasModelTurn: true,
+    recorded: false,
+    pinsChildToolSchemas: [1],
+    pinsChildSystemPrompts: [1],
+  },
+  {
+    name: 'subagent-multi',
+    hasModelTurn: true,
+    recorded: true,
+    // Current subagent sessions carry their scope-local report tool and
+    // guidance; pin each child independently instead of comparing it with the
+    // parent's default header.
+    pinsChildToolSchemas: [1, 2],
+    pinsChildSystemPrompts: [1, 2],
+  },
+  // Authored keyless replay: one assistant message carries two subagent calls.
+  // The twin delegations must stay identical: replay binds child scripts and
+  // harvest order nondeterministically across concurrent children
+  // (XXX(concurrent-subagents) in dsh-llm-replay). Their settlement notices
+  // are model-visible, but their sibling insertion order is not a contract, so
+  // this scenario does not compare the durable parent log byte-for-byte.
+  {
+    name: 'subagent-parallel',
+    hasModelTurn: true,
+    comparesLog: false,
+    recorded: false,
+    pinsChildToolSchemas: [1, 2],
+    pinsChildSystemPrompts: [1, 2],
+  },
+  {
+    name: 'subagent-fork-in-process',
+    hasModelTurn: true,
+    recorded: true,
+    pinsChildToolSchemas: [1],
+    pinsChildSystemPrompts: [1],
+  },
+  {
+    name: 'subagent-mixed',
+    hasModelTurn: true,
+    recorded: true,
+    pinsChildToolSchemas: [1, 2],
+    pinsChildSystemPrompts: [1, 2],
+  },
   // Authored continuable-subagent transcript: an async delegation returns
   // the durable child Session id, two session_message calls queue as later FIFO
   // turns on that same child (the parent is never woken with their output),
@@ -511,9 +541,11 @@ const SCENARIOS: Scenario[] = [
     hasModelTurn: true,
     recorded: false,
     overridden: true,
+    pinsChildToolSchemas: [1, 2],
+    pinsChildSystemPrompts: [1, 2],
     configPath: DEPTH_TWO_CONFIG,
   },
-  // Authored keyless replay through the assembled app: a one-shot child calls
+  // Authored keyless replay through the assembled app: a continuable child calls
   // the real ask_user_question tool, the runtime-ownership guard rejects before
   // the tripwire provider, and the child carries the unresolved decision in its
   // final result so the parent can complete instead of waiting forever.
@@ -524,6 +556,8 @@ const SCENARIOS: Scenario[] = [
     pinsHeader: true,
     headerClass: 'child-question',
     systemPromptSource: 'text-turn',
+    pinsChildToolSchemas: [1],
+    pinsChildSystemPrompts: [1],
     configPath: CHILD_QUESTION_CONFIG,
   },
   // The workflow tool: the model writes a one-child orchestration script; the
@@ -540,6 +574,8 @@ const SCENARIOS: Scenario[] = [
     recorded: false,
     pinsHeader: true,
     headerClass: 'advanced',
+    pinsChildToolSchemas: [1, 2],
+    pinsChildSystemPrompts: [1],
     configPath: ADVANCED_CONFIG,
   },
   {

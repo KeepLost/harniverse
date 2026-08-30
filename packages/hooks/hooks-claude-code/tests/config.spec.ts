@@ -46,6 +46,17 @@ describe('parseClaudeCodeConfig', () => {
     expect(config.Stop).toEqual([{ hooks: [{ command: 'd.sh' }] }])
   })
 
+  it('omits disabled groups and hooks from the runnable config', () => {
+    const { config } = parseClaudeCodeConfig({ PreToolUse: [
+      { disabled: true, hooks: [{ type: 'command', command: 'disabled-group.sh' }] },
+      { hooks: [
+        { enabled: false, type: 'command', command: 'disabled-hook.sh' },
+        { type: 'command', command: 'enabled.sh' },
+      ] },
+    ] })
+    expect(config.PreToolUse).toEqual([{ hooks: [{ command: 'enabled.sh' }] }])
+  })
+
   it('drops malformed entries without throwing: non-array groups, non-object group/hook, missing command, empty groups', () => {
     expect(parseClaudeCodeConfig({ PreToolUse: 'nope' }).config).toEqual({})
     expect(parseClaudeCodeConfig({ PreToolUse: [42, { hooks: 'no' }, { hooks: [7, { type: 'command' }] }] }).config).toEqual({})

@@ -35,7 +35,7 @@ export const Config: z<Config> = z.object({
  * The spawn provider. Supports every start-time capability: `depthLimit` (it
  * constructs the child, so it can enforce a recursion cap), `outputSchema`
  * (the scoped structured runtime), and `toolFilter`/`persona` (scoped
- * `restrict()` and a scoped shadowing persona section, applied in the child's
+ * `restrict()` and a scoped shadowing persona context, applied in the child's
  * creation window).
  */
 class SpawnInProcessProvider implements SubagentProvider {

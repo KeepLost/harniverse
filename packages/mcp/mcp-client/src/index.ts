@@ -38,12 +38,11 @@ const DEFAULT_TOOL_CALL_TIMEOUT_MS = 60_000
 const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
 
 /**
- * Live `serverName` reservations per app, keyed off `ctx.root` (multiple apps
- * in one process — tests — must not see each other's names). A duplicate
- * namespace is a configuration error surfaced at plugin load, never silent
- * shadowing.
+ * Live `serverName` reservations per app and optional owner key. Scoped profile
+ * compositions may mount the same user server in separate registries, while
+ * direct rows without an owner key retain one-app duplicate detection.
  */
-const activeServerNames = new WeakMap<Context, Set<string>>()
+const activeServerNames = new WeakMap<object, Set<string>>()
 
 // ---- Config ----
 
@@ -57,6 +56,8 @@ export interface StdioConfig {
    * unique across live mcp-client instances.
    */
   serverName: string
+  /** Optional owner key allowing the same public namespace in separate scoped registries. */
+  reservationKey?: string | undefined
   /** Executable used to start the server. */
   command: string
   /** Arguments passed directly, without shell interpolation. */
@@ -83,6 +84,8 @@ export interface StreamableHttpConfig {
    * unique across live mcp-client instances.
    */
   serverName: string
+  /** Optional owner key allowing the same public namespace in separate scoped registries. */
+  reservationKey?: string | undefined
   /** MCP endpoint URL. */
   url: string
   /** Additional headers attached to MCP requests. */
@@ -109,6 +112,7 @@ export const Config = z.union([
   z.object({
     transport: z.const('stdio'),
     serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
+    reservationKey: z.string(),
     command: z.string().required(),
     args: z.array(String).default([]),
     env: z.dict(String).default({}),
@@ -120,6 +124,7 @@ export const Config = z.union([
   z.object({
     transport: z.const('streamable-http'),
     serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
+    reservationKey: z.string(),
     url: z.string().required(),
     headers: z.dict(String).default({}),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
@@ -147,18 +152,22 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // Reserve the namespace next: a duplicate `serverName` fails THIS instance
   // at load with an actionable error and leaves the earlier instance intact.
   ctx.effect(() => {
-    let names = activeServerNames.get(ctx.root)
+    const reservationScope = ctx.root
+    const reservationName = config.reservationKey === undefined
+      ? config.serverName
+      : `${config.reservationKey}:${config.serverName}`
+    let names = activeServerNames.get(reservationScope)
     if (!names) {
       names = new Set()
-      activeServerNames.set(ctx.root, names)
+      activeServerNames.set(reservationScope, names)
     }
-    if (names.has(config.serverName)) {
+    if (names.has(reservationName)) {
       throw new Error(
         `mcp-client: serverName "${config.serverName}" is already in use by another mcp-client instance — pick a unique serverName in cordis.yml`,
       )
     }
-    names.add(config.serverName)
-    return () => void names.delete(config.serverName)
+    names.add(reservationName)
+    return () => void names.delete(reservationName)
   }, 'mcp-client.serverName')
 
   // The supervisor owns the client/transport generations, the reconnect

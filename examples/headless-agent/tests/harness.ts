@@ -38,7 +38,7 @@ export const TODO_SYSTEM_PROMPT = 'You are a coding agent. For multi-step work, 
 export interface CodingHarnessOptions {
   /**
    * Deployment persona for the tree (the system-prompt plugin's `persona`
-   * config — per-context, not per-agent). Omitted ⇒ no persona section.
+   * config — per-context, not per-agent). Omitted means no persona context.
    */
   persona?: string
   /** Durable JSONL persistence root (the resume suite needs it; others stay file-free). */

@@ -109,8 +109,10 @@ type ContextForm =
   | 'notice'
   /** A message another agent addressed to this one. */
   | 'relay'
-  /** Material lifted out of another session's log, possibly reduced on the way in. */
-  | 'recall'
+   /** Material lifted out of another session's log, possibly reduced on the way in. */
+   | 'recall'
+   /** An automatic continuation injected by the runtime rather than a human user. */
+   | 'system-injection'
 ```
 
 ```ts type-equiv
@@ -149,6 +151,7 @@ type ContextFormed =
   }
   | { readonly form: 'relay' }
   | { readonly form: 'recall' }
+  | { readonly form: 'system-injection' }
 ```
 
 <a id="streamchunk--the-raw-protocol"></a>

@@ -1,4 +1,4 @@
 name: 极简模式
-description: 提供持久 bash、str_replace_editor、完整结果恢复以及跨会话查询与投递的极简编码 Agent。
+description: 仅提供 POSIX Bash 或 Windows PowerShell 与 str_replace_editor，并在模型不可见的内部执行自动 lossless compaction 与 summary DAG。
 order: 3
 permissionPreset: workspace-write

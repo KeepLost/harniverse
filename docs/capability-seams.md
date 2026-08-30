@@ -68,6 +68,8 @@ flowchart LR
   svc_settings["ctx.settings<br/>User-settings seam"]
   pkg_settings_file["settings-file"]
   pkg_apiproxy["apiproxy"]
+  pkg_mcp_user_config["mcp-user-config"]
+  svc_mcpUserConfigSettings["ctx.mcpUserConfigSettings<br/>User MCP configuration seam"]
   pkg_credentials["credentials"]
   svc_credentials["ctx.credentials<br/>Credential seam"]
   pkg_credentials_local["credentials-local"]
@@ -270,6 +272,7 @@ flowchart LR
   pkg_llm_replay --> svc_llm
   pkg_lsp --> svc_lsp
   pkg_lsp_local --> svc_lsp
+  pkg_mcp_user_config --> svc_mcpUserConfigSettings
   pkg_message_feedback --> svc_messageFeedback
   pkg_modules --> svc_clientModules
   pkg_notification --> svc_notification
@@ -377,6 +380,7 @@ flowchart LR
   svc_llm --> pkg_compaction_basic
   svc_llm --> pkg_compaction_lossless
   svc_lsp --> pkg_tool_lsp
+  svc_mcpUserConfigSettings --> pkg_mcp_user_config
   svc_notification --> pkg_notification
   svc_pluginDiagnostics --> pkg_host_plugin_inventory
   svc_sandbox --> pkg_bash_sandbox
@@ -410,6 +414,7 @@ flowchart LR
   svc_settings --> pkg_apiproxy
   svc_settings --> pkg_llm_deepseek
   svc_settings --> pkg_llm_pi_ai
+  svc_settings --> pkg_mcp_user_config
   svc_shell --> pkg_hooks_claude_code
   svc_shell --> pkg_hooks_codex
   svc_shell --> pkg_tool_bash
@@ -482,7 +487,8 @@ flowchart LR
 | `ctx.typert` | `core` | [`typert-registry`](../packages/typert/registry) | - | [`typert-loader`](../packages/typert/loader), [`api-gateway`](../packages/api/gateway) | - | Plugins register live zod contributions directly or through dsh-typert-loader; the API gateway consumes invocation descriptors and providers, while other runtime consumers query schemas and reflection metadata at their own edges. |
 | `ctx.typertGateway` | `core` | [`api-gateway`](../packages/api/gateway) | - | - | - | Associates generated Remote descriptors with live Cordis services, resolves registered identities, and exposes unary calls through the shared Connection RPC carrier. |
 | `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session/session-persistence) | [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session/session-persistence-sqlite) | [`agent-loop`](../packages/core/agent-loop), [`tool-bash`](../packages/shell/tool-bash), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`message-feedback`](../packages/feedback/message-feedback) | - | Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time. |
-| `ctx.settings` | `seam` | [`settings`](../packages/settings/settings) | [`settings-file`](../packages/settings/settings-file) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy` | - | Plugins register namespace schemas and resolve layered values; providers store the raw document. The LLM adapters register their entry config as the composition base under the user section; the web gateway serves redacted layered descriptors and writes the user layer. |
+| `ctx.settings` | `seam` | [`settings`](../packages/settings/settings) | [`settings-file`](../packages/settings/settings-file) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy`, [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | Plugins register namespace schemas and resolve layered values; providers store the raw document. The LLM adapters register their entry config as the composition base under the user section; the web gateway serves redacted layered descriptors and writes the user layer. |
+| `ctx.mcpUserConfigSettings` | `seam` | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | The host-owned provider validates and persists the user server list; profile consumers reconcile isolated mcp-client children without globalizing their tools. |
 | `ctx.credentials` | `seam` | [`credentials`](../packages/credentials/credentials) | [`credentials-local`](../packages/credentials/credentials-local) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy` | - | Configuration carries references to secrets; providers own the values. Consumers resolve per operation, so a rotated credential reaches the very next request; the web gateway exposes value-free views and write-only storage. |
 | `ctx.sessionTelemetry` | `seam` | [`session-telemetry`](../packages/session/session-telemetry) | [`session-telemetry-otel`](../packages/session/session-telemetry-otel) | [`session-telemetry`](../packages/session/session-telemetry) | - | The Definition package also bundles the coordinator Consumer that captures and redacts session records before handing them to one backend; its output leaves the process. |
 | `ctx.notification` | `seam` | [`notification`](../packages/notification/notification) | [`notification-http`](../packages/notification/notification-http) | [`notification`](../packages/notification/notification) | - | The Definition package also bundles the coordinator Consumer that projects selected lifecycle metadata into a stable external protocol; the opt-in HTTP provider persists endpoint deliveries and sends them outside the process. |

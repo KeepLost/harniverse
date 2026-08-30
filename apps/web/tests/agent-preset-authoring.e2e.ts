@@ -161,7 +161,7 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
     expect(composition).toBe(await readFile(join(SHIPPED_PRESETS, 'minimal', 'agent.cordis.yml'), 'utf8'))
     const metadata = await readFile(join(userRoot, 'my-agent', 'preset.yml'), 'utf8')
     expect(metadata).toContain('name: 我的模式')
-    expect(metadata).toContain('description: 仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。')
+    expect(metadata).toContain('description: 仅提供 POSIX Bash 或 Windows PowerShell 与 str_replace_editor，并在模型不可见的内部执行自动 lossless compaction 与 summary DAG。')
     expect(metadata).not.toContain('order:')
   }, 60_000)
 
@@ -270,7 +270,7 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
         result: { value?: { sessions: unknown[] } }
       }
       return JSON.stringify(body.result.value?.sessions ?? body.result)
-    }, { timeout: 15_000 }).toContain('"agentPreset":"cordis"')
+    }, { timeout: 15_000 }).toContain('"agentProfile":"cordis"')
   }, 60_000)
 
   it('drove every surface without a page error or a stream warning', () => {

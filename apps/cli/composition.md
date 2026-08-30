@@ -162,6 +162,18 @@ flowchart LR
   cfg --> plugin_dsh_base_web_search_exa
   plugin_dsh_base_web_search_perplexity["web-search-perplexity<br/>@deepseek-ai/dsh-web-search-perplexity"]
   cfg --> plugin_dsh_base_web_search_perplexity
+  plugin_dsh_base_web_search_tavily["web-search-tavily<br/>@deepseek-ai/dsh-web-search-tavily"]
+  cfg --> plugin_dsh_base_web_search_tavily
+  plugin_dsh_base_web_search_brave["web-search-brave<br/>@deepseek-ai/dsh-web-search-brave"]
+  cfg --> plugin_dsh_base_web_search_brave
+  plugin_dsh_base_web_search_kagi["web-search-kagi<br/>@deepseek-ai/dsh-web-search-kagi"]
+  cfg --> plugin_dsh_base_web_search_kagi
+  plugin_dsh_base_web_firecrawl["web-firecrawl<br/>@deepseek-ai/dsh-web-firecrawl"]
+  cfg --> plugin_dsh_base_web_firecrawl
+  plugin_dsh_base_web_fetch_http["web-fetch-http<br/>@deepseek-ai/dsh-web-fetch-http"]
+  cfg --> plugin_dsh_base_web_fetch_http
+  plugin_dsh_base_mcp_user_config_settings["mcp-user-config-settings<br/>@deepseek-ai/dsh-mcp-user-config"]
+  cfg --> plugin_dsh_base_mcp_user_config_settings
   plugin_dsh_base_tool_web["tool-web<br/>@deepseek-ai/dsh-tool-web"]
   cfg --> plugin_dsh_base_tool_web
   plugin_dsh_base_tools["tools<br/>@deepseek-ai/dsh-tools"]
@@ -255,6 +267,12 @@ flowchart LR
 | `web-search-deepseek` | `@deepseek-ai/dsh-web-search-deepseek` |
 | `web-search-exa` | `@deepseek-ai/dsh-web-search-exa` |
 | `web-search-perplexity` | `@deepseek-ai/dsh-web-search-perplexity` |
+| `web-search-tavily` | `@deepseek-ai/dsh-web-search-tavily` |
+| `web-search-brave` | `@deepseek-ai/dsh-web-search-brave` |
+| `web-search-kagi` | `@deepseek-ai/dsh-web-search-kagi` |
+| `web-firecrawl` | `@deepseek-ai/dsh-web-firecrawl` |
+| `web-fetch-http` | `@deepseek-ai/dsh-web-fetch-http` |
+| `mcp-user-config-settings` | `@deepseek-ai/dsh-mcp-user-config` |
 | `tool-web` | `@deepseek-ai/dsh-tool-web` |
 | `tools` | `@deepseek-ai/dsh-tools` |
 | `system-prompt` | `@deepseek-ai/dsh-system-prompt` |

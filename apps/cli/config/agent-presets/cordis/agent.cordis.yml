@@ -18,7 +18,7 @@
   name: '@deepseek-ai/dsh-persona'
   config:
     text: |-
-      You are a coding agent powered by the {{model}} model, running on the DeepSeek Harness. Your working directory is {{cwd}}.
+      You are a coding agent powered by the {{model}} model, running on Harniverse, a downstream of DeepSeek Harness (DSH). Your working directory is {{cwd}}.
 
       You can read and modify the harness you run on. Its composition is Cordis: every capability is a plugin row in a `cordis.yml`, and an agent preset is one such file mounted for a single session.
 
@@ -32,6 +32,19 @@
   name: '@deepseek-ai/dsh-agent-instructions'
   config:
     maxBytes: 65536
+
+# Standard-family profiles keep these compatibility bridges available for
+# explicit opt-in, but do not load them by default.
+- id: hooks-claude-code
+  name: '@deepseek-ai/dsh-hooks-claude-code'
+  disabled: true
+
+- id: hooks-codex
+  name: '@deepseek-ai/dsh-hooks-codex'
+  disabled: true
+
+- id: mcp-user-config
+  name: '@deepseek-ai/dsh-mcp-user-config'
 
 # ── shell ───────────────────────────────────────────────────────────────────
 
@@ -241,8 +254,8 @@
 - id: tool-web
   name: '@deepseek-ai/dsh-tool-web'
   config:
-    search: false
-    fetch: false
+    search: true
+    fetch: true
     searchTimeoutMs: 60000
 
 # ── self-modification ───────────────────────────────────────────────────────

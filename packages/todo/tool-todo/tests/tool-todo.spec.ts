@@ -62,6 +62,7 @@ describe('dsh-tool-todo', () => {
     const itemProps = todos.items?.properties ?? {}
     expect(Object.keys(itemProps).sort()).toEqual(['content', 'status'])
     expect(itemProps.status?.enum).toEqual(['pending', 'in_progress', 'completed'])
+    expect(schema!.description).toContain('When all TODO items are complete, mark every item `completed` before stopping.')
   })
 
   it('appends a todo/write event carrying the whole list to the calling session', async () => {

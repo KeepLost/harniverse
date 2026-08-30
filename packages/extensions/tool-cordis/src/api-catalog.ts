@@ -339,6 +339,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
       },
       {
+        signature: 'workspaceFiles?: WorkspaceFilesApi',
+        description: 'Optional only for legacy hand-built implementations; the Host service always provides it.',
+        parameters: [],
+      },
+      {
+        signature: 'workspaceGit?: WorkspaceGitApi',
+        description: 'Optional only for legacy hand-built implementations; the Host service always provides it.',
+        parameters: [],
+      },
+      {
         signature: 'downloads: DownloadsApi',
         description: 'Host-only download surfaces (GET, no wire envelope); absent from IApiClient.',
         parameters: [],
@@ -1107,6 +1117,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Select a provider by the file\'s extension and run one query. Selection is per-query and order-independent; no match throws `LspError` `LSP_UNAVAILABLE`.',
         parameters: [{ name: 'request', description: 'the normalized query.' }, { name: 'signal', description: 'optional cancellation forwarded to the selected provider.' }],
         returns: 'the normalized, closed-union result.',
+      },
+    ],
+  },
+  {
+    key: 'mcpUserConfigSettings',
+    summary: 'Read/watch-only view of the host-owned `mcp` settings scope.',
+    description: 'Read/watch-only view of the host-owned `mcp` settings scope.',
+    methods: [
+      {
+        signature: 'get(): McpUserConfigSettingsConfig',
+        description: 'Return the current validated user server list.',
+        parameters: [],
+        returns: 'the current validated user server list.',
+      },
+      {
+        signature: 'watch(callback: (next: McpUserConfigSettingsConfig, prev: McpUserConfigSettingsConfig) => void | Promise<void>): () => void',
+        description: 'Subscribe to validated settings replacements and return the disposer.',
+        parameters: [{ name: 'callback', description: 'invoked after each committed settings replacement.' }],
+        returns: 'the disposer that removes the subscription.',
       },
     ],
   },
@@ -2457,7 +2486,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'web',
     summary: 'The web access service.',
-    description: 'The web access service. Registered as `ctx.web` (one instance per context).\n\nSelection semantics (resolved at execution time, never order-dependent):\n\n- A configured id that is registered and `available()` → that provider.\n- A configured id not registered → `WEB_PROVIDER_CONFIGURED_MISSING`.\n- A configured id registered but unavailable → `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`.\n- No id configured, exactly one registered usable provider → that provider.\n- No id configured, multiple usable providers → `WEB_PROVIDER_AMBIGUOUS`.\n- No id configured, no usable provider → `WEB_PROVIDER_UNAVAILABLE`.',
+    description: 'The web access service. Registered as `ctx.web` (one instance per context).\n\nSelection semantics (resolved at execution time, never order-dependent):\n\n- A configured id that is registered and `available()` → that provider.\n- A configured id not registered → `WEB_PROVIDER_CONFIGURED_MISSING`.\n- A configured id registered but unavailable → `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`.\n- No operation or configured id → `WEB_PROVIDER_DEFAULT_MISSING`.',
     methods: [
       {
         signature: 'registerSearchProvider(provider: WebSearchProvider): () => void',
@@ -2472,15 +2501,27 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the disposer that unregisters the provider.',
       },
       {
+        signature: 'registerProvider(provider: WebProvider): () => void',
+        description: 'Register one provider\'s available capabilities as one lifecycle unit.',
+        parameters: [{ name: 'provider', description: 'the aggregate provider and its optional capabilities.' }],
+        returns: 'the disposer that unregisters every capability contributed by the provider.',
+      },
+      {
+        signature: 'listProviders(capability?: WebProviderCapability): WebProviderInfo[]',
+        description: 'List registered provider ids and their capability kinds without secrets.',
+        parameters: [{ name: 'capability', description: 'optionally limit entries to providers supporting this capability.' }],
+        returns: 'detached provider catalog entries sorted by provider id.',
+      },
+      {
         signature: 'async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>',
         description: 'Run one search through the selected provider. Resolves the provider at call time with the selection rules above; throws WebError when the capability cannot run. The seam enforces `request.maxResults` on the result: if the provider over-returns, `sources[]` is truncated and `truncated` set.',
-        parameters: [{ name: 'request', description: 'the query and optional result limit.' }, { name: 'signal', description: 'optional cancellation signal forwarded to the provider.' }],
+        parameters: [{ name: 'request', description: 'the query, optional provider id, and result limit.' }, { name: 'signal', description: 'optional cancellation signal forwarded to the provider.' }],
         returns: 'the provider\'s results, capped to `request.maxResults`.',
       },
       {
         signature: 'async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>',
         description: 'Retrieve one URL through the selected provider. Resolves the provider at call time with the selection rules above; throws WebError when the capability cannot run. A non-2xx response is a result, not a throw.',
-        parameters: [{ name: 'request', description: 'the URL plus retrieval options.' }, { name: 'signal', description: 'optional cancellation signal forwarded to the provider.' }],
+        parameters: [{ name: 'request', description: 'the URL and optional provider id.' }, { name: 'signal', description: 'optional cancellation signal forwarded to the provider.' }],
         returns: 'the retrieval outcome; non-2xx responses resolve descriptively.',
       },
     ],
@@ -3641,7 +3682,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ContextFormed',
-    declaration: 'export type ContextFormed = {\n    readonly form?: never;\n} | {\n    readonly form: \'instructions\';\n} | {\n    readonly form: \'catalog\';\n} | {\n    readonly form: \'snapshot\';\n    readonly sections: readonly ContextSnapshotSection[];\n} | {\n    readonly form: \'notice\';\n    readonly summary: string;\n} | {\n    readonly form: \'relay\';\n} | {\n    readonly form: \'recall\';\n};',
+    declaration: 'export type ContextFormed = {\n    readonly form?: never;\n} | {\n    readonly form: \'instructions\';\n} | {\n    readonly form: \'catalog\';\n} | {\n    readonly form: \'snapshot\';\n    readonly sections: readonly ContextSnapshotSection[];\n} | {\n    readonly form: \'notice\';\n    readonly summary: string;\n} | {\n    readonly form: \'relay\';\n} | {\n    readonly form: \'recall\';\n} | {\n    readonly form: \'system-injection\';\n};',
   },
   {
     name: 'ContextSnapshotSection',
@@ -4125,7 +4166,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmResolvedModelInfo',
-    declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n}',
+    declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    maxOutputTokens?: number;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n}',
   },
   {
     name: 'LlmRuntime',
@@ -4186,6 +4227,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ManualCompactAgentContext',
     declaration: 'export interface ManualCompactAgentContext extends CompactionAgentContext {\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n}',
+  },
+  {
+    name: 'McpUserConfigSettingsConfig',
+    declaration: 'export interface McpUserConfigSettingsConfig {\n    servers: UserMcpServerConfig[];\n}',
   },
   {
     name: 'Message',
@@ -4464,6 +4509,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ReasoningEffortId = Branded<\'ReasoningEffortId\'>;',
   },
   {
+    name: 'ReconnectConfig',
+    declaration: 'export interface ReconnectConfig {\n    enabled?: boolean;\n    initialDelayMs?: number;\n    maxDelayMs?: number;\n    maxAttempts?: number;\n}',
+  },
+  {
     name: 'RedactedSecret',
     declaration: 'export interface RedactedSecret {\n    path: string[];\n    set: boolean;\n}',
   },
@@ -4541,7 +4590,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RpcErrorDetailsMap',
-    declaration: 'export interface RpcErrorDetailsMap {\n    \'authentication-principal-mismatch\': {};\n    \'bad-request\': {\n        issues: ZodIssue[];\n    };\n    \'cancelled\': {};\n    \'session-not-found\': {\n        sessionId: SessionId;\n    };\n    \'model-unavailable\': {\n        provider: string;\n        model: string;\n    };\n    \'session-conflict\': {\n        sessionId: SessionId;\n        requestedCwd: string;\n        existingCwd?: string;\n    };\n    \'session-has-children\': {\n        sessionId: SessionId;\n        childSessionIds: SessionId[];\n    };\n    \'invalid-time-zone\': {\n        value: string;\n    };\n    \'workspace-attach-failed\': {\n        sessionId: SessionId;\n        workspaceId: string;\n    };\n    \'workspace-not-found\': {\n        workspaceId: string;\n    };\n    \'workspace-invalid-path\': {\n        path: string;\n    };\n    \'workspace-name-conflict\': {\n        name: string;\n    };\n    \'workspace-move-invalid\': {\n        workspaceId: string;\n        sessionId: SessionId;\n        beforeSessionId?: SessionId;\n    };\n    \'directory-unreadable\': {\n        path: string;\n    };\n    \'directory-exists\': {\n        path: string;\n    };\n    \'directory-create-failed\': {\n        path: string;\n    };\n    \'directory-picker-unavailable\': {\n        capability: string;\n    };\n    \'agent-preset-read-only\': {\n        agentPreset: string;\n        reason: string;\n    };\n    \'agent-preset-conflict\': {\n        sessionId: SessionId;\n        requestedPreset: string;\n        existingPreset?: string;\n    };\n    \'agent- /* …truncated — full shape in source */',
+    declaration: 'export interface RpcErrorDetailsMap {\n    \'authentication-principal-mismatch\': {};\n    \'bad-request\': {\n        issues: ZodIssue[];\n    };\n    \'cancelled\': {};\n    \'session-not-found\': {\n        sessionId: SessionId;\n    };\n    \'model-unavailable\': {\n        provider: string;\n        model: string;\n    };\n    \'session-conflict\': {\n        sessionId: SessionId;\n        requestedCwd: string;\n        existingCwd?: string;\n    };\n    \'session-has-children\': {\n        sessionId: SessionId;\n        childSessionIds: SessionId[];\n    };\n    \'invalid-time-zone\': {\n        value: string;\n    };\n    \'workspace-attach-failed\': {\n        sessionId: SessionId;\n        workspaceId: string;\n    };\n    \'workspace-not-found\': {\n        workspaceId: string;\n    };\n    \'workspace-invalid-path\': {\n        path: string;\n    };\n    \'workspace-name-conflict\': {\n        name: string;\n    };\n    \'workspace-move-invalid\': {\n        workspaceId: string;\n        sessionId: SessionId;\n        beforeSessionId?: SessionId;\n    };\n    \'workspace-path-invalid\': {\n        workspaceId: string;\n        path: string;\n    };\n    \'workspace-entry-not-found\': {\n        workspaceId: string;\n        path: string;\n    };\n    \'workspace-entry-not-readable\': {\n        workspaceId: string;\n        path: string;\n    };\n    \'workspace-entry-type-invalid\': {\n        workspaceId: string;\n        path: string;\n    };\n    \'workspace-file-binary\': {\n        workspaceId: string;\n        path: string;\n    };\n    \'workspace-file-pr /* …truncated — full shape in source */',
   },
   {
     name: 'RpcId',
@@ -5552,6 +5601,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TypertTypeModel {\n    readonly name: string;\n    readonly declaration: string;\n}',
   },
   {
+    name: 'UserMcpServerConfig',
+    declaration: 'export interface UserMcpServerConfig {\n    id: string;\n    enabled: boolean;\n    transport: \'stdio\' | \'streamable-http\';\n    serverName: string;\n    command?: string;\n    args: string[];\n    env: Record<string, string>;\n    cwd: string;\n    url?: string;\n    headers: Record<string, string>;\n    toolCallTimeoutMs: number;\n    failOnStartupError: boolean;\n    reconnect: ReconnectConfig;\n}',
+  },
+  {
     name: 'UserMessage',
     declaration: 'export interface UserMessage extends Message {\n    readonly role: \'user\';\n}',
   },
@@ -5577,7 +5630,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WebFetchRequest',
-    declaration: 'export interface WebFetchRequest {\n    readonly url: string;\n}',
+    declaration: 'export interface WebFetchRequest {\n    readonly url: string;\n    readonly provider?: string;\n}',
   },
   {
     name: 'WebFetchResult',
@@ -5586,6 +5639,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WebFetchResultView',
     declaration: 'export interface WebFetchResultView {\n    card: \'web\';\n    kind: \'fetch\';\n    title?: string;\n    url: string;\n    statusCode: number;\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'WebProvider',
+    declaration: 'export interface WebProvider {\n    readonly id: string;\n    readonly search?: Omit<WebSearchProvider, \'id\'>;\n    readonly fetch?: Omit<WebFetchProvider, \'id\'>;\n}',
+  },
+  {
+    name: 'WebProviderCapability',
+    declaration: 'export type WebProviderCapability = \'search\' | \'fetch\';',
+  },
+  {
+    name: 'WebProviderInfo',
+    declaration: 'export interface WebProviderInfo {\n    readonly id: string;\n    readonly capabilities: readonly WebProviderCapability[];\n}',
   },
   {
     name: 'WebResultView',
@@ -5605,7 +5670,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WebSearchRequest',
-    declaration: 'export interface WebSearchRequest {\n    readonly query: string;\n    readonly maxResults?: number;\n}',
+    declaration: 'export interface WebSearchRequest {\n    readonly query: string;\n    readonly provider?: string;\n    readonly maxResults?: number;\n}',
   },
   {
     name: 'WebSearchResult',
@@ -5674,6 +5739,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkflowStopReason',
     declaration: 'export type WorkflowStopReason = \'completed\' | \'cancelled\' | \'error\';',
+  },
+  {
+    name: 'WorkspaceFilesApi',
+    declaration: 'export interface WorkspaceFilesApi {\n    list(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        path?: string;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        path: string;\n        entries: WorkspaceFileEntry[];\n        truncated: boolean;\n    }>>;\n    search(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        query: string;\n        include?: string[];\n        exclude?: string[];\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        entries: WorkspaceFileEntry[];\n        truncated: boolean;\n    }>>;\n    read(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        path: string;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        path: string;\n        content: string;\n        bytes: number;\n        truncated: boolean;\n    }>>;\n    readBinary(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        path: string;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        path: string;\n        dataBase64: string;\n        mediaType: string;\n        bytes: number;\n    }>>;\n}',
+  },
+  {
+    name: 'WorkspaceGitApi',
+    declaration: 'export interface WorkspaceGitApi {\n    status(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        branch: string | null;\n        entries: WorkspaceGitStatusEntry[];\n        truncated: boolean;\n    }>>;\n    commits(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        limit?: number;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        commits: WorkspaceGitCommit[];\n        truncated: boolean;\n    }>>;\n    diff(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        path?: string;\n        staged?: boolean;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        diff: string;\n        truncated: boolean;\n    }>>;\n}',
   },
 ]
 

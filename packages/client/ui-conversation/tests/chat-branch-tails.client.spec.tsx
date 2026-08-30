@@ -625,6 +625,27 @@ describe('MessageItem arms', () => {
     expect(view.container.querySelector('[data-context-injection-body]')).toBeNull()
   })
 
+  it('labels a system-injected continuation separately from ordinary context', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'Continue the incomplete TODO items.' }],
+        source: { kind: 'plugin', plugin: 'tool-todo', form: 'system-injection' },
+        provenance: { role: 'inject', label: 'tool-todo' },
+        form: 'system-injection',
+      } as never}
+      />,
+    )
+
+    expect(view.getByRole('button', { name: /^系统注入\s*tool-todo$/ })).toBeDefined()
+    fireEvent.click(view.getByRole('button', { name: /^系统注入\s*tool-todo$/ }))
+    expect(view.container.querySelector('[data-context-form]')?.getAttribute('data-context-form'))
+      .toBe('system-injection')
+    expect(view.container.querySelector('[data-context-text]')?.textContent)
+      .toBe('Continue the incomplete TODO items.')
+  })
+
   it('a notice without its account falls back to the opaque body', () => {
     const view = render(
       <MessageItem t={t} node={{

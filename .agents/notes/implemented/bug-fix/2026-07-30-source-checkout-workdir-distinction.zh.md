@@ -6,19 +6,19 @@ Status: implemented
 
 ## 问题
 
-`harness:source` 提示词段遵循[源码位置决策](../../archived/feature/2026-07-21-dsh-system-prompt-source-path.md)，但原有措辞把 checkout 称为「你自己的源代码」，却没有区分该路径与会话 workspace。在 persona 不声明 `{{cwd}}` 的普通 TUI 配置中，这可能是系统提示词开头附近唯一固定的绝对路径。因此，DeepSeek V4 可能会直接用 harness checkout 回答「what's the workdir?」，而不是确定会话的当前工作目录。
+`harness:source` 动态上下文遵循[源码位置决策](../../archived/feature/2026-07-21-dsh-system-prompt-source-path.md)，但原有措辞把 checkout 称为「你自己的源代码」，却没有区分该路径与会话 workspace。在 persona 不声明 `{{cwd}}` 的普通 TUI 配置中，这可能是系统提示词开头附近唯一固定的绝对路径。因此，DeepSeek V4 可能会直接用 harness checkout 回答「what's the workdir?」，而不是确定会话的当前工作目录。
 
 直接断言 checkout 不是工作目录同样不准确。`dsh meta` 会有意让源码 checkout 同时充当这两个值。
 
 ## 决策
 
-该提示词段将路径标识为「DeepSeek Harness implementation checkout」。它说明 checkout 位置与当前工作目录是两个可能不同的值，禁止从 checkout 路径推断工作目录，指示模型使用 `pwd`，并限定该 checkout 只用于检查或扩展 DSH 自身。
+该动态上下文将路径标识为「Harniverse implementation checkout」，并说明它是 DeepSeek Harness（DSH）的下游项目。同时声明 Harniverse 是完全独立的第三方产品、不隶属于 DeepSeek，并且在保留 DSH 实现的部分继续适用 DSH 开源许可证。它说明 checkout 位置与当前工作目录是两个可能不同的值，禁止从 checkout 路径推断工作目录，指示模型使用 `pwd`，并限定该 checkout 只用于检查或扩展 Harniverse 自身。
 
 路径推导方式、全局 `harness:source` 所有权和 `-99` 顺序均保持不变。将两者描述为概念上独立、而不是始终不相等，使这条指令在普通项目会话和 `dsh meta` 中都准确。
 
 ## 验证
 
-`dsh-app-boot` 单元测试固定了完整文本及其顺序。CLI（命令行界面）无密钥 PTY 冒烟测试检查组装后的请求 header。TUI 的 `source-checkout-workdir` 快照把该提示词段挂载为 `/opt/dsh-source`，通过录制的 DeepSeek V4 turn 提问「what's the workdir?」，并要求回放 transcript（文本记录）运行 `pwd`，报告生成的 workspace 而不是 checkout。
+`dsh-app-boot` 单元测试固定了完整文本及其动态上下文顺序。CLI（命令行界面）无密钥 PTY 冒烟测试检查组装后的请求 header 与 runtime-context 消息。TUI 的 `source-checkout-workdir` 快照把该动态上下文挂载为 `/opt/dsh-source`，通过录制的 DeepSeek V4 turn 提问「what's the workdir?」，并要求回放 transcript（文本记录）运行 `pwd`，报告生成的 workspace 而不是 checkout。
 
 ## 考虑过的替代方案
 

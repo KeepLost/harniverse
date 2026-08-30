@@ -348,15 +348,41 @@ describe('WebSearchCard', () => {
     apiKey: field(''), apiKeyConfigured: false, apiKeyWritable: true,
     baseURL: field(''), model: field('sonar'), maxTokens: field('1024'), searchRecency: field(''),
   })
+  const tavilyState = () => ({
+    ...settled,
+    apiKey: field(''), apiKeyConfigured: false, apiKeyWritable: true,
+    baseURL: field(''), includeRawContent: field('false'), maxResults: field(''),
+  })
+  const braveState = () => ({
+    ...settled,
+    apiKey: field(''), apiKeyConfigured: false, apiKeyWritable: true,
+    baseURL: field(''), maxResults: field(''),
+  })
+  const kagiState = () => ({
+    ...settled,
+    apiKey: field(''), apiKeyConfigured: false, apiKeyWritable: true,
+    baseURL: field(''),
+  })
+  const firecrawlState = () => ({
+    ...settled,
+    apiKey: field(''), apiKeyConfigured: false, apiKeyWritable: true,
+    baseURL: field(''), includeSearchContent: field('false'),
+    searchContentMaxChars: field(''), maxChars: field(''),
+  })
 
   function renderWebSearch(state: Partial<WebSearchCardState> = {}) {
     const store = createSnapshotStore<WebSearchCardState>({
       ...settled,
       selectedProvider: 'deepseek-official',
-      selector: { ...settled, searchProvider: field('deepseek-official') },
+      selectedFetchProvider: 'http',
+      selector: { ...settled, searchProvider: field('deepseek-official'), fetchProvider: field('http') },
       deepseek: deepseekState(),
       exa: exaState(),
       perplexity: perplexityState(),
+      tavily: tavilyState(),
+      brave: braveState(),
+      kagi: kagiState(),
+      firecrawl: firecrawlState(),
       ...state,
     })
     const actions = cardActions()
@@ -365,12 +391,17 @@ describe('WebSearchCard', () => {
     return actions
   }
 
-  it('renders all three provider options and only DeepSeek fields initially', () => {
+  it('renders all search and fetch options and only the selected search fields initially', () => {
     renderWebSearch()
     fireEvent.click(screen.getByText(en.webSearchTitle))
 
-    expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual([
+    expect([...screen.getByLabelText(en.webSearchProvider).querySelectorAll('option')].map(option => option.textContent)).toEqual([
       en.webSearchProviderDeepSeek, en.webSearchProviderExa, en.webSearchProviderPerplexity,
+      en.webSearchProviderTavily, en.webSearchProviderBrave, en.webSearchProviderKagi,
+      en.webSearchProviderFirecrawl,
+    ])
+    expect([...screen.getByLabelText(en.webSearchFetchProvider).querySelectorAll('option')].map(option => option.textContent)).toEqual([
+      en.webSearchFetchProviderHttp, en.webSearchFetchProviderFirecrawl,
     ])
     expect(screen.getByLabelText(en.webSearchDeepSeekModel)).toBeTruthy()
     expect(screen.getByLabelText(en.webSearchDeepSeekApiVersion)).toBeTruthy()
@@ -380,9 +411,40 @@ describe('WebSearchCard', () => {
     expect(screen.queryByLabelText(en.webSearchPerplexitySearchRecency)).toBeNull()
   })
 
+  it('renders fields for a selected search provider and a Firecrawl fetch provider', () => {
+    renderWebSearch({ selectedProvider: 'tavily', selectedFetchProvider: 'firecrawl' })
+    fireEvent.click(screen.getByText(en.webSearchTitle))
+
+    expect(screen.getByLabelText(en.webSearchTavilyApiKey)).toBeTruthy()
+    expect(screen.getByLabelText(en.webSearchTavilyIncludeRawContent)).toBeTruthy()
+    expect(screen.getByLabelText(en.webSearchTavilyMaxResults)).toBeTruthy()
+    expect(screen.getByLabelText(en.webSearchFirecrawlApiKey)).toBeTruthy()
+    expect(screen.getByLabelText(en.webSearchFirecrawlIncludeSearchContent)).toBeTruthy()
+    expect(screen.getByLabelText(en.webSearchFirecrawlSearchContentMaxChars)).toBeTruthy()
+    expect(screen.getByLabelText(en.webSearchFirecrawlMaxChars)).toBeTruthy()
+    expect(screen.queryByLabelText(en.webSearchDeepSeekModel)).toBeNull()
+  })
+
+  it('renders one shared Firecrawl key when both capabilities select Firecrawl', () => {
+    renderWebSearch({ selectedProvider: 'firecrawl', selectedFetchProvider: 'firecrawl' })
+    fireEvent.click(screen.getByText(en.webSearchTitle))
+
+    expect(screen.getAllByLabelText(en.webSearchFirecrawlApiKey)).toHaveLength(1)
+  })
+
+  it.each([
+    ['brave', 'webSearchBraveApiKey'],
+    ['kagi', 'webSearchKagiApiKey'],
+  ] as const)('renders the %s search fields when selected', (selectedProvider, key) => {
+    renderWebSearch({ selectedProvider })
+    fireEvent.click(screen.getByText(en.webSearchTitle))
+
+    expect(screen.getByLabelText(en[key])).toBeTruthy()
+  })
+
   it('routes provider selection and DeepSeek controls with scoped addresses', () => {
     const actions = renderWebSearch({
-      selector: { ...settled, searchProvider: field('deepseek-official', { overridden: true }) },
+      selector: { ...settled, searchProvider: field('deepseek-official', { overridden: true }), fetchProvider: field('http') },
       deepseek: {
         ...deepseekState(),
         apiKey: field(''),

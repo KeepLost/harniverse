@@ -1315,7 +1315,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
               .toBeGreaterThan(0)
             await writeFile(
               join(dir, childSystemPromptSnapshot(index)),
-              formatSystemPromptSnapshot(prompts[0] as string),
+              formatSystemPromptSnapshot(prompts[0] as string, prompts.slice(1)),
             )
           }
         }
@@ -1416,8 +1416,13 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
               const promptOrigin = childPrompt === undefined
                 ? `${promptSource.name}/${SYSTEM_PROMPT_SNAPSHOT}`
                 : childSystemPromptSnapshot(logIndex)
-              expect(formatSystemPromptSnapshot(prompts[k] as string), `session ${log.id}: initial system prompt #${k + 1} diverged from ${promptOrigin}`)
-                .toEqual(childPrompt ?? initialPromptSnapshot)
+              if (childPrompt === undefined || k === 0) {
+                const actualPrompt = childPrompt === undefined
+                  ? formatSystemPromptSnapshot(prompts[k] as string)
+                  : formatSystemPromptSnapshot(prompts[0] as string, prompts.slice(1))
+                expect(actualPrompt, `session ${log.id}: initial system prompt #${k + 1} diverged from ${promptOrigin}`)
+                  .toEqual(childPrompt ?? initialPromptSnapshot)
+              }
             }
           }
           if (scenario.pinsHeader === true && logIndex === 0) {

@@ -129,7 +129,7 @@ describe('tool-todo real Loader composition through cordis.yml', () => {
     expect(owner.session.events.findLast(e => e.type === 'todo/write')?.data.todos).toEqual(PARALLEL_TODOS)
   }, 30_000)
 
-  it('autoContinueIncomplete queues the configured plugin message through the loaded listener', async () => {
+  it('autoContinueIncomplete queues the configured system-injected message through the loaded listener', async () => {
     const ctx = await boot([
       '    allowParallelInProgress: true',
       '    autoContinueIncomplete: true',
@@ -146,7 +146,7 @@ describe('tool-todo real Loader composition through cordis.yml', () => {
     })
 
     expect(queued).toHaveLength(1)
-    expect(queued[0]?.source).toEqual({ kind: 'plugin', plugin: 'tool-todo' })
+    expect(queued[0]?.source).toEqual({ kind: 'plugin', plugin: 'tool-todo', form: 'system-injection' })
     expect(queued[0]?.content).toEqual([{ type: 'text', text: 'Keep going from the TODO list.' }])
   }, 30_000)
 

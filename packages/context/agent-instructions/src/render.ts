@@ -113,9 +113,9 @@ const SCOPE_SEPARATOR = '\u0000'
  * Compose the reconciliation key for one instruction candidate file.
  * Each loaded candidate is tracked independently, so the key pairs the logical
  * directory with the exact candidate file name behind a NUL separator that no
- * directory path or file name can contain. Distinct candidates in one directory
- * (`AGENTS.md` vs `CLAUDE.md`, a base file vs its `.local` overlay) therefore
- * never collide in the scope-keyed state maps.
+ * directory path or file name can contain. Distinct supported candidates in one
+ * directory (a base file and its `.local` overlay, for example) therefore never
+ * collide in the scope-keyed state maps.
  * @param directory - `user-global`, `.`, or a project-relative directory.
  * @param candidateName - instruction file name within that directory.
  * @returns the per-candidate logical scope key.

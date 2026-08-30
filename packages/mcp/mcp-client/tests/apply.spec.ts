@@ -289,6 +289,11 @@ describe('apply (plugin lifecycle)', () => {
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
   })
 
+  it('allows the same public serverName for explicitly separate owners', async () => {
+    await apply(ctx, { ...stdioConfig, reservationKey: 'profile-a' })
+    await expect(apply(ctx, { ...stdioConfig, reservationKey: 'profile-b' })).resolves.toBeUndefined()
+  })
+
   it('releases the serverName reservation on dispose', async () => {
     const first = new Context()
     await first.plugin(SystemPrompt)

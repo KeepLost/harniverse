@@ -32,7 +32,7 @@ Read this package for the whole plugin tree and its composition order.
 @deepseek-ai/dsh-agent-loop/invariant
                                   package-owned relational checks
 @deepseek-ai/dsh-tool-bash        the model-facing bash schema (unless toolBash=false)
-@deepseek-ai/dsh-agent-instructions  AGENTS.md/CLAUDE.md workspace context loader
+@deepseek-ai/dsh-agent-instructions  AGENTS.md/custom workspace context loader
 @deepseek-ai/dsh-tool-skill       session-prefix skill catalog + model-facing loader schema
 @deepseek-ai/dsh-tool-jobs       job_output/job_list/job_kill schemas + completion notices
 @deepseek-ai/dsh-agent-loop       THE concrete loop (gets the forwarded `agents`)

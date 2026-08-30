@@ -11,6 +11,11 @@ export type PluginsSettingsLocaleKey =
   | 'webSearchTitle' | 'webSearchDescription'
   | 'webSearchProvider' | 'webSearchProviderHint' | 'webSearchProviderUnavailable'
   | 'webSearchProviderDeepSeek' | 'webSearchProviderExa' | 'webSearchProviderPerplexity'
+  | 'webSearchProviderTavily' | 'webSearchProviderBrave' | 'webSearchProviderKagi'
+  | 'webSearchProviderFirecrawl'
+  | 'webSearchFetchProvider' | 'webSearchFetchProviderHint'
+  | 'webSearchFetchProviderHttp' | 'webSearchFetchProviderFirecrawl'
+  | 'webSearchBooleanTrue' | 'webSearchBooleanFalse'
   | 'webSearchApiKeyHint' | 'webSearchApiKeySet' | 'webSearchApiKeyUnset'
   | 'webSearchBaseUrl' | 'webSearchBaseUrlHint'
   | 'webSearchDeepSeekApiKey' | 'webSearchDeepSeekModel' | 'webSearchDeepSeekModelHint'
@@ -27,6 +32,15 @@ export type PluginsSettingsLocaleKey =
   | 'webSearchPerplexitySearchRecencyAny' | 'webSearchPerplexitySearchRecencyDay'
   | 'webSearchPerplexitySearchRecencyWeek' | 'webSearchPerplexitySearchRecencyMonth'
   | 'webSearchPerplexitySearchRecencyYear'
+  | 'webSearchTavilyApiKey' | 'webSearchTavilyIncludeRawContent'
+  | 'webSearchTavilyIncludeRawContentHint' | 'webSearchTavilyMaxResults'
+  | 'webSearchTavilyMaxResultsHint'
+  | 'webSearchBraveApiKey' | 'webSearchBraveMaxResults' | 'webSearchBraveMaxResultsHint'
+  | 'webSearchKagiApiKey'
+  | 'webSearchFirecrawlApiKey' | 'webSearchFirecrawlIncludeSearchContent'
+  | 'webSearchFirecrawlIncludeSearchContentHint' | 'webSearchFirecrawlSearchContentMaxChars'
+  | 'webSearchFirecrawlSearchContentMaxCharsHint' | 'webSearchFirecrawlMaxChars'
+  | 'webSearchFirecrawlMaxCharsHint'
 
 /** English copy. */
 export const en: Record<PluginsSettingsLocaleKey, string> = {
@@ -65,6 +79,16 @@ export const en: Record<PluginsSettingsLocaleKey, string> = {
   webSearchProviderDeepSeek: 'DeepSeek',
   webSearchProviderExa: 'Exa',
   webSearchProviderPerplexity: 'Perplexity',
+  webSearchProviderTavily: 'Tavily',
+  webSearchProviderBrave: 'Brave',
+  webSearchProviderKagi: 'Kagi',
+  webSearchProviderFirecrawl: 'Firecrawl',
+  webSearchFetchProvider: 'Fetch provider',
+  webSearchFetchProviderHint: 'The provider used when a Web page is fetched.',
+  webSearchFetchProviderHttp: 'HTTP',
+  webSearchFetchProviderFirecrawl: 'Firecrawl',
+  webSearchBooleanTrue: 'Enabled',
+  webSearchBooleanFalse: 'Disabled',
   webSearchApiKeyHint: 'Stored outside the settings file. Leave blank to keep the current key.',
   webSearchApiKeySet: 'A key is configured.',
   webSearchApiKeyUnset: 'No key is configured; search is unavailable until one is.',
@@ -101,6 +125,22 @@ export const en: Record<PluginsSettingsLocaleKey, string> = {
   webSearchPerplexitySearchRecencyWeek: 'Past week',
   webSearchPerplexitySearchRecencyMonth: 'Past month',
   webSearchPerplexitySearchRecencyYear: 'Past year',
+  webSearchTavilyApiKey: 'Tavily API key',
+  webSearchTavilyIncludeRawContent: 'Include raw content',
+  webSearchTavilyIncludeRawContentHint: 'Ask Tavily to include raw content in search results.',
+  webSearchTavilyMaxResults: 'Default result count',
+  webSearchTavilyMaxResultsHint: 'Results returned when a request does not set its own limit.',
+  webSearchBraveApiKey: 'Brave API key',
+  webSearchBraveMaxResults: 'Default result count',
+  webSearchBraveMaxResultsHint: 'Results returned when a request does not set its own limit.',
+  webSearchKagiApiKey: 'Kagi API key',
+  webSearchFirecrawlApiKey: 'Firecrawl API key',
+  webSearchFirecrawlIncludeSearchContent: 'Include search content',
+  webSearchFirecrawlIncludeSearchContentHint: 'Include bounded markdown content with Firecrawl search results.',
+  webSearchFirecrawlSearchContentMaxChars: 'Search content limit (characters)',
+  webSearchFirecrawlSearchContentMaxCharsHint: 'Maximum characters of content included with each search result.',
+  webSearchFirecrawlMaxChars: 'Fetch content limit (characters)',
+  webSearchFirecrawlMaxCharsHint: 'Maximum characters returned by a Firecrawl fetch.',
 }
 
 /** Simplified Chinese copy. */
@@ -140,6 +180,16 @@ export const zh: Record<PluginsSettingsLocaleKey, string> = {
   webSearchProviderDeepSeek: 'DeepSeek',
   webSearchProviderExa: 'Exa',
   webSearchProviderPerplexity: 'Perplexity',
+  webSearchProviderTavily: 'Tavily',
+  webSearchProviderBrave: 'Brave',
+  webSearchProviderKagi: 'Kagi',
+  webSearchProviderFirecrawl: 'Firecrawl',
+  webSearchFetchProvider: '抓取提供方',
+  webSearchFetchProviderHint: '抓取网页时使用的提供方。',
+  webSearchFetchProviderHttp: 'HTTP',
+  webSearchFetchProviderFirecrawl: 'Firecrawl',
+  webSearchBooleanTrue: '启用',
+  webSearchBooleanFalse: '停用',
   webSearchApiKeyHint: '不写入设置文件。留空表示保持当前密钥。',
   webSearchApiKeySet: '已配置密钥。',
   webSearchApiKeyUnset: '未配置密钥；配置之前搜索不可用。',
@@ -176,4 +226,20 @@ export const zh: Record<PluginsSettingsLocaleKey, string> = {
   webSearchPerplexitySearchRecencyWeek: '过去一周',
   webSearchPerplexitySearchRecencyMonth: '过去一月',
   webSearchPerplexitySearchRecencyYear: '过去一年',
+  webSearchTavilyApiKey: 'Tavily API Key',
+  webSearchTavilyIncludeRawContent: '包含原始内容',
+  webSearchTavilyIncludeRawContentHint: '要求 Tavily 在搜索结果中包含原始内容。',
+  webSearchTavilyMaxResults: '默认结果数',
+  webSearchTavilyMaxResultsHint: '请求未指定数量时返回多少条结果。',
+  webSearchBraveApiKey: 'Brave API Key',
+  webSearchBraveMaxResults: '默认结果数',
+  webSearchBraveMaxResultsHint: '请求未指定数量时返回多少条结果。',
+  webSearchKagiApiKey: 'Kagi API Key',
+  webSearchFirecrawlApiKey: 'Firecrawl API Key',
+  webSearchFirecrawlIncludeSearchContent: '包含搜索内容',
+  webSearchFirecrawlIncludeSearchContentHint: '在 Firecrawl 搜索结果中包含有长度限制的 Markdown 内容。',
+  webSearchFirecrawlSearchContentMaxChars: '搜索内容上限（字符）',
+  webSearchFirecrawlSearchContentMaxCharsHint: '每条搜索结果最多包含多少字符的内容。',
+  webSearchFirecrawlMaxChars: '抓取内容上限（字符）',
+  webSearchFirecrawlMaxCharsHint: 'Firecrawl 抓取最多返回多少字符。',
 }

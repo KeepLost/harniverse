@@ -8,12 +8,15 @@
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 
 /**
- * What one search-capable backend can return. The model-facing argument is just
- * a query; `maxResults` is a `dsh-tool-web`-layer bound passed through unchanged
- * and enforced on the way back by the seam (see {@link WebSearchResult}).
+ * What one search-capable backend can return. `provider` selects the backend
+ * through the WebRuntime; `maxResults` is a `dsh-tool-web`-layer bound passed
+ * through unchanged and enforced on the way back by the seam (see
+ * {@link WebSearchResult}).
  */
 export interface WebSearchRequest {
   readonly query: string
+  /** Optional provider id; omitted means use the WebRuntime search default. */
+  readonly provider?: string
   /**
    * Upper bound on returned sources; the seam truncates to it. Omitted = no
    * bound. `dsh-tool-web` always sets it. A provider whose API supports a
@@ -55,13 +58,16 @@ export interface WebSearchSource {
 }
 
 /**
- * What one fetch-capable backend is asked to retrieve. The request deliberately
- * omits timeout, format, prompt, and extraction controls: cancellation is a
- * direct execution argument, while presentation and higher-level LLM concerns
- * belong outside safe retrieval.
+ * What one fetch-capable backend is asked to retrieve. `provider` selects the
+ * backend through the WebRuntime. The request deliberately omits timeout,
+ * format, prompt, and extraction controls: cancellation is a direct execution
+ * argument, while presentation and higher-level LLM concerns belong outside
+ * safe retrieval.
  */
 export interface WebFetchRequest {
   readonly url: string
+  /** Optional provider id; omitted means use the WebRuntime fetch default. */
+  readonly provider?: string
 }
 
 /**
@@ -116,6 +122,25 @@ export interface WebFetchProvider {
   available(): boolean
   /** Retrieve one URL; honor `signal` for cancellation. */
   fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>
+}
+
+/** Capability names exposed by one aggregate Web provider. */
+export type WebProviderCapability = 'search' | 'fetch'
+
+/** One provider's optional Web capabilities, registered as one lifecycle unit. */
+export interface WebProvider {
+  /** Stable provider id, unique within each capability it implements. */
+  readonly id: string
+  /** Search implementation, when this provider supports search. */
+  readonly search?: Omit<WebSearchProvider, 'id'>
+  /** Fetch implementation, when this provider supports fetch. */
+  readonly fetch?: Omit<WebFetchProvider, 'id'>
+}
+
+/** Non-secret provider catalog entry exposed to discovery surfaces. */
+export interface WebProviderInfo {
+  readonly id: string
+  readonly capabilities: readonly WebProviderCapability[]
 }
 
 /**

@@ -222,8 +222,17 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'User-settings seam',
     mode: 'seam',
     implementations: ['settings-file'],
-    consumers: ['llm-deepseek', 'llm-pi-ai', 'apiproxy'],
+    consumers: ['llm-deepseek', 'llm-pi-ai', 'apiproxy', 'mcp-user-config'],
     note: 'Plugins register namespace schemas and resolve layered values; providers store the raw document. The LLM adapters register their entry config as the composition base under the user section; the web gateway serves redacted layered descriptors and writes the user layer.',
+  },
+  {
+    key: 'mcpUserConfigSettings',
+    pkg: 'mcp-user-config',
+    title: 'User MCP configuration seam',
+    mode: 'seam',
+    implementations: ['mcp-user-config'],
+    consumers: ['mcp-user-config'],
+    note: 'The host-owned provider validates and persists the user server list; profile consumers reconcile isolated mcp-client children without globalizing their tools.',
   },
   {
     key: 'credentials',

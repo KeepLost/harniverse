@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-18-summary-dag-compaction-history.md
-2026-08-18-summary-dag-compaction-history.md: 88e31e48f51adfe776209da4c334d8f46c1547ad
-2026-08-18-summary-dag-compaction-history.zh.md: 3b64d2a13365e329b896788e3dfc187665e8c02e
+2026-08-18-summary-dag-compaction-history.md: 3380f640407c239f5e218578955079d502b3e4a1
+2026-08-18-summary-dag-compaction-history.zh.md: bd7013c4f03061b71715f33ef65d4bcfda50b460

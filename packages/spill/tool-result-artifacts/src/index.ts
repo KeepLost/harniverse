@@ -21,9 +21,9 @@ const MAX_PAGE_CHARS = 50_000
 const MAX_CURSOR_CHARS = 90
 const CONTINUATION_PREFIX = '\n\nartifact_read cursor="'
 const CONTINUATION_SUFFIX = '"'
-const CONTINUATION_RESERVE = Array.from(CONTINUATION_PREFIX).length
-  + MAX_CURSOR_CHARS
-  + Array.from(CONTINUATION_SUFFIX).length
+const ARTIFACT_PREFIX = '--- BEGIN UNTRUSTED ARTIFACT CONTENT ---\n'
+const ARTIFACT_SUFFIX = '\n--- END UNTRUSTED ARTIFACT CONTENT ---'
+const ARTIFACT_RESERVE = Array.from(ARTIFACT_PREFIX).length + Array.from(ARTIFACT_SUFFIX).length
 const RETENTION_FAILURE_WARNING = 'Complete tool result was not retained. The operation may have completed. Do not retry blindly; it may have side effects.'
 
 /** Smallest result-text limit that can carry the mandatory safety warning. */
@@ -86,9 +86,9 @@ function resolveConfig(config: Config): ResolvedConfig {
   if (!Number.isInteger(pageChars) || pageChars < 1 || pageChars > MAX_PAGE_CHARS) {
     throw new TypeError('pageChars must be an integer from 1 through 50000')
   }
-  if (pageChars + CONTINUATION_RESERVE > maxResultTextChars) {
+  if (pageChars + ARTIFACT_RESERVE > maxResultTextChars) {
     throw new TypeError(
-      `pageChars must leave ${CONTINUATION_RESERVE} characters for continuation guidance within the `
+      `pageChars must leave ${ARTIFACT_RESERVE} characters for the artifact safety wrapper within the `
       + `${maxResultTextChars}-character finalized-result limit`,
     )
   }
@@ -264,13 +264,17 @@ async function retainResult(
   }
 }
 
-function renderPage(page: ArtifactPage): string {
-  if (page.nextCursor === undefined) return page.text
+function renderPage(page: ArtifactPage, maxResultTextChars: number): string {
+  const wrapped = ARTIFACT_PREFIX + page.text + ARTIFACT_SUFFIX
+  if (page.nextCursor === undefined) return wrapped
   if (Array.from(page.nextCursor).length > MAX_CURSOR_CHARS) {
     throw new Error(`artifact backend cursor exceeds ${MAX_CURSOR_CHARS} characters`)
   }
-  return page.text
-    + CONTINUATION_PREFIX + page.nextCursor + CONTINUATION_SUFFIX
+  const continuation = CONTINUATION_PREFIX + page.nextCursor + CONTINUATION_SUFFIX
+  if (codePointLength(wrapped) + codePointLength(continuation) > maxResultTextChars) {
+    throw new Error('artifact page and continuation guidance exceed the configured finalized-result limit')
+  }
+  return wrapped + continuation
 }
 
 function presentCall(locator: string): GenericCallView {
@@ -311,7 +315,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
     output: {
       schema: OUTPUT_SCHEMA,
-      render: (_args, page) => [{ type: 'text', text: renderPage(page) }],
+      render: (_args, page) => [{ type: 'text', text: renderPage(page, resolved.maxResultTextChars) }],
     },
     execute(args, exec) {
       return ctx.spillStore.readText({

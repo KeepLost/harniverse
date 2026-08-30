@@ -10,6 +10,8 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
@@ -24,9 +26,12 @@ import {
   createDetachedRuns,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
+  discoverHookConfigSources,
   matchesMatcher,
   mergeHookOutputs,
+  readHookConfigSnapshot,
   runHook,
+  type HookConfigDiscovery,
   type HookOutput,
   type MatcherGroup,
   type MergedHookOutcome,
@@ -34,23 +39,28 @@ import {
 // Pulls in the declaration-merged subagent events and the identity pairing their
 // start/end edges.
 import type { SubagentRunId } from '@deepseek-ai/dsh-subagent'
-import { parseClaudeCodeConfig, type ClaudeCodeHookConfig } from './config.ts'
+import { parseClaudeCodeConfig, type ClaudeCodeHookConfig, type ParsedClaudeConfig } from './config.ts'
 
 export const name = 'hooks-claude-code'
 // `bash` is required to run hooks; the rest are read opportunistically via
 // ctx.get so a deployment can load this bridge without every extension point present.
 export const inject = ['shell']
 
-/** Plugin config: where the CC hook config lives + substitution roots. */
+/** Plugin config: an explicit CC config or generic automatic discovery roots. */
 export interface Config {
   /**
    * Path to a `hooks.json` or a settings file whose `hooks` key holds the config.
    * Process-level: read once at load, a relative path resolves against the process
-   * launch cwd, so one config applies to the whole process.
-   * TODO(per-session-hook-config): per-session discovery of a project-local
-   * `hooks.json` from each `session/new.cwd`.
+   * launch cwd, and it is a complete override of automatic discovery.
    */
-  configPath: string
+  configPath?: string
+  /**
+   * Optional generic source lists used when `configPath` is omitted. Relative
+   * project paths resolve against each session cwd; other relative paths resolve
+    * against `root`. With no options, the bridge discovers its dialect-specific
+    * user file and `.dsh/hooks/claude-code.json` in the session cwd.
+   */
+  discovery?: HookConfigDiscovery | undefined
   /**
    * Replaces `${CLAUDE_PLUGIN_ROOT}` in command strings (the plugin's root dir).
    */
@@ -69,13 +79,22 @@ export interface Config {
   stderrSummaryMaxChars?: number
 }
 
+/* jscpd:ignore-start -- sibling bridges expose the same generic discovery schema. */
 export const Config: z<Config> = z.object({
-  configPath: z.string().required(),
+  configPath: z.string(),
+  discovery: z.union([z.object({
+    root: z.union([z.string(), z.const(undefined)]),
+    user: z.union([z.array(z.string()), z.const(undefined)]),
+    project: z.union([z.array(z.string()), z.const(undefined)]),
+    plugin: z.union([z.array(z.string()), z.const(undefined)]),
+    policy: z.union([z.array(z.string()), z.const(undefined)]),
+  }), z.const(undefined)]),
   pluginRoot: z.string(),
   projectDir: z.string(),
   defaultTimeoutMs: z.number().default(DEFAULT_HOOK_TIMEOUT_MS),
   stderrSummaryMaxChars: z.number().default(DEFAULT_STDERR_SUMMARY_MAX_CHARS),
 })
+/* jscpd:ignore-end */
 
 /** A stable per-handler id so an invoked/result pair correlates in the log. */
 let handlerCounter = 0
@@ -93,27 +112,79 @@ function assertPositiveInteger(name: string, value: number): void {
   }
 }
 
+/** Default user/project files for the shipped Standard-family bridge. */
+function defaultDiscovery(): Required<HookConfigDiscovery> {
+  return {
+    root: process.env.DSH_HOME ?? join(homedir(), '.dsh'),
+    user: ['hooks/claude-code.json'],
+    project: ['.dsh/hooks/claude-code.json'],
+    plugin: [],
+    policy: [],
+  }
+}
+
+function resolveDiscovery(discovery: HookConfigDiscovery | undefined): Required<HookConfigDiscovery> {
+  const defaults = defaultDiscovery()
+  return {
+    root: discovery?.root ?? defaults.root,
+    user: discovery?.user ?? defaults.user,
+    project: discovery?.project ?? defaults.project,
+    plugin: discovery?.plugin ?? [],
+    policy: discovery?.policy ?? [],
+  }
+}
+
 export function apply(ctx: Context, config: Config): void {
   // Validate before config parsing so a bad value cannot be hidden by its early return.
   const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? DEFAULT_STDERR_SUMMARY_MAX_CHARS
   assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
   const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
-  // Parse once at load. A read or parse failure logs and registers nothing.
+  // An explicit path preserves the original process-level behavior and fully
+  // overrides discovery, so a source cannot be executed twice.
   let parsed: ClaudeCodeHookConfig = {}
-  try {
-    const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
-    const result = parseClaudeCodeConfig(raw, {
+  if (config.configPath !== undefined) {
+    try {
+      const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
+      const result = parseClaudeCodeConfig(raw, {
+        ...config.pluginRoot !== undefined ? { pluginRoot: config.pluginRoot } : {},
+        ...config.projectDir !== undefined ? { projectDir: config.projectDir } : {},
+      })
+      parsed = result.config
+      for (const s of result.skipped) {
+        ctx.logger.warn(`hooks-claude-code: skipping unsupported "${s.type}" hook on ${s.event} (only command hooks run)`)
+      }
+    } catch (error: unknown) {
+      ctx.logger.warn(`hooks-claude-code: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
+      return
+    }
+  }
+
+  /* jscpd:ignore-start -- sibling bridges load the same source snapshot around dialect parsers. */
+  function discoveredConfig(sessionCwd: string | undefined): Readonly<Record<string, readonly MatcherGroup[]>> {
+    const vars = {
       ...config.pluginRoot !== undefined ? { pluginRoot: config.pluginRoot } : {},
       ...config.projectDir !== undefined ? { projectDir: config.projectDir } : {},
-    })
-    parsed = result.config
-    for (const s of result.skipped) {
-      ctx.logger.warn(`hooks-claude-code: skipping unsupported "${s.type}" hook on ${s.event} (only command hooks run)`)
+      ...config.projectDir === undefined && sessionCwd !== undefined ? { projectDir: sessionCwd } : {},
     }
-  } catch (error: unknown) {
-    ctx.logger.warn(`hooks-claude-code: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
-    return
+    const snapshot = readHookConfigSnapshot<ParsedClaudeConfig>(
+      discoverHookConfigSources(sessionCwd, resolveDiscovery(config.discovery)),
+      raw => parseClaudeCodeConfig(raw, vars),
+    )
+    const merged: Record<string, readonly MatcherGroup[]> = {}
+    for (const entry of snapshot.loaded) {
+      for (const skipped of entry.value.skipped) {
+        ctx.logger.warn(`hooks-claude-code: skipping unsupported "${skipped.type}" hook on ${skipped.event} from "${entry.source.path}" (only command hooks run)`)
+      }
+      for (const [point, groups] of Object.entries(entry.value.config)) {
+        merged[point] = Object.freeze([...(merged[point] ?? []), ...groups])
+      }
+    }
+    for (const failure of snapshot.failures) {
+      ctx.logger.warn(`hooks-claude-code: could not load discovered hook config "${failure.source.path}" (${failure.source.layer}): ${String(failure.error)} — source skipped`)
+    }
+    return Object.freeze(merged)
   }
+  /* jscpd:ignore-end */
 
   // Emit-shaped points run detached, so track their chains; disposal aborts
   // active hooks and drains continuations before resolving.
@@ -140,7 +211,11 @@ export function apply(ctx: Context, config: Config): void {
     payload: unknown,
     opts: { agent?: Agent; turn?: number; readonly signal: AbortSignal },
   ): Promise<MergedHookOutcome> {
-    const groups: MatcherGroup[] = parsed[point] ?? []
+    /* jscpd:ignore-start -- both dialects select explicit or per-event source groups identically. */
+    const groups: readonly MatcherGroup[] = config.configPath !== undefined
+      ? parsed[point] ?? []
+      : discoveredConfig(opts.agent?.session.header.cwd)[point] ?? []
+    /* jscpd:ignore-end */
     const outputs: HookOutput[] = []
     // Run the hook in the agent's session workspace (the `session/new` cwd on the session
     // header), not the executor or entry-point process's launch dir.

@@ -9,7 +9,7 @@ import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { resolveSessionProfile, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
 import { applyChildComposition, childSessionMeta } from '@deepseek-ai/dsh-subagent'
@@ -18,6 +18,7 @@ import type { LosslessCompactionEngine } from '@deepseek-ai/dsh-compaction-lossl
 import type {} from '@deepseek-ai/dsh-compaction-tool-result-pruner'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-tools'
+import type { UserMcpServerConfig } from '@deepseek-ai/dsh-mcp-user-config'
 // Type-only: resolves `ctx.get('sessionProjections')` and `ctx.get('tokenMeter')`.
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-token-meter'
@@ -32,18 +33,27 @@ const WEB_PATCH = join(REPO_ROOT, 'packages/bundle/web-app/cordis.patch.yml')
 const INSTALL_ANCHOR = join(REPO_ROOT, 'apps/cli/package.json')
 const EXAMPLES_INSTALL_ANCHOR = join(REPO_ROOT, 'examples/package.json')
 const MINIMAL_PROMPT = 'You are a helpful software engineer assistant.'
-const MINIMAL_BASH_DESCRIPTION = `Run commands in a bash shell
-* When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
-* You don't have access to the internet via this tool.
-* You do have access to a mirror of common linux and python packages via apt and pip.
-* State is persistent across command calls and discussions with the user.
-* To inspect a particular line range of a file, e.g. lines 10-25, try 'sed -n 10,25p /path/to/the/file'.
-* Please avoid commands that may produce a very large amount of output.
-* Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.`
-const MINIMAL_TOOL_NAMES = [
-  'artifact_read', 'bash', 'session_create', 'session_event_search', 'session_find', 'session_inspect',
-  'session_message', 'session_search', 'session_unload', 'str_replace_editor',
-]
+const MINIMAL_SHELL = process.platform === 'win32' ? 'pwsh' : 'bash'
+const MINIMAL_TOOL_NAMES = [MINIMAL_SHELL, 'str_replace_editor']
+const MCP_FIXTURE_SERVER = join(REPO_ROOT, 'packages/mcp/mcp-client/tests/fixture-server.ts')
+const MCP_FIXTURE_CWD = join(REPO_ROOT, 'packages/mcp/mcp-client')
+
+function mcpFixtureServer(id: string, enabled = true): UserMcpServerConfig {
+  return {
+    id,
+    enabled,
+    transport: 'stdio',
+    serverName: id,
+    command: process.execPath,
+    args: [MCP_FIXTURE_SERVER],
+    env: {},
+    cwd: MCP_FIXTURE_CWD,
+    headers: {},
+    toolCallTimeoutMs: 15_000,
+    failOnStartupError: true,
+    reconnect: { enabled: false, initialDelayMs: 500, maxDelayMs: 30_000, maxAttempts: 1 },
+  }
+}
 
 /**
  * Boot the shipped Web composition, minus the rows that would bind a port,
@@ -83,7 +93,7 @@ async function bootWeb(
     { id: 'webserver', disabled: true },
     // The web bundle's runtime row injects `webServer`, so it cannot
     // activate without the bound port disabled above. It owns dist serving
-    // and the URL prompt line — surface glue, not anything that decides an
+    // and the URL context — surface glue, not anything that decides an
     // agent's capabilities, which is all this file asserts.
     { id: 'web-runtime', disabled: true },
     { id: 'session-telemetry-otel', disabled: true },
@@ -235,7 +245,7 @@ describe('the shipped Web composition', () => {
         'compaction_history_expand', 'compaction_history_search', 'context_compact', 'create_goal',
         'edit', 'exit_plan_mode', 'get_goal', 'job_kill', 'job_list', 'job_output', 'ralph', 'read', 'read_image',
         'session_create', 'session_event_search', 'session_find', 'session_inspect', 'session_message', 'session_search',
-        'session_unload', 'skill', 'subagent', 'todo_write', 'update_goal',
+        'session_unload', 'skill', 'subagent', 'todo_write', 'update_goal', 'web_fetch', 'web_search',
         'workflow', 'write',
       ])
       const compaction = ctx.agentPresets.serviceFor(handle.agent, 'compaction')
@@ -248,7 +258,7 @@ describe('the shipped Web composition', () => {
     }
   })
 
-  it('composes the exact RL prompt, coding tools, and artifact recovery from `minimal`', async () => {
+  it('composes the shared prompt path, two coding tools, and internal recovery from `minimal`', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('preset-minimal'),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
@@ -256,18 +266,104 @@ describe('the shipped Web composition', () => {
     try {
       const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent })
       expect(assembly.sections).toEqual([
+        { name: 'harness:identity', text: 'You are an AI agent powered by Harniverse.' },
+        { name: 'context:file-reference', text: '' },
+        { name: 'tool:bash', text: 'Check the [exit code: N] marker on every bash result; investigate failures before moving on.' },
+        { name: 'ui:deliverable-file-references', text: 'When you successfully create or modify files, mention the primary outputs in your final response. To make those and any other changed-file references clickable in Web, format them as Markdown inline code using the exact file-tool path, or a basename when unique among the files changed in that turn.' },
+      ])
+      expect(assembly.contexts).toEqual([
         { name: 'deployment:persona', text: MINIMAL_PROMPT },
+        { name: 'sandbox:policy', text: '' },
+        { name: 'approval:policy', text: '' },
       ])
       expect(assembly.tools.map(tool => tool.name)).toEqual(MINIMAL_TOOL_NAMES)
-      expect(assembly.tools.find(tool => tool.name === 'bash')?.description).toBe(MINIMAL_BASH_DESCRIPTION)
       expect(JSON.stringify(assembly.tools.find(tool => tool.name === 'str_replace_editor')?.parameters))
         .toContain('Absolute path')
-      expect(ctx.agentPresets.serviceFor(handle.agent, 'compaction')).toBeUndefined()
-      expect(handle.agent.ctx.get('compaction')).toBeUndefined()
+      expect((ctx.agentPresets.serviceFor(handle.agent, 'compaction') as LosslessCompactionEngine).config.auto).toBe(true)
+      expect(ctx.agentPresets.serviceFor(handle.agent, 'compactionHistory')).toBeDefined()
     } finally {
       await handle.dispose()
     }
   })
+
+  it('loads enabled user MCP entries into Standard-family profiles without leaking them to Minimal', async () => {
+    await ctx.settings.replace(settingsNamespace('mcp'), {
+      servers: [mcpFixtureServer('user-tools'), mcpFixtureServer('disabled-tools', false)],
+    })
+    const standard = await ctx.agents.create({
+      sessionId: SessionId(`preset-mcp-standard-${randomUUID()}`),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
+    })
+    const coded = await ctx.agents.create({
+      sessionId: SessionId(`preset-mcp-code-${randomUUID()}`),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'code').then(() => undefined),
+    })
+    const cordis = await ctx.agents.create({
+      sessionId: SessionId(`preset-mcp-cordis-${randomUUID()}`),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'cordis').then(() => undefined),
+    })
+    const minimal = await ctx.agents.create({
+      sessionId: SessionId(`preset-mcp-minimal-${randomUUID()}`),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
+    })
+    try {
+      const mcpTool = 'mcp__user-tools__add'
+      const disabledTool = 'mcp__disabled-tools__add'
+      await vi.waitFor(() => {
+        expect(toolNames(ctx, standard.agent)).toContain(mcpTool)
+        expect(toolNames(ctx, cordis.agent)).toContain(mcpTool)
+        expect(toolNames(ctx, coded.agent)).toContain(mcpTool)
+      }, { timeout: 15_000 })
+
+      expect(toolNames(ctx, standard.agent)).not.toContain(disabledTool)
+      expect(toolNames(ctx, cordis.agent)).not.toContain(disabledTool)
+      expect(toolNames(ctx, coded.agent)).not.toContain(disabledTool)
+      expect(toolNames(ctx, minimal.agent)).toEqual(MINIMAL_TOOL_NAMES)
+
+      const standardAssembly = await ctx.systemPrompt.assemble({ scope: standard.agent })
+      expect(standardAssembly.tools.map(tool => tool.name)).toContain(mcpTool)
+      const codeAssembly = await ctx.systemPrompt.assemble({ scope: coded.agent })
+      expect(codeAssembly.tools.map(tool => tool.name)).toEqual(['run_code'])
+      expect(codeAssembly.sections.find(section => section.name === 'tools:sdk')?.text).toContain(mcpTool)
+    } finally {
+      await minimal.dispose()
+      await cordis.dispose()
+      await coded.dispose()
+      await standard.dispose()
+      await ctx.settings.replace(settingsNamespace('mcp'), { servers: [] })
+    }
+  }, 120_000)
+
+  it('keeps project Hook bridges disabled by default in Standard and Minimal', async () => {
+    const project = await mkdtemp(join(tmpdir(), 'dsh-preset-hooks-project-'))
+    const hookPath = join(project, '.dsh', 'hooks', 'claude-code.json')
+    await mkdir(dirname(hookPath), { recursive: true })
+    await writeFile(hookPath, JSON.stringify({ hooks: {
+      SessionStart: [{ matcher: 'startup', hooks: [{
+        type: 'command',
+        command: `printf '%s\\n' '${JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'standard project hook' } }).replaceAll("'", "'\\\"'\\\"'")}'`,
+      }] }],
+    } }))
+
+    const standard = await ctx.agents.create({
+      sessionId: SessionId(`preset-hooks-standard-${randomUUID()}`),
+      meta: { cwd: project },
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
+    })
+    const minimal = await ctx.agents.create({
+      sessionId: SessionId(`preset-hooks-minimal-${randomUUID()}`),
+      meta: { cwd: project },
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
+    })
+    try {
+      expect(JSON.stringify(standard.agent.inbox.nextStep)).not.toContain('standard project hook')
+      expect(JSON.stringify(minimal.agent.inbox.nextStep)).not.toContain('standard project hook')
+      expect(toolNames(ctx, minimal.agent)).toEqual(MINIMAL_TOOL_NAMES)
+    } finally {
+      await minimal.dispose()
+      await standard.dispose()
+    }
+  }, 120_000)
 
   it('keeps two differently composed sessions independent', async () => {
     const full = await ctx.agents.create({
@@ -279,9 +375,7 @@ describe('the shipped Web composition', () => {
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })
     try {
-      expect(toolNames(ctx, minimal.agent)).toEqual(expect.arrayContaining([
-        'session_create', 'session_inspect', 'session_message', 'session_search', 'session_unload',
-      ]))
+      expect(toolNames(ctx, minimal.agent)).toEqual(MINIMAL_TOOL_NAMES)
       expect(toolNames(ctx, full.agent).length).toBeGreaterThan(10)
 
       await minimal.dispose()
@@ -339,7 +433,8 @@ describe('the shipped Web composition', () => {
       expect(toolNames(ctx, coded.agent)).not.toContain('str_replace_editor')
       const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
       expect(sdk).not.toContain('str_replace_editor')
-      expect(sdk).not.toContain('web_search')
+      expect(sdk).toContain('web_search')
+      expect(sdk).toContain('web_fetch')
       expect(ctx.agentPresets.serviceFor(coded.agent, 'toolResultPruner')).toBeUndefined()
 
       // The presentation is this agent's alone: the deployment default is
@@ -423,7 +518,7 @@ describe('the shipped Web composition', () => {
     }
   })
 
-  it('shows a minimal agent the global layer and default session tools but no loader tool', async () => {
+  it('shows a minimal agent the global layer but no loader tool', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId(`preset-skills-minimal-${randomUUID()}`),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),

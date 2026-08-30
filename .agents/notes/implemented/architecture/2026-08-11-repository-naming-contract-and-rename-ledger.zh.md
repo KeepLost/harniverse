@@ -165,7 +165,7 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | 旧名称 | 当前名称 | 理由 |
 |---|---|---|
 | Host `ctx.workspace` | Host `ctx.workspaceRegistry` | `WorkspaceRegistry` 拥有多个工作区，但 Client `ctx.workspaces` 已经使用不兼容的类型。即使二者运行时上下文独立，两份声明仍会在编译时合并进同一个 Cordis `Context` 接口。职责后缀明确指出 host 服务，并避免该冲突。保留 `@deepseek-ai/dsh-workspace`、`WorkspaceRegistry`、`Workspace` 和 `workspace.*` 协议名称。 |
-| `@deepseek-ai/dsh-workspace-context`, `context/workspace-context/` | `@deepseek-ai/dsh-agent-instructions`, `context/agent-instructions/` | 该包为 agent（智能体）加载分层的 `AGENTS.md` 和 `CLAUDE.md` 文件。它并非通用工作区上下文。 |
+| `@deepseek-ai/dsh-workspace-context`, `context/workspace-context/` | `@deepseek-ai/dsh-agent-instructions`, `context/agent-instructions/` | 该包为 agent（智能体）加载分层的 `AGENTS.md`、`AGENTS.local.md` 和受支持的自定义指令文件；`CLAUDE.md` 与 `CLAUDE.local.md` 不受支持。它并非通用工作区上下文。 |
 | 插件名称和持久来源名称 `workspace-context` 与 `workspace-instructions` | `agent-instructions` | 记录的来源是一类具体的 agent 指令。以 `AgentInstruction*` 替换公开的 `WorkspaceInstruction*` 名称。该术语不包括系统消息、开发者消息或用户消息。 |
 | `ctx.telemetry`、抽象类 `Telemetry` | `ctx.sessionTelemetry`、`SessionTelemetryBackend` | 该服务捕获会话账本遥测，并交给报告后端。它不是仓库级指标或追踪服务。 |
 | `TelemetryBackend` | `SessionTelemetrySink` | 该底层接收已发出的记录。`Sink` 用于将它与协调型后端服务区分开。 |

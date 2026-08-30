@@ -1107,7 +1107,7 @@ describe('stabilizeRefreshLog', () => {
       ']',
       '```',
       '',
-      `(Omitted 40000 bytes. Full formatted result stored at: ${freshSpill}. Use read with offset/limit, or grep this path to search within it.)`,
+      `(Omitted 40000 bytes. Full formatted result stored at: ${freshSpill}. Pass this locator unchanged to the configured artifact reader.)`,
     ].join('\n')
     const existingEventRead = freshEventRead
       .replace('1785000000000', '1784000000000')
@@ -1132,7 +1132,7 @@ describe('stabilizeRefreshLog', () => {
         seq: 2,
         time: 23,
         data: {
-          spill: `Full formatted result stored at: ${freshSpill}. Use read with offset/limit, or grep this path to search within it.`,
+          spill: `Full formatted result stored at: ${freshSpill}. Pass this locator unchanged to the configured artifact reader.`,
           path: '/private/old/result.txt',
           eventRead: freshEventRead,
         },
@@ -1158,7 +1158,7 @@ describe('stabilizeRefreshLog', () => {
         seq: 2,
         time: 12,
         data: {
-          spill: `Full formatted result stored at: ${existingSpill}. Use read with offset/limit, or grep this path to search within it.`,
+          spill: `Full formatted result stored at: ${existingSpill}. Pass this locator unchanged to the configured artifact reader.`,
           path: '/old/result.txt',
           eventRead: existingEventRead,
         },
@@ -1187,7 +1187,7 @@ describe('stabilizeRefreshLog', () => {
         seq: 2,
         time: 12,
         data: {
-          spill: `Full formatted result stored at: ${existingSpill}. Use read with offset/limit, or grep this path to search within it.`,
+          spill: `Full formatted result stored at: ${existingSpill}. Pass this locator unchanged to the configured artifact reader.`,
           path: '/old/result.txt',
           eventRead: existingEventRead,
         },

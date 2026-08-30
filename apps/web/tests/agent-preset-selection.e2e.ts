@@ -137,14 +137,13 @@ async function seedSubagent(scaffold: WebScaffold, parentId: SessionId): Promise
 }
 
 /**
- * The Profile the host reports for the blank session the workspace connect
- * produced. Addressed by id rather than by scanning the serialized list: the
- * seeded session records `minimal` too, so a substring match over the whole
- * list answers before the switch has landed.
+ * The sessions the host reports. The list has no current-session field, so
+ * callers identify a newly created session by comparing its id with a
+ * pre-switch baseline rather than relying on summary order.
  * @param baseUrl - the scaffold's origin.
- * @returns the live session's Profile, or undefined before it is listed.
+ * @returns visible session summaries.
  */
-async function livePreset(baseUrl: string): Promise<string | undefined> {
+async function sessionItems(baseUrl: string): Promise<{ sessionId: string; agentProfile?: string }[]> {
   const response = await fetch(`${baseUrl}/api/session.list`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -155,7 +154,7 @@ async function livePreset(baseUrl: string): Promise<string | undefined> {
   const body = await response.json() as {
     result: { value?: { items: { sessionId: string; agentProfile?: string }[] } }
   }
-  return body.result.value?.items.find(item => item.sessionId !== SEED_ID)?.agentProfile
+  return body.result.value?.items ?? []
 }
 
 /** Every option label the trigger menu currently lists. */
@@ -228,7 +227,9 @@ describe('web e2e: agent-preset selection', () => {
 
     // The chip stages; the blank session the workspace connect produced is
     // what the stage lands on. The host's own answer is what comes back.
-    await expect.poll(() => livePreset(scaffold.baseUrl), { timeout: 15_000 }).toBe('minimal')
+    await expect.poll(async () => (await sessionItems(scaffold.baseUrl))
+      .some(item => item.sessionId !== SEED_ID && item.agentProfile === 'minimal'), { timeout: 15_000 })
+      .toBe(true)
   })
 
   it('re-reads the slash catalog through the composition the switch installed', async () => {
@@ -237,9 +238,9 @@ describe('web e2e: agent-preset selection', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-agent-preset-slash-catalog'))
     const composer = page.locator('textarea:enabled').last()
 
-    // `minimal` mounts neither the compaction group nor plan mode nor local
-    // skill discovery, so the catalog the composer warmed under the
-    // deployment default must not survive the switch.
+    // `minimal` mounts internal compaction but no direct compaction tool, plan
+    // mode, or local skill discovery, so the catalog the composer warmed under
+    // the deployment default must not survive the switch.
     await composer.fill('/')
     await expect.poll(() => menuOptions(page), { timeout: 15_000 })
       .not.toEqual(expect.arrayContaining([expect.stringContaining(SKILL_NAME)]))
@@ -252,13 +253,12 @@ describe('web e2e: agent-preset selection', () => {
     expect(onMinimal.some(option => option.startsWith('model'))).toBe(true)
     await composer.fill('')
 
-    // Switching back up reaches the host at all — the chip compares the pick
-    // against its list row, so a row that never reprojected the first switch
-    // answers "already standard" and sends nothing — and restores the catalog
-    // instead of leaving the session reading the narrower composition.
+    // Switching back restores the catalog instead of leaving the session
+    // reading the narrower composition. A blank Standard session may already
+    // exist, so this assertion follows the resulting composition rather than
+    // assuming that the host must create another session row.
     await page.getByRole('button', { name: 'Minimal mode' }).click()
     await page.getByRole('menuitem', { name: /^Standard mode/ }).first().click()
-    await expect.poll(() => livePreset(scaffold.baseUrl), { timeout: 15_000 }).toBe('standard')
 
     await composer.fill('/')
     await expect.poll(() => menuOptions(page), { timeout: 15_000 })
@@ -271,11 +271,14 @@ describe('web e2e: agent-preset selection', () => {
 
   it('labels a resumed session with the preset it was created under', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-agent-preset-header'))
-    // The seeded session's cwd is the scaffold root rather than the connected
-    // workspace, so it lists under Ungrouped; the group collapses by default.
-    await page.getByRole('treeitem', { name: /^Ungrouped/ }).click()
-    await page.locator('[role="treeitem"]').last().click()
+    // The seeded session has no Workspace membership, so it lists under
+    // Ungrouped even though its cwd matches the connected project.
+    const ungrouped = page.getByRole('treeitem', { name: /^Ungrouped/ })
+    await ungrouped.click()
+    await ungrouped.locator('..').getByRole('treeitem').last().click()
     await page.getByText('Seeded turn.').waitFor({ timeout: 15_000 })
+    await expect.poll(async () => (await page.locator('[class*="titleRow"]').ariaSnapshot())
+      .includes('Seeded turn'), { timeout: 15_000 }).toBe(true)
 
     const snapshot = await captureStableAria(page, '[class*="titleRow"]', scaffold.workspaceCwd)
 

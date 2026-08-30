@@ -13,6 +13,8 @@
 // point; a cross-package facade for imports alone would add indirection.
 /* jscpd:ignore-start */
 import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
@@ -27,28 +29,37 @@ import {
   createDetachedRuns,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
+  discoverHookConfigSources,
   matchesMatcher,
   mergeHookOutputs,
+  readHookConfigSnapshot,
   runHook,
+  type HookConfigDiscovery,
   type HookOutput,
   type MatcherGroup,
   type MergedHookOutcome,
 } from '@deepseek-ai/dsh-hook-protocol'
-import { parseCodexConfig, type CodexHookConfig } from './config.ts'
+import { parseCodexConfig, type CodexHookConfig, type ParsedCodexConfig } from './config.ts'
 /* jscpd:ignore-end */
 
 export const name = 'hooks-codex'
 export const inject = ['shell']
 
-/** Plugin config: where the Codex hooks.json lives + the model name for payloads. */
+/** Plugin config: an explicit Codex config or generic automatic discovery roots. */
 export interface Config {
   /**
    * Path to a Codex `hooks.json`. Process-level: read once at load, a relative
-   * path resolves against the process launch cwd.
-   * TODO(per-session-hook-config): per-session project-local discovery from each
-   * `session/new.cwd`.
+   * path resolves against the process launch cwd, and it is a complete override
+   * of automatic discovery.
    */
-  configPath: string
+  configPath?: string
+  /**
+   * Optional generic source lists used when `configPath` is omitted. Relative
+   * project paths resolve against each session cwd; other relative paths resolve
+    * against `root`. With no options, the bridge discovers its dialect-specific
+    * user file and `.dsh/hooks/codex.json` in the session cwd.
+   */
+  discovery?: HookConfigDiscovery | undefined
   /** The model name stamped on every payload (Codex includes `model` on each event). */
   model?: string
   /** Default per-hook timeout in ms when a hook sets none (Codex default: 600000). */
@@ -57,12 +68,21 @@ export interface Config {
   stderrSummaryMaxChars?: number
 }
 
+/* jscpd:ignore-start -- sibling bridges expose the same generic discovery schema. */
 export const Config: z<Config> = z.object({
-  configPath: z.string().required(),
+  configPath: z.string(),
+  discovery: z.union([z.object({
+    root: z.union([z.string(), z.const(undefined)]),
+    user: z.union([z.array(z.string()), z.const(undefined)]),
+    project: z.union([z.array(z.string()), z.const(undefined)]),
+    plugin: z.union([z.array(z.string()), z.const(undefined)]),
+    policy: z.union([z.array(z.string()), z.const(undefined)]),
+  }), z.const(undefined)]),
   model: z.string().default(''),
   defaultTimeoutMs: z.number().default(DEFAULT_HOOK_TIMEOUT_MS),
   stderrSummaryMaxChars: z.number().default(DEFAULT_STDERR_SUMMARY_MAX_CHARS),
 })
+/* jscpd:ignore-end */
 
 let handlerCounter = 0
 function nextHandlerId(point: string): string {
@@ -78,23 +98,69 @@ function assertPositiveInteger(name: string, value: number): void {
   }
 }
 
+/** Default user/project files for the shipped Standard-family bridge. */
+function defaultDiscovery(): Required<HookConfigDiscovery> {
+  return {
+    root: process.env.DSH_HOME ?? join(homedir(), '.dsh'),
+    user: ['hooks/codex.json'],
+    project: ['.dsh/hooks/codex.json'],
+    plugin: [],
+    policy: [],
+  }
+}
+
+function resolveDiscovery(discovery: HookConfigDiscovery | undefined): Required<HookConfigDiscovery> {
+  const defaults = defaultDiscovery()
+  return {
+    root: discovery?.root ?? defaults.root,
+    user: discovery?.user ?? defaults.user,
+    project: discovery?.project ?? defaults.project,
+    plugin: discovery?.plugin ?? [],
+    policy: discovery?.policy ?? [],
+  }
+}
+
 export function apply(ctx: Context, config: Config): void {
   // Validate before config parsing so a bad value cannot be hidden by its early return.
   const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? DEFAULT_STDERR_SUMMARY_MAX_CHARS
   assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
   const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
   let parsed: CodexHookConfig = {}
-  try {
-    const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
-    const result = parseCodexConfig(raw)
-    parsed = result.config
-    for (const s of result.skipped) {
-      ctx.logger.warn(`hooks-codex: skipping ${s.reason} on ${s.event} (only sync command hooks run)`)
+  if (config.configPath !== undefined) {
+    try {
+      const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
+      const result = parseCodexConfig(raw)
+      parsed = result.config
+      for (const s of result.skipped) {
+        ctx.logger.warn(`hooks-codex: skipping ${s.reason} on ${s.event} (only sync command hooks run)`)
+      }
+    } catch (error: unknown) {
+      ctx.logger.warn(`hooks-codex: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
+      return
     }
-  } catch (error: unknown) {
-    ctx.logger.warn(`hooks-codex: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
-    return
   }
+
+  /* jscpd:ignore-start -- sibling bridges load the same source snapshot around dialect parsers. */
+  function discoveredConfig(sessionCwd: string | undefined): Readonly<Record<string, readonly MatcherGroup[]>> {
+    const snapshot = readHookConfigSnapshot<ParsedCodexConfig>(
+      discoverHookConfigSources(sessionCwd, resolveDiscovery(config.discovery)),
+      raw => parseCodexConfig(raw),
+    )
+    const merged: Record<string, readonly MatcherGroup[]> = {}
+    for (const entry of snapshot.loaded) {
+      for (const skipped of entry.value.skipped) {
+        ctx.logger.warn(`hooks-codex: skipping ${skipped.reason} on ${skipped.event} from "${entry.source.path}" (only sync command hooks run)`)
+      }
+      for (const [point, groups] of Object.entries(entry.value.config)) {
+        merged[point] = Object.freeze([...(merged[point] ?? []), ...groups])
+      }
+    }
+    for (const failure of snapshot.failures) {
+      ctx.logger.warn(`hooks-codex: could not load discovered hook config "${failure.source.path}" (${failure.source.layer}): ${String(failure.error)} — source skipped`)
+    }
+    return Object.freeze(merged)
+  }
+  /* jscpd:ignore-end */
 
   const model = config.model ?? ''
 
@@ -121,7 +187,11 @@ export function apply(ctx: Context, config: Config): void {
       plainStdoutAsContext?: boolean
     },
   ): Promise<MergedHookOutcome> {
-    const groups: MatcherGroup[] = parsed[point] ?? []
+    /* jscpd:ignore-start -- both dialects select explicit or per-event source groups identically. */
+    const groups: readonly MatcherGroup[] = config.configPath !== undefined
+      ? parsed[point] ?? []
+      : discoveredConfig(opts.agent?.session.header.cwd)[point] ?? []
+    /* jscpd:ignore-end */
     const outputs: HookOutput[] = []
     // Run hooks in the agent's session workspace so relative paths address the
     // user's project rather than the server launch directory.

@@ -64,6 +64,22 @@ async function execute(ctx: Context, arguments_: unknown) {
 }
 
 describe('artifact_read', () => {
+  it('wraps every rendered page as untrusted artifact content without changing the page value', async () => {
+    const { ctx, store } = await setup({ pageChars: 7 })
+    store.response = { text: 'page🙂' }
+
+    const result = await execute(ctx, { locator: 'artifact:key/42' })
+
+    expect(result).toMatchObject({
+      isError: false,
+      value: { text: 'page🙂' },
+      content: [{
+        type: 'text',
+        text: '--- BEGIN UNTRUSTED ARTIFACT CONTENT ---\npage🙂\n--- END UNTRUSTED ARTIFACT CONTENT ---',
+      }],
+    })
+  })
+
   it('reads the first page with the direct-construction default and preserves exact Unicode text', async () => {
     const { ctx, store } = await setup()
     store.response = { text: '第一行🙂\nsecond line\n' }
@@ -79,7 +95,10 @@ describe('artifact_read', () => {
     expect(result).toMatchObject({
       isError: false,
       value: { text: '第一行🙂\nsecond line\n' },
-      content: [{ type: 'text', text: '第一行🙂\nsecond line\n' }],
+      content: [{
+        type: 'text',
+        text: '--- BEGIN UNTRUSTED ARTIFACT CONTENT ---\n第一行🙂\nsecond line\n\n--- END UNTRUSTED ARTIFACT CONTENT ---',
+      }],
     })
   })
 
@@ -104,7 +123,7 @@ describe('artifact_read', () => {
       value: { text: 'page🙂', nextCursor: 'cursor/二?opaque=yes' },
       content: [{
         type: 'text',
-        text: 'page🙂\n\nartifact_read cursor="cursor/二?opaque=yes"',
+        text: '--- BEGIN UNTRUSTED ARTIFACT CONTENT ---\npage🙂\n--- END UNTRUSTED ARTIFACT CONTENT ---\n\nartifact_read cursor="cursor/二?opaque=yes"',
       }],
     })
   })
@@ -180,13 +199,13 @@ describe('artifact_read', () => {
     expect(ctx.tools.get('artifact_read')).toBeDefined()
   })
 
-  it('rejects pages that cannot fit the ToolRuntime result limit with continuation guidance', async () => {
+  it('rejects pages that cannot fit the ToolRuntime result limit with the safety wrapper', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(StubSpillStore)
 
-    expect(() => { toolResultArtifacts.apply(ctx, { pageChars: 700, maxResultTextChars: 800 }) }).toThrow('must leave')
+    expect(() => { toolResultArtifacts.apply(ctx, { pageChars: 750, maxResultTextChars: 800 }) }).toThrow('must leave')
     expect(ctx.tools.get('artifact_read')).toBeUndefined()
   })
 
@@ -202,7 +221,10 @@ describe('artifact_read', () => {
 
     store.response = { text: 'tail' }
     const last = await execute(ctx, { locator: 'artifact:key/42', cursor: 'v1:500' })
-    expect(last).toMatchObject({ isError: false, content: [{ type: 'text', text: 'tail' }] })
+    expect(last).toMatchObject({
+      isError: false,
+      content: [{ type: 'text', text: '--- BEGIN UNTRUSTED ARTIFACT CONTENT ---\ntail\n--- END UNTRUSTED ARTIFACT CONTENT ---' }],
+    })
     expect(last.artifact).toBeUndefined()
   })
 

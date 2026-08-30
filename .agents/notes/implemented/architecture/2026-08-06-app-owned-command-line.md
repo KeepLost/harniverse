@@ -18,7 +18,7 @@ The boot mounts the composition once. Cordis holds each row until its injections
 
 The shipped apps moved their flags into their bundles: `dsh-web-app` owns the Web family, and `dsh-headless` owns the task positional and rejects a missing task as a usage error. `apps/cli/src/web.ts` is gone; `runProfile` no longer knows any flag-target row id. Out of tree, turtle-ui gained `--resume <session>` / `--session <id>` the same way, which is the design's real validation: an installed plugin added a flag with no launcher change.
 
-Two further consequences. Loader mounts sibling rows concurrently, so one row can activate while another still mounts or while the whole boot is rolling back; the Web bundle therefore publishes its URL only after its own Loader tree settles. The Web bundle's runtime plugin owns the harness-source prompt section too, so `dsh web` and `dsh --profile web` boot identically without Web-specific launcher setup.
+Two further consequences. Loader mounts sibling rows concurrently, so one row can activate while another still mounts or while the whole boot is rolling back; the Web bundle therefore publishes its URL only after its own Loader tree settles. The Web bundle's runtime plugin owns the harness-source dynamic context too, so `dsh web` and `dsh --profile web` boot identically without Web-specific launcher setup.
 
 ## Why Loader owns the ordering
 
