@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-30-user-owned-project-issue-automation.md
-2026-08-30-user-owned-project-issue-automation.md: add63527c32d8356399462d437df672970c1ded0
-2026-08-30-user-owned-project-issue-automation.zh.md: 549180bcbd1c07ee983d850712054e2457e7cb32
+2026-08-30-user-owned-project-issue-automation.md: fa5e1456e3e4992563d111f4d6a5d8ac9febd8e3
+2026-08-30-user-owned-project-issue-automation.zh.md: b608ebefa9b966368dac2de35942799317ae19f5

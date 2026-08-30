@@ -1,6 +1,7 @@
 # Agent Note: User-owned Project for Harniverse Issue Automation
 
 Status: implemented
+Archived: 2026-08-30
 
 English | [中文](2026-08-30-user-owned-project-issue-automation.zh.md)
 

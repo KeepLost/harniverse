@@ -236,7 +236,7 @@ export function gatesForMode(selected: Mode): Gate[] {
           displayCommand: 'pnpm run test:unit (after pnpm run build)',
           needs: ['build'],
         }),
-        pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
+        pnpmScript('issue-management', 'test:issue-management', { label: 'Pull request policy' }),
         pnpmScript('duplication', 'duplication'),
         snapshotGate(),
         pnpmScript('build', 'build'),
@@ -264,7 +264,7 @@ function ciSharedStaticGates(): Gate[] {
     pnpmScript('optional-dependency-imports', 'verify-optional-dependency-imports', {
       label: 'optional dependency imports',
     }),
-    pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
+    pnpmScript('issue-management', 'test:issue-management', { label: 'Pull request policy' }),
     pnpmScript('client-css-tokens', 'verify-client-css-tokens', { label: 'client CSS tokens' }),
   ]
 }
