@@ -268,6 +268,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `03cfedff74` | Admits each new Web provider's settings namespace to the api-proxy configuration allowlist, so the Settings card serves live Tavily/Brave/Kagi/Firecrawl forms instead of the unavailable notice, and realigns the provider-selection, tool-schema, and untrusted-artifact regression fixtures with the shipped contracts. |
 | `1a0d968c4d` | Ships the four Profile capability defaults: Minimal's hidden lossless recovery, Standard-family user Skills/Hooks/MCP loading and disclosure, settings-owned scoped MCP consumers, dialect-specific Hook discovery, hardened public-only Web fetch, and corresponding real-composition, generated-catalog, and bilingual documentation updates. |
 | `552a78fbc5` | Unifies all built-in Profile prompt assembly around static Harniverse identity plus dynamic persona, checkout, and Web contexts; disables shipped Claude Code/Codex Hook bridges by default, rejects CLAUDE instruction candidates, and marks automatic TODO continuation with the durable `system-injection` form. |
+| `e55e384ae3` | Aligns the moved checkout, Web GUI, and Cordis persona wording with Harniverse branding, identifies Harniverse as a downstream of DeepSeek Harness (DSH), and adds the independent-product and retained-DSH-license notice to the checkout context. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
