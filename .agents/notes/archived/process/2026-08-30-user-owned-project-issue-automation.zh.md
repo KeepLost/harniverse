@@ -1,6 +1,7 @@
 # Agent Note: Harniverse 用户级 Project 的 Issue 自动化
 
 Status: implemented
+Archived: 2026-08-30
 
 [English](2026-08-30-user-owned-project-issue-automation.md) | 中文
 

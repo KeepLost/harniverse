@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-30-remove-project-backed-issue-lifecycle.md
+2026-08-30-remove-project-backed-issue-lifecycle.md: 26093dc06129f84816adc509d9b399ab8b9d6163
+2026-08-30-remove-project-backed-issue-lifecycle.zh.md: 5e74de1e80303b68364d6e5ec2f4c367e596c1c9
