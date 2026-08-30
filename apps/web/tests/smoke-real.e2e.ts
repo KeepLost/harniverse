@@ -308,7 +308,7 @@ describe('dsh web keyless CLI smoke', () => {
       const workspaceMessage = captured.messages?.find(message =>
         message.role === 'user' && message.content?.includes('web-workspace-context-probe'))
       const runtimeContextMessage = captured.messages?.find(message =>
-        message.role === 'user' && message.content?.includes('DeepSeek Harness Web GUI'))
+        message.role === 'user' && message.content?.includes('Harniverse Web GUI'))
       const expectedWebSection = readFileSync(WEB_SURFACE_PROMPT, 'utf8').trimEnd()
         .replace('{{webUrl}}', baseUrl)
       expect(runtimeContextMessage?.content).toContain(expectedWebSection)

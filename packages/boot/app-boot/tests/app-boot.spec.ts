@@ -783,7 +783,7 @@ describe('boot', () => {
 
 describe('addHarnessSourceContext', () => {
   const SOURCE_ROOT = `${sep}opt${sep}harness-src`
-  const EXPECTED = `The DeepSeek Harness implementation checkout is at ${SOURCE_ROOT}. The checkout location and current working directory are separate values and may differ; never infer the working directory from this path. Use pwd to determine the current working directory. Use this checkout only to inspect or extend DSH itself.`
+  const EXPECTED = `The Harniverse implementation checkout is at ${SOURCE_ROOT}, which is a downstream of DeepSeek Harness (DSH). The checkout location and current working directory are separate values and may differ; never infer the working directory from this path. Use pwd to determine the current working directory. Use this checkout only to inspect or extend Harniverse itself.\n\nHarniverse is totally a third-party independent product. Though it is built upon DSH, it is NOT affiliated by DeepSeek. DSH is open-sourced and its license still apply to Harniverse where the implementation from DSH remains intact.`
 
   it('distinguishes the source path from the current workdir in dynamic context order', async () => {
     const ctx = new Context()

@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-该动态上下文将路径标识为「DeepSeek Harness implementation checkout」。它说明 checkout 位置与当前工作目录是两个可能不同的值，禁止从 checkout 路径推断工作目录，指示模型使用 `pwd`，并限定该 checkout 只用于检查或扩展 DSH 自身。
+该动态上下文将路径标识为「Harniverse implementation checkout」，并说明它是 DeepSeek Harness（DSH）的下游项目。同时声明 Harniverse 是完全独立的第三方产品、不隶属于 DeepSeek，并且在保留 DSH 实现的部分继续适用 DSH 开源许可证。它说明 checkout 位置与当前工作目录是两个可能不同的值，禁止从 checkout 路径推断工作目录，指示模型使用 `pwd`，并限定该 checkout 只用于检查或扩展 Harniverse 自身。
 
 路径推导方式、全局 `harness:source` 所有权和 `-99` 顺序均保持不变。将两者描述为概念上独立、而不是始终不相等，使这条指令在普通项目会话和 `dsh meta` 中都准确。
 

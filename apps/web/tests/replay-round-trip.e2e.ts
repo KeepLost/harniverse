@@ -94,7 +94,7 @@ describe('web e2e: fresh round trip through the real assembly', () => {
     if (agent === undefined) throw new Error(`the settled Web agent ${settledSessionId} is no longer live`)
     const system = agent.session.requestHeader()?.system
     if (system === undefined) throw new Error('the settled Web request has no system prompt')
-    const context = runtimeContexts(sessionEvents).find(text => text.includes('DeepSeek Harness Web GUI'))
+    const context = runtimeContexts(sessionEvents).find(text => text.includes('Harniverse Web GUI'))
     if (context === undefined) throw new Error('the settled Web request has no runtime context')
     const prefix = `${system}\n\n${context}`
       .split(REPO_ROOT).join('{{sourceRoot}}')

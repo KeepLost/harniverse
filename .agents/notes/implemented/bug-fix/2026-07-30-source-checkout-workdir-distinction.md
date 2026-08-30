@@ -12,7 +12,7 @@ A blanket statement that the checkout is not the working directory would also be
 
 ## Decision
 
-The dynamic context identifies the path as the “DeepSeek Harness implementation checkout.” It says that the checkout location and current working directory are separate values that may differ, forbids inferring the working directory from the checkout path, directs the model to use `pwd`, and limits the checkout's purpose to inspecting or extending DSH itself.
+The dynamic context identifies the path as the “Harniverse implementation checkout,” a downstream of DeepSeek Harness (DSH). It states that Harniverse is totally a third-party independent product, is not affiliated by DeepSeek, and keeps the DSH open-source license applicable where the DSH implementation remains intact. It says that the checkout location and current working directory are separate values that may differ, forbids inferring the working directory from the checkout path, directs the model to use `pwd`, and limits the checkout's purpose to inspecting or extending Harniverse itself.
 
 The path derivation, global `harness:source` ownership, and `-99` ordering remain unchanged. Describing the values as conceptually separate rather than always unequal keeps the instruction accurate in both ordinary project sessions and `dsh meta`.
 

@@ -153,7 +153,7 @@ describe('web-app runtime glue', () => {
     expect(assembly.sections.some(entry => entry.name === 'harness:source')).toBe(false)
     const context = assembly.contexts.find(entry => entry.name === 'app:web-surface')
     const renderedContext = renderContextSnapshot(assembly)
-    expect(renderedContext).toContain('DeepSeek Harness implementation checkout')
+    expect(renderedContext).toContain('Harniverse implementation checkout')
     expect(context?.text).toContain('http://127.0.0.1:4567')
     // The single update contract: the receiver is always on; no-refresh
     // reloads additionally need the rebuild watcher.

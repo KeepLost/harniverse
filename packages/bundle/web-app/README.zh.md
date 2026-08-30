@@ -10,7 +10,7 @@ dsh 浏览器表层组合包。[`cordis.patch.yml`](cordis.patch.yml) 叠加在 
 
 #### 模型看到的内容
 
-当 `surfaceContext` 为 true 时，`harness:source` 上下文标明磁盘上的 Harness 实现，但不会声称它就是工作目录；动态上下文 `app:web-surface`（顺序 −98）则向模型说明 GUI：规范的本地 URL、「this page」指代什么、更新约定（重载接收端始终开启；无刷新重载还需要 `pnpm run dev:web` watcher），以及不要启动替代服务器的指令。两者会通过 `dsh-system-prompt` 的 runtime 快照进入，而不是静态系统提示词。`DSH_WEB_URL` 还会连同描述出现在受管 bash 环境中，每次调用时从运行中的服务器解析。当它为 false 时，这两个上下文和该变量都不会注册。
+当 `surfaceContext` 为 true 时，`harness:source` 上下文标明磁盘上的 Harniverse 实现，并说明它是 DeepSeek Harness（DSH）的下游项目，同时声明 Harniverse 是完全独立的第三方产品，保留的 DSH 实现部分适用 DSH 开源许可证，但不会声称它就是工作目录。动态上下文 `app:web-surface`（顺序 −98）则向模型说明 Harniverse Web GUI：规范的本地 URL、「this page」指代什么、更新约定（重载接收端始终开启；无刷新重载还需要 `pnpm run dev:web` watcher），以及不要启动替代服务器的指令。两者会通过 `dsh-system-prompt` 的 runtime 快照进入，而不是静态系统提示词。`DSH_WEB_URL` 还会连同描述出现在受管 bash 环境中，每次调用时从运行中的服务器解析。当它为 false 时，这两个上下文和该变量都不会注册。
 
 #### Token 影响
 
