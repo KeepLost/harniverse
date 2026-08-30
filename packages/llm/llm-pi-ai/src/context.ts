@@ -137,6 +137,7 @@ export function toPiContext(options: GenerateOptions, onReplayDegrade?: ReplayDe
  * Tool result names are recovered from preceding assistant tool calls.
  * @param options - the harness request; `options.system` maps to pi-ai's single `systemPrompt` slot.
  * @param attachments - durable byte resolver for image references.
+ * @param onReplayDegrade - called when one assistant message falls back to neutral history.
  * @returns the asynchronously resolved pi-ai context.
  */
 export function toPiContext(

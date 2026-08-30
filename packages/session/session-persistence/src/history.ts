@@ -123,6 +123,9 @@ export function paginateSessionHistory(
 /**
  * Paginate an event window by raw sequence rather than display-message
  * boundaries. This is the generic fallback for sequential third-party stores.
+ * @param events - the stored events in chronological order.
+ * @param request - the exclusive upper bound and page-size request.
+ * @returns one bounded raw-event page in chronological order.
  */
 export function paginateRawEventPage(
   events: readonly SessionEvent[],

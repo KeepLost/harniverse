@@ -157,6 +157,8 @@ function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
   const extras = manifest.name ? packageFileExtras[manifest.name] ?? [] : []
   return [
     'lib/index.js',
+    // The web shell's authentication gate is loaded before the main shell.
+    ...exportDefault(manifest, './auth') === './lib/auth.js' ? ['lib/auth.js'] : [],
     // Every package publishes its invariant ownership companion as a separate
     // bundle; the package-invariant gate validates the companion itself.
     'lib/invariant.js',

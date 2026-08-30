@@ -9,7 +9,7 @@ const pyDir = fileURLToPath(new URL('../py', import.meta.url))
 
 async function hasPython3(): Promise<boolean> {
   try {
-    await execFileAsync('python3', ['--version'])
+    await execFileAsync('python3', ['-c', 'import sys; raise SystemExit(sys.version_info < (3, 10))'])
     return true
   } catch {
     return false

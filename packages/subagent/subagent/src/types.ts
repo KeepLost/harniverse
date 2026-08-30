@@ -104,7 +104,11 @@ export type SubagentInvocationMode = 'sync' | 'async'
 /** Stable identity of one accepted invocation, independent of its Activation. */
 export type SubagentInvocationId = Branded<'SubagentInvocationId'>
 
-/** Brand a string as a {@link SubagentInvocationId}. */
+/**
+ * Brand a string as a {@link SubagentInvocationId}.
+ * @param id - the raw invocation id.
+ * @returns the same string, branded.
+ */
 export function SubagentInvocationId(id: string): SubagentInvocationId {
   return id as SubagentInvocationId
 }

@@ -1,6 +1,6 @@
 # Agent Note: Earlier TODO plan lifetime decision
 
-Status: implemented; partially superseded for TODO lifetime
+Status: implemented
 
 The TODO lifetime decision below is superseded by [preserve TODO visibility and context recovery](2026-08-27-todo-and-context-recovery.md). The historical rationale and alternatives remain useful context; the newer note owns the current projection contract.
 

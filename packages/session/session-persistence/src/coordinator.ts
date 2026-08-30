@@ -1003,6 +1003,9 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * earlier stable prefix while an append commits, and neither publishes or
    * repairs coordinator state. This deliberately differs from `inspect`, whose
    * preparation and repair semantics require serialization.
+   * @param id - persisted session id.
+   * @param signal - optional cancellation for backend read work.
+   * @returns the latest logged request header, or `undefined` when none exists.
    */
   async readRequestHeader(id: SessionId, signal?: AbortSignal): Promise<EpochHeader | undefined> {
     this.assertNotDeleting(id)

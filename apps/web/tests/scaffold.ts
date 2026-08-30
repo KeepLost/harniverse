@@ -71,9 +71,9 @@ import { REPO_ROOT, requireDist } from './support.ts'
 //   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_SETTINGS_NAMESPACE,
 //   WELCOME_NOTICE_VERSION, WELCOME_NOTICE_COPY,
 // } from '@deepseek-ai/dsh-client-ui-settings-models'
-export const WELCOME_NOTICE_SETTINGS_NAMESPACE = 'ui-onboarding'
-export const WELCOME_NOTICE_ACK_FIELD = 'welcomeNoticeVersion'
-export const WELCOME_NOTICE_VERSION = '2026-08-13.1'
+const WELCOME_NOTICE_SETTINGS_NAMESPACE = 'ui-onboarding'
+const WELCOME_NOTICE_ACK_FIELD = 'welcomeNoticeVersion'
+const WELCOME_NOTICE_VERSION = '2026-08-13.1'
 export const WELCOME_NOTICE_COPY = {
   zh: {
     title: '内测声明',
@@ -184,10 +184,10 @@ export interface WebScaffold {
 }
 
 /** Official search-provider ids mounted by the shipped base composition. */
-export type OfficialWebSearchProviderId = 'deepseek-official' | 'exa' | 'perplexity'
+type OfficialWebSearchProviderId = 'deepseek-official' | 'exa' | 'perplexity'
 
 /** Deterministic provider endpoint and credential reference for one search scenario. */
-export interface WebSearchTestConfig {
+interface WebSearchTestConfig {
   /** Provider selected on the real shipped `web` row. */
   provider: OfficialWebSearchProviderId
   /** Provider endpoint base; the selected provider appends its operation path. */

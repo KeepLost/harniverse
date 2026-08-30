@@ -7,6 +7,7 @@
     "bwrap",
     "icacls",
     "musl-gcc",
+    "openssl",
     "python3",
     "sandbox-exec",
     "tar",
@@ -56,6 +57,7 @@
         "acp-agent/tests/fixtures/parent-sandbox-override.ts",
         "acp-agent/tests/fixtures/partial-landlock-sandbox.ts",
         "acp-agent/tests/fixtures/subagent-durability-failure.ts",
+        "acp-agent/tests/fixtures/subagent-result-diagnostic.ts",
         "acp-agent/tests/fixtures/subagent-report-fence.ts",
         "acp-agent/tests/fixtures/subagent-settlement-marker.ts",
         "acp-agent/tests/fixtures/workspace-context-compaction.ts",
@@ -314,6 +316,27 @@
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
+      ]
+    },
+    "packages/context/file-reference": {
+      "project": [
+        "src/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "zod"
+      ]
+    },
+    "packages/context/session-reference": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "zod"
       ]
     },
     "packages/context/tmux-context": {
@@ -745,11 +768,7 @@
       "ignoreDependencies": [
         "@deepseek-ai/dsh-client-ui-primitives",
         "@deepseek-ai/dsh-client-ui-slots",
-        "@deepseek-ai/dsh-client-web-react",
-        "@types/react",
-        "@types/react-dom",
-        "react",
-        "react-dom"
+        "@deepseek-ai/dsh-client-web-react"
       ]
     },
     "apps/cli": {

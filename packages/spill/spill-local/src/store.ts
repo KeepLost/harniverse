@@ -156,9 +156,15 @@ async function validatePrivateDirectory(path: string, label: string): Promise<vo
   }
 }
 
-/** Walk one absolute directory path without following symlinks in any component. */
+/** Walk one absolute directory path without following arbitrary symlinks. */
 async function ensureRealDirectoryPath(path: string, create: boolean): Promise<void> {
-  const absolute = resolve(path)
+  // macOS exposes /var and /tmp as stable system aliases for /private/*.
+  // Canonicalize only those aliases; arbitrary configured symlinks must remain
+  // rejected by the component-by-component lstat checks below.
+  const resolved = resolve(path)
+  const absolute = process.platform === 'darwin'
+    ? resolved.replace(/^\/(?:var|tmp)(?=\/|$)/, match => `/private${match}`)
+    : resolved
   const anchor = parse(absolute).root
   let current = anchor
   for (const segment of relative(anchor, absolute).split(sep).filter(Boolean)) {

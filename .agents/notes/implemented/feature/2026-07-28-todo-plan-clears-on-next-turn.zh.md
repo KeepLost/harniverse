@@ -1,6 +1,6 @@
 # Agent Note: 早期 TODO 计划生命周期决定
 
-Status: implemented；TODO 生命周期部分已被取代
+Status: implemented
 
 下文的 TODO 生命周期决定已由[保留 TODO 可见性并恢复模型上下文压力](2026-08-27-todo-and-context-recovery.md)取代。历史理由与替代方案仍保留作背景；当前投影契约以新说明为准。
 

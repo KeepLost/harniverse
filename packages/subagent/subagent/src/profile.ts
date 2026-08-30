@@ -44,7 +44,12 @@ function childWorkspace(root: string, parentCwd: string, requested: string | und
   return selected
 }
 
-/** Whether `candidate` is equal to or below `root` without prefix confusion. */
+/**
+ * Whether `candidate` is equal to or below `root` without prefix confusion.
+ * @param root - the containing workspace path.
+ * @param candidate - the path to classify.
+ * @returns whether `candidate` is equal to or below `root`.
+ */
 export function isWorkspaceDescendant(root: string, candidate: string): boolean {
   const suffix = relative(resolve(root), resolve(candidate))
   return suffix === '' || (suffix !== '..' && !suffix.startsWith(`..${sep}`) && !isAbsolute(suffix))
@@ -96,7 +101,10 @@ function optionalNumber(value: Record<string, unknown>, key: string): number | u
   return field
 }
 
-/** Validate the detached profile crossing a provider or persistence boundary. */
+/**
+ * Validate the detached profile crossing a provider or persistence boundary.
+ * @param profile - the profile snapshot to validate.
+ */
 export function assertResolvedChildProfile(profile: ResolvedChildProfile): void {
   assertId(profile.profileId, 'profileId')
   assertId(profile.harnessId, 'harnessId')
@@ -123,7 +131,12 @@ export function assertResolvedChildProfile(profile: ResolvedChildProfile): void 
   assertSafeInteger(profile.schedulerPriority, 'schedulerPriority')
 }
 
-/** Combine a profile's tool grant with an optional narrower per-start filter. */
+/**
+ * Combine a profile's tool grant with an optional narrower per-start filter.
+ * @param profile - the immutable profile grant.
+ * @param requested - the optional narrower request.
+ * @returns the effective tool restriction.
+ */
 export function childProfileToolFilter(
   profile: ResolvedChildProfile,
   requested: ToolRestriction | undefined,
@@ -139,7 +152,11 @@ export function childProfileToolFilter(
   }
 }
 
-/** Parse and validate a persisted resolved profile snapshot. */
+/**
+ * Parse and validate a persisted resolved profile snapshot.
+ * @param value - the untrusted persisted value.
+ * @returns the validated immutable profile.
+ */
 export function parseResolvedChildProfile(value: unknown): ResolvedChildProfile {
   if (!isRecord(value)) throw new Error('persisted child profile must be an object')
   const allowed = new Set([
@@ -173,6 +190,10 @@ export function parseResolvedChildProfile(value: unknown): ResolvedChildProfile 
 /**
  * Resolve a requested profile against the parent grant without silently
  * clipping it. The returned object is detached and immutable for cold resume.
+ * @param spec - the requested child profile.
+ * @param grant - the parent's granted capabilities and bounds.
+ * @param revision - the positive profile revision to persist.
+ * @returns the resolved immutable profile.
  */
 export function resolveChildProfile(
   spec: ChildProfileSpec,

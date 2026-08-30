@@ -26,7 +26,7 @@ Status: implemented
 
 Mermaid 渲染权威图表。网站工作区显式声明 `vitepress-plugin-mermaid` 要求 Vite 预打包的 5 个包，因为 pnpm 的严格依赖隔离会使本地开发服务器无法使用这些传递依赖；Knip 将这种仅运行时使用记录为有意的依赖例外。
 
-网站发布与网站构建保持分离。网站构建通过现有文档门禁运行并生成 `website/.dist`；GitHub Pages 部署不在配置范围内。部署决策记录在[移除 GitHub Pages 部署的 Agent Note](2026-08-30-remove-github-pages-deployment.md)中。
+网站发布与网站构建保持分离。网站构建通过现有文档门禁运行并生成 `website/.dist`；GitHub Pages 部署不在配置范围内。部署决策记录在[移除 GitHub Pages 部署的 Agent Note](../simplification/2026-08-30-remove-github-pages-deployment.md)中。
 
 ## 考虑过的替代方案
 

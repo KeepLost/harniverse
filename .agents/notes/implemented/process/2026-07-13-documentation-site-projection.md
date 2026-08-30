@@ -26,7 +26,7 @@ The projector parses Markdown links without reserializing the document. A link t
 
 Mermaid renders the canonical diagrams. The website workspace explicitly declares the five packages that `vitepress-plugin-mermaid` asks Vite to prebundle because pnpm's strict dependency isolation otherwise makes those transitive packages unavailable to the local development server; Knip records this runtime-only use as an intentional dependency exception.
 
-Site publication remains separate from site construction. The website build runs through the existing documentation gates and produces `website/.dist`; GitHub Pages deployment is intentionally not configured. The deployment decision is recorded in the [GitHub Pages removal note](2026-08-30-remove-github-pages-deployment.md).
+Site publication remains separate from site construction. The website build runs through the existing documentation gates and produces `website/.dist`; GitHub Pages deployment is intentionally not configured. The deployment decision is recorded in the [GitHub Pages removal note](../simplification/2026-08-30-remove-github-pages-deployment.md).
 
 ## Alternatives considered
 

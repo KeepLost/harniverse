@@ -27,7 +27,7 @@ describe('CI workflow', () => {
     }
   })
 
-  it('keeps a required Wine Windows job, a non-blocking native Windows job with failover, and a master-only standby', () => {
+  it('keeps a required Wine Windows job, a non-blocking native Windows job, and a master-only standby', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
     if (!isRecord(workflow.jobs)
       || !isRecord(workflow.jobs.windows)
@@ -62,14 +62,8 @@ describe('CI workflow', () => {
     expect(windows.if).toBe("github.event_name == 'pull_request'")
     expect(commandSteps.some(step => step.run.includes('wine-windows-gates.sh'))).toBe(true)
 
-    // windows-native: non-blocking native job with failover, runs windows-complete.
-    // Its pool is resolved by the Windows-specific switch.
-    expect(typeof windowsNative['runs-on']).toBe('string')
-    expect(windowsNative['runs-on']).toContain('DSH_CI_FAILOVER_WINDOWS')
-    expect(windowsNative['runs-on']).not.toContain('DSH_CI_FAILOVER_LINUX')
-    expect(windowsNative['runs-on']).toContain('self-hosted')
-    expect(windowsNative['runs-on']).toContain('dsh-win-ci')
-    expect(windowsNative['runs-on']).toContain('dsh-windows-2025-16core')
+    // windows-native: non-blocking native job on the standard hosted pool.
+    expect(windowsNative['runs-on']).toBe('windows-latest')
     expect(windowsNative.name).toBe('windows node 24 / native complete')
     expect(windowsNative.if).toBe("github.event_name == 'pull_request'")
     const nativeCommandSteps = (windowsNative.steps as unknown[]).filter((step): step is Record<string, unknown> & { run: string } => (
@@ -81,8 +75,8 @@ describe('CI workflow', () => {
     expect(wineAptCache.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master'")
     expect(wineAptCache['runs-on']).toBe('ubuntu-latest')
 
-    // serial-windows: master-only standby, self-hosted, non-blocking.
-    expect(serialWindows.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master'")
+    // serial-windows: disabled self-hosted standby retained as a reference.
+    expect(serialWindows.if).toBe(false)
     expect(serialWindows['runs-on']).toEqual(['self-hosted', 'dsh-win-ci', 'windows'])
     expect(serialWindows.name).toBe('serial / windows (self-hosted standby)')
 
@@ -91,18 +85,13 @@ describe('CI workflow', () => {
     expect(aggregate.needs).not.toContain('windows-native')
     expect(aggregate.needs).not.toContain('serial-windows')
 
-    // Linux failover is a separate switch: the three required Linux workers
-    // and the verdict job resolve their pool through DSH_CI_FAILOVER_LINUX,
-    // never the Windows switch.
+    // The three required Linux workers and the verdict job use the standard
+    // hosted pool; the disabled self-hosted lanes are not part of the PR path.
     for (const [jobName, job] of [['node-24', node24], ['node-24-coverage', node24Coverage], ['node-24-consumers', node24Consumers]] as const) {
       expect(typeof job['runs-on']).toBe('string')
-      expect(job['runs-on'], `${jobName} runs-on must use the Linux failover switch`).toContain('DSH_CI_FAILOVER_LINUX')
-      expect(job['runs-on'], `${jobName} runs-on must not use the Windows failover switch`).not.toContain('DSH_CI_FAILOVER_WINDOWS')
-      expect(job['runs-on']).toContain('vm-backup')
+      expect(job['runs-on'], `${jobName} runs-on must use the hosted Linux pool`).toBe('ubuntu-latest')
     }
-    expect(aggregate['runs-on']).toContain('DSH_CI_FAILOVER_LINUX')
-    expect(aggregate['runs-on']).not.toContain('DSH_CI_FAILOVER_WINDOWS')
-    expect(aggregate['runs-on']).toContain('vm-backup')
+    expect(aggregate['runs-on']).toBe('ubuntu-latest')
   })
 
   it('exempts push from cancellation, so one master merge does not cancel the running drill', () => {
@@ -128,8 +117,8 @@ describe('CI workflow', () => {
       const job = workflow.jobs[name]
       if (!isRecord(job)) throw new TypeError(`${name} must be defined`)
       expect(job.concurrency).toBeUndefined()
-      // Both stay master-push-only; that is what makes the push carve-out safe.
-      expect(job.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master'")
+      // Both remain explicitly disabled until their runner pools return.
+      expect(job.if).toBe(false)
     }
 
     // What bounds the cost of exempting push: a master push may only carry the
@@ -156,7 +145,7 @@ describe('CI workflow', () => {
       })
       .map(([name]) => name)
       .sort()
-    expect(pushReachable).toEqual(['serial-linux-selfhosted', 'serial-windows', 'wine-apt-cache'])
+    expect(pushReachable).toEqual(['wine-apt-cache'])
 
     // Why workflow_dispatch must keep cancelling: each benchmark fans out to a
     // dozen larger runners at once, in this same group on master. If it stopped

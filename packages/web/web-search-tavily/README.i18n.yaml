@@ -1,3 +1,6 @@
-# Bilingual-pair consistency record. Hashes are refreshed after both README files change.
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/web/web-search-tavily/README.md
 README.md: b5b798675c83d36009a8cefdfb0f615a320569ac
 README.zh.md: ba3930a6e9e04d7fd352f95689ae75a29ff71419
