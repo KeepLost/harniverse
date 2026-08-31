@@ -10,10 +10,10 @@ Outside `landlock-run.yml`, each workflow that installed pnpm hand-provisioned i
 
 ## Decision
 
-`pnpm/action-setup@v4` is the only pnpm provisioning mechanism in CI: no workflow runs `corepack enable`. The root dev dependency on `@yarnpkg/cli-dist` separately supplies the modern Yarn CLI exercised by the generated-project e2e; package-manager coverage therefore does not inherit the runner image's Yarn Classic. Caching remains per-job policy on top of pnpm provisioning, in three deliberate shapes:
+`pnpm/action-setup@v5` is the only pnpm provisioning mechanism in CI: no workflow runs `corepack enable`. JavaScript workflow infrastructure uses the Node 24 action generation (`actions/checkout@v7`, `actions/setup-node@v7`, `actions/cache@v6`, and `actions/upload-artifact@v7`). The root dev dependency on `@yarnpkg/cli-dist` separately supplies the modern Yarn CLI exercised by the generated-project e2e; package-manager coverage therefore does not inherit the runner image's Yarn Classic. Caching remains per-job policy on top of pnpm provisioning, in three deliberate shapes:
 
-- **Built-in symmetric cache** (restore and save): `actions/setup-node` with `cache: pnpm` — `e2e.yml`, `pi-ai-provider-e2e.yml`, `build-exe-for-python-sdk.yml`, and the Node compatibility job in `ci.yml`.
-- **Prefix-fallback symmetric cache** (hand-rolled `actions/cache` steps): the three primary Linux jobs and Wine-based required Windows job configure a store outside the action's replaceable install directory, restore the exact lockfile key or the newest same-platform prefix, and save the current merge-ref key after a miss.
+- **Built-in symmetric cache** (restore and save): `actions/setup-node@v7` with `cache: pnpm` — `e2e.yml`, `pi-ai-provider-e2e.yml`, `build-exe-for-python-sdk.yml`, and the Node compatibility job in `ci.yml`.
+- **Prefix-fallback symmetric cache** (hand-rolled `actions/cache@v6` steps): the three primary Linux jobs and Wine-based required Windows job configure a store outside the action's replaceable install directory, restore the exact lockfile key or the newest same-platform prefix, and save the current merge-ref key after a miss.
 - **Cache-less** (no store-cache action): the independent native Windows job and `sandbox.yml` install from a cold runner-local store. Extracting a many-file pnpm store archive costs more than a clean Windows install, and Sandbox runs infrequently enough that a transferred store is not justified.
 
 ## Alternatives considered
@@ -31,3 +31,4 @@ Outside `landlock-run.yml`, each workflow that installed pnpm hand-provisioned i
 - The cache-key format changed once for converted lanes; one cold run repopulated it, after which hit rates match the old steps. The built-in key spans platform, arch, and the lockfile hash but not the Node version, so the node-compat matrix legs share one store entry — safe, because the pnpm store is Node-version-independent.
 - `setup-node`'s built-in pnpm cache restores by exact key only, with no `restore-keys` prefix fallback: a `pnpm-lock.yaml` change starts a converted lane from a cold store instead of seeding from the previous entry.
 - `pnpm/action-setup` deletes its install directory on every run and places the default store beneath the resulting `PNPM_HOME`. Jobs with explicit cache actions therefore set `PNPM_CONFIG_STORE_DIR` outside the action directory and resolve that stable path before restoring or saving it.
+- The Node 24 action generation requires Actions Runner 2.327.1 or newer. Required CI uses GitHub-hosted runners; a self-hosted standby must meet that floor before it is enabled.
