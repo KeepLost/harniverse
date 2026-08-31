@@ -21,7 +21,7 @@ vi.mock('../src/private-files.ts', async (importOriginal) => {
   return {
     ...actual,
     withPrivateFileLock: async <T>(target: string, operation: () => Promise<T>): Promise<T> => {
-      if (!target.endsWith('/auth/grants.json')) return actual.withPrivateFileLock(target, operation)
+      if (!target.endsWith(join('auth', 'grants.json'))) return actual.withPrivateFileLock(target, operation)
       if (registryLock.active > 0) registryLock.contender?.()
       registryLock.active += 1
       try {

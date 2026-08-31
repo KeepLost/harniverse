@@ -95,11 +95,11 @@ describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader comp
       '    idleSilenceMs: 300',
       '    handoffGraceMs: 300',
       '    scrollbackLines: 20000',
-      '    timeoutMs: 60000',
+      '    timeoutMs: 20000',
       '    disposeGraceMs: 500',
       "- name: '@deepseek-ai/dsh-tool-pwsh-persistent'",
       '  config:',
-      '    timeoutMs: 60000',
+      '    timeoutMs: 20000',
       '',
     ].join('\n'))
 
@@ -143,7 +143,7 @@ describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader comp
       '$env:KEEP = "loader"',
       '$value = "persisted"',
       'function Get-Persisted { $value }',
-      '$job = Start-Job { "job-result" }',
+      '$job = Start-ThreadJob { "job-result" }',
       'New-Item -ItemType Directory -Force -Path nested | Out-Null',
       'Set-Location nested',
     ].join('; '))
@@ -160,5 +160,5 @@ describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader comp
     const exited = text(await execute('exit', 'exit'))
     expect(exited).toContain('next pwsh call starts from the workspace')
     expect(text(await execute('after-exit', 'Write-Output "$PWD"'))).toBe(root)
-  }, 150_000)
+  }, 60_000)
 })

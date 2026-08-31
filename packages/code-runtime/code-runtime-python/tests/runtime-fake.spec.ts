@@ -13,10 +13,13 @@ type ChildFrame = Record<string, unknown>
 type Script = (child: FakeChild, frame: ChildFrame) => void
 
 class FakeStream extends EventEmitter {
-  readonly writes: string[] = []
   ended = false
   throwOnEnd = false
   onWrite?: (text: string) => void
+
+  constructor(readonly writes: string[] = []) {
+    super()
+  }
 
   write(text: string): boolean {
     this.writes.push(text)
@@ -39,9 +42,11 @@ class FakeStream extends EventEmitter {
 }
 
 class FakeChild extends EventEmitter {
+  readonly input = new FakeStream()
+  stdin: FakeStream | null = this.input
   readonly stdout = new FakeStream()
   readonly stderr = new FakeStream()
-  readonly protocol = new FakeStream()
+  readonly protocol = new FakeStream(this.input.writes)
   readonly stdio: (string | FakeStream | null)[] = ['ignored', this.stdout, this.stderr, this.protocol]
   exitCode: number | null = null
   signalCode: NodeJS.Signals | null = null
@@ -49,7 +54,7 @@ class FakeChild extends EventEmitter {
 
   constructor(private readonly script: Script) {
     super()
-    this.protocol.onWrite = (text) => {
+    this.input.onWrite = (text) => {
       this.script(this, JSON.parse(text) as ChildFrame)
     }
   }
@@ -146,6 +151,16 @@ describe('PythonCodeRuntime deterministic process boundary', () => {
   })
 
   it('covers missing fd3 and initial boot write failures', async () => {
+    const missingInput = new FakeChild(() => {})
+    missingInput.stdin = null
+    spawnMock.mockImplementationOnce(() => missingInput as never)
+    const noInput = await setup()
+    await expect(noInput.runtime.run(request())).resolves.toEqual({
+      logs: [], error: { kind: 'worker-exit', message: 'python process control channel unavailable' },
+    })
+    expect(missingInput.killed).toBe(true)
+    await noInput.fiber.dispose()
+
     const missing = new FakeChild(() => {})
     missing.stdio[3] = null
     spawnMock.mockImplementationOnce(() => missing as never)
@@ -157,7 +172,7 @@ describe('PythonCodeRuntime deterministic process boundary', () => {
     await first.fiber.dispose()
 
     const throwing = new FakeChild(() => {})
-    throwing.protocol.write = () => { throw new Error('fd3 write failed') }
+    throwing.input.write = () => { throw new Error('stdin write failed') }
     spawnMock.mockImplementationOnce(() => throwing as never)
     const second = await setup()
     await expect(second.runtime.run(request())).resolves.toEqual({
@@ -417,7 +432,7 @@ describe('PythonCodeRuntime deterministic process boundary', () => {
     arm((child) => {
       const frame = child.protocol.writes.at(-1)
       if (frame?.startsWith('{"type":"boot"')) {
-        child.protocol.throwOnEnd = true
+        child.input.throwOnEnd = true
         child.protocol.send({ type: 'boot-ack' })
       } else if (frame?.startsWith('{"type":"run"')) child.protocol.send({ type: 'done', value: 1 })
     })
@@ -535,13 +550,30 @@ describe('PythonCodeRuntime deterministic process boundary', () => {
     arm((child) => {
       const frame = child.protocol.writes.at(-1)
       if (frame?.startsWith('{"type":"boot"')) child.protocol.send({ type: 'boot-ack' })
-      else if (frame?.startsWith('{"type":"run"')) child.protocol.emit('error', new Error('closed'))
+      else if (frame?.startsWith('{"type":"run"')) {
+        child.protocol.emit('error', new Error('closed'))
+        child.protocol.emit('error', new Error('already settling'))
+      }
     })
     const controlError = await setup()
     await expect(controlError.runtime.run(request())).resolves.toEqual({
       logs: [], error: { kind: 'worker-exit', message: 'python process control channel unavailable' },
     })
     await controlError.fiber.dispose()
+
+    arm((child) => {
+      const frame = child.protocol.writes.at(-1)
+      if (frame?.startsWith('{"type":"boot"')) child.protocol.send({ type: 'boot-ack' })
+      else if (frame?.startsWith('{"type":"run"')) {
+        child.input.emit('error', new Error('closed'))
+        child.input.emit('error', new Error('already settling'))
+      }
+    })
+    const inputError = await setup()
+    await expect(inputError.runtime.run(request())).resolves.toEqual({
+      logs: [], error: { kind: 'worker-exit', message: 'python process control channel unavailable' },
+    })
+    await inputError.fiber.dispose()
 
     vi.useFakeTimers()
     arm(() => {})

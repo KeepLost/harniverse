@@ -22,13 +22,13 @@
 | `maxWallMs` | `600000` | 正数 Host 墙钟上限，包含 bootstrap 与等待绑定的时间。 |
 | `maxAddressSpaceMb` | `512` | 正整数 MiB 的 `RLIMIT_AS` 软限制；受支持时应用。 |
 | `maxOutputBytes` | `67108864` | 有序日志加完成值或失败消息的合并序列化预算。 |
-| `maxControlBytes` | `67109888` | fd 3 上 JSONL 帧的最大宽度；必须比 `maxOutputBytes` 至少多 1 KiB。此提供方上限也约束单个绑定参数或 resolve 值帧。 |
+| `maxControlBytes` | `67109888` | 控制 JSONL 帧的最大宽度；必须比 `maxOutputBytes` 至少多 1 KiB。此提供方上限也约束单个绑定参数或 resolve 值帧。 |
 
 无效配置会使插件初始化失败。缺失可执行文件、解释器退出、资源终止、格式错误的超宽帧、程序异常、超时、中止、无效完成值或输出溢出都通过 `CodeRunResult.error` resolve；无效可移植绑定、dispose 后误用与无效配置会作为 Service Definition 误用而 reject。
 
 ## 进程与协议
 
-Node 以 `['-I', '-B', py/bootstrap.py]`、`shell: false` 和空环境启动 `pythonExecutable`。fd 3 每行携带一个无版本号 JSON 对象：Host 发送 `boot`、等待 `boot-ack`、发送 `run`、用 `reply` 服务 `call` 帧，并接受一个 `done`。`src/protocol.ts` 与 `py/protocol.py` 镜像每个必填和可选字段；真实 `python3` mirror 测试会检查两侧的完整帧清单。
+Node 以 `['-I', '-B', py/bootstrap.py]`、`shell: false` 和空环境启动 `pythonExecutable`。标准输入承载 Host 到子进程的控制帧，fd 3 承载子进程到 Host 的帧，每行一个无版本号 JSON 对象：Host 发送 `boot`、等待 `boot-ack`、发送 `run`、用 `reply` 服务 `call` 帧，并接受一个 `done`。`src/protocol.ts` 与 `py/protocol.py` 镜像每个必填和可选字段；真实 `python3` mirror 测试会检查两侧的完整帧清单。
 
 Host 把每个子进程帧都当作敌意输入：先封顶行宽再解析，拒绝会被 JavaScript 舍入的整数 token，逐字段校验并重建已知帧，忽略未知／格式错误的帧与重复 call id，以自有属性查找绑定，并重新校验完成值。子进程错误与 Host 进程失败只公开有界诊断，不公开进程路径、环境值、stack 或原始协议 payload。
 

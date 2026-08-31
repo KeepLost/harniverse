@@ -22,13 +22,13 @@ This provider is opt-in. No shipped Profile selects it. A deployment that alread
 | `maxWallMs` | `600000` | Positive Host wall-clock ceiling, including bootstrap and binding waits. |
 | `maxAddressSpaceMb` | `512` | Positive whole-MiB `RLIMIT_AS` soft limit, applied where supported. |
 | `maxOutputBytes` | `67108864` | Combined serialized budget for ordered logs plus the completion value or failure message. |
-| `maxControlBytes` | `67109888` | Maximum JSONL frame width on fd 3; must leave 1 KiB above `maxOutputBytes`. This provider limit also bounds one binding argument or resolution frame. |
+| `maxControlBytes` | `67109888` | Maximum control JSONL frame width; must leave 1 KiB above `maxOutputBytes`. This provider limit also bounds one binding argument or resolution frame. |
 
 Invalid config fails plugin setup. A missing executable, interpreter exit, resource death, malformed oversized frame, program exception, timeout, abort, invalid completion, or output overflow resolves through `CodeRunResult.error`; invalid portable bindings, disposal misuse, and invalid config reject as Service Definition misuse.
 
 ## Process and protocol
 
-Node spawns `pythonExecutable` with `['-I', '-B', py/bootstrap.py]`, `shell: false`, and an empty environment. fd 3 carries one versionless JSON object per line: Host sends `boot`, waits for `boot-ack`, sends `run`, services `call` frames with `reply`, and accepts one `done`. `src/protocol.ts` and `py/protocol.py` mirror every required and optional field; the real-`python3` mirror test checks both rosters.
+Node spawns `pythonExecutable` with `['-I', '-B', py/bootstrap.py]`, `shell: false`, and an empty environment. Standard input carries Host-to-child control frames and fd 3 carries child-to-Host frames, with one versionless JSON object per line: Host sends `boot`, waits for `boot-ack`, sends `run`, services `call` frames with `reply`, and accepts one `done`. `src/protocol.ts` and `py/protocol.py` mirror every required and optional field; the real-`python3` mirror test checks both rosters.
 
 The Host treats every child frame as hostile: it caps lines before parsing, rejects integer tokens that JavaScript would round, validates and rebuilds known frames field by field, ignores unknown/malformed frames and duplicate call ids, uses own-property binding lookup, and revalidates completion values. Child errors and Host process failures expose bounded diagnostics without process paths, environment values, stacks, or raw protocol payloads.
 

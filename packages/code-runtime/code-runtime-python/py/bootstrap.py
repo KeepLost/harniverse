@@ -23,7 +23,9 @@ sys.path.pop(0)
 del _PY_DIR
 os.environ.clear()
 
-_channel = os.fdopen(PROTOCOL_FD, "r+b", buffering=0, closefd=False)
+_read_channel = sys.stdin.buffer
+sys.stdin = io.StringIO()
+_write_channel = os.fdopen(PROTOCOL_FD, "wb", buffering=0, closefd=False)
 _write_lock = threading.Lock()
 
 
@@ -133,11 +135,11 @@ def _send(frame: dict[str, Any], max_bytes: int | None = None) -> None:
     if max_bytes is not None and len(payload) > max_bytes:
         raise _OutputLimit()
     with _write_lock:
-        _channel.write(payload)
+        _write_channel.write(payload)
 
 
 def _read(limit: int) -> dict[str, Any]:
-    line = _channel.readline(limit + 1)
+    line = _read_channel.readline(limit + 1)
     if not line or len(line) > limit or not line.endswith(b"\n"):
         raise RuntimeError("invalid host control frame")
     value = json.loads(line)

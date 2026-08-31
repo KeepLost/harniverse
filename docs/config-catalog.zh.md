@@ -547,7 +547,7 @@ export interface Config {
   maxAddressSpaceMb?: number
   /** Combined serialized logs/value/diagnostic cap. */
   maxOutputBytes?: number
-  /** Maximum bytes in one fd-3 frame, including binding payloads. */
+  /** Maximum bytes in one control frame, including binding payloads. */
   maxControlBytes?: number
 }
 ```
