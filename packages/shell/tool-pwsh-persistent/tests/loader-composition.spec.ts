@@ -143,8 +143,7 @@ describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader comp
       '$env:KEEP = "loader"',
       '$value = "persisted"',
       'function Get-Persisted { $value }',
-      '$timer = [System.Timers.Timer]::new()',
-      '$job = Register-ObjectEvent -InputObject $timer -EventName Elapsed -Action { "job-result" }',
+      '$job = Register-EngineEvent -SourceIdentifier dsh-persisted-job -Action { "job-result" }',
       'New-Item -ItemType Directory -Force -Path nested | Out-Null',
       'Set-Location nested',
     ].join('; '))
