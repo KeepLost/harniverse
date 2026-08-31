@@ -4,7 +4,7 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 import { resolvePwshPath } from './packages/shell/pwsh-local/src/resolve.ts'
 import { defineConfig } from 'vitest/config'
 import { standardDecoratorPlugin, vitestExecArgv } from './vitest.shared.ts'
-import { COVERAGE_EXEMPT_ENV, coverageExemptSuites } from './scripts/coverage-exempt.ts'
+import { COVERAGE_EXEMPT_ENV, coverageExemptHeavySuites } from './scripts/coverage-exempt.ts'
 
 // Prints exact `path:line:col` records for every uncovered statement, branch
 // path, and function when a file misses the per-file 100% gate — the built-in
@@ -98,7 +98,7 @@ if (coverageExemptRaw !== undefined && coverageExemptRaw !== '' && coverageExemp
   throw new Error(`vitest config: ${COVERAGE_EXEMPT_ENV} must be '1' or unset, got ${JSON.stringify(coverageExemptRaw)}.`)
 }
 const coverageExemptExcludes = coverageExemptRaw === '1'
-  ? coverageExemptSuites.map(suite => suite.exclude)
+  ? coverageExemptHeavySuites.map(suite => suite.exclude)
   : []
 
 // These suites exercise process-global state, process APIs, or timing-sensitive process I/O
