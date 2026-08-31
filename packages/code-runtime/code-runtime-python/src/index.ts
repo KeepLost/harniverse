@@ -382,7 +382,7 @@ export class PythonCodeRuntime extends CodeRuntime {
       return Promise.resolve(this.failureBeforeProcess({ kind: 'worker-exit', message: 'python process could not start' }))
     }
 
-    const input = child.stdin as Writable | null
+    const input = child.stdin
     const stdout = child.stdout as Readable
     const stderr = child.stderr as Readable
     const protocol = child.stdio[PROTOCOL_FD] as Duplex | null

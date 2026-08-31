@@ -16,6 +16,12 @@ function isCode(error: unknown, code: string): boolean {
   return (error as NodeJS.ErrnoException | null)?.code === code
 }
 
+function isLockContention(error: unknown): boolean {
+  // Windows reports a directory rename onto an existing lock as EPERM.
+  return isCode(error, 'EEXIST') || isCode(error, 'ENOTEMPTY')
+    || (process.platform === 'win32' && isCode(error, 'EPERM'))
+}
+
 function nonce(): string {
   return randomBytes(16).toString('hex')
 }
@@ -133,7 +139,7 @@ export async function withPrivateFileLock<T>(target: string, operation: () => Pr
       break
     } catch (error) {
       await rm(candidate, { recursive: true, force: true })
-      if (!isCode(error, 'EEXIST') && !isCode(error, 'ENOTEMPTY')) throw error
+      if (!isLockContention(error)) throw error
       let current: Awaited<ReturnType<typeof readLockOwner>>
       try {
         current = await readLockOwner(lockPath)

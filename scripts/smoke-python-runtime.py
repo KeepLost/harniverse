@@ -967,6 +967,8 @@ def scrub_wire_attempt(value: dict[object, object]) -> None:
     headers = response.get("headers") if isinstance(response, dict) else None
     if isinstance(headers, dict) and "date" in headers:
         headers["date"] = "{{date}}"
+    if isinstance(headers, dict) and "server" in headers:
+        headers["server"] = "{{server}}"
 
 
 def scrub_snapshot_header(value: dict[object, object]) -> None:

@@ -224,8 +224,16 @@ class _Bridge:
         self._max_control_bytes = max_control_bytes
         self._next_id = 0
         self._pending: dict[int, asyncio.Future[Any]] = {}
-        self._reader = threading.Thread(target=self._read_replies, daemon=True, name="dsh-python-replies")
-        self._reader.start()
+        previous_stack_size = threading.stack_size()
+        if os.name == "nt":
+            # The default Windows thread stack cannot decode deeply nested replies.
+            threading.stack_size(8 * 1024 * 1024)
+        try:
+            self._reader = threading.Thread(target=self._read_replies, daemon=True, name="dsh-python-replies")
+            self._reader.start()
+        finally:
+            if os.name == "nt":
+                threading.stack_size(previous_stack_size)
 
     async def call(self, global_name: str, member_name: str, args: Any, error_class: type[Exception] | None, member_property: str | None) -> Any:
         if not _json_safe(args):
