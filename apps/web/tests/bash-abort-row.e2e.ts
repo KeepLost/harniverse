@@ -44,6 +44,9 @@ describe.skipIf(MODE === 'record')('web e2e: cancelled Bash row disclosure', () 
     await sessionRow.waitFor({ timeout: 10_000 })
     await sessionRow.click()
     await page.locator('[data-sample="bash"]').nth(1).waitFor({ timeout: 15_000 })
+    await page.getByRole('button', { name: /^Run two shell commands: wait/ }).waitFor({ timeout: 15_000 })
+    await page.getByRole('button', { name: 'Access mode, current: Workspace Write' }).waitFor({ timeout: 15_000 })
+    await page.getByText('Cache hit 0%', { exact: false }).waitFor({ timeout: 15_000 })
   }, 120_000)
 
   afterAll(async () => {
