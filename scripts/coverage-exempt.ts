@@ -1,5 +1,5 @@
 /**
- * Heavy suites the coverage aggregate runs uninstrumented in a parallel gate.
+ * Suites the coverage aggregate runs uninstrumented outside the threshold gate.
  * Membership rule: a suite qualifies only when every coverage-measured
  * file it executes in-process (`coverage.include` spans package src trees;
  * typert generator src is threshold-excluded in vitest.config.ts) is already
@@ -25,7 +25,7 @@ export interface CoverageExemptSuite {
  */
 export const COVERAGE_EXEMPT_ENV = 'DSH_COVERAGE_EXEMPT_HEAVY'
 
-/** Coverage-exempt heavy suites; keep filter and exclude selecting the same files. */
+/** Coverage-exempt suites safe to run beside the instrumented gate. */
 export const coverageExemptHeavySuites: readonly CoverageExemptSuite[] = [
   // Whole-workspace compiler analysis per case — the lane's longest tail.
   // Generator src is threshold-excluded; tools-catalog's registry and
@@ -38,10 +38,21 @@ export const coverageExemptHeavySuites: readonly CoverageExemptSuite[] = [
   { filter: 'scripts/install-lefthook.spec.ts', exclude: 'scripts/install-lefthook.spec.ts' },
   { filter: 'scripts/oxlint-contract.spec.ts', exclude: 'scripts/oxlint-contract.spec.ts' },
   { filter: 'scripts/change-scope.spec.ts', exclude: 'scripts/change-scope.spec.ts' },
-  // A real PowerShell process, PTY, and nested Start-Job process. tools.spec.ts
-  // already covers the plugin source fully without this composition suite.
+]
+
+/** Coverage-exempt suites that run after both parallel coverage gates finish. */
+export const coverageExemptSerialSuites: readonly CoverageExemptSuite[] = [
+  // A real PowerShell process, PTY, and nested Start-Job process exceeds the
+  // executor limit under concurrent exhaustive gates. tools.spec.ts already
+  // covers the plugin source fully without this composition suite.
   {
     filter: 'packages/shell/tool-pwsh-persistent/tests/loader-composition.spec.ts',
     exclude: 'packages/shell/tool-pwsh-persistent/tests/loader-composition.spec.ts',
   },
+]
+
+/** Complete roster excluded from the instrumented coverage project. */
+export const coverageExemptSuites: readonly CoverageExemptSuite[] = [
+  ...coverageExemptHeavySuites,
+  ...coverageExemptSerialSuites,
 ]

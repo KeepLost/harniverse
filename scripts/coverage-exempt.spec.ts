@@ -8,7 +8,7 @@
 import { globSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { coverageExemptHeavySuites } from './coverage-exempt.ts'
+import { coverageExemptSuites } from './coverage-exempt.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -33,7 +33,7 @@ function filterMatches(filter: string): string[] {
 }
 
 describe('coverage-exempt roster', () => {
-  it.each(coverageExemptHeavySuites.map(suite => [suite.filter, suite] as const))(
+  it.each(coverageExemptSuites.map(suite => [suite.filter, suite] as const))(
     'filter and exclude select the same non-empty spec set for %s',
     (_filter, suite) => {
       const fromExclude = excludeMatches(suite.exclude)
@@ -45,7 +45,7 @@ describe('coverage-exempt roster', () => {
 
   it('entries never overlap, so no suite is double-run or double-excluded', () => {
     const seen = new Map<string, string>()
-    for (const suite of coverageExemptHeavySuites) {
+    for (const suite of coverageExemptSuites) {
       for (const spec of excludeMatches(suite.exclude)) {
         expect(seen.get(spec), `${spec} matched by ${seen.get(spec) ?? ''} and ${suite.exclude}`).toBeUndefined()
         seen.set(spec, suite.exclude)

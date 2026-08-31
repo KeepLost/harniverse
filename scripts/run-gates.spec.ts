@@ -106,7 +106,20 @@ describe('gate graph validation', () => {
 
     expect(byId.get('coverage')?.allowFailure).not.toBe(true)
     expect(byId.get('coverage-exempt-heavy')?.allowFailure).not.toBe(true)
+    expect(byId.get('coverage-exempt-serial')?.allowFailure).not.toBe(true)
     expect(byId.get('duplication')?.allowFailure).toBe(true)
+  })
+
+  it('runs serial coverage exemptions after both parallel coverage gates', () => {
+    const gates = withPnpmEntrypoint(() => gatesForMode('ci-coverage'))
+    const byId = new Map(gates.map(subject => [subject.id, subject]))
+    const serial = byId.get('coverage-exempt-serial')
+
+    expect(serial?.needs).toEqual(['coverage', 'coverage-exempt-heavy'])
+    expect(serial?.args).toContain('packages/shell/tool-pwsh-persistent/tests/loader-composition.spec.ts')
+    expect(byId.get('coverage-exempt-heavy')?.args).not.toContain(
+      'packages/shell/tool-pwsh-persistent/tests/loader-composition.spec.ts',
+    )
   })
 
   it.each([

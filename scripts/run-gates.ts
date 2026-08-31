@@ -10,7 +10,11 @@ import { availableParallelism } from 'node:os'
 import { resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { CLIENT_BUILD_PROFILE_SELECTOR } from './client-build-environment.ts'
-import { COVERAGE_EXEMPT_ENV, coverageExemptHeavySuites } from './coverage-exempt.ts'
+import {
+  COVERAGE_EXEMPT_ENV,
+  coverageExemptHeavySuites,
+  coverageExemptSerialSuites,
+} from './coverage-exempt.ts'
 
 /** A named aggregate exposed by the gate runner. */
 export type Mode =
@@ -489,7 +493,7 @@ function lintGate(options: { needs?: string[] } = {}): Gate {
   })
 }
 
-// The heavy suites run uninstrumented beside the thresholded gate: their
+// Most heavy suites run uninstrumented beside the thresholded gate: their
 // compiler- and subprocess-bound fixtures pay a multiple of their runtime
 // under v8 instrumentation while contributing nothing the thresholds need
 // (membership rules in scripts/coverage-exempt.ts).
@@ -532,6 +536,15 @@ function coverageGates(): Gate[] {
       ...workers.exempt,
     ], {
       label: 'test:coverage-exempt-heavy',
+    }),
+    pnpmExec('coverage-exempt-serial', [
+      'vitest',
+      'run',
+      ...coverageExemptSerialSuites.map(suite => suite.filter),
+      '--maxWorkers=1',
+    ], {
+      label: 'test:coverage-exempt-serial',
+      needs: ['coverage', 'coverage-exempt-heavy'],
     }),
   ]
 }
