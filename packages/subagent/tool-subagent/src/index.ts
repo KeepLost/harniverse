@@ -46,8 +46,9 @@ export interface Config {
   enableRunInBackground?: boolean
   /**
    * Legacy lifecycle setting retained for old deployment files.
-   * @deprecated Retained so old deployment files parse. It no longer selects a
-   * lifecycle; every invocation uses the continuable Session path.
+   * @deprecated Explicit `one-shot` keeps omitted mode synchronous and routes
+   * that synchronous call through the one-shot provider path. Ordinary calls
+   * use continuable Sessions; explicit asynchronous calls are always continuable.
    */
   backgroundMode?: 'one-shot' | 'continuable'
   /**
@@ -178,7 +179,7 @@ function continuationInstruction(sessionId: string): string {
   return `Use session_message with session_id "${sessionId}" for a later turn and session_inspect with the same session_id to read its state or transcript.`
 }
 
-/** @deprecated Render the legacy one-shot route without advertising continuation. */
+/** Render the legacy one-shot route without advertising continuation. */
 function legacyCompletionInstruction(sessionId: string): string {
   return `Use session_inspect with session_id "${sessionId}" to read its state or transcript. This legacy one-shot Session does not accept later turns.`
 }
@@ -194,7 +195,7 @@ function renderInvocationResult(value: ForegroundToolResult | AsyncToolResult): 
   return `Subagent session ${value.sessionId} completed invocation ${value.invocationId}. ${instruction}${output.length === 0 ? '' : `\n\nFinal output:\n${output}`}`
 }
 
-/** @deprecated Collect and release a legacy one-shot run. */
+/** Collect and release a legacy one-shot run. */
 async function settleLegacyRun(run: SubagentRun): Promise<ForegroundToolResult> {
   const [execution] = await Promise.allSettled([
     run.result.then((result): ForegroundToolResult => {
@@ -535,10 +536,13 @@ export function apply(ctx: Context, config: Config): void {
           ...childProfile !== undefined ? { childProfile } : {},
         }
 
-        const mode = resolveDelegationMode(args, backgroundEnabled, config.backgroundMode === 'one-shot')
-        if (mode === 'sync' && config.backgroundMode === 'one-shot') {
+        // oxlint-disable-next-line typescript/no-deprecated -- this branch is the compatibility owner for the legacy configuration key.
+        const legacyOneShot = config.backgroundMode === 'one-shot'
+        const mode = resolveDelegationMode(args, backgroundEnabled, legacyOneShot)
+        if (mode === 'sync' && legacyOneShot) {
           // @deprecated Preserve the explicit legacy escape hatch while the
           // default Invocation path remains continuable for both wait modes.
+          // oxlint-disable-next-line typescript/no-deprecated -- explicit legacy config selects this compatibility path.
           const run = await ctx.subagents.start(config.provider, {
             ...request,
             signal: exec.signal,

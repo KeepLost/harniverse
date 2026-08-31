@@ -6,6 +6,9 @@
   - button "Session log":
     - text: Session log
     - img
+  - button "Open workspace workbench":
+    - text: Workspace
+    - img
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -17,10 +20,10 @@
   - img
   - img
   - text: Context injection @deepseek-ai/dsh-system-prompt
-- button "Search DeepSeek Harness snapshot search, Harniverse plugin snapshot search":
+- 'button "Search {\"queries\":[\"DeepSeek Harness snapshot search\",\"Harniverse plugin snapshot search\"]}"':
   - img
   - img
-   - text: Search DeepSeek Harness snapshot search, Harniverse plugin snapshot search
+  - text: "Search {\"queries\":[\"DeepSeek Harness snapshot search\",\"Harniverse plugin snapshot search\"]}"
 - paragraph: SEARCH_DONE
 - button "Copy":
   - img

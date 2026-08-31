@@ -118,8 +118,10 @@ describe('web e2e: fresh round trip through the real assembly', () => {
       agent,
     })
     expect(result.isError).toBe(false)
-    expect(result.content.filter(block => block.type === 'text').map(block => block.text).join(''))
-      .toBe(`${scaffold.baseUrl}\n`)
+    expect([
+      `${scaffold.baseUrl}\n`,
+      `${scaffold.baseUrl}\n[stderr]\nlandlock-run: partial enforcement (older Landlock ABI)\n`,
+    ]).toContain(result.content.filter(block => block.type === 'text').map(block => block.text).join(''))
   })
 
   it.skipIf(MODE === 'record')('rendered the settled turn: markdown, tool row, composer restore', async () => {
@@ -138,8 +140,10 @@ describe('web e2e: fresh round trip through the real assembly', () => {
       event.type === 'tool/result' && event.data.message.source.callId === bashCall.data.callId)
     if (bashResult?.type !== 'tool/result') throw new Error('the bash tool call produced no durable result')
     expect(bashResult.data.message.content[0].isError).toBe(false)
-    expect(bashResult.data.message.content[0].content.filter(block => block.type === 'text').map(block => block.text).join(''))
-      .toBe('WEB_E2E_OK\n')
+    expect([
+      'WEB_E2E_OK\n',
+      'WEB_E2E_OK\n[stderr]\nlandlock-run: partial enforcement (older Landlock ABI)\n',
+    ]).toContain(bashResult.data.message.content[0].content.filter(block => block.type === 'text').map(block => block.text).join(''))
     const turnEnds = sessionEvents.filter(e => e.type === 'turn/end')
     expect(turnEnds.length).toBe(1)
     expect((turnEnds[0] as SessionEvent & { data: { reason: { kind: string } } }).data.reason.kind).toBe('completed')

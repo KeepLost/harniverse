@@ -17,6 +17,7 @@ const artifactUrl = (path: string): string => pathToFileURL(artifact(path)).href
 const requiredArtifacts = [
   'packages/client/connection/lib/client.js',
   'packages/client/connection/lib/index.js',
+  'packages/auth/authentication/lib/index.js',
   'packages/api/remotes/lib/client.js',
   'packages/core/agent/lib/index.js',
   'packages/core/session/lib/index.js',
@@ -32,6 +33,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
   it('runs root and Agent-scoped calls through generated bundles and real HTTP', async () => {
     const urls = Object.fromEntries(Object.entries({
       agent: 'packages/core/agent/lib/index.js',
+      authentication: 'packages/auth/authentication/lib/index.js',
       apiGatewayClient: 'packages/api/gateway/lib/client.js',
       apiGatewayHost: 'packages/api/gateway/lib/index.js',
       connectionClient: 'packages/client/connection/lib/client.js',
@@ -50,6 +52,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       const urls = ${JSON.stringify(urls)}
       const { Context } = cordis
       const { default: AgentRegistry } = await import(urls.agent)
+      const { ALL_AUTHENTICATION_CAPABILITIES } = await import(urls.authentication)
       const connectionHost = await import(urls.connectionHost)
       const { default: TypertRemoteService } = await import(urls.apiGatewayHost)
       const { default: GoalService } = await import(urls.goal)
@@ -58,14 +61,42 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       const { Session, SessionId } = await import(urls.session)
 
       const routes = []
+      const upgrades = []
       const host = new Context()
       host.provide('webServer', {
         register(route) {
           routes.push(route)
           return () => { routes.splice(routes.indexOf(route), 1) }
         },
+        registerUpgrade(route) {
+          upgrades.push(route)
+          return () => { upgrades.splice(upgrades.indexOf(route), 1) }
+        },
         tapIndex() { return () => {} },
         port: 0,
+        host: '127.0.0.1',
+        protocol: 'http:',
+      })
+      host.provide('authentication', {
+        mode: 'bypass',
+        authenticate() {
+          return Promise.resolve({
+            kind: 'accepted',
+            principal: { kind: 'bypass', capabilities: ALL_AUTHENTICATION_CAPABILITIES },
+          })
+        },
+        status() { return Promise.resolve({ mode: 'bypass', sealed: false }) },
+        createBrowserSession() { return Promise.resolve({ kind: 'rejected', reason: 'invalid-credential' }) },
+        requestEnrollment() { return Promise.reject(new Error('not implemented')) },
+        enrollmentStatus() { return Promise.resolve(undefined) },
+        listPendingEnrollments() { return Promise.resolve([]) },
+        approveEnrollment() { return Promise.reject(new Error('not implemented')) },
+        listGrants() { return Promise.resolve([]) },
+        revokeGrant() { return Promise.resolve() },
+        createChallenge() { return Promise.resolve({ kind: 'rejected', reason: 'invalid-grant' }) },
+        exchangeAccessToken() { return Promise.resolve({ kind: 'rejected', reason: 'invalid-grant' }) },
+        issueEmergencyAccessToken() { return Promise.resolve({ kind: 'rejected', reason: 'invalid-grant' }) },
+        revokeBrowserSession() {},
       })
       await host.plugin({ inject: connectionHost.inject, apply: connectionHost.apply })
       await host.plugin(TypertRegistry)
@@ -98,10 +129,12 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       host.agents.register(rootAgent)
       host.agents.register(scopedAgent)
 
-      if (routes.length !== 1 || routes[0].path !== '/api') {
+      const apiRoutes = routes.filter(route => route.kind === 'prefix' && route.path === '/api')
+      if (apiRoutes.length !== 1) {
         throw new Error('Connection did not register exactly one /api route')
       }
-      const server = createServer((request, response) => { void routes[0].handler(request, response) })
+      const apiRoute = apiRoutes[0]
+      const server = createServer((request, response) => { void apiRoute.handler(request, response) })
       await new Promise(resolveListen => server.listen(0, '127.0.0.1', resolveListen))
       const address = server.address()
       if (address === null || typeof address === 'string') throw new Error('HTTP server has no TCP address')

@@ -125,7 +125,7 @@ export function apply(ctx: Context, config: Config): void {
       resolved.logTailLimit,
       MAX_LOG_TAIL_LIMIT,
     ),
-    presentCall: args => presentation.presentSessionTargetCall(`Inspect ${args.view ?? 'session'}`, args),
+    presentCall: args => presentation.presentSessionTargetCall(`Inspect ${args.view}`, args),
   }))
 
 }

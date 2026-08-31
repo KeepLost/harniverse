@@ -27,6 +27,9 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
     inject: (): WorkflowRunInjected => ({
       openSession: (id: SessionId) => { ctx.sessions.open(id) },
+      setCatalogOpen: (parentId: SessionId, open: boolean) => {
+        ctx.sessions.setSubagentCatalogOpen(parentId, open)
+      },
     }),
   }, WorkflowRunPanel))
 }

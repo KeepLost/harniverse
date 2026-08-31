@@ -60,9 +60,7 @@ interface SubagentDescriptorBase {
   readonly childProfile?: ResolvedChildProfile
 }
 
-/** Legacy descriptor for a session-backed subagent that cannot be cold-resumed.
- * @deprecated Retained for reading and legacy callers during migration.
- */
+/** Legacy descriptor for a session-backed subagent that cannot be cold-resumed. */
 export interface OneShotSubagentDescriptorData extends SubagentDescriptorBase {
   readonly mode: 'one-shot'
   /**
@@ -101,9 +99,7 @@ interface SubagentDescriptorInputBase {
   readonly provider: string
 }
 
-/** Input for a legacy one-shot child's durable identity.
- * @deprecated Retained for legacy callers during migration.
- */
+/** Input for a legacy one-shot child's durable identity. */
 export interface OneShotSubagentDescriptorInput extends SubagentDescriptorInputBase {
   readonly mode: 'one-shot'
   /** Optional initial delegation `description` used as the durable creation label. */

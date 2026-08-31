@@ -6,6 +6,9 @@
   - button "Session log":
     - text: Session log
     - img
+  - button "Open workspace workbench":
+    - text: Workspace
+    - img
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -32,7 +35,7 @@
   - img
 - text: {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
 - textbox "Message the agent"
-- button "Commands":
+- button "Commands" [disabled]:
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":

@@ -22,7 +22,7 @@
 
 `saveText` 返回 `local-spill:v1:<session-hash>/<file-name>` 而非宿主路径，并报告写入的精确 UTF-8 字节数。只有配置为同一根目录的本地后端才能解释该 locator。
 
-`readText` 只接受后端自身的精确 locator 语法和 `v1:<byte-offset>` cursor。根目录和会话目录必须是真实、私有且归当前用户所有的目录；平台支持时，叶子读取还会使用 `O_NOFOLLOW`。它会拒绝路径、外来或格式错误的 locator、不安全或越界的 cursor、位于 UTF-8 序列内部的 cursor、非普通文件、无效的已存储 UTF-8，以及不在整数范围 `1` 到 `50000` 内的 `maxChars`；成功分页最多包含 `maxChars` 个 Unicode 码点，并仅在仍有文本时返回另一个不透明 cursor。
+`readText` 只接受后端自身的精确 locator 语法和 `v1:<byte-offset>` cursor。根目录和会话目录必须是真实、私有且归当前用户所有的目录；平台支持时，叶子读取还会使用 `O_NOFOLLOW`。在 macOS 上，以系统标准 `/var` 或 `/tmp` 开头的写法会通过其 `/private/var` 或 `/private/tmp` 目标接受校验；其他符号链接仍不被接受，并继续应用相同的所有权、权限、真实目录与包含关系检查。它会拒绝路径、外来或格式错误的 locator、不安全或越界的 cursor、位于 UTF-8 序列内部的 cursor、非普通文件、无效的已存储 UTF-8，以及不在整数范围 `1` 到 `50000` 内的 `maxChars`；成功分页最多包含 `maxChars` 个 Unicode 码点，并仅在仍有文本时返回另一个不透明 cursor。
 
 `saveText` 和 `readText` 会拒绝文件缺失、不安全的目录归属或权限、ENOSPC 等存储故障，并遵循请求的取消信号。`dsh-tool-result-artifacts` 无法保留完整的过大结果时会生成工具结果失败，而可选的 `spill-policy` 使用尽力而为回退。
 

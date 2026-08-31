@@ -310,7 +310,10 @@ describe('web e2e: continuous conversation grown through the composer', () => {
       expect(results[0]?.data.turn).toBe(spec.index)
       expect(results[0]?.data.message.source.callId).toBe(spec.callId)
       expect(results[0]?.data.message.content[0].isError).toBe(false)
-      expect(toolResultText(results[0]!)).toBe(`${spec.toolResultMarker}\n`)
+      expect([
+        `${spec.toolResultMarker}\n`,
+        `${spec.toolResultMarker}\n[stderr]\nlandlock-run: partial enforcement (older Landlock ABI)\n`,
+      ]).toContain(toolResultText(results[0]!))
 
       const toolRow = page.locator(`[data-chat-call-id="${spec.callId}"]`)
       await expect.poll(() => toolRow.count(), { timeout: 10_000 }).toBe(1)

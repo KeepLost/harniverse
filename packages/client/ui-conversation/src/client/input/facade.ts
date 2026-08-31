@@ -521,7 +521,7 @@ export class SessionInputShell implements SessionInput {
     attempt: SubmitAttempt,
     operation: () => Promise<SubmitOutcome>,
     imageIds: readonly DraftAttachmentId[] = [],
-    onSuccess?: (() => void) | undefined,
+    onSuccess?: () => void,
   ): Promise<void> {
     return this.invokeAsync(operation).then(
       (outcome) => {

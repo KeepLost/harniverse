@@ -3,10 +3,11 @@
     - button "Ask a research subagent to"
     - text: /
     - button "event-sourcing researcher" [disabled]
-  - img
-  - text: Standard mode
   - button "Session log":
     - text: Session log
+    - img
+  - button "Open workspace workbench":
+    - text: Workspace
     - img
   - tablist:
     - tab "Chat" [selected]

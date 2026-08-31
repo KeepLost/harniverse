@@ -132,6 +132,9 @@ function workspaceManifests(): WorkspaceManifest[] {
 
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-code-runtime-python': ['py/**/*.py'],
+  // Shared read rendering is a public runtime subpath consumed by the
+  // string-replace editor without loading the filesystem tool plugin.
+  '@deepseek-ai/dsh-tool-fs': ['lib/read-render.js'],
   // Profile bundles publish their dsh.bundle.patch layer beside the lib.
   '@deepseek-ai/dsh-base': ['cordis.patch.yml'],
   '@deepseek-ai/dsh-auth-app': ['cordis.patch.yml'],

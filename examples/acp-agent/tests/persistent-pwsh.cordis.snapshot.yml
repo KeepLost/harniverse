@@ -23,7 +23,8 @@
 - id: terminal-pwsh
   name: '@deepseek-ai/dsh-terminal-bash'
   config:
-    shellDialect: pwsh
+    shellPath: !!js process.env.DSH_PWSH_PATH ?? 'pwsh'
+    shellArgs: [-NoLogo, -NoProfile]
     timeoutMs: 30000
 
 - id: acp-agent

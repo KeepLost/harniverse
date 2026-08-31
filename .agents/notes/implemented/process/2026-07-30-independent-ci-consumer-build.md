@@ -6,7 +6,7 @@ English | [中文](2026-07-30-independent-ci-consumer-build.zh.md)
 
 ## Problem
 
-The [larger-runner topology](2026-07-22-evidence-based-larger-hosted-runners.md) gave the static and built-consumer inventories separate jobs, but the static job owned their shared build. It uploaded the emitted tree only after every static gate completed, and the consumer job declared a job-level dependency before restoring that tree. Compiled-output snapshots and publication checks genuinely require a complete build; they do not require runtime-closure checks, documentation generation, module-graph verification, or Knip.
+The [required CI topology](2026-08-22-standard-hosted-required-ci.md) gives the static and built-consumer inventories separate jobs, but an earlier graph made the static job own their shared build. It uploaded the emitted tree only after every static gate completed, and the consumer job declared a job-level dependency before restoring that tree. Compiled-output snapshots and publication checks genuinely require a complete build; they do not require runtime-closure checks, documentation generation, module-graph verification, or Knip.
 
 That wider dependency made runner availability part of the required critical chain. In one failover run, static waited 8 minutes 1 second for a runner and ran for 1 minute 41 seconds; only then could consumers enter the same shared pool, where they waited another 10 minutes 34 seconds before running for 1 minute 58 seconds. Reusing the static build saved repository work but serialized two independent runner allocations.
 
@@ -16,7 +16,7 @@ The three required Linux jobs enter runner allocation independently. Coverage re
 
 The consumer's internal gate graph preserves the real dependency. Build and source-only Node compatibility start first; publint waits for build, built-package invariants validate that publication view, and every compiled-output consumer waits for that validation. Example and Web snapshots therefore continue to exercise current `lib/` output under plain Node, while no GitHub job waits for an unrelated job or transfers a built-tree artifact.
 
-Windows and serial reference aggregates retain their own build ownership. The change is confined to the required pull-request Linux topology; `all checks passed` still aggregates the same named jobs and fails for any unsuccessful dependency.
+Windows aggregates retain their own build ownership. The change is confined to the required pull-request Linux topology; `all checks passed` still aggregates the same named jobs and fails for any unsuccessful dependency.
 
 ## Alternatives considered
 
@@ -26,7 +26,7 @@ Windows and serial reference aggregates retain their own build ownership. The ch
 
 **Add a dedicated build job.** A narrow producer would make the dependency name accurate, but it would add a fourth setup and runner-allocation stage before consumers. The consumer already owns every long-lived use of emitted output, so a separate producer has no second independent consumer.
 
-**Combine static and consumers only during failover.** One long job would avoid the second allocation, but conditional job inventories and result aggregation would create a second CI topology. Independent jobs preserve the same graph on hosted and failover pools.
+**Combine static and consumers only when hosted capacity is constrained.** One long job would avoid the second allocation, but conditional job inventories and result aggregation would create a second CI topology. Independent jobs preserve one graph on every active runner.
 
 ## Consequences
 

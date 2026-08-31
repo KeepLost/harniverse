@@ -369,6 +369,7 @@ export async function startClaudeCodeRun(
         )
       }
     }
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- cancellation can occur while the awaited child/query cleanup runs.
     if (cancelledBeforeCleanup || request.signal.aborted) {
       throw new Error('subagent-claude-code: request was aborted before SDK startup')
     }

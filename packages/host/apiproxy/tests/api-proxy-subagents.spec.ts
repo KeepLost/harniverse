@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
 import { RpcId } from '../src/api/rpc.ts'
 import type { RpcRequest } from '../src/api/rpc.ts'
@@ -66,10 +66,14 @@ function bench(options: {
   })
   const childHeader = {
     version: 0, id: CHILD, createdAt: 1, cwd: '/proj', parentSession: options.historyParent ?? PARENT,
+    origin: 'subagent' as const, delegationDepth: 1,
   } satisfies SessionHeader
   const childEvents = [
     { type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 'text', text: 'work' }], source: { kind: 'user' } } },
   ] as unknown as SessionEvent[]
+  const liveChildSession = {
+    id: CHILD, header: childHeader, events: childEvents, seq: childEvents.length,
+  } as unknown as Session
   const inspect = vi.fn(() => Promise.resolve({ meta: childHeader, events: childEvents }))
   const liveBlock = { values: {}, asOfSeq: 3 }
   const coldBlock = { values: {}, asOfSeq: 0 }
@@ -89,8 +93,9 @@ function bench(options: {
   } as never)
   ctx.provide('sessions', {
     get: (id: SessionId) => options.liveChild === true && id === CHILD
-      ? { id: CHILD, header: childHeader, events: childEvents }
+      ? liveChildSession
       : undefined,
+    list: () => options.liveChild === true ? [liveChildSession] : [],
   })
   ctx.provide('sessionPersistence', {
     list: () => Promise.resolve(options.storedChild === false ? [] : [childHeader]),
@@ -109,7 +114,10 @@ function bench(options: {
   const api = createApiProxy(ctx, {
     defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp',
   })
-  return { api, getAgent, listChildren, inspect, snapshot, restore, followup, interrupt, parent }
+  return {
+    api, ctx, childEvents, liveChildSession, getAgent, listChildren, inspect, snapshot, restore,
+    followup, interrupt, parent,
+  }
 }
 
 describe('subagent gateway', () => {
@@ -283,7 +291,7 @@ describe('subagent gateway', () => {
       parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable', content,
     }), signal)
     expect(response.result).toMatchObject({
-      ok: true, value: { messageId: 'message-1', operationId: expect.stringMatching(/^operation:/) },
+      ok: true, value: { messageId: 'message-1', operationId: expect.stringMatching(/^operation:/) as string },
     })
     expect(followup).toHaveBeenCalledWith(
       parent,
@@ -291,6 +299,41 @@ describe('subagent gateway', () => {
       content,
       { source: { kind: 'user', rpcId: RpcId('subagent-rpc') }, signal },
     )
+  })
+
+  it('authorizes the prompting principal for addressed child mux replay and live events', async () => {
+    const { api, ctx, childEvents, liveChildSession } = bench({ liveChild: true, childStatus: 'running' })
+    const principal = { kind: 'bypass' as const, capabilities: [] }
+    const abort = new AbortController()
+    const stream = api.events.mux({
+      rpcId: RpcId('subagent-mux'), payload: {}, principal,
+    }, abort.signal)[Symbol.asyncIterator]()
+    const firstFrame = stream.next()
+    await api.subagents.prompt({
+      ...request({
+        parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable' as const,
+        content: [{ type: 'text' as const, text: 'continue' }],
+      }),
+      principal,
+    }, abort.signal)
+    await expect(firstFrame).resolves.toMatchObject({
+      value: { payload: { type: 'session/subscribed', sessionId: CHILD } },
+    })
+    await expect(stream.next()).resolves.toMatchObject({
+      value: { payload: { type: 'session/event', sessionId: CHILD, event: { seq: 0 } } },
+    })
+
+    const liveEvent = {
+      type: 'user/message', seq: 1, time: 2,
+      data: { content: [{ type: 'text', text: 'live' }], source: { kind: 'user' } },
+    } as SessionEvent
+    childEvents.push(liveEvent)
+    ctx.emit('session/event', liveChildSession, liveEvent)
+    await expect(stream.next()).resolves.toMatchObject({
+      value: { payload: { type: 'session/event', sessionId: CHILD, event: { seq: 1 } } },
+    })
+    abort.abort()
+    await stream.return?.()
   })
 
   it('canonicalizes browser-zone provenance before delivering a child prompt', async () => {

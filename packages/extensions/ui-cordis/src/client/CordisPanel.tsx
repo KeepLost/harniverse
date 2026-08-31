@@ -21,7 +21,7 @@ import css from './CordisPanel.module.css'
 
 /** Full panel props composed by the sidebar footer-action slot. */
 export type CordisPanelProps =
-  PropsRuntime<'sidebar.footer.action'> & InjectFace<CordisPanelFace> & PropsLocale<'cordis'>
+  PropsRuntime<'sidebar.footer.action'> & InjectFace<CordisPanelFace> & PropsLocale<'@deepseek-ai/cordis'>
 
 type PanelStatus = CordisVisibleStatus | 'awaiting-approval' | 'failed'
 

@@ -374,6 +374,7 @@ export class CommandRuntime extends TypertRemoteService {
         this.settleThrown(agent.session, parsed.name, commandId, error)
         throw error
       }
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- the signal can abort during awaited admission.
       if (signal.aborted) {
         const error = abortError(signal)
         this.settleThrown(agent.session, parsed.name, commandId, error)

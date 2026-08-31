@@ -73,13 +73,13 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
     })
   }
 
-  // node-pty writes synchronously; the seam returns a promise for remote transports.
+  // oxlint-disable-next-line typescript/require-await -- async converts node-pty throws to remote-compatible rejections.
   async write(data: string): Promise<void> {
     if (this.exited) throw new Error('terminal process has exited')
     this.terminal.write(data)
   }
 
-  // Local inspection is synchronous; the seam returns a promise for remote transports.
+  // oxlint-disable-next-line typescript/require-await -- async converts inspector throws to remote-compatible rejections.
   async inspectForeground(): Promise<SubprocessTerminalForeground | undefined> {
     this.descendants()
     const processGroupId = this.inspector.foregroundPgid(this.pid)

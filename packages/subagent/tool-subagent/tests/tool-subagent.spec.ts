@@ -42,7 +42,9 @@ async function setup(toolConfig: tool.Config, mockConfig: Partial<mock.Config> =
   await mock.mountScriptedProvider(ctx, { name: 'mock', ...mockConfig })
   // Keep the package's legacy unit fixtures on the explicit deprecated route;
   // assembled product compositions use continuable by default.
-  await ctx.plugin(tool, { ...toolConfig, backgroundMode: toolConfig.backgroundMode ?? 'one-shot' })
+  await ctx.plugin(tool, Object.assign({}, toolConfig, {
+    backgroundMode: toolConfig.backgroundMode ?? 'one-shot',
+  }))
   return ctx
 }
 

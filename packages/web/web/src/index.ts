@@ -209,7 +209,7 @@ export class WebRuntime extends Service {
       .filter(([, capabilities]) => capability === undefined || capabilities.has(capability))
       .map(([id, capabilities]) => ({
         id,
-        capabilities: [...capabilities].sort() as WebProviderCapability[],
+        capabilities: [...capabilities].sort(),
       }))
       .sort((a, b) => a.id.localeCompare(b.id))
   }

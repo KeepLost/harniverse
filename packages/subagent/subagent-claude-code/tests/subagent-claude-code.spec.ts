@@ -219,7 +219,7 @@ function permissionDenied(): SDKMessage {
     message: 'command with SECRET_TOKEN was denied',
     uuid: '00000000-0000-4000-8000-000000000001',
     session_id: 'session-secret',
-  } as SDKMessage
+  }
 }
 
 function queryFrom(

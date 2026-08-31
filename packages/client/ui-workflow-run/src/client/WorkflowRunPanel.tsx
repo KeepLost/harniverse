@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import {
   DisclosureRow, IconChevronRightOutline14, StateDot,
   type DisclosureRowProps, type StateDotState,
@@ -14,6 +14,7 @@ import css from './WorkflowRunPanel.module.css'
 /** Navigation action injected from the plugin's own SessionRuntime access. */
 export interface WorkflowRunInjected {
   readonly openSession: (id: SessionId) => void
+  readonly setCatalogOpen: (parentId: SessionId, open: boolean) => void
 }
 
 /** Complete keyed Chat renderer props. */
@@ -111,16 +112,15 @@ function navigableMembers(
   phases: readonly WorkflowRunPhaseData[],
   parentId: SessionId,
 ): readonly SessionId[] {
-  const ordinary = new Set(sessions.ids)
+  const catalog = sessions.subagentsByParent[parentId]
+  if (catalog?.state !== 'ready') return []
+  const runningChildren = new Set(catalog.entries.flatMap(entry =>
+    entry.kind === 'child' && entry.activity === 'running' ? [entry.id] : []))
   const result: SessionId[] = []
   for (const phase of phases) {
     for (const member of phase.members) {
-      const summary = sessions.byId[member.childId]
       if (member.status === 'running'
-        && ordinary.has(member.childId)
-        && summary?.origin === 'subagent'
-        && summary.parentId === parentId
-        && summary.running) {
+        && runningChildren.has(member.childId)) {
         result.push(member.childId)
       }
     }
@@ -236,10 +236,19 @@ function PhaseSection({ phase, navigable, openSession, t }: {
 }
 
 /** Render one durable workflow run with status-driven run and phase disclosure. */
-export function WorkflowRunPanel({ node, sessionId, useSessions, openSession, t }: WorkflowRunPanelProps) {
+export function WorkflowRunPanel({
+  node, sessionId, useSessions, openSession, setCatalogOpen, t,
+}: WorkflowRunPanelProps) {
   const totalMembers = node.data.phases.reduce((count, phase) => count + phase.members.length, 0)
+  const hasRunningMember = node.data.phases.some(phase =>
+    phase.members.some(member => member.status === 'running'))
   const requiresExpansion = node.data.status !== 'completed'
     || node.data.phases.some(phaseRequiresExpansion)
+  useEffect(() => {
+    if (!hasRunningMember) return
+    setCatalogOpen(sessionId, true)
+    return () => { setCatalogOpen(sessionId, false) }
+  }, [hasRunningMember, sessionId, setCatalogOpen])
   const navigable = useSessions(
     sessions => navigableMembers(sessions, node.data.phases, sessionId),
     shallowEqual,

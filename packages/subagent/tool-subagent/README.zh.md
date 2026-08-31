@@ -10,7 +10,7 @@
 
 `sync` 会让执行信号贯穿可继续 child 的准入，并等待初始 Activation 结果。只有 `completed` 会返回规范值 `{ mode: 'sync', invocationId, sessionId, output: JsonValue[] }`；中止、拒绝、token 上限和其他失败都会变成出错的工具结果。其消息会把可选的提供方撰写 `SubagentResult.diagnostic` 放在单独的 `Diagnostic:` 行下，再于另一标题后附加保留下来的部分 assistant 文本，因此两类文本都不会成为成功的 assistant 输出，被截断的回答也绝不会被悄悄丢弃。初始 Activation 结算后，持久化 child Session 仍可接受后续轮次。
 
-`mode: sync|async` 只决定等待策略，不决定生命周期。两种模式都通过统一 Invocation 服务建立持久化可继续 child Session：`sync` 等待初始 Activation 结果，`async` 在接受初始 child 轮次后返回。所有调用都使用 Session 生命周期，绝不会创建或读取通用 job。两种模式都会渲染持久化 child Session id；`session_inspect` 和 `session_message` 都可以读取或继续该 Session。每当该 child 的 Activation 结束，继续执行服务会投递一条结算通知。
+`mode: sync|async` 只决定等待策略，不决定生命周期。在当前配置下，两种模式都通过统一 Invocation 服务建立持久化可继续 child Session：`sync` 等待初始 Activation 结果，`async` 在接受初始 child 轮次后返回。两种模式都会渲染持久化 child Session id；`session_inspect` 和 `session_message` 都可以读取或继续该 Session。每当该 child 的 Activation 结束，继续执行服务会投递一条结算通知。已弃用的 `backgroundMode: one-shot` 逃生口是唯一例外：省略或显式指定 `sync` 时走旧的一次性提供方路径，显式 `async` 仍使用 Invocation。
 
 `toolFilter` 会改变子 agent 的全局工具层，但不是从父级派生的权限上限。见 [agent 作用域的安全非目标](../../../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals)。
 
@@ -23,7 +23,7 @@
 | `provider`（必填） | 提供方名称（`spawn`、`fork`、`acp` 等）。 |
 | `toolName` | 面向模型的名称，默认 `subagent`；每个已加载实例必须不同。 |
 | `enableRunInBackground` | 允许 `mode: async`，默认 `true`；禁用时拒绝异步调用。 |
-| `backgroundMode` | **已弃用。** 保留它只是为了让旧部署文件继续解析；它不再选择生命周期。启用后台调用时，省略 `mode` 默认 `async`，否则默认 `sync`。 |
+| `backgroundMode` | **已弃用。** 显式 `one-shot` 会让省略的 mode 默认为 `sync`，并把同步调用路由到旧的一次性提供方路径；显式 `async` 仍可继续。当前 Session 生命周期应省略该键。 |
 | `agentOptions` | 传给具体提供方的子 agent `provider`、`model` 和正整数 `maxTokens`；进程内提供方会用显式值覆盖继承的父级选项。 |
 | `persona` | 每个子 agent 独立的 persona；要求提供方具备 `persona` 能力。 |
 | `toolFilter` | 每个子 agent 独立的全局工具限制；要求提供方具备 `toolFilter` 能力。 |

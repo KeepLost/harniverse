@@ -3036,8 +3036,9 @@ export interface Config {
   enableRunInBackground?: boolean
   /**
    * Legacy lifecycle setting retained for old deployment files.
-   * @deprecated Retained so old deployment files parse. It no longer selects a
-   * lifecycle; every invocation uses the continuable Session path.
+   * @deprecated Explicit `one-shot` keeps omitted mode synchronous and routes
+   * that synchronous call through the one-shot provider path. Ordinary calls
+   * use continuable Sessions; explicit asynchronous calls are always continuable.
    */
   backgroundMode?: 'one-shot' | 'continuable'
   /**

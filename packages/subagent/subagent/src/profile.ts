@@ -91,7 +91,7 @@ function requiredStringArray(value: Record<string, unknown>, key: string): strin
   if (!Array.isArray(field) || field.some(item => typeof item !== 'string')) {
     throw new Error(`persisted child profile ${key} must be an array of strings`)
   }
-  return [...new Set(field)]
+  return [...new Set(field as string[])]
 }
 
 function optionalNumber(value: Record<string, unknown>, key: string): number | undefined {

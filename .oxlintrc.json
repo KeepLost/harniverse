@@ -149,6 +149,16 @@
         "website/**/*.{ts,tsx}"
       ],
       "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@deepseek-ai/dsh-*/src/*"]
+              }
+            ]
+          }
+        ],
         "typescript/no-non-null-assertion": "error",
         "typescript/no-unnecessary-condition": [
           "error",
@@ -195,6 +205,8 @@
         "scripts/**/*.spec.{ts,tsx}"
       ],
       "rules": {
+        "no-restricted-imports": "off", // Tests may probe package source internals without creating a published runtime edge.
+        "typescript/no-deprecated": "off", // Regression tests intentionally exercise retained compatibility paths.
         "typescript/no-invalid-void-type": "error",
         "typescript/no-non-null-assertion": "off", // Assertions commonly follow an expect() that proves presence.
         "typescript/no-unnecessary-condition": "off",

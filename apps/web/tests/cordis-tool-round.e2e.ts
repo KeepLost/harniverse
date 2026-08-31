@@ -22,6 +22,7 @@ import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './suppor
 
 const FIXTURE = fileURLToPath(new URL('./snapshots/cordis-tool-round/session.jsonl', import.meta.url))
 const UI_EXPECTED = fileURLToPath(new URL('./snapshots/cordis-tool-round/ui.expected.md', import.meta.url))
+const SHIPPED_PRESETS = fileURLToPath(new URL('../../cli/config/agent-presets/', import.meta.url))
 const MODE = webSnapshotMode()
 const CORDIS_TOOLS = ['cordis_inspect_self', 'cordis_define', 'cordis_run', 'cordis_stop'] as const
 const PACKAGE_CODE = 'return { name: "snapshot-noop", apply(ctx) {} }'
@@ -73,7 +74,7 @@ describe('web e2e: Cordis tools use their owned cards', () => {
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({
-      cordisTools: true,
+      agentPresets: { roots: [{ path: SHIPPED_PRESETS, trust: 'system' }], default: 'cordis' },
       ...(MODE === 'record' ? {} : { replayFixture: FIXTURE, paceMs: 15 }),
     })
     scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })

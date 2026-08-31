@@ -131,19 +131,16 @@ describe.skipIf(!requireBuiltArtifacts)('built CLI lazy-search startup', () => {
     }
   }, 70_000)
 
-  it('binds all interfaces only after the explicit unauthenticated-access acknowledgement', async () => {
+  it('rejects all-interface binding without TLS even after the unauthenticated-access acknowledgement', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'dsh-cli-wildcard-host-'))
     try {
-      const result = await runBuiltWeb(cwd, [
+      await expect(runBuiltWeb(cwd, [
         '--host',
         '0.0.0.0',
         '--port',
         '0',
         '--dangerously-skip-authentication',
-      ])
-      expect(result.stdout).toMatch(/dsh web: http:\/\/127\.0\.0\.1:\d+ \(LAN: http:\/\/[^:]+:\d+\)/u)
-      expect(result.code).toBe(0)
-      expect(result.stderr).not.toContain('non-loopback serving requires --tls-cert and --tls-key')
+      ])).rejects.toThrow('non-loopback serving requires --tls-cert and --tls-key')
     } finally {
       await rm(cwd, { recursive: true, force: true })
     }

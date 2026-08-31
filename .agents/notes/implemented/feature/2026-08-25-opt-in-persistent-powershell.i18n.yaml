@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-25-opt-in-persistent-powershell.md
-2026-08-25-opt-in-persistent-powershell.md: 84d67af3ee317c7726d9cc644414684d964a329b
-2026-08-25-opt-in-persistent-powershell.zh.md: 38f361a1fc1bd9fccdb5992b8caa338010ea5c0a
+2026-08-25-opt-in-persistent-powershell.md: 494f32b77b0d69a1a88331d071d42e101b8e997a
+2026-08-25-opt-in-persistent-powershell.zh.md: be7b7c0775c68cde51a5dcc43a5d802ee2c0ba38

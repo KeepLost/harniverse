@@ -55,6 +55,18 @@ const RENAMES: readonly Rename[] = [
   { directory: 'logger-console', upstream: '@cordisjs/plugin-logger-console', scoped: '@deepseek-ai/cordis-plugin-logger-console' },
 ]
 
+// Event names are protocol scopes, not npm subpaths. The catalog partitions
+// them by the stable `cordis/*` prefix even after the framework package moves.
+const CORDIS_EVENT_NAMES = [
+  'dynamic-package',
+  'dynamic-retract',
+  'inspect-query',
+  'inspect-query-resolved',
+  'request-run',
+  'request-run-resolved',
+  '*',
+] as const
+
 const EXTENSIONS = ['.ts', '.tsx', '.js', '.mjs', '.cjs', '.tpl', '.json', '.yml', '.yaml', '.md'] as const
 
 /** An exact-string edit the token rule cannot express, with its required hit count. */
@@ -94,7 +106,21 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   { file: 'packages/client/ui-agent-preset/tests/section.client.spec.tsx', upstream: ['cordis'] },
   { file: 'apps/cli/tests/web-agent-presets.e2e.ts', upstream: ['cordis'] },
   { file: 'apps/web/tests/agent-preset-authoring.e2e.ts', upstream: ['cordis'] },
+  { file: 'apps/web/tests/capability-composition.e2e.ts', upstream: ['cordis'] },
+  { file: 'apps/web/tests/cordis-tool-round.e2e.ts', upstream: ['cordis'] },
   { file: 'packages/preset/agent-presets/tests/session.spec.ts', upstream: ['cordis'] },
+  { file: 'packages/preset/agent-presets/tests/composition.spec.ts', upstream: ['cordis'] },
+  // Diagnostic registry ids use their own stable lowercase grammar.
+  { file: 'packages/runtime-diagnostics/plugin-diagnostics-cordis/src/index.ts', upstream: ['cordis'] },
+  {
+    file: 'packages/runtime-diagnostics/plugin-diagnostics-cordis/tests/diagnostics.spec.ts',
+    upstream: ['cordis'],
+  },
+  // Translation dictionary keys are stable UI data, not package specifiers.
+  {
+    file: 'packages/client/ui-settings-plugin-inventory/src/client/PluginInventorySettingsTab.tsx',
+    upstream: ['cordis'],
+  },
   // The preset's own composition: its header comment and its system prompt name
   // the preset a model mounts, so the scoped name would send the model after an
   // id no roster reports.
@@ -129,6 +155,7 @@ const POSTCONDITIONS: readonly PostCondition[] = [
   { file: 'pnpm-workspace.yaml', text: 'cordis@4.0.0-rc.7', count: 0 },
   // The preset ids in this table are product data, not package names.
   { file: 'packages/client/ui-agent-preset/tests/locales.client.spec.ts', text: '[\'cordis\', \'presetCordisName\'', count: 1 },
+  { file: 'packages/client/ui-settings-plugin-inventory/src/client/PluginInventorySettingsTab.tsx', text: "t('cordis')", count: 1 },
   // The preset id the shipped composition documents to its own model.
   { file: 'apps/cli/config/agent-presets/cordis/agent.cordis.yml', text: 'The `cordis` agent preset', count: 1 },
   { file: 'apps/cli/config/agent-presets/cordis/agent.cordis.yml', text: 'corrupting the `cordis` preset', count: 1 },
@@ -257,11 +284,12 @@ const EXACT_EDITS: readonly ExactEdit[] = [
     expect: 1,
   },
   {
-    // The root contract claimed vendored packages keep their upstream names.
+    // The root contract claimed vendored packages keep their upstream names;
+    // its concise current wording remains the applied-state sentinel.
     id: 'root-agents-vendored-name-contract',
     file: 'AGENTS.md',
     find: 'vendored packages keep upstream names and are `private: true`. `cordis` is a peerDependency (+ dev) of every harness package.',
-    replace: 'vendored packages are rescoped ([mapping](docs/rescope.md)) and `private: true`. `@deepseek-ai/cordis` is a peerDependency (+ dev) of every harness package.',
+    replace: 'Vendored packages are rescoped and private; every harness package declares `@deepseek-ai/cordis` as peer plus dev dependency.',
     expect: 1,
   },
   {
@@ -514,6 +542,10 @@ function rewriteLine(line: string, file: string, all: readonly Pattern[]): strin
     out = out.replace(pattern.token, (_match, quote: string, subpath: string) => `${quote}${pattern.to}${subpath}${quote}`)
     out = out.replace(pattern.yamlName, (_match, prefix: string, suffix: string) => `${prefix}${pattern.to}${suffix}`)
   }
+  for (const event of CORDIS_EVENT_NAMES) {
+    out = out.replaceAll(`@deepseek-ai/cordis/${event}`, `cordis/${event}`)
+  }
+  out = out.replace("'@deepseek-ai/cordis': 'extensions.md'", "'cordis': 'extensions.md'")
   return out
 }
 
@@ -600,6 +632,7 @@ function main(): void {
   const files = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' })
     .split('\0')
     .filter(file => file !== '' && !excluded(file))
+    .filter(file => existsSync(resolve(root, file)))
 
   const counts = new Map<string, { files: number; lines: number }>()
   const failures: string[] = []

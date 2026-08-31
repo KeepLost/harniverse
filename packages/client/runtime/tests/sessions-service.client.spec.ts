@@ -364,6 +364,25 @@ describe('slot-store scope prune hook', () => {
 })
 
 describe('catalog-addressed navigation', () => {
+  it('projects loaded catalog children for list-level descendant activity without listing them', async () => {
+    const b = bench()
+    b.api.onSubagentList = () => Promise.resolve(ok({
+      entries: [{
+        kind: 'child', id: sid('child'), mode: 'continuable', label: 'Child',
+        activity: 'running', hasChildren: false,
+      }] as never[],
+      parentAvailable: true,
+    }))
+    await feedList(b, [{ id: 'root' }])
+    await b.svc.refreshSubagents(sid('root'))
+
+    const list = b.svc.list.getSnapshot()
+    expect(list.ids).toEqual([sid('root')])
+    expect(list.byId[sid('child')]).toMatchObject({
+      displayTitle: 'Child', parentId: sid('root'), origin: 'subagent', running: true,
+    })
+  })
+
   it('uses catalog labels for a listed addressed route', async () => {
     const b = bench()
     b.api.onSubagentList = (payload) => {

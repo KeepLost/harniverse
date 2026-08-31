@@ -71,6 +71,7 @@ describe('message feedback Host Remote protocol', () => {
           rpcId,
           method: endpoint,
           payload,
+          expectedPrincipal: { kind: 'bypass' },
         }),
       })
       const body: unknown = await response.json()

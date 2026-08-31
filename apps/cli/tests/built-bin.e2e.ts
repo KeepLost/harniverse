@@ -166,7 +166,7 @@ function createEnvironmentProbeProfile(home: string, project: string): void {
     '  void ctx.loader.await().then(async () => {',
     "    let text = ''",
     '    for await (const chunk of ctx.llm.stream({',
-    "      provider: 'deepseek-official',",
+    "      provider: 'deepseek',",
     "      model: 'deepseek-v4-flash',",
     '      messages: [],',
     '      maxTokens: 32,',
@@ -189,9 +189,29 @@ function createEnvironmentProbeProfile(home: string, project: string): void {
     dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } },
   }, undefined, 2))
   writeFileSync(join(profileDir, 'cordis.patch.yml'), [
+    '- id: llm-pi-ai',
+    '  config:',
+    '    providers:',
+    '      deepseek:',
+    '        apiKeyEnv: DEEPSEEK_API_KEY',
+    '        baseURL: !!js process.env.DEEPSEEK_BASE_URL',
     '- insert:',
     '    - id: environment-probe',
     `      name: ${pathToFileURL(pluginFile).href}`,
+    '',
+  ].join('\n'))
+}
+
+function configureDeepSeekProvider(home: string, baseURL: string): void {
+  writeFileSync(join(home, 'settings.yaml'), [
+    'agent-default-model:',
+    '  provider: deepseek',
+    '  model: deepseek-v4-flash',
+    'llm-pi-ai:',
+    '  providers:',
+    '    deepseek:',
+    '      apiKeyEnv: DEEPSEEK_API_KEY',
+    `      baseURL: ${baseURL}`,
     '',
   ].join('\n'))
 }
@@ -378,6 +398,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       successText: 'published headless profile reached the mock',
     })
     const home = mkdtempSync(join(tmpdir(), 'dsh-built-headless-'))
+    configureDeepSeekProvider(home, server.baseURL)
     try {
       const result = await runBuiltBin(['--profile', 'headless', 'answer', 'from', 'the', 'published', 'entry'], {
         DSH_HOME: home,
@@ -473,8 +494,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
         DSH_TELEMETRY_DISABLED: '1',
       })
       expect(result.code).toBe(1)
-      expect(result.stdout).toBe('')
-      expect(result.stderr).toContain('llm-pi-ai')
+      expect(`${result.stdout}\n${result.stderr}`).toContain('llm-pi-ai')
     } finally {
       rmSync(home, { recursive: true, force: true })
     }

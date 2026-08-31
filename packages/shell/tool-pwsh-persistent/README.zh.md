@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-模型侧 `pwsh(command)`，由一个 owner 作用域的 `ctx.terminals` shell 支撑。本包拥有工具契约与 shell 复用；部署方选择 terminal backend（配置 `shellDialect: pwsh` 的 `terminal-bash` 实例）与沙箱策略。它是 `tool-bash-persistent` 的 PowerShell 对应物：相同的持久状态契约，PowerShell 方言。
+模型侧 `pwsh(command)`，由一个 owner 作用域的 `ctx.terminals` shell 支撑。本包拥有工具契约与 shell 复用；部署方选择 terminal backend（`shellPath` 指向 PowerShell、`shellArgs` 以交互模式启动它的 `terminal-bash` 实例）与沙箱策略。它是 `tool-bash-persistent` 的 PowerShell 对应物：相同的持久状态契约，PowerShell 方言。
 
 ## 配置
 
@@ -45,7 +45,7 @@
 
 ## 已知限制与延后工作
 
-- 本工具为显式 opt-in，需要拥有 Agent，以及配置 PowerShell 的 terminal backend（`dsh-terminal-bash` 的 `shellDialect: pwsh`）。随发布提供的 base 与 Profile 组合继续使用非持久化 `dsh-tool-pwsh`。
+- 本工具为显式 opt-in，需要拥有 Agent，以及配置 PowerShell 的 terminal backend（在 `dsh-terminal-bash` 上设置 `shellPath: pwsh` 与 `shellArgs: [-NoLogo, -NoProfile]`；`pwsh` 不在 `PATH` 时使用绝对路径）。随发布提供的 base 与 Profile 组合继续使用非持久化 `dsh-tool-pwsh`。
 - 在声明 Windows 平台验证之前，必须由原生 Windows CI 覆盖 ConPTY、Toolhelp32 进程所有权、Ctrl-C 投递与 taskkill 拆卸；非 Windows 测试使用模拟 native bridge。
 - PowerShell 的 PSReadLine 会回显提交输入，且没有 `stty -echo` 对应物。marker 锚定提取会移除完整回显，但跨 terminal 宽度折行的回显可能在部分输出中留下有界片段。
 - 模型命令中的裸 ESC 字符不受支持，因为 PSReadLine 会在执行前吞掉它们。

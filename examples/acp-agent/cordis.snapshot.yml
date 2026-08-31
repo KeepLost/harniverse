@@ -35,6 +35,15 @@
             You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug.
 
             Verify your work by running the code or tests. Keep answers brief and factual.
+      # Snapshot workspaces selectively provide hooks.json or codex-hooks.json.
+      # Missing files register nothing, so both dormant bridges can stay active
+      # without changing non-hook scenarios.
+      - id: hooks-claude-code
+        name: '@deepseek-ai/dsh-hooks-claude-code'
+        disabled: false
+      - id: hooks-codex
+        name: '@deepseek-ai/dsh-hooks-codex'
+        disabled: false
       - id: sandbox
         name: '@deepseek-ai/dsh-sandbox-local'
         config:

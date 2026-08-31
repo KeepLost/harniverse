@@ -1,7 +1,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ClientSessionContext, InputTriggerCandidate, InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import type { ClientSessionContext, InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { FileReferenceCandidate } from '@deepseek-ai/dsh-file-reference/types'
 import type { SessionReferenceMentionCandidate } from '@deepseek-ai/dsh-session-reference/types'
 import { apply, inject } from '../src/client/index.ts'
@@ -38,7 +38,7 @@ describe('unified reference source', () => {
 
   it('suppresses sessions for quoted paths and degrades failed domains independently', async () => {
     const files = vi.fn(() => Promise.resolve({ ok: true as const, value: [{ path: 'README.md', kind: 'file' as const }] }))
-    const sessions = vi.fn(() => Promise.reject(new Error('session failed')) as Promise<Envelope<SessionReferenceMentionCandidate[]>>)
+    const sessions = vi.fn(() => Promise.reject(new Error('session failed')))
     const source = await sourceOf(files, sessions)
     const candidates = await source.candidates(session, { query: 'READ', quoted: true, position: 'inline', signal: new AbortController().signal })
     expect(candidates).toEqual([expect.objectContaining({ name: 'File · README.md' })])
@@ -59,6 +59,6 @@ describe('unified reference source', () => {
 
   it('ignores foreign candidates without a source-owned payload', async () => {
     const source = await sourceOf()
-    expect(source.onPick({ candidate: { name: 'foreign' } as InputTriggerCandidate, session, position: 'inline', via: 'menu', span: { start: 0, end: 1, draftRev: 1 } })).toBeUndefined()
+    expect(source.onPick({ candidate: { name: 'foreign' }, session, position: 'inline', via: 'menu', span: { start: 0, end: 1, draftRev: 1 } })).toBeUndefined()
   })
 })

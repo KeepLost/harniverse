@@ -460,6 +460,7 @@ export class SubagentRuntime extends Service {
       mcpServerIds: Object.freeze([...grant.mcpServerIds]),
       childProfileIds: Object.freeze([...grant.childProfileIds]),
     })
+    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup preserves Cordis disposer identity.
     return this.ctx.effect(function* (this: SubagentRuntime) {
       this.profileGrants.set(parent, detached)
       yield () => {
@@ -546,6 +547,7 @@ export class SubagentRuntime extends Service {
       model: route.model,
       ...fallbacks.length === 0 ? {} : { fallbacks: Object.freeze(fallbacks) },
     })
+    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup preserves Cordis disposer identity.
     return this.ctx.effect(function* (this: SubagentRuntime) {
       this.modelRoutes.set(routeId, detached)
       yield () => {
@@ -602,6 +604,7 @@ export class SubagentRuntime extends Service {
    * @returns an effect disposer that revokes future installations.
    */
   registerChildProfileSetup(setup: ChildProfileSetup): () => void {
+    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup preserves Cordis disposer identity.
     return this.ctx.effect(() => {
       this.profileSetups.add(setup)
       return () => { this.profileSetups.delete(setup) }
@@ -615,7 +618,7 @@ export class SubagentRuntime extends Service {
    */
   applyChildProfileSetup(childCtx: Context, profile: ResolvedChildProfile): void {
     for (const setup of this.profileSetups) setup(childCtx, profile)
-    const child = childCtx.agent as Agent | undefined
+    const child = childCtx.agent
     if (child !== undefined && profile.schedulerPriority !== undefined) {
       this.profilePriorities.set(child, profile.schedulerPriority)
       childCtx.effect(() => () => {
@@ -653,6 +656,7 @@ export class SubagentRuntime extends Service {
         .filter(name => !selectedMcp.has(name.slice('mcp__'.length).split('__', 1)[0] ?? ''))
       if (deniedMcpTools.length > 0) tools.restrict({ deny: deniedMcpTools, includeOwn: true })
     }
+    // oxlint-disable-next-line typescript/no-confusing-void-expression -- optional lookup avoids a dependency for augmentation.
     const skills = childCtx.get('skills' as never) as { restrict(filter: { allow: readonly string[]; includeOwn: true }): () => void } | undefined
     if (skills !== undefined) skills.restrict({ allow: profile.skills, includeOwn: true })
   }
@@ -746,6 +750,7 @@ export class SubagentRuntime extends Service {
       ...childProfile !== undefined ? { agentOptions: this.resolveChildModelRoute(childProfile) } : {},
       descriptor,
     }
+    // oxlint-disable-next-line typescript/no-deprecated -- this method is the retained compatibility owner for provider one-shot starts.
     return observeRun(this.emitLifecycle, name, request.parent, await provider.start(resolved))
   }
 

@@ -45,6 +45,18 @@ async function writeContractConfig(suffix: string): Promise<string> {
   return path
 }
 
+async function runOxlintProbe(configPath: string, path: string, source: string) {
+  await writeFile(path, source)
+  const result = runOxlint([
+    '--config',
+    relative(repositoryRoot, configPath),
+    '--format',
+    'unix',
+    relative(repositoryRoot, path),
+  ])
+  return { output: normalizedOutput(result), result }
+}
+
 describe('Oxlint executable contract', () => {
   it('discovers the owning TypeScript project for every file class', async () => {
     const suffix = randomUUID()
@@ -131,21 +143,37 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
 `
 
     try {
-      await writeFile(path, source)
-      const result = runOxlint([
-        '--config',
-        relative(repositoryRoot, configPath),
-        '--format',
-        'unix',
-        relative(repositoryRoot, path),
-      ])
-      const output = normalizedOutput(result)
+      const { output, result } = await runOxlintProbe(configPath, path, source)
 
       expect(result.error).toBeUndefined()
       expect(result.status, output).toBe(1)
       expect(output).toContain('@stylistic(max-len)')
       expect(output).toContain('sonarjs(no-identical-functions)')
       expect(output).toContain('typescript(no-unnecessary-condition)')
+    } finally {
+      await Promise.all([
+        rm(path, { force: true }),
+        rm(configPath, { force: true }),
+      ])
+    }
+  }, 20_000)
+
+  it('rejects cross-package source imports from production code', async () => {
+    const suffix = randomUUID()
+    const configPath = await writeContractConfig(suffix)
+    const path = join(repositoryRoot, 'packages/fs/tool-str-replace-editor/src', `oxlint-contract-${suffix}.ts`)
+
+    try {
+      const { output, result } = await runOxlintProbe(
+        configPath,
+        path,
+        "import '@deepseek-ai/dsh-tool-fs/src/read-render.ts'\n",
+      )
+
+      expect(result.error).toBeUndefined()
+      expect(result.status, output).toBe(1)
+      expect(output).toContain("'@deepseek-ai/dsh-tool-fs/src/read-render.ts' import is restricted")
+      expect(output).toContain('no-restricted-imports')
     } finally {
       await Promise.all([
         rm(path, { force: true }),

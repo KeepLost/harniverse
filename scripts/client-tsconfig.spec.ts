@@ -21,18 +21,35 @@ function clientCssDeclarations(): string[] {
     .sort()
 }
 
+function clientConfig(): ts.ParsedCommandLine {
+  const configPath = resolve(root, 'tsconfig.client.json')
+  const read = ts.readConfigFile(configPath, file => ts.sys.readFile(file))
+  if (read.error !== undefined) {
+    throw new Error(ts.flattenDiagnosticMessageText(read.error.messageText, '\n'))
+  }
+  return ts.parseJsonConfigFileContent(read.config, ts.sys, root)
+}
+
 describe('client TypeScript aggregate', () => {
   it('loads package CSS declarations without relying on workspace-link realpaths', () => {
-    const configPath = resolve(root, 'tsconfig.client.json')
-    const read = ts.readConfigFile(configPath, file => ts.sys.readFile(file))
-    if (read.error !== undefined) {
-      throw new Error(ts.flattenDiagnosticMessageText(read.error.messageText, '\n'))
-    }
-    const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, root)
+    const parsed = clientConfig()
     const loaded = parsed.fileNames
       .map(file => file.replaceAll(sep, '/'))
       .filter(file => file.endsWith('/src/css-modules.d.ts'))
       .sort()
     expect(loaded).toEqual(clientCssDeclarations())
+  })
+
+  it('resolves reference type subpaths from source instead of generated declarations', () => {
+    const parsed = clientConfig()
+    const importer = resolve(root, 'packages/client/ui-reference/src/client/index.ts')
+    for (const [specifier, source] of [
+      ['@deepseek-ai/dsh-file-reference/types', 'packages/context/file-reference/src/types.ts'],
+      ['@deepseek-ai/dsh-session-reference/types', 'packages/context/session-reference/src/types.ts'],
+    ] as const) {
+      const resolved = ts.resolveModuleName(specifier, importer, parsed.options, ts.sys).resolvedModule
+      expect(resolved?.resolvedFileName.replaceAll(sep, '/')).toBe(resolve(root, source).replaceAll(sep, '/'))
+      expect(resolved?.isExternalLibraryImport).toBe(false)
+    }
   })
 })

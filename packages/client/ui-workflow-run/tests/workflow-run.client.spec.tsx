@@ -259,19 +259,23 @@ const phase = (overrides: Partial<WorkflowRunChatData['phases'][number]> = {}): 
 })
 
 const listState = (overrides: Partial<SessionListState> = {}): SessionListState => ({
-  ids: [PARENT_ID, CHILD_ID],
+  ids: [PARENT_ID],
   byId: {
     [PARENT_ID]: {
       id: PARENT_ID, displayTitle: 'parent', running: true, blank: false, updatedAt: 0,
     },
-    [CHILD_ID]: {
-      id: CHILD_ID, displayTitle: 'child', parentId: PARENT_ID, origin: 'subagent',
-      running: true, blank: false, updatedAt: 0,
-    },
   },
   current: PARENT_ID,
   phase: 'ready',
-  subagentsByParent: {},
+  subagentsByParent: {
+    [PARENT_ID]: {
+      state: 'ready', error: null, parentAvailable: true,
+      entries: [{
+        kind: 'child', id: CHILD_ID, activity: 'running', hasChildren: false,
+        mode: 'one-shot', label: 'worker',
+      }],
+    },
+  },
   jobsBySession: {},
   currentAddress: undefined,
   ...overrides,
@@ -296,6 +300,7 @@ function panelProps(data: WorkflowRunChatData, sessions = listState(), openSessi
     loadImage: () => Promise.reject(new Error('unused')),
     fileMentions: () => undefined,
     openSession,
+    setCatalogOpen: vi.fn(),
     t: makeTranslate(zh),
   }
 }
@@ -496,7 +501,7 @@ describe('WorkflowRunPanel', () => {
     expect(interruptedView.container.querySelectorAll('[data-state="warning"]')).toHaveLength(2)
   })
 
-  it('opens only a running ordinary-list subagent proven to have this parent', () => {
+  it('opens a running member proven by the current parent catalog', () => {
     const data: WorkflowRunChatData = {
       name: 'audit', status: 'running', phases: [phase()],
     }
@@ -506,19 +511,45 @@ describe('WorkflowRunPanel', () => {
     expect(openSession).toHaveBeenCalledWith('child-1')
   })
 
+  it('observes the parent catalog only while a member is running', () => {
+    const setCatalogOpen = vi.fn()
+    const running: WorkflowRunChatData = {
+      name: 'audit', status: 'running', phases: [phase()],
+    }
+    const props = { ...panelProps(running), setCatalogOpen }
+    const view = render(<WorkflowRunPanel {...props} />)
+    expect(setCatalogOpen).toHaveBeenCalledWith(PARENT_ID, true)
+    view.rerender(<WorkflowRunPanel {...props} node={node({
+      ...running,
+      status: 'completed',
+      phases: [phase({ members: [{
+        seq: 1, label: 'worker', childId: CHILD_ID, status: 'completed',
+      }] })],
+    })} />)
+    expect(setCatalogOpen).toHaveBeenLastCalledWith(PARENT_ID, false)
+  })
+
   it.each([
-    ['not in ordinary list', listState({ ids: [PARENT_ID] }), 'running'],
-    ['remote row', listState({ byId: {
-      ...listState().byId,
-      [CHILD_ID]: { ...listState().byId[CHILD_ID]!, origin: undefined },
+    ['catalog is loading', listState({ subagentsByParent: {
+      [PARENT_ID]: { ...listState().subagentsByParent[PARENT_ID]!, state: 'loading' },
     } }), 'running'],
-    ['wrong parent', listState({ byId: {
-      ...listState().byId,
-      [CHILD_ID]: { ...listState().byId[CHILD_ID]!, parentId: 'other' as SessionId },
+    ['catalog row is diagnostic', listState({ subagentsByParent: {
+      [PARENT_ID]: {
+        ...listState().subagentsByParent[PARENT_ID]!,
+        entries: [{ kind: 'diagnostic', id: CHILD_ID, reason: 'unavailable' }],
+      },
     } }), 'running'],
-    ['list terminal', listState({ byId: {
-      ...listState().byId,
-      [CHILD_ID]: { ...listState().byId[CHILD_ID]!, running: false },
+    ['catalog child is inactive', listState({ subagentsByParent: {
+      [PARENT_ID]: {
+        ...listState().subagentsByParent[PARENT_ID]!,
+        entries: [{
+          kind: 'child', id: CHILD_ID, activity: 'inactive', hasChildren: false,
+          mode: 'one-shot', label: 'worker',
+        }],
+      },
+    } }), 'running'],
+    ['catalog belongs to another parent', listState({ subagentsByParent: {
+      ['other' as SessionId]: listState().subagentsByParent[PARENT_ID]!,
     } }), 'running'],
     ['member terminal', listState(), 'completed'],
   ] as const)('does not navigate when %s', (_name, sessions, memberStatus) => {
@@ -538,8 +569,12 @@ describe('WorkflowRunPanel', () => {
 
 class TestSessions extends Service {
   readonly opened: SessionId[] = []
+  readonly observed: Array<{ parentId: SessionId; open: boolean }> = []
   constructor(ctx: Context) { super(ctx, 'sessions') }
   open(id: SessionId): void { this.opened.push(id) }
+  setSubagentCatalogOpen(parentId: SessionId, open: boolean): void {
+    this.observed.push({ parentId, open })
+  }
 }
 
 describe('plugin lifecycle', () => {
@@ -564,6 +599,10 @@ describe('plugin lifecycle', () => {
     const face = entry.inject?.() as unknown as WorkflowRunInjected
     face.openSession(CHILD_ID)
     expect((ctx.sessions as unknown as TestSessions).opened).toEqual([CHILD_ID])
+    face.setCatalogOpen(PARENT_ID, true)
+    expect((ctx.sessions as unknown as TestSessions).observed).toEqual([{
+      parentId: PARENT_ID, open: true,
+    }])
     await fiber.dispose()
     expect(ctx.conversationEvents.entries()).toEqual([])
     expect(ctx.slots.entries('conversation.chat.node')).toEqual([])

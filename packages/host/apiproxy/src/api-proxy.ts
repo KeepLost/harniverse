@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import { authenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
@@ -1347,8 +1348,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     promptOperations.set(operation.operationId, operation)
   }
   const muxQueues = new Set<FrameQueue<RpcRequest<MuxFrame>>>()
+  const addressedMuxAuthorizations = new Map<string, Set<SessionId>>()
+  const addressedMuxSubscribers = new Map<FrameQueue<RpcRequest<MuxFrame>>, {
+    readonly principalKey: string | undefined
+    readonly subscribe: (session: Session) => void
+  }>()
   const hostQueues = new Set<FrameQueue<RpcRequest<HostFrame>>>()
   let settingsExposureRevision = 0
+
+  const principalKey = (request: RpcRequest<unknown>): string | undefined => request.principal === undefined
+    ? undefined
+    : JSON.stringify(authenticationPrincipalIdentity(request.principal))
 
   /** Collapse Host-owned configuration topology signals into one remote contract. */
   const announceSettingsExposure = (): void => {
@@ -3457,7 +3467,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               const visitedParents = new Set<SessionId>()
               while (pendingParents.length > 0) {
                 const parentId = pendingParents.shift() as SessionId
-                if (!visitedParents.add(parentId)) continue
+                if (visitedParents.has(parentId)) continue
+                visitedParents.add(parentId)
                 for (const record of records.filter(candidate => candidate.header.parentSession === parentId)) {
                   if (record.header.origin !== 'subagent') {
                     blockingChildIds.push(record.header.id)
@@ -3681,6 +3692,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             },
             signal,
           })
+          const streamKey = principalKey(request)
+          const child = ctx.sessions.get(childSessionId)
+          if (streamKey !== undefined && child !== undefined) {
+            const authorized = addressedMuxAuthorizations.get(streamKey) ?? new Set<SessionId>()
+            authorized.add(childSessionId)
+            addressedMuxAuthorizations.set(streamKey, authorized)
+            for (const subscriber of addressedMuxSubscribers.values()) {
+              if (subscriber.principalKey === streamKey) subscriber.subscribe(child)
+            }
+          }
           const operationId = `operation:${randomUUID()}`
           rememberPromptOperation({
             operationId,
@@ -4515,6 +4536,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       mux(request, signal) {
         const queue = new FrameQueue<RpcRequest<MuxFrame>>(streamQueueMaxFrames)
         muxQueues.add(queue)
+        const streamKey = principalKey(request)
+        const authorized = streamKey === undefined
+          ? undefined
+          : addressedMuxAuthorizations.get(streamKey)
+        const addressedSessions = new Set<SessionId>(
+          Object.keys(request.payload.since ?? {})
+            .filter(sessionId => authorized?.has(sessionId as SessionId)) as SessionId[],
+        )
         const jobs = ctx.get('jobs')
         // Per-session open-call table for result-view pairing. Bounded by the
         // per-turn call count: entries clear on turn/end; a table miss (stream
@@ -4525,6 +4554,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const createdDuringBootstrap: Session[] = []
         let bootstrapping = true
         const visibleSession = (session: Session): boolean => session.header.origin !== 'subagent'
+          || addressedSessions.has(session.id)
         const visibleSessionId = (sessionId: SessionId): boolean => ordinarySessionId(sessionId)
 
         const sessionEventFrame = (
@@ -4557,12 +4587,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           queue.push(sessionEventFrame(session, event, liveOpenCalls))
         }
 
-        const subscribeWithReplay = (session: Session): void => {
+        const subscribeWithReplay = (session: Session, replayAll = false): void => {
           if (!visibleSession(session)) return
           const cut = session.seq - 1
           replayCuts.set(session.id, cut)
           subscribeSession(queue, session)
-          const cursor = request.payload.since?.[session.id]
+          const cursor = request.payload.since?.[session.id] ?? (replayAll ? -1 : undefined)
           if (cursor === undefined) return
           for (const event of session.events) {
             if (event.seq <= cursor || event.seq > cut) continue
@@ -4583,6 +4613,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           if (envelope !== undefined) queue.push(envelope)
         }
 
+        addressedMuxSubscribers.set(queue, {
+          principalKey: streamKey,
+          subscribe: (session) => {
+            if (addressedSessions.has(session.id)) return
+            addressedSessions.add(session.id)
+            subscribeWithReplay(session, true)
+            pushJobs(session)
+          },
+        })
+
         const disposers = [
           ctx.on('session/event', (session: Session, event: SessionEvent) => {
             if (bootstrapping) bufferedEvents.push({ session, event })
@@ -4597,7 +4637,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             }
           }),
           ctx.on('session/disposed', (session: Session) => {
-            if (session.header.origin === 'subagent') return
+            if (!visibleSession(session)) return
+            addressedSessions.delete(session.id)
             liveOpenCalls.delete(session.id)
           }),
           ...jobs === undefined ? [] : [jobs.onJobsChanged((owner) => {
@@ -4670,6 +4711,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         })())
         return queue.iterate(signal, () => {
           muxQueues.delete(queue)
+          addressedMuxSubscribers.delete(queue)
           for (const dispose of disposers) dispose()
         })
       },

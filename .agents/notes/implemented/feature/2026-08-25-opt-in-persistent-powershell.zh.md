@@ -18,7 +18,7 @@ Status: implemented
 
 Koffi 已在工作区其他位置解析为 3.1.1，因此 subprocess-local 声明维护中的 `^3.1.0` 范围，不引入另一个 lockfile 版本。现有 node-pty `^1.1.0` API 足以支撑实现，保持不变。
 
-CLI 分发包含该插件以供显式组合，ACP 与包级 Loader fixture 会把它与 PowerShell 方言的 `dsh-terminal-bash` 一起挂载。base bundle、随发布提供的 Profile 与 preset 都不挂载它；随发布提供的一次性 `dsh-tool-pwsh` 默认值保持不变。
+CLI 分发包含该插件以供显式组合，ACP 与包级 Loader fixture 会把它与通过 PowerShell `shellPath` 和交互式 `shellArgs` 配置的 `dsh-terminal-bash` 一起挂载。base bundle、随发布提供的 Profile 与 preset 都不挂载它；随发布提供的一次性 `dsh-tool-pwsh` 默认值保持不变。
 
 ## 考虑过的替代方案
 

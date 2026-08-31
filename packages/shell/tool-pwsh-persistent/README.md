@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Model-facing `pwsh(command)` backed by one owner-scoped `ctx.terminals` shell. The package owns the tool contract and shell reuse; deployments select the terminal backend (a `terminal-bash` instance configured with `shellDialect: pwsh`) and sandbox policy. It is the PowerShell counterpart of `tool-bash-persistent`: same persistent-state contract, PowerShell dialect.
+Model-facing `pwsh(command)` backed by one owner-scoped `ctx.terminals` shell. The package owns the tool contract and shell reuse; deployments select the terminal backend (a `terminal-bash` instance whose `shellPath` points to PowerShell and whose `shellArgs` start it interactively) and sandbox policy. It is the PowerShell counterpart of `tool-bash-persistent`: same persistent-state contract, PowerShell dialect.
 
 ## Config
 
@@ -45,7 +45,7 @@ Append-only tool results follow the reusable request prefix.
 
 ## Known Limitations and Deferred Work
 
-- The tool is opt-in and requires an owning Agent plus a terminal backend configured for PowerShell (`shellDialect: pwsh` on `dsh-terminal-bash`). Shipped base and Profile compositions continue to use the non-persistent `dsh-tool-pwsh`.
+- The tool is opt-in and requires an owning Agent plus a terminal backend configured for PowerShell (`shellPath: pwsh` and `shellArgs: [-NoLogo, -NoProfile]` on `dsh-terminal-bash`; set an absolute path when `pwsh` is not on `PATH`). Shipped base and Profile compositions continue to use the non-persistent `dsh-tool-pwsh`.
 - Native Windows CI must exercise ConPTY, Toolhelp32 process ownership, Ctrl-C delivery, and taskkill teardown before Windows platform validation can be claimed; non-Windows tests mock the native bridge.
 - PowerShell's PSReadLine echoes submitted input and has no `stty -echo` equivalent. Marker-anchored extraction removes complete echoes, but a terminal-width-wrapped echo can leave bounded fragments in partial output.
 - Raw ESC characters inside model commands are unsupported because PSReadLine consumes them before execution.

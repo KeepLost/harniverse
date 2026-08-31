@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-31-macos-spill-root-aliases.md
+2026-08-31-macos-spill-root-aliases.md: b157ed5285bf394e316fc327c74893b0596d2ead
+2026-08-31-macos-spill-root-aliases.zh.md: 49a7e0b2808d4ae80df55a2ca3da69062c84e634

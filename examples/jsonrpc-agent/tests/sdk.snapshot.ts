@@ -109,9 +109,8 @@ const SCENARIOS: SdkScenario[] = [
     environment: { DSH_SYSTEM_PROMPT: MINIMAL_SYSTEM_PROMPT },
     expectedFiles: { 'note.txt': 'target:\n\tnew\n' },
     expectedTools: { bash: ['command'], str_replace_editor: ['command', 'path'] },
-    expectedSystem: MINIMAL_SYSTEM_PROMPT,
     expectedToolDescriptions: { bash: MINIMAL_BASH_DESCRIPTION },
-    runtimeContext: false,
+    runtimeContext: { includes: [MINIMAL_SYSTEM_PROMPT], excludes: [] },
   },
 ]
 
@@ -175,7 +174,8 @@ function assembledSystem(log: PersistedLog): string {
     .map(line => JSON.parse(line) as LoggedRequestHeader)
     .find(candidate => candidate.type === 'request/header')
   const system = event?.data?.header?.system
-  if (typeof system !== 'string') throw new Error('session log has no request/header system')
+  if (system === undefined) return ''
+  if (typeof system !== 'string') throw new Error('session log request/header system is not a string')
   return system
 }
 

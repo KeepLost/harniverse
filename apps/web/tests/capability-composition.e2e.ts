@@ -63,11 +63,18 @@ it('assembles a changed Profile only for new Sessions', async () => {
     expect(ctx.tools.schemas(future.agent).some(schema => schema.name === 'bash')).toBe(false)
     expect(ctx.tools.schemas(future.agent).some(schema => schema.name === 'read')).toBe(true)
     expect(ctx.tools.schemas(future.agent).some(schema => schema.name === 'write')).toBe(false)
-    const existingPrompt = (await ctx.systemPrompt.assemble({ scope: existing.agent })).sections.map(section => section.text).join('\n')
-    const futurePrompt = (await ctx.systemPrompt.assemble({ scope: future.agent })).sections.map(section => section.text).join('\n')
-    expect(existingPrompt).not.toContain('customized generation')
-    expect(futurePrompt).toContain('customized generation')
     const futureRuntime = await capabilities.session('capability-composition-future')
+    expect(futureRuntime.entries).toContainEqual(expect.objectContaining({
+      id: 'plugin:persona',
+      status: 'loaded',
+      effectiveConfig: { text: 'You are the customized generation.' },
+    }))
+    const existingPersona = (await ctx.systemPrompt.assemble({ scope: existing.agent })).contexts
+      .find(context => context.name === 'deployment:persona')?.text
+    const futurePersona = (await ctx.systemPrompt.assemble({ scope: future.agent })).contexts
+      .find(context => context.name === 'deployment:persona')?.text
+    expect(existingPersona).toContain('coding agent')
+    expect(futurePersona).toContain('customized generation')
     expect(futureRuntime).toMatchObject({
       agentProfile: 'standard',
       generation: 'standard@2',

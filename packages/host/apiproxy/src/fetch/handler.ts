@@ -238,8 +238,7 @@ function fullResponse(
  * Wire<> widening back to the exact payload (undefined-valued properties and
  * absent ones are indistinguishable after JSON transport).
  */
-// K appears once in the signature but ties the UNARY_ROUTES[K] row lookup to its own
-// schema/invoke pairing; a union parameter degrades the row to an uninvokable intersection.
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- K keeps each route's schema and invoke types paired.
 async function handleUnary<K extends keyof RpcMethodMap>(
   api: ApiProxy,
   method: K,

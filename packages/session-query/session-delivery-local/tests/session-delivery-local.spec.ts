@@ -34,6 +34,7 @@ describe('LocalSessionDelivery', () => {
     const receipt = await delivery.deliver(request(sender, 'ordinary'))
 
     expect(receipt.accepted).toBe(true)
+    // oxlint-disable-next-line typescript/unbound-method -- Vitest inspects the mock without invoking it.
     expect(target.followup).toHaveBeenCalledWith(expect.objectContaining({
       source: { kind: 'session-relay', form: 'relay', senderSessionId: sender.id },
     }))
@@ -57,6 +58,7 @@ describe('LocalSessionDelivery', () => {
       source: { kind: 'coordinator', form: 'relay', senderSessionId: sender.id },
       signal: deliveryRequest.signal,
     })
+    // oxlint-disable-next-line typescript/unbound-method -- Vitest inspects the mock without invoking it.
     expect(target.followup).not.toHaveBeenCalled()
   })
 })

@@ -174,20 +174,21 @@ describe('web e2e: long Chat interaction contract', () => {
 
   it.skipIf(MODE === 'record')('keeps heterogeneous rows and their actions bound to exact semantic identities', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-chat-long-interactions'))
-    const source = scaffold.ctx.agents.get(SessionId(SESSION_ID))
-    if (source === undefined) throw new Error('seeded long-history agent is not attached')
+    const persistence = scaffold.ctx.get('sessionPersistence')
+    if (persistence === undefined) throw new Error('seeded long-history persistence is unavailable')
+    const sourceEvents = (await persistence.inspect(SessionId(SESSION_ID))).events
 
     const toolUserMarker = FIXTURE.markers.user(TOOL_TURN)
     const toolAssistantMarker = FIXTURE.markers.assistant(TOOL_TURN)
     const toolMarker1 = FIXTURE.markers.tool(TOOL_TURN, 1)
     const toolMarker2 = FIXTURE.markers.tool(TOOL_TURN, 2)
-    const toolUserEvent = requiredEvent(source.session.events, 'user/message', toolUserMarker)
-    const toolAssistantEvent = requiredEvent(source.session.events, 'assistant/message', toolAssistantMarker)
+    const toolUserEvent = requiredEvent(sourceEvents, 'user/message', toolUserMarker)
+    const toolAssistantEvent = requiredEvent(sourceEvents, 'assistant/message', toolAssistantMarker)
     const branchUserMarker = FIXTURE.markers.user(BRANCH_TURN)
     const branchAssistantMarker = FIXTURE.markers.assistant(BRANCH_TURN)
-    const branchUserEvent = requiredEvent(source.session.events, 'user/message', branchUserMarker)
-    const branchAssistantEvent = requiredEvent(source.session.events, 'assistant/message', branchAssistantMarker)
-    const boundary = source.session.events.find((event): event is SessionEvent<'turn/end'> => (
+    const branchUserEvent = requiredEvent(sourceEvents, 'user/message', branchUserMarker)
+    const branchAssistantEvent = requiredEvent(sourceEvents, 'assistant/message', branchAssistantMarker)
+    const boundary = sourceEvents.find((event): event is SessionEvent<'turn/end'> => (
       event.type === 'turn/end' && event.data.turn === BRANCH_TURN
     ))
     if (boundary === undefined) throw new Error(`turn ${String(BRANCH_TURN)} has no turn/end event`)
@@ -281,7 +282,7 @@ describe('web e2e: long Chat interaction contract', () => {
     await expect.poll(() => page.locator('[data-streaming="true"]').count(), { timeout: 15_000 }).toBe(0)
     expect(await composer.inputValue()).toBe('')
     expect(await composer.isEnabled()).toBe(true)
-    expect(source.session.events.some(event => carries(event, CONTINUE_PROMPT))).toBe(false)
+    expect(sourceEvents.some(event => carries(event, CONTINUE_PROMPT))).toBe(false)
     expect(child.session.events.filter(event => (
       event.type === 'user/message' && carries(event, CONTINUE_PROMPT)
     ))).toHaveLength(1)

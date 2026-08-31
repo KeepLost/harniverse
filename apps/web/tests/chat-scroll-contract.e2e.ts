@@ -318,15 +318,6 @@ async function flingTranscript(page: Page, deltaY: number): Promise<void> {
   await nextPaint(page)
 }
 
-async function wheelToHistoryStart(page: Page): Promise<void> {
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    if ((await scrollGeometry(page)).scrollTop <= 1) break
-    await wheelTranscript(page, -2_400)
-  }
-  await expect.poll(async () => (await scrollGeometry(page)).scrollTop, { timeout: 10_000 })
-    .toBeLessThanOrEqual(1)
-}
-
 async function wheelUntilMounted(page: Page, selector: string, deltaY: number): Promise<void> {
   for (let attempt = 0; attempt < 16; attempt += 1) {
     if (await page.locator(selector).count() > 0) return
@@ -424,12 +415,17 @@ async function expectMarkerAboveComposer(page: Page, marker: string): Promise<vo
 }
 
 async function loadEarlierWithAnchor(page: Page): Promise<void> {
-  await wheelToHistoryStart(page)
   const older = page.getByRole('button', { name: 'Load earlier', exact: true })
   await older.waitFor({ timeout: 10_000 })
   const anchor = await visibleFlowAnchor(page)
   const before = await loadedFlowRows(page)
-  await older.click()
+  // Keep the boundary outside the automatic prefetch margin. Playwright's
+  // normal click scrolls the button into that margin before dispatching the
+  // click, racing the observer's load with this explicit paging request.
+  await older.evaluate((button) => {
+    if (!(button instanceof HTMLButtonElement)) throw new Error('Load earlier is not a button')
+    button.click()
+  })
   await expect.poll(() => loadedFlowRows(page), { timeout: 30_000 }).toBeGreaterThan(before)
   await nextPaint(page)
   await expectSameFlowTop(page, anchor)
@@ -500,9 +496,13 @@ describe('web e2e: long Chat scroll contract', () => {
         await composer.fill(LIVE_TEXT_PROMPT)
         await world.page.getByRole('button', { name: 'Send message', exact: true }).click()
         await world.page.getByText(LIVE_TEXT_FIRST, { exact: false }).last().waitFor({ timeout: 15_000 })
-        await wheelToHistoryStart(world.page)
+        await wheelTranscript(world.page, -1_200)
         const beforeRows = await loadedFlowRows(world.page)
-        await world.page.getByRole('button', { name: 'Load earlier', exact: true }).click()
+        const older = world.page.getByRole('button', { name: 'Load earlier', exact: true })
+        await older.evaluate((button) => {
+          if (!(button instanceof HTMLButtonElement)) throw new Error('Load earlier is not a button')
+          button.click()
+        })
         await expect.poll(() => held, { timeout: 10_000 }).toBe(true)
 
         await wheelTranscript(world.page, 420)
@@ -528,7 +528,6 @@ describe('web e2e: long Chat scroll contract', () => {
 
       let additionalPages = 0
       while (additionalPages < 8) {
-        await wheelToHistoryStart(world.page)
         if (await world.page.getByRole('button', { name: 'Load earlier', exact: true }).count() === 0) break
         await loadEarlierWithAnchor(world.page)
         additionalPages += 1
@@ -623,7 +622,7 @@ describe('web e2e: long Chat scroll contract', () => {
       await liveRow.click()
       await expect.poll(() => liveRow.getAttribute('aria-expanded'), { timeout: 10_000 }).toBe('true')
       await expectSameFlowTop(world.page, toolAnchor)
-      await wheelToHistoryStart(world.page)
+      await wheelTranscript(world.page, -1_200)
       await world.page.getByRole('button', { name: 'Back to bottom', exact: true }).click()
       await expectBottom(world.page)
       await wheelUntilMounted(world.page, liveRowSelector, -1_100)
@@ -648,10 +647,10 @@ describe('web e2e: long Chat scroll contract', () => {
         RESTORE_FIXTURE_A,
         RESTORE_FIXTURE_A.markers.assistant(RESTORE_FIXTURE_A.turns),
       )
+      await wheelTranscript(world.page, -900)
       await loadEarlierWithAnchor(world.page)
       await loadEarlierWithAnchor(world.page)
-      await wheelToHistoryStart(world.page)
-      await wheelTranscript(world.page, 1_300)
+      await wheelTranscript(world.page, -1_300)
       const sessionAnchor = await visibleFlowAnchor(world.page)
 
       await world.page.getByRole('tab', { name: 'Trajectory', exact: true }).click()

@@ -201,7 +201,7 @@ function waitForPromise<T>(promise: Promise<T>, signal: AbortSignal): Promise<T>
     signal.addEventListener('abort', onAbort, { once: true })
     promise.then(
       (value) => { signal.removeEventListener('abort', onAbort); resolvePromise(value) },
-      (error) => { signal.removeEventListener('abort', onAbort); rejectPromise(errorReason(error, 'file search index failed')) },
+      (error: unknown) => { signal.removeEventListener('abort', onAbort); rejectPromise(errorReason(error, 'file search index failed')) },
     )
   })
 }

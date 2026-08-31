@@ -272,7 +272,7 @@ describe('dsh web keyless CLI smoke', () => {
       process.execPath,
       [
         '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web',
-        '--patch', ENABLE_DEEPSEEK_OVERLAY, '--port', '0',
+        '--patch', ENABLE_DEEPSEEK_OVERLAY, '--port', '0', '--dangerously-skip-authentication',
       ],
       {
         cwd: workspace,
@@ -327,7 +327,7 @@ describe('dsh web keyless CLI smoke', () => {
       `)
       expect(captured.tools?.map(tool => tool.function?.name)
         .filter(name => name === 'web_search' || name === 'web_fetch'))
-        .toEqual([])
+        .toEqual(['web_fetch', 'web_search'])
     } finally {
       const closed = child.exitCode === null
         ? new Promise<void>((resolveClose) => { child.once('close', () => { resolveClose() }) })
@@ -385,7 +385,7 @@ describe('dsh web keyless CLI smoke', () => {
       process.execPath,
       [
         '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web',
-        '--patch', ENABLE_DEEPSEEK_OVERLAY, '--port', '0',
+        '--patch', ENABLE_DEEPSEEK_OVERLAY, '--port', '0', '--dangerously-skip-authentication',
       ],
       {
         cwd: workspace,
@@ -470,7 +470,7 @@ describe('dsh web keyless CLI smoke', () => {
       process.execPath,
       [
         '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web',
-        '--patch', ENABLE_DEEPSEEK_OVERLAY, '--port', '0',
+        '--patch', ENABLE_DEEPSEEK_OVERLAY, '--port', '0', '--dangerously-skip-authentication',
       ],
       {
         cwd: workspace,

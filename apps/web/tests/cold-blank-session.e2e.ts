@@ -1,4 +1,4 @@
-/** Cold Session list visibility through the shipped compressed JSONL backend. */
+/** Cold Session list fail-visible behavior through the shipped compressed JSONL backend. */
 
 import { mkdir, stat } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -18,7 +18,7 @@ const MODE = webSnapshotMode()
 const SESSION_ID = 'cold-blank-session-web-e2e'
 const WORKSPACE_NAME = 'cold-blank-workspace'
 
-describe('web e2e: cold blank Session visibility', () => {
+describe('web e2e: unverified cold blank Session visibility', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
@@ -48,11 +48,11 @@ describe('web e2e: cold blank Session visibility', () => {
     await scaffold?.close()
   })
 
-  it('keeps the verified cold blank Session out of the sidebar', async () => {
+  it('keeps the unprobed cold blank Session visible as Ungrouped', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-cold-blank-session'))
     const tree = page.getByRole('tree', { name: 'Sessions' })
     await tree.waitFor({ timeout: 30_000 })
-    expect(await tree.getByText(WORKSPACE_NAME, { exact: true }).count()).toBe(0)
+    expect(await tree.getByText('Ungrouped', { exact: true }).count()).toBe(1)
     const sidebar = await captureStableAria(page, '[role="tree"][aria-label="Sessions"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(SIDEBAR_EXPECTED, sidebar, MODE)
     expect(tripwire.pageErrors).toEqual([])

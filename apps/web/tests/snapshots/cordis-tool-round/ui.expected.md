@@ -2,9 +2,12 @@
   - navigation "Session hierarchy":
     - button "Use only Cordis tools. First" [disabled]
   - img
-  - text: Standard mode
+  - text: Creator mode
   - button "Session log":
     - text: Session log
+    - img
+  - button "Open workspace workbench":
+    - text: Workspace
     - img
   - tablist:
     - tab "Chat" [selected]
@@ -17,6 +20,10 @@
   - img
   - img
   - text: Context injection @deepseek-ai/dsh-system-prompt
+- button "Context injection skill-catalog":
+  - img
+  - img
+  - text: Context injection skill-catalog
 - button "Think I will inspect the current Session's dynamic Cordis Plugins before defining the snapshot Package.":
   - img
   - img

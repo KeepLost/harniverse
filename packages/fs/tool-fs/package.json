@@ -22,12 +22,17 @@
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
     },
+    "./read-render": {
+      "types": "./lib/types/read-render.d.ts",
+      "default": "./lib/read-render.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
     "lib/invariant.js",
+    "lib/read-render.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",

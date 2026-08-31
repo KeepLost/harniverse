@@ -594,7 +594,10 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     // The archived row must not resurface (the Ungrouped bucket itself may
     // reappear if selection restore lands on another stray — not this test's
     // concern).
-    expect(await page.getByText(rowTitle, { exact: true }).count()).toBe(0)
+    await expect.poll(
+      () => page.getByRole('tree', { name: 'Sessions' }).getByText(rowTitle, { exact: true }).count(),
+      { timeout: 15_000 },
+    ).toBe(0)
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
 
@@ -623,6 +626,10 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     expect(await preview.getByRole('alert').count()).toBe(0)
     expect(await preview.getByText('This session has no messages to display.', { exact: true }).count()).toBe(0)
     await expect.poll(() => preview.locator('article').count(), { timeout: 20_000 }).toBeGreaterThan(0)
+    await preview.getByRole('button', { name: 'Close' }).click()
+    await preview.waitFor({ state: 'hidden', timeout: 10_000 })
+    await page.getByRole('button', { name: 'Back to sessions' }).click()
+    await page.getByRole('button', { name: 'Add workspace' }).waitFor({ timeout: 10_000 })
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
 

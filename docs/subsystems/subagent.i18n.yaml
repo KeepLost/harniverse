@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/subagent.md
-subagent.md: 54ea048d4d4e5bf35052c40593a33c65388363de
-subagent.zh.md: e20da005a465fda026a8465547f89a3cc3e2ba34
+subagent.md: 0e6c56e9972856c840616c3a6b8580baa9cf94df
+subagent.zh.md: 521dae1414425b4bec17063f2ec298fdca6fac03

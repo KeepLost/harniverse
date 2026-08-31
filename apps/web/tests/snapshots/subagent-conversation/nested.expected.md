@@ -8,6 +8,9 @@
   - button "Session log":
     - text: Session log
     - img
+  - button "Open workspace workbench":
+    - text: Workspace
+    - img
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"

@@ -1,7 +1,7 @@
 // Web e2e scenario: seeded history. A recorded session seeded cold through
 // the REAL persistence API renders purely from the log — the surface nothing
-// else covers: sidebar cold listing, the implicit resume/attach inside the
-// history RPC, history-page tool views, and the client's log-ordered transcript
+// else covers: sidebar cold listing, a read-only history attach, history-page
+// tool views, and the client's log-ordered transcript
 // events — with ZERO model calls in replay (no replay fixture; a stray stream
 // fails loud on the open llm seam). The cold session also carries keyless
 // command-row surfaces: the seeded manual `/compact` lifecycle folds into its
@@ -167,6 +167,31 @@ function withCompaction(raw: string, meter: TokenMeter): string {
       sourceEventSeq: summarySeq,
     },
   })
+  at({
+    type: 'user/message',
+    data: {
+      content: [{
+        type: 'text',
+        text: '<system-reminder>\n'
+          + 'The following workspace instructions may be relevant to your work. '
+          + 'Use them as guidance when applicable.\n\n'
+          + Array.from({ length: 24 }, (_, index) => `Instruction ${index + 1}: preserve the logged context contract.`).join('\n')
+          + '\n</system-reminder>',
+      }],
+      source: {
+        kind: 'agent-instructions',
+        form: 'instructions',
+        baseline: true,
+        changes: [{
+          action: 'set',
+          scope: '.\u0000AGENTS.md',
+          path: 'AGENTS.md',
+          digest: 'context-injection-browser-snapshot',
+        }],
+      },
+    },
+    surfaceOp: 'append',
+  })
   // The persistence seed helper requires a terminal turn/end. Keep the manual
   // command standalone, then add a closed zero-step turn after it.
   const closureTurn = lastTurn + 1
@@ -274,6 +299,9 @@ describe('web e2e: seeded history renders through cold resume', () => {
     const sessionRow = page.locator('[role="treeitem"]').nth(1)
     await sessionRow.waitFor({ timeout: 10_000 })
     await sessionRow.click()
+    // The compact checkpoint is the cold tail boundary, so older surface
+    // history remains explicit by contract rather than auto-prefetching.
+    await page.getByRole('button', { name: 'Load earlier', exact: true }).click()
     // Settled barrier for history: the recorded final assistant text renders.
     await expect.poll(() => page.getByText('DONE', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
     await expect.poll(() => page.getByText('compact', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
@@ -290,31 +318,8 @@ describe('web e2e: seeded history renders through cold resume', () => {
     // only — the prompt and full tool output must stay on screen.
     expect(await page.getByText(PROMPT, { exact: true }).count()).toBe(1)
 
-    const agent = scaffold.ctx.agents.get(SessionId(SEED_ID))
-    if (agent === undefined) throw new Error('seeded session did not attach an agent')
-    agent.session.append('user/message', createUserMessage({
-      content: [{
-        type: 'text',
-        text: '<system-reminder>\n'
-          + 'The following workspace instructions may be relevant to your work. '
-          + 'Use them as guidance when applicable.\n\n'
-          + Array.from({ length: 24 }, (_, index) => `Instruction ${index + 1}: preserve the logged context contract.`).join('\n')
-          + '\n</system-reminder>',
-      }],
-      source: {
-        kind: 'agent-instructions',
-        form: 'instructions',
-        baseline: true,
-        changes: [{
-          action: 'set',
-          scope: '.\u0000AGENTS.md',
-          path: 'AGENTS.md',
-          digest: 'context-injection-browser-snapshot',
-        }],
-      },
-    }), { surfaceOp: 'append' })
     // The header names the producer the durable source records, so the
-    // reconciled instruction file is readable without expanding the row.
+    // seeded instruction file is readable without expanding the row.
     await page.getByRole('button', { name: 'Context injection AGENTS.md', exact: true })
       .waitFor({ timeout: 10_000 })
   }, 60_000)

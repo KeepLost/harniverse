@@ -18,7 +18,7 @@ The local subprocess provider adds a Windows inspector behind an injectable modu
 
 Koffi already resolves to 3.1.1 elsewhere in the workspace, so subprocess-local declares the maintained `^3.1.0` range without adding another lockfile version. The existing node-pty `^1.1.0` API supports the implementation and remains unchanged.
 
-The CLI distribution includes the plugin for explicit composition, and the ACP and package Loader fixtures mount it beside a PowerShell-dialect `dsh-terminal-bash`. No base bundle, shipped Profile, or preset mounts it; the shipped one-shot `dsh-tool-pwsh` default remains unchanged.
+The CLI distribution includes the plugin for explicit composition, and the ACP and package Loader fixtures mount it beside `dsh-terminal-bash` configured with a PowerShell `shellPath` and interactive `shellArgs`. No base bundle, shipped Profile, or preset mounts it; the shipped one-shot `dsh-tool-pwsh` default remains unchanged.
 
 ## Alternatives considered
 

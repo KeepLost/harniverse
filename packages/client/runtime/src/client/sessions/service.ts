@@ -711,6 +711,32 @@ export class SessionRuntime implements ISessions {
         ...(entry.agentProfile !== undefined ? { agentProfile: entry.agentProfile } : {}),
       }
     }
+    for (const parentSessionId of Object.keys(subagentsByParent) as SessionId[]) {
+      const catalog = subagentsByParent[parentSessionId]
+      if (catalog === undefined) continue
+      for (const child of catalog.entries) {
+        if (child.kind !== 'child') continue
+        const displayTitle = child.label ?? child.id
+        const summary = byId[child.id]
+        byId[child.id] = summary === undefined
+          ? {
+            id: child.id,
+            displayTitle,
+            parentId: parentSessionId,
+            origin: 'subagent',
+            running: child.activity === 'running',
+            blank: false,
+            updatedAt: 0,
+          }
+          : {
+            ...summary,
+            displayTitle,
+            parentId: parentSessionId,
+            origin: 'subagent',
+            running: child.activity === 'running',
+          }
+      }
+    }
     if (current !== undefined && currentAddress !== undefined) {
       const seen = new Set<SessionId>()
       let address: SubagentAddress | undefined = currentAddress

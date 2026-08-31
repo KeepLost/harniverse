@@ -80,11 +80,19 @@ export async function connectFreshWorkspace(page: Page, root: string, name = 'wo
   const pathInput = dialog.getByRole('textbox', { name: 'Edit path' })
   await pathInput.fill(join(root, name))
   await pathInput.press('Enter')
+  const sessionCreate = page.waitForResponse(response => response.url().includes('/api/session.create'))
   await dialog.getByRole('button', { name: 'Open', exact: true }).click()
+  const response = await sessionCreate
+  const envelope = await response.json() as { result?: { ok?: boolean; error?: { code?: string; message?: string } } }
+  if (envelope.result?.ok !== true) {
+    throw new Error(
+      `workspace connection session.create failed: ${envelope.result?.error?.code ?? 'invalid-response'}: `
+      + (envelope.result?.error?.message ?? 'missing error message'),
+    )
+  }
   // The pick connected the workspace: the blank session's live composer
-  // replaces the locked placeholder and enables.
-  await page.locator('textarea:enabled[placeholder="Describe what you want to build"]')
-    .waitFor({ timeout: 15_000 })
+  // enables. Its placeholder depends on whether the mode keeps the hero.
+  await page.locator('textarea:not([readonly]):not([disabled])').first().waitFor({ timeout: 15_000 })
 }
 
 /**
@@ -104,9 +112,17 @@ export async function connectFreshWorkspaceZh(page: Page, root: string, name = '
   const pathInput = dialog.getByRole('textbox', { name: '编辑路径' })
   await pathInput.fill(join(root, name))
   await pathInput.press('Enter')
+  const sessionCreate = page.waitForResponse(response => response.url().includes('/api/session.create'))
   await dialog.getByRole('button', { name: '打开', exact: true }).click()
-  await page.locator('textarea:enabled[placeholder="描述你想要构建的内容"]')
-    .waitFor({ timeout: 15_000 })
+  const response = await sessionCreate
+  const envelope = await response.json() as { result?: { ok?: boolean; error?: { code?: string; message?: string } } }
+  if (envelope.result?.ok !== true) {
+    throw new Error(
+      `workspace connection session.create failed: ${envelope.result?.error?.code ?? 'invalid-response'}: `
+      + (envelope.result?.error?.message ?? 'missing error message'),
+    )
+  }
+  await page.locator('textarea:not([readonly]):not([disabled])').first().waitFor({ timeout: 15_000 })
 }
 
 /** Failure evidence goes to the gitignored .artifacts/ (repo convention). */

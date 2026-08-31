@@ -157,6 +157,7 @@ const SCENARIOS: Scenario[] = [
     recorded: false,
     pinsHeader: true,
     headerClass: 'product-subagent-codex',
+    systemPromptSource: 'text-turn',
     configPath: PRODUCT_SUBAGENT_CODEX_CONFIG,
   },
   {
@@ -165,7 +166,7 @@ const SCENARIOS: Scenario[] = [
     recorded: false,
     pinsHeader: true,
     headerClass: 'product-subagent-both',
-    systemPromptSource: 'product-subagent-codex',
+    systemPromptSource: 'text-turn',
     configPath: PRODUCT_SUBAGENT_BOTH_CONFIG,
   },
   {
@@ -399,6 +400,7 @@ const SCENARIOS: Scenario[] = [
     overridden: true,
     pinsHeader: true,
     headerClass: 'agent-instructions',
+    systemPromptSource: 'text-turn',
     toolSchemasSource: 'text-turn',
     configPath: WORKSPACE_CONTEXT_CONFIG,
     prepareWorkspace: prepareDelimiterPathWorkspace,
@@ -605,12 +607,12 @@ const SCENARIOS: Scenario[] = [
   { name: 'hook-cc-pretool-ask', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-posttool-block', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-posttool-context', hasModelTurn: true, recorded: true },
-  { name: 'hook-cc-stop-continue', hasModelTurn: true, recorded: true },
+  { name: 'hook-cc-stop-continue', hasModelTurn: true, recorded: false, overridden: true },
   { name: 'hook-codex-promptsubmit-context', hasModelTurn: true, recorded: true },
   { name: 'hook-codex-pretool-block', hasModelTurn: true, recorded: true },
   { name: 'hook-codex-posttool-block', hasModelTurn: true, recorded: true },
   { name: 'hook-codex-posttool-context', hasModelTurn: true, recorded: true },
-  { name: 'hook-codex-stop-continue', hasModelTurn: true, recorded: true },
+  { name: 'hook-codex-stop-continue', hasModelTurn: true, recorded: false, overridden: true },
   // Code Mode: the registry in `mode: code` — the wire tool list collapses to [run_code], the
   // tools:sdk section rides in the prompt, and the program's tool calls land as
   // tool/code-dispatch events. Each overlay composes and pins its own header class.

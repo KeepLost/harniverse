@@ -35,10 +35,13 @@ export function apply(ctx: Context): void {
   let parentClosed = false
   const publishedFailure = process.env.DSH_SUBAGENT_PUBLISHED_FAILURE === '1'
   const persistence = ctx.sessionPersistence
+  // oxlint-disable-next-line typescript/unbound-method -- calls bind the receiver; cleanup restores exact identity.
   const originalLoad = persistence.load
   const sessionDelivery = ctx.sessionDelivery
+  // oxlint-disable-next-line typescript/unbound-method -- calls bind the receiver; cleanup restores exact identity.
   const originalSessionDeliver = sessionDelivery.deliver
   const agents = ctx.agents
+  // oxlint-disable-next-line typescript/unbound-method -- calls bind the receiver; cleanup restores exact identity.
   const originalCreate = agents.create
   const subagents = ctx.subagents as unknown as {
     followup: (authority: unknown, childId: SessionId, content: unknown, options: unknown) => Promise<unknown>
@@ -48,6 +51,7 @@ export function apply(ctx: Context): void {
   agents.create = async (options) => {
     const handle = await originalCreate.call(agents, options)
     if (!publishedFailure || options.meta?.parentSession === undefined) return handle
+    // oxlint-disable-next-line typescript/unbound-method -- cleanup restores exact identity without invoking the method.
     const originalAgentFollowup = handle.agent.followup
     handle.agent.followup = () => {
       throw new Error('snapshot published run failed')

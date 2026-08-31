@@ -172,6 +172,7 @@ function registerCatalogSubagentProvider(ctx: Context, name: string): void {
     name,
     capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: true },
     inheritsParentContext: false,
+    // oxlint-disable-next-line typescript/no-deprecated -- schema harvest implements the retained provider interface.
     start: () => Promise.reject(new Error('tool-catalog provider cannot start a child')),
     // Declared so consumers configured for continuable background mode mount.
     prepareContinuable: () => Promise.reject(new Error('tool-catalog provider cannot prepare a child')),

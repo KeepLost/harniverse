@@ -24,8 +24,8 @@ describe('wire metadata', () => {
 
   it('combines request size, fingerprint, and reconstruction parameters', () => {
     expect(wireRequestMetadata({ model: 'm', messages: [] })).toMatchObject({
-      bytes: expect.any(Number),
-      fingerprint: expect.any(String),
+      bytes: expect.any(Number) as number,
+      fingerprint: expect.any(String) as string,
       parameters: { model: 'm' },
     })
   })

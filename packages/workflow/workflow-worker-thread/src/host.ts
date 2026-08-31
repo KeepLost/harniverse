@@ -349,6 +349,7 @@ export class WorkerRun implements WorkflowRun {
   private async startChild(callId: number, request: ChildStartRequest): Promise<void> {
     let run: SubagentRun
     try {
+      // oxlint-disable-next-line typescript/no-deprecated -- the worker protocol still owns one-shot result and disposal semantics.
       run = await this.subagents.start(this.provider, {
         prompt: [{ type: 'text', text: request.prompt }],
         parent: this.parent,

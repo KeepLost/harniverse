@@ -210,7 +210,7 @@ describe('real @openai/codex 0.147.0 product', () => {
     await expect(run.result).resolves.toMatchObject({
       output: [],
       stopReason: 'error',
-      diagnostic: expect.stringContaining('Codex unattended decision'),
+      diagnostic: expect.stringContaining('Codex unattended decision') as string,
     })
     await run.dispose()
 

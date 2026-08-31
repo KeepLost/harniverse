@@ -12,6 +12,8 @@
   - img
 - button "Add workspace":
   - img
+- button "View archived sessions":
+  - img
 - tree "Sessions":
   - treeitem "workspace" [expanded]:
     - img
@@ -38,6 +40,4 @@
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: Details
-- button "Close details"
-- text: Click a tool row in the message flow to view its details
+- separator "Resize sidebar"

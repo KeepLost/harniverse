@@ -1,1 +1,4 @@
-- tree "Sessions": No sessions yet
+- tree "Sessions":
+  - treeitem "Ungrouped":
+    - img
+    - text: Ungrouped

@@ -1,8 +1,11 @@
 - banner:
   - navigation "Session hierarchy":
-    - button "CJK strong emphasis" [disabled]
+    - button "{{workspace}}" [disabled]
   - button "Session log":
     - text: Session log
+    - img
+  - button "Open workspace workbench":
+    - text: Workspace
     - img
   - tablist:
     - tab "Chat" [selected]
@@ -49,7 +52,6 @@
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img

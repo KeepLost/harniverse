@@ -136,8 +136,12 @@ describe('web e2e: sidebar subagent activity', () => {
   it('pins a running descendant on its visible idle owner row', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-sidebar-subagent-activity'))
     const sidebar = page.getByRole('tree', { name: 'Sessions' })
-    const ownerRow = sidebar.getByRole('treeitem', { name: /1 subagent running Delegate a background job/ })
+    const ownerRow = sidebar.getByRole('treeitem').filter({ hasText: 'Delegate a background job.' })
     await ownerRow.waitFor({ timeout: 10_000 })
+    await ownerRow.click()
+    const runningTrigger = page.getByRole('button', { name: '1 subagent running' })
+    await runningTrigger.waitFor({ timeout: 10_000 })
+    await expect.poll(() => ownerRow.innerText(), { timeout: 10_000 }).toContain('1 subagent running')
     expect(parentHandle.agent.status).toBe('idle')
     await compareOrRefreshGolden(
       RUNNING_OWNER_EXPECTED,
@@ -145,9 +149,6 @@ describe('web e2e: sidebar subagent activity', () => {
       MODE,
     )
     expect(await ownerRow.locator('[data-state="ongoing"]').count()).toBe(1)
-    await ownerRow.click()
-    const runningTrigger = page.getByRole('button', { name: '1 subagent running' })
-    await runningTrigger.waitFor({ timeout: 10_000 })
     expect(await runningTrigger.locator('[data-state="ongoing"]').count()).toBe(1)
     await assertFixtureInventory(SNAPSHOT_DIR, ['owner-running.expected.md'])
     expect(tripwire.pageErrors).toEqual([])

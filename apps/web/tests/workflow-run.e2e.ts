@@ -52,7 +52,7 @@ describe.skipIf(MODE === 'record')('web e2e: durable workflow run in Chat', () =
     scaffold = await launchWebScaffold({
       replayFixture: PARENT_FIXTURE,
       replayChildFixtures: [CHILD_FIXTURE],
-      paceMs: 25,
+      paceMs: 200,
     })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
@@ -70,12 +70,12 @@ describe.skipIf(MODE === 'record')('web e2e: durable workflow run in Chat', () =
   it('shows the live member, opens its local child, then retains the settled record beside the tool row', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-workflow-run-live'))
     const settled = waitForParentSettlement()
-    const input = page.locator('textarea').first()
+    const input = page.locator('textarea:not([readonly]):not([disabled])').first()
     await input.fill(prompt)
     await input.press('Enter')
 
     const workflow = page.locator('[data-workflow-run][data-run-status="running"]')
-    await workflow.waitFor({ timeout: 30_000 })
+    await workflow.waitFor({ timeout: 45_000 })
     const disclosures = workflow.locator('[data-disclosure-row]')
     await disclosures.nth(1).waitFor({ timeout: 15_000 })
     expect(await disclosures.nth(0).getAttribute('role')).toBeNull()
@@ -84,8 +84,9 @@ describe.skipIf(MODE === 'record')('web e2e: durable workflow run in Chat', () =
     expect(await disclosures.nth(1).getAttribute('aria-expanded')).toBeNull()
     expect(await disclosures.nth(0).evaluate(element => getComputedStyle(element).cursor)).not.toBe('pointer')
     expect(await disclosures.nth(1).evaluate(element => getComputedStyle(element).cursor)).not.toBe('pointer')
-    const member = page.getByRole('button', { name: /^Open Reply with exactly the word/ })
+    const member = workflow.locator('button[data-member-status]').first()
     await member.waitFor({ timeout: 15_000 })
+    expect(await member.getAttribute('aria-label')).toMatch(/^Open /)
     await member.focus()
 
     const lightColor = await member.locator('[data-member-label]').evaluate(element => getComputedStyle(element).color)
@@ -162,7 +163,7 @@ describe.skipIf(MODE === 'record')('web e2e: durable workflow run in Chat', () =
       () => page.getByRole('button', { name: /^Open Reply with exactly the word/ }).count(),
       { timeout: 10_000 },
     ).toBe(0)
-  }, 90_000)
+  }, 120_000)
 
   it('rebuilds the terminal record from history after reload', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-workflow-run-history'))

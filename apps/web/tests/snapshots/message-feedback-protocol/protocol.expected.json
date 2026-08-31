@@ -22,6 +22,9 @@
           "message": "typert gateway: messageFeedback/put: wire field \"request\" failed boundary validation",
           "details": {}
         }
+      },
+      "authentication": {
+        "kind": "bypass"
       }
     }
   },
@@ -46,6 +49,9 @@
             "items": []
           }
         }
+      },
+      "authentication": {
+        "kind": "bypass"
       }
     }
   },
@@ -79,6 +85,9 @@
             "updatedAt": "{{timestamp}}"
           }
         }
+      },
+      "authentication": {
+        "kind": "bypass"
       }
     }
   },
@@ -112,6 +121,9 @@
             ]
           }
         }
+      },
+      "authentication": {
+        "kind": "bypass"
       }
     }
   },
@@ -147,6 +159,9 @@
             }
           }
         }
+      },
+      "authentication": {
+        "kind": "bypass"
       }
     }
   },
@@ -173,6 +188,9 @@
             "absent": true
           }
         }
+      },
+      "authentication": {
+        "kind": "bypass"
       }
     }
   },
@@ -197,6 +215,9 @@
             "items": []
           }
         }
+      },
+      "authentication": {
+        "kind": "bypass"
       }
     }
   }

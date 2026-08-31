@@ -1010,7 +1010,7 @@ describe('run lifecycle and quiescence', () => {
       child.fromChild.end()
       await expect(run.result).resolves.toMatchObject({
         output: [],
-        diagnostic: expect.stringContaining('Product subagent failure (product: Codex;'),
+        diagnostic: expect.stringContaining('Product subagent failure (product: Codex;') as string,
         stopReason: 'error',
       })
       await run.dispose()
@@ -1127,10 +1127,10 @@ describe('run lifecycle and quiescence', () => {
     }
     expect(error.errors).toEqual([
       expect.objectContaining({
-        message: expect.stringContaining('stage: initialize; category: unknown'),
+        message: expect.stringContaining('stage: initialize; category: unknown') as string,
       }),
       expect.objectContaining({
-        message: expect.stringContaining('stage: teardown; category: unknown'),
+        message: expect.stringContaining('stage: teardown; category: unknown') as string,
       }),
     ])
     expect(String(error)).not.toContain('spawn observer failed')

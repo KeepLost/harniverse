@@ -31,6 +31,7 @@ async function rpc<T>(baseUrl: string, method: string, payload: unknown): Promis
       rpcId: `interrupt-e2e-${method}-${crypto.randomUUID()}`,
       method,
       payload,
+      expectedPrincipal: { kind: 'bypass' },
     }),
   })
   if (!response.ok) throw new Error(`${method} failed over HTTP ${response.status}: ${await response.text()}`)

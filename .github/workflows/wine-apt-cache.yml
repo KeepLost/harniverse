@@ -1,0 +1,36 @@
+name: Wine apt cache
+
+on:
+  push:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  seed:
+    name: wine apt cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Compose Wine apt cache key
+        id: wine-cache-key
+        run: echo "key=wine-debs-${ImageOS:-linux}-${ImageVersion:-v0}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        id: wine-cache
+        with:
+          path: ~/wine-debs
+          key: ${{ steps.wine-cache-key.outputs.key }}
+
+      - name: Download the Wine dependency closure
+        if: steps.wine-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends --download-only wine
+          mkdir -p "$HOME/wine-debs"
+          cp /var/cache/apt/archives/*.deb "$HOME/wine-debs/"
+          du -sh "$HOME/wine-debs"

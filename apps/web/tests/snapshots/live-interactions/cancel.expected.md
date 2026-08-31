@@ -6,6 +6,9 @@
   - button "Session log":
     - text: Session log
     - img
+  - button "Open workspace workbench":
+    - text: Workspace
+    - img
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -21,9 +24,13 @@
 - text: Stopped
 - button "Copy":
   - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
 - button "Branch into a new conversation":
   - img
-- text: {{clock}} Ran for {{duration}}
+- text: {{clock}} Ran for {{duration}} TTFT {{duration}}
 - textbox "Message the agent"
 - button "Commands":
   - img
@@ -32,4 +39,4 @@
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 1 steps
+- text: 1 turns · 1 steps LLM {{duration}} TTFT avg {{duration}}

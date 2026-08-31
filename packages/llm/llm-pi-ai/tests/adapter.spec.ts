@@ -82,7 +82,10 @@ describe('PiAiAdapter provider routing', () => {
       method: 'POST',
       outcome: 'success',
       response: { status: 200 },
-      request: { bytes: expect.any(Number), fingerprint: expect.any(String) },
+      request: {
+        bytes: expect.any(Number) as number,
+        fingerprint: expect.any(String) as string,
+      },
     })
     expect(records[0]?.request).not.toHaveProperty('parameters.messages')
     expect(records[0]?.request).not.toHaveProperty('parameters.tools')

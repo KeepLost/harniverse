@@ -45,7 +45,7 @@ describe('PluginInventorySettingsTab', () => {
       observedAt: 2,
       checksRun: 3,
       findings: [{
-        checkId: 'cordis/host-loader',
+        checkId: '@deepseek-ai/cordis/host-loader',
         code: 'entry-pending',
         severity: 'error',
         domain: 'host-loader',

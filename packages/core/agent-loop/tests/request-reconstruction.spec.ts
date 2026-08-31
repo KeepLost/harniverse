@@ -107,11 +107,11 @@ describe('request stability across the loop', () => {
     if (wire?.type !== 'llm/wire-attempt') throw new Error('wire attempt was not logged')
     const header = agent.session.events.findLast(event => event.type === 'request/header')
     expect(wire.data).toMatchObject({
-      exchangeId: expect.any(String),
+      exchangeId: expect.any(String) as string,
       turn: 1,
       step: 1,
       requestHeaderSeq: header?.seq,
-      historyCutSeq: expect.any(Number),
+      historyCutSeq: expect.any(Number) as number,
     })
     expect(wire.seq).toBeGreaterThan(wire.data.historyCutSeq ?? -1)
     expect(wire.data.request).not.toHaveProperty('parameters.messages')

@@ -18,7 +18,6 @@ const RECIPE_PREFIX = 'plugin:'
 const FIXED_ROWS = new Set(['agent-instructions'])
 
 const TOOLS_BY_PACKAGE: Readonly<Record<string, readonly string[]>> = {
-  '@deepseek-ai/dsh-agent-tool-presentation': ['run_code'],
   '@deepseek-ai/dsh-compaction-tool-result-pruner': [],
   '@deepseek-ai/dsh-plan-mode': ['exit_plan_mode'],
   '@deepseek-ai/dsh-tool-ask-user': ['ask_user_question'],

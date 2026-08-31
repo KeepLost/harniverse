@@ -10,7 +10,7 @@ Each plugin instance binds one `provider` to one `toolName`; the model receives 
 
 `sync` passes the execution signal through continuable admission and waits for the initial Activation result. Only `completed` returns the canonical `{ mode: 'sync', invocationId, sessionId, output: JsonValue[] }`; abort, refusal, token limit, and other failures become errored tool results. Their message places optional provider-authored `SubagentResult.diagnostic` under a distinct `Diagnostic:` line, then appends preserved partial assistant text after its own heading, so neither text class becomes successful assistant output and a truncated answer is never silently lost. The durable child Session remains available for later turns after the initial Activation settles.
 
-`mode: sync|async` is a waiting policy, not a lifecycle selector. Both modes use the unified Invocation service to establish a durable continuable child Session; `sync` waits for the initial Activation result, while `async` returns after accepting the initial child turn. Every invocation uses the Session lifecycle and never creates or reads a generic job. Both modes render the durable child Session id, and the shipped `session_inspect` plus `session_message` can inspect and continue it. The continuation service delivers one settlement notice whenever that child's Activation ends.
+`mode: sync|async` is a waiting policy, not a lifecycle selector. With current configuration, both modes use the unified Invocation service to establish a durable continuable child Session; `sync` waits for the initial Activation result, while `async` returns after accepting the initial child turn. Both modes render the durable child Session id, and the shipped `session_inspect` plus `session_message` can inspect and continue it. The continuation service delivers one settlement notice whenever that child's Activation ends. The deprecated `backgroundMode: one-shot` escape hatch is the only exception: an omitted or explicit `sync` mode uses the legacy one-shot provider path, while explicit `async` still uses Invocation.
 
 `toolFilter` changes the child's global tool layer but is not a parent-derived authority ceiling. See the [agent-scope security non-goal](../../../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals).
 
@@ -23,7 +23,7 @@ When the optional profile-management surface is enabled, `child_profile_define` 
 | `provider` (required) | Provider name (`spawn`, `fork`, `acp`, ...). |
 | `toolName` | Model-facing name, default `subagent`; distinct for every loaded instance. |
 | `enableRunInBackground` | Allows `mode: async`, default `true`; disabling rejects asynchronous calls. |
-| `backgroundMode` | **Deprecated.** Retained so old deployment files parse; it no longer selects a lifecycle. Omitted `mode` defaults to `async` when background invocation is enabled, otherwise `sync`. |
+| `backgroundMode` | **Deprecated.** Explicit `one-shot` makes omitted mode default to `sync` and routes synchronous calls through the legacy one-shot provider path; explicit `async` remains continuable. Omit this key for the current Session lifecycle. |
 | `agentOptions` | Provider-specific child `provider`, `model`, and positive `maxTokens`; the in-process provider treats explicit values as overrides of inherited parent options. |
 | `persona` | Per-child persona; requires provider `persona` capability. |
 | `toolFilter` | Per-child global-tool restriction; requires `toolFilter` capability. |
