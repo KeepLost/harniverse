@@ -179,8 +179,15 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
             for message in messages
             if isinstance(message, dict) and message.get("role") == "system"
         ]
-        if system_prompts != [MINIMAL_SYSTEM_PROMPT]:
+        if system_prompts:
             raise AssertionError(f"minimal agent smoke assembled unexpected system prompts: {system_prompts}")
+        runtime_contexts = [
+            prompt
+            for prompt in user_prompts
+            if prompt.startswith("Current runtime context. This snapshot supersedes earlier runtime-context snapshots.")
+        ]
+        if len(runtime_contexts) != 1 or MINIMAL_SYSTEM_PROMPT not in runtime_contexts[0]:
+            raise AssertionError(f"minimal agent smoke assembled unexpected runtime contexts: {runtime_contexts}")
         return tool_call_chunks(
             "minimal-bash-1",
             "bash",
