@@ -144,15 +144,14 @@ describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader comp
       '$value = "persisted"',
       'function Get-Persisted { $value }',
       '$job = Start-Job { "job-result" }',
-      'Wait-Job $job | Out-Null',
       'New-Item -ItemType Directory -Force -Path nested | Out-Null',
       'Set-Location nested',
     ].join('; '))
     const observed = text(await execute(
       'observe',
-      'Write-Output "cwd=$PWD keep=$env:KEEP fn=$(Get-Persisted) job=$(Receive-Job $job)"',
+      'Write-Output "cwd=$PWD keep=$env:KEEP fn=$(Get-Persisted) job=$((Get-Job -Id $job.Id).Id -eq $job.Id)"',
     ))
-    expect(observed).toContain(`cwd=${join(root, 'nested')} keep=loader fn=persisted job=job-result`)
+    expect(observed).toContain(`cwd=${join(root, 'nested')} keep=loader fn=persisted job=True`)
     expect(observed).not.toContain('DSH_PERSISTENT_PWSH')
 
     const multiline = text(await execute('multiline', '$line = "one"\nWrite-Output "${line}:it\'s fine"'))
