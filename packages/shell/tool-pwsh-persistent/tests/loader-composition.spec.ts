@@ -143,7 +143,7 @@ describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader comp
       '$env:KEEP = "loader"',
       '$value = "persisted"',
       'function Get-Persisted { $value }',
-      '$job = Start-ThreadJob { Start-Sleep -Seconds 300 }',
+      '$job = Start-ThreadJob { }',
       'New-Item -ItemType Directory -Force -Path nested | Out-Null',
       'Set-Location nested',
     ].join('; '))
