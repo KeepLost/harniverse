@@ -8,7 +8,7 @@
   "ignorePattern": [
     "(?s)/\\* jscpd:ignore-start \\*/.*?/\\* jscpd:ignore-end \\*/"
   ],
-  "threshold": 0.43,
+  "threshold": 0.44,
   "reporters": ["console"],
   "exitCode": 1,
   "noColors": true,

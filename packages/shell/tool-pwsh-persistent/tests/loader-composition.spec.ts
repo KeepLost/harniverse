@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -72,7 +73,7 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 
 describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader composition', () => {
   it('preserves cwd, environment, variables, functions, and jobs across calls', async () => {
-    root = await mkdtemp(join(tmpdir(), 'dsh-persistent-pwsh-loader-'))
+    root = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-persistent-pwsh-loader-')))
     const configPath = join(root, 'cordis.yml')
     await writeFile(configPath, [
       "- name: '@deepseek-ai/dsh-agent'",

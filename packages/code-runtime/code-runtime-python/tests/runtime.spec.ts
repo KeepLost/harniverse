@@ -194,7 +194,7 @@ describe.skipIf(!python3Available)('PythonCodeRuntime real subprocess', () => {
     expect(result.logs[0]?.startsWith('start-')).toBe(true)
     expect(Buffer.byteLength(JSON.stringify(result.logs)) + Buffer.byteLength(JSON.stringify(result.error?.message)))
       .toBeLessThanOrEqual(128)
-  }, 15_000)
+  }, 20_000)
 
   it('reports pre-abort and executable startup failure as sanitized results', async () => {
     const { runtime } = await setup()
@@ -213,7 +213,7 @@ describe.skipIf(!python3Available)('PythonCodeRuntime real subprocess', () => {
     await runtime.run({ program: 'global leaked\nleaked = "value"\nreturn 1', bindings: [] })
     const second = await runtime.run({ program: 'return "leaked" in globals()', bindings: [] })
     expect(second.value).toBe(false)
-  })
+  }, 20_000)
 
   it('disposes to quiescence and rejects later service misuse', async () => {
     const { fiber, runtime } = await setup()

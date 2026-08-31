@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { resolve } from 'node:path'
 import {
   foldSubagentDescriptor,
   childProfileToolFilter,
@@ -37,7 +38,7 @@ describe('Child Profile resolution', () => {
       modelRouteId: 'safe',
       tools: ['read'],
       skills: ['review'],
-      workspaceCwd: '/repo/packages/service',
+      workspaceCwd: resolve(grant.parentWorkspaceCwd, 'service'),
       maxDepth: 4,
       maxTokens: 10_000,
     })

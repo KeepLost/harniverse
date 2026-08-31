@@ -23,7 +23,7 @@ import {
 const execFileAsync = promisify(execFile)
 
 function tempWorkspace(): string {
-  return realpathSync(mkdtempSync(join(tmpdir(), 'dsh-workspace-inspector-')))
+  return realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-workspace-inspector-')))
 }
 
 describe('workspace file inspection', () => {
@@ -288,16 +288,16 @@ describe('workspace git inspection', () => {
     await execFileAsync('git', ['init', root])
     await execFileAsync('git', ['-C', root, 'config', 'user.name', 'Inspector Test'])
     await execFileAsync('git', ['-C', root, 'config', 'user.email', 'inspector@example.invalid'])
-    writeFileSync(join(root, 'a*b'), 'first\n')
+    writeFileSync(join(root, 'a[b]'), 'first\n')
     writeFileSync(join(root, 'axxb'), 'first\n')
-    await execFileAsync('git', ['-C', root, 'add', '--', 'a*b', 'axxb'])
+    await execFileAsync('git', ['-C', root, 'add', '--', 'a[b]', 'axxb'])
     await execFileAsync('git', ['-C', root, 'commit', '-m', 'initial'])
-    writeFileSync(join(root, 'a*b'), 'changed\n')
+    writeFileSync(join(root, 'a[b]'), 'changed\n')
     writeFileSync(join(root, 'axxb'), 'also changed\n')
 
-    const diff = await workspaceGitDiff(root, 'a*b', false, new AbortController().signal)
+    const diff = await workspaceGitDiff(root, 'a[b]', false, new AbortController().signal)
 
-    expect(diff.diff).toContain('a*b')
+    expect(diff.diff).toContain('a[b]')
     expect(diff.diff).not.toContain('axxb')
   })
 
