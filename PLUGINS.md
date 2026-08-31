@@ -282,6 +282,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `4e5467e4ccf983f4021dff8f7ae061e14865db5a` | Accepts the stock macOS `/var` and `/tmp` aliases only when their real paths remain under `/private`, while retaining ownership, permission, directory, and containment checks for spill roots. |
 | `58957069a3d70090b98927b9aa4bf90937af2123` | Restores the validation baseline across CI, vendored plugin rescoping, built artifacts, snapshot fixtures, authenticated Web runtime behavior, and principal-bound hidden-subagent projections while preserving stable product and protocol identifiers. |
 | `855388feaf307236cc42271f73394e08536f2ea9` | Treats Windows `EPERM` from an existing authentication lease directory as ordinary contention, preserving the single network-instance contract across platforms; the accompanying fixture-only CI repairs do not alter shipped plugin composition. |
+| `98bb7b0a3c2546e47b92afa19a01a29951ea7a77` | Splits the opt-in CPython runtime control transport between stdin for Host frames and fd 3 for child frames, preserving stdout/stderr log capture while making the fresh-process provider portable to native Windows; the accompanying snapshot and platform-fixture repairs do not alter shipped composition. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
