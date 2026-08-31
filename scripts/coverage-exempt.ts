@@ -38,4 +38,10 @@ export const coverageExemptHeavySuites: readonly CoverageExemptSuite[] = [
   { filter: 'scripts/install-lefthook.spec.ts', exclude: 'scripts/install-lefthook.spec.ts' },
   { filter: 'scripts/oxlint-contract.spec.ts', exclude: 'scripts/oxlint-contract.spec.ts' },
   { filter: 'scripts/change-scope.spec.ts', exclude: 'scripts/change-scope.spec.ts' },
+  // A real PowerShell process, PTY, and nested Start-Job process. tools.spec.ts
+  // already covers the plugin source fully without this composition suite.
+  {
+    filter: 'packages/shell/tool-pwsh-persistent/tests/loader-composition.spec.ts',
+    exclude: 'packages/shell/tool-pwsh-persistent/tests/loader-composition.spec.ts',
+  },
 ]
