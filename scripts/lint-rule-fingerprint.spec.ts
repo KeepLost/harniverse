@@ -18,19 +18,19 @@ interface Profile {
 // snapshot; they do not re-evaluate that deleted baseline or track its preset.
 const profiles = {
   source: {
-    count: 88,
+    count: 89,
     indexes: [0, 1, 4, 5],
-    sha256: 'da1dfd77cb6eb66be93d8d3820f9b9b68b7aa391c24680f8851c0910298f9e3b',
+    sha256: '1b7f4a38fe4559d9f50b191cbe0af8dff3bfe3727d31bccc4beb3555607d5afd',
   },
   example: {
-    count: 87,
+    count: 88,
     indexes: [0, 1, 2, 4, 5],
-    sha256: '6a2606053bc1ec1de3b02611de88ea51d201dac13a1f193e4934d33c08b95f08',
+    sha256: '0a242e140671e085be53049cee31b9f950df8b51e1e514f4c74f0e1865cf1029',
   },
   test: {
-    count: 83,
+    count: 82,
     indexes: [0, 3, 4, 5],
-    sha256: '7995e14926a36c40bd65c474637735222a95fb030395681685f03060e50a7b78',
+    sha256: '5b329c7264bbd588818954a06416412264bb893aac7ee6e7cfa442aff3e38b1d',
   },
 } as const satisfies Record<string, Profile>
 
