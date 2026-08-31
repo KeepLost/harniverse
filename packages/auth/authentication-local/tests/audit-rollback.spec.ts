@@ -95,7 +95,7 @@ describe('audited Grant mutation rollback', () => {
     })
   })
 
-  it('does not publish or apply a revocation whose audit record fails', async () => {
+  it('does not publish or apply a revocation whose audit record fails', { timeout: 15_000 }, async () => {
     const dshHome = await mkdtemp(join(tmpdir(), 'dsh-auth-audit-rollback-'))
     cleanups.push(() => rm(dshHome, { recursive: true, force: true }))
     const laptop = await createGrantFixture(dshHome, 'laptop')

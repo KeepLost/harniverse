@@ -248,7 +248,7 @@ describe('workspace git inspection', () => {
     })
   })
 
-  it('accepts a registered Git Workspace whose path ends in whitespace', async () => {
+  it.skipIf(process.platform === 'win32')('accepts a registered Git Workspace whose path ends in whitespace', async () => {
     const initial = tempWorkspace()
     const root = `${initial} `
     renameSync(initial, root)

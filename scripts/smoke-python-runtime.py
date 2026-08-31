@@ -337,6 +337,7 @@ def advanced_tool_followup(
             {
                 "description": "Check direct child",
                 "prompt": SNAPSHOT_DIRECT_CHILD_PROMPT,
+                "mode": "sync",
             },
         )
     if call_id == "advanced-direct-child" and tool_name == "subagent":

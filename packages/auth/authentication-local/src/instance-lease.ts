@@ -14,6 +14,9 @@ interface LeaseOwner {
   startedAt: string
 }
 
+// Windows reports an existing destination directory as EPERM rather than EEXIST.
+const LEASE_CONTENTION_CODES = new Set(['EEXIST', 'ENOTEMPTY', 'EPERM'])
+
 /** Options selecting the DSH home and process authentication mode. */
 export interface AuthenticationLeaseOptions {
   dshHome?: string
@@ -87,8 +90,8 @@ export async function acquireAuthenticationLease(options: AuthenticationLeaseOpt
       break
     } catch (error) {
       await rm(candidate, { recursive: true, force: true })
-      if (!((error as NodeJS.ErrnoException | null)?.code === 'EEXIST'
-        || (error as NodeJS.ErrnoException | null)?.code === 'ENOTEMPTY')) throw error
+      const code = (error as NodeJS.ErrnoException | null)?.code
+      if (code === undefined || !LEASE_CONTENTION_CODES.has(code)) throw error
     }
     let current: Awaited<ReturnType<typeof readOwner>>
     try {
