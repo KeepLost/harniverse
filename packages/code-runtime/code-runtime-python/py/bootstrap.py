@@ -14,10 +14,9 @@ import threading
 import textwrap
 from typing import Any
 
-# JSON replies may contain deeply nested model values. The decoder runs on the
-# dedicated reply thread below, so give it enough Python and native stack for
-# the portable depth supported by this runtime on Windows.
-sys.setrecursionlimit(max(sys.getrecursionlimit(), 100_000))
+# JSON replies may contain deeply nested model values. Keep the decoder's
+# recursion budget within the native stack reserved for its Windows thread.
+sys.setrecursionlimit(max(sys.getrecursionlimit(), 20_000))
 
 _PY_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _PY_DIR)
