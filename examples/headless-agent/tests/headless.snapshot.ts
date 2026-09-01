@@ -132,6 +132,7 @@ function canonicalizeAdvancedWorkflowEvents(events: readonly JsonObject[]): Json
   for (let index = 0; index < events.length - 1; index++) {
     const left = events[index]
     const right = events[index + 1]
+    if (left === undefined || right === undefined) continue
     const isPair = (left.type === 'agent/inbox/spliced' && right.type === 'tool-workflow/agent-start')
       || (left.type === 'tool-workflow/agent-start' && right.type === 'agent/inbox/spliced')
     if (!isPair) continue
