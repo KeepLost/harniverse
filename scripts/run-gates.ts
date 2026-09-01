@@ -533,6 +533,13 @@ function coverageGates(): Gate[] {
     ], {
       label: 'test:coverage-exempt-heavy',
     }),
+    pnpmExec('pwsh-loader-composition', [
+      'vitest',
+      'run',
+      'packages/shell/tool-pwsh-persistent/tests/loader-composition.spec.ts',
+    ], {
+      label: 'test:pwsh-loader-composition',
+    }),
   ]
 }
 
