@@ -227,7 +227,7 @@ class _Bridge:
         previous_stack_size = threading.stack_size()
         if os.name == "nt":
             # The default Windows thread stack cannot decode deeply nested replies.
-            threading.stack_size(8 * 1024 * 1024)
+            threading.stack_size(32 * 1024 * 1024)
         try:
             self._reader = threading.Thread(target=self._read_replies, daemon=True, name="dsh-python-replies")
             self._reader.start()

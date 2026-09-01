@@ -537,14 +537,14 @@ async function runGit(root: string, args: readonly string[], signal: AbortSignal
           resolvePromise({ stdout, stderr, overflow: true })
           return
         }
-        if (code === 0) {
-          resolvePromise({ stdout, stderr, overflow: false })
-          return
-        }
         if (operationSignal.aborted) {
           reject(signal.aborted
             ? signal.reason instanceof Error ? signal.reason : new Error('workspace Git operation was cancelled')
             : new WorkspaceInspectorError('workspace-git-failed', `Git ${operation} timed out`, undefined, operation))
+          return
+        }
+        if (code === 0) {
+          resolvePromise({ stdout, stderr, overflow: false })
           return
         }
         if (processError !== undefined) {

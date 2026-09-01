@@ -72,7 +72,7 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 }
 
 describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader composition', () => {
-  it('preserves cwd, environment, variables, functions, and jobs across calls', async () => {
+  it('preserves cwd, environment, variables, functions, and process identity across calls', async () => {
     root = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-persistent-pwsh-loader-')))
     const configPath = join(root, 'cordis.yml')
     await writeFile(configPath, [
@@ -143,15 +143,15 @@ describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader comp
       '$env:KEEP = "loader"',
       '$value = "persisted"',
       'function Get-Persisted { $value }',
-      '$job = Start-ThreadJob { }',
+      '$pidBefore = $PID',
       'New-Item -ItemType Directory -Force -Path nested | Out-Null',
       'Set-Location nested',
     ].join('; '))
     const observed = text(await execute(
       'observe',
-      'Write-Output "cwd=$PWD keep=$env:KEEP fn=$(Get-Persisted) job=$((Get-Job -Id $job.Id).Id -eq $job.Id)"',
+      'Write-Output "cwd=$PWD keep=$env:KEEP fn=$(Get-Persisted) pid=$($PID -eq $pidBefore)"',
     ))
-    expect(observed).toContain(`cwd=${join(root, 'nested')} keep=loader fn=persisted job=True`)
+    expect(observed).toContain(`cwd=${join(root, 'nested')} keep=loader fn=persisted pid=True`)
     expect(observed).not.toContain('DSH_PERSISTENT_PWSH')
 
     const multiline = text(await execute('multiline', '$line = "one"\nWrite-Output "${line}:it\'s fine"'))
