@@ -94,7 +94,7 @@ describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader comp
       '    exactProbeAfterMs: 20',
       '    idleSilenceMs: 300',
       '    handoffGraceMs: 300',
-      '    scrollbackLines: 100000',
+      '    scrollbackLines: 20000',
       '    timeoutMs: 120000',
       '    disposeGraceMs: 500',
       "- name: '@deepseek-ai/dsh-tool-pwsh-persistent'",
