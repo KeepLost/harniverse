@@ -284,6 +284,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `855388feaf307236cc42271f73394e08536f2ea9` | Treats Windows `EPERM` from an existing authentication lease directory as ordinary contention, preserving the single network-instance contract across platforms; the accompanying fixture-only CI repairs do not alter shipped plugin composition. |
 | `98bb7b0a3c2546e47b92afa19a01a29951ea7a77` | Splits the opt-in CPython runtime control transport between stdin for Host frames and fd 3 for child frames, preserving stdout/stderr log capture while making the fresh-process provider portable to native Windows; the accompanying snapshot and platform-fixture repairs do not alter shipped composition. |
 | `41e52f248d5465f412643f10e265b95f40ce62b2` | Treats Windows `EPERM` from an existing Grant-registry lock directory as ordinary writer contention and gives the opt-in CPython reply-reader thread enough Windows stack for deeply nested lossless JSON; the accompanying snapshot and test-fixture repairs do not alter shipped composition. |
+| `c9a2b0579b7ed9cca63cec4e625e7d16a25581ee` | Prioritizes authenticated Workspace Git cancellation over a racing successful process exit and raises the opt-in CPython reply-reader stack reserve for deeply nested lossless JSON on native Windows; the accompanying cross-platform test-fixture repairs do not alter shipped composition. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
