@@ -127,7 +127,38 @@ function contextFromLogs(contents: readonly string[]): NormalizeContext {
   }
 }
 
-function normalizeHeadlessStream(rawStdout: string, cwd: string): string {
+/** Canonicalize the one unordered pair emitted by concurrent child lifecycles. */
+function canonicalizeAdvancedWorkflowEvents(events: readonly JsonObject[]): JsonObject[] {
+  for (let index = 0; index < events.length - 1; index++) {
+    const left = events[index]
+    const right = events[index + 1]
+    const isPair = (left.type === 'agent/inbox/spliced' && right.type === 'tool-workflow/agent-start')
+      || (left.type === 'tool-workflow/agent-start' && right.type === 'agent/inbox/spliced')
+    if (!isPair) continue
+    const leftSeq = typeof left.seq === 'number' ? left.seq : undefined
+    const rightSeq = typeof right.seq === 'number' ? right.seq : undefined
+    if (leftSeq === undefined || rightSeq === undefined) return [...events]
+    const first = left.type === 'agent/inbox/spliced' ? left : right
+    const second = left.type === 'agent/inbox/spliced' ? right : left
+    return [
+      ...events.slice(0, index),
+      { ...first, seq: Math.min(leftSeq, rightSeq) },
+      { ...second, seq: Math.max(leftSeq, rightSeq) },
+      ...events.slice(index + 2),
+    ]
+  }
+  return [...events]
+}
+
+function normalizeAdvancedSessionLog(rawLog: string, context: NormalizeContext): string {
+  const canonical = canonicalizeAdvancedWorkflowEvents(parseJsonl(rawLog))
+  return scrubRequestHeaders(normalizeSessionLog(
+    `${canonical.map(event => JSON.stringify(event)).join('\n')}\n`,
+    context,
+  ))
+}
+
+function normalizeHeadlessStream(rawStdout: string, cwd: string, canonicalizeWorkflowEvents = false): string {
   const records = parseJsonl(rawStdout)
   if (records.length === 0) throw new Error('headless snapshot emitted no stream-json records')
   const final = records.at(-1)
@@ -146,7 +177,8 @@ function normalizeHeadlessStream(rawStdout: string, cwd: string): string {
     return record.event as JsonObject
   })
   const normalizedEvents = parseJsonl(scrubRequestHeaders(normalizeSessionLog(
-    `${events.map(event => JSON.stringify(event)).join('\n')}\n`,
+    `${(canonicalizeWorkflowEvents ? canonicalizeAdvancedWorkflowEvents(events) : events)
+      .map(event => JSON.stringify(event)).join('\n')}\n`,
     context,
   )))
   const normalizedRecords = records.map((record, index) => index < normalizedEvents.length
@@ -660,14 +692,14 @@ describe('headless stream-json snapshots', () => {
         for (const [index, actual] of actualSessions.entries()) {
           const expected = expectedSessions[index]
           if (expected === undefined) throw new Error(`headless snapshot has no fixture for persisted log ${index}`)
-          expect(scrubRequestHeaders(normalizeSessionLog(actual.content, actualContext)))
-            .toBe(scrubRequestHeaders(normalizeSessionLog(expected, expectedContext)))
+          expect(normalizeAdvancedSessionLog(actual.content, actualContext))
+            .toBe(normalizeAdvancedSessionLog(expected, expectedContext))
         }
       },
     })
 
     expect(result.stderr).toBe('')
-    const normalized = normalizeHeadlessStream(result.stdout, runCwd)
+    const normalized = normalizeHeadlessStream(result.stdout, runCwd, true)
     if (refreshing) await writeFile(advancedStreamExpected, normalized)
     expect(normalized).toBe(await readFile(advancedStreamExpected, 'utf8'))
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)

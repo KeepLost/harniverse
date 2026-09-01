@@ -14,7 +14,10 @@ import threading
 import textwrap
 from typing import Any
 
-sys.setrecursionlimit(max(sys.getrecursionlimit(), 20_000))
+# JSON replies may contain deeply nested model values. The decoder runs on the
+# dedicated reply thread below, so give it enough Python and native stack for
+# the portable depth supported by this runtime on Windows.
+sys.setrecursionlimit(max(sys.getrecursionlimit(), 100_000))
 
 _PY_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _PY_DIR)
@@ -227,7 +230,7 @@ class _Bridge:
         previous_stack_size = threading.stack_size()
         if os.name == "nt":
             # The default Windows thread stack cannot decode deeply nested replies.
-            threading.stack_size(128 * 1024 * 1024)
+            threading.stack_size(256 * 1024 * 1024)
         try:
             self._reader = threading.Thread(target=self._read_replies, daemon=True, name="dsh-python-replies")
             self._reader.start()

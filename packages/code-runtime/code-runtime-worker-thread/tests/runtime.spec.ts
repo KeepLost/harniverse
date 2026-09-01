@@ -381,6 +381,8 @@ describe('WorkerThreadCodeRuntime — budgets and containment (real workers)', (
     expect(result.value).toEqual(new Array(50_000).fill(7))
   })
 
+  // Windows structured-clones the exact 64 MiB success payload considerably
+  // slower than the failure case, which rejects before transferring it.
   it('returns an exact completion at the default 64 MiB combined boundary', async () => {
     const { runtime } = await setup()
     // [] costs two bytes and the JSON string contributes two quotes, leaving
@@ -389,7 +391,7 @@ describe('WorkerThreadCodeRuntime — budgets and containment (real workers)', (
     expect(result.error).toBeUndefined()
     expect(result.logs).toEqual([])
     expect(result.value).toHaveLength(67_108_860)
-  }, 60_000)
+  }, process.platform === 'win32' ? 180_000 : 60_000)
 
   it('fails one byte over the default 64 MiB combined boundary', async () => {
     const { runtime } = await setup()
