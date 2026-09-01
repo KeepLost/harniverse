@@ -120,7 +120,6 @@ jobs:
     runs-on: ubuntu-latest
     name: node 24 / snapshots and artifacts
     env:
-      DSH_GATE_CONCURRENCY: '2'
       DSH_NODE_COMPAT_SKIP_TYPECHECK: '1'
       DSH_OXLINT_THREADS: '2'
       DSH_PUBLINT_CONCURRENCY: '2'
