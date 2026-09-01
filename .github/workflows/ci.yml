@@ -70,7 +70,6 @@ jobs:
     runs-on: ubuntu-latest
     name: node 24 / coverage
     env:
-      DSH_COVERAGE_MAX_WORKERS: '8'
       DSH_GATE_CONCURRENCY: '2'
     steps:
       - uses: actions/checkout@v6
