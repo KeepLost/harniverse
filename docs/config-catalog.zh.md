@@ -2579,6 +2579,25 @@ export interface Config {
 
 来源：[`packages/e2b/subprocess-e2b/src/index.ts:25`](../packages/e2b/subprocess-e2b/src/index.ts)
 
+<a id="deepseek-aidsh-supervision"></a>
+
+## `@deepseek-ai/dsh-supervision`
+
+需要：`systemPrompt`
+
+```ts config-catalog
+/** Configures the deployment fallback for sessions without an event. */
+export interface Config {
+  /** Deployment fallback for sessions without a persisted supervision mode. */
+  mode?: SupervisionMode
+}
+
+/** Whether a session may wait for human-dependent operations. */
+export type SupervisionMode = 'supervised' | 'unsupervised'
+```
+
+来源：[`packages/interaction/supervision/src/index.ts:70`](../packages/interaction/supervision/src/index.ts)
+
 <a id="deepseek-aidsh-system-prompt"></a>
 
 ## `@deepseek-ai/dsh-system-prompt`

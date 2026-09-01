@@ -488,7 +488,7 @@ export class SubagentRuntime extends Service {
     }
     const previous = profiles.get(spec.profileId)
     const profile = resolveChildProfile(spec, grant, (previous?.revision ?? 0) + 1)
-    if (parent.ctx.get('supervision')?.modeOf(parent.session) === 'unsupervised' && profile.supervisionMode !== 'unsupervised') {
+    if (this.ctx.get('supervision')?.modeOf(parent.session) === 'unsupervised' && profile.supervisionMode !== 'unsupervised') {
       throw new SubagentError(
         'an unsupervised parent may only define an unsupervised child profile',
         'SUPERVISION_MODE_ESCALATION')

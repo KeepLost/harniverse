@@ -720,7 +720,7 @@ Source: [`packages/subagent/subagent/src/descriptor.ts:39`](../packages/subagent
 'supervision/mode': { mode: SupervisionMode; source?: 'delegation' }
 ```
 
-Source: [`packages/interaction/supervision/src/index.ts:35`](../packages/interaction/supervision/src/index.ts)
+Source: [`packages/interaction/supervision/src/index.ts:38`](../packages/interaction/supervision/src/index.ts)
 
 ### `todo/*`
 

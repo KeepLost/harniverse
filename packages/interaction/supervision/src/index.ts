@@ -15,10 +15,13 @@ export type { SupervisionSelect, SupervisionOption } from './types.ts'
 export const name = 'supervision'
 export const inject = ['systemPrompt']
 
+/** Whether a session may wait for human-dependent operations. */
 export type SupervisionMode = 'supervised' | 'unsupervised'
 
+/** Supported per-session supervision modes. */
 export const SUPERVISION_MODES: readonly SupervisionMode[] = ['supervised', 'unsupervised']
 
+/** Stable result text returned when a human-dependent operation is blocked. */
 export const UNSUPERVISED_INTERACTION_MESSAGE =
   'Human interaction is unavailable in unsupervised mode. Do not retry this approval or question. '
   + 'Continue independent work and include the required user decision in the final report.'
@@ -36,7 +39,10 @@ declare module '@deepseek-ai/dsh-session/types' {
   }
 }
 
-/** Return the last persisted supervision mode, or undefined before pinning. */
+/** Return the last persisted supervision mode, or undefined before pinning.
+ * @param events - session events to inspect from newest to oldest.
+ * @returns the most recently persisted mode, if one exists.
+ */
 export function effectiveSupervisionMode(events: readonly SessionEvent[]): SupervisionMode | undefined {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index] as SessionEvent
@@ -45,7 +51,10 @@ export function effectiveSupervisionMode(events: readonly SessionEvent[]): Super
   return undefined
 }
 
-/** Append one session-owned supervision override. */
+/** Append one session-owned supervision override.
+ * @param session - session whose durable policy should change.
+ * @param mode - new supervision mode.
+ */
 export function setSupervisionMode(session: Session, mode: SupervisionMode): void {
   session.append('supervision/mode', { mode })
 }
@@ -59,6 +68,7 @@ function runtimeContext(mode: SupervisionMode): string {
 
 /** Configures the deployment fallback for sessions without an event. */
 export interface Config {
+  /** Deployment fallback for sessions without a persisted supervision mode. */
   mode?: SupervisionMode
 }
 
@@ -70,6 +80,7 @@ export class SupervisionService extends Service {
     mode: z.union(['supervised', 'unsupervised'] as const).default('supervised'),
   })
 
+  /** Deployment fallback used when a session has no persisted mode. */
   readonly defaultMode: SupervisionMode
 
   constructor(ctx: Context, config: Config = {}) {
@@ -123,17 +134,26 @@ export class SupervisionService extends Service {
     })
   }
 
-  /** Resolve a session's current mode from its durable event log. */
+  /** Resolve a session's current mode from its durable event log.
+   * @param session - session whose effective mode should be resolved.
+   * @returns the session mode or the deployment fallback.
+   */
   modeOf(session: Session): SupervisionMode {
     return effectiveSupervisionMode(session.events) ?? this.defaultMode
   }
 
-  /** Whether a human-dependent operation may enter an answerer/provider. */
+  /** Whether a human-dependent operation may enter an answerer/provider.
+   * @param session - session to evaluate, or undefined for the deployment fallback.
+   * @returns whether human interaction is allowed.
+   */
   allowsHumanInteraction(session?: Session): boolean {
     return (session === undefined ? this.defaultMode : this.modeOf(session)) === 'supervised'
   }
 
-  /** Switch a live session and make the new policy visible on its next step. */
+  /** Switch a live session and make the new policy visible on its next step.
+   * @param session - live session whose mode should change.
+   * @param mode - new supervision mode.
+   */
   set(session: Session, mode: SupervisionMode): void {
     if (!SUPERVISION_MODES.includes(mode)) throw new TypeError(`unknown supervision mode ${JSON.stringify(mode)}`)
     if (this.modeOf(session) === mode) return

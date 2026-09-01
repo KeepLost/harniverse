@@ -2154,6 +2154,35 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'supervision',
+    summary: 'Service owning the durable supervision mode and its model-facing context.',
+    description: 'Service owning the durable supervision mode and its model-facing context.',
+    methods: [
+      {
+        signature: 'readonly defaultMode: SupervisionMode',
+        description: 'Deployment fallback used when a session has no persisted mode.',
+        parameters: [],
+      },
+      {
+        signature: 'modeOf(session: Session): SupervisionMode',
+        description: 'Resolve a session\'s current mode from its durable event log.',
+        parameters: [{ name: 'session', description: 'session whose effective mode should be resolved.' }],
+        returns: 'the session mode or the deployment fallback.',
+      },
+      {
+        signature: 'allowsHumanInteraction(session?: Session): boolean',
+        description: 'Whether a human-dependent operation may enter an answerer/provider.',
+        parameters: [{ name: 'session', description: 'session to evaluate, or undefined for the deployment fallback.' }],
+        returns: 'whether human interaction is allowed.',
+      },
+      {
+        signature: 'set(session: Session, mode: SupervisionMode): void',
+        description: 'Switch a live session and make the new policy visible on its next step.',
+        parameters: [{ name: 'session', description: 'live session whose mode should change.' }, { name: 'mode', description: 'new supervision mode.' }],
+      },
+    ],
+  },
+  {
     key: 'systemPrompt',
     summary: 'Registry service for the prompt inputs assembled before each model step.',
     description: 'Registry service for the prompt inputs assembled before each model step.',
@@ -3198,7 +3227,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AgentPreset',
-    declaration: 'export interface AgentPreset {\n    readonly id: string;\n    readonly trust: PresetTrust;\n    readonly path: string;\n    readonly name?: string;\n    readonly description?: string;\n    readonly order?: number;\n    readonly permissionPreset?: string;\n    readonly broken?: string;\n}',
+    declaration: 'export interface AgentPreset {\n    readonly id: string;\n    readonly trust: PresetTrust;\n    readonly path: string;\n    readonly name?: string;\n    readonly description?: string;\n    readonly order?: number;\n    readonly permissionPreset?: string;\n    readonly supervisionMode?: \'supervised\' | \'unsupervised\';\n    readonly broken?: string;\n}',
   },
   {
     name: 'AgentSetup',
@@ -3542,7 +3571,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ChildProfileSpec',
-    declaration: 'export interface ChildProfileSpec {\n    readonly profileId: string;\n    readonly harnessId: string;\n    readonly modelRouteId: string;\n    readonly tools?: readonly string[];\n    readonly skills?: readonly string[];\n    readonly mcpServerIds?: readonly string[];\n    readonly childProfileIds?: readonly string[];\n    readonly workspaceCwd?: string;\n    readonly maxDepth?: number;\n    readonly maxTokens?: number;\n    readonly modelRoutePriority?: number;\n    readonly schedulerPriority?: number;\n    readonly supervisionMode?: \'supervised\' | \'unsupervised\';\n}',
+    declaration: 'export interface ChildProfileSpec {\n    readonly profileId: string;\n    readonly harnessId: string;\n    readonly modelRouteId: string;\n    readonly tools?: readonly string[];\n    readonly skills?: readonly string[];\n    readonly mcpServerIds?: readonly string[];\n    readonly childProfileIds?: readonly string[];\n    readonly workspaceCwd?: string;\n    readonly maxDepth?: number;\n    readonly maxTokens?: number;\n    readonly modelRoutePriority?: number;\n    readonly schedulerPriority?: number;\n    readonly supervisionMode?: SupervisionMode;\n}',
   },
   {
     name: 'ClientResponse',
@@ -4550,7 +4579,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ResolvedChildProfile',
-    declaration: 'export interface ResolvedChildProfile {\n    readonly profileId: string;\n    readonly revision: number;\n    readonly digest: string;\n    readonly harnessId: string;\n    readonly modelRouteId: string;\n    readonly tools: readonly string[];\n    readonly skills: readonly string[];\n    readonly mcpServerIds: readonly string[];\n    readonly childProfileIds: readonly string[];\n    readonly workspaceCwd: string;\n    readonly maxDepth?: number;\n    readonly maxTokens?: number;\n    readonly modelRoutePriority?: number;\n    readonly schedulerPriority?: number;\n    readonly supervisionMode?: \'supervised\' | \'unsupervised\';\n}',
+    declaration: 'export interface ResolvedChildProfile {\n    readonly profileId: string;\n    readonly revision: number;\n    readonly digest: string;\n    readonly harnessId: string;\n    readonly modelRouteId: string;\n    readonly tools: readonly string[];\n    readonly skills: readonly string[];\n    readonly mcpServerIds: readonly string[];\n    readonly childProfileIds: readonly string[];\n    readonly workspaceCwd: string;\n    readonly maxDepth?: number;\n    readonly maxTokens?: number;\n    readonly modelRoutePriority?: number;\n    readonly schedulerPriority?: number;\n    readonly supervisionMode?: SupervisionMode;\n}',
   },
   {
     name: 'ResolvedCredential',
@@ -5283,6 +5312,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SubprocessTerminalSpawnSpec',
     declaration: 'export interface SubprocessTerminalSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    env?: Record<string, string> | undefined;\n    rows: number;\n    cols: number;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n}',
+  },
+  {
+    name: 'SupervisionMode',
+    declaration: 'export type SupervisionMode = \'supervised\' | \'unsupervised\';',
   },
   {
     name: 'SurfaceEvent',

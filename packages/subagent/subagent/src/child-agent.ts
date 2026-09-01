@@ -202,6 +202,7 @@ export interface DelegatedPolicyOverrides {
  * grants — and the approval policy is pinned to `'never'` regardless of the
  * parent's own policy.
  * @param parent - the delegating parent agent.
+ * @param childMode - an explicit child profile mode, if one was selected.
  * @returns the sandbox override (or `undefined` without one) and the approval pin.
  */
 export function captureDelegatedPolicyOverrides(parent: Agent, childMode?: SupervisionMode): DelegatedPolicyOverrides {

@@ -45,6 +45,7 @@ One page per subsystem of the DeepSeek Harness: what it is, the data structures 
 | [jobs.md](jobs.md) | the background-job runtime: branded `JobId`s, the producer contract, consumer views, and `ctx.jobs` service behavior |
 | [permission-presets.md](permission-presets.md) | the permission-preset layer: `PresetSpec`/`PresetOption`, the derived `custom` state, the log-only `permission/preset` event |
 | [plan.md](plan.md) | plan mode: the log-only `plan/mode` state, pending-selection flush, `PlanModeConfig`, the `exit_plan_mode` review arc |
+| [supervision.md](supervision.md) | per-session human-supervision modes, durable `supervision/mode`, policy inheritance, and the `ctx.supervision` service |
 | [invariants.md](invariants.md) | the runtime-invariant registry: selection `Config`, `InvariantInstaller`/`InvariantFailure`, the empty-companion contract |
 | [plugin-diagnostics.md](plugin-diagnostics.md) | structured read-only plugin findings, effect-scoped checks, failure isolation, and the three shipped Cordis lifecycle domains |
 | [capabilities.md](capabilities.md) | scoped Agent capability descriptors, inherited allow/deny policy, dependency plans, and Profile generation behavior |

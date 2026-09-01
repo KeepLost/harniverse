@@ -9670,6 +9670,9 @@ importers:
       '@deepseek-ai/dsh-subprocess-local':
         specifier: workspace:^
         version: link:../../packages/subprocess/subprocess-local
+      '@deepseek-ai/dsh-supervision':
+        specifier: workspace:^
+        version: link:../../packages/interaction/supervision
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../../packages/core/system-prompt

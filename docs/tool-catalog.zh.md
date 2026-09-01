@@ -1831,6 +1831,10 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
     "scheduler_priority": {
       "type": "number",
       "description": "Scheduler priority."
+    },
+    "supervision_mode": {
+      "type": "string",
+      "description": "Human-supervision mode fixed for this Child Profile: supervised or unsupervised."
     }
   },
   "required": [

@@ -1827,6 +1827,10 @@ Define or replace one complete Child Profile in the current parent Agent's priva
     "scheduler_priority": {
       "type": "number",
       "description": "Scheduler priority."
+    },
+    "supervision_mode": {
+      "type": "string",
+      "description": "Human-supervision mode fixed for this Child Profile: supervised or unsupervised."
     }
   },
   "required": [
