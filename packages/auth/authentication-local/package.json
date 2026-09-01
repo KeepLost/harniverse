@@ -39,7 +39,7 @@
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "workspace:^",
-    "chokidar": "^4.0.3"
+    "chokidar": "^5.0.0"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-authentication": "workspace:^",
