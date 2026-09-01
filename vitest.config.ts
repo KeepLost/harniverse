@@ -127,6 +127,9 @@ export default defineConfig({
   plugins: [pathsPlugin(), standardDecoratorPlugin()],
   test: {
     setupFiles: ['./scripts/test-invariants.ts'],
+    // Hosted Windows runners need more time for process-heavy fixtures and
+    // filesystem cleanup; keep the platform-specific ceiling at ten minutes.
+    testTimeout: process.platform === 'win32' ? 600_000 : 5_000,
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
     include: testIncludes,
   exclude: [...windowsUnsupportedTests, ...nonNativePwshTests],
