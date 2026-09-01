@@ -10,6 +10,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-supervision'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -110,6 +111,12 @@ export class UserQuestionService extends Service {
           + "include the unresolved question or decision in the child agent's final result",
           'DELEGATED_CALLER')
       }
+    }
+    const supervision = this.ctx.get('supervision')
+    if (supervision !== undefined && !supervision.allowsHumanInteraction(agent?.session)) {
+      throw new UserQuestionError(
+        'human interaction is unavailable in unsupervised mode; continue independent work and include the required user decision in the final report',
+        'UNSUPERVISED')
     }
     // A presentation intent asserts two things the types cannot: that the
     // named approve label is one of this question's own options, and that a

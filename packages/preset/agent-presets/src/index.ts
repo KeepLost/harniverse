@@ -600,7 +600,7 @@ async function discoveredRosterSignature(presets: readonly AgentPreset[]): Promi
       stamp = undefined
     }
     return [preset.id, preset.trust, preset.path, preset.name, preset.description, preset.order,
-      preset.permissionPreset, preset.broken, stamp]
+      preset.permissionPreset, preset.supervisionMode, preset.broken, stamp]
   })))
 }
 

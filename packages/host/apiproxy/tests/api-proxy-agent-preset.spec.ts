@@ -43,6 +43,7 @@ function roster(
   ids: readonly string[],
   userIds: readonly string[] = [],
   profilePermissions: Readonly<Record<string, string>> = {},
+  profileSupervision: Readonly<Record<string, 'supervised' | 'unsupervised'>> = {},
 ): unknown {
   const trustOf = (id: string): 'system' | 'user' => (userIds.includes(id) ? 'user' : 'system')
   const presetOf = (id: string): object => ({
@@ -50,6 +51,7 @@ function roster(
     trust: trustOf(id),
     path: `/presets/${id}/agent.cordis.yml`,
     ...profilePermissions[id] === undefined ? {} : { permissionPreset: profilePermissions[id] },
+    ...profileSupervision[id] === undefined ? {} : { supervisionMode: profileSupervision[id] },
   })
   return {
     defaultId: ids[0],
@@ -116,6 +118,7 @@ async function harness(
     userIds?: readonly string[]
     defaults?: Record<string, unknown>
     profilePermissions?: Readonly<Record<string, string>>
+    profileSupervision?: Readonly<Record<string, 'supervised' | 'unsupervised'>>
   } = {},
 ) {
   const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-preset-')))
@@ -125,13 +128,14 @@ async function harness(
   await ctx.plugin(UserQuestionService)
   ctx.provide('sessionPersistence', (persistence ?? { list: () => Promise.resolve([]) }) as never)
   if (presets !== undefined) {
-    ctx.provide('agentPresets', roster(presets, options.userIds, options.profilePermissions) as never)
+    ctx.provide('agentPresets', roster(presets, options.userIds, options.profilePermissions, options.profileSupervision) as never)
   }
   ctx.provide('permissionPresets', {
     set: (session: Session, preset: string) => {
       session.append('permission/preset', { preset })
     },
   } as never)
+  ctx.provide('supervision', { modeOf: () => 'supervised' } as never)
 
   const factory: AgentFactory = {
     async createAgent(_ownerCtx, options) {
@@ -194,6 +198,22 @@ describe('session.create with an agent profile', () => {
     await api.sessions.create(request({ sessionId: SessionId('permission-profile'), agentProfile: 'standard' }))
 
     expect(publishedPermissions).toEqual([['workspace-write']])
+  })
+
+  it('applies the profile supervision mode before publication', async () => {
+    const { api, ctx } = await harness(['standard'], undefined, {
+      profileSupervision: { standard: 'unsupervised' },
+    })
+    const publishedModes: string[][] = []
+    ctx.on('agent/created', ({ agent }) => {
+      publishedModes.push(agent.session.events
+        .filter(event => event.type === 'supervision/mode')
+        .map(event => event.data.mode))
+    })
+
+    await api.sessions.create(request({ sessionId: SessionId('supervision-profile'), agentProfile: 'standard' }))
+
+    expect(publishedModes).toEqual([['unsupervised']])
   })
 
   it('rejects an unknown preset and names the ones that exist', async () => {

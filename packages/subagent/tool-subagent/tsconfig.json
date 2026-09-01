@@ -33,6 +33,9 @@
       "path": "../subagent"
     },
     {
+      "path": "../../interaction/supervision"
+    },
+    {
       "path": "../../jobs/jobs"
     },
     {

@@ -47,6 +47,18 @@ describe('UserQuestionService', () => {
       .rejects.toMatchObject({ name: 'UserQuestionError', code: 'NO_PROVIDER' })
   })
 
+  it('fails before reaching the provider in unsupervised mode', async () => {
+    const ctx = new Context()
+    await ctx.plugin(UserQuestionService)
+    const p = { ask: vi.fn(async () => ({ answers: [] })) }
+    ctx.userQuestions.registerProvider(p)
+    ctx.provide('supervision', { allowsHumanInteraction: () => false })
+
+    await expect(ctx.userQuestions.ask({ questions: [{ id: 'confirm', question: 'Proceed?' }] }))
+      .rejects.toMatchObject({ name: 'UserQuestionError', code: 'UNSUPERVISED' })
+    expect(p.ask).not.toHaveBeenCalled()
+  })
+
   it('registers providers with HMR-safe disposal', async () => {
     const ctx = new Context()
     await ctx.plugin(UserQuestionService)

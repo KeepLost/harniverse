@@ -56,6 +56,18 @@ describe('ApprovalService.request', () => {
     expect(appended).toHaveLength(0)
   })
 
+  it('rejects unsupervised requests before creating an audit pair or dispatching answerers', async () => {
+    const ctx = await mounted()
+    const { agent, appended } = fakeAgent()
+    const listener = vi.fn(async () => 'allowed-once' as const)
+    ctx.provide('supervision', { allowsHumanInteraction: () => false })
+    ctx.on('approval/request', listener)
+
+    await expect(ctx.approval.request(requestOf(agent))).resolves.toBe('rejected')
+    expect(appended).toHaveLength(0)
+    expect(listener).not.toHaveBeenCalled()
+  })
+
   it('fails closed to unavailable when nobody listens, auditing the asked/decided pair', async () => {
     const ctx = await mounted()
     const { agent, appended } = fakeAgent()

@@ -27,7 +27,7 @@ The service emits contained `agent-presets/change` after copy or removal and whe
 - `ctx.agentPresets.copy(from, id, name?): Promise<void>` Create a locally authored preset by copying an existing one's whole directory — the only authoring write. No composition text crosses this seam, so a copy is exactly as loadable as its source; the copied metadata keeps the source's description and default permission but never its name or roster order, and `name` (or the id fallback) is what distinguishes the rows.
 - `ctx.agentPresets.remove(id): Promise<void>` Delete a locally authored preset; joined sessions keep their standing mount. Clears the user default when it named the preset just deleted: storing a default that does not exist yet is deliberate, but one this call removed will never be supplied again and would fail every session created without an explicit pick.
 
-`AgentPreset` carries `id` (the directory name), `trust` (`system` or `user`, from the root it was found under), `path` (the absolute composition file), optional display metadata, optional `permissionPreset`, and — only when the profile cannot compose a Session — `broken` (one human-readable reason, shown verbatim on roster surfaces).
+`AgentPreset` carries `id` (the directory name), `trust` (`system` or `user`, from the root it was found under), `path` (the absolute composition file), optional display metadata, optional `permissionPreset`, optional `supervisionMode`, and — only when the profile cannot compose a Session — `broken` (one human-readable reason, shown verbatim on roster surfaces).
 
 ### Where to call `mount()`
 
@@ -73,9 +73,10 @@ A preset may publish display text in an optional `preset.yml` beside its composi
 name: 极简模式
 description: 仅提供 POSIX Bash 或 Windows PowerShell 与 str_replace_editor，并在模型不可见的内部执行自动 lossless compaction 与 summary DAG。
 permissionPreset: workspace-write
+supervisionMode: supervised
 ```
 
-It carries display text and the Profile's default permission preset. `id` is the directory name and `trust` comes from the root the preset was discovered under, so neither is writable here. The API gateway applies `permissionPreset` through the permission-preset service before publishing a newly created Agent; the durable `permission/preset`, `sandbox/mode`, and `approval/policy` events remain the permission authority.
+It carries display text, the Profile's default permission preset, and its independent human-supervision mode. `id` is the directory name and `trust` comes from the root the preset was discovered under, so neither is writable here. The API gateway applies `permissionPreset` and `supervisionMode` through their owning services before publishing a newly created Agent; the durable session events remain the authorities.
 
 Every read failure degrades to no metadata — absent, malformed, wrongly typed, or blank all mean the same thing, and a picker falls back to the id. Presentation is not capability: a preset with a broken name still mounts.
 

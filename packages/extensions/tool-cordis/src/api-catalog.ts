@@ -3542,7 +3542,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ChildProfileSpec',
-    declaration: 'export interface ChildProfileSpec {\n    readonly profileId: string;\n    readonly harnessId: string;\n    readonly modelRouteId: string;\n    readonly tools?: readonly string[];\n    readonly skills?: readonly string[];\n    readonly mcpServerIds?: readonly string[];\n    readonly childProfileIds?: readonly string[];\n    readonly workspaceCwd?: string;\n    readonly maxDepth?: number;\n    readonly maxTokens?: number;\n    readonly modelRoutePriority?: number;\n    readonly schedulerPriority?: number;\n}',
+    declaration: 'export interface ChildProfileSpec {\n    readonly profileId: string;\n    readonly harnessId: string;\n    readonly modelRouteId: string;\n    readonly tools?: readonly string[];\n    readonly skills?: readonly string[];\n    readonly mcpServerIds?: readonly string[];\n    readonly childProfileIds?: readonly string[];\n    readonly workspaceCwd?: string;\n    readonly maxDepth?: number;\n    readonly maxTokens?: number;\n    readonly modelRoutePriority?: number;\n    readonly schedulerPriority?: number;\n    readonly supervisionMode?: \'supervised\' | \'unsupervised\';\n}',
   },
   {
     name: 'ClientResponse',
@@ -4550,7 +4550,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ResolvedChildProfile',
-    declaration: 'export interface ResolvedChildProfile {\n    readonly profileId: string;\n    readonly revision: number;\n    readonly digest: string;\n    readonly harnessId: string;\n    readonly modelRouteId: string;\n    readonly tools: readonly string[];\n    readonly skills: readonly string[];\n    readonly mcpServerIds: readonly string[];\n    readonly childProfileIds: readonly string[];\n    readonly workspaceCwd: string;\n    readonly maxDepth?: number;\n    readonly maxTokens?: number;\n    readonly modelRoutePriority?: number;\n    readonly schedulerPriority?: number;\n}',
+    declaration: 'export interface ResolvedChildProfile {\n    readonly profileId: string;\n    readonly revision: number;\n    readonly digest: string;\n    readonly harnessId: string;\n    readonly modelRouteId: string;\n    readonly tools: readonly string[];\n    readonly skills: readonly string[];\n    readonly mcpServerIds: readonly string[];\n    readonly childProfileIds: readonly string[];\n    readonly workspaceCwd: string;\n    readonly maxDepth?: number;\n    readonly maxTokens?: number;\n    readonly modelRoutePriority?: number;\n    readonly schedulerPriority?: number;\n    readonly supervisionMode?: \'supervised\' | \'unsupervised\';\n}',
   },
   {
     name: 'ResolvedCredential',

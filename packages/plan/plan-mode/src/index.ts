@@ -32,6 +32,7 @@ import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-sessio
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { UserQuestionError } from '@deepseek-ai/dsh-user-questions'
+import type {} from '@deepseek-ai/dsh-supervision'
 // Type-only edge: resolves `ctx.commands` for the optional command child.
 import type {} from '@deepseek-ai/dsh-commands'
 // Type-only: resolves ctx.sessionProjections for the optional unit child.
@@ -293,6 +294,9 @@ export class PlanModeController extends Service {
                   : { kind: 'success', text: 'Plan mode is already inactive.' }
             }
           }
+          if (this.ctx.get('supervision')?.allowsHumanInteraction(agent.session) === false) {
+            return { kind: 'error', text: 'Cannot enter plan mode while supervision is unsupervised.' }
+          }
           const outcome = this.set(agent, true)
           if (message !== '' || attachments.length > 0) {
             agent.steer(createUserMessage({
@@ -337,6 +341,10 @@ export class PlanModeController extends Service {
         }
         if (!/^#\s+\S/.test(args.plan.trim())) {
           throw new Error(`${EXIT_PLAN_MODE} requires a non-empty markdown plan starting with a # heading`)
+        }
+        if (ctx.get('supervision')?.allowsHumanInteraction(agent.session) === false) {
+          this.pendingIntents.set(agent.session, { active: false, narrate: false })
+          return { approved: true }
         }
         const interaction = ctx.get('userQuestions')
         if (interaction === undefined) {
@@ -434,6 +442,9 @@ export class PlanModeController extends Service {
    * state).
    */
   set(agent: Agent, active: boolean): 'committed' | 'queued' | 'cancelled' | 'noop' {
+    if (active && this.ctx.get('supervision')?.allowsHumanInteraction(agent.session) === false) {
+      throw new Error('Cannot enter plan mode while supervision is unsupervised.')
+    }
     const session = agent.session
     const pending = this.pendingIntents.get(session)
     const target = pending?.active ?? foldPlanMode(session.events)

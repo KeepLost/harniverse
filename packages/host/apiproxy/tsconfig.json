@@ -51,6 +51,9 @@
       "path": "../../interaction/permission-presets"
     },
     {
+      "path": "../../interaction/supervision"
+    },
+    {
       "path": "../../core/session"
     },
     {

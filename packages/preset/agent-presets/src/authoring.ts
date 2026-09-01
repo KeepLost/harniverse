@@ -154,6 +154,7 @@ export async function copyComposition(
       ...name === undefined ? {} : { name },
       ...source.description === undefined ? {} : { description: source.description },
       ...source.permissionPreset === undefined ? {} : { permissionPreset: source.permissionPreset },
+      ...source.supervisionMode === undefined ? {} : { supervisionMode: source.supervisionMode },
     })
     const metadataPath = join(dir, METADATA_FILE)
     if (rendered === undefined) {

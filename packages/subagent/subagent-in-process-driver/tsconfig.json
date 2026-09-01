@@ -27,6 +27,9 @@
       "path": "../subagent"
     },
     {
+      "path": "../../interaction/supervision"
+    },
+    {
       "path": "../../core/system-prompt"
     },
     {

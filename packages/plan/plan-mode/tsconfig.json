@@ -30,6 +30,9 @@
       "path": "../../interaction/user-questions"
     },
     {
+      "path": "../../interaction/supervision"
+    },
+    {
       "path": "../../interaction/commands"
     },
     {

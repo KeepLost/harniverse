@@ -785,6 +785,17 @@ describe('exit_plan_mode', () => {
     expect(foldPlanMode(agent.session.events)).toBe(true)
   })
 
+  it('exits an active plan directly without a user review in unsupervised mode', async () => {
+    const { ctx, agent, asked } = await setupWithReview()
+    ctx.provide('supervision', { allowsHumanInteraction: () => false })
+
+    const result = await callExit(ctx, agent)
+
+    expect(result.isError).toBe(false)
+    expect(asked).toHaveLength(0)
+    expect(ctx.planMode.get(agent)).toMatchObject({ active: true, pending: false })
+  })
+
   it('degrades to the manual exit when no user-questions seam is composed', async () => {
     const ctx = await setup()
     const agent = await agentWithSession(ctx, 'agent-1', { active: true })

@@ -19,6 +19,8 @@ import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
 // and merge the `sandbox/mode` / `approval/policy` session-event payloads.
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-user-approval'
+import type { SupervisionMode } from '@deepseek-ai/dsh-supervision'
+import type {} from '@deepseek-ai/dsh-supervision'
 // Type-only: make `ctx.get('agentPresets')` resolve to the preset roster when
 // composed — a child inherits its parent's composition opportunistically (the
 // documented `ctx.get` pattern), never as a hard dep. A rosterless deployment
@@ -188,6 +190,8 @@ export interface DelegatedPolicyOverrides {
    * delegation, so its asks are rejected deterministically.
    */
   readonly approvalPolicy: 'never' | undefined
+  /** The parent mode, or the child Profile's explicit mode. */
+  readonly supervisionMode: SupervisionMode | undefined
 }
 
 /**
@@ -200,10 +204,11 @@ export interface DelegatedPolicyOverrides {
  * @param parent - the delegating parent agent.
  * @returns the sandbox override (or `undefined` without one) and the approval pin.
  */
-export function captureDelegatedPolicyOverrides(parent: Agent): DelegatedPolicyOverrides {
+export function captureDelegatedPolicyOverrides(parent: Agent, childMode?: SupervisionMode): DelegatedPolicyOverrides {
   return {
     sandboxMode: parent.ctx.get('sandboxPolicy')?.overrideOf(parent.session),
     approvalPolicy: parent.ctx.get('approval') === undefined ? undefined : 'never',
+    supervisionMode: childMode ?? parent.ctx.get('supervision')?.modeOf(parent.session),
   }
 }
 
@@ -225,6 +230,9 @@ export function appendDelegatedPolicyOverrides(
   }
   if (overrides.approvalPolicy !== undefined) {
     childSession.append('approval/policy', { policy: overrides.approvalPolicy, source: 'delegation' })
+  }
+  if (overrides.supervisionMode !== undefined) {
+    childSession.append('supervision/mode', { mode: overrides.supervisionMode, source: 'delegation' })
   }
 }
 

@@ -17,6 +17,7 @@ import type { AttachmentRailItem } from '@deepseek-ai/dsh-client-ui-attachment'
 // Type-only: the `plan` projection key merge (the TodoDock posture — the
 // composer reads a host-computed value; the domain owns the key).
 import type {} from '@deepseek-ai/dsh-plan-mode/client'
+import type {} from '@deepseek-ai/dsh-supervision/client'
 // Type-only: the `goal` projection key merge (hint disambiguation).
 import type {} from '@deepseek-ai/dsh-goal/client'
 // The `imageLimits` projection key merge (intake pre-check) arrives with the
@@ -31,6 +32,7 @@ import {
 } from '../image-labels.ts'
 import { ContextMeter } from './ContextMeter.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
+import { SupervisionSelect } from './SupervisionSelect.tsx'
 import css from './InputBar.module.css'
 
 /** Decoration product of the no-session state (no machine, empty draft). */
@@ -121,6 +123,7 @@ export function InputBar({
   // The Access seat's data: the host-computed permissions projection
   // (undefined = capability absent → the chip renders nothing).
   const permissions = useProjection('permissions')
+  const supervision = useProjection('supervision')
 
   // A continuable child without its live parent cannot accept human input,
   // but its independent Stop below stays available while it runs.
@@ -559,7 +562,10 @@ export function InputBar({
   // or while the command face is absent with the session).
   const accessSelect: ReactNode = command === undefined
     ? null
-    : <PermissionSelect key={sessionId} value={permissions} locked={locked} command={command} t={t} />
+    : <PermissionSelect key={`permission-${sessionId}`} value={permissions} locked={locked} command={command} t={t} />
+  const supervisionSelect: ReactNode = command === undefined
+    ? null
+    : <SupervisionSelect key={`supervision-${sessionId}`} value={supervision} locked={locked} command={command} t={t} />
 
   // Mirror-layer decorations: a visible backdrop with transparent text. The
   // claim token highlights through behind the textarea glyphs; each U+FFFC
@@ -747,6 +753,7 @@ export function InputBar({
             </Tooltip>
             <div className={css.modes}>
               {accessSelect}
+              {supervisionSelect}
               {renderSlot('conversation.input.plan', { locked })}
             </div>
             {leftItems}

@@ -455,7 +455,7 @@ export class SubagentContinuationManager {
     })
     // Capture before the first await: a later parent switch belongs to the
     // parent's future, not to this child.
-    const delegatedPolicies = captureDelegatedPolicyOverrides(parent)
+    const delegatedPolicies = captureDelegatedPolicyOverrides(parent, request.childProfile?.supervisionMode)
 
     const prepared = await this.host.prepareContinuable(spec.provider, {
       sessionId: childId,

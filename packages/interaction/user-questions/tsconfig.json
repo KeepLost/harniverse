@@ -21,6 +21,9 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../supervision"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     }
   ]

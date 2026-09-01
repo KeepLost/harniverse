@@ -40,12 +40,14 @@
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-supervision": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-supervision": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   }
 }

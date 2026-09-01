@@ -188,6 +188,7 @@
     { "path": "./packages/context/file-reference-local" },
     { "path": "./packages/interaction/user-questions" },
     { "path": "./packages/interaction/user-approval" },
+    { "path": "./packages/interaction/supervision" },
     { "path": "./packages/interaction/permission-presets" },
     { "path": "./packages/core/tools" },
     { "path": "./packages/core/agent-tool-presentation" },

@@ -27,7 +27,7 @@
 - `ctx.agentPresets.copy(from, id, name?): Promise<void>` 通过整目录复制一个既有 preset 来创建本地创作的 preset——唯一的创作写入。组装文本不经过这道接缝，因此副本与其来源同等可加载；复制出的元数据保留来源的描述与默认权限，但绝不保留其名称与 roster 排序，`name`（或回退到 id）才是区分两行的依据。
 - `ctx.agentPresets.remove(id): Promise<void>` 删除一个本地创作的 preset；已加入的会话保留其常驻挂载。若用户默认值恰好指向刚删除的 preset 则一并清除：存一个尚不存在的默认值是刻意的，但本次删除的这个再也不会有人提供，留着会让所有未显式指定的新会话无法启动。
 
-`AgentPreset` 携带 `id`（目录名）、`trust`（`system` 或 `user`，取自它所在的根目录）、`path`（组装文件的绝对路径）、可选展示元数据、可选 `permissionPreset`，以及——仅当该 Profile 无法组装 Session 时——`broken`（一条人类可读的原因，名单界面原样展示）。
+`AgentPreset` 携带 `id`（目录名）、`trust`（`system` 或 `user`，取自它所在的根目录）、`path`（组装文件的绝对路径）、可选展示元数据、可选 `permissionPreset`、可选 `supervisionMode`，以及——仅当该 Profile 无法组装 Session 时——`broken`（一条人类可读的原因，名单界面原样展示）。
 
 ### 应在何处调用 `mount()`
 
@@ -73,9 +73,10 @@ preset 可以在组装文件旁的可选 `preset.yml` 里发布展示文本：
 name: 极简模式
 description: 仅提供 POSIX Bash 或 Windows PowerShell 与 str_replace_editor，并在模型不可见的内部执行自动 lossless compaction 与 summary DAG。
 permissionPreset: workspace-write
+supervisionMode: supervised
 ```
 
-它承载展示文本与 Profile 的默认权限 preset。`id` 是目录名，`trust` 取自 preset 被发现时所在的根目录，两者都不可写在这里。API gateway 会在发布新 Agent 之前通过 permission-preset 服务应用 `permissionPreset`；持久化的 `permission/preset`、`sandbox/mode` 与 `approval/policy` 事件仍是权限事实源。
+它承载展示文本、Profile 的默认权限 preset 及独立的人机监督模式。`id` 是目录名，`trust` 取自 preset 被发现时所在的根目录，两者都不可写在这里。API gateway 会在发布新 Agent 之前通过各自服务应用 `permissionPreset` 和 `supervisionMode`；持久化的 session 事件仍是事实源。
 
 任何读取失败都退化为「没有元信息」——缺失、格式错误、类型不对、内容为空，含义相同，选择器回退到 id。展示不是能力：名字坏掉的 preset 依然能挂载。
 
