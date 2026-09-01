@@ -125,6 +125,7 @@ const processBoundTests = [
 ]
 
 const platformTestTimeoutMs = process.platform === 'win32' ? 600_000 : 5_000
+const processBoundMaxWorkers = process.platform === 'win32' ? 1 : undefined
 
 export default defineConfig({
   plugins: [pathsPlugin(), standardDecoratorPlugin()],
@@ -165,6 +166,7 @@ export default defineConfig({
           name: 'process-bound',
           execArgv: vitestExecArgv,
           testTimeout: platformTestTimeoutMs,
+          ...processBoundMaxWorkers === undefined ? {} : { maxWorkers: processBoundMaxWorkers },
           pool: 'forks',
           setupFiles: ['./scripts/test-invariants.ts'],
           include: processBoundTests,
