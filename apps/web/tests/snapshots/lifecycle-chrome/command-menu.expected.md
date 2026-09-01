@@ -6,4 +6,5 @@
   - option "goal set or view the goal for a long-running task"
   - option "permission Switch the permission preset (sandbox mode + approval policy)"
   - option "plan Enter or leave plan mode"
+  - option "supervision Switch supervised or unsupervised execution"
   - option "model Select the model for this conversation"
