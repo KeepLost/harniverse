@@ -38,4 +38,10 @@ export const coverageExemptHeavySuites: readonly CoverageExemptSuite[] = [
   { filter: 'scripts/install-lefthook.spec.ts', exclude: 'scripts/install-lefthook.spec.ts' },
   { filter: 'scripts/oxlint-contract.spec.ts', exclude: 'scripts/oxlint-contract.spec.ts' },
   { filter: 'scripts/change-scope.spec.ts', exclude: 'scripts/change-scope.spec.ts' },
+  // File-lock rollback timing is validated by this real filesystem race;
+  // instrumentation changes the watcher/lock ordering under CI load.
+  {
+    filter: 'packages/auth/authentication-local/tests/audit-rollback.spec.ts',
+    exclude: 'packages/auth/authentication-local/tests/audit-rollback.spec.ts',
+  },
 ]

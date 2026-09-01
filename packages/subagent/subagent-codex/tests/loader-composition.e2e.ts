@@ -44,7 +44,7 @@ describe('Codex provider public Loader composition', () => {
       },
       tool: {
         name: 'subagent_codex',
-        parameterNames: ['description', 'prompt'],
+        parameterNames: ['description', 'mode', 'prompt'],
         required: ['description', 'prompt'],
       },
       starts: 0,

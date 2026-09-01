@@ -1,6 +1,7 @@
 /**
  * Versionless JSON-lines protocol between the Node host and Python bootstrap.
- * Frames use fd 3; stdout and stderr remain program-log backstops.
+ * Host frames use stdin and child frames use fd 3; stdout and stderr remain
+ * program-log backstops.
  */
 
 /** The framed control channel's descriptor in the child process. */

@@ -23,7 +23,9 @@ sys.path.pop(0)
 del _PY_DIR
 os.environ.clear()
 
-_channel = os.fdopen(PROTOCOL_FD, "r+b", buffering=0, closefd=False)
+_read_channel = sys.stdin.buffer
+sys.stdin = io.StringIO()
+_write_channel = os.fdopen(PROTOCOL_FD, "wb", buffering=0, closefd=False)
 _write_lock = threading.Lock()
 
 
@@ -133,11 +135,11 @@ def _send(frame: dict[str, Any], max_bytes: int | None = None) -> None:
     if max_bytes is not None and len(payload) > max_bytes:
         raise _OutputLimit()
     with _write_lock:
-        _channel.write(payload)
+        _write_channel.write(payload)
 
 
 def _read(limit: int) -> dict[str, Any]:
-    line = _channel.readline(limit + 1)
+    line = _read_channel.readline(limit + 1)
     if not line or len(line) > limit or not line.endswith(b"\n"):
         raise RuntimeError("invalid host control frame")
     value = json.loads(line)
@@ -222,8 +224,16 @@ class _Bridge:
         self._max_control_bytes = max_control_bytes
         self._next_id = 0
         self._pending: dict[int, asyncio.Future[Any]] = {}
-        self._reader = threading.Thread(target=self._read_replies, daemon=True, name="dsh-python-replies")
-        self._reader.start()
+        previous_stack_size = threading.stack_size()
+        if os.name == "nt":
+            # The default Windows thread stack cannot decode deeply nested replies.
+            threading.stack_size(128 * 1024 * 1024)
+        try:
+            self._reader = threading.Thread(target=self._read_replies, daemon=True, name="dsh-python-replies")
+            self._reader.start()
+        finally:
+            if os.name == "nt":
+                threading.stack_size(previous_stack_size)
 
     async def call(self, global_name: str, member_name: str, args: Any, error_class: type[Exception] | None, member_property: str | None) -> Any:
         if not _json_safe(args):

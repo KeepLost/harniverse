@@ -45,6 +45,14 @@ const windowsUnsupportedTests = process.platform === 'win32'
     ]
   : []
 
+// The persistent PowerShell composition depends on a native interactive PTY;
+// the Linux pwsh runner exits cleanly between calls instead of preserving it.
+// Keep the real composition in the native Windows lane, where PowerShell is
+// the supported platform signal, rather than letting it poison Linux coverage.
+const nonNativePwshTests = process.platform !== 'win32'
+  ? ['packages/shell/tool-pwsh-persistent/tests/loader-composition.spec.ts']
+  : []
+
 const windowsUnsupportedCoveragePackages = process.platform === 'win32'
   ? [...windowsUnsupportedPackages, 'packages/subprocess/*']
   : []
@@ -121,7 +129,7 @@ export default defineConfig({
     setupFiles: ['./scripts/test-invariants.ts'],
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
     include: testIncludes,
-    exclude: windowsUnsupportedTests,
+  exclude: [...windowsUnsupportedTests, ...nonNativePwshTests],
     // One coverage invocation aggregates both projects. Every suite forks for
     // Node stability; process-bound suites stay separate for inventory control.
     projects: [
@@ -137,7 +145,8 @@ export default defineConfig({
           setupFiles: ['./scripts/test-invariants.ts'],
           include: testIncludes,
           exclude: [
-            ...windowsUnsupportedTests,
+             ...windowsUnsupportedTests,
+             ...nonNativePwshTests,
             ...processBoundTests,
             ...coverageExemptExcludes,
           ],
@@ -152,7 +161,8 @@ export default defineConfig({
           setupFiles: ['./scripts/test-invariants.ts'],
           include: processBoundTests,
           exclude: [
-            ...windowsUnsupportedTests,
+             ...windowsUnsupportedTests,
+             ...nonNativePwshTests,
             ...coverageExemptExcludes,
           ],
         },

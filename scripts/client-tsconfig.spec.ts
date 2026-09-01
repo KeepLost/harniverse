@@ -40,12 +40,13 @@ describe('client TypeScript aggregate', () => {
     expect(loaded).toEqual(clientCssDeclarations())
   })
 
-  it('resolves reference type subpaths from source instead of generated declarations', () => {
+  it('resolves public package subpaths from source instead of generated artifacts', () => {
     const parsed = clientConfig()
     const importer = resolve(root, 'packages/client/ui-reference/src/client/index.ts')
     for (const [specifier, source] of [
       ['@deepseek-ai/dsh-file-reference/types', 'packages/context/file-reference/src/types.ts'],
       ['@deepseek-ai/dsh-session-reference/types', 'packages/context/session-reference/src/types.ts'],
+      ['@deepseek-ai/dsh-tool-fs/read-render', 'packages/fs/tool-fs/src/read-render.ts'],
     ] as const) {
       const resolved = ts.resolveModuleName(specifier, importer, parsed.options, ts.sys).resolvedModule
       expect(resolved?.resolvedFileName.replaceAll(sep, '/')).toBe(resolve(root, source).replaceAll(sep, '/'))

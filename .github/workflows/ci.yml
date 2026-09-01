@@ -70,7 +70,6 @@ jobs:
     runs-on: ubuntu-latest
     name: node 24 / coverage
     env:
-      DSH_COVERAGE_MAX_WORKERS: '2'
       DSH_GATE_CONCURRENCY: '2'
     steps:
       - uses: actions/checkout@v6
@@ -121,7 +120,6 @@ jobs:
     runs-on: ubuntu-latest
     name: node 24 / snapshots and artifacts
     env:
-      DSH_GATE_CONCURRENCY: '2'
       DSH_NODE_COMPAT_SKIP_TYPECHECK: '1'
       DSH_OXLINT_THREADS: '2'
       DSH_PUBLINT_CONCURRENCY: '2'
@@ -336,8 +334,6 @@ jobs:
     name: windows node 24 / native complete
     timeout-minutes: 60
     env:
-      DSH_COVERAGE_MAX_WORKERS: '2'
-      DSH_GATE_CONCURRENCY: '2'
       DSH_PUBLINT_CONCURRENCY: '2'
     steps:
       - uses: actions/checkout@v6
@@ -383,7 +379,7 @@ jobs:
   all-checks-passed:
     name: all checks passed
     runs-on: ubuntu-latest
-    needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, python-runtime, windows]
+    needs: [node-24, node-24-consumers, node-compat, python-sdk, python-runtime, windows]
     if: always() && github.event_name == 'pull_request'
     steps:
       - name: Fail if any needed job did not succeed

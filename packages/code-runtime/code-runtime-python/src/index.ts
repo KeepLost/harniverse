@@ -1,11 +1,11 @@
 /**
  * CPython subprocess provider for the code-runtime seam. Each run owns one
- * fresh process and a hostile fd-3 control channel.
+ * fresh process and a hostile split control channel.
  */
 
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
-import type { Duplex, Readable } from 'node:stream'
+import type { Duplex, Readable, Writable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -28,7 +28,7 @@ export interface Config {
   maxAddressSpaceMb?: number
   /** Combined serialized logs/value/diagnostic cap. */
   maxOutputBytes?: number
-  /** Maximum bytes in one fd-3 frame, including binding payloads. */
+  /** Maximum bytes in one control frame, including binding payloads. */
   maxControlBytes?: number
 }
 
@@ -239,7 +239,7 @@ function sanitizeDiagnostic(message: string): string {
     .slice(0, 4096)
 }
 
-function writeFrame(stream: Duplex, frame: HostToChild, maxBytes = Number.POSITIVE_INFINITY): boolean {
+function writeFrame(stream: Writable, frame: HostToChild, maxBytes = Number.POSITIVE_INFINITY): boolean {
   const encoded = `${encodeJsonPlain(frame)}\n`
   if (Buffer.byteLength(encoded, 'utf8') > maxBytes) return false
   stream.write(encoded)
@@ -371,7 +371,9 @@ export class PythonCodeRuntime extends CodeRuntime {
     let child: ChildProcess
     try {
       child = spawn(this.config.pythonExecutable, ['-I', '-B', BOOTSTRAP_PATH], {
-        stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
+        // Windows extra stdio pipes are not reliably duplex. stdin carries
+        // Host frames; fd 3 carries child frames on every platform.
+        stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
         env: {},
         shell: false,
         windowsHide: true,
@@ -380,10 +382,11 @@ export class PythonCodeRuntime extends CodeRuntime {
       return Promise.resolve(this.failureBeforeProcess({ kind: 'worker-exit', message: 'python process could not start' }))
     }
 
+    const input = child.stdin
     const stdout = child.stdout as Readable
     const stderr = child.stderr as Readable
     const protocol = child.stdio[PROTOCOL_FD] as Duplex | null
-    if (protocol === null) {
+    if (input === null || protocol === null) {
       child.kill('SIGKILL')
       return Promise.resolve(this.failureBeforeProcess({ kind: 'worker-exit', message: 'python process control channel unavailable' }))
     }
@@ -411,9 +414,9 @@ export class PythonCodeRuntime extends CodeRuntime {
         clearTimeout(wallTimer)
         request.signal?.removeEventListener('abort', onAbort)
         try {
-          protocol.end()
+          input.end()
         } catch {
-          // The child may have closed fd 3 first; process exit remains authoritative.
+          // The child may have closed stdin first; process exit remains authoritative.
         }
         if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
         void closed.then(() => {
@@ -437,9 +440,9 @@ export class PythonCodeRuntime extends CodeRuntime {
 
       const sendReply = (reply: ReplyMessage): void => {
         if (state !== 'running' || settling) return
-        if (!writeFrame(protocol, reply, this.config.maxControlBytes)) {
+        if (!writeFrame(input, reply, this.config.maxControlBytes)) {
           const fallback: ReplyMessage = { type: 'reply', id: reply.id, ok: false, message: 'binding resolution exceeded control limit' }
-          writeFrame(protocol, fallback)
+          writeFrame(input, fallback)
         }
       }
 
@@ -476,7 +479,7 @@ export class PythonCodeRuntime extends CodeRuntime {
         if (message.type === 'boot-ack') {
           if (state !== 'booting' || settling) return
           state = 'running'
-          if (!writeFrame(protocol, { type: 'run', program: request.program }, this.config.maxControlBytes)) {
+          if (!writeFrame(input, { type: 'run', program: request.program }, this.config.maxControlBytes)) {
             finish(() => output.failure(logs, { kind: 'exception', message: 'program exceeds configured control limit' }))
           }
           return
@@ -525,6 +528,9 @@ export class PythonCodeRuntime extends CodeRuntime {
       protocol.on('error', () => {
         if (!settling) finish(() => output.failure(logs, { kind: 'worker-exit', message: 'python process control channel unavailable' }))
       })
+      input.on('error', () => {
+        if (!settling) finish(() => output.failure(logs, { kind: 'worker-exit', message: 'python process control channel unavailable' }))
+      })
 
       child.once('error', () => {
         finish(() => output.failure(logs, { kind: 'worker-exit', message: 'python process could not start' }))
@@ -550,7 +556,7 @@ export class PythonCodeRuntime extends CodeRuntime {
       this.live.add(live)
 
       try {
-        if (!writeFrame(protocol, boot, this.config.maxControlBytes)) {
+        if (!writeFrame(input, boot, this.config.maxControlBytes)) {
           finish(() => output.failure(logs, { kind: 'exception', message: 'binding metadata exceeds configured control limit' }))
         }
       } catch {

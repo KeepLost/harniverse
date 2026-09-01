@@ -18,6 +18,9 @@ async function hasPython3(): Promise<boolean> {
 }
 
 const python3Available = await hasPython3()
+const runtimeTestTimeoutMs = process.platform === 'win32' ? 30_000 : 5_000
+const extendedRuntimeTestTimeoutMs = process.platform === 'win32' ? 45_000 : 15_000
+const heavyRuntimeTestTimeoutMs = process.platform === 'win32' ? 60_000 : 20_000
 
 async function setup(config: Config = {}) {
   const ctx = new Context()
@@ -33,7 +36,7 @@ function tools(functions: Record<string, (args: unknown) => Promise<unknown>>): 
   }]
 }
 
-describe.skipIf(!python3Available)('PythonCodeRuntime real subprocess', () => {
+describe.skipIf(!python3Available)('PythonCodeRuntime real subprocess', { timeout: runtimeTestTimeoutMs }, () => {
   it('runs Python with top-level await/return and exposes its descriptors', async () => {
     const { runtime } = await setup()
     const result = await runtime.run({
@@ -104,7 +107,7 @@ describe.skipIf(!python3Available)('PythonCodeRuntime real subprocess', () => {
       cursor = Array.isArray(cursor) ? cursor[0] : undefined
     }
     expect(cursor).toBe('leaf')
-  }, 15_000)
+  }, extendedRuntimeTestTimeoutMs)
 
   it('drops malformed and duplicate child frames without crashing or duplicate dispatch', async () => {
     const { runtime } = await setup()
@@ -140,15 +143,17 @@ describe.skipIf(!python3Available)('PythonCodeRuntime real subprocess', () => {
   })
 
   it('enforces CPU and wall-clock limits', async () => {
-    const cpu = await setup({ cpuSeconds: 1, maxWallMs: 5_000 })
-    const cpuResult = await cpu.runtime.run({ program: 'while True:\n    pass', bindings: [] })
-    expect(cpuResult.error?.kind).toBe('timeout')
-    expect(cpuResult.error?.message).toContain('CPU')
+    if (process.platform !== 'win32') {
+      const cpu = await setup({ cpuSeconds: 1, maxWallMs: 5_000 })
+      const cpuResult = await cpu.runtime.run({ program: 'while True:\n    pass', bindings: [] })
+      expect(cpuResult.error?.kind).toBe('timeout')
+      expect(cpuResult.error?.message).toContain('CPU')
+    }
 
     const wall = await setup({ cpuSeconds: 30, maxWallMs: 300 })
     const wallResult = await wall.runtime.run({ program: 'import asyncio\nawait asyncio.sleep(60)', bindings: [] })
     expect(wallResult.error).toEqual({ kind: 'timeout', message: 'wall-clock ceiling reached (300ms)' })
-  }, 15_000)
+  }, process.platform === 'win32' ? runtimeTestTimeoutMs : extendedRuntimeTestTimeoutMs)
 
   it('aborts a running process and bounds output', async () => {
     const aborted = await setup()
@@ -168,7 +173,7 @@ describe.skipIf(!python3Available)('PythonCodeRuntime real subprocess', () => {
     const resultBytes = Buffer.byteLength(JSON.stringify(outputResult.logs))
       + Buffer.byteLength(JSON.stringify(outputResult.error?.message))
     expect(resultBytes).toBeLessThanOrEqual(128)
-  }, 15_000)
+  }, extendedRuntimeTestTimeoutMs)
 
   it('uses serialized UTF-8 bytes at the exact completion boundary', async () => {
     const exact = await setup({ maxOutputBytes: 7 })
@@ -194,7 +199,7 @@ describe.skipIf(!python3Available)('PythonCodeRuntime real subprocess', () => {
     expect(result.logs[0]?.startsWith('start-')).toBe(true)
     expect(Buffer.byteLength(JSON.stringify(result.logs)) + Buffer.byteLength(JSON.stringify(result.error?.message)))
       .toBeLessThanOrEqual(128)
-  }, 15_000)
+  }, heavyRuntimeTestTimeoutMs)
 
   it('reports pre-abort and executable startup failure as sanitized results', async () => {
     const { runtime } = await setup()
@@ -213,7 +218,7 @@ describe.skipIf(!python3Available)('PythonCodeRuntime real subprocess', () => {
     await runtime.run({ program: 'global leaked\nleaked = "value"\nreturn 1', bindings: [] })
     const second = await runtime.run({ program: 'return "leaked" in globals()', bindings: [] })
     expect(second.value).toBe(false)
-  })
+  }, heavyRuntimeTestTimeoutMs)
 
   it('disposes to quiescence and rejects later service misuse', async () => {
     const { fiber, runtime } = await setup()

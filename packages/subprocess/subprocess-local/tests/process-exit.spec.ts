@@ -29,12 +29,15 @@ function processExists(pid: number): boolean {
 
 async function readTree(path: string): Promise<TreeState> {
   return vi.waitFor(async () => {
-    const text = await readFile(path, 'utf8')
-    const state = JSON.parse(text) as Partial<TreeState>
-    if (!Number.isSafeInteger(state.root) || !Number.isSafeInteger(state.descendant)
-      || (state.root ?? 0) <= 0 || (state.descendant ?? 0) <= 0 || state.root === state.descendant) {
-      throw new Error(`invalid managed-tree state: ${text}`)
-    }
+    const pending = readFile(path, 'utf8')
+    await expect(pending, 'managed-tree state is not published yet').resolves.not.toBe('')
+    const text = await pending
+    const parse = () => JSON.parse(text) as Partial<TreeState>
+    expect(parse, 'managed-tree state is not complete yet').not.toThrow()
+    const state = parse()
+    const complete = Number.isSafeInteger(state.root) && Number.isSafeInteger(state.descendant)
+      && (state.root ?? 0) > 0 && (state.descendant ?? 0) > 0 && state.root !== state.descendant
+    expect(complete, `invalid managed-tree state: ${text}`).toBe(true)
     return state as TreeState
   }, { interval: 10, timeout: scenarioTimeoutMs })
 }
@@ -107,7 +110,10 @@ async function runScenario(kind: ManagedKind, trigger: ExitTrigger) {
   let treeGone = false
   try {
     state = await readTree(join(root, 'tree.json'))
-    await vi.waitFor(() => readFile(join(root, 'ready'), 'utf8'), {
+    await vi.waitFor(async () => {
+      await expect(readFile(join(root, 'ready'), 'utf8'), 'managed-tree readiness is not published yet')
+        .resolves.toBe('ready')
+    }, {
       interval: 10,
       timeout: scenarioTimeoutMs,
     })

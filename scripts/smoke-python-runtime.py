@@ -140,6 +140,13 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
     if not isinstance(latest, dict):
         raise AssertionError(f"model request has an invalid latest message: {body}")
 
+    latest_text = message_text(latest.get("content"))
+    if latest.get("role") == "user" and latest_text.startswith("Background subagent "):
+        if "DIRECT_CHILD_OK" in latest_text:
+            return advanced_workflow_call(body)
+        if "WORKFLOW_CHILD_OK" in latest_text:
+            return advanced_undefine_call(body)
+
     if latest.get("role") == "tool":
         call_id, tool_name = latest_tool_call(messages)
         tool_text = message_text(latest.get("content"))
@@ -162,6 +169,10 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
         for message in reversed(messages)
         if isinstance(message, dict) and message.get("role") == "user"
     ]
+    if any(SNAPSHOT_DIRECT_CHILD_PROMPT in prompt for prompt in user_prompts):
+        return text_chunks("DIRECT_CHILD_OK")
+    if any(SNAPSHOT_WORKFLOW_CHILD_PROMPT in prompt for prompt in user_prompts):
+        return text_chunks("WORKFLOW_CHILD_OK")
     minimal_prompt = next(
         (
             prompt
@@ -179,16 +190,21 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
             for message in messages
             if isinstance(message, dict) and message.get("role") == "system"
         ]
-        if system_prompts != [MINIMAL_SYSTEM_PROMPT]:
+        if system_prompts:
             raise AssertionError(f"minimal agent smoke assembled unexpected system prompts: {system_prompts}")
+        runtime_contexts = [
+            prompt
+            for prompt in user_prompts
+            if prompt.startswith("Current runtime context. This snapshot supersedes earlier runtime-context snapshots.")
+        ]
+        if len(runtime_contexts) != 1 or MINIMAL_SYSTEM_PROMPT not in runtime_contexts[0]:
+            raise AssertionError(f"minimal agent smoke assembled unexpected runtime contexts: {runtime_contexts}")
         return tool_call_chunks(
             "minimal-bash-1",
             "bash",
             {"command": MINIMAL_BASH_COMMAND},
         )
     scenario_prompts = {
-        SNAPSHOT_DIRECT_CHILD_PROMPT,
-        SNAPSHOT_WORKFLOW_CHILD_PROMPT,
         SNAPSHOT_PROMPT,
         CODE_PROMPT,
         WORKFLOW_PROMPT,
@@ -197,10 +213,6 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
         (candidate for candidate in user_prompts if candidate in scenario_prompts),
         message_text(latest.get("content")),
     )
-    if prompt == SNAPSHOT_DIRECT_CHILD_PROMPT:
-        return text_chunks("DIRECT_CHILD_OK")
-    if prompt == SNAPSHOT_WORKFLOW_CHILD_PROMPT:
-        return text_chunks("WORKFLOW_CHILD_OK")
     if prompt == SNAPSHOT_PROMPT:
         assert_advertised_tool(body, "cordis_define")
         return tool_call_chunks(
@@ -330,32 +342,17 @@ def advanced_tool_followup(
             {
                 "description": "Check direct child",
                 "prompt": SNAPSHOT_DIRECT_CHILD_PROMPT,
+                "mode": "sync",
             },
         )
     if call_id == "advanced-direct-child" and tool_name == "subagent":
         if "DIRECT_CHILD_OK" not in tool_text:
             raise AssertionError(f"subagent returned no expected child value: {tool_text}")
-        assert_advertised_tool(body, "workflow")
-        return tool_call_chunks(
-            "advanced-workflow",
-            "workflow",
-            {
-                "script": SNAPSHOT_WORKFLOW_SCRIPT,
-                "meta": {
-                    "name": "advanced-exe-snapshot",
-                    "description": "exercise one packaged workflow child",
-                },
-            },
-        )
+        return advanced_workflow_call(body)
     if call_id == "advanced-workflow" and tool_name == "workflow":
         if "WORKFLOW_CHILD_OK" not in tool_text:
             raise AssertionError(f"workflow returned no expected child value: {tool_text}")
-        assert_advertised_tool(body, "cordis_undefine")
-        return tool_call_chunks(
-            "advanced-undefine",
-            "cordis_undefine",
-            {"pluginId": "snap-1"},
-        )
+        return advanced_undefine_call(body)
     if call_id == "advanced-undefine" and tool_name == "cordis_undefine":
         if "Removed dynamic Plugin snap-1 and all of its Packages." not in tool_text:
             raise AssertionError(f"cordis_undefine returned no removal result: {tool_text}")
@@ -363,6 +360,30 @@ def advanced_tool_followup(
             raise AssertionError("snapshot_double remained advertised after cordis_undefine")
         return text_chunks(SNAPSHOT_FINAL_TEXT)
     raise AssertionError(f"unexpected advanced tool follow-up: {call_id} {tool_name}: {tool_text}")
+
+
+def advanced_workflow_call(body: dict[str, object]) -> list[dict[str, object]]:
+    assert_advertised_tool(body, "workflow")
+    return tool_call_chunks(
+        "advanced-workflow",
+        "workflow",
+        {
+            "script": SNAPSHOT_WORKFLOW_SCRIPT,
+            "meta": {
+                "name": "advanced-exe-snapshot",
+                "description": "exercise one packaged workflow child",
+            },
+        },
+    )
+
+
+def advanced_undefine_call(body: dict[str, object]) -> list[dict[str, object]]:
+    assert_advertised_tool(body, "cordis_undefine")
+    return tool_call_chunks(
+        "advanced-undefine",
+        "cordis_undefine",
+        {"pluginId": "snap-1"},
+    )
 
 
 def text_chunks(text: str) -> list[dict[str, object]]:
@@ -815,6 +836,9 @@ def build_snapshot_files(
         replacements.append((child_id, f"{{{{child-{index}}}}}"))
         agent_id = snapshot_agent_id(result, child_id)
         replacements.append((agent_id, f"{{{{agent-{index}}}}}"))
+    invocation_ids = snapshot_invocation_ids(result)
+    for index, invocation_id in enumerate(invocation_ids, start=1):
+        replacements.append((invocation_id, f"{{{{invocation-{index}}}}}"))
     replacements.sort(key=lambda pair: len(pair[0]), reverse=True)
 
     result_value = {
@@ -874,6 +898,28 @@ def snapshot_agent_id(result: "RunResult", child_id: str) -> str:
     raise AssertionError(f"advanced snapshot has no finished agent for child {child_id}")
 
 
+def snapshot_invocation_ids(result: "RunResult") -> list[str]:
+    """Collect invocation ids from events and notifications in first-seen order."""
+    found: list[str] = []
+
+    def visit(value: object) -> None:
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+            return
+        if not isinstance(value, dict):
+            return
+        invocation_id = value.get("invocationId")
+        if isinstance(invocation_id, str) and invocation_id not in found:
+            found.append(invocation_id)
+        for item in value.values():
+            visit(item)
+
+    visit(result.events)
+    visit([notification.payload for notification in result.notifications])
+    return found
+
+
 def normalize_snapshot_value(
     value: object,
     replacements: list[tuple[str, str]],
@@ -899,8 +945,30 @@ def normalize_snapshot_value(
         normalized["time"] = 0
     if isinstance(normalized.get("id"), str) and normalized.get("role") in ("assistant", "user"):
         normalized["id"] = "{{messageId}}"
+    if normalized.get("type") == "llm/wire-attempt":
+        scrub_wire_attempt(normalized)
     scrub_snapshot_header(normalized)
     return normalized
+
+
+def scrub_wire_attempt(value: dict[object, object]) -> None:
+    """Retain wire-attempt structure while removing transport-local values."""
+    data = value.get("data")
+    if not isinstance(data, dict):
+        return
+    data["exchangeId"] = "{{exchangeId}}"
+    data["durationMs"] = 0
+    if isinstance(data.get("url"), str):
+        data["url"] = "{{modelUrl}}/chat/completions"
+    request = data.get("request")
+    if isinstance(request, dict) and "fingerprint" in request:
+        request["fingerprint"] = "{{fingerprint}}"
+    response = data.get("response")
+    headers = response.get("headers") if isinstance(response, dict) else None
+    if isinstance(headers, dict) and "date" in headers:
+        headers["date"] = "{{date}}"
+    if isinstance(headers, dict) and "server" in headers:
+        headers["server"] = "{{server}}"
 
 
 def scrub_snapshot_header(value: dict[object, object]) -> None:

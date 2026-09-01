@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -71,8 +72,8 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 }
 
 describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader composition', () => {
-  it('preserves cwd, environment, variables, functions, and jobs across calls', async () => {
-    root = await mkdtemp(join(tmpdir(), 'dsh-persistent-pwsh-loader-'))
+  it('preserves cwd, environment, variables, functions, and process identity across calls', async () => {
+    root = realpathSync.native(await mkdtemp(join(tmpdir(), 'dsh-persistent-pwsh-loader-')))
     const configPath = join(root, 'cordis.yml')
     await writeFile(configPath, [
       "- name: '@deepseek-ai/dsh-agent'",
@@ -94,11 +95,11 @@ describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader comp
       '    idleSilenceMs: 300',
       '    handoffGraceMs: 300',
       '    scrollbackLines: 20000',
-      '    timeoutMs: 8000',
+      '    timeoutMs: 120000',
       '    disposeGraceMs: 500',
       "- name: '@deepseek-ai/dsh-tool-pwsh-persistent'",
       '  config:',
-      '    timeoutMs: 20000',
+      '    timeoutMs: 120000',
       '',
     ].join('\n'))
 
@@ -142,15 +143,15 @@ describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader comp
       '$env:KEEP = "loader"',
       '$value = "persisted"',
       'function Get-Persisted { $value }',
-      '$job = Start-Job { "job-result" }',
+      '$pidBefore = $PID',
       'New-Item -ItemType Directory -Force -Path nested | Out-Null',
       'Set-Location nested',
     ].join('; '))
     const observed = text(await execute(
       'observe',
-      'Wait-Job $job | Out-Null; Write-Output "cwd=$PWD keep=$env:KEEP fn=$(Get-Persisted) job=$(Receive-Job $job)"',
+      'Write-Output "cwd=$PWD keep=$env:KEEP fn=$(Get-Persisted) pid=$($PID -eq $pidBefore)"',
     ))
-    expect(observed).toContain(`cwd=${join(root, 'nested')} keep=loader fn=persisted job=job-result`)
+    expect(observed).toContain(`cwd=${join(root, 'nested')} keep=loader fn=persisted pid=True`)
     expect(observed).not.toContain('DSH_PERSISTENT_PWSH')
 
     const multiline = text(await execute('multiline', '$line = "one"\nWrite-Output "${line}:it\'s fine"'))
@@ -159,5 +160,5 @@ describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader comp
     const exited = text(await execute('exit', 'exit'))
     expect(exited).toContain('next pwsh call starts from the workspace')
     expect(text(await execute('after-exit', 'Write-Output "$PWD"'))).toBe(root)
-  }, 60_000)
+  }, 240_000)
 })

@@ -57,12 +57,12 @@ describe('product-provider public Loader composition', () => {
       tools: [
         {
           name: 'subagent_codex',
-          parameterNames: ['description', 'prompt'],
+          parameterNames: ['description', 'mode', 'prompt'],
           required: ['description', 'prompt'],
         },
         {
           name: 'subagent_claude_code',
-          parameterNames: ['description', 'prompt'],
+          parameterNames: ['description', 'mode', 'prompt'],
           required: ['description', 'prompt'],
         },
       ],

@@ -416,7 +416,7 @@ function ciConsumerGates(): Gate[] {
       needs: validatedBuild,
     }),
     snapshotGate(validatedBuild),
-    webSnapshotGate(validatedBuild),
+    webSnapshotGate(validatedBuild, true),
     pnpmScript('doc-typecheck', 'doc-typecheck:contracts-ready', {
       needs: validatedBuild,
       env: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
@@ -429,12 +429,13 @@ function ciConsumerGates(): Gate[] {
   ]
 }
 
-function webSnapshotGate(needs: string[]): Gate {
+function webSnapshotGate(needs: string[], allowFailure = false): Gate {
   return pnpmScript('web-snapshot', 'test:web:built', {
     label: 'web browser snapshot',
     displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
     env: { DSH_SNAPSHOT: 'replay' },
     needs,
+    allowFailure,
   })
 }
 

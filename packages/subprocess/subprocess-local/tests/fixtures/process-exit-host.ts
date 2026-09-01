@@ -17,6 +17,20 @@ const ready = join(root, 'ready')
 const proceed = join(root, 'proceed')
 const managedTree = fileURLToPath(new URL('./managed-tree.ts', import.meta.url))
 
+async function readTreeState(): Promise<{ root: number; descendant: number }> {
+  for (;;) {
+    try {
+      const value = JSON.parse(await readFile(treeState, 'utf8')) as { root?: unknown; descendant?: unknown }
+      if (Number.isSafeInteger(value.root) && Number.isSafeInteger(value.descendant)) {
+        return value as { root: number; descendant: number }
+      }
+    } catch (_notReady) {
+      // The managed process may still be publishing its state file.
+    }
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+}
+
 async function waitForFile(path: string): Promise<void> {
   for (;;) {
     try {
@@ -53,11 +67,7 @@ if (kind === 'ordinary') {
   })
 }
 
-await waitForFile(treeState)
-const published = JSON.parse(await readFile(treeState, 'utf8')) as { root?: unknown; descendant?: unknown }
-if (!Number.isSafeInteger(published.root) || !Number.isSafeInteger(published.descendant)) {
-  throw new Error('managed tree published invalid process ids')
-}
+await readTreeState()
 await writeFile(ready, 'ready')
 await waitForFile(proceed)
 

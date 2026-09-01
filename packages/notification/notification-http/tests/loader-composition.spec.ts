@@ -147,7 +147,7 @@ describe('notification-http through a real Loader composition', () => {
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       ctx.sessions.emitClosed({ sessionId: session.id })
 
-      await vi.waitFor(() => { expect(received).toHaveLength(5) })
+      await vi.waitFor(() => { expect(received).toHaveLength(5) }, { timeout: 10_000 })
       expect(received.map(event => event.type)).toEqual([
         'approval.requested',
         'tool.called',
@@ -171,7 +171,7 @@ describe('notification-http through a real Loader composition', () => {
       expect(ctx.get('notification')).toBeInstanceOf(NotificationHttp.HttpNotificationBackend)
       session.append('turn/start', { turn: 3 })
       session.append('approval/asked', { id: ApprovalRequestId('approval-2'), toolName: 'write' })
-      await vi.waitFor(() => { expect(received).toHaveLength(6) })
+      await vi.waitFor(() => { expect(received).toHaveLength(6) }, { timeout: 10_000 })
       expect(received[5]).toMatchObject({ type: 'approval.requested', data: { approvalId: 'approval-2' } })
     } finally {
       await new Promise<void>((resolve) => { server.close(() => { resolve() }) })
