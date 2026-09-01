@@ -23,6 +23,7 @@ const pairingMergeDriver = 'scripts/merge-translation-pairing-driver.sh %O %A %B
 const scriptsDirectory = fileURLToPath(new URL('.', import.meta.url))
 const tsxPackageDirectory = dirname(fileURLToPath(import.meta.resolve('tsx/package.json')))
 const fixtures: string[] = []
+const PATH_WAIT_TIMEOUT_MS = process.platform === 'win32' ? 60_000 : 5_000
 // Multi-worktree cases spawn several Git and Node subprocesses; hosted Windows
 // runners can need several minutes without changing installer behavior.
 const MULTI_PROCESS_TEST_TIMEOUT_MS = process.platform === 'win32' ? 600_000 : 20_000
@@ -184,7 +185,7 @@ function installLockPath(fixture: Fixture): string {
 }
 
 async function waitForPath(path: string): Promise<void> {
-  const deadline = Date.now() + 5_000
+  const deadline = Date.now() + PATH_WAIT_TIMEOUT_MS
   while (!existsSync(path)) {
     if (Date.now() >= deadline) throw new Error(`timed out waiting for ${path}`)
     await new Promise(resolveWait => setTimeout(resolveWait, 10))

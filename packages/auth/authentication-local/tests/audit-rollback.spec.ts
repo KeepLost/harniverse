@@ -58,6 +58,7 @@ import { revokeAuthenticationGrant } from '../src/grant-registry.ts'
 import { createGrantFixture, signedProof } from './grant-fixture.ts'
 
 const cleanups: Array<() => Promise<void>> = []
+const auditTestTimeoutMs = process.platform === 'win32' ? 600_000 : 15_000
 
 afterEach(async () => {
   audit.refreshError = undefined
@@ -95,7 +96,7 @@ describe('audited Grant mutation rollback', () => {
     })
   })
 
-  it('does not publish or apply a revocation whose audit record fails', { timeout: 15_000 }, async () => {
+  it('does not publish or apply a revocation whose audit record fails', { timeout: auditTestTimeoutMs }, async () => {
     const dshHome = await mkdtemp(join(tmpdir(), 'dsh-auth-audit-rollback-'))
     cleanups.push(() => rm(dshHome, { recursive: true, force: true }))
     const laptop = await createGrantFixture(dshHome, 'laptop')

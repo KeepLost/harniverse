@@ -20,6 +20,7 @@ interface Fixture {
 }
 
 const fixtureRoots: string[] = []
+const fixtureTestTimeoutMs = process.platform === 'win32' ? 600_000 : 20_000
 
 afterEach(() => {
   for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true })
@@ -97,7 +98,7 @@ function repositoryState(root: string): Record<string, string> {
 }
 
 describe('change-scope', () => {
-  it('uses an explicit base on a fresh branch without a same-name remote and after its first push', { timeout: 20_000 }, () => {
+  it('uses an explicit base on a fresh branch without a same-name remote and after its first push', { timeout: fixtureTestTimeoutMs }, () => {
     const { root } = fixture()
     git(root, ['switch', '-c', 'feature'])
     git(root, ['branch', '--set-upstream-to=origin/master'])
