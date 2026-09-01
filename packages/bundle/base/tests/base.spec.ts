@@ -87,6 +87,10 @@ describe('dsh-base bundle', () => {
     expect(rows.find(row => row.id === 'session-delivery')).toMatchObject({
       name: '@deepseek-ai/dsh-session-delivery-local',
     })
+    expect(rows.find(row => row.id === 'supervision')).toMatchObject({
+      name: '@deepseek-ai/dsh-supervision',
+    })
+    expect(manifest.dependencies).toHaveProperty('@deepseek-ai/dsh-supervision', 'workspace:^')
     expect(rows.find(row => row.id === 'tool-session-query')).toMatchObject({
       name: '@deepseek-ai/dsh-tool-session-query',
     })

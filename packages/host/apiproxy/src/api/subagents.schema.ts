@@ -24,6 +24,7 @@ const childProfileSchema = z.object({
   maxTokens: z.number().int().nonnegative().optional(),
   modelRoutePriority: z.number().int().nonnegative().optional(),
   schedulerPriority: z.number().int().nonnegative().optional(),
+  supervisionMode: z.union([z.literal('supervised'), z.literal('unsupervised')]).optional(),
 }) satisfies z.ZodType<Wire<SubagentProfileSnapshot>>
 
 /** subagent.profiles response value. */

@@ -33,6 +33,8 @@ export interface AgentPreset {
   readonly order?: number
   /** Default permission preset applied before this profile's agent is published. */
   readonly permissionPreset?: string
+  /** Default human-supervision mode applied before this profile's agent is published. */
+  readonly supervisionMode?: 'supervised' | 'unsupervised'
   /**
    * Why this preset cannot compose a session, absent when it can. A broken
    * preset stays on the roster — hiding it would leave its directory blocking

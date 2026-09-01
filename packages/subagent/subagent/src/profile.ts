@@ -8,6 +8,10 @@ import type { ChildProfileGrant, ChildProfileSpec, ResolvedChildProfile } from '
 const PROFILE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/
 const PROFILE_DIGEST_PATTERN = /^[0-9a-f]{64}$/
 
+function isSupervisionMode(value: unknown): value is 'supervised' | 'unsupervised' {
+  return value === 'supervised' || value === 'unsupervised'
+}
+
 function assertId(value: string, field: string): void {
   if (!PROFILE_ID_PATTERN.test(value)) throw new Error(`child profile ${field} must be a non-empty opaque id`)
 }
@@ -129,6 +133,9 @@ export function assertResolvedChildProfile(profile: ResolvedChildProfile): void 
   assertSafeInteger(profile.maxTokens, 'maxTokens')
   assertSafeInteger(profile.modelRoutePriority, 'modelRoutePriority')
   assertSafeInteger(profile.schedulerPriority, 'schedulerPriority')
+  if (profile.supervisionMode !== undefined && !isSupervisionMode(profile.supervisionMode)) {
+    throw new Error('child profile supervisionMode must be "supervised" or "unsupervised"')
+  }
 }
 
 /**
@@ -163,6 +170,7 @@ export function parseResolvedChildProfile(value: unknown): ResolvedChildProfile 
     'profileId', 'revision', 'digest', 'harnessId', 'modelRouteId', 'tools', 'skills',
     'mcpServerIds', 'childProfileIds', 'workspaceCwd', 'maxDepth', 'maxTokens',
     'modelRoutePriority', 'schedulerPriority',
+    'supervisionMode',
   ])
   const unknown = Object.keys(value).find(key => !allowed.has(key))
   if (unknown !== undefined) throw new Error(`persisted child profile has unknown field "${unknown}"`)
@@ -181,8 +189,12 @@ export function parseResolvedChildProfile(value: unknown): ResolvedChildProfile 
     ...optionalNumber(value, 'maxTokens') !== undefined ? { maxTokens: optionalNumber(value, 'maxTokens') } : {},
     ...optionalNumber(value, 'modelRoutePriority') !== undefined ? { modelRoutePriority: optionalNumber(value, 'modelRoutePriority') } : {},
     ...optionalNumber(value, 'schedulerPriority') !== undefined ? { schedulerPriority: optionalNumber(value, 'schedulerPriority') } : {},
+    ...value['supervisionMode'] !== undefined ? { supervisionMode: value['supervisionMode'] } : {},
   } as unknown as ResolvedChildProfile
   if (typeof profile.revision !== 'number') throw new Error('persisted child profile revision must be a number')
+  if (profile.supervisionMode !== undefined && !isSupervisionMode(profile.supervisionMode)) {
+    throw new Error('persisted child profile supervisionMode must be "supervised" or "unsupervised"')
+  }
   assertResolvedChildProfile(profile)
   return freezeProfile(profile)
 }
@@ -217,6 +229,9 @@ export function resolveChildProfile(
   }
   assertSafeInteger(spec.modelRoutePriority, 'modelRoutePriority')
   assertSafeInteger(spec.schedulerPriority, 'schedulerPriority')
+  if (spec.supervisionMode !== undefined && !isSupervisionMode(spec.supervisionMode)) {
+    throw new Error('child profile supervisionMode must be "supervised" or "unsupervised"')
+  }
 
   const profile: ResolvedChildProfile = {
     profileId: spec.profileId,
@@ -237,6 +252,7 @@ export function resolveChildProfile(
       : {},
     ...spec.modelRoutePriority !== undefined ? { modelRoutePriority: spec.modelRoutePriority } : {},
     ...spec.schedulerPriority !== undefined ? { schedulerPriority: spec.schedulerPriority } : {},
+    ...spec.supervisionMode !== undefined ? { supervisionMode: spec.supervisionMode } : {},
   }
   const digest = profileDigest(profile)
   return freezeProfile({ ...profile, digest })

@@ -142,7 +142,7 @@ Source: [`packages/core/agent/src/types.ts:19`](../packages/core/agent/src/types
 
 Types: [CallId](subsystems/core.md)
 
-Source: [`packages/interaction/user-approval/src/index.ts:44`](../packages/interaction/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:45`](../packages/interaction/user-approval/src/index.ts)
 
 <a id="approvaldecided--log-only"></a>
 
@@ -160,7 +160,7 @@ Source: [`packages/interaction/user-approval/src/index.ts:44`](../packages/inter
 }
 ```
 
-Source: [`packages/interaction/user-approval/src/index.ts:55`](../packages/interaction/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:56`](../packages/interaction/user-approval/src/index.ts)
 
 <a id="approvalpolicy--log-only"></a>
 
@@ -182,7 +182,7 @@ Source: [`packages/interaction/user-approval/src/index.ts:55`](../packages/inter
 }
 ```
 
-Source: [`packages/interaction/user-approval/src/index.ts:67`](../packages/interaction/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:68`](../packages/interaction/user-approval/src/index.ts)
 
 ### `assistant/*`
 
@@ -530,7 +530,7 @@ Source: [`packages/interaction/permission-presets/src/index.ts:50`](../packages/
 'plan/mode': { active: boolean }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:53`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:54`](../packages/plan/plan-mode/src/index.ts)
 
 ### `request/*`
 
@@ -708,6 +708,19 @@ Source: [`packages/core/session/src/types.ts:265`](../packages/core/session/src/
 ```
 
 Source: [`packages/subagent/subagent/src/descriptor.ts:39`](../packages/subagent/subagent/src/descriptor.ts)
+
+### `supervision/*`
+
+<a id="supervisionmode--log-only"></a>
+
+#### `supervision/mode` — log-only
+
+```ts persistence-catalog
+/** The effective human-supervision mode selected for this session. */
+'supervision/mode': { mode: SupervisionMode; source?: 'delegation' }
+```
+
+Source: [`packages/interaction/supervision/src/index.ts:38`](../packages/interaction/supervision/src/index.ts)
 
 ### `todo/*`
 

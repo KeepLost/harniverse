@@ -200,7 +200,7 @@ export interface PresetRoot {
 export type PresetTrust = 'system' | 'user'
 ```
 
-Source: [`packages/preset/agent-presets/src/preset.ts:54`](../packages/preset/agent-presets/src/preset.ts)
+Source: [`packages/preset/agent-presets/src/preset.ts:56`](../packages/preset/agent-presets/src/preset.ts)
 
 <a id="deepseek-aidsh-agent-spine-demo"></a>
 
@@ -1730,7 +1730,7 @@ export interface PlanModeConfig {
 }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:70`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:71`](../packages/plan/plan-mode/src/index.ts)
 
 <a id="deepseek-aidsh-pwsh-local"></a>
 
@@ -2577,6 +2577,25 @@ export interface Config {
 
 Source: [`packages/e2b/subprocess-e2b/src/index.ts:25`](../packages/e2b/subprocess-e2b/src/index.ts)
 
+<a id="deepseek-aidsh-supervision"></a>
+
+## `@deepseek-ai/dsh-supervision`
+
+Requires: `systemPrompt`
+
+```ts config-catalog
+/** Configures the deployment fallback for sessions without an event. */
+export interface Config {
+  /** Deployment fallback for sessions without a persisted supervision mode. */
+  mode?: SupervisionMode
+}
+
+/** Whether a session may wait for human-dependent operations. */
+export type SupervisionMode = 'supervised' | 'unsupervised'
+```
+
+Source: [`packages/interaction/supervision/src/index.ts:70`](../packages/interaction/supervision/src/index.ts)
+
 <a id="deepseek-aidsh-system-prompt"></a>
 
 ## `@deepseek-ai/dsh-system-prompt`
@@ -3277,7 +3296,7 @@ export interface Config {
 export type ApprovalPolicy = 'ask' | 'never'
 ```
 
-Source: [`packages/interaction/user-approval/src/index.ts:177`](../packages/interaction/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:178`](../packages/interaction/user-approval/src/index.ts)
 
 <a id="deepseek-aidsh-web"></a>
 

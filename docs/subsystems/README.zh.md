@@ -45,6 +45,7 @@
 | [jobs.md](jobs.md) | 后台任务运行时：品牌化 `JobId`、producer 约定、消费方视图和 `ctx.jobs` 服务行为 |
 | [permission-presets.md](permission-presets.md) | 权限预设层：`PresetSpec`/`PresetOption`、派生的 `custom` 状态、仅记日志的 `permission/preset` 事件 |
 | [plan.md](plan.md) | 计划模式：仅记日志的 `plan/mode` 状态、待定选择的冲刷、`PlanModeConfig`、`exit_plan_mode` 审阅流程 |
+| [supervision.md](supervision.md) | 会话级人工监督模式、持久化的 `supervision/mode`、策略继承，以及 `ctx.supervision` 服务 |
 | [invariants.md](invariants.md) | 运行时不变式注册表：选择配置 `Config`、`InvariantInstaller`/`InvariantFailure`、空配套插件约定 |
 | [plugin-diagnostics.md](plugin-diagnostics.md) | 结构化只读插件发现项、effect 作用域检查、失败隔离与三个已装配 Cordis 生命周期域 |
 | [capabilities.md](capabilities.md) | 作用域 Agent 能力 descriptor、继承式允许/拒绝策略、依赖 plan 与 Profile generation 行为 |

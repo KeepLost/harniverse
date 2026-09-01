@@ -270,14 +270,20 @@ describe('Node 24 lane ownership', () => {
     expect(subject.find(item => item.id === 'lint-and-duplication')?.needs).toEqual(['built-package-invariants'])
     for (const id of [
       'snapshot',
-      'web-snapshot',
       'doc-typecheck',
       'node-next-types',
       'built-bin-smoke',
     ]) {
       expect(subject.find(item => item.id === id)?.needs).toEqual(['built-package-invariants'])
     }
-    expect(subject.find(item => item.id === 'snapshot')?.env).toEqual({ DSH_EXAMPLE_MODE: 'lib' })
+    expect(subject.find(item => item.id === 'web-snapshot')?.needs).toEqual([
+      'built-package-invariants',
+      'snapshot',
+    ])
+    expect(subject.find(item => item.id === 'snapshot')?.env).toEqual({
+      DSH_EXAMPLE_MODE: 'lib',
+      DSH_SNAPSHOT_MAX_CONCURRENCY: '1',
+    })
     expect(subject.find(item => item.id === 'doc-typecheck')?.env).toEqual({
       DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1',
     })

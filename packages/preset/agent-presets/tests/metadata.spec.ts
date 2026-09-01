@@ -36,6 +36,12 @@ describe('reading display metadata', () => {
     })
   })
 
+  it('reads the independent supervision mode', async () => {
+    const dir = await presetDir('name: 无人值守\nsupervisionMode: unsupervised\n')
+
+    expect(await readPresetMetadata(dir)).toEqual({ name: '无人值守', supervisionMode: 'unsupervised' })
+  })
+
   it('treats an absent file as no metadata', async () => {
     // The common case: every preset authored by duplicating another starts
     // without one, and a picker simply falls back to the id.
@@ -110,6 +116,10 @@ describe('rendering display metadata', () => {
 
   it('renders the default permission preset', () => {
     expect(renderPresetMetadata({ permissionPreset: 'workspace-write' })).toBe('permissionPreset: workspace-write\n')
+  })
+
+  it('renders the independent supervision mode', () => {
+    expect(renderPresetMetadata({ supervisionMode: 'unsupervised' })).toBe('supervisionMode: unsupervised\n')
   })
 
   it('omits an absent field rather than writing it blank', () => {

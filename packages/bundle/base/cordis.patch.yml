@@ -55,6 +55,9 @@
     - id: user-questions
       name: '@deepseek-ai/dsh-user-questions'
 
+    - id: supervision
+      name: '@deepseek-ai/dsh-supervision'
+
     - id: agent
       name: '@deepseek-ai/dsh-agent'
 

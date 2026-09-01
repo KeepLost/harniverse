@@ -316,6 +316,7 @@ function profileParameters() {
     max_tokens: { type: 'number' as const, description: 'Non-negative child token ceiling; cannot exceed the parent grant.' },
     model_route_priority: { type: 'number' as const, description: 'Model route priority.' },
     scheduler_priority: { type: 'number' as const, description: 'Scheduler priority.' },
+    supervision_mode: { type: 'string' as const, description: 'Human-supervision mode fixed for this Child Profile: supervised or unsupervised.' },
   }
 }
 
@@ -332,12 +333,16 @@ type ProfileToolArgs = {
   max_tokens?: number
   model_route_priority?: number
   scheduler_priority?: number
+  supervision_mode?: string
 }
 
 function profileSpecFromArgs(
   args: ProfileToolArgs,
   defaults: Pick<ChildProfileGrant, 'harnessIds' | 'modelRouteIds'>,
 ): ChildProfileSpec {
+  if (args.supervision_mode !== undefined && args.supervision_mode !== 'supervised' && args.supervision_mode !== 'unsupervised') {
+    throw new Error('supervision_mode must be "supervised" or "unsupervised"')
+  }
   return {
     profileId: args.child_profile_id,
     harnessId: args.harness_id ?? defaults.harnessIds[0] as string,
@@ -351,6 +356,7 @@ function profileSpecFromArgs(
     ...args.max_tokens !== undefined ? { maxTokens: args.max_tokens } : {},
     ...args.model_route_priority !== undefined ? { modelRoutePriority: args.model_route_priority } : {},
     ...args.scheduler_priority !== undefined ? { schedulerPriority: args.scheduler_priority } : {},
+    ...args.supervision_mode !== undefined ? { supervisionMode: args.supervision_mode } : {},
   }
 }
 

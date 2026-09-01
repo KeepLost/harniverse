@@ -16,6 +16,7 @@
     { "path": "../../core/tools" },
     { "path": "../../interaction/user-approval" },
     { "path": "../../interaction/user-questions" },
+    { "path": "../../interaction/supervision" },
     { "path": "../../jobs/jobs" },
     { "path": "../../llm/llm" },
     { "path": "../../session/session-projection" },

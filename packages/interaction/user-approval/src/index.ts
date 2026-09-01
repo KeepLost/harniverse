@@ -13,6 +13,7 @@ import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import type {} from '@deepseek-ai/dsh-supervision'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -256,6 +257,7 @@ export class ApprovalService extends Service {
    */
   async request(req: ApprovalRequest): Promise<ApprovalOutcome> {
     const session = req.agent.session
+    if (this.ctx.get('supervision')?.allowsHumanInteraction(session) === false) return 'rejected'
     if (!hasOpenTurn(session.events)) {
       throw new Error(
         'approval.request() outside an open turn: the approval/asked + approval/decided audit pair '

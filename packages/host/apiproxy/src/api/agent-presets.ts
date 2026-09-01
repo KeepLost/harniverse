@@ -16,6 +16,8 @@ export interface AgentPresetEntry {
   readonly description?: string
   /** Permission preset applied before this Profile's Agent is published. */
   readonly permissionPreset?: string
+  /** Human-supervision mode applied before this Profile's Agent is published. */
+  readonly supervisionMode?: 'supervised' | 'unsupervised'
   /** Why this Profile cannot compose a Session. */
   readonly broken?: string
 }

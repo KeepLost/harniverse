@@ -50,6 +50,7 @@
     "@deepseek-ai/dsh-home-paths": "workspace:^",
     "@deepseek-ai/dsh-permission-presets": "workspace:^",
     "@deepseek-ai/dsh-plan-mode": "workspace:^",
+    "@deepseek-ai/dsh-supervision": "workspace:^",
     "@deepseek-ai/dsh-terminal": "workspace:^",
     "@deepseek-ai/dsh-terminal-bash": "workspace:^",
     "@deepseek-ai/dsh-repeat-tool-reminder": "workspace:^",

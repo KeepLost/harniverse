@@ -38,6 +38,7 @@ import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-supervision'
 import type {
   ContinuableCreateRequest,
   ContinuableCreateSpec,
@@ -487,6 +488,11 @@ export class SubagentRuntime extends Service {
     }
     const previous = profiles.get(spec.profileId)
     const profile = resolveChildProfile(spec, grant, (previous?.revision ?? 0) + 1)
+    if (this.ctx.get('supervision')?.modeOf(parent.session) === 'unsupervised' && profile.supervisionMode !== 'unsupervised') {
+      throw new SubagentError(
+        'an unsupervised parent may only define an unsupervised child profile',
+        'SUPERVISION_MODE_ESCALATION')
+    }
     profiles.set(profile.profileId, profile)
     return profile
   }

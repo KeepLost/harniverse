@@ -22,6 +22,7 @@ import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork-in-process'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import ApprovalService, { effectiveApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
+import SupervisionService, { effectiveSupervisionMode, setSupervisionMode } from '@deepseek-ai/dsh-supervision'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import SubagentRuntime from '../src/index.ts'
 
@@ -44,6 +45,7 @@ async function setup(script: Script) {
   await ctx.plugin(JsonlSessionPersistence, { root })
   await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: root })
   await ctx.plugin(ApprovalService)
+  await ctx.plugin(SupervisionService)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentRuntime)
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
@@ -227,5 +229,19 @@ describe('continuable policy inheritance', () => {
       { data: { mode: 'read-only', source: 'delegation' } },
     ])
     expect(effectiveSandboxMode(loaded.events)).toBe('read-only')
+  })
+
+  it('pins the parent supervision mode at delegation time', { timeout: 20_000 }, async () => {
+    const { ctx, parent } = await setup([textResponse('child done')])
+    setSupervisionMode(parent.session, 'unsupervised')
+
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    await waitNoActivation(ctx, started.childId)
+
+    const loaded = await ctx.sessionPersistence.load(started.childId)
+    expect(loaded.events.filter(event => event.type === 'supervision/mode')).toMatchObject([
+      { data: { mode: 'unsupervised', source: 'delegation' } },
+    ])
+    expect(effectiveSupervisionMode(loaded.events)).toBe('unsupervised')
   })
 })

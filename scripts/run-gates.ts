@@ -415,8 +415,11 @@ function ciConsumerGates(): Gate[] {
       label: 'lint and duplication',
       needs: validatedBuild,
     }),
-    snapshotGate(validatedBuild),
-    webSnapshotGate(validatedBuild, true),
+    snapshotGate(validatedBuild, { DSH_SNAPSHOT_MAX_CONCURRENCY: '1' }),
+    // The lib-mode snapshot gate also boots the Web snapshot suites. Keep the
+    // browser-heavy gates serial so independent Web scaffolds do not contend
+    // for runner resources and trip their startup hook timeout.
+    webSnapshotGate([...validatedBuild, 'snapshot'], true),
     pnpmScript('doc-typecheck', 'doc-typecheck:contracts-ready', {
       needs: validatedBuild,
       env: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
@@ -540,9 +543,9 @@ function coverageGates(): Gate[] {
 // Example and package snapshots boot their bins in `lib` mode (built artifacts under plain Node,
 // plugins via real exports); script snapshots execute their real source entry path.
 // Callers wait either on `build` or on a validation gate that transitively owns that build.
-function snapshotGate(needs: string[] = ['build']): Gate {
+function snapshotGate(needs: string[] = ['build'], env: Record<string, string> = {}): Gate {
   return pnpmScript('snapshot', 'test:snapshot', {
-    env: { DSH_EXAMPLE_MODE: 'lib' },
+    env: { DSH_EXAMPLE_MODE: 'lib', ...env },
     needs,
   })
 }

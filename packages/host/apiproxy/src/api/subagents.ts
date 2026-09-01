@@ -26,6 +26,7 @@ export interface SubagentProfileSnapshot {
   maxTokens?: number
   modelRoutePriority?: number
   schedulerPriority?: number
+  supervisionMode?: 'supervised' | 'unsupervised'
 }
 
 /** Complete durable direct-child catalog row. */

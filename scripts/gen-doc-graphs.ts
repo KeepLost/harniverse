@@ -358,6 +358,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Folds logged plan/mode state, flushes user selections at turn boundaries, renders deployment-owned guidance, registers /plan, and keeps the plan-exit schema stable across transitions.',
   },
   {
+    key: 'supervision',
+    pkg: 'supervision',
+    title: 'Per-session human-supervision policy',
+    mode: 'core',
+    consumers: ['user-questions', 'user-approval', 'plan-mode', 'subagent', 'apiproxy'],
+    note: 'Owns the durable supervised/unsupervised mode and model-facing policy context; human-dependent consumers reject new waits in unsupervised sessions, while delegation captures the effective mode for each child.',
+  },
+  {
     key: 'agentPresets',
     pkg: 'agent-presets',
     title: 'Per-session agent composition',

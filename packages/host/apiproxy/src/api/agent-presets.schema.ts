@@ -16,6 +16,7 @@ export const agentPresetEntrySchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
   permissionPreset: z.string().min(1).optional(),
+  supervisionMode: z.union([z.literal('supervised'), z.literal('unsupervised')]).optional(),
   broken: z.string().min(1).optional(),
 }) satisfies z.ZodType<Wire<AgentPresetEntry>>
 

@@ -12,6 +12,8 @@ import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import type {} from '@deepseek-ai/dsh-permission-presets'
+import { setSupervisionMode } from '@deepseek-ai/dsh-supervision'
+import type {} from '@deepseek-ai/dsh-supervision'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
@@ -1633,6 +1635,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           const agent = agentCtx.agent
           if (agent === undefined) throw new Error('api-proxy: agent setup has no scoped agent')
           permissions.set(agent.session, profile.permissionPreset)
+        }
+        if (applyProfilePermission && profile.supervisionMode !== undefined) {
+          const supervision = ctx.get('supervision')
+          if (supervision === undefined) {
+            throw new Error(`agent profile "${resolvedId}" requires supervision mode "${profile.supervisionMode}", but supervision is not composed`)
+          }
+          const agent = agentCtx.agent
+          if (agent === undefined) throw new Error('api-proxy: agent setup has no scoped agent')
+          setSupervisionMode(agent.session, profile.supervisionMode)
         }
       },
     }
@@ -4231,6 +4242,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             ...preset.name === undefined ? {} : { name: preset.name },
             ...preset.description === undefined ? {} : { description: preset.description },
             ...preset.permissionPreset === undefined ? {} : { permissionPreset: preset.permissionPreset },
+            ...preset.supervisionMode === undefined ? {} : { supervisionMode: preset.supervisionMode },
             ...preset.broken === undefined ? {} : { broken: preset.broken },
           })),
           authorable: presets.authorable,

@@ -81,6 +81,9 @@
       "path": "../../interaction/permission-presets"
     },
     {
+      "path": "../../interaction/supervision"
+    },
+    {
       "path": "../ui-settings"
     }
   ],

@@ -57,6 +57,7 @@ interface BenchOptions {
   /** Hot text-ref lexicon (injects a minimal slash stub exposing only lexicon()). */
   lexicon?: ReadonlyMap<'/' | '@', readonly string[]>
   permissions?: { options: { value: string; name: string; description?: string }[]; currentValue: string }
+  supervision?: { options: { value: 'supervised' | 'unsupervised'; name: string; description: string }[]; currentValue: 'supervised' | 'unsupervised' }
   /** The `imageLimits` projection value (absent = no attachment service). */
   imageLimits?: {
     maxImageBytes: number
@@ -157,7 +158,8 @@ function bench(over?: BenchOptions) {
     useProjection: ((key: string, selector?: (v: unknown) => unknown) =>
       (selector ?? (v => v))(key === 'permissions'
         ? over?.permissions
-        : key === 'plan' ? over?.plan : key === 'imageLimits' ? over?.imageLimits : undefined)),
+        : key === 'supervision' ? over?.supervision
+          : key === 'plan' ? over?.plan : key === 'imageLimits' ? over?.imageLimits : undefined)),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
@@ -1207,6 +1209,26 @@ describe('command launcher chrome and control seats', () => {
     expect(command).toHaveBeenCalledWith('/permission workspace-write')
     await act(async () => {})
     expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('renders the independent supervision selector and writes its command', async () => {
+    const command = vi.fn(() => Promise.resolve(true))
+    const supervision = {
+      options: [
+        { value: 'supervised' as const, name: 'Supervised', description: 'Ask when needed.' },
+        { value: 'unsupervised' as const, name: 'Unsupervised', description: 'Do not wait for decisions.' },
+      ],
+      currentValue: 'supervised' as const,
+    }
+    const { view } = bench({ supervision, command })
+    const trigger = view.getByLabelText('Supervision mode: Supervised')
+    expect(trigger.textContent).toContain('Supervised')
+    fireEvent.click(trigger)
+    fireEvent.click(view.getByRole('menuitem', { name: 'Unsupervised' }))
+
+    expect(command).toHaveBeenCalledWith('/supervision unsupervised')
+    expect((view.getByLabelText('Supervision mode: Unsupervised') as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => {})
   })
 
   it('requires explicit risk acknowledgement before submitting Full access', async () => {

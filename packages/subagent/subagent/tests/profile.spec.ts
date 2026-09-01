@@ -55,6 +55,15 @@ describe('Child Profile resolution', () => {
     expect(() => resolveChildProfile(spec({ childProfileIds: ['admin'] }), grant, 1)).toThrow('outside the parent grant')
   })
 
+  it('keeps an explicit child supervision mode in the immutable snapshot', () => {
+    const profile = resolveChildProfile(spec({ supervisionMode: 'unsupervised' }), grant, 1)
+
+    expect(profile.supervisionMode).toBe('unsupervised')
+    expect(foldSubagentDescriptor([
+      { type: 'subagent/descriptor', data: snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'native', childProfile: profile }) },
+    ] as unknown as SessionEvent[])?.childProfile).toEqual(profile)
+  })
+
   it('enforces limits and workspace descendant boundaries', () => {
     expect(() => resolveChildProfile(spec({ maxDepth: 5 }), grant, 1)).toThrow('maxDepth exceeds')
     expect(() => resolveChildProfile(spec({ workspaceCwd: '../outside' }), grant, 1)).toThrow('remain inside')

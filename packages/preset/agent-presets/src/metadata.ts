@@ -39,6 +39,8 @@ export interface PresetMetadata {
   readonly order?: number
   /** Permission preset applied before the agent is published. */
   readonly permissionPreset?: string
+  /** Human-supervision mode applied before the agent is published. */
+  readonly supervisionMode?: 'supervised' | 'unsupervised'
 }
 
 /** A non-empty trimmed string, or undefined for anything else. */
@@ -81,11 +83,15 @@ export async function readPresetMetadata(directory: string): Promise<PresetMetad
     ? record.order
     : undefined
   const permissionPreset = text(record.permissionPreset)
+  const supervisionMode = record.supervisionMode === 'supervised' || record.supervisionMode === 'unsupervised'
+    ? record.supervisionMode
+    : undefined
   return {
     ...name === undefined ? {} : { name },
     ...description === undefined ? {} : { description },
     ...order === undefined ? {} : { order },
     ...permissionPreset === undefined ? {} : { permissionPreset },
+    ...supervisionMode === undefined ? {} : { supervisionMode },
   }
 }
 
@@ -102,11 +108,16 @@ export function renderPresetMetadata(metadata: PresetMetadata): string | undefin
   const description = text(metadata.description)
   const { order } = metadata
   const permissionPreset = text(metadata.permissionPreset)
-  if (name === undefined && description === undefined && order === undefined && permissionPreset === undefined) return undefined
+  const supervisionMode = metadata.supervisionMode === 'supervised' || metadata.supervisionMode === 'unsupervised'
+    ? metadata.supervisionMode
+    : undefined
+  if (name === undefined && description === undefined && order === undefined
+    && permissionPreset === undefined && supervisionMode === undefined) return undefined
   return yaml.dump({
     ...name === undefined ? {} : { name },
     ...description === undefined ? {} : { description },
     ...order === undefined ? {} : { order },
     ...permissionPreset === undefined ? {} : { permissionPreset },
+    ...supervisionMode === undefined ? {} : { supervisionMode },
   }, { lineWidth: -1 })
 }

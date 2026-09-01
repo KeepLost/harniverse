@@ -181,6 +181,7 @@ describe('web e2e: settings modal and General preferences', () => {
 
     const created = scaffold.ctx.sessions.create(SessionId('settings-permission-after'))
     expect(created.events.map(event => [event.type, event.data])).toEqual([
+      ['supervision/mode', { mode: 'supervised' }],
       ['permission/preset', { preset: 'read-only' }],
       ['sandbox/mode', { mode: 'read-only' }],
       ['approval/policy', { policy: 'ask' }],
@@ -198,6 +199,7 @@ describe('web e2e: settings modal and General preferences', () => {
     expect(confirmedDocument).toContain('defaultPreset: danger-full-access')
     const confirmed = scaffold.ctx.sessions.create(SessionId('settings-permission-confirmed'))
     expect(confirmed.events.map(event => [event.type, event.data])).toEqual([
+      ['supervision/mode', { mode: 'supervised' }],
       ['permission/preset', { preset: 'danger-full-access' }],
       ['sandbox/mode', { mode: 'danger-full-access' }],
       ['approval/policy', { policy: 'never' }],

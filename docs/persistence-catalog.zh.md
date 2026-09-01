@@ -711,6 +711,19 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/subagent/subagent/src/descriptor.ts:37`](../packages/subagent/subagent/src/descriptor.ts)
 
+### `supervision/*`
+
+<a id="supervisionmode--log-only"></a>
+
+#### `supervision/mode` — log-only
+
+```ts persistence-catalog
+/** The effective human-supervision mode selected for this session. */
+'supervision/mode': { mode: SupervisionMode; source?: 'delegation' }
+```
+
+来源：[`packages/interaction/supervision/src/index.ts:35`](../packages/interaction/supervision/src/index.ts)
+
 ### `todo/*`
 
 <a id="todowrite--log-only"></a>

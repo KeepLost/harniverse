@@ -16,6 +16,7 @@ import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ObjectJsonSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
 import type { SubagentDescriptorData } from './descriptor.ts'
+import type { SupervisionMode } from '@deepseek-ai/dsh-supervision'
 
 /**
  * A parent-owned request for one child execution environment. All references
@@ -35,6 +36,8 @@ export interface ChildProfileSpec {
   readonly maxTokens?: number
   readonly modelRoutePriority?: number
   readonly schedulerPriority?: number
+  /** Human-supervision mode fixed for the child at creation. */
+  readonly supervisionMode?: SupervisionMode
 }
 
 /** Capabilities the host has granted to the parent that defines a profile. */
@@ -81,6 +84,8 @@ export interface ResolvedChildProfile {
   readonly maxTokens?: number
   readonly modelRoutePriority?: number
   readonly schedulerPriority?: number
+  /** Human-supervision mode fixed for the child at creation. */
+  readonly supervisionMode?: SupervisionMode
 }
 
 /** Trusted Host contribution applied inside a child creation scope. */
