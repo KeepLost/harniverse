@@ -208,7 +208,7 @@ describe('HttpFetchProvider success', () => {
       headers: { 'content-type': 'text/plain', 'x-test': ['one', 'two'], 'x-empty': undefined },
     })
     httpRequestMock.mockImplementationOnce((_options, onResponse) => {
-      onResponse(response)
+      onResponse(response as unknown as IncomingMessage)
       return request
     })
     const direct = new HttpFetchProvider(limits, {
@@ -228,7 +228,7 @@ describe('HttpFetchProvider success', () => {
       headers: { 'content-type': 'text/plain' },
     })
     httpsRequestMock.mockImplementationOnce((_options, onResponse) => {
-      onResponse(response)
+      onResponse(response as unknown as IncomingMessage)
       return request
     })
     const direct = new HttpFetchProvider(limits, {
@@ -248,7 +248,7 @@ describe('HttpFetchProvider success', () => {
       headers: { 'content-type': 'text/plain' },
     })
     httpsRequestMock.mockImplementationOnce((_options, onResponse) => {
-      onResponse(response)
+      onResponse(response as unknown as IncomingMessage)
       return request
     })
     const direct = new HttpFetchProvider(limits)
