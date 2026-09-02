@@ -25,11 +25,12 @@ describe('admitEncodedImages', () => {
     const refs = await admitEncodedImages(store, [
       { mediaType: 'image/png', data: PNG, name: 'first.png' },
       { mediaType: 'image/jpeg', data: PNG, name: 'second.jpg' },
+      { mediaType: 'image/webp', data: PNG },
     ])
     const batch = mocks.saveImages.mock.calls[0]?.[0] as readonly SaveImageAttachment[]
     expect(batch.map(input => [input.name, input.mediaType, input.data.byteLength]))
-      .toEqual([['first.png', 'image/png', 3], ['second.jpg', 'image/jpeg', 3]])
-    expect(refs.map(ref => ref.attachmentId)).toEqual(['att-1', 'att-2'])
+      .toEqual([['first.png', 'image/png', 3], ['second.jpg', 'image/jpeg', 3], [undefined, 'image/webp', 3]])
+    expect(refs.map(ref => ref.attachmentId)).toEqual(['att-1', 'att-2', 'att-3'])
   })
 
   it('rejects invalid base64 before creating a durable batch', async () => {
