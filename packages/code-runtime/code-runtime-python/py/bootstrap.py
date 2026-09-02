@@ -14,6 +14,8 @@ import threading
 import textwrap
 from typing import Any
 
+# JSON replies may contain deeply nested model values. Keep the decoder's
+# recursion budget within the native stack reserved for its Windows thread.
 sys.setrecursionlimit(max(sys.getrecursionlimit(), 20_000))
 
 _PY_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -138,11 +140,122 @@ def _send(frame: dict[str, Any], max_bytes: int | None = None) -> None:
         _write_channel.write(payload)
 
 
+def _loads_deep(line: bytes) -> Any:
+    """Decode a JSON frame without consuming Python call-stack per container."""
+    text = line.decode("utf-8")
+    decoder = json.JSONDecoder()
+    stack: list[tuple[Any, str]] = []
+    current: Any = None
+    index = 0
+    have_value = False
+
+    def skip(position: int) -> int:
+        while position < len(text) and text[position] in " \t\r\n":
+            position += 1
+        return position
+
+    def token(position: int) -> tuple[Any, int]:
+        position = skip(position)
+        if position >= len(text):
+            raise ValueError("incomplete JSON")
+        if text[position] == '"':
+            value, end = decoder.raw_decode(text, position)
+            return value, end
+        for literal, value in (("true", True), ("false", False), ("null", None)):
+            if text.startswith(literal, position):
+                return value, position + len(literal)
+        if text[position] in "-0123456789":
+            value, end = decoder.raw_decode(text, position)
+            return value, end
+        if text[position] == "[":
+            return [], position + 1
+        if text[position] == "{":
+            return {}, position + 1
+        raise ValueError("invalid JSON token")
+
+    while True:
+        if not have_value:
+            current, index = token(index)
+            have_value = True
+            if isinstance(current, list):
+                stack.append((current, "array"))
+                index = skip(index)
+                if index < len(text) and text[index] == "]":
+                    stack.pop()
+                    index += 1
+                else:
+                    have_value = False
+                    continue
+            elif isinstance(current, dict):
+                stack.append((current, "object"))
+                index = skip(index)
+                if index < len(text) and text[index] == "}":
+                    stack.pop()
+                    index += 1
+                else:
+                    key, index = token(index)
+                    if not isinstance(key, str) or skip(index) >= len(text) or text[skip(index)] != ":":
+                        raise ValueError("invalid JSON object")
+                    stack.append((key, "key"))
+                    index = skip(index) + 1
+                    have_value = False
+                    continue
+
+        if not stack:
+            if skip(index) != len(text):
+                raise ValueError("trailing JSON data")
+            return current
+
+        container, kind = stack[-1]
+        if kind == "key":
+            key = container
+            stack.pop()
+            parent, _ = stack[-1]
+            parent[key] = current
+            index = skip(index)
+            if index < len(text) and text[index] == ",":
+                index = skip(index + 1)
+                next_key, index = token(index)
+                if not isinstance(next_key, str) or text[skip(index)] != ":":
+                    raise ValueError("invalid JSON object")
+                stack.append((next_key, "key"))
+                index = skip(index) + 1
+                have_value = False
+                continue
+            if index >= len(text) or text[index] != "}":
+                raise ValueError("invalid JSON object")
+            stack.pop()
+            index += 1
+            current = parent
+            have_value = True
+            continue
+
+        if kind == "array":
+            container.append(current)
+            index = skip(index)
+            if index < len(text) and text[index] == ",":
+                index += 1
+                have_value = False
+                continue
+            if index >= len(text) or text[index] != "]":
+                raise ValueError("invalid JSON array")
+            stack.pop()
+            index += 1
+            current = container
+            have_value = True
+            continue
+
+        raise ValueError("invalid JSON state")
+
+
 def _read(limit: int) -> dict[str, Any]:
     line = _read_channel.readline(limit + 1)
     if not line or len(line) > limit or not line.endswith(b"\n"):
         raise RuntimeError("invalid host control frame")
-    value = json.loads(line)
+    try:
+        value = json.loads(line)
+    except RecursionError:
+        value = _loads_deep(line)
     if not isinstance(value, dict):
         raise RuntimeError("invalid host control frame")
     return value
@@ -227,7 +340,7 @@ class _Bridge:
         previous_stack_size = threading.stack_size()
         if os.name == "nt":
             # The default Windows thread stack cannot decode deeply nested replies.
-            threading.stack_size(128 * 1024 * 1024)
+            threading.stack_size(192 * 1024 * 1024)
         try:
             self._reader = threading.Thread(target=self._read_replies, daemon=True, name="dsh-python-replies")
             self._reader.start()

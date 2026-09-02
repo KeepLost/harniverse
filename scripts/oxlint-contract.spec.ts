@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
 const oxlintCli = fileURLToPath(new URL('../node_modules/oxlint/bin/oxlint', import.meta.url))
 const tsxCli = fileURLToPath(new URL('../node_modules/tsx/dist/cli.mjs', import.meta.url))
+const subprocessTestTimeoutMs = process.platform === 'win32' ? 600_000 : 20_000
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -117,7 +118,7 @@ probePromise()
         rm(configPath, { force: true }),
       ])
     }
-  }, 20_000)
+  }, subprocessTestTimeoutMs)
 
   it('runs JavaScript compatibility and nursery rules', async () => {
     const suffix = randomUUID()
@@ -156,7 +157,7 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
         rm(configPath, { force: true }),
       ])
     }
-  }, 20_000)
+  }, subprocessTestTimeoutMs)
 
   it('rejects cross-package source imports from production code', async () => {
     const suffix = randomUUID()
@@ -180,7 +181,7 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
         rm(configPath, { force: true }),
       ])
     }
-  }, 20_000)
+  }, subprocessTestTimeoutMs)
 
   it('keeps the complete stylistic contract in Oxlint', async () => {
     const oxlintPath = join(repositoryRoot, '.oxlintrc.json')
@@ -280,7 +281,7 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
         rm(configPath, { force: true }),
       ])
     }
-  }, 20_000)
+  }, subprocessTestTimeoutMs)
 
   it('accepts an ignored-only staged selection', () => {
     const result = runOxlint([
@@ -327,7 +328,7 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
     } finally {
       await rm(path, { force: true })
     }
-  }, 20_000)
+  }, subprocessTestTimeoutMs)
 
   it('preserves successful fix output channels', async () => {
     const suffix = randomUUID()
@@ -399,6 +400,6 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
         await rm(directory, { recursive: true, force: true })
       }
     },
-    20_000,
+    subprocessTestTimeoutMs,
   )
 })

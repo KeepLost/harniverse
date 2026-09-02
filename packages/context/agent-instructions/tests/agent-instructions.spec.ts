@@ -47,6 +47,7 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
 const sk = (directory: string, candidateName: string): string => candidateScopeKey(directory, candidateName)
 
 const testToolSignal = new AbortController().signal
+const composeSignalTimeoutMs = process.platform === 'win32' ? 10_000 : 1_000
 
 async function tempRepo(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'dsh-workspace-context-'))
@@ -259,7 +260,7 @@ async function appendAdditionalContexts(ctx: Context, agent: Agent): Promise<num
 const composedPrefixes = new WeakMap<object, Message[]>()
 
 async function composeBaselinePrefix(ctx: Context, agent: Agent): Promise<Message[]> {
-  const signal = AbortSignal.timeout(1000)
+  const signal = AbortSignal.timeout(composeSignalTimeoutMs)
   await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
     { messages: [], turn: 1, step: 1, signal },

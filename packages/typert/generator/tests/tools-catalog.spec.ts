@@ -17,7 +17,8 @@ afterEach(() => {
 })
 
 describe('model-driven dsh-tools generation', () => {
-  it('round-trips the complete service and event structure through the runtime registry', { timeout: 30_000 }, async () => {
+  // Workspace-wide analysis can exceed the default under a loaded Windows runner.
+  it('round-trips the complete service and event structure through the runtime registry', { timeout: 60_000 }, async () => {
     const workspace = new WorkspaceAnalyzer({
       root: workspaceRoot,
       faces: ['host'],

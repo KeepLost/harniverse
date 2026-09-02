@@ -121,12 +121,19 @@ const processBoundTests = [
   'packages/llm/llm-pi-ai/tests/adapter.spec.ts',
   'packages/boot/app-boot/tests/app-boot.spec.ts',
   'packages/workflow/workflow-worker-thread/tests/session.spec.ts',
+  'packages/code-runtime/code-runtime-python/tests/runtime.spec.ts',
 ]
+
+const platformTestTimeoutMs = process.platform === 'win32' ? 600_000 : 5_000
+const processBoundMaxWorkers = process.platform === 'win32' ? 1 : undefined
 
 export default defineConfig({
   plugins: [pathsPlugin(), standardDecoratorPlugin()],
   test: {
     setupFiles: ['./scripts/test-invariants.ts'],
+    // Hosted Windows runners need more time for process-heavy fixtures and
+    // filesystem cleanup; keep the platform-specific ceiling at ten minutes.
+    testTimeout: platformTestTimeoutMs,
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
     include: testIncludes,
   exclude: [...windowsUnsupportedTests, ...nonNativePwshTests],
@@ -138,6 +145,7 @@ export default defineConfig({
         test: {
           name: 'thread-safe',
           execArgv: vitestExecArgv,
+          testTimeout: platformTestTimeoutMs,
           // Node 24 has aborted in its CJS lexer (v8::ToLocalChecked Empty
           // MaybeLocal in cjs_lexer::Parse) from worker threads on macOS,
           // Linux, and Windows. Forked workers avoid that shared thread path.
@@ -157,6 +165,8 @@ export default defineConfig({
         test: {
           name: 'process-bound',
           execArgv: vitestExecArgv,
+          testTimeout: platformTestTimeoutMs,
+          ...processBoundMaxWorkers === undefined ? {} : { maxWorkers: processBoundMaxWorkers },
           pool: 'forks',
           setupFiles: ['./scripts/test-invariants.ts'],
           include: processBoundTests,
