@@ -51,3 +51,5 @@ Current web_fetch providers: http. Pass one of these ids as the optional provide
 Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: "{{cwd}}". Some platform temporary areas may also be writable.
 
 Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed.
+
+Supervision mode: supervised. Human questions and approval requests are available when the task genuinely requires a user decision. Inspect and use available tools before asking the user for discoverable facts.

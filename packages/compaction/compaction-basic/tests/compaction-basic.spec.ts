@@ -3,7 +3,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
-import { selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
+import { compactSurfaceRegion, selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
+import type { RegionDependencies } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 import type { SummarizationInput, SummaryResult } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import { CompactionId, toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction'
 import {
@@ -903,6 +904,36 @@ describe('optional model-free tool-result pruning', () => {
 })
 
 describe('compaction region transaction', () => {
+  it('completes without a progress sink', async () => {
+    const ctx = createContext()
+    const progress = vi.fn()
+    ctx.on('compaction/progress', progress)
+    const session = conversation(3)
+    const nodes = session.surface.nodes
+    const selected = [...nodes.slice(0, 4)]
+    const dependencies: RegionDependencies = {
+      meter: ctx.tokenMeter,
+      summarize: async () => ({
+        summary: [{ type: 'text', text: 'compact' }],
+        provider: 'summary-provider',
+        model: 'summary-model',
+      }),
+    }
+
+    const result = await compactSurfaceRegion(
+      dependencies,
+      session,
+      selected[0]!,
+      selected[3]!,
+      agent(session, MODEL),
+      { owner: 'current-turn', stability: 'whole-surface' },
+      SIGNAL,
+    )
+
+    expect(result.shadowedSeqs).toEqual(selected)
+    expect(progress).not.toHaveBeenCalled()
+  })
+
   it('emits transient progress with the transaction identity without logging it', async () => {
     const ctx = createContext()
     const compact = service({ auto: false }, ctx)

@@ -428,7 +428,7 @@ function ciConsumerGates(): Gate[] {
     // The lib-mode snapshot gate also boots the Web snapshot suites. Keep the
     // browser-heavy gates serial so independent Web scaffolds do not contend
     // for runner resources and trip their startup hook timeout.
-    webSnapshotGate([...validatedBuild, 'snapshot']),
+    webSnapshotGate([...validatedBuild, 'snapshot'], true),
     pnpmScript('doc-typecheck', 'doc-typecheck:contracts-ready', {
       needs: validatedBuild,
       env: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },

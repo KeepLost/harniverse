@@ -57,6 +57,7 @@
 - button "Commands":
   - img
 - 'button "Access mode, current: Read Only"': Read Only
+- 'button "Supervision mode: Supervised"': Supervised
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
