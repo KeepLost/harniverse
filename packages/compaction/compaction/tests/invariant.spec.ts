@@ -632,7 +632,9 @@ describe('compaction invariants', () => {
       sourceEventSeqs: [start.seq, summarized.seq, original],
     }
 
-    expect(() => ctx.emit('internal/dispatch', 'emit', 'session/event', [session, checkpoint], null))
+    expect(() => {
+      ctx.emit('internal/dispatch', 'emit', 'session/event', [session, checkpoint], null)
+    })
       .toThrow(/replacement must have seq/)
   })
 
