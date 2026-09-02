@@ -33,6 +33,8 @@ describe('request image projection', () => {
   it('keeps aspect ratio inside the pixel budget without enlarging', () => {
     expect(requestImageDimensions(2_000, 1_000, 1_000_000)).toEqual({ width: 1414, height: 707 })
     expect(requestImageDimensions(10, 5, 1_000_000)).toEqual({ width: 10, height: 5 })
+    expect(requestImageDimensions(2, 2, 1)).toEqual({ width: 1, height: 1 })
+    expect(requestImageDimensions(1, 100, 50)).toEqual({ width: 1, height: 50 })
   })
 
   it('derives and reuses a sidecar request image without changing the durable ref', async () => {
@@ -88,6 +90,10 @@ describe('request image projection', () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
     roots.push(root)
     await expect(readRequestImageFile(root, await stored(), { maxPixels: 0, maxBytes: 20_000 }))
+      .rejects.toMatchObject({ code: 'INVALID_IMAGE_POLICY' })
+    await expect(readRequestImageFile(root, await stored(), { maxPixels: 1, maxBytes: 0 }))
+      .rejects.toMatchObject({ code: 'INVALID_IMAGE_POLICY' })
+    await expect(readRequestImageFile(root, await stored(), { maxPixels: Number.MAX_SAFE_INTEGER + 1, maxBytes: 20_000 }))
       .rejects.toMatchObject({ code: 'INVALID_IMAGE_POLICY' })
   })
 
