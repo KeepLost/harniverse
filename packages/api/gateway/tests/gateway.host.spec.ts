@@ -136,6 +136,7 @@ function invokeConnection(
 class FakeConnectionService extends Service {
   channel: string | undefined
   authority: string | undefined
+  policy: FakeRpcResolver | undefined
   matches: ((endpoint: string) => boolean) | undefined
   handler: FakeRpcHandler | undefined
 
@@ -155,11 +156,13 @@ class FakeConnectionService extends Service {
         owner.effect(() => {
           this.channel = channel
           this.authority = options.authority
+          this.policy = resolveEndpoint
           this.matches = endpoint => resolveEndpoint(endpoint) !== undefined
           this.handler = handler
           return () => {
             this.channel = undefined
             this.authority = undefined
+            this.policy = undefined
             this.matches = undefined
             this.handler = undefined
           }
@@ -701,10 +704,14 @@ describe('TypertGatewayService', () => {
   })
 
   it('rejects ambiguous SRC endpoints independently of reflection order', async () => {
-    const ctx = await setupGateway()
+    const ctx = new Context()
+    await ctx.plugin(TypertRegistry)
+    await ctx.plugin(FakeConnectionService)
+    await ctx.plugin(TypertGatewayService)
     await ctx.plugin(FirstSharedService)
     await ctx.plugin(SecondSharedService)
 
+    expect(rawConnection(ctx).policy?.('shared/run')).toEqual({ denied: true })
     const error = await expectCode(ctx.typertGateway.invoke({
       namespace: 'shared',
       method: 'run',
