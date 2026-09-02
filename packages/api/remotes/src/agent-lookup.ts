@@ -225,9 +225,10 @@ export function createApiRemoteAgentResolver(
           // (composing a preset, say) does not widen the collision window.
           const setup = options.setup === undefined ? undefined : await options.setup({ meta })
           const publishedSession = ctx.sessions.get(sessionId)
-          const publishedAgent = ctx.agents.get(sessionId)
-          if (publishedSession !== undefined
-            && hasApiRemoteSubagentOwner(ctx, publishedSession, publishedAgent)) {
+          const publishedSubagent = publishedSession === undefined
+            ? false
+            : hasApiRemoteSubagentOwner(ctx, publishedSession, ctx.agents.get(sessionId))
+          if (publishedSubagent) {
             throw new ApiRemoteSubagentSessionOwnership(sessionId)
           }
           const handle = await ctx.agents.resume({
