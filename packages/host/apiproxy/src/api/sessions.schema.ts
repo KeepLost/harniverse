@@ -13,7 +13,7 @@ import type { Wire } from './rpc.schema.ts'
 import type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
   ModelReasoningEffort, ModelSelection, SessionListMetadata, SessionProjectionsBlock, SessionSearchItem, SessionSummary,
-  SessionWorkStatus,
+  SessionWorkDelivery, SessionWorkStatus,
 } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
 import type { AttachmentIdType, ImageAttachmentLimits, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -328,16 +328,26 @@ export const sessionWorkStatusRequestSchema = z.object({
   messageId: messageIdSchema,
 }) satisfies z.ZodType<Wire<RequestPayload<'session.workStatus'>>>
 
+const sessionWorkDeliverySchema = z.union([z.literal('queue'), z.literal('steer')]) as z.ZodType<SessionWorkDelivery>
+
 const sessionWorkStatusSchema = z.discriminatedUnion('state', [
   z.object({ state: z.literal('unknown') }),
-  z.object({ state: z.literal('queued') }),
-  z.object({ state: z.literal('claimed'), turn: z.number().int().nonnegative() }),
+  z.object({ state: z.literal('queued'), delivery: sessionWorkDeliverySchema }),
+  z.object({
+    state: z.literal('claimed'),
+    turn: z.number().int().nonnegative(),
+    delivery: sessionWorkDeliverySchema,
+  }),
   z.object({
     state: z.literal('settled'),
     turn: z.number().int().nonnegative(),
+    delivery: sessionWorkDeliverySchema,
     reason: z.looseObject({ kind: z.string().min(1) }),
   }),
-  z.object({ state: z.literal('discarded') }),
+  z.object({
+    state: z.literal('discarded'),
+    delivery: sessionWorkDeliverySchema.optional(),
+  }),
 ]) as unknown as z.ZodType<Wire<SessionWorkStatus>>
 
 /** session.workStatus response value. */
@@ -385,6 +395,8 @@ export const sessionUpdateQueueRequestSchema = z.object({
 /** session.updateQueue response value. */
 export const sessionUpdateQueueValueSchema = z.object({
   accepted: z.literal(true),
+  messageId: messageIdSchema,
+  status: sessionWorkStatusSchema,
 }) satisfies z.ZodType<Wire<ResponseValue<'session.updateQueue'>>>
 
 /** session.cancel request payload. */

@@ -26,7 +26,7 @@ Web API Proxy 已经服务本地浏览器 Session，但控制观测并不完整�
 
 ### Prompt 回执与工作生命周期
 
-`session.prompt` 返回确切获准的 `MessageId`；斜杠命令继续走独立的 command API。`session.workStatus` 从持久日志折叠出 `unknown`、`queued`、`claimed`、`discarded` 或 `settled`；claim 将消息与轮次关联，settlement 记录该轮次的持久结束原因。
+`session.prompt` 返回确切获准的 `MessageId`；斜杠命令继续走独立的 command API。`session.workStatus` 从持久日志折叠出 `unknown`、`queued`、`claimed`、`discarded` 或 `settled`；当 inbox 目标已知时，每个已知状态都会携带实际生效的 `delivery`（`queue` 或 `steer`），claim 将消息与轮次关联，settlement 记录该轮次的持久结束原因。`session.updateQueue` 会在同一个成功响应中返回获准的 `MessageId` 和变更后的工作生命周期，因此编辑、移除或 steer 后无需再次查询。
 
 这种关联描述生命周期，不代表输出因果所有权。多条 queued 或 steering 消息可以共用一个轮次，注入上下文或工具续行也可能影响其输出。控制面绝不会把某条 assistant 消息选作一个已获准 `MessageId` 的响应；[follow-up 所有权决策](2026-07-30-followup-enqueue-and-owned-runs.md)仍是权威。
 
@@ -52,7 +52,7 @@ HTTP carrier 为写入型 method 接受 `Idempotency-Key`。条目按认证 prin
 
 **保持 mux 仅实时，并在每次重连后重建历史。** 该方式能收敛，但会重新读取并构建每个已打开窗口，无界生产方队列还可能在恢复开始前耗尽内存。游标回放加显式失败的队列上限让进度可观察。
 
-**把 `MessageId`→轮次视为 prompt 输出归因。** 该映射能准确记录准入和结算，但共享轮次没有排他的 assistant 响应。API 暴露生命周期事实，并省略虚假结果。
+**把 `MessageId`→轮次视为 prompt 输出归因。** 该映射能准确记录准入和结算，但共享轮次没有排他的 assistant 响应。API 暴露生命周期事实并省略虚假结果；delivery 字段描述 inbox 路径，而不是输出所有权。
 
 **通过 detach SessionStore 状态来 close，或直接 unlink 存储来 delete。** 直接 detach 会留下 Agent 工作与 scope；直接 unlink 会与 write-behind、retirement 或未发布 preparation 竞争，并留下跨存储引用。两者都绕过权威 owner。
 

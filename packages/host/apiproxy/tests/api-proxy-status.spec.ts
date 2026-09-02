@@ -71,6 +71,29 @@ describe('session.status', () => {
     await ctx.fiber.dispose()
   })
 
+  it('returns the post-mutation delivery state when steering one queued message', async () => {
+    const { ctx, session, agent, api } = await harness()
+    const message = createUserMessage({ content: [{ type: 'text', text: 'steer me' }], source: { kind: 'user' } })
+    agent.inbox.append('next-turn', message)
+    Object.assign(agent, {
+      steer: vi.fn((input: typeof message) => { agent.inbox.append('next-step', input) }),
+    })
+
+    const updated = valueOf(await api.sessions.updateQueue(request({
+      sessionId: session.id,
+      itemId: message.id,
+      action: { kind: 'steer' },
+    })))
+    expect(updated).toEqual({
+      accepted: true,
+      messageId: message.id,
+      status: { state: 'queued', delivery: 'steer' },
+    })
+    expect(agent.inbox.nextTurn).toEqual([])
+    expect(agent.inbox.nextStep).toEqual([message])
+    await ctx.fiber.dispose()
+  })
+
   it('returns one boot-fenced snapshot of durable and process-local state', async () => {
     const { ctx, session, agent, api } = await harness()
     const message = createUserMessage({

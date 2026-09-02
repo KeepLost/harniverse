@@ -203,9 +203,9 @@ describe('queue operation transport', () => {
     const before = session.getSnapshot().queue
 
     await expect(session.updateQueue(iid('q-op'), { kind: 'edit', content: text('next') }))
-      .resolves.toEqual({ ok: true, value: { accepted: true } })
+      .resolves.toMatchObject({ ok: true, value: { accepted: true, messageId: 'fake-queue-item', status: { state: 'queued', delivery: 'queue' } } })
     await expect(session.updateQueue(iid('q-op'), { kind: 'steer' }))
-      .resolves.toEqual({ ok: true, value: { accepted: true } })
+      .resolves.toMatchObject({ ok: true, value: { accepted: true, messageId: 'fake-queue-item', status: { state: 'queued', delivery: 'queue' } } })
     expect(api.callsOf('session.updateQueue')).toEqual([
       {
         sessionId: SID,

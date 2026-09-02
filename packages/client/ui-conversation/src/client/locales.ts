@@ -15,7 +15,7 @@ export const zh = {
   'hint.goal': '输入目标，智能体将持续执行',
   'hint.goal.active': '当前目标进行中。可输入 edit 修改 / pause 暂停 / resume 继续 / clear 清除',
   'placeholder.plan': PLAN_NEXT_ACTION_ZH,
-  'placeholder.default': '给智能体发消息',
+  'placeholder.default': '给智能体发消息；Shift+Enter 换行，Enter / Ctrl+Enter 发送',
   'placeholder.unavailable': '会话不可用',
   'placeholder.parentOffline': '父会话已离线，无法继续发送；仍可停止当前运行',
   'placeholder.hero': '描述你想要构建的内容',

@@ -6,7 +6,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-compaction/types'
 import type {
   HistoryEntry, IApiClient, MessageId, MuxFrame, PromptContentPart, QueueAction, RpcError,
-  RpcId, RpcResponse, RpcResult, SessionId, SubagentAddress, ToolEventView,
+  RpcId, RpcResponse, RpcResult, SessionId, SessionWorkStatus, SubagentAddress, ToolEventView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
@@ -301,7 +301,16 @@ export class Session implements SessionFace {
   }
 
   /** Apply one operation to a still-pending queue occurrence. */
-  async updateQueue(itemId: MessageId, action: QueueAction): Promise<RpcResult<{ accepted: true }>> {
+  async updateQueue(
+    itemId: MessageId,
+    action: QueueAction,
+  ): Promise<
+    RpcResult<{
+      accepted: true
+      messageId: MessageId
+      status: SessionWorkStatus
+    }>
+  > {
     try {
       return (await this.api.sessions.updateQueue({ sessionId: this.sessionId, itemId, action })).result
     } catch (error) {

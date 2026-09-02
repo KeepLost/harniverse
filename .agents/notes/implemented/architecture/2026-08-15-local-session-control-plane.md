@@ -26,7 +26,7 @@ Each Host stream queue is bounded by `streamQueueMaxFrames`. Overflow retains an
 
 ### Prompt receipt and work lifecycle
 
-`session.prompt` returns the exact admitted `MessageId`; slash commands stay on the separate command API. `session.workStatus` folds the durable log into `unknown`, `queued`, `claimed`, `discarded`, or `settled`; claim correlates the message with a turn and settlement records that turn's durable end reason.
+`session.prompt` returns the exact admitted `MessageId`; slash commands stay on the separate command API. `session.workStatus` folds the durable log into `unknown`, `queued`, `claimed`, `discarded`, or `settled`; every known state carries the effective `delivery` (`queue` or `steer`) when the inbox target is known, claim correlates the message with a turn, and settlement records that turn's durable end reason. `session.updateQueue` returns the admitted `MessageId` and the post-mutation lifecycle in the same successful response, so callers do not need a second lookup after an edit, remove, or steer.
 
 This correlation is lifecycle, not causal output ownership. Several queued or steering messages can share one turn, and injected context or tool continuation can influence its output. The control plane never selects an assistant message as the response to one admitted `MessageId`; the [follow-up ownership decision](2026-07-30-followup-enqueue-and-owned-runs.md) remains authoritative.
 
@@ -52,7 +52,7 @@ The HTTP carriers accept `Idempotency-Key` for mutating methods. Entries are sco
 
 **Keep mux live-only and rebuild history after every reconnect.** This converges but rereads and reconstructs every open window, and an unbounded producer queue can exhaust memory before recovery starts. Cursor replay plus fail-loud queue bounds makes progress explicit.
 
-**Treat `MessageId`→turn as prompt output attribution.** The mapping accurately records admission and settlement, but shared turns have no exclusive assistant response. The API exposes lifecycle facts and omits the false result.
+**Treat `MessageId`→turn as prompt output attribution.** The mapping accurately records admission and settlement, but shared turns have no exclusive assistant response. The API exposes lifecycle facts and omits the false result; the delivery field describes the inbox path, not output ownership.
 
 **Close by detaching SessionStore state or delete by unlinking storage directly.** Direct detach leaves Agent work and scope alive; direct unlink races write-behind, retirement, or unpublished preparations and leaves cross-store references. Both bypass their authoritative owners.
 

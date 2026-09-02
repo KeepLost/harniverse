@@ -105,7 +105,15 @@ export class FakeApiClient implements IApiClient {
     = () => Promise.resolve(ok({ accepted: true as const, messageId: 'fake-message' as never, operationId: 'operation:fake' }))
   onAttachment: (payload: unknown) => Promise<RpcResponse<{ attachment: { attachmentId: never; mediaType: 'image/png'; bytes: number; width: number; height: number }; data: string }>> =
     () => Promise.resolve(ok({ attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 1, width: 1, height: 1 }, data: 'AA==' }))
-  onUpdateQueue: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
+  onUpdateQueue: (payload: unknown) => Promise<RpcResponse<{
+    accepted: true
+    messageId: never
+    status: { state: 'queued'; delivery: 'queue' }
+  }>> = () => Promise.resolve(ok({
+    accepted: true as const,
+    messageId: 'fake-queue-item' as never,
+    status: { state: 'queued' as const, delivery: 'queue' as const },
+  }))
   onCancel: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
 
   onDescribe: (payload: unknown) => Promise<RpcResponse<{

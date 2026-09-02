@@ -9,7 +9,7 @@
  */
 import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
-  MessageId, PromptContentPart, QueueAction, RpcResult, SessionId,
+  MessageId, PromptContentPart, QueueAction, RpcResult, SessionId, SessionWorkStatus,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { ConversationSnapshot } from '../sessions/conversation.ts'
@@ -56,9 +56,18 @@ export interface ISession {
    * Apply one edit, remove, or strict steer action to a still-pending queue occurrence.
    * @param itemId - agent-owned inbox occurrence identity.
    * @param action - requested queue operation.
-   * @returns acceptance, or a business/transport error.
+   * @returns the post-mutation lifecycle, or a business/transport error.
    */
-  updateQueue(itemId: MessageId, action: QueueAction): Promise<RpcResult<{ accepted: true }>>
+  updateQueue(
+    itemId: MessageId,
+    action: QueueAction,
+  ): Promise<
+    RpcResult<{
+      accepted: true
+      messageId: MessageId
+      status: SessionWorkStatus
+    }>
+  >
   /**
    * Cancel the running turn. Pending queued work remains and resumes in FIFO
    * order after the Host reaches cancellation quiescence.

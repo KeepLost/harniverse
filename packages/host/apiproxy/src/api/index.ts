@@ -57,7 +57,7 @@ export type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
   ModelReasoningEffort, ModelSelection, PromptContentPart, PromptReceipt, QueueAction, SessionModels,
   SessionListMetadata, SessionProjectionsBlock, SessionSearchItem, SessionsApi, SessionSummary,
-  SessionHistoryRequest, SessionPendingInteraction, SessionStatusSnapshot, SessionWorkStatus,
+  SessionHistoryRequest, SessionPendingInteraction, SessionStatusSnapshot, SessionWorkDelivery, SessionWorkStatus,
 } from './sessions.ts'
 export { HostBootId } from './host.ts'
 export type { DirectoryEntry, DirectoryListing, HostApi } from './host.ts'

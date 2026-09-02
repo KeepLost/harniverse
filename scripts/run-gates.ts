@@ -270,6 +270,16 @@ function ciSharedStaticGates(): Gate[] {
       'packages/client/runtime/tests/session.client.spec.ts',
       'packages/client/ui-conversation/tests/compaction-progress-item.client.spec.tsx',
     ], { label: 'compaction contract' }),
+    pnpmExec('session-control-contract', [
+      'vitest',
+      'run',
+      'packages/host/apiproxy/tests/api-proxy-status.spec.ts',
+      'packages/host/apiproxy/tests/api-proxy-cold.spec.ts',
+      'packages/host/apiproxy/tests/fetch-carrier.spec.ts',
+      'packages/client/runtime/tests/queue-store.client.spec.ts',
+      'packages/client/ui-conversation/tests/input-bar.client.spec.tsx',
+      'packages/client/ui-conversation/tests/service-orchestration.client.spec.ts',
+    ], { label: 'session control contract' }),
     pnpmScript('optional-dependency-imports', 'verify-optional-dependency-imports', {
       label: 'optional dependency imports',
     }),

@@ -71,13 +71,16 @@ export interface HistoryEntry {
   view?: ToolEventView
 }
 
+/** Effective delivery path of one admitted prompt message. */
+export type SessionWorkDelivery = 'queue' | 'steer'
+
 /** Durable lifecycle of one admitted prompt message. */
 export type SessionWorkStatus =
   | { state: 'unknown' }
-  | { state: 'queued' }
-  | { state: 'claimed'; turn: number }
-  | { state: 'settled'; turn: number; reason: TurnEndReason }
-  | { state: 'discarded' }
+  | { state: 'queued'; delivery: SessionWorkDelivery }
+  | { state: 'claimed'; turn: number; delivery: SessionWorkDelivery }
+  | { state: 'settled'; turn: number; delivery: SessionWorkDelivery; reason: TurnEndReason }
+  | { state: 'discarded'; delivery?: SessionWorkDelivery }
 
 /** Immediate receipt carrying the exact durable inbox identity. */
 export interface PromptReceipt {
@@ -446,10 +449,11 @@ export interface SessionsApi {
 
   /**
    * Edits, removes, or strictly steers one pending queued occurrence on an ordinary session.
+   * The response includes the post-mutation lifecycle so callers need not issue a second lookup.
    * Session-backed subagents reject with `agent-busy`.
    */
   updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: MessageId; action: QueueAction }>):
-  Promise<RpcResponse<{ accepted: true }>>
+  Promise<RpcResponse<{ accepted: true; messageId: MessageId; status: SessionWorkStatus }>>
 
   /**
    * Stops an ordinary session's active turn, preserving pending inbox work

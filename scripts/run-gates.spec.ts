@@ -255,6 +255,22 @@ describe('Node 24 lane ownership', () => {
     expect(gate?.allowFailure).not.toBe(true)
   })
 
+  it('runs the session control contract as a blocking source gate', () => {
+    const subject = withPnpmEntrypoint(() => gatesForMode('ci-static'))
+    const gate = subject.find(item => item.id === 'session-control-contract')
+
+    expect(gate?.label).toBe('session control contract')
+    expect(gate?.args).toEqual(expect.arrayContaining([
+      'packages/host/apiproxy/tests/api-proxy-status.spec.ts',
+      'packages/host/apiproxy/tests/api-proxy-cold.spec.ts',
+      'packages/host/apiproxy/tests/fetch-carrier.spec.ts',
+      'packages/client/runtime/tests/queue-store.client.spec.ts',
+      'packages/client/ui-conversation/tests/input-bar.client.spec.tsx',
+      'packages/client/ui-conversation/tests/service-orchestration.client.spec.ts',
+    ]))
+    expect(gate?.allowFailure).not.toBe(true)
+  })
+
   it('owns the build and orders its artifact consumers', () => {
     const subject = withPnpmEntrypoint(() => gatesForMode('ci-consumers'))
 
