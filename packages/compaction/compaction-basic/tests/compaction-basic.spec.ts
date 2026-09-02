@@ -1801,7 +1801,7 @@ describe('automatic listener and loader composition', () => {
     const owner = Object.assign(agent(conversation(1), MODEL), {
       status: 'running',
       whenIdle: () => idle.promise,
-    }) as Agent
+    })
 
     const pending = compact.compactNow(owner, controller.signal)
     controller.abort(reason)
@@ -1817,7 +1817,7 @@ describe('automatic listener and loader composition', () => {
     const owner = Object.assign(agent(conversation(1), MODEL), {
       runMaintenance: <T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> => task(SIGNAL),
       whenIdle: () => Promise.resolve(),
-    }) as Agent
+    })
     Object.defineProperty(owner, 'status', {
       configurable: true,
       get() {
