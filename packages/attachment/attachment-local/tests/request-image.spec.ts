@@ -233,18 +233,11 @@ describe('request image projection', () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
     roots.push(root)
     const controller = new AbortController()
-    let markStarted!: () => void
-    const started = new Promise<void>((resolve) => { markStarted = resolve })
-    fsControl.mkdirStarted = markStarted
-    fsControl.blockNextMkdir = true
-    fsControl.renameError = 'other'
     const operation = readRequestImageFile(root, await stored('gif', 20, 20), {
       maxPixels: 1,
-      maxBytes: 20_000,
+      maxBytes: 1,
     }, controller.signal)
-    await started
-    fsControl.releaseMkdir?.()
-    await expect(operation).rejects.toThrow('variant publication failed')
+    await expect(operation).rejects.toMatchObject({ code: 'IMAGE_TOO_LARGE' })
   })
 
   it('wraps a non-Error publication failure for a signal-bound projection', async () => {
