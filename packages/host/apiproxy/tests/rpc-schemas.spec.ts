@@ -552,6 +552,7 @@ describe('events frame schemas', () => {
         { id: 'bash-1', kind: 'bash', label: 'pnpm run build', status: 'running', startedAt: 5 },
         { id: 'pty-send-2', kind: 'pty-send', label: 'send keys', status: 'failed', detail: 'exit code: 3', startedAt: 5, finishedAt: 9 },
       ] },
+      { type: 'compaction/progress', sessionId: 's', compactionId: 'c1', phase: 'reasoning', text: 'thinking...' },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]
     for (const frame of frames) expect(muxFrameSchema.parse(frame)).toMatchObject({ type: frame.type })

@@ -5,6 +5,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { CompactionProgressPhase } from '@deepseek-ai/dsh-compaction'
 import { contentHasImage, createUserMessage, BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock, FinishReason, GenerateOptions, Message, TokenUsage, ToolSchema,
@@ -17,6 +18,7 @@ interface SummaryConfig {
   readonly summarizationProvider: string
   readonly summarizationModel: string
   readonly maxTokens: number
+  readonly onProgress?: (phase: CompactionProgressPhase, text: string) => void
 }
 
 /** Reserve retained after request pricing to absorb tokenizer and wire framing error. */
@@ -127,6 +129,7 @@ export type SummaryResult = {
  * @param input - replayed conversation prefix (system, tools, and leading messages) to condense.
  * @param agent - supplies routed-model history, fallback model, and session id.
  * @param signal - optional cancellation forwarded to the adapter.
+ * @param onProgress - optional transient reasoning/summary observer.
  * @returns safe text-only summary blocks and the exact call envelope and output.
  */
 export async function summarizeWithLlm(
@@ -135,6 +138,7 @@ export async function summarizeWithLlm(
   input: SummarizationInput,
   agent: Agent,
   signal?: AbortSignal,
+  onProgress?: (phase: CompactionProgressPhase, text: string) => void,
 ): Promise<SummaryResult> {
   const latest = agent.session.requestHeader()?.config
   const configured = config.summarizationProvider.length === 0
@@ -215,7 +219,42 @@ export async function summarizeWithLlm(
     purpose: 'compaction',
     ...signal === undefined ? {} : { signal },
   }
-  for await (const chunk of ctx.llm.stream(options)) assembler.push(chunk)
+  const progressHandler = onProgress ?? config.onProgress
+  let pendingReasoning = ''
+  let pendingSummary = ''
+  let publishTimer: ReturnType<typeof setTimeout> | undefined
+  const publish = (): void => {
+    publishTimer = undefined
+    const reasoning = pendingReasoning
+    const summaryText = pendingSummary
+    pendingReasoning = ''
+    pendingSummary = ''
+    const notify = (phase: CompactionProgressPhase, text: string): void => {
+      try {
+        progressHandler?.(phase, text)
+      } catch {
+        // Progress is observational; a broken live observer must not fail compaction.
+      }
+    }
+    if (reasoning.length > 0) notify('reasoning', reasoning)
+    if (summaryText.length > 0) notify('summary', summaryText)
+  }
+  const progress = (phase: CompactionProgressPhase, text: string): void => {
+    if (text.length === 0 || progressHandler === undefined) return
+    if (phase === 'reasoning') pendingReasoning += text
+    else pendingSummary += text
+    if (publishTimer === undefined) publishTimer = setTimeout(publish, 75)
+  }
+  try {
+    for await (const chunk of ctx.llm.stream(options)) {
+      if (chunk.type === 'reasoning-delta') progress('reasoning', chunk.text)
+      else if (chunk.type === 'text-delta') progress('summary', chunk.text)
+      assembler.push(chunk)
+    }
+  } finally {
+    if (publishTimer !== undefined) clearTimeout(publishTimer)
+    publish()
+  }
   const error = finishError(assembler.finish)
   if (error !== undefined) throw error
 

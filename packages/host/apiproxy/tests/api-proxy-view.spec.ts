@@ -19,6 +19,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
+import { CompactionId } from '@deepseek-ai/dsh-compaction'
 import type { MuxFrame, RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { createApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
@@ -327,6 +328,43 @@ describe('mux live view computation', () => {
 
     expect(frames[0]).toEqual({ type: 'session/subscribed', sessionId: session.id, lastSeq: 1 })
     expect(frames[1]).toMatchObject({ type: 'session/event', sessionId: session.id, event: { seq: 1 } })
+  })
+
+  it('forwards live compaction progress without turning it into a durable event', async () => {
+    const { ctx } = await harness()
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const session = ctx.sessions.create('compaction-progress' as SessionId)
+    const abort = new AbortController()
+    const stream = api.events.mux({
+      rpcId: RpcId('t-mux-compaction-progress'),
+      payload: { since: { [session.id]: -1 } },
+    }, abort.signal)
+    const iterator = stream[Symbol.asyncIterator]()
+
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { payload: { type: 'session/subscribed', sessionId: session.id } },
+    })
+    ctx.emit('compaction/progress', {
+      session,
+      compactionId: CompactionId('compact-1'),
+      phase: 'summary',
+      text: 'live checkpoint',
+    })
+
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: {
+        payload: {
+          type: 'compaction/progress',
+          sessionId: session.id,
+          compactionId: 'compact-1',
+          phase: 'summary',
+          text: 'live checkpoint',
+        },
+      },
+    })
+    expect(session.events.map(event => event.type)).not.toContain('compaction/progress')
+    abort.abort()
+    await iterator.return?.()
   })
 
   it('streams a replay larger than the live queue bound without reconnect livelock', async () => {

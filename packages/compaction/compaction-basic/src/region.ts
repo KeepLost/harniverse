@@ -15,6 +15,7 @@ import {
   toolPairingBalancedBefore,
 } from '@deepseek-ai/dsh-compaction'
 import type { CompactionResult } from '@deepseek-ai/dsh-compaction'
+import type { CompactionProgressPhase } from '@deepseek-ai/dsh-compaction'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import type { Message, UserMessage } from '@deepseek-ai/dsh-llm'
@@ -24,9 +25,21 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { frameSummary } from './summarizer.ts'
 import type { SummarizationInput, SummaryResult } from './summarizer.ts'
 
-interface RegionDependencies {
+/** Runtime seams used by the shared compaction transaction. */
+export interface RegionDependencies {
   readonly meter: TokenMeter
-  summarize(input: SummarizationInput, agent: Agent, signal?: AbortSignal): Promise<SummaryResult>
+  summarize(
+    input: SummarizationInput,
+    agent: Agent,
+    signal?: AbortSignal,
+    onProgress?: (phase: CompactionProgressPhase, text: string) => void,
+  ): Promise<SummaryResult>
+  readonly progress?: (
+    session: Session,
+    compactionId: CompactionId,
+    phase: CompactionProgressPhase,
+    text: string,
+  ) => void
 }
 
 /** One validated inclusive span of current surface positions. */
@@ -371,7 +384,14 @@ async function summarizeCompaction(
   sourceCommandId: CommandId | undefined,
   signal?: AbortSignal,
 ): Promise<SummarizedCompaction> {
-  const summaryResult = await dependencies.summarize(prepared.input, agent, signal)
+  const summaryResult = await dependencies.summarize(
+    prepared.input,
+    agent,
+    signal,
+    dependencies.progress === undefined
+      ? undefined
+      : (phase, text) => { dependencies.progress?.(agent.session, compactionId, phase, text) },
+  )
   const checkpointMessage = createUserMessage({
     content: frameSummary(summaryResult.summary),
     source: compactCheckpointSource(compactionId, sourceCommandId),

@@ -164,7 +164,7 @@
     - id: compaction-lossless
       name: '@deepseek-ai/dsh-compaction-lossless'
       config:
-        maxTokens: 131072
+        maxTokens: 32768
 
     - id: tool-compaction-history
       name: '@deepseek-ai/dsh-tool-compaction-history'

@@ -107,6 +107,14 @@ export type MuxFrame =
    * tail page's projections block.
    */
   | { type: 'session/projection'; sessionId: SessionId; key: string; value: unknown; seq: number }
+  /** Live auxiliary compaction output; not replayed or persisted as session history. */
+  | {
+    type: 'compaction/progress'
+    sessionId: SessionId
+    compactionId: string
+    phase: 'reasoning' | 'summary'
+    text: string
+  }
   | { type: 'stream/error'; error: RpcError }
 
 /**

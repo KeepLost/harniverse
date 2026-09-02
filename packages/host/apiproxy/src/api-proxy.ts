@@ -11,6 +11,7 @@ import { authenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
+import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import { setSupervisionMode } from '@deepseek-ai/dsh-supervision'
 import type {} from '@deepseek-ai/dsh-supervision'
@@ -4639,6 +4640,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           ctx.on('session/event', (session: Session, event: SessionEvent) => {
             if (bootstrapping) bufferedEvents.push({ session, event })
             else pushSessionEvent(session, event)
+          }),
+          ctx.on('compaction/progress', ({ session, compactionId, phase, text }) => {
+            if (!visibleSession(session)) return
+            queue.push(frame({
+              type: 'compaction/progress',
+              sessionId: session.id,
+              compactionId,
+              phase,
+              text,
+            }))
           }),
           ctx.on('session/created', (session: Session) => {
             if (session.header.origin === 'subagent') return

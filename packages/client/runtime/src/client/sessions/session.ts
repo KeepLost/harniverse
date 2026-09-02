@@ -3,6 +3,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import type {} from '@deepseek-ai/dsh-compaction/types'
 import type {
   HistoryEntry, IApiClient, MessageId, MuxFrame, PromptContentPart, QueueAction, RpcError,
   RpcId, RpcResponse, RpcResult, SessionId, SubagentAddress, ToolEventView,
@@ -17,6 +18,7 @@ import type { ConversationEventInput, ConversationPublication } from '../contrac
 import type {
   ChatSnapshot, ComposerPhase, ConversationSnapshot, OpenState, PromptError,
 } from './conversation.ts'
+import type { CompactionProgressSnapshot } from './conversation.ts'
 import { EMPTY_CHAT_SNAPSHOT } from './conversation.ts'
 import type { PendingInteraction } from './pending.ts'
 import { PendingWait } from './pending.ts'
@@ -106,6 +108,8 @@ export class Session implements SessionFace {
   private removed = false
   private promptError: PromptError | null = null
   private lastAgentError: string | null = null
+  /** Transient compaction stream; the durable checkpoint remains the source of truth. */
+  private compactionProgress: CompactionProgressSnapshot | null = null
   /** Live events buffered during open/resync and stitched by sequence once history lands. */
   private liveBuffer: { event: SessionEvent; view: ToolEventView | undefined }[] = []
   /** Gap repair in flight; live events detour to the buffer until the tail page lands. */
@@ -505,7 +509,54 @@ export class Session implements SessionFace {
    */
   handleMuxEnvelope(rpcId: RpcId, frame: MuxFrame): void {
     switch (frame.type) {
+      case 'compaction/progress': {
+        const prior = this.compactionProgress
+        const same = prior?.compactionId === frame.compactionId
+        const now = Date.now()
+        const next: CompactionProgressSnapshot = same
+          ? {
+            ...prior,
+            phase: frame.phase,
+            reasoningText: frame.phase === 'reasoning' ? prior.reasoningText + frame.text : prior.reasoningText,
+            summaryText: frame.phase === 'summary' ? prior.summaryText + frame.text : prior.summaryText,
+            updatedAt: now,
+          }
+          : {
+            compactionId: frame.compactionId,
+            phase: frame.phase,
+            reasoningText: frame.phase === 'reasoning' ? frame.text : '',
+            summaryText: frame.phase === 'summary' ? frame.text : '',
+            startedAt: now,
+            updatedAt: now,
+          }
+        this.compactionProgress = next
+        this.notifier.markDirty()
+        return
+      }
       case 'session/event': {
+        if (frame.event.type === 'compaction/start') {
+          this.compactionProgress = {
+            compactionId: frame.event.data.compactionId,
+            phase: 'preparing',
+            reasoningText: '',
+            summaryText: '',
+            startedAt: frame.event.time,
+            updatedAt: frame.event.time,
+          }
+          this.notifier.markDirty()
+        } else if (frame.event.type === 'compaction/end') {
+          if (this.compactionProgress?.compactionId === frame.event.data.compactionId) {
+            this.compactionProgress = frame.event.data.error === undefined
+              ? null
+              : {
+                ...this.compactionProgress,
+                phase: 'failed',
+                error: frame.event.data.error,
+                updatedAt: frame.event.time,
+              }
+            this.notifier.markDirty()
+          }
+        }
         this.acceptLiveEvent(frame.event, frame.view)
         return
       }
@@ -517,11 +568,13 @@ export class Session implements SessionFace {
       case 'session/subscribed': {
         const localTail = this.windowTailSeq()
         this.subscribedLastSeq = frame.lastSeq
+        const hadCompactionProgress = this.compactionProgress !== null
+        this.compactionProgress = null
         // New mux-generation baseline: the host pushes this session's queue
         // snapshot AFTER the subscribed frame on the same stream, so the
         // stale mirror clears here — race-free against onConnected/resync
         // timing (clearing there could wipe a baseline that already landed).
-        if (this.queueMirror.reset()) this.notifier.markDirty()
+        if (this.queueMirror.reset() || hadCompactionProgress) this.notifier.markDirty()
         if (this.openState === 'open' && localTail !== null && localTail > frame.lastSeq) {
           void this.resync()
         } else if (this.openState === 'open') {
@@ -864,6 +917,7 @@ export class Session implements SessionFace {
       turnTimings: legacy.turnTimings,
       turnEnds: legacy.turnEnds,
       partial: legacy.partial,
+      compactionProgress: this.compactionProgress,
       runningCalls: legacy.runningCalls,
       pending: this.pendingCache.value,
       queue: this.queueMirror.snapshot(),
