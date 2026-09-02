@@ -57,6 +57,8 @@ describe('request image projection', () => {
     expect(requestImageDimensions(2, 2, 1)).toEqual({ width: 1, height: 1 })
     expect(requestImageDimensions(1, 100, 50)).toEqual({ width: 1, height: 50 })
     expect(requestImageDimensions(1, 1, 0)).toEqual({ width: 1, height: 1 })
+    expect(requestImageDimensions(8, 2, 1)).toEqual({ width: 1, height: 1 })
+    expect(requestImageDimensions(1, 4, 1)).toEqual({ width: 1, height: 1 })
   })
 
   it('derives and reuses a sidecar request image without changing the durable ref', async () => {
