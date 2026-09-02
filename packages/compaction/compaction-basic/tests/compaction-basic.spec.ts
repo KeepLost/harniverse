@@ -1801,7 +1801,7 @@ describe('automatic listener and loader composition', () => {
     const owner = Object.assign(agent(conversation(1), MODEL), {
       status: 'running',
       whenIdle: () => idle.promise,
-    }) as Agent
+    })
 
     const pending = compact.compactNow(owner, controller.signal)
     controller.abort(reason)
@@ -1817,7 +1817,7 @@ describe('automatic listener and loader composition', () => {
     const owner = Object.assign(agent(conversation(1), MODEL), {
       runMaintenance: <T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> => task(SIGNAL),
       whenIdle: () => Promise.resolve(),
-    }) as Agent
+    })
     Object.defineProperty(owner, 'status', {
       configurable: true,
       get() {
@@ -1956,22 +1956,6 @@ describe('automatic listener and loader composition', () => {
     expect(compact.calls).toHaveLength(0)
   })
 
-  it('compacts before a step above threshold using the durable routed model and remains idle below it', async () => {
-    const ctx = createContext()
-    const compact = new TestCompactionEngine(ctx, {
-      thresholdRatio: 0.5,
-      retainTokens: 180,
-    })
-    const pressured = conversation(4)
-    await preStep(ctx, agent(pressured, 'unconfigured-agent-fallback'))
-    expect(pressured.events.some(event => event.type === 'compaction/summary')).toBe(true)
-
-    const small = conversation(1)
-    await preStep(ctx, agent(small, MODEL))
-    expect(small.events.some(event => event.type === 'compaction/start')).toBe(false)
-    expect(compact.calls).toHaveLength(1)
-  })
-
   it('reduces the output budget when the current input leaves less room than maxTokens', async () => {
     const ctx = createContext(1_000)
     const compact = new TestCompactionEngine(ctx, {
@@ -2007,79 +1991,6 @@ describe('automatic listener and loader composition', () => {
 
     expect(compact.calls).toHaveLength(1)
     expect(owner.session.events.some(event => event.type === 'compaction/summary')).toBe(true)
-  })
-
-  it('skips pre-step pressure when the step signal is already aborted', async () => {
-    const ctx = createContext()
-    const compact = new TestCompactionEngine(ctx, {
-      thresholdRatio: 0.5,
-      retainTokens: 180,
-    })
-    const pressured = conversation(4)
-    const compactIfNeeded = vi.spyOn(compact, 'compactIfNeeded')
-
-    await expect(preStep(ctx, agent(pressured, MODEL), AbortSignal.abort('step aborted')))
-      .resolves.toEqual({ kind: 'enter', messages: [] })
-
-    expect(compactIfNeeded).not.toHaveBeenCalled()
-    expect(pressured.events.some(event => event.type === 'compaction/start')).toBe(false)
-  })
-
-  it('warns and continues after operational failures, including non-Errors', async () => {
-    const ctx = createContext()
-    const warnings: string[] = []
-    ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
-    const compact = new TestCompactionEngine(ctx, {
-      thresholdRatio: 0.5,
-      retainTokens: 180,
-    })
-    compact.error = 'temporary failure'
-    const session = conversation(4)
-
-    await expect(preStep(ctx, agent(session, MODEL))).resolves.toEqual({ kind: 'enter', messages: [] })
-    expect(warnings).toContainEqual(expect.stringContaining('temporary failure'))
-    expect(session.events.some(event => event.type === 'compaction/summary')).toBe(false)
-  })
-
-  it('warns once per routed target when proactive pressure has no context metadata', async () => {
-    const ctx = createContext()
-    const warnings: string[] = []
-    ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
-    vi.spyOn(ctx.llm, 'resolveModelInfo').mockImplementation((provider, model) => Promise.resolve({
-      provider,
-      id: model,
-      name: model,
-    }))
-    void new TestCompactionEngine(ctx, {
-      thresholdRatio: 0.5,
-      retainTokens: 180,
-    })
-    const session = conversation(4)
-
-    await preStep(ctx, agent(session, MODEL))
-    await preStep(ctx, agent(session, MODEL))
-
-    expect(warnings).toEqual([
-      expect.stringContaining(`no context capacity for ${MODEL}/${MODEL}`),
-    ])
-  })
-
-  it('warns once per routed target when absolute retention exceeds its resolved threshold', async () => {
-    const ctx = createContext()
-    const warnings: string[] = []
-    ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
-    void new TestCompactionEngine(ctx, {
-      thresholdRatio: 0.5,
-      retainTokens: 500,
-    })
-    const session = conversation(4)
-
-    await preStep(ctx, agent(session, MODEL))
-    await preStep(ctx, agent(session, MODEL))
-
-    expect(warnings).toEqual([
-      expect.stringContaining('retainTokens (500) must be less than threshold tokens 500'),
-    ])
   })
 
   it('force-compacts below normal pressure for canonical overflow and retries only after replacement', async () => {
@@ -2359,7 +2270,11 @@ describe('automatic listener and loader composition', () => {
       retainTokens: 180,
     })
     const session = conversation(4)
-    await preStep(ctx, agent(session, MODEL))
+    await agentEvents(ctx, agent(session, MODEL)).waterfall(
+      'agent/request',
+      { turn: 5, step: 1, signal: SIGNAL },
+      () => Promise.resolve({ provider: MODEL, model: MODEL, maxTokens: 900 }),
+    )
     const summaries = session.events.filter(event => event.type === 'compaction/summary').length
     expect(summaries).toBe(1)
     expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
