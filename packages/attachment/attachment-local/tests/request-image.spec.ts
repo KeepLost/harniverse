@@ -7,7 +7,7 @@ import { AttachmentId, type ImageMediaType, type StoredImageAttachment } from '@
 import { readRequestImageFile, requestImageDimensions, requestImageVariantId } from '../src/request-image.ts'
 
 const fsControl = vi.hoisted(() => ({
-  rejectNextRename: false,
+  renameError: undefined as 'eexist' | 'other' | undefined,
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -15,10 +15,11 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return {
     ...actual,
     async rename(...args: Parameters<typeof actual.rename>): Promise<void> {
-      if (fsControl.rejectNextRename) {
-        fsControl.rejectNextRename = false
-        const error = new Error('variant already published') as NodeJS.ErrnoException
-        error.code = 'EEXIST'
+      if (fsControl.renameError !== undefined) {
+        const kind = fsControl.renameError
+        fsControl.renameError = undefined
+        const error = new Error(kind === 'eexist' ? 'variant already published' : 'variant publication failed') as NodeJS.ErrnoException
+        error.code = kind === 'eexist' ? 'EEXIST' : 'EIO'
         throw error
       }
       return actual.rename(...args)
@@ -29,7 +30,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 const roots: string[] = []
 
 afterEach(async () => {
-  fsControl.rejectNextRename = false
+  fsControl.renameError = undefined
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
 
@@ -127,9 +128,18 @@ describe('request image projection', () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
     roots.push(root)
     const source = await stored('gif', 20, 20)
-    fsControl.rejectNextRename = true
+    fsControl.renameError = 'eexist'
     await expect(readRequestImageFile(root, source, { maxPixels: 10_000, maxBytes: 20_000 }))
       .resolves.toMatchObject({ mediaType: 'image/webp' })
+  })
+
+  it('propagates a non-contention sidecar publication failure', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    const source = await stored('gif', 20, 20)
+    fsControl.renameError = 'other'
+    await expect(readRequestImageFile(root, source, { maxPixels: 10_000, maxBytes: 20_000 }))
+      .rejects.toThrow('variant publication failed')
   })
 
   it('rejects invalid request policies', async () => {
