@@ -158,10 +158,12 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
 
     ctx.on('agent/pre-step', async (
-      { agent, signal },
+      { agent, messages, signal },
       next,
     ): Promise<PreStepDecision> => {
-      if (!signal.aborted) {
+      // Current user input is appended after this waterfall. Defer pressure
+      // until the request boundary so it is visible while compaction yields.
+      if (!signal.aborted && !messages.some(message => message.source.kind === 'user')) {
         try {
           const result = await this.compactIfNeeded(agent, 'pressure', signal)
           if (result !== null) logResult(result, 'step pressure')
@@ -195,10 +197,9 @@ export class BasicCompactionEngine extends CompactionEngine {
       }
     })
 
-    // Account for the current input before dispatch. The normal pressure hook
-    // runs before newly claimed user messages are appended, so this second
-    // boundary is what prevents input plus the configured output reservation
-    // from reaching the provider as an avoidable 400.
+    // Account for the current input before dispatch. When the pre-step hook
+    // deferred for user input, this boundary is what keeps it visible while
+    // pressure compaction yields and prevents an avoidable context overflow.
     ctx.on('agent/request', async ({ agent, signal }, next) => {
       const proposed = await next()
       signal.throwIfAborted()

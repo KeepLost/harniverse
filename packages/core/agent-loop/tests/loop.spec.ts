@@ -257,6 +257,24 @@ describe('agent loop', () => {
     expect(request!.tools?.map(t => t.name)).toEqual(['noop'])
   })
 
+  it('places the dynamic system-prompt snapshot before the claimed user message', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    ctx.systemPrompt.context({ name: 'policy', order: 0, text: 'Mode: read-only.' })
+    const agent = ctx.agentLoop.create(SessionId('a-runtime-context-before-user'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'first user request')
+    await waitForIdle(ctx, agent)
+
+    const messages = agent.session.events.flatMap(event =>
+      event.type === 'user/message' ? [event.data] : [])
+    expect(messages[0]?.source).toMatchObject({
+      kind: 'plugin',
+      plugin: '@deepseek-ai/dsh-system-prompt',
+    })
+    expect(messages[1]?.source.kind).toBe('user')
+  })
+
   it('resolves {{cwd}} from the agent session workspace (factory create with meta.cwd)', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter, 'Working in {{cwd}}.')

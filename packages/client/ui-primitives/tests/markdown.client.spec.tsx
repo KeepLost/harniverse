@@ -68,6 +68,19 @@ describe('MarkdownText', () => {
     expect(screen.getByRole('link', { name: 'https://deepseek.com' })).toBeTruthy()
   })
 
+  it('requires two consecutive tildes for GFM strikethrough', () => {
+    for (const streaming of [false, true]) {
+      const { container, unmount } = render(
+        <MarkdownText text="~single~ and ~~double~~" streaming={streaming} />,
+      )
+
+      expect([...container.querySelectorAll('del')].map(node => node.textContent))
+        .toEqual(['double'])
+      expect(container.textContent).toContain('~single~')
+      unmount()
+    }
+  })
+
   it('closes punctuation-terminated strong emphasis before adjacent CJK text', () => {
     const cases = [
       ['**注意：**内容', '注意：'],

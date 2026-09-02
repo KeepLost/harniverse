@@ -34,6 +34,17 @@ class ReproCompactionEngine extends BasicCompactionEngine {
   }
 }
 
+class BlockingCompactionEngine extends ReproCompactionEngine {
+  readonly summaryStarted = Promise.withResolvers<undefined>()
+  readonly releaseSummary = Promise.withResolvers<undefined>()
+
+  override async summarize(): Promise<{ summary: ContentBlock[]; provider: string; model: string }> {
+    this.summaryStarted.resolve(undefined)
+    await this.releaseSummary.promise
+    return super.summarize()
+  }
+}
+
 /** Each call emits one tool-call until exhausted, then a final text answer. */
 class StepwiseToolAdapter extends LlmAdapter {
   calls = 0
@@ -184,7 +195,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   })
 }
 
-function overflowHistorySeed(): SessionEvent[] {
+function overflowHistorySeed(includeHeader = false): SessionEvent[] {
   const session = Session.create(SessionId('overflow-history-seed'))
   for (let turn = 1; turn <= 2; turn += 1) {
     const sentinel = turn === 1 ? 'OLD HISTORY SENTINEL' : 'RECENT HISTORY'
@@ -196,6 +207,12 @@ function overflowHistorySeed(): SessionEvent[] {
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
     session.append('step/start', { turn, step: 1 })
+    if (includeHeader) {
+      session.append('request/header', {
+        header: { config: { provider: 'mock', model: 'mock' } },
+        reason: 'initial',
+      })
+    }
     session.append('assistant/message', {
       turn,
       step: 1,
@@ -215,6 +232,46 @@ function overflowHistorySeed(): SessionEvent[] {
 }
 
 describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', () => {
+  it('publishes the current user message before automatic pressure compaction yields', async () => {
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    await mountInvariants(ctx)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(TokenMeter)
+    ctx.llm.registerAdapter(['mock'], new StepwiseToolAdapter(0))
+    const compact = new BlockingCompactionEngine(ctx, {
+      auto: true,
+      thresholdRatio: 0.5,
+      retainTokens: 50,
+      maxTokens: 8192,
+      compactionRetries: 1,
+    })
+
+    try {
+      const { agent } = await ctx.agentLoop.createAgent(ctx, {
+        sessionId: SessionId('visible-during-pressure-compaction'),
+        seed: overflowHistorySeed(true),
+        agentOptions: { provider: 'mock', model: 'mock' },
+      })
+      agent.followup(createUserMessage({
+        content: [{ type: 'text', text: 'current user message' }],
+        source: { kind: 'user' },
+      }))
+
+      await compact.summaryStarted.promise
+      expect(agent.session.events.some(event =>
+        event.type === 'user/message'
+        && event.data.content.some(block => block.type === 'text' && block.text === 'current user message')),
+      ).toBe(true)
+
+      compact.releaseSummary.resolve(undefined)
+      await agent.whenIdle()
+    } finally {
+      compact.releaseSummary.resolve(undefined)
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('uses the model actually routed by agent/request for post-step pressure', async () => {
     const { ctx } = await harness(8)
     ctx.on('agent/request', async (_payload, next) => ({
