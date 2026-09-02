@@ -39,6 +39,22 @@ describe('local attachment service', () => {
     }
   })
 
+  it('projects a stored image through the request-image service boundary', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'dsh-attachment-request-'))
+    try {
+      const service = new LocalAttachmentStore(new Context(), { dshHome })
+      const data = Uint8Array.from(Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+      ))
+      const ref = await service.saveImage({ data, mediaType: 'image/png' })
+      await expect(service.readImageRequest(ref, { maxPixels: 1, maxBytes: 20_000 }))
+        .resolves.toMatchObject({ attachment: ref, mediaType: 'image/png', bytes: data.byteLength })
+    } finally {
+      await rm(dshHome, { recursive: true, force: true })
+    }
+  })
+
   it('validates without persisting: a rejected image leaves no storage root behind', async () => {
     const dshHome = await mkdtemp(join(tmpdir(), 'dsh-attachment-validate-'))
     try {
