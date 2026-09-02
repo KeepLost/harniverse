@@ -254,7 +254,7 @@ export class ReactLoopAgent implements Agent {
       'agent/pre-step', { messages: claimed, ...position, signal },
       (): Promise<PreStepDecision> => Promise.resolve<PreStepDecision>({
         kind: 'enter',
-        messages: context === undefined ? claimed : [...claimed, context],
+        messages: context === undefined ? claimed : [context, ...claimed],
       }),
     )
     signal.throwIfAborted()
