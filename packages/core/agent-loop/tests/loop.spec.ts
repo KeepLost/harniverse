@@ -178,6 +178,19 @@ describe('agent loop', () => {
     expect(agent.session.events.filter(e => e.type === 'turn/start')).toHaveLength(0)
   })
 
+  it('completes a response that has no usage metadata', async () => {
+    const response = textResponse('without usage').filter(chunk => chunk.type !== 'usage')
+    const adapter = new MockAdapter([response])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('response-without-usage'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'complete without usage')
+    await waitForIdle(ctx, agent)
+
+    const message = agent.session.events.find(event => event.type === 'assistant/message')
+    expect(message?.type === 'assistant/message' ? message.data.usage : undefined).toBeUndefined()
+  })
+
   it('runs a simple turn: queued message → model → idle, with ordered events', async () => {
     const adapter = new MockAdapter([textResponse('hello there')])
     const ctx = await harness(adapter)
