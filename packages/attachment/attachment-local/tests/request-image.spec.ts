@@ -2,13 +2,34 @@ import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import sharp from 'sharp'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AttachmentId, type ImageMediaType, type StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { readRequestImageFile, requestImageDimensions, requestImageVariantId } from '../src/request-image.ts'
+
+const fsControl = vi.hoisted(() => ({
+  rejectNextRename: false,
+}))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    async rename(...args: Parameters<typeof actual.rename>): Promise<void> {
+      if (fsControl.rejectNextRename) {
+        fsControl.rejectNextRename = false
+        const error = new Error('variant already published') as NodeJS.ErrnoException
+        error.code = 'EEXIST'
+        throw error
+      }
+      return actual.rename(...args)
+    },
+  }
+})
 
 const roots: string[] = []
 
 afterEach(async () => {
+  fsControl.rejectNextRename = false
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
 
@@ -98,6 +119,15 @@ describe('request image projection', () => {
     const rebuilt = await readRequestImageFile(root, source, policy)
     expect(rebuilt.width * rebuilt.height).toBeLessThanOrEqual(policy.maxPixels)
     expect(rebuilt.data).not.toEqual(source.data)
+  })
+
+  it('accepts a concurrent sidecar publication when rename reports EEXIST', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    const source = await stored('gif', 20, 20)
+    fsControl.rejectNextRename = true
+    await expect(readRequestImageFile(root, source, { maxPixels: 10_000, maxBytes: 20_000 }))
+      .resolves.toMatchObject({ mediaType: 'image/webp' })
   })
 
   it('rejects invalid request policies', async () => {
