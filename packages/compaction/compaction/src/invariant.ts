@@ -464,6 +464,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     const candidate = staged.get(event)
     if (candidate === undefined || candidate.session !== session) {
       const checkpoint = event.type === 'user/message' && isCompactCheckpointSource(event.data.source)
+      /* v8 ignore next 2 -- internal/dispatch stages every compaction event before session/event; this is a broken-pipeline guard. */
       if (trace.pendingReplacement !== undefined
         || checkpoint
         || event.type === 'session/end-seed'
