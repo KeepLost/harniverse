@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { RpcId, transportError } from '../src/api/rpc.ts'
+import { RequestId, RpcId, sameAuthenticationPrincipalIdentity, transportError } from '../src/api/rpc.ts'
 import {
   clientRequestSchema, clientResponseSchema, rpcErrorSchema, rpcIdSchema, rpcMessageSchema,
   rpcReceiptSchema, rpcResultSchema, serverRequestSchema, serverResponseSchema,
@@ -60,6 +60,25 @@ describe('transportError', () => {
   it('folds Error and non-Error throws into the internal error branch', () => {
     expect(transportError(new Error('wire down'))).toEqual({ ok: false, error: { code: 'internal', message: 'wire down', details: {} } })
     expect(transportError('raw')).toMatchObject({ ok: false, error: { code: 'internal', message: 'raw' } })
+  })
+})
+
+describe('sameAuthenticationPrincipalIdentity', () => {
+  it('brands request correlation ids', () => {
+    expect(RequestId('request-1')).toBe('request-1')
+  })
+
+  it('compares bypass and grant identities without crossing identity kinds', () => {
+    const bypass = { kind: 'bypass' } as const
+    const firstGrant = { kind: 'grant', grantId: 'grant-1', grantRevision: 1 } as never
+    const sameGrant = { kind: 'grant', grantId: 'grant-1', grantRevision: 1 } as never
+    const newerGrant = { kind: 'grant', grantId: 'grant-1', grantRevision: 2 } as never
+
+    expect(sameAuthenticationPrincipalIdentity(bypass, bypass)).toBe(true)
+    expect(sameAuthenticationPrincipalIdentity(bypass, firstGrant)).toBe(false)
+    expect(sameAuthenticationPrincipalIdentity(firstGrant, undefined)).toBe(false)
+    expect(sameAuthenticationPrincipalIdentity(firstGrant, sameGrant)).toBe(true)
+    expect(sameAuthenticationPrincipalIdentity(firstGrant, newerGrant)).toBe(false)
   })
 })
 
