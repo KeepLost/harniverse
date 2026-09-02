@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { Readable } from 'node:stream'
 import { AddressInfo } from 'node:net'
 import { Context } from '@deepseek-ai/cordis'
 import WebRuntime from '@deepseek-ai/dsh-web'
@@ -17,6 +18,33 @@ const limits: HttpFetchLimits = {
   userAgent: 'test-agent/1.0',
 }
 
+type RequestStub = {
+  once: (event: 'error', listener: (error: Error) => void) => RequestStub
+  end: () => void
+}
+type RequestCallback = (response: IncomingMessage) => void
+type RequestMock = (options: object, callback: RequestCallback) => RequestStub
+type LookupMock = (hostname: string, options: { all: true; order: 'verbatim' }) => Promise<readonly { address: string; family: 4 | 6 }[]>
+
+const httpRequestMock = vi.hoisted(() => vi.fn<RequestMock>())
+const httpsRequestMock = vi.hoisted(() => vi.fn<RequestMock>())
+const lookupMock = vi.hoisted(() => vi.fn<LookupMock>())
+
+vi.mock('node:dns/promises', async importOriginal => ({
+  ...await importOriginal<typeof import('node:dns/promises')>(),
+  lookup: lookupMock,
+}))
+
+vi.mock('node:http', async importOriginal => ({
+  ...await importOriginal<typeof import('node:http')>(),
+  request: httpRequestMock,
+}))
+
+vi.mock('node:https', async importOriginal => ({
+  ...await importOriginal<typeof import('node:https')>(),
+  request: httpsRequestMock,
+}))
+
 type Handler = (req: IncomingMessage, res: ServerResponse) => void
 
 let server: Server
@@ -25,6 +53,7 @@ let port: number
 let handler: Handler
 
 beforeEach(async () => {
+  vi.clearAllMocks()
   handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('default') }
   server = createServer((req, res) => { handler(req, res) })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -143,6 +172,114 @@ describe('HttpFetchProvider success', () => {
     const result = await provider().fetch({ url: base })
     expect(result.statusCode).toBe(204)
     expect(result.body).toEqual({ kind: 'text', content: '' })
+  })
+
+  it('uses the built-in DNS resolver when only the transport is replaced', async () => {
+    lookupMock.mockResolvedValueOnce([
+      { address: '93.184.216.34', family: 4 },
+      { address: '2001:4860:4860::8888', family: 6 },
+    ])
+    const resolved = new HttpFetchProvider(limits, {
+      request: async () => new Response('resolved', { headers: { 'content-type': 'text/plain' } }),
+    })
+    const result = await resolved.fetch({ url: 'http://public.test/' })
+    expect(lookupMock).toHaveBeenCalledWith('public.test', { all: true, order: 'verbatim' })
+    expect(result.body).toEqual({ kind: 'text', content: 'resolved' })
+  })
+
+  it('accepts a public IPv6 literal without DNS lookup', async () => {
+    let seenAddress: { address: string; family: 4 | 6 } | undefined
+    const literal = new HttpFetchProvider(limits, {
+      request: async (_url, address) => {
+        seenAddress = address
+        return new Response('ipv6', { headers: { 'content-type': 'text/plain' } })
+      },
+    })
+    const result = await literal.fetch({ url: 'http://[2001:4860:4860::8888]/' })
+    expect(seenAddress).toEqual({ address: '2001:4860:4860::8888', family: 6 })
+    expect(lookupMock).not.toHaveBeenCalled()
+    expect(result.body).toEqual({ kind: 'text', content: 'ipv6' })
+  })
+
+  it('uses the direct HTTP transport and converts response headers and body', async () => {
+    const request = { once: vi.fn(), end: vi.fn() }
+    const response = Object.assign(Readable.from([new Uint8Array([100, 105, 114, 101, 99, 116])]), {
+      statusCode: 200,
+      headers: { 'content-type': 'text/plain', 'x-test': ['one', 'two'], 'x-empty': undefined },
+    })
+    httpRequestMock.mockImplementationOnce((_options, onResponse) => {
+      onResponse(response)
+      return request
+    })
+    const direct = new HttpFetchProvider(limits, {
+      resolveHostname: async () => [{ address: '93.184.216.34', family: 4 }],
+    })
+    const result = await direct.fetch({ url: 'http://public.test/' })
+    expect(result.body).toEqual({ kind: 'text', content: 'direct' })
+    expect(httpRequestMock).toHaveBeenCalledOnce()
+    expect(request.once).toHaveBeenCalledWith('error', expect.any(Function))
+    expect(request.end).toHaveBeenCalledOnce()
+  })
+
+  it('uses the direct HTTPS transport and resumes a no-body response', async () => {
+    const request = { once: vi.fn(), end: vi.fn() }
+    const response = Object.assign(Readable.from([]), {
+      statusCode: 204,
+      headers: { 'content-type': 'text/plain' },
+    })
+    httpsRequestMock.mockImplementationOnce((_options, onResponse) => {
+      onResponse(response)
+      return request
+    })
+    const direct = new HttpFetchProvider(limits, {
+      resolveHostname: async () => [{ address: '93.184.216.34', family: 4 }],
+    })
+    const result = await direct.fetch({ url: 'https://public.test/' })
+    expect(result.body).toEqual({ kind: 'text', content: '' })
+    expect(httpsRequestMock).toHaveBeenCalledOnce()
+    expect(httpsRequestMock.mock.calls[0]?.[0]).toMatchObject({ servername: 'public.test' })
+    expect(request.end).toHaveBeenCalledOnce()
+  })
+
+  it('omits SNI for an HTTPS IPv4 literal', async () => {
+    const request = { once: vi.fn(), end: vi.fn() }
+    const response = Object.assign(Readable.from([]), {
+      statusCode: 204,
+      headers: { 'content-type': 'text/plain' },
+    })
+    httpsRequestMock.mockImplementationOnce((_options, onResponse) => {
+      onResponse(response)
+      return request
+    })
+    const direct = new HttpFetchProvider(limits)
+    const result = await direct.fetch({ url: 'https://93.184.216.34/' })
+    expect(result.body).toEqual({ kind: 'text', content: '' })
+    expect(httpsRequestMock.mock.calls[0]?.[0]).toMatchObject({ servername: undefined })
+  })
+
+  it('translates malformed direct responses and destroys their streams', async () => {
+    const request = { once: vi.fn(), end: vi.fn() }
+    const destroy = vi.fn()
+    const response = { statusCode: undefined, headers: {}, destroy } as unknown as IncomingMessage
+    httpRequestMock.mockImplementationOnce((_options, onResponse) => {
+      onResponse(response)
+      return request
+    })
+    const direct = new HttpFetchProvider(limits, {
+      resolveHostname: async () => [{ address: '93.184.216.34', family: 4 }],
+    })
+    await expect(direct.fetch({ url: 'http://public.test/' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+    expect(destroy).toHaveBeenCalledOnce()
+  })
+
+  it('translates a direct request construction failure', async () => {
+    httpRequestMock.mockImplementationOnce(() => { throw 'invalid request options' })
+    const direct = new HttpFetchProvider(limits, {
+      resolveHostname: async () => [{ address: '93.184.216.34', family: 4 }],
+    })
+    await expect(direct.fetch({ url: 'http://public.test/' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
   })
 })
 
@@ -319,6 +456,54 @@ describe('HttpFetchProvider invalid URLs and abort', () => {
     const controller = new AbortController()
     const promise = provider().fetch({ url: base }, controller.signal)
     controller.abort()
+    await expect(promise).rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
+  })
+
+  it('aborts while DNS resolution is pending and cleans up the wait listener', async () => {
+    const controller = new AbortController()
+    const guardedProvider = new HttpFetchProvider(limits, {
+      resolveHostname: async () => await new Promise<readonly { address: string; family: 4 }[]>(() => {}),
+      request: async () => new Response('unexpected', { headers: { 'content-type': 'text/plain' } }),
+    })
+    const promise = guardedProvider.fetch({ url: 'http://pending.test/' }, controller.signal)
+    controller.abort(new Error('caller stopped'))
+    await expect(promise).rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
+  })
+
+  it('observes an abort that happens before DNS wait registration', async () => {
+    const controller = new AbortController()
+    const guardedProvider = new HttpFetchProvider(limits, {
+      resolveHostname: async () => {
+        controller.abort(new Error('caller stopped'))
+        return [{ address: '93.184.216.34', family: 4 }]
+      },
+      request: async () => new Response('unexpected', { headers: { 'content-type': 'text/plain' } }),
+    })
+    await expect(guardedProvider.fetch({ url: 'http://pending.test/' }, controller.signal))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
+  })
+
+  it('uses a generic abort error when an abort signal has no reason', async () => {
+    const controller = new AbortController()
+    Object.defineProperty(controller.signal, 'reason', { value: undefined })
+    const guardedProvider = new HttpFetchProvider(limits, {
+      resolveHostname: async () => {
+        controller.abort(new Error('caller stopped'))
+        return [{ address: '93.184.216.34', family: 4 }]
+      },
+      request: async () => new Response('unexpected', { headers: { 'content-type': 'text/plain' } }),
+    })
+    await expect(guardedProvider.fetch({ url: 'http://pending.test/' }, controller.signal))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
+
+    const pendingController = new AbortController()
+    Object.defineProperty(pendingController.signal, 'reason', { value: undefined })
+    const pendingProvider = new HttpFetchProvider(limits, {
+      resolveHostname: async () => await new Promise<readonly { address: string; family: 4 }[]>(() => {}),
+      request: async () => new Response('unexpected', { headers: { 'content-type': 'text/plain' } }),
+    })
+    const promise = pendingProvider.fetch({ url: 'http://pending.test/' }, pendingController.signal)
+    pendingController.abort()
     await expect(promise).rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
   })
 
