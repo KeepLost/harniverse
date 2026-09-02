@@ -4,6 +4,7 @@ import { Context } from '@deepseek-ai/cordis'
 import {
   CompactionId,
   CompactionEngine,
+  ManualCompactionError,
   compactCheckpointSource,
   isCompactCheckpointSource,
 } from '@deepseek-ai/dsh-compaction'
@@ -90,6 +91,18 @@ describe('CompactionEngine seam', () => {
   function stubAgent(session: Session, model?: string): CompactionAgentContext {
     return { session, options: model === undefined ? {} : { model } }
   }
+
+  it('retains manual compaction failure classification and cause identity', () => {
+    const cause = new Error('backend failed')
+    const error = new ManualCompactionError('summary', 'summary failed', { cause })
+
+    expect(error).toMatchObject({
+      name: 'ManualCompactionError',
+      code: 'summary',
+      message: 'summary failed',
+      cause,
+    })
+  })
 
   it('registers as ctx.compaction', () => {
     const ctx = new Context()
