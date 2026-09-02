@@ -85,5 +85,5 @@
   config:
     thresholdRatio: 0.8
     retainRatio: 0.16
-    maxTokens: 131072
+    maxTokens: 32768
     compactionRetries: 1

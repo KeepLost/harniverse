@@ -261,6 +261,15 @@ function ciSharedStaticGates(): Gate[] {
     pnpmScript('dsh-package-licenses', 'verify-dsh-package-licenses', { label: 'DSH package licenses' }),
     pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
     pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
+    pnpmExec('compaction-contract', [
+      'vitest',
+      'run',
+      'scripts/compaction-config.spec.ts',
+      'packages/compaction/compaction-basic/tests/compaction-basic.spec.ts',
+      'packages/host/apiproxy/tests/rpc-schemas.spec.ts',
+      'packages/client/runtime/tests/session.client.spec.ts',
+      'packages/client/ui-conversation/tests/compaction-progress-item.client.spec.tsx',
+    ], { label: 'compaction contract' }),
     pnpmScript('optional-dependency-imports', 'verify-optional-dependency-imports', {
       label: 'optional dependency imports',
     }),

@@ -240,6 +240,21 @@ describe('Node 24 lane ownership', () => {
     expect(subject.map(item => item.id)).not.toContain('doc-typecheck')
   })
 
+  it('runs the compaction contract as a blocking source gate', () => {
+    const subject = withPnpmEntrypoint(() => gatesForMode('ci-static'))
+    const gate = subject.find(item => item.id === 'compaction-contract')
+
+    expect(gate?.label).toBe('compaction contract')
+    expect(gate?.args).toEqual(expect.arrayContaining([
+      'scripts/compaction-config.spec.ts',
+      'packages/compaction/compaction-basic/tests/compaction-basic.spec.ts',
+      'packages/host/apiproxy/tests/rpc-schemas.spec.ts',
+      'packages/client/runtime/tests/session.client.spec.ts',
+      'packages/client/ui-conversation/tests/compaction-progress-item.client.spec.tsx',
+    ]))
+    expect(gate?.allowFailure).not.toBe(true)
+  })
+
   it('owns the build and orders its artifact consumers', () => {
     const subject = withPnpmEntrypoint(() => gatesForMode('ci-consumers'))
 
@@ -296,6 +311,7 @@ describe('Node 24 lane ownership', () => {
     expect(subject.find(item => item.id === 'web-snapshot')).toMatchObject({
       displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
       env: { DSH_SNAPSHOT: 'replay' },
+      allowFailure: true,
     })
   })
 })

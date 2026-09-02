@@ -176,6 +176,122 @@ function histResponse(events: SessionEvent[], hasMore = false) {
 }
 
 describe('open', () => {
+  it('folds transient compaction progress and keeps a failed attempt visible', () => {
+    const { session } = makeSession()
+    session.handleMuxEnvelope('start' as never, {
+      type: 'session/event',
+      sessionId: SID,
+      event: {
+        type: 'compaction/start',
+        seq: 0,
+        time: 100,
+        data: { compactionId: 'c1', turn: null },
+      } as never,
+    })
+    session.handleMuxEnvelope('progress' as never, {
+      type: 'compaction/progress',
+      sessionId: SID,
+      compactionId: 'c1',
+      phase: 'reasoning',
+      text: 'thinking',
+    })
+    session.handleMuxEnvelope('end' as never, {
+      type: 'session/event',
+      sessionId: SID,
+      event: {
+        type: 'compaction/end',
+        seq: 1,
+        time: 200,
+        data: { compactionId: 'c1', turn: null, error: 'provider timeout' },
+      } as never,
+    })
+
+    expect(session.getSnapshot().compactionProgress).toMatchObject({
+      compactionId: 'c1',
+      phase: 'failed',
+      reasoningText: 'thinking',
+      error: 'provider timeout',
+    })
+  })
+
+  it('accumulates streamed phases and clears transient progress on success or resubscribe', () => {
+    const { session } = makeSession()
+    session.handleMuxEnvelope('start' as never, {
+      type: 'session/event',
+      sessionId: SID,
+      event: {
+        type: 'compaction/start',
+        seq: 0,
+        time: 100,
+        data: { compactionId: 'c2', turn: null },
+      } as never,
+    })
+    session.handleMuxEnvelope('reasoning-1' as never, {
+      type: 'compaction/progress',
+      sessionId: SID,
+      compactionId: 'c2',
+      phase: 'reasoning',
+      text: 'first ',
+    })
+    session.handleMuxEnvelope('reasoning-2' as never, {
+      type: 'compaction/progress',
+      sessionId: SID,
+      compactionId: 'c2',
+      phase: 'reasoning',
+      text: 'second',
+    })
+    session.handleMuxEnvelope('summary' as never, {
+      type: 'compaction/progress',
+      sessionId: SID,
+      compactionId: 'c2',
+      phase: 'summary',
+      text: 'checkpoint',
+    })
+
+    expect(session.getSnapshot().compactionProgress).toMatchObject({
+      compactionId: 'c2',
+      phase: 'summary',
+      reasoningText: 'first second',
+      summaryText: 'checkpoint',
+    })
+
+    session.handleMuxEnvelope('end' as never, {
+      type: 'session/event',
+      sessionId: SID,
+      event: {
+        type: 'compaction/end',
+        seq: 1,
+        time: 200,
+        data: { compactionId: 'c2', turn: null },
+      } as never,
+    })
+    expect(session.getSnapshot().compactionProgress).toBeNull()
+
+    session.handleMuxEnvelope('start-2' as never, {
+      type: 'session/event',
+      sessionId: SID,
+      event: {
+        type: 'compaction/start',
+        seq: 2,
+        time: 300,
+        data: { compactionId: 'c3', turn: null },
+      } as never,
+    })
+    session.handleMuxEnvelope('progress-2' as never, {
+      type: 'compaction/progress',
+      sessionId: SID,
+      compactionId: 'c3',
+      phase: 'summary',
+      text: 'stale after reconnect',
+    })
+    session.handleMuxEnvelope('resubscribe' as never, {
+      type: 'session/subscribed',
+      sessionId: SID,
+      lastSeq: 2,
+    })
+    expect(session.getSnapshot().compactionProgress).toBeNull()
+  })
+
   it('keeps a bare Session blank until an authoritative lifecycle signal arrives', () => {
     const { session } = makeSession()
     expect(session.getSnapshot()).toMatchObject({ blank: true, composerPhase: 'blank' })

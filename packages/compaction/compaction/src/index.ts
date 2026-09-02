@@ -11,6 +11,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { CompactionResult } from './types.ts'
+import type { CompactionId } from './brand.ts'
 
 export type { CompactionResult } from './types.ts'
 export { CompactionId } from './brand.ts'
@@ -23,6 +24,17 @@ export type { CompactionCheckpointSource } from './checkpoint.ts'
 
 /** Why policy is asking a backend to consider compaction. */
 export type CompactionTrigger = 'pressure' | 'context-overflow' | 'agent-request'
+
+/** Which part of an auxiliary compaction response is currently streaming. */
+export type CompactionProgressPhase = 'reasoning' | 'summary'
+
+/** Live, non-durable text emitted while an auxiliary compaction request runs. */
+export interface CompactionProgress {
+  readonly session: Session
+  readonly compactionId: CompactionId
+  readonly phase: CompactionProgressPhase
+  readonly text: string
+}
 
 /** Expected failure classes for an explicit idle-session compaction request. */
 export type ManualCompactionErrorCode =
@@ -81,6 +93,14 @@ export interface ManualCompactAgentContext extends CompactionAgentContext {
 declare module '@deepseek-ai/cordis' {
   interface Context {
     compaction: CompactionEngine
+  }
+
+  interface Events {
+    /** Live compaction output; the durable summary remains the session fact.
+     * @mode emit
+     * @param payload - transient reasoning or summary text for one compaction.
+     */
+    'compaction/progress'(payload: CompactionProgress): void
   }
 }
 

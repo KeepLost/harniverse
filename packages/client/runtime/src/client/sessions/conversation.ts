@@ -443,6 +443,8 @@ export interface ConversationSnapshot {
   /** In-window completed turn number -> its `turn/end` event seq. */
   turnEnds: ReadonlyMap<number, number>
   partial: PartialAssistant | null
+  /** Live, non-durable auxiliary compaction output for the current session. */
+  compactionProgress?: CompactionProgressSnapshot | null
   runningCalls: readonly RunningToolCall[]
   pending: readonly PendingInteraction[]
   /** Authoritative transient inbox snapshot, including queued and steering placements. */
@@ -474,4 +476,15 @@ export interface ConversationSnapshot {
    */
   blank: boolean
   lastAgentError: string | null
+}
+
+/** Client projection of one in-flight compaction request. */
+export interface CompactionProgressSnapshot {
+  compactionId: string
+  phase: 'preparing' | 'reasoning' | 'summary' | 'failed'
+  reasoningText: string
+  summaryText: string
+  startedAt: number
+  updatedAt: number
+  error?: string
 }

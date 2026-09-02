@@ -75,7 +75,7 @@
   config:
     thresholdRatio: 0.8
     retainRatio: 0.08
-    maxTokens: 131072
+    maxTokens: 32768
     compactionRetries: 1
 
 # Projection registry: subagent catalog identity (mode/label) folds through

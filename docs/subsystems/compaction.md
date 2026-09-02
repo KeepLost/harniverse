@@ -204,7 +204,7 @@ abstract compactRegion( start: number, end: number, agent: CompactionAgentContex
 
 Types: [CommandId](commands.md)
 
-Source: [`packages/compaction/compaction/src/index.ts:96`](../../packages/compaction/compaction/src/index.ts)
+Source: [`packages/compaction/compaction/src/index.ts:116`](../../packages/compaction/compaction/src/index.ts)
 
 <a id="ctxcompactionhistory--compactionhistory"></a>
 
@@ -287,4 +287,24 @@ pruneSession(session: Session): PruneResult
 Types: [ContentBlock](llm-streaming.md) · [Session](session.md)
 
 Source: [`packages/compaction/compaction-tool-result-pruner/src/index.ts:44`](../../packages/compaction/compaction-tool-result-pruner/src/index.ts)
+
+<a id="compaction-events"></a>
+
+### `compaction/*` events
+
+<a id="compactionprogress--emit"></a>
+
+#### `compaction/progress` — emit
+
+Live compaction output; the durable summary remains the session fact.
+
+```ts cordis-catalog
+/** Live compaction output; the durable summary remains the session fact.
+ * @mode emit
+ * @param payload - transient reasoning or summary text for one compaction.
+ */
+'compaction/progress'(payload: CompactionProgress): void
+```
+
+Source: [`packages/compaction/compaction/src/index.ts:103`](../../packages/compaction/compaction/src/index.ts)
 <!-- END GENERATED cordis-surface -->

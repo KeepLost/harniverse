@@ -128,6 +128,130 @@
   line-height: 24px;
 }
 
+.compactionProgress {
+  padding: 2px 0;
+}
+
+.compactionProgressButton {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 24px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.compactionProgressButton:hover,
+.compactionProgressButton:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.compactionProgressButton:focus-visible {
+  outline: 1.5px solid var(--dsw-alias-button-info-fill);
+  outline-offset: 2px;
+}
+
+.compactionProgress[data-state='reasoning'] .compactionContextIcon,
+.compactionProgress[data-state='summary'] .compactionContextIcon {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.compactionProgressPhase {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 24px;
+}
+
+.compactionProgressClock {
+  flex: none;
+  margin-left: 8px;
+  color: var(--dsw-alias-label-caption);
+  font-size: 12px;
+  line-height: 24px;
+}
+
+.compactionProgressBody {
+  display: grid;
+  gap: 8px;
+  padding: 4px 0 6px 22px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 14px;
+  line-height: 24px;
+}
+
+.compactionProgressLabel {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.compactionProgressReasoning,
+.compactionProgressSummary {
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.compactionProgressReasoning {
+  padding-left: 14px;
+  border-left: 1px solid var(--dsw-alias-label-caption);
+}
+
+.compactionProgressSummary {
+  color: var(--dsw-alias-label-primary-dimmed);
+}
+
+.compactionTitle[data-failed] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.compactionProgressError {
+  color: var(--dsw-alias-state-error-primary);
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .compactionProgress[data-state='reasoning'] .compactionLeading,
+  .compactionProgress[data-state='summary'] .compactionLeading {
+    animation: compaction-progress-pulse 1.8s ease-in-out infinite;
+  }
+}
+
+@keyframes compaction-progress-pulse {
+  50% { opacity: 0.55; }
+}
+
+@media (max-width: 560px) {
+  .compactionProgressButton {
+    flex-wrap: wrap;
+    align-content: center;
+  }
+
+  .compactionProgressPhase {
+    margin-right: 8px;
+  }
+
+  .compactionProgressButton .compactionSummary {
+    flex-basis: calc(100% - 22px);
+    padding-left: 0;
+  }
+
+  .compactionProgressClock {
+    margin-left: auto;
+  }
+}
+
 .retryRow {
   color: var(--dsw-alias-label-tertiary);
   font-size: 13px;

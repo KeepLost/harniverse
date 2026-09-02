@@ -3,7 +3,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
-import { selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
+import { compactSurfaceRegion, selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
+import type { RegionDependencies } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 import type { SummarizationInput, SummaryResult } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import { CompactionId, toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction'
 import {
@@ -11,7 +12,7 @@ import {
   resolveConfig,
   resolveTargetPolicy,
 } from '@deepseek-ai/dsh-compaction-basic/src/config.ts'
-import type { CompactionResult } from '@deepseek-ai/dsh-compaction'
+import type { CompactionProgressPhase, CompactionResult } from '@deepseek-ai/dsh-compaction'
 import LlmRuntime, { createUserMessage, CallId, CONTEXT_WINDOW_EXCEEDED_CODE, createToolResultMessage, LlmAdapter , createMessage } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
@@ -246,11 +247,13 @@ class TestCompactionEngine extends BasicCompactionEngine {
   error: unknown
   mutateDuringSummary: (() => void) | undefined
   calls: Array<{ input: SummarizationInput; signal: AbortSignal | undefined }> = []
+  progressChunks: Array<[CompactionProgressPhase, string]> = []
 
   override async summarize(
     input: SummarizationInput,
     _agent: Agent,
     signal?: AbortSignal,
+    onProgress?: (phase: CompactionProgressPhase, text: string) => void,
   ): Promise<{
     summary: ContentBlock[]
     rawOutput?: ContentBlock[]
@@ -261,6 +264,7 @@ class TestCompactionEngine extends BasicCompactionEngine {
   }> {
     this.calls.push({ input, signal })
     this.mutateDuringSummary?.()
+    for (const [phase, text] of this.progressChunks) onProgress?.(phase, text)
     if (this.error !== undefined) throw this.error
     return {
       summary: this.summary,
@@ -900,6 +904,57 @@ describe('optional model-free tool-result pruning', () => {
 })
 
 describe('compaction region transaction', () => {
+  it('completes without a progress sink', async () => {
+    const ctx = createContext()
+    const progress = vi.fn()
+    ctx.on('compaction/progress', progress)
+    const session = conversation(3)
+    const nodes = session.surface.nodes
+    const selected = [...nodes.slice(0, 4)]
+    const dependencies: RegionDependencies = {
+      meter: ctx.tokenMeter,
+      summarize: async () => ({
+        summary: [{ type: 'text', text: 'compact' }],
+        provider: 'summary-provider',
+        model: 'summary-model',
+      }),
+    }
+
+    const result = await compactSurfaceRegion(
+      dependencies,
+      session,
+      selected[0]!,
+      selected[3]!,
+      agent(session, MODEL),
+      { owner: 'current-turn', stability: 'whole-surface' },
+      SIGNAL,
+    )
+
+    expect(result.shadowedSeqs).toEqual(selected)
+    expect(progress).not.toHaveBeenCalled()
+  })
+
+  it('emits transient progress with the transaction identity without logging it', async () => {
+    const ctx = createContext()
+    const compact = service({ auto: false }, ctx)
+    compact.progressChunks = [
+      ['reasoning', 'thinking'],
+      ['summary', 'checkpoint'],
+    ]
+    const progress: Array<{ session: Session; compactionId: string; phase: CompactionProgressPhase; text: string }> = []
+    ctx.on('compaction/progress', (event) => { progress.push(event) })
+    const session = conversation(3)
+    const nodes = session.surface.nodes
+
+    const result = await compact.compactRegion(nodes[0]!, nodes[3]!, agent(session, MODEL), SIGNAL)
+
+    expect(progress).toEqual([
+      { session, compactionId: result.compactionId, phase: 'reasoning', text: 'thinking' },
+      { session, compactionId: result.compactionId, phase: 'summary', text: 'checkpoint' },
+    ])
+    expect(session.events.map(event => event.type)).not.toContain('compaction/progress')
+  })
+
   it('lands a framed, replayable checkpoint with exact source seqs and token price', async () => {
     const compact = service()
     compact.rawOutput = [
@@ -1195,6 +1250,7 @@ describe('compaction region transaction', () => {
 class ScriptedAdapter extends LlmAdapter {
   lastOptions: GenerateOptions | undefined
   usage: TokenUsage | undefined
+  pauseAfterFirst: Promise<void> | undefined
 
   constructor(
     private readonly blocks: readonly ContentBlock[],
@@ -1214,6 +1270,7 @@ class ScriptedAdapter extends LlmAdapter {
       } else {
         yield { type: 'block-end', index, block }
       }
+      if (index === 0 && this.pauseAfterFirst !== undefined) await this.pauseAfterFirst
     }
     if (this.usage !== undefined) yield { type: 'usage', usage: this.usage }
     yield { type: 'finish', reason: this.finish }
@@ -1225,6 +1282,7 @@ class ExposedCompactionEngine extends BasicCompactionEngine {
     input: SummarizationInput,
     owner: Agent,
     signal?: AbortSignal,
+    onProgress?: (phase: CompactionProgressPhase, text: string) => void,
   ): Promise<{
     summary: ContentBlock[]
     rawOutput?: ContentBlock[]
@@ -1233,7 +1291,7 @@ class ExposedCompactionEngine extends BasicCompactionEngine {
     maxTokens?: number
     usage?: TokenUsage
   }> {
-    return this.summarize(input, owner, signal)
+    return this.summarize(input, owner, signal, onProgress)
   }
 }
 
@@ -1253,6 +1311,83 @@ async function summarizerHarness(
 }
 
 describe('default one-shot summarizer', () => {
+  it('publishes reasoning and summary text without changing the returned projection', async () => {
+    const { compact } = await summarizerHarness([
+      { type: 'reasoning', text: 'thinking first' },
+      { type: 'text', text: 'summary second' },
+    ])
+    const progress: Array<[CompactionProgressPhase, string]> = []
+
+    await compact.runSummarize(
+      promptInput('transcript'),
+      agent(conversation(1), MODEL),
+      SIGNAL,
+      (phase, text) => { progress.push([phase, text]) },
+    )
+
+    expect(progress).toEqual([
+      ['reasoning', 'thinking first'],
+      ['summary', 'summary second'],
+    ])
+  })
+
+  it('publishes a progress batch before the auxiliary stream completes', async () => {
+    vi.useFakeTimers()
+    try {
+      const { adapter, compact } = await summarizerHarness([
+        { type: 'reasoning', text: 'thinking first' },
+        { type: 'text', text: 'summary second' },
+      ])
+      const release = Promise.withResolvers<undefined>()
+      adapter.pauseAfterFirst = release.promise
+      const progress: Array<[CompactionProgressPhase, string]> = []
+      const pending = compact.runSummarize(
+        promptInput('transcript'),
+        agent(conversation(1), MODEL),
+        SIGNAL,
+        (phase, text) => { progress.push([phase, text]) },
+      )
+
+      await Promise.resolve()
+      await Promise.resolve()
+      await vi.runOnlyPendingTimersAsync()
+      expect(progress).toEqual([['reasoning', 'thinking first']])
+
+      release.resolve(undefined)
+      await pending
+      expect(progress).toEqual([
+        ['reasoning', 'thinking first'],
+        ['summary', 'summary second'],
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps later progress phases observable when an earlier observer callback fails', async () => {
+    const { compact } = await summarizerHarness([
+      { type: 'reasoning', text: 'thinking first' },
+      { type: 'text', text: 'summary second' },
+    ])
+    const progress: Array<[CompactionProgressPhase, string]> = []
+    let first = true
+
+    await expect(compact.runSummarize(
+      promptInput('transcript'),
+      agent(conversation(1), MODEL),
+      SIGNAL,
+      (phase, text) => {
+        if (first) {
+          first = false
+          throw new Error('progress observer failed')
+        }
+        progress.push([phase, text])
+      },
+    )).resolves.toMatchObject({ summary: [{ type: 'text', text: 'summary second' }] })
+
+    expect(progress).toEqual([['summary', 'summary second']])
+  })
+
   it('requires complete raw output when a subclass marks one local LLM stream call', () => {
     expectTypeOf<{
       summary: ContentBlock[]

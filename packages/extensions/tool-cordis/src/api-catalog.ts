@@ -2842,6 +2842,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [],
   },
   {
+    name: 'compaction/progress',
+    mode: 'emit',
+    signature: '\'compaction/progress\'(payload: CompactionProgress): void',
+    summary: 'Live compaction output; the durable summary remains the session fact.',
+    description: 'Live compaction output; the durable summary remains the session fact.',
+    parameters: [{ name: 'payload', description: 'transient reasoning or summary text for one compaction.' }],
+  },
+  {
     name: 'cordis/dynamic-package',
     mode: 'emit',
     signature: '\'cordis/dynamic-package\'(pkg: DynamicCordisPackage): void',
@@ -3660,6 +3668,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CompactionId',
     declaration: 'export type CompactionId = Branded<\'CompactionId\'>;',
+  },
+  {
+    name: 'CompactionProgress',
+    declaration: 'export interface CompactionProgress {\n    readonly session: Session;\n    readonly compactionId: CompactionId;\n    readonly phase: CompactionProgressPhase;\n    readonly text: string;\n}',
+  },
+  {
+    name: 'CompactionProgressPhase',
+    declaration: 'export type CompactionProgressPhase = \'reasoning\' | \'summary\';',
   },
   {
     name: 'CompactionResult',

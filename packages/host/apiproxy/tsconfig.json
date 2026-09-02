@@ -90,6 +90,9 @@
       "path": "../../interaction/commands"
     },
     {
+      "path": "../../compaction/compaction"
+    },
+    {
       "path": "../../interaction/user-approval"
     },
     {
