@@ -6,7 +6,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import WebRuntime from '@deepseek-ai/dsh-web'
 import type { WebSearchProvider, WebSearchResult } from '@deepseek-ai/dsh-web'
-import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
+import * as ToolWeb from '../src/index.ts'
 import {
   formatSearchOutput,
   formatFetchOutput,
@@ -22,7 +22,7 @@ import {
   WEB_SEARCH_MAX_QUERIES,
   WEB_SEARCH_MAX_QUERIES_MAX,
   WEB_SEARCH_MAX_RESULTS,
-} from '@deepseek-ai/dsh-tool-web'
+} from '../src/index.ts'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { ToolResult } from '@deepseek-ai/dsh-tools'
 import { parseSearchArgs } from '../src/search.ts'
@@ -534,8 +534,11 @@ describe('tool-web registration', () => {
     const { fiber, ctx } = await mountTools()
     const prompt = await ctx.systemPrompt.assemble()
     const text = prompt.sections.map(s => s.text).join('\n')
+    const contextText = prompt.contexts.map(s => s.text).join('\n')
     expect(text).toContain(`Use the web_search tool to discover current public-web information on a best-effort basis. The required queries array accepts 1–${WEB_SEARCH_MAX_QUERIES} non-empty search queries; use a one-item array for a single search. The optional provider parameter selects one listed provider; omitting it uses the configured default.`)
     expect(text).toContain('Use the web_fetch tool to retrieve a specific public-web URL on a best-effort basis')
+    expect(contextText).toContain('Current web_search providers: none')
+    expect(contextText).toContain('Current web_fetch providers: none')
     await fiber.dispose()
   })
 
@@ -543,9 +546,31 @@ describe('tool-web registration', () => {
     const { fiber, ctx } = await mountTools({ config: { search: true, fetch: false } })
     const prompt = await ctx.systemPrompt.assemble()
     const text = prompt.sections.map(s => s.text).join('\n')
+    const contextText = prompt.contexts.map(s => s.text).join('\n')
     expect(text).toContain('Use returned snippets when available')
     expect(text).not.toContain('web_fetch')
+    expect(contextText).toContain('Current web_search providers: none')
     await fiber.dispose()
+  })
+
+  it('evaluates dynamic provider guidance when registering either tool', () => {
+    const contextText: string[] = []
+    const ctx = {
+      web: { listProviders: (capability: 'search' | 'fetch') => [{ id: capability }] },
+      systemPrompt: {
+        context: ({ text }: { text: string | (() => string) }) => {
+          contextText.push(typeof text === 'function' ? text() : text)
+        },
+        section: () => {},
+      },
+      tools: { register: () => {} },
+    } as unknown as Context
+    ToolWeb.applyWebSearchTool(ctx, 100, 2, 30_000, true)
+    ToolWeb.applyWebFetchTool(ctx, 30_000, 100)
+    expect(contextText).toEqual([
+      'Current web_search providers: search. Pass one of these ids as the optional provider parameter; omitting it uses the configured default. Provider failures are not retried through another provider.',
+      'Current web_fetch providers: fetch. Pass one of these ids as the optional provider parameter; omitting it uses the configured default. Provider failures are not retried through another provider.',
+    ])
   })
 })
 

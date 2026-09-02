@@ -327,10 +327,10 @@ function computeFetchOutput(result: WebFetchResult, maxOutputChars: number): Ren
   const truncated = result.truncated || rendered.sourceTruncated || prefix.length > maxOutputChars
   const full = `${prefix}${truncated ? TRUNCATION_FOOTER : ''}`
   if (full.length <= maxOutputChars) return { text: full, truncated }
-  const bodyBudget = maxOutputChars - header.length - WEB_UNTRUSTED_RESERVE - (truncated ? TRUNCATION_FOOTER.length : 0)
+  const bodyBudget = maxOutputChars - header.length - WEB_UNTRUSTED_RESERVE - TRUNCATION_FOOTER.length
   if (bodyBudget > 0) {
     return {
-      text: `${header}${WEB_UNTRUSTED_PREFIX}${rendered.text.slice(0, bodyBudget)}${WEB_UNTRUSTED_SUFFIX}${truncated ? TRUNCATION_FOOTER : ''}`,
+      text: `${header}${WEB_UNTRUSTED_PREFIX}${rendered.text.slice(0, bodyBudget)}${WEB_UNTRUSTED_SUFFIX}${TRUNCATION_FOOTER}`,
       truncated: true,
     }
   }
