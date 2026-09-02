@@ -263,7 +263,7 @@ export async function readRequestImageFile(
       })
       inFlight.set(path, operation)
       void operation.finally(() => {
-        if (inFlight.get(path) === operation) inFlight.delete(path)
+        inFlight.delete(path)
       }).catch(() => {})
     }
     image = await waitForImage(operation, signal)

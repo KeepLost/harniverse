@@ -7,17 +7,29 @@ import { AttachmentId, type ImageMediaType, type StoredImageAttachment } from '@
 import { readRequestImageFile, requestImageDimensions, requestImageVariantId } from '../src/request-image.ts'
 
 const fsControl = vi.hoisted(() => ({
-  renameError: undefined as 'eexist' | 'other' | undefined,
+  renameError: undefined as 'eexist' | 'other' | 'string' | undefined,
+  blockNextMkdir: false,
+  mkdirStarted: undefined as (() => void) | undefined,
+  releaseMkdir: undefined as (() => void) | undefined,
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
   return {
     ...actual,
+    async mkdir(...args: Parameters<typeof actual.mkdir>): Promise<string | undefined> {
+      if (fsControl.blockNextMkdir) {
+        fsControl.blockNextMkdir = false
+        fsControl.mkdirStarted?.()
+        await new Promise<void>((resolve) => { fsControl.releaseMkdir = resolve })
+      }
+      return actual.mkdir(...args)
+    },
     async rename(...args: Parameters<typeof actual.rename>): Promise<void> {
       if (fsControl.renameError !== undefined) {
         const kind = fsControl.renameError
         fsControl.renameError = undefined
+        if (kind === 'string') throw 'variant publication failed as non-error'
         const error = new Error(kind === 'eexist' ? 'variant already published' : 'variant publication failed') as NodeJS.ErrnoException
         error.code = kind === 'eexist' ? 'EEXIST' : 'EIO'
         throw error
@@ -31,6 +43,10 @@ const roots: string[] = []
 
 afterEach(async () => {
   fsControl.renameError = undefined
+  fsControl.blockNextMkdir = false
+  fsControl.mkdirStarted = undefined
+  fsControl.releaseMkdir?.()
+  fsControl.releaseMkdir = undefined
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
 
@@ -160,6 +176,87 @@ describe('request image projection', () => {
     const result = await readRequestImageFile(root, source, { maxPixels: 10_000, maxBytes: 20_000 })
     expect(result.mediaType).not.toBe('image/gif')
     expect(result.data.byteLength).toBeLessThanOrEqual(20_000)
+  })
+
+  it('completes a projected request with a caller signal', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    const controller = new AbortController()
+    const result = await readRequestImageFile(root, await stored('gif', 20, 20), {
+      maxPixels: 10_000,
+      maxBytes: 20_000,
+    }, controller.signal)
+    expect(result.mediaType).toBe('image/webp')
+  })
+
+  it('rejects a signal-bound projection when encoding is aborted during publication', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    const controller = new AbortController()
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    fsControl.mkdirStarted = markStarted
+    fsControl.blockNextMkdir = true
+    const operation = readRequestImageFile(root, await stored('gif', 20, 20), {
+      maxPixels: 10_000,
+      maxBytes: 20_000,
+    }, controller.signal)
+    await started
+    controller.abort(new Error('publication cancelled'))
+    await expect(operation).rejects.toThrow('publication cancelled')
+  })
+
+  it('wraps a non-Error abort reason during publication', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    const controller = new AbortController()
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    fsControl.mkdirStarted = markStarted
+    fsControl.blockNextMkdir = true
+    const operation = readRequestImageFile(root, await stored('gif', 20, 20), {
+      maxPixels: 10_000,
+      maxBytes: 20_000,
+    }, controller.signal)
+    await started
+    controller.abort('publication stopped')
+    await expect(operation).rejects.toThrow('Request image projection aborted')
+  })
+
+  it('preserves a signal-bound Error from sidecar publication', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    const controller = new AbortController()
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    fsControl.mkdirStarted = markStarted
+    fsControl.blockNextMkdir = true
+    fsControl.renameError = 'other'
+    const operation = readRequestImageFile(root, await stored('gif', 20, 20), {
+      maxPixels: 10_000,
+      maxBytes: 20_000,
+    }, controller.signal)
+    await started
+    fsControl.releaseMkdir?.()
+    await expect(operation).rejects.toThrow('variant publication failed')
+  })
+
+  it('wraps a non-Error publication failure for a signal-bound projection', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    const controller = new AbortController()
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    fsControl.mkdirStarted = markStarted
+    fsControl.blockNextMkdir = true
+    fsControl.renameError = 'string'
+    const operation = readRequestImageFile(root, await stored('gif', 20, 20), {
+      maxPixels: 10_000,
+      maxBytes: 20_000,
+    }, controller.signal)
+    await started
+    fsControl.releaseMkdir?.()
+    await expect(operation).rejects.toThrow('Request image projection failed')
   })
 
   it('encodes opaque JPEG sources as JPEG and rejects an impossible byte budget', async () => {
