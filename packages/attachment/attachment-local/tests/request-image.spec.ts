@@ -35,6 +35,7 @@ describe('request image projection', () => {
     expect(requestImageDimensions(10, 5, 1_000_000)).toEqual({ width: 10, height: 5 })
     expect(requestImageDimensions(2, 2, 1)).toEqual({ width: 1, height: 1 })
     expect(requestImageDimensions(1, 100, 50)).toEqual({ width: 1, height: 50 })
+    expect(requestImageDimensions(1, 1, 0)).toEqual({ width: 1, height: 1 })
   })
 
   it('derives and reuses a sidecar request image without changing the durable ref', async () => {
@@ -86,6 +87,19 @@ describe('request image projection', () => {
     expect(rebuilt.width * rebuilt.height).toBeLessThanOrEqual(policy.maxPixels)
   })
 
+  it('ignores a valid sidecar that exceeds the current projection dimensions', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    const source = await stored('png', 200, 100)
+    const policy = { maxPixels: 1_000, maxBytes: 20_000 }
+    const first = await readRequestImageFile(root, source, policy)
+    const hash = String(first.variantId).slice('sha256:'.length)
+    await writeFile(join(root, 'request-images', hash.slice(0, 2), hash), source.data)
+    const rebuilt = await readRequestImageFile(root, source, policy)
+    expect(rebuilt.width * rebuilt.height).toBeLessThanOrEqual(policy.maxPixels)
+    expect(rebuilt.data).not.toEqual(source.data)
+  })
+
   it('rejects invalid request policies', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
     roots.push(root)
@@ -121,6 +135,14 @@ describe('request image projection', () => {
     roots.push(root)
     const source = await stored()
     await expect(readRequestImageFile(root, { ...source, data: new Uint8Array([1, 2, 3]) }, { maxPixels: 10_000, maxBytes: 20_000 }))
+      .rejects.toMatchObject({ code: 'INVALID_IMAGE' })
+  })
+
+  it('rejects a valid but unsupported source format', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-request-image-'))
+    roots.push(root)
+    const source = await stored('tiff')
+    await expect(readRequestImageFile(root, source, { maxPixels: 10_000, maxBytes: 20_000 }))
       .rejects.toMatchObject({ code: 'INVALID_IMAGE' })
   })
 
