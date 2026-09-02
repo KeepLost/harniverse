@@ -233,7 +233,7 @@ describe('request image projection', () => {
     fsControl.blockNextMkdir = true
     fsControl.renameError = 'other'
     const operation = readRequestImageFile(root, await stored('gif', 20, 20), {
-      maxPixels: 10_000,
+      maxPixels: 1,
       maxBytes: 20_000,
     }, controller.signal)
     await started
