@@ -189,6 +189,20 @@ afterEach(async () => {
 })
 
 describe('WorkspaceRegistry lifecycle and bootstrap', () => {
+  it('closes the primary domain when the deletion domain cannot open', async () => {
+    const backend = new MemoryStorageBackend()
+    const failingBackend: StorageBackend = {
+      kv: {
+        open: async (descriptor) => {
+          if (descriptor.name === 'workspace_deletion') throw new Error('deletion domain unavailable')
+          return backend.kv.open(descriptor)
+        },
+      },
+      close: () => backend.close(),
+    }
+    await expect(harness({ backend: failingBackend })).rejects.toThrow('deletion domain unavailable')
+  })
+
   it('opens a workspace medium stamped by DSH v2 and isolates the deletion journal', async () => {
     const pool = new MemoryMediaPool()
     pool.versions.set('workspace', DOMAIN_VERSION)
@@ -1000,6 +1014,19 @@ describe('registry-global session archive', () => {
     expect(result.registry.archivedSessionIds).toEqual([])
     expect(storedRecord(result.pool, workspace.id).sessionIds).toEqual(['kept'])
     expect(storedState(result.pool).archivedSessionIds).toEqual([])
+  })
+
+  it('treats removing an unarchived session as an idempotent no-op', async () => {
+    const result = await harness({ sessions: [header('kept', undefined, 100)] })
+    await result.registry.removeSessionReferences(SessionId('not-archived'))
+    expect(result.registry.archivedSessionIds).toEqual([])
+    await result.fiber.dispose()
+  })
+
+  it('rejects pending deletion reads before the registry is started', () => {
+    const ctx = new Context()
+    const registry = new WorkspaceRegistry(ctx)
+    expect(() => registry.pendingSessionDeletionIds).toThrow('workspace registry is not started yet')
   })
 
   it('persists an idempotent Session-deletion recovery marker until cleanup completes', async () => {
