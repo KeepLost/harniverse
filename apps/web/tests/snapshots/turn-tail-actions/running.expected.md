@@ -13,14 +13,14 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
     - tab "Capabilities"
-- text: Begin your reply with the plain sentence "Reading the workspace now." as text, and in that same message call the bash tool with the command "echo alpha". After the tool result, reply with the single word DONE and stop. {{clock}}
-- button "Copy":
-  - img
-- tooltip "Copy"
 - button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img
   - text: Context injection @deepseek-ai/dsh-system-prompt
+- text: Begin your reply with the plain sentence "Reading the workspace now." as text, and in that same message call the bash tool with the command "echo alpha". After the tool result, reply with the single word DONE and stop. {{clock}}
+- button "Copy":
+  - img
+- tooltip "Copy"
 - button "Think The user wants me to begin with \"Reading the workspace now.\" and call bash with \"echo alpha\" in the same message. Then after the tool result, reply with the single word DONE and stop.":
   - img
   - img
@@ -36,6 +36,7 @@
 - button "Commands":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
+- 'button "Supervision mode: Supervised"': Supervised
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
