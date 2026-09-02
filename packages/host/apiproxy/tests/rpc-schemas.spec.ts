@@ -320,13 +320,13 @@ describe('sessions domain schemas', () => {
       .toEqual({ sessionId: 's1', messageId: 'm1' })
     expect(sessionWorkStatusValueSchema.parse({
       messageId: 'm1',
-      status: { state: 'settled', turn: 2, reason: { kind: 'completed' } },
+      status: { state: 'settled', turn: 2, delivery: 'queue', reason: { kind: 'completed' } },
     })).toEqual({
       messageId: 'm1',
-      status: { state: 'settled', turn: 2, reason: { kind: 'completed' } },
+      status: { state: 'settled', turn: 2, delivery: 'queue', reason: { kind: 'completed' } },
     })
     expect(() => sessionWorkStatusValueSchema.parse({
-      messageId: 'm1', status: { state: 'claimed', turn: -1 },
+      messageId: 'm1', status: { state: 'claimed', turn: -1, delivery: 'queue' },
     })).toThrow()
     expect(sessionStatusRequestSchema.parse({ sessionId: 's1' })).toEqual({ sessionId: 's1' })
     const status = sessionStatusValueSchema.parse({
@@ -362,7 +362,15 @@ describe('sessions domain schemas', () => {
       sessionId: 's1', itemId: 'i1', action: { kind: 'promote' },
     })).toThrow()
     expect(sessionCancelValueSchema.parse({ accepted: true }).accepted).toBe(true)
-    expect(sessionUpdateQueueValueSchema.parse({ accepted: true }).accepted).toBe(true)
+    expect(sessionUpdateQueueValueSchema.parse({
+      accepted: true,
+      messageId: 'm1',
+      status: { state: 'queued', delivery: 'steer' },
+    })).toEqual({
+      accepted: true,
+      messageId: 'm1',
+      status: { state: 'queued', delivery: 'steer' },
+    })
     expect(contentBlockSchema.parse({ type: 'text', text: 'x', extra: 1 })).toMatchObject({ extra: 1 })
   })
 })

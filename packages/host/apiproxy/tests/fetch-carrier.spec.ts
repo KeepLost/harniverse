@@ -76,7 +76,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           rpcId: request.rpcId,
           result: {
             ok: true,
-            value: { messageId: request.payload.messageId, status: { state: 'queued' as const } },
+            value: { messageId: request.payload.messageId, status: { state: 'queued' as const, delivery: 'queue' as const } },
           },
         }
       },
@@ -149,7 +149,17 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         }
       },
       async updateQueue(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
+        return {
+          rpcId: request.rpcId,
+          result: {
+            ok: true,
+            value: {
+              accepted: true as const,
+              messageId: request.payload.itemId,
+              status: { state: 'queued' as const, delivery: 'queue' as const },
+            },
+          },
+        }
       },
       async cancel(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
@@ -496,7 +506,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(renamed.result).toMatchObject({ ok: true, value: { title: 'named', seq: 0 } })
     expect((await c.sessions.prompt({ sessionId: 's' as never, mode: 'queue', content: [{ type: 'text', text: 'x' }] })).result.ok).toBe(true)
     expect((await c.sessions.workStatus({ sessionId: 's' as never, messageId: 'message-1' as never })).result)
-      .toEqual({ ok: true, value: { messageId: 'message-1', status: { state: 'queued' } } })
+      .toEqual({ ok: true, value: { messageId: 'message-1', status: { state: 'queued', delivery: 'queue' } } })
     expect((await c.sessions.status({ sessionId: 's' as never })).result)
       .toMatchObject({ ok: true, value: { bootId: 'test-boot', lastSeq: -1 } })
     expect((await c.sessions.attachment({ sessionId: 's' as never, attachmentId: 'a' as never })).result.ok).toBe(true)

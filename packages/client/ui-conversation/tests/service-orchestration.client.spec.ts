@@ -22,7 +22,14 @@ function deferred<T>() {
 async function bench(readAttachment?: SessionFace['readAttachment']) {
   const runtime = await SlotTestRuntime.create()
   const prompt = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
-  const updateQueue = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
+  const updateQueue = vi.fn(() => Promise.resolve({
+    ok: true as const,
+    value: {
+      accepted: true as const,
+      messageId: 'queued' as never,
+      status: { state: 'queued' as const, delivery: 'queue' as const },
+    },
+  }))
   const cancel = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
   const loadOlder = vi.fn(() => Promise.resolve())
   await runtime.sessions.add({

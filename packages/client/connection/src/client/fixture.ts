@@ -2482,12 +2482,14 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
             status: { state: 'unknown' as const },
           }))
         }
+        // The standalone fixture only replays ordinary follow-ups.
+        const delivery = 'queue' as const
         const end = log.find(event => event.type === 'turn/end' && event.data.turn === turn)
         return Promise.resolve(ok(request, {
           messageId: request.payload.messageId,
           status: end?.type === 'turn/end'
-            ? { state: 'settled' as const, turn, reason: end.data.reason }
-            : { state: 'claimed' as const, turn },
+            ? { state: 'settled' as const, turn, delivery, reason: end.data.reason }
+            : { state: 'claimed' as const, turn, delivery },
         }))
       },
       models: request => ok(request, {

@@ -74,7 +74,11 @@ function scriptedApi(overrides: {
         attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
         data: 'AA==',
       }),
-      updateQueue: r => ok(r, { accepted: true as const }),
+      updateQueue: r => ok(r, {
+        accepted: true as const,
+        messageId: r.payload.itemId,
+        status: { state: 'queued' as const, delivery: 'queue' as const },
+      }),
       cancel: r => ok(r, { accepted: true as const }),
       close: r => ok(r, { closed: true as const }),
       delete: r => ok(r, { deleted: true as const, attachmentsRetained: true as const }),

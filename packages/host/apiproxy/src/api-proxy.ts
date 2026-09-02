@@ -46,7 +46,7 @@ import type {
   ModelReasoning, MuxFrame, PromptContentPart, PromptReceipt, QuestionResponsePayload,
   SessionListMetadata, SessionProjectionsBlock, SessionSearchItem,
   QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, JobView, ToolEventView,
-  SessionPendingInteraction, SessionStatusSnapshot, SessionWorkStatus, WorkspaceId, WorkspaceView,
+  SessionPendingInteraction, SessionStatusSnapshot, SessionWorkDelivery, SessionWorkStatus, WorkspaceId, WorkspaceView,
   ApiContractDescription, OperationView, OperationStatus,
 } from './api/index.ts'
 import { HostBootId } from './api/host.ts'
@@ -134,6 +134,11 @@ import {
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
 
+/** Map the durable inbox target to the public delivery vocabulary. */
+function deliveryOfTarget(target: 'next-turn' | 'next-step'): SessionWorkDelivery {
+  return target === 'next-turn' ? 'queue' : 'steer'
+}
+
 /** Fold one message identity through the durable inbox and turn log. */
 function workStatusOf(events: readonly SessionEvent[], messageId: MessageId): SessionWorkStatus {
   const pending: Record<'next-turn' | 'next-step', UserMessage[]> = {
@@ -150,7 +155,12 @@ function workStatusOf(events: readonly SessionEvent[], messageId: MessageId): Se
     }
     if (event.type === 'turn/end') {
       if (status.state === 'claimed' && status.turn === event.data.turn) {
-        return { state: 'settled', turn: event.data.turn, reason: event.data.reason }
+        return {
+          state: 'settled',
+          turn: event.data.turn,
+          delivery: status.delivery,
+          reason: event.data.reason,
+        }
       }
       if (openTurn === event.data.turn) openTurn = undefined
       continue
@@ -161,11 +171,12 @@ function workStatusOf(events: readonly SessionEvent[], messageId: MessageId): Se
     const removed = inbox.slice(event.data.start, event.data.start + (event.data.removedCount ?? 0))
     inbox.splice(event.data.start, event.data.removedCount ?? 0, ...event.data.inserted)
     if (event.data.inserted.some(message => message.id === messageId)) {
-      status = { state: 'queued' }
+      status = { state: 'queued', delivery: deliveryOfTarget(event.data.target) }
     } else if (removed.some(message => message.id === messageId)) {
+      const delivery = deliveryOfTarget(event.data.target)
       status = event.data.outcome === 'canceled' || openTurn === undefined
-        ? { state: 'discarded' }
-        : { state: 'claimed', turn: openTurn }
+        ? { state: 'discarded', delivery }
+        : { state: 'claimed', turn: openTurn, delivery }
     }
   }
   return status
@@ -3376,7 +3387,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           agent.inbox.remove(itemId)
           if (action.kind === 'steer') agent.steer(message)
         }
-        return Promise.resolve(ok(request, { accepted: true as const }))
+        return Promise.resolve(ok(request, {
+          accepted: true as const,
+          messageId: itemId,
+          status: workStatusOf(agent.session.events, itemId),
+        }))
       },
 
       cancel(request) {

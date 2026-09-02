@@ -250,11 +250,11 @@ describe('session work status', () => {
       return response.result.value.status
     }
 
-    await expect(status(queued.id)).resolves.toEqual({ state: 'queued' })
-    await expect(status(discarded.id)).resolves.toEqual({ state: 'discarded' })
-    await expect(status(replaced.id)).resolves.toEqual({ state: 'settled', turn: 1, reason: { kind: 'completed' } })
-    await expect(status(settled.id)).resolves.toEqual({ state: 'settled', turn: 1, reason: { kind: 'completed' } })
-    await expect(status(claimed.id)).resolves.toEqual({ state: 'claimed', turn: 2 })
+    await expect(status(queued.id)).resolves.toEqual({ state: 'queued', delivery: 'queue' })
+    await expect(status(discarded.id)).resolves.toEqual({ state: 'discarded', delivery: 'steer' })
+    await expect(status(replaced.id)).resolves.toEqual({ state: 'settled', turn: 1, delivery: 'steer', reason: { kind: 'completed' } })
+    await expect(status(settled.id)).resolves.toEqual({ state: 'settled', turn: 1, delivery: 'steer', reason: { kind: 'completed' } })
+    await expect(status(claimed.id)).resolves.toEqual({ state: 'claimed', turn: 2, delivery: 'steer' })
     await expect(status('missing')).resolves.toEqual({ state: 'unknown' })
     const snapshot = await api.sessions.status(request({ sessionId }))
     expect(snapshot.result).toMatchObject({
