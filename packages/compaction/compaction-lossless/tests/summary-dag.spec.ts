@@ -52,6 +52,27 @@ function appendSummary(session: Session, sourceSeqs: number[], text: string): nu
 }
 
 describe('lossless compaction summary DAG', () => {
+  it('forwards explicitly configured history limits while assembling providers', async () => {
+    const calls: unknown[][] = []
+    const fakeContext = {
+      plugin: async (...args: unknown[]) => { calls.push(args) },
+    } as unknown as Context
+
+    await applyLossless(fakeContext, {
+      maxSearchResults: 10,
+      maxExpansionDepth: 4,
+      maxExpansionTokens: 2_000,
+    })
+
+    expect(calls).toHaveLength(2)
+    expect(calls[0]?.[1]).toEqual({
+      maxSearchResults: 10,
+      maxExpansionDepth: 4,
+      maxExpansionTokens: 2_000,
+    })
+    expect(calls[1]?.[1]).toEqual({})
+  })
+
   it('attaches from the first event when the entered session was not announced in this realm', async () => {
     ctx = new Context()
     await ctx.plugin(SessionStore)
