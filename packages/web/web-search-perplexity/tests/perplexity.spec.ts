@@ -7,13 +7,13 @@ import { CredentialProvider, credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { CredentialInfo, CredentialRef, ResolvedCredential } from '@deepseek-ai/dsh-credentials'
 import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import WebRuntime from '@deepseek-ai/dsh-web'
+import * as perplexityPlugin from '../src/index.ts'
 import {
+  mapPerplexityResponse,
   PerplexitySearchProvider,
   PERPLEXITY_PROVIDER_ID,
-} from '@deepseek-ai/dsh-web-search-perplexity'
-import * as perplexityPlugin from '@deepseek-ai/dsh-web-search-perplexity'
-import { mapPerplexityResponse } from '../src/provider.ts'
-import type { PerplexitySearchProviderOptions } from '@deepseek-ai/dsh-web-search-perplexity'
+} from '../src/provider.ts'
+import type { PerplexitySearchProviderOptions } from '../src/provider.ts'
 
 const options = { apiKey: 'pplx-key', baseURL: 'https://api.perplexity.test', model: 'sonar', maxTokens: 1024 }
 
@@ -206,6 +206,20 @@ describe('PerplexitySearchProvider error handling', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('rejects when the signal aborts while starting credential resolution', async () => {
+    const controller = new AbortController()
+    const resolveApiKey = vi.fn(() => {
+      controller.abort(new Error('deadline'))
+      return Promise.resolve('late-key')
+    })
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(searchProvider({ ...options, apiKey: '', resolveApiKey }).search({ query: 'q' }, controller.signal))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
+    expect(resolveApiKey).toHaveBeenCalledOnce()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('prefers a non-empty literal key without invoking the resolver', async () => {
     const resolveApiKey = vi.fn(async () => 'stored-key')
     const fetchMock = vi.fn(async () => jsonResponse({ citations: [] }))
@@ -231,6 +245,45 @@ describe('PerplexitySearchProvider error handling', () => {
     expect(caught).toMatchObject({ code: 'WEB_PROVIDER_CREDENTIAL_MISSING' })
     if (!(caught instanceof Error)) throw new Error('search did not throw an Error')
     expect(caught.message).toContain('PERPLEXITY_SECONDARY_KEY')
+  })
+
+  it('uses the default credential reference when no resolver or reference is configured', async () => {
+    let caught: unknown
+    try {
+      await searchProvider({ ...options, apiKey: '' }).search({ query: 'q' })
+    } catch (error: unknown) {
+      caught = error
+    }
+    expect(caught).toMatchObject({ code: 'WEB_PROVIDER_CREDENTIAL_MISSING' })
+    if (!(caught instanceof Error)) throw new Error('search did not throw an Error')
+    expect(caught.message).toContain('PERPLEXITY_API_KEY')
+  })
+
+  it('maps credential resolver failures to WEB_PROVIDER_ERROR', async () => {
+    await expect(searchProvider({
+      ...options,
+      apiKey: '',
+      resolveApiKey: async () => { throw new Error('credential store unavailable') },
+    }).search({ query: 'q' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
+  })
+
+  it('removes the abort listener after credential resolution succeeds', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ citations: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+    await searchProvider({ ...options, apiKey: '', resolveApiKey: async () => 'resolved-key' })
+      .search({ query: 'q' }, controller.signal)
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it('removes the abort listener after credential resolution fails', async () => {
+    await expect(searchProvider({
+      ...options,
+      apiKey: '',
+      resolveApiKey: async () => { throw new Error('credential store unavailable') },
+    }).search({ query: 'q' }, new AbortController().signal))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
   })
 
   it('maps an HTTP error to WEB_PROVIDER_ERROR with the provider message', async () => {
@@ -370,6 +423,26 @@ describe('web-search-perplexity plugin registration', () => {
     } finally {
       if (prev === undefined) delete process.env.PERPLEXITY_API_KEY
       else process.env.PERPLEXITY_API_KEY = prev
+    }
+  })
+
+  it('applies direct config with omitted values using provider defaults', async () => {
+    const previous = process.env.PERPLEXITY_API_KEY
+    process.env.PERPLEXITY_API_KEY = 'direct-env-key'
+    const fetchMock = vi.fn(async () => jsonResponse({ citations: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const ctx = new Context()
+    try {
+      await ctx.plugin(WebRuntime, { searchProvider: PERPLEXITY_PROVIDER_ID })
+      perplexityPlugin.apply(ctx, {})
+      await ctx.web.search({ query: 'q' })
+      const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+      expect(url).toBe('https://api.perplexity.ai/chat/completions')
+      expect(JSON.parse(init.body as string)).toMatchObject({ model: 'sonar', max_tokens: 1024 })
+    } finally {
+      await ctx.fiber.dispose()
+      if (previous === undefined) delete process.env.PERPLEXITY_API_KEY
+      else process.env.PERPLEXITY_API_KEY = previous
     }
   })
 
