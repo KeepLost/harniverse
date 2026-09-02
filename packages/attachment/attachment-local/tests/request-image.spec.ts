@@ -8,6 +8,7 @@ import { readRequestImageFile, requestImageDimensions, requestImageVariantId } f
 
 const fsControl = vi.hoisted(() => ({
   renameError: undefined as 'eexist' | 'other' | 'string' | undefined,
+  renameErrorRoot: undefined as string | undefined,
   blockNextMkdir: false,
   mkdirStarted: undefined as (() => void) | undefined,
   releaseMkdir: undefined as (() => void) | undefined,
@@ -26,9 +27,11 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       return actual.mkdir(...args)
     },
     async rename(...args: Parameters<typeof actual.rename>): Promise<void> {
-      if (fsControl.renameError !== undefined) {
+      const matchesRoot = fsControl.renameErrorRoot === undefined || String(args[1]).startsWith(fsControl.renameErrorRoot)
+      if (fsControl.renameError !== undefined && matchesRoot) {
         const kind = fsControl.renameError
         fsControl.renameError = undefined
+        fsControl.renameErrorRoot = undefined
         if (kind === 'string') throw 'variant publication failed as non-error'
         const error = new Error(kind === 'eexist' ? 'variant already published' : 'variant publication failed') as NodeJS.ErrnoException
         error.code = kind === 'eexist' ? 'EEXIST' : 'EIO'
@@ -43,6 +46,7 @@ const roots: string[] = []
 
 afterEach(async () => {
   fsControl.renameError = undefined
+  fsControl.renameErrorRoot = undefined
   fsControl.blockNextMkdir = false
   fsControl.mkdirStarted = undefined
   fsControl.releaseMkdir?.()
@@ -145,6 +149,7 @@ describe('request image projection', () => {
     roots.push(root)
     const source = await stored('gif', 20, 20)
     fsControl.renameError = 'eexist'
+    fsControl.renameErrorRoot = root
     await expect(readRequestImageFile(root, source, { maxPixels: 10_000, maxBytes: 20_000 }))
       .resolves.toMatchObject({ mediaType: 'image/webp' })
   })
@@ -154,6 +159,7 @@ describe('request image projection', () => {
     roots.push(root)
     const source = await stored('gif', 20, 20)
     fsControl.renameError = 'other'
+    fsControl.renameErrorRoot = root
     await expect(readRequestImageFile(root, source, { maxPixels: 10_000, maxBytes: 20_000 }))
       .rejects.toThrow('variant publication failed')
   })
@@ -250,6 +256,7 @@ describe('request image projection', () => {
     fsControl.mkdirStarted = markStarted
     fsControl.blockNextMkdir = true
     fsControl.renameError = 'string'
+    fsControl.renameErrorRoot = root
     const operation = readRequestImageFile(root, await stored('gif', 20, 20), {
       maxPixels: 10_000,
       maxBytes: 20_000,
