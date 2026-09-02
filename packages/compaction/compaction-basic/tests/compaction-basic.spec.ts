@@ -1793,6 +1793,169 @@ describe('automatic listener and loader composition', () => {
     return Object.assign(new Error(message), { code: CONTEXT_WINDOW_EXCEEDED_CODE })
   }
 
+  it('propagates cancellation while waiting for a running agent to become idle', async () => {
+    const compact = service({ auto: false })
+    const idle = Promise.withResolvers<undefined>()
+    const controller = new AbortController()
+    const reason = new Error('cancelled while waiting')
+    const owner = Object.assign(agent(conversation(1), MODEL), {
+      status: 'running',
+      whenIdle: () => idle.promise,
+    }) as Agent
+
+    const pending = compact.compactNow(owner, controller.signal)
+    controller.abort(reason)
+
+    await expect(pending).rejects.toBe(reason)
+  })
+
+  it('continues after an active agent becomes idle before compaction starts', async () => {
+    const compact = service({ auto: false })
+    const controller = new AbortController()
+    const reason = new Error('agent became idle')
+    let statusReads = 0
+    const owner = Object.assign(agent(conversation(1), MODEL), {
+      runMaintenance: <T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> => task(SIGNAL),
+      whenIdle: () => Promise.resolve(),
+    }) as Agent
+    Object.defineProperty(owner, 'status', {
+      configurable: true,
+      get() {
+        statusReads += 1
+        if (statusReads === 2) controller.abort(reason)
+        return statusReads === 1 ? 'running' : 'idle'
+      },
+    })
+
+    await expect(compact.compactNow(owner, controller.signal)).rejects.toBe(reason)
+  })
+
+  it('passes through a request when model context metadata is unavailable', async () => {
+    const ctx = createContext()
+    const compact = new TestCompactionEngine(ctx, { auto: true })
+    vi.spyOn(ctx.llm, 'resolveModelInfo').mockResolvedValue({
+      provider: MODEL,
+      id: MODEL,
+      name: MODEL,
+    })
+    const owner = agent(conversation(1), MODEL)
+    const proposed = { provider: MODEL, model: MODEL, maxTokens: 50 }
+
+    const resolved = await agentEvents(ctx, owner).waterfall(
+      'agent/request',
+      { turn: 2, step: 1, signal: SIGNAL },
+      () => Promise.resolve(proposed),
+    )
+
+    expect(resolved).toBe(proposed)
+    expect(compact.calls).toHaveLength(0)
+  })
+
+  it('passes through a request when its resolved pressure policy is invalid', async () => {
+    const ctx = createContext(1_000)
+    const compact = new TestCompactionEngine(ctx, {
+      auto: true,
+      thresholdRatio: 0.5,
+      retainTokens: 500,
+    })
+    const owner = agent(conversation(1), MODEL)
+    const proposed = { provider: MODEL, model: MODEL, maxTokens: 50 }
+
+    const resolved = await agentEvents(ctx, owner).waterfall(
+      'agent/request',
+      { turn: 2, step: 1, signal: SIGNAL },
+      () => Promise.resolve(proposed),
+    )
+
+    expect(resolved).toBe(proposed)
+    expect(compact.calls).toHaveLength(0)
+  })
+
+  it('warns and continues when request-pressure compaction rejects with a non-Error', async () => {
+    const ctx = createContext(1_000)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
+    const compact = new TestCompactionEngine(ctx, {
+      auto: true,
+      thresholdRatio: 0.5,
+      retainTokens: 10,
+    })
+    vi.spyOn(compact, 'compactIfNeeded').mockRejectedValueOnce('request pressure failed')
+    const owner = agent(conversation(4), MODEL)
+    const proposed = { provider: MODEL, model: MODEL }
+
+    const resolved = await agentEvents(ctx, owner).waterfall(
+      'agent/request',
+      { turn: 5, step: 1, signal: SIGNAL },
+      () => Promise.resolve(proposed),
+    )
+
+    expect(resolved).toBe(proposed)
+    expect(warnings).toContainEqual(expect.stringContaining('request pressure failed'))
+  })
+
+  it('continues when request-pressure compaction has nothing to do', async () => {
+    const ctx = createContext(1_000)
+    const compact = new TestCompactionEngine(ctx, {
+      auto: true,
+      thresholdRatio: 0.5,
+      retainTokens: 10,
+    })
+    vi.spyOn(compact, 'compactIfNeeded').mockResolvedValueOnce(null)
+    const owner = agent(conversation(4), MODEL)
+    const proposed = { provider: MODEL, model: MODEL }
+
+    const resolved = await agentEvents(ctx, owner).waterfall(
+      'agent/request',
+      { turn: 5, step: 1, signal: SIGNAL },
+      () => Promise.resolve(proposed),
+    )
+
+    expect(resolved).toBe(proposed)
+  })
+
+  it('applies a prior overflow cap when the next request has no configured cap', async () => {
+    const ctx = createContext(1_000)
+    const compact = new TestCompactionEngine(ctx, { auto: true })
+    const session = conversation(1)
+    session.append('request/header', {
+      header: { config: { provider: MODEL, model: MODEL, maxTokens: 64 } },
+      reason: 'resume',
+    })
+    const owner = agent(session, MODEL)
+
+    await expect(recover(ctx, owner, overflow())).resolves.toBe(true)
+    const proposed = { provider: MODEL, model: MODEL }
+    const resolved = await agentEvents(ctx, owner).waterfall(
+      'agent/request',
+      { turn: 2, step: 1, signal: SIGNAL },
+      () => Promise.resolve(proposed),
+    )
+
+    expect(resolved).toEqual({ provider: MODEL, model: MODEL, maxTokens: 32 })
+    expect(compact.calls).toHaveLength(0)
+  })
+
+  it('keeps an already-sufficient configured request cap unchanged', async () => {
+    const ctx = createContext(1_000)
+    const compact = new TestCompactionEngine(ctx, {
+      auto: true,
+      thresholdRatio: 0.99,
+      retainTokens: 10,
+    })
+    const owner = agent(conversation(1), MODEL)
+    const proposed = { provider: MODEL, model: MODEL, maxTokens: 50 }
+
+    const resolved = await agentEvents(ctx, owner).waterfall(
+      'agent/request',
+      { turn: 2, step: 1, signal: SIGNAL },
+      () => Promise.resolve(proposed),
+    )
+
+    expect(resolved).toBe(proposed)
+    expect(compact.calls).toHaveLength(0)
+  })
+
   it('compacts before a step above threshold using the durable routed model and remains idle below it', async () => {
     const ctx = createContext()
     const compact = new TestCompactionEngine(ctx, {
