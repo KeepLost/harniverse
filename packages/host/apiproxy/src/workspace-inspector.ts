@@ -177,7 +177,8 @@ async function readDirectoryEntries(
   try {
     handle = await open(target, READ_ONLY_NOFOLLOW_FLAGS | constants.O_DIRECTORY)
     await openedPathInfo(root, path, target, handle, signal, 'directory')
-    const readTarget = process.platform === 'win32' ? target : `/dev/fd/${handle.fd}`
+    const descriptorPath = process.platform === 'linux'
+    const readTarget = descriptorPath ? `/dev/fd/${handle.fd}` : target
     directory = await opendir(readTarget)
     const entries: Dirent[] = []
     const readLimit = limit + (detectOverflow ? 1 : 0)
@@ -191,7 +192,7 @@ async function readDirectoryEntries(
       }
       entries.push(entry)
     }
-    if (process.platform === 'win32') {
+    if (!descriptorPath) {
       await openedPathInfo(root, path, target, handle, signal, 'directory')
     }
     const truncated = !exhausted && (detectOverflow ? entries.length > limit : entries.length === limit)
@@ -488,7 +489,7 @@ async function runGit(root: string, args: readonly string[], signal: AbortSignal
   const handle = await open(target, READ_ONLY_NOFOLLOW_FLAGS | constants.O_DIRECTORY)
   try {
     await openedPathInfo(root, '.', target, handle, signal, 'directory')
-    const descriptorRoot = process.platform !== 'win32'
+    const descriptorRoot = process.platform === 'linux'
     const gitRoot = descriptorRoot ? '/dev/fd/3' : target
     const operationSignal = abortSignal(signal)
     const environment: NodeJS.ProcessEnv = {

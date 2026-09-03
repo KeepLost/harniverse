@@ -12,13 +12,13 @@ code-runtime Service Definition 与 Code Mode Consumer 已经描述 Python，但
 
 ## Decision
 
-`@deepseek-ai/dsh-code-runtime-python` 是显式选择的 Service Provider。`PythonCodeRuntime extends CodeRuntime`，报告 `language: 'python'` 与 `isolation: 'process'`，每次运行都以 `shell: false`、空环境和包自有的标准库 bootstrap 启动一个全新的已配置可执行文件。已交付的 Profile 与 bundle 均不选择它；替换既有 `code-runtime` Cordis 配置项属于部署决策，而现有 `dsh-tools` 语言分发会提供 Python SDK 与 `run_code` 文本。
+`@deepseek-ai/dsh-code-runtime-python` 是显式选择的 Service Provider。`PythonCodeRuntime extends CodeRuntime`，报告 `language: 'python'` 与 `isolation: 'process'`，每次运行都以 `shell: false`、仅用于解析裸可执行文件名的 Host `PATH`，以及会在模型代码运行前清空环境的包自有标准库 bootstrap 启动一个全新的已配置可执行文件。已交付的 Profile 与 bundle 均不选择它；替换既有 `code-runtime` Cordis 配置项属于部署决策，而现有 `dsh-tools` 语言分发会提供 Python SDK 与 `run_code` 文本。
 
 bootstrap 在 fd 3 上接收 `boot` 元数据，在可用处应用 `RLIMIT_CPU` 与 `RLIMIT_AS`，确认就绪后再接收独立的 `run` 帧。它把源码包装进 `async def __dsh_main__()` 以支持顶层 `await` 与 `return`，根据元数据物化命名空间和有类型绑定异常，并把每个绑定参数、回复与完成值校验为无损 JSON。Python 层 stdout、stderr 与 console 风格写入共享有序控制流；Host 保留 stdout/stderr 管道，作为原生写入的有界兜底。
 
 Host 在解析前封顶每条 JSONL 行，拒绝会被 `JSON.parse` 舍入的整数 token，逐字段校验并重建已识别的子进程帧，忽略格式错误／未知帧与重复 call id，并以自有属性查找绑定。同一个结算所有者处理 done、进程错误／退出、CPU 信号、墙钟超时、中止、输出溢出与 dispose。它会终止子进程并等待 `close`，随后才 resolve 运行或完成 teardown。程序与进程结果通过 `CodeRunResult.error` resolve；只有无效配置、无效可移植绑定与 dispose 后调用才 reject。
 
-进程边界的失败文本采用静态文本或经过路径清理且有界的文本。Host 绑定 reject 会变成程序侧有类型消息 `binding call failed`，而不会携带可能包含路径或凭据的任意 Host 异常。进程不会收到 ambient environment，但仍与 Host 共享文件系统、网络、工作目录和身份；此提供方明确不作沙箱声明。
+进程边界的失败文本采用静态文本或经过路径清理且有界的文本。Host 绑定 reject 会变成程序侧有类型消息 `binding call failed`，而不会携带可能包含路径或凭据的任意 Host 异常。模型代码不会收到 ambient environment，但仍与 Host 共享文件系统、网络、工作目录和身份；此提供方明确不作沙箱声明。
 
 TypeScript 与 Python 协议声明公开可执行的字段清单 mirror 检查。真实子进程测试覆盖成功代码与日志、绑定 resolve 与 reject、敌意／格式错误帧、无效输出、CPU／墙钟超时、中止、输出上限、全新运行状态、dispose 后完全停稳，以及构建后包入口。
 

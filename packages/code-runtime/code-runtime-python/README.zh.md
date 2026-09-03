@@ -28,7 +28,7 @@
 
 ## 进程与协议
 
-Node 以 `['-I', '-B', py/bootstrap.py]`、`shell: false` 和空环境启动 `pythonExecutable`。标准输入承载 Host 到子进程的控制帧，fd 3 承载子进程到 Host 的帧，每行一个无版本号 JSON 对象：Host 发送 `boot`、等待 `boot-ack`、发送 `run`、用 `reply` 服务 `call` 帧，并接受一个 `done`。`src/protocol.ts` 与 `py/protocol.py` 镜像每个必填和可选字段；真实 `python3` mirror 测试会检查两侧的完整帧清单。
+Node 以 `['-I', '-B', py/bootstrap.py]`、`shell: false` 和仅用于解析裸可执行文件名的 Host `PATH` 启动 `pythonExecutable`。bootstrap 会在模型代码运行前清空自身环境。标准输入承载 Host 到子进程的控制帧，fd 3 承载子进程到 Host 的帧，每行一个无版本号 JSON 对象：Host 发送 `boot`、等待 `boot-ack`、发送 `run`、用 `reply` 服务 `call` 帧，并接受一个 `done`。`src/protocol.ts` 与 `py/protocol.py` 镜像每个必填和可选字段；真实 `python3` mirror 测试会检查两侧的完整帧清单。
 
 Host 把每个子进程帧都当作敌意输入：先封顶行宽再解析，拒绝会被 JavaScript 舍入的整数 token，逐字段校验并重建已知帧，忽略未知／格式错误的帧与重复 call id，以自有属性查找绑定，并重新校验完成值。子进程错误与 Host 进程失败只公开有界诊断，不公开进程路径、环境值、stack 或原始协议 payload。
 
@@ -54,7 +54,7 @@ dispose 会把提供方标为不可用，把每个实时运行结算为中止，
 
 ## 已知限制与暂缓事项
 
-- **进程隔离不是沙箱**：模型代码与 Host 共享文件系统、工作目录、网络和操作系统身份。空环境会减少意外继承凭据的风险，但不会建立安全边界；敌意代码的约束应使用容器后端。
+- **进程隔离不是沙箱**：模型代码与 Host 共享文件系统、工作目录、网络和操作系统身份。由 bootstrap 清空的环境会减少意外继承凭据的风险，但不会建立安全边界；敌意代码的约束应使用容器后端。
 - **资源限制依赖平台**：只有 Python 的 `resource` 模块及相应限制存在时才应用 `RLIMIT_CPU` 与 `RLIMIT_AS`；`maxWallMs`、进程终止、控制帧与输出上限在所有平台上仍由 Host 执行。
 - **Python 无法区分显式 `return None` 与从异步函数末尾自然退出**：两者都以 JSON `null` 完成；需要「完成值缺席」的调用方无法通过 Python 函数返回语义表达该区别。
 - **原生 fd 1／fd 2 写入会绕过有序 Python 流**：Host 仍会捕获并约束它们，但操作系统通过两条独立管道投递时无法保证原始的跨 fd 顺序。

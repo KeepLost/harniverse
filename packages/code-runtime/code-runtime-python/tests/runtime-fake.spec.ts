@@ -150,6 +150,38 @@ describe('PythonCodeRuntime deterministic process boundary', () => {
     await startupRuntime.fiber.dispose()
   })
 
+  it('uses Host PATH only to resolve the interpreter', async () => {
+    arm((child) => {
+      const frame = child.protocol.writes.at(-1)
+      if (frame?.startsWith('{"type":"boot"')) child.protocol.send({ type: 'boot-ack' })
+      else if (frame?.startsWith('{"type":"run"')) child.protocol.send({ type: 'done', value: 1 })
+    })
+    const { runtime, fiber } = await setup()
+
+    await expect(runtime.run(request())).resolves.toEqual({ logs: [], value: 1 })
+
+    const options = spawnMock.mock.calls[0]?.[2] as { env?: NodeJS.ProcessEnv } | undefined
+    expect(options?.env).toEqual(process.env.PATH === undefined ? {} : { PATH: process.env.PATH })
+    await fiber.dispose()
+
+    const originalPath = process.env.PATH
+    delete process.env.PATH
+    try {
+      arm((child) => {
+        const frame = child.protocol.writes.at(-1)
+        if (frame?.startsWith('{"type":"boot"')) child.protocol.send({ type: 'boot-ack' })
+        else if (frame?.startsWith('{"type":"run"')) child.protocol.send({ type: 'done', value: 2 })
+      })
+      const withoutPath = await setup()
+      await expect(withoutPath.runtime.run(request())).resolves.toEqual({ logs: [], value: 2 })
+      const fallback = spawnMock.mock.calls.at(-1)?.[2] as { env?: NodeJS.ProcessEnv } | undefined
+      expect(fallback?.env).toEqual({})
+      await withoutPath.fiber.dispose()
+    } finally {
+      if (originalPath !== undefined) process.env.PATH = originalPath
+    }
+  })
+
   it('covers missing fd3 and initial boot write failures', async () => {
     const missingInput = new FakeChild(() => {})
     missingInput.stdin = null

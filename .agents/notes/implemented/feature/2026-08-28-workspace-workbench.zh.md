@@ -22,7 +22,7 @@ Workspace 检查被拆在一个狭小的详情栏文件树和单独的会话视�
 
 现有 `workspace.files.*` 认证 RPC 族负责文件列表、递归文件名搜索、UTF-8 读取和二进制预览读取。搜索遍历普通目录且不跟随符号链接，在扫描 20,000 个条目或得到 200 个结果时停止，并按照[筛选决定](2026-08-28-workbench-navigation-preview-and-glob.md)接受有界包含／排除 glob。候选文件使用 no-follow、非阻塞 descriptor，因此 FIFO 或其他特殊文件无法在普通文件检查前占满 Host 文件系统线程池。文本读取保留 1 MiB UTF-8 前缀契约。二进制读取只接受白名单图片与 PDF 扩展名，读取最大 8 MiB 的完整普通文件，并返回 base64 与媒体类型；超限和不支持的文件会失败，而不是产生损坏的部分预览。每个方法都要求 `harniverse.observe`，并分类为 read。
 
-Git 状态、提交以及暂存区或工作区 diff 继续由 `workspace.git.*` 提供。浏览器不暴露修改操作。Host 在 POSIX 上把 Git 遍历绑定到已打开的目录 descriptor，禁用仓库配置的 fsmonitor 与外部 diff 执行，只向 Git 提供清理后的环境，并施加 10 秒操作 deadline。规范工作树根或 Git 元数据逃出已注册 Workspace 根的仓库会被拒绝。未跟踪的工作区条目通过普通文件预览打开，因为 Git 无法为索引外内容生成统一 diff。
+Git 状态、提交以及暂存区或工作区 diff 继续由 `workspace.git.*` 提供。浏览器不暴露修改操作。Host 在 Linux 上把 Git 遍历绑定到已打开的目录 descriptor；macOS 与 Windows 的目录 descriptor 路径语义无法提供相同入口，因此使用规范路径并在遍历后重新校验已打开的 descriptor。所有路径都会禁用仓库配置的 fsmonitor 与外部 diff 执行，只向 Git 提供清理后的环境，并施加 10 秒操作 deadline。规范工作树根或 Git 元数据逃出已注册 Workspace 根的仓库会被拒绝。未跟踪的工作区条目通过普通文件预览打开，因为 Git 无法为索引外内容生成统一 diff。
 
 ## Preview boundary
 
