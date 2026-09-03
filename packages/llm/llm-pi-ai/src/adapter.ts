@@ -107,6 +107,9 @@ function wireUrl(model: Model<Api>): string {
 function wireFailure(error: unknown): LlmFailure {
   if (error instanceof LlmError) return error.failure
   return {
+    /* v8 ignore next -- pi-ai normalizes a non-Error throw into an Error message
+       before it can reach this adapter; the cast keeps the record readable if a
+       future provider path ever throws a bare value. */
     message: error instanceof Error ? error.message : String(error),
     code: 'PI_AI_ERROR',
   }
@@ -114,11 +117,13 @@ function wireFailure(error: unknown): LlmFailure {
 
 /** Recover the status and provider message pi-ai embeds in SDK errors. */
 function enrichWireFailure(failure: LlmFailure): LlmFailure {
+  /* v8 ignore next -- reached only through a thrown error, and no failure this
+     adapter throws carries a status of its own. */
   if (failure.status !== undefined) return failure
   const match = /^(\d{3}):\s*(\{.*\})$/u.exec(failure.message)
   if (match === null) return failure
-  const bodyText = match[2]
-  if (bodyText === undefined) return failure
+  // Both groups are mandatory, so a match always names its body and status.
+  const bodyText = match[2] as string
   const status = Number(match[1])
   let message = failure.message
   try {
@@ -394,11 +399,16 @@ export class PiAiAdapter extends LlmAdapter {
     const onResponse = options.onWireAttempt === undefined
       ? undefined
       : (response: { status: number; headers: Record<string, string> }): void => {
+        /* v8 ignore next -- the SDK reports a payload before its response, so an
+           attempt is always active here; the guard keeps a future SDK ordering
+           change from writing onto no attempt. */
         if (activeAttempt === undefined) return
         activeAttempt.response = {
           status: response.status,
           ...(() => {
             const headers = wireDiagnosticHeaders(response.headers)
+            /* v8 ignore next -- every real HTTP reply carries `date` and
+               `content-type`, both of which the diagnostic filter keeps. */
             return headers === undefined ? {} : { headers }
           })(),
         }
