@@ -254,3 +254,188 @@ describe('public-key Grant registry', () => {
     }
   })
 })
+
+describe('durable Grant registry integrity', () => {
+  /** One valid registry document with an owner Grant and a pending enrollment. */
+  async function baselineDocument(): Promise<{
+    dshHome: string
+    document: {
+      version: number
+      instanceId: string
+      grants: Array<Record<string, unknown>>
+      enrollments: Array<Record<string, unknown>>
+    }
+  }> {
+    const dshHome = await home()
+    const owner = await createEnrollmentRequest({ name: 'owner', kind: 'device', publicKey: publicKey() }, { dshHome })
+    await approveEnrollmentRequest(owner.id, {
+      capabilities: ['harniverse.observe', 'harniverse.authorize'],
+    }, { dshHome })
+    await createEnrollmentRequest({ name: 'pending-device', kind: 'device', publicKey: publicKey() }, { dshHome })
+    return {
+      dshHome,
+      document: JSON.parse(await readFile(grantRegistryPath(dshHome), 'utf8')) as never,
+    }
+  }
+
+  it.each([
+    ['a non-object document', () => '[]', /Grant registry must be an object/],
+    ['a null document', () => 'null', /Grant registry must be an object/],
+  ])('rejects %s', async (_label, text, message) => {
+    expect(() => parseGrantRegistry(text())).toThrow(message)
+  })
+
+  it('rejects a document whose envelope is wrong', async () => {
+    const { document } = await baselineDocument()
+    const cases: Array<[(doc: typeof document) => void, RegExp]> = [
+      [(doc) => { Reflect.deleteProperty(doc, 'enrollments') }, /Grant registry has unexpected fields/],
+      [(doc) => { (doc as Record<string, unknown>).extra = 1 }, /Grant registry has unexpected fields/],
+      [(doc) => { doc.version = 99 }, /unsupported Grant registry version/],
+      [(doc) => { doc.instanceId = 'too-short' }, /invalid instance id/],
+      [(doc) => { (doc as Record<string, unknown>).instanceId = 7 }, /invalid instance id/],
+      [(doc) => { (doc as Record<string, unknown>).grants = {} }, /Grant registry lists are invalid/],
+      [(doc) => { (doc as Record<string, unknown>).enrollments = {} }, /Grant registry lists are invalid/],
+    ]
+    for (const [mutate, message] of cases) {
+      const candidate = structuredClone(document)
+      mutate(candidate)
+      expect(() => parseGrantRegistry(JSON.stringify(candidate))).toThrow(message)
+    }
+  })
+
+  it('rejects a Grant entry whose shape or fields are wrong', async () => {
+    const { document } = await baselineDocument()
+    const cases: Array<[unknown, RegExp]> = [
+      ['not-an-object', /Grant 0 must be an object/],
+      [null, /Grant 0 must be an object/],
+      [[], /Grant 0 must be an object/],
+      [{ ...document.grants[0], id: 'nope!' }, /Grant 0 has an invalid id/],
+      [{ ...document.grants[0], id: 7 }, /Grant 0 has an invalid id/],
+      [{ ...document.grants[0], kind: 'robot' }, /Grant 0 has an invalid kind/],
+      [{ ...document.grants[0], revision: 0 }, /Grant 0 revision must be a positive integer/],
+      [{ ...document.grants[0], revision: 1.5 }, /Grant 0 revision must be a positive integer/],
+      [{ ...document.grants[0], createdAt: 'yesterday' }, /Grant 0 createdAt must be an ISO timestamp/],
+      [{ ...document.grants[0], createdAt: '2026-08-17T00:00:00+00:00' }, /Grant 0 createdAt must be an ISO timestamp/],
+      [{ ...document.grants[0], name: ' padded' }, /Grant name must contain/],
+      [{ ...document.grants[0], name: '' }, /Grant name must contain/],
+      [{ ...document.grants[0], name: 7 }, /Grant name must contain/],
+      [{ ...document.grants[0], capabilities: [] }, /non-empty supported list/],
+      [{ ...document.grants[0], capabilities: 'harniverse.observe' }, /non-empty supported list/],
+      [{ ...document.grants[0], capabilities: ['harniverse.nope'] }, /non-empty supported list/],
+      [
+        { ...document.grants[0], capabilities: ['harniverse.observe', 'harniverse.observe'] },
+        /must not contain duplicates/,
+      ],
+    ]
+    for (const [grant, message] of cases) {
+      const candidate = structuredClone(document)
+      candidate.grants[0] = grant as Record<string, unknown>
+      expect(() => parseGrantRegistry(JSON.stringify(candidate))).toThrow(message)
+    }
+  })
+
+  it('rejects a Grant carrying an unusable public key', async () => {
+    const { document } = await baselineDocument()
+    const wrongCurve = generateKeyPairSync('ec', { namedCurve: 'secp384r1' })
+      .publicKey.export({ type: 'spki', format: 'der' }).toString('base64url')
+    for (const key of ['short', 'x'.repeat(600), '_'.repeat(120), wrongCurve, 7]) {
+      const candidate = structuredClone(document)
+      candidate.grants[0] = { ...document.grants[0], publicKey: key }
+      expect(() => parseGrantRegistry(JSON.stringify(candidate)))
+        .toThrow(/public key must be a base64url P-256 SPKI key/)
+    }
+  })
+
+  it('rejects an enrollment entry whose shape or fields are wrong', async () => {
+    const { document } = await baselineDocument()
+    // The approved owner receipt also lives here, so select the pending row.
+    const index = document.enrollments.findIndex(entry => entry.state === 'pending')
+    const pending = document.enrollments[index]
+    if (pending === undefined) throw new Error('expected pending enrollment')
+    const label = `enrollment ${String(index)}`
+    const cases: Array<[unknown, RegExp]> = [
+      ['not-an-object', new RegExp(`${label} must be an object`)],
+      [null, new RegExp(`${label} must be an object`)],
+      [[], new RegExp(`${label} must be an object`)],
+      [{ ...pending, id: 'nope!' }, new RegExp(`${label} has an invalid id`)],
+      [{ ...pending, id: 7 }, new RegExp(`${label} has an invalid id`)],
+      [{ ...pending, approvalCode: 'lowercase' }, new RegExp(`${label} has an invalid approval code`)],
+      [{ ...pending, approvalCode: 7 }, new RegExp(`${label} has an invalid approval code`)],
+      [{ ...pending, kind: 'api-client' }, new RegExp(`${label} has an invalid kind`)],
+      [{ ...pending, state: 'revoked' }, new RegExp(`${label} has an invalid state`)],
+      [{ ...pending, extra: true }, new RegExp(`${label} has unexpected fields`)],
+    ]
+    for (const enrollment of cases) {
+      const candidate = structuredClone(document)
+      candidate.enrollments[index] = enrollment[0] as Record<string, unknown>
+      expect(() => parseGrantRegistry(JSON.stringify(candidate))).toThrow(enrollment[1])
+    }
+  })
+
+  it('rejects an approved enrollment receipt whose fields are wrong', async () => {
+    const { document } = await baselineDocument()
+    const approved = {
+      id: 'aaaaaaaaaaaaaaaa',
+      state: 'approved',
+      grantId: 'bbbbbbbbbbbbbbbb',
+      grantRevision: 1,
+      capabilities: ['harniverse.observe'],
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }
+    const accepted = structuredClone(document)
+    accepted.enrollments = [approved as never]
+    expect(() => parseGrantRegistry(JSON.stringify(accepted))).not.toThrow()
+
+    const cases: Array<[Record<string, unknown>, RegExp]> = [
+      [{ ...approved, grantId: 'nope!' }, /invalid Grant id/],
+      [{ ...approved, grantId: 7 }, /invalid Grant id/],
+      [{ ...approved, grantRevision: 0 }, /Grant revision must be a positive integer/],
+      [{ ...approved, capabilities: [] }, /non-empty supported list/],
+      [{ ...approved, expiresAt: 'soon' }, /expiresAt must be an ISO timestamp/],
+      [{ ...approved, extra: 1 }, /enrollment 0 has unexpected fields/],
+    ]
+    for (const [enrollment, message] of cases) {
+      const candidate = structuredClone(document)
+      candidate.enrollments = [enrollment as never]
+      expect(() => parseGrantRegistry(JSON.stringify(candidate))).toThrow(message)
+    }
+  })
+
+  it('rejects duplicate ids across Grants and enrollments', async () => {
+    const { document } = await baselineDocument()
+    const duplicateId = structuredClone(document)
+    const grant = duplicateId.grants[0]
+    const enrollment = duplicateId.enrollments[0]
+    if (grant === undefined || enrollment === undefined) throw new Error('expected baseline entries')
+    // One id namespace spans both lists, so an enrollment cannot shadow a Grant.
+    duplicateId.enrollments[0] = { ...enrollment, id: grant.id }
+    expect(() => parseGrantRegistry(JSON.stringify(duplicateId)))
+      .toThrow(/duplicate Grant or enrollment id/)
+  })
+
+  it('rejects a duplicate name across Grants and enrollments', async () => {
+    const { document } = await baselineDocument()
+    const duplicateName = structuredClone(document)
+    const grant = duplicateName.grants[0]
+    const enrollment = duplicateName.enrollments.find(entry => entry.state === 'pending')
+    if (grant === undefined || enrollment === undefined) throw new Error('expected baseline entries')
+    // One name namespace spans both lists, so a pending request cannot claim
+    // the name a committed Grant already holds.
+    duplicateName.enrollments = duplicateName.enrollments.map(entry =>
+      entry === enrollment ? { ...entry, name: grant.name } : entry)
+    expect(() => parseGrantRegistry(JSON.stringify(duplicateName)))
+      .toThrow(/duplicate Grant name/)
+  })
+
+  it('rejects a stored temporary Grant carrying authority', async () => {
+    const { document } = await baselineDocument()
+    const escalated = structuredClone(document)
+    const grant = escalated.grants[0]
+    if (grant === undefined) throw new Error('expected baseline Grant')
+    // The approval path refuses this, and so must every later read: a stored
+    // document is not trusted to have been written by this version.
+    escalated.grants[0] = { ...grant, kind: 'temporary' }
+    expect(() => parseGrantRegistry(JSON.stringify(escalated)))
+      .toThrow(/temporary Grant cannot authorize/)
+  })
+})
