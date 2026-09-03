@@ -29,4 +29,40 @@ describe('wire metadata', () => {
       parameters: { model: 'm' },
     })
   })
+
+  it('fingerprints an unserializable payload as the null document', () => {
+    const nothing = wireJsonFingerprint(undefined)
+    expect(nothing.bytes).toBe(4)
+    expect(nothing.fingerprint).toBe(wireJsonFingerprint(null).fingerprint)
+  })
+
+  it('fingerprints an array holding an unserializable member as the null document', () => {
+    expect(wireJsonFingerprint([undefined]).fingerprint).toBe(wireJsonFingerprint(null).fingerprint)
+  })
+
+  it('keeps array parameters element-wise while redacting credentials inside them', () => {
+    expect(wireRequestParameters({ stop: ['\n', '###'], routes: [{ region: 'eu', api_key: 'secret' }] }))
+      .toEqual({ stop: ['\n', '###'], routes: [{ region: 'eu' }] })
+  })
+
+  it('drops unserializable members of a nested parameter object', () => {
+    expect(wireRequestParameters({ metadata: { trace: 'x', absent: undefined } }))
+      .toEqual({ metadata: { trace: 'x' } })
+  })
+
+  it('reports no parameters for a payload that is not a parameter object', () => {
+    for (const value of [null, undefined, 'text', 7, ['a'], true]) {
+      expect(wireRequestParameters(value)).toBeUndefined()
+    }
+  })
+
+  it('reports no parameters when a payload carries conversation context alone', () => {
+    expect(wireRequestParameters({ messages: ['history'], system: 'instructions' })).toBeUndefined()
+    expect(wireRequestMetadata({ messages: ['history'] })).not.toHaveProperty('parameters')
+  })
+
+  it('reports no diagnostic headers when none apply', () => {
+    expect(wireDiagnosticHeaders({})).toBeUndefined()
+    expect(wireDiagnosticHeaders({ authorization: 'secret', 'x-unrelated': 'drop' })).toBeUndefined()
+  })
 })
