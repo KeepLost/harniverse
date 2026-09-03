@@ -3,12 +3,13 @@
  * @module @deepseek-ai/dsh-command-compact
  */
 
-import type { Context } from '@deepseek-ai/cordis'
+import { CordisError, type Context } from '@deepseek-ai/cordis'
 import { ManualCompactionError } from '@deepseek-ai/dsh-compaction'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
+import type {} from '@deepseek-ai/dsh-agent-presets'
 
 export const name = 'command-compact'
-export const inject = ['commands', 'compaction']
+export const inject = ['commands']
 
 const USAGE = 'Usage: /compact (no arguments)'
 
@@ -62,8 +63,13 @@ async function executeCompact(
   if (invocation.rawInput.trim().length > 0) {
     return { kind: 'error', text: USAGE }
   }
+  const compaction = invocation.agent.ctx.get('compaction')
+    ?? ctx.get('agentPresets')?.serviceFor(invocation.agent, 'compaction')
+  if (compaction === undefined) {
+    return { kind: 'error', text: 'Compaction is unavailable for this Agent Profile.' }
+  }
   try {
-    const result = await ctx.compaction.compactNow(invocation.agent, invocation.signal, invocation.commandId)
+    const result = await compaction.compactNow(invocation.agent, invocation.signal, invocation.commandId)
     if (result === null) return { kind: 'success', text: 'No compactable history yet.' }
     return {
       kind: 'success',
@@ -72,6 +78,9 @@ async function executeCompact(
     }
   } catch (error: unknown) {
     if (invocation.signal.aborted) return { kind: 'error', text: 'Compaction cancelled.' }
+    if (error instanceof CordisError && error.code === 'INACTIVE_EFFECT') {
+      return { kind: 'error', text: 'Compaction is unavailable for this Agent Profile.' }
+    }
     if (error instanceof ManualCompactionError) return expectedFailure(error)
     throw error
   }
@@ -79,7 +88,7 @@ async function executeCompact(
 
 /**
  * Register `/compact` for every composed human-command adapter.
- * @param ctx - context carrying the command registry and the compaction seam.
+ * @param ctx - root context carrying the command registry.
  */
 export function apply(ctx: Context): void {
   const active = new Set<Promise<CommandResult>>()

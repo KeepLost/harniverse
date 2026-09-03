@@ -69,7 +69,7 @@ The `compaction/*` events extend `SessionEventMap` (merge-extensible) via declar
 
 ## Implementing a backend
 
-Subclass `CompactionEngine`, implement `compactIfNeeded`, `compactNow`, and `compactRegion`, and load the subclass as a plugin — it registers as `ctx.compaction`. Every successful backend creates its replacement user message source with `compactCheckpointSource(compactionId, sourceCommandId?)`; the required `compactionId` correlates the checkpoint with its `compaction/*` transaction, while `isCompactCheckpointSource()` recognizes the marker after persistence or cloning without depending on backend identity. A template- or model-backed implementation can live as a sibling package without changing callers or the shared token meter.
+Subclass `CompactionEngine`, implement `compactIfNeeded`, protected `performCompactNow`, and `compactRegion`, and load the subclass as a plugin — it registers as `ctx.compaction`. The public `compactNow` wrapper binds each manual operation to the Provider fiber, so Provider or Profile disposal waits for its settlement. Every successful backend creates its replacement user message source with `compactCheckpointSource(compactionId, sourceCommandId?)`; the required `compactionId` correlates the checkpoint with its `compaction/*` transaction, while `isCompactCheckpointSource()` recognizes the marker after persistence or cloning without depending on backend identity. A template- or model-backed implementation can live as a sibling package without changing callers or the shared token meter.
 
 ## Recognizing a checkpoint outside the host program (`./checkpoint`)
 

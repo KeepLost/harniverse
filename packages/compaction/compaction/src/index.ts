@@ -114,8 +114,11 @@ declare module '@deepseek-ai/cordis' {
  * one implementation per context as `ctx.compaction`.
  */
 export abstract class CompactionEngine extends Service {
+  private readonly ownerCtx: Context
+
   constructor(ctx: Context) {
     super(ctx, 'compaction')
+    this.ownerCtx = ctx
   }
 
   /**
@@ -157,7 +160,35 @@ export abstract class CompactionEngine extends Service {
    * an aborted request preserves its exact abort reason. Failed attempts remain
    * visible in the log.
    */
-  abstract compactNow(
+  compactNow(
+    agent: ManualCompactAgentContext,
+    signal: AbortSignal,
+    sourceCommandId?: CommandId,
+  ): Promise<CompactionResult | null> {
+    signal.throwIfAborted()
+    const settled = Promise.withResolvers<void>()
+    const release = this.ownerCtx.effect(
+      () => async () => { await settled.promise },
+      'compaction compactNow operation',
+    )
+    return (async () => {
+      try {
+        return await this.performCompactNow(agent, signal, sourceCommandId)
+      } finally {
+        settled.resolve()
+        await release()
+      }
+    })()
+  }
+
+  /**
+   * Run the provider-specific manual compaction behind the lifecycle-owned public operation.
+   * @param agent - idle agent whose durable history should be compacted.
+   * @param signal - cancellation scoped to this compaction request.
+   * @param sourceCommandId - initiating command identity for a manual compaction.
+   * @returns the compaction result, or `null` when no safe useful range exists.
+   */
+  protected abstract performCompactNow(
     agent: ManualCompactAgentContext,
     signal: AbortSignal,
     sourceCommandId?: CommandId,

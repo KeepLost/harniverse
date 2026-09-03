@@ -8,7 +8,7 @@
 
 只有当某个命名空间既被存活的 Host 插件注册、又被服务给浏览器时，它的卡片才会渲染。未组装该插件的部署——或未向任何客户端服务该命名空间的部署——不会渲染空卡片或禁用卡片，而是什么都不渲染，因此“插件配置”标签页反映的是该部署实际运行的东西。
 
-第一批覆盖 shell 执行器（`bash`）、agent 循环的工具调用并行度（`agent-loop`），以及一张横跨搜索与抓取默认值（`web`）、DeepSeek（`web-search-deepseek`）、Exa（`web-search-exa`）、Perplexity（`web-search-perplexity`）、Tavily（`web-search-tavily`）、Brave（`web-search-brave`）、Kagi（`web-search-kagi`）和 Firecrawl（`web-firecrawl`）设置的网页搜索卡片。
+第一批覆盖 shell 执行器（`bash`）、agent 循环的工具调用并行度（`agent-loop`）、全局自动压缩阈值（`compaction`），以及一张横跨搜索与抓取默认值（`web`）、DeepSeek（`web-search-deepseek`）、Exa（`web-search-exa`）、Perplexity（`web-search-perplexity`）、Tavily（`web-search-tavily`）、Brave（`web-search-brave`）、Kagi（`web-search-kagi`）和 Firecrawl（`web-firecrawl`）设置的网页搜索卡片。压缩卡片把 ratio 显示为整数百分比，例如 `80` 会存为 `0.8`；留空则由各 Agent Profile 自身的阈值继续控制。
 
 ## 扩展点
 

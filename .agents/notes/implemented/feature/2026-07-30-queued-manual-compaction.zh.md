@@ -18,9 +18,9 @@ Status: implemented
 
 ### `/compact` 是基于后端无关 seam 的命令
 
-`@deepseek-ai/dsh-command-compact` 通过 `ctx.commands` 注册一个无参数、面向用户的命令。它调用第三个抽象 `CompactionEngine` 操作 `compactNow(agent, signal)`，并把封闭的 `ManualCompactionError` 分类体系（`busy | changed | summary | commit | persistence`）映射为直接 UI 结果。`command/run` 和 `command/done` 保留命令生命周期，同时不进入模型历史，也不消耗模型循环轮次。
+`@deepseek-ai/dsh-command-compact` 只注入 `commands`，并在根层注册一个无参数、面向用户的命令。因此冷 Session 的命令发现无需构造 Agent。执行时会先读取普通的 Agent-local `ctx.compaction`，再使用可选 Agent Presets 服务的宿主侧 `serviceFor()` 地址读取 preset 隔离的 Provider；两者都没有的 Profile 会收到直接的不可用结果。该命令调用第三个 `CompactionEngine` 操作 `compactNow(agent, signal)`，并把封闭的 `ManualCompactionError` 分类体系（`busy | changed | summary | commit | persistence`）映射为直接 UI 结果。`command/run` 和 `command/done` 保留命令生命周期，同时不进入模型历史，也不消耗模型循环轮次。
 
-命令插件会独立跟踪每个实际处理器 promise，不依赖命令执行器的中止感知等待。其复合生命周期 effect 先注销 `/compact`，再异步等待所有已开始的处理器结算，因此根级 teardown 只有在后端的闭合与 flush 工作结算后才会完全停稳。
+命令插件会独立跟踪每个实际处理器 promise，不依赖命令执行器的中止感知等待。其复合生命周期 effect 先注销 `/compact`，再异步等待所有已开始的处理器结算，因此根级 teardown 只有在后端的闭合与 flush 工作结算后才会完全停稳。`CompactionEngine.compactNow()` 会在受保护的 `performCompactNow()` 实现外围持有 Provider fiber 生命周期；Profile teardown 会等待已启动的 Provider 操作，再移除该 Provider，而根层命令仍保持注册。
 
 该 seam 的 `ManualCompactAgentContext` 只在压缩已需使用的会话与路由事实之上增加 `runMaintenance()`。保留、平衡、摘要、标记排序、替换与持久性仍由后端负责。
 
@@ -85,6 +85,8 @@ DSH 有意在调用摘要器前记录 `compaction/start`。缓慢或崩溃的尝
 
 **把命令本身加入队列。** 不予采用，因为 `/compact` 是直接控制而非模型输入；先获接纳的提示词必须保留优先权，不能围绕第二个命令队列重新排序。
 
+**在每个 Agent Profile 内分别注册命令。** 不予采用，因为冷命令列表有意只读取根层注册，不会仅为发现菜单项而恢复 Agent。一个全局 Consumer 可以在执行时解析确切的 Profile Provider，无需复制命令所有权。
+
 **在追加 `compaction/start` 前生成摘要。** 不予采用，因为开销较大的进行中操作将不可见，也不会参与自动压缩共享的锁。
 
 **同时使用持久标记与进程本地 mutex。** 不予采用，因为两套权威机制在回放后可能产生分歧，还会要求用包装层分支处理标记对已经表达的状态。
@@ -99,7 +101,7 @@ DSH 有意在调用摘要器前记录 `compaction/start`。缓慢或崩溃的尝
 
 agent loop（智能体循环）测试覆盖同一 tick 内的优先权、保留 ID 与 FIFO 生命周期、会唤醒和静默的排队工作、幂等释放、`whenIdle()`、取消与 teardown。压缩测试覆盖独立与数字形式的不变量 owner、end-seed 回放、活动与陈旧未匹配标记、listener 重入、所选区段漂移、commit 与闭合失败、flush 顺序、原始取消原因、raw output 与 usage 保留，以及自动／手动互斥。
 
-命令包固定注册行为、Loader 组合、参数拒绝、精确的成功／失败文本、取消、不进入模型历史的保证，以及 dispose 在中止使执行器停止等待处理器后，仍会跨越相互独立的闭合与 flush 边界等待该处理器结算。客户端运行时投影测试固定 end-seed 中断，以及随后一次独立尝试的完成。`queued-manual-compact` 终端快照通过已组装 TUI 驱动真实按键：`/help` 可发现该命令；被暂停的摘要会接纳一个排队提示词和即时注入；`turn: null` 标记与 flush 先于排队提示词轮次；命令生命周期保持纯日志；派生顺序固定为检查点 → 注入 → 排队提示词。
+命令包固定根层注册、冷 Session 发现、带 scoped Provider 的 Loader 组合、Profile 不可用行为、参数拒绝、精确的成功／失败文本、取消、不进入模型历史的保证、根层插件排空，以及 dispose 在中止使执行器停止等待处理器后，Profile teardown 仍会跨越相互独立的闭合与 flush 边界等待该处理器结算。客户端运行时投影测试固定 end-seed 中断，以及随后一次独立尝试的完成。`queued-manual-compact` 终端快照通过已组装 TUI 驱动真实按键：`/help` 可发现该命令；被暂停的摘要会接纳一个排队提示词和即时注入；`turn: null` 标记与 flush 先于排队提示词轮次；命令生命周期保持纯日志；派生顺序固定为检查点 → 注入 → 排队提示词。
 
 ## 后果
 

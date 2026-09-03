@@ -197,7 +197,7 @@ function operationStatusOf(status: SessionWorkStatus): OperationStatus {
 
 /**
  * Non-model settings namespaces intentionally served to the Web client. The
- * plugin-owned entries (`agent-loop`, `bash`, the Web selector, and one entry
+ * plugin-owned entries (`agent-loop`, `compaction`, `bash`, the Web selector, and one entry
  * per Web provider) are the host-plane sections the plugin configuration page
  * edits; a namespace absent here answers `settings-not-exposed` even when its
  * owner registered it, so adding a section to that page — including a new Web
@@ -207,7 +207,7 @@ function operationStatusOf(status: SessionWorkStatus): OperationStatus {
  * is deferred work.
  */
 const WEB_SETTINGS_NAMESPACES = [
-  'agent-loop', 'shell', 'locale', 'permission', 'ui-conversation', 'ui-theme',
+  'agent-loop', 'compaction', 'shell', 'locale', 'permission', 'ui-conversation', 'ui-theme',
   'web', 'web-search-deepseek', 'web-search-exa', 'web-search-perplexity',
   'web-search-tavily', 'web-search-brave', 'web-search-kagi', 'web-firecrawl',
 ] as const

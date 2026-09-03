@@ -38,12 +38,16 @@
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-settings": "workspace:^",
     "@deepseek-ai/dsh-token-meter": "workspace:^",
     "@deepseek-ai/dsh-compaction-tool-result-pruner": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-compaction-tool-result-pruner": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-settings": {
       "optional": true
     }
   },
@@ -62,6 +66,7 @@
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-llm-retry": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-settings": "workspace:^",
     "@deepseek-ai/dsh-token-meter": "workspace:^",
     "@deepseek-ai/dsh-compaction-tool-result-pruner": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",

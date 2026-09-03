@@ -146,7 +146,7 @@ class CatalogCompactionEngine extends CompactionEngine {
     return Promise.reject(new Error('gen-tool-catalog: compaction is unreachable during schema harvest'))
   }
 
-  compactNow(
+  protected override performCompactNow(
     _agent: ManualCompactAgentContext,
     _signal: AbortSignal,
   ): Promise<CompactionResult | null> {

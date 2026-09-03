@@ -24,9 +24,9 @@ The hand-rolled DeepSeek adapter accepts optional `contextWindow` on each config
 
 ### Compact-basic resolves a target spec
 
-Compact-basic owns consumer policy. Top-level fields define defaults; `modelPolicies` contains partial overrides keyed by the exact `{ provider, model }` pair. Duplicate targets and unknown or invalid fields fail plugin load. `thresholdRatio` defaults to `0.8`, and retention defaults to `retainRatio: 0.16`; callers may use an absolute `retainTokens` instead, but the two retention forms are mutually exclusive. After inheritance, a ratio retention that is not below its threshold ratio also fails plugin load because no model capacity can make that policy valid.
+Compact-basic owns consumer policy. Top-level fields define Profile defaults; `modelPolicies` contains partial overrides keyed by the exact `{ provider, model }` pair. The root-only `dsh-compaction-settings` plugin owns one optional process-wide `thresholdRatio` override without registering a second `ctx.compaction` service. Effective priority is exact target policy, then the global setting, then the Profile default, then `0.8`. An absent global field therefore preserves Profile configuration. Duplicate targets and unknown or invalid fields fail plugin load. Retention defaults to `retainRatio: 0.16`; callers may use an absolute `retainTokens` instead, but the two retention forms are mutually exclusive. After inheritance, a ratio retention that is not below its threshold ratio also fails plugin load because no model capacity can make that policy valid. A global threshold at or below one Profile's ratio retention is incompatible only with that Profile, which keeps its own valid threshold.
 
-For proactive pressure, compaction-basic reads the latest durable request route, resolves its adapter capacity and exact-target policy, and scales ratios into a `ResolvedCompactSpec`. It performs this resolution on every check, so a provider or model switch in one session changes capacity and policy immediately. An absolute retained budget that is not below the scaled threshold fails when the target capacity first makes that comparison possible.
+For proactive pressure, compaction-basic reads the latest durable request route, snapshots its effective target policy, resolves adapter capacity, and scales ratios into a `ResolvedCompactSpec`. One decision uses that snapshot across the asynchronous metadata lookup and any compaction it starts, so a concurrent settings write applies only to the next decision. It performs this resolution on every check, so a provider or model switch in one session changes capacity and policy immediately. An absolute retained budget that is not below the scaled threshold fails when the target capacity first makes that comparison possible.
 
 The same exact-target override can select summarization provider/model, summarization output cap, convergence retries, and overflow retry cap. These are compaction concerns and never enter an LLM provider.
 
@@ -36,7 +36,7 @@ An adapter that lacks capacity metadata remains a valid LLM route. Manual proact
 
 ## Testing
 
-Service tests cover detached context metadata, invalid adapter output, catalog independence, and default absence. Adapter tests cover DeepSeek exact/default/unlisted resolution, invalid capacities, and pi-ai exact descriptor resolution. Compact tests cover ratio scaling, exact provider/model overrides, load-time rejection of invalid merged ratios, runtime absolute-budget validation, same-model-id provider switches, target-specific warning suppression, and capacity-independent overflow recovery. Loader fixtures reject the removed token-meter capacity setting, and examples configure capacity on adapters.
+Service tests cover detached context metadata, invalid adapter output, catalog independence, and default absence. Adapter tests cover DeepSeek exact/default/unlisted resolution, invalid capacities, and pi-ai exact descriptor resolution. Compact tests cover ratio scaling, global/Profile/exact-target priority, absent and live global settings, retention conflicts, one-decision snapshots, load-time rejection of invalid merged ratios, runtime absolute-budget validation, same-model-id provider switches, target-specific warning suppression, and capacity-independent overflow recovery. Loader fixtures reject the removed token-meter capacity setting, and examples configure capacity on adapters.
 
 ## Alternatives considered
 
@@ -45,6 +45,8 @@ Service tests cover detached context metadata, invalid adapter output, catalog i
 - **Make `listModels()` authoritative** — rejected because discovery is advisory and some adapters intentionally accept dynamic ids. Correctness metadata must not turn selector membership into a routing whitelist.
 - **Add per-model folds to token-meter** — rejected because the replay algorithm is shared; only the capacity and consumer policy change. Multiple folds would duplicate state without improving estimation.
 - **Create a standalone model-context registry** — rejected because the adapter already owns authoritative route resolution. A second registry would introduce lifecycle ordering, duplicate-key, and drift problems without an independent backend.
+- **Register the settings namespace from each Profile Provider** — rejected because several live Agents would compete for one process-wide namespace. A root-only settings plugin owns the user policy while scoped Providers remain independent.
+- **Give the global schema a `0.8` default** — rejected because the resolved settings value could not distinguish omission from a user override and would silently replace a Profile's composed threshold.
 
 ## Consequences
 
@@ -53,5 +55,6 @@ Service tests cover detached context metadata, invalid adapter output, catalog i
 - LLM-only and meter-only compositions remain valid; loading compaction-basic adds no reverse dependency from adapters.
 - DeepSeek deployments may set exact per-model capacities, or use `defaultContextWindow` for entries without capacity and unlisted pass-through ids.
 - Ratio defaults scale naturally across models, while exact-target absolute retention remains available for deployment-specific behavior.
+- A live global threshold changes the next pressure decision without mutating a decision already waiting on model metadata.
 
 This note supersedes the global-capacity and no-model-policy parts of the [replay token meter service Agent Note](2026-07-15-replay-token-meter-service.md). Its single-fold measurement decision remains unchanged.

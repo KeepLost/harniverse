@@ -176,9 +176,6 @@
     - id: tool-compaction-history
       name: '@deepseek-ai/dsh-tool-compaction-history'
 
-    - id: command-compact
-      name: '@deepseek-ai/dsh-command-compact'
-
     - id: tool-result-pruner
       name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
       disabled: true

@@ -8,6 +8,7 @@ import { stubSettingsScope, type StubSettingsScope } from '@deepseek-ai/dsh-clie
 import { CardForm, booleanField, numberField, selectField, textField } from '../src/client/card-form.ts'
 import { AgentLoopCardController, type AgentLoopSettings } from '../src/client/agent-loop-card-controller.ts'
 import { BashCardController, type BashSettings } from '../src/client/bash-card-controller.ts'
+import { CompactionCardController, type CompactionSettings } from '../src/client/compaction-card-controller.ts'
 import {
   WebSearchCardController,
   type DeepSeekWebSearchSettings,
@@ -478,6 +479,88 @@ describe('AgentLoopCardController', () => {
     host.publish({ status: 'ready', writable: false, value: { maxParallelToolCalls: 10 } })
 
     expect(controller.inject().hooks.agentLoopCard.getSnapshot().writable).toBe(false)
+  })
+})
+
+describe('CompactionCardController', () => {
+  it('renders integer percentages and stores their ratio', async () => {
+    const host = stubSettingsScope<CompactionSettings>()
+    acceptWrites(host)
+    const controller = new CompactionCardController(host.scope)
+    host.publish({
+      status: 'ready',
+      writable: true,
+      value: { thresholdRatio: 0.8 },
+      base: {},
+      user: { thresholdRatio: 0.8 },
+    })
+    const face = controller.inject()
+
+    expect(face.hooks.compactionCard.getSnapshot().thresholdPercent)
+      .toEqual({ text: '80', overridden: true, invalid: false })
+    host.publish({ value: { thresholdRatio: 0.58 }, user: { thresholdRatio: 0.58 } })
+    expect(face.hooks.compactionCard.getSnapshot().thresholdPercent.text).toBe('58')
+    face.edit('thresholdRatio', '65')
+    face.save()
+    await vi.waitFor(() => { expect(host.set).toHaveBeenCalledWith('thresholdRatio', 0.65) })
+    expect(face.hooks.compactionCard.getSnapshot().thresholdPercent)
+      .toEqual({ text: '65', overridden: true, invalid: false })
+  })
+
+  it('accepts only whole percentages from 17 through 100 and can clear the override', async () => {
+    const host = stubSettingsScope<CompactionSettings>()
+    acceptWrites(host)
+    const controller = new CompactionCardController(host.scope)
+    host.publish({
+      status: 'ready', writable: true,
+      value: { thresholdRatio: 0.8 }, base: {}, user: { thresholdRatio: 0.8 },
+    })
+    const face = controller.inject()
+
+    for (const invalid of ['16', '101', '80.5']) {
+      face.edit('thresholdRatio', invalid)
+      expect(face.hooks.compactionCard.getSnapshot()).toMatchObject({
+        dirty: true,
+        invalid: true,
+        thresholdPercent: { text: invalid, invalid: true },
+      })
+    }
+    face.resetField('thresholdRatio')
+    expect(face.hooks.compactionCard.getSnapshot().thresholdPercent)
+      .toEqual({ text: '', overridden: false, invalid: false })
+    face.save()
+    await vi.waitFor(() => { expect(host.unset).toHaveBeenCalledWith('thresholdRatio') })
+  })
+
+  it('clears a staged percentage when its input is blank', async () => {
+    const host = stubSettingsScope<CompactionSettings>()
+    acceptWrites(host)
+    const controller = new CompactionCardController(host.scope)
+    host.publish({
+      status: 'ready', writable: true,
+      value: { thresholdRatio: 0.8 }, base: {}, user: { thresholdRatio: 0.8 },
+    })
+    const face = controller.inject()
+
+    face.edit('thresholdRatio', '  ')
+
+    expect(face.hooks.compactionCard.getSnapshot()).toMatchObject({
+      dirty: true,
+      thresholdPercent: { text: '  ', overridden: false, invalid: false },
+    })
+    face.save()
+    await vi.waitFor(() => { expect(host.unset).toHaveBeenCalledWith('thresholdRatio') })
+  })
+
+  it('reports a read-only settings document', () => {
+    const host = stubSettingsScope<CompactionSettings>()
+    const controller = new CompactionCardController(host.scope)
+    host.publish({ status: 'ready', writable: false, value: {} })
+    expect(controller.inject().hooks.compactionCard.getSnapshot()).toMatchObject({
+      available: true,
+      writable: false,
+      thresholdPercent: { text: '' },
+    })
   })
 })
 

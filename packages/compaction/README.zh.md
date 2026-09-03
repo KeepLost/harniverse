@@ -8,6 +8,7 @@
 |---|---|---|
 | [`compaction/`](compaction/README.md) | 压缩 seam 与事件词汇 | `ctx.compaction` |
 | [`compaction-basic/`](compaction-basic/README.md) | token 压力与摘要后端 | 注册 `ctx.compaction` |
+| [`compaction-settings/`](compaction-settings/README.md) | 根层持有的全局压力阈值设置 | 注册 `compaction` Settings 命名空间 |
 | [`compaction-lossless/`](compaction-lossless/README.md) | 自动后端与已提交 summary DAG projection | 注册 `ctx.compaction`、`ctx.compactionHistory` |
 | [`tool-compaction/`](tool-compaction/README.md) | 模型 direct 请求的保留尾部压缩 | 注册到 `ctx.tools` |
 | [`tool-compaction-history/`](tool-compaction-history/README.md) | 面向模型的当前 Session summary 搜索与展开 | 注册到 `ctx.tools` |

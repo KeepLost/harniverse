@@ -45,7 +45,7 @@ class LoaderCompactionEngine extends CompactionEngine {
     return Promise.resolve(RESULT)
   }
 
-  override compactNow(
+  protected override performCompactNow(
     agent: ManualCompactAgentContext,
     _signal: AbortSignal,
     sourceCommandId?: Parameters<CompactionEngine['compactNow']>[2],
@@ -85,7 +85,6 @@ describe('command-compact real Loader composition', () => {
     const configPath = join(root, 'cordis.yml')
     await writeFile(configPath, [
       "- name: '@deepseek-ai/dsh-commands'",
-      "- name: '@test/compact-backend'",
       "- name: '@deepseek-ai/dsh-command-compact'",
       '',
     ].join('\n'))
@@ -96,7 +95,6 @@ describe('command-compact real Loader composition', () => {
     context.loader.builtins.include = Include
     const modules = new Map<string, unknown>([
       ['@deepseek-ai/dsh-commands', CommandRuntime],
-      ['@test/compact-backend', LoaderCompactionEngine],
       ['@deepseek-ai/dsh-command-compact', commandCompact],
     ])
     context.loader.internal = {
@@ -113,12 +111,20 @@ describe('command-compact real Loader composition', () => {
     await context.loader.await()
 
     const session = Session.create(SessionId('loader-command-compact'))
+    const agentCtx = new Context()
+    new LoaderCompactionEngine(agentCtx)
     const agent = {
+      id: session.id,
       session,
       status: 'idle',
       options: {},
+      ctx: agentCtx,
       reserveTurnAdmission: () => () => undefined,
     } as unknown as Agent
+    expect(context.commands.list(SessionId('loader-cold-command'))).toContainEqual({
+      name: 'compact',
+      description: 'Compact older conversation history',
+    })
     expect(context.commands.list(agent.id)).toContainEqual({
       name: 'compact',
       description: 'Compact older conversation history',

@@ -100,11 +100,13 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
  * Merge the exact provider/model override over the validated default policy.
  * @param config - validated service defaults and override table.
  * @param target - exact durable provider/model route to match.
+ * @param thresholdRatio - optional process-wide threshold below exact model policy priority.
  * @returns detached immutable policy before model-capacity scaling.
  */
 export function resolveTargetPolicy(
   config: ResolvedConfig,
   target: Pick<LlmCallConfig, 'provider' | 'model'>,
+  thresholdRatio?: number,
 ): ResolvedTargetPolicy {
   const override = config.modelPolicies.find(policy => (
     policy.provider === target.provider && policy.model === target.model
@@ -112,10 +114,15 @@ export function resolveTargetPolicy(
   const inheritedRetention: ResolvedRetention = config.retainTokens === undefined
     ? { retainRatio: config.retainRatio }
     : { retainTokens: config.retainTokens }
+  const retention = resolveRetention(override ?? {}, inheritedRetention)
+  const globalThresholdRatio = thresholdRatio !== undefined
+    && ('retainTokens' in retention || thresholdRatio > retention.retainRatio)
+    ? thresholdRatio
+    : undefined
   return deepFreeze({
     target: { provider: target.provider, model: target.model },
-    thresholdRatio: override?.thresholdRatio ?? config.thresholdRatio,
-    ...resolveRetention(override ?? {}, inheritedRetention),
+    thresholdRatio: override?.thresholdRatio ?? globalThresholdRatio ?? config.thresholdRatio,
+    ...retention,
     summarizationProvider: override?.summarizationProvider ?? config.summarizationProvider,
     summarizationModel: override?.summarizationModel ?? config.summarizationModel,
     maxTokens: override?.maxTokens ?? config.maxTokens,

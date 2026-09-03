@@ -25,7 +25,7 @@ The protected `summarize()` method is the sole subclass hook. A template- or rem
 
 ## Config (`BasicCompactionConfig`)
 
-Every setting is optional. Top-level policy fields are defaults for every routed model; `modelPolicies` applies partial overrides to exact provider/model pairs. At pressure or agent-request time, compaction-basic asks the owning LLM adapter for that route's context capacity and resolves absolute budgets. Unrecognized keys, duplicate targets, mutually exclusive retention forms, and a merged `retainRatio` that is not below `thresholdRatio` fail plugin load. An absolute `retainTokens` budget that is not below its scaled threshold fails on the first resolvable target because that comparison requires model capacity.
+Every setting is optional. Top-level policy fields are defaults for every routed model; `modelPolicies` applies partial overrides to exact provider/model pairs. The optional root `compaction` Settings section overrides the top-level `thresholdRatio` for each new decision, while an exact model policy remains highest priority. An incompatible global threshold at or below a Profile's ratio-based retention is ignored for that Profile. At pressure or agent-request time, compaction-basic snapshots the effective policy before awaiting model metadata, then asks the owning LLM adapter for that route's context capacity and resolves absolute budgets. Unrecognized keys, duplicate targets, mutually exclusive retention forms, and a merged `retainRatio` that is not below `thresholdRatio` fail plugin load. An absolute `retainTokens` budget that is not below its scaled threshold fails on the first resolvable target because that comparison requires model capacity.
 
 | Key | Required | Meaning |
 |---|---|---|

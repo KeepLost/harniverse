@@ -42,7 +42,7 @@ class LoaderCompactionEngine extends CompactionEngine {
     return Promise.resolve(RESULT)
   }
 
-  override compactNow(
+  protected override performCompactNow(
     _agent: ManualCompactAgentContext,
     _signal: AbortSignal,
   ): Promise<CompactionResult | null> {

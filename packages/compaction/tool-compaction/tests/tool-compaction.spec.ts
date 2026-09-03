@@ -33,7 +33,7 @@ class RecordingCompactionEngine extends CompactionEngine {
     _signal: AbortSignal,
   ): Promise<CompactionResult | null> => Promise.resolve(RESULT))
 
-  override compactNow(
+  protected override performCompactNow(
     _agent: ManualCompactAgentContext,
     _signal: AbortSignal,
   ): Promise<CompactionResult | null> {
