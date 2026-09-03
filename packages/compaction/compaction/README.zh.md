@@ -69,7 +69,7 @@
 
 ## 实现后端
 
-继承 `CompactionEngine`，实现 `compactIfNeeded`、`compactNow` 与 `compactRegion`，再将子类作为插件加载：它会注册为 `ctx.compaction`。每个成功后端都使用 `compactCheckpointSource(compactionId, sourceCommandId?)` 创建替换 user 消息的源；必填的 `compactionId` 将检查点与对应 `compaction/*` 事务关联，而 `isCompactCheckpointSource()` 可在持久化或克隆后识别该标记，无需依赖后端身份。基于模板或模型的实现可以放在同级包中，不需更改调用方或共享 token meter。
+继承 `CompactionEngine`，实现 `compactIfNeeded`、受保护的 `performCompactNow` 与 `compactRegion`，再将子类作为插件加载：它会注册为 `ctx.compaction`。公开的 `compactNow` 包装器把每次手动操作绑定到 Provider fiber，因此 Provider 或 Profile dispose 会等待操作结算。每个成功后端都使用 `compactCheckpointSource(compactionId, sourceCommandId?)` 创建替换 user 消息的源；必填的 `compactionId` 将检查点与对应 `compaction/*` 事务关联，而 `isCompactCheckpointSource()` 可在持久化或克隆后识别该标记，无需依赖后端身份。基于模板或模型的实现可以放在同级包中，不需更改调用方或共享 token meter。
 
 ## 在 host 程序之外识别检查点（`./checkpoint`）
 

@@ -4,10 +4,11 @@
 export type PluginsSettingsLocaleKey =
   | 'nav' | 'title' | 'intro' | 'tabs' | 'configurableTab' | 'empty'
   | 'overridden' | 'reset' | 'readOnly' | 'expand' | 'collapse'
-  | 'save' | 'saving' | 'discard' | 'unsaved' | 'saveFailed' | 'invalidNumber'
+  | 'save' | 'saving' | 'discard' | 'unsaved' | 'saveFailed' | 'invalidNumber' | 'invalidPercentage'
   | 'bashTitle' | 'bashDescription' | 'bashTimeoutMs' | 'bashTimeoutMsHint'
   | 'bashMaxOutputBytes' | 'bashMaxOutputBytesHint'
   | 'agentLoopTitle' | 'agentLoopDescription' | 'agentLoopMaxParallel' | 'agentLoopMaxParallelHint'
+  | 'compactionTitle' | 'compactionDescription' | 'compactionThreshold' | 'compactionThresholdHint'
   | 'webSearchTitle' | 'webSearchDescription'
   | 'webSearchProvider' | 'webSearchProviderHint' | 'webSearchProviderUnavailable'
   | 'webSearchProviderDeepSeek' | 'webSearchProviderExa' | 'webSearchProviderPerplexity'
@@ -61,6 +62,7 @@ export const en: Record<PluginsSettingsLocaleKey, string> = {
   unsaved: 'Unsaved',
   saveFailed: 'The deployment did not accept these values; they were left for you to correct.',
   invalidNumber: 'Enter a number, or leave blank to use the default.',
+  invalidPercentage: 'Enter a whole percentage from 17 to 100, or leave blank to use each profile\'s setting.',
   bashTitle: 'Shell',
   bashDescription: 'Limits every command the agent runs.',
   bashTimeoutMs: 'Command timeout (ms)',
@@ -71,6 +73,10 @@ export const en: Record<PluginsSettingsLocaleKey, string> = {
   agentLoopDescription: 'How the agent dispatches tool calls.',
   agentLoopMaxParallel: 'Parallel tool calls',
   agentLoopMaxParallelHint: 'Upper bound on parallel-safe calls running at once within one step.',
+  compactionTitle: 'Context compaction',
+  compactionDescription: 'Control when older conversation history is reduced.',
+  compactionThreshold: 'Automatic threshold (%)',
+  compactionThresholdHint: 'Use 17–100. Leave blank to keep each Agent Profile’s configured threshold.',
   webSearchTitle: 'Web search',
   webSearchDescription: 'Select and configure the active search provider.',
   webSearchProvider: 'Search provider',
@@ -162,6 +168,7 @@ export const zh: Record<PluginsSettingsLocaleKey, string> = {
   unsaved: '未保存',
   saveFailed: '本部署没有接受这些值，已保留供你修改。',
   invalidNumber: '请填数字；留空表示使用默认值。',
+  invalidPercentage: '请输入 17 到 100 的整数百分比；留空则使用各 Profile 的设置。',
   bashTitle: '终端',
   bashDescription: '限制 agent 运行的每一条命令。',
   bashTimeoutMs: '命令超时（毫秒）',
@@ -172,6 +179,10 @@ export const zh: Record<PluginsSettingsLocaleKey, string> = {
   agentLoopDescription: 'Agent 如何派发工具调用。',
   agentLoopMaxParallel: '并行工具调用数',
   agentLoopMaxParallelHint: '同一步内最多同时运行多少个可并行的调用。',
+  compactionTitle: '上下文压缩',
+  compactionDescription: '控制何时缩减较早的对话历史。',
+  compactionThreshold: '自动压缩阈值（%）',
+  compactionThresholdHint: '范围为 17–100；留空则保留各 Agent Profile 配置的阈值。',
   webSearchTitle: '网页搜索',
   webSearchDescription: '选择并配置当前使用的搜索提供方。',
   webSearchProvider: '搜索提供方',

@@ -34,6 +34,10 @@
           - text: Agent 循环 Agent 如何派发工具调用。
           - img
       - listitem:
+        - 'button "展开设置: 上下文压缩"':
+          - text: 上下文压缩 控制何时缩减较早的对话历史。
+          - img
+      - listitem:
         - 'button "收起设置: 网页搜索" [expanded]':
           - text: 网页搜索 选择并配置当前使用的搜索提供方。
           - img

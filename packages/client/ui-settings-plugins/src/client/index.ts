@@ -4,7 +4,7 @@
  *
  * The section declares `settings.plugins.tab`; its own `configurable` tab then
  * declares `settings.plugin.item` and renders whatever cards were registered
- * into it. The three cards this package ships are the host-plane sections the
+ * into it. The four cards this package ships are the host-plane sections the
  * deployment already exposes; each binds its namespace through the client
  * settings scope, which keeps them unaware of one another and of other tabs.
  */
@@ -22,6 +22,7 @@ import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { AgentLoopCard } from './AgentLoopCard.tsx'
 import { BashCard } from './BashCard.tsx'
+import { CompactionCard } from './CompactionCard.tsx'
 import { ConfigurablePluginsTab } from './ConfigurablePluginsTab.tsx'
 import type { ConfigurablePluginsTabInjected } from './ConfigurablePluginsTab.tsx'
 import { PluginsSettingsSection } from './PluginsSettingsSection.tsx'
@@ -29,6 +30,7 @@ import type { PluginsSettingsSectionInjected, PluginsSettingsTabEntry } from './
 import { WebSearchCard } from './WebSearchCard.tsx'
 import { AGENT_LOOP_NS, AgentLoopCardController } from './agent-loop-card-controller.ts'
 import { SHELL_NS, BashCardController } from './bash-card-controller.ts'
+import { COMPACTION_NS, CompactionCardController } from './compaction-card-controller.ts'
 import {
   WEB_FIRECRAWL_NS, WEB_NS, WEB_SEARCH_BRAVE_NS, WEB_SEARCH_DEEPSEEK_NS,
   WEB_SEARCH_EXA_NS, WEB_SEARCH_KAGI_NS, WEB_SEARCH_PERPLEXITY_NS, WEB_SEARCH_TAVILY_NS,
@@ -46,6 +48,7 @@ export type {
 } from './card-form.ts'
 export type { AgentLoopCardFace, AgentLoopCardState } from './agent-loop-card-controller.ts'
 export type { BashCardFace, BashCardState } from './bash-card-controller.ts'
+export type { CompactionCardFace, CompactionCardState } from './compaction-card-controller.ts'
 export type { WebSearchCardFace, WebSearchCardState } from './web-search-card-controller.ts'
 
 /** Dictionary namespace owned by this plugin. */
@@ -65,6 +68,7 @@ export function apply(ctx: ClientContext): void {
 
   const bash = new BashCardController(ctx.settingsScope.bind({ namespace: SHELL_NS }))
   const agentLoop = new AgentLoopCardController(ctx.settingsScope.bind({ namespace: AGENT_LOOP_NS }))
+  const compaction = new CompactionCardController(ctx.settingsScope.bind({ namespace: COMPACTION_NS }))
   const webSearch = new WebSearchCardController({
     selector: ctx.settingsScope.bind({ namespace: WEB_NS }),
     deepseek: ctx.settingsScope.bind({ namespace: WEB_SEARCH_DEEPSEEK_NS }),
@@ -162,8 +166,15 @@ export function apply(ctx: ClientContext): void {
     }, AgentLoopCard)
     yield ctx.slots.register({
       name: 'settings.plugin.item',
-      id: 'web-search',
+      id: 'compaction',
       order: 20,
+      locale: NS,
+      inject: () => compaction.inject(),
+    }, CompactionCard)
+    yield ctx.slots.register({
+      name: 'settings.plugin.item',
+      id: 'web-search',
+      order: 30,
       locale: NS,
       inject: () => webSearch.inject(),
     }, WebSearchCard)

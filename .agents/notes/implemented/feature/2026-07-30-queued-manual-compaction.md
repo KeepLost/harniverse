@@ -18,9 +18,9 @@ This note extends the [compaction capability seam](2026-06-18-compaction-capabil
 
 ### `/compact` is a command over a backend-independent seam
 
-`@deepseek-ai/dsh-command-compact` registers one argument-free human command through `ctx.commands`. It calls the third abstract `CompactionEngine` operation, `compactNow(agent, signal)`, and maps the closed `ManualCompactionError` taxonomy (`busy | changed | summary | commit | persistence`) to direct UI results. `command/run` and `command/done` preserve the command lifecycle without entering model history or consuming a model-loop turn.
+`@deepseek-ai/dsh-command-compact` injects only `commands` and registers one argument-free human command at the root. Cold-session command discovery therefore reads it without constructing an Agent. Execution first reads an ordinary Agent-local `ctx.compaction`, then uses the optional Agent Presets service's host-side `serviceFor()` address for a preset-isolated Provider; a Profile without either receives a direct unavailable result. The command calls the third `CompactionEngine` operation, `compactNow(agent, signal)`, and maps the closed `ManualCompactionError` taxonomy (`busy | changed | summary | commit | persistence`) to direct UI results. `command/run` and `command/done` preserve the command lifecycle without entering model history or consuming a model-loop turn.
 
-The command plugin tracks each real handler promise independently of the command executor's abort-aware wait. Its composite lifecycle effect unregisters `/compact` before asynchronously draining handlers that already started, so root teardown reaches quiescence only after backend close and flush work settles.
+The command plugin tracks each real handler promise independently of the command executor's abort-aware wait. Its composite lifecycle effect unregisters `/compact` before asynchronously draining handlers that already started, so root teardown reaches quiescence only after backend close and flush work settles. `CompactionEngine.compactNow()` owns a Provider-fiber lifecycle hold around the protected `performCompactNow()` implementation; Profile teardown waits for the started Provider operation, then removes that Provider while the root command remains registered.
 
 The seam's `ManualCompactAgentContext` adds only `runMaintenance()` to the session and routing facts compaction already needs. Retention, balancing, summarization, marker ordering, replacement, and durability remain backend responsibilities.
 
@@ -85,6 +85,8 @@ That reference also carried client-side replacement-anchor machinery to preserve
 
 **Queue the command itself.** Rejected because `/compact` is direct control, not model input, and a prompt already accepted first must retain right of way rather than being reordered around a second command queue.
 
+**Register one command inside every Agent Profile.** Rejected because cold command listing intentionally reads only root registrations and does not resume an Agent merely to discover menu entries. One global Consumer can resolve the exact Profile Provider at execution without duplicating command ownership.
+
 **Summarize before appending `compaction/start`.** Rejected because the expensive in-flight operation would be invisible and would not participate in the lock shared by automatic compaction.
 
 **Use both a durable marker and a process-local mutex.** Rejected because two authorities can disagree after replay and require wrapper branches for states the bracket already expresses.
@@ -99,7 +101,7 @@ That reference also carried client-side replacement-anchor machinery to preserve
 
 Agent-loop tests cover same-tick right of way, preserved IDs and FIFO lifecycle, waking and quiet queued work, idempotent release, `whenIdle()`, cancellation, and teardown. Compact tests cover standalone and numbered invariant ownership, end-seed replay, live versus stale orphans, re-entrant listeners, selected-span drift, commit and close failures, flush ordering, exact cancellation causes, raw output and usage preservation, and automatic/manual mutual exclusion.
 
-The command package pins registration, Loader composition, argument rejection, exact success/failure text, cancellation, absence from model history, and disposal waiting across separate close and flush boundaries after an abort stops the executor from awaiting the handler. The client runtime projection test pins end-seed interruption followed by an independent completed attempt. The `queued-manual-compact` terminal snapshot drives real keystrokes through the assembled TUI: `/help` discovers the command, a held summary admits a queued prompt and immediate injection, `turn: null` markers and the flush precede the queued prompt turn, command lifecycle stays log-only, and the derived order is checkpoint → injection → queued prompt.
+The command package pins root registration, cold-session discovery, Loader composition with a scoped Provider, unavailable-Profile behavior, argument rejection, exact success/failure text, cancellation, absence from model history, root-plugin draining, and Profile teardown waiting across separate close and flush boundaries after an abort stops the executor from awaiting the handler. The client runtime projection test pins end-seed interruption followed by an independent completed attempt. The `queued-manual-compact` terminal snapshot drives real keystrokes through the assembled TUI: `/help` discovers the command, a held summary admits a queued prompt and immediate injection, `turn: null` markers and the flush precede the queued prompt turn, command lifecycle stays log-only, and the derived order is checkpoint → injection → queued prompt.
 
 ## Consequences
 

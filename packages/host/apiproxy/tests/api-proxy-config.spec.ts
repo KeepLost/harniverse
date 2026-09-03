@@ -392,6 +392,9 @@ describe('settings domain', () => {
     ctx.settings.register(settingsNamespace('agent-loop'), z.object({
       maxParallelToolCalls: z.number().default(10),
     }))
+    ctx.settings.register(settingsNamespace('compaction'), z.object({
+      thresholdRatio: z.number(),
+    }))
     ctx.settings.register(settingsNamespace('web-search-deepseek'), z.object({
       baseURL: z.string(),
     }))
@@ -421,7 +424,7 @@ describe('settings domain', () => {
     const value = expectOk(await api.settings.describe(request({})))
     expect(value.namespaces.map(view => view.ns)).toEqual([
       'llm-deepseek', 'permission', 'ui-theme', 'locale', 'ui-conversation',
-      'shell', 'agent-loop', 'web-search-deepseek', 'web', 'web-search-exa',
+      'shell', 'agent-loop', 'compaction', 'web-search-deepseek', 'web', 'web-search-exa',
       'web-search-perplexity', 'web-search-tavily', 'web-search-brave',
       'web-search-kagi', 'web-firecrawl',
     ])
@@ -455,6 +458,11 @@ describe('settings domain', () => {
       ops: [{ op: 'set', path: ['maxParallelToolCalls'], value: 2 }],
     })))
     expect(agentLoop.value).toEqual({ maxParallelToolCalls: 2 })
+    const compaction = expectOk(await api.settings.mutate(request({
+      ns: 'compaction',
+      ops: [{ op: 'set', path: ['thresholdRatio'], value: 0.65 }],
+    })))
+    expect(compaction.value).toEqual({ thresholdRatio: 0.65 })
     const webSearch = expectOk(await api.settings.mutate(request({
       ns: 'web-search-deepseek',
       ops: [{ op: 'set', path: ['baseURL'], value: 'https://search.test/v1' }],

@@ -287,6 +287,11 @@
     - id: token-meter
       name: '@deepseek-ai/dsh-token-meter'
 
+    # One root settings namespace shared by every Profile-scoped compaction
+    # provider. An absent value leaves each Profile's composed threshold intact.
+    - id: compaction-settings
+      name: '@deepseek-ai/dsh-compaction-settings'
+
     - id: compaction-lossless
       name: '@deepseek-ai/dsh-compaction-lossless'
 

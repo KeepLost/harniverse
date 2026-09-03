@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Human-facing `/compact` control over [`ctx.compaction`](../compaction/README.md). The plugin registers one global command through [`ctx.commands`](../../interaction/commands/README.md), so every composed command adapter discovers and executes it without a model turn. The [queued manual compaction Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-queued-manual-compaction.md) owns the admission, lock, and durability decisions.
+Human-facing `/compact` control over [`ctx.compaction`](../compaction/README.md). The plugin registers one global command through [`ctx.commands`](../../interaction/commands/README.md), so every composed command adapter discovers it without resuming a cold Agent. Execution resolves the invoking Agent Profile's scoped compaction provider and runs without a model turn. The [queued manual compaction Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-queued-manual-compaction.md) owns the admission, lock, and durability decisions.
 
 ## Command contract
 
@@ -12,7 +12,7 @@ Human-facing `/compact` control over [`ctx.compaction`](../compaction/README.md)
 | `/compact` with no compactable history | `No compactable history yet.` — no marker or surface mutation is written. |
 | `/compact <anything>` | `Usage: /compact (no arguments)` — the command takes no arguments and calls no compaction backend. |
 
-The command is backend-independent: it depends only on `compactNow(agent, signal)`. The invoking agent is the exact target, and the dispatching UI's cancellation signal is forwarded through the seam. Every resolved invocation records the executor-owned log-only pair `command/run` / `command/done`; neither event joins model history. On success, `command/done.sourceEventSeq` names the transaction's `compaction/summary` event so a presentation can fold the command lifecycle into its checkpoint without parsing result text or assuming adjacent rows.
+The command is backend-independent: it depends only on `compactNow(agent, signal)`. It first reads an ordinary Agent-local provider, then uses the optional Agent Presets service's host-side `serviceFor()` address for a preset-isolated provider. The invoking agent is the exact target, and the dispatching UI's cancellation signal is forwarded through the seam. A Profile without a compaction provider receives `Compaction is unavailable for this Agent Profile.` The compaction service holds each started manual operation during Provider/Profile teardown, while the root command plugin independently drains started handlers during root teardown. Every resolved invocation records the executor-owned log-only pair `command/run` / `command/done`; neither event joins model history. On success, `command/done.sourceEventSeq` names the transaction's `compaction/summary` event so a presentation can fold the command lifecycle into its checkpoint without parsing result text or assuming adjacent rows.
 
 Expected `ManualCompactionError` codes become stable direct errors:
 
@@ -30,7 +30,7 @@ Prompts submitted while compaction runs remain accepted in the agent's ordinary 
 
 ## Composition
 
-The producer injects `commands` and `compact`. Mount the command registry, one backend, and this plugin:
+The producer injects only `commands`; Agent Presets is an optional host-side address rather than a load dependency. Mount the command globally, then mount one compaction backend in each Agent Profile that supports execution:
 
 ```yaml
 - id: commands

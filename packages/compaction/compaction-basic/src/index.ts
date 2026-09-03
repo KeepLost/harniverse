@@ -14,6 +14,7 @@ import { CONTEXT_WINDOW_EXCEEDED_CODE, assertNever } from '@deepseek-ai/dsh-llm'
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 // Type-only: makes the optional sibling service available to `ctx.get()`.
 import type {} from '@deepseek-ai/dsh-compaction-tool-result-pruner'
 import {
@@ -34,7 +35,19 @@ import type {
   BasicCompactionConfig,
   ModelCompactPolicyConfig,
   ResolvedConfig,
+  ResolvedTargetPolicy,
 } from './types.ts'
+
+const COMPACTION_SETTINGS_NAMESPACE = 'compaction' as SettingsNamespace
+
+interface CompactionSettings {
+  readonly thresholdRatio?: number
+}
+
+interface CompactionDecision {
+  readonly target: Pick<LlmCallConfig, 'provider' | 'model'>
+  readonly policy: ResolvedTargetPolicy
+}
 
 export type {
   BasicCompactionConfig,
@@ -142,6 +155,12 @@ export class BasicCompactionEngine extends CompactionEngine {
     if (this.config.auto) this._registerAutomaticCompaction()
   }
 
+  /** Resolve one target policy with the current optional global threshold override. */
+  private targetPolicy(target: Pick<LlmCallConfig, 'provider' | 'model'>): ResolvedTargetPolicy {
+    const settings = this.ctx.get('settings')?.get(COMPACTION_SETTINGS_NAMESPACE) as CompactionSettings | undefined
+    return resolveTargetPolicy(this.config, target, settings?.thresholdRatio)
+  }
+
   /**
    * Register automatic between-step pressure and model-request overflow
    * recovery. `compactIfNeeded` stays dynamically dispatched so subclass
@@ -203,6 +222,8 @@ export class BasicCompactionEngine extends CompactionEngine {
     ctx.on('agent/request', async ({ agent, signal }, next) => {
       const proposed = await next()
       signal.throwIfAborted()
+      const target = { provider: proposed.provider, model: proposed.model }
+      const policy = this.targetPolicy(target)
       let info
       try {
         info = await ctx.llm.resolveModelInfo(proposed.provider, proposed.model, signal)
@@ -213,8 +234,6 @@ export class BasicCompactionEngine extends CompactionEngine {
       const contextWindow = info.context?.contextWindow
       if (contextWindow === undefined) return proposed
 
-      const target = { provider: proposed.provider, model: proposed.model }
-      const policy = resolveTargetPolicy(this.config, target)
       let spec
       try {
         spec = resolveCompactSpec(policy, contextWindow)
@@ -226,7 +245,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       let measurement = ctx.tokenMeter.measure(agent.session)
       if (measurement.totalTokens >= spec.thresholdTokens) {
         try {
-          const result = await this.compactIfNeeded(agent, 'pressure', signal)
+          const result = await this.compactIfNeeded(agent, 'pressure', signal, { target, policy })
           if (result !== null) {
             this.overflowMaxTokens.delete(agent)
             measurement = ctx.tokenMeter.measure(agent.session)
@@ -260,7 +279,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       this.overflowAgents.set(agent.session, agent)
       const target = routedTarget(agent.session)
       if (target === undefined) return next()
-      const policy = resolveTargetPolicy(this.config, target)
+      const policy = this.targetPolicy(target)
       const retries = this.overflowRetries.get(agent) ?? 0
       if (retries >= policy.maxOverflowRetries) return next()
 
@@ -278,7 +297,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       const generation = agent.session.surface.replaceGeneration
       let result: CompactionResult | null
       try {
-        result = await this.compactIfNeeded(agent, 'context-overflow', signal)
+        result = await this.compactIfNeeded(agent, 'context-overflow', signal, { target, policy })
       } catch (recoveryError: unknown) {
         const message = recoveryError instanceof Error ? recoveryError.message : String(recoveryError)
         // A model-free prune can land before later summary work fails. That
@@ -329,7 +348,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     const target = conversationTarget(agent)
     const config = target === undefined
       ? this.config
-      : resolveTargetPolicy(this.config, target)
+      : this.targetPolicy(target)
     return summarizeWithLlm(this.ctx, config, input, agent, signal, onProgress)
   }
 
@@ -341,16 +360,18 @@ export class BasicCompactionEngine extends CompactionEngine {
    * @param agent - agent whose latest durable routed request is measured.
    * @param trigger - step pressure, context-overflow recovery, or an agent request.
    * @param signal - live turn cancellation signal forwarded to summarization.
+   * @param decision - optional policy snapshot captured before asynchronous model resolution.
    * @returns the latest summary compaction result, or `null` when no summary ran.
    */
   override async compactIfNeeded(
     agent: Agent,
     trigger: CompactionTrigger,
     signal: AbortSignal,
+    decision?: CompactionDecision,
   ): Promise<CompactionResult | null> {
-    const target = routedTarget(agent.session)
+    const target = decision?.target ?? routedTarget(agent.session)
     if (target === undefined) return null
-    const policy = resolveTargetPolicy(this.config, target)
+    const policy = decision?.policy ?? this.targetPolicy(target)
     const meter = this.ctx.tokenMeter
     let measurement = meter.measure(agent.session)
     switch (trigger) {
@@ -463,14 +484,14 @@ export class BasicCompactionEngine extends CompactionEngine {
    * @param sourceCommandId - initiating command identity for presentation correlation.
    * @returns the committed result, or `null` when no safe useful range exists.
    */
-  override compactNow(
+  protected override performCompactNow(
     agent: Agent,
     signal: AbortSignal,
     sourceCommandId?: CommandId,
   ): Promise<CompactionResult | null> {
     signal.throwIfAborted()
     if (agent.status === 'running') {
-      return waitForAgentIdle(agent, signal).then(() => this.compactNow(agent, signal, sourceCommandId))
+      return waitForAgentIdle(agent, signal).then(() => this.performCompactNow(agent, signal, sourceCommandId))
     }
     try {
       return agent.runMaintenance(async (agentSignal) => {

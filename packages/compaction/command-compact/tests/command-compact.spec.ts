@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, CordisError } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime, { type CommandResult } from '@deepseek-ai/dsh-commands'
@@ -46,7 +46,7 @@ class StubCompactionEngine extends CompactionEngine {
     return Promise.resolve(RESULT)
   }
 
-  override compactNow(
+  protected override performCompactNow(
     agent: ManualCompactAgentContext,
     signal: AbortSignal,
     sourceCommandId?: Parameters<CompactionEngine['compactNow']>[2],
@@ -88,21 +88,34 @@ interface Harness {
   readonly compact: StubCompactionEngine
   readonly agent: Agent
   readonly plugin: Awaited<ReturnType<Context['plugin']>>
+  readonly profile: Awaited<ReturnType<Context['plugin']>>
 }
 
 async function harness(): Promise<Harness> {
   const ctx = new Context()
   await ctx.plugin(CommandRuntime)
-  const compact = new StubCompactionEngine(ctx)
   const plugin = await ctx.plugin(commandCompact)
+  const agentCtx = new Context()
+  let compact: StubCompactionEngine | undefined
+  let profileCtx: Context | undefined
+  const profile = await agentCtx.plugin({
+    name: 'command-compact-test-profile',
+    apply: (ctx: Context) => {
+      profileCtx = ctx
+      compact = new StubCompactionEngine(ctx)
+    },
+  })
+  if (compact === undefined || profileCtx === undefined) throw new Error('test profile did not start')
   const session = Session.create(SessionId('command-compact'))
   const agent = {
+    id: session.id,
     session,
     status: 'idle',
     options: {},
+    ctx: profileCtx,
     reserveTurnAdmission: () => () => undefined,
   } as unknown as Agent
-  return { ctx, compact, agent, plugin }
+  return { ctx, compact, agent, plugin, profile }
 }
 
 async function run(
@@ -157,10 +170,14 @@ describe('@deepseek-ai/dsh-command-compact registration', () => {
   it('registers one argument-free command with Loader-safe exports and disposes it', async () => {
     const test = await harness()
     expect(commandCompact.name).toBe('command-compact')
-    expect(commandCompact.inject).toEqual(['commands', 'compaction'])
+    expect(commandCompact.inject).toEqual(['commands'])
     expect('default' in commandCompact).toBe(false)
     const loader = Object.create(Loader.prototype) as Loader
     expect(loader.unwrapExports(commandCompact)).toBe(commandCompact)
+    expect(test.ctx.commands.list(SessionId('cold-command-discovery'))).toContainEqual({
+      name: 'compact',
+      description: 'Compact older conversation history',
+    })
     expect(test.ctx.commands.list(test.agent.id)).toContainEqual({
       name: 'compact',
       description: 'Compact older conversation history',
@@ -201,6 +218,55 @@ describe('/compact human command', () => {
       text: 'Usage: /compact (no arguments)',
     })
     expect(rejected.commandId).toBe(expectLastLifecycle(test, ' now', rejected.result))
+    expect(test.compact.calls).toHaveLength(1)
+  })
+
+  it('reports an unavailable backend without entering a model turn', async () => {
+    const test = await harness()
+    const unavailable = { ...test.agent, ctx: new Context() } as Agent
+    const execution = await test.ctx.commands.execute(
+      unavailable,
+      '/compact',
+      [],
+      new AbortController().signal,
+    )
+    if (execution === undefined) throw new Error('compact command was not registered')
+    expect(execution.result).toEqual({
+      kind: 'error',
+      text: 'Compaction is unavailable for this Agent Profile.',
+    })
+    expect(unavailable.session.deriveMessages()).toEqual([])
+    expect(test.compact.calls).toEqual([])
+  })
+
+  it('maps teardown-time inactive effects to an unavailable backend', async () => {
+    const test = await harness()
+    test.compact.failure = new CordisError('INACTIVE_EFFECT')
+
+    const execution = await run(test)
+
+    expect(execution.result).toEqual({
+      kind: 'error',
+      text: 'Compaction is unavailable for this Agent Profile.',
+    })
+    expect(execution.commandId).toBe(expectLastLifecycle(test, '', execution.result))
+  })
+
+  it('resolves a preset-isolated backend through host-side Agent addressing', async () => {
+    const test = await harness()
+    const isolated = { ...test.agent, ctx: new Context() } as Agent
+    test.ctx.provide('agentPresets', {
+      serviceFor: () => test.compact,
+    } as never)
+
+    const execution = await test.ctx.commands.execute(
+      isolated,
+      '/compact',
+      [],
+      new AbortController().signal,
+    )
+
+    expect(execution?.result).toMatchObject({ kind: 'success', sourceEventSeq: RESULT.summarySeq })
     expect(test.compact.calls).toHaveLength(1)
   })
 
@@ -261,10 +327,10 @@ describe('/compact human command', () => {
     await expect(execution).rejects.toBe(abort)
 
     let disposed = false
-    const disposal = test.plugin.dispose()
+    const disposal = test.profile.dispose()
     void disposal.then(() => { disposed = true })
     await new Promise(resolve => setTimeout(resolve, 0))
-    expect(test.ctx.commands.find(test.agent, 'compact')).toBeUndefined()
+    expect(test.ctx.commands.find(test.agent, 'compact')).toBeDefined()
     expect(disposed).toBe(false)
 
     allowClose.resolve(undefined)
@@ -276,5 +342,8 @@ describe('/compact human command', () => {
     await flushed.promise
     await disposal
     expect(disposed).toBe(true)
+    await expect(run(test)).resolves.toMatchObject({
+      result: { kind: 'error', text: 'Compaction is unavailable for this Agent Profile.' },
+    })
   })
 })

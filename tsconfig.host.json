@@ -238,6 +238,7 @@
     { "path": "./packages/fs/tool-str-replace-editor" },
     { "path": "./packages/compaction/compaction" },
     { "path": "./packages/compaction/compaction-basic" },
+    { "path": "./packages/compaction/compaction-settings" },
     { "path": "./packages/compaction/compaction-lossless" },
     { "path": "./packages/compaction/tool-compaction" },
     { "path": "./packages/compaction/tool-compaction-history" },

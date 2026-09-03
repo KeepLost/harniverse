@@ -13,6 +13,8 @@ import { AgentLoopCard } from '../src/client/AgentLoopCard.tsx'
 import type { AgentLoopCardProps } from '../src/client/AgentLoopCard.tsx'
 import { BashCard } from '../src/client/BashCard.tsx'
 import type { BashCardProps } from '../src/client/BashCard.tsx'
+import { CompactionCard } from '../src/client/CompactionCard.tsx'
+import type { CompactionCardProps } from '../src/client/CompactionCard.tsx'
 import { ConfigurablePluginsTab } from '../src/client/ConfigurablePluginsTab.tsx'
 import type { ConfigurablePluginsTabProps } from '../src/client/ConfigurablePluginsTab.tsx'
 import { PluginsSettingsSection } from '../src/client/PluginsSettingsSection.tsx'
@@ -22,6 +24,7 @@ import type { WebSearchCardProps } from '../src/client/WebSearchCard.tsx'
 import type { AgentLoopCardState } from '../src/client/agent-loop-card-controller.ts'
 import type { BashCardState } from '../src/client/bash-card-controller.ts'
 import type { CardFieldState, CardShell } from '../src/client/card-form.ts'
+import type { CompactionCardState } from '../src/client/compaction-card-controller.ts'
 import type { WebSearchCardState } from '../src/client/web-search-card-controller.ts'
 import { en } from '../src/client/locales.ts'
 
@@ -328,6 +331,47 @@ describe('AgentLoopCard', () => {
     fireEvent.click(screen.getByRole('button', { name: en.reset }))
 
     expect(actions.resetField).toHaveBeenCalledWith('maxParallelToolCalls')
+  })
+})
+
+describe('CompactionCard', () => {
+  it('shows the percent field and routes edit, reset, and save actions', () => {
+    const store = createSnapshotStore<CompactionCardState>({
+      ...settled,
+      dirty: true,
+      thresholdPercent: field('80', { overridden: true }),
+    })
+    const actions = cardActions()
+    const props = {
+      ...actions,
+      t,
+      useCompactionCard: bindSnapshotSelector(store),
+    } as unknown as CompactionCardProps
+    render(<CompactionCard {...props} />)
+
+    fireEvent.click(screen.getByText(en.compactionTitle))
+    fireEvent.change(screen.getByLabelText(en.compactionThreshold), { target: { value: '65' } })
+    fireEvent.click(screen.getByRole('button', { name: en.reset }))
+    fireEvent.click(screen.getByRole('button', { name: en.save }))
+
+    expect(actions.edit).toHaveBeenCalledWith('thresholdRatio', '65')
+    expect(actions.resetField).toHaveBeenCalledWith('thresholdRatio')
+    expect(actions.save).toHaveBeenCalledOnce()
+  })
+
+  it('renders nothing while the compaction namespace is unavailable', () => {
+    const store = createSnapshotStore<CompactionCardState>({
+      ...settled,
+      available: false,
+      thresholdPercent: field(''),
+    })
+    const props = {
+      ...cardActions(),
+      t,
+      useCompactionCard: bindSnapshotSelector(store),
+    } as unknown as CompactionCardProps
+    const { container } = render(<CompactionCard {...props} />)
+    expect(container.textContent).toBe('')
   })
 })
 

@@ -110,6 +110,8 @@ flowchart LR
   cfg --> plugin_dsh_base_plan_mode
   plugin_dsh_base_token_meter["token-meter<br/>@deepseek-ai/dsh-token-meter"]
   cfg --> plugin_dsh_base_token_meter
+  plugin_dsh_base_compaction_settings["compaction-settings<br/>@deepseek-ai/dsh-compaction-settings"]
+  cfg --> plugin_dsh_base_compaction_settings
   plugin_dsh_base_compaction_lossless["compaction-lossless<br/>@deepseek-ai/dsh-compaction-lossless"]
   cfg --> plugin_dsh_base_compaction_lossless
   plugin_dsh_base_tool_compaction_history["tool-compaction-history<br/>@deepseek-ai/dsh-tool-compaction-history"]
@@ -243,6 +245,7 @@ flowchart LR
 | `command-goal` | `@deepseek-ai/dsh-command-goal` |
 | `plan-mode` | `@deepseek-ai/dsh-plan-mode` |
 | `token-meter` | `@deepseek-ai/dsh-token-meter` |
+| `compaction-settings` | `@deepseek-ai/dsh-compaction-settings` |
 | `compaction-lossless` | `@deepseek-ai/dsh-compaction-lossless` |
 | `tool-compaction-history` | `@deepseek-ai/dsh-tool-compaction-history` |
 | `tool-compaction` | `@deepseek-ai/dsh-tool-compaction` |

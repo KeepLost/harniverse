@@ -27,6 +27,7 @@ import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { agentEvents, type Agent, type RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
+import type { SettingsProvider } from '@deepseek-ai/dsh-settings'
 
 const SIGNAL = new AbortController().signal
 const MODEL = 'test-model'
@@ -359,6 +360,27 @@ describe('compact configuration and defaults', () => {
       retainTokens: 200,
     })
 
+    const globalDefault = resolveTargetPolicy(config, {
+      provider: 'large-provider',
+      model: 'shared-id',
+    }, 0.65)
+    const exactOverride = resolveTargetPolicy(config, {
+      provider: 'small-provider',
+      model: 'shared-id',
+    }, 0.65)
+    expect(globalDefault.thresholdRatio).toBe(0.65)
+    expect(exactOverride.thresholdRatio).toBe(0.5)
+
+    const incompatibleGlobal = resolveTargetPolicy(resolveConfig({
+      thresholdRatio: 0.8,
+      retainRatio: 0.7,
+    }), {
+      provider: 'large-provider',
+      model: 'shared-id',
+    }, 0.65)
+    expect(incompatibleGlobal.thresholdRatio).toBe(0.8)
+    expect(incompatibleGlobal.retainRatio).toBe(0.7)
+
     const ratioOverride = resolveTargetPolicy(resolveConfig({
       retainTokens: 200,
       modelPolicies: [{
@@ -623,6 +645,19 @@ describe('pressure measurement and retention', () => {
     expect(result).not.toBeNull()
     expect(result?.shadowedSeqs.length).toBeGreaterThan(2)
     expect(session.surface.nodes.length).toBeLessThan(8)
+  })
+
+  it('reads a global threshold override for each new pressure decision', async () => {
+    let thresholdRatio = 0.5
+    const ctx = createContext()
+    ctx.provide('settings', {
+      get: () => ({ thresholdRatio }),
+    } as unknown as SettingsProvider)
+    const compact = service({ auto: false, thresholdRatio: 0.99, retainTokens: 180 }, ctx)
+
+    await expect(compactIfNeeded(compact, conversation(4))).resolves.not.toBeNull()
+    thresholdRatio = 0.99
+    await expect(compactIfNeeded(compact, conversation(4))).resolves.toBeNull()
   })
 
   it('compacts a retained safe prefix on agent request even below pressure', async () => {
@@ -1849,6 +1884,40 @@ describe('automatic listener and loader composition', () => {
 
     expect(resolved).toBe(proposed)
     expect(compact.calls).toHaveLength(0)
+  })
+
+  it('keeps one threshold snapshot while request metadata resolves', async () => {
+    let thresholdRatio = 0.5
+    const ctx = createContext(1_000)
+    ctx.provide('settings', {
+      get: () => ({ thresholdRatio }),
+    } as unknown as SettingsProvider)
+    const metadata = Promise.withResolvers<Awaited<ReturnType<typeof ctx.llm.resolveModelInfo>>>()
+    const resolveModelInfo = vi.spyOn(ctx.llm, 'resolveModelInfo').mockReturnValue(metadata.promise)
+    const compact = new TestCompactionEngine(ctx, {
+      auto: true,
+      thresholdRatio: 0.99,
+      retainTokens: 10,
+    })
+    const owner = agent(conversation(4), MODEL)
+    const pending = agentEvents(ctx, owner).waterfall(
+      'agent/request',
+      { turn: 5, step: 1, signal: SIGNAL },
+      () => Promise.resolve({ provider: MODEL, model: MODEL, maxTokens: 900 }),
+    )
+    await vi.waitFor(() => { expect(resolveModelInfo).toHaveBeenCalledOnce() })
+
+    thresholdRatio = 0.99
+    metadata.resolve({
+      provider: MODEL,
+      id: MODEL,
+      name: MODEL,
+      context: { contextWindow: 1_000 },
+    })
+    await pending
+
+    expect(compact.calls).toHaveLength(1)
+    expect(owner.session.events.some(event => event.type === 'compaction/summary')).toBe(true)
   })
 
   it('passes through a request when its resolved pressure policy is invalid', async () => {

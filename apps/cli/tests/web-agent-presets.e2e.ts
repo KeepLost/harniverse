@@ -146,6 +146,9 @@ async function bootWeb(
 const toolNames = (ctx: Context, agent?: Agent): string[] =>
   ctx.tools.schemas(agent).map(schema => schema.name).sort()
 
+const commandNames = (ctx: Context, sessionId: SessionId): string[] =>
+  ctx.commands.list(sessionId).map(command => command.name)
+
 function enablePresetTool(composition: string, id: string): string {
   const row = `    - id: ${id}\n`
   const start = composition.indexOf(row)
@@ -175,6 +178,41 @@ describe('the shipped Web composition', () => {
     // present three. A regression here means an agent-plane row came back to
     // the host composition.
     expect(toolNames(ctx)).toEqual([])
+  })
+
+  it('discovers /compact globally without resuming a cold session', () => {
+    const sessionId = SessionId('cold-command-discovery')
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
+    expect(commandNames(ctx, sessionId)).toContain('compact')
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
+  })
+
+  it('owns one live root compaction settings namespace without a default override', async () => {
+    const ns = settingsNamespace('compaction')
+    expect(ctx.settings.describe().find(row => row.ns === ns)).toMatchObject({
+      applies: 'live',
+      value: {},
+    })
+
+    await ctx.settings.replace(ns, { thresholdRatio: 0.65 })
+    expect(ctx.settings.get(ns)).toEqual({ thresholdRatio: 0.65 })
+    await ctx.settings.replace(ns, {})
+  })
+
+  it('executes the global /compact command through every shipped Profile provider', async () => {
+    for (const profile of ['standard', 'minimal', 'cordis', 'code'] as const) {
+      const handle = await ctx.agents.create({
+        sessionId: SessionId(`preset-compact-${profile}-${randomUUID()}`),
+        setup: agentCtx => ctx.agentPresets.mount(agentCtx, profile).then(() => undefined),
+      })
+      try {
+        expect(commandNames(ctx, handle.agent.id)).toContain('compact')
+        const compacted = await ctx.commands.execute(handle.agent, '/compact', [], new AbortController().signal)
+        expect(compacted?.result, profile).toEqual({ kind: 'success', text: 'No compactable history yet.' })
+      } finally {
+        await handle.dispose()
+      }
+    }
   })
 
   it('creates an Agent instance with its Profile identity and default permission', async () => {

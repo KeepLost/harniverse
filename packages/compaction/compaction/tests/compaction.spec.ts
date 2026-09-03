@@ -32,7 +32,7 @@ class StubCompactionEngine extends CompactionEngine {
     return null
   }
 
-  override async compactNow(
+  protected override async performCompactNow(
     _agent: ManualCompactAgentContext,
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {

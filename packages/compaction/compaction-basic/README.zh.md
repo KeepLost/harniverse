@@ -25,7 +25,7 @@
 
 ## 配置（`BasicCompactionConfig`）
 
-所有设置都可选。顶层策略字段是每个已路由模型的默认值；`modelPolicies` 对精确提供方／模型对应用部分覆盖。出现压力或 agent request 时，compaction-basic 会请求所属 LLM（大语言模型）适配器提供该路由的上下文容量，并解析绝对预算。无法识别的配置键、重复目标、互斥保留形式，以及合并后的 `retainRatio` 不低于 `thresholdRatio`，都会使插件加载失败。不低于缩放后阈值的绝对 `retainTokens` 预算会在首次解析出目标时导致失败，因为该比较需要模型容量。
+所有设置都可选。顶层策略字段是每个已路由模型的默认值；`modelPolicies` 对精确提供方／模型对应用部分覆盖。可选的根层 `compaction` Settings 分节会在每次新决策中覆盖顶层 `thresholdRatio`，而精确模型策略仍拥有最高优先级。若全局阈值不高于某个 Profile 的比例保留值，该 Profile 会忽略这项不兼容的覆盖。出现压力或 agent request 时，compaction-basic 会先对有效策略取一次快照，再等待所属 LLM（大语言模型）适配器提供该路由的上下文容量并解析绝对预算。无法识别的配置键、重复目标、互斥保留形式，以及合并后的 `retainRatio` 不低于 `thresholdRatio`，都会使插件加载失败。不低于缩放后阈值的绝对 `retainTokens` 预算会在首次解析出目标时导致失败，因为该比较需要模型容量。
 
 | Key | 必填 | 含义 |
 |---|---|---|

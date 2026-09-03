@@ -8,7 +8,7 @@ The **Plugins** settings section and its **Plugin configuration** tab. The secti
 
 A card renders only when its namespace is both registered by a live Host plugin and served to the browser. A deployment that does not compose the owning plugin — or serves the namespace to no client — renders nothing for it rather than an empty or disabled card, so the configurable tab reflects what this deployment actually runs.
 
-The first batch covers the shell executor (`bash`), the agent loop's tool-call parallelism (`agent-loop`), and one Web search card spanning the search and fetch defaults (`web`) plus DeepSeek (`web-search-deepseek`), Exa (`web-search-exa`), Perplexity (`web-search-perplexity`), Tavily (`web-search-tavily`), Brave (`web-search-brave`), Kagi (`web-search-kagi`), and Firecrawl (`web-firecrawl`) settings.
+The first batch covers the shell executor (`bash`), the agent loop's tool-call parallelism (`agent-loop`), the global automatic compaction threshold (`compaction`), and one Web search card spanning the search and fetch defaults (`web`) plus DeepSeek (`web-search-deepseek`), Exa (`web-search-exa`), Perplexity (`web-search-perplexity`), Tavily (`web-search-tavily`), Brave (`web-search-brave`), Kagi (`web-search-kagi`), and Firecrawl (`web-firecrawl`) settings. The compaction card renders ratios as integer percentages: for example, `80` is stored as `0.8`; blank leaves each Agent Profile's threshold in control.
 
 ## Extension point
 

@@ -8,6 +8,7 @@ A compaction capability family (see [capability seams](../../.agents/notes/imple
 |---|---|---|
 | [`compaction/`](compaction/README.md) | Compaction seam and event vocabulary | `ctx.compaction` |
 | [`compaction-basic/`](compaction-basic/README.md) | Token-pressure and summarization backend | registers `ctx.compaction` |
+| [`compaction-settings/`](compaction-settings/README.md) | Root-owned global pressure-threshold settings | registers the `compaction` Settings namespace |
 | [`compaction-lossless/`](compaction-lossless/README.md) | Automatic backend plus committed summary-DAG projection | registers `ctx.compaction`, `ctx.compactionHistory` |
 | [`tool-compaction/`](tool-compaction/README.md) | Direct model-requested retained-tail compaction | registers on `ctx.tools` |
 | [`tool-compaction-history/`](tool-compaction-history/README.md) | Model-facing current-session summary search and expansion | registers on `ctx.tools` |

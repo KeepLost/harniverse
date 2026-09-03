@@ -88,7 +88,7 @@ type ManualCompactionErrorCode =
 
 `changed` 和 `summary` 保持会话表层不变，但仍会闭合失败尝试并将其持久化到日志。`commit` 可能发生在部分变更之后；`persistence` 表示内存中的标记对已闭合，但 flush 失败。取消独立于这些失败，并在完成必要清理后抛出原始 abort 原因。
 
-压力压缩在串行 `agent/pre-step` 中运行，先于请求推导。随附的 base、standard、code、Cordis 和 standalone headless 组合选择启用自动策略的 `dsh-compaction-lossless`。Base、standard、Cordis 与 headless 还挂载 direct `context_compact` Consumer；Code 会省略它，因为 Code Mode 对原生工具的访问是 nested。它的 `agent-request` 触发会绕过压力、应用已路由的保留尾部策略、跳过剪枝，并最多执行一次缩减。bundle 与 preset 组合保持剪枝行禁用，headless 则不挂载剪枝器，因此摘要替换是唯一的默认历史改写。显式 overlay 可以启用可选的 [`ctx.toolResultPruner`](../../packages/compaction/compaction-tool-result-pruner/README.md)；一旦压力或规范化溢出满足条件，继承的 basic 策略会在选择范围前调用它，再通过 `ctx.tokenMeter` 重新测量，并且可以在不生成摘要的情况下推进 surface。失败请求的恢复在失败的步骤关闭后通过 `agent/request-error` 运行；仅当 surface replacement generation 前进时才返回重试动作，即便后续摘要工作在剪枝后抛异常亦如此；取消仍然优先。区域边界保持工具调用/结果配对，但不保持整个轮次，因此一个过大轮次中较早关闭的步骤可以被压缩。
+压力压缩在串行 `agent/pre-step` 中运行，先于请求推导。随附的 base、standard、code、Cordis 和 standalone headless 组合选择启用自动策略的 `dsh-compaction-lossless`。根层持有的 [`compaction` Settings 命名空间](../../packages/compaction/compaction-settings/README.md)可以为每次新决策覆盖 Profile 默认阈值；精确 Provider/Model 策略仍拥有更高优先级，且一次决策会在等待模型元数据期间保持最初的策略快照。全局 `/compact` 注册可在冷 Agent 恢复前被发现，执行时再解析调用方 Profile 的 scoped Provider。Base、standard、Cordis 与 headless 还挂载 direct `context_compact` Consumer；Code 会省略它，因为 Code Mode 对原生工具的访问是 nested。它的 `agent-request` 触发会绕过压力、应用已路由的保留尾部策略、跳过剪枝，并最多执行一次缩减。bundle 与 preset 组合保持剪枝行禁用，headless 则不挂载剪枝器，因此摘要替换是唯一的默认历史改写。显式 overlay 可以启用可选的 [`ctx.toolResultPruner`](../../packages/compaction/compaction-tool-result-pruner/README.md)；一旦压力或规范化溢出满足条件，继承的 basic 策略会在选择范围前调用它，再通过 `ctx.tokenMeter` 重新测量，并且可以在不生成摘要的情况下推进 surface。失败请求的恢复在失败的步骤关闭后通过 `agent/request-error` 运行；仅当 surface replacement generation 前进时才返回重试动作，即便后续摘要工作在剪枝后抛异常亦如此；取消仍然优先。区域边界保持工具调用/结果配对，但不保持整个轮次，因此一个过大轮次中较早关闭的步骤可以被压缩。
 
 该 Service Definition 导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于检查 seq 之前与之后的工具调用/结果配对。两者都会验证当前 surface 成员关系，并拒绝缺失的 seq 与遗留结果；[包约定](../../packages/compaction/compaction/README.md#tool-pairing-boundaries)定义其缓存行为。
 
@@ -178,7 +178,7 @@ abstract compactIfNeeded( agent: CompactionAgentContext, trigger: CompactionTrig
  * an aborted request preserves its exact abort reason. Failed attempts remain
  * visible in the log.
  */
-abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, sourceCommandId?: CommandId, ): Promise<CompactionResult | null>
+compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, sourceCommandId?: CommandId, ): Promise<CompactionResult | null>
 
 /**
  * Forcibly compact a range of surface nodes into a single summary node.

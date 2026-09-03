@@ -416,9 +416,6 @@
 - id: tool-compaction
   disabled: true
 
-- id: command-compact
-  disabled: true
-
 - id: tool-result-pruner
   disabled: true
 
