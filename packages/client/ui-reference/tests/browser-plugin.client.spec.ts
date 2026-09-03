@@ -5,6 +5,7 @@ import type { ClientSessionContext, InputTriggerSource } from '@deepseek-ai/dsh-
 import type { FileReferenceCandidate } from '@deepseek-ai/dsh-file-reference/types'
 import type { SessionReferenceMentionCandidate } from '@deepseek-ai/dsh-session-reference/types'
 import { apply, inject } from '../src/client/index.ts'
+import { apply as nodeApply } from '../src/index.ts'
 
 const session: ClientSessionContext = { sessionId: 'target' as SessionId }
 type Envelope<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string; details: object } }
@@ -60,5 +61,12 @@ describe('unified reference source', () => {
   it('ignores foreign candidates without a source-owned payload', async () => {
     const source = await sourceOf()
     expect(source.onPick({ candidate: { name: 'foreign' }, session, position: 'inline', via: 'menu', span: { start: 0, end: 1, draftRev: 1 } })).toBeUndefined()
+  })
+})
+
+describe('ui-reference node half', () => {
+  it('contributes no host behavior', () => {
+    // The node half exists only so the browser-only source appears in the Loader tree.
+    expect(() => { nodeApply() }).not.toThrow()
   })
 })
