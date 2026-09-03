@@ -189,20 +189,10 @@ export async function buildWindow(
     if (selected()) {
       const delimiter = acc.lines.length > 0 ? 1 : 0
       if (lineTruncated) {
-        if (retainedBytes === 0 && acc.lines.length === 0) {
-          throw new Error('readMaxBytes is too small to return one UTF-8 code point')
-        }
-        if (retainedBytes > 0) {
-          acc.lines.push({
-            number: currentLine,
-            text: retainedText,
-            startByte: cursor,
-            endByte: cursor + retainedBytes,
-            complete: false,
-          })
-          acc.outputBytes += delimiter + retainedBytes
-        }
-        acc.next = { offset: currentLine, lineByteOffset: cursor + retainedBytes }
+        // A truncation carrying retained bytes emits its partial line and stops
+        // the scan inside consumeCodePoint, so a truncated line reaching the
+        // newline retained nothing and this page already holds an earlier line.
+        acc.next = { offset: currentLine, lineByteOffset: cursor }
         acc.truncatedByBytes ||= lineTruncatedByBytes
       } else {
         acc.lines.push(cursor > 0
@@ -226,7 +216,7 @@ export async function buildWindow(
       pendingHighSurrogate = ''
       const trailing = chunk.charCodeAt(chunk.length - 1)
       if (trailing >= 0xd800 && trailing <= 0xdbff) {
-        pendingHighSurrogate = chunk.at(-1) ?? ''
+        pendingHighSurrogate = chunk.slice(-1)
         chunk = chunk.slice(0, -1)
       }
       for (const codePoint of chunk) {

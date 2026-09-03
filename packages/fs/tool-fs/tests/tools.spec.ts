@@ -252,6 +252,26 @@ describe('read tool', () => {
     }
   })
 
+  it('rejects a fractional or negative line_byte_offset', async () => {
+    const { ctx } = await setup()
+    for (const args of [
+      { file_path: 'a.txt', line_byte_offset: 1.5 },
+      { file_path: 'a.txt', line_byte_offset: -1 },
+    ]) {
+      const result = await call(ctx, 'read', args)
+      expect(result.isError, JSON.stringify(args)).toBe(true)
+      expect(text(result)).toContain('line_byte_offset must be a non-negative integer')
+    }
+  })
+
+  it('accepts a zero line_byte_offset as the start of the first selected line', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:a.txt', 'one\ntwo')
+    const result = await call(ctx, 'read', { file_path: 'a.txt', line_byte_offset: 0 })
+    if (result.isError) throw new Error('expected a zero byte offset to read from the line start')
+    expect(text(result)).toContain('1: one')
+  })
+
   it('rejects a non-JSON numeric offset before tool-specific validation', async () => {
     const { ctx } = await setup()
     const result = await call(ctx, 'read', { file_path: 'a.txt', offset: Number.NaN })
