@@ -14,7 +14,7 @@ This document records the exact DeepSeek Harness plugin baseline imported by Har
 
 The two baseline commits have the same Git tree. All downstream statements therefore describe `440d2ae5a4..HEAD` without upstream-version ambiguity. The official inventory below covers first-party packages under `packages/*/*`; vendored Cordis packages are framework dependencies, while `apps/*` are launchers and assembled application hosts.
 
-Workspace workbench implementation tracking: `9a74618b20`; real-browser interaction hardening: `f986355714`; navigation, preview, and glob integration: `6fdf45691a`; session-control work-status response baseline: `fd4a04a42cc08ca07ccb09143ffdc2870b3cad5f`; native macOS shell and Intel runtime coverage: `97a196e925`; native macOS process-path portability: `bcc4186fb5`; native macOS resource-bound portability: `71befd15fe`; global compaction controls: `5a794a57bd`; client-aborted HTTP request handling: `2b8ee0cc0f`.
+Workspace workbench implementation tracking: `9a74618b20`; real-browser interaction hardening: `f986355714`; navigation, preview, and glob integration: `6fdf45691a`; session-control work-status response baseline: `fd4a04a42cc08ca07ccb09143ffdc2870b3cad5f`; native macOS shell and Intel runtime coverage: `97a196e925`; native macOS process-path portability: `bcc4186fb5`; native macOS resource-bound portability: `71befd15fe`; native Windows lease-cleanup contention: `277be8ca8a`; global compaction controls: `5a794a57bd`; client-aborted HTTP request handling: `2b8ee0cc0f`.
 
 ## Official Plugin Inventory
 
@@ -297,6 +297,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `145d486c5e` | Raises the opt-in CPython native-Windows reply-reader stack reserve again for the observed 3,000-level JSON boundary and hardens real Loader-composition timing/scrollback budgets for slow Windows CI; these test-fixture changes do not alter shipped composition. |
 | `bcc4186fb5` | Resolves the opt-in CPython executable through the Host PATH before clearing the model process environment, and keeps authenticated Workspace directory and Git inspection portable by reserving descriptor-path traversal for Linux while revalidating canonical paths on macOS and Windows. |
 | `71befd15fe` | Applies the opt-in CPython address-space bound only where the platform measures address space, skipping it on macOS where `RLIMIT_AS` aliases resident memory, and tolerates individually refused resource requests. CPU and Host wall-clock ceilings remain enforced on every platform. |
+| `277be8ca8a` | Treats Windows `EPERM` from removing a vacated inbound-authentication lease as ordinary cleanup contention, preserving the single network-instance contract across platforms, and bounds lease acquisition so an unremovable lease fails loudly. |
 <!-- composition-changes-end -->
 
 ## Architecture Refactor Ledger
