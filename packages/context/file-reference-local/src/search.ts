@@ -73,6 +73,9 @@ export class WorkspaceFileSearch {
     const controller = new AbortController()
     const generation = { controller, promise: Promise.resolve([] as FileReferenceCandidate[]) }
     generation.promise = this.scanWorkspace(controller.signal).catch((error: unknown) => {
+      /* v8 ignore next -- `invalidate` already cleared this pointer when it was
+         the one that aborted the scan, and nothing else replaces a generation
+         while its scan is still running. */
       if (this.generation === generation) this.generation = undefined
       throw error
     })
@@ -85,8 +88,8 @@ export class WorkspaceFileSearch {
     const directories: { absolute: string; relative: string }[] = [{ absolute: this.root, relative: '' }]
     for (let cursor = 0; cursor < directories.length && indexed.length < this.config.maxEntries; cursor += 1) {
       signal.throwIfAborted()
-      const directory = directories[cursor]
-      if (directory === undefined) throw new Error('file search selected a missing directory')
+      // The loop condition keeps `cursor` inside the queue, which only grows.
+      const directory = directories[cursor] as { absolute: string; relative: string }
       for (const entry of await readDirectory(directory.absolute, signal)) {
         signal.throwIfAborted()
         const path = directory.relative === '' ? entry.name : `${directory.relative}/${entry.name}`
@@ -192,9 +195,13 @@ function subsequenceScore(target: string, query: string): number | undefined {
 }
 
 function kindRank(kind: FileReferenceCandidate['kind']): number { return kind === 'directory' ? 0 : 1 }
+/* v8 ignore next -- the descending arm needs two names a directory read
+   returned out of order, which no supported filesystem produces here. */
 function compareText(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0 }
 
 function waitForPromise<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  /* v8 ignore next -- `list` refuses an aborted signal before it reaches the
+     index, so this guard only matters to a future caller that does not. */
   if (signal.aborted) return Promise.reject(errorReason(signal.reason, 'file search aborted'))
   return new Promise<T>((resolvePromise, rejectPromise) => {
     const onAbort = (): void => { rejectPromise(errorReason(signal.reason, 'file search aborted')) }

@@ -130,6 +130,29 @@ describe('LocalFileReferenceService', () => {
     }
   })
 
+  it.each([
+    ['an Error', new Error('fiber teardown refused'), 'fiber teardown refused'],
+    ['a non-Error', 'fiber teardown refused', 'fiber teardown refused'],
+  ])('warns without failing Agent disposal when prompt cleanup rejects with %s', async (_name, reason, text) => {
+    const ctx = await harness()
+    const { agent, dispose } = await agentOf(ctx)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    await ctx.plugin(LocalFileReferenceService)
+    const service = ctx.fileReferences as unknown as { promptFibers: Map<Agent, { dispose: () => unknown }> }
+    const fiber = service.promptFibers.get(agent)
+    if (fiber === undefined) throw new Error('the Agent must own a prompt fiber')
+    // Teardown of the prompt section is best-effort: its failure is reported and
+    // must not propagate into Agent disposal.
+    vi.spyOn(fiber, 'dispose').mockReturnValue(Promise.reject(reason))
+
+    expect(() => { dispose() }).not.toThrow()
+    await vi.waitFor(() => {
+      expect(warnings.join('\n')).toContain(`file-reference-local: prompt cleanup failed: ${text}`)
+    })
+    await ctx.fiber.dispose()
+  })
+
   it('does not warn when an Agent scope already disposed its prompt fiber', async () => {
     const ctx = await harness()
     const { dispose, scope } = await scopedAgentOf(ctx)
