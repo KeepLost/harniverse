@@ -1034,6 +1034,13 @@ describe('bounded page reads for unknown and empty sessions', () => {
       const unknown = SessionId('never-stored')
       await expect(store(ctx).loadHistoryPage(unknown, { maxMessages: 5 })).resolves.toBeUndefined()
       await expect(store(ctx).loadRawEventPage(unknown, { maxEvents: 5 })).resolves.toBeUndefined()
+
+      // The service face turns that absence into a named refusal rather than
+      // handing a caller an empty page it could mistake for an empty session.
+      await expect(ctx.sessionPersistence.readHistoryPage(unknown, { maxMessages: 5 }))
+        .rejects.toThrow(`session "${unknown}" not found`)
+      await expect(ctx.sessionPersistence.readRawEventPage(unknown, { maxEvents: 5 }))
+        .rejects.toThrow(`session "${unknown}" not found`)
     } finally {
       await dispose()
     }
