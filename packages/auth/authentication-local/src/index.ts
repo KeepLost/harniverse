@@ -410,9 +410,12 @@ export class LocalAuthentication extends InboundAuthentication {
   private async authenticateBatch(pending: readonly PendingAuthentication[]): Promise<void> {
     let registryRead: Promise<GrantRegistry> | undefined
     const readRegistry = (): Promise<GrantRegistry> => registryRead ??= readGrantRegistry(this.spec)
-    const decisions: AuthenticationDecision[] = []
+    // One settlement per admission, paired at construction so the batch cannot
+    // drift between its decisions and the callers awaiting them.
+    const settlements: Array<{ admission: PendingAuthentication; decision: AuthenticationDecision }> = []
     const records: AccessRecord[] = []
-    for (const { attempt } of pending) {
+    for (const admission of pending) {
+      const { attempt } = admission
       let decision: AuthenticationDecision
       if (this.mode === 'bypass') decision = { kind: 'accepted', principal: BYPASS_PRINCIPAL }
       else if (!this.watcherHealthy || !this.ownerAvailable) decision = { kind: 'rejected', reason: 'authentication-unavailable' }
@@ -428,7 +431,7 @@ export class LocalAuthentication extends InboundAuthentication {
           decision = { kind: 'rejected', reason: 'authentication-unavailable' }
         }
       }
-      decisions.push(decision)
+      settlements.push({ admission, decision })
       const admittedGrant = decision.kind === 'accepted' && decision.principal.kind === 'grant'
         ? this.grantFor(decision.principal)
         : undefined
@@ -452,20 +455,14 @@ export class LocalAuthentication extends InboundAuthentication {
     } catch (error) {
       this.ctx.logger.warn('authentication-local: access record batch failed')
       this.ctx.logger.warn(error)
-      for (let index = 0; index < decisions.length; index += 1) {
-        if (decisions[index]?.kind === 'accepted') {
-          decisions[index] = { kind: 'rejected', reason: 'authentication-unavailable' }
+      // An admission the access log did not record is not an admission.
+      for (const settlement of settlements) {
+        if (settlement.decision.kind === 'accepted') {
+          settlement.decision = { kind: 'rejected', reason: 'authentication-unavailable' }
         }
       }
     }
-    for (let index = 0; index < pending.length; index += 1) {
-      const admission = pending[index]
-      const decision = decisions[index]
-      if (admission === undefined || decision === undefined) {
-        throw new Error('authentication-local: admission batch result count mismatch')
-      }
-      admission.resolve(decision)
-    }
+    for (const { admission, decision } of settlements) admission.resolve(decision)
   }
 
   override async requestEnrollment(
@@ -796,9 +793,9 @@ export class LocalAuthentication extends InboundAuthentication {
     const now = Date.now()
     let state = this.authenticationFailures.get(key)
     if (state === undefined) {
-      while (this.authenticationFailures.size >= this.spec.maxAuthFailureKeys) {
-        const oldest = this.authenticationFailures.keys().next().value
-        if (oldest === undefined) break
+      // The bound is at least one, so a map at capacity always yields a key.
+      for (const oldest of this.authenticationFailures.keys()) {
+        if (this.authenticationFailures.size < this.spec.maxAuthFailureKeys) break
         this.authenticationFailures.delete(oldest)
       }
       state = { failures: 0, windowStartedAt: now, blockedUntil: 0 }
@@ -820,9 +817,9 @@ export class LocalAuthentication extends InboundAuthentication {
       return Math.max(1, state.windowStartedAt + this.spec.enrollmentRequestWindowMs - now)
     }
     if (state === undefined) {
-      while (this.enrollmentRequests.size >= this.spec.maxEnrollmentPeerKeys) {
-        const oldest = this.enrollmentRequests.keys().next().value
-        if (oldest === undefined) break
+      // The bound is at least one, so a map at capacity always yields a key.
+      for (const oldest of this.enrollmentRequests.keys()) {
+        if (this.enrollmentRequests.size < this.spec.maxEnrollmentPeerKeys) break
         this.enrollmentRequests.delete(oldest)
       }
       state = { requests: 0, windowStartedAt: now }
