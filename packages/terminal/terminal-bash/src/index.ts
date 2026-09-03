@@ -12,9 +12,10 @@ import type { TerminalBackend, TerminalBackendSpawnSpec } from '@deepseek-ai/dsh
 import type { SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import { effectiveSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
+import { isZshShell } from '@deepseek-ai/dsh-shell'
 import { type Config, type ResolvedConfig, validateConfig } from './config.ts'
 import { LocalPtySession } from './session.ts'
-import { CONTROLLED_PROMPT } from './sanitize.ts'
+import { CONTROLLED_PROMPT, CONTROLLED_ZSH_PROMPT } from './sanitize.ts'
 
 export { Config } from './config.ts'
 export type { Config as TerminalLocalConfig } from './config.ts'
@@ -52,16 +53,20 @@ function ensureSandboxModeFence(ctx: Context, owner: Agent): void {
   }, { global: true })
 }
 
-function childEnvironment(spec: TerminalBackendSpawnSpec): Record<string, string> {
+function childEnvironment(spec: TerminalBackendSpawnSpec, shellPath: string): Record<string, string> {
   // The subprocess provider supplies its own scrubbed ambient base; these are
-  // deliberate terminal-specific overrides layered after it.
+  // deliberate terminal-specific overrides layered after it. zsh has no
+  // PROMPT_COMMAND hook, so it carries the private marker in PS1 itself.
+  const zsh = isZshShell(shellPath)
   return {
     TERM: 'dumb',
     PAGER: 'cat',
     GIT_PAGER: 'cat',
-    PS1: CONTROLLED_PROMPT,
-    PROMPT_COMMAND: 'printf "\\033]133;D;%s\\007" "$?"',
-    BASH_SILENCE_DEPRECATION_WARNING: '1',
+    PS1: zsh ? CONTROLLED_ZSH_PROMPT : CONTROLLED_PROMPT,
+    ...zsh ? {} : {
+      PROMPT_COMMAND: 'printf "\\033]133;D;%s\\007" "$?"',
+      BASH_SILENCE_DEPRECATION_WARNING: '1',
+    },
     DSH_SHELL: '1',
     DSH_SESSION_ID: spec.owner.id,
     DSH_PTY_SESSION_ID: spec.sessionId,
@@ -125,7 +130,7 @@ export class BashTerminalBackend implements TerminalBackend {
     const terminal = await this.spawnTerminal({
       argv,
       cwd: spec.cwd ?? policy.workspaceRoot,
-      env: childEnvironment(spec),
+      env: childEnvironment(spec, this.config.shellPath),
       rows: this.config.rows,
       cols: this.config.cols,
       graceMs: this.config.disposeGraceMs,

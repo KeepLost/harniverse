@@ -8,13 +8,15 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { TerminalReadResult, TerminalSendResult, TerminalSessionId } from '@deepseek-ai/dsh-terminal'
+import { defaultShellName } from '@deepseek-ai/dsh-shell'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 // TODO: Replace the file-search advice; arbitrary command output need not come from a searchable file.
 const TRUNCATED_MESSAGE = '<response clipped><NOTE>To save on context only part of this file has been shown to you. You should retry this tool after you have searched inside the file with `grep -n` in order to find the line numbers of what you are looking for.</NOTE>'
 const LOST_PREFIX_MESSAGE = '<response clipped><NOTE>The beginning of this command output was dropped by the terminal scrollback limit. The following text is the earliest retained output.</NOTE>\n'
-const SHELL_RESET_MESSAGE = 'The persistent bash shell was reset; the next bash call starts from the workspace with a fresh current directory and environment.'
+const SHELL_NAME = defaultShellName()
+const SHELL_RESET_MESSAGE = `The persistent ${SHELL_NAME} shell was reset; the next ${SHELL_NAME} call starts from the workspace with a fresh current directory and environment.`
 const SHELL_PROMPT = '__DSH_PERSISTENT_BASH_PROMPT__ '
 const TIMEOUT_CODE = 'PERSISTENT_BASH_TIMEOUT'
 // One page is enough to find a just-emitted completion marker; the full
@@ -22,7 +24,7 @@ const TIMEOUT_CODE = 'PERSISTENT_BASH_TIMEOUT'
 const SCROLLBACK_PAGE_LINES = 1_000
 const POLL_INTERVAL_MS = 25
 
-const DEFAULT_DESCRIPTION = 'Run commands in a persistent bash shell. State, including the current directory and exported environment variables, persists across calls for this agent.'
+const DEFAULT_DESCRIPTION = `Run commands in a persistent ${SHELL_NAME} shell. State, including the current directory and exported environment variables, persists across calls for this agent.`
 
 interface ResolvedConfig {
   backendType: string
@@ -250,7 +252,7 @@ function persistentShells(ctx: Context, config: ResolvedConfig): PersistentShell
         })
         const result = await setup.done
         if (result.sessionStatus.kind === 'exited' || result.waitReason === 'timeout') {
-          throw new Error('persistent bash shell did not accept initialization')
+          throw new Error(`persistent ${SHELL_NAME} shell did not accept initialization`)
         }
         return spawned.sessionId
       } catch (error: unknown) {
@@ -329,7 +331,7 @@ async function executeCommand(
     }
     if (result.sessionStatus.kind === 'exited') {
       const snapshot = retainedScrollback(ctx, owner, id, latest)
-      await shells.reset(owner, 'persistent bash shell exited')
+      await shells.reset(owner, `persistent ${SHELL_NAME} shell exited`)
       return [
         renderShellExitStatus(
           renderCaptured(partialOutput(snapshot, marker, fallback, fallbackTruncated), config.maxOutputChars),

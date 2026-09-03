@@ -8,6 +8,9 @@ export const PROMPT_MARKER_PREFIX = '133;D;'
 /** Exact printable prompt emitted after the private marker. */
 export const CONTROLLED_PROMPT = 'dsh> '
 
+/** zsh carries the marker in PS1 because it has no Bash PROMPT_COMMAND equivalent. */
+export const CONTROLLED_ZSH_PROMPT = `\x1b]133;D;\x07${CONTROLLED_PROMPT}`
+
 /** One sanitized chunk plus whether it contained the owned prompt marker. */
 export interface SanitizedChunk {
   text: string

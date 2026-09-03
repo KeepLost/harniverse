@@ -33,6 +33,9 @@
       "path": "../../sandbox/sandbox-policy"
     },
     {
+      "path": "../../shell/shell"
+    },
+    {
       "path": "../../subprocess/subprocess"
     },
     {

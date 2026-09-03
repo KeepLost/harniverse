@@ -365,6 +365,44 @@ jobs:
         shell: pwsh
         run: pnpm run check:ci:windows-complete
 
+  # Informational macOS signal: exercise the platform-default zsh path and the
+  # real Seatbelt backend on every pull request, not only on master pushes.
+  macos-native:
+    if: github.event_name == 'pull_request'
+    runs-on: macos-latest
+    name: macOS node 24 / native informational
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v5
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Unit tests (native macOS)
+        run: pnpm run test
+
+      - name: Seatbelt e2e (real kernel confinement)
+        env:
+          NO_COLOR: 1
+        run: |
+          set -u +e -o pipefail
+          out=$(pnpm exec vitest run --config vitest.e2e.config.ts \
+            packages/sandbox/sandbox-local/tests/seatbelt.e2e.ts \
+            packages/shell/bash-sandbox/tests/seatbelt.e2e.ts 2>&1); status=$?
+          echo "$out"
+          [ "$status" -eq 0 ]
+          echo "$out" | grep -qE 'Test Files[[:space:]]+2 passed \(2\)'
+
   # Single stable required check for branch protection: require "all checks
   # passed" instead of enumerating matrix legs whose names change as lanes and
   # node versions evolve. Every blocking job in THIS workflow must be listed in

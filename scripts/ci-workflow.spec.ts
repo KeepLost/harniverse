@@ -36,6 +36,7 @@ describe('CI workflow', () => {
       || !isRecord(workflow.jobs['node-24'])
       || !isRecord(workflow.jobs['node-24-coverage'])
       || !isRecord(workflow.jobs['node-24-consumers'])
+      || !isRecord(workflow.jobs['macos-native'])
       || !isRecord(workflow.jobs['all-checks-passed'])
       || !isRecord(workflow.concurrency)
       || !isRecord(wineCache.jobs)
@@ -49,6 +50,7 @@ describe('CI workflow', () => {
     const node24 = workflow.jobs['node-24']
     const node24Coverage = workflow.jobs['node-24-coverage']
     const node24Consumers = workflow.jobs['node-24-consumers']
+    const macosNative = workflow.jobs['macos-native']
     const aggregate = workflow.jobs['all-checks-passed']
     if (!Array.isArray(windows.steps) || !Array.isArray(aggregate.needs)) {
       throw new TypeError('Windows job must define steps and the aggregate must define needs')
@@ -75,6 +77,17 @@ describe('CI workflow', () => {
     // Aggregate: Wine `windows` required, native `windows-native` excluded.
     expect(aggregate.needs).toContain('windows')
     expect(aggregate.needs).not.toContain('windows-native')
+
+    // macOS: informational native shell and Seatbelt coverage on every PR.
+    expect(macosNative['runs-on']).toBe('macos-latest')
+    expect(macosNative.name).toBe('macOS node 24 / native informational')
+    expect(macosNative.if).toBe("github.event_name == 'pull_request'")
+    const macosCommandSteps = (macosNative.steps as unknown[]).filter((step): step is Record<string, unknown> & { run: string } => (
+      isRecord(step) && typeof step.run === 'string'
+    ))
+    expect(macosCommandSteps.map(step => step.run)).toContain('pnpm run test')
+    expect(macosCommandSteps.some(step => step.run.includes('seatbelt.e2e.ts'))).toBe(true)
+    expect(aggregate.needs).not.toContain('macos-native')
 
     // The three required Linux workers and the verdict job use the standard pool.
     for (const [jobName, job] of [['node-24', node24], ['node-24-coverage', node24Coverage], ['node-24-consumers', node24Consumers]] as const) {
@@ -186,7 +199,7 @@ describe('Python release workflows', () => {
       if: "github.event_name == 'workflow_dispatch' || github.event.label.name == 'python-release-dry-run'",
       uses: './.github/workflows/build-exe-for-python-sdk.yml',
       with: {
-        targets: 'node24-linux-x64,node24-linux-arm64,node24-macos-arm64',
+        targets: 'node24-linux-x64,node24-linux-arm64,node24-macos-arm64,node24-macos-x64',
         release: true,
       },
     })
@@ -265,6 +278,7 @@ describe('Python release workflows', () => {
     expect(plan.if).toContain('inputs.release')
     expect(JSON.stringify(plan.steps)).toContain('pep440_version')
     expect(JSON.stringify(workflow)).toContain('macosx_14_0_arm64')
+    expect(JSON.stringify(workflow)).toContain('macosx_14_0_x86_64')
     expect(manylinuxAddon).toMatchObject({ if: "runner.os == 'Linux'" })
     expect(JSON.stringify(manylinuxAddon)).toContain('manylinux_2_28_x86_64')
     expect(JSON.stringify(manylinuxAddon)).toContain('manylinux_2_28_aarch64')
@@ -286,7 +300,7 @@ describe('Python release workflows', () => {
     }
     const runtimeScript: unknown[] = runtimeWheel.script
     const macosCheck = runtimeScript.find(
-      step => typeof step === 'string' && step.includes('PLATFORM" = macos-arm64'),
+      step => typeof step === 'string' && step.includes('PLATFORM#macos-'),
     )
     if (typeof macosCheck !== 'string') {
       throw new TypeError('GitLab CI must check the macOS deployment target')

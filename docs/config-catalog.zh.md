@@ -2636,9 +2636,9 @@ export interface Config {
 export interface Config {
   /** Backend registry type (default: `shell`). */
   backendType?: string
-  /** Interactive shell executable (default: `/bin/bash`). */
+  /** Interactive shell executable (default: `/bin/zsh` on macOS, `/bin/bash` elsewhere). */
   shellPath?: string
-  /** Shell arguments (default: `--noprofile --norc -i`). */
+  /** Shell arguments (default: shell-specific no-rc interactive flags). */
   shellArgs?: string[]
   /** Terminal rows. */
   rows?: number

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Local Service Provider for the `@deepseek-ai/dsh-shell` executor seam over the [`@deepseek-ai/dsh-subprocess`](../../subprocess/subprocess/README.md) service: `LocalBashExecutor` spawns `bash -c <command>` per call as a managed process group through `ctx.subprocess`, and owns everything bash-shaped — command defaulting and caps, timeout/cancel classification, the model-friendly terminal environment, and the model-facing stdout/stderr merge for background reads. Group mechanics (bounded spill-backed output, credential scrub, kill escalation, disposal) are the subprocess service's.
+Local Service Provider for the `@deepseek-ai/dsh-shell` executor seam over the [`@deepseek-ai/dsh-subprocess`](../../subprocess/subprocess/README.md) service: `LocalBashExecutor` spawns the host's default POSIX shell (`/bin/zsh -c <command>` on macOS, `bash -c <command>` elsewhere) per call as a managed process group through `ctx.subprocess`, and owns command defaulting and caps, timeout/cancel classification, the model-friendly terminal environment, and the model-facing stdout/stderr merge for background reads. Group mechanics (bounded spill-backed output, credential scrub, kill escalation, disposal) are the subprocess service's.
 
 The package root exports the default and named `LocalBashExecutor` plugin plus its `Config`.
 
@@ -22,7 +22,7 @@ The package root exports the default and named `LocalBashExecutor` plugin plus i
 
 ## Behavior
 
-- **Spawn per call, no shell state** — every call is a fresh non-login `bash -c` with no rc files.
+- **Spawn per call, no shell state** — every call is a fresh command-shell process. macOS uses `/bin/zsh -c`; other POSIX hosts use `bash -c`. The shell receives no persistent state from another call.
 - **The composition entry is a layer, not the last word** — when a settings provider is composed, this executor registers the capability's [`bash` namespace](../shell/README.md) with the entry above as its base, so a user section in `settings.yaml` layers over it and the next command runs with the new budgets. Values the schema cannot judge (positive and finite, the `graceMs` timer bound) are refused at the write, leaving the running executor on its last good section; without a provider, or after one detaches, the composition entry is what runs.
 - **Configured budgets over managed groups** — `resolve()` fills `workdir`/`timeoutMs`/`stdoutMaxBytes` from config, and every spawn hands the service explicit byte caps, spill cap, and `graceMs`. The grace must be positive, finite, and no greater than [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md), so Node can represent it with one timer. Process-group kills, post-exit pipe draining, tail retention, and bounded spill files are [`dsh-subprocess-local`](../../subprocess/subprocess-local/README.md) mechanics. A foreground `ShellExecRequest.stdoutMaxBytes` can raise stdout's capture budget for one trusted caller; stderr and background runs still use `maxOutputBytes`.
 - **Timeout and cancel classification** — `run()` fuses its config-clamped timeout with the caller's signal through one deadline; only the executor's own timeout reports `timedOut`, an upstream cancel reports `aborted`, and a self-signaled command reports neither ([timeout-library Agent Note](../../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md)).
@@ -40,8 +40,8 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 ## Known Limitations and Deferred Work
 
 - **Unconfined by itself** — this executor always runs commands with the harness process's authority; deployments needing confinement compose [`dsh-bash-sandbox`](../bash-sandbox/README.md), while per-call allow/deny/ask policy belongs on `tools/pre-execute`.
-- **No persistent shell or PTY** — every call starts a fresh non-login `bash -c`; cwd-only persistence and interactive terminal sessions remain deferred until a real workflow requires them.
-- **POSIX-only** — the `bash` binary is hardcoded, and the underlying service's group semantics are POSIX; Windows is unsupported.
+- **No persistent shell or PTY** — every call starts a fresh non-login command shell (`/bin/zsh -c` on macOS, `bash -c` elsewhere); cwd-only persistence and interactive terminal sessions remain deferred until a real workflow requires them.
+- **POSIX-only** — macOS uses `/bin/zsh`, while other POSIX hosts use `bash`; Windows is unsupported.
 - **A background spawn-failure note is single-delivery** — the subprocess service buffers no output for a process that never ran, so the executor injects `spawn failed: …` into exactly one `readOutput()` delta; a reader that discards that delta cannot recover it.
 
 Scrub-heuristic and spill-retention caveats live with [`dsh-subprocess-local`](../../subprocess/subprocess-local/README.md), which owns those mechanics.

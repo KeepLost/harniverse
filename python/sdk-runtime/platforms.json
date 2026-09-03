@@ -10,5 +10,9 @@
   "macos-arm64": {
     "tag": "macosx_14_0_arm64",
     "executable": "dsh-jsonrpc-agent-pkg-macos-arm64"
+  },
+  "macos-x64": {
+    "tag": "macosx_14_0_x86_64",
+    "executable": "dsh-jsonrpc-agent-pkg-macos-x64"
   }
 }

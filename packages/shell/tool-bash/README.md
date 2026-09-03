@@ -16,7 +16,7 @@ The plugin also contributes the `tool:bash` prompt section (order 105): check th
 
 | Arg | Type | Notes |
 |---|---|---|
-| `command` | string (required) | Run via `bash -c`. No state persists between calls — use `workdir`, not `cd`. |
+| `command` | string (required) | Run via the platform default POSIX shell (`zsh -c` on macOS, `bash -c` elsewhere). No state persists between calls — use `workdir`, not `cd`. |
 | `description` | string (required) | One-line, active-voice summary of the command (5-10 words), for UI/log display only — no effect on execution. |
 | `timeoutMs` | number | Timeout override in milliseconds. The executor applies its configured default and cap. |
 | `workdir` | string | Working directory for this call. Defaults to the filesystem identity of the calling agent's session cwd (`session.header.cwd`) so each session runs in its own workspace; a relative `workdir` is resolved against that same identity. |

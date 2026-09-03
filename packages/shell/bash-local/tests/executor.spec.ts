@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import { commandShellArgv, defaultCommandShellPath } from '@deepseek-ai/dsh-shell'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { ShellProcess } from '@deepseek-ai/dsh-shell'
 
@@ -37,6 +38,19 @@ async function readUntil(proc: ShellProcess, expected: string, timeoutMs = 5_000
 }
 
 describe('LocalBashExecutor.run', () => {
+  it('selects zsh directly on macOS and keeps bash on Linux', () => {
+    expect(defaultCommandShellPath('darwin')).toBe('/bin/zsh')
+    expect(defaultCommandShellPath('linux')).toBe('bash')
+    expect(commandShellArgv('printf ok', 'darwin')).toEqual(['/bin/zsh', '-c', 'printf ok'])
+    expect(commandShellArgv('printf ok', 'linux')).toEqual(['bash', '-c', 'printf ok'])
+  })
+
+  it('runs commands in the host platform default shell', async () => {
+    const { bash } = await setup()
+    const result = await bash.run(bash.resolve({ command: 'printf "%s" "${ZSH_VERSION:+zsh}${BASH_VERSION:+bash}"' }))
+    expect(result.stdout.text).toBe(process.platform === 'darwin' ? 'zsh' : 'bash')
+  })
+
   it('resolves with output and the effective timeout', async () => {
     const { bash } = await setup({ timeoutMs: 5_000 })
     const result = await bash.run(bash.resolve({ command: 'echo hi' }))

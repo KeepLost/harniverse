@@ -6,7 +6,7 @@ Sandbox-consuming Service Provider for the [`@deepseek-ai/dsh-shell`](../shell/)
 
 The package root exports the default and named `SandboxBashExecutor` plugin plus its `Config`; result-classification helpers stay internal.
 
-Every command is confined by handing the provider the exact `['bash', '-c', command]` argv this executor is about to spawn and spawning the returned argv directly. With the shipped native runners, the inner Bash retains shell semantics and evaluates `BASH_ENV` only after the runner establishes confinement. WHICH platform runner confines it — and whether one is usable at all (fail closed with a structured `SANDBOX_UNAVAILABLE` error, never a silent unconfined run) — is the provider's concern; this package owns the bash side only.
+Every command is confined by handing the provider the exact platform-default POSIX argv (`['/bin/zsh', '-c', command]` on macOS, `['bash', '-c', command]` elsewhere) this executor is about to spawn and spawning the returned argv directly. With the shipped native runners, the inner shell retains shell semantics and evaluates its startup environment only after the runner establishes confinement. Which platform runner confines it — and whether one is usable at all (fail closed with a structured `SANDBOX_UNAVAILABLE` error, never a silent unconfined run) — is the provider's concern; this package owns the shell side only.
 
 | Mode | File effects |
 |---|---|
