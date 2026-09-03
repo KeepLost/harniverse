@@ -8,7 +8,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { authenticationGrantId } from '@deepseek-ai/dsh-authentication'
-import type { SessionId } from '../src/client/api.ts'
+import type { MuxFrame, SessionId } from '../src/client/api.ts'
 import type { ConnectionState } from '../src/client/connection.ts'
 import { ConnectionController } from '../src/client/connection.ts'
 import { FakeApiClient, deferred, ok } from './fake-api.client.ts'
@@ -458,6 +458,108 @@ describe('connection lifecycle', () => {
       expect(api.callsOf('host.describe')).toHaveLength(1)
     } finally {
       controller.stop()
+    }
+  })
+})
+
+/** The baseline seq of a subscribed frame, which is all these fences assert. */
+function seqOf(frame: MuxFrame): number {
+  return frame.type === 'session/subscribed' ? frame.lastSeq : -1
+}
+
+describe('connection generation fences', () => {
+  it('ignores invalidate() before start and after stop', async () => {
+    const api = new FakeApiClient()
+    const controller = new ConnectionController(api, {}, FAST)
+    // No generation exists yet, so there is nothing to retire.
+    expect(() => { controller.invalidate() }).not.toThrow()
+    expect(api.openMuxCount).toBe(0)
+
+    controller.start()
+    await vi.waitFor(() => { expect(api.openMuxCount).toBe(1) })
+    controller.stop()
+    await vi.waitFor(() => { expect(api.openMuxCount).toBe(0) })
+    // A stopped controller owns no generation, so invalidate() is inert.
+    expect(() => { controller.invalidate() }).not.toThrow()
+    expect(api.openMuxCount).toBe(0)
+  })
+
+  it('refuses a non-positive or fractional pre-ready buffer bound', () => {
+    const api = new FakeApiClient()
+    for (const preReadyBufferMaxFrames of [0, -1, 1.5, Number.NaN]) {
+      expect(() => new ConnectionController(api, {}, { preReadyBufferMaxFrames }))
+        .toThrow(/preReadyBufferMaxFrames must be a positive integer/)
+    }
+  })
+
+  it('abandons buffered frames when a sink stops the controller mid-flush', async () => {
+    const api = new FakeApiClient()
+    const describe = deferred<Awaited<ReturnType<FakeApiClient['onDescribe']>>>()
+    api.onDescribe = () => describe.promise
+    const seen: number[] = []
+    const owner: { controller?: ConnectionController } = {}
+    owner.controller = new ConnectionController(api, {
+      onMuxEnvelope: (envelope) => {
+        seen.push(seqOf(envelope.payload))
+        // The business layer may synchronously stop the loop while its own
+        // buffered baseline is still being admitted.
+        owner.controller?.stop()
+      },
+    }, FAST)
+    owner.controller.start()
+    try {
+      await vi.waitFor(() => { expect(api.openMuxCount).toBe(1) })
+      api.pushMux(subscribedFrame(1))
+      api.pushMux(subscribedFrame(2))
+      // Let the pump buffer both before readiness admits either of them.
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(seen).toEqual([])
+
+      describe.resolve(ok({ bootId: 'boot' as never, version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true }))
+      await vi.waitFor(() => { expect(seen).toEqual([1]) })
+      // The remaining queued frames belong to a generation that no longer
+      // exists, so they are never delivered.
+      await new Promise<void>((resolve) => { setTimeout(resolve, 20) })
+      expect(seen).toEqual([1])
+    } finally {
+      owner.controller.stop()
+    }
+  })
+
+  it('drops a buffered baseline whose generation is aborted before admission', async () => {
+    const api = new FakeApiClient()
+    const describe = deferred<Awaited<ReturnType<FakeApiClient['onDescribe']>>>()
+    let describeCalls = 0
+    api.onDescribe = () => {
+      describeCalls += 1
+      return describeCalls === 1
+        ? describe.promise
+        : Promise.resolve(ok({ bootId: 'boot' as never, version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true }))
+    }
+    const seen: number[] = []
+    const states: string[] = []
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const controller = new ConnectionController(api, {
+      onMuxEnvelope: envelope => seen.push(seqOf(envelope.payload)),
+      onStateChange: state => states.push(state),
+    }, FAST)
+    controller.start()
+    try {
+      await vi.waitFor(() => { expect(api.openMuxCount).toBe(1) })
+      api.pushMux(subscribedFrame(1))
+      // Invalidating between the handshake's resolution and its admission
+      // retires the generation, so its buffer is discarded rather than mixed
+      // into the next one.
+      controller.invalidate()
+      describe.resolve(ok({ bootId: 'boot' as never, version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true }))
+
+      await vi.waitFor(() => { expect(states).toContain('reconnecting') })
+      await vi.waitFor(() => { expect(describeCalls).toBe(2) })
+      expect(seen).toEqual([])
+    } finally {
+      controller.stop()
+      warnSpy.mockRestore()
     }
   })
 })
