@@ -183,11 +183,12 @@ export class WebServer extends Service {
       await fallback(req, res)
     }
     // Last-resort guard: handle() rejecting would otherwise be an unhandled
-    // rejection killing the process on one malformed request (bad %-escape,
-    // client dropping mid-body). Per-request failures log and answer 400 —
-    // never a process exit.
+    // rejection killing the process. An incomplete request reset has no peer
+    // left to answer; other per-request failures log and answer 400.
     const listener = (req: IncomingMessage, res: ServerResponse): void => {
       handle(req, res).catch((err: unknown) => {
+        if (!req.complete && err instanceof Error
+          && (err as NodeJS.ErrnoException).code === 'ECONNRESET') return
         this.ctx.logger.warn(err instanceof Error ? err : new Error(String(err)))
         if (res.headersSent) {
           res.destroy()

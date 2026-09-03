@@ -239,13 +239,13 @@ describe('web e2e: agent-preset selection', () => {
     const composer = page.locator('textarea:enabled').last()
 
     // `minimal` mounts internal compaction but no direct compaction tool, plan
-    // mode, or local skill discovery, so the catalog the composer warmed under
-    // the deployment default must not survive the switch.
+    // mode, or local skill discovery. The root-owned human command remains in
+    // the catalog while Profile-owned entries follow the selected composition.
     await composer.fill('/')
     await expect.poll(() => menuOptions(page), { timeout: 15_000 })
       .not.toEqual(expect.arrayContaining([expect.stringContaining(SKILL_NAME)]))
     const onMinimal = await menuOptions(page)
-    expect(onMinimal.some(option => option.startsWith('compact'))).toBe(false)
+    expect(onMinimal.some(option => option.startsWith('compact'))).toBe(true)
     expect(onMinimal.some(option => option.startsWith('plan'))).toBe(false)
     // The host-plane commands and the client's own contribution are the
     // floor: they belong to no preset and never move.

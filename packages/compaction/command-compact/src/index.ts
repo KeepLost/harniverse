@@ -78,7 +78,7 @@ async function executeCompact(
     }
   } catch (error: unknown) {
     if (invocation.signal.aborted) return { kind: 'error', text: 'Compaction cancelled.' }
-    if (error instanceof CordisError && error.code === 'INACTIVE_EFFECT') {
+    if (error instanceof CordisError) {
       return { kind: 'error', text: 'Compaction is unavailable for this Agent Profile.' }
     }
     if (error instanceof ManualCompactionError) return expectedFailure(error)
