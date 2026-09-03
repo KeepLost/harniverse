@@ -144,12 +144,11 @@ export class HostConnectionService extends Service implements HostConnectionHand
         if (endpoint === undefined) return Promise.resolve(new Response('forbidden', { status: 403 }))
         const interceptor = this.interceptors.get(channel)
         const interceptorResolution = interceptor?.resolveEndpoint(endpoint)
-        if (interceptorResolution !== undefined) {
+        if (interceptor !== undefined && interceptorResolution !== undefined) {
           if ('denied' in interceptorResolution
             || !principal.capabilities.includes(interceptorResolution.requiredCapability)) {
             return Promise.resolve(new Response('forbidden', { status: 403 }))
           }
-          if (interceptor === undefined) return Promise.resolve(new Response('forbidden', { status: 403 }))
           if (interceptor.options.authority === 'loopback' && !isTrustedApiRequest(request, [])) {
             return Promise.resolve(new Response('forbidden', { status: 403 }))
           }
@@ -283,9 +282,9 @@ function rpcFetchHandler(
   }
 
   function makeRoomForIdempotency(): void {
-    while (idempotency.size >= maxIdempotencyEntries) {
-      const oldest = idempotency.keys().next().value
-      if (oldest === undefined) return
+    // Insertion order is admission order, so the first keys are the oldest.
+    for (const oldest of idempotency.keys()) {
+      if (idempotency.size < maxIdempotencyEntries) return
       idempotency.delete(oldest)
     }
   }
