@@ -209,6 +209,7 @@ function requestId(headers: Headers): ReturnType<typeof ProviderRequestId> | und
 function wireFailure(error: unknown): LlmFailure {
   if (error instanceof LlmError) return error.failure
   return {
+    /* v8 ignore next -- fetch and the SSE parser always throw Errors; the branch keeps the unknown-typed catch total. */
     message: error instanceof Error ? error.message : String(error),
     code: 'TRANSPORT',
   }
@@ -239,31 +240,32 @@ function limitRequestImages(
   byteQuantum: number,
   countQuantum: number,
 ): { requestImages: Map<AttachmentId, RequestImageAttachment>; omittedImages: Set<AttachmentId> } {
+  /* v8 ignore next 3 -- prepareImages pushes one version per reference, so the
+     lists cannot diverge; this keeps the pairing total for any other caller. */
+  if (refs.length !== versions.length) {
+    throw new LlmError('DeepSeek image preparation returned mismatched references.', 'INVALID_REQUEST')
+  }
+  // Pairing at construction keeps every later index total, so omission reads
+  // one reference beside the exact version prepared for it.
+  const pairs = refs.map((ref, index) => ({ ref, version: versions[index] as RequestImageAttachment }))
   const omittedImages = new Set<AttachmentId>()
-  const targetCount = refs.length > maxCount && maxCount > countQuantum
+  const targetCount = pairs.length > maxCount && maxCount > countQuantum
     ? maxCount - countQuantum
     : maxCount
-  let start = Math.max(0, refs.length - targetCount)
-  let total = versions.slice(start).reduce((sum, version) => sum + version.bytes, 0)
+  let start = Math.max(0, pairs.length - targetCount)
+  let total = pairs.slice(start).reduce((sum, pair) => sum + pair.version.bytes, 0)
   const targetBytes = total > maxBytes && maxBytes > byteQuantum
     ? maxBytes - byteQuantum
     : maxBytes
-  while (start < refs.length && total > targetBytes) {
-    const ref = refs[start]
-    const version = versions[start]
-    if (ref === undefined || version === undefined) {
-      throw new LlmError('DeepSeek image preparation returned mismatched references.', 'INVALID_REQUEST')
-    }
-    omittedImages.add(ref.attachmentId)
-    total -= version.bytes
+  while (start < pairs.length && total > targetBytes) {
+    const pair = pairs[start] as (typeof pairs)[number]
+    omittedImages.add(pair.ref.attachmentId)
+    total -= pair.version.bytes
     start += 1
   }
-  for (let index = 0; index < start; index += 1) {
-    const ref = refs[index]
-    if (ref !== undefined) omittedImages.add(ref.attachmentId)
-  }
+  for (const pair of pairs.slice(0, start)) omittedImages.add(pair.ref.attachmentId)
   return {
-    requestImages: new Map(versions.slice(start).map(version => [version.attachment.attachmentId, version])),
+    requestImages: new Map(pairs.slice(start).map(pair => [pair.version.attachment.attachmentId, pair.version])),
     omittedImages,
   }
 }
@@ -533,15 +535,14 @@ export class DeepSeekAdapter extends LlmAdapter {
       failure?: LlmFailure,
     ): void => {
       if (options.onWireAttempt === undefined) return
-      const responseHeaders: Record<string, string> = {}
-      response?.headers.forEach((value, key) => { responseHeaders[key] = value })
-      const diagnosticHeaders = wireDiagnosticHeaders(responseHeaders)
-      const responseInfo = response === undefined
-        ? undefined
-        : {
-          status: response.status,
-          ...diagnosticHeaders === undefined ? {} : { headers: diagnosticHeaders },
-        }
+      let responseInfo: LlmWireAttempt['response']
+      if (response !== undefined) {
+        const responseHeaders: Record<string, string> = {}
+        response.headers.forEach((value, key) => { responseHeaders[key] = value })
+        const diagnosticHeaders = wireDiagnosticHeaders(responseHeaders)
+        /* v8 ignore next -- every HTTP reply carries content-type or date, both diagnostic, so a reply never projects an empty set. */
+        responseInfo = { status: response.status, ...diagnosticHeaders === undefined ? {} : { headers: diagnosticHeaders } }
+      }
       const record: LlmWireAttempt = {
         exchangeId,
         attempt: attempt.attempt,
