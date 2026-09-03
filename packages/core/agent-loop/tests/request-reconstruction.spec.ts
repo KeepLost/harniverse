@@ -476,6 +476,36 @@ describe('request stability across the loop', () => {
     expect(agent.session.events.filter(e => e.type === 'request/header')).toHaveLength(1)
   })
 
+  it('rebuilds request history when a request listener commits compaction', async () => {
+    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+
+    let compacted = false
+    ctx.on('agent/request', async (_payload, next) => {
+      if (!compacted) {
+        compacted = true
+        const nodes = agent.session.surface.nodes
+        agent.session.append('user/message', createUserMessage({
+          content: [{ type: 'text', text: '[listener summary]' }],
+          source: { kind: 'plugin', plugin: 'test-compact' },
+        }), {
+          surfaceOp: { op: 'replace', start: nodes[0]!, end: nodes[1]! },
+          sourceEventSeqs: [nodes[0]!, nodes[1]!],
+        })
+      }
+      return next()
+    })
+
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests[1]!.messages[0]!.content).toContainEqual({ type: 'text', text: '[listener summary]' })
+  })
+
   it('a real system-prompt change is a full changed-header snapshot; a stable prompt logs nothing', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two'), textResponse('three')])
     const ctx = await harness(adapter)

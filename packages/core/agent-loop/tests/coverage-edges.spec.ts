@@ -317,6 +317,29 @@ describe('request-error action edges', () => {
 })
 
 describe('stream failure edges', () => {
+  it('keeps usage on an interrupted assistant message when usage arrived before cancellation', async () => {
+    const adapter = new MockAdapter([[
+      { type: 'block-start', index: 0, blockType: 'text' },
+      { type: 'text-delta', index: 0, text: 'partial' },
+      { type: 'usage', usage: { inputTokens: 3, outputTokens: 1 } },
+      { type: 'text-delta', index: 0, text: 'discarded' },
+    ]])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('interrupted-with-usage'), { provider: 'mock', model: 'mock' })
+    ctx.on('session/event', (_session, event) => {
+      if (event.type === 'assistant/chunk' && event.data.chunk.type === 'usage') agent.cancel({ kind: 'user' })
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const message = agent.session.events.find(event => event.type === 'assistant/message')
+    expect(message?.type === 'assistant/message' && message.data).toMatchObject({
+      interrupted: true,
+      usage: { inputTokens: 3, outputTokens: 1 },
+    })
+  })
+
   it('rethrows a mid-stream throw that carries no adapter failure facts', async () => {
     const adapter = new MockAdapter([textResponse('will be vetoed')])
     const ctx = await harness(adapter)

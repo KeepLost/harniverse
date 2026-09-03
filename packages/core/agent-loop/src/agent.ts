@@ -361,10 +361,7 @@ export class ReactLoopAgent implements Agent {
       )
       const assembler = new BlockAssembler()
       const chunkSeqs: number[] = []
-      let interruptedAppended = false
       const appendInterrupted = (): void => {
-        if (interruptedAppended) return
-        interruptedAppended = true
         const content = assembler.interruptedBlocks()
         if (content.length === 0) return
         this.session.append('assistant/message', {
@@ -392,13 +389,6 @@ export class ReactLoopAgent implements Agent {
         throw error
       }
       const finish = assembler.finish
-      // LlmRuntime can normalize an adapter abort into an `aborted` finish
-      // instead of rejecting the async iterator. Preserve the visible prefix
-      // before the outer agent cancellation path closes the turn.
-      if (signal.aborted && finish.kind === 'aborted') {
-        appendInterrupted()
-        signal.throwIfAborted()
-      }
       if (finish.kind === 'error' || finish.kind === 'aborted') {
         const action = await this.dispatch.waterfall(
           'agent/request-error', {
