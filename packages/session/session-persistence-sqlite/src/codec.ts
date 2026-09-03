@@ -211,12 +211,7 @@ function malformed(tag: string, reason: string): never {
   throw new Error(`malformed ${tag} storage row: ${reason}`)
 }
 
-function validateRunData(
-  tag: string,
-  data: Record<string, unknown>,
-  payloadKey: 'texts' | 'args',
-  serializedBytes?: number,
-): string[] {
+function validateRunData(tag: string, data: Record<string, unknown>, payloadKey: 'texts' | 'args'): string[] {
   if (typeof data.turn !== 'number' || typeof data.step !== 'number' || typeof data.index !== 'number') {
     malformed(tag, 'turn/step/index must be numbers')
   }
@@ -232,22 +227,15 @@ function validateRunData(
     malformed(tag, 'dt must be an array of safe integers')
   }
   if (gaps.length !== payload.length - 1) malformed(tag, 'dt length must match the member count')
-  if ((serializedBytes ?? Buffer.byteLength(JSON.stringify(data))) > MAX_PACKED_DATA_BYTES) {
-    malformed(tag, `data exceeds ${MAX_PACKED_DATA_BYTES} UTF-8 bytes`)
-  }
   return payload as string[]
 }
 
-function validateRow(
-  value: Record<string, unknown>,
-  tag: ChunkRow['type'],
-  serializedBytes?: number,
-): ChunkRow {
-  if (!hasExactKeys(value, ['type', 'seq0', 'time0', 'data'])) malformed(tag, 'invalid envelope fields')
-  if (!Number.isSafeInteger(value.seq0) || (value.seq0 as number) < 0) malformed(tag, 'seq0 must be non-negative')
-  if (!Number.isSafeInteger(value.time0)) malformed(tag, 'time0 must be a safe integer')
-  const data = value.data
-  if (!isRecord(data)) malformed(tag, 'data must be an object')
+/** Validate the stored payload of one packed row against its physical columns. */
+function validateRow(tag: ChunkRow['type'], seq0: number, time0: number, storedData: unknown): ChunkRow {
+  if (!Number.isSafeInteger(seq0) || seq0 < 0) malformed(tag, 'seq0 must be non-negative')
+  if (!Number.isSafeInteger(time0)) malformed(tag, 'time0 must be a safe integer')
+  if (!isRecord(storedData)) malformed(tag, 'data must be an object')
+  const data = storedData
   let payload: string[]
   if (tag === 'tool-call-chunks') {
     const withName = hasExactKeys(data, ['turn', 'step', 'index', 'id', 'name', 'dt', 'args'])
@@ -257,18 +245,18 @@ function validateRow(
     if (typeof data.id !== 'string' || (withName && typeof data.name !== 'string')) {
       malformed(tag, 'id and optional name must be strings')
     }
-    payload = validateRunData(tag, data, 'args', serializedBytes)
+    payload = validateRunData(tag, data, 'args')
   } else {
     if (!hasExactKeys(data, ['turn', 'step', 'index', 'dt', 'texts'])) malformed(tag, 'invalid text data fields')
-    payload = validateRunData(tag, data, 'texts', serializedBytes)
+    payload = validateRunData(tag, data, 'texts')
   }
-  if (!Number.isSafeInteger((value.seq0 as number) + payload.length - 1)) malformed(tag, 'member seqs exceed safe integers')
-  let time = value.time0 as number
+  if (!Number.isSafeInteger(seq0 + payload.length - 1)) malformed(tag, 'member seqs exceed safe integers')
+  let time = time0
   for (const gap of data.dt as number[]) {
     time += gap
     if (!Number.isSafeInteger(time)) malformed(tag, 'member times exceed safe integers')
   }
-  return value as unknown as ChunkRow
+  return { type: tag, seq0, time0, data } as unknown as ChunkRow
 }
 
 function expandRow(row: ChunkRow): SessionEvent[] {
@@ -319,7 +307,8 @@ export function decodeSerializedChunkRow(
   time0: number,
   serializedData: string,
 ): SessionEvent[] {
-  const bytes = Buffer.byteLength(serializedData)
-  if (bytes > MAX_PACKED_DATA_BYTES) malformed(tag, `data exceeds ${MAX_PACKED_DATA_BYTES} UTF-8 bytes`)
-  return expandRow(validateRow({ type: tag, seq0, time0, data: JSON.parse(serializedData) as unknown }, tag, bytes))
+  if (Buffer.byteLength(serializedData) > MAX_PACKED_DATA_BYTES) {
+    malformed(tag, `data exceeds ${MAX_PACKED_DATA_BYTES} UTF-8 bytes`)
+  }
+  return expandRow(validateRow(tag, seq0, time0, JSON.parse(serializedData) as unknown))
 }

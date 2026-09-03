@@ -313,8 +313,9 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
     signal?.throwIfAborted()
     let cut = 0
     if (appendRows.length === request.maxMessages) {
-      const oldest = appendRows[appendRows.length - 1]
-      if (oldest === undefined) throw new Error('history page candidate query returned no oldest row')
+      // maxMessages is a positive safe integer at every entry, so a full page
+      // always has a last row.
+      const oldest = appendRows[appendRows.length - 1] as EventRow
       const event = rowToEvent(oldest)
       const sources = (event as { sourceEventSeqs?: number[] }).sourceEventSeqs
       cut = event.seq

@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { zstdCompressSync } from 'node:zlib'
 import { bindRecord, decodeRow } from '../src/compression.ts'
-import { MAX_PACKED_DATA_BYTES, MAX_PACKED_ROW_MEMBERS, packChunkRuns } from '../src/codec.ts'
+import { MAX_PACKED_DATA_BYTES, MAX_PACKED_ROW_MEMBERS, decodeSerializedChunkRow, packChunkRuns } from '../src/codec.ts'
 import type { EventRow } from '../src/schema.ts'
 import { meta } from '../../session-persistence/tests/contract.ts'
 
@@ -243,6 +243,67 @@ describe('schema-17 physical codec', () => {
       source_event_seqs: 'not-a-blob' as unknown as Uint8Array,
     })).toThrow('source_event_seqs must be a blob or null')
   })
+
+  describe('physical row integrity', () => {
+    const scalar = (): EventRow => physicalRow({
+      type: 'assistant/message',
+      seq: 4,
+      time: 5,
+      data: { content: [{ type: 'text', text: 'stored' }] },
+    } as unknown as SessionEvent<'assistant/message'>)
+
+    it.each([
+      ['a fractional seq', { seq: 1.5 }, /seq must be a non-negative safe integer/],
+      ['a negative seq', { seq: -1 }, /seq must be a non-negative safe integer/],
+      ['a non-numeric seq', { seq: 'four' }, /seq must be a non-negative safe integer/],
+      ['an empty type', { type: '' }, /type must be a nonempty string/],
+      ['a non-string type', { type: 7 }, /type must be a nonempty string/],
+      ['a fractional time', { time: 2.5 }, /time must be a safe integer/],
+      ['a non-numeric data column', { data: 42 }, /data must be text or a blob/],
+      ['a non-string surface op', { surface_op: 3 }, /surface_op must be text or null/],
+      ['an out-of-range ignorable flag', { ignorable: 2 }, /ignorable must be 0, 1, or null/],
+    ])('refuses %s', (_label, overrides, message) => {
+      // A durable row is external input: a corrupted or foreign writer's row
+      // must be refused rather than decoded into a bogus event.
+      expect(() => decodeRow({ ...scalar(), ...overrides } as unknown as EventRow)).toThrow(message)
+    })
+
+    it('refuses a packed row whose type is not a chunk tag', () => {
+      expect(() => decodeRow({ ...scalar(), ignorable: 0, type: 'assistant/message' }))
+        .toThrow(/packed discriminator requires a chunk tag/)
+    })
+
+    it.each([
+      ['provenance', { source_event_seqs: Uint8Array.of(1) }],
+      ['a surface op', { surface_op: 'append' }],
+    ])('refuses a packed row carrying %s', (_label, overrides) => {
+      expect(() => decodeRow({ ...scalar(), ignorable: 0, type: 'text-chunks', ...overrides } as unknown as EventRow))
+        .toThrow(/packed surface fields must be null/)
+    })
+
+    it('refuses provenance that is not a non-negative safe integer', () => {
+      for (const sourceEventSeqs of [[1.5], [-1], [Number.MAX_SAFE_INTEGER + 2]]) {
+        expect(() => bindRecord({
+          type: 'assistant/message',
+          seq: 4,
+          time: 5,
+          data: { content: [] },
+          sourceEventSeqs,
+        } as unknown as SessionEvent<'assistant/message'>))
+          .toThrow(/sourceEventSeqs must contain non-negative safe integers/)
+      }
+    })
+
+    it.each([
+      ['a non-canonical varint', Uint8Array.of(0x81, 0x00), /non-canonical varint/],
+      ['a varint above the first-value bound', Uint8Array.of(0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f), /varint is out of range/],
+      ['a varint wider than the shift bound', Uint8Array.of(0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01), /varint is out of range/],
+      ['a zigzag delta below zero', Uint8Array.of(0x02, 0x09), /decoded seq is out of range/],
+    ])('refuses %s in stored provenance', (_label, source_event_seqs, message) => {
+      expect(() => decodeRow({ ...scalar(), source_event_seqs })).toThrow(message)
+    })
+
+  })
 })
 
 describe('packed SQLite persistence', () => {
@@ -430,5 +491,206 @@ describe('packed SQLite persistence', () => {
     ).get(header.id)).toBeUndefined()
     probe.close()
     await fiber.dispose()
+  })
+})
+
+describe('pack eligibility', () => {
+  /** One assistant chunk carrying an arbitrary chunk payload. */
+  const chunkEvent = (seq: number, chunk: unknown, overrides: Record<string, unknown> = {}): SessionEvent => ({
+    type: 'assistant/chunk',
+    seq,
+    time: seq + 1,
+    data: { turn: 1, step: 1, chunk },
+    ...overrides,
+  } as unknown as SessionEvent)
+
+  const toolCall = (seq: number, args: string, extra: Record<string, unknown> = {}): SessionEvent =>
+    chunkEvent(seq, { type: 'tool-call-delta', index: 0, id: 'call-1', argumentsDelta: args, ...extra })
+
+  it('packs a tool-call run that names its function', () => {
+    const run = [0, 1, 2].map(seq => toolCall(seq, `a${String(seq)}`, { name: 'search' }))
+    const packed = packChunkRuns(run)
+    expect(packed).toEqual([expect.objectContaining({
+      type: 'tool-call-chunks',
+      data: expect.objectContaining({ id: 'call-1', name: 'search', args: ['a0', 'a1', 'a2'] }),
+    })])
+  })
+
+  it('packs a tool-call run that names none', () => {
+    const packed = packChunkRuns([0, 1, 2].map(seq => toolCall(seq, `a${String(seq)}`)))
+    expect(packed).toHaveLength(1)
+    expect((packed[0] as { data: Record<string, unknown> }).data).not.toHaveProperty('name')
+  })
+
+  it.each([
+    ['an event carrying an extra envelope field', chunkEvent(0, { type: 'text-delta', index: 0, text: 'a' }, { extra: 1 })],
+    ['a fractional seq', chunkEvent(0.5, { type: 'text-delta', index: 0, text: 'a' })],
+    ['a negative seq', chunkEvent(-1, { type: 'text-delta', index: 0, text: 'a' })],
+    ['an unsafe time', chunkEvent(0, { type: 'text-delta', index: 0, text: 'a' }, { time: Number.MAX_SAFE_INTEGER + 2 })],
+    ['non-record data', { type: 'assistant/chunk', seq: 0, time: 1, data: 'text' } as unknown as SessionEvent],
+    ['data carrying an extra field', { type: 'assistant/chunk', seq: 0, time: 1, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'a' }, extra: 1 } } as unknown as SessionEvent],
+    ['a non-numeric turn', { type: 'assistant/chunk', seq: 0, time: 1, data: { turn: '1', step: 1, chunk: { type: 'text-delta', index: 0, text: 'a' } } } as unknown as SessionEvent],
+    ['a non-numeric step', { type: 'assistant/chunk', seq: 0, time: 1, data: { turn: 1, step: '1', chunk: { type: 'text-delta', index: 0, text: 'a' } } } as unknown as SessionEvent],
+    ['a non-record chunk', chunkEvent(0, 'text-delta')],
+    ['a non-numeric chunk index', chunkEvent(0, { type: 'text-delta', index: '0', text: 'a' })],
+    ['a text delta with an extra field', chunkEvent(0, { type: 'text-delta', index: 0, text: 'a', extra: 1 })],
+    ['a text delta whose text is not a string', chunkEvent(0, { type: 'text-delta', index: 0, text: 1 })],
+    ['a tool call with an unusable field set', chunkEvent(0, { type: 'tool-call-delta', index: 0, id: 'c', argumentsDelta: 'a', extra: 1 })],
+    ['a tool call whose name is not a string', chunkEvent(0, { type: 'tool-call-delta', index: 0, id: 'c', name: 1, argumentsDelta: 'a' })],
+    ['a tool call whose id is not a string', chunkEvent(0, { type: 'tool-call-delta', index: 0, id: 1, argumentsDelta: 'a' })],
+    ['a tool call whose delta is not a string', chunkEvent(0, { type: 'tool-call-delta', index: 0, id: 'c', argumentsDelta: 1 })],
+    ['an unknown chunk type', chunkEvent(0, { type: 'audio-delta', index: 0, text: 'a' })],
+  ])('leaves %s unpacked', (_label, event) => {
+    // A run needs three eligible members; an ineligible one never joins a row.
+    const events = [event, textChunk(1, 'b'), textChunk(2, 'c'), textChunk(3, 'd')]
+    const packed = packChunkRuns(events)
+    expect(packed[0]).toBe(event)
+  })
+
+  it.each([
+    ['a seq gap', [textChunk(0, 'a'), textChunk(2, 'b'), textChunk(3, 'c')]],
+    ['an unsafe time delta', [
+      textChunk(0, 'a', -Number.MAX_SAFE_INTEGER),
+      textChunk(1, 'b', Number.MAX_SAFE_INTEGER),
+      textChunk(2, 'c', Number.MAX_SAFE_INTEGER),
+    ]],
+    ['a turn change', [textChunk(0, 'a'), { ...textChunk(1, 'b'), data: { turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: 'b' } } } as SessionEvent, textChunk(2, 'c')]],
+    ['a step change', [textChunk(0, 'a'), { ...textChunk(1, 'b'), data: { turn: 1, step: 2, chunk: { type: 'text-delta', index: 0, text: 'b' } } } as SessionEvent, textChunk(2, 'c')]],
+    ['an index change', [textChunk(0, 'a'), { ...textChunk(1, 'b'), data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 1, text: 'b' } } } as SessionEvent, textChunk(2, 'c')]],
+  ])('refuses to pack across %s', (_label, events) => {
+    expect(packChunkRuns(events).every(record => 'seq' in record)).toBe(true)
+  })
+
+  it.each([
+    ['a different call id', [toolCall(0, 'a'), toolCall(1, 'b', { id: 'call-2' }), toolCall(2, 'c')]],
+    ['a name appearing mid-run', [toolCall(0, 'a'), toolCall(1, 'b', { name: 'search' }), toolCall(2, 'c')]],
+    ['a name changing mid-run', [
+      toolCall(0, 'a', { name: 'search' }),
+      toolCall(1, 'b', { name: 'fetch' }),
+      toolCall(2, 'c', { name: 'search' }),
+    ]],
+  ])('refuses to pack tool calls across %s', (_label, events) => {
+    expect(packChunkRuns(events).every(record => 'seq' in record)).toBe(true)
+  })
+
+  it('starts a new run when the delta kind changes', () => {
+    const packed = packChunkRuns([
+      textChunk(0, 'a'), textChunk(1, 'b'), textChunk(2, 'c'),
+      reasoningChunk(3, 'd'), reasoningChunk(4, 'e'), reasoningChunk(5, 'f'),
+    ])
+    expect(packed.map(record => (record as { type: string }).type)).toEqual(['text-chunks', 'reasoning-chunks'])
+  })
+
+  it('leaves a single oversized member unpacked and packs the rest', () => {
+    const huge = 'x'.repeat(MAX_PACKED_DATA_BYTES + 10)
+    const packed = packChunkRuns([
+      textChunk(0, huge),
+      textChunk(1, 'b'), textChunk(2, 'c'), textChunk(3, 'd'),
+    ])
+
+    // The first member cannot fit any row, so it stays logical while the
+    // remaining three still pack.
+    expect(packed).toHaveLength(2)
+    expect(packed[0]).toMatchObject({ seq: 0 })
+    expect(packed[1]).toMatchObject({ type: 'text-chunks', seq0: 1 })
+  })
+})
+
+describe('packed row decoding integrity', () => {
+  /** Decode one stored payload under a tag, as the reader does. */
+  const decode = (tag: 'text-chunks' | 'reasoning-chunks' | 'tool-call-chunks', data: unknown, seq0 = 0, time0 = 1): SessionEvent[] =>
+    decodeSerializedChunkRow(tag, seq0, time0, JSON.stringify(data))
+
+  const textData = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    turn: 1, step: 1, index: 0, dt: [1, 1], texts: ['a', 'b', 'c'], ...overrides,
+  })
+  const toolData = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    turn: 1, step: 1, index: 0, id: 'call-1', dt: [1, 1], args: ['a', 'b', 'c'], ...overrides,
+  })
+
+  it('rebuilds a text run with its member times', () => {
+    expect(decode('text-chunks', textData({ dt: [2, 3] }))).toEqual([
+      textChunk(0, 'a', 1), textChunk(1, 'b', 3), textChunk(2, 'c', 6),
+    ])
+  })
+
+  it('rebuilds a reasoning run', () => {
+    expect(decode('reasoning-chunks', textData())).toEqual([
+      reasoningChunk(0, 'a', 1), reasoningChunk(1, 'b', 2), reasoningChunk(2, 'c', 3),
+    ])
+  })
+
+  it('rebuilds a tool-call run that named its function', () => {
+    const [first] = decode('tool-call-chunks', toolData({ name: 'search' }))
+    expect(first?.data).toMatchObject({
+      chunk: { type: 'tool-call-delta', index: 0, id: 'call-1', name: 'search', argumentsDelta: 'a' },
+    })
+  })
+
+  it('rebuilds a tool-call run that named none', () => {
+    const [first] = decode('tool-call-chunks', toolData())
+    expect((first?.data as { chunk: object }).chunk).not.toHaveProperty('name')
+  })
+
+  it('refuses a payload above the byte bound before parsing it', () => {
+    const oversized = JSON.stringify({
+      type: 'text-chunks', seq0: 0, time0: 1, data: textData({ texts: ['x'.repeat(MAX_PACKED_DATA_BYTES), 'b', 'c'] }),
+    })
+    expect(() => decodeSerializedChunkRow('text-chunks', 0, 1, oversized))
+      .toThrow(/data exceeds 1048576 UTF-8 bytes/)
+  })
+
+  it.each([
+    ['a fractional seq0', 0.5, 1, /seq0 must be non-negative/],
+    ['a negative seq0', -1, 1, /seq0 must be non-negative/],
+    ['a fractional time0', 0, 1.5, /time0 must be a safe integer/],
+  ])('refuses %s in the stored physical columns', (_label, seq0, time0, message) => {
+    expect(() => decode('text-chunks', textData(), seq0, time0)).toThrow(message)
+  })
+
+  it.each([
+    ['a string', '"text"'],
+    ['an array', '[1,2,3]'],
+    ['null', 'null'],
+  ])('refuses stored data that is %s rather than an object', (_label, serialized) => {
+    expect(() => decodeSerializedChunkRow('text-chunks', 0, 1, serialized)).toThrow(/data must be an object/)
+  })
+
+  it.each([
+    ['data carrying an extra field', textData({ extra: 1 }), /invalid text data fields/],
+    ['a non-numeric turn', textData({ turn: '1' }), /turn\/step\/index must be numbers/],
+    ['a non-numeric step', textData({ step: '1' }), /turn\/step\/index must be numbers/],
+    ['a non-numeric index', textData({ index: '0' }), /turn\/step\/index must be numbers/],
+    ['a non-array payload', textData({ texts: 'abc' }), /texts must contain 3\.\.1024 strings/],
+    ['a payload below the member floor', textData({ texts: ['a', 'b'], dt: [1] }), /texts must contain 3\.\.1024 strings/],
+    ['a payload above the member bound', textData({
+      texts: Array.from({ length: MAX_PACKED_ROW_MEMBERS + 1 }, () => 'a'),
+      dt: Array.from({ length: MAX_PACKED_ROW_MEMBERS }, () => 1),
+    }), /texts must contain 3\.\.1024 strings/],
+    ['a payload holding a non-string', textData({ texts: ['a', 'b', 3] }), /texts must contain 3\.\.1024 strings/],
+    ['a non-array dt', textData({ dt: 'x' }), /dt must be an array of safe integers/],
+    ['a fractional dt member', textData({ dt: [1, 1.5] }), /dt must be an array of safe integers/],
+    ['a dt length that disagrees with the members', textData({ dt: [1] }), /dt length must match the member count/],
+  ])('refuses %s in a text row', (_label, data, message) => {
+    expect(() => decode('text-chunks', data)).toThrow(message)
+  })
+
+  it.each([
+    ['an unusable tool-call field set', toolData({ extra: 1 }), /invalid tool-call data fields/],
+    ['a non-string id', toolData({ id: 1 }), /id and optional name must be strings/],
+    ['a non-string name', toolData({ name: 1 }), /id and optional name must be strings/],
+    ['a non-array args', toolData({ args: 'abc' }), /args must contain 3\.\.1024 strings/],
+  ])('refuses %s', (_label, data, message) => {
+    expect(() => decode('tool-call-chunks', data)).toThrow(message)
+  })
+
+  it('refuses member seqs that leave the safe integer range', () => {
+    expect(() => decode('text-chunks', textData(), Number.MAX_SAFE_INTEGER))
+      .toThrow(/member seqs exceed safe integers/)
+  })
+
+  it('refuses member times that leave the safe integer range', () => {
+    expect(() => decode('text-chunks', textData({ dt: [Number.MAX_SAFE_INTEGER, 1] }), 0, 10))
+      .toThrow(/member times exceed safe integers/)
   })
 })

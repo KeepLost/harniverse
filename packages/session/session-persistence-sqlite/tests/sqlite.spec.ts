@@ -1,8 +1,8 @@
-import { createUserMessage, createMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, createMessage, freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { existsSync } from 'node:fs'
-import { chmod, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -15,6 +15,7 @@ import {
   rowToMeta,
   scanRows,
   SESSION_PERSISTENCE_SQLITE_APPLICATION_ID,
+  validateSchemaForMutation,
   type EventRow,
 } from '../src/schema.ts'
 import { bindRecord } from '../src/compression.ts'
@@ -55,6 +56,11 @@ function eventRow(event: SessionEvent): EventRow {
 }
 
 /** A context with the session store + SQLite backend, plus a teardown. */
+/** The concrete backend behind the service face, for its backend-only reads. */
+function store(ctx: Context): SqliteSessionPersistence {
+  return ctx.sessionPersistence as unknown as SqliteSessionPersistence
+}
+
 async function backend(path = ':memory:'): Promise<{ ctx: Context; dispose: () => Promise<void> }> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -980,5 +986,264 @@ describe('surface field round-trip', () => {
     expect((loaded.events[1]! as SurfaceEvent).surfaceOp).toBe('append')
     expect((loaded.events[1]! as SurfaceEvent).sourceEventSeqs).toBeUndefined()
     await fiber.dispose()
+  })
+})
+
+describe('mutation-time schema recheck', () => {
+  it('refuses a database whose application id changed under the write lock', async () => {
+    const path = await freshDbPath()
+    const db = openDatabase(path, 'wal')
+    try {
+      // Another process could swap the file between opening and writing; the
+      // recheck runs while the writer holds its lock.
+      db.exec('PRAGMA application_id = 999')
+      expect(() => { validateSchemaForMutation(db, path) })
+        .toThrow(/application id changed before mutation \(expected \d+, got 999\)/)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('refuses a database whose schema version changed under the write lock', async () => {
+    const path = await freshDbPath()
+    const db = openDatabase(path, 'wal')
+    try {
+      db.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 5}`)
+      expect(() => { validateSchemaForMutation(db, path) })
+        .toThrow(new RegExp(`schema changed before mutation \\(expected ${SCHEMA_VERSION}, got ${SCHEMA_VERSION + 5}\\)`))
+    } finally {
+      db.close()
+    }
+  })
+
+  it('accepts an unchanged database', async () => {
+    const path = await freshDbPath()
+    const db = openDatabase(path, 'wal')
+    try {
+      expect(() => { validateSchemaForMutation(db, path) }).not.toThrow()
+    } finally {
+      db.close()
+    }
+  })
+})
+
+describe('bounded page reads for unknown and empty sessions', () => {
+  it('reports no page for a session the database never stored', async () => {
+    const { ctx, dispose } = await backend()
+    try {
+      const unknown = SessionId('never-stored')
+      await expect(store(ctx).loadHistoryPage(unknown, { maxMessages: 5 })).resolves.toBeUndefined()
+      await expect(store(ctx).loadRawEventPage(unknown, { maxEvents: 5 })).resolves.toBeUndefined()
+    } finally {
+      await dispose()
+    }
+  })
+
+  it('reports an empty raw page for a stored session with no events below the cut', async () => {
+    const { ctx, dispose } = await backend()
+    try {
+      const stored = meta('empty-page')
+      await ctx.sessionPersistence.create(stored)
+      await ctx.sessionPersistence.append(stored.id, oneTurnLog())
+
+      // Nothing precedes the very first seq, so the page is empty rather than absent.
+      await expect(store(ctx).loadRawEventPage(stored.id, { maxEvents: 5, beforeSeq: 0 }))
+        .resolves.toEqual({ meta: expect.objectContaining({ id: stored.id }), events: [], hasMore: false })
+    } finally {
+      await dispose()
+    }
+  })
+
+  it('searches back through a replacement that opens no checkpoint', async () => {
+    const { ctx, dispose } = await backend()
+    try {
+      const stored = meta('replaced-page')
+      await ctx.sessionPersistence.create(stored)
+      await ctx.sessionPersistence.append(stored.id, oneTurnLog())
+      await ctx.sessionPersistence.append(stored.id, oneTurnLog().map(event => ({ ...event, seq: event.seq + 6 })))
+
+      // Two committed turns give the bounded page a real cut to resolve.
+      const page = await store(ctx).loadHistoryPage(stored.id, { maxMessages: 2 })
+      expect(page?.events.length).toBeGreaterThan(0)
+    } finally {
+      await dispose()
+    }
+  })
+})
+
+describe('physical tail integrity on read', () => {
+  it('refuses a stored tail whose physical rows cannot be decoded', async () => {
+    const path = await freshDbPath()
+    const stored = meta('torn-tail')
+    const first = await backend(path)
+    await first.ctx.sessionPersistence.create(stored)
+    await first.ctx.sessionPersistence.append(stored.id, oneTurnLog())
+    await first.dispose()
+
+    const db = new DatabaseSync(path)
+    // An undecodable packed row *inside* the committed prefix is not a torn
+    // tail: a later turn/end proves the prefix landed, so the read refuses
+    // rather than silently dropping committed history.
+    db.prepare('INSERT INTO events (session_id, seq, type, time, data, source_event_seqs, surface_op, ignorable) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(stored.id, 6, 'text-chunks', 7, '{not json', null, null, 0)
+    db.prepare('INSERT INTO events (session_id, seq, type, time, data, source_event_seqs, surface_op, ignorable) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(stored.id, 7, 'turn/end', 8, JSON.stringify({ turn: 2, reason: { kind: 'completed' } }), null, null, null)
+    db.close()
+
+    const second = await backend(path)
+    try {
+      await expect(store(second.ctx).loadHistoryPage(stored.id, { maxMessages: 5 }))
+        .rejects.toThrow(/corrupt session log: invalid committed/)
+    } finally {
+      await second.dispose()
+    }
+  })
+})
+
+describe('repair staleness fences', () => {
+  const turnEnd = (seq: number, turn: number): SessionEvent =>
+    ({ type: 'turn/end', seq, time: seq + 1, data: { turn, reason: { kind: 'completed' } } }) as SessionEvent
+
+  it('refuses a repair that omits a torn tail the database still holds', async () => {
+    const path = await freshDbPath()
+    const stored = meta('omitted-tail')
+    const first = await backend(path)
+    await first.ctx.sessionPersistence.create(stored)
+    await first.ctx.sessionPersistence.append(stored.id, oneTurnLog())
+    await first.dispose()
+
+    // A row that cannot be decoded past the last turn/end is a torn tail.
+    const torn = new DatabaseSync(path)
+    torn.prepare('INSERT INTO events (session_id, seq, type, time, data, source_event_seqs, surface_op, ignorable) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(stored.id, 6, 'text-chunks', 7, '{not json', null, null, 0)
+    torn.close()
+
+    const second = await backend(path)
+    try {
+      // Passing no marker claims there is nothing torn, which the stored rows contradict.
+      await expect(store(second.ctx).commitRepair(stored, undefined, []))
+        .rejects.toThrow(/repair omitted current torn tail at seq 6/)
+    } finally {
+      await second.dispose()
+    }
+  })
+
+  it('refuses a repair whose closers do not continue the stored prefix', async () => {
+    const path = await freshDbPath()
+    const stored = meta('stale-closers')
+    const first = await backend(path)
+    await first.ctx.sessionPersistence.create(stored)
+    await first.ctx.sessionPersistence.append(stored.id, oneTurnLog())
+    await first.dispose()
+
+    const second = await backend(path)
+    try {
+      // The stored prefix ends at seq 5, so a closer at seq 40 is stale.
+      await expect(store(second.ctx).commitRepair(stored, undefined, [turnEnd(40, 2)]))
+        .rejects.toThrow(/repair is stale: closer starts at seq 40, stored next seq is 6/)
+    } finally {
+      await second.dispose()
+    }
+  })
+
+  it('accepts closers that continue an empty stored log from seq zero', async () => {
+    const path = await freshDbPath()
+    const stored = meta('empty-prefix')
+    const first = await backend(path)
+    await first.ctx.sessionPersistence.create(stored)
+    // One materializing append then a full rewind leaves the session row with
+    // no events, so the expected next seq is zero rather than one.
+    await first.ctx.sessionPersistence.append(stored.id, oneTurnLog())
+    await first.dispose()
+
+    const cleared = new DatabaseSync(path)
+    cleared.prepare('DELETE FROM events WHERE session_id = ?').run(stored.id)
+    cleared.close()
+
+    const second = await backend(path)
+    try {
+      await expect(store(second.ctx).commitRepair(stored, undefined, [turnEnd(0, 1)]))
+        .resolves.toBeUndefined()
+    } finally {
+      await second.dispose()
+    }
+  })
+})
+
+describe('append and page reads against a torn physical tail', () => {
+  it('refuses to append onto a tail whose physical rows are torn', async () => {
+    const path = await freshDbPath()
+    const stored = meta('append-torn')
+    const first = await backend(path)
+    await first.ctx.sessionPersistence.create(stored)
+    await first.ctx.sessionPersistence.append(stored.id, oneTurnLog())
+    await first.dispose()
+
+    const torn = new DatabaseSync(path)
+    // A plain row whose payload cannot be parsed: unlike a packed row it is not
+    // a predecessor candidate, so the tail scan is what meets it.
+    torn.prepare('INSERT INTO events (session_id, seq, type, time, data, source_event_seqs, surface_op, ignorable) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(stored.id, 6, 'turn/start', 7, '{not json', null, null, null)
+    torn.close()
+
+    const second = await backend(path)
+    try {
+      // The coordinator caches its own cursor, so the stored-tail derivation is
+      // reached through the backend it delegates to.
+      await expect(store(second.ctx).appendBatch(stored, [
+        { type: 'turn/start', seq: 7, time: 8, data: { turn: 2 } },
+      ], true)).rejects.toThrow(/has an invalid physical tail at seq 6/)
+    } finally {
+      await second.dispose()
+    }
+  })
+
+  it('ignores a replacement that is not a compaction checkpoint when cutting a page', async () => {
+    const { ctx, dispose } = await backend()
+    try {
+      const stored = meta('user-edit')
+      await ctx.sessionPersistence.create(stored)
+      await ctx.sessionPersistence.append(stored.id, oneTurnLog())
+      // A user edit replaces a message without opening a compaction checkpoint.
+      await ctx.sessionPersistence.append(stored.id, [{
+        type: 'user/message',
+        seq: 6,
+        time: 7,
+        data: freezeMessage({
+          id: MessageId('user-edit-copy'),
+          role: 'user',
+          content: [{ type: 'text', text: 'edited' }],
+          source: { kind: 'user' },
+        }),
+        surfaceOp: 'replace',
+        sourceEventSeqs: [1],
+      } as unknown as SessionEvent])
+
+      // The checkpoint search only runs for a latest-checkpoint request, and a
+      // user edit is not a checkpoint, so the quota cut stands.
+      const page = await store(ctx).loadHistoryPage(stored.id, {
+        maxMessages: 1,
+        preferLatestCheckpoint: true,
+      })
+      expect(page?.events.map(event => event.seq)).toEqual([3, 4, 5, 6])
+    } finally {
+      await dispose()
+    }
+  })
+})
+
+describe('database parent directory fence', () => {
+  it('refuses a parent that is a symlink rather than a real directory', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-sqlite-parent-'))
+    const real = join(root, 'real')
+    const link = join(root, 'link')
+    await mkdir(real, { recursive: true, mode: 0o700 })
+    await symlink(real, link)
+    // A symlinked parent lets another principal redirect the database entry, so
+    // the store refuses it even though the target itself is a private directory.
+    const mounted = await backend(join(link, 'sessions.db'))
+    await expect(mounted.ctx.sessionPersistence.list()).rejects.toThrow(/must be a real directory/)
+    await mounted.dispose()
+    await rm(root, { recursive: true, force: true })
   })
 })
