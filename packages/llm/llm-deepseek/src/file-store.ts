@@ -94,9 +94,9 @@ export class DeepSeekFileStore {
     if (active !== undefined) return this.wait(active, signal)
     const operation = this.ensureUploadedOnce(version, connection, scope, policy, signal)
     this.inflight.set(key, operation)
-    void operation.finally(() => {
-      if (this.inflight.get(key) === operation) this.inflight.delete(key)
-    }).catch(() => {})
+    // A live key is always returned above rather than replaced, so this entry
+    // is still the one being settled.
+    void operation.finally(() => { this.inflight.delete(key) }).catch(() => {})
     return this.wait(operation, signal)
   }
 
