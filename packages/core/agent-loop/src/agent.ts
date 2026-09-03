@@ -529,6 +529,7 @@ export class ReactLoopAgent implements Agent {
       ? boundaryMessages
       : session.deriveMessages()
     const requestHeaderSeq = session.events.findLast(event => event.type === 'request/header')?.seq
+    /* v8 ignore next -- the request/header event is committed above before wire dispatch. */
     if (requestHeaderSeq === undefined) throw new Error('agent request header was not logged before wire dispatch')
     const requestContextSeq = session.events.findLast(event => event.type === 'request/context')?.seq
     const historyCutSeq = session.events.at(-1)?.seq
@@ -538,8 +539,10 @@ export class ReactLoopAgent implements Agent {
         ...attempt,
         turn,
         step,
+        /* v8 ignore next -- every request has a committed session event before wire dispatch. */
         ...historyCutSeq === undefined ? {} : { historyCutSeq },
         requestHeaderSeq,
+        /* v8 ignore next -- every request has a request/context event before wire dispatch. */
         ...requestContextSeq === undefined ? {} : { requestContextSeq },
       })
     }

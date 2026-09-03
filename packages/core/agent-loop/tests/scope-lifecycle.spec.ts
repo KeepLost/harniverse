@@ -1,5 +1,5 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context, symbols, type EffectMeta, type Fiber } from '@deepseek-ai/cordis'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -1031,6 +1031,27 @@ describe('agent scope lifecycle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('releases the agent when scope cleanup fails and final flush also fails', async () => {
+    const ctx = await harness()
+    const sessionId = SessionId('teardown-failures')
+    const handle = await ctx.agents.create({
+      sessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const scope = (handle.agent as Agent & { scope: { dispose: () => Promise<void> } }).scope
+    vi.spyOn(scope, 'dispose').mockRejectedValue(new Error('scope cleanup failed'))
+    const flush = vi.spyOn(ctx.sessions, 'flush').mockRejectedValue(new Error('flush failed'))
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    await expect(handle.dispose()).rejects.toThrow('scope cleanup failed')
+
+    expect(flush).toHaveBeenCalledOnce()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('final session flush failed during teardown'))
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
+    expect(ctx.sessions.get(sessionId)).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
   it('atomically closes only true-idle agents with empty inboxes', async () => {
     const ctx = await harness()
     const sessionId = SessionId('registry-close-if-idle')
@@ -1049,10 +1070,11 @@ describe('agent scope lifecycle', () => {
     handle.agent.inbox.clear()
 
     const closing = ctx.agents.closeIfIdle(sessionId)
+    const duplicateClosing = ctx.agents.closeIfIdle(sessionId)
     expect(() => {
       handle.agent.followup(createUserMessage({ content: text('late'), source: { kind: 'user' } }))
     }).toThrow('agent "registry-close-if-idle" is closing')
-    await expect(closing).resolves.toBe('closed')
+    await expect(Promise.all([closing, duplicateClosing])).resolves.toEqual(['closed', 'closed'])
     await expect(ctx.agents.closeIfIdle(sessionId)).resolves.toBe('not-found')
     expect(ctx.sessions.get(sessionId)).toBeUndefined()
     await ctx.fiber.dispose()
