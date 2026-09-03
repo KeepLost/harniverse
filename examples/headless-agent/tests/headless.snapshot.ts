@@ -814,7 +814,11 @@ describe('headless stream-json snapshots', () => {
 
         const childRecords = children.map(child => parseJsonl(child.content))
         const childPrompts = childRecords.map((records) => {
-          const message = records.find(record => record.type === 'user/message')
+          const message = records.find(record =>
+            record.type === 'user/message'
+            && (record.data as JsonObject | undefined)?.source
+            && ((record.data as JsonObject).source as JsonObject).kind === 'user',
+          )
           return JSON.stringify((message?.data as JsonObject | undefined)?.content)
         })
         expect(childPrompts[0]).toContain('Ralph round: 1 of 2.')

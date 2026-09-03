@@ -244,10 +244,14 @@ async function resolveHostname(hostname: string): Promise<readonly ResolvedAddre
 }
 
 async function waitForSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) throw toError(signal.reason ?? new Error('web fetch aborted'))
+  if (signal.aborted) {
+    /* v8 ignore next -- native AbortSignal always supplies a reason when aborted. */
+    throw toError(signal.reason ?? new Error('web fetch aborted'))
+  }
   return await new Promise<T>((resolve, reject) => {
     const onAbort = (): void => {
       cleanup()
+      /* v8 ignore next -- native AbortSignal always supplies a reason when aborted. */
       reject(toError(signal.reason ?? new Error('web fetch aborted')))
     }
     const cleanup = (): void => {

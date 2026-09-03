@@ -526,6 +526,7 @@ export class AgentLoop extends Service implements AgentFactory {
             }
           }
           if (failures.length === 1) throw failures[0]
+          /* v8 ignore next -- scope.dispose() is invoked once, so it can add at most one failure. */
           if (failures.length > 1) throw new AggregateError(failures, `agent "${id}" teardown failed`)
         }
       } finally {

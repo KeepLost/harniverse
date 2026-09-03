@@ -108,6 +108,25 @@ describe('agent loop', () => {
     expect(adapter.requests).toHaveLength(1)
   })
 
+  it('rejects a second maintenance task while the first one is active', async () => {
+    const ctx = await harness(new MockAdapter([]))
+    const agent = ctx.agentLoop.create(SessionId('maintenance-reentry'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    const started = Promise.withResolvers<undefined>()
+    const finish = Promise.withResolvers<undefined>()
+    const maintenance = agent.runMaintenance(async () => {
+      started.resolve(undefined)
+      await finish.promise
+    })
+    await started.promise
+
+    expect(() => agent.runMaintenance(async () => undefined)).toThrow('already has active work')
+    finish.resolve(undefined)
+    await maintenance
+  })
+
   it('replays a wake latched behind maintenance at convergence', async () => {
     const adapter = new MockAdapter([textResponse('wake reply')])
     const ctx = await harness(adapter)
@@ -157,6 +176,19 @@ describe('agent loop', () => {
     expect(userTexts(agent)).toEqual([])
     expect(adapter.requests).toEqual([])
     expect(agent.session.events.filter(e => e.type === 'turn/start')).toHaveLength(0)
+  })
+
+  it('completes a response that has no usage metadata', async () => {
+    const response = textResponse('without usage').filter(chunk => chunk.type !== 'usage')
+    const adapter = new MockAdapter([response])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('response-without-usage'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'complete without usage')
+    await waitForIdle(ctx, agent)
+
+    const message = agent.session.events.find(event => event.type === 'assistant/message')
+    expect(message?.type === 'assistant/message' ? message.data.usage : undefined).toBeUndefined()
   })
 
   it('runs a simple turn: queued message → model → idle, with ordered events', async () => {

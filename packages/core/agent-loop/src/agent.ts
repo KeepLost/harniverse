@@ -361,10 +361,7 @@ export class ReactLoopAgent implements Agent {
       )
       const assembler = new BlockAssembler()
       const chunkSeqs: number[] = []
-      let interruptedAppended = false
       const appendInterrupted = (): void => {
-        if (interruptedAppended) return
-        interruptedAppended = true
         const content = assembler.interruptedBlocks()
         if (content.length === 0) return
         this.session.append('assistant/message', {
@@ -392,13 +389,6 @@ export class ReactLoopAgent implements Agent {
         throw error
       }
       const finish = assembler.finish
-      // LlmRuntime can normalize an adapter abort into an `aborted` finish
-      // instead of rejecting the async iterator. Preserve the visible prefix
-      // before the outer agent cancellation path closes the turn.
-      if (signal.aborted && finish.kind === 'aborted') {
-        appendInterrupted()
-        signal.throwIfAborted()
-      }
       if (finish.kind === 'error' || finish.kind === 'aborted') {
         const action = await this.dispatch.waterfall(
           'agent/request-error', {
@@ -539,6 +529,7 @@ export class ReactLoopAgent implements Agent {
       ? boundaryMessages
       : session.deriveMessages()
     const requestHeaderSeq = session.events.findLast(event => event.type === 'request/header')?.seq
+    /* v8 ignore next -- the request/header event is committed above before wire dispatch. */
     if (requestHeaderSeq === undefined) throw new Error('agent request header was not logged before wire dispatch')
     const requestContextSeq = session.events.findLast(event => event.type === 'request/context')?.seq
     const historyCutSeq = session.events.at(-1)?.seq
@@ -548,8 +539,10 @@ export class ReactLoopAgent implements Agent {
         ...attempt,
         turn,
         step,
+        /* v8 ignore next -- every request has a committed session event before wire dispatch. */
         ...historyCutSeq === undefined ? {} : { historyCutSeq },
         requestHeaderSeq,
+        /* v8 ignore next -- every request has a request/context event before wire dispatch. */
         ...requestContextSeq === undefined ? {} : { requestContextSeq },
       })
     }

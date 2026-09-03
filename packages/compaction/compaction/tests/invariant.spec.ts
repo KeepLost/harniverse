@@ -571,6 +571,73 @@ describe('compaction invariants', () => {
     expect(() => session.append('compaction/prune', data)).toThrow(message)
   })
 
+  it('rejects invalid shadow ranges before matching the current surface', async () => {
+    const ctx = await setup()
+    const invalidEndpoints = ctx.sessions.create()
+    invalidEndpoints.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: null })
+    expect(() => invalidEndpoints.append('compaction/summary', summary({
+      shadowedRange: { start: -1, end: 0 },
+      shadowedSeqs: [0],
+    }))).toThrow(/shadowedRange endpoints must be non-negative safe integers/)
+
+    const missingSurface = ctx.sessions.create()
+    missingSurface.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: null })
+    expect(() => missingSurface.append('compaction/summary', summary({
+      shadowedRange: { start: 2, end: 2 },
+      shadowedSeqs: [2],
+    }))).toThrow(/shadowedSeqs must exactly match the current surface range/)
+  })
+
+  it('rejects a checkpoint without a replacement surface operation', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    const original = appendUser(session, 'original')
+    startTurn(session)
+    const start = session.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: 1 })
+    const summarized = session.append('compaction/summary', summary({
+      shadowedRange: { start: original, end: original },
+      shadowedSeqs: [original],
+    }))
+
+    expect(() => session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'checkpoint' }],
+      source: compactCheckpointSource(TEST_COMPACTION_ID),
+    }), {
+      surfaceOp: 'append',
+      sourceEventSeqs: [start.seq, summarized.seq, original],
+    })).toThrow(/compaction\/summary must be immediately followed/)
+  })
+
+  it('rejects a pending replacement with a non-adjacent replay sequence', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    const original = appendUser(session, 'original')
+    startTurn(session)
+    const start = session.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: 1 })
+    const summarized = session.append('compaction/summary', summary({
+      shadowedRange: { start: original, end: original },
+      shadowedSeqs: [original],
+    }))
+    const checkpoint: SessionEvent = {
+      type: 'user/message',
+      seq: summarized.seq + 2,
+      time: 0,
+      data: {
+        ...createUserMessage({
+          content: [{ type: 'text', text: 'checkpoint' }],
+          source: compactCheckpointSource(TEST_COMPACTION_ID),
+        }),
+      },
+      surfaceOp: { op: 'replace', start: original, end: original },
+      sourceEventSeqs: [start.seq, summarized.seq, original],
+    }
+
+    expect(() => {
+      ctx.emit('internal/dispatch', 'emit', 'session/event', [session, checkpoint], null)
+    })
+      .toThrow(/replacement must have seq/)
+  })
+
   it('rejects a replacement checkpoint for another compaction transaction', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create()

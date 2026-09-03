@@ -153,6 +153,12 @@ describe('compileGlobFilter syntax', () => {
     expect(filter.matches('z.ts')).toBe(false)
   })
 
+  it('escapes special members inside character classes', () => {
+    const filter = compileGlobFilter(['[a^].ts'], 'pass')
+
+    expect([filter.matches('a.ts'), filter.matches('^.ts')]).toEqual([true, true])
+  })
+
   it('treats an empty negated class as a literal pattern', () => {
     const filter = compileGlobFilter(['[!]'], 'pass')
 
@@ -175,6 +181,13 @@ describe('compileGlobFilter syntax', () => {
     expect(filter.matches('a')).toBe(false)
   })
 
+  it('evicts old literal tests when the bounded cache fills', () => {
+    for (let index = 0; index <= 256; index += 1) {
+      const character = String.fromCodePoint(0x1000 + index)
+      expect(compileGlobFilter([character], 'pass').matches(character)).toBe(true)
+    }
+  })
+
   it('matches long wildcard runs without regex backtracking', () => {
     const raw = `${'**'.repeat(20)}Z`
     const filter = compileGlobFilter([raw], 'pass')
@@ -185,8 +198,14 @@ describe('compileGlobFilter syntax', () => {
 
 describe('compileGlobFilter empty lists', () => {
   it('passes everything for an absent include list and nothing for an absent exclude list', () => {
-    expect(compileGlobFilter(undefined, 'pass').matches('anything.py')).toBe(true)
-    expect(compileGlobFilter(undefined, 'reject').matches('anything.py')).toBe(false)
+    const pass = compileGlobFilter(undefined, 'pass')
+    const reject = compileGlobFilter(undefined, 'reject')
+    expect(pass.matches('anything.py')).toBe(true)
+    expect(pass.matchesDirectory('anything')).toBe(false)
+    expect(pass.mayContainMatch('anything')).toBe(true)
+    expect(reject.matches('anything.py')).toBe(false)
+    expect(reject.matchesDirectory('anything')).toBe(false)
+    expect(reject.mayContainMatch('anything')).toBe(false)
     expect(compileGlobFilter([], 'pass').empty).toBe(true)
   })
 

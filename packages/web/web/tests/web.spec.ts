@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import WebRuntime, {
-  WebError,
-  type WebProvider,
-  type WebFetchProvider,
-  type WebFetchResult,
-  type WebSearchProvider,
-  type WebSearchRequest,
-  type WebSearchResult,
-} from '@deepseek-ai/dsh-web'
+import WebRuntime, { WebError } from '../src/index.ts'
+import type {
+  WebProvider,
+  WebFetchProvider,
+  WebFetchResult,
+  WebSearchProvider,
+  WebSearchRequest,
+  WebSearchResult,
+} from '../src/types.ts'
 
 /** A scripted search provider for contract tests. */
 function makeSearchProvider(
@@ -70,6 +70,22 @@ describe('WebRuntime registration', () => {
     const { web } = await mountWeb()
     web.registerSearchProvider(makeSearchProvider('shared', available, () => Promise.resolve(searchResult('shared'))))
     expect(() => web.registerFetchProvider(makeFetchProvider('shared', available, fetchResult('shared')))).not.toThrow()
+  })
+
+  it('rejects aggregate providers that declare no capability', async () => {
+    const { web } = await mountWeb()
+    expect(() => web.registerProvider({ id: 'invalid' }))
+      .toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_INVALID' }))
+  })
+
+  it('lists fetch-only providers using a detached capability set', async () => {
+    const { web } = await mountWeb()
+    web.registerFetchProvider(makeFetchProvider('zeta', available, fetchResult('zeta')))
+    web.registerFetchProvider(makeFetchProvider('alpha', available, fetchResult('alpha')))
+    expect(web.listProviders()).toEqual([
+      { id: 'alpha', capabilities: ['fetch'] },
+      { id: 'zeta', capabilities: ['fetch'] },
+    ])
   })
 
   it('registers one provider across search and fetch and lists its capabilities', async () => {

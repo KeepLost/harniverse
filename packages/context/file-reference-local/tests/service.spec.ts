@@ -55,6 +55,7 @@ describe('LocalFileReferenceService', () => {
     const { agent } = await agentOf(ctx)
     await ctx.plugin(LocalFileReferenceService)
     await expect(ctx.fileReferences.list(agent, 'README', new AbortController().signal)).resolves.toEqual([{ path: 'README.md', kind: 'file' }])
+    await expect(ctx.fileReferences.list(agent, 'README', new AbortController().signal)).resolves.toEqual([{ path: 'README.md', kind: 'file' }])
     expect(renderPrompt(await ctx.systemPrompt.assemble())).not.toContain(FILE_REFERENCE_PROMPT)
     ctx.tools.register(defineContentToolFixture({ name: 'read', description: 'read', parameters: {}, execute: () => Promise.resolve([]) }))
     expect(renderPrompt(await ctx.systemPrompt.assemble())).toContain(FILE_REFERENCE_PROMPT)
@@ -81,6 +82,52 @@ describe('LocalFileReferenceService', () => {
     expect(invalidate).toHaveBeenCalledOnce()
     dispose()
     expect(close).toHaveBeenCalledOnce()
+    ctx.emit('session/event', agent.session, { type: 'assistant/message' } as never)
+    const unknownSession = ctx.sessions.create(SessionId('file-reference-unknown-session'))
+    ctx.emit('session/event', unknownSession, { type: 'tool/result' } as never)
+  })
+
+  it('applies explicit bounds and cleans up the provider cache', async () => {
+    const ctx = await harness()
+    const { agent } = await agentOf(ctx)
+    const fiber = await ctx.plugin(LocalFileReferenceService, { maxResults: 1, maxEntries: 1, excludedDirectories: [] })
+    await expect(ctx.fileReferences.list(agent, '', new AbortController().signal)).resolves.toHaveLength(1)
+    await fiber.dispose()
+  })
+
+  it('uses the process cwd when the Agent session has no cwd', async () => {
+    const ctx = await harness()
+    const fiber = await ctx.plugin(LocalFileReferenceService)
+    const session = ctx.sessions.create(SessionId('file-reference-no-cwd'))
+    const agent = { id: session.id, options: {}, session, status: 'idle', ctx } as unknown as Agent
+    const dispose = ctx.agents.register(agent)
+    await expect(ctx.fileReferences.list(agent, 'missing/', new AbortController().signal)).resolves.toEqual([])
+    dispose()
+    await fiber.dispose()
+  })
+
+  it('installs prompt guidance for later Agents and tolerates repeated lifecycle events', async () => {
+    const ctx = await harness()
+    const fiber = await ctx.plugin(LocalFileReferenceService)
+    const { agent, dispose } = await agentOf(ctx)
+    ctx.emit('agent/created', { agent })
+    ctx.emit('agent/disposed', { agent })
+    ctx.emit('agent/disposed', { agent })
+    dispose()
+    await fiber.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects invalid direct constructor configuration', async () => {
+    for (const config of [
+      { maxResults: 0 },
+      { maxEntries: 0 },
+      { excludedDirectories: ['nested/path'] },
+    ]) {
+      const ctx = new Context()
+      expect(() => new LocalFileReferenceService(ctx, config)).toThrow('file-reference-local')
+      await ctx.fiber.dispose()
+    }
   })
 
   it('does not warn when an Agent scope already disposed its prompt fiber', async () => {

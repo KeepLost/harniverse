@@ -116,6 +116,42 @@ describe('session-log invariants', () => {
     } as never) }).toThrow(/seq must strictly increase/)
   })
 
+  it('rejects wire attempts that reference their own or a later event', async () => {
+    const { ctx } = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
+
+    const wire = (seq: number, requestHeaderSeq: number) => ({
+      type: 'llm/wire-attempt',
+      seq,
+      time: 3,
+      data: {
+        exchangeId: 'wire-reference-order',
+        attempt: 1,
+        api: 'mock',
+        provider: 'mock',
+        model: 'mock',
+        url: 'mock://model',
+        method: 'POST',
+        request: { bytes: 0, fingerprint: 'test' },
+        response: { status: 200 },
+        outcome: 'success',
+        durationMs: 0,
+        turn: 1,
+        step: 1,
+        requestHeaderSeq,
+      },
+    } as never)
+
+    expect(() => {
+      ctx.emit(scopeTarget(session, undefined), 'session/event', session, wire(session.seq, session.seq))
+    }).toThrow(/references event seq 2 or a later event/)
+    expect(() => {
+      ctx.emit(scopeTarget(session, undefined), 'session/event', session, wire(session.seq + 1, session.seq + 2))
+    }).toThrow(/references event seq 3 or a later event/)
+  })
+
   it('enforces turn numbering and core execution enclosure', async () => {
     const first = await setup()
     const open = first.ctx.sessions.create()

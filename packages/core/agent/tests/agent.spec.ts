@@ -296,6 +296,46 @@ describe('AgentRegistry', () => {
     expect(order).toEqual(['first:true', 'after-detach:true', 'second:true', 'disposed'])
     expect(ctx.agents.get(agent.id)).toBeUndefined()
   })
+
+  it('closes only factory-owned entries and reports busy idle candidates', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+
+    const external = stubAgent('external-close')
+    ctx.agents.register(external)
+    await expect(ctx.agents.close(external.id)).rejects.toThrow(/not factory-owned/)
+    await expect(ctx.agents.closeIfIdle(external.id)).rejects.toThrow(/not factory-owned/)
+
+    const owned = stubAgent('owned-close')
+    let allowClose = false
+    let detachOwned: () => void = () => {}
+    detachOwned = ctx.agents.enter(
+      owned,
+      undefined,
+      async () => { detachOwned() },
+      async () => {
+        if (!allowClose) return false
+        detachOwned()
+        return true
+      },
+    )
+    ctx.agents.announce(owned)
+
+    await expect(ctx.agents.closeIfIdle(owned.id)).resolves.toBe('busy')
+    allowClose = true
+    await expect(ctx.agents.closeIfIdle(owned.id)).resolves.toBe('closed')
+    expect(ctx.agents.get(owned.id)).toBeUndefined()
+
+    const directlyClosed = stubAgent('direct-close')
+    let detachDirect: () => void = () => {}
+    detachDirect = ctx.agents.enter(directlyClosed, undefined, async () => { detachDirect() })
+    ctx.agents.announce(directlyClosed)
+    await expect(ctx.agents.close(directlyClosed.id)).resolves.toBe(true)
+    expect(ctx.agents.get(directlyClosed.id)).toBeUndefined()
+
+    await expect(ctx.agents.close(SessionId('missing-close'))).resolves.toBe(false)
+    await expect(ctx.agents.closeIfIdle(SessionId('missing-idle-close'))).resolves.toBe('not-found')
+  })
 })
 
 describe('agentEvents()', () => {
