@@ -970,6 +970,69 @@ describe('hand-declared providers', () => {
     expect(onClose).toHaveBeenCalledWith(true)
   })
 
+  describe('principal boundaries', () => {
+    /** Fill the card's required gates so `create` can run. */
+    function draftProvider(): void {
+      fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })
+      fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://acme.test/v1' } })
+      fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+      fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'm' } })
+    }
+
+    it('abandons a profile write whose settlement left the principal', async () => {
+      const { onClose } = mountCard({ acceptResponse: () => false })
+      draftProvider()
+
+      fireEvent.click(screen.getByText(en.create))
+      await waitFor(() => { expect(screen.getByLabelText<HTMLInputElement>(en.customRoute).disabled).toBe(false) })
+
+      // The write belonged to a connection generation the card no longer
+      // serves, so it neither reports success nor shows a failure.
+      expect(onClose).not.toHaveBeenCalled()
+      expect(screen.queryByText(en.savedProvider)).toBeNull()
+    })
+
+    it('abandons a profile view the settings mirror refused', async () => {
+      const { mutate, onClose } = mountCard({ acceptSettingsView: () => false })
+      draftProvider()
+
+      fireEvent.click(screen.getByText(en.create))
+      await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+
+      expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it('abandons a key write whose settlement left the principal', async () => {
+      let profileLanded = false
+      const { onClose } = mountCard({
+        acceptResponse: () => !profileLanded,
+        acceptSettingsView: () => { profileLanded = true; return true },
+      })
+      draftProvider()
+      fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'gw-key' } })
+
+      fireEvent.click(screen.getByText(en.create))
+      await waitFor(() => { expect(profileLanded).toBe(true) })
+
+      // The profile landed but the key settlement is another principal's, so
+      // the card reports nothing rather than claiming the key was stored.
+      expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it('leaves a transport failure to the principal that owns it', async () => {
+      const mutate = vi.fn(() => Promise.reject(new Error('connection lost')))
+      const { onClose } = mountCard({ isCurrent: () => false }, { mutate })
+      draftProvider()
+
+      fireEvent.click(screen.getByText(en.create))
+      await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+
+      // Neither the failure nor the busy release belongs to this card anymore.
+      expect(screen.queryByText('connection lost')).toBeNull()
+      expect(onClose).not.toHaveBeenCalled()
+    })
+  })
+
   it('never contradicts a filled-in field with the next gate\u2019s copy', () => {
     mountCard()
     const routeField = screen.getByLabelText(en.customRoute)

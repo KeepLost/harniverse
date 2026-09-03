@@ -276,6 +276,138 @@ describe('edge joins', () => {
   })
 })
 
+/** The marker a settlement carries when the test wants transport validation to refuse it. */
+const REFUSED_TRANSPORT = 'refused-transport'
+
+/** A settings mirror whose principal and transport validation the test drives. */
+function steerable(api: ConstructorParameters<typeof SharedModelsSettingsStore>[0]) {
+  let identity: { kind: 'bypass' } | undefined = { kind: 'bypass' }
+  let valid = true
+  const listeners = new Set<() => void>()
+  const mirror = new SettingsDescribeMirror(api as never, {
+    getSnapshot: () => identity as never,
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+    // Refuse either every settlement, or only the ones the test marked.
+    validate: (authentication: unknown) => valid && authentication !== REFUSED_TRANSPORT,
+  } as never)
+  return {
+    mirror,
+    store: new SharedModelsSettingsStore(api, mirror),
+    /** Move to a different principal, as a re-authentication would. */
+    reprincipal(next: { kind: 'bypass' } | undefined) {
+      identity = next
+      for (const listener of listeners) listener()
+    },
+    /** Make central transport identity validation refuse every settlement. */
+    refuseTransport() { valid = false },
+  }
+}
+
+describe('ModelsSettingsStore principal boundaries', () => {
+  it('drops a provider settlement that failed transport identity validation', async () => {
+    const { face } = api()
+    const steered = steerable(face)
+    steered.refuseTransport()
+
+    await steered.store.load()
+
+    // A settlement the mirror refuses leaves the page unchanged rather than
+    // folding another principal's directory.
+    expect(steered.store.store.getSnapshot()).toMatchObject({ status: 'loading', rows: [] })
+  })
+
+  it('drops a credential settlement that failed transport identity validation', async () => {
+    // The credential read runs after the store exists, so it reaches the store
+    // through a holder rather than a forward binding.
+    const held: { steered?: ReturnType<typeof steerable> } = {}
+    const { face } = api({
+      describeCredentials: (refs) => {
+        held.steered?.refuseTransport()
+        return Promise.resolve(ok({ credentials: Object.fromEntries(refs.map(ref => [ref, { configured: true, writable: true }])) }))
+      },
+    })
+    const steered = steerable(face)
+    held.steered = steered
+
+    await steered.store.load()
+
+    // The join stopped at the credential enrichment, so no rows were published.
+    expect(steered.store.store.getSnapshot().status).toBe('loading')
+  })
+
+  it('reports the mirror error when the settings view is unavailable', async () => {
+    const { face } = api({ describeSettings: () => Promise.resolve(fail('settings domain down')) })
+    const store = new ModelsSettingsStore(face)
+
+    await store.load()
+
+    expect(store.store.getSnapshot()).toMatchObject({ status: 'error', error: 'settings domain down' })
+  })
+
+  it('abandons a credential failure that arrives after the principal changed', async () => {
+    const held: { steered?: ReturnType<typeof steerable> } = {}
+    const { face } = api({
+      // The principal moves while this read is in flight, so its rejection
+      // belongs to a connection generation the page no longer serves.
+      describeCredentials: () => {
+        held.steered?.reprincipal(undefined)
+        return Promise.reject(new Error('credential transport lost'))
+      },
+    })
+    const steered = steerable(face)
+    held.steered = steered
+
+    await steered.store.load()
+
+    expect(steered.store.store.getSnapshot().credentialError).toBeNull()
+  })
+
+  it('names an unavailable settings view that carries no failure of its own', async () => {
+    let settingsAuthentication: unknown
+    const { face } = api({
+      describeSettings: () => Promise.resolve({
+        ...ok({ writable: true, hasDocument: false, namespaces: NAMESPACES }),
+        authentication: settingsAuthentication,
+      } as never),
+    })
+    const steered = steerable(face)
+    // The mirror's own read is refused in transport, so it holds neither a view
+    // nor a failure while the page's fence stays current.
+    settingsAuthentication = REFUSED_TRANSPORT
+    await steered.mirror.load()
+    settingsAuthentication = undefined
+
+    await steered.store.load()
+
+    expect(steered.store.store.getSnapshot()).toMatchObject({
+      status: 'error', error: 'settings are unavailable',
+    })
+  })
+
+  it('reloads after a principal change only when the page had already loaded', async () => {
+    const { face } = api()
+    const steered = steerable(face)
+    await steered.store.load()
+    expect(steered.store.store.getSnapshot().rows).toHaveLength(4)
+
+    steered.reprincipal({ kind: 'bypass' })
+    await Promise.resolve()
+
+    // A same-kind identity is not a new principal, so nothing was reset.
+    expect(steered.store.store.getSnapshot().rows).toHaveLength(4)
+  })
+
+  it('leaves an idle page idle when the principal disappears', () => {
+    const { face } = api()
+    const steered = steerable(face)
+
+    steered.reprincipal(undefined)
+
+    // Nothing had loaded, so there is no reload to schedule.
+    expect(steered.store.store.getSnapshot()).toMatchObject({ status: 'idle', rows: [] })
+  })
+})
+
 describe('messageOf', () => {
   it('reads an Error message, and stringifies anything else a rejection may carry', () => {
     // The wire layer rejects with an Error, but a host or a runtime can reject
