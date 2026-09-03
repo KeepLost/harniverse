@@ -20,7 +20,7 @@ This provider is opt-in. No shipped Profile selects it. A deployment that alread
 | `pythonExecutable` | `python3` | Non-empty executable name or path passed directly to `spawn()`; no shell interprets it. The executable must provide CPython 3.10 or newer. |
 | `cpuSeconds` | `60` | Positive whole-second `RLIMIT_CPU` soft limit, applied where Python exposes `resource.RLIMIT_CPU`. |
 | `maxWallMs` | `600000` | Positive Host wall-clock ceiling, including bootstrap and binding waits. |
-| `maxAddressSpaceMb` | `512` | Positive whole-MiB `RLIMIT_AS` soft limit, applied where supported. |
+| `maxAddressSpaceMb` | `512` | Positive whole-MiB `RLIMIT_AS` soft limit, applied where the platform measures it as address space. macOS aliases `RLIMIT_AS` onto `RLIMIT_RSS`, so the bound is not applied there; the CPU and Host wall-clock ceilings still are. |
 | `maxOutputBytes` | `67108864` | Combined serialized budget for ordered logs plus the completion value or failure message. |
 | `maxControlBytes` | `67109888` | Maximum control JSONL frame width; must leave 1 KiB above `maxOutputBytes`. This provider limit also bounds one binding argument or resolution frame. |
 

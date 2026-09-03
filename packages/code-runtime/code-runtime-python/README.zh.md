@@ -20,7 +20,7 @@
 | `pythonExecutable` | `python3` | 直接传给 `spawn()` 的非空可执行文件名或路径；不经过 shell 解释。该可执行文件必须提供 CPython 3.10 或更高版本。 |
 | `cpuSeconds` | `60` | 正整数秒的 `RLIMIT_CPU` 软限制；Python 暴露 `resource.RLIMIT_CPU` 时应用。 |
 | `maxWallMs` | `600000` | 正数 Host 墙钟上限，包含 bootstrap 与等待绑定的时间。 |
-| `maxAddressSpaceMb` | `512` | 正整数 MiB 的 `RLIMIT_AS` 软限制；受支持时应用。 |
+| `maxAddressSpaceMb` | `512` | 正整数 MiB 的 `RLIMIT_AS` 软限制；仅在平台将其计为地址空间时应用。macOS 将 `RLIMIT_AS` 别名为 `RLIMIT_RSS`，因此该限制在 macOS 上不生效；CPU 与宿主挂钟上限仍然生效。 |
 | `maxOutputBytes` | `67108864` | 有序日志加完成值或失败消息的合并序列化预算。 |
 | `maxControlBytes` | `67109888` | 控制 JSONL 帧的最大宽度；必须比 `maxOutputBytes` 至少多 1 KiB。此提供方上限也约束单个绑定参数或 resolve 值帧。 |
 

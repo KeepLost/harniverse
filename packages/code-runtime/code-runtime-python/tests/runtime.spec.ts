@@ -155,6 +155,20 @@ describe.skipIf(!python3Available)('PythonCodeRuntime real subprocess', { timeou
     expect(wallResult.error).toEqual({ kind: 'timeout', message: 'wall-clock ceiling reached (300ms)' })
   }, process.platform === 'win32' ? runtimeTestTimeoutMs : extendedRuntimeTestTimeoutMs)
 
+  it('applies the address-space bound only where it means address space', async () => {
+    const { runtime } = await setup({ maxAddressSpaceMb: 1 })
+    const result = await runtime.run({ program: 'return 1 + 1', bindings: [] })
+    if (process.platform === 'linux') {
+      // Linux enforces RLIMIT_AS as address space, so a 1 MiB ceiling is fatal
+      // to the interpreter itself and surfaces as a process outcome.
+      expect(result.error?.kind).toBe('worker-exit')
+    } else {
+      // Darwin aliases RLIMIT_AS onto RLIMIT_RSS and Windows has no rlimits,
+      // so the bound is not applied and the run completes normally.
+      expect(result).toEqual({ logs: [], value: 2 })
+    }
+  })
+
   it('aborts a running process and bounds output', async () => {
     const aborted = await setup()
     const controller = new AbortController()
