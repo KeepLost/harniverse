@@ -29,6 +29,7 @@ import SessionQueryEngine, {
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
+import { operations } from '../src/operations.ts'
 
 const activeContexts: Context[] = []
 
@@ -295,6 +296,10 @@ describe('registration and schemas', () => {
         title: 'Inspect messages session other',
         rawInput: 'other',
       })
+    // An inspection that names no session is about the caller's own, so the
+    // card says so and carries no target to echo.
+    expect(mounted.ctx.tools.get('session_inspect')?.presentCall?.({ view: 'summary' }))
+      .toEqual({ card: 'generic', kind: 'read', title: 'Inspect summary current session' })
     const assembly = await mounted.ctx.systemPrompt.assemble()
     expect(assembly.sections.find(section => section.name === 'tool:session-query')?.text)
       .toContain('session_find returns session metadata without content-match events or snippets')
@@ -343,6 +348,16 @@ describe('registration and schemas', () => {
     for (const searchTimeoutMs of [0, 1.5, Number.POSITIVE_INFINITY, MAX_TIMER_DELAY_MS + 1]) {
       expect(() => { ToolSessionQuery.apply(mounted.ctx, { searchTimeoutMs }) })
         .toThrow(`no greater than ${MAX_TIMER_DELAY_MS}`)
+    }
+    // Both tail bounds are model-visible read budgets, so each refuses its own
+    // out-of-range value rather than silently clamping.
+    for (const messageTailLimit of [0, -1, 1.5, ToolSessionQuery.MAX_MESSAGE_TAIL_LIMIT + 1]) {
+      expect(() => { ToolSessionQuery.apply(mounted.ctx, { messageTailLimit }) })
+        .toThrow(`messageTailLimit must be between 1 and ${ToolSessionQuery.MAX_MESSAGE_TAIL_LIMIT}`)
+    }
+    for (const logTailLimit of [0, -1, 1.5, ToolSessionQuery.MAX_LOG_TAIL_LIMIT + 1]) {
+      expect(() => { ToolSessionQuery.apply(mounted.ctx, { logTailLimit }) })
+        .toThrow(`logTailLimit must be between 1 and ${ToolSessionQuery.MAX_LOG_TAIL_LIMIT}`)
     }
     expect(() => { ToolSessionQuery.apply(new Context(), {}) }).toThrow()
   })
@@ -407,6 +422,91 @@ describe('input validation and translation', () => {
     expect(FakeQuery.findRequests).toEqual([])
   })
 
+  it('reports no discovery results when no requested parent resolves', async () => {
+    const mounted = await mount()
+    const findSessions = vi.spyOn(mounted.ctx.sessionQuery, 'findSessions')
+    vi.spyOn(mounted.ctx.sessionQuery, 'filterSessions').mockResolvedValueOnce([
+      { header: header('unrequested-parent', '/work'), live: true, persisted: false },
+    ])
+
+    // No requested parent resolves, so no parent filter survives and discovery
+    // is never asked: the caller learns nothing about the ids it guessed.
+    const result = await mounted.call('session_find', {
+      parent_session_ids: ['guessed-parent', 'another-guess'],
+    })
+
+    expect(result.isError).toBe(false)
+    expect(text(result)).toBe('No sessions found for the requested discovery filters.')
+    expect(findSessions).not.toHaveBeenCalled()
+  })
+
+  it('renders an untitled session with no activity and reports the discovery cap', async () => {
+    const mounted = await mount({ maxSearchResults: 1 })
+    FakeQuery.sessionFind = () => Promise.resolve<SessionSearchPage<SessionFindHit>>({
+      items: [
+        {
+          // No title, no activity, and neither live nor persisted: every
+          // absent field must read as absent rather than as a blank.
+          header: header('bare-session', '/work', 100),
+          live: false,
+          persisted: false,
+          latestActivityAt: null,
+        },
+        { ...findHit('second-session', 'Second'), latestActivityAt: null },
+      ],
+    })
+
+    const output = text(await mounted.call('session_find', { cwd: '/work' }))
+
+    // Absent metadata is stated as absent rather than rendered as a blank, and
+    // the cap tells the model how to narrow rather than silently truncating.
+    expect(output).toContain('Current title: (untitled)')
+    expect(output).toContain('Latest activity: none')
+    expect(output).toContain('Matched activity: not filtered')
+    expect(output).toContain('Availability: unavailable')
+    expect(output).toContain('Result cap reached. Narrow the title or time filters')
+  })
+
+  it('hides an unauthorized parent from search results and reports the search cap', async () => {
+    const mounted = await mount({ maxSearchResults: 1 })
+    const visibleParent = createSession(mounted.ctx, 'visible-search-parent', '/work')
+    FakeQuery.sessionSearch = () => Promise.resolve({
+      items: [
+        sessionHit('child-of-hidden', '/work', 'first hit', SessionId('hidden-search-parent')),
+        sessionHit('child-of-visible', '/work', 'second hit', visibleParent.id),
+      ],
+    })
+
+    const output = text(await mounted.call('session_search', {
+      query: 'needle',
+      parent_session_ids: [visibleParent.id],
+    }))
+
+    // A parent the caller cannot resolve is named as unresolved rather than
+    // leaking the id it would otherwise print.
+    expect(output).toContain('Parent: [unresolved parent]')
+    expect(output).not.toContain('hidden-search-parent')
+    expect(output).toContain('Result cap reached. Narrow the query or add filters')
+  })
+
+  it('carries a discovery cursor across pages until the bound is met', async () => {
+    const mounted = await mount({ maxSearchResults: 2 })
+    const pages = [
+      { items: [findHit('page-one', 'First')], nextCursor: SessionSearchCursor('next-page') },
+      { items: [findHit('page-two', 'Second')] },
+    ]
+    FakeQuery.sessionFind = () => Promise.resolve(pages.shift() ?? { items: [] })
+
+    const result = await mounted.call('session_find', { cwd: '/work' })
+
+    // The first page reports a cursor, so the second request carries it; the
+    // first request has none to carry.
+    expect(FakeQuery.findRequests).toHaveLength(2)
+    expect(FakeQuery.findRequests[0]).not.toHaveProperty('cursor')
+    expect(FakeQuery.findRequests[1]).toMatchObject({ cursor: 'next-page' })
+    expect(text(result)).toContain('Session find results (2)')
+  })
+
   it('reads runtime status and a bounded finalized message tail without waiting', async () => {
     const mounted = await mount()
     mounted.caller.append(
@@ -428,6 +528,175 @@ describe('input validation and translation', () => {
     expect(inspectedMessages).toContain('tail message')
     expect(errorCode(await mounted.call('session_inspect', { view: 'messages', limit: 51 })))
       .toBe('SESSION_QUERY_INVALID_LIMIT')
+  })
+
+  it('refuses every out-of-range tail limit on both bounded views', async () => {
+    const mounted = await mount()
+
+    // The bound belongs to the view that reads the tail, so each view states
+    // its own ceiling rather than sharing one message. A non-integer is refused
+    // by the tool schema before the executor, so it is not listed here.
+    for (const limit of [0, -1, 51]) {
+      expect(errorCode(await mounted.call('session_inspect', { view: 'messages', limit })))
+        .toBe('SESSION_QUERY_INVALID_LIMIT')
+      expect(text(await mounted.call('session_inspect', { view: 'messages', limit })))
+        .toContain('message tail limit must be between 1 and 50')
+      expect(errorCode(await mounted.call('session_inspect', { view: 'history', limit })))
+        .toBe('SESSION_QUERY_INVALID_LIMIT')
+      expect(text(await mounted.call('session_inspect', { view: 'history', limit })))
+        .toContain('log tail limit must be between 1 and 50')
+    }
+  })
+
+  it('states absent runtime and tail observations as absent', async () => {
+    const mounted = await mount()
+    const target = createSession(mounted.ctx, 'empty-observations', '/work')
+    vi.spyOn(mounted.ctx.sessionQuery, 'readRuntimeStatus').mockResolvedValue({
+      header: target.header,
+      live: false,
+      persisted: true,
+      loaded: false,
+      running: true,
+      lastSeq: null,
+    })
+    vi.spyOn(mounted.ctx.sessionQuery, 'readMessageTail').mockResolvedValue({
+      session: target.header,
+      capturedThroughSeq: null,
+      messages: [],
+      truncated: true,
+    })
+    vi.spyOn(mounted.ctx.sessionQuery, 'readLogTail').mockResolvedValue({
+      session: target.header,
+      capturedThroughSeq: null,
+      events: [],
+      truncated: true,
+    })
+
+    const summary = text(await mounted.call('session_inspect', { view: 'summary', session_id: target.id }))
+    const messages = text(await mounted.call('session_inspect', { view: 'messages', session_id: target.id }))
+    const history = text(await mounted.call('session_inspect', { view: 'history', session_id: target.id }))
+
+    // An empty log has no last seq: say so rather than printing a misleading 0.
+    expect(summary).toContain('Last observed seq: none')
+    expect(summary).toContain('Running: yes')
+    expect(messages).toContain('Observed through seq: none')
+    expect(messages).toContain('No finalized messages found.')
+    expect(messages).toContain('Older messages were omitted by the requested limit.')
+    expect(history).toContain('Observed through seq: none')
+    expect(history).toContain('Older raw events were omitted by the requested limit.')
+  })
+
+  it('omits the truncation notice when a tail is complete', async () => {
+    const mounted = await mount()
+    const target = createSession(mounted.ctx, 'complete-observations', '/work')
+    vi.spyOn(mounted.ctx.sessionQuery, 'readMessageTail').mockResolvedValue({
+      session: target.header,
+      capturedThroughSeq: 4,
+      messages: [{ seq: 2, time: 20, message: createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } }) }],
+      truncated: false,
+    })
+    vi.spyOn(mounted.ctx.sessionQuery, 'readLogTail').mockResolvedValue({
+      session: target.header,
+      capturedThroughSeq: 4,
+      events: [{ type: 'turn/start', seq: 0, time: 10, data: { turn: 1 } }],
+      truncated: false,
+    })
+
+    const messages = text(await mounted.call('session_inspect', { view: 'messages', session_id: target.id }))
+    const history = text(await mounted.call('session_inspect', { view: 'history', session_id: target.id }))
+
+    // Nothing was cut, so the answer must not imply the caller is missing rows.
+    expect(messages).toContain('Observed through seq: 4')
+    expect(messages).not.toContain('omitted by the requested limit')
+    expect(history).not.toContain('omitted by the requested limit')
+  })
+
+  it('refuses a target the id authorization does not resolve to exactly one session', async () => {
+    const mounted = await mount()
+    const target = createSession(mounted.ctx, 'ambiguous-target', '/work')
+    // Session ids are bearer-like opaque references: anything other than one
+    // exact resolution is refused rather than guessed at.
+    vi.spyOn(mounted.ctx.sessionQuery, 'filterSessions').mockResolvedValue([])
+
+    const result = await mounted.call('session_inspect', { view: 'summary', session_id: target.id })
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
+  })
+
+  it('projects a descendant subtree by depth regardless of its workspace', async () => {
+    const mounted = await mount()
+    const target = createSession(mounted.ctx, 'lineage-nested', '/work')
+    const targetRecord = { header: target.header, live: true, persisted: false }
+    vi.spyOn(mounted.ctx.sessionQuery, 'traceSession').mockResolvedValue({
+      target: targetRecord,
+      ancestors: [],
+      descendants: [{
+        session: { header: header('child', '/work', 70), live: true, persisted: false },
+        // Authorization is id-possession, not workspace membership, so a
+        // descendant recorded against another cwd is still part of the lineage.
+        descendants: [{
+          session: { header: header('grandchild', '/elsewhere', 60), live: true, persisted: false },
+          descendants: [],
+        }],
+      }],
+      complete: true,
+      root: targetRecord,
+    })
+
+    const output = text(await mounted.call('session_inspect', { view: 'lineage', session_id: target.id }))
+
+    expect(output).toContain('- child —')
+    expect(output).toContain('  - grandchild —')
+    expect(output).not.toContain('[unresolved parent boundary]')
+  })
+
+  it('reports a lineage boundary when the trace itself is incomplete', async () => {
+    const mounted = await mount()
+    const target = createSession(mounted.ctx, 'lineage-partial', '/work')
+    const targetRecord = { header: target.header, live: true, persisted: false }
+    vi.spyOn(mounted.ctx.sessionQuery, 'traceSession').mockResolvedValue({
+      target: targetRecord,
+      ancestors: [{ header: header('known-parent', '/work', 50), live: false, persisted: true }],
+      descendants: [],
+      // The service could not walk the whole chain, so the answer names where
+      // it stopped instead of presenting a partial lineage as complete.
+      complete: false,
+      unresolvedParentId: SessionId('beyond-the-corpus'),
+    })
+
+    const output = text(await mounted.call('session_inspect', { view: 'lineage', session_id: target.id }))
+
+    expect(output).toContain('known-parent')
+    expect(output).toContain('[unresolved parent boundary]')
+  })
+
+  it('refuses the event view without the seq that names the event', async () => {
+    const mounted = await mount()
+
+    const result = await mounted.call('session_inspect', { view: 'event' })
+
+    expect(errorCode(result)).toBe('SESSION_QUERY_INVALID_FILTER')
+    expect(text(result)).toContain('session_inspect event view requires seq')
+  })
+
+  it('refuses a view outside the declared set at the executor, not only the schema', async () => {
+    const mounted = await mount()
+    const exec = {
+      agent: fakeAgent(mounted.caller),
+      signal: new AbortController().signal,
+      callId: CallId('direct-view'),
+    }
+
+    // The tool schema already fences an unlisted view, so reach the executor
+    // directly: an unreachable view must still refuse rather than read.
+    await expect(operations.executeSessionInspect(
+      mounted.ctx,
+      { view: 'invented' } as never,
+      exec as never,
+      10,
+      20,
+      50,
+    )).rejects.toThrow(/unsupported session_inspect view invented/)
   })
 
   it.each([

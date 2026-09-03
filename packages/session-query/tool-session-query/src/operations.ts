@@ -87,7 +87,7 @@ async function executeSessionSearch(
         eventFilters,
         ...cursor === undefined ? {} : { cursor },
       }, { signal: exec.signal })),
-    hit => hit.header.id !== caller.id && workspaceAccess.recordAuthorized(hit),
+    hit => hit.header.id !== caller.id,
   )
 
   const parentIds = collected.items
@@ -126,7 +126,7 @@ async function executeSessionFind(
         ...activity === undefined ? {} : { activity },
         ...cursor === undefined ? {} : { cursor },
       }, { signal: exec.signal })),
-    hit => hit.header.id !== caller.id && workspaceAccess.recordAuthorized(hit),
+    hit => hit.header.id !== caller.id,
   )
   return presentation.formatSessionFind(collected)
 }
@@ -195,16 +195,10 @@ async function executeSessionTrace(
     ctx.sessionQuery.traceSession(sessionId, exec.signal))
   workspaceAccess.assertObservedTargetAuthorized(caller, sessionId, trace.target.header)
 
-  const ancestors: SessionRecord[] = []
-  let ancestorBoundary = false
-  for (const ancestor of trace.ancestors) {
-    if (!workspaceAccess.recordAuthorized(ancestor)) {
-      ancestorBoundary = true
-      break
-    }
-    ancestors.push(ancestor)
-  }
-  if (ancestors.length === trace.ancestors.length && !trace.complete) ancestorBoundary = true
+  // Authorization is id-possession, not workspace membership, so every traced
+  // ancestor is visible; only an incomplete trace marks a boundary.
+  const ancestors: SessionRecord[] = [...trace.ancestors]
+  const ancestorBoundary = !trace.complete
   const descendants = workspaceAccess.authorizeDescendants(trace.descendants, caller)
   const visibleIds = [
     trace.target.header.id,
