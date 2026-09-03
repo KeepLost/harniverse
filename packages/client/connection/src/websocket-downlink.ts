@@ -227,10 +227,10 @@ export class WebSocketDownlinks {
       })
       const pump = this.pump(websocket, open(abort.signal), abort, admission)
       this.pumps.add(pump)
-      void pump.then(
-        () => { this.pumps.delete(pump) },
-        () => { this.pumps.delete(pump) },
-      )
+      // pump contains its own failures; teardown still releases the entry if
+      // its finalizer ever throws.
+      const forget = (): void => { this.pumps.delete(pump) }
+      void pump.then(forget, forget)
     })
   }
 

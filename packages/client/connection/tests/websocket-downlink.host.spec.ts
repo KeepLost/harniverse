@@ -14,7 +14,7 @@ import {
   type AuthenticationPrincipal,
 } from '@deepseek-ai/dsh-authentication'
 import { HOST_EVENTS_PATH, MUX_EVENTS_PATH } from '../src/api-path.ts'
-import { WebSocketDownlinks } from '../src/websocket-downlink.ts'
+import { rejectUnauthorizedWebSocket, rejectWebSocketUpgrade, WebSocketDownlinks } from '../src/websocket-downlink.ts'
 
 type MuxSource = (signal: AbortSignal, request: RpcRequest<unknown>) => AsyncIterable<RpcRequest<MuxFrame>>
 type HostSource = (signal: AbortSignal, request: RpcRequest<unknown>) => AsyncIterable<RpcRequest<HostFrame>>
@@ -492,6 +492,229 @@ describe('WebSocket downlinks', () => {
     const downlinks = new WebSocketDownlinks(api(idle, idle))
     await downlinks.close()
     await expect(downlinks.close()).rejects.toThrow('The server is not running')
+  })
+
+  it('closes already-open sockets when authentication becomes unavailable', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const host = await serve(downlinks, { mux: grant('laptop-id') })
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+    await once(socket, 'open')
+
+    // A provider that loses credential freshness must not leave a live
+    // downlink carrying frames under a principal it can no longer verify.
+    downlinks.authenticationUnavailable()
+    const [code, reason] = await once(socket, 'close') as [number, Buffer]
+    expect(code).toBe(1012)
+    expect(reason.toString('utf8')).toBe('authentication unavailable')
+  })
+
+  it('closes a socket whose Grant already expired at upgrade', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    // Already past its expiry when the upgrade arrives: admission must not
+    // wait for a timer to notice.
+    const host = await serve(downlinks, { mux: grant('stale', 1, new Date(Date.now() - 1_000).toISOString()) })
+    running.push(host.close)
+
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+    const [code, reason] = await once(socket, 'close') as [number, Buffer]
+    expect(code).toBe(4001)
+    expect(reason.toString('utf8')).toBe('access expired')
+  })
+
+  it('treats an upgrade with no request target as the channel root', async () => {
+    let payload: unknown
+    const proxy = api(idle, idle)
+    proxy.events.mux = (request, signal) => {
+      payload = request.payload
+      return idle(signal)
+    }
+    const downlinks = new WebSocketDownlinks(proxy)
+    const server = createServer()
+    server.on('upgrade', (request, socket, head) => {
+      // A proxy may forward an upgrade without a request target.
+      Object.assign(request, { url: undefined })
+      downlinks.handleMux(request, socket, head, {
+        kind: 'accepted',
+        principal: { kind: 'bypass', capabilities: ALL_AUTHENTICATION_CAPABILITIES },
+      })
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    running.push(async () => {
+      await downlinks.close()
+      await new Promise<void>(resolve => server.close(() => { resolve() }))
+    })
+
+    const socket = new WebSocket(`ws://127.0.0.1:${String(port)}${MUX_EVENTS_PATH}`)
+    await once(socket, 'open')
+    expect(payload).toEqual({})
+    socket.close()
+    await once(socket, 'close')
+  })
+
+  it('rejects a duplicate mux resume cursor', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}?since=%7B%7D&since=%7B%7D`)
+    const status = await new Promise<number>((resolve, reject) => {
+      socket.once('unexpected-response', (_request, response) => {
+        response.resume()
+        resolve(response.statusCode ?? 0)
+      })
+      socket.once('open', () => { reject(new Error('duplicate cursor was upgraded')) })
+      socket.once('error', () => undefined)
+    })
+    expect(status).toBe(400)
+  })
+
+  it('admits a bypass principal without scheduling an expiry', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+    await once(socket, 'open')
+
+    // A bypass admission carries no expiry, so the socket simply stays open.
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(socket.readyState).toBe(WebSocket.OPEN)
+    socket.close()
+    await once(socket, 'close')
+  })
+
+  it('clamps a far-future expiry to the maximum timer delay', async () => {
+    // Date.parse of a year-9999 expiry exceeds the platform timer range; the
+    // schedule must clamp rather than fire immediately.
+    const distant = new Date(8_640_000_000_000_000 - 1).toISOString()
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    const host = await serve(downlinks, { mux: grant('long-lived', 1, distant) })
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+    await once(socket, 'open')
+
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(socket.readyState).toBe(WebSocket.OPEN)
+    socket.close()
+    await once(socket, 'close')
+  })
+})
+
+describe('control frame delivery', () => {
+  it('fails the downlink when the socket closes before the identity frame', async () => {
+    const failures: unknown[] = []
+    const downlinks = new WebSocketDownlinks(api(idle, idle), (error) => { failures.push(error) })
+    const host = await serve(downlinks)
+    running.push(host.close)
+    // A socket the peer dropped between admission and the first control write
+    // reports a non-OPEN state, and no frame may be attributed to it.
+    const readyState = vi.spyOn(WebSocket.prototype, 'readyState', 'get')
+      .mockReturnValue(WebSocket.CLOSING)
+    try {
+      const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+      await vi.waitFor(() => {
+        expect(failures.map(String).join('\n')).toContain('websocket downlink closed before control delivery')
+      })
+      readyState.mockRestore()
+      // The mock also shadowed the client's own handshake state, so end this
+      // socket without waiting for a negotiated close.
+      socket.terminate()
+    } finally {
+      readyState.mockRestore()
+    }
+  })
+
+  it('fails the downlink when the identity frame send reports an error', async () => {
+    const failures: unknown[] = []
+    const downlinks = new WebSocketDownlinks(api(idle, idle), (error) => { failures.push(error) })
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const sendSpy = vi.spyOn(WebSocket.prototype, 'send').mockImplementation(((
+      _data: unknown,
+      callback?: (error?: Error) => void,
+    ) => { callback?.(new Error('simulated send failure')) }) as typeof WebSocket.prototype.send)
+    try {
+      const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+      await once(socket, 'open')
+      await vi.waitFor(() => {
+        expect(failures.map(String).join('\n')).toContain('simulated send failure')
+      })
+      socket.close()
+      await once(socket, 'close')
+    } finally {
+      sendSpy.mockRestore()
+    }
+  })
+})
+
+describe('rejectWebSocketUpgrade', () => {
+  it('answers an untrusted upgrade with a stable refusal', async () => {
+    const server = createServer()
+    server.on('upgrade', (_request, socket) => { rejectWebSocketUpgrade(socket) })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    try {
+      const socket = new WebSocket(`ws://127.0.0.1:${String(port)}${MUX_EVENTS_PATH}`)
+      const answer = await new Promise<string>((resolve, reject) => {
+        socket.once('unexpected-response', (_request, response) => {
+          const chunks: Buffer[] = []
+          response.on('data', (chunk: Buffer) => { chunks.push(chunk) })
+          response.on('end', () => {
+            resolve(`${String(response.statusCode)}|${Buffer.concat(chunks).toString('utf8')}`)
+          })
+        })
+        socket.once('open', () => { reject(new Error('an untrusted upgrade was accepted')) })
+        socket.once('error', () => undefined)
+      })
+      expect(answer).toBe('403|forbidden')
+    } finally {
+      await new Promise<void>(resolve => server.close(() => { resolve() }))
+    }
+  })
+})
+
+describe('rejectUnauthorizedWebSocket', () => {
+  /** Capture the raw HTTP response an upgrade rejection writes. */
+  async function rejection(decision: Extract<AuthenticationDecision, { kind: 'rejected' }>): Promise<string> {
+    const server = createServer()
+    server.on('upgrade', (_request, socket) => { rejectUnauthorizedWebSocket(socket, decision) })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    try {
+      const socket = new WebSocket(`ws://127.0.0.1:${String(port)}${MUX_EVENTS_PATH}`)
+      return await new Promise<string>((resolve, reject) => {
+        socket.once('unexpected-response', (_request, response) => {
+          const chunks: Buffer[] = []
+          response.on('data', (chunk: Buffer) => { chunks.push(chunk) })
+          response.on('end', () => {
+            resolve([
+              String(response.statusCode),
+              String(response.headers['retry-after'] ?? '-'),
+              String(response.headers['www-authenticate'] ?? '-'),
+              Buffer.concat(chunks).toString('utf8'),
+            ].join('|'))
+          })
+        })
+        socket.once('open', () => { reject(new Error('a rejection was upgraded')) })
+        socket.once('error', () => undefined)
+      })
+    } finally {
+      await new Promise<void>(resolve => server.close(() => { resolve() }))
+    }
+  }
+
+  it('answers a rate-limited upgrade with a retry interval in whole seconds', async () => {
+    expect(await rejection({ kind: 'rejected', reason: 'rate-limited', retryAfterMs: 1_500 }))
+      .toBe('429|2|-|rate limited')
+  })
+
+  it.each([
+    'invalid-credential',
+    'missing-credential',
+    'authentication-unavailable',
+  ] as const)('answers a %s upgrade with a stable challenge', async (reason) => {
+    expect(await rejection({ kind: 'rejected', reason }))
+      .toBe('401|-|Bearer realm="dsh"|unauthorized')
   })
 
   it('waits for source cleanup before teardown resolves', async () => {
