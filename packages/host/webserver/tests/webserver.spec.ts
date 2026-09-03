@@ -12,7 +12,7 @@ import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
@@ -272,6 +272,63 @@ describe('real Loader composition', () => {
     expect(upgradedServerClosed).toBe(true)
     upgraded.destroy()
     await expect(request(port, '/probe')).rejects.toThrow()
+  })
+
+  it('treats a client abort while reading its request body as a quiet disconnect', { timeout: 60_000 }, async () => {
+    const loaded = await loadComposition()
+    const owner = (loaded.webServer as unknown as { ctx: Context }).ctx
+    const warn = vi.spyOn(owner.logger, 'warn').mockImplementation(() => owner.logger)
+    const entered = Promise.withResolvers<undefined>()
+    const finished = Promise.withResolvers<undefined>()
+    loaded.webServer.register({
+      kind: 'exact',
+      path: '/abort-body',
+      handler: async (req) => {
+        entered.resolve(undefined)
+        try {
+          await once(req, 'aborted')
+          throw Object.assign(new Error('aborted'), { code: 'ECONNRESET' })
+        } finally {
+          finished.resolve(undefined)
+        }
+      },
+    })
+    const socket = connect(loaded.webServer.port, '127.0.0.1')
+    await once(socket, 'connect')
+    socket.write([
+      'POST /abort-body HTTP/1.1',
+      `Host: 127.0.0.1:${String(loaded.webServer.port)}`,
+      'Content-Length: 100',
+      '',
+      'partial',
+    ].join('\r\n'))
+    await entered.promise
+    socket.destroy()
+    await once(socket, 'close')
+    await finished.promise
+    await new Promise<void>(resolve => setImmediate(resolve))
+
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('still reports a route failure after receiving the complete request body', { timeout: 60_000 }, async () => {
+    const loaded = await loadComposition()
+    const owner = (loaded.webServer as unknown as { ctx: Context }).ctx
+    const warn = vi.spyOn(owner.logger, 'warn').mockImplementation(() => owner.logger)
+    loaded.webServer.register({
+      kind: 'exact',
+      path: '/completed-reset',
+      handler: async (req) => {
+        for await (const _chunk of req) { /* Drain the complete request before the route failure. */ }
+        throw Object.assign(new Error('route reset'), { code: 'ECONNRESET' })
+      },
+    })
+
+    await expect(request(loaded.webServer.port, '/completed-reset', {
+      method: 'POST',
+      body: 'complete',
+    })).resolves.toMatchObject({ status: 400 })
+    expect(warn).toHaveBeenCalledOnce()
   })
 
   it('fails the fiber when the port is already taken (fail-loud at activation)', { timeout: 60_000 }, async () => {
