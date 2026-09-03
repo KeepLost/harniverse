@@ -3,7 +3,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import LlmRuntime, { INVALID_CREDENTIAL_CODE } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, INVALID_CREDENTIAL_CODE } from '@deepseek-ai/dsh-llm'
+import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { LocalCredentialProvider } from '@deepseek-ai/dsh-credentials-local'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -201,5 +202,38 @@ describe('request-level dynamic configuration', () => {
     await prompt(ctx)
     expect(serverA.requests).toHaveLength(1)
     expect(serverA.headers[0]?.authorization).toBe('Bearer steady-key')
+  })
+
+  it('resolves the durable attachment service per image request', async () => {
+    vi.stubEnv('DEEPSEEK_API_KEY', '')
+    const dir = await home()
+    await writeFile(join(dir, '.credentials.yaml'), 'DEEPSEEK_API_KEY: image-key\n', { mode: 0o600 })
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const { ctx } = await boot(dir, {
+      baseURL: server.url,
+      models: [{ id: 'deepseek-vision', inputModalities: ['text', 'image'] }],
+    })
+    // The route reads `ctx.attachments` per request rather than capturing it at
+    // composition time, so a store mounted afterwards still serves images.
+    await ctx.plugin(LocalAttachmentStore, { dshHome: dir })
+    // A minimal valid 2x1 PNG; the store decodes it to verify the bytes.
+    const png = Uint8Array.from(Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADklEQVQImWNgZGL+D8IABjsCC2IwlrMAAAAASUVORK5CYII=',
+      'base64',
+    ))
+    const ref = await ctx.attachments.saveImage({ data: png, mediaType: 'image/png' })
+
+    await assemble(ctx, {
+      model: 'deepseek-vision',
+      messages: [createUserMessage({
+        content: [{ type: 'image', attachment: ref }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    })
+
+    const body = server.requests[0] as { messages: { role: string; content: unknown }[] }
+    expect(body.messages[0]?.content).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'image_url' }),
+    ]))
   })
 })

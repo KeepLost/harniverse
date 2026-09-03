@@ -283,6 +283,156 @@ describe('serializeMessages', () => {
     }
   })
 
+  it('refuses an image the request never prepared', async () => {
+    const image = requestImage()
+
+    // Neither prepared nor deliberately omitted: the request is incoherent.
+    await expect(serializeMessagesWithImages([
+      createUserMessage({
+        content: [{ type: 'image', attachment: image.attachment }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
+    ], {
+      representation: { kind: 'base64' },
+      requestImages: new Map(),
+    })).rejects.toMatchObject({ code: 'INVALID_REQUEST' })
+  })
+
+  it('carries tool-result images into a following user message', async () => {
+    const image = requestImage()
+    const wire = await serializeMessagesWithImages([
+      createUserMessage({
+        content: [{
+          type: 'tool-result',
+          toolCallId: CallId('call-1'),
+          content: [
+            { type: 'text', text: 'rendered' },
+            { type: 'image', attachment: image.attachment },
+          ],
+        }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
+    ], {
+      representation: { kind: 'base64' },
+      requestImages: new Map([[image.attachment.attachmentId, image]]),
+    })
+
+    // The tool turn keeps only its text; images follow as user content the
+    // provider accepts.
+    expect(wire).toMatchObject([
+      { role: 'tool', tool_call_id: 'call-1' },
+      { role: 'user', content: [{ type: 'text' }, { type: 'image_url' }] },
+    ])
+    const toolMessage = wire[0] as { content: string }
+    expect(toolMessage.content).toContain('rendered')
+  })
+
+  it('reports no output for a tool result that produced none', async () => {
+    const wire = await serializeMessagesWithImages([
+      createUserMessage({
+        content: [{
+          type: 'tool-result',
+          toolCallId: CallId('call-2'),
+          // An empty text block contributes nothing at all.
+          content: [{ type: 'text', text: '' }],
+        }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
+    ], { representation: { kind: 'base64' }, requestImages: new Map() })
+
+    expect(wire).toEqual([{ role: 'tool', tool_call_id: 'call-2', content: '(no output)' }])
+  })
+
+  it('flushes pending tool images before a following system or assistant turn', async () => {
+    const image = requestImage()
+    const wire = await serializeMessagesWithImages([
+      createUserMessage({
+        content: [{
+          type: 'tool-result',
+          toolCallId: CallId('call-3'),
+          content: [{ type: 'image', attachment: image.attachment }],
+        }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
+      createMessage({ role: 'system', content: [{ type: 'text', text: 'after' }], source: { kind: 'plugin', plugin: 'test' } }),
+    ], {
+      representation: { kind: 'base64' },
+      requestImages: new Map([[image.attachment.attachmentId, image]]),
+    })
+
+    expect(wire.map(entry => entry.role)).toEqual(['tool', 'user', 'system'])
+  })
+
+  it('flattens a tool result nested inside another tool result', async () => {
+    const image = requestImage()
+    const wire = await serializeMessagesWithImages([
+      createUserMessage({
+        content: [{
+          type: 'tool-result',
+          toolCallId: CallId('outer'),
+          content: [
+            { type: 'text', text: 'outer text' },
+            {
+              type: 'tool-result',
+              toolCallId: CallId('inner'),
+              content: [
+                { type: 'text', text: 'inner text' },
+                { type: 'image', attachment: image.attachment },
+              ],
+            },
+          ],
+        }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
+    ], {
+      representation: { kind: 'base64' },
+      requestImages: new Map([[image.attachment.attachmentId, image]]),
+    })
+
+    // The nested result contributes its own text and image to the outer one.
+    const toolMessage = wire[0] as { role: string; content: string }
+    expect(toolMessage.role).toBe('tool')
+    expect(toolMessage.content).toContain('outer text')
+    expect(toolMessage.content).toContain('inner text')
+    expect(wire[1]).toMatchObject({ role: 'user', content: [{ type: 'text' }, { type: 'image_url' }] })
+  })
+
+  it('serializes an assistant turn alongside prepared images', async () => {
+    const image = requestImage()
+    const wire = await serializeMessagesWithImages([
+      createUserMessage({
+        content: [{ type: 'image', attachment: image.attachment }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
+      createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'described' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
+    ], {
+      representation: { kind: 'base64' },
+      requestImages: new Map([[image.attachment.attachmentId, image]]),
+    })
+
+    expect(wire.map(entry => entry.role)).toEqual(['user', 'assistant'])
+    expect(wire[1]).toMatchObject({ role: 'assistant', content: 'described' })
+  })
+
+  it('skips content kinds the provider wire has no place for', async () => {
+    const wire = await serializeMessagesWithImages([
+      createUserMessage({
+        content: [
+          { type: 'text', text: 'kept' },
+          // A reasoning block belongs to assistant history, not user content.
+          { type: 'reasoning', text: 'private' } as ContentBlock,
+        ],
+        source: { kind: 'plugin', plugin: 'test' },
+      }),
+    ], { representation: { kind: 'base64' }, requestImages: new Map() })
+
+    expect(wire).toEqual([{ role: 'user', content: 'kept' }])
+  })
+
   it('emits an empty user message rather than dropping block-less messages', () => {
     const wire = serializeMessages([createUserMessage({
       content: [],
@@ -365,6 +515,46 @@ describe('serializeRequest', () => {
     )
     expect(wire.thinking).toEqual({ type: 'enabled' })
     expect(wire.reasoning_effort).toBe('max')
+  })
+
+  it('places the system prompt ahead of image-bearing history', async () => {
+    const image = requestImage()
+    const wire = await serializeRequest(
+      request({
+        system: 'be careful',
+        messages: [createUserMessage({
+          content: [{ type: 'image', attachment: image.attachment }],
+          source: { kind: 'plugin', plugin: 'test' },
+        })],
+      }),
+      {},
+      {
+        representation: { kind: 'base64' },
+        requestImages: new Map([[image.attachment.attachmentId, image]]),
+      },
+    )
+
+    expect(wire.messages[0]).toEqual({ role: 'system', content: 'be careful' })
+    expect(wire.messages[1]).toMatchObject({ role: 'user' })
+  })
+
+  it('omits a system turn from an image request that has none', async () => {
+    const image = requestImage()
+    const wire = await serializeRequest(
+      request({
+        messages: [createUserMessage({
+          content: [{ type: 'image', attachment: image.attachment }],
+          source: { kind: 'plugin', plugin: 'test' },
+        })],
+      }),
+      {},
+      {
+        representation: { kind: 'base64' },
+        requestImages: new Map([[image.attachment.attachmentId, image]]),
+      },
+    )
+
+    expect(wire.messages.map(entry => entry.role)).toEqual(['user'])
   })
 
   it('rejects enabling thinking when the deployment is locked to disabled', () => {
