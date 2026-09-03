@@ -353,9 +353,10 @@ export function toFetchHandler(
   }
 
   function makeRoomForIdempotency(): void {
-    while (idempotency.size >= maxIdempotencyEntries) {
-      const oldest = idempotency.keys().next().value
-      if (oldest === undefined) return
+    // Insertion order is eviction order; the loop only runs while the ledger is
+    // full, so it always has a key to drop.
+    for (const oldest of idempotency.keys()) {
+      if (idempotency.size < maxIdempotencyEntries) return
       idempotency.delete(oldest)
     }
   }

@@ -94,9 +94,11 @@ const LITERAL_TEST_CACHE_LIMIT = 256
 function literalTest(character: string): RegExp {
   let test = literalTests.get(character)
   if (test === undefined) {
-    if (literalTests.size >= LITERAL_TEST_CACHE_LIMIT) {
-      const oldest = literalTests.keys().next().value
-      if (oldest !== undefined) literalTests.delete(oldest)
+    // A full cache always yields a key, so eviction reads the iterator rather
+    // than testing for one.
+    for (const oldest of literalTests.keys()) {
+      if (literalTests.size < LITERAL_TEST_CACHE_LIMIT) break
+      literalTests.delete(oldest)
     }
     test = new RegExp(`^${escapeRegExp(character)}$`, 'iu')
     literalTests.set(character, test)
@@ -129,8 +131,11 @@ function compileMatcher(pattern: string): GlobMatcher {
     states.push({ epsilon: [], transitions: [] })
     return states.length - 1
   }
-  const epsilon = (from: number, to: number): void => { states[from]?.epsilon.push(to) }
-  const transition = (from: number, value: GlobTransition): void => { states[from]?.transitions.push(value) }
+  // Every id in this machine came from `state()`, which pushes before it
+  // returns, so an id always addresses a state.
+  const at = (id: number): GlobState => states[id] as GlobState
+  const epsilon = (from: number, to: number): void => { at(from).epsilon.push(to) }
+  const transition = (from: number, value: GlobTransition): void => { at(from).transitions.push(value) }
 
   const sequence = (start: number, offset: number, inBrace: boolean): {
     end: number
@@ -190,19 +195,19 @@ function compileMatcher(pattern: string): GlobMatcher {
         continue
       }
       if (character === '[') {
+        // Every `[` was proven to have a `]` before compilation started, so
+        // the close is an index rather than a possibility.
         const close = pattern.indexOf(']', index + 1)
-        if (close !== -1) {
-          const body = pattern.slice(index + 1, close)
-          if (body.includes('[')) throw new Error('nested character class')
-          const negated = body.startsWith('!') || body.startsWith('^')
-          const members = (negated ? body.slice(1) : body).replaceAll(/[\\^\]]/gu, member => `\\${member}`)
-          if (members === '') throw new Error('empty character class')
-          const next = state()
-          transition(current, { to: next, kind: 'test', test: new RegExp(`^[${negated ? '^' : ''}${members}]$`, 'iu') })
-          current = next
-          index = close + 1
-          continue
-        }
+        const body = pattern.slice(index + 1, close)
+        if (body.includes('[')) throw new Error('nested character class')
+        const negated = body.startsWith('!') || body.startsWith('^')
+        const members = (negated ? body.slice(1) : body).replaceAll(/[\\^\]]/gu, member => `\\${member}`)
+        if (members === '') throw new Error('empty character class')
+        const next = state()
+        transition(current, { to: next, kind: 'test', test: new RegExp(`^[${negated ? '^' : ''}${members}]$`, 'iu') })
+        current = next
+        index = close + 1
+        continue
       }
       const literal = String.fromCodePoint(pattern.codePointAt(index) as number)
       const next = state()
@@ -226,24 +231,26 @@ function compileMatcher(pattern: string): GlobMatcher {
         const current = pending.pop() as number
         if (reached.has(current)) continue
         reached.add(current)
-        pending.push(...states[current]?.epsilon ?? [])
+        pending.push(...at(current).epsilon)
       }
       return [...reached]
     })
+    // Closures are built one per state, so a state id addresses one.
+    const closureOf = (id: number): readonly number[] => closures[id] as readonly number[]
     return (candidate) => {
       let active = new Uint8Array(states.length)
-      for (const reached of closures[start] ?? []) active[reached] = 1
+      for (const reached of closureOf(start)) active[reached] = 1
       for (const character of candidate) {
         const next = new Uint8Array(states.length)
         for (let index = 0; index < states.length; index++) {
           if (active[index] !== 1) continue
-          for (const edge of states[index]?.transitions ?? []) {
+          for (const edge of at(index).transitions) {
             const matches = edge.kind === 'any'
               || edge.kind === 'slash' && character === '/'
               || edge.kind === 'not-slash' && character !== '/'
               || edge.kind === 'test' && edge.test?.test(character) === true
             if (!matches) continue
-            for (const reached of closures[edge.to] ?? []) next[reached] = 1
+            for (const reached of closureOf(edge.to)) next[reached] = 1
           }
         }
         active = next
