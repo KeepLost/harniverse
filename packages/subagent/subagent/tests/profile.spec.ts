@@ -90,3 +90,66 @@ describe('Child Profile resolution', () => {
     expect(() => childProfileToolFilter(profile, { allow: ['write'] })).toThrow('outside child profile')
   })
 })
+
+describe('durable descriptor projection', () => {
+  /** One descriptor event carrying an arbitrary persisted payload. */
+  const stored = (data: unknown): SessionEvent[] =>
+    [{ type: 'subagent/descriptor', data }] as unknown as SessionEvent[]
+
+  it('omits every optional field a continuable descriptor does not declare', () => {
+    const descriptor = snapshotSubagentDescriptor({
+      mode: 'continuable',
+      provider: 'native',
+      label: 'reviewer',
+    })
+
+    expect(descriptor).toEqual({ version: 3, mode: 'continuable', provider: 'native', label: 'reviewer' })
+    for (const key of ['agentProvider', 'agentModel', 'persona', 'toolFilter', 'childProfile']) {
+      expect(descriptor).not.toHaveProperty(key)
+    }
+  })
+
+  it('carries every optional field a continuable descriptor declares', () => {
+    const profile = resolveChildProfile(spec({ tools: ['read'] }), grant, 1)
+    const descriptor = snapshotSubagentDescriptor({
+      mode: 'continuable',
+      provider: 'native',
+      label: 'reviewer',
+      agentProvider: 'deepseek-official',
+      agentModel: 'deepseek-v4-flash',
+      persona: 'You review code.',
+      toolFilter: { allow: ['read'] },
+      childProfile: profile,
+    })
+
+    expect(descriptor).toMatchObject({
+      agentProvider: 'deepseek-official',
+      agentModel: 'deepseek-v4-flash',
+      persona: 'You review code.',
+      toolFilter: { allow: ['read'] },
+      childProfile: profile,
+    })
+    // The durable projection round-trips every declared field.
+    expect(foldSubagentDescriptor(stored(descriptor))).toEqual(descriptor)
+  })
+
+  it('reads back a continuable descriptor that declares no optional field', () => {
+    const descriptor = { version: 3, mode: 'continuable', provider: 'native', label: 'reviewer' }
+
+    expect(foldSubagentDescriptor(stored(descriptor))).toEqual(descriptor)
+  })
+
+  it('omits an absent label and child profile from a one-shot descriptor', () => {
+    const descriptor = { version: 3, mode: 'one-shot', provider: 'native' }
+
+    const folded = foldSubagentDescriptor(stored(descriptor))
+    expect(folded).toEqual(descriptor)
+    expect(folded).not.toHaveProperty('label')
+    expect(folded).not.toHaveProperty('childProfile')
+  })
+
+  it('has no descriptor for a log that never recorded one', () => {
+    expect(foldSubagentDescriptor([])).toBeUndefined()
+    expect(foldSubagentDescriptor(stored({ version: 2, mode: 'one-shot', provider: 'native' }))).toBeUndefined()
+  })
+})
