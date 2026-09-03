@@ -122,3 +122,107 @@ describe('authentication access records', () => {
       .rejects.toThrow(/accessible beyond its owner/)
   })
 })
+
+describe('access log rotation', () => {
+  const record = (event: 'instance-started' | 'instance-stopped', time: string): Parameters<typeof appendAccessRecord>[0] =>
+    ({ time, event })
+
+  /** Existing rotated generations, newest first, as their raw text. */
+  async function generations(dshHome: string, maxFiles: number): Promise<Array<string | undefined>> {
+    const path = accessLogPath(dshHome)
+    return await Promise.all(Array.from({ length: maxFiles }, async (_, index) =>
+      await readFile(`${path}.${String(index + 1)}`, 'utf8').catch(() => undefined)))
+  }
+
+  it('rotates the active file once it would exceed the byte bound', async () => {
+    const dshHome = await home()
+    const path = accessLogPath(dshHome)
+    const first = record('instance-started', '2026-08-16T00:00:00.000Z')
+    const line = `${JSON.stringify(first)}\n`
+    // A bound that admits exactly one record forces the second to rotate.
+    const maxBytes = Buffer.byteLength(line)
+
+    await appendAccessRecord(first, { dshHome, maxBytes, maxFiles: 3 })
+    await appendAccessRecord(record('instance-stopped', '2026-08-16T00:00:01.000Z'), { dshHome, maxBytes, maxFiles: 3 })
+
+    expect(await readFile(path, 'utf8')).toContain('instance-stopped')
+    expect(await readFile(`${path}.1`, 'utf8')).toContain('instance-started')
+  })
+
+  it('splits one batch across a rotation boundary in admission order', async () => {
+    const dshHome = await home()
+    const path = accessLogPath(dshHome)
+    const first = record('instance-started', '2026-08-16T00:00:00.000Z')
+    const maxBytes = Buffer.byteLength(`${JSON.stringify(first)}\n`)
+
+    await appendAccessRecords([
+      first,
+      record('instance-stopped', '2026-08-16T00:00:01.000Z'),
+    ], { dshHome, maxBytes, maxFiles: 2 })
+
+    // The first record is written before rotation so the batch stays ordered
+    // across the boundary rather than being reordered or dropped.
+    expect(await readFile(`${path}.1`, 'utf8')).toContain('instance-started')
+    expect(await readFile(path, 'utf8')).toContain('instance-stopped')
+  })
+
+  it('shifts existing generations and discards the oldest beyond the file bound', async () => {
+    const dshHome = await home()
+    const maxBytes = Buffer.byteLength(`${JSON.stringify(record('instance-started', '2026-08-16T00:00:00.000Z'))}\n`)
+    const times = Array.from({ length: 5 }, (_, index) => `2026-08-16T00:00:0${String(index)}.000Z`)
+
+    for (const time of times) {
+      await appendAccessRecord(record('instance-started', time), { dshHome, maxBytes, maxFiles: 2 })
+    }
+
+    // Two generations are retained: the newest rotated pair. Older ones are gone.
+    const retained = await generations(dshHome, 3)
+    expect(retained[0]).toContain(times[3] as string)
+    expect(retained[1]).toContain(times[2] as string)
+    expect(retained[2]).toBeUndefined()
+    expect(await readFile(accessLogPath(dshHome), 'utf8')).toContain(times[4] as string)
+  })
+
+  it('keeps one oversized record in its own generation', async () => {
+    const dshHome = await home()
+    const path = accessLogPath(dshHome)
+
+    // A record larger than the whole bound cannot be split, so it is written
+    // whole rather than refused or truncated.
+    await appendAccessRecord(record('instance-started', '2026-08-16T00:00:00.000Z'), { dshHome, maxBytes: 1, maxFiles: 2 })
+    expect(await readFile(path, 'utf8')).toContain('instance-started')
+    await appendAccessRecord(record('instance-stopped', '2026-08-16T00:00:01.000Z'), { dshHome, maxBytes: 1, maxFiles: 2 })
+    expect(await readFile(path, 'utf8')).toContain('instance-stopped')
+    expect(await readFile(`${path}.1`, 'utf8')).toContain('instance-started')
+  })
+
+  it('writes nothing for an empty batch', async () => {
+    const dshHome = await home()
+    await appendAccessRecords([], { dshHome })
+    await expect(readFile(accessLogPath(dshHome), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it.each([
+    ['maxBytes', { maxBytes: 0 }, /maxBytes must be a positive integer/],
+    ['fractional maxBytes', { maxBytes: 1.5 }, /maxBytes must be a positive integer/],
+    ['maxFiles', { maxFiles: 0 }, /maxFiles must be a positive integer/],
+    ['fractional maxFiles', { maxFiles: 2.5 }, /maxFiles must be a positive integer/],
+  ])('refuses an unusable %s bound', async (_label, options, message) => {
+    const dshHome = await home()
+    await expect(appendAccessRecord(record('instance-started', '2026-08-16T00:00:00.000Z'), { dshHome, ...options }))
+      .rejects.toThrow(message)
+  })
+
+  it('propagates a non-missing failure while measuring the active file', async () => {
+    const dshHome = await home()
+    const path = accessLogPath(dshHome)
+    await appendAccessRecord(record('instance-started', '2026-08-16T00:00:00.000Z'), { dshHome })
+    // A directory in the active file's place is not a missing file, so the
+    // size probe must fail loudly instead of restarting the log at zero.
+    await rm(path)
+    await mkdir(path, { recursive: true })
+
+    await expect(appendAccessRecord(record('instance-stopped', '2026-08-16T00:00:01.000Z'), { dshHome }))
+      .rejects.toThrow()
+  })
+})

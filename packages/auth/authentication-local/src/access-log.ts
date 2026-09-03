@@ -125,7 +125,8 @@ export async function appendAccessRecords(records: readonly AccessRecord[], opti
       pending += line
       size += bytes
     }
-    if (pending.length > 0) await writeLines(path, pending)
+    // At least one record reaches this point, so the tail is never empty.
+    await writeLines(path, pending)
   })
 }
 
