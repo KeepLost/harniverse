@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Config } from '@deepseek-ai/dsh-terminal-bash/src/config.ts'
 import { validateConfig } from '@deepseek-ai/dsh-terminal-bash/src/config.ts'
+import { defaultInteractiveShell, defaultShellName } from '@deepseek-ai/dsh-shell'
 
 function config(overrides: Partial<Config> = {}): Config {
   return {
@@ -13,6 +14,13 @@ function config(overrides: Partial<Config> = {}): Config {
 }
 
 describe('terminal-bash config', () => {
+  it('uses zsh directly as the macOS interactive default without changing Linux', () => {
+    expect(defaultInteractiveShell('darwin')).toEqual({ path: '/bin/zsh', args: ['-f', '-i'] })
+    expect(defaultInteractiveShell('linux')).toEqual({ path: '/bin/bash', args: ['--noprofile', '--norc', '-i'] })
+    expect(defaultShellName('darwin')).toBe('zsh')
+    expect(defaultShellName('linux')).toBe('bash')
+  })
+
   it('accepts resolved positive bounds', () => {
     expect(() => { validateConfig(config()) }).not.toThrow()
   })

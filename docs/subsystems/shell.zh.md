@@ -236,7 +236,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.shell` — `ShellExecutor` (abstract seam)
 
-Abstract bash execution service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.shell` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
+Abstract POSIX shell execution service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.shell` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
 
 Implementations must honor these semantics:
 
@@ -270,7 +270,7 @@ abstract run(spec: ShellExecSpec): Promise<ShellRunResult>
 abstract start(spec: ShellExecSpec): ShellProcess
 ```
 
-Source: [`packages/shell/shell/src/index.ts:65`](../../packages/shell/shell/src/index.ts)
+Source: [`packages/shell/shell/src/index.ts:72`](../../packages/shell/shell/src/index.ts)
 
 <a id="ctxshellenv--shellenvregistry"></a>
 

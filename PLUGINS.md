@@ -14,7 +14,7 @@ This document records the exact DeepSeek Harness plugin baseline imported by Har
 
 The two baseline commits have the same Git tree. All downstream statements therefore describe `440d2ae5a4..HEAD` without upstream-version ambiguity. The official inventory below covers first-party packages under `packages/*/*`; vendored Cordis packages are framework dependencies, while `apps/*` are launchers and assembled application hosts.
 
-Workspace workbench implementation tracking: `9a74618b20`; real-browser interaction hardening: `f986355714`; navigation, preview, and glob integration: `6fdf45691a`; session-control work-status response baseline: `fd4a04a42cc08ca07ccb09143ffdc2870b3cad5f`.
+Workspace workbench implementation tracking: `9a74618b20`; real-browser interaction hardening: `f986355714`; navigation, preview, and glob integration: `6fdf45691a`; session-control work-status response baseline: `fd4a04a42cc08ca07ccb09143ffdc2870b3cad5f`; native macOS shell and Intel runtime coverage: `97a196e925`.
 
 ## Official Plugin Inventory
 
@@ -142,6 +142,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | Derived runtime catalogs | `dsh-cordis-client-runner`, `dsh-tool-cordis` |
 | Test support projection | `dsh-acp-snapshot` normalization only |
 | Local process confinement | `dsh-sandbox-local`, `dsh-bash-sandbox` |
+| Platform-native shell defaults and runtime packaging | `dsh-shell`, `dsh-bash-local`, `dsh-bash-sandbox`, `dsh-terminal-bash`, `dsh-tool-bash-persistent`, and Python runtime packaging scripts |
 | Plugin operations and diagnostics | `dsh-host-plugin-inventory`, `dsh-api-remotes`, `dsh-client-ui-settings-plugin-inventory`, `dsh-web-app` |
 | Agent Profile capability composition | `dsh-agent-presets`, `dsh-tools`, `dsh-mcp-client`, `dsh-cordis-host-runner`, `dsh-tool-cordis`, `dsh-api-remotes`, `dsh-web-app` |
 | Supervision policy and Profile selection | `dsh-supervision`, `dsh-agent-presets`, `dsh-host-apiproxy`, `dsh-subagent`, `dsh-user-questions`, `dsh-user-approval`, `dsh-plan-mode`, `dsh-client-ui-conversation` |

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
+import { defaultShellName } from '@deepseek-ai/dsh-shell'
 import { seatbeltProfileArgs } from '@deepseek-ai/dsh-sandbox-local/src/profiles.ts'
 import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
@@ -48,6 +49,13 @@ async function sandboxedBash(workspace: string, mode: 'read-only' | 'workspace-w
 }
 
 describe.skipIf(!seatbeltUsable)('bash-sandbox: real Seatbelt confinement through ctx.shell', () => {
+  it('runs directly in the platform default shell', async () => {
+    const workdir = await tempDir(homedir())
+    const bash = await sandboxedBash(workdir, 'workspace-write')
+    const result = await bash.run(bash.resolve({ command: 'printf "%s" "${ZSH_VERSION:+zsh}${BASH_VERSION:+bash}"' }))
+    expect(result.stdout.text).toBe(defaultShellName())
+  })
+
   it('read-only denies a write — the file must NOT exist, and EPERM text classifies as a denial', async () => {
     const workdir = await tempDir(homedir())
     const bash = await sandboxedBash(workdir, 'read-only')
@@ -76,13 +84,14 @@ describe.skipIf(!seatbeltUsable)('bash-sandbox: real Seatbelt confinement throug
     expect(existsSync(join(outside, 'denied.txt'))).toBe(false)
   })
 
-  it('evaluates BASH_ENV only after Seatbelt confines the inner Bash', async () => {
+  it('evaluates the platform shell startup file only after Seatbelt confines the shell', async () => {
     const workdir = await tempDir(homedir())
     const outside = await tempDir(homedir())
-    const hook = join(workdir, 'bash-env-hook.sh')
+    const startupDir = await tempDir(workdir)
+    const startupFile = process.platform === 'darwin' ? join(startupDir, '.zshenv') : join(workdir, 'bash-env-hook.sh')
     const insideProbe = join(workdir, 'hook-ran.txt')
     const outsideProbe = join(outside, 'escaped.txt')
-    await writeFile(hook, [
+    await writeFile(startupFile, [
       'printf hook > "$DSH_BASH_ENV_INSIDE"',
       'printf escaped > "$DSH_BASH_ENV_OUTSIDE"',
       '',
@@ -91,7 +100,7 @@ describe.skipIf(!seatbeltUsable)('bash-sandbox: real Seatbelt confinement throug
 
     await bash.run(bash.resolve({
       command: 'true',
-      env: { BASH_ENV: hook },
+      env: process.platform === 'darwin' ? { ZDOTDIR: startupDir } : { BASH_ENV: startupFile },
       dshEnv: {
         DSH_BASH_ENV_INSIDE: insideProbe,
         DSH_BASH_ENV_OUTSIDE: outsideProbe,

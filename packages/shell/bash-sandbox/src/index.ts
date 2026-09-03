@@ -1,5 +1,5 @@
 /**
- * Sandbox-consuming bash executor. It wraps the exact local bash argv through
+ * Sandbox-consuming POSIX shell executor. It wraps the platform-default shell argv through
  * `ctx.sandbox`, inherits local process mechanics, and reports the selected
  * mode, enforcement, and denial facts. Positive runner-launch evidence means
  * the command never ran: foreground calls throw `SANDBOX_UNAVAILABLE`, while
@@ -23,6 +23,7 @@ import type {
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import type { Config as LocalConfig } from '@deepseek-ai/dsh-bash-local'
+import { commandShellArgv } from '@deepseek-ai/dsh-shell'
 import { classifyDenial, classifyRunnerFailure, isRunnerSpawnFailure, matchesSignature } from './helpers.ts'
 
 /**
@@ -170,12 +171,12 @@ export class SandboxBashExecutor extends LocalBashExecutor {
    * Wrap one shell command via the `ctx.sandbox` provider. Provider errors
    * propagate unchanged; the returned argv is handed directly to the local
    * executor's subprocess path.
-   * @param command - shell source for the confined inner `bash -c`.
+    * @param command - shell source for the confined inner platform shell `-c` invocation.
    * @param policy - resolved confined execution policy.
    * @returns the provider's exact argv and settlement-classification facts.
    */
   private confine(command: string, policy: SandboxPolicy): ConfinedArgv {
-    return this.ctx.sandbox.confine(['bash', '-c', command], policy)
+    return this.ctx.sandbox.confine(commandShellArgv(command), policy)
   }
 }
 

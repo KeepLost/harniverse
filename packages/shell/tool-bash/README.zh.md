@@ -16,7 +16,7 @@
 
 | 参数 | 类型 | 说明 |
 |---|---|---|
-| `command` | string（必填） | 通过 `bash -c` 运行。调用之间不保留状态；请使用 `workdir`，不要使用 `cd`。 |
+| `command` | string（必填） | 通过平台默认 POSIX shell 运行（macOS 上为 `zsh -c`，其他平台为 `bash -c`）。调用之间不保留状态；请使用 `workdir`，不要使用 `cd`。 |
 | `description` | string（必填） | 用一行主动语态概述命令（5～10 个词），仅用于 UI／日志显示，不影响执行。 |
 | `timeoutMs` | number | 以毫秒为单位覆盖超时时间。执行器会应用其配置的默认值和上限。 |
 | `workdir` | string | 本次调用的工作目录。默认为调用方 agent（智能体）会话 cwd 的文件系统标识（`session.header.cwd`），使每个会话都在自己的工作区中运行；相对 `workdir` 也以同一标识为基准解析。 |

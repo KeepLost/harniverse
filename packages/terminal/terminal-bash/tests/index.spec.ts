@@ -11,6 +11,7 @@ import TerminalSessionService, { TerminalBackendCleanupError, TerminalSessionId 
 import { BashTerminalBackend } from '@deepseek-ai/dsh-terminal-bash'
 import * as ptyLocal from '@deepseek-ai/dsh-terminal-bash'
 import type { ResolvedConfig } from '@deepseek-ai/dsh-terminal-bash/src/config.ts'
+import { CONTROLLED_ZSH_PROMPT } from '@deepseek-ai/dsh-terminal-bash/src/sanitize.ts'
 import type { LocalPtySession } from '@deepseek-ai/dsh-terminal-bash/src/session.ts'
 import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import type {
@@ -217,6 +218,27 @@ describe('BashTerminalBackend startup rollback', () => {
       argv: ['/bin/bash', '-i'],
       policy: { mode: 'workspace-write', sessionId: 'agent', workspaceRoot: '/workspace' },
     }])
+  })
+
+  it('uses the zsh prompt marker without Bash-only environment hooks', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/workspace' })
+    let spawned: SubprocessTerminalSpawnSpec | undefined
+    const backend = new BashTerminalBackend(
+      ctx,
+      { ...config(), shellPath: '/bin/zsh', shellArgs: ['-f', '-i'] },
+      async (spawnSpec) => {
+        spawned = spawnSpec
+        return terminalHandle()
+      },
+      () => stubLocalSession(),
+    )
+
+    await backend.spawn(spec(agent(ctx)))
+
+    expect(spawned?.env).toMatchObject({ PS1: CONTROLLED_ZSH_PROMPT, DSH_SHELL: '1' })
+    expect(spawned?.env).not.toHaveProperty('PROMPT_COMMAND')
+    expect(spawned?.env).not.toHaveProperty('BASH_SILENCE_DEPRECATION_WARNING')
   })
 
   it('resolves session mode and root together before wrapping the shell', async () => {

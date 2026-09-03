@@ -24,7 +24,7 @@ def parse_version(value: str) -> tuple[int, ...]:
 
 def claimed_version(platform_tag: str) -> tuple[int, ...]:
     """Return the minimum macOS version encoded by a wheel platform tag."""
-    match = re.fullmatch(r"macosx_(\d+)_(\d+)_arm64", platform_tag)
+    match = re.fullmatch(r"macosx_(\d+)_(\d+)_(?:arm64|x86_64)", platform_tag)
     if match is None:
         raise ValueError(f"unsupported macOS wheel platform tag: {platform_tag!r}")
     return int(match.group(1)), int(match.group(2))
@@ -84,11 +84,12 @@ def validate_deployment_targets(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--platform-tag", default=MACOS_PLATFORM_TAG)
     parser.add_argument("executables", type=Path, nargs="+")
     args = parser.parse_args()
-    for executable, version in validate_deployment_targets(args.executables):
+    for executable, version in validate_deployment_targets(args.executables, args.platform_tag):
         rendered = ".".join(str(part) for part in version)
-        print(f"{executable}: macOS {rendered} <= {MACOS_PLATFORM_TAG}")
+        print(f"{executable}: macOS {rendered} <= {args.platform_tag}")
 
 
 if __name__ == "__main__":

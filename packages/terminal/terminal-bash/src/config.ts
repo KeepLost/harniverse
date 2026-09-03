@@ -1,14 +1,17 @@
 /** Validated configuration for the local PTY backend. */
 
 import z from '@deepseek-ai/schemastery'
+import { defaultInteractiveShell } from '@deepseek-ai/dsh-shell'
+
+const DEFAULT_INTERACTIVE_SHELL = defaultInteractiveShell()
 
 /** Public plugin configuration. */
 export interface Config {
   /** Backend registry type (default: `shell`). */
   backendType?: string
-  /** Interactive shell executable (default: `/bin/bash`). */
+  /** Interactive shell executable (default: `/bin/zsh` on macOS, `/bin/bash` elsewhere). */
   shellPath?: string
-  /** Shell arguments (default: `--noprofile --norc -i`). */
+  /** Shell arguments (default: shell-specific no-rc interactive flags). */
   shellArgs?: string[]
   /** Terminal rows. */
   rows?: number
@@ -43,8 +46,8 @@ export type ResolvedConfig = Required<Config>
 /** Schemastery config exposed by the plugin. */
 export const Config: z<Config> = z.object({
   backendType: z.string().default('shell'),
-  shellPath: z.string().default('/bin/bash'),
-  shellArgs: z.array(z.string()).default(['--noprofile', '--norc', '-i']),
+  shellPath: z.string().default(DEFAULT_INTERACTIVE_SHELL.path),
+  shellArgs: z.array(z.string()).default(DEFAULT_INTERACTIVE_SHELL.args),
   rows: z.number().default(40),
   cols: z.number().default(160),
   scrollbackLines: z.number().default(10_000),

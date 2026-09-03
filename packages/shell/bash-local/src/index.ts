@@ -1,6 +1,7 @@
 /**
- * Local Service Provider for the bash capability seam over the subprocess
- * capability seam. Public commands run as `bash -c` in a managed process group spawned
+ * Local Service Provider for the shell capability seam over the subprocess
+ * capability seam. Public commands run as the platform default POSIX shell (`zsh -c`
+ * on macOS, `bash -c` elsewhere) in a managed process group spawned
  * through `ctx.subprocess`; subclasses may reuse the same mechanics with an
  * explicit argv. This executor owns command defaulting, deadlines and cause
  * classification, the model-friendly terminal environment, and the model-facing
@@ -11,7 +12,7 @@
 
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { SHELL_SETTINGS_NAMESPACE, ShellExecutor } from '@deepseek-ai/dsh-shell'
+import { commandShellArgv, SHELL_SETTINGS_NAMESPACE, ShellExecutor } from '@deepseek-ai/dsh-shell'
 import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellProcessRead, ShellRunResult, CollectedOutput } from '@deepseek-ai/dsh-shell'
 import type { SubprocessCollect, SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { installSettingsSection } from '@deepseek-ai/dsh-settings'
@@ -209,7 +210,7 @@ export class LocalBashExecutor extends ShellExecutor {
   }
 
   async run(spec: ShellExecSpec): Promise<ShellRunResult> {
-    return this.runArgv(spec, ['bash', '-c', spec.command])
+    return this.runArgv(spec, commandShellArgv(spec.command))
   }
 
   /**

@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
+import { commandShellArgv } from '@deepseek-ai/dsh-shell'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 import { seatbeltProfileArgs } from '../src/profiles.ts'
 
@@ -45,7 +46,7 @@ async function provider(): Promise<LocalSandboxProvider> {
 
 /** Confine a shell command under `policy` and run it for real; returns the spawn result and the wrap's facts. */
 function runConfined(sandbox: LocalSandboxProvider, command: string, policy: SandboxPolicy) {
-  const confined = sandbox.confine(['bash', '-c', command], policy)
+  const confined = sandbox.confine(commandShellArgv(command), policy)
   const result = spawnSync(confined.argv[0] as string, confined.argv.slice(1), { timeout: 30_000, encoding: 'utf8' })
   return { result, confined }
 }

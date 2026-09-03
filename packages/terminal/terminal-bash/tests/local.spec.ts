@@ -6,6 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { defaultInteractiveShell } from '@deepseek-ai/dsh-shell'
 import TerminalSessionService from '@deepseek-ai/dsh-terminal'
 import type { TerminalSendOperation } from '@deepseek-ai/dsh-terminal'
 import SandboxProvider from '@deepseek-ai/dsh-sandbox'
@@ -140,8 +141,9 @@ describe('terminal-bash real shell', () => {
   it('wraps the exact shell argv under confined policy and unregisters on reload', async () => {
     const { ctx, root, agent, fiber, sandbox } = await harness('workspace-write')
     const created = await ctx.terminals.spawn(agent, { type: 'shell' })
+    const shell = defaultInteractiveShell()
     expect(sandbox.calls).toEqual([{
-      argv: ['/bin/bash', '--noprofile', '--norc', '-i'],
+      argv: [shell.path, ...shell.args],
       policy: { mode: 'workspace-write', workspaceRoot: realpathSync.native(root), sessionId: 'agent-workspace-write' },
     }])
     await fiber.dispose()

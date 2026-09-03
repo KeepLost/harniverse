@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { commandShellArgv, defaultShellName } from '@deepseek-ai/dsh-shell'
 import type { ShellRunResult, CollectedOutput } from '@deepseek-ai/dsh-shell'
 import { SANDBOX_UNAVAILABLE, SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxExecutionPolicy, SandboxMode, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
@@ -93,7 +94,7 @@ describe('the provider hand-off', () => {
     expect(result.stdout.text).toBe('a b c\'d\n')
     expect(result.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
     expect(calls).toEqual([{
-      argv: ['bash', '-c', 'echo \'a b\' "c\'d"'],
+      argv: [...commandShellArgv('echo \'a b\' "c\'d"')],
       policy: { mode: 'read-only', workspaceRoot: resolve(process.cwd()) },
     }])
   })
@@ -109,10 +110,11 @@ describe('the provider hand-off', () => {
     expect(result.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
   })
 
-  it('starts a non-Bash runner before the confined inner Bash evaluates BASH_ENV', async () => {
+  it('starts a non-shell runner before the confined inner shell evaluates its startup hook', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-bash-env-order-'))
-    const hook = join(dir, 'hook.sh')
     const order = join(dir, 'order.txt')
+    const zsh = defaultShellName() === 'zsh'
+    const hook = join(dir, zsh ? '.zshenv' : 'hook.sh')
     writeFileSync(hook, 'printf "hook\\n" >> "$DSH_ORDER_FILE"\n')
     const runnerScript = [
       'const { appendFileSync } = require("node:fs");',
@@ -131,7 +133,7 @@ describe('the provider hand-off', () => {
     try {
       const result = await bash.run(bash.resolve({
         command: 'true',
-        env: { BASH_ENV: hook },
+        env: zsh ? { ZDOTDIR: dir } : { BASH_ENV: hook },
         dshEnv: { DSH_ORDER_FILE: order },
       }))
       expect(result.exitCode).toBe(0)
