@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import { defaultShellName } from '@deepseek-ai/dsh-shell'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -369,8 +370,8 @@ describe('tool-bash-persistent', () => {
     expect(exited).toContain('hello from')
     expect(exited).toContain('[shell exited: code 9]')
     expect(exited).not.toContain('[exit code: 9]')
-    expect(exited).toContain('next bash call starts from the workspace')
-    expect(session.closed).toContain('persistent bash shell exited')
+    expect(exited).toContain(`next ${defaultShellName()} call starts from the workspace`)
+    expect(session.closed).toContain(`persistent ${defaultShellName()} shell exited`)
 
     await call(ctx, owner, 'new shell')
     expect(stub.sessions).toHaveLength(2)
@@ -465,7 +466,7 @@ describe('tool-bash-persistent', () => {
     const result = await call(ctx, owner, 'hang')
     expect(text(result)).toContain('timed out after 0 seconds or experienced an OOM error')
     expect(text(result)).toContain('partial output')
-    expect(text(result)).toContain('next bash call starts from the workspace')
+    expect(text(result)).toContain(`next ${defaultShellName()} call starts from the workspace`)
     expect(stub.sessions[0]?.closed).toContain('persistent bash command timed out')
   })
 

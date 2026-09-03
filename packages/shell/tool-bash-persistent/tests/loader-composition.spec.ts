@@ -7,6 +7,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import { defaultShellName } from '@deepseek-ai/dsh-shell'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -155,7 +156,7 @@ suite('persistent Bash through a real cordis.yml Loader composition', () => {
     expect(large).not.toContain('beginning of this command output was dropped')
 
     const exited = text(await execute('exit', 'exit'))
-    expect(exited).toContain('next bash call starts from the workspace')
+    expect(exited).toContain(`next ${defaultShellName()} call starts from the workspace`)
     expect(text(await execute('after-exit', 'printf "%s\\n" "$PWD"'))).toBe(root)
   }, 20_000)
 })
