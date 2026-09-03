@@ -255,6 +255,85 @@ describe('browser login rate limiting', () => {
   })
 })
 
+describe('browser session lifetime reclamation', () => {
+  it('reclaims an expired session before applying the capacity bound', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-08-17T00:00:00.000Z'))
+    const dshHome = await home()
+    await createGrantFixture(dshHome, 'owner')
+    const first = await createGrantFixture(dshHome, 'first', ['harniverse.observe'])
+    const second = await createGrantFixture(dshHome, 'second', ['harniverse.observe'])
+    const ctx = await boot(dshHome, {
+      accessTokenTtlMs: 1_000,
+      maxBrowserSessions: 1,
+      maxBrowserSessionsPerGrant: 1,
+    })
+
+    await expect(ctx.authentication.createBrowserSession(await signedProof(ctx, first, 'browser-session')))
+      .resolves.toMatchObject({ kind: 'accepted' })
+
+    // Past its lifetime the first session no longer occupies capacity, so a
+    // different Grant can log in without evicting a live session.
+    vi.setSystemTime(new Date('2026-08-17T00:00:02.000Z'))
+    await expect(ctx.authentication.createBrowserSession(await signedProof(ctx, second, 'browser-session')))
+      .resolves.toMatchObject({ kind: 'accepted' })
+  })
+
+  it('evicts a Grant\'s own oldest session at its per-Grant bound', async () => {
+    const dshHome = await home()
+    const owner = await createGrantFixture(dshHome, 'owner')
+    const ctx = await boot(dshHome, { maxBrowserSessions: 4, maxBrowserSessionsPerGrant: 1 })
+    const first = await ctx.authentication.createBrowserSession(await signedProof(ctx, owner, 'browser-session'))
+    if (first.kind !== 'accepted') throw new Error('expected a browser session')
+
+    const second = await ctx.authentication.createBrowserSession(await signedProof(ctx, owner, 'browser-session'))
+    expect(second.kind).toBe('accepted')
+
+    // The Grant traded its own older session for the newer one.
+    await expect(ctx.authentication.authenticate({
+      channel: 'websocket-mux',
+      browserSession: first.session.value,
+    })).resolves.toEqual({ kind: 'rejected', reason: 'invalid-credential' })
+  })
+})
+
+describe('reload containment', () => {
+  it('contains a throwing unavailability listener during a failed reload', async () => {
+    const dshHome = await home()
+    await createGrantFixture(dshHome, 'owner')
+    const ctx = await boot(dshHome, { reconcileIntervalMs: 5 })
+    const warnings = warningsOf(ctx)
+    ctx.on('authentication/unavailable', () => { throw new Error('listener exploded') })
+    breakRegistry()
+
+    // The reload fails, its unavailability listener throws, and neither escapes
+    // the process: the containment reports and the service stays usable.
+    await vi.waitFor(() => {
+      expect(warnings.join('\n')).toContain('Grant refresh failure containment failed')
+    })
+    await expect(ctx.authentication.authenticate({ channel: 'http-api' }))
+      .resolves.toEqual({ kind: 'rejected', reason: 'authentication-unavailable' })
+  })
+
+  it('settles every admission when a batch itself fails', async () => {
+    const dshHome = await home()
+    await createGrantFixture(dshHome, 'owner')
+    const ctx = await boot(dshHome)
+    // A throwing unavailability listener escapes the batch's own guards,
+    // because emitting is how the batch reports a sealed deployment.
+    ctx.on('authentication/unavailable', () => { throw new Error('listener exploded') })
+    breakRegistry()
+
+    // Both concurrent admissions settle rather than hanging.
+    const [first, second] = await Promise.allSettled([
+      ctx.authentication.authenticate({ channel: 'http-api' }),
+      ctx.authentication.authenticate({ channel: 'websocket-mux' }),
+    ])
+    expect(first?.status).toBeDefined()
+    expect(second?.status).toBeDefined()
+  })
+})
+
 describe('enrollment input refusal', () => {
   it('maps a validation failure to its stable reason without throwing', async () => {
     const dshHome = await home()

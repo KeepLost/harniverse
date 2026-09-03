@@ -209,6 +209,27 @@ describe('credential rejection shapes', () => {
       .resolves.toEqual({ kind: 'rejected', reason: 'invalid-credential' })
   })
 
+  it('refuses a forged secret carried by a real Access Token id', async () => {
+    const { ctx, challenge } = await owned()
+    const exchanged = await ctx.authentication.exchangeAccessToken(await challenge('access-token'))
+    if (exchanged.kind !== 'accepted') throw new Error('expected an Access Token')
+    const [prefix, id] = exchanged.value.value.split('_')
+    if (prefix === undefined || id === undefined) throw new Error('expected a structured token')
+
+    // The id resolves to a live record, so only the constant-time secret
+    // comparison stands between the caller and an admission.
+    await expect(ctx.authentication.authenticate({
+      channel: 'http-api',
+      authorization: `Bearer ${prefix}_${id}_${'z'.repeat(43)}`,
+    })).resolves.toEqual({ kind: 'rejected', reason: 'invalid-credential' })
+
+    // The genuine secret still works, so the record was not consumed.
+    await expect(ctx.authentication.authenticate({
+      channel: 'http-api',
+      authorization: `Bearer ${exchanged.value.value}`,
+    })).resolves.toMatchObject({ kind: 'accepted' })
+  })
+
   it('forgets an expired browser session on presentation', async () => {
     const { ctx, challenge } = await owned({ accessTokenTtlMs: 20 })
     const login = await ctx.authentication.createBrowserSession(await challenge('browser-session'))

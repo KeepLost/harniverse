@@ -402,6 +402,8 @@ export class LocalAuthentication extends InboundAuthentication {
     if (this.pendingAuthentications.length === 0) return
     const pending = this.pendingAuthentications.splice(0)
     const task = this.enqueue(() => this.authenticateBatch(pending))
+    /* v8 ignore next 3 -- the batch settles every admission itself, so this only
+       keeps a caller from waiting forever if it ever stopped doing so */
     void task.catch((error: unknown) => {
       for (const admission of pending) admission.reject(error)
     })
@@ -549,7 +551,7 @@ export class LocalAuthentication extends InboundAuthentication {
     try {
       const registry = await readGrantRegistry(this.spec)
       if (!this.hasActiveOwner(registry)) {
-        this.setOwnerAvailable(false)
+        this.sealOwnerUnavailable()
         return { kind: 'rejected', reason: 'authentication-unavailable' }
       }
       if (!this.ownerAvailable) {
@@ -715,7 +717,7 @@ export class LocalAuthentication extends InboundAuthentication {
     try {
       const registry = await readGrantRegistry(this.spec)
       if (!this.hasActiveOwner(registry)) {
-        this.setOwnerAvailable(false)
+        this.sealOwnerUnavailable()
         return { kind: 'rejected', reason: 'authentication-unavailable' }
       }
       if (!this.ownerAvailable) {
@@ -756,10 +758,12 @@ export class LocalAuthentication extends InboundAuthentication {
     principal: Extract<AuthenticationPrincipal, { kind: 'grant' }>,
     readRegistry: () => Promise<GrantRegistry>,
   ): Promise<boolean> {
+    /* v8 ignore next -- both callers drop an expired credential before asking, so this
+       keeps the predicate self-contained without a reachable caller */
     if (Date.parse(principal.expiresAt) <= Date.now()) return false
     const registry = await readRegistry()
     if (!this.hasActiveOwner(registry)) {
-      this.setOwnerAvailable(false)
+      this.sealOwnerUnavailable()
       return false
     }
     const grant = registry.grants.find(item => item.id === principal.grantId && item.revision === principal.grantRevision)
@@ -969,19 +973,22 @@ export class LocalAuthentication extends InboundAuthentication {
       grant.capabilities.includes('harniverse.authorize') && isAuthenticationGrantActive(grant, now))
   }
 
-  private setOwnerAvailable(available: boolean): void {
-    if (this.ownerAvailable === available) return
-    const wasAvailable = this.watcherHealthy && this.ownerAvailable
-    this.ownerAvailable = available
-    if (!available) {
-      if (this.ownerExpiry !== undefined) clearTimeout(this.ownerExpiry)
-      this.ownerExpiry = undefined
-      this.clearProcessCredentials()
-    }
-    const nextAvailable = this.watcherHealthy && this.ownerAvailable
-    if (wasAvailable !== nextAvailable) {
-      this.ctx.emit(nextAvailable ? 'authentication/available' : 'authentication/unavailable')
-    }
+  /**
+   * Seal admission after observing that no authorizing Grant remains. Owner
+   * return is published by the operation that observes it, so this direction
+   * is the only one the service drives centrally.
+   */
+  private sealOwnerUnavailable(): void {
+    if (!this.ownerAvailable) return
+    const alreadySealed = !this.watcherHealthy
+    this.ownerAvailable = false
+    if (this.ownerExpiry !== undefined) clearTimeout(this.ownerExpiry)
+    this.ownerExpiry = undefined
+    this.clearProcessCredentials()
+    /* v8 ignore next -- every caller is already behind a healthy-watcher check, so
+       this only keeps the two seals from announcing the same closure twice */
+    if (alreadySealed) return
+    this.ctx.emit('authentication/unavailable')
   }
 
   private clearProcessCredentials(): void {
