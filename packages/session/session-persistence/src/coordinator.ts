@@ -691,6 +691,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // `assertNotDeleting` is the only thrower here and it throws an Error, so
     // the rejection carries it verbatim.
     } catch (error: unknown) {
+      /* oxlint-disable-next-line typescript/prefer-promise-reject-errors -- preserve the thrown Error. */
       return Promise.reject(error)
     }
     return this.serialize(snapshot.id, () => this.createCore(snapshot))
@@ -935,6 +936,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // `assertNotDeleting` is the only thrower here and it throws an Error, so
     // the rejection carries it verbatim.
     } catch (error: unknown) {
+      /* oxlint-disable-next-line typescript/prefer-promise-reject-errors -- preserve the thrown Error. */
       return Promise.reject(error)
     }
     const retired = Promise.resolve(this.retirements.get(id))
@@ -966,6 +968,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // `assertNotDeleting` is the only thrower here and it throws an Error, so
     // the rejection carries it verbatim.
     } catch (error: unknown) {
+      /* oxlint-disable-next-line typescript/prefer-promise-reject-errors -- preserve the thrown Error. */
       return Promise.reject(error)
     }
     const retired = Promise.resolve(this.retirements.get(id))
@@ -997,6 +1000,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // `assertNotDeleting` is the only thrower here and it throws an Error, so
     // the rejection carries it verbatim.
     } catch (error: unknown) {
+      /* oxlint-disable-next-line typescript/prefer-promise-reject-errors -- preserve the thrown Error. */
       return Promise.reject(error)
     }
     const retired = Promise.resolve(this.retirements.get(id))

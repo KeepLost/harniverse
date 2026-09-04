@@ -17,6 +17,7 @@ const control = vi.hoisted(() => ({
   /** Remaining rmdir calls that raise; undefined raises indefinitely. */
   rmdirCount: undefined as number | undefined,
   rmdirCalls: 0,
+  rmdirFailures: 0,
   /**
    * Error code publication into the lease root raises. POSIX rename replaces an
    * empty destination directory, so reaching the cleanup path deterministically
@@ -39,6 +40,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       if (control.rmdirCode !== undefined && targetsLease(String(args[0]))) {
         control.rmdirCalls += 1
         if (control.rmdirCount === undefined || control.rmdirCalls <= control.rmdirCount) {
+          control.rmdirFailures += 1
           throw Object.assign(new Error(`simulated ${control.rmdirCode}`), { code: control.rmdirCode })
         }
       }
@@ -66,6 +68,7 @@ afterEach(async () => {
   control.rmdirCode = undefined
   control.rmdirCount = undefined
   control.rmdirCalls = 0
+  control.rmdirFailures = 0
   control.renameCode = undefined
   control.renameCount = undefined
   control.renameCalls = 0
@@ -107,7 +110,7 @@ describe('instance lease cleanup contention', () => {
 
     // The first removal loses the race; the retry acquires the lease.
     const lease = await acquireAuthenticationLease({ dshHome, mode: 'authenticated' })
-    expect(control.rmdirCalls).toBe(1)
+    expect(control.rmdirFailures).toBe(1)
     await lease.release()
   })
 
@@ -121,7 +124,7 @@ describe('instance lease cleanup contention', () => {
     control.rmdirCount = 1
 
     const lease = await acquireAuthenticationLease({ dshHome, mode: 'authenticated' })
-    expect(control.rmdirCalls).toBe(1)
+    expect(control.rmdirFailures).toBe(1)
     await lease.release()
   })
 

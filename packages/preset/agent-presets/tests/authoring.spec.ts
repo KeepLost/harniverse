@@ -143,6 +143,7 @@ describe('copying a preset', () => {
   it('reports a change listener that rejects without failing the roster read', async () => {
     const warnings: unknown[][] = []
     ctx.logger.warn = ((...args: unknown[]) => { warnings.push(args) }) as typeof ctx.logger.warn
+    // oxlint-disable-next-line typescript/no-misused-promises -- the listener rejection is the behavior under test.
     ctx.on('agent-presets/change', () => Promise.reject(new Error('observer gave up')))
 
     // One observer must not veto discovery, and its rejection is reported

@@ -30,7 +30,7 @@ vi.mock('../src/private-files.ts', async (importOriginal) => {
   return {
     ...actual,
     writePrivateFile: async (...args: Parameters<typeof actual.writePrivateFile>): Promise<void> => {
-      if (String(args[0]).endsWith('grants.json')) {
+      if (args[0].endsWith('grants.json')) {
         registryWrite.calls += 1
         if (registryWrite.failAfter !== undefined && registryWrite.calls > registryWrite.failAfter) {
           throw registryWrite.error ?? new Error('registry write blocked')

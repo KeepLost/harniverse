@@ -424,7 +424,7 @@ describe('serializeMessages', () => {
         content: [
           { type: 'text', text: 'kept' },
           // A reasoning block belongs to assistant history, not user content.
-          { type: 'reasoning', text: 'private' } as ContentBlock,
+          { type: 'reasoning', text: 'private' },
         ],
         source: { kind: 'plugin', plugin: 'test' },
       }),

@@ -52,7 +52,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
         failures.shiftError = undefined
         throw error
       }
-      return await actual.rename(...args)
+      await actual.rename(...args)
     },
   }
 })

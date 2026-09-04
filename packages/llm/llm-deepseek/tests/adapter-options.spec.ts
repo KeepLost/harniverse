@@ -1,3 +1,5 @@
+/* oxlint-disable typescript/no-unsafe-assignment -- Vitest matchers are typed as any. */
+
 /**
  * Deployment-config validation for the DeepSeek route: every bound is refused
  * at the earliest resolvable point rather than reaching a provider request.
@@ -5,7 +7,6 @@
 
 import { describe, expect, it } from 'vitest'
 import { resolveAdapterOptions } from '../src/index.ts'
-import type { Config } from '../src/index.ts'
 
 /** The largest delay a Node timer can hold, shared with the module bound. */
 const MAX_TIMER_DELAY_MS = 2_147_483_647
@@ -63,7 +64,7 @@ describe('resolveAdapterOptions', () => {
       ['fileExpiresAfterSeconds', 2_592_001, /fileExpiresAfterSeconds must be between 3600 and 2592000/],
       ['fileExpiresAfterSeconds', 3_600.5, /fileExpiresAfterSeconds must be between 3600 and 2592000/],
     ] as const)('refuses %s of %s', (key, value, message) => {
-      expect(() => resolveAdapterOptions({ [key]: value } as Config)).toThrow(message)
+      expect(() => resolveAdapterOptions({ [key]: value })).toThrow(message)
     })
 
     it.each([
@@ -75,7 +76,7 @@ describe('resolveAdapterOptions', () => {
       'imageOffloadCountQuantum',
     ] as const)('refuses a non-positive %s', (key) => {
       for (const value of [0, -1, 1.5]) {
-        expect(() => resolveAdapterOptions({ [key]: value } as Config))
+        expect(() => resolveAdapterOptions({ [key]: value }))
           .toThrow(new RegExp(`${key} must be a positive safe integer`, 'u'))
       }
     })
@@ -105,7 +106,7 @@ describe('resolveAdapterOptions', () => {
 
     it('detaches the resolved catalog from the configured array', () => {
       const models = [model()]
-      const resolved = resolveAdapterOptions({ models } as Config)
+      const resolved = resolveAdapterOptions({ models })
       expect(resolved.models).not.toBe(models)
       expect(resolved.models[0]).toMatchObject({ id: 'deepseek-test', inputModalities: ['text'] })
     })
@@ -122,13 +123,13 @@ describe('resolveAdapterOptions', () => {
       ['a zero pixel budget', model({ imagePixelBudget: 0 }), /imagePixelBudget must be a positive safe integer/],
       ['a fractional pixel budget', model({ imagePixelBudget: 1.5 }), /imagePixelBudget must be a positive safe integer/],
     ] as const)('refuses a catalog model with %s', (_label, entry, message) => {
-      expect(() => resolveAdapterOptions({ models: [entry] } as Config)).toThrow(message)
+      expect(() => resolveAdapterOptions({ models: [entry] })).toThrow(message)
     })
 
     it('accepts an image-capable model with a pixel budget', () => {
       expect(resolveAdapterOptions({
         models: [model({ inputModalities: ['text', 'image'], imagePixelBudget: 1_000, contextWindow: 100, maxTokens: 50, name: 'Test' })],
-      } as Config).models[0]).toMatchObject({
+      }).models[0]).toMatchObject({
         inputModalities: ['text', 'image'],
         imagePixelBudget: 1_000,
         name: 'Test',

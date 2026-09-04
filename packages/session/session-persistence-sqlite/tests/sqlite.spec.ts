@@ -1,3 +1,5 @@
+/* oxlint-disable typescript/no-unsafe-assignment -- backend-only rows are intentionally opaque in this boundary test. */
+
 import { createUserMessage, createMessage, freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -1109,7 +1111,7 @@ describe('physical tail integrity on read', () => {
 
 describe('repair staleness fences', () => {
   const turnEnd = (seq: number, turn: number): SessionEvent =>
-    ({ type: 'turn/end', seq, time: seq + 1, data: { turn, reason: { kind: 'completed' } } }) as SessionEvent
+    ({ type: 'turn/end', seq, time: seq + 1, data: { turn, reason: { kind: 'completed' } } })
 
   it('refuses a repair that omits a torn tail the database still holds', async () => {
     const path = await freshDbPath()

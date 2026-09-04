@@ -161,7 +161,7 @@ describe('browser authentication status', () => {
       overrides: {
         status: () => Promise.resolve({ mode: 'bypass', sealed: false }),
         authenticate,
-      } as Partial<InboundAuthentication>,
+      },
     })
 
     const state = await harness.call(request({ method: 'GET', path: '/auth/status' }))
@@ -235,7 +235,7 @@ describe('browser enrollment', () => {
             expiresAt: new Date(Date.now() + 60_000).toISOString(),
           },
         }),
-      } as Partial<InboundAuthentication>,
+      },
     })
     const state = await harness.call(request({
       method: 'POST',
@@ -287,7 +287,7 @@ describe('browser enrollment', () => {
     const harness = await mounted({
       overrides: {
         requestEnrollment: () => Promise.reject(new Error('registry unavailable')),
-      } as Partial<InboundAuthentication>,
+      },
     })
 
     const state = await harness.call(jsonRequest('POST', '/auth/enrollment', {
@@ -411,7 +411,7 @@ describe('browser session exchange', () => {
           kind: 'accepted' as const,
           session: { value: SESSION_VALUE, expiresAt, principal: OWNER },
         }),
-      } as Partial<InboundAuthentication>,
+      },
     })
 
     const state = await harness.call(jsonRequest('POST', '/auth/exchange', proof))
@@ -435,7 +435,7 @@ describe('browser session exchange', () => {
           kind: 'accepted' as const,
           session: { value: SESSION_VALUE, expiresAt: new Date(Date.now() + 1_000).toISOString(), principal: BYPASS },
         }),
-      } as Partial<InboundAuthentication>,
+      },
     })
 
     const state = await harness.call(jsonRequest('POST', '/auth/exchange', proof))
@@ -453,7 +453,7 @@ describe('browser session exchange', () => {
           kind: 'accepted' as const,
           session: { value: SESSION_VALUE, expiresAt: new Date(Date.now() - 60_000).toISOString(), principal: OWNER },
         }),
-      } as Partial<InboundAuthentication>,
+      },
     })
 
     const state = await harness.call(jsonRequest('POST', '/auth/exchange', proof))
@@ -502,7 +502,7 @@ describe('browser session exchange', () => {
     const harness = await mounted({
       overrides: {
         exchangeAccessToken: () => Promise.resolve({ kind: 'rejected' as const, reason: 'expired' }),
-      } as Partial<InboundAuthentication>,
+      },
     })
     const state = await harness.call(jsonRequest('POST', '/auth/token', proof))
     expect(state).toMatchObject({ status: 401, body: 'unauthorized' })
@@ -548,7 +548,7 @@ describe('authorized management', () => {
 
   it('reads the management credential from the browser cookie and Authorization header', async () => {
     const authenticate = vi.fn((_attempt: AuthenticationAttempt) => Promise.resolve({ kind: 'accepted' as const, principal: OWNER }))
-    const harness = await mounted({ overrides: { authenticate } as Partial<InboundAuthentication> })
+    const harness = await mounted({ overrides: { authenticate } })
 
     await harness.call(request({
       method: 'GET',
@@ -643,7 +643,7 @@ describe('authorized management', () => {
       const harness = await mounted({
         overrides: {
           approveEnrollment: () => Promise.reject(new Error('enrollment expired')),
-        } as Partial<InboundAuthentication>,
+        },
       })
 
       const state = await harness.call(jsonRequest('POST', '/auth/manage/enrollment/approve', {
@@ -657,7 +657,7 @@ describe('authorized management', () => {
   describe('grant revocation', () => {
     it('revokes a grant by id', async () => {
       const revokeGrant = vi.fn(() => Promise.resolve())
-      const harness = await mounted({ overrides: { revokeGrant } as Partial<InboundAuthentication> })
+      const harness = await mounted({ overrides: { revokeGrant } })
 
       const state = await harness.call(jsonRequest('POST', '/auth/manage/grant/revoke', { grantId: 'g-1' }))
       expect(state.status).toBe(200)
@@ -686,7 +686,7 @@ describe('authorized management', () => {
       const harness = await mounted({
         overrides: {
           revokeGrant: () => Promise.reject(new Error('unknown grant')),
-        } as Partial<InboundAuthentication>,
+        },
       })
       const state = await harness.call(jsonRequest('POST', '/auth/manage/grant/revoke', { grantId: 'g-missing' }))
       expect(state).toMatchObject({ status: 404, body: 'revocation failed' })
@@ -814,7 +814,7 @@ describe('requests without a resolvable peer', () => {
             expiresAt: new Date(Date.now() + 60_000).toISOString(),
           },
         }),
-      } as Partial<InboundAuthentication>,
+      },
     })
 
     const state = await harness.call(request({
@@ -834,7 +834,7 @@ describe('requests without a resolvable peer', () => {
     const harness = await mounted({
       overrides: {
         requestEnrollment: () => Promise.resolve({ kind: 'rejected' as const, reason: 'name-conflict' }),
-      } as Partial<InboundAuthentication>,
+      },
     })
 
     await harness.call(request({
@@ -851,7 +851,7 @@ describe('requests without a resolvable peer', () => {
 
   it('omits the peer from the authentication attempt entirely', async () => {
     const authenticate = vi.fn((_attempt: AuthenticationAttempt) => Promise.resolve({ kind: 'accepted' as const, principal: OWNER }))
-    const harness = await mounted({ overrides: { authenticate } as Partial<InboundAuthentication> })
+    const harness = await mounted({ overrides: { authenticate } })
 
     await harness.call(request({ method: 'GET', path: '/auth/manage/grants', peerless: true }))
 

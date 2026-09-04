@@ -1,3 +1,5 @@
+/* oxlint-disable typescript/no-unsafe-assignment -- Vitest asymmetric matchers are typed as any. */
+
 import { Context } from '@deepseek-ai/cordis'
 import { CallId, MessageId, freezeMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
@@ -277,7 +279,7 @@ describe('schema-17 physical codec', () => {
       ['provenance', { source_event_seqs: Uint8Array.of(1) }],
       ['a surface op', { surface_op: 'append' }],
     ])('refuses a packed row carrying %s', (_label, overrides) => {
-      expect(() => decodeRow({ ...scalar(), ignorable: 0, type: 'text-chunks', ...overrides } as unknown as EventRow))
+      expect(() => decodeRow({ ...scalar(), ignorable: 0, type: 'text-chunks', ...overrides }))
         .toThrow(/packed surface fields must be null/)
     })
 
@@ -554,11 +556,11 @@ describe('pack eligibility', () => {
       textChunk(1, 'b', Number.MAX_SAFE_INTEGER),
       textChunk(2, 'c', Number.MAX_SAFE_INTEGER),
     ]],
-    ['a turn change', [textChunk(0, 'a'), { ...textChunk(1, 'b'), data: { turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: 'b' } } } as SessionEvent, textChunk(2, 'c')]],
-    ['a step change', [textChunk(0, 'a'), { ...textChunk(1, 'b'), data: { turn: 1, step: 2, chunk: { type: 'text-delta', index: 0, text: 'b' } } } as SessionEvent, textChunk(2, 'c')]],
-    ['an index change', [textChunk(0, 'a'), { ...textChunk(1, 'b'), data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 1, text: 'b' } } } as SessionEvent, textChunk(2, 'c')]],
+    ['a turn change', [textChunk(0, 'a'), { ...textChunk(1, 'b'), data: { turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: 'b' } } }, textChunk(2, 'c')]],
+    ['a step change', [textChunk(0, 'a'), { ...textChunk(1, 'b'), data: { turn: 1, step: 2, chunk: { type: 'text-delta', index: 0, text: 'b' } } }, textChunk(2, 'c')]],
+    ['an index change', [textChunk(0, 'a'), { ...textChunk(1, 'b'), data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 1, text: 'b' } } }, textChunk(2, 'c')]],
   ])('refuses to pack across %s', (_label, events) => {
-    expect(packChunkRuns(events).every(record => 'seq' in record)).toBe(true)
+    expect(packChunkRuns(events as readonly SessionEvent[]).every(record => 'seq' in record)).toBe(true)
   })
 
   it.each([

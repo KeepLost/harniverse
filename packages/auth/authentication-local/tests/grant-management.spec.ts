@@ -1,3 +1,5 @@
+/* oxlint-disable typescript/no-unsafe-assignment -- Vitest asymmetric matchers are typed as any. */
+
 /**
  * Authorized Grant management surface: the enrollment observation, approval,
  * listing, and revocation operations the Web manager and local CLI drive,

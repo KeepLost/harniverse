@@ -284,12 +284,12 @@ function steerable(api: ConstructorParameters<typeof SharedModelsSettingsStore>[
   let identity: { kind: 'bypass' } | undefined = { kind: 'bypass' }
   let valid = true
   const listeners = new Set<() => void>()
-  const mirror = new SettingsDescribeMirror(api as never, {
-    getSnapshot: () => identity as never,
+  const mirror = new SettingsDescribeMirror(api, {
+    getSnapshot: () => identity,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
     // Refuse either every settlement, or only the ones the test marked.
     validate: (authentication: unknown) => valid && authentication !== REFUSED_TRANSPORT,
-  } as never)
+  })
   return {
     mirror,
     store: new SharedModelsSettingsStore(api, mirror),

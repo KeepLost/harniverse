@@ -288,12 +288,18 @@ describe('git output parsing boundaries', () => {
     const root = tempWorkspace()
     const bin = join(root, 'bin')
     mkdirSync(bin)
-    const stub = join(bin, 'git')
+    const stub = join(bin, process.platform === 'win32' ? 'git.cmd' : 'git')
     // The inspector runs Git through the opened descriptor on Linux, so the
     // stub cannot learn the workspace from its own cwd; bake it in as ROOT.
     // The stub directory goes first but the real PATH stays behind it, or the
     // script's own utilities (`sleep`) would not resolve either.
-    writeFileSync(stub, `#!/bin/sh\nROOT='${root}'\n${script}\n`, { mode: 0o755 })
+    const shellScript = `#!/bin/sh\nROOT='${root}'\n${script}\n`
+    if (process.platform === 'win32') {
+      writeFileSync(join(bin, 'git.sh'), shellScript)
+      writeFileSync(stub, '@echo off\r\n"%ProgramFiles%\\Git\\usr\\bin\\sh.exe" "%~dp0git.sh" %*\r\n')
+    } else {
+      writeFileSync(stub, shellScript, { mode: 0o755 })
+    }
     process.env[pathKey] = originalPath === undefined ? bin : `${bin}${delimiter}${originalPath}`
     return root
   }

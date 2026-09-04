@@ -303,7 +303,7 @@ describe('unary round trip', () => {
     // A legacy hand-built proxy may omit these faces entirely. Each route must
     // answer with its own stated unavailability, not a transport failure.
     const { api: _api, operations: _operations, workspaceFiles: _files, workspaceGit: _git, ...bare } = scriptedApi()
-    const c = client(bare as ApiProxy)
+    const c = client(bare)
     const reasonOf = (result: RpcResponse<unknown>['result']): string =>
       result.ok ? 'unexpectedly ok' : result.error.message
 
@@ -369,7 +369,7 @@ describe('unary round trip', () => {
     // disagree with it.
     const forging = new InProcessApiClient({
       fetch: async (_input, init) => {
-        const sent = JSON.parse(String(init?.body)) as { rpcId: string }
+        const sent = JSON.parse(typeof init?.body === 'string' ? init.body : JSON.stringify(init?.body)) as { rpcId: string }
         return new Response(JSON.stringify({
           type: 'server-response',
           rpcId: sent.rpcId,
@@ -387,7 +387,7 @@ describe('unary round trip', () => {
     // one is refused before the result is assembled.
     const bare = new InProcessApiClient({
       fetch: async (_input, init) => {
-        const sent = JSON.parse(String(init?.body)) as { rpcId: string }
+        const sent = JSON.parse(typeof init?.body === 'string' ? init.body : JSON.stringify(init?.body)) as { rpcId: string }
         return new Response(JSON.stringify({
           type: 'server-response',
           rpcId: sent.rpcId,

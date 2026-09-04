@@ -37,10 +37,10 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       return await track(actual.mkdir(...args))
     },
     async writeFile(...args: Parameters<typeof actual.writeFile>): Promise<void> {
-      return await track(actual.writeFile(...args))
+      await track(actual.writeFile(...args))
     },
     async rm(...args: Parameters<typeof actual.rm>): Promise<void> {
-      return await track(actual.rm(...args))
+      await track(actual.rm(...args))
     },
     async rename(...args: Parameters<typeof actual.rename>): Promise<void> {
       const matchesRoot = fsControl.renameErrorRoot === undefined || String(args[1]).startsWith(fsControl.renameErrorRoot)
@@ -53,7 +53,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
         error.code = kind === 'eexist' ? 'EEXIST' : 'EIO'
         throw error
       }
-      return await track(actual.rename(...args))
+      await track(actual.rename(...args))
     },
   }
 })

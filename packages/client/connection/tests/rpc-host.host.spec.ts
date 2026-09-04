@@ -1,3 +1,5 @@
+/* oxlint-disable typescript/no-unsafe-assignment, typescript/no-unsafe-member-access -- JSON.parse is the wire boundary. */
+
 /**
  * Host RPC registry surface: the HTTP authorization gate other Client plugins
  * mount their routes behind, shared-channel interceptor dispatch, and the

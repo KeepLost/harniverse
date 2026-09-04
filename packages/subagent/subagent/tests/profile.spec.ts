@@ -163,7 +163,7 @@ describe('resolved profile boundary validation', () => {
 
   /** One resolved profile with a field replaced, digest left stale. */
   const tampered = (overrides: Record<string, unknown>): ResolvedChildProfile =>
-    ({ ...resolved(), ...overrides }) as ResolvedChildProfile
+    ({ ...resolved(), ...overrides })
 
   /** One resolved profile with a field replaced and its digest recomputed. */
   function reblessed(overrides: Record<string, unknown>): ResolvedChildProfile {
@@ -171,7 +171,7 @@ describe('resolved profile boundary validation', () => {
     const digest = createHash('sha256')
       .update(JSON.stringify(canonical(candidate)), 'utf8')
       .digest('hex')
-    return { ...candidate, digest } as ResolvedChildProfile
+    return { ...candidate, digest }
   }
 
   /** The digest input the implementation canonicalizes: sorted keys, depth-first. */
@@ -185,7 +185,7 @@ describe('resolved profile boundary validation', () => {
   }
 
   it('accepts a profile it resolved itself', () => {
-    expect(() => assertResolvedChildProfile(resolved())).not.toThrow()
+    expect(() => { assertResolvedChildProfile(resolved()) }).not.toThrow()
   })
 
   it.each([
@@ -194,11 +194,11 @@ describe('resolved profile boundary validation', () => {
     ['harnessId', { harnessId: '' }, /harnessId must be a non-empty opaque id/],
     ['modelRouteId', { modelRouteId: '!' }, /modelRouteId must be a non-empty opaque id/],
   ])('refuses an unusable %s', (_label, overrides, message) => {
-    expect(() => assertResolvedChildProfile(reblessed(overrides))).toThrow(message)
+    expect(() => { assertResolvedChildProfile(reblessed(overrides)) }).toThrow(message)
   })
 
   it('refuses a relative workspace cwd', () => {
-    expect(() => assertResolvedChildProfile(reblessed({ workspaceCwd: 'relative/path' })))
+    expect(() => { assertResolvedChildProfile(reblessed({ workspaceCwd: 'relative/path' })) })
       .toThrow(/workspaceCwd must be absolute/)
   })
 
@@ -206,12 +206,12 @@ describe('resolved profile boundary validation', () => {
     ['a fractional revision', { revision: 1.5 }],
     ['a negative revision', { revision: -1 }],
   ])('refuses %s', (_label, overrides) => {
-    expect(() => assertResolvedChildProfile(reblessed(overrides)))
+    expect(() => { assertResolvedChildProfile(reblessed(overrides)) })
       .toThrow(/revision must be a non-negative safe integer/)
   })
 
   it('refuses revision zero', () => {
-    expect(() => assertResolvedChildProfile(reblessed({ revision: 0 })))
+    expect(() => { assertResolvedChildProfile(reblessed({ revision: 0 })) })
       .toThrow(/revision must be greater than zero/)
   })
 
@@ -219,20 +219,20 @@ describe('resolved profile boundary validation', () => {
     ['a malformed digest', { digest: 'not-a-digest' }],
     ['a well-formed digest over different contents', { digest: 'a'.repeat(64) }],
   ])('refuses %s', (_label, overrides) => {
-    expect(() => assertResolvedChildProfile(tampered(overrides)))
+    expect(() => { assertResolvedChildProfile(tampered(overrides)) })
       .toThrow(/digest does not match its immutable contents/)
   })
 
   it('refuses a stale digest after a field changes', () => {
     // Same shape, one changed field, digest untouched.
-    expect(() => assertResolvedChildProfile(tampered({ modelRouteId: 'other' })))
+    expect(() => { assertResolvedChildProfile(tampered({ modelRouteId: 'other' })) })
       .toThrow(/digest does not match its immutable contents/)
   })
 
   it.each(['tools', 'skills', 'mcpServerIds', 'childProfileIds'])('refuses a non-string %s member', (field) => {
-    expect(() => assertResolvedChildProfile(reblessed({ [field]: [1] })))
+    expect(() => { assertResolvedChildProfile(reblessed({ [field]: [1] })) })
       .toThrow(new RegExp(`${field} must be an array of strings`))
-    expect(() => assertResolvedChildProfile(reblessed({ [field]: 'not-a-list' })))
+    expect(() => { assertResolvedChildProfile(reblessed({ [field]: 'not-a-list' })) })
       .toThrow(new RegExp(`${field} must be an array of strings`))
   })
 
@@ -242,12 +242,12 @@ describe('resolved profile boundary validation', () => {
     ['modelRoutePriority', { modelRoutePriority: -2 }],
     ['schedulerPriority', { schedulerPriority: Number.MAX_VALUE }],
   ])('refuses an unusable %s', (field, overrides) => {
-    expect(() => assertResolvedChildProfile(reblessed(overrides)))
+    expect(() => { assertResolvedChildProfile(reblessed(overrides)) })
       .toThrow(new RegExp(`${field} must be a non-negative safe integer`))
   })
 
   it('refuses an unknown supervision mode', () => {
-    expect(() => assertResolvedChildProfile(reblessed({ supervisionMode: 'autopilot' })))
+    expect(() => { assertResolvedChildProfile(reblessed({ supervisionMode: 'autopilot' })) })
       .toThrow(/supervisionMode must be "supervised" or "unsupervised"/)
   })
 })

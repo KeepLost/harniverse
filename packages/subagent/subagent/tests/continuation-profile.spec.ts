@@ -153,7 +153,7 @@ describe('continuable Child Profile delegation', () => {
       inheritsParentContext: false,
       start: () => { throw new Error('one-shot start is not used here') },
       prepareContinuable: () => Promise.resolve({}),
-    } as never)
+    })
 
     await expect(ctx.subagents.startContinuable(
       startSpec(parent, profileFor(root, { harnessId: 'plain' }), 'plain'),

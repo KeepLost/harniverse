@@ -498,7 +498,7 @@ describe('workspace file reading boundaries', () => {
 
     for (const [name, mediaType] of Object.entries(expected)) {
       // Uppercase proves the extension match is case-insensitive.
-      const upper = name.toUpperCase()
+      const upper = `upper-${name.toUpperCase()}`
       writeFileSync(join(root, upper), 'bytes')
       await expect(readWorkspaceBinary(root, name, new AbortController().signal))
         .resolves.toMatchObject({ mediaType })

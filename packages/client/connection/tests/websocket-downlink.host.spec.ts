@@ -618,7 +618,12 @@ describe('control frame delivery', () => {
       readyState.mockRestore()
       // The mock also shadowed the client's own handshake state, so end this
       // socket without waiting for a negotiated close.
-      socket.terminate()
+      socket.on('error', () => {})
+      try {
+        socket.terminate()
+      } catch {
+        // The mocked CLOSING state can reject termination before opening.
+      }
     } finally {
       readyState.mockRestore()
     }
@@ -689,8 +694,8 @@ describe('rejectUnauthorizedWebSocket', () => {
           response.on('end', () => {
             resolve([
               String(response.statusCode),
-              String(response.headers['retry-after'] ?? '-'),
-              String(response.headers['www-authenticate'] ?? '-'),
+              response.headers['retry-after'] ?? '-',
+              response.headers['www-authenticate'] ?? '-',
               Buffer.concat(chunks).toString('utf8'),
             ].join('|'))
           })

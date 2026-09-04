@@ -383,7 +383,7 @@ describe('durable Grant registry integrity', () => {
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     }
     const accepted = structuredClone(document)
-    accepted.enrollments = [approved as never]
+    accepted.enrollments = [approved]
     expect(() => parseGrantRegistry(JSON.stringify(accepted))).not.toThrow()
 
     const cases: Array<[Record<string, unknown>, RegExp]> = [
@@ -396,7 +396,7 @@ describe('durable Grant registry integrity', () => {
     ]
     for (const [enrollment, message] of cases) {
       const candidate = structuredClone(document)
-      candidate.enrollments = [enrollment as never]
+      candidate.enrollments = [enrollment]
       expect(() => parseGrantRegistry(JSON.stringify(candidate))).toThrow(message)
     }
   })
