@@ -13,13 +13,13 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
     - tab "Capabilities"
-- text: Reply with the single word LIGHTHOUSE and stop. {{clock}}
-- button "Copy":
-  - img
 - button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img
   - text: Context injection @deepseek-ai/dsh-system-prompt
+- text: Reply with the single word LIGHTHOUSE and stop. {{clock}}
+- button "Copy":
+  - img
 - button "Think The user wants me to reply with a single word. Let me comply.":
   - img
   - img

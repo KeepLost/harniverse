@@ -13,13 +13,13 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
     - tab "Capabilities"
-- text: /user-invoke-demo and confirm the fixture wiring {{clock}}
-- button "Copy":
-  - img
 - button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img
   - text: Context injection @deepseek-ai/dsh-system-prompt
+- text: /user-invoke-demo and confirm the fixture wiring {{clock}}
+- button "Copy":
+  - img
 - button "Context injection user-invoke-demo":
   - img
   - img
