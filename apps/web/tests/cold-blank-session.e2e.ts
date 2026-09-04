@@ -52,7 +52,7 @@ describe('web e2e: unverified cold blank Session visibility', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-cold-blank-session'))
     const tree = page.getByRole('tree', { name: 'Sessions' })
     await tree.waitFor({ timeout: 30_000 })
-    expect(await tree.getByText('Ungrouped', { exact: true }).count()).toBe(1)
+    await expect.poll(() => tree.getByText('Ungrouped', { exact: true }).count(), { timeout: 30_000 }).toBe(1)
     const sidebar = await captureStableAria(page, '[role="tree"][aria-label="Sessions"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(SIDEBAR_EXPECTED, sidebar, MODE)
     expect(tripwire.pageErrors).toEqual([])
