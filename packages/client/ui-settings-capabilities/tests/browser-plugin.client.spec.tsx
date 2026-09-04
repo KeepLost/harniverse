@@ -8,6 +8,7 @@ import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject } from '../src/client/index.ts'
+import { apply as nodeApply } from '../src/index.ts'
 import { CapabilityCompositionTab } from '../src/client/CapabilityCompositionTab.tsx'
 
 usePinnedBrowserLanguages('zh-CN')
@@ -63,5 +64,13 @@ describe('ui-settings-capabilities browser plugin', () => {
     b.locale.setLocale('en')
     expect(resolveSlotLabel(entry.options.label)).toBe('Profile assembly')
     await b.ctx.fiber.dispose()
+  })
+})
+
+describe('ui-settings-capabilities node half', () => {
+  it('contributes no host behavior', () => {
+    // Capability management lives in its authorized Host package; this seat
+    // exists only so the plugin appears in the Loader tree.
+    expect(() => { nodeApply() }).not.toThrow()
   })
 })

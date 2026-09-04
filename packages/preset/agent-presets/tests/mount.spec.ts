@@ -618,6 +618,39 @@ describe('editing a composition file', () => {
     expect(await scoped.agentPresets.standingKeyFor('cold-read')).toBe(key)
   })
 
+  it('reports the standing generation assembly to a reader holding no agent', async () => {
+    const { scoped } = await editable('cold-runtime')
+
+    const runtime = await scoped.agentPresets.standingCompositionRuntime('cold-runtime')
+
+    // Same values compositionRuntime reports for a joined Agent, without
+    // starting an agent, session, or turn.
+    expect(runtime.agentProfile).toBe('cold-runtime')
+    expect(runtime.generation).toEqual(expect.any(String))
+    expect(runtime.capabilities).toEqual([])
+    expect(scoped.agents.get(SessionId('cold-runtime'))).toBeUndefined()
+
+    // The roster default answers the same way when no id is named.
+    const byDefault = await scoped.agentPresets.standingCompositionRuntime()
+    expect(byDefault.agentProfile).toBe('cold-runtime')
+    expect(byDefault.generation).toBe(runtime.generation)
+  })
+
+  it('reads native assembly recipes without mounting any Profile', async () => {
+    const { scoped } = await editable('catalog-read')
+
+    const scopedCatalog = await scoped.agentPresets.capabilityCatalog('catalog-read')
+    expect(scopedCatalog.descriptors.map(descriptor => descriptor.id)).toEqual(['plugin:only'])
+    expect(scopedCatalog.recipes.get('plugin:only')).toMatchObject({ rowId: 'only' })
+
+    // Global defaults name no Profile and still project the deployment corpus.
+    const global = await scoped.agentPresets.capabilityCatalog()
+    expect(global.descriptors.map(descriptor => descriptor.id)).toEqual(['plugin:only'])
+
+    await expect(scoped.agentPresets.capabilityCatalog('never-declared'))
+      .rejects.toThrow(/never-declared/)
+  })
+
   it('refuses to mount a generation it cannot stamp', async () => {
     const { scoped, path } = await editable('unstampable')
     await rm(path)
@@ -655,5 +688,87 @@ describe('editing a composition file', () => {
 
     expect(snapshot).not.toHaveBeenCalled()
     expect(livePresetMounts().filter(mount => mount.presetId === 'stale')).toHaveLength(1)
+  })
+  it('reports no standing assembly for an Agent composed from no preset', async () => {
+    const bare = await ctx.agents.create({ sessionId: SessionId('sess-bare-runtime') })
+
+    // A bare Agent joined no generation, so there is nothing to project.
+    expect(ctx.agentPresets.compositionRuntime(bare.agent.ctx)).toBeUndefined()
+  })
+
+  it('projects a directly mounted generation that carries no runtime identity', async () => {
+    const { scoped, path } = await editable('runtime-less')
+    const preset = { id: 'runtime-less', trust: 'user' as const, path }
+    // The standing scope the service would build, mounted by hand so the mount
+    // carries no runtime identity: the service always supplies one, a direct
+    // caller need not, and the projection must still name the Profile.
+    const standingKey = { agentPreset: 'runtime-less-direct' }
+    const standing = createScope(scoped, standingKey)
+    await mountPreset(standing.ctx, preset, [{ id: 'only', disabled: false }])
+    const handle = await scoped.agents.create({
+      sessionId: SessionId('sess-runtime-less'),
+      setup: (agentCtx: Context) => {
+        const agentKey = scopeOf(agentCtx)
+        if (agentKey === undefined) throw new Error('agent context must be scoped')
+        bindScopeParent(agentKey, standingKey)
+      },
+    })
+
+    const runtime = scoped.agentPresets.compositionRuntime(handle.agent.ctx)
+    expect(runtime).toMatchObject({ agentProfile: 'runtime-less', capabilities: [] })
+    expect(runtime?.generation).toBeUndefined()
+  })
+
+  it('reports a selected capability that could not be assembled as load-failed', async () => {
+    const { scoped } = await editable('unavailable')
+    const entries: CapabilityCatalogEntry[] = [
+      {
+        id: 'plugin:only',
+        kind: 'tool',
+        name: 'only',
+        description: '',
+        provenance: 'unknown',
+        assembleable: true,
+        available: false,
+        defaultLoaded: true,
+        manageable: true,
+        requires: [],
+        selection: 'inherit',
+        effectiveSelection: 'load',
+        selected: true,
+      },
+    ]
+    scoped.provide('capabilities', {
+      snapshot: () => Promise.resolve({ entries }),
+      compositionSignature: () => 'sig',
+      mountComposition: () => undefined,
+    } as unknown as Context['capabilities'])
+
+    const runtime = await scoped.agentPresets.standingCompositionRuntime('unavailable')
+
+    expect(runtime.capabilities).toEqual([expect.objectContaining({
+      id: 'plugin:only',
+      status: 'load-failed',
+      reason: 'The selected implementation was unavailable at generation startup.',
+    })])
+  })
+
+  it('keeps discovery answering when a change listener throws', async () => {
+    const { scoped, path } = await editable('listener-throws')
+    const warnings: unknown[][] = []
+    scoped.logger.warn = ((...args: unknown[]) => {
+      warnings.push(args)
+    }) as typeof scoped.logger.warn
+    scoped.on('agent-presets/change', () => {
+      throw new Error('listener refused')
+    })
+
+    await writeFile(path, rowFor('afterwards'))
+    await expect(scoped.agentPresets.list()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'listener-throws' }),
+    ]))
+
+    expect(warnings.map(entry => String(entry[0])))
+      .toContain('agent-presets/change listener threw')
   })
 })

@@ -465,6 +465,10 @@ export class SubagentRuntime extends Service {
     return this.ctx.effect(function* (this: SubagentRuntime) {
       this.profileGrants.set(parent, detached)
       yield () => {
+        // Identity keeps one parent's revocation from dropping a grant bound
+        // after it. No current caller can replace a live grant, so the guard
+        // has no reachable false arm.
+        /* v8 ignore next */
         if (this.profileGrants.get(parent) === detached) this.profileGrants.delete(parent)
       }
     }.bind(this), 'subagents.registerChildProfileGrant()')
@@ -557,6 +561,10 @@ export class SubagentRuntime extends Service {
     return this.ctx.effect(function* (this: SubagentRuntime) {
       this.modelRoutes.set(routeId, detached)
       yield () => {
+        // Identity keeps this revocation from dropping a route that
+        // ensureChildModelRoute installed after it. That setter only fills an
+        // absent id, so the guard has no reachable false arm today.
+        /* v8 ignore next */
         if (this.modelRoutes.get(routeId) === detached) this.modelRoutes.delete(routeId)
       }
     }.bind(this), 'subagents.registerChildModelRoute()')
@@ -656,10 +664,17 @@ export class SubagentRuntime extends Service {
     const tools = childCtx.get('tools')
     if (tools !== undefined) {
       const selectedMcp = new Set(profile.mcpServerIds)
+      // `mcp__<server>__<tool>`: the server name ends at the next separator,
+      // or runs to the end of a name that carries none.
+      const serverOf = (name: string): string => {
+        const rest = name.slice('mcp__'.length)
+        const end = rest.indexOf('__')
+        return end === -1 ? rest : rest.slice(0, end)
+      }
       const deniedMcpTools = tools.schemas()
         .map(schema => schema.name)
         .filter(name => name.startsWith('mcp__'))
-        .filter(name => !selectedMcp.has(name.slice('mcp__'.length).split('__', 1)[0] ?? ''))
+        .filter(name => !selectedMcp.has(serverOf(name)))
       if (deniedMcpTools.length > 0) tools.restrict({ deny: deniedMcpTools, includeOwn: true })
     }
     // oxlint-disable-next-line typescript/no-confusing-void-expression -- optional lookup avoids a dependency for augmentation.

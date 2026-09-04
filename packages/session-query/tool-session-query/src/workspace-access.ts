@@ -36,17 +36,17 @@ interface CompleteTitleMap extends ReadonlyMap<SessionIdValue, TitleView> {
 
 interface AuthorizedDescendant {
   readonly record: SessionRecord
-  readonly descendants: Array<AuthorizedDescendant | null>
+  readonly descendants: AuthorizedDescendant[]
 }
 
 interface DescendantProjectionFrame {
   readonly node: SessionLineageNode
-  readonly target: Array<AuthorizedDescendant | null>
+  readonly target: AuthorizedDescendant[]
   readonly next: DescendantProjectionFrame | undefined
 }
 
 interface DescendantVisit {
-  readonly node: AuthorizedDescendant | null
+  readonly node: AuthorizedDescendant
   readonly depth: number
   readonly next: DescendantVisit | undefined
 }
@@ -84,10 +84,6 @@ async function authorizeTarget(
   if (records.length !== 1) throw serviceBoundary.unauthorizedTarget()
 }
 
-function recordAuthorized(_record: SessionRecord): boolean {
-  return true
-}
-
 function assertObservedTargetAuthorized(
   _caller: Caller,
   target: SessionIdValue,
@@ -115,7 +111,7 @@ async function authorizeSessionIds(
     ], signal))
   const requested = new Set(other)
   for (const record of records) {
-    if (requested.has(record.header.id) && recordAuthorized(record)) {
+    if (requested.has(record.header.id)) {
       authorized.add(record.header.id)
     }
   }
@@ -163,8 +159,8 @@ function unavailableTitle(
 function authorizeDescendants(
   nodes: readonly SessionLineageNode[],
   _caller: Caller,
-): Array<AuthorizedDescendant | null> {
-  const result: Array<AuthorizedDescendant | null> = []
+): AuthorizedDescendant[] {
+  const result: AuthorizedDescendant[] = []
   let pending: DescendantProjectionFrame | undefined
   for (const node of [...nodes].reverse()) {
     pending = { node, target: result, next: pending }
@@ -172,10 +168,6 @@ function authorizeDescendants(
   while (pending !== undefined) {
     const current = pending
     pending = current.next
-    if (!recordAuthorized(current.node.session)) {
-      current.target.push(null)
-      continue
-    }
     const projected: AuthorizedDescendant = {
       record: current.node.session,
       descendants: [],
@@ -193,7 +185,7 @@ function authorizeDescendants(
 }
 
 function * visitDescendants(
-  nodes: readonly (AuthorizedDescendant | null)[],
+  nodes: readonly AuthorizedDescendant[],
 ): Generator<DescendantVisit> {
   let pending: DescendantVisit | undefined
   for (const node of [...nodes].reverse()) {
@@ -203,7 +195,6 @@ function * visitDescendants(
     const current = pending
     pending = current.next
     yield current
-    if (current.node === null) continue
     for (const child of [...current.node.descendants].reverse()) {
       pending = {
         node: child,
@@ -214,11 +205,9 @@ function * visitDescendants(
   }
 }
 
-function descendantIds(nodes: readonly (AuthorizedDescendant | null)[]): SessionIdValue[] {
+function descendantIds(nodes: readonly AuthorizedDescendant[]): SessionIdValue[] {
   const ids: SessionIdValue[] = []
-  for (const { node } of visitDescendants(nodes)) {
-    if (node !== null) ids.push(node.record.header.id)
-  }
+  for (const { node } of visitDescendants(nodes)) ids.push(node.record.header.id)
   return ids
 }
 
@@ -233,7 +222,6 @@ export const workspaceAccess = {
   callerOf,
   targetId,
   authorizeTarget,
-  recordAuthorized,
   assertObservedTargetAuthorized,
   authorizeSessionIds,
   readTitles,

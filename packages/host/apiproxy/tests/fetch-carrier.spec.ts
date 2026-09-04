@@ -778,6 +778,160 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(create).toHaveBeenCalledTimes(1)
   })
 
+  it('scopes the idempotency ledger to the settling identity', async () => {
+    const owner: AuthenticationPrincipal = {
+      kind: 'grant',
+      grantId: authenticationGrantId('ledger-owner'),
+      grantRevision: 1,
+      capabilities: ALL_AUTHENTICATION_CAPABILITIES,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }
+    const api = fakeApi()
+    const create = vi.fn(api.sessions.create.bind(api.sessions))
+    api.sessions.create = create
+    const call = (principal: AuthenticationPrincipal | undefined, rpcId: string) =>
+      toFetchHandler(api, principal).fetch(new Request('http://x/api/session.create', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'Idempotency-Key': 'shared-key' },
+        body: JSON.stringify({
+          type: 'client-request',
+          rpcId,
+          method: 'session.create',
+          payload: {},
+          ...(principal === undefined ? {} : { expectedPrincipal: { kind: 'grant', grantId: 'ledger-owner', grantRevision: 1 } }),
+        }),
+      }))
+
+    // One key, two identities: the second must run its own operation rather
+    // than replay a result the first identity produced.
+    expect(await (await call(owner, 'grant-1')).json()).toMatchObject({ result: { ok: true } })
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(await (await call(owner, 'grant-2')).json()).toMatchObject({ rpcId: 'grant-2', result: { ok: true } })
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(await (await call(undefined, 'bypass-1')).json()).toMatchObject({ result: { ok: true } })
+    expect(create).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retain a failed run under its Idempotency-Key', async () => {
+    const api = fakeApi()
+    let attempt = 0
+    api.sessions.create = (request) => {
+      attempt += 1
+      return attempt === 1
+        ? Promise.reject(new Error('transient host failure'))
+        : Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: { sessionId: 's-late' as never } } })
+    }
+    const handler = toFetchHandler(api)
+    const call = (rpcId: string) => handler.fetch(new Request('http://x/api/session.create', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'retry-me' },
+      body: JSON.stringify({ type: 'client-request', rpcId, method: 'session.create', payload: {} }),
+    }))
+
+    // A non-200 leaves nothing to replay, so the caller's retry really runs.
+    const failed = await call('failed-1')
+    expect(failed.status).toBe(500)
+    expect(await (await call('retry-1')).json()).toMatchObject({ rpcId: 'retry-1', result: { ok: true } })
+    expect(attempt).toBe(2)
+  })
+
+  it('forgets an expired idempotency entry before serving a later call', async () => {
+    vi.useFakeTimers()
+    try {
+      const api = fakeApi()
+      const create = vi.fn(api.sessions.create.bind(api.sessions))
+      api.sessions.create = create
+      const handler = toFetchHandler(api)
+      const call = (rpcId: string) => handler.fetch(new Request('http://x/api/session.create', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'Idempotency-Key': 'ages-ago' },
+        body: JSON.stringify({ type: 'client-request', rpcId, method: 'session.create', payload: {} }),
+      }))
+
+      await call('early')
+      expect(create).toHaveBeenCalledTimes(1)
+      vi.advanceTimersByTime(24 * 60 * 60 * 1000 + 1)
+      await call('late')
+      expect(create).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('echoes the caller requestId on a replayed idempotent response', async () => {
+    const api = fakeApi()
+    const create = vi.fn(api.sessions.create.bind(api.sessions))
+    api.sessions.create = create
+    const handler = toFetchHandler(api)
+    const call = (rpcId: string, requestId: string) => handler.fetch(new Request('http://x/api/session.create', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'echo-me' },
+      body: JSON.stringify({ type: 'client-request', rpcId, method: 'session.create', payload: {}, requestId }),
+    }))
+
+    // The replay belongs to the repeating caller, so it carries that caller's
+    // own correlation id rather than the first caller's.
+    expect(await (await call('first', 'corr-1')).json()).toMatchObject({ rpcId: 'first', requestId: 'corr-1' })
+    expect(await (await call('second', 'corr-2')).json()).toMatchObject({ rpcId: 'second', requestId: 'corr-2' })
+    expect(create).toHaveBeenCalledTimes(1)
+  })
+
+  it('bounds the idempotency ledger by evicting its oldest entries', async () => {
+    const api = fakeApi()
+    const create = vi.fn(api.sessions.create.bind(api.sessions))
+    api.sessions.create = create
+    const handler = toFetchHandler(api)
+    const call = (key: string) => handler.fetch(new Request('http://x/api/session.create', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Idempotency-Key': key },
+      body: JSON.stringify({ type: 'client-request', rpcId: `r-${key}`, method: 'session.create', payload: {} }),
+    }))
+
+    // 1024 keys fit; the 1025th evicts the first, so replaying it runs again.
+    for (let index = 0; index < 1024; index += 1) await call(`key-${String(index)}`)
+    expect(create).toHaveBeenCalledTimes(1024)
+    await call('key-0')
+    expect(create).toHaveBeenCalledTimes(1024)
+    await call('overflow')
+    await call('key-0')
+    expect(create).toHaveBeenCalledTimes(1026)
+  })
+
+  it('refuses a duplicated since query parameter on the mux stream', async () => {
+    const response = await toFetchHandler(fakeApi())
+      .fetch(new Request('http://x/api/events.mux?since=%7B%7D&since=%7B%7D', { method: 'GET' }))
+    expect(response.status).toBe(400)
+    expect(await response.text()).toBe('invalid since query parameter')
+  })
+
+  it('carries the settling principal into both no-envelope event streams', async () => {
+    const principal: AuthenticationPrincipal = {
+      kind: 'grant',
+      grantId: authenticationGrantId('stream-owner'),
+      grantRevision: 4,
+      capabilities: ALL_AUTHENTICATION_CAPABILITIES,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }
+    const api = fakeApi()
+    const seen: { mux?: unknown; host?: unknown } = {}
+    api.events = {
+      mux: (request) => {
+        seen.mux = request.principal
+        return (async function *() { /* no frames */ })()
+      },
+      host: (request) => {
+        seen.host = request.principal
+        return (async function *() { /* no frames */ })()
+      },
+    }
+    const handler = toFetchHandler(api, principal)
+
+    await handler.fetch(new Request('http://x/api/events.mux', { method: 'GET' }))
+    await handler.fetch(new Request('http://x/api/events.host', { method: 'GET' }))
+    expect(seen.mux).toBe(principal)
+    expect(seen.host).toBe(principal)
+  })
+
   it('rejects a mutating request before route dispatch when the initiating principal changed', async () => {
     const principal: AuthenticationPrincipal = {
       kind: 'grant',

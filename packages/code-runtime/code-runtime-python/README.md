@@ -20,7 +20,7 @@ This provider is opt-in. No shipped Profile selects it. A deployment that alread
 | `pythonExecutable` | `python3` | Non-empty executable name or path passed directly to `spawn()`; no shell interprets it. The executable must provide CPython 3.10 or newer. |
 | `cpuSeconds` | `60` | Positive whole-second `RLIMIT_CPU` soft limit, applied where Python exposes `resource.RLIMIT_CPU`. |
 | `maxWallMs` | `600000` | Positive Host wall-clock ceiling, including bootstrap and binding waits. |
-| `maxAddressSpaceMb` | `512` | Positive whole-MiB `RLIMIT_AS` soft limit, applied where supported. |
+| `maxAddressSpaceMb` | `512` | Positive whole-MiB `RLIMIT_AS` soft limit, applied where the platform measures it as address space. macOS aliases `RLIMIT_AS` onto `RLIMIT_RSS`, so the bound is not applied there; the CPU and Host wall-clock ceilings still are. |
 | `maxOutputBytes` | `67108864` | Combined serialized budget for ordered logs plus the completion value or failure message. |
 | `maxControlBytes` | `67109888` | Maximum control JSONL frame width; must leave 1 KiB above `maxOutputBytes`. This provider limit also bounds one binding argument or resolution frame. |
 
@@ -28,7 +28,7 @@ Invalid config fails plugin setup. A missing executable, interpreter exit, resou
 
 ## Process and protocol
 
-Node spawns `pythonExecutable` with `['-I', '-B', py/bootstrap.py]`, `shell: false`, and an empty environment. Standard input carries Host-to-child control frames and fd 3 carries child-to-Host frames, with one versionless JSON object per line: Host sends `boot`, waits for `boot-ack`, sends `run`, services `call` frames with `reply`, and accepts one `done`. `src/protocol.ts` and `py/protocol.py` mirror every required and optional field; the real-`python3` mirror test checks both rosters.
+Node spawns `pythonExecutable` with `['-I', '-B', py/bootstrap.py]`, `shell: false`, and only the Host `PATH` needed to resolve a bare executable name. The bootstrap clears its environment before model code runs. Standard input carries Host-to-child control frames and fd 3 carries child-to-Host frames, with one versionless JSON object per line: Host sends `boot`, waits for `boot-ack`, sends `run`, services `call` frames with `reply`, and accepts one `done`. `src/protocol.ts` and `py/protocol.py` mirror every required and optional field; the real-`python3` mirror test checks both rosters.
 
 The Host treats every child frame as hostile: it caps lines before parsing, rejects integer tokens that JavaScript would round, validates and rebuilds known frames field by field, ignores unknown/malformed frames and duplicate call ids, uses own-property binding lookup, and revalidates completion values. Child errors and Host process failures expose bounded diagnostics without process paths, environment values, stacks, or raw protocol payloads.
 
@@ -54,7 +54,7 @@ Selecting this provider changes the Code Mode SDK and `run_code` schema from Typ
 
 ## Known Limitations and Deferred Work
 
-- **Process isolation is not a sandbox** — model code shares the Host filesystem, working directory, network, and operating-system identity. The empty environment limits accidental credential inheritance but does not create a security boundary; use a container backend for hostile-code confinement.
+- **Process isolation is not a sandbox** — model code shares the Host filesystem, working directory, network, and operating-system identity. The bootstrap-cleared environment limits accidental credential inheritance but does not create a security boundary; use a container backend for hostile-code confinement.
 - **Resource limits are platform-dependent** — `RLIMIT_CPU` and `RLIMIT_AS` apply only where Python's `resource` module and named limits exist; `maxWallMs`, process termination, control framing, and output caps remain Host-enforced everywhere.
 - **Python cannot distinguish an explicit `return None` from falling off an async function** — both complete as JSON `null`; callers that need an absent completion cannot express that distinction through Python function return semantics.
 - **Native fd 1/fd 2 writes bypass the ordered Python stream** — the Host still captures and bounds them, but operating-system delivery between the two independent pipes cannot promise their original cross-fd order.

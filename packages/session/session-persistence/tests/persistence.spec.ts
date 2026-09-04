@@ -5,8 +5,10 @@ import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE, DEFAULT_WRITE_BATCH_MAX_DELAY_MS, MAX_WRITE_BATCH_DELAY_MS,
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator, paginateSessionHistory,
-  type PersistenceBackend, type SessionPersistenceSnapshot, type StoredPrefix, type StoredSuffix,
+  type PersistenceBackend, type SessionInspection, type SessionPersistenceSnapshot,
+  type StoredPrefix, type StoredSuffix,
 } from '../src/index.ts'
+import { freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from './coordinator-contract.ts'
 
@@ -279,6 +281,115 @@ it('paginates materialized history with very large provenance', () => {
   if (pagedMessage?.type !== 'assistant/message') throw new Error('expected paged assistant message')
   expect(pagedMessage.sourceEventSeqs).toEqual(sourceEventSeqs)
   expect(page.hasMore).toBe(true)
+})
+
+/**
+ * A backend that inherits every derived read instead of delegating to the
+ * coordinator. This is the shape a third-party implementation takes, and the
+ * only way the base class's own logical fallbacks run.
+ */
+class DerivedOnlyPersistence extends SessionPersistence {
+  override readonly supportsRawArtifacts = false
+
+  static inject = ['sessions']
+
+  override readonly name = 'session-persistence-derived-only'
+
+  private readonly log = new Map<string, { meta: SessionHeader; events: SessionEvent[] }>()
+
+  locate(_meta: SessionHeader): undefined {
+    return undefined
+  }
+
+  create(meta: SessionHeader): Promise<void> {
+    this.log.set(meta.id, { meta, events: [] })
+    return Promise.resolve()
+  }
+
+  append(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
+    const entry = this.log.get(id)
+    if (entry === undefined) throw new Error(`session "${id}" not found`)
+    entry.events.push(...events)
+    return Promise.resolve()
+  }
+
+  delete(id: SessionId): Promise<boolean> {
+    return Promise.resolve(this.log.delete(id))
+  }
+
+  load(id: SessionId): Promise<SessionInspection> {
+    return this.inspect(id)
+  }
+
+  inspect(id: SessionId): Promise<SessionInspection> {
+    const entry = this.log.get(id)
+    if (entry === undefined) throw new Error(`session "${id}" not found`)
+    return Promise.resolve({ meta: entry.meta, events: [...entry.events], tornFrom: undefined })
+  }
+
+  readFrom(id: SessionId, fromSeq: number): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    const entry = this.log.get(id)
+    if (entry === undefined) throw new Error(`session "${id}" not found`)
+    return Promise.resolve({ meta: entry.meta, events: entry.events.filter(event => event.seq >= fromSeq) })
+  }
+
+  list(): Promise<SessionHeader[]> {
+    return Promise.resolve([...this.log.values()].map(entry => entry.meta))
+  }
+
+  listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
+    return Promise.resolve([...this.log.values()].map(entry => ({
+      header: entry.meta,
+      revision: memoryRevision(entry),
+    })))
+  }
+}
+
+describe('the inherited page and header defaults', () => {
+  async function derived(): Promise<{ ctx: Context; id: SessionId }> {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(DerivedOnlyPersistence)
+    const id = SessionId('derived-read')
+    await ctx.sessionPersistence.create(meta('derived-read'))
+    await ctx.sessionPersistence.append(id, oneTurnLog())
+    return { ctx, id }
+  }
+
+  it('refuses a page quota that cannot bound a read', async () => {
+    const { ctx, id } = await derived()
+
+    for (const maxMessages of [0, -1, 1.5, Number.NaN]) {
+      await expect(ctx.sessionPersistence.readHistoryPage(id, { maxMessages }))
+        .rejects.toThrow(/history maxMessages must be a positive safe integer/)
+    }
+  })
+
+  it('refuses an upper bound that cannot name a stored position', async () => {
+    const { ctx, id } = await derived()
+
+    for (const beforeSeq of [-1, 1.5, Number.NaN]) {
+      await expect(ctx.sessionPersistence.readHistoryPage(id, { maxMessages: 1, beforeSeq }))
+        .rejects.toThrow(/history beforeSeq must be a non-negative safe integer/)
+    }
+  })
+
+  it('folds the latest logged request header out of the whole prefix', async () => {
+    const { ctx, id } = await derived()
+
+    // No header was logged by the fixture turn, so the fold reports absence
+    // rather than inventing one.
+    await expect(ctx.sessionPersistence.readRequestHeader(id)).resolves.toBeUndefined()
+
+    await ctx.sessionPersistence.append(id, [{
+      type: 'request/header',
+      seq: 6,
+      time: 7,
+      data: { header: { config: { provider: 'mock', model: 'later' } } },
+    } as unknown as SessionEvent])
+
+    expect(await ctx.sessionPersistence.readRequestHeader(id)).toEqual({ config: { provider: 'mock', model: 'later' } })
+  })
 })
 
 describe('the inherited readRaw default', () => {
@@ -2022,6 +2133,230 @@ describe('SessionPersistence service registration', () => {
       })
     } finally {
       await fiber.dispose()
+    }
+  })
+})
+describe('display pagination boundaries', () => {
+  it('ignores a replacement whose provenance does not precede it', () => {
+    const events = oneTurnLog()
+    // A compact replacement citing its own seq names no earlier start, so it
+    // cannot cut the page above itself.
+    events.push({
+      type: 'user/message',
+      seq: 6,
+      time: 7,
+      data: freezeMessage({
+        id: MessageId('self-citing'),
+        role: 'user',
+        content: [{ type: 'text', text: 'summary' }],
+        source: { kind: 'plugin', plugin: 'compact' },
+      }),
+      surfaceOp: 'replace',
+      sourceEventSeqs: [6],
+    } as unknown as SessionEvent)
+
+    const page = paginateSessionHistory(events, { maxMessages: 1, preferLatestCheckpoint: true })
+    // The ordinary quota cut stands: the replacement named no earlier start, so
+    // the page falls back to the last appended message.
+    expect(page.events.map(event => event.seq)).toEqual([3, 4, 5, 6])
+    expect(page.hasMore).toBe(true)
+  })
+
+  it('does not spend page quota on a message that never entered the surface', () => {
+    const events = oneTurnLog()
+    // A message with no surface marker is invisible to the display quota, so a
+    // one-message page still cuts at the last appended message.
+    events.push({
+      type: 'assistant/message',
+      seq: 6,
+      time: 7,
+      data: {
+        turn: 1,
+        step: 1,
+        message: freezeMessage({
+          id: MessageId('unsurfaced'),
+          role: 'assistant',
+          content: [{ type: 'text', text: 'internal' }],
+          source: { kind: 'model', provider: 'mock', model: 'mock' },
+        }),
+      },
+    } as unknown as SessionEvent)
+
+    const page = paginateSessionHistory(events, { maxMessages: 1 })
+    expect(page.events.map(event => event.seq)).toEqual([3, 4, 5, 6])
+  })
+})
+
+describe('PersistenceCoordinator read and delete boundaries', () => {
+  /**
+   * The coordinator itself, not the service face: `MemoryPersistence` inherits
+   * the base class's logical page readers rather than delegating them, so the
+   * coordinator's own bounded readers are only reachable directly.
+   */
+  interface PageReaders {
+    readHistoryPage(id: SessionId, request: { maxMessages: number; beforeSeq?: number }, signal?: AbortSignal):
+    Promise<{ events: readonly SessionEvent[]; hasMore: boolean }>
+    readRawEventPage(id: SessionId, request: { maxEvents: number; beforeSeq?: number }, signal?: AbortSignal):
+    Promise<{ events: readonly SessionEvent[]; hasMore: boolean }>
+  }
+
+  async function mounted(): Promise<{
+    ctx: Context
+    pages: PageReaders
+    dispose: () => Promise<void>
+  }> {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(MemoryPersistence)
+    const { coordinator } = ctx.sessionPersistence as unknown as { coordinator: PageReaders }
+    return { ctx, pages: coordinator, dispose: async () => { await fiber.dispose() } }
+  }
+
+  it('refuses every derived read of an identity being deleted', async () => {
+    const { ctx, pages, dispose } = await mounted()
+    try {
+      const id = SessionId('deleting-reads')
+      await ctx.sessionPersistence.create(meta('deleting-reads'))
+      await ctx.sessionPersistence.append(id, oneTurnLog())
+      const { coordinator } = ctx.sessionPersistence as unknown as {
+        coordinator: { deletions: Map<string, Promise<boolean>> }
+      }
+      // Held open so every read observes the deletion in flight.
+      coordinator.deletions.set(id, new Promise<boolean>(() => undefined))
+
+      await expect(ctx.sessionPersistence.readFrom(id, 0)).rejects.toThrow(/is being deleted/)
+      await expect(pages.readHistoryPage(id, { maxMessages: 1 })).rejects.toThrow(/is being deleted/)
+      await expect(pages.readRawEventPage(id, { maxEvents: 1 })).rejects.toThrow(/is being deleted/)
+      await expect(ctx.sessionPersistence.readRequestHeader(id)).rejects.toThrow(/is being deleted/)
+      await expect(ctx.sessionPersistence.create(meta('deleting-reads'))).rejects.toThrow(/is being deleted/)
+      coordinator.deletions.delete(id)
+    } finally {
+      await dispose()
+    }
+  })
+
+  it('hands one concurrent caller the delete already in flight', async () => {
+    const { ctx, dispose } = await mounted()
+    try {
+      const id = SessionId('double-delete')
+      await ctx.sessionPersistence.create(meta('double-delete'))
+      await ctx.sessionPersistence.append(id, oneTurnLog())
+
+      const first = ctx.sessionPersistence.delete(id)
+      // Same identity, same operation: a second delete must not race its own.
+      const second = ctx.sessionPersistence.delete(id)
+      expect(second).toBe(first)
+      await expect(first).resolves.toBe(true)
+      await expect(ctx.sessionPersistence.delete(id)).resolves.toBe(false)
+    } finally {
+      await dispose()
+    }
+  })
+
+  it('cancels a delete that raced a session going live on its own chain', async () => {
+    const { ctx, dispose } = await mounted()
+    try {
+      const id = SessionId('delete-races-live')
+      await ctx.sessionPersistence.create(meta('delete-races-live'))
+      const release: { open?: () => void } = {}
+      const blocked = new Promise<void>((resolve) => { release.open = resolve })
+      const { coordinator } = ctx.sessionPersistence as unknown as {
+        coordinator: { serialize<T>(id: SessionId, work: () => Promise<T>): Promise<T> }
+      }
+      // Occupies the per-id chain so the delete queues behind it.
+      const holding = coordinator.serialize(id, () => blocked)
+
+      const deletion = ctx.sessionPersistence.delete(id)
+      // The session becomes live while the delete waits its turn, which the
+      // outer guard could not have seen.
+      const sessionFiber = await ctx.plugin(Object.assign((inner: Context) => {
+        inner.sessions.create(id)
+      }, { inject: ['sessions'] }))
+      release.open?.()
+      await holding
+
+      await expect(deletion).rejects.toThrow(/while it is live/)
+      await sessionFiber.dispose()
+    } finally {
+      await dispose()
+    }
+  })
+
+  it('reads the live request header without touching storage', async () => {
+    const { ctx, dispose } = await mounted()
+    try {
+      const id = SessionId('live-header')
+      let session!: Session
+      const sessionFiber = await ctx.plugin(Object.assign((inner: Context) => {
+        session = inner.sessions.create(id)
+      }, { inject: ['sessions'] }))
+      session.append('request/header', { header: { config: { provider: 'mock', model: 'live' } }, reason: 'initial' })
+
+      // A live Session owns the authoritative header; the stored prefix is not
+      // consulted at all.
+      expect(await ctx.sessionPersistence.readRequestHeader(id)).toEqual(session.requestHeader())
+      await sessionFiber.dispose()
+    } finally {
+      await dispose()
+    }
+  })
+
+  it('pages a backend that offers no bounded page reader', async () => {
+    const { ctx, pages, dispose } = await mounted()
+    try {
+      const id = SessionId('logical-pages')
+      await ctx.sessionPersistence.create(meta('logical-pages'))
+      await ctx.sessionPersistence.append(id, oneTurnLog())
+
+      // The memory backend declares neither loadHistoryPage nor
+      // loadRawEventPage, so both reads fall back to the whole prefix.
+      const history = await pages.readHistoryPage(id, { maxMessages: 1 })
+      expect(history.events.map(event => event.seq)).toEqual([3, 4, 5])
+      const raw = await pages.readRawEventPage(id, { maxEvents: 2 })
+      expect(raw.events.map(event => event.seq)).toEqual([4, 5])
+      expect(raw.hasMore).toBe(true)
+    } finally {
+      await dispose()
+    }
+  })
+
+  it('carries a cancellation signal into every queued derived read', async () => {
+    const { ctx, pages, dispose } = await mounted()
+    try {
+      const id = SessionId('cancelled-reads')
+      await ctx.sessionPersistence.create(meta('cancelled-reads'))
+      await ctx.sessionPersistence.append(id, oneTurnLog())
+
+      // Each read takes the signal-observing path rather than the bare
+      // retirement wait.
+      const live = new AbortController()
+      await expect(pages.readHistoryPage(id, { maxMessages: 1 }, live.signal))
+        .resolves.toMatchObject({ hasMore: true })
+      await expect(pages.readRawEventPage(id, { maxEvents: 1 }, live.signal))
+        .resolves.toMatchObject({ hasMore: true })
+
+      await expect(pages.readHistoryPage(id, { maxMessages: 1 }, AbortSignal.abort()))
+        .rejects.toThrow()
+      await expect(pages.readRawEventPage(id, { maxEvents: 1 }, AbortSignal.abort()))
+        .rejects.toThrow()
+
+      // The coordinator owns these bounds too, not just the base class.
+      for (const maxMessages of [0, -1, 1.5]) {
+        await expect(pages.readHistoryPage(id, { maxMessages }))
+          .rejects.toThrow(/history maxMessages must be a positive safe integer/)
+      }
+      for (const maxEvents of [0, -1, 1.5]) {
+        await expect(pages.readRawEventPage(id, { maxEvents }))
+          .rejects.toThrow(/raw history maxEvents must be a positive safe integer/)
+      }
+      for (const beforeSeq of [-1, 1.5]) {
+        await expect(pages.readHistoryPage(id, { maxMessages: 1, beforeSeq }))
+          .rejects.toThrow(/history beforeSeq must be a non-negative safe integer/)
+        await expect(pages.readRawEventPage(id, { maxEvents: 1, beforeSeq }))
+          .rejects.toThrow(/raw history beforeSeq must be a non-negative safe integer/)
+      }
+    } finally {
+      await dispose()
     }
   })
 })

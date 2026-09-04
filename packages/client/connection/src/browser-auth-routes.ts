@@ -51,20 +51,17 @@ function principalDetails(principal: AuthenticationPrincipal): string {
   return `device=${JSON.stringify(principal.name ?? '-')} grant=${JSON.stringify(principal.grantId)}`
 }
 
-class HttpResponseError extends Error {
-  constructor(readonly response: Response) {
-    super('browser authentication request rejected')
-  }
-}
+/** A parsed JSON body, or the response that refuses the request outright. */
+type JsonBody = { kind: 'parsed'; value: unknown } | { kind: 'refused'; response: Response }
 
-async function jsonBody(request: Request): Promise<unknown> {
+async function jsonBody(request: Request): Promise<JsonBody> {
   if (request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() !== 'application/json') {
-    throw new HttpResponseError(new Response('content type must be application/json', { status: 415, headers: noStoreHeaders() }))
+    return { kind: 'refused', response: new Response('content type must be application/json', { status: 415, headers: noStoreHeaders() }) }
   }
   try {
-    return await request.json()
+    return { kind: 'parsed', value: await request.json() }
   } catch {
-    throw new HttpResponseError(new Response('body is not JSON', { status: 400, headers: noStoreHeaders() }))
+    return { kind: 'refused', response: new Response('body is not JSON', { status: 400, headers: noStoreHeaders() }) }
   }
 }
 
@@ -137,13 +134,9 @@ function browserAuthenticationHandler(ctx: Context, peerAddress?: string): Fetch
         return json({ ...status, authenticated: decision.kind === 'accepted' })
       }
       if (pathname === AUTH_ENROLLMENT_PATH && request.method === 'POST') {
-        let body: unknown
-        try {
-          body = await jsonBody(request)
-        } catch (response) {
-          if (response instanceof HttpResponseError) return response.response
-          throw response
-        }
+        const parsed = await jsonBody(request)
+        if (parsed.kind === 'refused') return parsed.response
+        const body = parsed.value
         if (typeof body !== 'object' || body === null || Array.isArray(body)
           || Object.keys(body).length !== 3
           || typeof (body as { name?: unknown }).name !== 'string'
@@ -174,13 +167,9 @@ function browserAuthenticationHandler(ctx: Context, peerAddress?: string): Fetch
         return status === undefined ? text('not found', 404) : json(status)
       }
       if (pathname === AUTH_CHALLENGE_PATH && request.method === 'POST') {
-        let body: unknown
-        try {
-          body = await jsonBody(request)
-        } catch (response) {
-          if (response instanceof HttpResponseError) return response.response
-          throw response
-        }
+        const parsed = await jsonBody(request)
+        if (parsed.kind === 'refused') return parsed.response
+        const body = parsed.value
         if (typeof body !== 'object' || body === null || Array.isArray(body)
           || Object.keys(body).length !== 2
           || typeof (body as { grantId?: unknown }).grantId !== 'string'
@@ -197,13 +186,9 @@ function browserAuthenticationHandler(ctx: Context, peerAddress?: string): Fetch
         return json(decision.value)
       }
       if ((pathname === AUTH_EXCHANGE_PATH || pathname === AUTH_TOKEN_PATH) && request.method === 'POST') {
-        let body: unknown
-        try {
-          body = await jsonBody(request)
-        } catch (response) {
-          if (response instanceof HttpResponseError) return response.response
-          throw response
-        }
+        const parsed = await jsonBody(request)
+        if (parsed.kind === 'refused') return parsed.response
+        const body = parsed.value
         const submitted = proof(body)
         if (submitted === undefined) return text('invalid challenge proof', 400)
         if (pathname === AUTH_TOKEN_PATH) {
@@ -243,13 +228,9 @@ function browserAuthenticationHandler(ctx: Context, peerAddress?: string): Fetch
         return json(await ctx.authentication.listGrants())
       }
       if (pathname === AUTH_MANAGE_APPROVE_PATH && request.method === 'POST') {
-        let body: unknown
-        try {
-          body = await jsonBody(request)
-        } catch (response) {
-          if (response instanceof HttpResponseError) return response.response
-          throw response
-        }
+        const parsed = await jsonBody(request)
+        if (parsed.kind === 'refused') return parsed.response
+        const body = parsed.value
         if (typeof body !== 'object' || body === null || Array.isArray(body)) return text('invalid approval request', 400)
         const values = body as Record<string, unknown>
         if (Object.keys(values).some(key => !['id', 'capabilities', 'expiresInMs', 'idleTimeoutMs'].includes(key))
@@ -271,13 +252,9 @@ function browserAuthenticationHandler(ctx: Context, peerAddress?: string): Fetch
         }
       }
       if (pathname === AUTH_MANAGE_REVOKE_PATH && request.method === 'POST') {
-        let body: unknown
-        try {
-          body = await jsonBody(request)
-        } catch (response) {
-          if (response instanceof HttpResponseError) return response.response
-          throw response
-        }
+        const parsed = await jsonBody(request)
+        if (parsed.kind === 'refused') return parsed.response
+        const body = parsed.value
         if (typeof body !== 'object' || body === null || Array.isArray(body)
           || Object.keys(body).length !== 1 || typeof (body as { grantId?: unknown }).grantId !== 'string') {
           return text('invalid revocation request', 400)
@@ -290,13 +267,9 @@ function browserAuthenticationHandler(ctx: Context, peerAddress?: string): Fetch
         }
       }
       if (pathname === AUTH_MANAGE_TOKEN_PATH && request.method === 'POST') {
-        let body: unknown
-        try {
-          body = await jsonBody(request)
-        } catch (response) {
-          if (response instanceof HttpResponseError) return response.response
-          throw response
-        }
+        const parsed = await jsonBody(request)
+        if (parsed.kind === 'refused') return parsed.response
+        const body = parsed.value
         if (typeof body !== 'object' || body === null || Array.isArray(body)
           || Object.keys(body).some(key => !['capabilities', 'ttlMs'].includes(key))) return text('invalid token request', 400)
         const values = body as Record<string, unknown>

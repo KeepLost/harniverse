@@ -12,10 +12,20 @@ const fsControl = vi.hoisted(() => ({
   blockNextMkdir: false,
   mkdirStarted: undefined as (() => void) | undefined,
   releaseMkdir: undefined as (() => void) | undefined,
+  /**
+   * Cache publication is not cancellable: aborting the projection rejects its
+   * caller while the underlying write continues. Cleanup must observe that
+   * abandoned work, or removing the root races it.
+   */
+  inflight: [] as Promise<unknown>[],
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
+  const track = <T>(operation: Promise<T>): Promise<T> => {
+    fsControl.inflight.push(operation.catch(() => {}))
+    return operation
+  }
   return {
     ...actual,
     async mkdir(...args: Parameters<typeof actual.mkdir>): Promise<string | undefined> {
@@ -24,7 +34,13 @@ vi.mock('node:fs/promises', async (importOriginal) => {
         fsControl.mkdirStarted?.()
         await new Promise<void>((resolve) => { fsControl.releaseMkdir = resolve })
       }
-      return actual.mkdir(...args)
+      return await track(actual.mkdir(...args))
+    },
+    async writeFile(...args: Parameters<typeof actual.writeFile>): Promise<void> {
+      await track(actual.writeFile(...args))
+    },
+    async rm(...args: Parameters<typeof actual.rm>): Promise<void> {
+      await track(actual.rm(...args))
     },
     async rename(...args: Parameters<typeof actual.rename>): Promise<void> {
       const matchesRoot = fsControl.renameErrorRoot === undefined || String(args[1]).startsWith(fsControl.renameErrorRoot)
@@ -37,7 +53,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
         error.code = kind === 'eexist' ? 'EEXIST' : 'EIO'
         throw error
       }
-      return actual.rename(...args)
+      await track(actual.rename(...args))
     },
   }
 })
@@ -51,6 +67,11 @@ afterEach(async () => {
   fsControl.mkdirStarted = undefined
   fsControl.releaseMkdir?.()
   fsControl.releaseMkdir = undefined
+  // Releasing a blocked mkdir lets its publication resume, which enqueues
+  // further writes; drain until the abandoned chain is quiescent.
+  while (fsControl.inflight.length > 0) {
+    await Promise.allSettled(fsControl.inflight.splice(0))
+  }
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
 

@@ -122,6 +122,9 @@ export function apply(ctx: Context): void {
     }
   }
   const publishAuthentication = (next: AuthenticationPrincipalIdentity | undefined): void => {
+    /* v8 ignore next -- idempotence guard with no reachable caller: the loop
+     * always retracts through onStateChange('reconnecting') before it can
+     * publish a matched identity again, so no republish repeats an identity. */
     if (sameAuthenticationPrincipalIdentity(authentication, next)) return
     if (authentication === undefined && next === undefined) return
     authentication = next

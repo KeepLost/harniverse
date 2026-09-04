@@ -157,6 +157,9 @@ async function containedPath(root: string, path: string, signal: AbortSignal): P
     throw new WorkspaceInspectorError('workspace-entry-not-readable', `workspace entry ${JSON.stringify(path)} cannot be resolved`, path)
   }
   const fromRoot = relative(canonicalRoot, canonicalTarget)
+  /* v8 ignore next 3 -- containment fence over a resolver that answered out of
+     tree: relativePath already confined the target to the canonical root and
+     the symlink check above proved the canonical form equals it. */
   if (fromRoot === '..' || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) {
     throw new WorkspaceInspectorError('workspace-path-invalid', `workspace path ${JSON.stringify(path)} escapes the workspace`, path)
   }
@@ -177,7 +180,8 @@ async function readDirectoryEntries(
   try {
     handle = await open(target, READ_ONLY_NOFOLLOW_FLAGS | constants.O_DIRECTORY)
     await openedPathInfo(root, path, target, handle, signal, 'directory')
-    const readTarget = process.platform === 'win32' ? target : `/dev/fd/${handle.fd}`
+    const descriptorPath = process.platform === 'linux'
+    const readTarget = descriptorPath ? `/dev/fd/${handle.fd}` : target
     directory = await opendir(readTarget)
     const entries: Dirent[] = []
     const readLimit = limit + (detectOverflow ? 1 : 0)
@@ -191,7 +195,7 @@ async function readDirectoryEntries(
       }
       entries.push(entry)
     }
-    if (process.platform === 'win32') {
+    if (!descriptorPath) {
       await openedPathInfo(root, path, target, handle, signal, 'directory')
     }
     const truncated = !exhausted && (detectOverflow ? entries.length > limit : entries.length === limit)
@@ -330,8 +334,9 @@ export async function searchWorkspaceFiles(
   let directoryIndex = 0
   while (directoryIndex < directories.length) {
     const path = directories[directoryIndex++] as string
+    // A directory that fills the remaining budget reports itself truncated and
+    // returns below, so the budget is still positive on every entry here.
     const remaining = WORKSPACE_FILE_SEARCH_SCAN_LIMIT - scanned
-    if (remaining === 0) return { entries, truncated: true }
     const result = await readDirectoryEntries(root, path, remaining, signal, false)
     result.entries.sort((left, right) => left.name.localeCompare(right.name))
     for (const child of result.entries) {
@@ -398,11 +403,10 @@ export async function readWorkspaceFile(
     let content: string
     try {
       content = decodeUtf8Prefix(buffer.subarray(0, bytesRead))
-    } catch (error: unknown) {
-      if (error instanceof WorkspaceInspectorError) {
-        throw new WorkspaceInspectorError(error.code, `workspace file ${JSON.stringify(path)} is not valid UTF-8 text`, path)
-      }
-      throw error
+    } catch {
+      // decodeUtf8Prefix reports exactly one condition; name the file it was
+      // reading, which the shared decoder cannot know.
+      throw new WorkspaceInspectorError('workspace-file-binary', `workspace file ${JSON.stringify(path)} is not valid UTF-8 text`, path)
     }
     return { path, content, bytes: info.size, truncated: info.size > bytesRead }
   } catch (error: unknown) {
@@ -488,7 +492,7 @@ async function runGit(root: string, args: readonly string[], signal: AbortSignal
   const handle = await open(target, READ_ONLY_NOFOLLOW_FLAGS | constants.O_DIRECTORY)
   try {
     await openedPathInfo(root, '.', target, handle, signal, 'directory')
-    const descriptorRoot = process.platform !== 'win32'
+    const descriptorRoot = process.platform === 'linux'
     const gitRoot = descriptorRoot ? '/dev/fd/3' : target
     const operationSignal = abortSignal(signal)
     const environment: NodeJS.ProcessEnv = {
@@ -619,18 +623,22 @@ export async function workspaceGitStatus(
     'status', '--porcelain=v1', '--branch', '-z', '--untracked-files=all', '--ignored=no', '--', '.',
   ], signal, 'status')
   const records = result.stdout.split('\0')
-  const branchRecord = records.shift() ?? ''
+  // `split` always yields at least one element, so the leading branch record
+  // and the upstream split below are both definite.
+  const branchRecord = records.shift() as string
   const branchText = branchRecord.startsWith('## ') ? branchRecord.slice(3) : ''
   const branch = branchText.startsWith('No commits yet on ')
     ? branchText.slice('No commits yet on '.length)
     : branchText === 'HEAD (no branch)' || branchText === ''
       ? null
-      : branchText.split('...')[0] ?? null
+      : branchText.split('...')[0] as string
   const entries: WorkspaceGitStatusEntry[] = []
   for (let index = 0; index < records.length && entries.length < WORKSPACE_GIT_STATUS_LIMIT; index++) {
     const record = records[index]
     if (record === undefined || record === '') continue
-    const indexStatus = record[0] ?? ' '
+    // A non-empty record always has its first column; a truncated one may stop
+    // before the second.
+    const indexStatus = record[0] as string
     const worktreeStatus = record[1] ?? ' '
     const path = record.slice(3)
     const renamed = indexStatus === 'R' || indexStatus === 'C' || worktreeStatus === 'R' || worktreeStatus === 'C'

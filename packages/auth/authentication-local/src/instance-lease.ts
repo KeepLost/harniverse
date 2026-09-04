@@ -17,6 +17,30 @@ interface LeaseOwner {
 // Windows reports an existing destination directory as EPERM rather than EEXIST.
 const LEASE_CONTENTION_CODES = new Set(['EEXIST', 'ENOTEMPTY', 'EPERM'])
 
+// Removing a vacated lease races every other acquirer's cleanup and creation.
+// POSIX reports a repopulated directory as ENOTEMPTY; Windows reports a
+// directory another process still holds open as EPERM.
+const LEASE_CLEANUP_CONTENTION_CODES = new Set(['ENOTEMPTY', 'EPERM'])
+
+// Contended cleanup retries against a live competitor, so acquisition is
+// bounded: an unremovable lease directory fails loudly instead of spinning.
+const MAX_LEASE_ACQUIRE_ATTEMPTS = 64
+
+/**
+ * Remove a lease directory whose owner is gone, tolerating a competing
+ * acquirer that repopulated or still holds it.
+ * @param root - the lease directory to remove.
+ */
+async function removeVacatedLease(root: string): Promise<void> {
+  try {
+    await rmdir(root)
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | null)?.code
+    if (isMissing(error)) return
+    if (code === undefined || !LEASE_CLEANUP_CONTENTION_CODES.has(code)) throw error
+  }
+}
+
 /** Options selecting the DSH home and process authentication mode. */
 export interface AuthenticationLeaseOptions {
   dshHome?: string
@@ -52,13 +76,12 @@ function ownerFilename(owner: LeaseOwner): string {
 }
 
 async function readOwner(root: string): Promise<{ owner: LeaseOwner; filename: string } | undefined> {
-  const entries = await readdir(root)
-  if (entries.length === 0) return undefined
-  if (entries.length !== 1 || !/^owner-[a-f0-9]{32}\.json$/.test(entries[0] ?? '')) {
+  const [filename, ...extra] = await readdir(root)
+  // An empty lease directory is a vacated lease, not a malformed one.
+  if (filename === undefined) return undefined
+  if (extra.length > 0 || !/^owner-[a-f0-9]{32}\.json$/.test(filename)) {
     throw new Error(`authentication-local: invalid instance lease at ${root}`)
   }
-  const [filename] = entries
-  if (filename === undefined) throw new Error(`authentication-local: invalid instance lease at ${root}`)
   const owner = parseOwner(await readFile(join(root, filename), 'utf8'), root)
   if (filename !== ownerFilename(owner)) throw new Error(`authentication-local: invalid instance lease at ${root}`)
   return { owner, filename }
@@ -81,7 +104,10 @@ export async function acquireAuthenticationLease(options: AuthenticationLeaseOpt
     nonce,
     startedAt: new Date().toISOString(),
   }
-  for (;;) {
+  for (let attempt = 0; ; attempt += 1) {
+    if (attempt >= MAX_LEASE_ACQUIRE_ATTEMPTS) {
+      throw new Error(`authentication-local: could not acquire the instance lease in ${String(MAX_LEASE_ACQUIRE_ATTEMPTS)} attempts`)
+    }
     const candidate = `${root}.${nonce}.tmp`
     await mkdir(candidate, { mode: 0o700 })
     await writePrivateFile(join(candidate, ownerFilename(owner)), `${JSON.stringify(owner, null, 2)}\n`)
@@ -101,24 +127,14 @@ export async function acquireAuthenticationLease(options: AuthenticationLeaseOpt
       throw error
     }
     if (current === undefined) {
-      try {
-        await rmdir(root)
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException | null)?.code
-        if (!isMissing(error) && code !== 'ENOTEMPTY') throw error
-      }
+      await removeVacatedLease(root)
       continue
     }
     if (isProcessAlive(current.owner.pid)) {
       throw new Error(`authentication-local: Harniverse network instance already running in ${current.owner.mode} mode with pid ${String(current.owner.pid)}`)
     }
     await rm(join(root, current.filename), { force: true })
-    try {
-      await rmdir(root)
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException | null)?.code
-      if (!isMissing(error) && code !== 'ENOTEMPTY') throw error
-    }
+    await removeVacatedLease(root)
   }
 
   let released = false

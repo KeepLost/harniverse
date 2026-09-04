@@ -17,6 +17,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import SubagentRuntime, {
+  foldSubagentDescriptor,
   SubagentError,
   SUBAGENT_DESCRIPTOR_VERSION,
 } from '../src/index.ts'
@@ -2550,5 +2551,20 @@ describe('SubagentRuntime.interrupt', () => {
 
     hold.resolve(undefined)
     await drained
+  })
+
+  it('labels an invocation that names none', async () => {
+    const { ctx, parent } = await setup([textResponse('unlabelled answer')])
+    const spec = startSpec(parent)
+    const invocation = await ctx.subagents.invoke('spawn', 'sync', {
+      ...spec.request,
+      signal: spec.signal,
+    })
+
+    // The runtime supplies the durable label the caller omitted.
+    const child = ctx.agents.get(invocation.sessionId)
+    expect(foldSubagentDescriptor(child?.session.events ?? [])).toMatchObject({ label: 'subagent invocation' })
+    expect((await invocation.result).stopReason).toBe('completed')
+    await waitNoActivation(ctx, invocation.sessionId)
   })
 })

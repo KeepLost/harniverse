@@ -31,12 +31,27 @@ function scriptedApi(overrides: {
   llm?: Partial<ApiProxy['llm']>
   workspaceFiles?: Partial<NonNullable<ApiProxy['workspaceFiles']>>
   workspaceGit?: Partial<NonNullable<ApiProxy['workspaceGit']>>
+  api?: Partial<NonNullable<ApiProxy['api']>>
+  operations?: Partial<NonNullable<ApiProxy['operations']>>
   respond?: ApiProxy['respond']
 } = {}): ApiProxy {
   async function *empty<F>(): AsyncGenerator<RpcRequest<F>> { /* no frames */ }
   const err = <T>(r: RpcRequest<unknown>): Promise<RpcResponse<T>> =>
     Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal' as const, message: 'stub', details: {} } } })
   return {
+    api: {
+      describe: r => ok(r, { version: 1 as const, methods: [] }),
+      ...overrides.api,
+    },
+    operations: {
+      get: r => ok(r, {
+        operationId: r.payload.operationId,
+        kind: 'session.prompt' as const,
+        status: 'running' as const,
+        acceptedAt: 11,
+      }),
+      ...overrides.operations,
+    },
     sessions: {
       list: r => ok(r, { items: [] }),
       search: r => ok(r, { items: [], hasMore: false }),
@@ -284,6 +299,54 @@ describe('unary round trip', () => {
     // conversation has started, and it can only know which by id.
   })
 
+  it('reports every optional Host face as unavailable rather than crashing', async () => {
+    // A legacy hand-built proxy may omit these faces entirely. Each route must
+    // answer with its own stated unavailability, not a transport failure.
+    const { api: _api, operations: _operations, workspaceFiles: _files, workspaceGit: _git, ...bare } = scriptedApi()
+    const c = client(bare)
+    const reasonOf = (result: RpcResponse<unknown>['result']): string =>
+      result.ok ? 'unexpectedly ok' : result.error.message
+
+    expect(reasonOf((await c.api?.describe({}))?.result ?? { ok: true, value: 0 }))
+      .toBe('API contract discovery is unavailable')
+    expect(reasonOf((await c.operations?.get({ operationId: 'o1' }))?.result ?? { ok: true, value: 0 }))
+      .toBe('operation lookup is unavailable')
+
+    const workspaceId = 'w1' as never
+    for (const result of [
+      (await c.workspaceFiles.list({ workspaceId, path: '.' })).result,
+      (await c.workspaceFiles.search({ workspaceId, query: 'x' })).result,
+      (await c.workspaceFiles.read({ workspaceId, path: 'a.md' })).result,
+      (await c.workspaceFiles.readBinary({ workspaceId, path: 'a.png' })).result,
+    ]) expect(reasonOf(result)).toBe('workspace file inspection is unavailable')
+
+    for (const result of [
+      (await c.workspaceGit.status({ workspaceId })).result,
+      (await c.workspaceGit.commits({ workspaceId })).result,
+      (await c.workspaceGit.diff({ workspaceId, path: 'a.md' })).result,
+    ]) expect(reasonOf(result)).toBe('workspace Git inspection is unavailable')
+  })
+
+  it('routes contract discovery, operation reads, subagent history, and unarchive through the wire', async () => {
+    const c = client(scriptedApi())
+
+    // These four client faces had no spec of their own; each is one row in the
+    // method map and must reach its handler like any other.
+    expect((await c.api?.describe({}))?.result).toEqual({ ok: true, value: { version: 1, methods: [] } })
+    expect((await c.operations?.get({ operationId: 'operation:one' }))?.result).toEqual({
+      ok: true,
+      value: { operationId: 'operation:one', kind: 'session.prompt', status: 'running', acceptedAt: 11 },
+    })
+    const history = await c.subagents.history({
+      parentSessionId: sid('s1'), childSessionId: sid('s2'), mode: 'continuable',
+    })
+    expect(history.result).toEqual({ ok: true, value: { events: [], hasMore: false } })
+    const profiles = await c.subagents.profiles({ parentSessionId: sid('s1') })
+    expect(profiles.result).toEqual({ ok: true, value: { profiles: [] } })
+    const unarchived = await c.workspace.unarchiveSession({ sessionId: sid('s1') })
+    expect(unarchived.result).toEqual({ ok: true, value: { archivedSessionIds: [] } })
+  })
+
   it('passes business errors through as 200 + err result, not a throw', async () => {
     const api = scriptedApi({
       sessions: {
@@ -299,6 +362,56 @@ describe('unary round trip', () => {
       sessions: { list: () => Promise.resolve({ rpcId: RpcId('forged'), result: { ok: true, value: { items: [] } } }) },
     })
     await expect(client(api).sessions.list({})).rejects.toThrow(/rpcId mismatch/)
+  })
+
+  it('throws on requestId echo mismatch', async () => {
+    // The handler echoes the client's requestId, so only a forging carrier can
+    // disagree with it.
+    const forging = new InProcessApiClient({
+      fetch: async (_input, init) => {
+        const sent = JSON.parse(typeof init?.body === 'string' ? init.body : JSON.stringify(init?.body)) as { rpcId: string }
+        return new Response(JSON.stringify({
+          type: 'server-response',
+          rpcId: sent.rpcId,
+          requestId: 'forged-request',
+          result: { ok: true, value: { items: [] } },
+          authentication: { kind: 'bypass' },
+        }), { headers: { 'content-type': 'application/json' } })
+      },
+    })
+    await expect(forging.sessions.list({})).rejects.toThrow(/requestId mismatch/)
+  })
+
+  it.each([true, false])('omits an absent requestId while always carrying authentication (ok=%s)', async (ok) => {
+    // requestId is optional on the wire; authentication is not, and an absent
+    // one is refused before the result is assembled.
+    const bare = new InProcessApiClient({
+      fetch: async (_input, init) => {
+        const sent = JSON.parse(typeof init?.body === 'string' ? init.body : JSON.stringify(init?.body)) as { rpcId: string }
+        return new Response(JSON.stringify({
+          type: 'server-response',
+          rpcId: sent.rpcId,
+          result: ok
+            ? { ok: true, value: { items: [] } }
+            : { ok: false, error: { code: 'internal', message: 'no', details: {} } },
+          authentication: { kind: 'bypass' },
+        }), { headers: { 'content-type': 'application/json' } })
+      },
+    })
+    const response = await bare.sessions.list({})
+    expect('requestId' in response).toBe(false)
+    expect(response.authentication).toEqual({ kind: 'bypass' })
+    expect(response.result.ok).toBe(ok)
+  })
+
+  it('accepts an unauthenticated contract read whose launch identity never existed', async () => {
+    // host.describe is the one method allowed without a principal, so both the
+    // launch and the current identity are absent and still match.
+    const anonymous = new InProcessApiClient(
+      toFetchHandler(scriptedApi()), undefined, () => undefined,
+    )
+    const described = await anonymous.host.describe({})
+    expect(described.result.ok).toBe(true)
   })
 
   it('rejects an invalid payload at the handler as 200 + bad-request with issues', async () => {
@@ -726,6 +839,19 @@ describe('respond path', () => {
       result: { ok: true, value: { behavior: 'allow' } },
       expectedPrincipal: { kind: 'bypass' },
     }])
+  })
+
+  it('refuses to respond without an authenticated principal', async () => {
+    const respond = vi.fn()
+    const unauthenticated = new InProcessApiClient(
+      toFetchHandler(scriptedApi({ respond })), undefined, () => undefined,
+    )
+
+    // respond always mutates, so it may never leave without an identity to bind.
+    await expect(unauthenticated.respond({
+      type: 'client-response', rpcId: RpcId('req-1'), result: { ok: true, value: { behavior: 'allow' } },
+    })).rejects.toThrow(/cannot initiate mutating respond without an authenticated principal/)
+    expect(respond).not.toHaveBeenCalled()
   })
 
   it('returns bad-response for a malformed client-response without reaching the impl', async () => {

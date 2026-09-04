@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -75,6 +75,69 @@ describe('DeepSeek upload index', () => {
     expect(results[0]?.record.variantId).toBe(results[1]?.record.variantId)
   })
 
+  it('prunes expired mappings of other variants when it commits', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-upload-index-'))
+    roots.push(root)
+    const path = join(root, 'files-v1.json')
+    const stale = {
+      ...record('file-stale'),
+      variantId: ImageVariantId(`sha256:${'d'.repeat(64)}`),
+      expiresAt: 3_000,
+    }
+    const live = {
+      ...record('file-live'),
+      variantId: ImageVariantId(`sha256:${'e'.repeat(64)}`),
+      expiresAt: 90_000,
+    }
+    await writeFile(path, JSON.stringify({ formatVersion: 1, records: [stale, live] }))
+    const index = new DeepSeekUploadIndex(path)
+    const candidate = record('file-new')
+
+    await expect(index.commit(candidate, 20_000, 1_000)).resolves.toEqual({ record: candidate, accepted: true })
+    const saved = JSON.parse(await readFile(path, 'utf8')) as { records: { fileId: string }[] }
+    // The expired mapping is dropped; the still-usable one survives.
+    expect(saved.records.map(entry => entry.fileId).sort()).toEqual(['file-live', 'file-new'])
+  })
+
+  it('replaces its own expired mapping for the same variant', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-upload-index-'))
+    roots.push(root)
+    const path = join(root, 'files-v1.json')
+    await writeFile(path, JSON.stringify({ formatVersion: 1, records: [record('file-old')] }))
+    const index = new DeepSeekUploadIndex(path)
+    const candidate = { ...record('file-fresh'), expiresAt: 90_000 }
+
+    await expect(index.commit(candidate, 20_000, 1_000)).resolves.toEqual({ record: candidate, accepted: true })
+    const saved = JSON.parse(await readFile(path, 'utf8')) as { records: { fileId: string }[] }
+    expect(saved.records.map(entry => entry.fileId)).toEqual(['file-fresh'])
+  })
+
+  it('clears only the requested scope', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-upload-index-'))
+    roots.push(root)
+    const path = join(root, 'files-v1.json')
+    const other = { ...record('file-other'), scope: DeepSeekFileScope('b'.repeat(64)) }
+    await writeFile(path, JSON.stringify({ formatVersion: 1, records: [record('file-mine'), other] }))
+    const index = new DeepSeekUploadIndex(path)
+
+    await index.clear(record().scope)
+    const saved = JSON.parse(await readFile(path, 'utf8')) as { records: { fileId: string }[] }
+    expect(saved.records.map(entry => entry.fileId)).toEqual(['file-other'])
+  })
+
+  it('propagates a read failure that is not a missing file', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-upload-index-'))
+    roots.push(root)
+    // A directory where the index belongs makes the read fail with EISDIR,
+    // which is a real fault rather than an absent or unusable index.
+    const path = join(root, 'files-v1.json')
+    await mkdir(path, { recursive: true })
+    const index = new DeepSeekUploadIndex(path)
+    const candidate = record()
+
+    await expect(index.get(candidate.scope, candidate.variantId, 2_000, 1_000)).rejects.toThrow()
+  })
+
   it('treats unsupported, invalid, and duplicate records as empty', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-upload-index-'))
     roots.push(root)
@@ -84,6 +147,8 @@ describe('DeepSeek upload index', () => {
       JSON.stringify(null),
       JSON.stringify({ formatVersion: 2, records: [] }),
       JSON.stringify({ formatVersion: 1, records: [{}] }),
+      JSON.stringify({ formatVersion: 1, records: [null] }),
+      JSON.stringify({ formatVersion: 1, records: [[]] }),
       JSON.stringify({ formatVersion: 1, records: [candidate, candidate] }),
     ]) {
       await writeFile(path, contents)

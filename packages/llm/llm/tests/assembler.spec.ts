@@ -176,3 +176,39 @@ describe('BlockAssembler duplicate-close contract', () => {
     expect(assembler.blocks()).toEqual([{ type: 'reasoning', text: 'first' }])
   })
 })
+
+describe('BlockAssembler interrupted prefix', () => {
+  it('keeps streamed text and reasoning while omitting tool calls and blank blocks', () => {
+    // Interruption precedes dispatch, so retaining a tool call would require a
+    // fabricated result; blank blocks carry nothing a reader could act on.
+    const chunks: StreamChunk[] = [
+      { type: 'block-start', index: 0, blockType: 'reasoning' },
+      { type: 'reasoning-delta', index: 0, text: 'weighing options' },
+      { type: 'block-start', index: 1, blockType: 'text' },
+      { type: 'text-delta', index: 1, text: 'partial answer' },
+      { type: 'block-start', index: 2, blockType: 'tool-call' },
+      { type: 'tool-call-delta', index: 2, id: CallId('call-9'), name: 'echo', argumentsDelta: '{"text":' },
+      { type: 'block-end', index: 3, block: { type: 'text', text: '   ' } },
+      { type: 'block-start', index: 4, blockType: 'text' },
+      { type: 'text-delta', index: 4, text: ' \n\t' },
+    ]
+    const assembler = new BlockAssembler()
+    for (const chunk of chunks) assembler.push(chunk)
+
+    expect(assembler.interruptedBlocks()).toEqual([
+      { type: 'reasoning', text: 'weighing options' },
+      { type: 'text', text: 'partial answer' },
+    ])
+  })
+
+  it('reads a closed block type from the block itself rather than the streamed hint', () => {
+    const assembler = new BlockAssembler()
+    assembler.push({ type: 'block-start', index: 0, blockType: 'tool-call' })
+    assembler.push({ type: 'block-end', index: 0, block: { type: 'text', text: 'reclassified' } })
+    expect(assembler.interruptedBlocks()).toEqual([{ type: 'text', text: 'reclassified' }])
+  })
+
+  it('reports nothing when no block streamed before interruption', () => {
+    expect(new BlockAssembler().interruptedBlocks()).toEqual([])
+  })
+})

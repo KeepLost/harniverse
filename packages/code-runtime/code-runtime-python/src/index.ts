@@ -370,11 +370,14 @@ export class PythonCodeRuntime extends CodeRuntime {
 
     let child: ChildProcess
     try {
+      const path = process.env.PATH
       child = spawn(this.config.pythonExecutable, ['-I', '-B', BOOTSTRAP_PATH], {
         // Windows extra stdio pipes are not reliably duplex. stdin carries
         // Host frames; fd 3 carries child frames on every platform.
         stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
-        env: {},
+        // PATH selects the configured interpreter before the bootstrap clears
+        // its environment; model code still receives no Host variables.
+        env: path === undefined ? {} : { PATH: path },
         shell: false,
         windowsHide: true,
       })

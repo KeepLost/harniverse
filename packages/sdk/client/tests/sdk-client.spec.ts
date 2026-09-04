@@ -9,7 +9,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   DeepSeekHarness,
   HarnessClient,
@@ -168,6 +168,32 @@ describe('DeepSeekHarness', () => {
       model: 'custom-model',
       maxTokens: 4096,
     }])
+  })
+
+  it('sends an optional child profile in the initialize handshake', async () => {
+    const dir = await tempDir('sdk-client-profile-')
+    const recordFile = join(dir, 'init.jsonl')
+    const childProfile = { id: 'profile-id', revision: 1 } as never
+    const harness = new DeepSeekHarness({
+      launch: fakeLaunch({ FAKE_RECORD_INIT: recordFile }),
+      childProfile,
+    })
+    cleanups.push(() => harness.close())
+    await harness.start()
+    await harness.close()
+    const records = (await readFile(recordFile, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
+    expect(records[0]?.childProfile).toEqual(childProfile)
+  })
+
+  it('does not replace the client when a failed handshake races terminal close', async () => {
+    const harness = harnessWith({ FAKE_HANG_INIT: '1' })
+    const pending = harness.start()
+    pending.catch(() => {})
+    await vi.waitFor(() => { expect(harness.client).toBeDefined() })
+    const firstClient = harness.client
+    await harness.close()
+    await expect(pending).rejects.toThrow()
+    expect(harness.client).toBe(firstClient)
   })
 
   it('resolves a relative launch cwd to an absolute workspace before the handshake', async () => {

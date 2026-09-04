@@ -688,8 +688,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }
     try {
       this.assertNotDeleting(snapshot.id)
+    // `assertNotDeleting` is the only thrower here and it throws an Error, so
+    // the rejection carries it verbatim.
     } catch (error: unknown) {
-      return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+      /* oxlint-disable-next-line typescript/prefer-promise-reject-errors -- preserve the thrown Error. */
+      return Promise.reject(error)
     }
     return this.serialize(snapshot.id, () => this.createCore(snapshot))
   }
@@ -742,11 +745,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     if (existing !== undefined) return existing
     const operation = this.deleteCore(id)
     this.deletions.set(id, operation)
-    void operation.then(() => {
-      if (this.deletions.get(id) === operation) this.deletions.delete(id)
-    }, () => {
-      if (this.deletions.get(id) === operation) this.deletions.delete(id)
-    })
+    // One deletion per id: a concurrent caller is handed this same operation
+    // above, so the settled entry is always still this one.
+    const forget = (): void => {
+      this.deletions.delete(id)
+    }
+    void operation.then(forget, forget)
     return operation
   }
 
@@ -929,8 +933,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }
     try {
       this.assertNotDeleting(id)
+    // `assertNotDeleting` is the only thrower here and it throws an Error, so
+    // the rejection carries it verbatim.
     } catch (error: unknown) {
-      return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+      /* oxlint-disable-next-line typescript/prefer-promise-reject-errors -- preserve the thrown Error. */
+      return Promise.reject(error)
     }
     const retired = Promise.resolve(this.retirements.get(id))
     const waited = signal === undefined ? retired : observeQueuedAbort(retired, signal, () => false)
@@ -958,8 +965,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }
     try {
       this.assertNotDeleting(id)
+    // `assertNotDeleting` is the only thrower here and it throws an Error, so
+    // the rejection carries it verbatim.
     } catch (error: unknown) {
-      return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+      /* oxlint-disable-next-line typescript/prefer-promise-reject-errors -- preserve the thrown Error. */
+      return Promise.reject(error)
     }
     const retired = Promise.resolve(this.retirements.get(id))
     const waited = signal === undefined ? retired : observeQueuedAbort(retired, signal, () => false)
@@ -987,8 +997,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }
     try {
       this.assertNotDeleting(id)
+    // `assertNotDeleting` is the only thrower here and it throws an Error, so
+    // the rejection carries it verbatim.
     } catch (error: unknown) {
-      return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+      /* oxlint-disable-next-line typescript/prefer-promise-reject-errors -- preserve the thrown Error. */
+      return Promise.reject(error)
     }
     const retired = Promise.resolve(this.retirements.get(id))
     const waited = signal === undefined ? retired : observeQueuedAbort(retired, signal, () => false)

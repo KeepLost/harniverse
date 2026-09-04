@@ -63,9 +63,12 @@ export class AccessTokenLedger {
     const own = [...this.records]
       .filter(([, record]) => record.principal.grantId === grant.id && record.principal.grantRevision === grant.revision)
       .map(([id]) => id)
-    if (own.length >= this.spec.maxTokensPerGrant) {
-      const oldest = own[0]
-      if (oldest !== undefined) this.records.delete(oldest)
+    // Free one per-Grant slot by evicting this Grant's oldest tokens. The
+    // bound is a validated positive integer, so the slice is non-empty exactly
+    // when the bound is reached.
+    const excess = own.length - this.spec.maxTokensPerGrant + 1
+    if (excess > 0) {
+      for (const id of own.slice(0, excess)) this.records.delete(id)
     } else if (this.records.size >= this.spec.maxTokens) {
       return undefined
     }
@@ -92,11 +95,9 @@ export class AccessTokenLedger {
    * @returns the admitted principal, or `undefined` for invalid or expired input.
    */
   authenticate(value: string): Extract<AuthenticationPrincipal, { kind: 'grant' }> | undefined {
-    const match = /^dsha1_([A-Za-z0-9_-]{16})_([A-Za-z0-9_-]{43})$/.exec(value)
-    if (match === null) return undefined
-    const id = match[1]
-    const secret = match[2]
-    if (id === undefined || secret === undefined) return undefined
+    // Both groups are mandatory, so a match always carries them.
+    const [, id = '', secret = ''] = /^dsha1_([A-Za-z0-9_-]{16})_([A-Za-z0-9_-]{43})$/.exec(value) ?? []
+    if (id === '') return undefined
     const record = this.records.get(id)
     if (record === undefined) return undefined
     if (record.expiresAt <= Date.now()) {

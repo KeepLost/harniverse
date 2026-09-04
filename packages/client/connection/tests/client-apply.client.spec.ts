@@ -4,6 +4,7 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { authenticationGrantId } from '@deepseek-ai/dsh-authentication'
 import { apply, type ConnectionHandle } from '../src/client/index.ts'
 import type { RpcMessage } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
@@ -400,5 +401,172 @@ describe('connection client apply', () => {
     await expect(handle.rpc.call('/other', 'goals/create', {})).rejects.toThrow(/channel.*unavailable/)
     await expect(handle.rpc.call('/api', 'unknown/read', { args: { agentId: 'fx-alpha' } }))
       .rejects.toThrow(/endpoint.*unavailable/)
+  })
+})
+
+describe('connection handle authentication source', () => {
+  it('publishes the matched identity on connect and retracts it on stop', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const seen: Array<string | undefined> = []
+    const stop = handle.authentication.subscribe(() => { seen.push(handle.authentication.getSnapshot()?.kind) })
+    expect(handle.authentication.getSnapshot()).toBeUndefined()
+
+    const loop = handle.start({})
+    await vi.waitFor(() => { expect(handle.authentication.getSnapshot()?.kind).toBe('bypass') })
+    loop.stop()
+    expect(handle.authentication.getSnapshot()).toBeUndefined()
+    expect(seen).toEqual(['bypass', undefined])
+    stop()
+  })
+
+  it('does not republish an unchanged identity', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    let notifications = 0
+    const stop = handle.authentication.subscribe(() => { notifications += 1 })
+
+    const loop = handle.start({})
+    await vi.waitFor(() => { expect(notifications).toBe(1) })
+    // validate() against the identity already held is a pure read: the
+    // generation stays and no listener runs again.
+    expect(handle.authentication.validate({ kind: 'bypass' })).toBe(true)
+    expect(notifications).toBe(1)
+    expect(handle.authentication.getSnapshot()?.kind).toBe('bypass')
+    loop.stop()
+    stop()
+  })
+
+  it('retracts the identity and description when validate() sees a foreign identity', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const loop = handle.start({})
+    await vi.waitFor(() => { expect(handle.authentication.getSnapshot()?.kind).toBe('bypass') })
+
+    // A Host-verified identity the page did not expect invalidates the
+    // generation, so the reconnect loop re-authenticates every carrier.
+    expect(handle.authentication.validate({
+      kind: 'grant',
+      grantId: authenticationGrantId('someone-else'),
+      grantRevision: 1,
+    })).toBe(false)
+    expect(handle.authentication.getSnapshot()).toBeUndefined()
+    expect(handle.hostDescription.getSnapshot()).toBeUndefined()
+    // The loop is still running, so it re-establishes the same fixture identity.
+    await vi.waitFor(() => { expect(handle.authentication.getSnapshot()?.kind).toBe('bypass') })
+    loop.stop()
+  })
+
+  it('isolates a throwing authentication subscriber', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const stopThrowing = handle.authentication.subscribe(() => { throw new Error('auth subscriber bug') })
+    const kinds: Array<string | undefined> = []
+    const stopReading = handle.authentication.subscribe(() => { kinds.push(handle.authentication.getSnapshot()?.kind) })
+
+    const loop = handle.start({})
+    await vi.waitFor(() => { expect(kinds).toEqual(['bypass']) })
+    expect(errorSpy.mock.calls.map(call => String(call[0])))
+      .toContain('[web-runtime] authentication listener threw:')
+    loop.stop()
+    stopThrowing()
+    stopReading()
+    errorSpy.mockRestore()
+  })
+
+  it('unsubscribes an authentication listener', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    let notifications = 0
+    handle.authentication.subscribe(() => { notifications += 1 })()
+
+    const loop = handle.start({})
+    await vi.waitFor(() => { expect(handle.authentication.getSnapshot()?.kind).toBe('bypass') })
+    expect(notifications).toBe(0)
+    loop.stop()
+  })
+
+  it('retracts the identity while reconnecting', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const states: string[] = []
+    const loop = handle.start({ onStateChange: state => states.push(state) }, {
+      backoffBaseMs: 5, backoffFactor: 1, backoffMaxMs: 5,
+    })
+    await vi.waitFor(() => { expect(handle.authentication.getSnapshot()?.kind).toBe('bypass') })
+
+    handle.authentication.validate({ kind: 'grant', grantId: authenticationGrantId('other'), grantRevision: 9 })
+    await vi.waitFor(() => { expect(states).toContain('reconnecting') })
+    await vi.waitFor(() => { expect(handle.authentication.getSnapshot()?.kind).toBe('bypass') })
+    loop.stop()
+  })
+})
+
+describe('WebApiClient stream authentication frames', () => {
+  it('reports the Host-verified identity out of band and keeps it out of the frame stream', async () => {
+    ;(globalThis as Win).location = {
+      hostname: 'localhost', search: '', origin: 'http://localhost:3080',
+    }
+    ;(globalThis as WebSocketGlobal).WebSocket = FakeWebSocket as unknown as typeof WebSocket
+    const client = (await mount()).api as WebApiClient
+    const identities: unknown[] = []
+    const abort = new AbortController()
+    const stream = client.events.mux({}, abort.signal, undefined, identity => identities.push(identity))
+    const iterator = stream[Symbol.asyncIterator]()
+    const firstFrame = iterator.next()
+    await vi.waitFor(() => { expect(sockets).toHaveLength(1) })
+
+    sockets[0]!.receive(JSON.stringify({
+      type: 'server-request',
+      rpcId: 'auth-frame',
+      method: 'connection.authenticated',
+      payload: { kind: 'grant', grantId: 'browser-grant', grantRevision: 3 },
+    }))
+    await vi.waitFor(() => {
+      expect(identities).toEqual([{ kind: 'grant', grantId: 'browser-grant', grantRevision: 3 }])
+    })
+
+    // The identity is transport metadata, so it never becomes a business frame.
+    sockets[0]!.receive(JSON.stringify({
+      type: 'server-request',
+      rpcId: 'mux-after-auth',
+      method: 'session/subscribed',
+      payload: { type: 'session/subscribed', sessionId: 'session-after-auth', lastSeq: 1 },
+    }))
+    expect(await firstFrame).toMatchObject({
+      value: { rpcId: 'mux-after-auth', payload: { type: 'session/subscribed', lastSeq: 1 } },
+    })
+
+    const end = iterator.next()
+    abort.abort()
+    await expect(end).resolves.toMatchObject({ done: true })
+  })
+
+  it('drops an authentication frame carrying an unusable identity', async () => {
+    ;(globalThis as Win).location = {
+      hostname: 'localhost', search: '', origin: 'http://localhost:3080',
+    }
+    ;(globalThis as WebSocketGlobal).WebSocket = FakeWebSocket as unknown as typeof WebSocket
+    const client = (await mount()).api as WebApiClient
+    const identities: unknown[] = []
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const abort = new AbortController()
+    const iterator = client.events.mux({}, abort.signal, undefined, identity => identities.push(identity))[Symbol.asyncIterator]()
+    const pending = iterator.next()
+    await vi.waitFor(() => { expect(sockets).toHaveLength(1) })
+
+    sockets[0]!.receive(JSON.stringify({
+      type: 'server-request',
+      rpcId: 'auth-bad',
+      method: 'connection.authenticated',
+      payload: { kind: 'grant' },
+    }))
+    await vi.waitFor(() => { expect(errors).toHaveBeenCalledTimes(1) })
+    expect(identities).toEqual([])
+
+    abort.abort()
+    await expect(pending).resolves.toMatchObject({ done: true })
+    errors.mockRestore()
   })
 })

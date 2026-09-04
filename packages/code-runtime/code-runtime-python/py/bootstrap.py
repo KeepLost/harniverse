@@ -268,18 +268,30 @@ def _apply_resource_limits(boot: dict[str, Any]) -> None:
         return
 
     def set_limit(resource_id: int, requested: int, hard_grace: int = 0) -> None:
-        _soft, hard = resource.getrlimit(resource_id)
-        requested_hard = requested + hard_grace
-        target_hard = requested_hard if hard == resource.RLIM_INFINITY else min(requested_hard, hard)
-        target_soft = min(requested, target_hard)
-        resource.setrlimit(resource_id, (target_soft, target_hard))
+        # Best effort per limit: a kernel that refuses one bound must not keep
+        # the runtime from starting. The Host wall-clock ceiling is independent.
+        try:
+            _soft, hard = resource.getrlimit(resource_id)
+            requested_hard = requested + hard_grace
+            target_hard = requested_hard if hard == resource.RLIM_INFINITY else min(requested_hard, hard)
+            target_soft = min(requested, target_hard)
+            resource.setrlimit(resource_id, (target_soft, target_hard))
+        except (OSError, ValueError):
+            return
 
     if hasattr(resource, "RLIMIT_CPU"):
         set_limit(resource.RLIMIT_CPU, int(boot["cpuSeconds"]), 1)
-    if hasattr(resource, "RLIMIT_AS"):
+    # Darwin aliases RLIMIT_AS onto RLIMIT_RSS, so the requested bound is
+    # measured against a different quantity than the address space it names and
+    # is enforced against the interpreter's own baseline reservation. Apply the
+    # address-space bound only where it means address space.
+    if hasattr(resource, "RLIMIT_AS") and sys.platform != "darwin":
         set_limit(resource.RLIMIT_AS, int(boot["addressSpaceBytes"]))
     if hasattr(resource, "RLIMIT_CORE"):
-        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        try:
+            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        except (OSError, ValueError):
+            pass
 
 
 _PATH = re.compile(r"(?<![A-Za-z0-9_.-])(?:/[A-Za-z0-9_.~@%+,:=-]+)+|[A-Za-z]:\\[^\s]+")

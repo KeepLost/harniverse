@@ -195,6 +195,16 @@ function preReactLoopLog(): SessionEvent[] {
       type: 'turn/end', seq: 21, time: 22,
       data: { turn: 7, reason: { kind: 'error', step: 0, message: 'old coded error', code: 'CODED' } },
     },
+    {
+      type: 'turn/start', seq: 22, time: 23,
+      data: { turn: 8, trigger: { kind: 'message', source: { kind: 'user' } } },
+    },
+    // A turn already written in the current shape, inside an otherwise legacy
+    // log: migration must recognize it and leave it exactly as stored.
+    {
+      type: 'turn/end', seq: 23, time: 24,
+      data: { turn: 8, reason: { kind: 'aborted', reason: { kind: 'disposed' } } },
+    },
   ] as unknown as SessionEvent[]
 }
 
@@ -490,6 +500,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
           expect(snapshot.events.filter(event => event.type === 'turn/start').map(event => event.data))
             .toEqual([
               { turn: 1 }, { turn: 2 }, { turn: 3 }, { turn: 4 }, { turn: 5 }, { turn: 6 }, { turn: 7 },
+              { turn: 8 },
             ])
           expect(snapshot.events.filter(event => event.type === 'turn/end').map(event => event.data)).toEqual([
             { turn: 1, reason: { kind: 'completed' } },
@@ -520,6 +531,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
               turn: 7,
               reason: { kind: 'error', error: { message: 'old coded error', code: 'CODED' } },
             },
+            { turn: 8, reason: { kind: 'aborted', reason: { kind: 'disposed' } } },
           ])
 
           const resumed = Session.create(id, snapshot.events, snapshot.meta)

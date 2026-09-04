@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { buildWindow, langFromPath, readMetaFromMeta, READ_MAX_BYTES, READ_MAX_LINE_LENGTH } from '../src/read-render.ts'
+import { buildWindow, formatReadOutput, langFromPath, readMetaFromMeta, READ_MAX_BYTES, READ_MAX_LINE_LENGTH } from '../src/read-render.ts'
 import type { ReadWindow } from '../src/read-render.ts'
 
 const DEFAULT_CAPS = { maxLineLength: READ_MAX_LINE_LENGTH, maxBytes: READ_MAX_BYTES }
@@ -194,6 +194,110 @@ describe('buildWindow', () => {
       expect(result.lines.map(l => l.text)).toEqual(['one', 'two'])
     })
   })
+
+  describe('legacy and boundary line endings', () => {
+    it('keeps a lone carriage return as line content rather than a line break', async () => {
+      const result = await buildWindow(whole('one\rtwo\nthree'), READ_ALL, 'f')
+      expect(result.lines).toEqual([
+        { number: 1, text: 'one\rtwo' },
+        { number: 2, text: 'three' },
+      ])
+      expect(result.totalLines).toBe(2)
+    })
+
+    it('keeps a carriage return that ends the file as line content', async () => {
+      const result = await buildWindow(whole('one\r'), READ_ALL, 'f')
+      expect(result.lines).toEqual([{ number: 1, text: 'one\r' }])
+      expect(result.totalLines).toBe(1)
+    })
+
+    it('keeps a carriage return split from its newline across chunks as one break', async () => {
+      const result = await buildWindow(['one\r', '\ntwo'], READ_ALL, 'f')
+      expect(result.lines.map(l => l.text)).toEqual(['one', 'two'])
+    })
+
+    it('keeps an unpaired high surrogate that ends the file', async () => {
+      const result = await buildWindow(['a\ud83d'], READ_ALL, 'f')
+      expect(result.lines).toEqual([{ number: 1, text: 'a\ud83d' }])
+    })
+  })
+
+  describe('byte caps below one code point', () => {
+    it('refuses a byte cap that cannot return the first code point of the first line', async () => {
+      await expect(buildWindow(whole('é'), { offset: 1, limit: 10, maxLineLength: 2000, maxBytes: 1 }, 'f'))
+        .rejects.toThrow('readMaxBytes is too small to return one UTF-8 code point')
+    })
+
+    it('reports the next line as the cursor when the byte cap falls exactly between lines', async () => {
+      const result = await buildWindow(whole('aaaa\nbbbb'), { offset: 1, limit: 10, maxLineLength: 2000, maxBytes: 4 }, 'f')
+      expect(result.lines).toEqual([{ number: 1, text: 'aaaa' }])
+      expect(result.next).toEqual({ offset: 2, lineByteOffset: 0 })
+      expect(result.truncatedByBytes).toBe(true)
+    })
+  })
+
+  describe('line_byte_offset range', () => {
+    it('refuses a byte offset past the end of the requested line', async () => {
+      await expect(buildWindow(
+        whole('one\ntwo'),
+        { offset: 1, lineByteOffset: 99, limit: 1, ...DEFAULT_CAPS },
+        'short.txt',
+      )).rejects.toThrow('line_byte_offset 99 is out of range for line 1 of "short.txt" (3 bytes)')
+    })
+
+    it('accepts a byte offset at the exact end of the requested line', async () => {
+      const result = await buildWindow(
+        whole('one\ntwo'),
+        { offset: 1, lineByteOffset: 3, limit: 1, ...DEFAULT_CAPS },
+        'short.txt',
+      )
+      expect(result.lines).toEqual([{ number: 1, text: '', startByte: 3, endByte: 3, complete: true }])
+    })
+  })
+})
+
+describe('formatReadOutput', () => {
+  it('names the same-line byte cursor when a long line continues', () => {
+    const rendered = formatReadOutput('a.txt', {
+      offset: 1,
+      lines: [{ number: 1, text: 'abc', startByte: 0, endByte: 3, complete: false }],
+      next: { offset: 1, lineByteOffset: 3 },
+    })
+    expect(rendered).toContain('1 [bytes 0-3]: abc')
+    expect(rendered).toContain('(Line 1 continues. Use offset=1 and line_byte_offset=3.)')
+  })
+
+  it('names the next line when more lines remain within a known total', () => {
+    expect(formatReadOutput('a.txt', {
+      offset: 1, lines: [{ number: 1, text: 'one' }], totalLines: 3, next: { offset: 2, lineByteOffset: 0 },
+    })).toContain('(Showing lines 1-1 of 3. Use offset=2 to continue.)')
+  })
+
+  it('derives the continuation from the last returned line when no cursor is given', () => {
+    expect(formatReadOutput('a.txt', {
+      offset: 1, lines: [{ number: 1, text: 'one' }], totalLines: 3,
+    })).toContain('(Showing lines 1-1 of 3. Use offset=2 to continue.)')
+  })
+
+  it('reports end of file when the window reached the known total', () => {
+    expect(formatReadOutput('a.txt', {
+      offset: 1, lines: [{ number: 1, text: 'one' }], totalLines: 1,
+    })).toContain('(End of file - total 1 lines)')
+  })
+
+  it('states that content may remain when the total is unknown', () => {
+    const rendered = formatReadOutput('a.txt', { offset: 1, lines: [{ number: 1, text: 'one' }] })
+    expect(rendered).toContain('(More file content may remain.)')
+  })
+
+  it('renders an empty window as the footer alone and escapes the path', () => {
+    expect(formatReadOutput('a<&>b.txt', { offset: 1, lines: [], totalLines: 0 }))
+      .toBe(`<path>a&lt;&amp;&gt;b.txt</path>
+<type>file</type>
+<content>
+(End of file - total 0 lines)
+</content>`)
+  })
 })
 
 describe('langFromPath', () => {
@@ -283,6 +387,31 @@ describe('readMetaFromMeta', () => {
     expect(readMetaFromMeta({ ...good, totalLines: -1 })).toBeUndefined()
     expect(readMetaFromMeta({ ...good, totalLines: 1.5 })).toBeUndefined()
     expect(readMetaFromMeta({ ...good, totalLines: NaN })).toBeUndefined()
+  })
+
+  it('narrows a continuation cursor and keeps it on the result', () => {
+    const withNext = { ...good, totalLines: 2, next: { offset: 2, lineByteOffset: 0 } }
+    expect(readMetaFromMeta(withNext)).toEqual(withNext)
+    const sameLine = { ...good, next: { offset: 1, lineByteOffset: 5 } }
+    expect(readMetaFromMeta(sameLine)).toEqual(sameLine)
+  })
+
+  it('returns undefined for a continuation cursor that is not a cursor object', () => {
+    for (const next of ['nope', 7, null, [2, 0], true]) {
+      expect(readMetaFromMeta({ ...good, next })).toBeUndefined()
+    }
+  })
+
+  it('returns undefined for a continuation offset that is not a 1-based integer', () => {
+    for (const offset of ['2', 0, -1, 1.5, NaN, Infinity, undefined]) {
+      expect(readMetaFromMeta({ ...good, next: { offset, lineByteOffset: 0 } })).toBeUndefined()
+    }
+  })
+
+  it('returns undefined for a continuation byte offset that is not a non-negative integer', () => {
+    for (const lineByteOffset of ['0', -1, 1.5, NaN, Infinity, undefined]) {
+      expect(readMetaFromMeta({ ...good, next: { offset: 1, lineByteOffset } })).toBeUndefined()
+    }
   })
 
   it('rejects lines that do not strictly increase or exceed totalLines', () => {

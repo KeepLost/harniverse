@@ -54,9 +54,12 @@ export class ChallengeLedger {
     const own = [...this.records]
       .filter(([, record]) => record.grantId === grant.id && record.grantRevision === grant.revision)
       .map(([id]) => id)
-    if (own.length >= this.spec.maxChallengesPerGrant) {
-      const oldest = own[0]
-      if (oldest !== undefined) this.records.delete(oldest)
+    // Free one per-Grant slot by evicting this Grant's oldest challenges. The
+    // bound is a validated positive integer, so the slice is non-empty exactly
+    // when the bound is reached.
+    const excess = own.length - this.spec.maxChallengesPerGrant + 1
+    if (excess > 0) {
+      for (const id of own.slice(0, excess)) this.records.delete(id)
     } else if (this.records.size >= this.spec.maxChallenges) {
       return undefined
     }

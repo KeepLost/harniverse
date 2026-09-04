@@ -127,6 +127,32 @@ describe('copying a preset', () => {
       .toMatchObject({ description: '只做检索。', permissionPreset: 'workspace-write' })
   })
 
+  it('carries the source supervision mode into the copy', async () => {
+    await seedPreset(userRoot, 'supervised-source', {
+      metadata: 'name: 源\ndescription: 受监督。\nsupervisionMode: unsupervised\n',
+    })
+
+    await ctx.agentPresets.copy('supervised-source', 'mine')
+
+    // Supervision is a per-Profile policy, so a copy inherits it like the
+    // permission preset rather than silently returning to the default.
+    expect(await readFile(join(userRoot, 'mine', METADATA_FILE), 'utf8'))
+      .toContain('supervisionMode: unsupervised')
+  })
+
+  it('reports a change listener that rejects without failing the roster read', async () => {
+    const warnings: unknown[][] = []
+    ctx.logger.warn = ((...args: unknown[]) => { warnings.push(args) }) as typeof ctx.logger.warn
+    // oxlint-disable-next-line typescript/no-misused-promises -- the listener rejection is the behavior under test.
+    ctx.on('agent-presets/change', () => Promise.reject(new Error('observer gave up')))
+
+    // One observer must not veto discovery, and its rejection is reported
+    // rather than left unhandled.
+    await expect(ctx.agentPresets.list()).resolves.toEqual(expect.any(Array))
+    await Promise.resolve()
+    expect(warnings.map(args => String(args[0]))).toContain('agent-presets/change listener rejected')
+  })
+
   it('stores the display name the author supplied', async () => {
     await ctx.agentPresets.copy('standard', 'mine', '我的模式')
 

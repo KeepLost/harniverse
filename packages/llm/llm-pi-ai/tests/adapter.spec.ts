@@ -7,7 +7,9 @@ import type {
   SaveImageAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import LlmRuntime, { createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, {
+  createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, MessageId, ReasoningEffortId, userAgent,
+} from '@deepseek-ai/dsh-llm'
 import type { LlmWireAttempt, StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
@@ -955,5 +957,280 @@ describe('abort wiring', () => {
     }
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(server.requests).toHaveLength(1)
+  })
+})
+describe('PiAiAdapter wire and replay boundaries', () => {
+  /** An assistant turn carrying replay state this adapter cannot use. */
+  function unusableReplay(): ReturnType<typeof createUserMessage> {
+    return {
+      id: MessageId('degraded-assistant'),
+      role: 'assistant',
+      content: [{ type: 'text', text: 'done' }],
+      source: {
+        kind: 'model',
+        provider: 'deepseek',
+        model: 'old',
+        replayState: { response: { kind: 'pi-ai', version: 1 } },
+      },
+    } as unknown as ReturnType<typeof createUserMessage>
+  }
+
+  it('names the endpoint each provider API posts to', async () => {
+    for (const [api, path] of [
+      ['openai-responses', '/responses'],
+      ['anthropic-messages', '/messages'],
+      ['openai-completions', '/chat/completions'],
+    ] as const) {
+      const server = await mockServer([{ status: 500, body: '{}' }])
+      const adapter = adapterOf({ deepseek: { api, baseURL: server.url, models: [{ id: 'm' }] } })
+      const records: LlmWireAttempt[] = []
+      for await (const _chunk of adapter.stream({
+        provider: 'deepseek', model: 'm', messages: [], wireExchangeId: `url-${api}`,
+        onWireAttempt: record => records.push(record),
+      })) { /* drained for the record */ }
+
+      expect(records[0]?.url).toBe(`${server.url}${path}`)
+    }
+  })
+
+  it('recovers the provider status pi-ai embedded in its error text', async () => {
+    // `openai-completions` composes an unprefixed `"<status>: <body>"` when the
+    // SDK could not fold the body into its own message. That status is the one
+    // worth reporting, and the body's own message is clearer than the wrapper.
+    const server = await mockServer([{
+      status: 502,
+      body: JSON.stringify({ error: { message: 'slow down' } }),
+    }])
+    const adapter = adapterOf({ deepseek: { api: 'openai-completions', baseURL: server.url, models: [{ id: 'm' }] } })
+    const records: LlmWireAttempt[] = []
+    for await (const _chunk of adapter.stream({
+      provider: 'deepseek', model: 'm', messages: [], wireExchangeId: 'enriched',
+      onWireAttempt: record => records.push(record),
+    })) { /* drained for the record */ }
+
+    expect(records[0]?.failure).toMatchObject({ status: 502, message: 'slow down' })
+  })
+
+  it('records an attempt with no response when the transport never answered', async () => {
+    // Nothing listens on this port, so no status is ever observed.
+    const adapter = adapterOf({ deepseek: { api: 'openai-completions', baseURL: 'http://127.0.0.1:1', models: [{ id: 'm' }] } })
+    const records: LlmWireAttempt[] = []
+    for await (const _chunk of adapter.stream({
+      provider: 'deepseek', model: 'm', messages: [], wireExchangeId: 'no-response',
+      onWireAttempt: record => records.push(record),
+    })) { /* drained for the record */ }
+
+    expect(records).toHaveLength(1)
+    expect(records[0]).not.toHaveProperty('response')
+    expect(records[0]?.failure).toBeDefined()
+  })
+
+  it('streams without recording when no wire observer is installed', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const adapter = adapterOf({ deepseek: { api: 'openai-completions', baseURL: server.url, models: [{ id: 'm' }] } })
+    const chunks: StreamChunk[] = []
+    // No `onWireAttempt`, so neither the payload nor the response hook is built.
+    for await (const chunk of adapter.stream({
+      provider: 'deepseek', model: 'm', messages: [], wireExchangeId: 'unobserved',
+    })) chunks.push(chunk)
+
+    expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'stop' } })
+  })
+
+  it('reports an unusable replay state through the configured observer', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const degrades: { provider: string; model: string; reason: string }[] = []
+    const adapter = new PiAiAdapter({
+      profiles: () => resolveProfiles({
+        deepseek: { api: 'openai-completions', baseURL: server.url, models: [{ id: 'm' }] },
+      }),
+      resolveApiKey: () => Promise.resolve('test-key'),
+      onReplayDegrade: detail => degrades.push(detail),
+    })
+
+    for await (const _chunk of adapter.stream({
+      provider: 'deepseek', model: 'm', messages: [unusableReplay()], wireExchangeId: 'degraded',
+    })) { /* drained */ }
+
+    expect(degrades).toEqual([{
+      provider: 'deepseek',
+      model: 'm',
+      reason: expect.stringContaining('unsupported version 1') as string,
+    }])
+  })
+
+  it('warns once through the composed plugin when replay state is unusable', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await harness(server.url)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => {
+      warnings.push(String(message))
+    }) as typeof ctx.logger.warn
+
+    await assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      messages: [unusableReplay()],
+    })
+
+    // The mounted plugin owns the observer, so the operator sees the route and
+    // the reason without the conversation content.
+    expect(warnings.join('\n')).toContain('llm-pi-ai: unusable replay state on assistant history for route')
+    expect(warnings.join('\n')).toContain('unsupported version 1')
+  })
+
+  it('records an unterminated attempt when the caller stops reading early', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const adapter = adapterOf({ deepseek: { api: 'openai-completions', baseURL: server.url, models: [{ id: 'm' }] } })
+    const records: LlmWireAttempt[] = []
+    for await (const _chunk of adapter.stream({
+      provider: 'deepseek', model: 'm', messages: [], wireExchangeId: 'abandoned',
+      onWireAttempt: record => records.push(record),
+    })) break
+
+    // The attempt began and never reached a terminal result, which is a fact
+    // worth recording rather than losing.
+    expect(records).toHaveLength(1)
+    expect(records[0]).toMatchObject({
+      outcome: 'stream-error',
+      failure: { code: 'STREAM_CLOSED', message: 'pi-ai stream ended before a terminal result' },
+    })
+  })
+
+  it('records an unterminated attempt as aborted when the caller cancelled', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const adapter = adapterOf({ deepseek: { api: 'openai-completions', baseURL: server.url, models: [{ id: 'm' }] } })
+    const controller = new AbortController()
+    const records: LlmWireAttempt[] = []
+    for await (const _chunk of adapter.stream({
+      provider: 'deepseek', model: 'm', messages: [], wireExchangeId: 'abandoned-abort',
+      signal: controller.signal,
+      onWireAttempt: record => records.push(record),
+    })) {
+      controller.abort()
+      break
+    }
+
+    expect(records).toHaveLength(1)
+    expect(records[0]).toMatchObject({
+      outcome: 'aborted',
+      failure: { code: 'ABORTED', message: 'pi-ai request aborted by caller' },
+    })
+  })
+
+  it('keeps the SDK status line when the embedded body names no message', async () => {
+    // The body parses, but carries no `message`, so the status line pi-ai
+    // composed is the most specific text available.
+    const server = await mockServer([{
+      status: 502,
+      body: JSON.stringify({ error: { message: 7, detail: 'capacity' } }),
+    }])
+    const adapter = adapterOf({ deepseek: { api: 'openai-completions', baseURL: server.url, models: [{ id: 'm' }] } })
+    const records: LlmWireAttempt[] = []
+    for await (const _chunk of adapter.stream({
+      provider: 'deepseek', model: 'm', messages: [], wireExchangeId: 'no-message',
+      onWireAttempt: record => records.push(record),
+    })) { /* drained for the record */ }
+
+    expect(records[0]?.failure).toMatchObject({
+      status: 502,
+      message: expect.stringContaining('502:') as string,
+    })
+  })
+
+  it('converts an image request with no replay observer installed', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    class PlainAttachmentStore extends AttachmentStore {
+      readonly imageLimits: ImageAttachmentLimits = {
+        maxImageBytes: 1024,
+        maxImagesPerMessage: 4,
+        maxMessageImageBytes: 4096,
+        maxImagePixels: 1024,
+        mediaTypes: ['image/png'],
+      }
+
+      validateImage(_input: SaveImageAttachment): Promise<void> {
+        return Promise.reject(new Error('not used'))
+      }
+
+      saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
+        return Promise.reject(new Error('not used'))
+      }
+
+      readImage(_value: ImageAttachmentRef): Promise<StoredImageAttachment> {
+        return Promise.resolve({ ref: IMAGE_REF, data: Uint8Array.of(1) })
+      }
+    }
+    const storeCtx = new Context()
+    await storeCtx.plugin(PlainAttachmentStore)
+    // No `onReplayDegrade`, so the attachment-resolving conversion is handed no
+    // observer at all.
+    const adapter = new PiAiAdapter({
+      profiles: () => resolveProfiles({
+        deepseek: { api: 'openai-completions', baseURL: server.url, models: [{ id: 'm', input: ['text', 'image'] }] },
+      }),
+      resolveApiKey: () => Promise.resolve('test-key'),
+      resolveAttachments: () => storeCtx.attachments,
+    })
+
+    const chunks: StreamChunk[] = []
+    for await (const chunk of adapter.stream({
+      provider: 'deepseek',
+      model: 'm',
+      messages: [createUserMessage({ content: [{ type: 'image', attachment: IMAGE_REF }], source: { kind: 'user' } })],
+      wireExchangeId: 'image-unobserved',
+    })) chunks.push(chunk)
+
+    expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'stop' } })
+  })
+
+  it('reports an unusable replay state on the image-bearing path too', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const degrades: { provider: string; model: string; reason: string }[] = []
+    class DegradeAttachmentStore extends AttachmentStore {
+      readonly imageLimits: ImageAttachmentLimits = {
+        maxImageBytes: 1024,
+        maxImagesPerMessage: 4,
+        maxMessageImageBytes: 4096,
+        maxImagePixels: 1024,
+        mediaTypes: ['image/png'],
+      }
+
+      validateImage(_input: SaveImageAttachment): Promise<void> {
+        return Promise.reject(new Error('not used'))
+      }
+
+      saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
+        return Promise.reject(new Error('not used'))
+      }
+
+      readImage(_value: ImageAttachmentRef): Promise<StoredImageAttachment> {
+        return Promise.resolve({ ref: IMAGE_REF, data: Uint8Array.of(1) })
+      }
+    }
+    const storeCtx = new Context()
+    await storeCtx.plugin(DegradeAttachmentStore)
+    const adapter = new PiAiAdapter({
+      profiles: () => resolveProfiles({
+        deepseek: { api: 'openai-completions', baseURL: server.url, models: [{ id: 'm', input: ['text', 'image'] }] },
+      }),
+      resolveApiKey: () => Promise.resolve('test-key'),
+      resolveAttachments: () => storeCtx.attachments,
+      onReplayDegrade: detail => degrades.push(detail),
+    })
+
+    // An image in the request takes the attachment-resolving conversion, which
+    // carries its own degrade callback.
+    for await (const _chunk of adapter.stream({
+      provider: 'deepseek',
+      model: 'm',
+      messages: [
+        unusableReplay(),
+        createUserMessage({ content: [{ type: 'image', attachment: IMAGE_REF }], source: { kind: 'user' } }),
+      ],
+      wireExchangeId: 'degraded-image',
+    })) { /* drained */ }
+
+    expect(degrades.map(detail => detail.reason))
+      .toEqual([expect.stringContaining('unsupported version 1') as string])
   })
 })

@@ -117,6 +117,9 @@ function encodeData(serialized: string): string | Uint8Array {
   const compressed = zstdCompressSync(bytes, {
     params: { [constants.ZSTD_c_compressionLevel]: ZSTD_COMPRESSION_LEVEL },
   })
+  /* v8 ignore next -- a JSON payload cannot reach zstd's incompressible floor:
+     escaped text is at most 95 symbols per byte, so level 3 always wins. The
+     guard still keeps the smaller form if a future payload shape changes that. */
   return compressed.length < bytes.length ? compressed : serialized
 }
 

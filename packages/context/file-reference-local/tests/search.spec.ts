@@ -46,6 +46,102 @@ describe('file reference grammar', () => {
     expect(formatFileMention({ path: 'docs/a b.md', kind: 'file' }, false)).toBe('@"docs/a b.md"')
     expect(formatFileMention({ path: 'bad\nname', kind: 'file' }, false)).toBeUndefined()
   })
+
+  it('leaves an at sign that opens no token alone', () => {
+    // No token at the cursor at all, and a bare `@` mid-word is not one either.
+    expect(activeAtToken('plain text', 10)).toBeUndefined()
+    expect(activeAtToken('read src/a', 10)).toBeUndefined()
+  })
+
+  it('keeps a directory continuation open inside an already-quoted token', () => {
+    // The caller is still typing inside the quote, so the closing quote would
+    // end a path the user has not finished.
+    expect(formatFileMention({ path: 'my docs', kind: 'directory' }, true)).toBe('@"my docs/')
+    expect(formatFileMention({ path: 'notes.md', kind: 'file' }, true)).toBe('@"notes.md"')
+  })
+
+  it('refuses a directory path carrying control or quote characters', () => {
+    expect(formatFileMention({ path: 'has"quote', kind: 'directory' }, false)).toBeUndefined()
+  })
+})
+
+describe('workspace scan boundaries', () => {
+  it('refuses a caller signal that was already aborted', async () => {
+    const root = await workspace()
+    const value = search(root)
+
+    // Refused before any filesystem work, so the caller's own abort reason is
+    // what surfaces.
+    await expect(value.list('aa', AbortSignal.abort())).rejects.toThrow()
+  })
+
+  it('leaves the shared index alone when one caller cancels', async () => {
+    const root = await workspace()
+    // Enough directories that the scan is still walking them when the abort
+    // lands.
+    for (let index = 0; index < 200; index += 1) {
+      await mkdir(join(root, `dir-${String(index)}`), { recursive: true })
+      await writeFile(join(root, `dir-${String(index)}`, 'file.txt'), 'x')
+    }
+    const value = search(root)
+    const controller = new AbortController()
+    const cancelled = value.list('aa', controller.signal)
+    await Promise.resolve()
+    controller.abort()
+
+    await expect(cancelled).rejects.toThrow()
+
+    // The index is shared across callers, so one caller walking away does not
+    // discard the scan the others are still waiting on.
+    await expect(value.list('aa', new AbortController().signal))
+      .resolves.toEqual([{ path: 'aa.txt', kind: 'file' }])
+  })
+
+  it('rescans after the workspace changes under an existing index', async () => {
+    const root = await workspace()
+    const value = search(root)
+    await expect(value.list('cc', new AbortController().signal)).resolves.toEqual([])
+
+    await writeFile(join(root, 'cc.txt'), 'cc')
+    // The standing index predates the write, so only an invalidation can make
+    // the new file discoverable.
+    value.invalidate()
+
+    await expect(value.list('cc', new AbortController().signal))
+      .resolves.toEqual([{ path: 'cc.txt', kind: 'file' }])
+  })
+
+  it('reports an index failure to the caller that awaited it', async () => {
+    const root = await workspace()
+    const value = search(root)
+    const pending = value.list('aa', new AbortController().signal)
+    // Disposal aborts the running scan, and the caller already waiting on that
+    // generation must learn it failed rather than hang.
+    value.dispose()
+
+    await expect(pending).rejects.toThrow(/file search index (failed|invalidated)/)
+  })
+
+  it('reports one directory in name order whatever order it was written in', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'harniverse-file-reference-order-'))
+    roots.push(root)
+    // Written newest-name-first so directory order and name order disagree.
+    for (const name of ['zz.txt', 'mm.txt', 'aa.txt']) await writeFile(join(root, name), name)
+    const value = search(root)
+
+    const listed = await value.list('txt', new AbortController().signal)
+    expect(listed.map(candidate => candidate.path)).toEqual(['aa.txt', 'mm.txt', 'zz.txt'])
+  })
+
+  it('reads an unreadable workspace as an empty index rather than a failure', async () => {
+    const root = await workspace()
+    const value = search(root)
+    await rm(root, { recursive: true, force: true })
+
+    // Discovery is a convenience surface: a workspace it cannot read offers no
+    // candidates instead of failing the caller's completion.
+    await expect(value.list('aa', new AbortController().signal)).resolves.toEqual([])
+  })
 })
 
 describe('WorkspaceFileSearch', () => {

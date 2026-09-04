@@ -1,9 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import Capabilities, { type CapabilityCatalogSnapshot, type CapabilityDescriptor } from '@deepseek-ai/dsh-capabilities'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { SettingsProvider, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
+import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -21,7 +26,37 @@ class MemorySettings extends SettingsProvider {
 }
 
 const contexts: Context[] = []
-afterEach(async () => { await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose())) })
+const tempRoots: string[] = []
+afterEach(async () => {
+  await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
+  await Promise.all(tempRoots.splice(0).map(root => rm(root, { recursive: true, force: true })))
+})
+
+/** A minimal registrable Tool whose only purpose is to be denied or allowed. */
+function tool(name: string) {
+  return {
+    name,
+    description: `${name} files`,
+    parameters: { type: 'object' } as const,
+    output: {
+      schema: { type: 'string' } as const,
+      render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: value as string }],
+    },
+    execute: async () => name,
+  }
+}
+
+/** One on-disk skill root holding a single directory-form skill. */
+async function skillRoot(name: string, description: string): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-capability-skills-'))
+  tempRoots.push(root)
+  await mkdir(join(root, name), { recursive: true })
+  await writeFile(
+    join(root, name, 'SKILL.md'),
+    `---\nname: ${name}\ndescription: ${description}\n---\n\nUse the ${name} skill.\n`,
+  )
+  return root
+}
 
 function recipe(name: string, defaultLoaded: boolean): CapabilityDescriptor {
   return {
@@ -39,7 +74,19 @@ function recipe(name: string, defaultLoaded: boolean): CapabilityDescriptor {
   }
 }
 
-async function harness() {
+/** Options that vary the deployment shape one gateway observes. */
+interface HarnessOptions {
+  /** Omit the optional sessionPersistence service entirely. */
+  withoutPersistence?: boolean
+  /** Extra descriptors appended to every capability catalog. */
+  extraDescriptors?: CapabilityDescriptor[]
+  /** Static recipes keyed by capability id. */
+  recipes?: Map<string, unknown>
+  /** Replace the live-Agent composition runtime result. */
+  compositionRuntime?: () => unknown
+}
+
+async function harness(options: HarnessOptions = {}) {
   const ctx = new Context()
   contexts.push(ctx)
   await ctx.plugin(MemorySettings)
@@ -83,10 +130,11 @@ async function harness() {
           available: true,
           requires: [],
         }],
-      }],
-      recipes: new Map(),
+      }, ...options.extraDescriptors ?? []],
+      recipes: options.recipes ?? new Map(),
     }),
-    compositionRuntime: () => ({ agentProfile: 'standard', generation: 'standard@2', capabilities: runtimeCapabilities }),
+    compositionRuntime: options.compositionRuntime
+      ?? (() => ({ agentProfile: 'standard', generation: 'standard@2', capabilities: runtimeCapabilities })),
     standingCompositionRuntime: (id?: string) => Promise.resolve({
       agentProfile: id ?? 'standard',
       generation: `${id ?? 'standard'}@2`,
@@ -94,12 +142,14 @@ async function harness() {
     }),
   })
   ctx.provide('agents', { get: () => runtimeAgent })
-  ctx.provide('sessionPersistence', {
-    list: () => Promise.resolve([
-      { id: 'cold-session', agentProfile: 'minimal' },
-      { id: 'cold-unrecorded' },
-    ]),
-  })
+  if (options.withoutPersistence !== true) {
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([
+        { id: 'cold-session', agentProfile: 'minimal' },
+        { id: 'cold-unrecorded' },
+      ]),
+    })
+  }
   await ctx.plugin(CapabilityManagementGateway)
   return {
     ctx,
@@ -210,5 +260,305 @@ describe('CapabilityManagementGateway', () => {
       agentProfile: 'standard',
     })
     await expect(gateway.session('never-existed')).rejects.toThrow(/is not known/)
+  })
+
+  it('falls back to the recorded header Profile when the runtime reports none', async () => {
+    const { ctx, gateway, setRuntimeAgent } = await harness({
+      compositionRuntime: () => ({ capabilities: [] }),
+    })
+    setRuntimeAgent({ ctx, session: { header: { agentProfile: 'from-header' } } })
+
+    await expect(gateway.session('session-2')).resolves.toEqual({
+      sessionId: 'session-2',
+      agentProfile: 'from-header',
+      entries: [],
+    })
+  })
+
+  it('omits an unknown Profile and generation for a live Session', async () => {
+    const { ctx, gateway, setRuntimeAgent } = await harness({
+      compositionRuntime: () => undefined,
+    })
+    setRuntimeAgent({ ctx, session: { header: {} } })
+
+    // No runtime and no recorded Profile: the assembly is still a fact, and
+    // absent identity stays absent rather than becoming a guess.
+    await expect(gateway.session('session-3')).resolves.toEqual({
+      sessionId: 'session-3',
+      entries: [],
+    })
+  })
+
+  it('resolves the roster default when no persistence service is mounted', async () => {
+    const { gateway } = await harness({ withoutPersistence: true })
+
+    await expect(gateway.session('any-session')).resolves.toMatchObject({
+      sessionId: 'any-session',
+      agentProfile: 'standard',
+    })
+  })
+
+  describe('member restriction', () => {
+    it('restricts nothing without a scoped composition context', async () => {
+      const { ctx, gateway } = await harness()
+      ctx.tools.register(tool('read'))
+      const target = { kind: 'agent-profile', agentProfile: 'standard' } as const
+      const entries = (await gateway.catalog(target)).entries
+
+      // An unscoped context has no restriction layer to own the denial.
+      expect(() => { ctx.capabilities.mountComposition(ctx, entries) }).not.toThrow()
+    })
+
+    it('ignores non-plugin entries and entries without members', async () => {
+      const { ctx, gateway } = await harness({
+        extraDescriptors: [recipe('memberless', true)],
+      })
+      ctx.subagents.registerProvider({ name: 'acp', capabilities: {}, inheritsParentContext: false } as never)
+      ctx.tools.register(tool('read'))
+      ctx.tools.register(tool('write'))
+      const target = { kind: 'agent-profile', agentProfile: 'standard' } as const
+      const entries = (await gateway.catalog(target)).entries
+      expect(entries.map(entry => entry.id)).toContain('subagent-provider:acp')
+      expect(entries.find(entry => entry.id === 'plugin:memberless')?.memberEntries).toBeUndefined()
+
+      const key = { profile: 'unrestricted' }
+      const scope = createScope(ctx, key)
+      ctx.capabilities.mountComposition(scope.ctx, entries)
+
+      // Every member is visible by default, so nothing is denied.
+      expect(ctx.tools.schemas(key).map(item => item.name)).toEqual(expect.arrayContaining(['read', 'write']))
+      await scope.dispose()
+    })
+  })
+
+  describe('filesystem skill members', () => {
+    const SKILL_ID = 'plugin:skill-filesystem'
+
+    /** The skill-filesystem descriptor whose members the adapter replaces. */
+    const skillDescriptor = (): CapabilityDescriptor => ({
+      ...recipe('skill-filesystem', true),
+      kind: 'skill',
+      members: [{
+        id: `${SKILL_ID}/skill:placeholder`,
+        kind: 'skill' as const,
+        name: 'placeholder',
+        description: 'replaced by discovery',
+        defaultVisible: true,
+        available: true,
+        requires: [],
+      }],
+    })
+
+    it('replaces declared members with host-discovered skills', async () => {
+      const root = await skillRoot('alpha-skill', 'Alpha description')
+      const { gateway } = await harness({
+        extraDescriptors: [skillDescriptor()],
+        recipes: new Map([[SKILL_ID, {
+          rowId: 'row-skill',
+          canonical: { config: { includeDefaultRoots: false, customSkillDirs: [root] } },
+          canonicalBaseUrl: pathToFileURL(join(root, 'cordis.yml')).href,
+        }]]),
+      })
+
+      const entry = (await gateway.catalog({ kind: 'global-agent' })).entries
+        .find(candidate => candidate.id === SKILL_ID)
+      expect(entry?.memberEntries).toEqual([expect.objectContaining({
+        id: `${SKILL_ID}/skill:alpha-skill`,
+        kind: 'skill',
+        name: 'alpha-skill',
+        description: 'Alpha description',
+      })])
+    })
+
+    it('prefers an overlay source over the canonical row', async () => {
+      const canonicalRoot = await skillRoot('canonical-skill', 'Canonical')
+      const sourceRoot = await skillRoot('source-skill', 'From the overlay source')
+      const { gateway } = await harness({
+        extraDescriptors: [skillDescriptor()],
+        recipes: new Map([[SKILL_ID, {
+          rowId: 'row-skill',
+          canonical: { config: { includeDefaultRoots: false, customSkillDirs: [canonicalRoot] } },
+          canonicalBaseUrl: pathToFileURL(join(canonicalRoot, 'cordis.yml')).href,
+          source: { config: { includeDefaultRoots: false, customSkillDirs: [sourceRoot] } },
+          sourceBaseUrl: pathToFileURL(join(sourceRoot, 'cordis.yml')).href,
+        }]]),
+      })
+
+      const names = (await gateway.catalog({ kind: 'global-agent' })).entries
+        .find(candidate => candidate.id === SKILL_ID)?.memberEntries?.map(member => member.name)
+      expect(names).toEqual(['source-skill'])
+    })
+
+    it('resolves a static baseUrl-relative skill directory expression', async () => {
+      const root = await skillRoot('expr-skill', 'Resolved through the static expression')
+      const baseUrl = pathToFileURL(join(root, 'cordis.yml')).href
+      const { gateway } = await harness({
+        extraDescriptors: [skillDescriptor()],
+        recipes: new Map([[SKILL_ID, {
+          rowId: 'row-skill',
+          canonical: {
+            config: {
+              providerName: 'local',
+              includeDefaultRoots: false,
+              dshHome: join(root, 'dsh-home'),
+              agentsHome: join(root, 'agents-home'),
+              bundledSkillDir: join(root, 'bundled'),
+              // The shipped composition expresses a package-relative root as a
+              // static `!!js` expression rather than an absolute path.
+              customSkillDirs: [{
+                __jsExpr: 'process.getBuiltinModule(\'node:url\').fileURLToPath(new URL(\'.\', baseUrl))',
+              }],
+            },
+          },
+          canonicalBaseUrl: baseUrl,
+        }]]),
+      })
+
+      const names = (await gateway.catalog({ kind: 'global-agent' })).entries
+        .find(candidate => candidate.id === SKILL_ID)?.memberEntries?.map(member => member.name)
+      expect(names).toEqual(['expr-skill'])
+    })
+
+    it.each([
+      ['a non-object config', null],
+      ['an array config', []],
+      ['a config of unusable value types', { providerName: 1, includeDefaultRoots: 'yes', customSkillDirs: 'not-a-list' }],
+      ['unresolvable directory entries', { includeDefaultRoots: false, customSkillDirs: [42, {}, { __jsExpr: 7 }, { __jsExpr: 'process.exit(1)' }] }],
+      // A static expression may name any URL; only a local directory is usable.
+      ['a non-file resolved directory URL', {
+        includeDefaultRoots: false,
+        customSkillDirs: [{
+          __jsExpr: 'process.getBuiltinModule(\'node:url\').fileURLToPath(new URL(\'https://example.invalid/skills/\', baseUrl))',
+        }],
+      }],
+    ])('discovers no member from %s', async (_label, config) => {
+      const { gateway } = await harness({
+        extraDescriptors: [skillDescriptor()],
+        recipes: new Map([[SKILL_ID, {
+          rowId: 'row-skill',
+          canonical: { config },
+          canonicalBaseUrl: pathToFileURL(join(tmpdir(), 'cordis.yml')).href,
+        }]]),
+      })
+
+      const entry = (await gateway.catalog({ kind: 'global-agent' })).entries
+        .find(candidate => candidate.id === SKILL_ID)
+      expect(entry?.memberEntries?.some(member => member.name === 'placeholder')).toBe(false)
+    })
+
+    it('keeps the highest-ranked skill when two roots declare one name', async () => {
+      const first = await skillRoot('duplicate-skill', 'First root wins')
+      const second = await skillRoot('duplicate-skill', 'Second root loses')
+      const { gateway } = await harness({
+        extraDescriptors: [skillDescriptor()],
+        recipes: new Map([[SKILL_ID, {
+          rowId: 'row-skill',
+          canonical: { config: { includeDefaultRoots: false, customSkillDirs: [first, second] } },
+          canonicalBaseUrl: pathToFileURL(join(first, 'cordis.yml')).href,
+        }]]),
+      })
+
+      const members = (await gateway.catalog({ kind: 'global-agent' })).entries
+        .find(candidate => candidate.id === SKILL_ID)?.memberEntries
+      expect(members?.filter(member => member.name === 'duplicate-skill')).toHaveLength(1)
+    })
+
+    it('restricts the Skill registry to a custom member selection', async () => {
+      const root = await skillRoot('kept-skill', 'Kept')
+      await mkdir(join(root, 'dropped-skill'), { recursive: true })
+      await writeFile(
+        join(root, 'dropped-skill', 'SKILL.md'),
+        '---\nname: dropped-skill\ndescription: Dropped\n---\n\nDropped body.\n',
+      )
+      const skillConfig = { includeDefaultRoots: false, customSkillDirs: [root] }
+      const { ctx, gateway } = await harness({
+        extraDescriptors: [skillDescriptor()],
+        recipes: new Map([[SKILL_ID, {
+          rowId: 'row-skill',
+          canonical: { config: skillConfig },
+          canonicalBaseUrl: pathToFileURL(join(root, 'cordis.yml')).href,
+        }]]),
+      })
+      // The same discovery the adapter projects also feeds the live registry,
+      // so the allowlist is enforced against real host-local skills.
+      await ctx.plugin(SkillFileSystem, skillConfig)
+      const target = { kind: 'agent-profile', agentProfile: 'standard' } as const
+      const catalog = await gateway.catalog(target)
+      const entry = catalog.entries.find(candidate => candidate.id === SKILL_ID)
+      const kept = entry?.memberEntries?.find(member => member.name === 'kept-skill')
+      if (kept === undefined) throw new Error('kept-skill member must exist')
+
+      const plan = await gateway.plan(target, [{ capabilityId: SKILL_ID, members: [kept.id] }], catalog.revision)
+      await gateway.apply(plan.id, catalog.revision)
+      const key = { profile: 'skill-restricted' }
+      const scope = createScope(ctx, key)
+      ctx.capabilities.mountComposition(scope.ctx, (await gateway.catalog(target)).entries)
+
+      const visible = (await ctx.skills.list({ scope: key })).map(skill => skill.name)
+      expect(visible).toContain('kept-skill')
+      expect(visible).not.toContain('dropped-skill')
+      await scope.dispose()
+    })
+  })
+
+  describe('native Harness adapters', () => {
+    it('projects every registered subagent provider by provenance', async () => {
+      const { ctx, gateway } = await harness()
+      ctx.subagents.registerProvider({
+        name: 'acp',
+        capabilities: {},
+        inheritsParentContext: false,
+      } as never)
+
+      const entries = (await gateway.catalog({ kind: 'global-agent' })).entries
+      const providers = entries.filter(entry => entry.id.startsWith('subagent-provider:'))
+      expect(providers).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: 'subagent-provider:acp',
+          kind: 'subagent-provider',
+          name: 'acp',
+          description: 'Subagent provider acp',
+          // Only the two upstream providers are upstream-provenance.
+          provenance: 'external',
+          assembleable: false,
+          manageable: false,
+          owner: 'ctx.subagents',
+        }),
+      ]))
+    })
+
+    it('marks the two upstream providers as upstream provenance', async () => {
+      const { ctx, gateway } = await harness()
+      for (const name of ['spawn', 'fork']) {
+        ctx.subagents.registerProvider({ name, capabilities: {}, inheritsParentContext: false } as never)
+      }
+
+      const entries = (await gateway.catalog({ kind: 'global-agent' })).entries
+      for (const name of ['spawn', 'fork']) {
+        expect(entries.find(entry => entry.id === `subagent-provider:${name}`))
+          .toMatchObject({ provenance: 'upstream' })
+      }
+    })
+
+    it('invalidates the catalog when a provider or skill set changes', async () => {
+      const { ctx, gateway } = await harness()
+      const before = await gateway.catalog({ kind: 'global-agent' })
+      const remove = ctx.subagents.registerProvider({
+        name: 'acp',
+        capabilities: {},
+        inheritsParentContext: false,
+      } as never)
+
+      const added = await gateway.catalog({ kind: 'global-agent' })
+      expect(added.entries.map(entry => entry.id)).toContain('subagent-provider:acp')
+      remove()
+      const removed = await gateway.catalog({ kind: 'global-agent' })
+      expect(removed.entries.map(entry => entry.id)).not.toContain('subagent-provider:acp')
+      expect(removed.entries.map(entry => entry.id)).toEqual(before.entries.map(entry => entry.id))
+
+      // A host-local skill change invalidates the recipe adapter too.
+      expect(() => { ctx.emit('skills/change') }).not.toThrow()
+      await expect(gateway.catalog({ kind: 'global-agent' })).resolves.toBeDefined()
+    })
   })
 })

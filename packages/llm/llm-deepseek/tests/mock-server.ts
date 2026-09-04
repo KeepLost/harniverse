@@ -40,6 +40,14 @@ export async function mockServer(script: Behavior[]): Promise<MockServer> {
     let body = ''
     request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
     request.on('end', () => {
+      // This stand-in serves chat completions only. A Files API upload is
+      // refused so the adapter falls back to its inline representation, and it
+      // is never recorded as a chat request.
+      if (request.url?.startsWith('/files') === true) {
+        response.writeHead(404, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ error: { code: 'not_found', message: 'no files API here' } }))
+        return
+      }
       requests.push(JSON.parse(body))
       headers.push(request.headers)
       const behavior = script.shift()

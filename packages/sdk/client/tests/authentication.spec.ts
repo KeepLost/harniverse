@@ -143,4 +143,90 @@ describe('GrantAccess', () => {
     expect(sent.headers.get('authorization')).toBe('Bearer short-token')
     await expect(sent.text()).resolves.toBe('{"value":1}')
   })
+
+  it('accepts a URL target and merges its headers with the refreshed credential', async () => {
+    const fetch = exchangeFetch()
+    fetch.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    const access = new GrantAccess({
+      origin: 'https://harness.example',
+      grantId: 'client-grant',
+      signChallenge: () => Promise.resolve('signed-proof'),
+      fetch,
+    })
+
+    await expect(access.fetch(new URL('https://harness.example/api/session.list'), {
+      headers: { 'x-request': 'preserved' },
+    })).resolves.toMatchObject({ status: 204 })
+    const call = fetch.mock.calls[2] as unknown as [RequestInfo | URL, RequestInit?]
+    expect(call[0]).toEqual(new URL('https://harness.example/api/session.list'))
+    expect(new Headers(call[1]?.headers).get('x-request')).toBe('preserved')
+  })
+
+  it('rejects unsafe origins and invalid constructor options', () => {
+    for (const value of [
+      'https://user:pass@harness.example/',
+      'https://harness.example/api',
+      'https://harness.example/?query=1',
+      'https://harness.example/#fragment',
+    ]) {
+      expect(() => new GrantAccess({ origin: value, grantId: 'grant', signChallenge: vi.fn() }))
+        .toThrow('origin must not contain credentials, path, query, or fragment')
+    }
+    expect(() => new GrantAccess({ origin: 'https://harness.example', grantId: '', signChallenge: vi.fn() }))
+      .toThrow('grantId must not be empty')
+    for (const renewBeforeMs of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => new GrantAccess({
+        origin: 'https://harness.example', grantId: 'grant', signChallenge: vi.fn(), renewBeforeMs,
+      })).toThrow('renewBeforeMs must be a non-negative integer')
+    }
+  })
+
+  it('uses the global fetch fallback when no fetch implementation is supplied', async () => {
+    const fetch = exchangeFetch()
+    vi.stubGlobal('fetch', fetch)
+    try {
+      const access = new GrantAccess({
+        origin: 'https://harness.example', grantId: 'grant', signChallenge: () => Promise.resolve('proof'),
+      })
+      await expect(access.authorization()).resolves.toBe('Bearer short-token')
+      expect(fetch).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('maps rejected challenge and token responses to useful errors', async () => {
+    const challengeRejected = new GrantAccess({
+      origin: 'https://harness.example', grantId: 'grant', signChallenge: vi.fn(),
+      fetch: vi.fn().mockResolvedValue(new Response(null, { status: 403 })),
+    })
+    await expect(challengeRejected.authorization()).rejects.toThrow('challenge rejected (403)')
+
+    const tokenRejected = new GrantAccess({
+      origin: 'https://harness.example', grantId: 'grant', signChallenge: () => Promise.resolve('proof'),
+      fetch: vi.fn()
+        .mockResolvedValueOnce(Response.json({ id: 'challenge', payload: 'payload', expiresAt: 'later' }))
+        .mockResolvedValueOnce(new Response(null, { status: 429 })),
+    })
+    await expect(tokenRejected.authorization()).rejects.toThrow('token exchange rejected (429)')
+  })
+
+  it('rejects malformed token responses after a valid challenge', async () => {
+    for (const token of [
+      null,
+      [],
+      { accessToken: 'token' },
+      { accessToken: 'token', expiresAt: 'not-a-date' },
+      { accessToken: 1, expiresAt: new Date().toISOString() },
+      { accessToken: 'token', expiresAt: 5 },
+    ]) {
+      const access = new GrantAccess({
+        origin: 'https://harness.example', grantId: 'grant', signChallenge: () => Promise.resolve('proof'),
+        fetch: vi.fn()
+          .mockResolvedValueOnce(Response.json({ id: 'challenge', payload: 'payload', expiresAt: 'later' }))
+          .mockResolvedValueOnce(Response.json(token)),
+      })
+      await expect(access.authorization()).rejects.toThrow('invalid token response')
+    }
+  })
 })

@@ -49,10 +49,6 @@ interface SessionTargetCallArgs {
   readonly session_id?: string
 }
 
-interface EventTargetCallArgs extends SessionTargetCallArgs {
-  readonly seq: number
-}
-
 function formatSessionSearch(
   collected: SearchCollection<SessionSearchHit>,
   titles: CompleteTitleMap,
@@ -169,10 +165,6 @@ function renderDescendants(
 ): void {
   for (const { node, depth } of workspaceAccess.visitDescendants(nodes)) {
     const indent = '  '.repeat(depth)
-    if (node === null) {
-      lines.push(`${indent}- [unavailable subtree]`)
-      continue
-    }
     const id = node.record.header.id
     lines.push(`${indent}- ${id} — ${workspaceAccess.titleText(titles.get(id))} | ${formatTime(node.record.header.createdAt)} | ${availabilityText(node.record)}`)
   }
@@ -288,21 +280,6 @@ function presentSessionTargetCall(action: string, args: SessionTargetCallArgs): 
   }
 }
 
-function presentEventTargetCall(
-  action: string,
-  args: EventTargetCallArgs,
-): GenericCallView {
-  return {
-    card: 'generic',
-    kind: 'read',
-    title: `${action} ${args.seq}`,
-    rawInput: {
-      ...args.session_id === undefined ? {} : { session_id: args.session_id },
-      seq: args.seq,
-    },
-  }
-}
-
 /** Text output and call-card presentation for every session-query tool. */
 export const presentation = {
   formatSessionFind,
@@ -320,5 +297,4 @@ export const presentation = {
   presentSessionSearchCall,
   presentEventSearchCall,
   presentSessionTargetCall,
-  presentEventTargetCall,
 }

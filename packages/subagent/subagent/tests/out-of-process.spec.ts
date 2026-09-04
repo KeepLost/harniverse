@@ -152,6 +152,39 @@ describe('settleRunResult', () => {
     expect(result.diagnostic).not.toContain('\uFFFD')
   })
 
+  it('walks back off a split UTF-8 sequence at the truncation boundary', async () => {
+    const { controller, onAbort } = wiring()
+    // One leading ASCII byte puts the 4,073-byte cut one byte inside a
+    // three-byte sequence, so the bound must retreat to its start.
+    const result = await settleRunResult({
+      attempt: async () => { throw new Error('transport died') },
+      collectOutput: () => [],
+      collectDiagnostic: () => `x${'界'.repeat(2_000)}`,
+      cancelled: () => false,
+      signal: controller.signal,
+      onAbort,
+    })
+
+    expect(result.diagnostic).not.toContain('\uFFFD')
+    expect(result.diagnostic?.endsWith('\n[diagnostic truncated]')).toBe(true)
+    expect(Buffer.byteLength(result.diagnostic ?? '', 'utf8')).toBeLessThanOrEqual(4_096)
+  })
+
+  it('reports a cancelled run as aborted even when the attempt succeeded', async () => {
+    const { controller, onAbort } = wiring()
+    // Cancellation observed while a successful result was already in flight
+    // settles as aborted, carrying the output collected so far.
+    const result = await settleRunResult({
+      attempt: async () => ({ output: [{ type: 'text', text: 'ignored' }], stopReason: 'completed' }),
+      collectOutput: () => [{ type: 'text', text: 'partial' }],
+      cancelled: () => true,
+      signal: controller.signal,
+      onAbort,
+    })
+
+    expect(result).toEqual({ output: [{ type: 'text', text: 'partial' }], stopReason: 'aborted' })
+  })
+
   it('flattens a failure through a contained onError sink', async () => {
     const { controller, onAbort } = wiring()
     const seen: string[] = []

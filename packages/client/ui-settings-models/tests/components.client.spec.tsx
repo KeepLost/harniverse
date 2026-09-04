@@ -255,6 +255,30 @@ describe('ModelsSection', () => {
     expect(document.body.textContent).toBe('')
   })
 
+  it('writes unfenced against a settings face that carries no principal fence', async () => {
+    const scripted = scriptedFace()
+    const controller = new ModelsSettingsStore(scripted.face as unknown as WireFace)
+    await controller.load()
+    // The four fence members are optional on the injected face; a host that
+    // supplies none still gets a working page, and every write is admitted.
+    render(<ModelsSection
+      controller={controller}
+      useSnapshot={bindSnapshotSelector(controller.store)}
+      api={scripted.face as never}
+      t={t}
+    />)
+    expect(await screen.findByText('DeepSeek')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.removeProvider) }))
+    const dialog = screen.getByRole('dialog', { name: openaiCopy(en.deleteTitle) })
+    fireEvent.click(within(dialog).getByRole('button', { name: openaiCopy(en.deleteConfirm) }))
+
+    await waitFor(() => { expect(scripted.mutate).toHaveBeenCalledOnce() })
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: openaiCopy(en.deleteTitle) })).toBeNull()
+    })
+  })
+
   it('renders the unkeyed whole-section provider as an open setup card in the first-run posture', async () => {
     await mountFirstRun()
     // Nothing is reachable yet, and DeepSeek has no configured credential and
@@ -891,6 +915,56 @@ describe('ModelsSection', () => {
     expect(baseURL.value).toBe('')
   })
 
+  describe('editor principal boundaries', () => {
+    /** Render one editor over the DeepSeek namespace with overridable fence members. */
+    async function editor(overrides: Record<string, unknown>, wire: Parameters<typeof scriptedFace>[0] = {}) {
+      const scripted = scriptedFace(wire)
+      const onClose = vi.fn()
+      const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
+      render(<ProviderEditor
+        {...FENCE_PROPS}
+        provider="deepseek-official"
+        displayName="DeepSeek"
+        namespace={wireNamespaces()[0]!}
+        settingsPath={[]}
+        api={scripted.face as never}
+        t={t}
+        readOnly={false}
+        onClose={onClose}
+        {...overrides}
+      />)
+      return { ...scripted, onClose }
+    }
+
+    it('abandons a settings view the mirror refused', async () => {
+      const { mutate, onClose } = await editor({ acceptSettingsView: () => false }, {
+        mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
+      })
+      fireEvent.click(screen.getByText(en.customized))
+      fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://moved.test/v1' } })
+
+      fireEvent.click(screen.getByText(en.apply))
+      await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+
+      // The write settled under a principal this card no longer serves, so it
+      // reports neither success nor a failure the user could act on.
+      expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it('leaves a transport failure to the principal that owns it', async () => {
+      const mutate = vi.fn(() => Promise.reject(new Error('connection lost')))
+      const { onClose } = await editor({ isCurrent: () => false }, { mutate })
+      fireEvent.click(screen.getByText(en.customized))
+      fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://moved.test/v1' } })
+
+      fireEvent.click(screen.getByText(en.apply))
+      await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+
+      expect(screen.queryByText('connection lost')).toBeNull()
+      expect(onClose).not.toHaveBeenCalled()
+    })
+  })
+
   it('rejects an invalid draft before writing', async () => {
     const { update } = await mountDeepSeekCard()
     fireEvent.click(screen.getByText(en.customized))
@@ -1356,6 +1430,147 @@ describe('ModelsSection', () => {
       { settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'] },
     )
     expect(failure).toBe('connection lost')
+  })
+
+  describe('delete dialog principal boundaries', () => {
+    /** Render the section whose deletion settles under a foreign principal. */
+    async function section(isCurrent: () => boolean, wire: Parameters<typeof scriptedFace>[0] = {}) {
+      const scripted = scriptedFace(wire)
+      const controller = new ModelsSettingsStore(scripted.face as unknown as WireFace)
+      await controller.load()
+      render(<ModelsSection
+        controller={controller}
+        useSnapshot={bindSnapshotSelector(controller.store)}
+        api={scripted.face as never}
+        writeFence={() => 5}
+        isCurrent={isCurrent}
+        acceptResponse={() => true}
+        acceptSettingsView={() => true}
+        t={t}
+      />)
+      return scripted
+    }
+
+    /** Confirm the removal of the openai row and return its dialog. */
+    function confirmOpenai(): HTMLElement {
+      fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.removeProvider) }))
+      const dialog = screen.getByRole('dialog', { name: openaiCopy(en.deleteTitle) })
+      fireEvent.click(within(dialog).getByRole('button', { name: openaiCopy(en.deleteConfirm) }))
+      return dialog
+    }
+
+    it('leaves a deletion settlement to the principal that owns it', async () => {
+      const { mutate } = await section(() => false)
+
+      const dialog = confirmOpenai()
+      await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
+
+      // The dialog neither closes nor reports a failure: this settlement is
+      // another connection generation's to interpret, and releasing the busy
+      // state would belong to that principal too.
+      expect(screen.getByRole('dialog', { name: openaiCopy(en.deleteTitle) })).toBe(dialog)
+      expect(within(dialog).getByRole('button', { name: openaiCopy(en.deleting) })).toBeTruthy()
+    })
+
+    it('keeps the dialog open when the write itself was abandoned', async () => {
+      const scripted = scriptedFace()
+      const controller = new ModelsSettingsStore(scripted.face as unknown as WireFace)
+      await controller.load()
+      // The dialog's own fence is current, but the settings mirror refused the
+      // view, so the removal reports "not mine" rather than a failure.
+      render(<ModelsSection
+        controller={controller}
+        useSnapshot={bindSnapshotSelector(controller.store)}
+        api={scripted.face as never}
+        writeFence={() => 5}
+        isCurrent={() => true}
+        acceptResponse={() => true}
+        acceptSettingsView={() => false}
+        t={t}
+      />)
+
+      const dialog = confirmOpenai()
+      await waitFor(() => { expect(scripted.mutate).toHaveBeenCalledOnce() })
+
+      expect(screen.getByRole('dialog', { name: openaiCopy(en.deleteTitle) })).toBe(dialog)
+      // The busy state was released, because this dialog's fence is current.
+      await waitFor(() => {
+        expect(within(dialog).getByRole('button', { name: openaiCopy(en.deleteConfirm) })).toBeTruthy()
+      })
+    })
+
+    it('leaves a rejected deletion to the principal that owns it', async () => {
+      const { mutate } = await section(() => false, {
+        mutate: vi.fn(() => Promise.resolve(fail('the host refused'))),
+      })
+
+      const dialog = confirmOpenai()
+      await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
+
+      expect(within(dialog).queryByText('the host refused')).toBeNull()
+    })
+  })
+
+  describe('removal principal boundaries', () => {
+    const TARGET = {
+      settingsNs: 'llm-pi-ai',
+      settingsPath: ['providers', 'openai'],
+      credentialRef: 'OPENAI_API_KEY',
+    }
+
+    /** Remove one profile with the fence members the test names. */
+    async function remove(
+      fence: Partial<{
+        acceptSettingsView: () => boolean
+        acceptResponse: () => boolean
+        isCurrent: () => boolean
+      }>,
+      wire: Parameters<typeof scriptedFace>[0] = {},
+    ) {
+      const { face, controller } = await mountSection(wire)
+      const failure = await removeProviderProfile(
+        face as unknown as Parameters<typeof removeProviderProfile>[0],
+        controller,
+        TARGET,
+        () => 3,
+        fence.acceptSettingsView ?? (() => true),
+        fence.acceptResponse ?? (() => true),
+        fence.isCurrent ?? (() => true),
+      )
+      return { failure, face }
+    }
+
+    it('abandons a credential removal whose settlement left the principal', async () => {
+      // `null` is the page's "not mine": neither a success to fold nor a
+      // failure to show.
+      const { failure } = await remove({ acceptResponse: () => false })
+      expect(failure).toBeNull()
+    })
+
+    it('abandons a profile removal whose settlement left the principal', async () => {
+      let seen = 0
+      const { failure } = await remove({ acceptResponse: () => { seen += 1; return seen === 1 } })
+      expect(failure).toBeNull()
+    })
+
+    it('abandons a removal view the settings mirror refused', async () => {
+      const { failure } = await remove({ acceptSettingsView: () => false })
+      expect(failure).toBeNull()
+    })
+
+    it('leaves a transport rejection to the principal that owns it', async () => {
+      const { failure } = await remove({ isCurrent: () => false }, {
+        mutate: vi.fn(() => Promise.reject(new Error('connection lost'))),
+      })
+      expect(failure).toBeNull()
+    })
+
+    it('abandons a reload that finished after the principal changed', async () => {
+      // Every write settled, but the refresh belongs to a principal the page no
+      // longer serves, so the removal reports nothing rather than success.
+      const { failure } = await remove({ isCurrent: () => false })
+      expect(failure).toBeNull()
+    })
   })
 })
 

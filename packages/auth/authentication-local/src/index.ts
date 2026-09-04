@@ -402,6 +402,8 @@ export class LocalAuthentication extends InboundAuthentication {
     if (this.pendingAuthentications.length === 0) return
     const pending = this.pendingAuthentications.splice(0)
     const task = this.enqueue(() => this.authenticateBatch(pending))
+    /* v8 ignore next 3 -- the batch settles every admission itself, so this only
+       keeps a caller from waiting forever if it ever stopped doing so */
     void task.catch((error: unknown) => {
       for (const admission of pending) admission.reject(error)
     })
@@ -410,9 +412,12 @@ export class LocalAuthentication extends InboundAuthentication {
   private async authenticateBatch(pending: readonly PendingAuthentication[]): Promise<void> {
     let registryRead: Promise<GrantRegistry> | undefined
     const readRegistry = (): Promise<GrantRegistry> => registryRead ??= readGrantRegistry(this.spec)
-    const decisions: AuthenticationDecision[] = []
+    // One settlement per admission, paired at construction so the batch cannot
+    // drift between its decisions and the callers awaiting them.
+    const settlements: Array<{ admission: PendingAuthentication; decision: AuthenticationDecision }> = []
     const records: AccessRecord[] = []
-    for (const { attempt } of pending) {
+    for (const admission of pending) {
+      const { attempt } = admission
       let decision: AuthenticationDecision
       if (this.mode === 'bypass') decision = { kind: 'accepted', principal: BYPASS_PRINCIPAL }
       else if (!this.watcherHealthy || !this.ownerAvailable) decision = { kind: 'rejected', reason: 'authentication-unavailable' }
@@ -428,7 +433,7 @@ export class LocalAuthentication extends InboundAuthentication {
           decision = { kind: 'rejected', reason: 'authentication-unavailable' }
         }
       }
-      decisions.push(decision)
+      settlements.push({ admission, decision })
       const admittedGrant = decision.kind === 'accepted' && decision.principal.kind === 'grant'
         ? this.grantFor(decision.principal)
         : undefined
@@ -452,20 +457,14 @@ export class LocalAuthentication extends InboundAuthentication {
     } catch (error) {
       this.ctx.logger.warn('authentication-local: access record batch failed')
       this.ctx.logger.warn(error)
-      for (let index = 0; index < decisions.length; index += 1) {
-        if (decisions[index]?.kind === 'accepted') {
-          decisions[index] = { kind: 'rejected', reason: 'authentication-unavailable' }
+      // An admission the access log did not record is not an admission.
+      for (const settlement of settlements) {
+        if (settlement.decision.kind === 'accepted') {
+          settlement.decision = { kind: 'rejected', reason: 'authentication-unavailable' }
         }
       }
     }
-    for (let index = 0; index < pending.length; index += 1) {
-      const admission = pending[index]
-      const decision = decisions[index]
-      if (admission === undefined || decision === undefined) {
-        throw new Error('authentication-local: admission batch result count mismatch')
-      }
-      admission.resolve(decision)
-    }
+    for (const { admission, decision } of settlements) admission.resolve(decision)
   }
 
   override async requestEnrollment(
@@ -552,7 +551,7 @@ export class LocalAuthentication extends InboundAuthentication {
     try {
       const registry = await readGrantRegistry(this.spec)
       if (!this.hasActiveOwner(registry)) {
-        this.setOwnerAvailable(false)
+        this.sealOwnerUnavailable()
         return { kind: 'rejected', reason: 'authentication-unavailable' }
       }
       if (!this.ownerAvailable) {
@@ -718,7 +717,7 @@ export class LocalAuthentication extends InboundAuthentication {
     try {
       const registry = await readGrantRegistry(this.spec)
       if (!this.hasActiveOwner(registry)) {
-        this.setOwnerAvailable(false)
+        this.sealOwnerUnavailable()
         return { kind: 'rejected', reason: 'authentication-unavailable' }
       }
       if (!this.ownerAvailable) {
@@ -759,10 +758,12 @@ export class LocalAuthentication extends InboundAuthentication {
     principal: Extract<AuthenticationPrincipal, { kind: 'grant' }>,
     readRegistry: () => Promise<GrantRegistry>,
   ): Promise<boolean> {
+    /* v8 ignore next -- both callers drop an expired credential before asking, so this
+       keeps the predicate self-contained without a reachable caller */
     if (Date.parse(principal.expiresAt) <= Date.now()) return false
     const registry = await readRegistry()
     if (!this.hasActiveOwner(registry)) {
-      this.setOwnerAvailable(false)
+      this.sealOwnerUnavailable()
       return false
     }
     const grant = registry.grants.find(item => item.id === principal.grantId && item.revision === principal.grantRevision)
@@ -796,9 +797,9 @@ export class LocalAuthentication extends InboundAuthentication {
     const now = Date.now()
     let state = this.authenticationFailures.get(key)
     if (state === undefined) {
-      while (this.authenticationFailures.size >= this.spec.maxAuthFailureKeys) {
-        const oldest = this.authenticationFailures.keys().next().value
-        if (oldest === undefined) break
+      // The bound is at least one, so a map at capacity always yields a key.
+      for (const oldest of this.authenticationFailures.keys()) {
+        if (this.authenticationFailures.size < this.spec.maxAuthFailureKeys) break
         this.authenticationFailures.delete(oldest)
       }
       state = { failures: 0, windowStartedAt: now, blockedUntil: 0 }
@@ -820,9 +821,9 @@ export class LocalAuthentication extends InboundAuthentication {
       return Math.max(1, state.windowStartedAt + this.spec.enrollmentRequestWindowMs - now)
     }
     if (state === undefined) {
-      while (this.enrollmentRequests.size >= this.spec.maxEnrollmentPeerKeys) {
-        const oldest = this.enrollmentRequests.keys().next().value
-        if (oldest === undefined) break
+      // The bound is at least one, so a map at capacity always yields a key.
+      for (const oldest of this.enrollmentRequests.keys()) {
+        if (this.enrollmentRequests.size < this.spec.maxEnrollmentPeerKeys) break
         this.enrollmentRequests.delete(oldest)
       }
       state = { requests: 0, windowStartedAt: now }
@@ -972,19 +973,22 @@ export class LocalAuthentication extends InboundAuthentication {
       grant.capabilities.includes('harniverse.authorize') && isAuthenticationGrantActive(grant, now))
   }
 
-  private setOwnerAvailable(available: boolean): void {
-    if (this.ownerAvailable === available) return
-    const wasAvailable = this.watcherHealthy && this.ownerAvailable
-    this.ownerAvailable = available
-    if (!available) {
-      if (this.ownerExpiry !== undefined) clearTimeout(this.ownerExpiry)
-      this.ownerExpiry = undefined
-      this.clearProcessCredentials()
-    }
-    const nextAvailable = this.watcherHealthy && this.ownerAvailable
-    if (wasAvailable !== nextAvailable) {
-      this.ctx.emit(nextAvailable ? 'authentication/available' : 'authentication/unavailable')
-    }
+  /**
+   * Seal admission after observing that no authorizing Grant remains. Owner
+   * return is published by the operation that observes it, so this direction
+   * is the only one the service drives centrally.
+   */
+  private sealOwnerUnavailable(): void {
+    if (!this.ownerAvailable) return
+    const alreadySealed = !this.watcherHealthy
+    this.ownerAvailable = false
+    if (this.ownerExpiry !== undefined) clearTimeout(this.ownerExpiry)
+    this.ownerExpiry = undefined
+    this.clearProcessCredentials()
+    /* v8 ignore next -- every caller is already behind a healthy-watcher check, so
+       this only keeps the two seals from announcing the same closure twice */
+    if (alreadySealed) return
+    this.ctx.emit('authentication/unavailable')
   }
 
   private clearProcessCredentials(): void {

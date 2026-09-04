@@ -162,9 +162,12 @@ function restrictRecipeMembers(ctx: Context, entries: readonly CapabilityCatalog
   if (denied.length > 0) tools.restrict({ deny: denied, includeOwn: true })
   const skillEntry = entries.find(entry => entry.id === 'plugin:skill-filesystem')
   const skills = ctx.get('skills')
-  if (skills !== undefined && skillEntry?.selected === true && skillEntry.memberSelection === 'custom') {
+  // A custom member selection always carries its entries: the catalog projects
+  // both from one descriptor's `members`.
+  const skillMembers = skillEntry?.memberSelection === 'custom' ? skillEntry.memberEntries : undefined
+  if (skills !== undefined && skillEntry?.selected === true && skillMembers !== undefined) {
     skills.restrict({
-      allow: skillEntry.memberEntries?.filter(member => member.visible).map(member => member.name) ?? [],
+      allow: skillMembers.filter(member => member.visible).map(member => member.name),
       includeOwn: true,
     })
   }

@@ -406,10 +406,9 @@ export abstract class AbstractApiClient implements IApiClient {
     if (initiatingPrincipal === undefined && method !== 'host.describe') {
       throw new Error(`cannot initiate unary ${method} without an authenticated principal`)
     }
+    // Only `host.describe` may run unauthenticated and it is a read, so a
+    // mutating method always carries the principal the guard above required.
     const expectedPrincipal = isMutatingRpcMethod(method) ? initiatingPrincipal : undefined
-    if (isMutatingRpcMethod(method) && expectedPrincipal === undefined) {
-      throw new Error(`cannot initiate mutating ${method} without an authenticated principal`)
-    }
     const message: ClientRequest = {
       type: 'client-request', rpcId: this.mintRpcId(), requestId: this.mintRequestId(), method, payload,
       ...(expectedPrincipal === undefined ? {} : { expectedPrincipal }),
@@ -425,23 +424,17 @@ export abstract class AbstractApiClient implements IApiClient {
     if (full.requestId !== undefined && full.requestId !== message.requestId) throw new Error(`requestId mismatch for ${method}: sent ${message.requestId}, got ${full.requestId}`)
     this.validateUnaryAuthentication(method, initiatingPrincipal, full.authentication)
     this.onEnvelope(full)
-    if (!full.result.ok) {
-      return {
-        rpcId: full.rpcId,
-        result: full.result,
-        ...(full.requestId === undefined ? {} : { requestId: full.requestId }),
-        ...(full.authentication === undefined ? {} : { authentication: full.authentication }),
-      }
+    // The wire schema requires `authentication` and the check above refuses an
+    // absent one, so every settled response carries it from here on.
+    const settled = {
+      authentication: full.authentication as AuthenticationPrincipalIdentity,
+      ...(full.requestId === undefined ? {} : { requestId: full.requestId }),
     }
+    if (!full.result.ok) return { rpcId: full.rpcId, result: full.result, ...settled }
     // Second-level S→C parse: the ok value must match the method's Value schema (mirror of the
     // handler's request-payload parse). The cast collapses the Wire<> widening, same as the handler side.
     const value = UNARY_VALUE_SCHEMAS[method].parse(full.result.value) as ResponseValue<K>
-    return {
-      rpcId: full.rpcId,
-      result: { ok: true, value },
-      ...(full.requestId === undefined ? {} : { requestId: full.requestId }),
-      ...(full.authentication === undefined ? {} : { authentication: full.authentication }),
-    }
+    return { rpcId: full.rpcId, result: { ok: true, value }, ...settled }
   }
 
   /** Mux stream opener; virtual for the same override reason as callUnary. */

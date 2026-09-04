@@ -181,6 +181,46 @@ describe('compileGlobFilter syntax', () => {
     expect(filter.matches('a')).toBe(false)
   })
 
+  it('treats a class that swallows its alternation close as a literal pattern', () => {
+    // The brace scan sees a `}` the class consumes, so the alternation never
+    // closes and the whole pattern is a filename rather than a request failure.
+    const filter = compileGlobFilter(['{a[}x]'], 'pass')
+
+    expect(filter.matches('{a[}x]')).toBe(true)
+    expect(filter.matches('ax')).toBe(false)
+    expect(filter.matches('a}')).toBe(false)
+  })
+
+  it('treats an opening class with no close as a literal, mid-pattern too', () => {
+    const filter = compileGlobFilter(['src/a[bc'], 'pass')
+
+    expect(filter.matches('src/a[bc')).toBe(true)
+    expect(filter.matches('src/ab')).toBe(false)
+  })
+
+  it('matches an alternation whose branches reconverge on one state', () => {
+    // Adjacent alternations make several epsilon paths reach the same state;
+    // the closure walk must fold them instead of revisiting.
+    const filter = compileGlobFilter(['{a,b}{c,d}.ts'], 'pass')
+
+    expect([
+      filter.matches('ac.ts'),
+      filter.matches('ad.ts'),
+      filter.matches('bc.ts'),
+      filter.matches('bd.ts'),
+    ]).toEqual([true, true, true, true])
+    expect(filter.matches('ab.ts')).toBe(false)
+  })
+
+  it('matches an alternation of empty branches as the empty string', () => {
+    // Two empty branches leave two epsilon paths into one state, so the
+    // closure walk reaches an already-collected state.
+    const filter = compileGlobFilter(['a{,}b.ts'], 'pass')
+
+    expect(filter.matches('ab.ts')).toBe(true)
+    expect(filter.matches('a,b.ts')).toBe(false)
+  })
+
   it('evicts old literal tests when the bounded cache fills', () => {
     for (let index = 0; index <= 256; index += 1) {
       const character = String.fromCodePoint(0x1000 + index)

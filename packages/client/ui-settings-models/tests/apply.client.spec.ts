@@ -33,7 +33,9 @@ async function bench(isLoopback = true) {
       getSnapshot: () => ({ status: 'ready', view: { writable: true, hasDocument: false, namespaces: [] }, error: null }),
       subscribe: () => () => {},
       ensure: () => Promise.resolve(),
-      writeFence: () => 0,
+      writeFence: () => 7,
+      isCurrent: (fence: number) => fence === 7,
+      acceptResponse: () => true,
       acceptView: () => true,
     }),
     bind: () => ({
@@ -79,6 +81,14 @@ describe('ui-settings-models apply', () => {
     expect(typeof injected.controller.load).toBe('function')
     expect(typeof injected.useSnapshot).toBe('function')
     expect(injected.api).toBeDefined()
+    // The four settings-fence members forward to the describe face the plugin
+    // captured, so a write stays bound to the principal that started it.
+    const fence = injected.writeFence()
+    expect(fence).toBe(7)
+    expect(injected.isCurrent(fence)).toBe(true)
+    expect(injected.isCurrent(fence + 1)).toBe(false)
+    expect(injected.acceptResponse({ rpcId: 'r-1' as never, result: { ok: true, value: {} } } as never, fence)).toBe(true)
+    expect(injected.acceptSettingsView({ ns: 'llm-deepseek' } as never, fence, undefined)).toBe(true)
     const onboarding = before.slots.entries('settings.onboarding')
     expect(onboarding).toHaveLength(1)
     expect(onboarding.find(entry => entry.options.id === 'welcome-notice')).toMatchObject({
