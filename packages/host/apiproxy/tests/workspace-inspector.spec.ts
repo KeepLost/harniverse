@@ -710,7 +710,7 @@ describe('workspace entry classification and short reads', () => {
     expect(listed.truncated).toBe(true)
   })
 
-  it('classifies a device entry as neither file, directory, nor symlink', async () => {
+  it.skipIf(process.platform === 'win32')('classifies a device entry as neither file, directory, nor symlink', async () => {
     const root = tempWorkspace()
     await execFileAsync('mkfifo', [join(root, 'pipe')])
 
