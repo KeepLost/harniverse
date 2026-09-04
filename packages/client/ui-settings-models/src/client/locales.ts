@@ -97,6 +97,17 @@ export const en = {
   onboardingSave: 'Save and continue',
   onboardingSaving: 'Saving…',
   keyRequired: 'Enter an API key to continue.',
+  policyNav: 'Model Policy',
+  policyTitle: 'Model Profiles and Routes',
+  policyIntro: 'Profiles control which models a session may use. Routes try their concrete models in order after a categorized failure.',
+  profileDefinitions: 'Model Profiles',
+  profileDefinitionsHint: 'Edit the JSON object keyed by profile id. Each profile declares models, routes, and one defaultTarget.',
+  routeDefinitions: 'Model Routes',
+  routeDefinitionsHint: 'Edit the JSON object keyed by route id. Each route contains an ordered targets array.',
+  saveProfiles: 'Save profiles',
+  saveRoutes: 'Save routes',
+  policySaved: 'Saved.',
+  policyUnavailable: 'This policy section is not available in the current deployment.',
 }
 
 /** The settings.models namespace key union. */
@@ -197,4 +208,15 @@ export const zh: { [Key in keyof typeof en]: string } = {
   onboardingSave: '保存并继续',
   onboardingSaving: '保存中…',
   keyRequired: '请输入 API 密钥后继续。',
+  policyNav: '模型策略',
+  policyTitle: '模型 Profile 与 Route',
+  policyIntro: 'Profile 控制 Session 可使用的模型；Route 会在分类失败后按顺序尝试其中的具体模型。',
+  profileDefinitions: 'Model Profile',
+  profileDefinitionsHint: '编辑以 profile id 为键的 JSON 对象。每个 Profile 声明 models、routes 和一个 defaultTarget。',
+  routeDefinitions: 'Model Route',
+  routeDefinitionsHint: '编辑以 route id 为键的 JSON 对象。每个 Route 包含按顺序排列的 targets。',
+  saveProfiles: '保存 Profile',
+  saveRoutes: '保存 Route',
+  policySaved: '已保存。',
+  policyUnavailable: '当前部署没有提供该策略设置 section。',
 }

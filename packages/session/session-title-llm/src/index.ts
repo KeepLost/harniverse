@@ -8,6 +8,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { createUserMessage, BlockAssembler, deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
+import { effectiveModelTarget } from '@deepseek-ai/dsh-model-policy'
+import type {} from '@deepseek-ai/dsh-model-policy'
 import { deadline, MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
   normalizeSessionTitle,
@@ -242,7 +244,14 @@ export async function generateSessionTitleWithLlm(
   if (inputBytes > config.maxInputBytes) {
     throw new Error(`session-title-llm: input is ${inputBytes} bytes, exceeding maxInputBytes ${config.maxInputBytes}`)
   }
-  const route = resolveRoute(config, request)
+  const policy = ctx.get('modelPolicy')
+  const logicalTarget = effectiveModelTarget(request.session.events)
+  const policyRoute = policy === undefined || logicalTarget === undefined
+    ? undefined
+    : policy.concreteTarget(request.session, logicalTarget)
+  const route = policyRoute === undefined
+    ? resolveRoute(config, request)
+    : { provider: policyRoute.provider, model: policyRoute.model }
   const messages: Message[] = [createUserMessage({
     content: [{ type: 'text', text: framedInput }],
     source: { kind: 'plugin', plugin: 'dsh-session-title-llm' },

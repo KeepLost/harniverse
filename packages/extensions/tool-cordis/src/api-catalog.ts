@@ -1165,6 +1165,106 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'modelPolicy',
+    summary: 'Service owning settings, durable snapshots, and target authorization.',
+    description: 'Service owning settings, durable snapshots, and target authorization.',
+    methods: [
+      {
+        signature: 'listProfiles(): readonly ModelProfileDescriptor[]',
+        description: 'Return the currently configured profiles, including unrestricted.',
+        parameters: [],
+        returns: 'detached descriptors in settings order.',
+      },
+      {
+        signature: 'listRoutes(): readonly ModelRouteDescriptor[]',
+        description: 'Return all current route definitions without mutable settings aliases.',
+        parameters: [],
+        returns: 'detached route descriptors in settings order.',
+      },
+      {
+        signature: 'defaultProfileId(): string',
+        description: 'Resolve the selected default Profile id from live settings.',
+        parameters: [],
+        returns: 'the configured id or unrestricted.',
+      },
+      {
+        signature: 'snapshotFor(profileId: string): ModelProfileSnapshot',
+        description: 'Build the durable Session snapshot for one configured Profile.',
+        parameters: [{ name: 'profileId', description: 'configured Profile id or unrestricted.' }],
+        returns: 'a detached revisioned snapshot.',
+      },
+      {
+        signature: 'initialize(session: Session, profileId: string = this.defaultProfileId()): ModelProfileSnapshot',
+        description: 'Ensure a Session has a durable Profile.',
+        parameters: [{ name: 'session', description: 'Session to initialize once.' }, { name: 'profileId', description: 'Profile id for a new Session.' }],
+        returns: 'the existing or newly appended snapshot.',
+      },
+      {
+        signature: 'setProfile(session: Session, profileId: string): ModelProfileSnapshot',
+        description: 'Change the Session Profile and select its default target.',
+        parameters: [{ name: 'session', description: 'Session whose policy changes.' }, { name: 'profileId', description: 'configured Profile id.' }],
+        returns: 'the newly appended snapshot.',
+      },
+      {
+        signature: 'profileOf(session: Session): ModelProfileSnapshot',
+        description: 'Return a Session\'s effective Profile, pinning legacy Sessions on first use.',
+        parameters: [{ name: 'session', description: 'Session whose log is inspected.' }],
+        returns: 'the effective durable snapshot.',
+      },
+      {
+        signature: 'targetOf(session: Session): ModelTarget | undefined',
+        description: 'Return the Session\'s current logical target.',
+        parameters: [{ name: 'session', description: 'Session whose log is inspected.' }],
+        returns: 'the latest target, when selected.',
+      },
+      {
+        signature: 'setTarget(session: Session, target: ModelTarget): void',
+        description: 'Persist a target after Session Profile authorization.',
+        parameters: [{ name: 'session', description: 'Session whose target changes.' }, { name: 'target', description: 'concrete model or named Route.' }],
+      },
+      {
+        signature: 'allowsTarget(profile: ModelProfileSnapshot, target: ModelTarget): boolean',
+        description: 'Check target authorization against an immutable snapshot.',
+        parameters: [{ name: 'profile', description: 'durable Profile snapshot.' }, { name: 'target', description: 'proposed concrete model or Route.' }],
+        returns: 'whether the target is allowed.',
+      },
+      {
+        signature: 'allowsConcrete(profile: ModelProfileSnapshot, selection: ModelSelection): boolean',
+        description: 'Check a concrete request, including models inside allowed Routes.',
+        parameters: [{ name: 'profile', description: 'durable Profile snapshot.' }, { name: 'selection', description: 'concrete request target.' }],
+        returns: 'whether the concrete model is allowed.',
+      },
+      {
+        signature: 'concreteTarget(session: Session, target: ModelTarget): ModelSelection | undefined',
+        description: 'Resolve a logical target to its first concrete attempt.',
+        parameters: [{ name: 'session', description: 'Session supplying the effective snapshot.' }, { name: 'target', description: 'concrete model or named Route.' }],
+        returns: 'the first concrete attempt, when configured.',
+      },
+      {
+        signature: 'targetsFor(session: Session, target: ModelTarget): readonly ModelSelection[]',
+        description: 'Return every concrete attempt in a logical target.',
+        parameters: [{ name: 'session', description: 'Session supplying the effective snapshot.' }, { name: 'target', description: 'concrete model or named Route.' }],
+        returns: 'detached attempts in fallback order.',
+      },
+      {
+        signature: 'concreteTargetForSnapshot(snapshot: ModelProfileSnapshot, target: ModelTarget): ModelSelection | undefined',
+        description: 'Resolve a target against a not-yet-committed snapshot.',
+        parameters: [{ name: 'snapshot', description: 'candidate Profile snapshot.' }, { name: 'target', description: 'candidate default target.' }],
+        returns: 'its first concrete attempt, when configured.',
+      },
+      {
+        signature: 'async saveProfiles(next: ModelProfileSettings): Promise<void>',
+        description: 'Save the complete Profile settings document.',
+        parameters: [{ name: 'next', description: 'replacement user settings.' }],
+      },
+      {
+        signature: 'async saveRoutes(next: ModelRouteSettings): Promise<void>',
+        description: 'Save the complete Route settings document.',
+        parameters: [{ name: 'next', description: 'replacement user settings.' }],
+      },
+    ],
+  },
+  {
     key: 'notification',
     summary: 'Loadable notification backend.',
     description: 'Loadable notification backend. The final emit path validates and snapshots every event before provider-specific queueing.',
@@ -2764,7 +2864,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'agent/request-error',
     mode: 'waterfall',
-    signature: '\'agent/request-error\'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; provider: string; failure: LlmFailure; retryPolicy: ResolvedRetryPolicy | undefined; signal: AbortSignal }, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>',
+    signature: '\'agent/request-error\'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; provider: string; model?: string; failure: LlmFailure; retryPolicy: ResolvedRetryPolicy | undefined; signal: AbortSignal }, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>',
     summary: 'Handle one failed model-request attempt before the loop retries or closes its step.',
     description: 'Handle one failed model-request attempt before the loop retries or closes its step. A listener returns `{ kind: \'retry\' }` without calling `next()` when it owns recovery, or calls `next()` to delegate. The default `undefined` leaves the failure terminal.',
     parameters: [{ name: 'payload', description: '.signal - the turn abort signal. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.' }],
@@ -4382,6 +4482,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ModelModalityMap {\n    text: \'text\';\n    image: \'image\';\n}',
   },
   {
+    name: 'ModelProfile',
+    declaration: 'export interface ModelProfile {\n    readonly name?: string;\n    readonly description?: string;\n    readonly models: readonly ModelSelection[];\n    readonly routes: readonly string[];\n    readonly defaultTarget: ModelTarget;\n}',
+  },
+  {
+    name: 'ModelProfileSettings',
+    declaration: 'export interface ModelProfileSettings {\n    readonly defaultProfile: string;\n    readonly profiles: Readonly<Record<string, ModelProfile>>;\n}',
+  },
+  {
+    name: 'ModelProfileSnapshot',
+    declaration: 'export interface ModelProfileSnapshot {\n    readonly id: string;\n    readonly name: string;\n    readonly description?: string;\n    readonly unrestricted: boolean;\n    readonly models: readonly ModelSelection[];\n    readonly routes: readonly string[];\n    readonly routeSnapshots: Readonly<Record<string, ModelRouteSnapshot>>;\n    readonly defaultTarget?: ModelTarget;\n    readonly revision: string;\n}',
+  },
+  {
+    name: 'ModelRoute',
+    declaration: 'export interface ModelRoute {\n    readonly name?: string;\n    readonly targets: readonly ModelSelection[];\n}',
+  },
+  {
+    name: 'ModelRouteSettings',
+    declaration: 'export interface ModelRouteSettings {\n    readonly routes: Readonly<Record<string, ModelRoute>>;\n}',
+  },
+  {
+    name: 'ModelRouteSnapshot',
+    declaration: 'export interface ModelRouteSnapshot {\n    readonly id: string;\n    readonly name?: string;\n    readonly targets: readonly ModelSelection[];\n}',
+  },
+  {
     name: 'NotificationEnvelope',
     declaration: 'export type NotificationEnvelope<K extends NotificationEventType = NotificationEventType> = {\n    [P in K]: {\n        specVersion: 1;\n        eventId: NotificationEventId;\n        type: P;\n        occurredAt: string;\n        subject: NotificationSubject;\n        data: NotificationEventMap[P];\n    };\n}[K];',
   },
@@ -4635,7 +4759,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RpcErrorDetailsMap',
-    declaration: 'export interface RpcErrorDetailsMap {\n    \'authentication-principal-mismatch\': {};\n    \'bad-request\': {\n        issues: ZodIssue[];\n    };\n    \'cancelled\': {};\n    \'session-not-found\': {\n        sessionId: SessionId;\n    };\n    \'model-unavailable\': {\n        provider: string;\n        model: string;\n    };\n    \'session-conflict\': {\n        sessionId: SessionId;\n        requestedCwd: string;\n        existingCwd?: string;\n    };\n    \'session-has-children\': {\n        sessionId: SessionId;\n        childSessionIds: SessionId[];\n    };\n    \'invalid-time-zone\': {\n        value: string;\n    };\n    \'workspace-attach-failed\': {\n        sessionId: SessionId;\n        workspaceId: string;\n    };\n    \'workspace-not-found\': {\n        workspaceId: string;\n    };\n    \'workspace-invalid-path\': {\n        path: string;\n    };\n    \'workspace-name-conflict\': {\n        name: string;\n    };\n    \'workspace-move-invalid\': {\n        workspaceId: string;\n        sessionId: SessionId;\n        beforeSessionId?: SessionId;\n    };\n    \'workspace-path-invalid\': {\n        workspaceId: string;\n        path: string;\n    };\n    \'workspace-entry-not-found\': {\n        workspaceId: string;\n        path: string;\n    };\n    \'workspace-entry-not-readable\': {\n        workspaceId: string;\n        path: string;\n    };\n    \'workspace-entry-type-invalid\': {\n        workspaceId: string;\n        path: string;\n    };\n    \'workspace-file-binary\': {\n        workspaceId: string;\n        path: string;\n    };\n    \'workspace-file-pr /* …truncated — full shape in source */',
+    declaration: 'export interface RpcErrorDetailsMap {\n    \'authentication-principal-mismatch\': {};\n    \'bad-request\': {\n        issues: ZodIssue[];\n    };\n    \'cancelled\': {};\n    \'session-not-found\': {\n        sessionId: SessionId;\n    };\n    \'model-unavailable\': {\n        provider: string;\n        model: string;\n    };\n    \'model-not-allowed\': {\n        profileId: string;\n    };\n    \'session-conflict\': {\n        sessionId: SessionId;\n        requestedCwd: string;\n        existingCwd?: string;\n    };\n    \'session-has-children\': {\n        sessionId: SessionId;\n        childSessionIds: SessionId[];\n    };\n    \'invalid-time-zone\': {\n        value: string;\n    };\n    \'workspace-attach-failed\': {\n        sessionId: SessionId;\n        workspaceId: string;\n    };\n    \'workspace-not-found\': {\n        workspaceId: string;\n    };\n    \'workspace-invalid-path\': {\n        path: string;\n    };\n    \'workspace-name-conflict\': {\n        name: string;\n    };\n    \'workspace-move-invalid\': {\n        workspaceId: string;\n        sessionId: SessionId;\n        beforeSessionId?: SessionId;\n    };\n    \'workspace-path-invalid\': {\n        workspaceId: string;\n        path: string;\n    };\n    \'workspace-entry-not-found\': {\n        workspaceId: string;\n        path: string;\n    };\n    \'workspace-entry-not-readable\': {\n        workspaceId: string;\n        path: string;\n    };\n    \'workspace-entry-type-invalid\': {\n        workspaceId: string;\n        path: string;\n    };\n    \'workspace-file-binary\': {\n        workspaceId /* …truncated — full shape in source */',
   },
   {
     name: 'RpcId',

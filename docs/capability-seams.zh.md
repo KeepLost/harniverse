@@ -72,6 +72,11 @@ flowchart LR
   pkg_apiproxy["apiproxy"]
   pkg_mcp_user_config["mcp-user-config"]
   svc_mcpUserConfigSettings["ctx.mcpUserConfigSettings<br/>User MCP configuration seam"]
+  pkg_model_policy["model-policy"]
+  svc_modelPolicy["ctx.modelPolicy<br/>Session model authorization and routing seam"]
+  pkg_model_policy_fallback["model-policy-fallback"]
+  pkg_session_title_llm["session-title-llm"]
+  pkg_ui_model_selection["ui-model-selection"]
   pkg_credentials["credentials"]
   svc_credentials["ctx.credentials<br/>Credential seam"]
   pkg_credentials_local["credentials-local"]
@@ -279,6 +284,7 @@ flowchart LR
   pkg_lsp_local --> svc_lsp
   pkg_mcp_user_config --> svc_mcpUserConfigSettings
   pkg_message_feedback --> svc_messageFeedback
+  pkg_model_policy --> svc_modelPolicy
   pkg_modules --> svc_clientModules
   pkg_notification --> svc_notification
   pkg_notification_http --> svc_notification
@@ -387,6 +393,11 @@ flowchart LR
   svc_llm --> pkg_compaction_lossless
   svc_lsp --> pkg_tool_lsp
   svc_mcpUserConfigSettings --> pkg_mcp_user_config
+  svc_modelPolicy --> pkg_apiproxy
+  svc_modelPolicy --> pkg_compaction_basic
+  svc_modelPolicy --> pkg_model_policy_fallback
+  svc_modelPolicy --> pkg_session_title_llm
+  svc_modelPolicy --> pkg_ui_model_selection
   svc_notification --> pkg_notification
   svc_pluginDiagnostics --> pkg_host_plugin_inventory
   svc_sandbox --> pkg_bash_sandbox
@@ -500,6 +511,7 @@ flowchart LR
 | `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session/session-persistence) | [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session/session-persistence-sqlite) | [`agent-loop`](../packages/core/agent-loop), [`tool-bash`](../packages/shell/tool-bash), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`message-feedback`](../packages/feedback/message-feedback) | - | 各后端持久化同一套 SessionEvent 词汇；应用在组合时选择后端。 |
 | `ctx.settings` | `seam` | [`settings`](../packages/settings/settings) | [`settings-file`](../packages/settings/settings-file) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy`, [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | 插件注册命名空间 schema 并解析分层值；提供方存储原始文档。LLM（大语言模型）适配器在用户分区下将其入口配置注册为组合基础；Web 网关提供经过脱敏的分层描述符，并写入用户层。 |
 | `ctx.mcpUserConfigSettings` | `seam` | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | host 拥有并验证用户 MCP server 列表；Profile consumer 在不将工具全局化的前提下协调隔离的 mcp-client 子插件。 |
+| `ctx.modelPolicy` | `seam` | [`model-policy`](../packages/core/model-policy) | [`model-policy`](../packages/core/model-policy) | [`model-policy-fallback`](../packages/core/model-policy-fallback), `apiproxy`, [`compaction-basic`](../packages/compaction/compaction-basic), [`session-title-llm`](../packages/session/session-title-llm), `ui-model-selection` | - | 服务将 Profile 授权和逻辑目标快照写入每个 Session；Host 与辅助消费方执行该快照，fallback consumer 记录有序的跨模型转移。 |
 | `ctx.credentials` | `seam` | [`credentials`](../packages/credentials/credentials) | [`credentials-local`](../packages/credentials/credentials-local) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy` | - | 配置携带对机密信息的引用；提供方拥有实际值。消费方按操作解析，因此轮换后的凭据会在紧接着的下一次请求中生效；Web 网关提供不含实际值的视图和只写存储。 |
 | `ctx.sessionTelemetry` | `seam` | [`session-telemetry`](../packages/session/session-telemetry) | [`session-telemetry-otel`](../packages/session/session-telemetry-otel) | [`session-telemetry`](../packages/session/session-telemetry) | - | Definition 包还内置 coordinator Consumer，在把会话记录交给一个后端之前捕获并脱敏；其输出会离开进程。 |
 | `ctx.notification` | `seam` | [`notification`](../packages/notification/notification) | [`notification-http`](../packages/notification/notification-http) | [`notification`](../packages/notification/notification) | - | Definition 包还内置 coordinator Consumer，将选定的生命周期元数据投影为稳定外部协议；默认不启用的 HTTP Provider 持久化端点投递并将其发送到进程外。 |

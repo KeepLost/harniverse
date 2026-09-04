@@ -1249,6 +1249,12 @@ importers:
       '@deepseek-ai/dsh-mcp-user-config':
         specifier: workspace:^
         version: link:../../mcp/mcp-user-config
+      '@deepseek-ai/dsh-model-policy':
+        specifier: workspace:^
+        version: link:../../core/model-policy
+      '@deepseek-ai/dsh-model-policy-fallback':
+        specifier: workspace:^
+        version: link:../../core/model-policy-fallback
       '@deepseek-ai/dsh-permission-presets':
         specifier: workspace:^
         version: link:../../interaction/permission-presets
@@ -1760,6 +1766,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-model-policy':
+        specifier: workspace:^
+        version: link:../../core/model-policy
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
@@ -3633,6 +3642,9 @@ importers:
 
   packages/compaction/compaction-basic:
     dependencies:
+      '@deepseek-ai/dsh-model-policy':
+        specifier: workspace:^
+        version: link:../../core/model-policy
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
@@ -4148,6 +4160,50 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../tools
+
+  packages/core/model-policy:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../session
+      '@deepseek-ai/dsh-settings':
+        specifier: workspace:^
+        version: link:../../settings/settings
+
+  packages/core/model-policy-fallback:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../agent
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-model-policy':
+        specifier: workspace:^
+        version: link:../model-policy
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../session
 
   packages/core/scope:
     devDependencies:
@@ -5322,6 +5378,12 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-model-policy':
+        specifier: workspace:^
+        version: link:../../core/model-policy
+      '@deepseek-ai/dsh-model-policy-fallback':
+        specifier: workspace:^
+        version: link:../../core/model-policy-fallback
       '@deepseek-ai/dsh-native-command':
         specifier: workspace:^
         version: link:../../util/native-command
@@ -7273,6 +7335,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-model-policy':
+        specifier: workspace:^
+        version: link:../../core/model-policy
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session

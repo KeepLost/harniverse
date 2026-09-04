@@ -23,6 +23,7 @@ import type { HostFrame } from '../src/api/index.ts'
 import type { RpcRequest, RpcResponse } from '../src/api/rpc.ts'
 import { RpcId } from '../src/api/rpc.ts'
 import { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-default-model'
+import ModelPolicyService from '@deepseek-ai/dsh-model-policy'
 import { createApiProxy } from '../src/api-proxy.ts'
 import { InProcessApiClient } from '../src/fetch/client.ts'
 import { toFetchHandler } from '../src/fetch/handler.ts'
@@ -305,6 +306,15 @@ describe('settings domain', () => {
     expect(view.user).toEqual({ baseURL: 'https://user' })
     expect(view.secrets).toEqual([{ path: ['apiKey'], set: true }])
     expect(JSON.stringify(value)).not.toContain('user-secret')
+  })
+
+  it('exposes Model Profile and Route settings to configuration clients', async () => {
+    const ctx = await harness()
+    await ctx.plugin(ModelPolicyService)
+    const api = createApiProxy(ctx, DEFAULTS)
+
+    expect(expectOk(await api.settings.describe(request({}))).namespaces.map(view => view.ns))
+      .toEqual(expect.arrayContaining(['model-profiles', 'model-routes']))
   })
 
   it('opens the provider-resolved document without accepting a browser path', async () => {

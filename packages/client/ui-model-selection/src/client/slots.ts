@@ -22,4 +22,8 @@ export interface ModelSelectInjected {
    * @returns whether the host accepted the selection.
    */
   select: (selection: ModelSelection) => Promise<boolean>
+  /** Switch the Session's durable Model Profile. */
+  selectProfile?: (profileId: string) => Promise<boolean>
+  /** Select one Route allowed by the current Profile. */
+  selectRoute?: (routeId: string) => Promise<boolean>
 }

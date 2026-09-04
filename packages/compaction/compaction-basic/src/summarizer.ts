@@ -11,6 +11,8 @@ import type {
   ContentBlock, FinishReason, GenerateOptions, Message, TokenUsage, ToolSchema,
 } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { effectiveModelTarget } from '@deepseek-ai/dsh-model-policy'
+import type {} from '@deepseek-ai/dsh-model-policy'
 import { estimateHeader, estimateMessage } from '@deepseek-ai/dsh-token-meter'
 import type { EpochHeader } from '@deepseek-ai/dsh-session'
 
@@ -150,7 +152,12 @@ export async function summarizeWithLlm(
     && agent.options.model.length > 0
     ? { provider: agent.options.provider, model: agent.options.model }
     : undefined
-  const target = configured ?? latest ?? fallbackAgentTarget
+  const policy = ctx.get('modelPolicy')
+  const logicalTarget = effectiveModelTarget(agent.session.events)
+  const policyTarget = policy === undefined || logicalTarget === undefined
+    ? undefined
+    : policy.concreteTarget(agent.session, logicalTarget)
+  const target = policyTarget ?? configured ?? latest ?? fallbackAgentTarget
   if (target === undefined) {
     throw new Error(
       'no provider/model available for summarization: set both BasicCompactionConfig summarization fields, route one request, or set both AgentOptions fields',

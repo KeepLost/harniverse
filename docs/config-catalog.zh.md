@@ -1588,6 +1588,86 @@ export interface Config {
 
 来源：[`packages/feedback/message-feedback/src/index.ts:49`](../packages/feedback/message-feedback/src/index.ts)
 
+<a id="deepseek-aidsh-model-policy"></a>
+
+## `@deepseek-ai/dsh-model-policy`
+
+需要：`sessions`
+
+```ts config-catalog
+/** Composition configuration for the policy service. */
+export interface Config {
+  /** Default Profile for newly created Sessions. */
+  readonly defaultProfile?: string
+  /** Composition defaults for Model Profiles. */
+  readonly profiles?: Readonly<Record<string, ModelProfile>>
+  /** Composition defaults for Model Routes. */
+  readonly routes?: Readonly<Record<string, ModelRoute>>
+}
+
+/** User-configured permissions and default target for one Model Profile. */
+export interface ModelProfile {
+  /** Optional display name. */
+  readonly name?: string
+  /** Optional user-facing explanation. */
+  readonly description?: string
+  /** Concrete models allowed by this Profile. */
+  readonly models: readonly ModelSelection[]
+  /** Named Routes allowed by this Profile. */
+  readonly routes: readonly string[]
+  /** Target used when the Profile is selected. */
+  readonly defaultTarget: ModelTarget
+}
+
+/** An ordered fallback chain of concrete model targets. */
+export interface ModelRoute {
+  /** Optional display name. */
+  readonly name?: string
+  /** Concrete attempts in fallback order. */
+  readonly targets: readonly ModelSelection[]
+}
+
+/** One concrete provider/model request target. */
+export interface ModelSelection {
+  /** Registered provider route. */
+  readonly provider: string
+  /** Provider-owned model id. */
+  readonly model: string
+  /** Optional adapter-owned reasoning effort. */
+  readonly reasoningEffort?: string
+}
+
+/** One target accepted by a Model Profile or selected in a Session. */
+export type ModelTarget =
+  | {
+    /** Select one concrete model. */
+    readonly kind: 'model'
+    /** Concrete provider/model selection. */
+    readonly selection: ModelSelection
+  }
+  | {
+    /** Select one named ordered Route. */
+    readonly kind: 'route'
+    /** Configured Route id. */
+    readonly route: string
+  }
+```
+
+来源：[`packages/core/model-policy/src/index.ts:67`](../packages/core/model-policy/src/index.ts)
+
+<a id="deepseek-aidsh-model-policy-fallback"></a>
+
+## `@deepseek-ai/dsh-model-policy-fallback`
+
+需要：`agents` · `modelPolicy` · `sessions`
+
+```ts config-catalog
+/** Empty configuration: route definitions and profile grants own the policy. */
+export type Config = Readonly<Record<string, never>>
+```
+
+来源：[`packages/core/model-policy-fallback/src/index.ts:17`](../packages/core/model-policy-fallback/src/index.ts)
+
 <a id="deepseek-aidsh-notification-http"></a>
 
 ## `@deepseek-ai/dsh-notification-http`

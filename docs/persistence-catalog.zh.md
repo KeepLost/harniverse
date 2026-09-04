@@ -499,6 +499,41 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/core/session/src/types.ts:332`](../packages/core/session/src/types.ts)
 
+### `model/*`
+
+<a id="modelfallback--log-only"></a>
+
+#### `model/fallback` — log-only
+
+```ts persistence-catalog
+/** Records a categorized cross-model fallback attempt. */
+'model/fallback': ModelFallbackEvent
+```
+
+来源：[`packages/core/model-policy/src/types.ts:116`](../packages/core/model-policy/src/types.ts)
+
+<a id="modelprofile--log-only"></a>
+
+#### `model/profile` — log-only
+
+```ts persistence-catalog
+/** Captures the Model Profile permissions used by this Session. */
+'model/profile': ModelProfileSnapshot
+```
+
+来源：[`packages/core/model-policy/src/types.ts:112`](../packages/core/model-policy/src/types.ts)
+
+<a id="modeltarget--log-only"></a>
+
+#### `model/target` — log-only
+
+```ts persistence-catalog
+/** Records the logical model or route used by subsequent requests. */
+'model/target': ModelTarget
+```
+
+来源：[`packages/core/model-policy/src/types.ts:114`](../packages/core/model-policy/src/types.ts)
+
 ### `permission/*`
 
 <a id="permissionpreset--log-only"></a>

@@ -26,7 +26,7 @@ import type { ModelSelectInjected } from './slots.ts'
 import css from './ModelSelect.module.css'
 
 /** Which pane the dropdown shows: the two-row root or one drilled-in list. */
-type Pane = 'root' | 'model' | 'effort'
+type Pane = 'root' | 'profile' | 'route' | 'model' | 'effort'
 
 /** One dynamic effort row; undefined means preserve the provider default. */
 interface EffortChoice {
@@ -43,7 +43,7 @@ interface EffortChoice {
  * @returns the trigger and, while open, the two-level menu.
  */
 export function ModelSelect(
-  { locked, available, directory, load, select, t }:
+  { locked, available, directory, load, select, selectProfile, selectRoute, t }:
   ModelSelectInjected & { locked: boolean } & PropsLocale<'model'>,
 ) {
   const state = useSyncExternalStore(
@@ -187,6 +187,24 @@ export function ModelSelect(
     void select(selection).then(settleSelection)
   }
 
+  const chooseProfile = (profileId: string): void => {
+    if (state.profile?.id === profileId) {
+      close(true)
+      return
+    }
+    lastActionRef.current = 'select'
+    void (selectProfile?.(profileId) ?? Promise.resolve(false)).then(settleSelection)
+  }
+
+  const chooseRoute = (routeId: string): void => {
+    if (state.target?.kind === 'route' && state.target.route === routeId) {
+      close(true)
+      return
+    }
+    lastActionRef.current = 'select'
+    void (selectRoute?.(routeId) ?? Promise.resolve(false)).then(settleSelection)
+  }
+
   const chooseEffort = (effort: string | undefined): void => {
     if (state.current === null) return
     if (effectiveEffort === effort) {
@@ -251,6 +269,20 @@ export function ModelSelect(
         >
           {pane === 'root' && (
             <>
+              {state.profile != null && (
+                <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { setPane('profile') }}>
+                  <span className={css.cellLabel}>{t('menu.profile')}</span>
+                  <span className={css.cellValue}>{state.profile.name}</span>
+                  <IconChevronRightOutline14 className={css.cellChevron} />
+                </button>
+              )}
+              {(state.routes?.length ?? 0) > 0 && (
+                <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { setPane('route') }}>
+                  <span className={css.cellLabel}>{t('menu.route')}</span>
+                  <span className={css.cellValue}>{state.target?.kind === 'route' ? state.target.route : t('menu.model')}</span>
+                  <IconChevronRightOutline14 className={css.cellChevron} />
+                </button>
+              )}
               <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { setPane('model') }}>
                 <span className={css.cellLabel}>{t('menu.model')}</span>
                 <span className={css.cellValue}>{modelLabel}</span>
@@ -264,6 +296,59 @@ export function ModelSelect(
                 </button>
               )}
             </>
+          )}
+
+          {pane === 'profile' && (
+            <div className={clsx(css.groups, 'scrollable')}>
+              {(state.profiles ?? []).length === 0
+                ? <div className={css.empty}>{t('empty.profiles')}</div>
+                : (state.profiles ?? []).map(profile => (
+                  <button
+                    ref={itemRef()}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={state.profile?.id === profile.id}
+                    className={clsx(css.option, state.profile?.id === profile.id && css.selected)}
+                    key={profile.id}
+                    disabled={busy}
+                    onClick={() => { chooseProfile(profile.id) }}
+                  >
+                    <span className={css.optionCopy}>
+                      <span className={css.modelName}>{profile.name}</span>
+                      {profile.description === undefined ? null : <span className={css.description}>{profile.description}</span>}
+                    </span>
+                    <span className={css.check}>{state.profile?.id === profile.id ? <IconCheckOutline16 /> : null}</span>
+                  </button>
+                ))}
+            </div>
+          )}
+
+          {pane === 'route' && (
+            <div className={clsx(css.groups, 'scrollable')}>
+              {(state.routes ?? []).length === 0
+                ? <div className={css.empty}>{t('empty.routes')}</div>
+                : (state.routes ?? []).map((route) => {
+                  const selected = state.target?.kind === 'route' && state.target.route === route.id
+                  return (
+                    <button
+                      ref={itemRef()}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={selected}
+                      className={clsx(css.option, selected && css.selected)}
+                      key={route.id}
+                      disabled={busy}
+                      onClick={() => { chooseRoute(route.id) }}
+                    >
+                      <span className={css.optionCopy}>
+                        <span className={css.modelName}>{route.name ?? route.id}</span>
+                        <span className={css.description}>{route.targets.map(target => `${target.provider}/${target.model}`).join(' → ')}</span>
+                      </span>
+                      <span className={css.check}>{selected ? <IconCheckOutline16 /> : null}</span>
+                    </button>
+                  )
+                })}
+            </div>
           )}
 
           {pane === 'model' && (

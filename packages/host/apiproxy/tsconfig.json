@@ -45,6 +45,12 @@
       "path": "../../core/agent-default-model"
     },
     {
+      "path": "../../core/model-policy"
+    },
+    {
+      "path": "../../core/model-policy-fallback"
+    },
+    {
       "path": "../../preset/agent-presets"
     },
     {

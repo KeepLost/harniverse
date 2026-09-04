@@ -34,10 +34,14 @@ flowchart LR
   cfg --> plugin_dsh_base_agent
   plugin_dsh_base_agent_default_model["agent-default-model<br/>@deepseek-ai/dsh-agent-default-model"]
   cfg --> plugin_dsh_base_agent_default_model
+  plugin_dsh_base_model_policy["model-policy<br/>@deepseek-ai/dsh-model-policy"]
+  cfg --> plugin_dsh_base_model_policy
   plugin_dsh_base_jobs["jobs<br/>@deepseek-ai/dsh-jobs-local"]
   cfg --> plugin_dsh_base_jobs
   plugin_dsh_base_llm_retry["llm-retry<br/>@deepseek-ai/dsh-llm-retry"]
   cfg --> plugin_dsh_base_llm_retry
+  plugin_dsh_base_model_policy_fallback["model-policy-fallback<br/>@deepseek-ai/dsh-model-policy-fallback"]
+  cfg --> plugin_dsh_base_model_policy_fallback
   plugin_dsh_base_settings["settings<br/>@deepseek-ai/dsh-settings-file"]
   cfg --> plugin_dsh_base_settings
   plugin_dsh_base_credentials["credentials<br/>@deepseek-ai/dsh-credentials-local"]
@@ -207,8 +211,10 @@ flowchart LR
 | `supervision` | `@deepseek-ai/dsh-supervision` |
 | `agent` | `@deepseek-ai/dsh-agent` |
 | `agent-default-model` | `@deepseek-ai/dsh-agent-default-model` |
+| `model-policy` | `@deepseek-ai/dsh-model-policy` |
 | `jobs` | `@deepseek-ai/dsh-jobs-local` |
 | `llm-retry` | `@deepseek-ai/dsh-llm-retry` |
+| `model-policy-fallback` | `@deepseek-ai/dsh-model-policy-fallback` |
 | `settings` | `@deepseek-ai/dsh-settings-file` |
 | `credentials` | `@deepseek-ai/dsh-credentials-local` |
 | `llm-pi-ai` | `@deepseek-ai/dsh-llm-pi-ai` |

@@ -497,6 +497,41 @@ Source: [`packages/llm/llm-retry/src/types.ts:11`](../packages/llm/llm-retry/src
 
 Source: [`packages/core/session/src/types.ts:332`](../packages/core/session/src/types.ts)
 
+### `model/*`
+
+<a id="modelfallback--log-only"></a>
+
+#### `model/fallback` — log-only
+
+```ts persistence-catalog
+/** Records a categorized cross-model fallback attempt. */
+'model/fallback': ModelFallbackEvent
+```
+
+Source: [`packages/core/model-policy/src/types.ts:116`](../packages/core/model-policy/src/types.ts)
+
+<a id="modelprofile--log-only"></a>
+
+#### `model/profile` — log-only
+
+```ts persistence-catalog
+/** Captures the Model Profile permissions used by this Session. */
+'model/profile': ModelProfileSnapshot
+```
+
+Source: [`packages/core/model-policy/src/types.ts:112`](../packages/core/model-policy/src/types.ts)
+
+<a id="modeltarget--log-only"></a>
+
+#### `model/target` — log-only
+
+```ts persistence-catalog
+/** Records the logical model or route used by subsequent requests. */
+'model/target': ModelTarget
+```
+
+Source: [`packages/core/model-policy/src/types.ts:114`](../packages/core/model-policy/src/types.ts)
+
 ### `permission/*`
 
 <a id="permissionpreset--log-only"></a>
@@ -664,7 +699,7 @@ Source: [`packages/session/session-title/src/index.ts:100`](../packages/session/
 
 Types: [SessionTitleLlmRequestEventData](subsystems/session-title.md)
 
-Source: [`packages/session/session-title-llm/src/index.ts:43`](../packages/session/session-title-llm/src/index.ts)
+Source: [`packages/session/session-title-llm/src/index.ts:45`](../packages/session/session-title-llm/src/index.ts)
 
 ### `step/*`
 

@@ -70,6 +70,11 @@ flowchart LR
   pkg_apiproxy["apiproxy"]
   pkg_mcp_user_config["mcp-user-config"]
   svc_mcpUserConfigSettings["ctx.mcpUserConfigSettings<br/>User MCP configuration seam"]
+  pkg_model_policy["model-policy"]
+  svc_modelPolicy["ctx.modelPolicy<br/>Session model authorization and routing seam"]
+  pkg_model_policy_fallback["model-policy-fallback"]
+  pkg_session_title_llm["session-title-llm"]
+  pkg_ui_model_selection["ui-model-selection"]
   pkg_credentials["credentials"]
   svc_credentials["ctx.credentials<br/>Credential seam"]
   pkg_credentials_local["credentials-local"]
@@ -277,6 +282,7 @@ flowchart LR
   pkg_lsp_local --> svc_lsp
   pkg_mcp_user_config --> svc_mcpUserConfigSettings
   pkg_message_feedback --> svc_messageFeedback
+  pkg_model_policy --> svc_modelPolicy
   pkg_modules --> svc_clientModules
   pkg_notification --> svc_notification
   pkg_notification_http --> svc_notification
@@ -385,6 +391,11 @@ flowchart LR
   svc_llm --> pkg_compaction_lossless
   svc_lsp --> pkg_tool_lsp
   svc_mcpUserConfigSettings --> pkg_mcp_user_config
+  svc_modelPolicy --> pkg_apiproxy
+  svc_modelPolicy --> pkg_compaction_basic
+  svc_modelPolicy --> pkg_model_policy_fallback
+  svc_modelPolicy --> pkg_session_title_llm
+  svc_modelPolicy --> pkg_ui_model_selection
   svc_notification --> pkg_notification
   svc_pluginDiagnostics --> pkg_host_plugin_inventory
   svc_sandbox --> pkg_bash_sandbox
@@ -498,6 +509,7 @@ flowchart LR
 | `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session/session-persistence) | [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session/session-persistence-sqlite) | [`agent-loop`](../packages/core/agent-loop), [`tool-bash`](../packages/shell/tool-bash), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`message-feedback`](../packages/feedback/message-feedback) | - | Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time. |
 | `ctx.settings` | `seam` | [`settings`](../packages/settings/settings) | [`settings-file`](../packages/settings/settings-file) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy`, [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | Plugins register namespace schemas and resolve layered values; providers store the raw document. The LLM adapters register their entry config as the composition base under the user section; the web gateway serves redacted layered descriptors and writes the user layer. |
 | `ctx.mcpUserConfigSettings` | `seam` | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | The host-owned provider validates and persists the user server list; profile consumers reconcile isolated mcp-client children without globalizing their tools. |
+| `ctx.modelPolicy` | `seam` | [`model-policy`](../packages/core/model-policy) | [`model-policy`](../packages/core/model-policy) | [`model-policy-fallback`](../packages/core/model-policy-fallback), `apiproxy`, [`compaction-basic`](../packages/compaction/compaction-basic), [`session-title-llm`](../packages/session/session-title-llm), `ui-model-selection` | - | The service snapshots Profile grants and the logical target into each Session; Host and auxiliary consumers enforce the snapshot, while the fallback consumer records ordered cross-model transitions. |
 | `ctx.credentials` | `seam` | [`credentials`](../packages/credentials/credentials) | [`credentials-local`](../packages/credentials/credentials-local) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy` | - | Configuration carries references to secrets; providers own the values. Consumers resolve per operation, so a rotated credential reaches the very next request; the web gateway exposes value-free views and write-only storage. |
 | `ctx.sessionTelemetry` | `seam` | [`session-telemetry`](../packages/session/session-telemetry) | [`session-telemetry-otel`](../packages/session/session-telemetry-otel) | [`session-telemetry`](../packages/session/session-telemetry) | - | The Definition package also bundles the coordinator Consumer that captures and redacts session records before handing them to one backend; its output leaves the process. |
 | `ctx.notification` | `seam` | [`notification`](../packages/notification/notification) | [`notification-http`](../packages/notification/notification-http) | [`notification`](../packages/notification/notification) | - | The Definition package also bundles the coordinator Consumer that projects selected lifecycle metadata into a stable external protocol; the opt-in HTTP provider persists endpoint deliveries and sends them outside the process. |
