@@ -145,7 +145,7 @@ describe('workspace file inspection', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  }, 60_000)
+  }, process.platform === 'win32' ? 120_000 : 60_000)
 
   it('reads supported binary previews completely and rejects unsupported or oversized files', async () => {
     const root = tempWorkspace()
