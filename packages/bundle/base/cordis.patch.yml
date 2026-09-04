@@ -69,11 +69,17 @@
         provider: deepseek-official
         model: deepseek-v4-flash
 
+    - id: model-policy
+      name: '@deepseek-ai/dsh-model-policy'
+
     - id: jobs
       name: '@deepseek-ai/dsh-jobs-local'
 
     - id: llm-retry
       name: '@deepseek-ai/dsh-llm-retry'
+
+    - id: model-policy-fallback
+      name: '@deepseek-ai/dsh-model-policy-fallback'
 
     # User-settings document (`$DSH_HOME/settings.yaml`, hot-reloaded): a
     # `llm-deepseek:` or `llm-pi-ai:` section there overrides the adapter entries

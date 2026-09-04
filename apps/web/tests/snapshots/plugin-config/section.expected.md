@@ -7,6 +7,9 @@
     - button "模型":
       - img
       - text: 模型
+    - button "模型策略":
+      - img
+      - text: 模型策略
     - button "插件":
       - img
       - text: 插件

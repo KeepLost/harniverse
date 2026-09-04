@@ -49,6 +49,7 @@ export interface RpcErrorDetailsMap {
   'cancelled': {}
   'session-not-found': { sessionId: SessionId }
   'model-unavailable': { provider: string; model: string }
+  'model-not-allowed': { profileId: string }
   'session-conflict': { sessionId: SessionId; requestedCwd: string; existingCwd?: string }
   'session-has-children': { sessionId: SessionId; childSessionIds: SessionId[] }
   'invalid-time-zone': { value: string }

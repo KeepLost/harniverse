@@ -33,6 +33,8 @@ import {
   sessionRenameRequestSchema,
   sessionSearchRequestSchema,
   sessionSelectModelRequestSchema,
+  sessionSelectModelTargetRequestSchema,
+  sessionSelectModelProfileRequestSchema,
   sessionUpdateQueueRequestSchema,
   sessionWorkStatusRequestSchema,
 } from '../api/sessions.schema.ts'
@@ -128,6 +130,8 @@ const UNARY_ROUTES: UnaryRoutes = {
   'session.workStatus': { schema: sessionWorkStatusRequestSchema, invoke: (api, r) => api.sessions.workStatus(r) },
   'session.models': { schema: sessionModelsRequestSchema, invoke: (api, r) => api.sessions.models(r) },
   'session.selectModel': { schema: sessionSelectModelRequestSchema, invoke: (api, r) => api.sessions.selectModel(r) },
+  'session.selectModelTarget': { schema: sessionSelectModelTargetRequestSchema, invoke: (api, r) => api.sessions.selectModelTarget?.(r) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'model target selection is unavailable', details: {} } } }) },
+  'session.selectModelProfile': { schema: sessionSelectModelProfileRequestSchema, invoke: (api, r) => api.sessions.selectModelProfile?.(r) ?? Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal', message: 'model profile selection is unavailable', details: {} } } }) },
   'session.rename': { schema: sessionRenameRequestSchema, invoke: (api, r) => api.sessions.rename(r) },
   'session.fork': { schema: sessionForkRequestSchema, invoke: (api, r) => api.sessions.fork(r) },
   'session.prompt': { schema: sessionPromptRequestSchema, invoke: (api, r) => api.sessions.prompt(r) },

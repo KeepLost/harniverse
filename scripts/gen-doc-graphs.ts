@@ -235,6 +235,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The host-owned provider validates and persists the user server list; profile consumers reconcile isolated mcp-client children without globalizing their tools.',
   },
   {
+    key: 'modelPolicy',
+    pkg: 'model-policy',
+    title: 'Session model authorization and routing seam',
+    mode: 'seam',
+    implementations: ['model-policy'],
+    consumers: ['model-policy-fallback', 'apiproxy', 'compaction-basic', 'session-title-llm', 'ui-model-selection'],
+    note: 'The service snapshots Profile grants and the logical target into each Session; Host and auxiliary consumers enforce the snapshot, while the fallback consumer records ordered cross-model transitions.',
+  },
+  {
     key: 'credentials',
     pkg: 'credentials',
     title: 'Credential seam',

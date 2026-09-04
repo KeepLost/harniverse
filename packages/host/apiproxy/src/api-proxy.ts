@@ -11,6 +11,13 @@ import { authenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
+import {
+  effectiveModelProfile, effectiveModelTarget, ModelTargetNotAllowedError, UNRESTRICTED_MODEL_PROFILE_ID,
+} from '@deepseek-ai/dsh-model-policy'
+import type {
+  ModelProfileDescriptor, ModelProfileSnapshot, ModelRouteDescriptor, ModelTarget,
+} from '@deepseek-ai/dsh-model-policy/types'
+import type {} from '@deepseek-ai/dsh-model-policy'
 import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import { setSupervisionMode } from '@deepseek-ai/dsh-supervision'
@@ -340,7 +347,9 @@ function referencedImage(events: readonly SessionEvent[], attachmentId: string):
  * that choice write it through `settings.update`, so it has to cross the
  * configuration boundary or the pickers silently fail to persist.
  */
-const PRODUCT_SETTINGS_NAMESPACES = new Set(['ui-onboarding', AGENT_PRESET_SETTINGS_NAMESPACE])
+const PRODUCT_SETTINGS_NAMESPACES = new Set([
+  'ui-onboarding', AGENT_PRESET_SETTINGS_NAMESPACE, 'model-profiles', 'model-routes',
+])
 
 /** Strict browser-zone profile: UTC or an IANA Area/Location-style identifier. */
 const IANA_TIME_ZONE = /^[A-Za-z][A-Za-z0-9_+.-]*(?:\/[A-Za-z0-9_+.-]+)+$/
@@ -1544,6 +1553,85 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
   }
 
+  /** Project a durable policy snapshot into the small descriptor used by clients. */
+  function profileDescriptor(snapshot: ModelProfileSnapshot): ModelProfileDescriptor {
+    return {
+      id: snapshot.id,
+      name: snapshot.name,
+      ...snapshot.description === undefined ? {} : { description: snapshot.description },
+      unrestricted: snapshot.unrestricted,
+      ...snapshot.defaultTarget === undefined ? {} : { defaultTarget: snapshot.defaultTarget },
+    }
+  }
+
+  /** Read the policy state without resuming a cold Session. */
+  async function modelPolicyStateFor(sessionId: SessionId): Promise<{
+    profile: ModelProfileDescriptor
+    profiles: readonly ModelProfileDescriptor[]
+    target?: ModelTarget
+    routes: ModelRouteDescriptor[]
+    snapshot?: ModelProfileSnapshot
+  }> {
+    const policy = ctx.get('modelPolicy')
+    if (policy === undefined) {
+      return {
+        profile: {
+          id: UNRESTRICTED_MODEL_PROFILE_ID,
+          name: 'Unrestricted',
+          description: 'All registered concrete models and routes are allowed.',
+          unrestricted: true,
+        },
+        profiles: [],
+        routes: [],
+      }
+    }
+    const attached = ctx.sessions.get(sessionId)
+    const events = attached?.events ?? (ctx.agents.get(sessionId)?.session.events)
+    const sourceEvents = events ?? (await readSessionState(sessionId)).events
+    const snapshot = effectiveModelProfile(sourceEvents)
+      ?? policy.snapshotFor(UNRESTRICTED_MODEL_PROFILE_ID)
+    const profile = profileDescriptor(snapshot)
+    const target = effectiveModelTarget(sourceEvents)
+    const routes = policy.listRoutes().filter(route => snapshot.unrestricted || snapshot.routes.includes(route.id))
+    return {
+      profile,
+      profiles: policy.listProfiles(),
+      ...target === undefined ? {} : { target },
+      routes,
+      snapshot,
+    }
+  }
+
+  /** Keep the advisory model catalog within a restricted Session Profile. */
+  function catalogForProfile(groups: ModelProviderGroup[], snapshot: ModelProfileSnapshot | undefined): ModelProviderGroup[] {
+    if (snapshot === undefined || snapshot.unrestricted) return groups
+    const allowed = [...snapshot.models, ...Object.values(snapshot.routeSnapshots).flatMap(route => route.targets)]
+    return groups.map(group => ({
+      ...group,
+      models: group.models.filter(model => allowed.some(selection =>
+        selection.provider === group.id
+        && selection.model === model.id
+         && (selection.reasoningEffort === undefined
+           || model.reasoning?.efforts.some(effort => effort.id === selection.reasoningEffort) === true),
+      )),
+    })).filter(group => group.models.length > 0)
+  }
+
+  /** Resolve the concrete selection represented by a policy target in a cold view. */
+  function concreteTargetForView(
+    target: ModelTarget | undefined,
+    routes: readonly ModelRouteDescriptor[],
+  ): ModelSelection | undefined {
+    if (target === undefined) return undefined
+    const selected = target.kind === 'model' ? target.selection : routes.find(route => route.id === target.route)?.targets[0]
+    if (selected === undefined) return undefined
+    return {
+      provider: selected.provider,
+      model: selected.model,
+      ...selected.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(selected.reasoningEffort) },
+    }
+  }
+
   /**
    * Install or return the session-local model selection that prompt assembly snapshots.
    *
@@ -1561,6 +1649,18 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     const selection: WebModelSelectionRef = {
       get current(): ModelSelection {
         if (picked !== undefined) return picked
+        const policy = ctx.get('modelPolicy')
+        const target = effectiveModelTarget(agent.session.events)
+        const concrete = target === undefined || policy === undefined
+          ? undefined
+          : policy.concreteTarget(agent.session, target)
+        if (concrete !== undefined) {
+          return {
+            provider: concrete.provider,
+            model: concrete.model,
+            ...concrete.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(concrete.reasoningEffort) },
+          }
+        }
         // Incrementally folded by the session, so a per-step read costs
         // O(new events) rather than a rescan.
         return recordedSelection(agent.session.requestHeader()?.config)
@@ -1619,7 +1719,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    * @returns the id to record on the header (absent without a roster) and the setup callback.
    * @throws when the roster supplies no such preset.
    */
-  async function composeAgent(presetId: string | undefined, applyProfilePermission = false): Promise<{
+  async function composeAgent(
+    presetId: string | undefined,
+    applyProfilePermission = false,
+    modelProfileId?: string,
+  ): Promise<{
     agentProfile?: string
     setup: (agentCtx: Context) => Promise<void>
   }> {
@@ -1628,6 +1732,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       return {
         setup: (agentCtx: Context) => {
           installSelection(agentCtx)
+          const agent = agentCtx.agent
+          if (agent !== undefined) ctx.get('modelPolicy')?.initialize(agent.session, modelProfileId)
           return Promise.resolve()
         },
       }
@@ -1638,6 +1744,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       agentProfile: resolvedId,
       setup: async (agentCtx: Context) => {
         installSelection(agentCtx)
+        const policyAgent = agentCtx.agent
+        if (policyAgent !== undefined) ctx.get('modelPolicy')?.initialize(policyAgent.session, modelProfileId)
         await presets.mount(agentCtx, resolvedId)
         if (applyProfilePermission && profile.permissionPreset !== undefined) {
           const permissions = ctx.get('permissionPresets')
@@ -2187,6 +2295,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     cwd: string,
     checkPersistedIdentity: boolean,
     presetId?: string,
+    modelProfileId?: string,
   ): Promise<Agent> {
     const archived = archivedSessionUnavailable(sessionId)
     if (archived !== undefined) throw new Error(archived.error.message)
@@ -2238,7 +2347,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         } catch (error: unknown) {
           throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error })
         }
-        const composition = await composeAgent(presetId, true)
+        const composition = await composeAgent(presetId, true, modelProfileId)
         return (await ctx.agents.create({
           sessionId,
           agentOptions: agentOptions(),
@@ -2767,7 +2876,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const cwd = workspace?.path ?? request.payload.cwd ?? defaults.cwd
         const requestedPreset = request.payload.agentProfile
         try {
-          await ensureSession(sessionId, cwd, request.payload.sessionId !== undefined, requestedPreset)
+          await ensureSession(sessionId, cwd, request.payload.sessionId !== undefined, requestedPreset, request.payload.modelProfile)
         } catch (error: unknown) {
           if (error instanceof AgentPresetConflict) {
             return err(request, {
@@ -2823,7 +2932,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // allowed and the row `session.list` serves for the same session.
         const created = ctx.agents.get(sessionId)
         const createdProfile = created === undefined ? undefined : resolveSessionProfile(created.session)
-        return ok(request, { sessionId, ...createdProfile === undefined ? {} : { agentProfile: createdProfile } })
+        const createdPolicy = created === undefined ? undefined : ctx.get('modelPolicy')?.profileOf(created.session)
+        return ok(request, {
+          sessionId,
+          ...createdProfile === undefined ? {} : { agentProfile: createdProfile },
+          ...createdPolicy === undefined ? {} : { modelProfile: createdPolicy.id },
+        })
       },
 
       async history(request, signal) {
@@ -3003,12 +3117,25 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const unavailable = sessionUnavailable(sessionId)
         if (unavailable !== undefined) return err(request, unavailable.error)
         try {
-          const current = await modelSelectionFor(sessionId)
+          const policyState = await modelPolicyStateFor(sessionId)
+          const current = concreteTargetForView(policyState.target, policyState.routes)
+            ?? await modelSelectionFor(sessionId)
           const raced = sessionUnavailable(sessionId)
           if (raced !== undefined) return err(request, raced.error)
-          const { groups, failures } = await buildModelCatalog(ctx)
+          const catalog = await buildModelCatalog(ctx)
+          const groups = catalogForProfile(catalog.groups, policyState.snapshot)
+          const { failures } = catalog
           const routable = routeServed(current.provider)
-          return ok(request, { current: { ...current }, routable, groups, failures })
+          return ok(request, {
+            current: { ...current },
+            profile: policyState.profile,
+            profiles: [...policyState.profiles],
+            ...policyState.target === undefined ? {} : { target: policyState.target },
+            routes: policyState.routes,
+            routable,
+            groups,
+            failures,
+          })
         } catch (error: unknown) {
           const raced = sessionUnavailable(sessionId)
           if (raced !== undefined) return err(request, raced.error)
@@ -3058,6 +3185,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 ? {}
                 : { reasoningEffort: resolved.reasoningEffort },
             }
+            ctx.get('modelPolicy')?.setTarget(found.agent.session, { kind: 'model', selection: selected })
             selectionFor(found.agent).current = selected
             try {
               await defaults.saveDefaultModelSelection?.(selected)
@@ -3068,6 +3196,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             }
             return ok(request, { selected: { ...selected } })
           } catch (error: unknown) {
+            if (error instanceof ModelTargetNotAllowedError) {
+              return err(request, {
+                code: 'model-not-allowed',
+                message: error.message,
+                details: { profileId: error.profileId },
+              })
+            }
             return err(request, {
               code: 'model-unavailable',
               message: error instanceof Error ? error.message : String(error),
@@ -3075,6 +3210,125 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             })
           }
         })
+      },
+
+      async selectModelTarget(request) {
+        const { sessionId, target } = request.payload
+        const found = await activeAgentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const policy = ctx.get('modelPolicy')
+        if (policy === undefined) {
+          return err(request, { code: 'internal', message: 'model policy is not configured', details: {} })
+        }
+        return serializeImageAdmission(found.agent, async () => {
+          try {
+            const selected = policy.concreteTarget(found.agent.session, target)
+            if (selected === undefined) {
+              return err(request, {
+                code: 'model-unavailable',
+                message: 'model route has no concrete targets',
+                details: { provider: '', model: '' },
+              })
+            }
+            const resolved = await ctx.llm.resolveCallConfig({
+              provider: selected.provider,
+              model: selected.model,
+              ...selected.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(selected.reasoningEffort) },
+            })
+            const pendingImage = [...found.agent.inbox.nextTurn, ...found.agent.inbox.nextStep]
+              .some(message => contentHasImage(message.content))
+            if (pendingImage || messagesHaveImage(found.agent.session.deriveMessages())) {
+              const info = await ctx.llm.resolveModelInfo(resolved.provider, resolved.model)
+              if (info.inputModalities !== undefined && !info.inputModalities.includes('image')) {
+                return err(request, {
+                  code: 'model-unavailable',
+                  message: `Model "${resolved.model}" does not accept image input, but this session already contains images; select an image-capable model.`,
+                  details: { provider: selected.provider, model: selected.model },
+                })
+              }
+            }
+            const normalized: ModelSelection = {
+              provider: resolved.provider,
+              model: resolved.model,
+              ...resolved.reasoningEffort === undefined ? {} : { reasoningEffort: resolved.reasoningEffort },
+            }
+            const profile = policy.profileOf(found.agent.session)
+            if (!policy.allowsTarget(profile, target)) {
+              return err(request, {
+                code: 'model-not-allowed',
+                message: `model target is not allowed by profile "${profile.id}"`,
+                details: { profileId: profile.id },
+              })
+            }
+            policy.setTarget(found.agent.session, target)
+            selectionFor(found.agent).current = normalized
+            return ok(request, { target, selected: normalized })
+          } catch (error: unknown) {
+            if (error instanceof ModelTargetNotAllowedError) {
+              return err(request, {
+                code: 'model-not-allowed',
+                message: error.message,
+                details: { profileId: error.profileId },
+              })
+            }
+            return err(request, {
+              code: 'model-unavailable',
+              message: error instanceof Error ? error.message : String(error),
+              details: { provider: '', model: '' },
+            })
+          }
+        })
+      },
+
+      async selectModelProfile(request) {
+        const { sessionId, profileId } = request.payload
+        const found = await activeAgentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const policy = ctx.get('modelPolicy')
+        if (policy === undefined) {
+          return err(request, { code: 'internal', message: 'model policy is not configured', details: {} })
+        }
+        try {
+          const preview = policy.snapshotFor(profileId)
+          const target = preview.defaultTarget
+          const previewSelection = target === undefined
+            ? undefined
+            : policy.concreteTargetForSnapshot(preview, target)
+          const normalized = previewSelection === undefined ? undefined : await ctx.llm.resolveCallConfig({
+            provider: previewSelection.provider,
+            model: previewSelection.model,
+            ...previewSelection.reasoningEffort === undefined
+              ? {}
+              : { reasoningEffort: ReasoningEffortId(previewSelection.reasoningEffort) },
+          })
+          const snapshot = policy.setProfile(found.agent.session, profileId)
+          const selected = normalized === undefined
+            ? undefined
+            : {
+              provider: normalized.provider,
+              model: normalized.model,
+              ...normalized.reasoningEffort === undefined ? {} : { reasoningEffort: normalized.reasoningEffort },
+            }
+          if (selected !== undefined) selectionFor(found.agent).current = selected
+          return ok(request, {
+            profile: profileDescriptor(snapshot),
+            ...target === undefined ? {} : { target },
+            ...selected === undefined ? {} : { selected },
+          })
+        } catch (error: unknown) {
+          if (error instanceof ModelTargetNotAllowedError) {
+            return err(request, {
+              code: 'model-not-allowed',
+              message: error.message,
+              details: { profileId: error.profileId },
+            })
+          }
+          return err(request, {
+            code: 'model-unavailable',
+            message: error instanceof Error ? error.message : String(error),
+            details: { provider: profileId, model: '' },
+          })
+        }
       },
 
       async rename(request) {

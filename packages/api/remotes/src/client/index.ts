@@ -65,6 +65,7 @@ export type {
   ClientResponse, ConfigurableProviderView, ConnectionAuthenticationSource, ConnectionHandle, ConnectionSinks, ContentBlock,
   CredentialView, DirectoryListing, DiscoveredModelView, HistoryEntry, HostFrame, IApiClient,
   MessageId, ModelCatalogFailure, ModelProviderGroup, ModelReasoningEffort, ModelSelection,
+  ModelProfileDescriptor, ModelRouteDescriptor, ModelTarget,
   MuxFrame, PromptContentPart, QuestionResponsePayload, QueueAction, RpcError, RpcId, RpcReceipt,
   RpcRequest, RpcResponse, RpcResult, SessionId, SessionModels, SessionSearchItem,
   SessionSummary, SessionWorkDelivery, SessionWorkStatus, SettingsNamespaceView, SettingsPathOpView, SkillEntry, StreamChunk,

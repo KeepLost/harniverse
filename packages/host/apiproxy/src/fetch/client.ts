@@ -34,6 +34,8 @@ import {
   sessionRenameValueSchema,
   sessionSearchValueSchema,
   sessionSelectModelValueSchema,
+  sessionSelectModelTargetValueSchema,
+  sessionSelectModelProfileValueSchema,
   sessionUpdateQueueValueSchema,
   sessionWorkStatusValueSchema,
 } from '../api/sessions.schema.ts'
@@ -118,6 +120,8 @@ export interface IApiClient {
     workStatus(payload: RequestPayload<'session.workStatus'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.workStatus'>>>
     models(payload: RequestPayload<'session.models'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.models'>>>
     selectModel(payload: RequestPayload<'session.selectModel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.selectModel'>>>
+    selectModelTarget?(payload: RequestPayload<'session.selectModelTarget'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.selectModelTarget'>>>
+    selectModelProfile?(payload: RequestPayload<'session.selectModelProfile'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.selectModelProfile'>>>
     rename(payload: RequestPayload<'session.rename'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.rename'>>>
     fork(payload: RequestPayload<'session.fork'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.fork'>>>
     prompt(payload: RequestPayload<'session.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.prompt'>>>
@@ -220,6 +224,8 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'session.workStatus': sessionWorkStatusValueSchema,
   'session.models': sessionModelsValueSchema,
   'session.selectModel': sessionSelectModelValueSchema,
+  'session.selectModelTarget': sessionSelectModelTargetValueSchema,
+  'session.selectModelProfile': sessionSelectModelProfileValueSchema,
   'session.rename': sessionRenameValueSchema,
   'session.fork': sessionForkValueSchema,
   'session.prompt': sessionPromptValueSchema,
@@ -523,6 +529,8 @@ export abstract class AbstractApiClient implements IApiClient {
     workStatus: (payload, signal) => this.callUnary('session.workStatus', payload, signal),
     models: (payload, signal) => this.callUnary('session.models', payload, signal),
     selectModel: (payload, signal) => this.callUnary('session.selectModel', payload, signal),
+    selectModelTarget: (payload, signal) => this.callUnary('session.selectModelTarget', payload, signal),
+    selectModelProfile: (payload, signal) => this.callUnary('session.selectModelProfile', payload, signal),
     rename: (payload, signal) => this.callUnary('session.rename', payload, signal),
     fork: (payload, signal) => this.callUnary('session.fork', payload, signal),
     prompt: (payload, signal) => this.callUnary('session.prompt', payload, signal),

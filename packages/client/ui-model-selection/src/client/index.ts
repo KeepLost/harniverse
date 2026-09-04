@@ -169,6 +169,12 @@ export function apply(ctx: ClientContext): void {
           select: (selection: ModelSelection) => available
             ? directory.select(selection).then(() => true, () => false)
             : Promise.resolve(false),
+          selectProfile: (profileId: string) => available
+            ? directory.selectProfile(profileId).then(() => true, () => false)
+            : Promise.resolve(false),
+          selectRoute: (routeId: string) => available
+            ? directory.selectRoute(routeId).then(() => true, () => false)
+            : Promise.resolve(false),
         }
       },
     }, ModelSelect))

@@ -32,7 +32,7 @@ The inventory is grouped by package directory. Every listed package is an offici
 | `code-runtime` | 2 | `code-runtime`, `code-runtime-worker-thread` |
 | `compaction` | 4 | `command-compact`, `compaction`, `compaction-basic`, `compaction-tool-result-pruner` |
 | `context` | 4 | `agent-instructions`, `session-reference`, `time-context`, `tmux-context` |
-| `core` | 8 | `agent`, `agent-default-model`, `agent-loop`, `agent-tool-presentation`, `scope`, `session`, `system-prompt`, `tools` |
+| `core` | 10 | `agent`, `agent-default-model`, `agent-loop`, `agent-tool-presentation`, `model-policy`, `model-policy-fallback`, `scope`, `session`, `system-prompt`, `tools` |
 | `credentials` | 2 | `credentials`, `credentials-local` |
 | `e2b` | 3 | `e2b`, `fs-e2b`, `subprocess-e2b` |
 | `examples` | 3 | `acp-demo`, `agent-spine-demo`, `jsonrpc-demo` |
@@ -82,6 +82,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | Capability | Service Definition | Service Provider | Consumer | Current downstream status |
 |---|---|---|---|---|
 | Per-session supervision mode | `dsh-supervision` (new; durable mode owner and model-context Consumer) | `dsh-supervision` | `dsh-user-questions`, `dsh-user-approval`, `dsh-plan-mode`, `dsh-agent-presets`, `dsh-subagent`, `dsh-client-ui-conversation` | Complete independent session policy; `supervised` preserves human questions, approval, and plan review, while `unsupervised` fails new human-dependent requests before provider/pending state, prevents non-plan entry, and allows existing plans to exit autonomously. Profile and Child Profile selection pins the mode in durable Session events at publication/delegation boundaries. |
+| Session Model Profiles and Routes | `dsh-model-policy` (new; settings, durable Profile snapshots, and target authorization) | `dsh-model-policy`, `dsh-model-policy-fallback` (new; ordered cross-model recovery) | `dsh-host-apiproxy`, `dsh-client-ui-model-selection`, `dsh-client-ui-settings-models`, `dsh-compaction-basic`, `dsh-session-title-llm` | Implemented in the current worktree; Profile snapshots preserve existing Session permissions, model/Route/Profile API mutations are server-authorized, and fallback transitions are durable. Tracking SHA is pending the explicitly deferred local commit. |
 
 | Inbound authentication and authorization | `dsh-authentication` (new) | `dsh-authentication-local` (new) | `dsh-client-connection` (official, modified), `dsh-auth-app` (new management bundle), `dsh-sdk-client` (official, modified) | Complete seam; public-key Grants produce short credentials bounded by Grant deadlines, browser sessions renew through device possession at half-life and on lifecycle recovery, human-readable enrollment is bounded, loss of the final owner seals every business transport, declared Host/Origin trust precedes authentication, endpoint metadata defaults unknown operations to deny, and concurrent admissions share durable registry and audit I/O without merging per-request decisions or records. |
 | Outbound notification | `dsh-notification` (new; Definition + coordinator Consumer) | `dsh-notification-http` (new) | Coordinator folded into `dsh-notification` | Complete opt-in seam following the official session-telemetry pattern. |
@@ -114,6 +115,8 @@ Harniverse groups downstream package manifests by complete capability family rat
 | `@deepseek-ai/dsh-host-capability-management` | Static Profile-recipe and Host-provider adapters plus authorized catalog/plan/apply/Session Remote | Enabled by `dsh-web-app`; observation requires `harniverse.observe`, mutation requires `harniverse.administer`. |
 | `@deepseek-ai/dsh-mcp-user-config` | Settings-owned multi-server MCP Provider/Consumer bridge | Provider enabled by `dsh-base`; scoped consumers enabled by the Standard, Code, and Cordis Profiles; Minimal omits the consumer. |
 | `@deepseek-ai/dsh-supervision` | Durable per-session supervision mode Service and model-context/UI projection | Enabled by `dsh-base`; Profile and Child Profile metadata select the initial mode. |
+| `@deepseek-ai/dsh-model-policy` | Independent Model Profile/Route settings service, Session snapshots, and concrete-target authorization | Enabled by `dsh-base`; built-in `unrestricted` covers legacy Sessions. |
+| `@deepseek-ai/dsh-model-policy-fallback` | Session-aware ordered cross-model fallback executor | Enabled by `dsh-base`; same-model retry remains owned by `dsh-llm-retry`. |
 | `@deepseek-ai/dsh-client-ui-settings-capabilities` | Global/Profile assembly editor, plan preview, and read-only Session capability view | Enabled by `dsh-web-app` as a Plugins Settings tab and conversation view. |
 | `@deepseek-ai/dsh-client-ui-reference` | Web file/session `@` candidate Consumer | Enabled by `dsh-web-app`. |
 | `@deepseek-ai/dsh-code-runtime-python` | Fresh-process CPython CodeRuntime Provider | Opt-in; no shipped Profile selects it. |

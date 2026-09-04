@@ -16,6 +16,7 @@ import { pathOps } from '../src/client/ProviderEditor.tsx'
 import {
   DeepSeekModelsEditor, formatCapacity, modelDrafts, parseCapacity, validateDeepSeekModels,
 } from '../src/client/DeepSeekModelsEditor.tsx'
+import { ModelPolicySection } from '../src/client/ModelPolicySection.tsx'
 import { apiKeyFailure } from '../src/client/apiKey.ts'
 import { deriveKeyRef, ModelsSettingsStore as SharedModelsSettingsStore } from '../src/client/store.ts'
 import type { ProviderRow } from '../src/client/store.ts'
@@ -138,6 +139,12 @@ function wireNamespaces(): SettingsNamespaceView[] {
       applies: 'live',
       secrets: [],
       revision: 0,
+    },
+    {
+      ns: 'model-profiles', schema: {}, value: {}, user: {}, applies: 'live', secrets: [], revision: 0,
+    },
+    {
+      ns: 'model-routes', schema: {}, value: {}, user: {}, applies: 'live', secrets: [], revision: 0,
     },
   ]
 }
@@ -1571,6 +1578,25 @@ describe('ModelsSection', () => {
       const { failure } = await remove({ isCurrent: () => false })
       expect(failure).toBeNull()
     })
+  })
+})
+
+describe('ModelPolicySection', () => {
+  it('loads settings when opened directly', async () => {
+    const scripted = scriptedFace()
+    const controller = new ModelsSettingsStore(scripted.face as unknown as WireFace)
+    render(<ModelPolicySection
+      controller={controller}
+      useSnapshot={bindSnapshotSelector(controller.store)}
+      api={scripted.face as never}
+      t={t}
+    />)
+
+    expect(await screen.findByText(en.profileDefinitions)).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: en.profileDefinitions })).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: en.routeDefinitions })).toBeTruthy()
+    expect(scripted.face.settings.describe).toHaveBeenCalledOnce()
+    controller.dispose()
   })
 })
 

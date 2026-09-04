@@ -6,7 +6,8 @@
  * either entry is what the other shows next.
  */
 import type {
-  IApiClient, ModelCatalogFailure, ModelProviderGroup, ModelSelection, SessionId, SessionModels,
+  IApiClient, ModelCatalogFailure, ModelProfileDescriptor, ModelProviderGroup, ModelSelection,
+  ModelRouteDescriptor, SessionId, SessionModels,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
@@ -15,6 +16,14 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 export interface ModelDirectoryState {
   /** Model selection the host reports for the next assembled step; null before the first load. */
   current: ModelSelection | null
+  /** Current durable Model Profile, or null before the first load. */
+  profile?: ModelProfileDescriptor | null
+  /** Current logical model or Route target. */
+  target?: SessionModels['target'] | null
+  /** Profiles available for an explicit Session switch. */
+  profiles?: readonly ModelProfileDescriptor[]
+  /** Routes allowed by the current Profile. */
+  routes?: readonly ModelRouteDescriptor[]
   /**
    * Whether an adapter serves the current selection's provider, as the host reports
    * it — null before the first load, which is NOT the same as blocked. Read
@@ -37,7 +46,7 @@ export interface ModelDirectoryState {
 export class ModelDirectory {
   /** The shared snapshot both entries render from (uSES-safe store). */
   readonly store: SnapshotStore<ModelDirectoryState> = createSnapshotStore<ModelDirectoryState>({
-    current: null, routable: null, groups: [], failures: [], status: 'idle', error: null,
+    current: null, profile: null, target: null, profiles: [], routes: [], routable: null, groups: [], failures: [], status: 'idle', error: null,
   })
 
   /** Latest operation wins; an older response never overwrites a newer one. */
@@ -50,7 +59,7 @@ export class ModelDirectory {
    * @param available - whether this session may use Agent-bound model RPCs.
    */
   constructor(
-    private readonly sessions: Pick<IApiClient['sessions'], 'models' | 'selectModel'>,
+    private readonly sessions: Pick<IApiClient['sessions'], 'models' | 'selectModel' | 'selectModelProfile' | 'selectModelTarget'>,
     private readonly sessionId: SessionId,
     private readonly available: () => boolean,
   ) {}
@@ -73,9 +82,13 @@ export class ModelDirectory {
       this.store.update((s) => { s.status = 'error'; s.error = `${result.error.code}: ${result.error.message}` })
       throw new Error(`session.models failed: ${result.error.code}: ${result.error.message}`)
     }
-    const { current, routable, groups, failures } = result.value
+    const { current, profile, target, profiles, routes, routable, groups, failures } = result.value
     this.store.update((s) => {
       s.current = current
+      s.profile = profile ?? null
+      s.target = target ?? null
+      s.profiles = profiles ?? []
+      s.routes = routes ?? []
       s.routable = routable
       s.groups = groups
       s.failures = failures
@@ -115,6 +128,7 @@ export class ModelDirectory {
     // landed is by construction one it can serve.
     this.store.update((s) => {
       s.current = result.value.selected
+      s.target = { kind: 'model', selection: result.value.selected }
       s.routable = true
       s.status = 'ready'
       s.error = null
@@ -131,6 +145,10 @@ export class ModelDirectory {
     ++this.generation
     this.store.update((s) => {
       s.current = null
+      s.profile = null
+      s.target = null
+      s.profiles = []
+      s.routes = []
       s.routable = null
       s.groups = []
       s.failures = []
@@ -139,6 +157,41 @@ export class ModelDirectory {
     })
     if (!this.available()) return
     void this.load().catch(() => { /* the next menu open remains the explicit retry surface */ })
+  }
+
+  /**
+   * Switch the durable Session Profile and refresh its filtered directory.
+   * @param profileId The Profile identifier to select.
+   */
+  async selectProfile(profileId: string): Promise<void> {
+    this.assertAvailable()
+    const call = this.sessions.selectModelProfile?.({ sessionId: this.sessionId, profileId })
+    if (call === undefined) throw new Error('session.selectModelProfile is unavailable')
+    const { result } = await call
+    if (!result.ok) {
+      this.store.update((s) => { s.error = `${result.error.code}: ${result.error.message}`; s.status = 'error' })
+      throw new Error(`session.selectModelProfile failed: ${result.error.code}: ${result.error.message}`)
+    }
+    await this.load()
+  }
+
+  /**
+   * Select one Route allowed by the current Profile and refresh the concrete view.
+   * @param route The Route identifier to select.
+   */
+  async selectRoute(route: string): Promise<void> {
+    this.assertAvailable()
+    const call = this.sessions.selectModelTarget?.({
+      sessionId: this.sessionId,
+      target: { kind: 'route', route },
+    })
+    if (call === undefined) throw new Error('session.selectModelTarget is unavailable')
+    const { result } = await call
+    if (!result.ok) {
+      this.store.update((s) => { s.error = `${result.error.code}: ${result.error.message}`; s.status = 'error' })
+      throw new Error(`session.selectModelTarget failed: ${result.error.code}: ${result.error.message}`)
+    }
+    await this.load()
   }
 
   /** Scope teardown: late settlements lose write access to the store. */

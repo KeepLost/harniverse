@@ -12,7 +12,7 @@ import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  ModelReasoningEffort, ModelSelection, SessionListMetadata, SessionProjectionsBlock, SessionSearchItem, SessionSummary,
+  ModelReasoningEffort, ModelSelection, ModelTarget, SessionListMetadata, SessionProjectionsBlock, SessionSearchItem, SessionSummary,
   SessionWorkDelivery, SessionWorkStatus,
 } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
@@ -59,6 +59,7 @@ export const sessionSummarySchema = z.object({
   origin: z.literal('subagent').optional(),
   cwd: z.string().optional(),
   agentProfile: z.string().optional(),
+  modelProfile: z.string().min(1).optional(),
   projections: z.lazy(() => sessionProjectionsBlockSchema).optional(),
 }) as unknown as z.ZodType<Wire<SessionSummary>>
 
@@ -105,6 +106,7 @@ export const sessionCreateRequestSchema = z.object({
   cwd: z.string().optional(),
   sessionId: sessionIdSchema.optional(),
   agentProfile: z.string().optional(),
+  modelProfile: z.string().min(1).optional(),
 }).refine(
   payload => payload.workspaceId === undefined || payload.cwd === undefined,
   { message: 'session.create accepts workspaceId or cwd, not both' },
@@ -174,6 +176,12 @@ export const modelSelectionSchema = z.object({
   model: z.string().min(1),
   reasoningEffort: z.string().min(1).optional(),
 }) satisfies z.ZodType<Wire<ModelSelection>>
+
+/** Logical concrete-model or named-route target. */
+export const modelTargetSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('model'), selection: modelSelectionSchema }),
+  z.object({ kind: z.literal('route'), route: z.string().min(1) }),
+]) as unknown as z.ZodType<Wire<ModelTarget>>
 
 /** One adapter-owned reasoning effort. */
 export const modelReasoningEffortSchema = z.object({
@@ -272,6 +280,27 @@ export const sessionModelsRequestSchema = z.object({
 /** session.models response value. */
 export const sessionModelsValueSchema = z.object({
   current: modelSelectionSchema,
+  profile: z.object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    description: z.string().optional(),
+    unrestricted: z.boolean(),
+    defaultTarget: modelTargetSchema.optional(),
+  }).optional(),
+  profiles: z.array(z.object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    description: z.string().optional(),
+    unrestricted: z.boolean(),
+    defaultTarget: modelTargetSchema.optional(),
+  })).optional(),
+  target: modelTargetSchema.optional(),
+  routes: z.array(z.object({
+    id: z.string().min(1),
+    name: z.string().optional(),
+    targets: z.array(modelSelectionSchema),
+    configured: z.boolean(),
+  })).optional(),
   routable: z.boolean(),
   groups: z.array(modelProviderGroupSchema),
   failures: z.array(modelCatalogFailureSchema),
@@ -289,6 +318,37 @@ export const sessionSelectModelRequestSchema = z.object({
 export const sessionSelectModelValueSchema = z.object({
   selected: modelSelectionSchema,
 }) satisfies z.ZodType<Wire<ResponseValue<'session.selectModel'>>>
+
+/** session.selectModelTarget request payload. */
+export const sessionSelectModelTargetRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  target: modelTargetSchema,
+}) as unknown as z.ZodType<Wire<RequestPayload<'session.selectModelTarget'>>>
+
+/** session.selectModelTarget response value. */
+export const sessionSelectModelTargetValueSchema = z.object({
+  target: modelTargetSchema,
+  selected: modelSelectionSchema,
+}) as unknown as z.ZodType<Wire<ResponseValue<'session.selectModelTarget'>>>
+
+/** session.selectModelProfile request payload. */
+export const sessionSelectModelProfileRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  profileId: z.string().min(1),
+}) satisfies z.ZodType<Wire<RequestPayload<'session.selectModelProfile'>>>
+
+/** session.selectModelProfile response value. */
+export const sessionSelectModelProfileValueSchema = z.object({
+  profile: z.object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    description: z.string().optional(),
+    unrestricted: z.boolean(),
+    defaultTarget: modelTargetSchema.optional(),
+  }),
+  target: modelTargetSchema.optional(),
+  selected: modelSelectionSchema.optional(),
+}) as unknown as z.ZodType<Wire<ResponseValue<'session.selectModelProfile'>>>
 
 /** ContentBlock passthrough: core is merge-extensible — the type discriminant envelope is strict, the rest stays wide. */
 export const contentBlockSchema = z.looseObject({ type: z.string() })

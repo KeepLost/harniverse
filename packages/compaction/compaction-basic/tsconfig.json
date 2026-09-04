@@ -19,6 +19,9 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../core/model-policy"
+    },
+    {
       "path": "../../llm/token-meter"
     },
     {

@@ -182,6 +182,28 @@ export interface ModelSelection {
   reasoningEffort?: string
 }
 
+/** Logical concrete-model or named-route target on the API wire. */
+export type ModelTarget =
+  | { kind: 'model'; selection: ModelSelection }
+  | { kind: 'route'; route: string }
+
+/** Public descriptor of the Session's durable Model Profile. */
+export interface ModelProfileDescriptor {
+  id: string
+  name: string
+  description?: string
+  unrestricted: boolean
+  defaultTarget?: ModelTarget
+}
+
+/** Public descriptor of one Profile-visible Model Route. */
+export interface ModelRouteDescriptor {
+  id: string
+  name?: string
+  targets: readonly ModelSelection[]
+  configured: boolean
+}
+
 /** One adapter-owned reasoning effort displayed for an exact model route. */
 export interface ModelReasoningEffort {
   /** Opaque value submitted back to the owning adapter. */
@@ -236,6 +258,14 @@ export interface ModelCatalogFailure {
 export interface SessionModels {
   /** Model selection for the session's next assembled step. */
   current: ModelSelection
+  /** Durable Model Profile governing this session. */
+  profile?: ModelProfileDescriptor
+  /** Profiles available for an explicit Session switch. */
+  profiles?: ModelProfileDescriptor[]
+  /** Logical target selected for subsequent requests, when one is recorded. */
+  target?: ModelTarget
+  /** Routes visible under the current Profile. */
+  routes?: ModelRouteDescriptor[]
   /**
    * Whether an adapter currently serves `current.provider`, and therefore
    * whether this session can start a turn at all. Deliberately NOT derivable
@@ -340,8 +370,14 @@ export interface SessionsApi {
    * id fails with `agent-preset-not-found`, and a preset whose composition
    * cannot be mounted fails with `agent-preset-invalid`.
    */
-  create(request: RpcRequest<{ workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId; agentProfile?: string }>):
-  Promise<RpcResponse<{ sessionId: SessionId; agentProfile?: string }>>
+  create(request: RpcRequest<{
+    workspaceId?: WorkspaceId
+    cwd?: string
+    sessionId?: SessionId
+    agentProfile?: string
+    modelProfile?: string
+  }>):
+  Promise<RpcResponse<{ sessionId: SessionId; agentProfile?: string; modelProfile?: string }>>
 
   /**
    * Reads a window of history events; page boundaries align to append-origin message
@@ -398,6 +434,14 @@ export interface SessionsApi {
     reasoningEffort?: string
   }>):
   Promise<RpcResponse<{ selected: ModelSelection }>>
+
+  /** Select a logical concrete model or ordered route for later requests. */
+  selectModelTarget?(request: RpcRequest<{ sessionId: SessionId; target: ModelTarget }>):
+  Promise<RpcResponse<{ target: ModelTarget; selected: ModelSelection }>>
+
+  /** Switch the durable Model Profile and its default target for later requests. */
+  selectModelProfile?(request: RpcRequest<{ sessionId: SessionId; profileId: string }>):
+  Promise<RpcResponse<{ profile: ModelProfileDescriptor; target?: ModelTarget; selected?: ModelSelection }>>
 
   /**
    * Renames a session: appends a `session/title` event with the `user`

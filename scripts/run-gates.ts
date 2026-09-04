@@ -270,6 +270,14 @@ function ciSharedStaticGates(): Gate[] {
       'packages/client/runtime/tests/session.client.spec.ts',
       'packages/client/ui-conversation/tests/compaction-progress-item.client.spec.tsx',
     ], { label: 'compaction contract' }),
+    pnpmExec('model-policy-contract', [
+      'vitest',
+      'run',
+      'packages/core/model-policy/tests/model-policy.spec.ts',
+      'packages/core/model-policy-fallback/tests/fallback.spec.ts',
+      'packages/host/apiproxy/tests/api-proxy-config.spec.ts',
+      'packages/client/ui-settings-models/tests/components.client.spec.tsx',
+    ], { label: 'model policy contract' }),
     pnpmExec('session-control-contract', [
       'vitest',
       'run',
@@ -438,7 +446,7 @@ function ciConsumerGates(): Gate[] {
     // The lib-mode snapshot gate also boots the Web snapshot suites. Keep the
     // browser-heavy gates serial so independent Web scaffolds do not contend
     // for runner resources and trip their startup hook timeout.
-    webSnapshotGate([...validatedBuild, 'snapshot'], true),
+    webSnapshotGate([...validatedBuild, 'snapshot']),
     pnpmScript('doc-typecheck', 'doc-typecheck:contracts-ready', {
       needs: validatedBuild,
       env: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
