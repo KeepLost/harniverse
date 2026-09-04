@@ -1766,9 +1766,6 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
-      '@deepseek-ai/dsh-model-policy':
-        specifier: workspace:^
-        version: link:../../core/model-policy
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
@@ -5381,9 +5378,6 @@ importers:
       '@deepseek-ai/dsh-model-policy':
         specifier: workspace:^
         version: link:../../core/model-policy
-      '@deepseek-ai/dsh-model-policy-fallback':
-        specifier: workspace:^
-        version: link:../../core/model-policy-fallback
       '@deepseek-ai/dsh-native-command':
         specifier: workspace:^
         version: link:../../util/native-command
@@ -9670,6 +9664,9 @@ importers:
       '@deepseek-ai/dsh-llm-retry':
         specifier: workspace:^
         version: link:../../packages/llm/llm-retry
+      '@deepseek-ai/dsh-model-policy':
+        specifier: workspace:^
+        version: link:../../packages/core/model-policy
       '@deepseek-ai/dsh-output-retention':
         specifier: workspace:^
         version: link:../../packages/util/output-retention
