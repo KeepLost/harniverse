@@ -3,11 +3,13 @@
  * the inspector can meet must reach the caller as one of its own structured
  * codes, never as a raw errno or a leaked host path. These paths need injected
  * faults because a real filesystem cannot be made to fail on demand between
- * the containment check and the descriptor open.
+ * the containment check and the descriptor open. The same hooks emulate
+ * descriptor-root platform plumbing and entry shapes the host filesystem
+ * cannot produce, keeping every platform arm covered on every lane.
  */
 
 import type { SpawnOptions } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync, type Dir, type Dirent } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -21,6 +23,10 @@ const faults = vi.hoisted(() => ({
   realpathSuffix: '',
   /** Replace one `opendir` read with a rejection. */
   opendirCode: undefined as string | undefined,
+  /** Serve one `opendir` with these scripted entries instead of the real directory. */
+  opendirEntries: undefined as Dirent[] | undefined,
+  /** Answer an `opendir` of a `/dev/fd/<fd>` path with this directory instead. */
+  opendirRedirect: undefined as string | undefined,
   /** Answer `realpath` for this exact path with this value instead of the truth. */
   realpathRedirectFrom: undefined as string | undefined,
   realpathRedirectTo: '',
@@ -36,7 +42,10 @@ vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>()
   const spawn = ((command: string, args: readonly string[] = [], options: SpawnOptions = {}) => {
     if (command === 'git' && faults.gitStub !== undefined) {
-      return actual.spawn(process.execPath, [faults.gitStub, ...args], options)
+      // Only real Git understands the descriptor-root stdio passthrough; the
+      // stub child must not inherit a platform-specific raw descriptor.
+      const stdio = Array.isArray(options.stdio) ? options.stdio.slice(0, 3) : options.stdio
+      return actual.spawn(process.execPath, [faults.gitStub, ...args], { ...options, stdio })
     }
     return actual.spawn(command, args, options)
   }) as typeof actual.spawn
@@ -69,6 +78,16 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     },
     opendir: async (...args: Parameters<typeof actual.opendir>) => {
       if (faults.opendirCode !== undefined) throw fail(faults.opendirCode)
+      if (faults.opendirEntries !== undefined) {
+        const pending = [...faults.opendirEntries]
+        return {
+          close: async () => {},
+          read: async () => pending.shift() ?? null,
+        } as unknown as Dir
+      }
+      if (faults.opendirRedirect !== undefined && String(args[0]).startsWith('/dev/fd/')) {
+        return await actual.opendir(faults.opendirRedirect)
+      }
       return await actual.opendir(...args)
     },
   }
@@ -92,6 +111,8 @@ afterEach(() => {
   faults.realpathCode = undefined
   faults.realpathSuffix = ''
   faults.opendirCode = undefined
+  faults.opendirEntries = undefined
+  faults.opendirRedirect = undefined
   faults.realpathRedirectFrom = undefined
   faults.realpathRedirectTo = ''
   faults.realpathLatePath = undefined
@@ -99,6 +120,58 @@ afterEach(() => {
   faults.realpathLateCalls = 0
   faults.gitStub = undefined
 })
+
+interface GitStubResponse {
+  stdout?: string
+  stderr?: string
+  exitCode?: number
+  wait?: boolean
+}
+
+interface GitStubOptions {
+  probeLineEnding?: string | null
+  status?: GitStubResponse
+  log?: GitStubResponse
+}
+
+/**
+ * Launch a real Node child in place of `git` so parsing receives exact bytes
+ * and process outcomes without depending on a platform shell.
+ * @param options - responses for repository probes and Git operations.
+ * @returns the workspace whose stub is installed.
+ */
+function stubGit(options: GitStubOptions = {}): string {
+  const root = tempWorkspace()
+  const lineEnding = options.probeLineEnding === undefined ? '\n' : options.probeLineEnding
+  const probe = (path: string): GitStubResponse => ({ stdout: lineEnding === null ? '' : `${path}${lineEnding}` })
+  const responses = {
+    worktree: probe(root),
+    metadata: probe(join(root, '.git')),
+    status: options.status ?? { stdout: '' },
+    log: options.log ?? { stdout: '' },
+  }
+  const stub = join(root, 'git-stub.mjs')
+  writeFileSync(stub, [
+    "import { writeFileSync as mark } from 'node:fs'",
+    `const responses = ${JSON.stringify(responses)}`,
+    'const args = process.argv.slice(2)',
+    "const operation = args.includes('--show-toplevel') ? 'worktree'",
+    "  : args.includes('--absolute-git-dir') ? 'metadata'",
+    "    : args.includes('status') ? 'status' : args.includes('log') ? 'log' : 'unknown'",
+    "const response = responses[operation] ?? { stderr: 'unexpected Git operation', exitCode: 2 }",
+    'if (response.wait) {',
+    `  mark(${JSON.stringify(join(root, 'stub-ready'))}, 'ready')`,
+    '  setInterval(() => {}, 60_000)',
+    '} else {',
+    '  if (response.stdout) process.stdout.write(response.stdout)',
+    '  if (response.stderr) process.stderr.write(response.stderr)',
+    '  process.exitCode = response.exitCode ?? 0',
+    '}',
+    '',
+  ].join('\n'))
+  faults.gitStub = stub
+  return root
+}
 
 describe('containment failure classification', () => {
   it.each([
@@ -284,58 +357,6 @@ describe('git repository boundary faults', () => {
 })
 
 describe('git output parsing boundaries', () => {
-  interface GitStubResponse {
-    stdout?: string
-    stderr?: string
-    exitCode?: number
-    wait?: boolean
-  }
-
-  interface GitStubOptions {
-    probeLineEnding?: string | null
-    status?: GitStubResponse
-    log?: GitStubResponse
-  }
-
-  /**
-   * Launch a real Node child in place of `git` so parsing receives exact bytes
-   * and process outcomes without depending on a platform shell.
-   * @param options - responses for repository probes and Git operations.
-   * @returns the workspace whose stub is installed.
-   */
-  function stubGit(options: GitStubOptions = {}): string {
-    const root = tempWorkspace()
-    const lineEnding = options.probeLineEnding === undefined ? '\n' : options.probeLineEnding
-    const probe = (path: string): GitStubResponse => ({ stdout: lineEnding === null ? '' : `${path}${lineEnding}` })
-    const responses = {
-      worktree: probe(root),
-      metadata: probe(join(root, '.git')),
-      status: options.status ?? { stdout: '' },
-      log: options.log ?? { stdout: '' },
-    }
-    const stub = join(root, 'git-stub.mjs')
-    writeFileSync(stub, [
-      "import { writeFileSync as mark } from 'node:fs'",
-      `const responses = ${JSON.stringify(responses)}`,
-      'const args = process.argv.slice(2)',
-      "const operation = args.includes('--show-toplevel') ? 'worktree'",
-      "  : args.includes('--absolute-git-dir') ? 'metadata'",
-      "    : args.includes('status') ? 'status' : args.includes('log') ? 'log' : 'unknown'",
-      "const response = responses[operation] ?? { stderr: 'unexpected Git operation', exitCode: 2 }",
-      'if (response.wait) {',
-      `  mark(${JSON.stringify(join(root, 'stub-ready'))}, 'ready')`,
-      '  setInterval(() => {}, 60_000)',
-      '} else {',
-      '  if (response.stdout) process.stdout.write(response.stdout)',
-      '  if (response.stderr) process.stderr.write(response.stderr)',
-      '  process.exitCode = response.exitCode ?? 0',
-      '}',
-      '',
-    ].join('\n'))
-    faults.gitStub = stub
-    return root
-  }
-
   it('refuses a repository whose toplevel probe answers with nothing', async () => {
     const root = stubGit({ probeLineEnding: null })
 
@@ -420,5 +441,59 @@ describe('git output parsing boundaries', () => {
     abort.abort('stringly cancelled')
 
     await expect(reading).rejects.toThrow('workspace Git operation was cancelled')
+  })
+})
+
+describe('descriptor-root platform arms', () => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+  afterEach(() => {
+    if (platform !== undefined) Object.defineProperty(process, 'platform', platform)
+  })
+
+  it('lists a directory through its opened descriptor', async () => {
+    const root = tempWorkspace()
+    mkdirSync(join(root, 'folder'))
+    writeFileSync(join(root, 'README.md'), 'hello')
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+    faults.opendirRedirect = root
+
+    // The flipped platform reads `/dev/fd/<fd>`, a descriptor filesystem only
+    // that host provides; the redirect stands in for it elsewhere, and the
+    // real path needs no post-walk revalidation.
+    await expect(listWorkspaceFiles(root, '.', new AbortController().signal))
+      .resolves.toMatchObject({
+        entries: [
+          { name: 'folder', kind: 'directory' },
+          { name: 'README.md', kind: 'file' },
+        ],
+      })
+  })
+
+  it('runs Git against the descriptor root', async () => {
+    const root = stubGit({ status: { stdout: '## main\0' } })
+    mkdirSync(join(root, '.git'))
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+
+    // Git is told `-C /dev/fd/3`, which only the flipped platform resolves;
+    // the intercepted stub answers in its place, so no real Git must succeed.
+    await expect(workspaceGitStatus(root, new AbortController().signal))
+      .resolves.toMatchObject({ branch: 'main', entries: [] })
+  })
+})
+
+describe('entry shape classification', () => {
+  it('classifies an entry that is neither file, directory, nor symlink', async () => {
+    const root = tempWorkspace()
+    faults.opendirEntries = [{
+      isDirectory: () => false,
+      isFile: () => false,
+      isSymbolicLink: () => false,
+      name: 'pipe',
+    } as unknown as Dirent]
+
+    // A device entry cannot be created on demand on every host, so the
+    // scripted listing supplies its shape; classification still resolves it.
+    await expect(listWorkspaceFiles(root, '.', new AbortController().signal))
+      .resolves.toMatchObject({ entries: [{ name: 'pipe', kind: 'other' }] })
   })
 })

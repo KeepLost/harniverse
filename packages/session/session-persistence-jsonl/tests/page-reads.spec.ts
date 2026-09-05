@@ -15,6 +15,8 @@ const script = vi.hoisted(() => ({
   decompressAbort: undefined as undefined | { atCall: number; reason: unknown },
   decompressCalls: 0,
   abortController: undefined as undefined | AbortController,
+  dirSyncPath: undefined as undefined | string,
+  dirSyncs: [] as string[],
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -24,6 +26,15 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     unlink: (async (...args: Parameters<typeof actual.unlink>) => {
       if (script.unlinkFault !== undefined) throw script.unlinkFault
       return actual.unlink(...args)
+    }),
+    // Directory fsync handles are stubbed per path: win32 cannot really open a
+    // directory, so the POSIX durability call is observed instead of executed.
+    open: (async (...args: Parameters<typeof actual.open>) => {
+      if (script.dirSyncPath !== undefined && String(args[0]) === script.dirSyncPath && args[1] === 'r') {
+        script.dirSyncs.push(String(args[0]))
+        return { sync: async () => {}, close: async () => {} } as unknown as Awaited<ReturnType<typeof actual.open>>
+      }
+      return actual.open(...args)
     }),
   }
 })
@@ -94,6 +105,8 @@ afterEach(async () => {
   script.decompressAbort = undefined
   script.decompressCalls = 0
   script.abortController = undefined
+  script.dirSyncPath = undefined
+  script.dirSyncs.length = 0
   restorePlatform()
   vi.restoreAllMocks()
   for (const ctx of contexts.splice(0).reverse()) await ctx.fiber.dispose()
@@ -395,5 +408,19 @@ describe('JsonlSessionPersistence: delete faults', () => {
     await persistence.append(m.id, oneTurnLog())
     mockPlatform('win32')
     await expect(persistence.delete(m.id)).resolves.toBe(true)
+  })
+
+  it('fsyncs the log directory after unlink off win32', async () => {
+    const root = await freshRoot()
+    const ctx = await mount(root, 'none')
+    const m = meta('delete-posix', '/work')
+    const persistence = ctx.sessionPersistence
+    await persistence.create(m)
+    await persistence.append(m.id, oneTurnLog())
+    const dir = dirname(logPath(root, '/work', m.id, 'none'))
+    mockPlatform('linux')
+    script.dirSyncPath = dir
+    await expect(persistence.delete(m.id)).resolves.toBe(true)
+    expect(script.dirSyncs).toEqual([dir])
   })
 })

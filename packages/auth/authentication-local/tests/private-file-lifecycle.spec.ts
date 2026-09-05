@@ -14,6 +14,7 @@ const failures = vi.hoisted(() => ({
   rmdirPath: undefined as { path: string; code: string; once: boolean; plant?: string } | undefined,
   rmPrefix: undefined as string | undefined,
   statMode: undefined as { path: string; mode: number } | undefined,
+  statFailure: undefined as { path: string; code: string } | undefined,
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -45,6 +46,9 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       await actual.rm(path, options)
     },
     stat: async (...args: Parameters<typeof actual.stat>): Promise<ReturnType<typeof actual.stat>> => {
+      if (failures.statFailure !== undefined && String(args[0]) === failures.statFailure.path) {
+        throw Object.assign(new Error('simulated stat failure'), { code: failures.statFailure.code })
+      }
       if (failures.statMode !== undefined && String(args[0]) === failures.statMode.path) {
         const info = await actual.stat(...args)
         Object.defineProperty(info, 'mode', { value: failures.statMode.mode })
@@ -71,6 +75,7 @@ afterEach(async () => {
   failures.rmdirPath = undefined
   failures.rmPrefix = undefined
   failures.statMode = undefined
+  failures.statFailure = undefined
   Object.defineProperty(process, 'platform', platformDescriptor)
   vi.restoreAllMocks()
   while (roots.length > 0) await rm(roots.pop()!, { recursive: true, force: true })
@@ -126,6 +131,48 @@ describe('private file permission guards', () => {
     await chmod(file, 0o644)
     Object.defineProperty(process, 'platform', { ...platformDescriptor, value: 'win32' })
     await expect(assertPrivateFile(file)).resolves.toBeUndefined()
+  })
+
+  it('accepts an owner-only file off Windows', async () => {
+    const root = await prepare()
+    const file = join(root, 'value.json')
+    await writeFile(file, 'x')
+    await chmod(file, 0o600)
+    if (process.platform === 'win32') {
+      Object.defineProperty(process, 'platform', { ...platformDescriptor, value: 'darwin' })
+      failures.statMode = { path: file, mode: 0o600 }
+    }
+    await expect(assertPrivateFile(file)).resolves.toBeUndefined()
+  })
+
+  it('rejects files readable beyond their owner off Windows', async () => {
+    const root = await prepare()
+    const file = join(root, 'value.json')
+    await writeFile(file, 'x')
+    await chmod(file, 0o644)
+    if (process.platform === 'win32') {
+      Object.defineProperty(process, 'platform', { ...platformDescriptor, value: 'darwin' })
+      failures.statMode = { path: file, mode: 0o644 }
+    }
+    await expect(assertPrivateFile(file)).rejects.toThrow('accessible beyond its owner')
+  })
+
+  it('tolerates a missing file off Windows', async () => {
+    const root = await prepare()
+    if (process.platform === 'win32') {
+      Object.defineProperty(process, 'platform', { ...platformDescriptor, value: 'darwin' })
+    }
+    await expect(assertPrivateFile(join(root, 'missing.json'))).resolves.toBeUndefined()
+  })
+
+  it('surfaces stat failures off Windows', async () => {
+    const root = await prepare()
+    const file = join(root, 'value.json')
+    if (process.platform === 'win32') {
+      Object.defineProperty(process, 'platform', { ...platformDescriptor, value: 'darwin' })
+    }
+    failures.statFailure = { path: file, code: 'EACCES' }
+    await expect(assertPrivateFile(file)).rejects.toMatchObject({ code: 'EACCES' })
   })
 
   it('removes the temporary file when the final rename fails', async () => {
@@ -235,6 +282,13 @@ describe('stale writer lock reclamation', () => {
     await mkdir(lockPath, { mode: 0o700 })
     failures.renameDestination = { destination: lockPath, code: 'EEXIST' }
     failures.rmdirPath = { path: lockPath, code: 'EACCES', once: false }
+    await expect(withPrivateFileLock(target, async () => 'never')).rejects.toMatchObject({ code: 'EACCES' })
+  })
+
+  it('surfaces non-contention failures of the lock rename itself', async () => {
+    const root = await prepare()
+    const target = join(root, 'value.json')
+    failures.renameDestination = { destination: `${target}.lock`, code: 'EACCES' }
     await expect(withPrivateFileLock(target, async () => 'never')).rejects.toMatchObject({ code: 'EACCES' })
   })
 

@@ -93,6 +93,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 const TEST_SIGNAL = new AbortController().signal
 const ioError = (code: string): NodeJS.ErrnoException => Object.assign(new Error(`simulated ${code}`), { code })
 const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+const getuidDescriptor = Object.getOwnPropertyDescriptor(process, 'getuid')
 
 let root: string
 const extras: string[] = []
@@ -113,6 +114,8 @@ afterEach(() => {
   script.mkdirError = undefined
   script.openHandle = undefined
   if (platform !== undefined) Object.defineProperty(process, 'platform', platform)
+  if (getuidDescriptor !== undefined) Object.defineProperty(process, 'getuid', getuidDescriptor)
+  else delete (process as Partial<NodeJS.Process>).getuid
   rmSync(root, { recursive: true, force: true })
   for (const path of extras.splice(0)) rmSync(path, { recursive: true, force: true })
 })
@@ -131,9 +134,11 @@ describe('spill store fault injection', () => {
   })
 
   it('rejects storage directories owned by another user', async () => {
-    if (typeof process.getuid !== 'function') return
+    if (typeof process.getuid !== 'function') {
+      Object.defineProperty(process, 'getuid', { value: () => 0, configurable: true })
+    }
     script.fakeDirFor = root
-    script.fakeDirUid = process.getuid() + 1
+    script.fakeDirUid = process.getuid!() + 1
     await expect(saveTextFile({ signal: TEST_SIGNAL, root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'x' }))
       .rejects.toThrow('spill root must be owned by the current user')
   })

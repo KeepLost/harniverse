@@ -1490,6 +1490,21 @@ describe('failure classification and lifecycle edges', () => {
     await run.dispose()
   })
 
+  it('recognizes permission signatures from raw stderr buffers', async () => {
+    const { child, run, turnStart } = await publishRun()
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    child.stderr.write(Buffer.from('approval policy is Never; reject command\n'))
+    child.peer.send(
+      agentMessage('partial answer', null),
+      turnCompleted('failed', 'turn-1', 'thread-1', { codexErrorInfo: 'other' }),
+    )
+    await expect(run.result).resolves.toMatchObject({
+      stopReason: 'error',
+      diagnostic: expect.stringContaining('Codex unattended decision (request: command execution; decision: denied)') as string,
+    })
+    await run.dispose()
+  })
+
   it('keeps stderr stream errors observation-only', async () => {
     const { child, run, turnStart } = await publishRun()
     child.peer.respond(turnStart, { turn: { id: 'turn-1' } })

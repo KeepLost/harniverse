@@ -30,4 +30,18 @@ describe('platform-resolved open flags', () => {
     await expect(fresh.readWorkspaceFile(root, 'file.txt', new AbortController().signal))
       .resolves.toMatchObject({ content: 'hello' })
   })
+
+  it('keeps the non-blocking flag on a platform that has it', async () => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+    vi.resetModules()
+
+    const fresh = await import('../src/workspace-inspector.ts')
+    const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-workspace-flags-')))
+    writeFileSync(join(root, 'file.txt'), 'hello')
+
+    // O_NONBLOCK never makes a regular-file read return early, so resolving
+    // the POSIX flag set is observable only through the read still succeeding.
+    await expect(fresh.readWorkspaceFile(root, 'file.txt', new AbortController().signal))
+      .resolves.toMatchObject({ content: 'hello' })
+  })
 })
