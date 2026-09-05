@@ -1,11 +1,9 @@
 /**
- * Snapshot store engine (zustand vanilla + immer + subscribeWithSelector +
+ * React-free snapshot store engine (zustand vanilla + immer + subscribeWithSelector +
  * rafFlush middleware + opt-in persist + dev freeze) plus the declarative
  * shell over it: {@link defineStore} bakes an init/persist/actions literal
  * into a {@link StoreHandle}, the registration-side store seat of slot
- * terminals. Lives in the React-free runtime (the data layer owns its
- * engine; web-react is shell-only React
- * glue): engine products are bare observables — subscribe/getSnapshot/
+ * terminals. Engine products are bare observables — subscribe/getSnapshot/
  * update/set, NO selector hook. Hook synthesis is web-react's (the one
  * uSES bridge, cached per source at the binding site).
  */
@@ -14,17 +12,16 @@ import { subscribeWithSelector } from 'zustand/middleware'
 import { shallow } from 'zustand/shallow'
 import { produce } from 'immer'
 import type {
-  ActionsDecl, BakedActions, StoreHandle, StoreInstance, StoreSpec,
-} from '@deepseek-ai/dsh-client-ui-slots'
+  ActionsDecl, BakedActions, ObservableSnapshot, StoreHandle, StoreInstance, StoreSpec,
+} from './contract.ts'
 
-// Store contract types are ui-slots authority; re-exported beside the engine
-// so store consumers get one import path.
+// The contract lives beside the engine (./contract.ts); ui-slots re-exports
+// the slot-facing names so store consumers keep one import path.
 export type {
-  ActionsDecl, BakedActions, BoundActions, StoreFactory, StoreHandle, StoreInstance, StorePersistence, StoreSpec,
-} from '@deepseek-ai/dsh-client-ui-slots'
-
-/** Minimal observable snapshot source: Session objects and snapshot stores both satisfy it. */
-export interface ObservableSnapshot<T> { getSnapshot(): T; subscribe(fn: () => void): () => void }
+  ActionsDecl, BakedActions, BoundActions, DefineStore, HandleOf, MaybeSnapshotSelectorHook,
+  ObservableSnapshot, PropsStore, SnapshotSelectorHook, StoreDecl, StoreFactory,
+  StoreHandle, StoreInstance, StorePersistence, StoreSpec,
+} from './contract.ts'
 
 /** Writable snapshot store (bare data face; React selector hooks are synthesized in web-react). */
 export interface SnapshotStore<T> extends ObservableSnapshot<T> {
@@ -170,7 +167,7 @@ function deepFreeze(value: unknown): void {
   }
 }
 
-// ui-slots owns the contract; this module supplies the engine implementation.
+// The contract lives in ./contract.ts; this module supplies the engine implementation.
 
 /** A live engine instance: the contract instance plus the raw engine store. */
 export interface EngineStoreInstance<T, A extends ActionsDecl<T>> extends StoreInstance<T, A> {
@@ -201,7 +198,7 @@ export interface EngineStoreHandle<T, A extends ActionsDecl<T>> extends StoreHan
  * Declare a store: initial state, optional persistence, and the full write
  * set as pure draft mutators. The returned handle is the registration
  * currency of the store seat — its identity keys instance sharing. Satisfies
- * ui-slots' DefineStore contract (the handle/instance are the engine-extended
+ * the DefineStore contract (the handle/instance are the engine-extended
  * subtypes).
  *
  * The `A & ActionsDecl<T>` actions position is load-bearing: T resolves from

@@ -33,6 +33,7 @@ import {
 import {
   compressZstdFrame, createZstdFrameDecoder, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames,
 } from './zstd.ts'
+import { SessionWriteLease } from './lease.ts'
 import { ensureDurableDirectoryWin32, publishNewFileWin32 } from './win32.ts'
 
 export type { JsonlCompression } from './format.ts'
@@ -254,6 +255,8 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
   private compression: JsonlCompression
   private coordinator: PersistenceCoordinator<JsonlTornMarker>
   private rootEncodingCheck: Promise<void> | undefined
+  /** Held cross-process write leases, one per session this backend has written. */
+  private readonly leases = new Map<SessionId, SessionWriteLease>()
 
   constructor(ctx: Context, public config: Config) {
     super(ctx)
@@ -656,6 +659,7 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
   /** Durably append a batch, lazily materializing the file when not yet present. */
   async appendBatch(meta: SessionHeader, events: readonly SessionEvent[], isMaterialized: boolean): Promise<void> {
     await this.ensureRootEncoding()
+    await this.ensureLease(meta)
     if (isMaterialized) {
       await this.appendLines(meta, events)
     } else {
@@ -673,6 +677,7 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     tornMarker: JsonlTornMarker | undefined,
     closers: readonly SessionEvent[],
   ): Promise<void> {
+    if (tornMarker !== undefined || closers.length > 0) await this.ensureLease(meta)
     if (tornMarker !== undefined) await this.repair(meta, tornMarker.truncateTo)
     const repairedEvents = [...(tornMarker?.recoveredEvents ?? []), ...closers]
     if (repairedEvents.length > 0) await this.appendLines(meta, repairedEvents)
@@ -683,15 +688,72 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     await this.ensureRootEncoding()
     const path = await this.findLog(id)
     if (path === undefined) return false
-    await this.readPrefix(path, id)
+    // Deletion is a write: exclusion applies, and a foreign lease refuses it
+    // before anything is removed. A lease this backend already holds is
+    // reused (a second descriptor could not take it); the coordinator's
+    // release hook drops it after the state goes away.
+    const held = this.leases.get(id)
+    const lease = held ?? await SessionWriteLease.acquire(dirname(path), id)
     try {
-      await unlink(path)
-    } catch (error: unknown) {
-      if (isENOENT(error)) return false
-      throw error
+      await this.readPrefix(path, id)
+      try {
+        await unlink(path)
+      } catch (error: unknown) {
+        if (isENOENT(error)) return false
+        throw error
+      }
+      if (process.platform !== 'win32') await this.syncDirPosix(dirname(path))
+      return true
+    } finally {
+      if (held === undefined) await lease.release()
     }
-    if (process.platform !== 'win32') await this.syncDirPosix(dirname(path))
-    return true
+  }
+
+  /**
+   * Drop and release this backend's write lease for one session, as the
+   * coordinator requests after the id's state retires or deletes.
+   * @param id - session identity whose lease this backend holds, if any.
+   */
+  async releaseWriteOwnership(id: SessionId): Promise<void> {
+    const lease = this.leases.get(id)
+    if (lease === undefined) return
+    this.leases.delete(id)
+    await lease.release()
+  }
+
+  /**
+   * Release every lease still held at teardown (sessions written through the
+   * ownerless public API keep theirs until dispose). Each lease leaves the
+   * map before its release so one failure cannot wedge the rest.
+   * @throws {AggregateError} naming each lease whose release failed.
+   */
+  async close(): Promise<void> {
+    const failures: unknown[] = []
+    for (const [id, lease] of [...this.leases]) {
+      this.leases.delete(id)
+      try {
+        await lease.release()
+      } catch (error: unknown) {
+        failures.push(error)
+      }
+    }
+    if (failures.length > 0) throw new AggregateError(failures, 'session write-lease release failed')
+  }
+
+  /**
+   * Hold this session's cross-process write lease from its first durable write
+   * onward: refuse an opposite-encoding artifact before creating anything (the
+   * official ordering), then take the kernel lock once and cache it. Contention
+   * with another live process surfaces as `SessionAlreadyOwnedError`.
+   * @param meta - header identifying the session about to be written.
+   */
+  private async ensureLease(meta: SessionHeader): Promise<SessionWriteLease> {
+    const held = this.leases.get(meta.id)
+    if (held !== undefined) return held
+    await this.rejectOppositeArtifact(meta.cwd, meta.id)
+    const lease = await SessionWriteLease.acquire(sessionDir(this.root, meta.cwd, meta.id), meta.id)
+    this.leases.set(meta.id, lease)
+    return lease
   }
 
   /** List valid unique stored sessions' metadata (header line only — no full-log parse). */

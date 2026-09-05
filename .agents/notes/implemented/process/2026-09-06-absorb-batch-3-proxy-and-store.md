@@ -1,0 +1,25 @@
+# Agent Note: Absorb batch 3 — outbound proxy chain, client store extraction
+
+Status: implemented
+
+English | [中文](2026-09-06-absorb-batch-3-proxy-and-store.zh.md)
+
+## Problem
+
+Two more approved Absorb-soon items plus one capability. Harniverse silently ignored `HTTP(S)_PROXY`/`ALL_PROXY`/`NO_PROXY`: the web-fetch transport always resolved DNS itself and dialed directly, provider `fetch` calls went through Node's default dispatcher, and spawned children inherited nothing — deployment-critical for proxied self-hosting. The client store engine (the zustand/Immer snapshot-store behind every dynamic client bundle) lived inside `client/runtime` with ~60 rider files importing it through the runtime facade, blocking the client boundary alignment the official decomposition pursues. The JSONL cross-process write lease landed as its own note ([Cross-process session write lease](2026-09-06-cross-process-session-write-lease.md)) and is not repeated here.
+
+## Decision
+
+One policy, three consumers, per the owner's full-chain decision. A new `dsh-http-proxy` library resolves one proxy policy from the launch-environment snapshot (case-insensitive, lowercase preferred, blank treated as unset; `http(s):` proxy URLs only — SOCKS and malformed URLs report a diagnostic and stay direct; HTTPS falls back self → `ALL_PROXY` → `HTTP_PROXY`; `NO_PROXY` merges with loopback, suffix-matched with optional ports; loopback never proxies). Installing it replaces the symbol global `fetch` resolves (`Symbol.for('undici.globalDispatcher.1')`) with a native hand-rolled dispatcher — no `undici` dependency — that classifies each request through the same `proxyForUrl`: proxied URLs take absolute-form (http) or CONNECT+TLS (https) tunnels through the shared hop builder; direct URLs delegate to the dispatcher the install displaced, or a plain per-request transport when there was none. Profile boot installs it before the first plugin mounts and restores everything on shutdown. The web-fetch transport routes proxied URLs through the shared tunnel with no local DNS pinning while bypassed URLs keep the pinned direct transport byte-for-byte; `dsh-subprocess` overlays the resolved child proxy environment (restoring user spellings, adding `NODE_USE_ENV_PROXY`) in `scrubbedParentEnv`; `dsh-llm-pi-ai` is covered through global `fetch` with egress specs through a fake loopback proxy. The store engine moved verbatim into `packages/client/store` (`dsh-client-store`): the engine file, its 14+1 contract types (from `ui-slots`, which becomes a pure re-export shim), and its test file; the runtime re-exports the engine values so all ~60 rider importers stay untouched. Two implementation findings were forced by Node semantics and fixed with evidence: an inner tunnelled request must not set `agent: false` (Node then allocates its own connection and ignores the tunnelled socket), and it must be spoken as plain HTTP over the already-established TLS socket (`https.request` would re-run agent DNS against the origin hostname).
+
+## Alternatives considered
+
+**Adopt `undici` as a dependency for `EnvHttpProxyAgent`.** Rejected: Node bundles no importable undici, the symbol contract it reads is stable across Node 22/24, and the tunnel semantics we need (per-request classify, delegate passthrough, CONNECT with backpressure) fit in one hand-rolled dispatcher — verified against real fake-proxy servers including a successful CONNECT tunnel over a committed self-signed fixture.
+
+**Propagate proxy variables to children by rewriting their values.** Rejected with upstream: a child's other tools (`curl`) must keep the user's own spellings; the overlay restores what the user wrote per name and only fills names the user never set, withholding `NODE_USE_ENV_PROXY` when Node cannot parse a value.
+
+**Fold the store extraction into the wider client decomposition.** Rejected for now per the owner's decision: the pure mechanical move lands immediately (zero behavior change, same test file, 17/17 before and after) and the boundary alignment continues later on top of it.
+
+## Consequences
+
+Proxied deployments route every outbound hop — tool fetches, provider discovery and streams, and children that honor the environment — through one policy with one tunnel implementation; unset environments behave byte-identically to before (asserted: no dispatcher, no environment writes). Client packages can now depend on the store engine without the runtime facade, unlocking the `TODO(webload/store-rehome)` rider migration. Evidence: RED-first regressions across policy parsing, install/restore, tunnel behavior (http absolute-form, CONNECT refusal, successful CONNECT tunnel with the fixture certificate, abort-by-signal), child overlays with a real spawned child hitting a fake proxy, web-fetch tunnel semantics, and discovery/provider egress through the proxy; the store move is pinned by its unchanged suite (17/17) plus the full rider closure (58 files / 855 tests); `doc-sync` 29/29, `typecheck`/`oxlint`/`knip` clean; per-file coverage 100% on touched sources including the JSONL lease branch family completed alongside.

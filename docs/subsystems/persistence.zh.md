@@ -448,5 +448,5 @@ abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot
 
 Types: [EpochHeader](session.md) · [SessionEvent](session.md) · [SessionId](core.md)
 
-Source: [`packages/session/session-persistence/src/index.ts:96`](../../packages/session/session-persistence/src/index.ts)
+Source: [`packages/session/session-persistence/src/index.ts:97`](../../packages/session/session-persistence/src/index.ts)
 <!-- END GENERATED cordis-surface -->

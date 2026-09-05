@@ -1489,10 +1489,16 @@ describe('JsonlSessionPersistence: edge cases', () => {
   })
 
   it('append() to a disk-only session adopts it and repairs a crash tail', async () => {
-    // Persist a session, then corrupt its tail, all through ONE backend.
+    // Persist a session through one writer backend, then crash it (dispose) —
+    // its write lease dies with the process it simulated. Corrupt the tail
+    // after the fact, all outside any live backend.
     const m = meta('disk-append', '/d')
-    await ctx.sessionPersistence.create(m)
-    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const author = new Context()
+    await author.plugin(SessionStore)
+    await author.plugin(JsonlSessionPersistence, { root, compression: 'none' })
+    await author.sessionPersistence.create(m)
+    await author.sessionPersistence.append(m.id, oneTurnLog())
+    await author.fiber.dispose()
     await writeFile(rawLogPath(root, '/d', m.id), '\n{"partial crash', { flag: 'a' })
 
     // A FRESH backend with no in-memory state: append directly (no prior load)

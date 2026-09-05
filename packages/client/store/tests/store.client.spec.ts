@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createSnapshotStore, defineStore, shallowEqual } from '../src/client/contract/store.ts'
+import { createSnapshotStore, defineStore, shallowEqual } from '../src/index.ts'
 
 interface State {
   a: { n: number }
