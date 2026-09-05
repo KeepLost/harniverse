@@ -11,6 +11,7 @@ import { launchAcpTestAgent } from '../src/launcher.ts'
 const fsControl = vi.hoisted(() => ({
   cleanupFailure: undefined as Error | undefined,
   harvestFailure: undefined as Error | undefined,
+  harvestHang: undefined as Promise<void> | undefined,
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -27,8 +28,9 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       await actual.rm(...args)
     },
     async readFile(path: string, encoding: string): Promise<string> {
-      if (fsControl.harvestFailure !== undefined && path.includes('acp-snap-sessions-')) {
-        throw fsControl.harvestFailure
+      if (path.includes('acp-snap-sessions-')) {
+        if (fsControl.harvestHang !== undefined) await fsControl.harvestHang
+        if (fsControl.harvestFailure !== undefined) throw fsControl.harvestFailure
       }
       return actual.readFile(path, encoding as 'utf8')
     },
@@ -625,6 +627,39 @@ describe('runScenario', () => {
       )).rejects.toThrow('harvest exploded')
     } finally {
       fsControl.harvestFailure = undefined
+    }
+  })
+
+  it('waitForTurnEnd reports the harness description when the budget lapses before a poll settles', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'aborted' } } },
+        ],
+      }],
+    })
+    const workspaceDir = join(dir, 'workspace')
+    const { mkdir } = await import('node:fs/promises')
+    await mkdir(workspaceDir, { recursive: true })
+    await writeFile(join(workspaceDir, 'started.txt'), '')
+    fsControl.harvestHang = new Promise<void>(resolve => setTimeout(resolve, 300))
+    try {
+      await expect(runScenario(
+        {
+          steps: [
+            ...boot,
+            { op: 'promptAndCancel', text: 'hang', waitForFile: { path: 'started.txt' } },
+            { op: 'waitForTurnEnd', timeoutMs: 20 },
+          ],
+        },
+        { agent: AGENT, mode: 'replay', fixtureFile, workspaceDir },
+      )).rejects.toThrow('did not persist turn/end within 20ms')
+    } finally {
+      fsControl.harvestHang = undefined
     }
   })
 
