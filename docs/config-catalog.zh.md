@@ -537,7 +537,11 @@ export interface Config {
 ```ts config-catalog
 /** Validated deployment limits and Python executable selection. */
 export interface Config {
-  /** Executable passed directly to `spawn`; no shell parses this value. */
+  /**
+   * Python interpreter resolved at plugin load: an absolute or relative path
+   * to an executable regular file, or a bare name searched on the Host `PATH`.
+   * The resolved file must report CPython 3.10 or newer in an isolated probe.
+   */
   pythonExecutable?: string
   /** Per-process `RLIMIT_CPU` soft limit in whole seconds where supported. */
   cpuSeconds?: number
@@ -552,7 +556,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/code-runtime/code-runtime-python/src/index.ts:20`](../packages/code-runtime/code-runtime-python/src/index.ts)
+来源：[`packages/code-runtime/code-runtime-python/src/index.ts:23`](../packages/code-runtime/code-runtime-python/src/index.ts)
 
 <a id="deepseek-aidsh-code-runtime-worker-thread"></a>
 

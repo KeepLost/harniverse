@@ -3,14 +3,17 @@
  * fresh process and a hostile split control channel.
  */
 
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
+import { accessSync, constants as fsConstants, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { delimiter, isAbsolute, join, resolve } from 'node:path'
 import type { Duplex, Readable, Writable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { CodeRuntime, DUNDER_MEMBER, PORTABLE_RESERVED_WORDS, RESERVED_BINDING_GLOBALS, RESERVED_ERROR_MEMBERS } from '@deepseek-ai/dsh-code-runtime'
-import type { CodeBindingNamespace, CodeJsonValue, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import type { CodeBindingFunction, CodeJsonValue, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { encodeJsonPlain, hasNonLosslessNumber, hasUnsafeIntegerToken, PROTOCOL_FD, validateChildFrame } from './protocol.ts'
@@ -18,7 +21,11 @@ import type { BootMessage, ChildToHost, HostToChild, ReplyMessage } from './prot
 
 /** Validated deployment limits and Python executable selection. */
 export interface Config {
-  /** Executable passed directly to `spawn`; no shell parses this value. */
+  /**
+   * Python interpreter resolved at plugin load: an absolute or relative path
+   * to an executable regular file, or a bare name searched on the Host `PATH`.
+   * The resolved file must report CPython 3.10 or newer in an isolated probe.
+   */
   pythonExecutable?: string
   /** Per-process `RLIMIT_CPU` soft limit in whole seconds where supported. */
   cpuSeconds?: number
@@ -38,10 +45,98 @@ const BOOTSTRAP_PATH = fileURLToPath(new URL('../py/bootstrap.py', import.meta.u
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
 const MIN_OUTPUT_BYTES = 4
 const MIB = 1024 * 1024
+/** Bound for in-flight binding calls and unflushed reply frames per run. */
+const MAX_PENDING_BINDING_WORK = 1024
+/** Wall-clock bound for one load-time interpreter probe. */
+const PYTHON_PROBE_TIMEOUT_MS = 5_000
+/** Probe output beyond this many bytes is treated as a failed probe. */
+const PYTHON_PROBE_MAX_BUFFER_BYTES = 1_024
+const PYTHON_PROBE_SOURCE = 'import sys; print(sys.implementation.name, sys.version_info.major, sys.version_info.minor, sys.version_info.micro)'
+const PYTHON_PROBE_OUTPUT = /^(\S+) (\d+) (\d+) (\d+)$/
 
 interface LiveRun {
   settle(failure: CodeRunFailure): void
   finished: Promise<void>
+}
+
+/**
+ * Snapshot of one caller-supplied namespace captured during validation. Every
+ * descriptor property is read exactly once, so later stages cannot observe
+ * swapped or re-throwing getters, and member lookup stays own-property only.
+ */
+interface ValidatedNamespace {
+  functions: Record<string, CodeBindingFunction>
+  errorClass?: { name: string; memberNameProperty: string }
+}
+
+function executableFile(candidate: string): string | undefined {
+  try {
+    accessSync(candidate, fsConstants.X_OK)
+    if (statSync(candidate).isFile()) return candidate
+  } catch {
+    // Missing or unreadable candidates are simply not executable files.
+  }
+  return undefined
+}
+
+function containsPathSeparator(executable: string, platform: NodeJS.Platform): boolean {
+  return executable.includes('/') || (platform === 'win32' && executable.includes('\\'))
+}
+
+/**
+ * Resolve a configured executable to an executable regular file. Absolute
+ * paths are checked directly, separator-bearing paths resolve against the
+ * working directory, and bare names scan Host `PATH` entries (trying the
+ * `.exe` suffix on Windows).
+ * @param executable - Configured executable name or path.
+ * @param pathEnvironment - `PATH` value used for bare-name lookup.
+ * @param platform - Host platform; injectable for deterministic cross-platform tests.
+ * @returns The resolved executable path, or undefined when nothing matches.
+ */
+export function resolvePythonExecutable(
+  executable: string,
+  pathEnvironment: string | undefined = process.env.PATH,
+  platform: NodeJS.Platform = process.platform,
+): string | undefined {
+  if (isAbsolute(executable)) return executableFile(executable)
+  if (containsPathSeparator(executable, platform)) return executableFile(resolve(executable))
+  const names = platform === 'win32' ? [executable, `${executable}.exe`] : [executable]
+  for (const entry of pathEnvironment?.split(delimiter) ?? []) {
+    if (!isAbsolute(entry)) continue
+    for (const name of names) {
+      const candidate = executableFile(join(entry, name))
+      if (candidate !== undefined) return candidate
+    }
+  }
+  return undefined
+}
+
+function probePythonExecutable(resolved: string): void {
+  let output: string
+  try {
+    output = execFileSync(resolved, ['-I', '-c', PYTHON_PROBE_SOURCE], {
+      encoding: 'utf8',
+      env: { TMPDIR: tmpdir() },
+      timeout: PYTHON_PROBE_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
+      maxBuffer: PYTHON_PROBE_MAX_BUFFER_BYTES,
+    }).trim()
+  } catch (error) {
+    throw new Error(`dsh-code-runtime-python: config.pythonExecutable ${JSON.stringify(resolved)} failed the CPython version probe: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  const match = PYTHON_PROBE_OUTPUT.exec(output)
+  if (match === null) {
+    throw new Error(`dsh-code-runtime-python: config.pythonExecutable ${JSON.stringify(resolved)} did not report a CPython version`)
+  }
+  const implementation = match[1] as string
+  const major = Number(match[2])
+  const minor = Number(match[3])
+  if (implementation !== 'cpython') {
+    throw new Error(`dsh-code-runtime-python: config.pythonExecutable ${JSON.stringify(resolved)} must be CPython, got ${implementation}`)
+  }
+  if (major < 3 || (major === 3 && minor < 10)) {
+    throw new Error(`dsh-code-runtime-python: config.pythonExecutable ${JSON.stringify(resolved)} must be CPython 3.10 or newer, got cpython ${major}.${minor}.${String(match[4])}`)
+  }
 }
 
 function jsonCharacterBytes(character: string): number {
@@ -239,14 +334,18 @@ function sanitizeDiagnostic(message: string): string {
     .slice(0, 4096)
 }
 
-function writeFrame(stream: Writable, frame: HostToChild, maxBytes = Number.POSITIVE_INFINITY): boolean {
+function writeFrame(stream: Writable, frame: HostToChild, maxBytes = Number.POSITIVE_INFINITY, onFlush?: () => void): boolean {
   const encoded = `${encodeJsonPlain(frame)}\n`
   if (Buffer.byteLength(encoded, 'utf8') > maxBytes) return false
-  stream.write(encoded)
+  stream.write(encoded, () => onFlush?.())
   return true
 }
 
-/** Fresh-process `ctx.codeRuntime` provider for Python 3.10 and newer. */
+/**
+ * Fresh-process `ctx.codeRuntime` provider for Python 3.10 and newer. The
+ * configured interpreter is resolved and probed once at plugin load; every
+ * run spawns that exact file in a new process.
+ */
 export class PythonCodeRuntime extends CodeRuntime {
   static Config: z<Config> = z.object({
     pythonExecutable: z.string().default('python3'),
@@ -261,6 +360,7 @@ export class PythonCodeRuntime extends CodeRuntime {
   readonly isolation = 'process'
 
   private readonly config: ResolvedConfig
+  private readonly executable: string
   private readonly live = new Set<LiveRun>()
   private disposed = false
 
@@ -288,6 +388,14 @@ export class PythonCodeRuntime extends CodeRuntime {
     if (this.config.maxControlBytes < this.config.maxOutputBytes + 1024) {
       throw new Error('dsh-code-runtime-python: config.maxControlBytes must be at least maxOutputBytes + 1024')
     }
+    const configured = this.config.pythonExecutable
+    const executable = resolvePythonExecutable(configured)
+    if (executable === undefined) {
+      const explicit = isAbsolute(configured) || containsPathSeparator(configured, process.platform)
+      throw new Error(`dsh-code-runtime-python: config.pythonExecutable ${JSON.stringify(configured)} ${explicit ? 'is not an executable file' : 'does not resolve to an executable file on PATH'}`)
+    }
+    probePythonExecutable(executable)
+    this.executable = executable
     ctx.effect(() => () => this.teardown(), 'python code-runtime teardown')
   }
 
@@ -317,23 +425,34 @@ export class PythonCodeRuntime extends CodeRuntime {
     return new OutputLedger(this.config.maxOutputBytes).failure([], error)
   }
 
-  private validateBindings(request: CodeRunRequest): Map<string, CodeBindingNamespace> {
-    const bindings = new Map<string, CodeBindingNamespace>()
+  private validateBindings(request: CodeRunRequest): Map<string, ValidatedNamespace> {
+    const bindings = new Map<string, ValidatedNamespace>()
     for (const namespace of request.bindings) {
-      if (!IDENTIFIER.test(namespace.global) || PORTABLE_RESERVED_WORDS.has(namespace.global)) {
-        throw new Error(`dsh-code-runtime-python: binding global ${JSON.stringify(namespace.global)} is not a usable identifier`)
+      const global = namespace.global
+      if (!IDENTIFIER.test(global) || PORTABLE_RESERVED_WORDS.has(global)) {
+        throw new Error(`dsh-code-runtime-python: binding global ${JSON.stringify(global)} is not a usable identifier`)
       }
-      if (RESERVED_BINDING_GLOBALS.has(namespace.global)) {
-        throw new Error(`dsh-code-runtime-python: reserved binding global ${JSON.stringify(namespace.global)}`)
+      if (RESERVED_BINDING_GLOBALS.has(global)) {
+        throw new Error(`dsh-code-runtime-python: reserved binding global ${JSON.stringify(global)}`)
       }
-      if (bindings.has(namespace.global)) {
-        throw new Error(`dsh-code-runtime-python: duplicate binding global ${JSON.stringify(namespace.global)}`)
+      if (bindings.has(global)) {
+        throw new Error(`dsh-code-runtime-python: duplicate binding global ${JSON.stringify(global)}`)
       }
-      bindings.set(namespace.global, namespace)
+      const supplied = namespace.functions
+      const functions = Object.create(null) as Record<string, CodeBindingFunction>
+      for (const name of Object.keys(supplied)) {
+        const fn = supplied[name]
+        if (typeof fn === 'function') functions[name] = fn
+      }
+      const descriptor = namespace.errorClass
+      bindings.set(global, {
+        functions,
+        ...descriptor ? { errorClass: { name: descriptor.name, memberNameProperty: descriptor.memberNameProperty } } : {},
+      })
     }
 
     const errorClassNames = new Set<string>()
-    for (const namespace of request.bindings) {
+    for (const namespace of bindings.values()) {
       const descriptor = namespace.errorClass
       if (!descriptor) continue
       if (!IDENTIFIER.test(descriptor.name) || PORTABLE_RESERVED_WORDS.has(descriptor.name)) {
@@ -354,7 +473,7 @@ export class PythonCodeRuntime extends CodeRuntime {
     return bindings
   }
 
-  private execute(request: CodeRunRequest, bindings: Map<string, CodeBindingNamespace>): Promise<CodeRunResult> {
+  private execute(request: CodeRunRequest, bindings: Map<string, ValidatedNamespace>): Promise<CodeRunResult> {
     const boot: BootMessage = {
       type: 'boot',
       cpuSeconds: this.config.cpuSeconds,
@@ -371,12 +490,13 @@ export class PythonCodeRuntime extends CodeRuntime {
     let child: ChildProcess
     try {
       const path = process.env.PATH
-      child = spawn(this.config.pythonExecutable, ['-I', '-B', BOOTSTRAP_PATH], {
+      child = spawn(this.executable, ['-I', '-B', BOOTSTRAP_PATH], {
         // Windows extra stdio pipes are not reliably duplex. stdin carries
         // Host frames; fd 3 carries child frames on every platform.
         stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
-        // PATH selects the configured interpreter before the bootstrap clears
-        // its environment; model code still receives no Host variables.
+        // Only PATH crosses into the child; the interpreter itself was
+        // resolved and probed once at load, and the bootstrap clears its
+        // environment before model code runs.
         env: path === undefined ? {} : { PATH: path },
         shell: false,
         windowsHide: true,
@@ -398,6 +518,8 @@ export class PythonCodeRuntime extends CodeRuntime {
       let settling = false
       let state: 'booting' | 'running' = 'booting'
       const answered = new Set<number>()
+      let pendingReplies = 0
+      let pendingCalls = 0
       const logs: string[] = []
       const output = new OutputLedger(this.config.maxOutputBytes)
       let terminalOverride: CodeRunResult | undefined
@@ -443,9 +565,15 @@ export class PythonCodeRuntime extends CodeRuntime {
 
       const sendReply = (reply: ReplyMessage): void => {
         if (state !== 'running' || settling) return
-        if (!writeFrame(input, reply, this.config.maxControlBytes)) {
+        if (pendingReplies >= MAX_PENDING_BINDING_WORK) {
+          finish(() => output.failure(logs, { kind: 'worker-exit', message: `reply backlog exceeded ${MAX_PENDING_BINDING_WORK} frames the child has not consumed on stdin` }))
+          return
+        }
+        pendingReplies += 1
+        const onFlush = (): void => { pendingReplies -= 1 }
+        if (!writeFrame(input, reply, this.config.maxControlBytes, onFlush)) {
           const fallback: ReplyMessage = { type: 'reply', id: reply.id, ok: false, message: 'binding resolution exceeded control limit' }
-          writeFrame(input, fallback)
+          writeFrame(input, fallback, this.config.maxControlBytes, onFlush)
         }
       }
 
@@ -458,6 +586,11 @@ export class PythonCodeRuntime extends CodeRuntime {
           sendReply({ type: 'reply', id: message.id, ok: false, message: 'unknown binding' })
           return
         }
+        if (pendingCalls >= MAX_PENDING_BINDING_WORK) {
+          finish(() => output.failure(logs, { kind: 'worker-exit', message: `call backlog exceeded ${MAX_PENDING_BINDING_WORK} in-flight binding calls (a binding never settled)` }))
+          return
+        }
+        pendingCalls += 1
         void (async () => {
           try {
             const resolved = await fn(message.args)
@@ -474,6 +607,8 @@ export class PythonCodeRuntime extends CodeRuntime {
             }
           } catch {
             sendReply({ type: 'reply', id: message.id, ok: false, message: 'binding call failed' })
+          } finally {
+            pendingCalls -= 1
           }
         })()
       }

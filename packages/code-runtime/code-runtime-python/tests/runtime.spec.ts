@@ -1,4 +1,7 @@
 import { execFile } from 'node:child_process'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { Context } from '@deepseek-ai/cordis'
 import type { CodeBindingFunction, CodeBindingNamespace, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
@@ -15,6 +18,11 @@ async function hasPython3(): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+async function realPython3Path(): Promise<string> {
+  const { stdout } = await execFileAsync('python3', ['-c', 'import sys; print(sys.executable)'])
+  return stdout.trim()
 }
 
 const python3Available = await hasPython3()
@@ -215,17 +223,75 @@ describe.skipIf(!python3Available)('PythonCodeRuntime real subprocess', { timeou
       .toBeLessThanOrEqual(128)
   }, heavyRuntimeTestTimeoutMs)
 
-  it('reports pre-abort and executable startup failure as sanitized results', async () => {
+  it('reports pre-abort and rejects unusable configured executables at load', async () => {
     const { runtime } = await setup()
     const controller = new AbortController()
     controller.abort('/private/reason')
     expect(await runtime.run({ program: 'return 1', bindings: [], signal: controller.signal }))
       .toEqual({ logs: [], error: { kind: 'abort', message: 'run aborted' } })
 
-    const missing = await setup({ pythonExecutable: 'dsh-python-does-not-exist' })
-    expect(await missing.runtime.run({ program: 'return 1', bindings: [] }))
-      .toEqual({ logs: [], error: { kind: 'worker-exit', message: 'python process could not start' } })
+    await expect(setup({ pythonExecutable: 'dsh-python-does-not-exist' }))
+      .rejects.toThrow(/does not resolve to an executable file on PATH/)
   })
+
+  it('fails runs, not loads, when the interpreter disappears after the load probe', async () => {
+    if (process.platform === 'win32') return
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-python-wrapper-'))
+    try {
+      const wrapper = join(dir, 'python3-wrapper')
+      writeFileSync(wrapper, `#!/bin/sh\nexec "${await realPython3Path()}" "$@"\n`)
+      chmodSync(wrapper, 0o755)
+      const { runtime, fiber } = await setup({ pythonExecutable: wrapper })
+      rmSync(dir, { recursive: true, force: true })
+      expect(await runtime.run({ program: 'return 1', bindings: [] }))
+        .toEqual({ logs: [], error: { kind: 'worker-exit', message: 'python process could not start' } })
+      await fiber.dispose()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects non-CPython, outdated, and probe-failing interpreters at load', async () => {
+    await expect(setup({ pythonExecutable: process.execPath })).rejects.toThrow(/failed the CPython version probe/)
+    if (process.platform === 'win32') return
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-python-probe-'))
+    try {
+      let count = 0
+      const wrapper = (body: string): string => {
+        const path = join(dir, `probe-${count += 1}`)
+        writeFileSync(path, `#!/bin/sh\n${body}\n`)
+        chmodSync(path, 0o755)
+        return path
+      }
+      await expect(setup({ pythonExecutable: '/bin/echo' })).rejects.toThrow(/did not report a CPython version/)
+      await expect(setup({ pythonExecutable: wrapper('echo "pypy 3 10 0"') })).rejects.toThrow(/must be CPython, got pypy/)
+      await expect(setup({ pythonExecutable: wrapper('echo "cpython 3 9 6"') })).rejects.toThrow(/must be CPython 3\.10 or newer, got cpython 3\.9\.6/)
+      await expect(setup({ pythonExecutable: wrapper('exit 7') })).rejects.toThrow(/failed the CPython version probe/)
+      const future = await setup({ pythonExecutable: wrapper('echo "cpython 4 0 0"') })
+      await future.fiber.dispose()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('settles worker-exit when hostile frames exceed the in-flight call bound', async () => {
+    const { runtime, fiber } = await setup({ maxWallMs: 15_000 })
+    const result = await runtime.run({
+      program: [
+        'import os',
+        'frame = b\'{"type":"call","id":%d,"global":"tools","name":"hang","args":null}\\n\'',
+        'for i in range(5000):',
+        '    os.write(3, frame % i)',
+        'return 1',
+      ].join('\n'),
+      bindings: tools({ hang: async () => new Promise<unknown>(() => {}) }),
+    })
+    expect(result).toEqual({
+      logs: [],
+      error: { kind: 'worker-exit', message: 'call backlog exceeded 1024 in-flight binding calls (a binding never settled)' },
+    })
+    await fiber.dispose()
+  }, heavyRuntimeTestTimeoutMs)
 
   it('uses a fresh process for every run', async () => {
     const { runtime } = await setup()
