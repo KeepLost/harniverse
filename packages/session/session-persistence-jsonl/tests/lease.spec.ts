@@ -456,7 +456,7 @@ describe('JSONL backend write lease', () => {
       await this.release()
       throw Object.assign(new Error('EIO: injected release failure'), { code: 'EIO' })
     })
-    const failure = await (backend as JsonlSessionPersistence).close().then(() => undefined, (error: unknown) => error)
+    const failure = await backend.close().then(() => undefined, (error: unknown) => error)
     expect(failure).toBeInstanceOf(AggregateError)
     expect((failure as AggregateError).errors).toHaveLength(1)
     expect(String((failure as AggregateError).errors[0])).toMatch(/injected release failure/)
