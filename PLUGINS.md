@@ -198,6 +198,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 
 | Commit | Plugin-level effect |
 |---|---|
+| `4c31133a0a` | Absorbs three official Windows fixes at contract level: true two-byte-NUL UTF-16 termination in the native directory picker, `windowsHide` on non-terminal subprocess spawns and both taskkill helpers, and bounded transient-rename retry inside `writeFileAtomic` (Windows-only; POSIX unchanged). |
 | `de672a15e2` | Generates the committed API catalog (`docs/api-catalog.json`) from the compile-locked unary/carrier/error registries, wires `verify-api-catalog` into doc-sync, locks `RPC_ERROR_CODES` to the error-details map, and replaces the host `FrameQueue` and client WebSocket inbox `Array.shift` backing with ring buffers. |
 | `ae7c9b6d5b` | Makes the shipped model-provider composition vendor-neutral and removes the DeepSeek-specific onboarding occupant. |
 | `e054be808c` | Adds explicit Agent/Session close, cold deletion, resumable event cursors, projection-cache deletion, and workspace cleanup across existing plugins. |
