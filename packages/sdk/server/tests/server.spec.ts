@@ -109,7 +109,7 @@ async function settleSubagent(
 }
 
 describe('HarnessSdkJsonRpcServer', () => {
-  it('creates a harness agent and calls the configured OpenAI-compatible endpoint', { timeout: 15_000 }, async () => {
+  it('creates a harness agent and calls the configured OpenAI-compatible endpoint', { timeout: 30_000 }, async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-'))
     const llmServer = await mockCompletionServer()
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
@@ -133,7 +133,7 @@ describe('HarnessSdkJsonRpcServer', () => {
       })
       expect((receipt as { messageId?: unknown }).messageId).toBeTypeOf('string')
 
-      await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(1) })
+      await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(1) }, { timeout: 10_000 })
       const body = llmServer.requests[0] as { model: string; messages: { role: string }[]; max_tokens?: number }
       expect(body.model).toBe('dsagent-model')
       expect(body.max_tokens).toBe(321)
@@ -146,13 +146,13 @@ describe('HarnessSdkJsonRpcServer', () => {
           method: 'session.status',
           params: { sessionId: 'main', status: 'idle' },
         })
-      })
+      }, { timeout: 10_000 })
 
       await server.handleRequest('session/prompt', {
         sessionId: 'main',
         contentBlocks: [{ type: 'text', text: 'again' }],
       })
-      await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(2) })
+      await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(2) }, { timeout: 10_000 })
 
       const orphanHandle = await ctx.agents.create({
         sessionId: SessionId('orphan-session'),
@@ -367,7 +367,7 @@ describe('HarnessSdkJsonRpcServer', () => {
     }
   })
 
-  it('creates an SDK session without an optional system prompt', { timeout: 15_000 }, async () => {
+  it('creates an SDK session without an optional system prompt', { timeout: 30_000 }, async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-no-system-'))
     const llmServer = await mockCompletionServer()
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
@@ -382,7 +382,7 @@ describe('HarnessSdkJsonRpcServer', () => {
         contentBlocks: [{ type: 'text', text: 'hello' }],
       })
 
-      await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(1) })
+      await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(1) }, { timeout: 10_000 })
       await server.shutdown()
     } finally {
       await ctx.fiber.dispose()

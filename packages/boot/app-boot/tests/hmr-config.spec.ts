@@ -9,6 +9,8 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Timer from '@deepseek-ai/cordis-plugin-timer'
 import { describe, expect, it, vi } from 'vitest'
 
+const settleChokidarChangeThrottle = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 75))
+
 async function bootHmr(dir: string, root: string[] = [], usePolling?: boolean): Promise<Context> {
   const ctx = new Context()
   ctx.baseUrl = pathToFileURL(dir).href + '/'
@@ -183,6 +185,7 @@ describe('HMR exact config paths', () => {
         failure.resolve({ filename: failedFilename, error })
       })
       await ctx.hmr.registerConfig(filename, () => { throw 42 })
+      await settleChokidarChangeThrottle()
       writeFileSync(filename, 'invalid')
 
       const observed = await failure.promise
