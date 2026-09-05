@@ -10,6 +10,7 @@
 
 import { createHash, randomBytes } from 'node:crypto'
 import { constants } from 'node:fs'
+import type { Stats } from 'node:fs'
 import { lstat, mkdir, open, realpath } from 'node:fs/promises'
 import { dirname, join, parse, relative, resolve, sep } from 'node:path'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
@@ -17,6 +18,17 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 const LOCAL_LOCATOR_PREFIX = 'local-spill:v1:'
 const CURSOR_PREFIX = 'v1:'
 const MAX_READ_CHARS = 50_000
+
+/**
+ * True when `error` is a Node system error carrying the given `code`.
+ *
+ * @param error The caught value to test.
+ * @param code The `NodeJS.ErrnoException` code to match (e.g. `'ENOENT'`).
+ * @returns `true` when `error` is an `Error` whose `code` equals `code`.
+ */
+export function isErrno(error: unknown, code: string): boolean {
+  return error instanceof Error && (error as NodeJS.ErrnoException).code === code
+}
 
 /**
  * The default spill root in durable Harniverse home storage. Session hashing,
@@ -141,16 +153,35 @@ function decodeCompletePrefix(buffer: Buffer, eof: boolean): string {
   throw new Error('stored spill artifact is not valid UTF-8')
 }
 
+/**
+ * Why an lstat result is not a private, process-owned real directory, or
+ * `undefined` when it is one. Shared by the write/read admission (which
+ * throws) and the startup cleanup sweep (which skips with a warning).
+ *
+ * @param stat The lstat result to admit.
+ * @returns The human-readable fault, or `undefined` when the directory is private.
+ */
+function privateDirectoryFault(stat: Stats): string | undefined {
+  if (!stat.isDirectory() || stat.isSymbolicLink()) return 'must be a real directory'
+  if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) return 'must be owned by the current user'
+  if (process.platform !== 'win32' && (stat.mode & 0o077) !== 0) return 'must not grant group or world access'
+  return undefined
+}
+
+/**
+ * Whether an lstat result admits a private, process-owned real directory.
+ *
+ * @param stat The lstat result to admit.
+ * @returns `true` when {@link privateDirectoryFault} finds no fault.
+ */
+export function isPrivateDirectory(stat: Stats): boolean {
+  return privateDirectoryFault(stat) === undefined
+}
+
 /** Require one storage directory to be a private, process-owned real directory. */
 async function validatePrivateDirectory(path: string, label: string): Promise<void> {
-  const stat = await lstat(path)
-  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`${label} must be a real directory`)
-  if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) {
-    throw new Error(`${label} must be owned by the current user`)
-  }
-  if (process.platform !== 'win32' && (stat.mode & 0o077) !== 0) {
-    throw new Error(`${label} must not grant group or world access`)
-  }
+  const fault = privateDirectoryFault(await lstat(path))
+  if (fault !== undefined) throw new Error(`${label} ${fault}`)
 }
 
 /** Walk one absolute directory path without following arbitrary symlinks. */
@@ -259,7 +290,9 @@ export async function readTextFile(options: {
  * sanitized `suggestedName`, so it is unpredictable (defeats symlink planting in
  * a shared root) AND stays readable. The open is exclusive + owner-only
  * (`'wx', 0o600`): it fails on any existing path — symlink or not — so a
- * pre-planted target cannot redirect the write.
+ * pre-planted target cannot redirect the write. When the startup cleanup sweep
+ * prunes the session directory between validation and the exclusive open, the
+ * write recreates the directory and retries.
  *
  * @param options The resolved root and request fields required to save the file.
  * @returns The written file path and UTF-8 byte length.
@@ -269,15 +302,24 @@ export async function saveTextFile(options: SaveTextOptions): Promise<SavedText>
   const dir = sessionDir(options.root, options.sessionId)
   await ensureRealDirectoryPath(options.root, true)
   await validatePrivateDirectory(options.root, 'spill root')
-  await mkdir(dir, { mode: 0o700 }).catch((error: unknown) => {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-  })
-  await validateStoragePath(options.root, dir)
-  options.signal.throwIfAborted()
   const safeName = encodeSegment(options.suggestedName)
   const path = join(dir, `${randomBytes(6).toString('hex')}-${safeName}`)
   const bytes = Buffer.byteLength(options.content, 'utf8')
-  const handle = await open(path, 'wx', 0o600)
+  let handle
+  for (;;) {
+    await mkdir(dir, { mode: 0o700 }).catch((error: unknown) => {
+      if (!isErrno(error, 'EEXIST')) throw error
+    })
+    await validateStoragePath(options.root, dir)
+    options.signal.throwIfAborted()
+    try {
+      handle = await open(path, 'wx', 0o600)
+      break
+    } catch (error: unknown) {
+      if (isErrno(error, 'ENOENT')) continue
+      throw error
+    }
+  }
   try {
     await handle.writeFile(options.content, { signal: options.signal })
   } finally {

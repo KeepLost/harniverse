@@ -167,6 +167,13 @@ describe('request-level dynamic profiles', () => {
     await expect(ctx.settings.update(NS, { providers: { 'not-a-real-provider': {} } }))
       .rejects.toThrow(/resolves no models/)
     expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai'])
+
+    // A header Fetch cannot represent is refused with the rest of the
+    // profile, so it can never reach a discovery probe or model request.
+    await expect(ctx.settings.update(NS, {
+      providers: { openai: { headers: { 'bad header name': 'value' } } },
+    })).rejects.toThrow(/provider "openai" header "bad header name" is not valid for Fetch/)
+    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai'])
   })
 
   it('keeps serving its routes when a settings-born route collides with another adapter', async () => {

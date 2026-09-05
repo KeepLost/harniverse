@@ -121,10 +121,157 @@ describe('draft-provider model discovery', () => {
 
     expect(models).toEqual([
       { id: 'acme-large', name: 'Acme Large', contextWindow: 65_536, maxTokens: 4096 },
-      { id: 'acme-small' },
+      { id: 'acme-small', name: 'acme-small' },
     ])
     expect(server.paths).toEqual(['/v1/models'])
     expect(server.headers[0]?.authorization).toBe('Bearer probe-key')
+    expect(server.headers[0]?.['user-agent']).toBe(userAgent())
+  })
+
+  it('sends exactly one OpenAI-shaped probe to an endpoint no declaration names', async () => {
+    const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'm' }] }) })
+    const ctx = await harness()
+
+    await ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url, apiKey: 'probe-key' })
+
+    // One request, the OpenAI listing shape: an undeclared endpoint is never
+    // re-asked over a protocol nobody declared.
+    expect(server.paths).toEqual(['/models'])
+    expect(server.headers).toHaveLength(1)
+    expect(server.headers[0]?.authorization).toBe('Bearer probe-key')
+    expect(server.headers[0]?.['x-api-key']).toBeUndefined()
+    expect(server.headers[0]?.['anthropic-version']).toBeUndefined()
+  })
+
+  it('uses Anthropic model-listing paths, headers, and capacity fields', async () => {
+    const server = await listingServer({
+      body: JSON.stringify({
+        data: [
+          {
+            id: 'claude-sonnet',
+            display_name: 'Claude Sonnet',
+            max_input_tokens: 200_000,
+            max_tokens: 64_000,
+          },
+        ],
+      }),
+    })
+    const ctx = await harness()
+
+    const rootModels = await ctx.llm.discoverModels('llm-pi-ai', {
+      baseURL: server.url,
+      api: 'anthropic-messages',
+      apiKey: 'anthropic-key',
+    })
+    const versionedModels = await ctx.llm.discoverModels('llm-pi-ai', {
+      baseURL: `${server.url}/v1`,
+      api: 'anthropic-messages',
+      apiKey: 'anthropic-key',
+    })
+    await ctx.llm.discoverModels('llm-pi-ai', {
+      baseURL: server.url,
+      api: 'anthropic-messages',
+    })
+
+    expect(rootModels).toEqual([
+      { id: 'claude-sonnet', name: 'Claude Sonnet', contextWindow: 200_000, maxTokens: 64_000 },
+    ])
+    expect(versionedModels).toEqual(rootModels)
+    expect(server.paths).toEqual(['/v1/models?limit=1000', '/v1/models?limit=1000', '/v1/models?limit=1000'])
+    expect(server.headers.map(headers => headers['x-api-key']))
+      .toEqual(['anthropic-key', 'anthropic-key', undefined])
+    expect(server.headers.map(headers => headers['anthropic-version']))
+      .toEqual(['2023-06-01', '2023-06-01', '2023-06-01'])
+    expect(server.headers.map(headers => headers.authorization)).toEqual([undefined, undefined, undefined])
+    expect(server.headers.map(headers => headers['user-agent'])).toEqual([userAgent(), userAgent(), userAgent()])
+  })
+
+  it('interrogates a profile-declared Anthropic route natively without a draft protocol', async () => {
+    const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'claude-test' }] }) })
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    process.env['ACME_ANTHROPIC_KEY'] = 'stored-anthropic-key'
+    touchedEnv.push('ACME_ANTHROPIC_KEY')
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'acme-anthropic': {
+          apiKeyEnv: 'ACME_ANTHROPIC_KEY',
+          api: 'anthropic-messages',
+          baseURL: server.url,
+          models: [{ id: 'claude-test' }],
+        },
+      },
+    })
+
+    await ctx.llm.discoverModels('llm-pi-ai', { provider: 'acme-anthropic', baseURL: server.url })
+
+    expect(server.paths).toEqual(['/v1/models?limit=1000'])
+    expect(server.headers[0]?.['x-api-key']).toBe('stored-anthropic-key')
+    expect(server.headers[0]?.['anthropic-version']).toBe('2023-06-01')
+    expect(server.headers[0]?.authorization).toBeUndefined()
+  })
+
+  it('reads an enriched models map using route ids and nested capacities', async () => {
+    const server = await listingServer({
+      body: JSON.stringify({
+        models: {
+          'lobechat-deepseek-chat': {
+            id: 'deepseek/deepseek-v4-flash',
+            name: 'DeepSeek V4 Flash',
+            limit: { context: 1_048_576, output: 384_000 },
+          },
+          'bare-route': {},
+          '': { id: 'nested-id', display_name: 'Nested fallback' },
+          'malformed-route': null,
+          'primitive-route': 'not a model record',
+        },
+      }),
+    })
+    const ctx = await harness()
+
+    expect(await ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url })).toEqual([
+      {
+        id: 'lobechat-deepseek-chat',
+        name: 'DeepSeek V4 Flash',
+        contextWindow: 1_048_576,
+        maxTokens: 384_000,
+      },
+      { id: 'bare-route', name: 'bare-route' },
+      { id: 'nested-id', name: 'Nested fallback' },
+    ])
+  })
+
+  it('prefers the standard data array when both supported formats are present', async () => {
+    const server = await listingServer({
+      body: JSON.stringify({
+        data: [{ id: 'standard' }],
+        models: { enriched: { name: 'Enriched' } },
+      }),
+    })
+    const ctx = await harness()
+
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url }))
+      .resolves.toEqual([{ id: 'standard', name: 'standard' }])
+  })
+
+  it('sends a configured route\'s deployment headers on the probe', async () => {
+    const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'm' }] }) })
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'acme-gateway': {
+          api: 'openai-completions',
+          baseURL: server.url,
+          headers: { 'x-company-code': 'private-tenant' },
+          models: [{ id: 'acme-large' }],
+        },
+      },
+    })
+
+    await ctx.llm.discoverModels('llm-pi-ai', { provider: 'acme-gateway', baseURL: server.url })
+
+    expect(server.headers[0]?.['x-company-code']).toBe('private-tenant')
     expect(server.headers[0]?.['user-agent']).toBe(userAgent())
   })
 
@@ -206,7 +353,10 @@ describe('draft-provider model discovery', () => {
     const ctx = await harness()
 
     expect(await ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url }))
-      .toEqual([{ id: 'good' }, { id: 'zero-capacity' }])
+      .toEqual([
+        { id: 'good', name: 'good' },
+        { id: 'zero-capacity', name: 'zero-capacity' },
+      ])
   })
 
   it('points at the credential for a rejected one, and only then', async () => {
@@ -230,7 +380,7 @@ describe('draft-provider model discovery', () => {
     const ctx = await harness()
 
     await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url }))
-      .rejects.toThrow(/no "data" array; enter this provider's models by hand/)
+      .rejects.toThrow(/neither a "data" array nor a "models" object/)
 
     const broken = await listingServer({ body: 'not json at all' })
     await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: broken.url }))
@@ -260,7 +410,7 @@ describe('draft-provider model discovery', () => {
       .rejects.toMatchObject({ code: 'DISCOVERY_FAILED' })
   })
 
-  it.each(['anthropic-messages', 'azure-openai-responses', 'openai-codex-responses', 'google-generative-ai'])(
+  it.each(['azure-openai-responses', 'openai-codex-responses', 'google-generative-ai'])(
     'says it cannot interrogate %s rather than guessing a shape',
     async (api) => {
       // Azure authenticates with an `api-key` header and an `api-version`

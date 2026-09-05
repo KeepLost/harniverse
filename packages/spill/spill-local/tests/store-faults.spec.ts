@@ -1,12 +1,13 @@
 /**
  * Fault-injection coverage for the spill store's defensive filesystem checks:
  * divergent lstat observations (races), ownership and platform-alias handling,
- * directory-admission failures, symlink escapes that only realpath can catch,
+ * directory-admission failures, the exclusive-open retry after a raced
+ * session-directory prune, symlink escapes that only realpath can catch,
  * and degenerate file-handle reads. Mocks stay passthrough unless scripted.
  */
 
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { localLocator, readTextFile, saveTextFile, sessionDir } from '../src/store.ts'
@@ -32,6 +33,7 @@ const script = vi.hoisted(() => ({
   enoentOnce: undefined as string | undefined,
   mkdirError: undefined as { pathIncludes: string; error: NodeJS.ErrnoException } | undefined,
   openHandle: undefined as object | undefined,
+  openErrorOnce: undefined as { pathIncludes: string; error: NodeJS.ErrnoException } | undefined,
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -84,6 +86,11 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       return await actual.mkdir(...args)
     },
     open: async (...args: Parameters<typeof actual.open>) => {
+      if (script.openErrorOnce !== undefined && String(args[0]).includes(script.openErrorOnce.pathIncludes)) {
+        const failure = script.openErrorOnce
+        script.openErrorOnce = undefined
+        throw failure.error
+      }
       if (script.openHandle !== undefined) return script.openHandle as never
       return await actual.open(...args)
     },
@@ -113,6 +120,7 @@ afterEach(() => {
   script.enoentOnce = undefined
   script.mkdirError = undefined
   script.openHandle = undefined
+  script.openErrorOnce = undefined
   if (platform !== undefined) Object.defineProperty(process, 'platform', platform)
   if (getuidDescriptor !== undefined) Object.defineProperty(process, 'getuid', getuidDescriptor)
   else delete (process as Partial<NodeJS.Process>).getuid
@@ -180,6 +188,20 @@ describe('spill store fault injection', () => {
     script.enoentOnce = nested
     const saved = await saveTextFile({ signal: TEST_SIGNAL, root: nested, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'x' })
     expect(saved.path.startsWith(nested)).toBe(true)
+  })
+
+  it('recreates the session directory pruned between validation and the exclusive open', async () => {
+    // The startup cleanup sweep removes an emptied session directory; an
+    // exclusive open that raced that prune gets ENOENT and must retry.
+    script.openErrorOnce = { pathIncludes: 'session-', error: ioError('ENOENT') }
+    const saved = await saveTextFile({ signal: TEST_SIGNAL, root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'x' })
+    expect(readFileSync(saved.path, 'utf8')).toBe('x')
+  })
+
+  it('propagates a non-ENOENT failure from the exclusive open', async () => {
+    script.openErrorOnce = { pathIncludes: 'session-', error: ioError('EACCES') }
+    await expect(saveTextFile({ signal: TEST_SIGNAL, root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'x' }))
+      .rejects.toThrow('simulated EACCES')
   })
 
   it('propagates a non-EEXIST failure while creating a path component', async () => {
