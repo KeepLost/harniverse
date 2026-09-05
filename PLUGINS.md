@@ -198,6 +198,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 
 | Commit | Plugin-level effect |
 |---|---|
+| `de672a15e2` | Generates the committed API catalog (`docs/api-catalog.json`) from the compile-locked unary/carrier/error registries, wires `verify-api-catalog` into doc-sync, locks `RPC_ERROR_CODES` to the error-details map, and replaces the host `FrameQueue` and client WebSocket inbox `Array.shift` backing with ring buffers. |
 | `ae7c9b6d5b` | Makes the shipped model-provider composition vendor-neutral and removes the DeepSeek-specific onboarding occupant. |
 | `e054be808c` | Adds explicit Agent/Session close, cold deletion, resumable event cursors, projection-cache deletion, and workspace cleanup across existing plugins. |
 | `27f702fac1` | Adds explicit all-interface Web startup acknowledgement; later superseded by authentication and TLS requirements. |
