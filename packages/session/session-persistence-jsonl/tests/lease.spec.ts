@@ -106,11 +106,11 @@ async function freshRoot(): Promise<string> {
   return root
 }
 
-async function mount(root: string): Promise<SessionPersistence> {
+async function mount(root: string): Promise<JsonlSessionPersistence> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
-  const backend = ctx.sessionPersistence
+  const backend = ctx.sessionPersistence as JsonlSessionPersistence
   mounts.push({ ctx, backend })
   return backend
 }

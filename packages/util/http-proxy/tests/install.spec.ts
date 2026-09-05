@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process'
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https'
 import { createServer, type Server } from 'node:http'
-import { connect, type AddressInfo, type Socket } from 'node:net'
+import { connect, type AddressInfo } from 'node:net'
+import type { Duplex } from 'node:stream'
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeAll, afterAll, describe, expect, it } from 'vitest'
 import {
@@ -30,7 +31,7 @@ function setDispatcher(value: unknown): void {
 }
 
 /** Sockets the fake proxy tunnelled; destroyed at teardown so server.close need not wait on them. */
-const tunneled = new Set<Socket>()
+const tunneled = new Set<Duplex>()
 
 /** Absolute-form request targets the fake proxy received; a populated entry proves a request was tunnelled. */
 let proxied: string[] = []
