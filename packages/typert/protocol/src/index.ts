@@ -1,6 +1,7 @@
 /**
- * Remote decorators and explicit Gateway bindings backed only by private
- * module state. Strict reflection remains a Typert compiler responsibility.
+ * Remote decorators and explicit Gateway bindings backed by versioned
+ * descriptors carried on decorated class prototypes. Strict reflection
+ * remains a Typert compiler responsibility.
  * @module @deepseek-ai/dsh-typert-protocol
  */
 
@@ -133,7 +134,16 @@ interface StoredRemoteMethodMarker {
   readonly requiredCapability: AuthenticationCapability
 }
 
-const markers = new WeakMap<object, Map<string, StoredRemoteMethodMarker>>()
+interface StoredRemoteMethod extends StoredRemoteMethodMarker {
+  readonly method: string
+}
+
+interface RemoteMethodDescriptorV1 {
+  readonly version: 1
+  readonly methods: readonly StoredRemoteMethod[]
+}
+
+const REMOTE_METHOD_DESCRIPTOR = '@deepseek-ai/dsh-typert-protocol/remote-methods'
 
 /**
  * Bind one visible Service field to a Cordis key and Remote namespace.
@@ -189,7 +199,7 @@ export function Remote(options: RemoteOptions): RemoteMethodDecorator {
  * Create a decorator for a method resolved from one Remote Scope.
  * @param key - scope key declared through the Context map.
  * @param options - required capability and optional exported method alias.
- * @returns a standard method decorator that records only private module state.
+ * @returns a standard method decorator that records a versioned prototype descriptor.
  */
 export function RemoteScope(
   key: Extract<keyof TypertContextMap, string>,
@@ -206,15 +216,33 @@ export function RemoteScope(
 }
 
 /**
- * Read Remote markers attached to a live Service by decorator initializers.
- * The returned snapshot cannot mutate the private marker table.
+ * Read Remote markers attached to a live Service's class prototype.
+ * The returned snapshot cannot mutate the stored descriptor.
  * @param service - live Service instance.
  * @returns markers in class declaration order.
  */
 export function remoteMethods(service: object): readonly RemoteMethodMarker[] {
   const prototype = Object.getPrototypeOf(service) as object | null
   if (prototype === null) return []
-  return [...(markers.get(prototype) ?? [])].map(([method, marker]) => ({ method, ...marker }))
+  return (readRemoteMethodDescriptor(prototype)?.methods ?? []).map(marker => ({ ...marker }))
+}
+
+function readRemoteMethodDescriptor(prototype: object): RemoteMethodDescriptorV1 | undefined {
+  const property = Object.getOwnPropertyDescriptor(prototype, REMOTE_METHOD_DESCRIPTOR)
+  if (property === undefined) return undefined
+  const descriptor: unknown = property.value
+  if (descriptor === null || typeof descriptor !== 'object') {
+    throw new TypeError('typert-protocol: Remote method descriptor must be an object')
+  }
+  const version: unknown = Reflect.get(descriptor, 'version')
+  if (version !== 1) {
+    throw new TypeError(`typert-protocol: unsupported Remote method descriptor version ${String(version)}`)
+  }
+  const methods: unknown = Reflect.get(descriptor, 'methods')
+  if (!Array.isArray(methods)) {
+    throw new TypeError('typert-protocol: Remote method descriptor methods must be an array')
+  }
+  return descriptor as RemoteMethodDescriptorV1
 }
 
 function addMarkerInitializer<This extends object>(
@@ -241,24 +269,27 @@ function mark(
   invocation: RemoteInvocationMarker,
   options: RemoteOptions,
 ): void {
-  let table = markers.get(prototype)
-  if (table === undefined) {
-    table = new Map()
-    markers.set(prototype, table)
-  }
-  const marker: StoredRemoteMethodMarker = {
+  const descriptor = readRemoteMethodDescriptor(prototype)
+  const marker: StoredRemoteMethod = Object.freeze({
+    method,
     ...(options.exportName === undefined || options.exportName === method ? {} : { exportName: options.exportName }),
     invocation: Object.freeze(invocation),
     requiredCapability: options.requiredCapability,
-  }
-  const current = table.get(method)
+  })
+  const current = descriptor?.methods.find(candidate => candidate.method === method)
   if (current !== undefined) {
     if (current.exportName === marker.exportName
       && current.requiredCapability === marker.requiredCapability
       && sameInvocation(current.invocation, invocation)) return
     throw new Error(`typert-protocol: Remote method "${method}" has conflicting invocation markers`)
   }
-  table.set(method, Object.freeze(marker))
+  Object.defineProperty(prototype, REMOTE_METHOD_DESCRIPTOR, {
+    configurable: true,
+    value: Object.freeze({
+      version: 1,
+      methods: Object.freeze([...(descriptor?.methods ?? []), marker]),
+    } satisfies RemoteMethodDescriptorV1),
+  })
 }
 
 function validateRemoteOptions(options: RemoteOptions): void {
