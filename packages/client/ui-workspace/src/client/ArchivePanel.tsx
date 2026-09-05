@@ -237,8 +237,8 @@ export function ArchivePanel({
         onClose={closePreview}
         title={previewItem?.displayTitle ?? t('archive.previewTitle')}
         closeLabel={t('close')}
-        {...css.previewDialog === undefined ? {} : { className: css.previewDialog }}
-        {...css.previewContent === undefined ? {} : { contentClassName: css.previewContent }}
+        className={css.previewDialog as string}
+        contentClassName={css.previewContent as string}
         {...previewId === null ? {} : {
           footer: (
             <div className={css.previewFooter}>
