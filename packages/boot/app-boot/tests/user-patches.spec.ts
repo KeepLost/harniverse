@@ -330,6 +330,9 @@ describe('boot with user patches', () => {
       compose: userPatches => [...basePatches, ...userPatches],
     })
     try {
+      // A write inside chokidar's post-ready polling-baseline window never
+      // becomes a stat change; settle first so the watch is live.
+      await settleChokidarChangeThrottle()
       writeFileSync(filename, '- id: noop\n  config:\n    value: live\n')
       await eventually(() => (entryConfig(ctx, 'noop') as { value?: string }).value === 'live', 'user patch addition was not applied')
 
@@ -360,6 +363,7 @@ describe('boot with user patches', () => {
       await dispose()
       const disposeDefault = await watchUserPatches(ctx, { binName: NAME, filename })
       try {
+        await settleChokidarChangeThrottle()
         writeFileSync(filename, '- id: noop\n  config:\n    value: identity\n')
         await eventually(() => (entryConfig(ctx, 'noop') as { value?: string }).value === 'identity', 'default-compose user patch was not applied')
       } finally {

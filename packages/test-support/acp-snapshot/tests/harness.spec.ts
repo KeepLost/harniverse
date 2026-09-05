@@ -646,7 +646,10 @@ describe('runScenario', () => {
     const { mkdir } = await import('node:fs/promises')
     await mkdir(workspaceDir, { recursive: true })
     await writeFile(join(workspaceDir, 'started.txt'), '')
-    fsControl.harvestHang = new Promise<void>(resolve => setTimeout(resolve, 300))
+    // A never-settling first poll keeps vi.waitFor's own timeout as the only
+    // settlement source, so the harness description replaces the generic
+    // "Timed out in waitFor!" even when a saturated runner delays the timer.
+    fsControl.harvestHang = new Promise<void>(() => {})
     try {
       await expect(runScenario(
         {
