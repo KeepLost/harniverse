@@ -1,0 +1,501 @@
+{
+  "version": 1,
+  "unary": [
+    {
+      "method": "api.describe",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "operation.get",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "session.list",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "session.search",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "session.create",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "session.history",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "session.status",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "session.workStatus",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "session.models",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "session.selectModel",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "session.selectModelTarget",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "session.selectModelProfile",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "session.rename",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "session.fork",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "session.prompt",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "session.attachment",
+      "requiredCapability": "harniverse.operate",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "session.updateQueue",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "session.cancel",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "session.close",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "session.delete",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "subagent.list",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "subagent.profiles",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "subagent.history",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "subagent.prompt",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "subagent.interrupt",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "host.describe",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "host.pickDirectory",
+      "requiredCapability": "harniverse.administer",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "host.listDirectory",
+      "requiredCapability": "harniverse.administer",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "host.createDirectory",
+      "requiredCapability": "harniverse.administer",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "host.openPath",
+      "requiredCapability": "harniverse.administer",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.list",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.create",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.rename",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.delete",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.insertBefore",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.insertSessionBefore",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.archiveSession",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.unarchiveSession",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.files.list",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.files.search",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.files.read",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.files.readBinary",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.git.status",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.git.commits",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "workspace.git.diff",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "skill.list",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "agentPreset.list",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "agentPreset.read",
+      "requiredCapability": "harniverse.administer",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "agentPreset.copy",
+      "requiredCapability": "harniverse.administer",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "agentPreset.openDocument",
+      "requiredCapability": "harniverse.administer",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "agentPreset.remove",
+      "requiredCapability": "harniverse.administer",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "goal.create",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "goal.edit",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "goal.pause",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "goal.resume",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "goal.complete",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "goal.clear",
+      "requiredCapability": "harniverse.operate",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "settings.describe",
+      "requiredCapability": "harniverse.administer",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "settings.openDocument",
+      "requiredCapability": "harniverse.administer",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "settings.update",
+      "requiredCapability": "harniverse.administer",
+      "effect": "mutate",
+      "stability": "deprecated",
+      "replacement": "settings.mutate"
+    },
+    {
+      "method": "settings.replace",
+      "requiredCapability": "harniverse.administer",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "settings.mutate",
+      "requiredCapability": "harniverse.administer",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "credentials.describe",
+      "requiredCapability": "harniverse.administer",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "credentials.set",
+      "requiredCapability": "harniverse.administer",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "credentials.unset",
+      "requiredCapability": "harniverse.administer",
+      "effect": "mutate",
+      "stability": "stable"
+    },
+    {
+      "method": "llm.providers",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "llm.models",
+      "requiredCapability": "harniverse.observe",
+      "effect": "read",
+      "stability": "stable"
+    },
+    {
+      "method": "llm.discoverModels",
+      "requiredCapability": "harniverse.administer",
+      "effect": "mutate",
+      "stability": "stable"
+    }
+  ],
+  "carrier": [
+    {
+      "endpoint": "connection.authenticated",
+      "kind": "transport-control",
+      "method": "GET",
+      "requiredCapability": "authenticated"
+    },
+    {
+      "endpoint": "events.mux",
+      "kind": "stream",
+      "method": "POST",
+      "requiredCapability": "harniverse.observe"
+    },
+    {
+      "endpoint": "events.host",
+      "kind": "stream",
+      "method": "POST",
+      "requiredCapability": "harniverse.observe"
+    },
+    {
+      "endpoint": "session.export",
+      "kind": "download",
+      "method": "GET",
+      "requiredCapability": "harniverse.observe"
+    },
+    {
+      "endpoint": "respond",
+      "kind": "client-response",
+      "method": "POST",
+      "requiredCapability": "harniverse.operate"
+    }
+  ],
+  "errorCodes": [
+    "authentication-principal-mismatch",
+    "bad-request",
+    "cancelled",
+    "session-not-found",
+    "model-unavailable",
+    "model-not-allowed",
+    "session-conflict",
+    "session-has-children",
+    "invalid-time-zone",
+    "workspace-attach-failed",
+    "workspace-not-found",
+    "workspace-invalid-path",
+    "workspace-name-conflict",
+    "workspace-move-invalid",
+    "workspace-path-invalid",
+    "workspace-entry-not-found",
+    "workspace-entry-not-readable",
+    "workspace-entry-type-invalid",
+    "workspace-file-binary",
+    "workspace-file-preview-unsupported",
+    "workspace-file-too-large",
+    "workspace-git-not-repository",
+    "workspace-git-failed",
+    "directory-unreadable",
+    "directory-exists",
+    "directory-create-failed",
+    "directory-picker-unavailable",
+    "agent-preset-read-only",
+    "agent-preset-conflict",
+    "agent-preset-not-found",
+    "agent-preset-invalid",
+    "agent-busy",
+    "attachment-error",
+    "queue-item-not-found",
+    "steer-unavailable",
+    "command-error",
+    "unknown-command",
+    "settings-rejected",
+    "settings-not-exposed",
+    "settings-conflict",
+    "credential-rejected",
+    "model-discovery-failed",
+    "title-invalid",
+    "fork-unavailable",
+    "subagent-parent-unavailable",
+    "subagent-not-found",
+    "subagent-catalog-diagnostic",
+    "subagent-not-resumable",
+    "subagent-unauthorized",
+    "subagent-delivery-unavailable",
+    "internal",
+    "idempotency-key-reused",
+    "operation-not-found"
+  ]
+}

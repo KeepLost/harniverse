@@ -243,6 +243,19 @@ export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 
 }
 
 /**
+ * Required effect capability for the carrier-owned endpoints that are not
+ * unary methods: the two SSE streams, the GET session-log download, and the
+ * client-response carrier. `connection.authenticated` precedes authentication
+ * and is therefore absent (it is transport control, not a business surface).
+ */
+export const CARRIER_ENDPOINT_CAPABILITIES: Readonly<Record<string, AuthenticationCapability>> = {
+  'events.mux': 'harniverse.observe',
+  'events.host': 'harniverse.observe',
+  'session.export': 'harniverse.observe',
+  'respond': 'harniverse.operate',
+}
+
+/**
  * Test whether one unary method requires an expected-principal precondition.
  * @param method - unary method name.
  * @returns whether the method mutates Host or durable application state.
@@ -260,11 +273,7 @@ export function legacyRpcCapability(endpoint: string): AuthenticationCapability 
   if (Object.hasOwn(RPC_METHOD_CAPABILITIES, endpoint)) {
     return RPC_METHOD_CAPABILITIES[endpoint as keyof RpcMethodMap]
   }
-  if (endpoint === 'events.mux' || endpoint === 'events.host' || endpoint === 'session.export') {
-    return 'harniverse.observe'
-  }
-  if (endpoint === 'respond') return 'harniverse.operate'
-  return undefined
+  return CARRIER_ENDPOINT_CAPABILITIES[endpoint]
 }
 
 /** Public metadata for contract discovery, kept derived from the two policy maps above. */

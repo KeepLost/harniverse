@@ -10,6 +10,63 @@ import { serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.sche
 import { HOST_EVENTS_PATH, MUX_EVENTS_PATH } from '../api-path.ts'
 
 type SocketItem<F> = { kind: 'frame'; envelope: RpcRequest<F> } | { kind: 'end' }
+
+/**
+ * Ring-backed delivery queue for one WebSocket reader: amortized O(1) push and
+ * take with immediate slot clearing, where an array's shift would cost O(n)
+ * per frame under bursty event streams. Host twin: api-proxy's FrameQueue ring.
+ * Exported for the spec that owns its ordering and growth contract.
+ */
+export class SocketRing<F> {
+  private slots: (SocketItem<F> | undefined)[] = []
+  private head = 0
+  private count = 0
+
+  /** Frames currently queued. */
+  get length(): number {
+    return this.count
+  }
+
+  /** Enqueue one frame at the tail, growing the ring only when capacity is exhausted.
+   * @param item - frame or end marker to queue.
+   */
+  push(item: SocketItem<F>): void {
+    if (this.count === this.slots.length) {
+      if (this.head === 0) {
+        this.slots.push(item)
+        this.count += 1
+        return
+      }
+      const grown = new Array<SocketItem<F> | undefined>(Math.max(this.slots.length * 2, 4))
+      for (let index = 0; index < this.count; index += 1) {
+        grown[index] = this.slots[(this.head + index) % this.slots.length]
+      }
+      grown[this.count] = item
+      this.slots = grown
+      this.head = 0
+      this.count += 1
+      return
+    }
+    this.slots[(this.head + this.count) % this.slots.length] = item
+    this.count += 1
+  }
+
+  /** Dequeue the oldest frame, releasing every slot when the ring drains to empty.
+   * @returns the oldest queued frame, or undefined when the ring is empty.
+   */
+  take(): SocketItem<F> | undefined {
+    if (this.count === 0) return undefined
+    const item = this.slots[this.head] as SocketItem<F>
+    this.slots[this.head] = undefined
+    this.head = (this.head + 1) % this.slots.length
+    this.count -= 1
+    if (this.count === 0) {
+      this.head = 0
+      this.slots.length = 0
+    }
+    return item
+  }
+}
 type Parser<F> = { parse(value: unknown): F }
 
 /** Browser platform subclass: unary/respond use fetch; mux/host use downlink-only WebSockets. */
@@ -50,7 +107,7 @@ export class WebApiClient extends AbstractApiClient {
     const url = new URL(path, this.resolveBase())
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     const socket = new WebSocket(url)
-    const inbox: SocketItem<F>[] = []
+    const inbox = new SocketRing<F>()
     let wake: (() => void) | undefined
     const enqueue = (item: SocketItem<F>): void => {
       inbox.push(item)
@@ -88,7 +145,7 @@ export class WebApiClient extends AbstractApiClient {
     try {
       while (true) {
         while (inbox.length > 0) {
-          const item = inbox.shift() as SocketItem<F>
+          const item = inbox.take() as SocketItem<F>
           if (item.kind === 'end') return
           yield item.envelope
         }

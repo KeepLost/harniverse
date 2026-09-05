@@ -134,6 +134,75 @@ export interface RpcErrorDetailsMap {
 export type RpcErrorCode = keyof RpcErrorDetailsMap
 
 /**
+ * Runtime registry of every error code, mirroring {@link RpcErrorDetailsMap}
+ * for catalog generation and artifact locking. The assignment below fails to
+ * compile when a map key is missing here; the catalog spec locks duplicates
+ * and {@link rpcErrorSchema} branch parity at runtime.
+ */
+export const RPC_ERROR_CODES = [
+  'authentication-principal-mismatch',
+  'bad-request',
+  'cancelled',
+  'session-not-found',
+  'model-unavailable',
+  'model-not-allowed',
+  'session-conflict',
+  'session-has-children',
+  'invalid-time-zone',
+  'workspace-attach-failed',
+  'workspace-not-found',
+  'workspace-invalid-path',
+  'workspace-name-conflict',
+  'workspace-move-invalid',
+  'workspace-path-invalid',
+  'workspace-entry-not-found',
+  'workspace-entry-not-readable',
+  'workspace-entry-type-invalid',
+  'workspace-file-binary',
+  'workspace-file-preview-unsupported',
+  'workspace-file-too-large',
+  'workspace-git-not-repository',
+  'workspace-git-failed',
+  'directory-unreadable',
+  'directory-exists',
+  'directory-create-failed',
+  'directory-picker-unavailable',
+  'agent-preset-read-only',
+  'agent-preset-conflict',
+  'agent-preset-not-found',
+  'agent-preset-invalid',
+  'agent-busy',
+  'attachment-error',
+  'queue-item-not-found',
+  'steer-unavailable',
+  'command-error',
+  'unknown-command',
+  'settings-rejected',
+  'settings-not-exposed',
+  'settings-conflict',
+  'credential-rejected',
+  'model-discovery-failed',
+  'title-invalid',
+  'fork-unavailable',
+  'subagent-parent-unavailable',
+  'subagent-not-found',
+  'subagent-catalog-diagnostic',
+  'subagent-not-resumable',
+  'subagent-unauthorized',
+  'subagent-delivery-unavailable',
+  'internal',
+  'idempotency-key-reused',
+  'operation-not-found',
+] as const satisfies readonly RpcErrorCode[]
+
+/** Compile-time exhaustiveness: a missing registry entry names itself here. */
+type AssertErrorCodesExhaustive = Exclude<RpcErrorCode, (typeof RPC_ERROR_CODES)[number]> extends never
+  ? true
+  : ['RpcErrorDetailsMap key missing from RPC_ERROR_CODES: ', Exclude<RpcErrorCode, (typeof RPC_ERROR_CODES)[number]>]
+const assertErrorCodesExhaustive: AssertErrorCodesExhaustive = true
+void assertErrorCodesExhaustive
+
+/**
  * Distributive union expanded from the map: code is the discriminant, so
  * `switch (error.code)` narrows details. details is required (internal uses an explicit {}).
  */

@@ -521,9 +521,59 @@ function presetFailure(request: RpcRequest<unknown>, error: unknown): RpcRespons
   return undefined
 }
 
+/**
+ * Bounded ring buffer: amortized O(1) push and take with immediate slot
+ * clearing, replacing the array-with-shift backing the stream queues previously
+ * paid O(n) per frame for. Capacity grows only by doubling from a re-linearized
+ * copy; draining to empty releases every slot.
+ */
+class RingSlots<F> {
+  private slots: (F | undefined)[] = []
+  private head = 0
+  private count = 0
+
+  get length(): number {
+    return this.count
+  }
+
+  push(item: F): void {
+    if (this.count === this.slots.length) {
+      if (this.head === 0) {
+        this.slots.push(item)
+        this.count += 1
+        return
+      }
+      const grown = new Array<F | undefined>(Math.max(this.slots.length * 2, 4))
+      for (let index = 0; index < this.count; index += 1) {
+        grown[index] = this.slots[(this.head + index) % this.slots.length]
+      }
+      grown[this.count] = item
+      this.slots = grown
+      this.head = 0
+      this.count += 1
+      return
+    }
+    this.slots[(this.head + this.count) % this.slots.length] = item
+    this.count += 1
+  }
+
+  take(): F | undefined {
+    if (this.count === 0) return undefined
+    const item = this.slots[this.head] as F
+    this.slots[this.head] = undefined
+    this.head = (this.head + 1) % this.slots.length
+    this.count -= 1
+    if (this.count === 0) {
+      this.head = 0
+      this.slots.length = 0
+    }
+    return item
+  }
+}
+
 /** Simple async queue: core callbacks push, the AsyncIterable pulls; abort/return cleans up. */
 class FrameQueue<F> {
-  private buffer: F[] = []
+  private buffer = new RingSlots<F>()
   private initial: Iterable<F> | undefined
   private waiter: (() => void) | undefined
   private done = false
@@ -565,7 +615,7 @@ class FrameQueue<F> {
       }
       this.initial = undefined
       while (true) {
-        while (this.buffer.length > 0) yield this.buffer.shift() as F
+        while (this.buffer.length > 0) yield this.buffer.take() as F
         if (this.done || signal.aborted) {
           if (!signal.aborted && this.failure !== undefined) throw this.failure
           return
