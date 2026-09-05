@@ -243,7 +243,8 @@ export function CapabilityCompositionTab(props: CapabilityCompositionTabProps): 
   if (state.status === 'idle' || state.status === 'loading' && state.catalog === null) {
     return <p className={css.status}>{props.t('loading')}</p>
   }
-  if (state.status === 'error' && state.catalog === null) {
+  const catalog = state.catalog
+  if (catalog === null) {
     return (
       <div className={css.failure}>
         <p role="alert">{props.t('error')}</p>
@@ -251,9 +252,6 @@ export function CapabilityCompositionTab(props: CapabilityCompositionTabProps): 
       </div>
     )
   }
-
-  const catalog = state.catalog
-  if (catalog === null) return null
   const busy = state.planning || state.applying || state.status === 'loading'
   const entries = catalog.entries.filter((entry) => {
     if (kind !== 'all' && entry.kind !== kind) return false

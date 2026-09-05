@@ -7,6 +7,7 @@ import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings-models/client'
 import { ModelsSection } from '../src/client/ModelsSection.tsx'
+import { ModelPolicySection } from '../src/client/ModelPolicySection.tsx'
 import { WelcomeNotice } from '../src/client/WelcomeNotice.tsx'
 
 // The service reads its initial locale from the browser; these specs assert
@@ -120,6 +121,19 @@ describe('ui-settings-models apply', () => {
     b.locale.setLocale('zh')
     expect(resolveSlotLabel(b.slots.entries('settings.section')[0]!.options.label)).toBe('模型')
     expect(injected().t('deleteTitle')).toBe('删除 {provider}？')
+  })
+
+  it('registers the model policy page with its own locale-following label', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = b.slots.entries('settings.section')[1]!
+    expect(entry.component).toBe(ModelPolicySection)
+    expect(entry.options).toMatchObject({ id: 'model-policy', order: 11 })
+    expect(resolveSlotLabel(entry.options.label)).toBe('模型策略')
+    b.locale.setLocale('en')
+    expect(resolveSlotLabel(entry.options.label)).toBe('Model Policy')
+    b.locale.setLocale('zh')
   })
 
   it('locale change while the slot is undeclared stays a no-op', async () => {

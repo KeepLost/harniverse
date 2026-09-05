@@ -45,6 +45,28 @@ function authentication() {
   }
 }
 
+/** Grant identity source whose principal can move between connection generations. */
+function grantAuthentication(initial: { grantId: string; grantRevision: number }) {
+  const listeners = new Set<() => void>()
+  let identity: { kind: 'grant'; grantId: string; grantRevision: number } | undefined = { kind: 'grant', ...initial }
+  return {
+    getSnapshot: () => identity,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+    validate: () => true,
+    become(next: { grantId: string; grantRevision: number }): void {
+      identity = { kind: 'grant', ...next }
+      for (const listener of listeners) listener()
+    },
+  }
+}
+
+function grant(grantId: string, grantRevision: number) {
+  return { kind: 'grant' as const, grantId, grantRevision }
+}
+
 describe('SettingsDescribeMirror', () => {
   it('refuses a cross-tab response from a different cookie principal and clears synchronously', async () => {
     const listeners = new Set<() => void>()
@@ -98,6 +120,42 @@ describe('SettingsDescribeMirror', () => {
 
     expect(describeCall).toHaveBeenCalledTimes(2)
     expect(mirror.namespace('theme')?.revision).toBe(2)
+  })
+
+  it('joins the pending describe when asked to ensure while one is crossing the wire', async () => {
+    const gate = deferred<RpcResponse<SettingsDescribeView>>()
+    const describeCall = vi.fn()
+      .mockReturnValueOnce(gate.promise)
+      .mockResolvedValue(described([view('theme', 1)]))
+    const mirror = new SettingsDescribeMirror({ settings: { describe: describeCall } } as never, authentication())
+
+    const loading = mirror.load()
+    const ensured = mirror.ensure()
+
+    expect(ensured).toBe(loading)
+    gate.resolve(described([view('theme', 1)]))
+    await Promise.all([loading, ensured])
+    expect(describeCall).toHaveBeenCalledOnce()
+  })
+
+  it('appends a written namespace the held view did not carry', async () => {
+    const describeCall = vi.fn().mockResolvedValueOnce(described([view('theme', 1)]))
+    const mirror = new SettingsDescribeMirror({ settings: { describe: describeCall } } as never, authentication())
+    await mirror.load()
+
+    expect(mirror.acceptView(view('locale', 4), mirror.writeFence(), { kind: 'bypass' })).toBe(true)
+
+    expect(mirror.namespace('theme')).toBeDefined()
+    expect(mirror.namespace('locale')?.revision).toBe(4)
+  })
+
+  it('records a transport failure thrown as a non-error', async () => {
+    const describeCall = vi.fn().mockRejectedValueOnce('weird transport failure')
+    const mirror = new SettingsDescribeMirror({ settings: { describe: describeCall } } as never, authentication())
+
+    await mirror.load()
+
+    expect(mirror.getSnapshot()).toEqual({ status: 'idle', view: undefined, error: 'weird transport failure' })
   })
 
   it('keeps a held authorized view across an ordinary refresh failure', async () => {
@@ -173,6 +231,59 @@ describe('SettingsDescribeMirror', () => {
 
     expect(mirror.acceptView(view('theme', 1), mirror.writeFence(), { kind: 'bypass' })).toBe(true)
 
+    expect(mirror.getSnapshot()).toEqual({ status: 'idle', view: undefined, error: null })
+  })
+
+  it('clears the previous principal when a different grant takes over the tab', async () => {
+    const source = grantAuthentication(grant('tab-a', 1))
+    const describeCall = vi.fn().mockResolvedValue(described([view('theme', 1)]))
+    const mirror = new SettingsDescribeMirror({ settings: { describe: describeCall } } as never, source as never)
+
+    await mirror.load()
+    expect(mirror.getSnapshot().status).toBe('ready')
+
+    source.become(grant('tab-b', 1))
+
+    expect(mirror.getSnapshot()).toEqual({ status: 'idle', view: undefined, error: null })
+    await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledTimes(2) })
+  })
+
+  it('clears the previous principal when the same grant is reissued at a new revision', async () => {
+    const source = grantAuthentication(grant('tab-a', 1))
+    const describeCall = vi.fn().mockResolvedValue(described([view('theme', 1)]))
+    const mirror = new SettingsDescribeMirror({ settings: { describe: describeCall } } as never, source as never)
+
+    await mirror.load()
+
+    source.become(grant('tab-a', 2))
+
+    expect(mirror.getSnapshot()).toEqual({ status: 'idle', view: undefined, error: null })
+    await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledTimes(2) })
+  })
+
+  it('keeps the held view when the principal identity is unchanged', async () => {
+    const source = grantAuthentication(grant('tab-a', 1))
+    const describeCall = vi.fn().mockResolvedValue(described([view('theme', 7)]))
+    const mirror = new SettingsDescribeMirror({ settings: { describe: describeCall } } as never, source as never)
+
+    await mirror.load()
+
+    source.become(grant('tab-a', 1))
+
+    expect(mirror.getSnapshot()).toMatchObject({ status: 'ready', view: { namespaces: [expect.objectContaining({ ns: 'theme', revision: 7 })] } })
+    expect(describeCall).toHaveBeenCalledOnce()
+  })
+
+  it('reads nothing while no principal is authenticated', async () => {
+    const describeCall = vi.fn()
+    const mirror = new SettingsDescribeMirror(
+      { settings: { describe: describeCall } } as never,
+      { getSnapshot: () => undefined, subscribe: () => () => {}, validate: () => true },
+    )
+
+    await mirror.load()
+
+    expect(describeCall).not.toHaveBeenCalled()
     expect(mirror.getSnapshot()).toEqual({ status: 'idle', view: undefined, error: null })
   })
 })

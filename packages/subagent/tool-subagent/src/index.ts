@@ -376,21 +376,19 @@ function ensureParentProfileGrant(
   }
   const modelRouteId = `parent:${provider}:${model}`
   ctx.subagents.ensureChildModelRoute(modelRouteId, { provider, model })
-  if (!ctx.subagents.hasChildProfileGrant(parent)) {
-    const cwd = parent.session.header.cwd ?? process.cwd()
-    const grant: ChildProfileGrant = {
-      harnessIds: [harnessId],
-      modelRouteIds: [modelRouteId],
-      tools: ctx.tools.schemas(parent).map(schema => schema.name),
-      skills: [],
-      mcpServerIds: [],
-      childProfileIds: [],
-      workspaceRoot: cwd,
-      parentWorkspaceCwd: cwd,
-      ...typeof config.maxDepth === 'number' ? { maxDepth: config.maxDepth } : {},
-    }
-    ctx.subagents.registerChildProfileGrant(parent, grant)
+  const cwd = parent.session.header.cwd ?? process.cwd()
+  const grant: ChildProfileGrant = {
+    harnessIds: [harnessId],
+    modelRouteIds: [modelRouteId],
+    tools: ctx.tools.schemas(parent).map(schema => schema.name),
+    skills: [],
+    mcpServerIds: [],
+    childProfileIds: [],
+    workspaceRoot: cwd,
+    parentWorkspaceCwd: cwd,
+    ...typeof config.maxDepth === 'number' ? { maxDepth: config.maxDepth } : {},
   }
+  ctx.subagents.registerChildProfileGrant(parent, grant)
   return ctx.subagents.getChildProfileGrant(parent) as ChildProfileGrant
 }
 

@@ -705,4 +705,67 @@ describe('tool-str-replace-editor', () => {
       ToolStrReplaceEditor.apply(new Context(), { maxMutationInputBytes: 0 })
     }).toThrow('maxMutationInputBytes must be a positive safe integer')
   })
+
+  it('clips a directory listing that exceeds the configured view limit', async () => {
+    const { ctx, root, owner } = await setup({ maxOutputChars: 512 })
+    for (let index = 0; index < 80; index += 1) {
+      await writeFile(join(root, `entry-${String(index).padStart(2, '0')}.txt`), 'x')
+    }
+
+    const listing = text(await call(ctx, owner, { command: 'view', path: root }))
+
+    expect(listing.length).toBeLessThanOrEqual(512)
+    expect(listing.endsWith('<response clipped><NOTE>To save on context only part of this file has been shown to you. You should retry this tool after you have searched inside the file with `grep -n` in order to find the line numbers of what you are looking for.</NOTE>')).toBe(true)
+    expect(listing).toContain('entry-00')
+    expect(listing).not.toContain('entry-79')
+  })
+
+  it('returns a line-boundary continuation cursor when the byte cap lands between lines', async () => {
+    const { ctx, root, owner } = await setup({ maxOutputChars: 512 })
+    const sample = join(root, 'boundary.txt')
+    await writeFile(sample, 'x\n'.repeat(600))
+
+    const plain = text(await call(ctx, owner, { command: 'view', path: sample }))
+    expect(plain).toContain('<response clipped>')
+    expect(plain).toContain('(Use command=view and view_range=[3, -1] to continue.)')
+
+    const ranged = text(await call(ctx, owner, {
+      command: 'view',
+      path: sample,
+      view_range: [1, 300],
+    }))
+    expect(ranged).toContain('(Use command=view and view_range=[3, 300] to continue.)')
+  })
+
+  it('omits the continuation when the requested range completes exactly at the cap', async () => {
+    const { ctx, root, owner } = await setup()
+    const sample = join(root, 'range-complete.txt')
+    await writeFile(sample, 'x\n'.repeat(10))
+
+    const view = text(await call(ctx, owner, {
+      command: 'view',
+      path: sample,
+      view_range: [1, 3],
+    }))
+
+    expect(view).toContain('(which has a total of 11 lines) with view_range=[1, 3]')
+    expect(view).not.toContain('<response clipped>')
+    expect(view).toContain('     3  x')
+  })
+
+  it('reports a view_range start past the end of the file as out of range', async () => {
+    const { ctx, root, owner } = await setup()
+    const sample = join(root, 'three-short-lines.txt')
+    await writeFile(sample, 'one\ntwo\nthree')
+
+    const result = await call(ctx, owner, {
+      command: 'view',
+      path: sample,
+      view_range: [4, 5],
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ info: { code: 'FS_NOT_FOUND' } })
+    expect(text(result)).toContain(`offset 4 is out of range for "${sample}" (3 lines)`)
+  })
 })

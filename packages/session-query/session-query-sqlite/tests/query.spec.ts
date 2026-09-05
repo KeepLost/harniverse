@@ -80,6 +80,20 @@ describe('SQLite search request normalization', () => {
       activity: { from: 10, to: 20 },
       limit: 2,
     })
+    expect(normalizeFindRequest({ title: 'open-ended start', activity: { to: 20 } }, limits)).toEqual({
+      kind: 'find',
+      title: 'open-ended start',
+      sessionFilters: [],
+      activity: { to: 20 },
+      limit: 2,
+    })
+    expect(normalizeFindRequest({ title: 'open-ended end', activity: { from: 10 } }, limits)).toEqual({
+      kind: 'find',
+      title: 'open-ended end',
+      sessionFilters: [],
+      activity: { from: 10 },
+      limit: 2,
+    })
   })
 
   it('rejects non-text, blank, non-integer, non-positive, and oversized requests', () => {

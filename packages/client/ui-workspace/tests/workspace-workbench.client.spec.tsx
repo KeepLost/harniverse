@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type {
   SessionId, SessionListState, WorkspaceFileEntry, WorkspaceId, WorkspaceListState, WorkspaceView,
@@ -798,5 +798,91 @@ describe('WorkspaceWorkbench', () => {
     })
     await act(async () => { await Promise.resolve() })
     expect(view.queryByRole('button', { name: /^TXTstale\.txt$/ })).toBeNull()
+  })
+
+  it('ignores the filter toggle while a filter is pinned and keeps the fields open', () => {
+    const onToggleFilters = vi.fn()
+    const view = render(
+      <SearchPanel
+        query="x" include="*.py" exclude="" filtersOpen={false} entries={[]} loading={false} truncated={false}
+        t={t} onQuery={vi.fn()} onInclude={vi.fn()} onExclude={vi.fn()} onToggleFilters={onToggleFilters} onOpen={vi.fn()}
+      />,
+    )
+    const toggle = view.getByRole('button', { name: '已筛选范围' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(toggle)
+    expect(onToggleFilters).not.toHaveBeenCalled()
+    expect(view.getByLabelText('包含文件')).toBeTruthy()
+    expect(view.queryByRole('button', { name: '筛选范围' })).toBeNull()
+  })
+
+  it('drives the section tabs with ArrowLeft, ArrowRight, Home, and End', async () => {
+    const view = mountWorkbench({})
+    const tablistElement = view.getByRole('tab', { name: '文件' }).closest('[role="tablist"]')
+    expect(tablistElement).not.toBeNull()
+    const tablist = tablistElement as HTMLElement
+    const tabs = () => within(tablist).getAllByRole('tab')
+    const files = tabs()[0]!
+    const changes = tabs()[1]!
+    const search = tabs()[2]!
+
+    files.focus()
+    fireEvent.keyDown(files, { key: 'Enter' })
+    expect(document.activeElement).toBe(files)
+    expect(view.instance.getSnapshot().byWorkspace.a?.section).toBe('files')
+
+    fireEvent.keyDown(files, { key: 'ArrowRight' })
+    expect(document.activeElement).toBe(changes)
+    expect(changes.getAttribute('aria-selected')).toBe('true')
+    expect(files.getAttribute('aria-selected')).toBe('false')
+    expect(view.instance.getSnapshot().byWorkspace.a?.section).toBe('changes')
+
+    fireEvent.keyDown(changes, { key: 'ArrowRight' })
+    expect(document.activeElement).toBe(search)
+    expect(view.instance.getSnapshot().byWorkspace.a?.section).toBe('search')
+
+    fireEvent.keyDown(search, { key: 'ArrowRight' })
+    expect(document.activeElement).toBe(files)
+    expect(view.instance.getSnapshot().byWorkspace.a?.section).toBe('files')
+
+    fireEvent.keyDown(files, { key: 'ArrowLeft' })
+    expect(document.activeElement).toBe(search)
+    expect(view.instance.getSnapshot().byWorkspace.a?.section).toBe('search')
+
+    fireEvent.keyDown(search, { key: 'Home' })
+    expect(document.activeElement).toBe(files)
+    expect(view.instance.getSnapshot().byWorkspace.a?.section).toBe('files')
+
+    fireEvent.keyDown(files, { key: 'End' })
+    expect(document.activeElement).toBe(search)
+    expect(view.instance.getSnapshot().byWorkspace.a?.section).toBe('search')
+  })
+
+  it('selects and closes tabs through the in-column drawer preview', async () => {
+    const readme: WorkspaceFileEntry = { name: 'README.md', path: 'README.md', kind: 'file' }
+    const notes: WorkspaceFileEntry = { name: 'notes.md', path: 'notes.md', kind: 'file' }
+    const view = mountWorkbench({
+      listFiles: vi.fn(async () => ({ path: '', entries: [readme, notes], truncated: false })),
+      readFile: vi.fn(async (_workspaceId: WorkspaceId, path: string) => ({
+        path, content: `body of ${path}`, bytes: 12, truncated: false,
+      })),
+    }, { drawer: true })
+
+    fireEvent.click(await view.findByRole('button', { name: /^MDREADME\.md$/ }))
+    const first = await view.findByRole('region', { name: '工作区文件预览' })
+    fireEvent.click(within(first).getByRole('button', { name: '关闭文件预览' }))
+    await waitFor(() => { expect(view.container.querySelector('[data-preview]')).toBeNull() })
+    fireEvent.click(view.getByRole('button', { name: /^MDnotes\.md$/ }))
+    const region = await view.findByRole('region', { name: '工作区文件预览' })
+    expect(view.instance.getSnapshot().byWorkspace.a?.activeTabId).toBe('file:notes.md')
+
+    fireEvent.click(within(region).getByRole('tab', { name: 'README.md' }))
+    expect(view.instance.getSnapshot().byWorkspace.a?.activeTabId).toBe('file:README.md')
+
+    fireEvent.click(within(region).getByRole('button', { name: '关闭 notes.md' }))
+    const account = view.instance.getSnapshot().byWorkspace.a
+    expect(account?.tabs.map(tab => tab.id)).toEqual(['file:README.md'])
+    expect(account?.activeTabId).toBe('file:README.md')
+    expect(view.instance.getSnapshot().byWorkspace.a?.previewOpen).toBe(true)
   })
 })

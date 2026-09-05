@@ -487,3 +487,85 @@ describe('apply (plugin lifecycle)', () => {
     expect(ctx.tools.get('mcp__web__remote')).toBeDefined()
   })
 })
+
+describe('capability composition edges', () => {
+  const serverEntryId = `mcp-server:${Buffer.from('srv').toString('hex')}`
+
+  it('ignores compositions that name no MCP server entry', async () => {
+    const managed = await mountCapabilityRegistry()
+    await apply(managed, stdioConfig)
+    const standingKey = { profile: 'no-entry' }
+    const standing = createScope(managed, standingKey)
+
+    managed.capabilities.mountComposition(standing.ctx, [])
+
+    expect(managed.tools.schemas(standingKey).map(tool => tool.name)).toContain('mcp__srv__remote')
+    await managed.fiber.dispose()
+  })
+
+  it('skips restriction when the composition context has no tool registry', async () => {
+    const managed = await mountCapabilityRegistry()
+    await apply(managed, stdioConfig)
+    const entry = { id: serverEntryId, kind: 'mcp-server', selected: true }
+
+    managed.capabilities.mountComposition(new Context(), [entry as never])
+
+    expect(managed.tools.schemas().map(tool => tool.name)).toContain('mcp__srv__remote')
+    await managed.fiber.dispose()
+  })
+
+  it('imposes no restriction when every live tool stays visible', async () => {
+    const managed = await mountCapabilityRegistry()
+    await apply(managed, stdioConfig)
+    const standingKey = { profile: 'all-visible' }
+    const standing = createScope(managed, standingKey)
+    const entry = { id: serverEntryId, kind: 'mcp-server', selected: true }
+    const restrictSpy = vi.spyOn(managed.tools, 'restrict')
+
+    managed.capabilities.mountComposition(standing.ctx, [entry as never])
+
+    expect(managed.tools.schemas(standingKey).map(tool => tool.name)).toContain('mcp__srv__remote')
+    expect(restrictSpy).not.toHaveBeenCalled()
+    await managed.fiber.dispose()
+  })
+
+  it('contains a failing composition restriction refresh', async () => {
+    const managed = await mountCapabilityRegistry()
+    await apply(managed, stdioConfig)
+    const errors: string[] = []
+    managed.logger.error = ((message: unknown) => { errors.push(String(message)) }) as typeof managed.logger.error
+    const standingKey = { profile: 'failing-refresh' }
+    const standing = createScope(managed, standingKey)
+    const target = { kind: 'agent-profile', agentProfile: 'failing-refresh' } as const
+    const view = { scope: standingKey }
+    const catalog = await managed.capabilities.snapshot(target, view)
+    const server = catalog.entries.find(entry => entry.kind === 'mcp-server')!
+    const plan = await managed.capabilities.plan(target, [
+      { capabilityId: server.id, selection: 'unload' },
+    ], catalog.revision, view)
+    expect(plan.blockers).toEqual([])
+    await managed.capabilities.apply(plan.id, catalog.revision)
+    const entries = (await managed.capabilities.snapshot(target, view)).entries
+    let memberAccesses = 0
+    const composed = entries.find(entry => entry.id === server.id)!
+    Object.defineProperty(composed, 'memberEntries', {
+      get() {
+        memberAccesses += 1
+        if (memberAccesses > 1) throw new Error('restriction broke')
+        return []
+      },
+    })
+    managed.capabilities.mountComposition(standing.ctx, entries)
+
+    mockListTools.mockResolvedValue({
+      tools: [{ name: 'updated', inputSchema: { type: 'object' } }],
+      nextCursor: undefined,
+    })
+    const handler = mockSetNotificationHandler.mock.calls.at(-1)![1] as () => Promise<void>
+    await handler()
+
+    expect(errors.join('\n')).toContain('composition restriction refresh failed')
+    expect(errors.join('\n')).toContain('restriction broke')
+    await managed.fiber.dispose()
+  })
+})

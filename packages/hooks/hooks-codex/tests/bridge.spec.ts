@@ -377,6 +377,38 @@ describe('hooks-codex bridge — automatic discovery', () => {
     await hooks.dispose()
   })
 
+  it('warns on a skipped async hook loaded from a discovered source', async () => {
+    const root = configDir()
+    const marker = join(root, 'discovery-ran')
+    writeFileSync(join(root, 'codex.json'), JSON.stringify({ hooks: {
+      UserPromptSubmit: [{ hooks: [
+        { type: 'command', command: 'bg.sh', async: true },
+        { type: 'command', command: `touch "${marker}"` },
+      ] }],
+    } }))
+    const warn = vi.fn()
+    const adapter = new MockAdapter([textResponse('ok')])
+    const { ctx, hooks } = await autoHarness(adapter, {
+      root,
+      user: ['codex.json'],
+      project: [],
+    }, (context) => { context.logger.warn = warn as never })
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('auto-codex-skipped'),
+      meta: { cwd: root },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, handle.agent)
+
+    await waitFor(() => existsSync(marker))
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(
+      /hooks-codex: skipping async hook on UserPromptSubmit from ".*codex\.json" \(only sync command hooks run\)/,
+    ))
+    await handle.dispose()
+    await hooks.dispose()
+  })
+
   it('disposes automatic-discovery listeners', async () => {
     const projectDir = configDir()
     writeHooks(projectDir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }] })

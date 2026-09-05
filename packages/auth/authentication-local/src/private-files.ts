@@ -43,8 +43,7 @@ function ownerFilename(owner: LockOwner): string {
 async function readLockOwner(path: string): Promise<{ owner: LockOwner; filename: string }> {
   const entries = (await readdir(path)).filter(entry => /^owner-[a-f0-9]{32}\.json$/.test(entry))
   if (entries.length !== 1) throw new Error(`authentication-local: invalid writer lock at ${path}`)
-  const [filename] = entries
-  if (filename === undefined) throw new Error(`authentication-local: invalid writer lock at ${path}`)
+  const [filename] = entries as [string]
   const value: unknown = JSON.parse(await readFile(join(path, filename), 'utf8'))
   if (typeof value !== 'object' || value === null
     || !Number.isSafeInteger((value as { pid?: unknown }).pid)

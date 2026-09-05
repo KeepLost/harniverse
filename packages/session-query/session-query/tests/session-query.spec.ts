@@ -1256,3 +1256,81 @@ describe('session-query exact reads', () => {
     await persistence.dispose()
   })
 })
+
+describe('runtime status and message-tail boundaries', () => {
+  it('reports a session that vanishes from the list between resolution and listing', async () => {
+    TestPersistence.reset()
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    let listCalls = 0
+    TestPersistence.listOverride = async () => {
+      listCalls += 1
+      return listCalls === 1 ? [header('ghost')] : []
+    }
+    TestPersistence.inspectOverride = async () => ({ meta: header('ghost'), events: [] })
+
+    await expect(ctx.sessionQuery.readRuntimeStatus(SessionId('ghost')))
+      .rejects.toThrow(expectCode('SESSION_QUERY_SESSION_NOT_FOUND'))
+  })
+
+  it('reports live loaded state from the agent registry', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('runtime-live'))
+    ctx.provide('agents', { get: () => ({ session, status: 'idle' }) } as never)
+
+    await expect(ctx.sessionQuery.readRuntimeStatus(session.id)).resolves.toMatchObject({
+      loaded: true,
+      running: false,
+      lastSeq: null,
+    })
+  })
+
+  it('rejects a non-positive or fractional message-tail limit', async () => {
+    const ctx = await liveContext()
+    for (const limit of [0, -1, 1.5]) {
+      await expect(ctx.sessionQuery.readMessageTail(SessionId('any'), limit))
+        .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_LIMIT'))
+    }
+  })
+
+  it('skips non-message events when deriving the message tail', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('mixed-tail'), { meta: { cwd: '/work' } })
+    session.append(
+      'user/message',
+      createUserMessage({
+        content: [{ type: 'text', text: 'only message' }], source: { kind: 'user' },
+      }),
+      { surfaceOp: 'append' },
+    )
+    session.append(
+      'assistant/message',
+      {
+        turn: 1, step: 1,
+        message: createMessage({
+          role: 'assistant',
+          content: [],
+          source: { kind: 'model', provider: 'mock', model: 'mock' },
+        }),
+      },
+      { surfaceOp: 'append' },
+    )
+
+    const tail = await ctx.sessionQuery.readMessageTail(session.id, 10)
+
+    expect(tail.messages).toHaveLength(1)
+    expect(tail.messages[0]).toMatchObject({ seq: 0 })
+    expect(tail.capturedThroughSeq).toBe(1)
+  })
+
+  it('reports a null capture boundary for an empty raw tail', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('empty-raw-tail'))
+
+    await expect(ctx.sessionQuery.readLogTail(session.id, 5)).resolves.toMatchObject({
+      capturedThroughSeq: null,
+      events: [],
+      truncated: false,
+    })
+  })
+})

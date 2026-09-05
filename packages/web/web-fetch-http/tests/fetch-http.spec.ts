@@ -7,7 +7,7 @@ import WebRuntime from '@deepseek-ai/dsh-web'
 import { HttpFetchProvider, LOCAL_FETCH_PROVIDER_ID } from '@deepseek-ai/dsh-web-fetch-http'
 import type { HttpFetchLimits } from '@deepseek-ai/dsh-web-fetch-http'
 import * as fetchPlugin from '@deepseek-ai/dsh-web-fetch-http'
-import { classifyContentType, decoderForCharset, isPublicIp, parseCharset, validateFetchUrl } from '../src/policy.ts'
+import { classifyContentType, decoderForCharset, isPublicIp, isSameOrigin, parseCharset, validateFetchUrl } from '../src/policy.ts'
 
 const limits: HttpFetchLimits = {
   maxUrlLength: 2048,
@@ -112,6 +112,26 @@ describe('policy helpers', () => {
     expect(isPublicIp('2001:4860:4860::8888')).toBe(true)
     expect(isPublicIp('2001:db8::1')).toBe(false)
     expect(isPublicIp('::ffff:93.184.216.34')).toBe(false)
+  })
+
+  it('treats a non-IP string as non-public', () => {
+    expect(isPublicIp('example.com')).toBe(false)
+    expect(isPublicIp('')).toBe(false)
+  })
+
+  it('classifies full-form and trailing-compression IPv6 addresses', () => {
+    expect(isPublicIp('2606:4700:4700:1111:2222:3333:4444:5555')).toBe(true)
+    expect(isPublicIp('2001:0db8:0000:0000:0000:0000:0000:0001')).toBe(false)
+    expect(isPublicIp('2606:4700::')).toBe(true)
+    expect(isPublicIp('64:ff9b::1')).toBe(false)
+  })
+
+  it('compares URLs by scheme, hostname, and port', () => {
+    const base = new URL('https://example.com:8443/path')
+    expect(isSameOrigin(base, new URL('https://example.com:8443/other'))).toBe(true)
+    expect(isSameOrigin(base, new URL('http://example.com:8443/'))).toBe(false)
+    expect(isSameOrigin(base, new URL('https://other.example.com:8443/'))).toBe(false)
+    expect(isSameOrigin(base, new URL('https://example.com/'))).toBe(false)
   })
 
   it('classifies content types', () => {

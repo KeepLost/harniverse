@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { CompactionId, compactCheckpointSource } from '@deepseek-ai/dsh-compaction'
 import { createUserMessage, CallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -261,6 +261,63 @@ describe('session reference discovery and preparation', () => {
       { source: { kind: 'session-reference' } },
       { source: { kind: 'user' }, content: [{ type: 'text', text: 'inspect @Research' }] },
     ] })
+  })
+
+  it('passes a downstream rejection through without touching its messages', async () => {
+    const ctx = await harness()
+    const target = ctx.sessions.create(SessionId('target'))
+    const agent = { ...fakeAgent(target), ctx } as Agent
+    const rejection: PreStepDecision = { kind: 'reject' }
+    await expect(agentEvents(ctx, agent).waterfall(
+      'agent/pre-step', { messages: [], turn: 1, step: 1, signal: new AbortController().signal },
+      async () => rejection,
+    )).resolves.toBe(rejection)
+  })
+
+  it('passes non-user messages, non-text blocks, and mention-free user messages through untouched', async () => {
+    const ctx = await harness()
+    const target = ctx.sessions.create(SessionId('target'))
+    const agent = { ...fakeAgent(target), ctx } as Agent
+    const pluginMessage = createUserMessage({
+      content: [{ type: 'text', text: `plugin context must not mention ${formatSessionReferenceMention({ sessionId: SessionId('elsewhere') })}` }],
+      source: { kind: 'plugin', plugin: 'goal' },
+    })
+    const mixedMessage = createUserMessage({
+      content: [{ type: 'reasoning', text: 'unspoken' }, { type: 'text', text: 'plain question' }],
+      source: { kind: 'user' },
+    })
+    const plainMessage = createUserMessage({
+      content: [{ type: 'text', text: 'another plain question' }],
+      source: { kind: 'user' },
+    })
+    const messages = [pluginMessage, mixedMessage, plainMessage]
+    await expect(agentEvents(ctx, agent).waterfall(
+      'agent/pre-step', { messages, turn: 1, step: 1, signal: new AbortController().signal },
+      async () => ({ kind: 'enter' as const, messages }),
+    )).resolves.toMatchObject({
+      kind: 'enter',
+      messages: [
+        { source: { kind: 'plugin', plugin: 'goal' }, content: [{ type: 'text', text: pluginMessage.content[0]?.type === 'text' ? pluginMessage.content[0].text : '' }] },
+        { source: { kind: 'user' }, content: [{ type: 'reasoning', text: 'unspoken' }, { type: 'text', text: 'plain question' }] },
+        { source: { kind: 'user' }, content: [{ type: 'text', text: 'another plain question' }] },
+      ],
+    })
+  })
+
+  it('exports canonical mentions on the candidate Remote', async () => {
+    const ctx = await harness()
+    const target = ctx.sessions.create(SessionId('target'), { meta: { cwd: '/same' } })
+    ctx.sessions.create(SessionId('candidate-a'), { meta: { cwd: '/same', createdAt: 20 } })
+    ctx.sessions.create(SessionId('candidate-b'), { meta: { cwd: '/else', createdAt: 30 } })
+
+    await expect(ctx.sessionReferenceResolver.remoteExportCandidates(fakeAgent(target), 'candidate-a', new AbortController().signal))
+      .resolves.toEqual([{
+        sessionId: SessionId('candidate-a'),
+        label: 'candidate-a',
+        cwd: '/same',
+        createdAt: 20,
+        mention: formatSessionReferenceMention({ sessionId: SessionId('candidate-a'), label: 'candidate-a' }),
+      }])
   })
 
   it('publishes the observation capability on the candidate Remote', async () => {

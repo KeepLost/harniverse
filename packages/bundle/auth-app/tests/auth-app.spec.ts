@@ -140,6 +140,44 @@ describe('authentication management app', () => {
     expect((await invoke(['grant', 'list'], dshHome)).out).not.toContain('automation')
   })
 
+  it('approves administrator and temporary profiles with their capability and expiry semantics', async () => {
+    const dshHome = await temporaryDirectory('dsh-auth-app-home-')
+    await approveOwner(dshHome)
+    const admin = await createEnrollmentRequest({ name: 'desk', kind: 'device', publicKey: publicKey() }, { dshHome })
+    const adminId = (await invoke(['device', 'approve', admin.id, '--profile', 'administrator'], dshHome)).out.trim()
+    const temporary = await createEnrollmentRequest({ name: 'kiosk', kind: 'device', publicKey: publicKey() }, { dshHome })
+    const temporaryId = (await invoke(['device', 'approve', temporary.id, '--profile', 'temporary'], dshHome)).out.trim()
+    const bogus = await createEnrollmentRequest({ name: 'unknown', kind: 'device', publicKey: publicKey() }, { dshHome })
+    const rejected = await invoke(['device', 'approve', bogus.id, '--profile', 'bogus'], dshHome)
+
+    const listed = await invoke(['grant', 'list'], dshHome)
+    expect(listed).toMatchObject({ code: 0, err: '' })
+    const rows = new Map(listed.out.trim().split('\n').map(line => [line.split('\t')[1], line.split('\t')]))
+    expect(rows.get('desk')).toEqual([
+      adminId, 'desk', 'device', 'harniverse.observe,harniverse.operate,harniverse.administer', '-',
+    ])
+    expect(rows.get('kiosk')?.slice(0, 4)).toEqual([temporaryId, 'kiosk', 'device', 'harniverse.observe,harniverse.operate'])
+    expect(rows.get('kiosk')?.[4]).not.toBe('-')
+    expect(rejected).toMatchObject({ code: 1, out: '' })
+    expect(rejected.err).toContain('unknown capability profile "bogus"')
+  })
+
+  it('revokes device and management grants by Grant id', async () => {
+    const dshHome = await temporaryDirectory('dsh-auth-app-home-')
+    await approveOwner(dshHome)
+    const request = await createEnrollmentRequest({ name: 'tablet', kind: 'device', publicKey: publicKey() }, { dshHome })
+    const deviceId = (await invoke(['device', 'approve', request.id, '--profile', 'operator'], dshHome)).out.trim()
+    const clientId = (await invoke(['client', 'add', 'bot', '--public-key', publicKey(), '--profile', 'administrator'], dshHome)).out.trim()
+    const deviceRevoked = await invoke(['device', 'revoke', deviceId], dshHome)
+    const grantRevoked = await invoke(['grant', 'revoke', clientId], dshHome)
+
+    expect(deviceRevoked).toMatchObject({ code: 0, out: '', err: '' })
+    expect(grantRevoked).toMatchObject({ code: 0, out: '', err: '' })
+    const listed = (await invoke(['grant', 'list'], dshHome)).out
+    expect(listed).not.toContain(deviceId)
+    expect(listed).not.toContain(clientId)
+  })
+
   it('prints app-owned help without activating the runner', async () => {
     const result = await invoke(['--help'], await temporaryDirectory('dsh-auth-app-home-'))
     expect(result.code).toBe(0)
@@ -170,6 +208,28 @@ describe('authentication management app', () => {
     expect(duplicate.err).toContain('already exists')
   })
 
+  it('reports unsupported explicit capabilities through bounded exit', async () => {
+    const dshHome = await temporaryDirectory('dsh-auth-app-home-')
+    await approveOwner(dshHome)
+    const invalid = await invoke([
+      'client', 'add', 'badcap', '--public-key', publicKey(), '--capability', 'harniverse.nonsense',
+    ], dshHome)
+    expect(invalid).toMatchObject({ code: 1, out: '' })
+    expect(invalid.err).toContain('--capability values must be supported harniverse.* capabilities')
+  })
+
+  it('requires exactly one of --profile or --capability on client add', async () => {
+    for (const args of [
+      ['client', 'add', 'automation', '--public-key', publicKey(), '--profile', 'observer', '--capability', 'harniverse.observe'],
+      ['client', 'add', 'automation', '--public-key', publicKey()],
+    ]) {
+      const ctx = new Context()
+      provideCmdline(ctx, { args, exit: () => {} })
+      expect(() => { applyStartup(ctx) }).toThrow('client add requires exactly one of --profile or --capability')
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('fails loud for invalid runner composition', async () => {
     expect(() => { applyRunner(new Context(), { operation: 'grant-list' }) }).toThrow('must provide ctx.appExit')
 
@@ -180,5 +240,12 @@ describe('authentication management app', () => {
     applyRunner(ctx, { operation: 'client-add' })
     expect(await exited).toBe(1)
     expect(err).toContain('client-add requires a client name')
+
+    const bare = new Context()
+    const bareExited = new Promise<number>((resolve) => { bare.provide('appExit', resolve) })
+    applyRunner(bare, { operation: 'client-add', name: 'automation', publicKey: publicKey() })
+    expect(await bareExited).toBe(1)
+    expect(err).toContain('--capability values must be supported harniverse.* capabilities')
+    await bare.fiber.dispose()
   })
 })

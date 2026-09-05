@@ -166,7 +166,7 @@ export class Capabilities extends Service {
         this.plans.clear()
         this.notifyChange()
         return () => {
-          if (!this.adapters.delete(owned)) return
+          this.adapters.delete(owned)
           lifecycle.abort(new Error(`capability adapter ${JSON.stringify(adapter.id)} disposed`))
           this.topologyRevision += 1
           this.plans.clear()
@@ -347,7 +347,7 @@ export class Capabilities extends Service {
           capabilityId: change.capabilityId,
           message: `Capability ${change.capabilityId} does not expose Profile configuration.`,
         })
-        else validateConfigurationChange(change.capabilityId, descriptor, change.config, blockers)
+        else validateConfigurationChange(change.capabilityId, descriptor.customization, change.config, blockers)
         current.config = { ...change.config }
       }
       if (Object.keys(current).length === 0) Reflect.deleteProperty(after, change.capabilityId)
@@ -420,9 +420,6 @@ export class Capabilities extends Service {
     if (plan.blockers.length > 0) throw new Error(`capabilities: plan ${JSON.stringify(planId)} is blocked`)
     if (plan.expectedRevision !== expectedRevision || this.settingsRevision() !== expectedRevision) {
       throw new Error(`capabilities: stale composition revision ${String(expectedRevision)}; current revision is ${String(this.settingsRevision())}`)
-    }
-    if (plan.topologyRevision !== this.topologyRevision) {
-      throw new Error(`capabilities: capability topology changed after plan ${JSON.stringify(planId)} was created`)
     }
     const settings = this.settingsService
     if (settings === undefined) throw new Error('capabilities: settings service is unavailable; composition is read-only')
@@ -668,21 +665,13 @@ function normalizeConfig(value: unknown): Record<string, CapabilityConfigValue> 
   return normalized
 }
 
-function normalizeOverride(value: unknown): CapabilityOverride {
-  if (typeof value === 'string') {
-    if (value !== 'load' && value !== 'unload') throw new TypeError('capabilities: stored override has an invalid selection')
-    return { selection: value }
-  }
-  if (!isRecord(value)) throw new TypeError('capabilities: stored override must be an object')
-  const selection = value.selection
-  if (selection !== undefined && selection !== 'load' && selection !== 'unload') {
-    throw new TypeError('capabilities: stored override has an invalid selection')
-  }
+function normalizeOverride(value: StoredOverride): CapabilityOverride {
+  if (typeof value === 'string') return { selection: value }
   if (value.members !== undefined && !isStringArray(value.members)) {
     throw new TypeError('capabilities: stored override members must be an array of stable ids')
   }
   return {
-    ...selection === undefined ? {} : { selection },
+    ...value.selection === undefined ? {} : { selection: value.selection },
     ...value.members === undefined ? {} : { members: [...value.members] },
     ...value.config === undefined ? {} : { config: normalizeConfig(value.config) },
   }
@@ -700,11 +689,11 @@ function normalizeDocument(document: StoredCompositionDocument): CompositionDocu
 
 function validateConfigurationChange(
   capabilityId: string,
-  descriptor: CapabilityDescriptor,
+  customization: NonNullable<CapabilityDescriptor['customization']>,
   config: Readonly<Record<string, CapabilityConfigValue>>,
   blockers: CapabilityPlanBlocker[],
 ): void {
-  const fields = new Map(descriptor.customization?.fields.map(field => [field.id, field]) ?? [])
+  const fields = new Map(customization.fields.map(field => [field.id, field]))
   for (const [fieldId, value] of Object.entries(config)) {
     const field = fields.get(fieldId)
     const valid = field !== undefined && (

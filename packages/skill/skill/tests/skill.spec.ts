@@ -1123,6 +1123,40 @@ describe('SkillRegistry scoped layers', () => {
     await preset.dispose()
   })
 
+  it('a restriction without includeOwn exempts the scope\'s own registrations', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    registerProvider(ctx, new MemoryProvider([
+      memorySkill('allowed-global', 'Allowed global', 100),
+      memorySkill('hidden-global', 'Hidden global', 100),
+    ]))
+    const preset = createScope(ctx, { preset: 'own-exempt' })
+    scopedSkills(preset.ctx).registerProvider(() => new MemoryProvider([
+      memorySkill('own-skill', 'Own', 200),
+    ]))
+    scopedSkills(preset.ctx).restrict({ allow: ['allowed-global'] })
+    const scope = scopeOf(preset.ctx)
+
+    const scoped = await ctx.skills.list({ scope })
+    expect(scoped.map(skill => skill.name)).toEqual(['allowed-global', 'own-skill'])
+    expect((await ctx.skills.get('own-skill', { scope }))?.name).toBe('own-skill')
+    await preset.dispose()
+  })
+
+  it('restrict() rejects an unscoped caller and invalid skill names', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    expect(() => ctx.skills.restrict({ allow: ['any-skill'] }))
+      .toThrow('skills.restrict() requires a scoped context')
+
+    const preset = createScope(ctx, { preset: 'validated' })
+    expect(() => scopedSkills(preset.ctx).restrict({ allow: ['not a skill name'] }))
+      .toThrow('skills.restrict() received invalid skill name "not a skill name"')
+    expect(() => scopedSkills(preset.ctx).restrict({ allow: ['UPPER'] }))
+      .toThrow('skills.restrict() received invalid skill name "UPPER"')
+    await preset.dispose()
+  })
+
   it('files a scoped provider into its layer and merges it into that scope view only', async () => {
     const ctx = new Context()
     await ctx.plugin(SkillRegistry)

@@ -191,6 +191,7 @@ export class PermissionPresetSettingsController {
       })
       return
     }
+    const { writable } = mirrored.view
     const view = mirrored.view.namespaces.find(entry => entry.ns === PERMISSION_SETTINGS_NS)
     if (view === undefined) {
       this.store.update((state) => {
@@ -208,7 +209,7 @@ export class PermissionPresetSettingsController {
       this.store.update((state) => {
         state.status = 'ready'
         state.error = null
-        state.writable = mirrored.view?.writable ?? false
+        state.writable = writable
         state.currentValue = resolved.currentValue
         state.options = resolved.options
         state.revision = view.revision
