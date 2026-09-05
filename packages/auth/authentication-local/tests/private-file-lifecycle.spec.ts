@@ -234,6 +234,17 @@ describe('stale writer lock reclamation', () => {
     await expect(stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it('waits out a live owner and acquires the lock once it releases', async () => {
+    const root = await prepare()
+    const target = join(root, 'value.json')
+    const lockPath = `${target}.lock`
+    await craftLock(lockPath, { pid: process.pid, nonce: hex('a') })
+    const acquisition = withPrivateFileLock(target, async () => 'waited out')
+    await new Promise(resolve => setTimeout(resolve, 5))
+    await rm(lockPath, { recursive: true, force: true })
+    await expect(acquisition).resolves.toBe('waited out')
+  })
+
   it('tolerates a lock directory that stayed non-empty during reclamation', async () => {
     const root = await prepare()
     const target = join(root, 'value.json')
