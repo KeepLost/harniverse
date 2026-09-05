@@ -26,7 +26,8 @@ await withFileLock('/home/u/.dsh/settings.yaml', async () => {
 - **The fresh inode carries `mode` through the rename**: replacing a wider-permission file narrows it without a chmod race. `mode` is required so the permission decision stays visible at every call site (subject to the process umask, like every fresh inode).
 - **`rename` replaces a symlinked target itself**, never writing through to its referent.
 - **Same-directory sibling** keeps the rename on one filesystem, so the swap stays atomic.
-- Parent directories are created; on any failure the temp is removed and the failure rethrown; readers observe either the old or the new complete content.
+- **Bounded Windows retry** keeps the same complete sibling through transient `EACCES`/`EBUSY`/`EPERM` replacement interference with exponential backoff, so software outside the cooperative writer lock cannot turn a safe replacement into an immediate failure; the [retry decision](../../../.agents/notes/implemented/bug-fix/2026-09-05-windows-stability-batch.md) owns the rationale and rejected alternatives.
+- Parent directories are created; on any remaining failure the temp is removed and the failure rethrown; readers observe either the old or the new complete content.
 
 `withFileLock` serializes the writers of one file across processes, for the read-render-commit cycles a bare atomic commit cannot make safe on its own. The lock is a `wx`-created `<filename>.lock` sibling, so readers never contend; waiters back off exponentially and fail with a timeout rather than block forever. A contender never removes the existing lock: age cannot distinguish a crashed owner from a paused live writer.
 

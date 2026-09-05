@@ -1,11 +1,49 @@
-import { lstat, mkdir, mkdtemp, readFile, readdir, stat, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { withFileLock, writeFileAtomic } from '../src/index.ts'
 
+const state = vi.hoisted(() => ({
+  renameAttempts: 0,
+  renameFailures: [] as string[],
+}))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    rename: (async (...args: Parameters<typeof actual.rename>) => {
+      state.renameAttempts += 1
+      const code = state.renameFailures.shift()
+      if (code !== undefined) {
+        if (code === 'NO_CODE') throw new Error('injected rename failure without a code')
+        throw Object.assign(new Error(`${code}: injected rename failure`), { code })
+      }
+      return actual.rename(...args)
+    }),
+  }
+})
+
+const scratchDirs: string[] = []
+
+afterEach(async () => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+  state.renameAttempts = 0
+  state.renameFailures.length = 0
+  await Promise.all(scratchDirs.splice(0).map(dir => rm(dir, {
+    force: true,
+    maxRetries: 10,
+    recursive: true,
+    retryDelay: 20,
+  })))
+})
+
 async function scratch(): Promise<string> {
-  return mkdtemp(join(tmpdir(), 'dsh-atomic-write-'))
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-atomic-write-'))
+  scratchDirs.push(dir)
+  return dir
 }
 
 describe('writeFileAtomic', () => {
@@ -44,6 +82,63 @@ describe('writeFileAtomic', () => {
     await mkdir(target)
     await expect(writeFileAtomic(target, 'content', { mode: 0o600 })).rejects.toThrow()
     expect((await readdir(dir)).filter(entry => entry.includes('.tmp'))).toEqual([])
+  })
+
+  it('retries transient Windows rename interference and commits the replacement', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    vi.useFakeTimers()
+    const dir = await scratch()
+    const target = join(dir, 'document')
+    await writeFile(target, 'old')
+    state.renameFailures.push('EACCES', 'EBUSY', 'EPERM')
+
+    const replacement = writeFileAtomic(target, 'new', { mode: 0o600 })
+    await vi.waitFor(() => { expect(state.renameAttempts).toBeGreaterThan(0) })
+    await vi.runAllTimersAsync()
+    await replacement
+
+    expect(state.renameAttempts).toBe(4)
+    expect(await readFile(target, 'utf8')).toBe('new')
+    expect((await readdir(dir)).filter(entry => entry.includes('.tmp'))).toEqual([])
+  })
+
+  it('leaves no temp sibling after bounded Windows rename retries expire', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    vi.useFakeTimers()
+    const dir = await scratch()
+    const target = join(dir, 'document')
+    await writeFile(target, 'old')
+    state.renameFailures.push(...Array.from({ length: 9 }, () => 'EPERM'))
+
+    const replacement = writeFileAtomic(target, 'new', { mode: 0o600 })
+    await vi.waitFor(() => { expect(state.renameAttempts).toBeGreaterThan(0) })
+    await vi.runAllTimersAsync()
+    await expect(replacement).rejects.toMatchObject({ code: 'EPERM' })
+
+    expect(state.renameAttempts).toBe(9)
+    expect(await readFile(target, 'utf8')).toBe('old')
+    expect((await readdir(dir)).filter(entry => entry.includes('.tmp'))).toEqual([])
+  })
+
+  it('does not retry a Windows rename failure without a transient code', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    const dir = await scratch()
+    const target = join(dir, 'document')
+    state.renameFailures.push('NO_CODE')
+
+    await expect(writeFileAtomic(target, 'new', { mode: 0o600 })).rejects.toThrow(/without a code/)
+    expect(state.renameAttempts).toBe(1)
+    expect((await readdir(dir)).filter(entry => entry.includes('.tmp'))).toEqual([])
+  })
+
+  it('does not retry rename permission failures outside Windows', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
+    const dir = await scratch()
+    const target = join(dir, 'document')
+    state.renameFailures.push('EPERM')
+
+    await expect(writeFileAtomic(target, 'new', { mode: 0o600 })).rejects.toMatchObject({ code: 'EPERM' })
+    expect(state.renameAttempts).toBe(1)
   })
 })
 
