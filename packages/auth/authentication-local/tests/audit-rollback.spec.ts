@@ -130,7 +130,7 @@ describe('audited Grant mutation rollback', () => {
         channel: 'http-api',
         browserSession: browser.session.value,
       })).resolves.toMatchObject({ kind: 'accepted', principal: { grantId: laptop.grant.id } })
-    })
+    }, { timeout: auditTestTimeoutMs })
     expect(revoked).not.toHaveBeenCalled()
   })
 

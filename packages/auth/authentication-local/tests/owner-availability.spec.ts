@@ -326,6 +326,27 @@ describe('batch settlement', () => {
     expect(accepted).toEqual({ kind: 'rejected', reason: 'authentication-unavailable' })
     expect(rejected).toEqual({ kind: 'rejected', reason: 'invalid-credential' })
   })
+
+  it('rejects a well-formed Access Token whose secret does not match its record', async () => {
+    const dshHome = await home()
+    const owner = await createGrantFixture(dshHome, 'owner')
+    const ctx = await boot(dshHome)
+    const exchanged = await ctx.authentication.exchangeAccessToken(await signedProof(ctx, owner, 'access-token'))
+    if (exchanged.kind !== 'accepted') throw new Error('expected an Access Token')
+    const id = exchanged.value.value.split('_')[1]
+    if (id === undefined) throw new Error('expected token id')
+
+    // The id resolves to a live record, so only the constant-time secret
+    // comparison refuses the admission.
+    await expect(ctx.authentication.authenticate({
+      channel: 'http-api',
+      authorization: `Bearer dsha1_${id}_${'z'.repeat(43)}`,
+    })).resolves.toEqual({ kind: 'rejected', reason: 'invalid-credential' })
+    await expect(ctx.authentication.authenticate({
+      channel: 'http-api',
+      authorization: `Bearer ${exchanged.value.value}`,
+    })).resolves.toMatchObject({ kind: 'accepted', principal: { grantId: owner.grant.id } })
+  })
 })
 
 describe('proof exchange failures', () => {
