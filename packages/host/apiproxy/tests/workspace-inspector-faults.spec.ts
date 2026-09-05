@@ -7,7 +7,7 @@
  */
 
 import type { SpawnOptions } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -315,6 +315,7 @@ describe('git output parsing boundaries', () => {
     }
     const stub = join(root, 'git-stub.mjs')
     writeFileSync(stub, [
+      "import { writeFileSync as mark } from 'node:fs'",
       `const responses = ${JSON.stringify(responses)}`,
       'const args = process.argv.slice(2)',
       "const operation = args.includes('--show-toplevel') ? 'worktree'",
@@ -322,6 +323,7 @@ describe('git output parsing boundaries', () => {
       "    : args.includes('status') ? 'status' : args.includes('log') ? 'log' : 'unknown'",
       "const response = responses[operation] ?? { stderr: 'unexpected Git operation', exitCode: 2 }",
       'if (response.wait) {',
+      `  mark(${JSON.stringify(join(root, 'stub-ready'))}, 'ready')`,
       '  setInterval(() => {}, 60_000)',
       '} else {',
       '  if (response.stdout) process.stdout.write(response.stdout)',
@@ -388,12 +390,23 @@ describe('git output parsing boundaries', () => {
       .resolves.toMatchObject({ commits: [{ hash: 'h1', subject: 'subject' }], truncated: false })
   })
 
+  /** Wait until the waiting stub operation has actually started, so an abort lands during Git. */
+  async function waitForStubReady(root: string): Promise<void> {
+    const marker = join(root, 'stub-ready')
+    const deadline = Date.now() + 10_000
+    while (!existsSync(marker)) {
+      if (Date.now() >= deadline) throw new Error(`waiting Git stub never signaled readiness: ${marker}`)
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+  }
+
   it('reports the caller reason when cancellation lands during Git', async () => {
     const root = stubGit({ status: { wait: true } })
     mkdirSync(join(root, '.git'))
     const abort = new AbortController()
     const reading = workspaceGitStatus(root, abort.signal)
-    setTimeout(() => { abort.abort(new Error('operator cancelled the read')) }, 150)
+    await waitForStubReady(root)
+    abort.abort(new Error('operator cancelled the read'))
 
     await expect(reading).rejects.toThrow('operator cancelled the read')
   })
@@ -403,7 +416,8 @@ describe('git output parsing boundaries', () => {
     mkdirSync(join(root, '.git'))
     const abort = new AbortController()
     const reading = workspaceGitStatus(root, abort.signal)
-    setTimeout(() => { abort.abort('stringly cancelled') }, 150)
+    await waitForStubReady(root)
+    abort.abort('stringly cancelled')
 
     await expect(reading).rejects.toThrow('workspace Git operation was cancelled')
   })
