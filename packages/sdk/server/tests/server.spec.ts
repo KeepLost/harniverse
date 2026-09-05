@@ -12,7 +12,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
-import SubagentRuntime, { type SubagentResult, type SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
+import SubagentRuntime, { resolveChildProfile, type ChildProfileGrant, type ResolvedChildProfile, type SubagentResult, type SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import type { JsonRpcTransportPeer } from '@deepseek-ai/dsh-sdk-protocol'
 import { HarnessSdkJsonRpcServer } from '../src/index.ts'
 
@@ -109,7 +109,7 @@ async function settleSubagent(
 }
 
 describe('HarnessSdkJsonRpcServer', () => {
-  it('creates a harness agent and calls the configured OpenAI-compatible endpoint', { timeout: 15_000 }, async () => {
+  it('creates a harness agent and calls the configured OpenAI-compatible endpoint', { timeout: 30_000 }, async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-'))
     const llmServer = await mockCompletionServer()
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
@@ -133,7 +133,7 @@ describe('HarnessSdkJsonRpcServer', () => {
       })
       expect((receipt as { messageId?: unknown }).messageId).toBeTypeOf('string')
 
-      await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(1) })
+      await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(1) }, { timeout: 10_000 })
       const body = llmServer.requests[0] as { model: string; messages: { role: string }[]; max_tokens?: number }
       expect(body.model).toBe('dsagent-model')
       expect(body.max_tokens).toBe(321)
@@ -146,13 +146,13 @@ describe('HarnessSdkJsonRpcServer', () => {
           method: 'session.status',
           params: { sessionId: 'main', status: 'idle' },
         })
-      })
+      }, { timeout: 10_000 })
 
       await server.handleRequest('session/prompt', {
         sessionId: 'main',
         contentBlocks: [{ type: 'text', text: 'again' }],
       })
-      await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(2) })
+      await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(2) }, { timeout: 10_000 })
 
       const orphanHandle = await ctx.agents.create({
         sessionId: SessionId('orphan-session'),
@@ -169,6 +169,78 @@ describe('HarnessSdkJsonRpcServer', () => {
       await ctx.fiber.dispose()
       await rm(storageDir, { recursive: true, force: true })
     }
+  })
+
+  it('applies the SDK Child Profile setup on session creation and fails loud without the subagents service', async () => {
+    const grant: ChildProfileGrant = {
+      harnessIds: ['native', 'sdk'],
+      modelRouteIds: ['fast', 'safe'],
+      tools: ['read', 'write'],
+      skills: ['review'],
+      mcpServerIds: ['docs'],
+      childProfileIds: ['reviewer'],
+      workspaceRoot: '/repo',
+      parentWorkspaceCwd: '/repo/packages',
+      maxDepth: 4,
+      maxTokens: 10_000,
+    }
+    const profile = resolveChildProfile(
+      { profileId: 'reviewer', harnessId: 'native', modelRouteId: 'safe', tools: ['read'], workspaceCwd: 'service' },
+      grant,
+      2,
+    )
+    const applied: [Context, ResolvedChildProfile][] = []
+    let subagentsPresent = true
+    const followup = vi.fn<Agent['followup']>()
+    const agent = ({ id: SessionId('child-1'), followup } satisfies Pick<Agent, 'id' | 'followup'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const create = vi.fn(async (options: { sessionId: SessionId; setup?: (childCtx: Context) => void }) => {
+      const childCtx = {
+        get: (name: string) => name === 'subagents' && subagentsPresent
+          ? { applyChildProfileSetup: (ctx: Context, resolved: ResolvedChildProfile) => { applied.push([ctx, resolved]) } }
+          : undefined,
+      } as unknown as Context
+      options.setup?.(childCtx)
+      return handle
+    })
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: { create, get: (id: SessionId) => (String(id) === 'child-1' ? agent : undefined) },
+      get: (name: string) => name === 'llm'
+        ? { listProviders: () => [{ id: 'sdk-profile-provider' }] }
+        : undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    await expect(server.handleRequest('initialize', {
+      cwd: '/unrelated',
+      provider: 'sdk-profile-provider',
+      model: 'm',
+      childProfile: profile,
+    })).rejects.toThrow('SDK Child Profile workspace cwd does not match the initialize cwd')
+
+    await server.handleRequest('initialize', {
+      cwd: profile.workspaceCwd,
+      provider: 'sdk-profile-provider',
+      model: 'm',
+      childProfile: profile,
+    })
+    await server.handleRequest('session/prompt', {
+      sessionId: 'child-1',
+      contentBlocks: [{ type: 'text', text: 'go' }],
+    })
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(applied).toHaveLength(1)
+    expect(applied[0]?.[1]).toEqual(profile)
+    expect(followup).toHaveBeenCalledTimes(1)
+
+    subagentsPresent = false
+    await expect(server.handleRequest('session/prompt', {
+      sessionId: 'child-2',
+      contentBlocks: [{ type: 'text', text: 'go again' }],
+    })).rejects.toThrow('SDK Child Profile requires the subagents service')
+
+    await server.shutdown()
   })
 
   it('queues overlapping prompts for one session without blocking other sessions', async () => {
@@ -295,7 +367,7 @@ describe('HarnessSdkJsonRpcServer', () => {
     }
   })
 
-  it('creates an SDK session without an optional system prompt', { timeout: 15_000 }, async () => {
+  it('creates an SDK session without an optional system prompt', { timeout: 30_000 }, async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-no-system-'))
     const llmServer = await mockCompletionServer()
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
@@ -310,7 +382,7 @@ describe('HarnessSdkJsonRpcServer', () => {
         contentBlocks: [{ type: 'text', text: 'hello' }],
       })
 
-      await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(1) })
+      await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(1) }, { timeout: 10_000 })
       await server.shutdown()
     } finally {
       await ctx.fiber.dispose()

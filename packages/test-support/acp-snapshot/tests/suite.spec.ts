@@ -91,6 +91,14 @@ const REPLAY_SCENARIOS: Scenario[] = [
       writeFileSync(join(cwd, 'seed.txt'), 'prepared at runtime')
     },
   },
+  {
+    name: 'child-second-header',
+    hasModelTurn: true,
+    recorded: true,
+    headerClass: 'main',
+    pinsChildToolSchemas: [1],
+    pinsChildSystemPrompts: [1],
+  },
   { name: 'no-model', hasModelTurn: false, recorded: false, headerClass: 'main' },
   { name: 'blocked-log', hasModelTurn: false, comparesLog: true, recorded: false, headerClass: 'main' },
   { name: 'authored-error', hasModelTurn: true, recorded: false, overridden: true, headerClass: 'main' },

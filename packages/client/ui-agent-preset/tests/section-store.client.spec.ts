@@ -604,3 +604,142 @@ describe('the default preset', () => {
     expect(controller.store.getSnapshot().error).toContain('read-only settings')
   })
 })
+
+describe('a principal that moved on mid-flight', () => {
+  /** The fence always answers stale: answers belong to the prior principal. */
+  const STALE_FACE = {
+    writeFence: () => 1,
+    isCurrent: () => false,
+    acceptResponse: () => true,
+    acceptView: () => true,
+  } as never
+
+  /** Responses are never accepted, so every await returns early. */
+  const REJECT_FACE = {
+    writeFence: () => 1,
+    isCurrent: () => true,
+    acceptResponse: () => false,
+    acceptView: () => false,
+  } as never
+
+  it('keeps the page loading rather than adopting another principal\'s roster', async () => {
+    const { controller } = harness({}, STALE_FACE)
+
+    await controller.load()
+
+    const state = controller.store.getSnapshot()
+    expect(state.status).toBe('loading')
+    expect(state.rows).toEqual([])
+  })
+
+  it('leaves the viewer closed when the composition answer is foreign', async () => {
+    const { controller } = harness({}, REJECT_FACE)
+
+    await controller.view('standard')
+
+    expect(controller.store.getSnapshot().view).toBeNull()
+  })
+
+  it('swallows a transport failure the current principal no longer owns', async () => {
+    const { controller } = harness({ throwRead: true }, STALE_FACE)
+
+    await controller.view('standard')
+
+    expect(controller.store.getSnapshot().error).toBeNull()
+  })
+
+  it('completes a copy without opening the location of a foreign principal', async () => {
+    const { controller, calls } = harness({}, STALE_FACE)
+    controller.beginCopy('standard')
+    controller.setCopyId('copy-id')
+
+    await controller.confirmCopy()
+
+    // The copy itself landed and the dialog closed, but the follow-up roster
+    // read is stale, so the user is not flown into files another principal
+    // re-read.
+    expect(controller.store.getSnapshot().copy).toBeNull()
+    expect(calls.filter(call => call.method === 'openDocument')).toEqual([])
+  })
+
+  it('keeps the copy dialog saving through a foreign transport failure', async () => {
+    const { controller } = harness({ throwCopy: true }, STALE_FACE)
+    controller.beginCopy('standard')
+    controller.setCopyId('copy-id')
+
+    await controller.confirmCopy()
+
+    expect(copyOf(controller).saving).toBe(true)
+  })
+
+  it('reveals nothing when the location answer is foreign', async () => {
+    const { controller } = harness({ hasDocument: false }, REJECT_FACE)
+
+    await controller.openLocation('mine')
+
+    expect(controller.store.getSnapshot().revealedPaths).toEqual({})
+  })
+
+  it('swallows a location transport failure the current principal no longer owns', async () => {
+    const { controller } = harness({ throwOpen: true }, STALE_FACE)
+
+    await controller.openLocation('mine')
+
+    expect(controller.store.getSnapshot().error).toBeNull()
+  })
+
+  it('keeps the delete pending when the removal answer is foreign', async () => {
+    const { controller } = harness({}, REJECT_FACE)
+    controller.confirmDelete('mine')
+
+    await controller.remove()
+
+    const state = controller.store.getSnapshot()
+    expect(state.deleting).toBe(true)
+    expect(state.pendingDelete).toBe('mine')
+  })
+
+  it('stops after the post-delete roster read when it is stale', async () => {
+    const { controller, presets } = harness({}, STALE_FACE)
+    controller.confirmDelete('mine')
+
+    await controller.remove()
+
+    // The preset is gone from the host, but the reload is stale, so the page
+    // stays on its loading state rather than half-adopting a foreign roster.
+    expect(presets.has('mine')).toBe(false)
+    expect(controller.store.getSnapshot().status).toBe('loading')
+  })
+
+  it('keeps the delete in flight through a foreign removal transport failure', async () => {
+    const { controller } = harness({ holdRemove: Promise.reject(new Error('socket closed')) }, STALE_FACE)
+    controller.confirmDelete('mine')
+
+    await controller.remove()
+
+    const state = controller.store.getSnapshot()
+    expect(state.deleting).toBe(true)
+    expect(state.error).toBeNull()
+  })
+
+  it('closes the confirmation and surfaces a removal transport failure', async () => {
+    const { controller } = harness({ holdRemove: Promise.reject(new Error('socket closed')) })
+    controller.confirmDelete('mine')
+
+    await controller.remove()
+
+    const state = controller.store.getSnapshot()
+    expect(state.deleting).toBe(false)
+    expect(state.pendingDelete).toBeNull()
+    expect(state.error).toBe('socket closed')
+  })
+
+  it('makes no default write count when the settings answer is foreign', async () => {
+    const { controller, calls } = harness({}, REJECT_FACE)
+
+    await controller.makeDefault('mine')
+
+    expect(calls.some(call => call.method === 'settings.update')).toBe(true)
+    expect(calls.filter(call => call.method === 'list')).toEqual([])
+  })
+})

@@ -146,7 +146,7 @@ export function apply(ctx: Context, config: Config = {}): void {
  * Discover the default filesystem Skill catalog without registering a provider or watcher.
  * @param ctx - context providing optional filesystem access and path policy.
  * @param cwd - workspace used to resolve project-local Skill roots.
- * @param config - filesystem provider roots with watching forcibly disabled.
+ * @param config - filesystem provider roots; watchers are irrelevant to a one-shot scan.
  * @returns discovered Skill candidates in normal provider precedence order.
  */
 export async function discoverFileSystemSkills(
@@ -154,30 +154,82 @@ export async function discoverFileSystemSkills(
   cwd: string | undefined,
   config: Config = {},
 ): Promise<readonly SkillCandidate[]> {
-  const lifecycle = new AbortController()
-  const discoveryConfig = Object.assign({}, config, { watch: false })
-  const provider = new FileSystemSkillProvider(ctx, {
-    signal: lifecycle.signal,
-    invalidate: () => {},
-  }, discoveryConfig)
-  try {
-    const observation = await provider.list({ cwd })
-    return Array.isArray(observation) ? observation : observation.candidates
-  } finally {
-    lifecycle.abort()
-    await provider.dispose()
+  const layout = resolveLayout(config)
+  const candidates: SkillCandidate[] = []
+  for (const root of await skillRootsFor(layout, cwd, ctx)) {
+    for (const skill of await discoverRoot(root, ctx, layout.name)) {
+      candidates.push(skill)
+    }
   }
+  return candidates
+}
+
+/** Root configuration one provider resolves from its Config. */
+interface ProviderLayout {
+  readonly name: string
+  readonly includeDefaultRoots: boolean
+  readonly dshHome: string
+  readonly agentsHome: string
+  readonly customSkillDirs: readonly string[]
+  readonly bundledSkillDir: string | undefined
+}
+
+/**
+ * Resolve one provider configuration into its root layout.
+ * @param config - filesystem provider configuration.
+ * @returns the provider name and every resolved skill-root base.
+ */
+function resolveLayout(config: Config): ProviderLayout {
+  const includeDefaultRoots = config.includeDefaultRoots ?? true
+  // The environment bundled root is a default root: an isolated provider
+  // must see only its explicit roots, or every such provider would
+  // re-discover the app's bundled skills under its own provider name.
+  const bundledSkillDir = config.bundledSkillDir
+    ?? (includeDefaultRoots ? process.env.DSH_BUNDLED_SKILL_DIR : undefined)
+  return {
+    name: config.providerName ?? 'filesystem',
+    includeDefaultRoots,
+    dshHome: resolveDshHome(config.dshHome),
+    agentsHome: resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents')),
+    customSkillDirs: (config.customSkillDirs ?? []).map(root => resolve(root)),
+    bundledSkillDir: bundledSkillDir === undefined ? undefined : resolve(bundledSkillDir),
+  }
+}
+
+/**
+ * Compute the ordered discovery roots for one provider layout and lookup cwd.
+ * @param layout - the provider's resolved root configuration.
+ * @param cwd - workspace whose project roots are included, when default roots are.
+ * @param ctx - context providing optional filesystem access for project-root detection.
+ * @returns project, custom, and user roots in precedence order.
+ */
+async function skillRootsFor(layout: ProviderLayout, cwd: string | undefined, ctx: Context): Promise<SkillRoot[]> {
+  const roots: SkillRoot[] = []
+  if (layout.includeDefaultRoots && cwd !== undefined) {
+    const projectRoot = await findProjectRoot(resolve(cwd), optionalFileSystem(ctx))
+    roots.push(
+      { path: join(projectRoot, '.dsh/skills'), source: 'project-dsh', rank: PROJECT_DSH_RANK, projectRoot },
+      { path: join(projectRoot, '.agents/skills'), source: 'project-agents', rank: PROJECT_AGENTS_RANK, projectRoot },
+    )
+  }
+  roots.push(...layout.customSkillDirs.map(path => ({ path, source: 'custom' as const, rank: CUSTOM_RANK })))
+  if (layout.includeDefaultRoots) {
+    roots.push(
+      { path: join(layout.dshHome, 'skills'), source: 'user-dsh', rank: USER_DSH_RANK, skipSystem: true },
+      { path: join(layout.agentsHome, 'skills'), source: 'user-agents', rank: USER_AGENTS_RANK },
+    )
+  }
+  if (layout.bundledSkillDir !== undefined) {
+    roots.push({ path: layout.bundledSkillDir, source: 'bundled', rank: BUNDLED_SKILL_RANK, trustedHost: true })
+  }
+  return roots
 }
 
 /** Provider that maps local project/user skill roots into `ctx.skills`. */
 export class FileSystemSkillProvider implements SkillProvider {
   readonly name: string
-  private readonly includeDefaultRoots: boolean
-  private readonly dshHome: string
-  private readonly agentsHome: string
-  private readonly customSkillDirs: string[]
+  private readonly layout: ProviderLayout
   private readonly watchManager: SkillWatchManager
-  private readonly bundledSkillDir: string | undefined
   private disposal: Promise<void> | undefined
 
   constructor(
@@ -185,19 +237,10 @@ export class FileSystemSkillProvider implements SkillProvider {
     control: SkillProviderControl,
     config: Config = {},
   ) {
-    this.name = config.providerName ?? 'filesystem'
-    this.includeDefaultRoots = config.includeDefaultRoots ?? true
-    this.dshHome = resolveDshHome(config.dshHome)
-    this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
-    this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
+    this.layout = resolveLayout(config)
+    this.name = this.layout.name
     this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
     control.signal.addEventListener('abort', () => { void this.dispose() }, { once: true })
-    // The environment bundled root is a default root: an isolated provider
-    // must see only its explicit roots, or every such provider would
-    // re-discover the app's bundled skills under its own provider name.
-    const bundledSkillDir = config.bundledSkillDir
-      ?? (this.includeDefaultRoots ? process.env.DSH_BUNDLED_SKILL_DIR : undefined)
-    this.bundledSkillDir = bundledSkillDir === undefined ? undefined : resolve(bundledSkillDir)
   }
 
   /**
@@ -266,25 +309,7 @@ export class FileSystemSkillProvider implements SkillProvider {
   }
 
   private async roots(cwd: string | undefined): Promise<SkillRoot[]> {
-    const roots: SkillRoot[] = []
-    if (this.includeDefaultRoots && cwd !== undefined) {
-      const projectRoot = await findProjectRoot(resolve(cwd), optionalFileSystem(this.ctx))
-      roots.push(
-        { path: join(projectRoot, '.dsh/skills'), source: 'project-dsh', rank: PROJECT_DSH_RANK, projectRoot },
-        { path: join(projectRoot, '.agents/skills'), source: 'project-agents', rank: PROJECT_AGENTS_RANK, projectRoot },
-      )
-    }
-    roots.push(...this.customSkillDirs.map(path => ({ path, source: 'custom' as const, rank: CUSTOM_RANK })))
-    if (this.includeDefaultRoots) {
-      roots.push(
-        { path: join(this.dshHome, 'skills'), source: 'user-dsh', rank: USER_DSH_RANK, skipSystem: true },
-        { path: join(this.agentsHome, 'skills'), source: 'user-agents', rank: USER_AGENTS_RANK },
-      )
-    }
-    if (this.bundledSkillDir !== undefined) {
-      roots.push({ path: this.bundledSkillDir, source: 'bundled', rank: BUNDLED_SKILL_RANK, trustedHost: true })
-    }
-    return roots
+    return skillRootsFor(this.layout, cwd, this.ctx)
   }
 }
 

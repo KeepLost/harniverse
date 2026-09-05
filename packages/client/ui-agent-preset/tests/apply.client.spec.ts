@@ -594,4 +594,77 @@ describe('ui-agent-preset apply', () => {
     const section = (slots.entries('settings.section')[0]!.inject as unknown as () => AgentPresetSectionInjected)()
     expect(section.startCreatorDraft).toBeUndefined()
   })
+
+  it('re-reads only the loaded surface when the principal changes mid-session', async () => {
+    const { ctx, slots, calls, movePrincipal } = await bench()
+    declareRoot(slots)
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    const row = (slots.entries('settings.general.item')[0]!.inject as unknown as () => AgentPresetRowInjected)()
+    await row.load()
+    const before = calls.length
+
+    movePrincipal()
+
+    // The General row was showing, so it re-reads; the section nobody opened
+    // stays idle instead of spending a round trip on a roster it never had.
+    await vi.waitFor(() => { expect(calls.length).toBe(before + 1) })
+    const section = (slots.entries('settings.section')[0]!.inject as unknown as () => AgentPresetSectionInjected)()
+    expect(section.hooks.agentPresetSection.getSnapshot().status).toBe('idle')
+  })
+
+  it('re-reads the loaded row but not an unopened section on the roster event', async () => {
+    const { ctx, slots, calls } = await bench()
+    declareRoot(slots)
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    const row = (slots.entries('settings.general.item')[0]!.inject as unknown as () => AgentPresetRowInjected)()
+    await row.load()
+    const before = calls.length
+
+    ctx.remote.$dispatch('agent-presets/change', [])
+
+    await vi.waitFor(() => { expect(calls.length).toBe(before + 1) })
+    const section = (slots.entries('settings.section')[0]!.inject as unknown as () => AgentPresetSectionInjected)()
+    expect(section.hooks.agentPresetSection.getSnapshot().status).toBe('idle')
+  })
+
+  it('resets and re-reads a loaded chip when the principal changes', async () => {
+    const { ctx, slots, calls, movePrincipal } = await bench()
+    declareRoot(slots)
+    const conversation = declareConversation(slots)
+    ctx.provide('conversation', {} as never)
+    ctx.provide('sessions', sessionsDouble({ byId: {} }) as never)
+    ctx.provide('workspaces', workspacesDouble() as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
+    const seat = (slots.entries('conversation.hero.agentPreset')[0]!
+      .inject as unknown as () => AgentPresetSeatInjected)()
+    await seat.load()
+    const before = calls.filter(call => call === 'list').length
+
+    movePrincipal()
+
+    await vi.waitFor(() => { expect(calls.filter(call => call === 'list').length).toBe(before + 1) })
+    expect(seat.hooks.agentPresetSeat.getSnapshot().options).toEqual([{ id: 'standard', trust: 'system' }])
+    conversation()
+  })
+
+  it('clears an untouched chip on a principal change without re-reading the roster', async () => {
+    const { ctx, slots, calls, movePrincipal } = await bench()
+    declareRoot(slots)
+    const conversation = declareConversation(slots)
+    ctx.provide('conversation', {} as never)
+    ctx.provide('sessions', sessionsDouble({ byId: {} }) as never)
+    ctx.provide('workspaces', workspacesDouble() as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
+
+    movePrincipal()
+    await Promise.resolve()
+
+    // Nothing was loaded anywhere: a reset alone is honest, and no surface
+    // spends a roster round trip it never needed before.
+    expect(calls.filter(call => call === 'list')).toEqual([])
+    const seat = (slots.entries('conversation.hero.agentPreset')[0]!
+      .inject as unknown as () => AgentPresetSeatInjected)()
+    expect(seat.hooks.agentPresetSeat.getSnapshot().current).toBe('')
+    conversation()
+  })
 })

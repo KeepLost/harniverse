@@ -187,6 +187,26 @@ describe('MenuView', () => {
     expect(onDismiss).not.toHaveBeenCalled()
   })
 
+  it('renders an item section title once per section and hides the group title when items carry sections', () => {
+    const { view } = mount(openState({
+      groups: [{
+        source: 'command',
+        status: 'ready',
+        items: [
+          { name: 'a', section: '文件' },
+          { name: 'b', section: '文件' },
+          { name: 'c', section: '其他' },
+        ],
+      }],
+    }))
+    expect(titles(view.container)).toEqual([])
+    const sections = [...view.container.querySelectorAll('div[role="presentation"]')]
+      .filter(el => el.getAttribute('data-source') === null)
+      .map(el => el.textContent ?? '')
+    expect(sections).toEqual(['文件', '其他'])
+    expect(screen.getAllByRole('option').map(o => o.textContent)).toEqual(['a', 'b', 'c'])
+  })
+
   it('mousedown on a row picks (source, index) and prevents the focus steal', () => {
     const { onPick } = mount(openState())
     const options = screen.getAllByRole('option')

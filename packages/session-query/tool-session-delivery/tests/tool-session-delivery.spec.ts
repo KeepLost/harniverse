@@ -254,3 +254,30 @@ describe('session_message', () => {
     }
   })
 })
+
+describe('calling-agent authority', () => {
+  it('fails loud without a calling agent for every session tool', async () => {
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(AgentDefaultModel, { provider: 'mock', model: 'mock' })
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(LocalSessionDelivery)
+    await ctx.plugin(tool)
+    const signal = new AbortController().signal
+
+    const rendered = async (name: string, args: unknown, callId: string): Promise<string> => {
+      const result = await ctx.tools.execute({ name, arguments: args, callId: CallId(callId), signal })
+      expect(result.isError).toBe(true)
+      return result.content.filter(block => block.type === 'text').map(block => block.text).join('')
+    }
+
+    expect(await rendered('session_message', { session_id: 'any', message: 'hello' }, 'no-agent-message'))
+      .toContain('session_message requires a calling agent')
+    expect(await rendered('session_create', {}, 'no-agent-create'))
+      .toContain('session_create requires a calling agent')
+    expect(await rendered('session_unload', { session_id: 'any' }, 'no-agent-unload'))
+      .toContain('session_unload requires a calling agent')
+
+    await ctx.fiber.dispose()
+  })
+})

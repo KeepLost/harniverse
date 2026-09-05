@@ -11,8 +11,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const failures = vi.hoisted(() => ({
   /**
-   * Error raised by the size probe of the active access log. The privacy
-   * assertion stats the same path first, so that call is allowed through.
+   * Error raised by the size probe of the active access log. On POSIX the
+   * privacy assertion stats the same path first; Windows skips that probe.
    */
   statError: undefined as NodeJS.ErrnoException | undefined,
   statCalls: 0,
@@ -30,9 +30,8 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     stat: async (...args: Parameters<typeof actual.stat>) => {
       if (failures.statError !== undefined && isAccessLog(args[0])) {
         failures.statCalls += 1
-        // The privacy assertion probes the same path first; only the size
-        // probe that follows it carries the injected failure.
-        if (failures.statCalls > 1) {
+        // Inject the failure at the size probe after the optional privacy check.
+        if (failures.statCalls >= (process.platform === 'win32' ? 1 : 2)) {
           const error = failures.statError
           failures.statError = undefined
           throw error

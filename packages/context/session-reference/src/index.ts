@@ -118,10 +118,9 @@ export class SessionReferenceResolver extends TypertRemoteService {
         return { type: 'text', text: parsed.text }
       })
       if (references.length === 0) return [message]
-      const resolved = await this.prepare(agent, content, references, signal)
-      const direct = freezeMessage({ ...message, content: resolved.content })
-      if (resolved.additionalContext === undefined) throw new Error('session-reference preparation omitted context for a canonical mention')
-      return [resolved.additionalContext, direct]
+      const inputs = normalizeReferences(agent.id, references, this.config.maxReferences)
+      const direct = freezeMessage({ ...message, content: structuredClone(content) })
+      return [await this.referencedContext(inputs, signal), direct]
     }))
     return prepared.flat()
   }
@@ -214,9 +213,21 @@ export class SessionReferenceResolver extends TypertRemoteService {
     references: SessionReferenceInput[],
     signal?: AbortSignal,
   ): Promise<PreparedReferencedMessage> {
-    const acceptedContent = structuredClone(content)
     const inputs = normalizeReferences(agent.id, references, this.config.maxReferences)
-    if (inputs.length === 0) return { content: acceptedContent }
+    if (inputs.length === 0) return { content: structuredClone(content) }
+    return { content: structuredClone(content), additionalContext: await this.referencedContext(inputs, signal) }
+  }
+
+  /**
+   * Read and project every normalized reference into one durable context message.
+   * @param inputs - non-empty, deduplicated references in mention order.
+   * @param signal - optional cancellation boundary for host request teardown.
+   * @returns the aggregated referenced-session context message.
+   */
+  private async referencedContext(
+    inputs: readonly Required<SessionReferenceInput>[],
+    signal: AbortSignal | undefined,
+  ): Promise<UserMessage> {
     assertNotCancelled(signal)
     let prepared: PreparedSource[]
     try {
@@ -251,11 +262,10 @@ export class SessionReferenceResolver extends TypertRemoteService {
         inputIndex: index,
       })),
     }
-    const additionalContext: UserMessage = createUserMessage({
+    return createUserMessage({
       source,
       content: [{ type: 'text', text: prompt }],
     })
-    return { content: acceptedContent, additionalContext }
   }
 
   private renderSources(sources: readonly PreparedSource[]): RenderedSource[] {

@@ -45,6 +45,24 @@ describe('hook config discovery', () => {
     expect(discoverHookConfigSources(undefined, { project: ['hooks.json'] })).toEqual([])
   })
 
+  it('drops empty source names and relative non-project names when no root exists', () => {
+    const root = tempDir('dsh-hook-discovery-root-')
+    const cwd = tempDir('dsh-hook-discovery-project-')
+
+    expect(discoverHookConfigSources(cwd, {
+      root,
+      user: [''],
+      project: ['hooks.json', ''],
+      plugin: ['plugin.json', ''],
+      policy: [''],
+    })).toEqual([
+      { layer: 'project', path: resolve(cwd, 'hooks.json') },
+      { layer: 'plugin', path: resolve(root, 'plugin.json') },
+    ])
+
+    expect(discoverHookConfigSources(undefined, { plugin: ['plugin.json'] })).toEqual([])
+  })
+
   it('keeps a bad source isolated and freezes the loaded event snapshot', () => {
     const root = tempDir('dsh-hook-discovery-root-')
     const good = join(root, 'good.json')

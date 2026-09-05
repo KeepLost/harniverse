@@ -480,3 +480,52 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     expect((sdk as Record<string, unknown>).default).toBeUndefined()
   })
 })
+
+describe('dsh-subagent-dsh-sdk child profiles', () => {
+  it('forwards a resolved child profile through the initialize handshake', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'subagent-dsh-sdk-profile-'))
+    const recordFile = join(tmp, 'init.jsonl')
+    try {
+      const ctx = await setup({ FAKE_RECORD_INIT: recordFile, FAKE_TEXT: 'done' })
+      ctx.subagents.registerChildModelRoute('route1', { provider: 'fake-provider', model: 'fake-model' })
+      ctx.subagents.registerChildProfileGrant(fakeParent, {
+        harnessIds: ['dsh-sdk'],
+        modelRouteIds: ['route1'],
+        tools: [],
+        skills: [],
+        mcpServerIds: [],
+        childProfileIds: [],
+        workspaceRoot: process.cwd(),
+        parentWorkspaceCwd: process.cwd(),
+      })
+      const profile = ctx.subagents.defineChildProfile(fakeParent, {
+        profileId: 'p1',
+        harnessId: 'dsh-sdk',
+        modelRouteId: 'route1',
+        workspaceCwd: '.',
+      })
+      const run = await ctx.subagents.start('dsh-sdk', { ...request(), childProfile: profile })
+      await run.result
+      await run.dispose()
+      const { readFileSync } = await import('node:fs')
+      const records = readFileSync(recordFile, 'utf8').trim().split('\n')
+        .map(line => JSON.parse(line) as Record<string, unknown>)
+      expect(records).toHaveLength(1)
+      expect(records[0]).toMatchObject({
+        cwd: process.cwd(),
+        provider: 'fake-provider',
+        model: 'fake-model',
+        childProfile: {
+          profileId: 'p1',
+          revision: 1,
+          harnessId: 'dsh-sdk',
+          modelRouteId: 'route1',
+          workspaceCwd: process.cwd(),
+        },
+      })
+      await ctx.fiber.dispose()
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+})

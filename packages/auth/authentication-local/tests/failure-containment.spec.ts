@@ -555,6 +555,8 @@ describe('rate limit windows', () => {
   })
 
   it('forgets an enrollment window once it elapses and bounds its key table', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-08-17T00:00:00.000Z'))
     const dshHome = await home()
     await createGrantFixture(dshHome)
     const ctx = await boot(dshHome, {
@@ -568,7 +570,7 @@ describe('rate limit windows', () => {
     await expect(ctx.authentication.requestEnrollment({ name: 'b', kind: 'device', publicKey: key() }, '10.0.0.1'))
       .resolves.toMatchObject({ kind: 'rejected', reason: 'rate-limited' })
 
-    await new Promise((resolve) => { setTimeout(resolve, 60) })
+    vi.setSystemTime(new Date('2026-08-17T00:00:00.060Z'))
     await expect(ctx.authentication.requestEnrollment({ name: 'c', kind: 'device', publicKey: key() }, '10.0.0.1'))
       .resolves.toMatchObject({ kind: 'accepted' })
 

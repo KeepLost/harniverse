@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SubagentRuntime, {
@@ -289,8 +290,8 @@ describe('child profile scoped setup', () => {
       harnessIds: ['native'],
       modelRouteIds: ['primary'],
       tools: ['read'],
-      workspaceRoot: '/repo',
-      parentWorkspaceCwd: '/repo',
+      workspaceRoot: resolve('/repo'),
+      parentWorkspaceCwd: resolve('/repo'),
       maxDepth: 4,
       maxTokens: 8_000,
     })

@@ -107,7 +107,7 @@ jobs:
             packages/sandbox/sandbox-local/tests/${{ matrix.runner }}.e2e.ts \
             packages/shell/bash-sandbox/tests/${{ matrix.runner }}.e2e.ts 2>&1); status=$?
           echo "$out"
-          [ "$status" -eq 0 ]
+          if [ "$status" -ne 0 ]; then exit "$status"; fi
           # Both platform files must have RUN — a self-skip (runner missing on
           # the very platform that exists to prove it) is a failure, not a pass.
           echo "$out" | grep -qE 'Test Files[[:space:]]+2 passed \(2\)'
@@ -128,5 +128,5 @@ jobs:
           out=$(pnpm exec vitest run --config vitest.e2e.config.ts \
             packages/sandbox/sandbox-local/tests/packed-install.e2e.ts 2>&1); status=$?
           echo "$out"
-          [ "$status" -eq 0 ]
+          if [ "$status" -ne 0 ]; then exit "$status"; fi
           echo "$out" | grep -qE 'Test Files[[:space:]]+1 passed \(1\)'

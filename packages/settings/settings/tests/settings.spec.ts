@@ -103,6 +103,22 @@ describe('registration', () => {
     expect(revisions).toEqual([1, 2])
   })
 
+  it('contains description-topology listener failures without vetoing the announcement', async () => {
+    const { ctx } = await boot()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    ctx.on('settings/description-changed', () => 42)
+    ctx.on('settings/description-changed', () => { throw new Error('topology listener exploded') })
+    ctx.on('settings/description-changed', (): unknown => Promise.reject(new Error('topology listener rejected')))
+
+    ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(warn).toHaveBeenCalledWith('settings: a description topology listener threw', expect.objectContaining({ message: 'topology listener exploded' }))
+    expect(warn).toHaveBeenCalledWith('settings: a description topology listener rejected', expect.objectContaining({ message: 'topology listener rejected' }))
+    expect(ctx.settings.describe()).toHaveLength(1)
+    warn.mockRestore()
+  })
+
   it('resolves schema defaults, then composition base, then the user layer', async () => {
     const { ctx } = await boot({ doc: { 'ui-theme': { theme: 'light' } } })
     const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema, {

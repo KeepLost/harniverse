@@ -114,10 +114,7 @@ export function localLocator(root: string, path: string): string {
 function pathForLocator(root: string, locator: string): string {
   const match = /^local-spill:v1:([0-9a-f]{12})\/([A-Za-z0-9._~-]+)$/.exec(locator)
   if (match === null) throw new Error('invalid local spill locator')
-  const sessionHash = match[1]
-  const fileName = match[2]
-  if (sessionHash === undefined || fileName === undefined) throw new Error('invalid local spill locator')
-  return join(root, `session-${sessionHash}`, fileName)
+  return join(root, `session-${match[1] as string}`, match[2] as string)
 }
 
 /** Parse a local UTF-8 byte cursor. */
@@ -223,10 +220,10 @@ export async function readTextFile(options: {
     if (offset > stat.size) throw new Error('local spill cursor exceeds artifact length')
     if (offset === stat.size) return { text: '' }
 
-    const boundary = Buffer.allocUnsafe(1)
-    await handle.read(boundary, 0, 1, offset)
-    const boundaryByte = boundary[0]
-    if (boundaryByte === undefined) throw new Error('local spill cursor could not be read')
+    const boundary = Buffer.alloc(1)
+    const probe = await handle.read(boundary, 0, 1, offset)
+    if (probe.bytesRead !== 1) throw new Error('local spill cursor could not be read')
+    const boundaryByte = boundary[0] as number
     if ((boundaryByte & 0xc0) === 0x80) throw new Error('local spill cursor is not at a UTF-8 boundary')
 
     const wanted = Math.min(stat.size - offset, options.maxChars * 4 + 4)

@@ -1678,6 +1678,27 @@ describe('default one-shot summarizer', () => {
     expect(adapter.lastOptions?.model).toBe('routed')
   })
 
+  it('prefers the composed model-policy concrete target for a durable model/target', async () => {
+    const { ctx, compact } = await summarizerHarness([{ type: 'text', text: 'unused default summary' }])
+    const policyAdapter = new ScriptedAdapter([{ type: 'text', text: 'policy summary' }])
+    ctx.llm.registerAdapter(['policy-provider'], policyAdapter)
+    const logicalTarget = { kind: 'model', selection: { provider: 'logical-provider', model: 'logical-model' } } as const
+    const concreteTarget = vi.fn(() => ({ provider: 'policy-provider', model: 'policy-model' }))
+    ctx.provide('modelPolicy', { concreteTarget })
+    const session = conversation(1)
+    session.append('request/header', {
+      header: { config: { provider: 'routed', model: 'routed' } },
+      reason: 'initial',
+    })
+    session.append('model/target', logicalTarget)
+
+    const output = await compact.runSummarize(promptInput('history'), agent(session, MODEL))
+
+    expect(output).toMatchObject({ provider: 'policy-provider', model: 'policy-model' })
+    expect(concreteTarget).toHaveBeenCalledExactlyOnceWith(session, logicalTarget)
+    expect(policyAdapter.lastOptions).toMatchObject({ provider: 'policy-provider', model: 'policy-model' })
+  })
+
   it('records the model actually dispatched after one-shot stream routing', async () => {
     const { ctx, compact } = await summarizerHarness([{ type: 'text', text: 'unused' }])
     const routedAdapter = new ScriptedAdapter([{ type: 'text', text: 'routed summary' }])

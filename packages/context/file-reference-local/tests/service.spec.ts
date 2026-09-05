@@ -144,7 +144,8 @@ describe('LocalFileReferenceService', () => {
     if (fiber === undefined) throw new Error('the Agent must own a prompt fiber')
     // Teardown of the prompt section is best-effort: its failure is reported and
     // must not propagate into Agent disposal.
-    vi.spyOn(fiber, 'dispose').mockReturnValue(Promise.reject(new Error(String(reason))))
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the scenario under test.
+    vi.spyOn(fiber, 'dispose').mockReturnValue(Promise.reject(reason))
 
     expect(() => { dispose() }).not.toThrow()
     await vi.waitFor(() => {

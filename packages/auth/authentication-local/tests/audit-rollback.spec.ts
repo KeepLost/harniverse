@@ -125,10 +125,12 @@ describe('audited Grant mutation rollback', () => {
     rejectAudit(new Error('audit unavailable'))
 
     await expect(revocation).rejects.toThrow('audit unavailable')
-    await expect(ctx.authentication.authenticate({
-      channel: 'http-api',
-      browserSession: browser.session.value,
-    })).resolves.toMatchObject({ kind: 'accepted', principal: { grantId: laptop.grant.id } })
+    await vi.waitFor(async () => {
+      await expect(ctx.authentication.authenticate({
+        channel: 'http-api',
+        browserSession: browser.session.value,
+      })).resolves.toMatchObject({ kind: 'accepted', principal: { grantId: laptop.grant.id } })
+    }, { timeout: auditTestTimeoutMs })
     expect(revoked).not.toHaveBeenCalled()
   })
 

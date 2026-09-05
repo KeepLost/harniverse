@@ -74,8 +74,8 @@ async function pageFromReverseRecords(
   const searchLimit = request.maxMessages + CHECKPOINT_SEARCH_MESSAGE_BUDGET
   for await (const record of records) {
     selected.unshift(record)
-    const first = record[0]
-    if (first !== undefined) lowestSeq = Math.min(lowestSeq, first.seq)
+    const first = record[0] as SessionEvent
+    lowestSeq = Math.min(lowestSeq, first.seq)
     const searching = upper === undefined
       && request.preferLatestCheckpoint === true
       && count < searchLimit
@@ -376,17 +376,14 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
       }
 
       const { frames } = scanZstdFrames(buffer)
-      if (frames.length === 0) throw new Error('empty or header-less Zstandard session log')
       const headerFrame = frames[0]
       if (headerFrame === undefined) throw new Error('empty or header-less Zstandard session log')
       const header = await decompressZstdFrame(buffer.subarray(headerFrame.start, headerFrame.end))
       const meta = parseHeaderMeta(header.subarray(0, -1).toString('utf8'))
       if (meta === undefined || meta.id !== id) throw new Error(`corrupt session log: invalid header line in "${path}"`)
       const page = await pageFromReverseRecords((async function* () {
-        for (let index = frames.length - 1; index >= 1; index -= 1) {
+        for (const frame of frames.slice(1).reverse()) {
           signal?.throwIfAborted()
-          const frame = frames[index]
-          if (frame === undefined) continue
           const body = await decompressZstdFrame(buffer.subarray(frame.start, frame.end))
           yield* reverseStorageRecords(body)
         }
@@ -432,17 +429,14 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
       }
 
       const { frames } = scanZstdFrames(buffer)
-      if (frames.length === 0) throw new Error('empty or header-less Zstandard session log')
       const headerFrame = frames[0]
       if (headerFrame === undefined) throw new Error('empty or header-less Zstandard session log')
       const header = await decompressZstdFrame(buffer.subarray(headerFrame.start, headerFrame.end))
       const meta = parseHeaderMeta(header.subarray(0, -1).toString('utf8'))
       if (meta === undefined || meta.id !== id) throw new Error(`corrupt session log: invalid header line in "${path}"`)
       const page = await rawEventPageFromReverseRecords((async function* () {
-        for (let index = frames.length - 1; index >= 1; index -= 1) {
+        for (const frame of frames.slice(1).reverse()) {
           signal?.throwIfAborted()
-          const frame = frames[index]
-          if (frame === undefined) continue
           const body = await decompressZstdFrame(buffer.subarray(frame.start, frame.end))
           yield* reverseStorageRecords(body)
         }

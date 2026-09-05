@@ -240,6 +240,21 @@ describe('artifact_read', () => {
     })
   })
 
+  it('rejects a backend page whose wrapper and continuation exceed the configured limit', async () => {
+    const { ctx, store } = await setup({ pageChars: 1 }, 200)
+    store.response = { text: 'x'.repeat(200), nextCursor: 'next' }
+
+    const result = await execute(ctx, { locator: 'artifact:key/oversized-page' })
+
+    expect(result).toMatchObject({
+      isError: true,
+      content: [{
+        type: 'text',
+        text: 'Error: tool "artifact_read" returned invalid output: output.render failed: artifact page and continuation guidance exceed the configured finalized-result limit',
+      }],
+    })
+  })
+
   it('unregisters the tool when its plugin fiber is disposed', async () => {
     const { ctx, fiber } = await setup()
     expect(ctx.tools.get('artifact_read')).toBeDefined()

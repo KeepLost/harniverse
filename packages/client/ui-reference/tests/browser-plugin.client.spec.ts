@@ -62,6 +62,63 @@ describe('unified reference source', () => {
     const source = await sourceOf()
     expect(source.onPick({ candidate: { name: 'foreign' }, session, position: 'inline', via: 'menu', span: { start: 0, end: 1, draftRev: 1 } })).toBeUndefined()
   })
+
+  it('degrades failed domain envelopes to an empty roster', async () => {
+    const filesOk = vi.fn(() => Promise.resolve({ ok: false as const, error: { code: 'unavailable', message: 'down', details: {} } }))
+    const sessionsOk = vi.fn(() => Promise.resolve({ ok: true as const, value: [] }))
+    const source = await sourceOf(filesOk, sessionsOk)
+    await expect(source.candidates(session, { query: '', position: 'inline', signal: new AbortController().signal })).resolves.toEqual([])
+    const filesRejected = vi.fn(() => Promise.reject(new Error('files failed')))
+    const sessionsRejected = vi.fn(() => Promise.reject(new Error('sessions failed')))
+    const degraded = await sourceOf(filesRejected, sessionsRejected)
+    await expect(degraded.candidates(session, { query: '', position: 'inline', signal: new AbortController().signal })).resolves.toEqual([])
+    const filesFailing = vi.fn(() => Promise.reject(new Error('files failed')))
+    const sessionsFailing = vi.fn(() => Promise.resolve({ ok: false as const, error: { code: 'unavailable', message: 'down', details: {} } }))
+    const enveloped = await sourceOf(filesFailing, sessionsFailing)
+    await expect(enveloped.candidates(session, { query: '', position: 'inline', signal: new AbortController().signal })).resolves.toEqual([])
+  })
+
+  it('returns no candidates once the request signal has aborted', async () => {
+    const source = await sourceOf()
+    const controller = new AbortController()
+    controller.abort()
+    await expect(source.candidates(session, { query: '', position: 'inline', signal: controller.signal })).resolves.toEqual([])
+  })
+
+  it('forwards the raw reference text as clipboard text', async () => {
+    const source = await sourceOf()
+    expect(source.codec?.clipboardText?.('@[Research](dsh-session:InNvdXJjZSI)')).toBe('@[Research](dsh-session:InNvdXJjZSI)')
+  })
+
+  it('drops files whose path contains control or quote characters', async () => {
+    const files = vi.fn(() => Promise.resolve({ ok: true as const, value: [
+      { path: 'a"b.md', kind: 'file' as const },
+      { path: 'docs/\u0001bad.md', kind: 'file' as const },
+    ] }))
+    const sessions = vi.fn(() => Promise.resolve({ ok: true as const, value: [] }))
+    const source = await sourceOf(files, sessions)
+    await expect(source.candidates(session, { query: '', position: 'inline', signal: new AbortController().signal })).resolves.toEqual([])
+  })
+
+  it('quotes an explicitly quoted directory mention and continues the path', async () => {
+    const files = vi.fn(() => Promise.resolve({ ok: true as const, value: [{ path: 'my src', kind: 'directory' as const }] }))
+    const sessions = vi.fn(() => Promise.resolve({ ok: true as const, value: [] }))
+    const source = await sourceOf(files, sessions)
+    const candidates = await source.candidates(session, { query: '', quoted: true, position: 'inline', signal: new AbortController().signal })
+    expect(source.onPick({ candidate: candidates[0]!, session, position: 'inline', via: 'menu', span: { start: 0, end: 1, draftRev: 1 } })).toEqual({ text: '@"my src/', continue: true })
+  })
+
+  it('describes sessions by label alone when it names the id and fills in a missing cwd', async () => {
+    const sessions = vi.fn(() => Promise.resolve({ ok: true as const, value: [{ sessionId: 's1' as SessionId, label: 's1', createdAt: 1_700_000_000_000, mention: '@[s1](dsh-session:czE)' }] }))
+    const source = await sourceOf(vi.fn(() => Promise.resolve({ ok: true as const, value: [] })), sessions)
+    const candidates = await source.candidates(session, { query: '', position: 'inline', signal: new AbortController().signal })
+    expect(candidates[0]!.description).toBe('(no cwd) · 2023-11-14T22:13:20.000Z')
+  })
+
+  it('ignores picks whose payload is not source-owned JSON', async () => {
+    const source = await sourceOf()
+    expect(source.onPick({ candidate: { name: 'junk', value: 'not-json' }, session, position: 'inline', via: 'menu', span: { start: 0, end: 1, draftRev: 1 } })).toBeUndefined()
+  })
 })
 
 describe('ui-reference node half', () => {

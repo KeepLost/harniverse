@@ -273,6 +273,44 @@ describe('web-app runtime glue', () => {
     await ctx.fiber.dispose()
   })
 
+  it('fails loud when the web runtime variable resolves without a webserver', async () => {
+    stageDist()
+    const ctx = new Context()
+    const contributions: BashContribution[] = []
+    ctx.provide('shellEnv', {
+      register: (contribution: BashContribution) => {
+        contributions.push(contribution)
+        return () => {}
+      },
+    } as never)
+    const child = ctx.plugin((childCtx: Context) => {
+      childCtx.provide('webServer', fakeHttpServer().server)
+    })
+    await child
+    apply(ctx, new Config({ printUrl: false, surfaceContext: true, trustedHosts: [] }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const webRuntime = contributions.find(contribution => contribution.name === 'web-runtime')
+    expect(webRuntime).toBeDefined()
+    await child.dispose()
+    expect(() => webRuntime?.resolve()).toThrow('web-app: webServer service missing while resolving Web runtime')
+    await ctx.fiber.dispose()
+  })
+
+  it('defaults absent trusted origins to an empty fence while keeping explicit hosts', async () => {
+    stageDist()
+    const ctx = new Context()
+    ctx.provide('webServer', fakeHttpServer().server)
+    apply(ctx, { printUrl: false, surfaceContext: false, trustedHosts: ['explicit.host'] })
+    await ctx.plugin((active: Context) => { active.effect(() => () => {}) })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(ctx.get('webRuntime')).toEqual({
+      lanAddresses: [],
+      trustedHosts: ['explicit.host'],
+      trustedOrigins: [],
+    })
+    await ctx.fiber.dispose()
+  })
+
   it('resolves the real built frontend dist through the package exports, failing loud unbuilt', () => {
     // The production resolver (not the test hook). A built checkout resolves
     // the frontend package's index.html; a dist-less one (the CI coverage

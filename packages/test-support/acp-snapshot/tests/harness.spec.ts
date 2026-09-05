@@ -8,7 +8,11 @@ import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { runScenario, snapshotSpillRoot, type AgentUnderTest, type InputStep } from '../src/harness.ts'
 import { launchAcpTestAgent } from '../src/launcher.ts'
 
-const fsControl = vi.hoisted(() => ({ cleanupFailure: undefined as Error | undefined }))
+const fsControl = vi.hoisted(() => ({
+  cleanupFailure: undefined as Error | undefined,
+  harvestFailure: undefined as Error | undefined,
+  harvestHang: undefined as Promise<void> | undefined,
+}))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
@@ -22,6 +26,13 @@ vi.mock('node:fs/promises', async (importOriginal) => {
         throw failure
       }
       await actual.rm(...args)
+    },
+    async readFile(path: string, encoding: string): Promise<string> {
+      if (path.includes('acp-snap-sessions-')) {
+        if (fsControl.harvestHang !== undefined) await fsControl.harvestHang
+        if (fsControl.harvestFailure !== undefined) throw fsControl.harvestFailure
+      }
+      return actual.readFile(path, encoding as 'utf8')
     },
   }
 })
@@ -582,6 +593,77 @@ describe('runScenario', () => {
       { agent: AGENT, mode: 'replay', fixtureFile },
     )
     expect(result.sessionLogs[0]?.content).toContain('"type":"turn/end"')
+  })
+
+  it('waitForTurnEnd surfaces a persisting harvest failure rather than a wait-timeout error', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'aborted' } } },
+        ],
+      }],
+    })
+    // Route promptAndCancel through a cwd file so its readiness wait never
+    // harvests; only the following waitForTurnEnd step reads the sessions root.
+    const workspaceDir = join(dir, 'workspace')
+    const { mkdir } = await import('node:fs/promises')
+    await mkdir(workspaceDir, { recursive: true })
+    await writeFile(join(workspaceDir, 'started.txt'), '')
+    fsControl.harvestFailure = new Error('harvest exploded')
+    try {
+      await expect(runScenario(
+        {
+          steps: [
+            ...boot,
+            { op: 'promptAndCancel', text: 'hang', waitForFile: { path: 'started.txt' } },
+            { op: 'waitForTurnEnd', timeoutMs: 20 },
+          ],
+        },
+        { agent: AGENT, mode: 'replay', fixtureFile, workspaceDir },
+      )).rejects.toThrow('harvest exploded')
+    } finally {
+      fsControl.harvestFailure = undefined
+    }
+  })
+
+  it('waitForTurnEnd reports the harness description when the budget lapses before a poll settles', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'aborted' } } },
+        ],
+      }],
+    })
+    const workspaceDir = join(dir, 'workspace')
+    const { mkdir } = await import('node:fs/promises')
+    await mkdir(workspaceDir, { recursive: true })
+    await writeFile(join(workspaceDir, 'started.txt'), '')
+    // A never-settling first poll keeps vi.waitFor's own timeout as the only
+    // settlement source, so the harness description replaces the generic
+    // "Timed out in waitFor!" even when a saturated runner delays the timer.
+    fsControl.harvestHang = new Promise<void>(() => {})
+    try {
+      await expect(runScenario(
+        {
+          steps: [
+            ...boot,
+            { op: 'promptAndCancel', text: 'hang', waitForFile: { path: 'started.txt' } },
+            { op: 'waitForTurnEnd', timeoutMs: 20 },
+          ],
+        },
+        { agent: AGENT, mode: 'replay', fixtureFile, workspaceDir },
+      )).rejects.toThrow('did not persist turn/end within 20ms')
+    } finally {
+      fsControl.harvestHang = undefined
+    }
   })
 
   it('waitForInboxMessage holds the app through a matching durable insertion', { timeout: 20_000 }, async () => {

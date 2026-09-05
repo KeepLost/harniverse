@@ -376,6 +376,28 @@ describe('SessionProjectionCache cold read', () => {
     expect(storedRecord(pool, session.id)).toBeUndefined()
   })
 
+  it('serves no cached record for a deleted lifecycle and re-seats the slot under a recreated identity', async () => {
+    const { cache, pool, ctx } = await harness()
+    const first = ctx.sessions.prepare(SessionId('recycled'), { meta: { createdAt: 10 } })
+    const detachFirst = ctx.sessions.enter(first)
+    ctx.sessions.announce(first)
+    mark(first, ['before'])
+    await cache.write(first)
+    expect(cache.cachedSnapshot(first.header)).toBeDefined()
+
+    await cache.delete(first.header)
+    expect(cache.cachedSnapshot(first.header)).toBeUndefined()
+    detachFirst()
+
+    const recreated = ctx.sessions.prepare(SessionId('recycled'), { meta: { createdAt: 20 } })
+    mark(recreated, ['after'])
+    await cache.write(recreated)
+    const record = storedRecord(pool, recreated.id)
+    expect(record?.identity.createdAt).toBe(20)
+    expect(record?.rows['cache-test/marks']?.val).toEqual({ marks: ['after'] })
+    expect(cache.cachedSnapshot(recreated.header)?.values['cache-test/marks']).toEqual({ marks: ['after'] })
+  })
+
   it('holds the not-found contract with zero registered units, and dates the empty cut for a present log', async () => {
     // Same composition minus any registered unit: restoreFloor is undefined,
     // yet coldSnapshot must still reject for an absent log (probe read) and

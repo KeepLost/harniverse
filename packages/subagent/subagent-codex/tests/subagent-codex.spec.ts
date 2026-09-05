@@ -1267,3 +1267,306 @@ describe('disposeCodexChild', () => {
     }
   })
 })
+
+describe('failure classification and lifecycle edges', () => {
+  it('drops an unsafe HTTP status but keeps the connection category', async () => {
+    const { child, wire } = await initializeWire()
+    const result = wire.runTurn(['task'], new AbortController().signal)
+    const turnStart = await child.peer.nextMethod('turn/start')
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    child.peer.send(turnCompleted('failed', 'turn-1', 'thread-1', {
+      codexErrorInfo: { httpConnectionFailed: { httpStatusCode: 99_999 } },
+    }))
+    await expect(result).rejects.toThrow('status failed')
+    expect(wire.collectFailure()).toEqual({ stage: 'turn', category: 'httpConnectionFailed' })
+    wire.close()
+  })
+
+  it('treats malformed failure detail objects as unknown', async () => {
+    {
+      const { child, wire } = await initializeWire()
+      const result = wire.runTurn(['task'], new AbortController().signal)
+      const turnStart = await child.peer.nextMethod('turn/start')
+      child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+      child.peer.send(turnCompleted('failed', 'turn-1', 'thread-1', {
+        codexErrorInfo: { firstCategory: {}, secondCategory: {} },
+      }))
+      await expect(result).rejects.toThrow('status failed: unknown')
+      expect(wire.collectFailure()).toEqual({ stage: 'turn', category: 'unknown' })
+      wire.close()
+    }
+    {
+      const { child, wire } = await initializeWire()
+      const result = wire.runTurn(['task'], new AbortController().signal)
+      const turnStart = await child.peer.nextMethod('turn/start')
+      child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+      child.peer.send(turnCompleted('failed', 'turn-1', 'thread-1', {
+        codexErrorInfo: { httpConnectionFailed: 'not an object' },
+      }))
+      await expect(result).rejects.toThrow('status failed: unknown')
+      wire.close()
+    }
+  })
+
+  it('recognizes steerability, unknown object categories, and plain-string errors', async () => {
+    {
+      const { child, wire } = await initializeWire()
+      const result = wire.runTurn(['task'], new AbortController().signal)
+      const turnStart = await child.peer.nextMethod('turn/start')
+      child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+      child.peer.send(turnCompleted('failed', 'turn-1', 'thread-1', {
+        codexErrorInfo: { activeTurnNotSteerable: { message: 'busy' } },
+      }))
+      await expect(result).rejects.toThrow('status failed: activeTurnNotSteerable')
+      expect(wire.collectFailure()).toEqual({ stage: 'turn', category: 'activeTurnNotSteerable' })
+      wire.close()
+    }
+    {
+      const { child, wire } = await initializeWire()
+      const result = wire.runTurn(['task'], new AbortController().signal)
+      const turnStart = await child.peer.nextMethod('turn/start')
+      child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+      child.peer.send(turnCompleted('failed', 'turn-1', 'thread-1', {
+        codexErrorInfo: { mysteryCategory: {} },
+      }))
+      await expect(result).rejects.toThrow('status failed: unknown')
+      wire.close()
+    }
+    {
+      const { child, wire } = await initializeWire()
+      const result = wire.runTurn(['task'], new AbortController().signal)
+      const turnStart = await child.peer.nextMethod('turn/start')
+      child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+      child.peer.send(turnCompleted('failed', 'turn-1', 'thread-1', 'plain error string'))
+      await expect(result).rejects.toThrow('status failed: unknown')
+      wire.close()
+    }
+  })
+
+  it('maps an unrecognized error-info string to unknown', async () => {
+    const { child, wire } = await initializeWire()
+    const result = wire.runTurn(['task'], new AbortController().signal)
+    const turnStart = await child.peer.nextMethod('turn/start')
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    child.peer.send(turnCompleted('failed', 'turn-1', 'thread-1', {
+      codexErrorInfo: 'notAKnownString',
+    }))
+    await expect(result).rejects.toThrow('status failed: unknown')
+    expect(wire.collectFailure()).toEqual({ stage: 'turn', category: 'unknown' })
+    wire.close()
+  })
+
+  it('records the fixed sandbox diagnostic for a sandbox failure', async () => {
+    const { child, wire } = await initializeWire()
+    const result = wire.runTurn(['task'], new AbortController().signal)
+    const turnStart = await child.peer.nextMethod('turn/start')
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    child.peer.send(turnCompleted('failed', 'turn-1', 'thread-1', {
+      codexErrorInfo: 'sandboxError',
+    }))
+    await expect(result).rejects.toThrow('status failed: sandboxError')
+    expect(wire.collectDiagnostic()).toBe('Codex unattended decision (request: sandbox execution; decision: failed)')
+    wire.close()
+  })
+
+  it('keeps a provisional approval ahead of an earlier declined replay', async () => {
+    const { child, wire } = await initializeWire()
+    const result = wire.runTurn(['task'], new AbortController().signal)
+    const turnStart = await child.peer.nextMethod('turn/start')
+    child.peer.send(
+      {
+        method: 'item/completed',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          item: { type: 'commandExecution', status: 'declined' },
+        },
+      },
+      {
+        id: 'approval',
+        method: 'item/commandExecution/requestApproval',
+        params: { threadId: 'thread-1', turnId: 'turn-1', availableDecisions: ['decline'] },
+      },
+    )
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    expect(await child.peer.nextResponse('approval')).toMatchObject({
+      result: { decision: 'decline' },
+    })
+    child.peer.send(agentMessage('done', 'final_answer'), turnCompleted('completed'))
+    await expect(result).resolves.toEqual({
+      output: [{ type: 'text', text: 'done' }],
+      stopReason: 'completed',
+    })
+    expect(wire.collectDiagnostic()).toBe('Codex unattended decision (request: command approval; decision: declined)')
+    wire.close()
+  })
+
+  it('records declined file changes and passes non-declined ones through', async () => {
+    {
+      const { child, wire } = await initializeWire()
+      const result = wire.runTurn(['task'], new AbortController().signal)
+      const turnStart = await child.peer.nextMethod('turn/start')
+      child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+      child.peer.send(
+        {
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            item: { type: 'fileChange', status: 'applied' },
+          },
+        },
+        {
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            item: { type: 'fileChange', status: 'declined' },
+          },
+        },
+        agentMessage('done', 'final_answer'),
+        turnCompleted('completed'),
+      )
+      await expect(result).resolves.toEqual({
+        output: [{ type: 'text', text: 'done' }],
+        stopReason: 'completed',
+      })
+      expect(wire.collectDiagnostic()).toBe('Codex unattended decision (request: file change; decision: declined)')
+      wire.close()
+    }
+  })
+
+  it('cancels a file approval when cancellation is offered', async () => {
+    const { child, wire } = await initializeWire()
+    const result = wire.runTurn(['task'], new AbortController().signal)
+    const turnStart = await child.peer.nextMethod('turn/start')
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    child.peer.send(
+      {
+        id: 'file-approval',
+        method: 'item/fileChange/requestApproval',
+        params: { threadId: 'thread-1', turnId: 'turn-1', availableDecisions: ['cancel'] },
+      },
+      agentMessage('done', 'final_answer'),
+      turnCompleted('completed'),
+    )
+    expect(await child.peer.nextResponse('file-approval')).toMatchObject({
+      result: { decision: 'cancel' },
+    })
+    await expect(result).resolves.toEqual({
+      output: [{ type: 'text', text: 'done' }],
+      stopReason: 'completed',
+    })
+    expect(wire.collectDiagnostic()).toBe('Codex unattended decision (request: file approval; decision: cancelled)')
+    wire.close()
+  })
+
+  it('classifies a spawn failure before the protocol starts', async () => {
+    await expect(startCodexRun(request(), runSpec(fakeChild(), {
+      spawn: () => { throw new Error('codex binary missing') },
+    }))).rejects.toThrow('stage: initialize; category: unknown')
+  })
+
+  it('reports a teardown observation failure from disposal', async () => {
+    const child = fakeChild()
+    child.handle.waitForExit = vi.fn(async () => { throw new Error('observer broke') })
+    const wire = new CodexAppServerWire(child.handle.stdout!, child.handle.stdin!)
+    await expect(disposeCodexChild(wire, child.handle)).rejects.toThrow('stage: teardown; category: unknown')
+  })
+
+  it('recognizes permission signatures from decoded stderr strings', async () => {
+    const { child, run, turnStart } = await publishRun()
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    child.stderr.setEncoding('utf8')
+    child.stderr.write('approval policy is Never; reject command\n')
+    child.peer.send(
+      agentMessage('partial answer', null),
+      turnCompleted('failed', 'turn-1', 'thread-1', { codexErrorInfo: 'other' }),
+    )
+    await expect(run.result).resolves.toMatchObject({
+      stopReason: 'error',
+      diagnostic: expect.stringContaining('Codex unattended decision (request: command execution; decision: denied)') as string,
+    })
+    await run.dispose()
+  })
+
+  it('recognizes permission signatures from raw stderr buffers', async () => {
+    const { child, run, turnStart } = await publishRun()
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    child.stderr.write(Buffer.from('approval policy is Never; reject command\n'))
+    child.peer.send(
+      agentMessage('partial answer', null),
+      turnCompleted('failed', 'turn-1', 'thread-1', { codexErrorInfo: 'other' }),
+    )
+    await expect(run.result).resolves.toMatchObject({
+      stopReason: 'error',
+      diagnostic: expect.stringContaining('Codex unattended decision (request: command execution; decision: denied)') as string,
+    })
+    await run.dispose()
+  })
+
+  it('keeps stderr stream errors observation-only', async () => {
+    const { child, run, turnStart } = await publishRun()
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    child.stderr.emit('error', new Error('stderr pipe broke'))
+    child.peer.send(agentMessage('done', 'final_answer'), turnCompleted('completed'))
+    await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
+    await run.dispose()
+  })
+
+  it('spreads a concurrent process exit into a max-token diagnostic', async () => {
+    const { child, run, turnStart } = await publishRun()
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    child.peer.send(
+      agentMessage('partial answer', 'final_answer'),
+      turnCompleted('failed', 'turn-1', 'thread-1', { codexErrorInfo: 'contextWindowExceeded' }),
+    )
+    await nextTask()
+    child.settle({ exitCode: 0, signal: null })
+    await expect(run.result).resolves.toMatchObject({
+      stopReason: 'max-tokens',
+      diagnostic: expect.stringContaining('exit code: 0') as string,
+    })
+    await run.dispose()
+  })
+
+  it('waits for the managed exit when the protocol stream ends early', async () => {
+    const { child, run, turnStart } = await publishRun()
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    child.fromChild.end()
+    await nextTask()
+    await nextTask()
+    child.settle({ exitCode: 0, signal: null })
+    await expect(run.result).resolves.toMatchObject({
+      stopReason: 'error',
+      diagnostic: expect.stringContaining('stage: process') as string,
+    })
+    await run.dispose()
+  })
+
+  it('classifies a protocol end after the process already exited', async () => {
+    const { child, run, turnStart } = await publishRun()
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    child.settle({ exitCode: 9, signal: null })
+    child.fromChild.end()
+    await expect(run.result).resolves.toMatchObject({
+      stopReason: 'error',
+      diagnostic: expect.stringContaining('exit code: 9') as string,
+    })
+    await run.dispose()
+  })
+
+  it('reports an abort observed after startup failure cleanup as pre-publication', async () => {
+    const controller = new AbortController()
+    const child = fakeChild()
+    const originalTerminate = child.handle.terminate.bind(child.handle)
+    child.handle.terminate = () => {
+      controller.abort(new Error('late cancel'))
+      originalTerminate()
+    }
+    const starting = startCodexRun(request(undefined, controller.signal), runSpec(child))
+    const initialize = await child.peer.nextMethod('initialize')
+    child.peer.respond(initialize, null)
+    await expect(starting).rejects.toThrow('aborted before run publication')
+  })
+})

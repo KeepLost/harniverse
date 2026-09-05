@@ -172,10 +172,10 @@ function assertKnownKeys(value: object, keys: ReadonlySet<string>, path: string)
 }
 
 /** Map a validated user entry to the unchanged single-server client contract. */
-function toMcpClientConfig(entry: UserMcpServerConfig, reservationKey?: string): McpClientConfig {
+function toMcpClientConfig(entry: UserMcpServerConfig, reservationKey: string): McpClientConfig {
   const common = {
     serverName: entry.serverName,
-    ...reservationKey === undefined ? {} : { reservationKey },
+    reservationKey,
     toolCallTimeoutMs: entry.toolCallTimeoutMs,
     failOnStartupError: entry.failOnStartupError,
     reconnect: entry.reconnect,
@@ -184,7 +184,7 @@ function toMcpClientConfig(entry: UserMcpServerConfig, reservationKey?: string):
     return {
       ...common,
       transport: 'stdio',
-      command: entry.command ?? '',
+      command: entry.command as string,
       args: [...entry.args],
       env: { ...entry.env },
       cwd: entry.cwd,
@@ -193,7 +193,7 @@ function toMcpClientConfig(entry: UserMcpServerConfig, reservationKey?: string):
   return {
     ...common,
     transport: 'streamable-http',
-    url: entry.url ?? '',
+    url: entry.url as string,
     headers: { ...entry.headers },
   }
 }
@@ -229,13 +229,6 @@ function validateSettingsConfig(value: McpUserConfigSettingsConfig): void {
     if (initialDelayMs !== undefined && maxDelayMs !== undefined && initialDelayMs > maxDelayMs) {
       throw new TypeError(`mcp-user-config: ${path}.reconnect.initialDelayMs must be less than or equal to maxDelayMs`)
     }
-    // Reuse the existing client's complete field validation without passing any
-    // user-facing error text into logs, where it could contain a secret value.
-    try {
-      McpClientConfigSchema(toMcpClientConfig(entry))
-    } catch {
-      throw new TypeError(`mcp-user-config: invalid server entry at ${path}`)
-    }
   }
 }
 
@@ -266,13 +259,7 @@ function logChildFailure(ctx: Context, entry: UserMcpServerConfig, operation: st
 
 /** Mount one child and retain it even when its own startup fails for later updates/removal. */
 async function mountChild(ctx: Context, children: Map<string, ChildRecord>, entry: UserMcpServerConfig): Promise<void> {
-  let fiber: Fiber & PromiseLike<Fiber>
-  try {
-    fiber = ctx.plugin(MCP_CLIENT_PLUGIN, toMcpClientConfig(entry, reservationKeyFor(ctx)))
-  } catch (error) {
-    logChildFailure(ctx, entry, 'mount', error)
-    return
-  }
+  const fiber = ctx.plugin(MCP_CLIENT_PLUGIN, toMcpClientConfig(entry, reservationKeyFor(ctx)))
   const record: ChildRecord = { config: entry, fiber }
   children.set(entry.id, record)
   try {
@@ -289,20 +276,14 @@ async function restartChild(
   record: ChildRecord,
   entry: UserMcpServerConfig,
 ): Promise<void> {
-  await disposeChild(ctx, children, record)
-  if (children.has(entry.id)) return
+  await disposeChild(children, record)
   await mountChild(ctx, children, entry)
 }
 
 /** Dispose one child and remove it from the live stable-id map. */
-async function disposeChild(ctx: Context, children: Map<string, ChildRecord>, record: ChildRecord): Promise<void> {
-  try {
-    await record.fiber.dispose()
-  } catch (error) {
-    logChildFailure(ctx, record.config, 'dispose', error)
-  } finally {
-    if (children.get(record.config.id) === record) children.delete(record.config.id)
-  }
+async function disposeChild(children: Map<string, ChildRecord>, record: ChildRecord): Promise<void> {
+  await record.fiber.dispose()
+  children.delete(record.config.id)
 }
 
 /** Reconcile one complete settings snapshot; callers serialize this operation. */
@@ -317,11 +298,10 @@ async function reconcile(
 
   await Promise.all([...children.values()]
     .filter(record => !desired.has(record.config.id))
-    .map(record => disposeChild(ctx, children, record)))
+    .map(record => disposeChild(children, record)))
   if (stopped()) return
 
   await Promise.all([...desired.values()].map(async (entry) => {
-    if (stopped()) return
     const current = children.get(entry.id)
     if (current === undefined) {
       await mountChild(ctx, children, entry)
@@ -343,10 +323,8 @@ async function applyConsumer(ctx: Context, settings: McpUserConfigSettingsServic
       if (!disposed) await reconcile(ctx, children, next, () => disposed)
     })
     const settled = run.catch((error: unknown) => {
-      if (!disposed) {
-        const kind = error instanceof Error ? error.name : typeof error
-        ctx.logger.error(`mcp-user-config: reconciliation failed (${kind}); keeping the last good child set`)
-      }
+      const kind = error instanceof Error ? error.name : typeof error
+      ctx.logger.error(`mcp-user-config: reconciliation failed (${kind}); keeping the last good child set`)
     })
     reconciliation = settled
     return settled
@@ -359,7 +337,7 @@ async function applyConsumer(ctx: Context, settings: McpUserConfigSettingsServic
       disposed = true
       unwatch()
       await reconciliation
-      await Promise.all([...children.values()].map(record => disposeChild(ctx, children, record)))
+      await Promise.all([...children.values()].map(record => disposeChild(children, record)))
     }
   }, 'mcp-user-config.lifecycle')
   await lifecycle

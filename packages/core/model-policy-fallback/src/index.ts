@@ -96,11 +96,9 @@ export function apply(ctx: Context, _config: Config = {}): void {
     const targets = policy.targetsFor(payload.agent.session, target)
     if (targets.length < 2) return downstream
     const prior = latestFallback(payload.agent.session.events, payload.turn, payload.step)
-    const currentModel = payload.model ?? targets[0]?.model
-    if (currentModel === undefined) return downstream
     const current: ModelSelection = {
       provider: payload.provider,
-      model: currentModel,
+      model: payload.model ?? (targets[0] as ModelSelection).model,
     }
     const currentIndex = prior === undefined
       ? targets.findIndex(candidate => sameModel(candidate, current))

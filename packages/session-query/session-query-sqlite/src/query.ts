@@ -327,10 +327,11 @@ export function requestFingerprint(
 }
 
 function materializeActivityRange(range: SessionResultRange): SessionResultRange {
-  const materialized = materializeSessionEventResultFilters([{ kind: 'time', ...range }])[0]
-  if (materialized?.kind !== 'time') {
-    throw new SessionQueryError('session activity range is invalid', 'SESSION_QUERY_INVALID_FILTER')
-  }
+  const [materialized] = materializeSessionEventResultFilters([{ kind: 'time', ...range }]) as [{
+    kind: 'time'
+    from?: number
+    to?: number
+  }]
   return {
     ...materialized.from === undefined ? {} : { from: materialized.from },
     ...materialized.to === undefined ? {} : { to: materialized.to },
