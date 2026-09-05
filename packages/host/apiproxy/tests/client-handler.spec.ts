@@ -1005,3 +1005,73 @@ describe('config unary surface', () => {
     expect(response.result.error.code).toBe('bad-request')
   })
 })
+
+describe('model target and profile selection', () => {
+  it('round-trips selectModelTarget and selectModelProfile with their payloads and value shapes', async () => {
+    const seen: { method: string; payload: unknown }[] = []
+    const record = recorderInto(seen)
+    const concrete = { kind: 'model' as const, selection: { provider: 'pi-ai', model: 'acme-large' } }
+    const profile = {
+      id: 'balanced',
+      name: 'Balanced',
+      description: 'middle of the road',
+      unrestricted: false,
+      defaultTarget: { kind: 'route' as const, route: 'safe' },
+    }
+    const api = scriptedApi({
+      sessions: {
+        selectModelTarget: record('session.selectModelTarget', r => ok(r, {
+          target: r.payload.target,
+          selected: { provider: 'pi-ai', model: 'acme-large' },
+        })),
+        selectModelProfile: record('session.selectModelProfile', r => ok(r, {
+          profile,
+          target: { kind: 'route' as const, route: 'safe' },
+          selected: { provider: 'deepseek-official', model: 'deepseek-v4' },
+        })),
+      },
+    })
+    const c = client(api)
+    if (c.sessions.selectModelTarget === undefined || c.sessions.selectModelProfile === undefined) throw new Error('client must expose the selection methods')
+
+    const byModel = await c.sessions.selectModelTarget({ sessionId: sid('s-1'), target: concrete })
+    expect(byModel.result).toEqual({
+      ok: true,
+      value: { target: concrete, selected: { provider: 'pi-ai', model: 'acme-large' } },
+    })
+    const byRoute = await c.sessions.selectModelTarget({ sessionId: sid('s-1'), target: { kind: 'route', route: 'safe' } })
+    expect(byRoute.result).toEqual({
+      ok: true,
+      value: { target: { kind: 'route', route: 'safe' }, selected: { provider: 'pi-ai', model: 'acme-large' } },
+    })
+    const switched = await c.sessions.selectModelProfile({ sessionId: sid('s-1'), profileId: 'balanced' })
+    expect(switched.result).toEqual({
+      ok: true,
+      value: {
+        profile,
+        target: { kind: 'route', route: 'safe' },
+        selected: { provider: 'deepseek-official', model: 'deepseek-v4' },
+      },
+    })
+
+    expect(seen.map(call => call.method)).toEqual(['session.selectModelTarget', 'session.selectModelTarget', 'session.selectModelProfile'])
+    expect(seen[0]?.payload).toEqual({ sessionId: 's-1', target: concrete })
+    expect(seen[1]?.payload).toEqual({ sessionId: 's-1', target: { kind: 'route', route: 'safe' } })
+    expect(seen[2]?.payload).toEqual({ sessionId: 's-1', profileId: 'balanced' })
+  })
+
+  it('reports unavailable selection when the host session omits the optional methods', async () => {
+    const c = client(scriptedApi())
+    if (c.sessions.selectModelTarget === undefined || c.sessions.selectModelProfile === undefined) throw new Error('client must expose the selection methods')
+    const target = await c.sessions.selectModelTarget({ sessionId: sid('s-1'), target: { kind: 'route', route: 'safe' } })
+    expect(target.result).toEqual({
+      ok: false,
+      error: { code: 'internal', message: 'model target selection is unavailable', details: {} },
+    })
+    const profile = await c.sessions.selectModelProfile({ sessionId: sid('s-1'), profileId: 'balanced' })
+    expect(profile.result).toEqual({
+      ok: false,
+      error: { code: 'internal', message: 'model profile selection is unavailable', details: {} },
+    })
+  })
+})

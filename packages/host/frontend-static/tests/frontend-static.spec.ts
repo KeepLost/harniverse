@@ -10,6 +10,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { brotliCompressSync } from 'node:zlib'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
@@ -130,6 +131,14 @@ describe('real Loader composition', () => {
       body: '',
       length: String(Buffer.byteLength('export const cached = true')),
     })
+    expect(await request(port, '/assets/index-12345678.js', {
+      method: 'HEAD',
+      headers: { 'accept-encoding': 'br' },
+    })).toMatchObject({
+      status: 200,
+      cache: 'public, max-age=31536000, immutable',
+      length: String(brotliCompressSync('export const cached = true').byteLength),
+    })
 
     // Unknown extension ships as octet-stream.
     expect(await request(port, '/blob.bin')).toMatchObject({ status: 200, type: 'application/octet-stream', body: 'BLOB' })
@@ -181,5 +190,77 @@ describe('real Loader composition', () => {
 
   it.each(['relative', '/query?x', '/fragment#x'])('rejects invalid index pathname %s', async (path) => {
     await expect(loadComposition([path])).rejects.toThrow('index path must be an absolute pathname')
+  })
+})
+
+describe('fallback request encoding', () => {
+  it('joins array-valued accept-encoding headers and prefers brotli over gzip', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-frontend-static-encodings-'))
+    const distIndex = join(root, 'index.html')
+    await writeFile(distIndex, '<body>shell</body>')
+    await mkdir(join(root, 'assets'))
+    const assetBody = 'export const asset = true'
+    await writeFile(join(root, 'assets', 'app-12345678.js'), assetBody)
+
+    const fallbacks: Array<(req: unknown, res: unknown) => Promise<void>> = []
+    const fakeContext = {
+      effect: (register: () => () => void) => {
+        const dispose = register()
+        return () => { dispose() }
+      },
+      webServer: {
+        applyIndexTaps: (html: string) => html,
+        registerFallback: (handler: (req: unknown, res: unknown) => Promise<void>) => {
+          fallbacks.push(handler)
+          return () => { fallbacks.splice(fallbacks.indexOf(handler), 1) }
+        },
+      },
+    }
+    FrontendStatic.apply(fakeContext as unknown as Context, { distIndex, indexPaths: [] })
+    expect(fallbacks).toHaveLength(1)
+
+    const written: { status: number; headers: Record<string, string>; body: Buffer | undefined }[] = []
+    const res = {
+      writeHead(status: number, headers: Record<string, string>) {
+        written.push({ status, headers, body: undefined })
+      },
+      end(body?: Buffer) {
+        const last = written[written.length - 1]
+        if (last) last.body = body
+      },
+    }
+    const req = {
+      method: 'GET',
+      url: '/assets/app-12345678.js',
+      headers: { 'accept-encoding': ['gzip', 'br'] },
+    }
+
+    await fallbacks[0]?.(req, res)
+    const compressed = brotliCompressSync(assetBody)
+    expect(written).toEqual([{
+      status: 200,
+      headers: {
+        'content-type': 'text/javascript; charset=utf-8',
+        'cache-control': 'public, max-age=31536000, immutable',
+        vary: 'accept-encoding',
+        'content-encoding': 'br',
+        'content-length': String(compressed.byteLength),
+      },
+      body: compressed,
+    }])
+
+    const bare = {
+      method: 'GET',
+      url: '/assets/app-12345678.js',
+      headers: {},
+    }
+    await fallbacks[0]?.(bare, res)
+    expect(written[1]).toMatchObject({
+      status: 200,
+      headers: { 'content-length': String(Buffer.byteLength(assetBody)) },
+      body: Buffer.from(assetBody),
+    })
+    expect(written[1]?.headers).not.toHaveProperty('content-encoding')
+    expect(written[1]?.headers).not.toHaveProperty('vary')
   })
 })

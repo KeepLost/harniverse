@@ -156,6 +156,19 @@ describe('web command-line provider', () => {
     expect(observed.exits).toEqual([1])
   })
 
+  it('publishes the bypass authentication mode only when explicitly requested', async () => {
+    const { values, observed } = await bootProvider(['--dangerously-skip-authentication'])
+    expect(values).toEqual({ trustedHosts: [], trustedOrigins: [], authenticationMode: 'bypass' })
+    expect(observed.readerConfig).toEqual({
+      host: '127.0.0.1',
+      port: 3080,
+      trustedHosts: [],
+      trustedOrigins: [],
+      authenticationMode: 'bypass',
+    })
+    expect(observed.exits).toEqual([])
+  })
+
   it('publishes TLS configuration for an authenticated all-interfaces host', async () => {
     const { values, observed } = await bootProvider([
       '--host', '0.0.0.0',

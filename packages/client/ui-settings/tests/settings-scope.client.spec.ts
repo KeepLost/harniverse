@@ -346,3 +346,123 @@ describe('SettingsScopeController', () => {
     expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'light' }, revision: 5 })
   })
 })
+
+/** Mirror that folds nothing, standing in for a description that refuses every write view. */
+class RefusingMirror extends SettingsDescribeMirror {
+  override acceptView(): boolean {
+    return false
+  }
+}
+
+/** Mirror whose subscription disposer drops nothing, standing in for a source notifying after disposal. */
+class LeakyMirror extends SettingsDescribeMirror {
+  override subscribe(listener: () => void): () => void {
+    void super.subscribe(listener)
+    return () => {}
+  }
+}
+
+describe('SettingsScopeController against a moved or refusing description', () => {
+  it('drops a queued write whose principal fence moved before it crossed the wire', async () => {
+    const mutate = vi.fn()
+    const describeCall = vi.fn()
+    const api = { settings: { describe: describeCall, mutate } } as never
+    const mirror = new SettingsDescribeMirror(api, TEST_AUTHENTICATION)
+    const scope = new SharedSettingsScopeController<UiTestSettings>(api, { namespace: 'ui-test' }, mirror)
+
+    const write = scope.set('preference', 'dark')
+    mirror.reset()
+    await write
+
+    expect(mutate).not.toHaveBeenCalled()
+    expect(describeCall).not.toHaveBeenCalled()
+    expect(scope.getSnapshot()).toMatchObject({ status: 'loading', value: undefined })
+  })
+
+  it('drops a write that settles after its principal moved, without recovering', async () => {
+    const first = deferred<RpcResponse<SettingsNamespaceView>>()
+    const mutate = vi.fn().mockReturnValueOnce(first.promise)
+    const describeCall = vi.fn()
+    const api = { settings: { describe: describeCall, mutate } } as never
+    const mirror = new SettingsDescribeMirror(api, TEST_AUTHENTICATION)
+    const scope = new SharedSettingsScopeController<UiTestSettings>(api, { namespace: 'ui-test' }, mirror)
+
+    const write = scope.set('preference', 'dark')
+    await vi.waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
+    mirror.reset()
+    first.resolve(ok(view({ preference: 'dark' }, 1)))
+    await write
+
+    expect(describeCall).not.toHaveBeenCalled()
+    expect(scope.getSnapshot()).toMatchObject({ status: 'loading', value: undefined })
+  })
+
+  it('leaves the published section untouched when the description refuses the write fold', async () => {
+    const mutate = vi.fn().mockResolvedValueOnce(ok(view({ preference: 'dark' }, 1)))
+    const describeCall = vi.fn()
+    const api = { settings: { describe: describeCall, mutate } } as never
+    const mirror = new RefusingMirror(api, TEST_AUTHENTICATION)
+    const scope = new SharedSettingsScopeController<UiTestSettings>(api, { namespace: 'ui-test' }, mirror)
+
+    await scope.set('preference', 'dark')
+
+    expect(mutate).toHaveBeenCalledOnce()
+    expect(describeCall).not.toHaveBeenCalled()
+    expect(scope.getSnapshot()).toMatchObject({ status: 'loading', value: undefined, revision: undefined })
+  })
+
+  it('settles a failed operation with its caller without stranding later writes', async () => {
+    const describeCall = vi.fn().mockResolvedValue(described({ preference: 'light' }, 2))
+    const mutate = vi.fn()
+      .mockResolvedValueOnce(rejected())
+      .mockResolvedValueOnce(ok(view({ preference: 'system' }, 3)))
+    const api = { settings: { describe: describeCall, mutate } } as never
+    const mirror = new SettingsDescribeMirror(api, TEST_AUTHENTICATION)
+    const scope = new SharedSettingsScopeController<UiTestSettings>(
+      api,
+      {
+        namespace: 'ui-test',
+        decode: () => { throw new Error('decoder failed') },
+      },
+      mirror,
+    )
+
+    await expect(scope.set('preference', 'dark')).rejects.toThrow('decoder failed')
+    await expect(scope.set('preference', 'system')).rejects.toThrow('decoder failed')
+
+    expect(mutate).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores a description change notified after disposal', async () => {
+    const describeCall = vi.fn()
+      .mockResolvedValueOnce(described({ preference: 'dark' }, 1))
+      .mockResolvedValueOnce(described({ preference: 'light' }, 2))
+    const api = { settings: { describe: describeCall } } as never
+    const mirror = new LeakyMirror(api, TEST_AUTHENTICATION)
+    const scope = new SharedSettingsScopeController<UiTestSettings>(api, { namespace: 'ui-test' }, mirror)
+
+    await mirror.load()
+    expect(scope.getSnapshot()).toMatchObject({ status: 'ready', value: { preference: 'dark' } })
+
+    await scope.dispose()
+    await mirror.load()
+
+    expect(scope.getSnapshot()).toMatchObject({ status: 'ready', value: { preference: 'dark' }, revision: 1 })
+  })
+
+  it('reports the section as unavailable while the description carries a read failure', async () => {
+    const describeCall = vi.fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(described({ preference: 'light' }, 1))
+    const scope = new SettingsScopeController<UiTestSettings>(
+      { settings: { describe: describeCall } } as never,
+      { namespace: 'ui-test' },
+    )
+
+    await scope.load()
+    expect(scope.getSnapshot()).toMatchObject({ status: 'unavailable', value: undefined, writable: false })
+
+    await scope.load()
+    expect(scope.getSnapshot()).toMatchObject({ status: 'ready', value: { preference: 'light' } })
+  })
+})

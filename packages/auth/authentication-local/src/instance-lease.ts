@@ -123,7 +123,10 @@ export async function acquireAuthenticationLease(options: AuthenticationLeaseOpt
     try {
       current = await readOwner(root)
     } catch (error) {
-      if (isMissing(error)) continue
+      // A competing Windows cleanup can remove the owner between readdir and
+      // readFile, which surfaces as EPERM instead of ENOENT.
+      const code = (error as NodeJS.ErrnoException | null)?.code
+      if (isMissing(error) || code === 'EPERM') continue
       throw error
     }
     if (current === undefined) {

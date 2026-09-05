@@ -243,3 +243,80 @@ describe('mcp-user-config plugin', () => {
     expect(JSON.stringify(descriptor)).not.toContain('do-not-disclose')
   })
 })
+
+describe('mcp-user-config settings validation', () => {
+  let validationCtx: Context
+  let ownerFiber: BridgeFiber
+
+  beforeEach(async () => {
+    validationCtx = new Context()
+    await validationCtx.plugin(SystemPrompt)
+    await validationCtx.plugin(ToolRuntime)
+    await validationCtx.plugin(MemorySettings)
+    ownerFiber = validationCtx.plugin({
+      name: bridgeModule.name,
+      inject: bridgeModule.inject,
+      Config: bridgeModule.Config,
+      apply: bridgeModule.apply,
+    }, { role: 'provider', servers: [] })
+    await ownerFiber
+  })
+
+  afterEach(async () => {
+    await ownerFiber.dispose()
+    await validationCtx.fiber.dispose()
+  })
+
+  it('rejects unknown keys at the section and server level', async () => {
+    const settings = validationCtx.get('settings') as MemorySettings
+    await expect(settings.replace(bridgeModule.MCP_SETTINGS_NAMESPACE, {
+      servers: [],
+      extra: true,
+    })).rejects.toThrow('unknown key "mcp.extra"')
+    await expect(settings.replace(bridgeModule.MCP_SETTINGS_NAMESPACE, {
+      servers: [{ ...server('odd'), bogus: 1 }],
+    })).rejects.toThrow('unknown key "mcp.servers[0].bogus"')
+  })
+
+  it('rejects duplicate serverName values', async () => {
+    const settings = validationCtx.get('settings') as MemorySettings
+    await expect(settings.replace(bridgeModule.MCP_SETTINGS_NAMESPACE, {
+      servers: [server('first'), server('second', { serverName: 'first' })],
+    })).rejects.toThrow('duplicate serverName "first"')
+  })
+
+  it('rejects a stdio entry without command', async () => {
+    const invalid = server('commandless')
+    delete invalid.command
+    const settings = validationCtx.get('settings') as MemorySettings
+    await expect(settings.replace(bridgeModule.MCP_SETTINGS_NAMESPACE, {
+      servers: [invalid],
+    })).rejects.toThrow('command is required for stdio')
+  })
+
+  it('rejects a stdio entry carrying a url', async () => {
+    const settings = validationCtx.get('settings') as MemorySettings
+    await expect(settings.replace(bridgeModule.MCP_SETTINGS_NAMESPACE, {
+      servers: [server('with-url', { url: 'http://127.0.0.1:9/mcp' })],
+    })).rejects.toThrow('url is only valid for streamable-http')
+  })
+
+  it('rejects an http entry carrying a command', async () => {
+    const invalid = server('with-command', {
+      transport: 'streamable-http',
+      url: 'http://127.0.0.1:9/mcp',
+    })
+    const settings = validationCtx.get('settings') as MemorySettings
+    await expect(settings.replace(bridgeModule.MCP_SETTINGS_NAMESPACE, {
+      servers: [invalid],
+    })).rejects.toThrow('command is only valid for stdio')
+  })
+
+  it('rejects a reconnect policy whose initial delay exceeds its ceiling', async () => {
+    const settings = validationCtx.get('settings') as MemorySettings
+    await expect(settings.replace(bridgeModule.MCP_SETTINGS_NAMESPACE, {
+      servers: [server('eager', { reconnect: { enabled: true, initialDelayMs: 40_000, maxDelayMs: 30_000, maxAttempts: 10 } })],
+    })).rejects.toThrow('initialDelayMs must be less than or equal to maxDelayMs')
+  })
+
+})

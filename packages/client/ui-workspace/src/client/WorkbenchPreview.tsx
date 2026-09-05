@@ -288,7 +288,7 @@ export function WorkbenchPreview(props: {
           return
         }
         if (event.key !== 'Tab' || props.placement !== 'in-column') return
-        const panel = ref.current
+        const panel = frame.closest<HTMLElement>('[data-preview-host]')
         if (panel === null) return
         const focusable = visibleFocusableDescendants(panel)
         const index = focusable.indexOf(frame)
@@ -355,6 +355,7 @@ export function WorkbenchPreview(props: {
   const surface = (
     <div
       ref={ref}
+      data-preview-host
       className={clsx(
         css.host,
         props.placement === 'in-column' && css.docked,

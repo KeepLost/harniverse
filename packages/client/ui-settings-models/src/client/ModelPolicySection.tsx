@@ -30,6 +30,10 @@ function parseObject(text: string): object {
   return value
 }
 
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 function PolicyEditor(props: {
   namespace: SettingsNamespaceView | undefined
   title: string
@@ -43,22 +47,22 @@ function PolicyEditor(props: {
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<string | undefined>(undefined)
 
+  if (props.namespace === undefined) return <p className={styles.notice}>{props.t('policyUnavailable')}</p>
+  const { namespace } = props
   const save = (): void => {
-    if (props.namespace === undefined || props.readOnly || busy) return
-    setBusy(true)
-    setStatus(undefined)
     let section: object
     try {
       section = parseObject(text)
     } catch (error: unknown) {
-      setStatus(error instanceof Error ? error.message : String(error))
-      setBusy(false)
+      setStatus(messageOf(error))
       return
     }
+    setBusy(true)
+    setStatus(undefined)
     void props.api.settings.replace({
-      ns: props.namespace.ns,
+      ns: namespace.ns,
       section,
-      expectedRevision: props.namespace.revision,
+      expectedRevision: namespace.revision,
     }).then((response) => {
       if (!response.result.ok) {
         setStatus(response.result.error.message)
@@ -67,11 +71,10 @@ function PolicyEditor(props: {
       setText(sectionText(response.result.value))
       setStatus(props.t('policySaved'))
     }).catch((error: unknown) => {
-      setStatus(error instanceof Error ? error.message : String(error))
+      setStatus(messageOf(error))
     }).finally(() => { setBusy(false) })
   }
 
-  if (props.namespace === undefined) return <p className={styles.notice}>{props.t('policyUnavailable')}</p>
   return (
     <section className={styles.policyCard} aria-label={props.title}>
       <h2 className={styles.policyTitle}>{props.title}</h2>

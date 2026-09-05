@@ -243,6 +243,82 @@ describe('permission settings store', () => {
     expect(controller.store.getSnapshot()).toMatchObject({ currentValue: '', options: [] })
   })
 
+  it('loads nothing once disposed', async () => {
+    const describe = vi.fn()
+    const controller = new PermissionPresetSettingsController({
+      settings: { describe, mutate: vi.fn() } as never,
+    })
+
+    controller.dispose()
+    await controller.load()
+
+    expect(describe).not.toHaveBeenCalled()
+    expect(controller.store.getSnapshot().status).toBe('idle')
+  })
+
+  it('falls back to the descriptor when the description refuses the write fold', async () => {
+    const describeFace = {
+      getSnapshot: () => ({
+        status: 'ready',
+        view: { writable: true, namespaces: [view('read-only', 1)] },
+        error: null,
+      }),
+      subscribe: () => () => {},
+      ensure: () => Promise.resolve(),
+      writeFence: () => 0,
+      isCurrent: () => true,
+      acceptResponse: () => true,
+      acceptView: () => false,
+    }
+    const mutate = vi.fn(() => Promise.resolve(ok(view('workspace-write', 2))))
+    const controller = new SharedPermissionPresetSettingsController(describeFace as never, {
+      settings: { mutate } as never,
+    })
+
+    await controller.load()
+    await controller.select('workspace-write')
+
+    expect(mutate).toHaveBeenCalledOnce()
+    expect(controller.store.getSnapshot()).toMatchObject({
+      status: 'ready',
+      currentValue: 'read-only',
+      revision: 1,
+    })
+  })
+
+  it('fails the row when the descriptor stops advertising its current preset', async () => {
+    const controller = new PermissionPresetSettingsController({
+      settings: {
+        describe: () => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [view('missing', 3)] })),
+        mutate: vi.fn(),
+      } as never,
+    })
+
+    await controller.load()
+
+    expect(controller.store.getSnapshot()).toMatchObject({
+      status: 'error',
+      error: 'permission settings schema does not advertise its current preset',
+    })
+  })
+
+  it('reports a transport rejection thrown as a non-error', async () => {
+    const controller = new PermissionPresetSettingsController({
+      settings: {
+        describe: () => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [view('read-only', 1)] })),
+        // Promise consumers must contain unknown rejection values from a
+        // transport implementation, including non-Error legacy clients.
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors
+        mutate: () => Promise.reject('boom'),
+      } as never,
+    })
+    await controller.load()
+
+    await controller.select('workspace-write')
+
+    expect(controller.store.getSnapshot()).toMatchObject({ status: 'error', error: 'boom' })
+  })
+
   it('disposal suppresses in-flight reads and writes, and loaded invalidations refetch', async () => {
     const read = Promise.withResolvers<ReturnType<typeof ok<{
       writable: boolean

@@ -5,7 +5,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { stubSettingsScope, type StubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
-import { CardForm, booleanField, numberField, selectField, textField } from '../src/client/card-form.ts'
+import { CardForm, booleanField, numberField, positiveIntegerField, selectField, textField } from '../src/client/card-form.ts'
 import { AgentLoopCardController, type AgentLoopSettings } from '../src/client/agent-loop-card-controller.ts'
 import { BashCardController, type BashSettings } from '../src/client/bash-card-controller.ts'
 import { CompactionCardController, type CompactionSettings } from '../src/client/compaction-card-controller.ts'
@@ -217,6 +217,44 @@ describe('CardForm', () => {
     await subject.save()
 
     expect(host.unset.mock.calls).toEqual([['baseURL']])
+  })
+
+  it('clears a positive integer field by emptying it', async () => {
+    const host = stubSettingsScope<Record<string, unknown>>()
+    const subject = new CardForm(host.scope, [positiveIntegerField('maxResults')])
+    acceptWrites(host)
+    host.publish({
+      status: 'ready', writable: true,
+      value: { maxResults: 5 }, base: { maxResults: 5 }, user: { maxResults: 5 },
+    })
+
+    subject.actions().edit('maxResults', '')
+
+    expect(subject.field('maxResults')).toEqual({ text: '', overridden: false, invalid: false })
+    await subject.save()
+
+    expect(host.unset.mock.calls).toEqual([['maxResults']])
+  })
+
+  it('clears a boolean field by emptying it, writes an explicit false, and refuses other text', async () => {
+    const host = stubSettingsScope<Record<string, unknown>>()
+    const subject = new CardForm(host.scope, [booleanField('includeRawContent')])
+    acceptWrites(host)
+    host.publish({
+      status: 'ready', writable: true,
+      value: { includeRawContent: true }, base: { includeRawContent: true }, user: { includeRawContent: true },
+    })
+
+    subject.actions().edit('includeRawContent', '')
+    await subject.save()
+    expect(host.unset.mock.calls).toEqual([['includeRawContent']])
+
+    subject.actions().edit('includeRawContent', 'false')
+    await subject.save()
+    expect(host.set.mock.calls).toEqual([['includeRawContent', false]])
+
+    subject.actions().edit('includeRawContent', 'bogus')
+    expect(subject.field('includeRawContent')).toMatchObject({ text: 'bogus', invalid: true })
   })
 
   it('writes the trimmed text of a text field', async () => {
@@ -585,6 +623,19 @@ describe('WebSearchCardController', () => {
 
     expect(face.hooks.webSearchCard.getSnapshot()).toMatchObject({ selectedProvider: 'exa', dirty: true })
     expect(selector.set).not.toHaveBeenCalled()
+  })
+
+  it('projects the tavily, brave, and kagi forms when each is selected', () => {
+    const { face } = webSearchController()
+
+    face.edit('selector.searchProvider', 'tavily')
+    expect(face.hooks.webSearchCard.getSnapshot()).toMatchObject({ selectedProvider: 'tavily', dirty: true })
+
+    face.edit('selector.searchProvider', 'brave')
+    expect(face.hooks.webSearchCard.getSnapshot()).toMatchObject({ selectedProvider: 'brave', dirty: true })
+
+    face.edit('selector.searchProvider', 'kagi')
+    expect(face.hooks.webSearchCard.getSnapshot()).toMatchObject({ selectedProvider: 'kagi', dirty: true })
   })
 
   it('projects both capability selectors and routes every added provider field', () => {

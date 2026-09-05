@@ -449,3 +449,167 @@ describe('the new-session chip controller', () => {
 
 
 })
+
+describe('the settings row against a principal that moved on', () => {
+  function sharedWith(face: SettingsDescribeFace, options: { failWriteWith?: Error } = {}): SharedAgentPresetSettingsController {
+    // A fresh roster per controller: a committed write moves its own defaults.
+    const presets = [
+      { id: 'standard', trust: 'system' as const, isDefault: true },
+      { id: 'minimal', trust: 'system' as const, isDefault: false },
+    ]
+    return new SharedAgentPresetSettingsController(fakeApi(presets, options), face)
+  }
+
+  function face(overrides: {
+    isCurrent?: () => boolean
+    acceptResponse?: () => boolean
+    acceptView?: () => boolean
+    afterEnsure?: SettingsMirrorSnapshot
+  }): SettingsDescribeFace {
+    let snapshot: SettingsMirrorSnapshot = { status: 'idle', view: undefined, error: null }
+    return {
+      getSnapshot: () => snapshot,
+      subscribe: () => () => {},
+      ensure: async () => {
+        snapshot = overrides.afterEnsure ?? { status: 'ready', view: { writable: true, hasDocument: true, namespaces: [] }, error: null }
+      },
+      writeFence: () => 0,
+      isCurrent: overrides.isCurrent ?? (() => true),
+      acceptResponse: overrides.acceptResponse ?? (() => true),
+      acceptView: overrides.acceptView ?? (() => true),
+    }
+  }
+
+  it('keeps the row saving when a transport failure belongs to a prior principal', async () => {
+    const controller = sharedWith(face({ isCurrent: () => false }), { failWriteWith: new Error('socket closed') })
+
+    await controller.select('minimal')
+
+    expect(controller.store.getSnapshot().status).toBe('saving')
+  })
+
+  it('keeps the row saving when the write answer belongs to a prior principal', async () => {
+    const controller = sharedWith(face({ acceptResponse: () => false }))
+
+    await controller.select('minimal')
+
+    expect(controller.store.getSnapshot().status).toBe('saving')
+  })
+
+  it('keeps the row saving when the post-write view belongs to a prior principal', async () => {
+    const controller = sharedWith(face({ acceptView: () => false }))
+    await controller.load()
+
+    await controller.select('minimal')
+
+    const state = controller.store.getSnapshot()
+    expect(state.status).toBe('saving')
+    expect(state.currentValue).toBe('minimal')
+  })
+
+  it('stops the load when the principal left before the describe settled', async () => {
+    const controller = sharedWith(face({ isCurrent: () => false }))
+
+    await controller.load()
+
+    expect(controller.store.getSnapshot().status).toBe('loading')
+  })
+
+  it('reports a refused describe as the row error', async () => {
+    const controller = sharedWith(face({
+      afterEnsure: { status: 'idle', view: undefined, error: 'describe refused' },
+    }))
+
+    await controller.load()
+
+    const state = controller.store.getSnapshot()
+    expect(state.status).toBe('error')
+    expect(state.error).toBe('describe refused')
+    expect(state.writable).toBe(false)
+  })
+
+  it('names settings generally when the mirror failed without a message', async () => {
+    const controller = sharedWith(face({
+      afterEnsure: { status: 'idle', view: undefined, error: null },
+    }))
+
+    await controller.load()
+
+    const state = controller.store.getSnapshot()
+    expect(state.status).toBe('error')
+    expect(state.error).toBe('settings are unavailable')
+  })
+})
+
+describe('the new-session chip against a principal that moved on', () => {
+  const ROSTER: { id: string; trust: 'system' | 'user'; isDefault: boolean }[] = [
+    { id: 'standard', trust: 'system', isDefault: true },
+    { id: 'minimal', trust: 'system', isDefault: false },
+  ]
+
+  function seat(describeFace: SettingsDescribeFace, currentSession?: SeatSessionSummary): AgentPresetSeatController {
+    const api = {
+      agentPresets: {
+        list: () => Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: { presets: ROSTER } } }),
+      },
+    } as unknown as IApiClient
+    return new AgentPresetSeatController(api, () => currentSession, undefined, describeFace)
+  }
+
+  it('clears the roster and the staged pick, then loads afresh', async () => {
+    const controller = seat({ writeFence: () => 0, isCurrent: () => true, acceptResponse: () => true } as never)
+    await controller.load()
+    controller.stage('minimal')
+
+    controller.reset()
+
+    expect(controller.store.getSnapshot()).toEqual({
+      options: [], current: '', error: null, busy: false, introduce: false,
+    })
+    await controller.load()
+    expect(controller.store.getSnapshot().current).toBe('standard')
+  })
+
+  it('ignores a roster answer that belongs to a prior principal', async () => {
+    const controller = seat({ writeFence: () => 1, isCurrent: () => true, acceptResponse: () => false } as never)
+
+    await controller.load()
+
+    expect(controller.store.getSnapshot()).toEqual({
+      options: [], current: '', error: null, busy: false, introduce: false,
+    })
+  })
+
+  it('swallows a roster transport failure the current principal no longer owns', async () => {
+    const api = {
+      agentPresets: { list: () => Promise.reject(new Error('socket closed')) },
+    } as unknown as IApiClient
+    const controller = new AgentPresetSeatController(api, () => undefined, undefined, {
+      writeFence: () => 1,
+      isCurrent: () => false,
+      acceptResponse: () => true,
+    } as never)
+
+    await controller.load()
+
+    expect(controller.store.getSnapshot().error).toBeNull()
+  })
+
+  it('holds the stage until the session it named becomes current', async () => {
+    const current: SeatSessionSummary = { id: 's1' as never, blank: true, agentProfile: 'standard' }
+    const controller = seat({ writeFence: () => 0, isCurrent: () => true, acceptResponse: () => true } as never, current)
+    await controller.load()
+    await controller.select('minimal')
+
+    await controller.apply()
+
+    // The session still runs the old composition: the stage survives rather
+    // than claiming a switch that never happened.
+    expect(controller.store.getSnapshot().busy).toBe(true)
+    expect(controller.store.getSnapshot().current).toBe('minimal')
+
+    current.agentProfile = 'minimal'
+    await controller.apply()
+    expect(controller.store.getSnapshot().busy).toBe(false)
+  })
+})

@@ -147,10 +147,9 @@ export function ArchivePanel({
     setPreviewError(null)
   }
 
-  const restore = (): void => {
-    if (previewId === null) return
+  const restore = (id: SessionId): void => {
     setPreviewAction(true)
-    void unarchiveSession(previewId).then(() => {
+    void unarchiveSession(id).then(() => {
       closePreview(true)
     }).catch((error: unknown) => {
       setPreviewError(error instanceof Error ? error.message : String(error))
@@ -158,13 +157,11 @@ export function ArchivePanel({
   }
 
   const requestDelete = (ids: readonly SessionId[]): void => {
-    if (ids.length === 0) return
     setDeleteIds([...ids])
     setDeleteError(null)
   }
 
   const confirmDelete = (): void => {
-    if (deleting || deleteIds.length === 0) return
     setDeleting(true)
     setDeleteError(null)
     const ordered = deleteOrder(deleteIds, byId)
@@ -240,16 +237,18 @@ export function ArchivePanel({
         onClose={closePreview}
         title={previewItem?.displayTitle ?? t('archive.previewTitle')}
         closeLabel={t('close')}
-        className={css.previewDialog ?? ''}
-        contentClassName={css.previewContent ?? ''}
-        footer={(
-          <div className={css.previewFooter}>
-            <Button variant="outline" disabled={previewAction} onClick={restore}>{t('archive.restore')}</Button>
-            <Button variant="outline" disabled={previewAction || previewId === null} onClick={() => { requestDelete(previewId === null ? [] : [previewId]) }}>
-              {t('archive.delete')}
-            </Button>
-          </div>
-        )}
+        className={css.previewDialog as string}
+        contentClassName={css.previewContent as string}
+        {...previewId === null ? {} : {
+          footer: (
+            <div className={css.previewFooter}>
+              <Button variant="outline" disabled={previewAction} onClick={() => { restore(previewId) }}>{t('archive.restore')}</Button>
+              <Button variant="outline" disabled={previewAction} onClick={() => { requestDelete([previewId]) }}>
+                {t('archive.delete')}
+              </Button>
+            </div>
+          ),
+        }}
       >
         {previewLoading && <div className={css.status}>{t('archive.loading')}</div>}
         {previewError !== null && <div className={css.error} role="alert">{previewError}</div>}
@@ -260,9 +259,8 @@ export function ArchivePanel({
                 variant="outline"
                 disabled={previewAction}
                 onClick={() => {
-                  if (previewId === null) return
                   setPreviewAction(true)
-                  void loadArchiveOlder(previewId).then((result) => {
+                  void loadArchiveOlder(preview.sessionId).then((result) => {
                     if (result.ok) setPreview(result.value.snapshot)
                     else setPreviewError(result.error.message)
                   }).finally(() => { setPreviewAction(false) })

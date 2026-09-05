@@ -9,7 +9,7 @@ import { createUserMessage, CallId, StreamChunk  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
-import ToolRuntime, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { defineContentToolFixture, ToolOutputError, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER, type PostToolDecision, type PreToolDecision, type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
@@ -627,6 +627,48 @@ describe('tool-call scheduler: abort handling', () => {
         },
         error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
       })
+  })
+})
+
+describe('tool-call scheduler: finalize-time original errors', () => {
+  it('persists the retained originalError info alongside the finalize-time failure', async () => {
+    const adapter = new MockAdapter([
+      multiCall([{ id: 'c1', name: 'p', args: { id: '1' } }]),
+      textResponse('done'),
+    ])
+    const ctx = await harness(adapter)
+    let originalInfo: unknown
+    ctx.on('tools/finalize-result', async (_exec, _result, next): Promise<ToolExecutionResult> => {
+      const settled = await next()
+      if (!settled.isError) return settled
+      originalInfo = settled.error.info
+      return {
+        ...settled,
+        error: {
+          message: 'complete tool result retention failed',
+          info: { name: 'ToolResultRetentionError', code: 'TOOL_RESULT_RETENTION_FAILED' },
+        },
+        originalError: settled.error,
+      }
+    })
+    ctx.tools.register(defineContentToolFixture({
+      name: 'p',
+      description: 'always fails',
+      parameters: { id: { type: 'string', required: true } },
+      async execute() {
+        throw new ToolOutputError('p', ['output.render failed: scripted'])
+      },
+    }))
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    const results = events(agent).filter(e => e.type === 'tool/result')
+    expect(results).toHaveLength(1)
+    expect(results[0]?.data.error).toEqual({ name: 'ToolResultRetentionError', code: 'TOOL_RESULT_RETENTION_FAILED' })
+    expect(originalInfo).toEqual({ name: 'ToolOutputError', code: 'INVALID_TOOL_OUTPUT' })
+    expect(results[0]?.data.originalError).toEqual(originalInfo)
   })
 })
 

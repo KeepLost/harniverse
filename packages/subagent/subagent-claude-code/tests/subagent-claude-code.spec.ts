@@ -1023,3 +1023,44 @@ describe('query and process disposal', () => {
     )).rejects.toBeInstanceOf(AggregateError)
   })
 })
+
+describe('signal-exit and unknown-result mapping', () => {
+  it('reports a child killed by a signal without an exit code', async () => {
+    const child = fakeChild()
+    async function* stream(): AsyncGenerator<SDKMessage, void> {
+      child.settle({ exitCode: null, signal: 'SIGKILL' })
+      await Promise.resolve()
+      throw new Error('SECRET_TOKEN from /private/transport')
+    }
+    queryMock.mockImplementation(({ options }) => {
+      options.spawnClaudeCodeProcess!(sdkSpawnOptions())
+      return Object.assign(stream(), { close: vi.fn() }) as unknown as Query
+    })
+    const run = await startClaudeCodeRun(request(), {
+      cwd: '/workspace',
+      executable: '/native/claude',
+      env: {},
+      disposeGraceMs: 5,
+      spawn: () => child.handle,
+    })
+    const result = await run.result
+    expect(result).toMatchObject({ stopReason: 'error' })
+    expect(result.diagnostic).toContain('signal: SIGKILL')
+    expect(result.diagnostic).not.toContain('exit code:')
+    await run.dispose()
+  })
+
+  it('maps an unrecognized SDK result subtype to unknown without a cause', () => {
+    let captured: unknown
+    try {
+      successfulResult({ subtype: 'mystery' } as never)
+    } catch (error) {
+      captured = error
+    }
+    expect(captured).toBeInstanceOf(Error)
+    expect((captured as Error).message).toBe(
+      'subagent-claude-code: Product subagent failure (product: Claude Code; stage: query-run; category: unknown)',
+    )
+    expect((captured as Error).cause).toBeUndefined()
+  })
+})

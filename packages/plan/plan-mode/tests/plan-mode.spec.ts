@@ -223,6 +223,19 @@ describe('ctx.planMode: get/set', () => {
     expect(ctx.planMode.get(agent)).toEqual({ active: false, pending: true })
   })
 
+  it('throws on entering through set() while supervision is unsupervised', async () => {
+    const ctx = await setup()
+    ctx.provide('supervision', { allowsHumanInteraction: () => false })
+    const agent = await agentWithSession(ctx, 'unsupervised-set')
+
+    expect(() => ctx.planMode.set(agent, true))
+      .toThrow('Cannot enter plan mode while supervision is unsupervised.')
+    expect(ctx.planMode.get(agent)).toEqual({ active: false })
+    expect(agent.session.events.some(event => event.type === 'plan/mode')).toBe(false)
+
+    expect(ctx.planMode.set(agent, false)).toBe('noop')
+  })
+
   it('a between-turns selection commits plan/mode immediately (no boundary would come)', async () => {
     const ctx = await setup()
     const agent = await agentWithSession(ctx, 'agent-idle')
@@ -643,6 +656,24 @@ describe('/plan', () => {
     expect((await ctx.commands.execute(agent, '/plan off', [], signal))?.result)
       .toEqual({ kind: 'success', text: 'Plan mode off.' })
     expect(foldPlanMode(agent.session.events)).toBe(false)
+  })
+
+  it('refuses /plan entry while supervision is unsupervised, without touching plan state', async () => {
+    const ctx = await setup()
+    await ctx.plugin(CommandRuntime)
+    await new Promise(resolve => setImmediate(resolve))
+    ctx.provide('supervision', { allowsHumanInteraction: () => false })
+    const signal = new AbortController().signal
+    const agent = await agentWithSession(ctx, 'unsupervised-plan-command')
+    const steer = vi.fn()
+    ;(agent as unknown as { steer: typeof steer }).steer = steer
+
+    expect((await ctx.commands.execute(agent, '/plan draft first', [], signal))?.result)
+      .toEqual({ kind: 'error', text: 'Cannot enter plan mode while supervision is unsupervised.' })
+
+    expect(ctx.planMode.get(agent)).toEqual({ active: false })
+    expect(agent.session.events.some(event => event.type === 'plan/mode')).toBe(false)
+    expect(steer).not.toHaveBeenCalled()
   })
 
   it('steers image-only and image-plus-text plan requests and refuses images on /plan off', async () => {

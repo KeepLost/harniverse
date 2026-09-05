@@ -198,6 +198,11 @@ describe('restrict()', () => {
     const { scope: emptyScope } = await mintAgentScope(emptyCtx, 'empty')
     expect(() => emptyScope.ctx.tools.restrict({ deny: ['ghost'] }))
       .toThrow(/known global tools: \(none\)/)
+
+    // includeOwn widens the known-name surface to the scope's own layer, so the
+    // same unknown name is reported with the scoped wording.
+    expect(() => scope.ctx.tools.restrict({ allow: ['locale'], includeOwn: true }))
+      .toThrow(/unknown tool "locale".*known tools: local, real/s)
   })
 })
 

@@ -99,11 +99,11 @@ export function isPublicIp(address: string): boolean {
   const family = isIP(normalized)
   if (family === 4) {
     const value = parseIpv4(normalized)
-    return value !== undefined && !NON_PUBLIC_IPV4_RANGES.some(range => matchesIpv4Range(value, range))
+    return !NON_PUBLIC_IPV4_RANGES.some(range => matchesIpv4Range(value, range))
   }
   if (family === 6) {
     const value = parseIpv6(normalized)
-    return value !== undefined && !NON_PUBLIC_IPV6_RANGES.some(range => matchesIpv6Range(value, range))
+    return !NON_PUBLIC_IPV6_RANGES.some(range => matchesIpv6Range(value, range))
   }
   return false
 }
@@ -174,50 +174,54 @@ function stripIpv6Brackets(address: string): string {
   return address.startsWith('[') && address.endsWith(']') ? address.slice(1, -1) : address
 }
 
-function parseIpv4(address: string): number | undefined {
-  const octets = address.split('.')
-  if (octets.length !== 4) return undefined
-  let value = 0
-  for (const octet of octets) {
-    if (!/^\d{1,3}$/.test(octet)) return undefined
-    const parsed = Number(octet)
-    if (parsed > 255) return undefined
-    value = value * 256 + parsed
-  }
-  return value
+/**
+ * Fold one `isIP`-validated dotted-quad IPv4 address into its 32-bit value.
+ *
+ * @param address - a literal IPv4 address (`isIP(address) === 4`).
+ * @returns the address as one unsigned 32-bit integer.
+ */
+function parseIpv4(address: string): number {
+  return address.split('.').reduce((value, octet) => value * 256 + Number(octet), 0)
 }
 
-function parseIpv6(address: string): bigint | undefined {
+/**
+ * Fold one `isIP`-validated IPv6 address (full, `::`-compressed, or with an
+ * embedded IPv4 tail) into its 128-bit value.
+ *
+ * @param address - a literal IPv6 address (`isIP(address) === 6`).
+ * @returns the address as one unsigned 128-bit integer.
+ */
+function parseIpv6(address: string): bigint {
   const sections = address.toLowerCase().split('::')
-  if (sections.length > 2) return undefined
-  const left = parseIpv6Sections(sections[0] === '' ? [] : sections[0]?.split(':') ?? [])
-  const right = parseIpv6Sections(sections[1] === undefined || sections[1] === '' ? [] : sections[1].split(':'))
-  if (left === undefined || right === undefined) return undefined
+  const left = parseIpv6Sections(sections[0] ? sections[0].split(':') : [])
+  const right = parseIpv6Sections(sections[1] ? sections[1].split(':') : [])
   const missing = 8 - left.length - right.length
-  if (sections.length === 1 ? missing !== 0 : missing < 1) return undefined
   const words = [...left, ...new Array<number>(missing).fill(0), ...right]
-  if (words.length !== 8) return undefined
   return words.reduce((value, word) => (value << 16n) | BigInt(word), 0n)
 }
 
-function parseIpv6Sections(sections: string[]): number[] | undefined {
+/**
+ * Fold the colon sections of one half of a validated IPv6 address; the final
+ * section may be an embedded dotted-quad IPv4 address.
+ *
+ * @param sections - colon-separated hex sections, at most one trailing IPv4.
+ * @returns the sections as 16-bit words, an embedded IPv4 as its two words.
+ */
+function parseIpv6Sections(sections: string[]): number[] {
   const words: number[] = []
-  for (const [index, section] of sections.entries()) {
+  for (const section of sections) {
     if (section.includes('.')) {
-      if (index !== sections.length - 1) return undefined
       const ipv4 = parseIpv4(section)
-      if (ipv4 === undefined) return undefined
       words.push(ipv4 >>> 16, ipv4 & 0xffff)
       continue
     }
-    if (!/^[0-9a-f]{1,4}$/.test(section)) return undefined
     words.push(Number.parseInt(section, 16))
   }
   return words
 }
 
 function matchesIpv4Range(value: number, [network, prefixLength]: readonly [number, number]): boolean {
-  const mask = prefixLength === 0 ? 0 : (0xffffffff << (32 - prefixLength)) >>> 0
+  const mask = (0xffffffff << (32 - prefixLength)) >>> 0
   return (value & mask) === (network & mask)
 }
 

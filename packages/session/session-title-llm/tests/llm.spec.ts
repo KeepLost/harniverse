@@ -204,6 +204,49 @@ describe('generateSessionTitleWithLlm', () => {
     })
   })
 
+  it('routes the title request through the model policy concrete target for a logical session target', async () => {
+    const { ctx, adapter } = await withScript(SCRIPT)
+    ctx.llm.registerAdapter(['policy-route'], adapter)
+    const providerRequest = request(ctx)
+    const logicalTarget = { kind: 'model' as const, selection: { provider: 'logical-provider', model: 'logical-model' } }
+    providerRequest.session.append('model/target', logicalTarget)
+    const concreteTarget = vi.fn(() => ({ provider: 'policy-route', model: 'policy-model' }))
+    ctx.provide('modelPolicy', { concreteTarget } as never)
+
+    const result = await generateSessionTitleWithLlm(
+      ctx,
+      resolveSessionTitleLlmConfig(CONFIG),
+      providerRequest,
+      providerRequest.messages,
+      TITLE_PROVIDER,
+    )
+
+    expect(concreteTarget).toHaveBeenCalledWith(providerRequest.session, logicalTarget)
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]).toMatchObject({ provider: 'policy-route', model: 'policy-model' })
+    expect(result.model).toEqual({ provider: 'policy-route', model: 'policy-model' })
+  })
+
+  it('keeps the logged route when a present policy has no logical session target', async () => {
+    const { ctx, adapter } = await withScript(SCRIPT)
+    const providerRequest = request(ctx)
+    const concreteTarget = vi.fn()
+    ctx.provide('modelPolicy', { concreteTarget } as never)
+
+    const result = await generateSessionTitleWithLlm(
+      ctx,
+      resolveSessionTitleLlmConfig(CONFIG),
+      providerRequest,
+      providerRequest.messages,
+      TITLE_PROVIDER,
+    )
+
+    expect(concreteTarget).not.toHaveBeenCalled()
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]).toMatchObject({ provider: 'current-route', model: 'current-model' })
+    expect(result.model).toEqual({ provider: 'current-route', model: 'current-model' })
+  })
+
   it('requires every deployment limit and a complete optional route pair', () => {
     expect(() => resolveSessionTitleLlmConfig(undefined as never)).toThrow(/configuration is required/)
     expect(() => resolveSessionTitleLlmConfig(null as never)).toThrow(/configuration is required/)

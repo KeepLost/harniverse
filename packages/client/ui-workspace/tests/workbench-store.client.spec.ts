@@ -66,6 +66,20 @@ describe('createWorkspaceWorkbenchStore', () => {
     })
   })
 
+  it('prunes expanded directories at and under a non-root interrupted directory', () => {
+    const { store, actions } = createWorkspaceWorkbenchStore().create()
+    actions.setDirectory('a', 'src', { entries: [], truncated: false, loading: true })
+    actions.setDirectoryExpanded('a', '', true)
+    actions.setDirectoryExpanded('a', 'src', true)
+    actions.setDirectoryExpanded('a', 'src/deep', true)
+    actions.setDirectoryExpanded('a', 'other', true)
+
+    actions.ensureWorkspace('a')
+
+    expect(store.getSnapshot().byWorkspace.a?.directories).toEqual({})
+    expect(store.getSnapshot().byWorkspace.a?.expandedDirectories).toEqual({ '': true, other: true })
+  })
+
   it('dismisses without losing tabs and closes the surface with the final tab', () => {
     const { store, actions } = createWorkspaceWorkbenchStore().create()
     actions.openTab('a', { id: 'one', path: 'one', title: 'one', kind: 'text', loading: false })

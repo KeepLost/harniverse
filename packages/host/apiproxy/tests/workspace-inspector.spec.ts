@@ -145,7 +145,7 @@ describe('workspace file inspection', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  }, 60_000)
+  }, process.platform === 'win32' ? 120_000 : 60_000)
 
   it('reads supported binary previews completely and rejects unsupported or oversized files', async () => {
     const root = tempWorkspace()
@@ -710,7 +710,7 @@ describe('workspace entry classification and short reads', () => {
     expect(listed.truncated).toBe(true)
   })
 
-  it('classifies a device entry as neither file, directory, nor symlink', async () => {
+  it.skipIf(process.platform === 'win32')('classifies a device entry as neither file, directory, nor symlink', async () => {
     const root = tempWorkspace()
     await execFileAsync('mkfifo', [join(root, 'pipe')])
 

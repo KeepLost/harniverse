@@ -564,12 +564,47 @@ describe('WebSearchCard', () => {
     expect(actions.resetField).toHaveBeenCalledWith('perplexity.searchRecency')
   })
 
+  it('routes fetch-provider selection and reset with scoped addresses', () => {
+    const actions = renderWebSearch({
+      selector: { ...settled, searchProvider: field('deepseek-official'), fetchProvider: field('http', { overridden: true }) },
+    })
+    fireEvent.click(screen.getByText(en.webSearchTitle))
+
+    fireEvent.change(screen.getByLabelText(en.webSearchFetchProvider), { target: { value: 'firecrawl' } })
+    fireEvent.click(screen.getByRole('button', { name: en.reset }))
+
+    expect(actions.edit).toHaveBeenCalledWith('selector.fetchProvider', 'firecrawl')
+    expect(actions.resetField).toHaveBeenCalledWith('selector.fetchProvider')
+  })
+
+  it('routes the Tavily boolean control edits and resets', () => {
+    const actions = renderWebSearch({
+      selectedProvider: 'tavily',
+      tavily: { ...tavilyState(), includeRawContent: field('true', { overridden: true }) },
+    })
+    fireEvent.click(screen.getByText(en.webSearchTitle))
+
+    fireEvent.change(screen.getByLabelText(en.webSearchTavilyIncludeRawContent), { target: { value: 'false' } })
+    fireEvent.click(screen.getByRole('button', { name: en.reset }))
+
+    expect(actions.edit).toHaveBeenCalledWith('tavily.includeRawContent', 'false')
+    expect(actions.resetField).toHaveBeenCalledWith('tavily.includeRawContent')
+  })
+
   it.each([
     ['deepseek-official', 'deepseek'],
     ['exa', 'exa'],
     ['perplexity', 'perplexity'],
+    ['tavily', 'tavily'],
+    ['brave', 'brave'],
+    ['kagi', 'kagi'],
+    ['firecrawl', 'firecrawl'],
   ] as const)('keeps the selector visible when %s settings are unavailable', (selectedProvider, key) => {
-    const provider = key === 'deepseek' ? deepseekState() : key === 'exa' ? exaState() : perplexityState()
+    const states = {
+      deepseek: deepseekState, exa: exaState, perplexity: perplexityState, tavily: tavilyState,
+      brave: braveState, kagi: kagiState, firecrawl: firecrawlState,
+    }
+    const provider = states[key]()
     renderWebSearch({ selectedProvider, [key]: { ...provider, available: false } })
     fireEvent.click(screen.getByText(en.webSearchTitle))
 

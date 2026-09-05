@@ -38,7 +38,6 @@ Notes for using the \`str_replace\` command:
 
 function maybeTruncate(content: string, maxOutputChars: number): string {
   if (content.length <= maxOutputChars) return content
-  if (TRUNCATED_MESSAGE.length >= maxOutputChars) return TRUNCATED_MESSAGE.slice(0, maxOutputChars)
   return content.slice(0, maxOutputChars - TRUNCATED_MESSAGE.length) + TRUNCATED_MESSAGE
 }
 
@@ -279,11 +278,6 @@ async function viewPath(
     },
     target.displayPath,
   )
-  if (viewRange !== undefined && window.totalLines !== undefined && initialLine > window.totalLines) {
-    throw new Error(
-      `Invalid \`view_range\`: [${viewRange.join(', ')}]. Its first element \`${initialLine}\` should be within the range of lines of the file: [1, ${window.totalLines}]`,
-    )
-  }
   if (viewRange !== undefined && window.totalLines !== undefined && finalLine !== undefined && finalLine > window.totalLines) {
     throw new Error(
       `Invalid \`view_range\`: [${viewRange.join(', ')}]. Its second element \`${finalLine}\` should be smaller than the number of lines in the file: \`${window.totalLines}\``,

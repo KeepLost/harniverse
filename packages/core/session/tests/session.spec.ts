@@ -1645,6 +1645,21 @@ describe('SessionStore', () => {
     ])
   })
 
+  it('contains a session/closed dispatch failure from the close owner', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    ctx.on('internal/dispatch', (_mode, name) => {
+      if (name === 'session/closed') throw new Error('closed dispatch instrumentation')
+    })
+
+    expect(() => { ctx.sessions.emitClosed({ sessionId: SessionId('closed-dispatch') }) }).not.toThrow()
+    expect(warnings).toEqual([
+      'session "closed-dispatch": session/closed dispatch threw: Error: closed dispatch instrumentation',
+    ])
+  })
+
   it('does not let internal dispatch replace the disposed callback tuple', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
