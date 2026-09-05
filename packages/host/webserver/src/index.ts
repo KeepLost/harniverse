@@ -1,11 +1,12 @@
 /**
  * @deepseek-ai/dsh-host-webserver — Web route-registration plugin: a Node HTTP
  * or HTTPS server plus the `webServer` service (request and upgrade registries,
- * index transform taps, and the single fallback seat for everything no route
- * claims). Knows no harness concepts and serves no files; the composing
- * application's frontend plugin owns dist serving through the fallback hook.
- * Web shape only — Electron loads dist over file:// and carries fetch over an
- * IPC bridge. This package never prints: the URL line belongs to the shell.
+ * optional response compression, index transform taps, and the single fallback
+ * seat for everything no route claims). Knows no harness concepts and serves no
+ * files; the composing application's frontend plugin owns dist serving through
+ * the fallback hook. Web shape only — Electron loads dist over file:// and
+ * carries fetch over an IPC bridge. This package never prints: the URL line
+ * belongs to the shell.
  */
 
 import { readFile } from 'node:fs/promises'
@@ -16,6 +17,8 @@ import type { AddressInfo } from 'node:net'
 import type { Duplex } from 'node:stream'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import compressionMiddleware from 'compression'
+import Negotiator from 'negotiator'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -43,16 +46,67 @@ export interface WebUpgradeRoute {
   handler: (req: IncomingMessage, socket: Duplex, head: Buffer) => void | Promise<void>
 }
 
-/** Gateway config: the listen address. */
+/** Web server listen and response-compression config. */
 export interface Config {
   /** Listen host; the two supported values are loopback and all-interfaces. */
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
+  /** Response compression for socket-backed HTTP requests. @default 'none' */
+  compression?: 'none' | 'gzip'
+  /** Gzip DEFLATE level from 0 through 9. @default 1 */
+  compressionLevel?: number
+  /** Minimum known response length eligible for gzip; unknown-length streams are eligible. @default 1024 */
+  compressionThresholdBytes?: number
   /** TLS certificate path for HTTPS/WSS serving. */
   tlsCertPath?: string
   /** TLS private key path for HTTPS/WSS serving. */
   tlsKeyPath?: string
+}
+
+const DEFAULT_COMPRESSION = 'none' as const
+const DEFAULT_COMPRESSION_LEVEL = 1
+const DEFAULT_COMPRESSION_THRESHOLD_BYTES = 1024
+
+interface ResolvedConfig extends Config {
+  compression: 'none' | 'gzip'
+  compressionLevel: number
+  compressionThresholdBytes: number
+}
+
+type NodeMiddleware = (
+  req: IncomingMessage,
+  res: ServerResponse,
+  next: () => void,
+) => void
+
+function createGzipMiddleware(config: ResolvedConfig): NodeMiddleware {
+  // `compression` is typed for Express, but its runtime uses only the
+  // node:http request and response members supplied here.
+  const middleware = compressionMiddleware({
+    level: config.compressionLevel,
+    threshold: config.compressionThresholdBytes,
+    filter(request, response) {
+      if (response.getHeader('content-range') !== undefined) return false
+      const contentType = response.getHeader('content-type')
+      if (typeof contentType === 'string' && contentType.toLowerCase().startsWith('text/event-stream')) return false
+      return compressionMiddleware.filter(request, response)
+    },
+  }) as unknown as NodeMiddleware
+
+  return (req, res, next) => {
+    // Only socket-backed responses are compressed; synthetic no-socket responses stay identity bytes.
+    if ((res as { socket?: unknown }).socket === undefined) {
+      next()
+      return
+    }
+    const encoding = new Negotiator(req).encoding(['gzip', 'identity'])
+    const gzipRequest = Object.create(req) as IncomingMessage
+    Object.defineProperty(gzipRequest, 'headers', {
+      value: { ...req.headers, 'accept-encoding': encoding === 'gzip' ? 'gzip' : 'identity' },
+    })
+    middleware(gzipRequest, res, next)
+  }
 }
 
 /**
@@ -66,6 +120,9 @@ export class WebServer extends Service {
   static Config: z<Config> = z.object({
     host: z.union([z.const('127.0.0.1'), z.const('0.0.0.0')]).required(),
     port: z.natural().max(65535).required(),
+    compression: z.union([z.const('none'), z.const('gzip')]).default(DEFAULT_COMPRESSION),
+    compressionLevel: z.number().step(1).min(0).max(9).default(DEFAULT_COMPRESSION_LEVEL),
+    compressionThresholdBytes: z.natural().default(DEFAULT_COMPRESSION_THRESHOLD_BYTES),
     tlsCertPath: z.string(),
     tlsKeyPath: z.string(),
   })
@@ -78,9 +135,12 @@ export class WebServer extends Service {
   private fallback: WebRoute['handler'] | undefined
   private server!: Server
   private listenedPort!: number
+  private readonly gzip: NodeMiddleware | undefined
 
   constructor(ctx: Context, private config: Config) {
     super(ctx, 'webServer')
+    const resolved = config as ResolvedConfig
+    this.gzip = resolved.compression === 'gzip' ? createGzipMiddleware(resolved) : undefined
   }
 
   /** The listening port (the OS-assigned value when config.port is 0). */
@@ -186,17 +246,21 @@ export class WebServer extends Service {
     // rejection killing the process. An incomplete request reset has no peer
     // left to answer; other per-request failures log and answer 400.
     const listener = (req: IncomingMessage, res: ServerResponse): void => {
-      handle(req, res).catch((err: unknown) => {
-        if (!req.complete && err instanceof Error
-          && (err as NodeJS.ErrnoException).code === 'ECONNRESET') return
-        this.ctx.logger.warn(err instanceof Error ? err : new Error(String(err)))
-        if (res.headersSent) {
-          res.destroy()
-          return
-        }
-        res.writeHead(400)
-        res.end()
-      })
+      const next = (): void => {
+        handle(req, res).catch((err: unknown) => {
+          if (!req.complete && err instanceof Error
+            && (err as NodeJS.ErrnoException).code === 'ECONNRESET') return
+          this.ctx.logger.warn(err instanceof Error ? err : new Error(String(err)))
+          if (res.headersSent) {
+            res.destroy()
+            return
+          }
+          res.writeHead(400)
+          res.end()
+        })
+      }
+      if (this.gzip === undefined) next()
+      else this.gzip(req, res, next)
     }
     if (this.config.tlsCertPath === undefined || this.config.tlsKeyPath === undefined) this.server = createServer(listener)
     else {
