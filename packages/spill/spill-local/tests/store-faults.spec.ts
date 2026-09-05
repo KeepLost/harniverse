@@ -57,7 +57,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       if (script.fakeDirFor !== undefined && path === script.fakeDirFor) {
         return dirStat(script.fakeDirUid ?? process.getuid?.() ?? 0) as never
       }
-      if (script.fakeDirUnderPrivate && path.startsWith('/private/')) {
+      if (script.fakeDirUnderPrivate && (path === '/private' || path.startsWith('/private/'))) {
         return dirStat(process.getuid?.() ?? 0) as never
       }
       if (script.enoentOnce !== undefined && path === script.enoentOnce) {
