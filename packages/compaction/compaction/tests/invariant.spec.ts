@@ -128,6 +128,28 @@ describe('compaction invariants', () => {
     failed.append('compaction/end', { compactionId: TEST_COMPACTION_ID, turn: null, error: 'provider failed' })
   })
 
+  it('accepts a compaction surface span whose sequence values descend', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    startTurn(session)
+    appendUser(session, 'zero')
+    appendUser(session, 'one')
+    appendUser(session, 'two')
+    const prior = session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'prior replacement' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: { op: 'replace', start: 1, end: 2 }, sourceEventSeqs: [1, 2] })
+    const start = session.append('compaction/start', { compactionId: TEST_COMPACTION_ID, turn: 1 })
+    const summarized = session.append('compaction/summary', summary({
+      shadowedRange: { start: prior.seq, end: 3 },
+      shadowedSeqs: [prior.seq, 3],
+    }))
+    appendCheckpoint(session, start.seq, summarized.seq, [prior.seq, 3])
+    session.append('compaction/end', { compactionId: TEST_COMPACTION_ID, turn: 1 })
+
+    expect(session.surface.nodes).toEqual([summarized.seq + 1])
+  })
+
   it('rejects shadow provenance containing active events outside the declared range', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create()
