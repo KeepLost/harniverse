@@ -42,6 +42,9 @@ function ownerFilename(owner: LockOwner): string {
 
 async function readLockOwner(path: string): Promise<{ owner: LockOwner; filename: string }> {
   const entries = (await readdir(path)).filter(entry => /^owner-[a-f0-9]{32}\.json$/.test(entry))
+  // A directory without any owner file is a torn remnant — a writer between
+  // its owner-file removal and the directory removal — not a corrupt lock.
+  if (entries.length === 0) throw new Error(`authentication-local: torn writer lock at ${path}`)
   if (entries.length !== 1) throw new Error(`authentication-local: invalid writer lock at ${path}`)
   const [filename] = entries as [string]
   const value: unknown = JSON.parse(await readFile(join(path, filename), 'utf8'))
@@ -144,6 +147,21 @@ export async function withPrivateFileLock<T>(target: string, operation: () => Pr
         current = await readLockOwner(lockPath)
       } catch (readError) {
         if (isCode(readError, 'ENOENT')) continue
+        // A torn lock belongs to no live writer; clear the remnant so the next
+        // candidate rename can take the lock even on platforms where rename
+        // cannot replace an existing (empty) directory.
+        if (readError instanceof Error && readError.message.includes('torn writer lock')) {
+          if (Date.now() >= deadline) {
+            throw new Error(`authentication-local: timed out waiting for writer lock ${lockPath}`)
+          }
+          try {
+            await rmdir(lockPath)
+          } catch (clearError) {
+            if (!isCode(clearError, 'ENOENT') && !isCode(clearError, 'ENOTEMPTY')) throw clearError
+          }
+          await new Promise(resolve => setTimeout(resolve, LOCK_RETRY_MS))
+          continue
+        }
         throw readError
       }
       if (!processAlive(current.owner.pid)) {

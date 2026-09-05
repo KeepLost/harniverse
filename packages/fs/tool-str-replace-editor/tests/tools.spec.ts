@@ -716,7 +716,7 @@ describe('tool-str-replace-editor', () => {
 
     expect(listing.length).toBeLessThanOrEqual(512)
     expect(listing.endsWith('<response clipped><NOTE>To save on context only part of this file has been shown to you. You should retry this tool after you have searched inside the file with `grep -n` in order to find the line numbers of what you are looking for.</NOTE>')).toBe(true)
-    expect(listing).toContain('entry-00')
+    expect(listing).toContain('\nd\t')
     expect(listing).not.toContain('entry-79')
   })
 

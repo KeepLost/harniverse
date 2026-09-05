@@ -98,14 +98,15 @@ describe('readTextFile validation edges', () => {
 })
 
 describe('private directory permissions', () => {
-  it('rejects saves when the root grants group or world access', async () => {
+  // POSIX mode bits gate these rejections; the store skips the check on win32.
+  it.skipIf(process.platform === 'win32')('rejects saves when the root grants group or world access', async () => {
     await save()
     chmodSync(root, 0o755)
     await expect(saveTextFile({ signal: TEST_SIGNAL, root, sessionId: 'sess-2', suggestedName: 'r.txt', content: 'x' }))
       .rejects.toThrow('must not grant group or world access')
   })
 
-  it('rejects reads when the session directory grants group or world access', async () => {
+  it.skipIf(process.platform === 'win32')('rejects reads when the session directory grants group or world access', async () => {
     const { locator } = await save()
     chmodSync(sessionDir(root, 'sess-1'), 0o755)
     await expect(readTextFile({ signal: TEST_SIGNAL, root, locator, maxChars: 10 }))

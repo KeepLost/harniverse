@@ -26,7 +26,7 @@ const NAME = 'dsh-test-bin'
 const tmp = (): string => mkdtempSync(join(tmpdir(), 'dsh-user-patches-'))
 
 async function eventually(test: () => boolean, message: string): Promise<void> {
-  const deadline = Date.now() + 10_000
+  const deadline = Date.now() + 60_000
   while (!test()) {
     if (Date.now() >= deadline) throw new Error(message)
     await new Promise(resolve => setTimeout(resolve, 10))

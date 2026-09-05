@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-05-reclaim-torn-writer-locks.md
+2026-09-05-reclaim-torn-writer-locks.md: 6fbdab7793ac42da2ea1903930e8ee010056f4bf
+2026-09-05-reclaim-torn-writer-locks.zh.md: 7f6c498a1c95e589a9f77656b3863d0d0a972460

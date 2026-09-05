@@ -6,13 +6,14 @@
 import { spawn } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const failures = vi.hoisted(() => ({
   renameDestination: undefined as { destination: string; code: string } | undefined,
   rmdirPath: undefined as { path: string; code: string; once: boolean; plant?: string } | undefined,
   rmPrefix: undefined as string | undefined,
+  statMode: undefined as { path: string; mode: number } | undefined,
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -40,8 +41,16 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       await actual.rmdir(path)
     },
     rm: async (path: string, options?: { force?: boolean; recursive?: boolean }): Promise<void> => {
-      if (failures.rmPrefix !== undefined && path.startsWith(`${failures.rmPrefix}/`)) return
+      if (failures.rmPrefix !== undefined && path.startsWith(`${failures.rmPrefix}${sep}`)) return
       await actual.rm(path, options)
+    },
+    stat: async (...args: Parameters<typeof actual.stat>): Promise<ReturnType<typeof actual.stat>> => {
+      if (failures.statMode !== undefined && String(args[0]) === failures.statMode.path) {
+        const info = await actual.stat(...args)
+        Object.defineProperty(info, 'mode', { value: failures.statMode.mode })
+        return info
+      }
+      return await actual.stat(...args)
     },
   }
 })
@@ -61,6 +70,7 @@ afterEach(async () => {
   failures.renameDestination = undefined
   failures.rmdirPath = undefined
   failures.rmPrefix = undefined
+  failures.statMode = undefined
   Object.defineProperty(process, 'platform', platformDescriptor)
   vi.restoreAllMocks()
   while (roots.length > 0) await rm(roots.pop()!, { recursive: true, force: true })
@@ -102,6 +112,10 @@ describe('private file permission guards', () => {
     const dir = join(root, 'store')
     await mkdir(dir, { mode: 0o755 })
     await chmod(dir, 0o755)
+    if (process.platform === 'win32') {
+      Object.defineProperty(process, 'platform', { ...platformDescriptor, value: 'darwin' })
+      failures.statMode = { path: dir, mode: 0o755 }
+    }
     await expect(ensurePrivateDirectory(dir)).rejects.toThrow('accessible beyond its owner')
   })
 
@@ -189,6 +203,39 @@ describe('stale writer lock reclamation', () => {
     await craftLock(lockPath, { pid: await deadPid(), nonce: hex('c') })
     failures.rmdirPath = { path: lockPath, code: 'ENOENT', once: true }
     await expect(withPrivateFileLock(target, async () => 'reclaimed')).resolves.toBe('reclaimed')
+  })
+
+  it('reclaims a torn lock directory whose owner file has vanished', async () => {
+    const root = await prepare()
+    const target = join(root, 'value.json')
+    const lockPath = `${target}.lock`
+    await mkdir(lockPath, { mode: 0o700 })
+    failures.renameDestination = { destination: lockPath, code: 'EEXIST' }
+    await expect(withPrivateFileLock(target, async () => 'reclaimed')).resolves.toBe('reclaimed')
+    await expect(stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('times out when a torn lock directory cannot be cleared', async () => {
+    const root = await prepare()
+    const target = join(root, 'value.json')
+    const lockPath = `${target}.lock`
+    await mkdir(lockPath, { mode: 0o700 })
+    await writeFile(join(lockPath, 'stray.txt'), 'debris')
+    failures.renameDestination = { destination: lockPath, code: 'EEXIST' }
+    failures.rmdirPath = { path: lockPath, code: 'ENOTEMPTY', once: false }
+    vi.spyOn(Date, 'now').mockImplementationOnce(() => 0).mockImplementationOnce(() => 1_000).mockImplementation(() => 100_000)
+    await expect(withPrivateFileLock(target, async () => 'never'))
+      .rejects.toThrow('timed out waiting for writer lock')
+  })
+
+  it('surfaces torn-lock clearing failures', async () => {
+    const root = await prepare()
+    const target = join(root, 'value.json')
+    const lockPath = `${target}.lock`
+    await mkdir(lockPath, { mode: 0o700 })
+    failures.renameDestination = { destination: lockPath, code: 'EEXIST' }
+    failures.rmdirPath = { path: lockPath, code: 'EACCES', once: false }
+    await expect(withPrivateFileLock(target, async () => 'never')).rejects.toMatchObject({ code: 'EACCES' })
   })
 
   it('surfaces lock directory removal failures during reclamation', async () => {

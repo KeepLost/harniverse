@@ -22,8 +22,10 @@ interface FakeStat {
 const script = vi.hoisted(() => ({
   lstatError: undefined as NodeJS.ErrnoException | undefined,
   lstatPaths: [] as string[],
+  forceDirMode: undefined as number | undefined,
   fakeDirFor: undefined as string | undefined,
   fakeDirUid: undefined as number | undefined,
+  fakeDirMode: undefined as number | undefined,
   fakeDirUnderPrivate: false,
   fileAfter: undefined as { path: string; calls: number } | undefined,
   lstatCalls: new Map<string, number>(),
@@ -34,12 +36,16 @@ const script = vi.hoisted(() => ({
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
+  // Mirror the store's darwin system-alias canonicalization for scripted-path matching.
+  const darwinAlias = (path: string): string => process.platform === 'darwin'
+    ? path.replace(/^\/(?:var|tmp)(?=\/|$)/, match => `/private${match}`)
+    : path
   const dirStat = (uid: number): FakeStat => ({
     isDirectory: () => true,
     isSymbolicLink: () => false,
     isFile: () => false,
     uid,
-    mode: 0o700,
+    mode: script.forceDirMode ?? 0o700,
   })
   const fileStat = (): FakeStat => ({
     isDirectory: () => false,
@@ -54,13 +60,13 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       const path = String(args[0])
       script.lstatPaths.push(path)
       if (script.lstatError !== undefined) throw script.lstatError
-      if (script.fakeDirFor !== undefined && path === script.fakeDirFor) {
+      if (script.fakeDirFor !== undefined && darwinAlias(path) === darwinAlias(script.fakeDirFor)) {
         return dirStat(script.fakeDirUid ?? process.getuid?.() ?? 0) as never
       }
       if (script.fakeDirUnderPrivate && (path === '/private' || path.startsWith('/private/'))) {
         return dirStat(process.getuid?.() ?? 0) as never
       }
-      if (script.enoentOnce !== undefined && path === script.enoentOnce) {
+      if (script.enoentOnce !== undefined && darwinAlias(path) === darwinAlias(script.enoentOnce)) {
         script.enoentOnce = undefined
         throw ioError('ENOENT')
       }
@@ -99,6 +105,7 @@ afterEach(() => {
   script.lstatPaths = []
   script.fakeDirFor = undefined
   script.fakeDirUid = undefined
+  script.forceDirMode = undefined
   script.fakeDirUnderPrivate = false
   script.fileAfter = undefined
   script.lstatCalls = new Map()
@@ -129,6 +136,16 @@ describe('spill store fault injection', () => {
     script.fakeDirUid = process.getuid() + 1
     await expect(saveTextFile({ signal: TEST_SIGNAL, root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'x' }))
       .rejects.toThrow('spill root must be owned by the current user')
+  })
+
+  it('rejects storage directories granting group or world access', async () => {
+    if (process.platform === 'win32') {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    }
+    script.fakeDirFor = root
+    script.forceDirMode = 0o755
+    await expect(saveTextFile({ signal: TEST_SIGNAL, root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'x' }))
+      .rejects.toThrow('spill root must not grant group or world access')
   })
 
   it('canonicalizes the macOS system aliases when admitting directories', async () => {
