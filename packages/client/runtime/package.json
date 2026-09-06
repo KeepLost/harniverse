@@ -46,6 +46,7 @@
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-attachment": "workspace:^",
     "@deepseek-ai/dsh-client-connection": "workspace:^",
+    "@deepseek-ai/dsh-client-store": "workspace:^",
     "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-compaction": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
@@ -56,9 +57,7 @@
     "@deepseek-ai/dsh-session-projection": "workspace:^",
     "@deepseek-ai/dsh-session-title": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
-    "immer": "^10.1.1",
-    "react": "^18.2.0",
-    "zustand": "~4.4.7"
+    "react": "^18.2.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",

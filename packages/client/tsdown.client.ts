@@ -53,14 +53,27 @@ const SKIP_WORKSPACE_BUILD: UserConfig = { entry: '' }
 /**
  * Documented TEMPORARY exemption, not a platform module (hence not in
  * platform.ts): the snapshot-store engine (createSnapshotStore/defineStore/
- * shallowEqual) lives in runtime pending its promotion-time rehoming, and
- * five importers (locale, ui-layout, ui-conversation ×3) ride this single
- * exemption. At runtime the lazy CJS table answers the require natively:
- * graph bootstrap registers runtime before any dependent materializes, and its
- * immediately mark preserves that barrier on fallback. TODO(webload/store-rehome): remove with the
- * store-engine relocation follow-up.
+ * shallowEqual) now lives in the store package and runtime's client bundle
+ * re-exports it, but its browser importers (locale, ui-layout,
+ * ui-conversation ×3) still require it through runtime/client, so this single
+ * exemption carries them. At runtime the lazy CJS table answers the require
+ * natively: graph bootstrap registers runtime before any dependent
+ * materializes, and its immediately mark preserves that barrier on fallback.
+ * TODO(webload/store-rehome): re-target the importers at the store package's
+ * own module-table entry and remove the exemption with that follow-up.
  */
 const RUNTIME_STORE_EXEMPTION = '@deepseek-ai/dsh-client-runtime/client'
+
+/**
+ * Documented single-consumer inline: the React-free store engine package.
+ * Runtime's client bundle re-exports its values, so the engine inlines there
+ * exactly as it did as runtime source; every browser consumer still resolves
+ * the engine through the `@deepseek-ai/dsh-client-runtime/client`
+ * module-table entry (RUNTIME_STORE_EXEMPTION above), so no second inlined
+ * copy can exist. Widen only with the module-table promotion the
+ * store-rehome follow-up decides.
+ */
+const STORE_ENGINE_INLINE = /^@deepseek-ai\/dsh-client-store(\/|$)/
 
 /** Externals resolved from the loader module table: the platform seed entries plus the documented runtime exemption. */
 export const CLIENT_EXTERNALS: readonly string[] = [...PLATFORM_MODULES, RUNTIME_STORE_EXEMPTION]
@@ -240,6 +253,7 @@ function clientConfig(id: string, entry: string): UserConfig {
         if (!source.startsWith('@deepseek-ai/')) return null
         if (CLIENT_EXTERNALS.includes(source)) return null // platform module: external wins
         if (VENDORED_LIBRARY.test(source)) return null // vendored library: inline, no shared identity
+        if (STORE_ENGINE_INLINE.test(source)) return null // store engine: runtime/client re-export inlines it (single consumer)
         if (INLINE_SAFE.test(source) || GENERATED_REMOTE.test(source)) return null // wire contribution: inline is the point
         throw new Error(
           `client bundle purity: "${source}" imported by ${JSON.stringify(importer ?? '<entry>')} is not a platform module (CLIENT_EXTERNALS), an inline-safe wire layer, or a generated /remote contribution — `

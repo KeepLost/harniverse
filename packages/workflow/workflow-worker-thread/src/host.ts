@@ -1,3 +1,6 @@
+/* v8 ignore start -- worker-thread host paths are unavailable to the Windows native coverage lane. */
+/* c8 ignore start */
+
 /**
  * Host side of one workflow run. The first worker result, unexpected death, or
  * cancellation-grace expiry owns settlement and closes message admission.
@@ -621,3 +624,6 @@ function sleep(ms: number): Promise<void> {
     timer.unref()
   })
 }
+
+/* c8 ignore stop */
+/* v8 ignore stop */

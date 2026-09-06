@@ -18,7 +18,7 @@ import type {
   SessionBinding, SessionListState, SessionProvideDescriptor,
 } from '../sessions/service.ts'
 import type { SessionFace } from './session.ts'
-import type { ObservableSnapshot } from './store.ts'
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 
 export type { AgentContext } from '../agents/scope.ts'
 
