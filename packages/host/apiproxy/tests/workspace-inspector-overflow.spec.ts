@@ -1,8 +1,7 @@
 import { EventEmitter } from 'node:events'
-import { mkdirSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ChildProcess } from 'node:child_process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const spawnMock = vi.hoisted(() => vi.fn())
@@ -27,7 +26,9 @@ afterEach(() => {
 
 describe('workspace Git overflow bounds', () => {
   it('truncates and kills Git when stdout keeps delivering after the byte bound', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'dsh-inspector-overflow-'))
+    // realpathSync.native resolves the Windows short-path form the canonical
+    // directory check compares against.
+    const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-inspector-overflow-')))
     const gitDir = join(root, '.git')
     mkdirSync(gitDir)
     let diffChild: FakeChild | undefined
@@ -42,15 +43,15 @@ describe('workspace Git overflow bounds', () => {
       } else {
         diffChild = child
       }
-      return child as unknown as ChildProcess
+      return child
     })
 
     const pending = workspaceGitDiff(root, undefined, false, new AbortController().signal)
     await vi.waitFor(() => {
       if (diffChild === undefined) throw new Error('the diff child was not spawned')
     })
-    // The wait above proves assignment; the compiler cannot track closure writes.
-    const child = diffChild as FakeChild
+    const child = diffChild
+    if (child === undefined) throw new Error('the diff child was not spawned')
 
     // The first chunk fills the bound exactly; the second arrives only after
     // the buffer is full, so the collector must drop it, flag the overflow,
