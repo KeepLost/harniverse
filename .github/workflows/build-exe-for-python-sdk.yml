@@ -195,16 +195,16 @@ jobs:
             *) echo "::error::Unsupported Linux runner architecture $RUNNER_ARCH"; exit 1 ;;
           esac
           addon_dir="$(realpath packages/subprocess/subprocess-local/node_modules/node-pty)"
-           addon="$addon_dir/build/Release/pty.node"
-           [ -f "$addon_dir/build/Makefile" ] || {
-             echo "::error::node-pty install did not generate $addon_dir/build/Makefile"
-             exit 1
-           }
-           # pnpm's isolated dependency layout can leave node-gyp's generated
-           # node-addon-api target fragments absent even when node-pty's
-           # Makefile exists. Generate them before the manylinux make step.
-           pnpm exec node-gyp configure --directory "$addon_dir"
-           docker run --rm \
+          addon="$addon_dir/build/Release/pty.node"
+          [ -f "$addon_dir/build/Makefile" ] || {
+            echo "::error::node-pty install did not generate $addon_dir/build/Makefile"
+            exit 1
+          }
+          # pnpm's isolated dependency layout can leave node-gyp's generated
+          # node-addon-api target fragments absent even when node-pty's
+          # Makefile exists. Generate them before the manylinux make step.
+          pnpm exec node-gyp configure --directory "$addon_dir"
+          docker run --rm \
             --user "$(id -u):$(id -g)" \
             -v "$PWD:$PWD" \
             -v "$HOME/.cache/node-gyp:$HOME/.cache/node-gyp:ro" \
