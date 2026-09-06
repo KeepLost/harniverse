@@ -207,7 +207,7 @@ describe('SessionWriteLease: POSIX kernel lock', () => {
   })
 })
 
-describe('SessionWriteLease: flock refusal mapping', () => {
+describe.skipIf(process.platform === 'win32')('SessionWriteLease: flock refusal mapping', () => {
   /** Acquire with one injected flock outcome replacing the real kernel call. */
   function withFlock(flockExnb: () => Promise<void>, dir: string): Promise<SessionWriteLease> {
     const arbitration: LeaseArbitration = { flockExnb }
