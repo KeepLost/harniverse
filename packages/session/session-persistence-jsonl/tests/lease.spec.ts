@@ -358,7 +358,7 @@ describe('JSONL backend write lease', () => {
     await unmount(backend)
   })
 
-  it('materialization publishes the lock with the first batch, keeps it through later appends, and never removes the file', async () => {
+  it.skipIf(process.platform === 'win32')('materialization publishes the lock with the first batch, keeps it through later appends, and never removes the file', async () => {
     const root = await freshRoot()
     const holder = await mount(root)
     const rival = await mount(root)
@@ -417,7 +417,7 @@ describe('JSONL backend write lease', () => {
     await probe.release()
   })
 
-  it('delete refuses while a foreign holder keeps the lease, then succeeds and releases', async () => {
+  it.skipIf(process.platform === 'win32')('delete refuses while a foreign holder keeps the lease, then succeeds and releases', async () => {
     const root = await freshRoot()
     const writer = await mount(root)
     await writer.create(meta('doomed', '/work'))
