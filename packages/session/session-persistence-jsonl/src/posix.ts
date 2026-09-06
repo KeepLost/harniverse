@@ -1,5 +1,5 @@
-/* v8 ignore file */
-/* c8 ignore file */
+/* v8 ignore start */
+/* c8 ignore start */
 
 /**
  * POSIX `flock(2)` binding for the session write lease, loaded through the
@@ -52,3 +52,6 @@ export async function flockExnbPosix(fd: number): Promise<void> {
     throw error
   }
 }
+
+/* c8 ignore stop */
+/* v8 ignore stop */
