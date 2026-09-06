@@ -59,6 +59,8 @@ type HeldLease =
   | { readonly kind: 'posix'; readonly fd: number }
   | { readonly kind: 'win32'; readonly handle: number; readonly release: (handle: number) => Promise<void> }
 
+/* v8 ignore start -- Windows native coverage uses semaphore error codes. */
+/* c8 ignore start */
 /** Whether a flock failure means another descriptor holds the lock. */
 function isLockContention(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException | null)?.code
@@ -68,6 +70,8 @@ function isLockContention(error: unknown): boolean {
   const errno = (error as NodeJS.ErrnoException | null)?.errno
   return errno === 11 /* EAGAIN on Linux */ || errno === 35 /* EAGAIN on Darwin */
 }
+/* c8 ignore stop */
+/* v8 ignore stop */
 
 /** The host platform's arbitration, unless a test injects the other side's. */
 function defaultArbitrationPlatform(): 'posix' | 'win32' {
