@@ -206,13 +206,15 @@ describe('LocalSpillStore service', () => {
 
   it('resolves a relative configured root to absolute', async () => {
     const ctx = new Context()
-    await ctx.plugin(LocalSpillStore, { root: '.' })
+    // cleanupPeriodDays 0 keeps the startup sweep from touching the cwd.
+    await ctx.plugin(LocalSpillStore, { root: '.', cleanupPeriodDays: 0 })
     expect(isAbsolute((ctx.spillStore as LocalSpillStore).root)).toBe(true)
   })
 
   it('falls back to the private root when none is configured', async () => {
     const ctx = new Context()
-    await ctx.plugin(LocalSpillStore, {})
+    // cleanupPeriodDays 0 keeps the startup sweep from touching the real home root.
+    await ctx.plugin(LocalSpillStore, { cleanupPeriodDays: 0 })
     expect((ctx.spillStore as LocalSpillStore).root).toBe(privateRoot())
   })
 
@@ -220,7 +222,7 @@ describe('LocalSpillStore service', () => {
     const ctx = new Context()
     // A file (not a dir) as the root makes mkdir under it fail — a real storage error.
     const filePath = (await saveTextFile({ signal: TEST_SIGNAL, root, sessionId: 's', suggestedName: 'f', content: 'x' })).path
-    await ctx.plugin(LocalSpillStore, { root: filePath })
+    await ctx.plugin(LocalSpillStore, { root: filePath, cleanupPeriodDays: 0 })
     await expect(ctx.spillStore.saveText(request())).rejects.toThrow()
   })
 

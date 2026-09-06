@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The **local-filesystem** implementation of [`@deepseek-ai/dsh-spill`](../spill). It registers as `ctx.spillStore`, persists complete text in private session-grouped files, returns opaque `local-spill:v1` locators, and reads those artifacts through validated cursor-based pages.
+The **local-filesystem** implementation of [`@deepseek-ai/dsh-spill`](../spill). It registers as `ctx.spillStore`, persists complete text in private session-grouped files, returns opaque `local-spill:v1` locators, reads those artifacts through validated cursor-based pages, and reclaims expired artifacts in a one-shot startup sweep.
 
 ## Storage layout
 
@@ -17,6 +17,7 @@ Files land at `<root>/session-<hash>/​<random>-<safeName>`:
 | Key | Default | Meaning |
 |---|---|---|
 | `root` | `dshHomePath('artifacts', 'tool-results')` | Durable artifact root. A relative configured value is resolved from the process working directory. |
+| `cleanupPeriodDays` | `30` | Age in days after which a spill file is eligible for the startup cleanup sweep; `0` disables the sweep. |
 
 ## Locators and reads
 
@@ -30,7 +31,7 @@ Files land at `<root>/session-<hash>/​<random>-<safeName>`:
 
 Files survive plugin disposal, process restart, and service restart. Replay can resolve a recorded locator whenever the same root and files remain available; a fork reads inherited locators from the same files and writes new artifacts under the child session namespace.
 
-Session close, service disposal, and runtime shutdown do not delete files. The backend has no reachability collector, garbage collection, age policy, or deletion API.
+Session close, service disposal, and runtime shutdown do not delete files, and there is no deletion API. Reclamation is a single best-effort sweep right after activation: across the root, regular files whose `mtime` is strictly older than `cleanupPeriodDays` days are deleted, session directories left empty are pruned, and the root itself is never removed. The sweep never delays activation (it is owned by the plugin fiber and awaited on disposal), never follows symlinks, skips directories that fail the same private-admission checks as reads and writes, and contains every filesystem failure as a warning instead of an error. Retention is deliberate — the window keeps a resumed or forked session's recorded locators valid until they age out.
 
 ## Model Experience
 
@@ -42,5 +43,5 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 
-- **External cleanup must preserve reachable artifacts** — no collector currently relates files to live replay, fork, or external references.
+- **Cleanup is age-based, not reachability-aware** — the startup sweep deletes any strictly-older file; no collector relates files to live replay, fork, or external references. Raise `cleanupPeriodDays` (or set it to `0`) when external processes need longer retention.
 - **Locators require the same backend root** — moving files or changing `root` breaks later reads; remote or virtual deployments need another `SpillStore` backend.
