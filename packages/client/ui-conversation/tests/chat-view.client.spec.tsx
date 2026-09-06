@@ -1410,3 +1410,30 @@ describe('ChatView', () => {
     expect(failedView.container.querySelector('[data-state="error"]')).not.toBeNull()
   })
 })
+
+describe('user-bubble reference chips', () => {
+  it('decorates plain-text /skill and @subagent tokens as chips; plain words stay text', () => {
+    const h = makeHarness({
+      nodes: [user(2, 'run /deploy-site please, ask @reviewer too, x/nope stays text')],
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    const chips = view.container.querySelectorAll('[data-ref-chip]')
+    expect([...chips].map(chip => (chip as HTMLElement).dataset.refChip)).toEqual(['skill', 'subagent'])
+    expect(chips[0]!.textContent).toBe('/deploy-site')
+    expect(chips[1]!.textContent).toBe('@reviewer')
+    // Exactly two chips: 'x/nope' fails the word-boundary scan (no whitespace
+    // before the token), so it renders as ordinary bubble text.
+    expect(chips).toHaveLength(2)
+  })
+
+  it('chip projection survives a Node rebuild (names derive from the logged text at render)', () => {
+    const h = makeHarness({ nodes: [user(2, 'run /deploy-site now')] })
+    const view = render(<h.ChatView {...h.props} />)
+    expect(view.container.querySelectorAll('[data-ref-chip]').length).toBe(1)
+    // A rebuilt message Node (turn close, process publication) re-renders and
+    // re-derives the same decoration — no snapshot-time state to lose.
+    act(() => { h.set({ nodes: [user(2, 'run /deploy-site now')] }) })
+    expect(view.container.querySelectorAll('[data-ref-chip]').length).toBe(1)
+    expect(view.container.querySelector('[data-ref-chip]')!.textContent).toBe('/deploy-site')
+  })
+})

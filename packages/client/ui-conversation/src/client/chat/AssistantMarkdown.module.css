@@ -1,4 +1,7 @@
 /* Assistant flow body: full-width narration (figma 16/28), block gap 16.
+   The body rides the Settings content font-size axis: size follows
+   --dsw-content-font-size and the line height keeps its 12px leading via the
+   shared px delta.
    IconActions sit below the body with an explicit 16px top margin (figma
    43:32997) — separate from the body's internal gap so the footer spacing
    stays fixed when the body is a single block. */
@@ -6,8 +9,8 @@
 .root {
   display: flex;
   flex-direction: column;
-  font-size: 16px;
-  line-height: 28px;
+  font-size: var(--dsw-content-font-size, 16px);
+  line-height: calc(28px + var(--dsw-content-font-delta, 0px));
   color: var(--dsw-alias-label-primary);
 }
 

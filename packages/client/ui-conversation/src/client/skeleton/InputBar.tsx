@@ -313,6 +313,14 @@ export function InputBar({
       if (keyboard.arbitrate('escape', composing) === 'consumed') e.preventDefault()
       return
     }
+    // Bare Tab completes the highlighted slash-menu candidate (skills,
+    // commands); Shift+Tab keeps native reverse focus traversal, and a pass
+    // (menu closed or no highlight) leaves native traversal untouched too.
+    if (e.key === 'Tab' && !e.shiftKey) {
+      if (composing) return
+      if (keyboard.arbitrate('tab', composing) !== 'pass') e.preventDefault()
+      return
+    }
     if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z' || e.key === 'y')) {
       // The machine owns the undo/redo log (chip transactions have semantics
       // the browser stack cannot represent); never let the native stack run.

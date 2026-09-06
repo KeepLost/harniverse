@@ -6,8 +6,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  /* Rides the Settings font-size axis like the host row's own actions
+     (MessageIconActions), so slot-injected buttons match their siblings at
+     every size. */
+  width: calc(28px + var(--dsw-content-font-delta, 0px));
+  height: calc(28px + var(--dsw-content-font-delta, 0px));
   padding: 6px;
   border: none;
   border-radius: 28px;
@@ -40,11 +43,18 @@
   border-radius: 14px;
   background: transparent;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 13px;
-  line-height: 28px;
+  font-size: calc(13px + var(--dsw-content-font-delta, 0px));
+  line-height: calc(28px + var(--dsw-content-font-delta, 0px));
   white-space: nowrap;
   text-overflow: ellipsis;
   cursor: pointer;
+}
+
+.action svg {
+  /* The 16px glyphs follow the same px delta as the text they serve; the CSS
+     edge overrides each svg's own width/height attributes. */
+  width: calc(16px + var(--dsw-content-font-delta, 0px));
+  height: calc(16px + var(--dsw-content-font-delta, 0px));
 }
 
 .noteOpen:hover {
@@ -66,7 +76,7 @@
   background: var(--dsw-specific-input-major);
   color: var(--dsw-alias-label-primary);
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px + var(--dsw-content-font-delta, 0px));
   resize: vertical;
 }
 
@@ -76,7 +86,7 @@
   padding: 0 10px;
   border: none;
   border-radius: 14px;
-  font-size: 13px;
+  font-size: calc(13px + var(--dsw-content-font-delta, 0px));
   cursor: pointer;
 }
 
@@ -103,6 +113,6 @@
 .failure {
   padding-left: 4px;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 13px;
-  line-height: 28px;
+  font-size: calc(13px + var(--dsw-content-font-delta, 0px));
+  line-height: calc(28px + var(--dsw-content-font-delta, 0px));
 }

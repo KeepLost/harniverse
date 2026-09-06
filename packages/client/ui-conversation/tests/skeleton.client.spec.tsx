@@ -36,11 +36,29 @@ function fakeWiring() {
   return { wiring: shell, sink, shell }
 }
 
-/** jsdom has no ResizeObserver; the composer seat publishes its height through one. */
+/** jsdom has no ResizeObserver; the composer seat and the root column publish
+ * through one. Instances record their callback so a case can fire resizes. */
 class ResizeObserverStub {
+  private static readonly all: ResizeObserverStub[] = []
+  /** Fire every live observer's callback once (a resize notification). */
+  static trigger(): void {
+    for (const stub of ResizeObserverStub.all) stub.callback?.()
+  }
+
+  private callback: (() => void) | null = null
+
+  constructor(callback: () => void) {
+    this.callback = callback
+    ResizeObserverStub.all.push(this)
+  }
+
   observe(): void {}
   unobserve(): void {}
-  disconnect(): void {}
+  disconnect(): void {
+    this.callback = null
+    const at = ResizeObserverStub.all.indexOf(this)
+    if (at !== -1) ResizeObserverStub.all.splice(at, 1)
+  }
 }
 
 afterEach(() => {
@@ -256,6 +274,23 @@ function mount(
     rerender: () => { view.rerender(<ConversationRoot {...props} />) },
   }
 }
+
+describe('Adaptive content width', () => {
+  it('publishes the column width as --dsh-conversation-column-width on the root at mount', () => {
+    const b = mount(conversationSnapshot())
+    const root = b.view.container.firstElementChild as HTMLElement
+    // jsdom layout boxes report 0; the assertion pins the publication channel.
+    expect(root.style.getPropertyValue('--dsh-conversation-column-width')).toBe('0px')
+  })
+
+  it('republishes when a resize notification arrives', () => {
+    const b = mount(conversationSnapshot())
+    const root = b.view.container.firstElementChild as HTMLElement
+    root.style.setProperty('--dsh-conversation-column-width', 'stale')
+    act(() => { ResizeObserverStub.trigger() })
+    expect(root.style.getPropertyValue('--dsh-conversation-column-width')).toBe('0px')
+  })
+})
 
 describe('Hero chrome', () => {
   it('renders the English preview badge through the hero locale seat', () => {

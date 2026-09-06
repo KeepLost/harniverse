@@ -14,7 +14,7 @@ const DARK_THEME_COLOR = 'rgb(21, 21, 23)'
 function snapshot(colorScheme: 'light' | 'dark', tokens: Record<string, string> = {}): ThemeSnapshot {
   // The presenter must key off colorScheme, not the id — keep them distinct.
   const active = { id: `${colorScheme}-test`, colorScheme, tokens }
-  return { preference: colorScheme, active, themes: [active], revision: 1 }
+  return { preference: colorScheme, fontSize: 16, active, themes: [active], revision: 1 }
 }
 
 function clearThemePresentation(): void {
@@ -76,6 +76,14 @@ describe('ThemePresenter', () => {
     expect(document.body.style.getPropertyValue('--dsw-alias-fg')).toBe('')
   })
 
+  it('publishes the content font-size axis and follows font-size changes', () => {
+    const presenter = new ThemePresenter()
+    presenter.apply(snapshot('light'))
+    expect(document.body.style.getPropertyValue('--dsw-content-font-size')).toBe('16px')
+    presenter.apply({ ...snapshot('dark'), fontSize: 14 })
+    expect(document.body.style.getPropertyValue('--dsw-content-font-size')).toBe('14px')
+  })
+
   it('dispose removes color-scheme, the attribute, and every applied variable, sparing foreign inline styles', () => {
     document.body.style.setProperty('--foreign', 'kept')
     const presenter = new ThemePresenter()
@@ -85,6 +93,7 @@ describe('ThemePresenter', () => {
     expect(document.documentElement.style.colorScheme).toBe('')
     expect(document.body.hasAttribute(DARK_ATTRIBUTE)).toBe(false)
     expect(document.body.style.getPropertyValue('--dsw-alias-bg')).toBe('')
+    expect(document.body.style.getPropertyValue('--dsw-content-font-size')).toBe('')
     expect(document.body.style.getPropertyValue('--foreign')).toBe('kept')
     expect(meta?.isConnected).toBe(false)
   })

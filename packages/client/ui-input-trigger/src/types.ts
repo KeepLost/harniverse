@@ -217,8 +217,10 @@ export interface TriggerGuard {
   readonly tier: 'plain' | 'claimed' | 'frozen'
 }
 
-/** Keys the menu intercepts while open (all behind the IME composition guard). */
-export type ArbitrateKey = 'up' | 'down' | 'enter' | 'escape'
+/** Keys the menu intercepts while open (all behind the IME composition guard).
+ * `tab` completes the highlighted candidate (the keyboard completion gesture);
+ * a pass leaves native focus traversal untouched. */
+export type ArbitrateKey = 'up' | 'down' | 'enter' | 'escape' | 'tab'
 
 /** consumed = key handled; pick-highlighted = enter picked the highlight; pass = let the input see it. */
 export type ArbitrateOutcome = 'consumed' | 'pick-highlighted' | 'pass'

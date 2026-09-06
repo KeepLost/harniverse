@@ -48,6 +48,24 @@ export function ConversationRoot({
     seatObserver.current.observe(seat)
   }, [])
 
+  // Publishes the column's live width as --dsh-conversation-column-width so
+  // the shared width axis can adapt to the column, not the viewport (a
+  // collapsed sidebar widens the column without resizing the window; the
+  // clamp lives in the .root stylesheet). Same callback-ref pattern as the
+  // seat observer above.
+  const rootObserver = useRef<ResizeObserver | null>(null)
+  const rootResizeRef = useCallback((root: HTMLDivElement | null): void => {
+    rootObserver.current?.disconnect()
+    rootObserver.current = null
+    if (root === null) return
+    const publish = (): void => {
+      root.style.setProperty('--dsh-conversation-column-width', `${root.offsetWidth}px`)
+    }
+    rootObserver.current = new ResizeObserver(publish)
+    rootObserver.current.observe(root)
+    publish()
+  }, [])
+
   const sessionWorkspace = sessionId === undefined
     ? undefined
     : workspaces.items.find(workspace => workspace.sessionIds.includes(sessionId))
@@ -184,7 +202,7 @@ export function ConversationRoot({
   )
 
   return (
-    <div className={css.root} data-phase={phase}>
+    <div ref={rootResizeRef} className={css.root} data-phase={phase}>
       {renderSlot('conversation.session.header', {})}
       <div className={css.scrollBody} data-conversation-scroll="">
         {renderSlot('conversation.session', {})}

@@ -91,6 +91,8 @@ interface BenchOptions {
   commandMenuOpen?: boolean
   busyEnter?: 'queue' | 'steer'
   toggleCommandMenu?: (selection: { start: number; end: number }) => void
+  /** Menu arbitration stub riding the inputTriggers face (Tab completion cases). */
+  arbitrate?: (key: 'up' | 'down' | 'enter' | 'escape' | 'tab', composing: boolean) => 'consumed' | 'pick-highlighted' | 'pass'
 }
 
 /** One pending queue row (the runtime snapshot shape, as the dock tests build it). */
@@ -100,6 +102,11 @@ function row(id: string): ConversationSnapshot['queue'][number] {
     content: [{ type: 'text', text: id }], preview: id, text: id,
   }
 }
+
+// Stable empty lexicon shared by the arbitration stub benches: the factory is
+// re-invoked on every controller read, so an instance minted inside it would
+// change identity per call and loop the bound selector forever.
+const EMPTY_LEXICON_STUB = new Map()
 
 /** Real machine behind the bar entry: sink spy, no slash pipeline (plain text goes straight to the sink). */
 function bench(over?: BenchOptions) {
@@ -122,11 +129,14 @@ function bench(over?: BenchOptions) {
     },
     ...(over?.steerQueue !== undefined ? { steerQueue: over.steerQueue } : {}),
     // Lexicon-only stub: adjudication untouched (undefined slash methods are
-    // never reached — these benches drive plain-draft flows only).
-    ...(lex !== undefined
+    // never reached — these benches drive plain-draft flows only), except the
+    // arbitration stub the Tab-completion cases inject (the face always
+    // carries a lexicon; the arbitration cases get a stable empty one).
+    ...(lex !== undefined || over?.arbitrate !== undefined
       ? {
         inputTriggers: (() => ({
-          lexicon: { getSnapshot: () => lex, subscribe: () => () => {} },
+          lexicon: { getSnapshot: () => lex ?? EMPTY_LEXICON_STUB, subscribe: () => () => {} },
+          ...(over?.arbitrate !== undefined ? { arbitrate: over.arbitrate } : {}),
         })) as unknown as NonNullable<ShellDeps['inputTriggers']>,
       }
       : {}),
@@ -1455,5 +1465,36 @@ describe('command launcher chrome and control seats', () => {
     cleanup()
     const live = bench({ running: true, permissions })
     expect((live.view.getByLabelText(/^访问模式/) as HTMLButtonElement).disabled).toBe(false)
+  })
+})
+
+describe('slash menu Tab completion', () => {
+  it('Tab routes through menu arbitration and is consumed while the menu intercepts', () => {
+    const arbitrate = vi.fn(() => 'pick-highlighted' as const)
+    const b = bench({ arbitrate })
+    // fireEvent returns false when the event's default was prevented.
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab' })).toBe(false)
+    expect(arbitrate).toHaveBeenCalledWith('tab', false)
+  })
+
+  it('Tab keeps native focus traversal when the menu passes', () => {
+    const arbitrate = vi.fn(() => 'pass' as const)
+    const b = bench({ arbitrate })
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab' })).toBe(true)
+    expect(arbitrate).toHaveBeenCalledWith('tab', false)
+  })
+
+  it('Shift+Tab never reaches the menu (reverse focus traversal stays native)', () => {
+    const arbitrate = vi.fn(() => 'consumed' as const)
+    const b = bench({ arbitrate })
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab', shiftKey: true })).toBe(true)
+    expect(arbitrate).not.toHaveBeenCalled()
+  })
+
+  it('IME-composing Tab stays native', () => {
+    const arbitrate = vi.fn(() => 'consumed' as const)
+    const b = bench({ arbitrate })
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 229 })).toBe(true)
+    expect(arbitrate).not.toHaveBeenCalled()
   })
 })

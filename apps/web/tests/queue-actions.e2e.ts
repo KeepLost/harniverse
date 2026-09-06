@@ -229,18 +229,22 @@ describe('web e2e: queue row actions', () => {
     await compareOrRefreshGolden(LAYOUT_EXPECTED, layoutSnapshot, MODE)
 
     const expectAlignedContextPanels = async () => {
-      const queuePanelBox = await page.locator('[data-queue-dock] > div').boundingBox()
-      const todoBox = await page.locator('[data-testid="todo-panel"]').boundingBox()
-      const goalBox = await page.locator('[data-goal-bar] > div').boundingBox()
-      expect(queuePanelBox).not.toBeNull()
-      expect(todoBox).not.toBeNull()
-      expect(goalBox).not.toBeNull()
-      expect(todoBox!.y).toBeLessThan(goalBox!.y)
-      expect(goalBox!.y).toBeLessThan(queuePanelBox!.y)
-      expect(todoBox!.x).toBeCloseTo(goalBox!.x, 1)
-      expect(todoBox!.x).toBeCloseTo(queuePanelBox!.x, 1)
-      expect(todoBox!.width).toBeCloseTo(goalBox!.width, 1)
-      expect(todoBox!.width).toBeCloseTo(queuePanelBox!.width, 1)
+      // The adaptive content width republishes --dsh-conversation-column-width
+      // through a ResizeObserver after a viewport change, so the panels are
+      // still reflowing for a few frames; poll until the alignment settles
+      // instead of reading one transitional bounding box.
+      await expect.poll(async () => {
+        const queuePanelBox = await page.locator('[data-queue-dock] > div').boundingBox()
+        const todoBox = await page.locator('[data-testid="todo-panel"]').boundingBox()
+        const goalBox = await page.locator('[data-goal-bar] > div').boundingBox()
+        return queuePanelBox !== null && todoBox !== null && goalBox !== null
+          && todoBox.y < goalBox.y
+          && goalBox.y < queuePanelBox.y
+          && Math.abs(todoBox.x - goalBox.x) < 0.1
+          && Math.abs(todoBox.x - queuePanelBox.x) < 0.1
+          && Math.abs(todoBox.width - goalBox.width) < 0.1
+          && Math.abs(todoBox.width - queuePanelBox.width) < 0.1
+      }, { timeout: 10_000 }).toBe(true)
     }
     await expectAlignedContextPanels()
     await page.setViewportSize({ width: 640, height: 1000 })

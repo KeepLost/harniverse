@@ -1,5 +1,10 @@
 /* User bubble: right-aligned column (bubble + IconActions). Figma
-   User_Bubble/message_container 659:38813 — r22 fill, actions gap 6 below. */
+   User_Bubble/message_container 659:38813 — r22 fill, actions gap 6 below.
+   The message-node flow rows (compaction/retry/turn-error) ride the Settings
+   content font-size axis: sizes/lines/row-heights shift by its px delta, so
+   the default rendering is unchanged. */
+
+
 
 .userRow {
   display: flex;
@@ -14,7 +19,10 @@
   align-items: flex-end;
   gap: 8px;
   min-width: 0;
-  max-width: min(525px, 82%);
+  /* Figma's 525px cap held as a share of the width axis (525/748 ≈ 0.702) so
+     the bubble widens with an adaptive column; the percentage keeps narrow
+     windows sane. */
+  max-width: min(calc(var(--dsh-chat-content-width, 748px) * 0.702), 82%);
 }
 .bubble {
   /* 525px cap inside the 736 column; percentage keeps narrow windows sane. */
@@ -23,8 +31,8 @@
   border-radius: 22px;
   /* 44px single-line bubble: 24 line + 10 vertical padding each side. */
   padding: 10px 16px;
-  font-size: 16px;
-  line-height: 24px;
+  font-size: var(--dsw-content-font-size, 16px);
+  line-height: calc(24px + var(--dsw-content-font-delta, 0px));
   color: var(--dsw-alias-label-primary);
 }
 
@@ -43,7 +51,7 @@
   display: flex;
   align-items: center;
   width: 100%;
-  height: 24px;
+  height: calc(24px + var(--dsw-content-font-delta, 0px));
   min-width: 0;
   padding: 0;
   border: none;
@@ -96,8 +104,8 @@
 
 .compactionTitle {
   flex: none;
-  font-size: 14px;
-  line-height: 24px;
+  font-size: calc(14px + var(--dsw-content-font-delta, 0px));
+  line-height: calc(24px + var(--dsw-content-font-delta, 0px));
   color: var(--dsw-alias-label-primary-dimmed);
 }
 
@@ -115,8 +123,8 @@
   min-width: 0;
   overflow: hidden;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 14px;
-  line-height: 24px;
+  font-size: calc(14px + var(--dsw-content-font-delta, 0px));
+  line-height: calc(24px + var(--dsw-content-font-delta, 0px));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -124,8 +132,8 @@
 .compactionBody {
   padding: 4px 0 4px 22px;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 14px;
-  line-height: 24px;
+  font-size: calc(14px + var(--dsw-content-font-delta, 0px));
+  line-height: calc(24px + var(--dsw-content-font-delta, 0px));
 }
 
 .compactionProgress {
@@ -136,7 +144,7 @@
   display: flex;
   align-items: center;
   width: 100%;
-  min-height: 24px;
+  min-height: calc(24px + var(--dsw-content-font-delta, 0px));
   min-width: 0;
   padding: 0;
   border: none;
@@ -166,16 +174,16 @@
 .compactionProgressPhase {
   flex: none;
   color: var(--dsw-alias-label-secondary);
-  font-size: 13px;
-  line-height: 24px;
+  font-size: calc(13px + var(--dsw-content-font-delta, 0px));
+  line-height: calc(24px + var(--dsw-content-font-delta, 0px));
 }
 
 .compactionProgressClock {
   flex: none;
   margin-left: 8px;
   color: var(--dsw-alias-label-caption);
-  font-size: 12px;
-  line-height: 24px;
+  font-size: calc(12px + var(--dsw-content-font-delta, 0px));
+  line-height: calc(24px + var(--dsw-content-font-delta, 0px));
 }
 
 .compactionProgressBody {
@@ -183,14 +191,14 @@
   gap: 8px;
   padding: 4px 0 6px 22px;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 14px;
-  line-height: 24px;
+  font-size: calc(14px + var(--dsw-content-font-delta, 0px));
+  line-height: calc(24px + var(--dsw-content-font-delta, 0px));
 }
 
 .compactionProgressLabel {
   color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: calc(12px + var(--dsw-content-font-delta, 0px));
+  line-height: calc(18px + var(--dsw-content-font-delta, 0px));
 }
 
 .compactionProgressReasoning,
@@ -254,8 +262,8 @@
 
 .retryRow {
   color: var(--dsw-alias-label-tertiary);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: calc(13px + var(--dsw-content-font-delta, 0px));
+  line-height: calc(20px + var(--dsw-content-font-delta, 0px));
 }
 
 .retrySummary {
@@ -326,8 +334,8 @@
   margin-top: 3px;
   padding-left: 14px;
   overflow-wrap: anywhere;
-  font-size: 12px;
-  line-height: 18px;
+  font-size: calc(12px + var(--dsw-content-font-delta, 0px));
+  line-height: calc(18px + var(--dsw-content-font-delta, 0px));
 }
 
 .retryDetailLabel {
@@ -340,8 +348,8 @@
   gap: 8px;
   align-items: start;
   padding: 2px 0;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: calc(13px + var(--dsw-content-font-delta, 0px));
+  line-height: calc(20px + var(--dsw-content-font-delta, 0px));
 }
 
 .turnErrorDot {
