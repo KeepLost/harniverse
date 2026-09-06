@@ -369,17 +369,20 @@ describe('drainPipe', () => {
     })
   })
 
-  it('reports a PeekNamedPipe failure that is not a clean EOF', () => {
+  it('reports a PeekNamedPipe failure that is not a clean EOF and still closes the read end', () => {
+    const closeHandle = vi.fn(() => 1)
     const api = {
       peekNamedPipe: vi.fn(() => 0),
       getLastError: vi.fn(() => 5),
-      closeHandle: vi.fn(() => 1),
+      closeHandle,
       formatMessageW: vi.fn(() => 0),
     } as unknown as Win32Bindings
     return expect(drainPipe(api, 30n as NativePtr)).rejects.toMatchObject({ api: 'PeekNamedPipe' })
+      .then(() => { expect(closeHandle).toHaveBeenCalledWith(30n) })
   })
 
-  it('reports a ReadFile failure after data was reported available', () => {
+  it('reports a ReadFile failure after data was reported available and still closes the read end', () => {
+    const closeHandle = vi.fn(() => 1)
     const api = {
       peekNamedPipe: vi.fn((_pipe: unknown, _buffer: unknown, _size: unknown, _read: unknown, totalAvail: NativePtr) => {
         koffi.encode(totalAvail, 'uint32', 4)
@@ -387,10 +390,36 @@ describe('drainPipe', () => {
       }),
       readFile: vi.fn(() => 0),
       getLastError: vi.fn(() => 5),
-      closeHandle: vi.fn(() => 1),
+      closeHandle,
       formatMessageW: vi.fn(() => 0),
     } as unknown as Win32Bindings
     return expect(drainPipe(api, 30n as NativePtr)).rejects.toMatchObject({ api: 'ReadFile' })
+      .then(() => { expect(closeHandle).toHaveBeenCalledWith(30n) })
+  })
+
+  it('stops polling and closes the read end when the abort signal fires', async () => {
+    let peeks = 0
+    const closeHandle = vi.fn(() => 1)
+    const api = {
+      peekNamedPipe: vi.fn((_pipe: unknown, _buffer: unknown, _size: unknown, _read: unknown, totalAvail: NativePtr) => {
+        peeks += 1
+        koffi.encode(totalAvail, 'uint32', 0)
+        return 1
+      }),
+      getLastError: vi.fn(() => 5),
+      closeHandle,
+      formatMessageW: vi.fn(() => 0),
+    } as unknown as Win32Bindings
+    const controller = new AbortController()
+    const cancellation = new Error('drain cancelled')
+    const draining = drainPipe(api, 30n as NativePtr, controller.signal)
+    await new Promise<void>(resolve => setTimeout(resolve, 3))
+    controller.abort(cancellation)
+    await expect(draining).rejects.toBe(cancellation)
+    const settledPeeks = peeks
+    await new Promise<void>(resolve => setTimeout(resolve, 3))
+    expect(peeks).toBe(settledPeeks)
+    expect(closeHandle).toHaveBeenCalledWith(30n)
   })
 
   it('drains one chunk and stops at ERROR_BROKEN_PIPE', () => {
@@ -418,23 +447,29 @@ describe('drainPipe', () => {
 })
 
 describe('waitForExit', () => {
-  it('reports a WaitForSingleObject failure', () => {
+  it('reports a WaitForSingleObject failure and still closes the process handle', () => {
+    const closeHandle = vi.fn(() => 1)
     const api = {
       waitForSingleObject: vi.fn(() => 0xFFFFFFFF),
       getLastError: vi.fn(() => 5),
+      closeHandle,
       formatMessageW: vi.fn(() => 0),
     } as unknown as Win32Bindings
     expect(() => waitForExit(api, 200n as NativePtr)).toThrow(Win32Error)
+    expect(closeHandle).toHaveBeenCalledWith(200n)
   })
 
-  it('reports a GetExitCodeProcess failure', () => {
+  it('reports a GetExitCodeProcess failure and still closes the process handle', () => {
+    const closeHandle = vi.fn(() => 1)
     const api = {
       waitForSingleObject: vi.fn(() => 0),
       getExitCodeProcess: vi.fn(() => 0),
       getLastError: vi.fn(() => 5),
+      closeHandle,
       formatMessageW: vi.fn(() => 0),
     } as unknown as Win32Bindings
     expect(() => waitForExit(api, 200n as NativePtr)).toThrow(Win32Error)
+    expect(closeHandle).toHaveBeenCalledWith(200n)
   })
 
   it('returns the exit code and closes the process handle', () => {
