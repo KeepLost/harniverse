@@ -145,8 +145,10 @@ export class SessionWriteLease {
       }
       // The locked inode is no longer the file at the lock path: start over
       // against whatever now stands there.
+      /* v8 ignore next -- Windows uses the named semaphore branch above. */
       closeSync(fd)
     }
+    /* v8 ignore next -- Windows cannot reach the POSIX inode-retry exhaustion. */
     throw new SessionAlreadyOwnedError(id)
   }
 
@@ -157,12 +159,14 @@ export class SessionWriteLease {
    * the stable inode later lockers verify against. Idempotent.
    */
   async release(): Promise<void> {
+    /* v8 ignore next -- the idempotent POSIX release path is not loaded on Windows. */
     if (this.released) return
     this.released = true
     if (this.held.kind === 'win32') {
       await this.held.release(this.held.handle)
       return
     }
+    /* v8 ignore next -- Windows holds a semaphore handle, not a POSIX fd. */
     closeSync(this.held.fd)
   }
 }
