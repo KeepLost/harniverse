@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-06-loading-efficiency-harvest.md
+2026-09-06-loading-efficiency-harvest.md: c1f9641e67f0729b7b2b8c2fde02e0f3f6b6e2fa
+2026-09-06-loading-efficiency-harvest.zh.md: 4f1e0dcb9b1af1b86af0f3bab63fb2a7996738e9

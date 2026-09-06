@@ -11,10 +11,10 @@ import { MessageId, freezeMessage } from '@deepseek-ai/dsh-llm'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { logPath, scanLog, sessionDir, toHeaderLine, type JsonlCompression } from '../src/format.ts'
 import {
-  compressZstdFrame, createZstdFrameDecoder, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames,
+  compressZstdFrame, createZstdFrameDecoder, decodeZstdFramePrefix, decompressZstdFrame, scanZstdFrames,
   type ZstdFrameDecoder,
 } from '../src/zstd.ts'
-import { NodePrivateZstdFrameDecoder } from '../src/zstd-private-decoder.ts'
+import { NodePrivateZstdFrameDecoder, NodePrivateZstdPrefixDecoder } from '../src/zstd-private-decoder.ts'
 import { PublicZstdFrameDecoder } from '../src/zstd-public-decoder.ts'
 import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
@@ -25,6 +25,15 @@ const contexts: Context[] = []
 
 interface ZstdReaderInternals {
   readZstdPrefix(buffer: Buffer, signal?: AbortSignal): Promise<{ events: SessionEvent[] }>
+}
+
+interface PrefixDecoderInternals {
+  stream: {
+    [key: symbol]: unknown
+    _handle: unknown
+    emit(event: string, error: Error): boolean
+  }
+  errorKey: symbol
 }
 
 type HeaderRead = (
@@ -75,19 +84,28 @@ async function tornFrame(
   for (const end of candidateEnds) {
     const candidate = frame.subarray(0, end)
     if (scanZstdFrames(candidate).tornStart !== 0) continue
-    try {
-      const decoded = (await decompressZstdPrefix(candidate)).toString('utf8')
-      if (accepts(decoded)) return candidate
-    } catch {
-      // Some early cuts precede the first decodable block; keep searching for
-      // a cut that exercises partial-plaintext recovery.
-    }
+    const decoded = decodeZstdFramePrefix(candidate)?.toString('utf8')
+    // Some early cuts precede the first decodable block; keep searching for
+    // a cut that exercises partial-plaintext recovery.
+    if (decoded !== undefined && accepts(decoded)) return candidate
   }
   throw new Error('test fixture could not produce the requested torn Zstandard frame')
 }
 
-function deterministicNoise(length: number): string {
-  let state = 0x12345678
+/** Smallest prefix length of `frame` whose torn decode yields plaintext (a block boundary). */
+async function firstRecoveringCut(frame: Buffer): Promise<number | undefined> {
+  let low = 5
+  let high = frame.length
+  while (low < high) {
+    const mid = (low + high) >> 1
+    if (decodeZstdFramePrefix(frame.subarray(0, mid)) === undefined) low = mid + 1
+    else high = mid
+  }
+  return decodeZstdFramePrefix(frame.subarray(0, low)) === undefined ? undefined : low
+}
+
+function deterministicNoise(length: number, seed = 0x12345678): string {
+  let state = seed >>> 0
   let output = ''
   for (let index = 0; index < length; index++) {
     state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0
@@ -329,6 +347,89 @@ describe('Zstandard frame structure', () => {
     const checksummed = emptyStructuralFrame(0x24)
     expect(scanZstdFrames(checksummed.subarray(0, -1))).toEqual({ frames: [], tornStart: 0 })
     expect(scanZstdFrames(checksummed)).toEqual({ frames: [{ start: 0, end: checksummed.length }] })
+  })
+})
+
+describe('Zstandard torn-frame prefix recovery', () => {
+  it('recovers strict plaintext prefixes across torn cut points', async () => {
+    const plaintext = Buffer.from(Array.from({ length: 6 }, (_, index) => (
+      `${JSON.stringify({ seq: index, noise: deterministicNoise(80_000, 0x12345678 + index * 7919) })}\n`
+    )).join(''))
+    const frame = await compressZstdFrame(plaintext)
+    let recoveredCuts = 0
+    let midLine = false
+    const step = Math.max(1, Math.floor(frame.length / 48))
+    for (let cut = 5; cut < frame.length; cut += step) {
+      const recovered = decodeZstdFramePrefix(frame.subarray(0, cut))
+      if (recovered === undefined) continue
+      recoveredCuts += 1
+      expect(recovered.length).toBeGreaterThan(0)
+      // Native byte equality: the ~500KB fixture makes structural deep
+      // comparisons the test's slowest phase by orders of magnitude.
+      expect(recovered.equals(plaintext.subarray(0, recovered.length))).toBe(true)
+      midLine ||= recovered.at(-1) !== 0x0A
+    }
+    expect(recoveredCuts).toBeGreaterThan(0)
+    expect(midLine).toBe(true)
+    // A torn checksum leaves every complete block's plaintext flushed.
+    expect(decodeZstdFramePrefix(frame.subarray(0, -4))?.equals(plaintext)).toBe(true)
+  })
+
+  it('returns undefined when the torn bytes produced no plaintext', async () => {
+    const frame = await compressZstdFrame('{"type":"turn/start"}\n')
+    expect(decodeZstdFramePrefix(Buffer.alloc(0))).toBeUndefined()
+    expect(decodeZstdFramePrefix(MAGIC)).toBeUndefined()
+    expect(decodeZstdFramePrefix(frame.subarray(0, 6))).toBeUndefined()
+    expect(decodeZstdFramePrefix(Buffer.alloc(48, 0xAB))).toBeUndefined()
+  })
+
+  it('keeps already-drained plaintext when corrupted tail bytes fail decoding', async () => {
+    const frame = await compressZstdFrame(`${deterministicNoise(400_000)}\n`)
+    const blockEnd = await firstRecoveringCut(frame)
+    expect(blockEnd).toBeDefined()
+    const clean = decodeZstdFramePrefix(frame.subarray(0, blockEnd))
+    expect(clean).toBeDefined()
+
+    // A reserved block type after the flushed prefix must neither throw nor
+    // erase the plaintext the decoder already drained.
+    const corrupt = Buffer.concat([frame.subarray(0, blockEnd), Buffer.from([0x0E, 0x00, 0x00])])
+    const salvaged = decodeZstdFramePrefix(corrupt)
+    expect(salvaged).toBeDefined()
+    expect(salvaged!.equals(clean!.subarray(0, salvaged!.length))).toBe(true)
+  })
+
+  it('halts at decoder failures without throwing', async () => {
+    const frame = await compressZstdFrame('frame\n')
+
+    const emitted = NodePrivateZstdPrefixDecoder.create()
+    expect(emitted).toBeDefined()
+    const internals = emitted! as unknown as PrefixDecoderInternals
+    internals.stream.emit('error', new Error('emitted prefix failure'))
+    expect(emitted!.decodePrefix(frame).length).toBe(0)
+
+    const internal = NodePrivateZstdPrefixDecoder.create()
+    const internalInternals = internal! as unknown as PrefixDecoderInternals
+    internalInternals.stream[internalInternals.errorKey] = new Error('internal prefix failure')
+    expect(internal!.decodePrefix(frame).length).toBe(0)
+
+    const throwing = NodePrivateZstdPrefixDecoder.create()
+    const throwingHandle = (throwing as unknown as PrefixDecoderInternals).stream
+      ._handle as { writeSync: unknown }
+    throwingHandle.writeSync = () => { throw new Error('synchronous writeSync failure') }
+    expect(throwing!.decodePrefix(frame).length).toBe(0)
+  })
+
+  it('returns undefined when the private Node decoder contract is unavailable', async () => {
+    const frame = await compressZstdFrame(`${deterministicNoise(400_000)}\n`)
+    const blockEnd = await firstRecoveringCut(frame)
+    expect(blockEnd).toBeDefined()
+    expect(decodeZstdFramePrefix(frame.subarray(0, blockEnd))).toBeDefined()
+    const create = vi.spyOn(NodePrivateZstdPrefixDecoder, 'create').mockReturnValue(undefined)
+    try {
+      expect(decodeZstdFramePrefix(frame.subarray(0, blockEnd))).toBeUndefined()
+    } finally {
+      create.mockRestore()
+    }
   })
 })
 
@@ -639,6 +740,71 @@ describe('JsonlSessionPersistence: default Zstandard encoding', () => {
     expect(repaired.subarray(0, committed.length)).toEqual(committed)
     expect(scanZstdFrames(repaired).tornStart).toBeUndefined()
     expect(scanLog(await decodeCompleteFrames(repaired)).events).toEqual(loaded.events)
+  })
+
+  it('carries recovered events in the torn marker and rewrites them as their own frame before the closers', async () => {
+    const root = await freshRoot()
+    const ctx = await mount(root)
+    const header = meta('marker-recovery', '/proj')
+    await ctx.sessionPersistence.create(header)
+    await ctx.sessionPersistence.append(header.id, oneTurnLog())
+    const path = logPath(root, header.cwd, header.id, 'zstd')
+    const committed = await readFile(path)
+    const openTurn = [
+      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
+      { type: 'step/start', seq: 7, time: 8, data: { turn: 2, step: 1 } },
+      { type: 'assistant/chunk', seq: 8, time: 9, data: { turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: deterministicNoise(300_000) } } },
+    ] as SessionEvent[]
+    const plaintext = openTurn.map(e => JSON.stringify(e)).join('\n') + '\n'
+    const partial = await tornFrame(plaintext, (decoded) => {
+      const newlines = decoded.match(/\n/g)?.length ?? 0
+      return newlines >= 2 && !decoded.endsWith('\n')
+    })
+    await appendFile(path, partial)
+
+    const stored = await (ctx.sessionPersistence as JsonlSessionPersistence).loadStored(header.id)
+    expect(stored?.tornMarker).toEqual({
+      truncateTo: committed.length,
+      recovered: [openTurn[0], openTurn[1]],
+    })
+
+    const loaded = await ctx.sessionPersistence.load(header.id)
+    expect(loaded.events.map(event => event.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+
+    const repaired = await readFile(path)
+    expect(repaired.subarray(0, committed.length)).toEqual(committed)
+    const scan = scanZstdFrames(repaired)
+    expect(scan.tornStart).toBeUndefined()
+    // Header frame, committed batch, rewritten recovered batch, closers batch.
+    expect(scan.frames).toHaveLength(4)
+    const recoveredFrame = await decompressZstdFrame(repaired.subarray(scan.frames[2]!.start, scan.frames[2]!.end))
+    expect(recoveredFrame.toString()).toBe(`${JSON.stringify(openTurn[0])}\n${JSON.stringify(openTurn[1])}\n`)
+    const closersFrame = await decompressZstdFrame(repaired.subarray(scan.frames[3]!.start, scan.frames[3]!.end))
+    const closers = closersFrame.toString().trimEnd().split('\n')
+      .map(line => JSON.parse(line) as SessionEvent)
+    expect(closers.map(event => event.type)).toEqual(['step/end', 'turn/end'])
+    expect(closers.map(event => event.seq)).toEqual([8, 9])
+    expect(scanLog(await decodeCompleteFrames(repaired)).events).toEqual(loaded.events)
+  })
+
+  it('repairs a magic-only torn tail exactly like an empty recovery', async () => {
+    const root = await freshRoot()
+    const ctx = await mount(root)
+    const header = meta('magic-only-tail')
+    await ctx.sessionPersistence.create(header)
+    await ctx.sessionPersistence.append(header.id, oneTurnLog())
+    const path = logPath(root, header.cwd, header.id, 'zstd')
+    const committed = await readFile(path)
+    await appendFile(path, MAGIC)
+
+    const stored = await (ctx.sessionPersistence as JsonlSessionPersistence).loadStored(header.id)
+    expect(stored?.tornMarker).toEqual({ truncateTo: committed.length, recovered: [] })
+
+    const loaded = await ctx.sessionPersistence.load(header.id)
+    expect(loaded.events).toEqual(oneTurnLog())
+    const repaired = await readFile(path)
+    expect(repaired).toEqual(committed)
+    expect(scanZstdFrames(repaired).frames).toHaveLength(2)
   })
 
   it('drops a frame torn in its header before it has produced plaintext', async () => {
