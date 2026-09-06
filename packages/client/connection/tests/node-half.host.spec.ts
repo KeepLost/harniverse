@@ -386,6 +386,20 @@ describe('connection node half', () => {
     await dispose()
   })
 
+  it('holds a declared trustedHosts entry at the fence: a forged Host authenticates nothing', async () => {
+    // Host is client-controlled, so a raw peer can claim any declared
+    // authority. Passing the fence must not skip or soften authentication:
+    // the entry widens the rebinding fence only, never the trust decision.
+    const { routes, dispose } = await mounted({ trustedHosts: ['harness.example'] }, { kind: 'rejected', reason: 'missing-credential' })
+    const { response, state } = fakeResponse()
+    await routes[0]!.handler(fakeRequest({
+      host: 'harness.example', origin: 'http://harness.example', 'sec-fetch-site': 'same-origin',
+    }), response)
+    expect(state.status).toBe(401)
+    expect(state.body).toBe('unauthorized')
+    await dispose()
+  })
+
   it('returns Retry-After for rate-limited API requests and WebSocket upgrades', async () => {
     const decision = { kind: 'rejected', reason: 'rate-limited', retryAfterMs: 2_500 } as const
     const { routes, upgrades, dispose } = await mounted(undefined, decision)
