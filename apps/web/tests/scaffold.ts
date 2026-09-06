@@ -440,9 +440,14 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
           shutdownTimeoutMillis: 1_000,
         },
       },
+    // Use an ephemeral port while preserving the shipped compression policy;
+    // a patch replaces the row's complete config.
     {
       id: 'webserver',
-      config: { host: '127.0.0.1', port: 0 },
+      config: {
+        host: '127.0.0.1', port: 0, compression: 'gzip',
+        compressionLevel: 1, compressionThresholdBytes: 1024,
+      },
     },
     // The bundle's web-runtime row resolves the same built dist under test
     // (apps/web IS @deepseek-ai/dsh-web-frontend); only the URL line is silenced.

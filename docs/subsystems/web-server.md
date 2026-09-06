@@ -2,7 +2,7 @@
 
 English | [中文](web-server.zh.md)
 
-[dsh-host-webserver](../../packages/host/webserver) is the browser HTTP/HTTPS carrier for the GUI host: a single Node server plugin providing `ctx.webServer`, a named-route registry, index.html transform callbacks, and one fallback handler that a plugin may claim. It is not part of the agent loop and not a capability seam; it knows no harness concepts, and another plugin registers every feature route, including the `/api` bridge, plugin bundles, and the HMR event stream ([layering note](../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)). It serves browsers only: Electron loads the built files over `file://` and sends fetch requests through an IPC bridge instead of this server.
+[dsh-host-webserver](../../packages/host/webserver) is the browser HTTP/HTTPS carrier for the GUI host: a single Node server plugin providing `ctx.webServer`, a named-route registry, optional gzip response compression, index.html transform callbacks, and one fallback handler that a plugin may claim. It is not part of the agent loop and not a capability seam; it knows no harness concepts, and another plugin registers every feature route, including the `/api` bridge, plugin bundles, and the HMR event stream ([layering note](../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)). It serves browsers only: Electron loads the built files over `file://` and sends fetch requests through an IPC bridge instead of this server.
 
 Source: [`packages/host/webserver/src/index.ts`](../../packages/host/webserver/src/index.ts)
 
@@ -29,12 +29,18 @@ Match order is fixed: exact table first, then longest matching prefix, then the 
 ## Config
 
 ```ts type-equiv
-/** Gateway config: the listen address. */
+/** Web server listen and response-compression config. */
 interface Config {
   /** Listen host; the two supported values are loopback and all-interfaces. */
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
+  /** Response compression for socket-backed HTTP requests. @default 'none' */
+  compression?: 'none' | 'gzip'
+  /** Gzip DEFLATE level from 0 through 9. @default 1 */
+  compressionLevel?: number
+  /** Minimum known response length eligible for gzip; unknown-length streams are eligible. @default 1024 */
+  compressionThresholdBytes?: number
   /** TLS certificate path for HTTPS/WSS serving. */
   tlsCertPath?: string
   /** TLS private key path for HTTPS/WSS serving. */
@@ -42,11 +48,11 @@ interface Config {
 }
 ```
 
-`host` accepts only `127.0.0.1` and `0.0.0.0`. Loopback may use HTTP; all-interfaces binding requires paired certificate and key paths and serves HTTPS/WSS. Authentication and browser-origin policy remain separate connection-layer responsibilities. The dist location is an assembly fact of the frontend plugin that claims the seat.
+`host` accepts only `127.0.0.1` and `0.0.0.0`. Loopback may use HTTP; all-interfaces binding requires paired certificate and key paths and serves HTTPS/WSS. Authentication and browser-origin policy remain separate connection-layer responsibilities. `compression` defaults to `none`; the shipped Web bundle selects gzip level 1 with a 1024-byte threshold. The dist location is an assembly fact of the frontend plugin that claims the seat.
 
 ## The service
 
-`WebServer` (`ctx.webServer`) listens immediately on activation; incomplete TLS configuration, plaintext all-interfaces binding, certificate reads, or socket listen failures reject initialization before readiness. `register(route)` adds one named route and returns its disposer; a duplicate `(kind, path)` throws because route patterns are a composition-level contract and a collision is a misconfiguration. `tapIndex(transform)` adds a pure html-to-html transform applied to every index response in registration order; [dsh-client-modules](../../packages/client/modules) uses it to inject the boot manifest. `port`, `host`, and `protocol` expose the active listener facts.
+`WebServer` (`ctx.webServer`) listens immediately on activation; incomplete TLS configuration, plaintext all-interfaces binding, certificate reads, or socket listen failures reject initialization before readiness. `register(route)` adds one named route and returns its disposer; a duplicate `(kind, path)` throws because route patterns are a composition-level contract and a collision is a misconfiguration. Gzip wraps eligible socket-backed responses inside the server, so route handlers retain direct `ServerResponse` ownership and no response-writing API is added to the service; authentication and routing observe no change. Existing content encodings (the pre-compressed static assets and the `/api` bridge's negotiated replies), `Cache-Control: no-transform`, range responses, and SSE remain identity responses. `tapIndex(transform)` adds a pure html-to-html transform applied to every index response in registration order; [dsh-client-modules](../../packages/client/modules) uses it to inject the boot manifest. `port`, `host`, and `protocol` expose the active listener facts.
 
 A request whose handling throws is logged as a warning and answered 400 — or the socket destroyed when headers are already out — never a process exit. An incomplete request reset by its client ends quietly because no response peer remains. Disposal pairs `close()` with `closeAllConnections()` because a handler may hold its response open (SSE) and such connections never end on their own; without the force-close, teardown would hang. The package never prints: the URL line belongs to the shell. Per-package operational detail, including the dev-mode bundle watch pipeline, stays in the [README](../../packages/host/webserver/README.md).
 
@@ -108,5 +114,5 @@ tapIndex(transform: (html: string) => string): () => void
 applyIndexTaps(html: string): string
 ```
 
-Source: [`packages/host/webserver/src/index.ts:65`](../../packages/host/webserver/src/index.ts)
+Source: [`packages/host/webserver/src/index.ts:119`](../../packages/host/webserver/src/index.ts)
 <!-- END GENERATED cordis-surface -->

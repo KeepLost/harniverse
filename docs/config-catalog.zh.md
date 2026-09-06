@@ -537,7 +537,11 @@ export interface Config {
 ```ts config-catalog
 /** Validated deployment limits and Python executable selection. */
 export interface Config {
-  /** Executable passed directly to `spawn`; no shell parses this value. */
+  /**
+   * Python interpreter resolved at plugin load: an absolute or relative path
+   * to an executable regular file, or a bare name searched on the Host `PATH`.
+   * The resolved file must report CPython 3.10 or newer in an isolated probe.
+   */
   pythonExecutable?: string
   /** Per-process `RLIMIT_CPU` soft limit in whole seconds where supported. */
   cpuSeconds?: number
@@ -552,7 +556,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/code-runtime/code-runtime-python/src/index.ts:20`](../packages/code-runtime/code-runtime-python/src/index.ts)
+来源：[`packages/code-runtime/code-runtime-python/src/index.ts:23`](../packages/code-runtime/code-runtime-python/src/index.ts)
 
 <a id="deepseek-aidsh-code-runtime-worker-thread"></a>
 
@@ -996,12 +1000,18 @@ export interface Config {
 ## `@deepseek-ai/dsh-host-webserver`
 
 ```ts config-catalog
-/** Gateway config: the listen address. */
+/** Web server listen and response-compression config. */
 export interface Config {
   /** Listen host; the two supported values are loopback and all-interfaces. */
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
+  /** Response compression for socket-backed HTTP requests. @default 'none' */
+  compression?: 'none' | 'gzip'
+  /** Gzip DEFLATE level from 0 through 9. @default 1 */
+  compressionLevel?: number
+  /** Minimum known response length eligible for gzip; unknown-length streams are eligible. @default 1024 */
+  compressionThresholdBytes?: number
   /** TLS certificate path for HTTPS/WSS serving. */
   tlsCertPath?: string
   /** TLS private key path for HTTPS/WSS serving. */
@@ -1009,7 +1019,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/host/webserver/src/index.ts:47`](../packages/host/webserver/src/index.ts)
+来源：[`packages/host/webserver/src/index.ts:50`](../packages/host/webserver/src/index.ts)
 
 <a id="deepseek-aidsh-invariants"></a>
 
@@ -1205,7 +1215,7 @@ export interface PiAiProviderProfile {
    * to answer instead.
    */
   defaultInput?: PiAiModality[]
-  /** Provider request headers; Harness attribution wins reserved names. */
+  /** Provider request headers, validated against Fetch when the profile resolves; Harness attribution wins reserved names. */
   headers?: Record<string, string>
   /** Provider-neutral pi-ai reasoning level. */
   reasoning?: ModelThinkingLevel
@@ -2370,10 +2380,20 @@ export interface Config {
    * deployment-owned location.
    */
   root?: string
+  /**
+   * Age in days after which a spill file is eligible for the one-shot startup
+   * cleanup sweep. Defaults to `30`; `0` disables the sweep entirely. A file
+   * whose `mtime` is strictly older than the cutoff is deleted and a session
+   * directory left empty is pruned; fresh files, symlinks, and unrelated
+   * entries are left untouched, and the root itself is never removed.
+   * Retention is deliberate — a resumed or forked session may still reference
+   * an older locator until it ages out.
+   */
+  cleanupPeriodDays?: number
 }
 ```
 
-来源：[`packages/spill/spill-local/src/index.ts:22`](../packages/spill/spill-local/src/index.ts)
+来源：[`packages/spill/spill-local/src/index.ts:31`](../packages/spill/spill-local/src/index.ts)
 
 <a id="deepseek-aidsh-spill-policy"></a>
 
@@ -3787,6 +3807,7 @@ export interface Config {
 - `@deepseek-ai/dsh-base`（[`packages/bundle/base/src/index.ts`](../packages/bundle/base/src/index.ts)）
 - `@deepseek-ai/dsh-brand`（[`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts)）
 - `@deepseek-ai/dsh-client-schema-form`（[`packages/client/schema-form/src/index.ts`](../packages/client/schema-form/src/index.ts)）
+- `@deepseek-ai/dsh-client-store`（[`packages/client/store/src/index.ts`](../packages/client/store/src/index.ts)）
 - `@deepseek-ai/dsh-client-test-runtime`（[`packages/test-support/client-runtime/src/index.ts`](../packages/test-support/client-runtime/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-attachment`（[`packages/client/ui-attachment/src/index.ts`](../packages/client/ui-attachment/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-primitives`（[`packages/client/ui-primitives/src/index.ts`](../packages/client/ui-primitives/src/index.ts)）
@@ -3796,6 +3817,7 @@ export interface Config {
 - `@deepseek-ai/dsh-cmdline`（[`packages/boot/cmdline/src/index.ts`](../packages/boot/cmdline/src/index.ts)）
 - `@deepseek-ai/dsh-home-paths`（[`packages/util/home-paths/src/index.ts`](../packages/util/home-paths/src/index.ts)）
 - `@deepseek-ai/dsh-hook-protocol`（[`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts)）
+- `@deepseek-ai/dsh-http-proxy`（[`packages/util/http-proxy/src/index.ts`](../packages/util/http-proxy/src/index.ts)）
 - `@deepseek-ai/dsh-launch-environment`（[`packages/util/launch-environment/src/index.ts`](../packages/util/launch-environment/src/index.ts)）
 - `@deepseek-ai/dsh-llm-mock-server`（[`packages/test-support/llm-mock-server/src/index.ts`](../packages/test-support/llm-mock-server/src/index.ts)）
 - `@deepseek-ai/dsh-loader-smoke`（[`packages/test-support/loader-smoke/src/index.ts`](../packages/test-support/loader-smoke/src/index.ts)）

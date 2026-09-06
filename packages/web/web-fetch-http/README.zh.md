@@ -18,7 +18,7 @@
 
 - 只接受 `http:` 和 `https:` URL；拒绝 URL 中的凭据（`WEB_BLOCKED_URL`）以及过长／格式错误的 URL（`WEB_INVALID_URL`）。
 - 拒绝字面量或 DNS 解析得到的非公共 IPv4／IPv6 地址，包括 loopback、私有、link-local、保留、multicast、metadata 和 IPv4-mapped IPv6 地址。DNS 错误、空答案、无效答案以及公共／非公共混合答案都会 fail closed。
-- 在每次请求前解析主机名，并把 socket 直接连接到已验证的地址，同时保留 URL 主机名作为 HTTP `Host` 标头和 HTTPS TLS server name。传输不使用 ambient fetch 或代理配置。
+- 在每次请求前解析主机名，并把 socket 直接连接到已验证的地址，同时保留 URL 主机名作为 HTTP `Host` 标头和 HTTPS TLS server name。当进程级出站代理策略让该 URL 走代理时，该跳改走策略的共享隧道且不做本地地址解析——由代理解析源站——回环与旁路名单中的 URL 仍走固定的直连路径。
 - 强制执行 URL 最大长度、响应字节上限（`WEB_FETCH_TOO_LARGE`）、解码主体字符上限、超时（`WEB_FETCH_TIMEOUT`）以及固定的重定向拒绝策略。
 - 把调用方的中止信号（`WEB_ABORTED`）传播到网络请求与流式读取。
 - 拒绝所有 HTTP 重定向并返回 `WEB_REDIRECT_BLOCKED`；`maxRedirects` 是固定安全设置，必须为 `0`，目标 URL 必须重新发起工具调用并独立通过 URL 与 DNS 策略。

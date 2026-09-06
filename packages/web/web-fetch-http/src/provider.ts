@@ -2,12 +2,15 @@
  * Safe HTTP(S) retrieval for `ctx.web`: validates URLs, resolves and pins public addresses,
  * rejects redirects, enforces time and size limits, classifies and decodes text, and leaves
  * presentation to `@deepseek-ai/dsh-tool-web`. Requests carry no browser cookies or ambient
- * credentials and use direct Node transports without proxy configuration.
+ * credentials and use direct Node transports; when the process-wide outbound proxy policy
+ * routes the URL through a proxy, the hop takes that policy's shared tunnel instead of local
+ * address resolution — the proxy resolves the origin.
  * @module @deepseek-ai/dsh-web-fetch-http/provider
  */
 
 import { WebError } from '@deepseek-ai/dsh-web'
 import type { WebFetchBody, WebFetchProvider, WebFetchRequest, WebFetchResult } from '@deepseek-ai/dsh-web'
+import { proxyRouteFor, requestViaProxy } from '@deepseek-ai/dsh-http-proxy'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
@@ -95,6 +98,15 @@ export class HttpFetchProvider implements WebFetchProvider {
   }
 
   private async requestOnce(url: URL, signal: AbortSignal): Promise<Response> {
+    const route = proxyRouteFor(url)
+    if (route.proxied) {
+      try {
+        return await requestProxied(route.proxy, url, { signal, userAgent: this.limits.userAgent })
+      } catch (error: unknown) {
+        /* v8 ignore next -- requires a proxy hop to fail after route selection. */
+        throw translateAbortOrNetwork(error, signal)
+      }
+    }
     const address = await this.resolvePublicAddress(url, signal)
     try {
       return await this.requestTransport(url, address, { signal, userAgent: this.limits.userAgent })
@@ -313,6 +325,36 @@ function requestDirect(url: URL, address: ResolvedAddress, options: FetchTranspo
     }
     request.once('error', reject)
     request.end()
+  })
+}
+
+/**
+ * Send one request through the installed policy's shared proxy tunnel. The origin's DNS happens
+ * proxy-side, so no local address is resolved or pinned; URL validation has already refused the
+ * literal destinations the address checks exist to catch.
+ */
+function requestProxied(proxy: string, url: URL, options: FetchTransportOptions): Promise<Response> {
+  return new Promise<Response>((resolve, reject) => {
+    void requestViaProxy(proxy, url, {
+      method: 'GET',
+      headers: [
+        'user-agent', options.userAgent,
+        'accept', 'text/html,application/xhtml+xml,text/*;q=0.9,application/json;q=0.8',
+      ],
+      signal: options.signal,
+    }).then(
+      (hop) => {
+        /* v8 ignore next 5 -- malformed native response objects are kernel-level failures. */
+        try {
+          resolve(toFetchResponse(hop.response))
+        } catch (error: unknown) {
+          hop.request.destroy()
+          reject(toError(error))
+        }
+      },
+      /* v8 ignore next -- a transport rejection after headers is host-network dependent. */
+      (error: unknown) => { reject(toError(error)) },
+    )
   })
 }
 

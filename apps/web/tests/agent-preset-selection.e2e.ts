@@ -244,6 +244,11 @@ describe('web e2e: agent-preset selection', () => {
     await composer.fill('/')
     await expect.poll(() => menuOptions(page), { timeout: 15_000 })
       .not.toEqual(expect.arrayContaining([expect.stringContaining(SKILL_NAME)]))
+    // The command catalog rebuild trails the composition switch itself, so
+    // wait for the arriving `compact` entry instead of sampling once.
+    await expect.poll(async () => (await menuOptions(page))
+      .some(option => option.startsWith('compact')), { timeout: 15_000 })
+      .toBe(true)
     const onMinimal = await menuOptions(page)
     expect(onMinimal.some(option => option.startsWith('compact'))).toBe(true)
     expect(onMinimal.some(option => option.startsWith('plan'))).toBe(false)

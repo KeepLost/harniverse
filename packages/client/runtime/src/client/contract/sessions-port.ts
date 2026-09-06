@@ -8,7 +8,7 @@
  */
 
 import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-api-remotes/client'
-import type { ObservableSnapshot } from './store.ts'
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 
 /** Session-list row facts sibling domains read: recency, blank-reuse eligibility, and its cwd canon. */
 export interface SessionsPortSummary {

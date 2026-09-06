@@ -83,6 +83,25 @@ export function sessionFormatVersionRefusal(id: string, version: number): string
     : `session "${id}" uses log format v${version}, older than the supported v${SESSION_FORMAT_VERSION}, and this build ships no upgrade path for it`
 }
 
+/**
+ * Another writer holds the cross-process write lease for a session's
+ * artifact, so this runtime refuses to write, repair, or delete it. The
+ * kernel (POSIX `flock` descriptor or Win32 named semaphore) releases the
+ * lease when the holder's process dies, so a crashed holder never blocks a
+ * successor; a live holder keeps the lease until it releases it, with
+ * deliberately no expiry that could expropriate a stalled writer whose
+ * resumed appends would tear the log.
+ */
+export class SessionAlreadyOwnedError extends Error {
+  /**
+   * @param sessionId - the session whose write lease another holder keeps.
+   */
+  constructor(readonly sessionId: SessionId) {
+    super(`session "${sessionId}" is already owned by an active write handle`)
+    this.name = 'SessionAlreadyOwnedError'
+  }
+}
+
 /** Coordinator policy supplied by a concrete persistence backend. */
 export interface PersistenceCoordinatorOptions {
   /** Maximum completed unpublished preparations retained for reuse. */
@@ -236,6 +255,15 @@ export interface PersistenceBackend<TornMarker = unknown> {
    * @returns whether an artifact or row existed.
    */
   deleteStored(id: SessionId): Promise<boolean>
+
+  /**
+   * Optional release of the backend's cross-process write lease for one
+   * session, called inside the per-id serialization chain after the
+   * coordinator drops its state for the id (retirement or deletion). A
+   * backend without kernel-arbitrated write ownership omits it.
+   * @param id - session identity whose write lease this backend holds.
+   */
+  releaseWriteOwnership?(id: SessionId): Promise<void>
 
   /**
    * List all stored (materialized) sessions' metadata.
@@ -770,6 +798,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       this.preparations.invalidate(id)
       const deleted = await this.backend.deleteStored(id)
       this.states.delete(id)
+      await this.backend.releaseWriteOwnership?.(id)
       return deleted
     })
   }
@@ -1391,9 +1420,15 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private async retireCore(session: Session): Promise<void> {
     await this.flush(session)
     const id = session.header.id
-    await this.serialize(id, () => {
+    await this.serialize(id, async () => {
       this.live.delete(session)
-      if (this.states.get(id)?.owner === session) this.states.delete(id)
+      if (this.states.get(id)?.owner === session) {
+        this.states.delete(id)
+        // The disposed lifecycle no longer writes; another process may take
+        // over the artifact. Ownerless API state keeps its lease until
+        // deletion or coordinator dispose.
+        await this.backend.releaseWriteOwnership?.(id)
+      }
     })
   }
 

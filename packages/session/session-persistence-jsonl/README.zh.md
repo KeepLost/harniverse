@@ -12,6 +12,7 @@ JSONL 持久会话存储后端：`SessionPersistence` 的一个具体实现（`d
     <encoded-id>/                # session-owned directory
       session.jsonl.zstd         # default: checksummed header frame + append frames
       session.jsonl              # only with compression: 'none'
+      session.lock               # POSIX kernel write-lease file; see Cross-process write lease
 ```
 
 - 第一个逻辑行是不可变的 `SessionHeader`，标记为 `{ type: 'session', version, id, cwd?, createdAt, parentSession?, seedLength?, origin?, delegationDepth, agentPreset? }`。`delegationDepth` 在磁盘上必需，顶层会话为 `0`；缺失或无效值会拒绝日志。`agentPreset` 必须持久化，因为它决定了被恢复会话的工具与提示词——恢复成另一套组装，就会回放模型已无法据以行动的历史。后续每个逻辑行是一条存储记录；`assistant/chunk` 事件绝不丢弃，且 `seq` 在解码日志中保持连续（`events[i].seq === i`）。
@@ -54,6 +55,14 @@ JSONL 持久会话存储后端：`SessionPersistence` 的一个具体实现（`d
 
 插件将冻结的会话事件复制到每个活动会话各自的 controller。第一个待处理事件会开启配置的固定批处理窗口，后续事件会加入但不会重置截止时间。窗口到期后会启动一次持久化追加；该次写入期间接纳的事件会形成另一个独立有界的后续批次。`session/flush` 会取消等待并排空当前与待处理批次。每会话游标防止恢复后的会话重新 append 已存储事件，插件加载时会为活动会话设置初始状态。所属后端实例串行化单会话操作；dispose（资源释放）会在拆卸前排空每个保留的 controller。每个逻辑事件都会保留：批处理只让单个压缩帧或一次原始 JSONL fsync 承载更多记录。
 
+<a id="cross-process-write-lease"></a>
+
+## 跨进程写租约
+
+每个持久写入——append、崩溃修复或删除——都持有会话目录的一个由内核仲裁的写租约：在第一次持久写入时惰性获取，直到协调器 retire（退役）或删除该会话、或后端 dispose 才释放。POSIX 在日志旁对 `session.lock` 取非阻塞独占 `flock(2)`（裸描述符，只由显式释放关闭）；Windows 持有一个由锁路径派生的内核具名信号量（`Local\dsh-session-lock-<小写解析路径的 sha256>`），而不是文件锁，因此读取器和目录列出完全不受影响。当另一个存活进程持有租约时，任何写入或修复都会在触碰产物之前以 `SessionAlreadyOwnedError`（`@deepseek-ai/dsh-session-persistence`）拒绝；删除已存储日志同样需要先取得租约。
+
+刻意不设过期时间、也没有心跳：内核在持有者描述符或最后一个信号量 handle 关闭时释放租约——包括任何进程死亡——因此崩溃的持有者绝不会阻塞后继者，后继者的第一次写入随即运行正常的 torn-tail（撕裂尾部）恢复。存活但卡死的持有者会保留租约直到其进程退出，因为剥夺一个可能恢复写入的停滞 writer（其恢复的 append 会撕裂日志）比等待更糟。POSIX 锁针对 inode，因此持有者在加锁后会校验被锁 inode 仍匹配锁路径（针对重建文件的有界重试）；手动移除存活会话的 `session.lock` 因此在 POSIX 上等于放弃排他——harness 内部不会这么做。释放绝不删除锁文件：它保留后续加锁者校验所需的稳定 inode。租约原语可按次注入，使各平台协议在任意宿主上都可测试。
+
 ## 模型体验
 
 ### 恢复的对话历史
@@ -75,5 +84,5 @@ JSONL 存储不修改实时请求前缀。只有重建历史、当前 envelope �
 - **只加载已配置编码和当前 `SESSION_FORMAT_VERSION`（v0）**：更改压缩需要独立/全新根，或选择遗留原始 mode；预发布格式没有迁移。
 - **平铺文件存储布局不加载**：加载前使用独立根，或将预发布产物移入项目/会话目录布局。
 - **压缩文件不能直接按行读取**：使用后端加载；或在写入新根前选择 `compression: 'none'`，以便外部行 reader 使用。
-- **每会话一个活动 writer**：append 和修复只在所属后端实例内协调。在所有者完成完全停稳的 dispose 前，其他后端实例或进程不得写入同一会话；初始同 id 发布仍通过 POSIX 无覆盖硬链接或 Windows 无替换 write-through rename 保持冲突安全。
+- **每会话一个活动 writer**：写入按会话目录由内核仲裁。第二个后端实例或进程写入同一会话时，会以 `SessionAlreadyOwnedError` 拒绝，直到持有者 retire、删除或进程死亡（见 [跨进程写租约](#cross-process-write-lease)）。卡死但存活的持有者会保留租约直到进程退出；在 POSIX 上手动移除 `session.lock` 会使其排他失效。
 - **POSIX 实体化需要硬链接支持**：第一次 append 使用 `link()`，使同 id 竞态失败，而不覆盖已提交日志；Windows 使用无替换 write-through rename。

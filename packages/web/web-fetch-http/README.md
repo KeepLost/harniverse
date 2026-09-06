@@ -18,7 +18,7 @@ A shipping web-tool deployment sets the provider backstop above the tool budget,
 
 - Accepts only `http:` and `https:` URLs; rejects credentials in URLs (`WEB_BLOCKED_URL`) and over-long/malformed URLs (`WEB_INVALID_URL`).
 - Rejects literal or DNS-resolved non-public IPv4/IPv6 addresses, including loopback, private, link-local, reserved, multicast, metadata, and IPv4-mapped IPv6 addresses. DNS errors, empty answers, invalid answers, and mixed public/non-public answer sets fail closed.
-- Resolves hostnames before each request and connects directly to the validated address while preserving the URL hostname for the HTTP `Host` header and HTTPS TLS server name. The transport does not use ambient fetch or proxy configuration.
+- Resolves hostnames before each request and connects directly to the validated address while preserving the URL hostname for the HTTP `Host` header and HTTPS TLS server name. When the process-wide outbound proxy policy routes the URL through a proxy, the hop instead takes that policy's shared tunnel with no local address resolution — the proxy resolves the origin — while loopback and bypassed URLs stay on the pinned direct path.
 - Enforces a max URL length, response byte cap (`WEB_FETCH_TOO_LARGE`), decoded body character cap, timeout (`WEB_FETCH_TIMEOUT`), and fixed redirect denial.
 - Propagates the caller's abort signal (`WEB_ABORTED`) into the network request and the streaming read.
 - Rejects every HTTP redirect with `WEB_REDIRECT_BLOCKED`; `maxRedirects` is a fixed security setting and must be `0`, requiring a fresh tool call for the target URL.

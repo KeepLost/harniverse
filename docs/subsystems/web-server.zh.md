@@ -2,7 +2,7 @@
 
 [English](web-server.md) | 中文
 
-[dsh-host-webserver](../../packages/host/webserver) 是 GUI 宿主的浏览器 HTTP/HTTPS 载体：它是一个提供 `ctx.webServer` 的 Node 服务器插件，包含具名路由注册表、index.html 转换回调，以及一个可由插件认领的 fallback handler。它不属于 agent loop（智能体循环），也不是能力 seam；它不了解任何 harness 概念。其他插件负责注册所有功能路由，包括 `/api` 桥接、插件 bundle 和 HMR（热模块替换）事件流（[分层说明](../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)）。该服务器只服务浏览器：Electron 通过 `file://` 加载已构建文件，并经 IPC 桥接发送 fetch 请求，不使用本服务器。
+[dsh-host-webserver](../../packages/host/webserver) 是 GUI 宿主的浏览器 HTTP/HTTPS 载体：它是一个提供 `ctx.webServer` 的 Node 服务器插件，包含具名路由注册表、可选的 gzip 响应压缩、index.html 转换回调，以及一个可由插件认领的 fallback handler。它不属于 agent loop（智能体循环），也不是能力 seam；它不了解任何 harness 概念。其他插件负责注册所有功能路由，包括 `/api` 桥接、插件 bundle 和 HMR（热模块替换）事件流（[分层说明](../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)）。该服务器只服务浏览器：Electron 通过 `file://` 加载已构建文件，并经 IPC 桥接发送 fetch 请求，不使用本服务器。
 
 源码：[`packages/host/webserver/src/index.ts`](../../packages/host/webserver/src/index.ts)
 
@@ -29,12 +29,18 @@ interface WebRoute {
 ## 配置
 
 ```ts type-equiv
-/** Gateway config: the listen address. */
+/** Web server listen and response-compression config. */
 interface Config {
   /** Listen host; the two supported values are loopback and all-interfaces. */
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
+  /** Response compression for socket-backed HTTP requests. @default 'none' */
+  compression?: 'none' | 'gzip'
+  /** Gzip DEFLATE level from 0 through 9. @default 1 */
+  compressionLevel?: number
+  /** Minimum known response length eligible for gzip; unknown-length streams are eligible. @default 1024 */
+  compressionThresholdBytes?: number
   /** TLS certificate path for HTTPS/WSS serving. */
   tlsCertPath?: string
   /** TLS private key path for HTTPS/WSS serving. */
@@ -42,11 +48,11 @@ interface Config {
 }
 ```
 
-`host` 只接受 `127.0.0.1` 与 `0.0.0.0`。回环可以使用 HTTP；全接口绑定要求成对提供证书与密钥路径，并通过 HTTPS/WSS 服务。认证与浏览器 origin 策略仍由独立的 connection 层负责。dist 位置是认领席位的前端插件的组装事实。
+`host` 只接受 `127.0.0.1` 与 `0.0.0.0`。回环可以使用 HTTP；全接口绑定要求成对提供证书与密钥路径，并通过 HTTPS/WSS 服务。认证与浏览器 origin 策略仍由独立的 connection 层负责。`compression` 默认为 `none`；发布的 Web 组合选择 gzip 级别 1 与 1024 字节阈值。dist 位置是认领席位的前端插件的组装事实。
 
 ## 服务
 
-`WebServer`（`ctx.webServer`）在激活时立即监听；TLS 配置不完整、全接口明文绑定、证书读取失败或 socket 监听失败都会在就绪前拒绝初始化。`register(route)` 添加一条具名路由并返回其 disposer；重复的 `(kind, path)` 抛出异常，因为路由模式是组合层约定，冲突即配置错误。`tapIndex(transform)` 添加纯 HTML 到 HTML 转换，并按注册顺序应用于每个 index 响应；[dsh-client-modules](../../packages/client/modules) 用它注入启动 manifest（元数据清单）。`port`、`host` 与 `protocol` 暴露活动 listener 的事实。
+`WebServer`（`ctx.webServer`）在激活时立即监听；TLS 配置不完整、全接口明文绑定、证书读取失败或 socket 监听失败都会在就绪前拒绝初始化。`register(route)` 添加一条具名路由并返回其 disposer；重复的 `(kind, path)` 抛出异常，因为路由模式是组合层约定，冲突即配置错误。gzip 在服务器内部包装符合条件的、有 socket 支撑的响应，因此 route handler 仍持有直接的 `ServerResponse` 所有权，服务不新增任何写响应的 API；认证与路由观察不到任何变化。已有 content encoding 的响应（预压缩静态资源与 `/api` 桥接协商后的回复）、带 `Cache-Control: no-transform`、range 响应与 SSE 保持 identity 响应。`tapIndex(transform)` 添加纯 HTML 到 HTML 转换，并按注册顺序应用于每个 index 响应；[dsh-client-modules](../../packages/client/modules) 用它注入启动 manifest（元数据清单）。`port`、`host` 与 `protocol` 暴露活动 listener 的事实。
 
 处理过程中抛出异常的请求会记录为警告并应答 400（响应头已发出时则销毁 socket），绝不导致进程退出。客户端重置的未完整请求会安静结束，因为已不存在响应对端。dispose（资源释放）把 `close()` 与 `closeAllConnections()` 配对使用，因为处理器可能像 SSE（Server-Sent Events）那样保持响应打开，而这类连接永远不会自行结束；没有强制关闭，拆卸就会挂起。该包从不打印输出：URL 行归 shell 所有。逐包运维细节（含开发模式的 bundle 监视流水线）留在 [README](../../packages/host/webserver/README.md) 中。
 
@@ -108,5 +114,5 @@ tapIndex(transform: (html: string) => string): () => void
 applyIndexTaps(html: string): string
 ```
 
-Source: [`packages/host/webserver/src/index.ts:65`](../../packages/host/webserver/src/index.ts)
+Source: [`packages/host/webserver/src/index.ts:119`](../../packages/host/webserver/src/index.ts)
 <!-- END GENERATED cordis-surface -->

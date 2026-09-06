@@ -25,8 +25,8 @@ import type {
   HostObservable, SessionMaybeProvideInfo, SessionProvideInfo,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
-import type { SnapshotStore } from '../contract/store.ts'
-import { createSnapshotStore } from '../contract/store.ts'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionFace } from '../contract/session.ts'
 import type { AgentContext, ISessions } from '../contract/sessions.ts'
 import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'

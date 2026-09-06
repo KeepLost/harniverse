@@ -4,7 +4,7 @@ import type {
   IApiClient, RpcResult, WorkspaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
-import type { ObservableSnapshot } from '../contract/store.ts'
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import { Notifier } from '../sessions/notifier.ts'
 
 /** Host input retained by a local Workspace until materialization succeeds. */

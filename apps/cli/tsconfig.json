@@ -57,6 +57,9 @@
       "path": "../../packages/util/launch-environment"
     },
     {
+      "path": "../../packages/util/http-proxy"
+    },
+    {
       "path": "../../packages/util/home-paths"
     },
     {

@@ -11,7 +11,7 @@ import type {
   WorkspaceGitStatusEntry, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { WorkspaceListState } from '../workspaces/service.ts'
-import type { ObservableSnapshot } from './store.ts'
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 
 /**
  * Optional glob scoping for one Workspace file search.

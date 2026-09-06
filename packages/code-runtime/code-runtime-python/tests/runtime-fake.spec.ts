@@ -1,12 +1,20 @@
 import { EventEmitter, getEventListeners } from 'node:events'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { CodeBindingNamespace, CodeRunRequest } from '@deepseek-ai/dsh-code-runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }))
-vi.mock('node:child_process', () => ({ spawn: spawnMock }))
+const { execFileSyncMock, spawnMock } = vi.hoisted(() => ({ execFileSyncMock: vi.fn(), spawnMock: vi.fn() }))
+vi.mock('node:child_process', async importOriginal => ({
+  ...await importOriginal<typeof import('node:child_process')>(),
+  execFileSync: execFileSyncMock,
+  spawn: spawnMock,
+}))
+execFileSyncMock.mockImplementation(() => 'cpython 3 11 0\n')
 
-import { PythonCodeRuntime } from '../src/index.ts'
+import { PythonCodeRuntime, resolvePythonExecutable } from '../src/index.ts'
 import type { Config } from '../src/index.ts'
 
 type ChildFrame = Record<string, unknown>
@@ -92,7 +100,7 @@ function request(overrides: Partial<CodeRunRequest> = {}): CodeRunRequest {
 
 async function setup(config: Config = {}) {
   const ctx = new Context()
-  const fiber = await ctx.plugin(PythonCodeRuntime, config)
+  const fiber = await ctx.plugin(PythonCodeRuntime, { pythonExecutable: process.execPath, ...config })
   return { ctx, fiber, runtime: ctx.codeRuntime as PythonCodeRuntime }
 }
 
@@ -107,7 +115,10 @@ function arm(script: Script): () => FakeChild {
 
 afterEach(() => {
   spawnMock.mockReset()
+  execFileSyncMock.mockReset()
+  execFileSyncMock.mockImplementation(() => 'cpython 3 11 0\n')
   vi.useRealTimers()
+  vi.unstubAllEnvs()
 })
 
 describe('PythonCodeRuntime deterministic process boundary', () => {
@@ -128,7 +139,7 @@ describe('PythonCodeRuntime deterministic process boundary', () => {
     ]
     for (const [config, message] of invalidConfigs) {
       const ctx = new Context()
-      await expect(ctx.plugin(PythonCodeRuntime, config)).rejects.toThrow(message)
+      await expect(ctx.plugin(PythonCodeRuntime, { pythonExecutable: process.execPath, ...config })).rejects.toThrow(message)
     }
   })
 
@@ -150,7 +161,7 @@ describe('PythonCodeRuntime deterministic process boundary', () => {
     await startupRuntime.fiber.dispose()
   })
 
-  it('uses Host PATH only to resolve the interpreter', async () => {
+  it('spawns with only the Host PATH in the child environment', async () => {
     arm((child) => {
       const frame = child.protocol.writes.at(-1)
       if (frame?.startsWith('{"type":"boot"')) child.protocol.send({ type: 'boot-ack' })
@@ -634,5 +645,201 @@ describe('PythonCodeRuntime deterministic process boundary', () => {
     await expect(inFlight).resolves.toEqual({ logs: [], error: { kind: 'abort', message: 'runtime disposed' } })
     expect(ctx.get('codeRuntime')).toBeUndefined()
     await expect(runtime.run(request())).rejects.toThrow(/after disposal/)
+  })
+
+  it('resolves and probes the configured executable once at load', async () => {
+    if (process.platform === 'win32') return
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-python-load-'))
+    try {
+      const executable = join(dir, 'python3')
+      writeFileSync(executable, '#!/bin/sh\nexec python3 "$@"\n')
+      chmodSync(executable, 0o755)
+      vi.stubEnv('PATH', dir)
+      const { fiber, runtime } = await setup({ pythonExecutable: 'python3' })
+      expect(execFileSyncMock).toHaveBeenCalledTimes(1)
+      expect(execFileSyncMock).toHaveBeenCalledWith(executable, ['-I', '-c', expect.any(String)], expect.objectContaining({
+        encoding: 'utf8',
+        timeout: 5_000,
+        killSignal: 'SIGKILL',
+        maxBuffer: 1_024,
+      }))
+
+      arm((child) => {
+        const frame = child.protocol.writes.at(-1)
+        if (frame?.startsWith('{"type":"boot"')) child.protocol.send({ type: 'boot-ack' })
+        else if (frame?.startsWith('{"type":"run"')) child.protocol.send({ type: 'done', value: 1 })
+      })
+      vi.stubEnv('PATH', tmpdir())
+      await expect(runtime.run(request())).resolves.toEqual({ logs: [], value: 1 })
+      expect(spawnMock.mock.calls[0]?.[0]).toBe(executable)
+      await fiber.dispose()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('resolves bare names through PATH with the win32 .exe variants and backslash paths through the working directory', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-python-resolve-'))
+    try {
+      const suffixed = join(dir, 'python.exe')
+      writeFileSync(suffixed, 'stub')
+      chmodSync(suffixed, 0o755)
+      expect(resolvePythonExecutable('python', dir, 'win32')).toBe(suffixed)
+      // A backslash-bearing relative name on win32 resolves against the
+      // working directory; with no such file there, resolution yields nothing.
+      expect(resolvePythonExecutable('bin\\python3', undefined, 'win32')).toBeUndefined()
+      // On a POSIX host a backslash is not a separator: the name stays a bare
+      // name and only PATH entries can answer it.
+      expect(resolvePythonExecutable('bin\\python3', dir, 'linux')).toBeUndefined()
+      // A bare name with an empty PATH answers nothing.
+      expect(resolvePythonExecutable('python3', '', 'linux')).toBeUndefined()
+      // With no PATH exported at all, the default parameter resolves to
+      // undefined and the scan loop sees no entries.
+      const savedPath = process.env.PATH
+      delete process.env.PATH
+      try {
+        expect(resolvePythonExecutable('python3', undefined, 'linux')).toBeUndefined()
+      } finally {
+        process.env.PATH = savedPath
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('reports a probe failure that is not an Error instance verbatim', async () => {
+    execFileSyncMock.mockImplementation(() => { throw 'probe exploded' })
+    await expect(setup({ pythonExecutable: process.execPath })).rejects.toThrow(/probe exploded/)
+  })
+
+  it('rejects configured executables that do not resolve to an executable file', async () => {
+    await expect(setup({ pythonExecutable: join(tmpdir(), 'dsh-python-absent') })).rejects.toThrow(/is not an executable file/)
+    await expect(setup({ pythonExecutable: tmpdir() })).rejects.toThrow(/is not an executable file/)
+    if (process.platform !== 'win32') {
+      const dir = mkdtempSync(join(tmpdir(), 'dsh-python-plain-'))
+      try {
+        const plain = join(dir, 'python3')
+        writeFileSync(plain, 'not executable\n')
+        await expect(setup({ pythonExecutable: plain })).rejects.toThrow(/is not an executable file/)
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
+    }
+    vi.stubEnv('PATH', tmpdir())
+    await expect(setup({ pythonExecutable: 'dsh-python-not-on-path' })).rejects.toThrow(/does not resolve to an executable file on PATH/)
+    expect(execFileSyncMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects interpreters that fail the CPython version probe', async () => {
+    execFileSyncMock.mockImplementationOnce(() => { throw new Error('probe crashed') })
+    await expect(setup()).rejects.toThrow(/failed the CPython version probe: probe crashed/)
+    const reports: [string, RegExp][] = [
+      ['pypy 3 11 0\n', /must be CPython, got pypy/],
+      ['cpython 3 9 6\n', /must be CPython 3\.10 or newer, got cpython 3\.9\.6/],
+      ['nothing\n', /did not report a CPython version/],
+    ]
+    for (const [output, message] of reports) {
+      execFileSyncMock.mockImplementationOnce(() => output)
+      await expect(setup()).rejects.toThrow(message)
+    }
+    execFileSyncMock.mockImplementationOnce(() => 'cpython 4 0 0\n')
+    const loaded = await setup()
+    await loaded.fiber.dispose()
+  })
+
+  it('settles worker-exit when binding calls exceed the in-flight bound', async () => {
+    const getChild = arm((child, frame) => {
+      if (frame.type === 'boot') child.protocol.send({ type: 'boot-ack' })
+      else if (frame.type === 'run') {
+        for (let id = 0; id < 2_000; id += 1) {
+          child.protocol.sendRaw(`{"type":"call","id":${id},"global":"tools","name":"hang","args":null}\n`)
+        }
+      }
+    })
+    const { runtime, fiber } = await setup()
+    await expect(runtime.run(request({ bindings: [namespace({ hang: () => new Promise(() => {}) })] }))).resolves.toEqual({
+      logs: [],
+      error: { kind: 'worker-exit', message: 'call backlog exceeded 1024 in-flight binding calls (a binding never settled)' },
+    })
+    expect(getChild().killed).toBe(true)
+    await fiber.dispose()
+  })
+
+  it('settles worker-exit when reply frames exceed the pending bound', async () => {
+    arm((child, frame) => {
+      if (frame.type === 'boot') {
+        child.protocol.send({ type: 'boot-ack' })
+      } else if (frame.type === 'run') {
+        child.protocol.send({ type: 'call', id: 1, global: 'tools', name: 'echo', args: null })
+      } else if (frame.type === 'reply' && Number(frame.id) < 2_000) {
+        child.protocol.send({ type: 'call', id: Number(frame.id) + 1, global: 'tools', name: 'echo', args: null })
+      }
+    })
+    const { runtime, fiber } = await setup()
+    await expect(runtime.run(request({ bindings: [namespace({ echo: (args: unknown) => args })] }))).resolves.toEqual({
+      logs: [],
+      error: { kind: 'worker-exit', message: 'reply backlog exceeded 1024 frames the child has not consumed on stdin' },
+    })
+    await fiber.dispose()
+  })
+
+  it('snapshots binding metadata exactly once per value', async () => {
+    let globalReads = 0
+    let functionsReads = 0
+    let nameReads = 0
+    let memberReads = 0
+    const hostile = {
+      get global() {
+        globalReads += 1
+        return globalReads === 1 ? 'tools' : 'evil'
+      },
+      get functions() {
+        functionsReads += 1
+        // A non-function member rides along the record; the snapshot keeps
+        // only callable members.
+        return { echo: (args: unknown) => args, decoy: 42 }
+      },
+      get errorClass() {
+        return {
+          get name() {
+            nameReads += 1
+            return nameReads === 1 ? 'ToolCallError' : 'Evil'
+          },
+          get memberNameProperty() {
+            memberReads += 1
+            return memberReads === 1 ? 'toolName' : 'evil'
+          },
+        }
+      },
+    } as unknown as CodeBindingNamespace
+    const getChild = arm((child) => {
+      const frame = child.protocol.writes.at(-1)
+      if (frame?.startsWith('{"type":"boot"')) child.protocol.send({ type: 'boot-ack' })
+      else if (frame?.startsWith('{"type":"run"')) child.protocol.send({ type: 'done', value: 1 })
+    })
+    const { runtime, fiber } = await setup()
+    await expect(runtime.run(request({ bindings: [hostile] }))).resolves.toEqual({ logs: [], value: 1 })
+    expect(globalReads).toBe(1)
+    expect(functionsReads).toBe(1)
+    expect(nameReads).toBe(1)
+    expect(memberReads).toBe(1)
+    const boot = JSON.parse(getChild().input.writes[0] ?? '') as {
+      namespaces: Array<{ global: string; names: string[]; errorClass?: { name: string; memberNameProperty: string } }>
+    }
+    expect(boot.namespaces).toEqual([{ global: 'tools', names: ['echo'], errorClass: { name: 'ToolCallError', memberNameProperty: 'toolName' } }])
+    await fiber.dispose()
+  })
+
+  it('dispatches a __proto__ binding member through the null-prototype snapshot', async () => {
+    const functions = {} as Record<string, (args: unknown) => unknown>
+    Object.defineProperty(functions, '__proto__', { configurable: true, enumerable: true, value: (args: unknown) => args, writable: true })
+    arm((child, frame) => {
+      if (frame.type === 'boot') child.protocol.send({ type: 'boot-ack' })
+      else if (frame.type === 'run') child.protocol.send({ type: 'call', id: 1, global: 'tools', name: '__proto__', args: 'ping' })
+      else if (frame.type === 'reply') child.protocol.send({ type: 'done', value: frame.value })
+    })
+    const { runtime, fiber } = await setup()
+    await expect(runtime.run(request({ bindings: [namespace(functions)] }))).resolves.toEqual({ logs: [], value: 'ping' })
+    await fiber.dispose()
   })
 })

@@ -109,7 +109,7 @@ An unchanged assembled prefix is eligible for DeepSeek cache reuse, which this a
 
 #### What the model sees
 
-Reasoning, text, and raw-string tool arguments are translated into harness chunks for the loop to log and assemble.
+Reasoning, text, and raw-string tool arguments are translated into harness chunks for the loop to log and assemble. Tool-call `id` and `name` are identity, so a continuation delta repeating them empty or null leaves the established value alone.
 
 #### Token effect
 

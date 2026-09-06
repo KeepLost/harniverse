@@ -1,3 +1,6 @@
+/* v8 ignore start -- the worker-thread engine is not executable in the Windows native lane. */
+/* c8 ignore start */
+
 /**
  * Worker-thread workflow engine. Each run executes its model-written script in
  * an escapable vm context on a fresh worker and bridges `agent()` calls to host
@@ -203,3 +206,6 @@ class WorkerThreadWorkflowEngine extends WorkflowEngine {
 }
 
 export default WorkerThreadWorkflowEngine
+
+/* c8 ignore stop */
+/* v8 ignore stop */

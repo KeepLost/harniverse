@@ -12,6 +12,7 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
     <encoded-id>/                # session-owned directory
       session.jsonl.zstd         # default: checksummed header frame + append frames
       session.jsonl              # only with compression: 'none'
+      session.lock               # POSIX kernel write-lease file; see Cross-process write lease
 ```
 
 - The first logical line is the immutable `SessionHeader` tagged `{ type: 'session', version, id, cwd?, createdAt, parentSession?, seedLength?, origin?, delegationDepth, agentPreset? }`. `delegationDepth` is required on disk and is `0` for a top-level session; a missing or invalid value rejects the log. `agentPreset` is durable because it decides the resumed session's tools and prompt — restoring a different composition would replay history the model can no longer act on. Every subsequent logical line is one storage record; `assistant/chunk` events are never dropped, and `seq` stays contiguous across the decoded log (`events[i].seq === i`).
@@ -54,6 +55,12 @@ A root belongs to one encoding. Startup discovery and targeted lookup reject the
 
 The plugin copies frozen session events into one controller per live session. The first pending event starts the configured fixed batching window, and later events join without resetting it. Expiry starts one durable append; events admitted during that write form a separately bounded follow-up batch. `session/flush` cancels the wait and drains current and pending batches. A per-session cursor prevents resumed sessions from re-appending stored events, and live sessions are seeded when the plugin loads. The owning backend instance serializes operations for one session; disposal drains every retained controller before teardown. Every logical event remains present: batching only lets one compressed frame or raw fsync carry more records.
 
+## Cross-process write lease
+
+Every durable write — append, crash repair, or deletion — holds one kernel-arbitrated write lease for the session's directory, taken lazily at the first durable write and kept until the coordinator retires or deletes the session or the backend disposes. POSIX takes a non-blocking exclusive `flock(2)` on `session.lock` beside the log (raw descriptor, closed only by the explicit release); Windows holds a named kernel semaphore derived from the lock path (`Local\dsh-session-lock-<sha256 of the lowercased resolved path>`), never a file lock, so readers and directory listing proceed freely. While another live process holds the lease, any write or repair rejects with `SessionAlreadyOwnedError` (`@deepseek-ai/dsh-session-persistence`) before touching the artifact; deleting the stored log takes the lease the same way.
+
+There is deliberately no expiry and no heartbeat: the kernel releases the lease when the holder's descriptor or last semaphore handle closes — including on any process death — so a crashed holder never blocks its successor, whose first write then runs the normal torn-tail recovery. A live but wedged holder keeps the lease until its process exits, because expropriating a stalled writer whose resumed appends would tear the log is worse than waiting. POSIX locks name an inode, so after locking, the holder verifies the locked inode still matches the lock path (bounded retries against a recreated file); manually removing a live session's `session.lock` therefore forfeits exclusion on POSIX — nothing in the harness does this. Release never removes the lock file: it preserves the stable inode later lockers verify against. The lease primitives are injectable per acquire, keeping each platform's protocol testable on every host.
+
 ## Model Experience
 
 ### Resumed conversation history
@@ -75,5 +82,5 @@ JSONL storage does not mutate live request prefixes. A resumed loop can reuse pr
 - **Only the configured encoding and current `SESSION_FORMAT_VERSION` (v0) load** — changing compression requires a separate/fresh root or selecting the legacy raw mode; the pre-release format has no migration.
 - **The flat-file storage layout does not load** — use a separate root or move pre-release artifacts into the project/session directory layout before loading.
 - **Compressed files are not directly line-readable** — use the backend to load them, or select `compression: 'none'` before writing a fresh root when external line readers are required.
-- **One live writer per session** — append and repair are coordinated only inside the owning backend instance. Another backend instance or process must not write the same session until that owner reaches quiescent disposal; initial same-id publication remains collision-safe through the POSIX no-overwrite hard link or Windows write-through rename without replacement.
+- **One live writer per session** — writes are kernel-arbitrated per session directory: a second backend instance or process writing the same session rejects with `SessionAlreadyOwnedError` until the holder retires, deletes, or dies (see [Cross-process write lease](#cross-process-write-lease)). A wedged live holder keeps the lease until process exit; on POSIX, removing `session.lock` manually forfeits its exclusion.
 - **POSIX materialization requires hard-link support** — first append uses `link()` so same-id races fail instead of overwriting a committed log; Windows uses write-through rename without replacement.

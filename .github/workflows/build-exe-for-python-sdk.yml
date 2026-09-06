@@ -200,10 +200,16 @@ jobs:
             echo "::error::node-pty install did not generate $addon_dir/build/Makefile"
             exit 1
           }
+          # pnpm's isolated dependency layout can leave node-gyp's generated
+          # node-addon-api target fragments absent even when node-pty's
+          # Makefile exists. Re-run the pinned node-gyp configure step so its
+          # node-addon-api target fragments exist before the manylinux make.
+          npm exec --yes --package=node-gyp@11.4.2 -- node-gyp configure --directory "$addon_dir"
           docker run --rm \
             --user "$(id -u):$(id -g)" \
             -v "$PWD:$PWD" \
             -v "$HOME/.cache/node-gyp:$HOME/.cache/node-gyp:ro" \
+            -v "$HOME/.npm:$HOME/.npm:ro" \
             -v "$HOME/setup-pnpm:$HOME/setup-pnpm:ro" \
             -w "$addon_dir" \
             "$image" \

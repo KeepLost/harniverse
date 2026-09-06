@@ -169,55 +169,73 @@ export function spawnSandboxed(
 /**
  * Drain one pipe read end to a Buffer via non-blocking PeekNamedPipe polling.
  * @param api - the binding table.
- * @param handle - the pipe read end to drain (closed when done).
+ * @param handle - the pipe read end to drain (always closed, including on failure or abort).
+ * @param signal - optional abort signal; settlement aborts the sibling drain after a peer failure.
  * @returns the complete pipe contents.
  */
-export async function drainPipe(api: Win32Bindings, handle: NativePtr): Promise<Buffer> {
+export async function drainPipe(api: Win32Bindings, handle: NativePtr, signal?: AbortSignal): Promise<Buffer> {
   const chunks: Buffer[] = []
-  for (;;) {
-    const bytesReadSlot = allocUint32()
-    const totalAvailSlot = allocUint32()
-    const leftThisMessageSlot = allocUint32()
-    const peeked = api.peekNamedPipe(handle, null, 0, bytesReadSlot, totalAvailSlot, leftThisMessageSlot)
-    if (peeked === 0) {
-      const win32Code = api.getLastError()
-      if (win32Code === abi.ERROR_BROKEN_PIPE || win32Code === abi.ERROR_NO_DATA) break // child closed its end: clean EOF
-      throwLastError(api, 'PeekNamedPipe', `drain failure after ${chunks.length} chunk(s)`)
-    }
-    const available = decodeUint32(totalAvailSlot)
-    if (available > 0) {
-      const chunk = Buffer.alloc(available)
-      const readSlot = allocUint32()
-      if (api.readFile(handle, chunk, chunk.length, readSlot, null) === 0) {
-        throwLastError(api, 'ReadFile', `drain failure after ${chunks.length} chunk(s)`)
+  try {
+    for (;;) {
+      signal?.throwIfAborted()
+      const bytesReadSlot = allocUint32()
+      const totalAvailSlot = allocUint32()
+      const leftThisMessageSlot = allocUint32()
+      const peeked = api.peekNamedPipe(handle, null, 0, bytesReadSlot, totalAvailSlot, leftThisMessageSlot)
+      if (peeked === 0) {
+        const win32Code = api.getLastError()
+        if (win32Code === abi.ERROR_BROKEN_PIPE || win32Code === abi.ERROR_NO_DATA) break // child closed its end: clean EOF
+        throwLastError(api, 'PeekNamedPipe', `drain failure after ${chunks.length} chunk(s)`)
       }
-      chunks.push(chunk.subarray(0, decodeUint32(readSlot)))
+      const available = decodeUint32(totalAvailSlot)
+      if (available > 0) {
+        const chunk = Buffer.alloc(available)
+        const readSlot = allocUint32()
+        if (api.readFile(handle, chunk, chunk.length, readSlot, null) === 0) {
+          throwLastError(api, 'ReadFile', `drain failure after ${chunks.length} chunk(s)`)
+        }
+        chunks.push(chunk.subarray(0, decodeUint32(readSlot)))
+      }
+      // Small backoff instead of setImmediate: a bare next-tick would busy-poll
+      // the pipe at full event-loop speed while the child produces no output.
+      await new Promise<void>(resolve => setTimeout(resolve, 1))
     }
-    // Small backoff instead of setImmediate: a bare next-tick would busy-poll
-    // the pipe at full event-loop speed while the child produces no output.
-    await new Promise<void>(resolve => setTimeout(resolve, 1))
+    return Buffer.concat(chunks)
+  } finally {
+    api.closeHandle(handle)
   }
-  api.closeHandle(handle)
-  return Buffer.concat(chunks)
+}
+
+/**
+ * Close one Win32 handle or report the failure under a describing label.
+ * @param api - the binding table.
+ * @param handle - the handle to close.
+ * @param detail - label naming what the handle was.
+ */
+export function closeHandleChecked(api: Win32Bindings, handle: NativePtr, detail: string): void {
+  if (api.closeHandle(handle) === 0) throwLastError(api, 'CloseHandle', detail)
 }
 
 /**
  * Wait for process exit and return its exit code. Call only after both drains
- * have resolved — the drains finish when the child closed its pipe ends, i.e.
+ * have settled — successful drains mean the child closed its pipe ends, i.e.
  * the child has already exited, so this wait returns immediately. Calling it
  * earlier would block the event loop and starve the drains (the pipe-buffer
  * deadlock the POC comments warn about).
  * @param api - the binding table.
- * @param process - the child process handle (closed when done).
+ * @param process - the child process handle (always closed, including on failure).
  * @returns the child's exit code.
  */
 export function waitForExit(api: Win32Bindings, process: NativePtr): number {
-  const waitResult = api.waitForSingleObject(process, abi.INFINITE)
-  if (waitResult === 0xFFFFFFFF) throwLastError(api, 'WaitForSingleObject')
-  const exitCodeSlot = allocUint32()
-  if (api.getExitCodeProcess(process, exitCodeSlot) === 0) throwLastError(api, 'GetExitCodeProcess')
-  api.closeHandle(process)
-  return decodeUint32(exitCodeSlot)
+  try {
+    const waitResult = api.waitForSingleObject(process, abi.INFINITE)
+    if (waitResult === 0xFFFFFFFF) throwLastError(api, 'WaitForSingleObject')
+    const exitCodeSlot = allocUint32()
+    if (api.getExitCodeProcess(process, exitCodeSlot) === 0) throwLastError(api, 'GetExitCodeProcess')
+    return decodeUint32(exitCodeSlot)
+  } finally {
+    api.closeHandle(process)
+  }
 }
 
 /**

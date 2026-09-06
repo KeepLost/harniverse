@@ -26,9 +26,14 @@ class FakeInspector implements ProcessInspector {
   removeOnSignal = true
 
   foregroundPgid() { return this.pgid }
-  isStdinWaiting() { return this.waiting }
-  processTree() { return this.members }
-  processSession() { return [] }
+  isStdinWaiting(_pgid: number, _shellPid: number) { return this.waiting }
+  snapshot() {
+    return {
+      tree: () => this.members,
+      session: () => [],
+      alive: (identity: ProcessIdentity) => this.alive.has(identity.pid),
+    }
+  }
   isAlive(identity: ProcessIdentity) { return this.alive.has(identity.pid) }
   signalGroup(pgid: number, signal: TerminalSignal) {
     if (this.throwGroup) throw new Error('group failed')
@@ -90,7 +95,7 @@ class FakeTerminal implements SubprocessTerminalHandle {
     const processGroupId = this.inspector.foregroundPgid()
     return processGroupId === undefined
       ? undefined
-      : { processGroupId, inputWaiting: this.inspector.isStdinWaiting() }
+      : { processGroupId, inputWaiting: this.inspector.isStdinWaiting(processGroupId, this.pid) }
   }
 
   async signalForeground(signal: SubprocessTerminalSignal): Promise<number> {
