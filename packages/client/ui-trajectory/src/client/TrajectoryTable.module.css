@@ -830,7 +830,7 @@
   margin-left: 8px;
   padding: 0;
   border: 0;
-  color: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-link);
   background: transparent;
   cursor: pointer;
   font: inherit;

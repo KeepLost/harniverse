@@ -21,6 +21,7 @@
 
 import clsx from 'clsx'
 import { MarkdownText } from './markdown/MarkdownText.tsx'
+import { LinkIcon } from './LinkIcon.tsx'
 import css from './WebBlock.module.css'
 
 /**
@@ -119,6 +120,7 @@ function SafeLink({ url, label, className }: { url: string; label: string; class
   if (href === undefined) return <span className={className}>{label}</span>
   return (
     <a className={className} href={href} target="_blank" rel="noopener noreferrer">
+      <LinkIcon kind="url" className={css.linkIcon} />
       {label}
     </a>
   )
