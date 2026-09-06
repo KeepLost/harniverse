@@ -6,7 +6,7 @@ English | [中文](2026-09-06-absorb-batch-3-proxy-and-store.zh.md)
 
 ## Problem
 
-Two more approved Absorb-soon items plus one capability. Harniverse silently ignored `HTTP(S)_PROXY`/`ALL_PROXY`/`NO_PROXY`: the web-fetch transport always resolved DNS itself and dialed directly, provider `fetch` calls went through Node's default dispatcher, and spawned children inherited nothing — deployment-critical for proxied self-hosting. The client store engine (the zustand/Immer snapshot-store behind every dynamic client bundle) lived inside `client/runtime` with ~60 rider files importing it through the runtime facade, blocking the client boundary alignment the official decomposition pursues. The JSONL cross-process write lease landed as its own note ([Cross-process session write lease](2026-09-06-cross-process-session-write-lease.md)) and is not repeated here.
+Two more approved Absorb-soon items plus one capability. Harniverse silently ignored `HTTP(S)_PROXY`/`ALL_PROXY`/`NO_PROXY`: the web-fetch transport always resolved DNS itself and dialed directly, provider `fetch` calls went through Node's default dispatcher, and spawned children inherited nothing — deployment-critical for proxied self-hosting. The client store engine (the zustand/Immer snapshot-store behind every dynamic client bundle) lived inside `client/runtime` with ~60 rider files importing it through the runtime facade, blocking the client boundary alignment the official decomposition pursues. The JSONL cross-process write lease landed as a separate implementation note and is not repeated here.
 
 ## Decision
 
