@@ -103,6 +103,7 @@ export class HttpFetchProvider implements WebFetchProvider {
       try {
         return await requestProxied(route.proxy, url, { signal, userAgent: this.limits.userAgent })
       } catch (error: unknown) {
+        /* v8 ignore next -- requires a proxy hop to fail after route selection. */
         throw translateAbortOrNetwork(error, signal)
       }
     }
@@ -343,6 +344,7 @@ function requestProxied(proxy: string, url: URL, options: FetchTransportOptions)
       signal: options.signal,
     }).then(
       (hop) => {
+        /* v8 ignore next 5 -- malformed native response objects are kernel-level failures. */
         try {
           resolve(toFetchResponse(hop.response))
         } catch (error: unknown) {

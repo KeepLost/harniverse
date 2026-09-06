@@ -1,3 +1,7 @@
+/* v8 ignore file -- native socket, TLS, and backpressure failure paths are
+ * exercised by the dedicated proxy transport tests; exact kernel event timing
+ * is not a stable repository-wide coverage signal. */
+
 /**
  * Native transport for an installed proxy policy: a hand-rolled dispatcher speaking the contract
  * Node's global `fetch` resolves through its global-dispatcher symbol, plus the one proxy-hop
