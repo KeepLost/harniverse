@@ -202,9 +202,9 @@ jobs:
           }
           # pnpm's isolated dependency layout can leave node-gyp's generated
           # node-addon-api target fragments absent even when node-pty's
-          # Makefile exists. Re-run the package's own source-build hook so
-          # its pinned node-gyp generates them before the manylinux make step.
-          npm_config_build_from_source=true pnpm rebuild node-pty
+          # Makefile exists. Re-run the pinned node-gyp configure step so its
+          # node-addon-api target fragments exist before the manylinux make.
+          npm exec --yes --package=node-gyp@11.4.2 -- node-gyp configure --directory "$addon_dir"
           docker run --rm \
             --user "$(id -u):$(id -g)" \
             -v "$PWD:$PWD" \
