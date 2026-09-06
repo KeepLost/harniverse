@@ -245,6 +245,7 @@ export function apply(ctx: Context, config: Config): void {
     const profile = profiles().get(provider)
     if (profile === undefined) return undefined
     return {
+      /* v8 ignore next -- a profile without an api only parses for catalog-described providers, which discovery answers without a probe */
       ...profile.api === undefined ? {} : { api: profile.api },
       headers: profile.headers,
       resolveApiKey: () => resolveApiKey(provider, profile),
