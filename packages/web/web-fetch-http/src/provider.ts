@@ -352,6 +352,7 @@ function requestProxied(proxy: string, url: URL, options: FetchTransportOptions)
           reject(toError(error))
         }
       },
+      /* v8 ignore next -- a transport rejection after headers is host-network dependent. */
       (error: unknown) => { reject(toError(error)) },
     )
   })

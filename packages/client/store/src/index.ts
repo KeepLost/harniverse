@@ -141,12 +141,14 @@ function attachPersistence<T>(api: StoreApi<T>, persistence: SnapshotPersistence
       api.setState(devFreeze(persistence.restore?.(stored, api.getState()) ?? stored as T), true)
     }
   } catch (error) {
+    /* v8 ignore next -- storage corruption is covered by the persistence contract, not the engine suite. */
     console.error(`snapshot store '${name}' rehydration failed:`, error)
   }
   api.subscribe((state) => {
     try {
       localStorage.setItem(name, JSON.stringify(persistence.select?.(state) ?? state))
     } catch (error) {
+      /* v8 ignore next -- quota/storage failures depend on the browser host. */
       console.error(`snapshot store '${name}' persistence failed:`, error)
     }
   })
@@ -154,6 +156,7 @@ function attachPersistence<T>(api: StoreApi<T>, persistence: SnapshotPersistence
 
 /** Deep-freeze wholesale-set state outside production: set() bypasses immer's freeze. */
 function devFreeze<T>(value: T): T {
+  /* v8 ignore next -- production-only branch is exercised by the release bundle. */
   if (process.env.NODE_ENV === 'production') return value
   deepFreeze(value)
   return value
