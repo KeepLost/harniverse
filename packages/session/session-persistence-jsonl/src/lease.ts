@@ -115,6 +115,8 @@ export class SessionWriteLease {
       if (release === undefined) release = releaseLockHandleWin32
       return new SessionWriteLease({ kind: 'win32', handle, release })
     }
+    /* v8 ignore start -- POSIX arbitration is not loaded by Windows native coverage. */
+    /* c8 ignore start */
     const flockExnb = arbitration.flockExnb ?? flockExnbPosix
     // Bounded retry: locking an inode a releasing creator just unlinked (or a
     // recreated path) re-opens the fresh file; steady state needs one pass.
@@ -150,6 +152,8 @@ export class SessionWriteLease {
     }
     /* v8 ignore next -- Windows cannot reach the POSIX inode-retry exhaustion. */
     throw new SessionAlreadyOwnedError(id)
+    /* c8 ignore stop */
+    /* v8 ignore stop */
   }
 
   /**
@@ -159,6 +163,7 @@ export class SessionWriteLease {
    * the stable inode later lockers verify against. Idempotent.
    */
   async release(): Promise<void> {
+    /* c8 ignore next -- the idempotent POSIX release path is not loaded on Windows. */
     /* v8 ignore next -- the idempotent POSIX release path is not loaded on Windows. */
     if (this.released) return
     this.released = true
@@ -166,6 +171,8 @@ export class SessionWriteLease {
       await this.held.release(this.held.handle)
       return
     }
+    /* v8 ignore next -- Windows holds a semaphore handle, not a POSIX fd. */
+    /* c8 ignore next -- Windows holds a semaphore handle, not a POSIX fd. */
     /* v8 ignore next -- Windows holds a semaphore handle, not a POSIX fd. */
     closeSync(this.held.fd)
   }
