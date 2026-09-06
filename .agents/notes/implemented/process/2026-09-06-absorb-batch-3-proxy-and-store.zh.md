@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-又有两个获批 Absorb-soon 项与一项能力。Harniverse 静默忽略 `HTTP(S)_PROXY`/`ALL_PROXY`/`NO_PROXY`：web-fetch 传输总是自行解析 DNS 并直连、提供方 `fetch` 走 Node 默认 dispatcher、派生的子进程什么也继承不到——对代理后自托管部署是关键缺口。客户端 store 引擎（每个动态 client bundle 背后的 zustand/Immer 快照存储）藏在 `client/runtime` 内，约 60 个 rider 文件经 runtime 门面导入，阻塞了官方分解追求的客户端边界对齐。JSONL 跨进程写租约已单独成文（[跨进程会话写租约](../feature/2026-09-06-cross-process-session-write-lease.md)），此处不再重复。
+又有两个获批 Absorb-soon 项与一项能力。Harniverse 静默忽略 `HTTP(S)_PROXY`/`ALL_PROXY`/`NO_PROXY`：web-fetch 传输总是自行解析 DNS 并直连、提供方 `fetch` 走 Node 默认 dispatcher、派生的子进程什么也继承不到——对代理后自托管部署是关键缺口。客户端 store 引擎（每个动态 client bundle 背后的 zustand/Immer 快照存储）藏在 `client/runtime` 内，约 60 个 rider 文件经 runtime 门面导入，阻塞了官方分解追求的客户端边界对齐。JSONL 跨进程写租约已单独形成实现说明，此处不再重复。
 
 ## 决策
 

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
+import { catalogModels } from '../src/catalog.ts'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { discoverModels } from '../src/discovery.ts'
 
@@ -209,6 +210,32 @@ describe('draft-provider model discovery', () => {
     expect(server.headers[0]?.['x-api-key']).toBe('stored-anthropic-key')
     expect(server.headers[0]?.['anthropic-version']).toBe('2023-06-01')
     expect(server.headers[0]?.authorization).toBeUndefined()
+  })
+
+  it('answers a catalog-described provider from the installed catalog without any network probe', async () => {
+    const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'm' }] }) })
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    process.env['DEEPSEEK_API_KEY'] = 'stored-plain-key'
+    touchedEnv.push('DEEPSEEK_API_KEY')
+    // The provider-level profile declares no protocol; its models come from
+    // the installed catalog, which is also where discovery answers from.
+    const knownModel = [...catalogModels('deepseek').keys()][0]
+    expect(knownModel).toBeDefined()
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        deepseek: {
+          apiKeyEnv: 'DEEPSEEK_API_KEY',
+          baseURL: server.url,
+          models: [{ id: knownModel ?? 'deepseek-chat' }],
+        },
+      },
+    })
+
+    const discovered = await ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek', baseURL: server.url })
+
+    expect(server.paths).toEqual([])
+    expect(discovered.some(model => model.id === knownModel)).toBe(true)
   })
 
   it('reads an enriched models map using route ids and nested capacities', async () => {

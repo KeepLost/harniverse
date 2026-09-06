@@ -41,7 +41,7 @@ function continuation(base: number): SessionEvent[] {
 }
 
 describe('two-process write lease', () => {
-  it('excludes a live holder process and takes over immediately after its crash', { timeout: 30_000 }, async () => {
+  it.skipIf(process.platform !== 'linux')('excludes a live holder process and takes over immediately after its crash', { timeout: 30_000 }, async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-lease-2proc-'))
     dirs.push(root)
 

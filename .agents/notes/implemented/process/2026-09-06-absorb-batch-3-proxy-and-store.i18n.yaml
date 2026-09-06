@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-06-absorb-batch-3-proxy-and-store.md
-2026-09-06-absorb-batch-3-proxy-and-store.md: 270f21713db0caddd1136d8738b36471d7195974
-2026-09-06-absorb-batch-3-proxy-and-store.zh.md: 22236ac652c16c948a2b5de0a4ab7448c80c1881
+2026-09-06-absorb-batch-3-proxy-and-store.md: 68e67c4a1b666eb28b0a465d1833a93c90ead76e
+2026-09-06-absorb-batch-3-proxy-and-store.zh.md: 407e9bfc80912a330ad9d8fc28e0f7474931206d

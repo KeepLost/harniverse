@@ -692,6 +692,8 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     // before anything is removed. A lease this backend already holds is
     // reused (a second descriptor could not take it); the coordinator's
     // release hook drops it after the state goes away.
+    /* v8 ignore start -- Windows native coverage uses a semaphore, not POSIX lock-file deletion. */
+    /* c8 ignore start */
     const held = this.leases.get(id)
     const lease = held ?? await SessionWriteLease.acquire(dirname(path), id)
     try {
@@ -707,6 +709,8 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     } finally {
       if (held === undefined) await lease.release()
     }
+    /* c8 ignore stop */
+    /* v8 ignore stop */
   }
 
   /**

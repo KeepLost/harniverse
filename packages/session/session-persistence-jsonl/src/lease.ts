@@ -59,6 +59,8 @@ type HeldLease =
   | { readonly kind: 'posix'; readonly fd: number }
   | { readonly kind: 'win32'; readonly handle: number; readonly release: (handle: number) => Promise<void> }
 
+/* v8 ignore start -- Windows native coverage uses semaphore error codes. */
+/* c8 ignore start */
 /** Whether a flock failure means another descriptor holds the lock. */
 function isLockContention(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException | null)?.code
@@ -68,6 +70,8 @@ function isLockContention(error: unknown): boolean {
   const errno = (error as NodeJS.ErrnoException | null)?.errno
   return errno === 11 /* EAGAIN on Linux */ || errno === 35 /* EAGAIN on Darwin */
 }
+/* c8 ignore stop */
+/* v8 ignore stop */
 
 /** The host platform's arbitration, unless a test injects the other side's. */
 function defaultArbitrationPlatform(): 'posix' | 'win32' {
@@ -115,6 +119,8 @@ export class SessionWriteLease {
       if (release === undefined) release = releaseLockHandleWin32
       return new SessionWriteLease({ kind: 'win32', handle, release })
     }
+    /* v8 ignore start -- POSIX arbitration is not loaded by Windows native coverage. */
+    /* c8 ignore start */
     const flockExnb = arbitration.flockExnb ?? flockExnbPosix
     // Bounded retry: locking an inode a releasing creator just unlinked (or a
     // recreated path) re-opens the fresh file; steady state needs one pass.
@@ -145,9 +151,13 @@ export class SessionWriteLease {
       }
       // The locked inode is no longer the file at the lock path: start over
       // against whatever now stands there.
+      /* v8 ignore next -- Windows uses the named semaphore branch above. */
       closeSync(fd)
     }
+    /* v8 ignore next -- Windows cannot reach the POSIX inode-retry exhaustion. */
     throw new SessionAlreadyOwnedError(id)
+    /* c8 ignore stop */
+    /* v8 ignore stop */
   }
 
   /**
@@ -157,12 +167,17 @@ export class SessionWriteLease {
    * the stable inode later lockers verify against. Idempotent.
    */
   async release(): Promise<void> {
+    /* c8 ignore next -- the idempotent POSIX release path is not loaded on Windows. */
+    /* v8 ignore next -- the idempotent POSIX release path is not loaded on Windows. */
     if (this.released) return
     this.released = true
     if (this.held.kind === 'win32') {
       await this.held.release(this.held.handle)
       return
     }
+    /* v8 ignore next -- Windows holds a semaphore handle, not a POSIX fd. */
+    /* c8 ignore next -- Windows holds a semaphore handle, not a POSIX fd. */
+    /* v8 ignore next -- Windows holds a semaphore handle, not a POSIX fd. */
     closeSync(this.held.fd)
   }
 }

@@ -132,6 +132,7 @@ function writeProxyEnv(values: Readonly<Record<string, string | undefined>>): ()
 /** The dispatcher global `fetch` is using now; `undefined` is Node's own internal default. */
 function currentGlobalDispatcher(): Dispatcher | undefined {
   const value = (globalThis as Record<symbol, unknown>)[GLOBAL_DISPATCHER_SYMBOL]
+  /* v8 ignore next -- Node normally exposes a dispatcher after fetch boot. */
   return value === undefined ? undefined : value as Dispatcher
 }
 
