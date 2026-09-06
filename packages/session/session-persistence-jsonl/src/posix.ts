@@ -1,3 +1,5 @@
+/* v8 ignore file -- this native implementation is unreachable on Windows. */
+
 /**
  * POSIX `flock(2)` binding for the session write lease, loaded through the
  * same Koffi FFI the backend already uses for its Windows helpers. Failures
