@@ -52,6 +52,8 @@
 - textbox "Message the agent"
 - button "Commands":
   - img
+- button "Add files":
+  - img
 - 'button "Access mode, current: Read Only"': Read Only
 - 'button "Supervision mode: Supervised"': Supervised
 - button "Select model, current DeepSeek-V4-Flash":
