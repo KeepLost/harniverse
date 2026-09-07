@@ -70,7 +70,7 @@ interface PromptSection {
 
 ## Dynamic prompt context
 
-`PromptContext` is the cache-safe counterpart to `PromptSection`. The assembly resolves and orders these contributions, while agent-loop logs their complete current snapshot after retained model history only when it changed or compaction removed it.
+`PromptContext` is the cache-safe counterpart to `PromptSection`. The assembly resolves and orders these contributions; [`@deepseek-ai/dsh-context-snapshot`](../../packages/context/context-snapshot/README.md) (mounted by `dsh-base`) publishes the plane as durable user-role snapshots: complete at session start, after compaction, and whenever the section name set changes; partial, carrying only the changed sections, when texts change in place; a cleared marker when the plane empties. Snapshots append at the step boundary (`agent/pre-step`), after compaction inside the request waterfall (`agent/request`), and after manual `/compact` on an idle agent.
 
 ```ts type-equiv
 /** Dynamic model context materialized as a durable user-role snapshot. */
@@ -156,7 +156,7 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:338`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:346`](../../packages/core/system-prompt/src/index.ts)
 
 <a id="system-prompt-events"></a>
 

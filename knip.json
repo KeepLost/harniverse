@@ -318,6 +318,24 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/context/context-snapshot": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/context/harness-source": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
     "packages/context/file-reference": {
       "project": [
         "src/**/*.ts"

@@ -29,10 +29,9 @@ import type { Scope } from '@deepseek-ai/dsh-scope'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { EpochHeader, RequestContext, Session, SessionId, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
-import { joinContextSections, renderContextSections, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type { Context } from '@deepseek-ai/cordis'
-import { RuntimeContextProjection } from './runtime-context.ts'
 import { executeToolCalls } from './tool-calls.ts'
 
 type Phase =
@@ -76,7 +75,6 @@ export class ReactLoopAgent implements Agent {
 
   /** Whether this loop instance has appended its initial/resume request anchor. */
   private requestHeaderLogged = false
-  private readonly runtimeContext: RuntimeContextProjection
 
   constructor(
     private loopCtx: Context,
@@ -94,7 +92,6 @@ export class ReactLoopAgent implements Agent {
     this.phase = { kind: 'idle', lastTurn }
     this.scope = createScope(loopCtx, this)
     this.ctx = this.scope.ctx.extend({ agent: this })
-    this.runtimeContext = new RuntimeContextProjection(this.ctx, session)
   }
 
   get status(): AgentStatus {
@@ -248,13 +245,11 @@ export class ReactLoopAgent implements Agent {
     const claimed = this.inbox.claim(target, position.turn)
     const assembly = await this.loopCtx.systemPrompt.assemble(assembleContextFor(this, signal))
     signal.throwIfAborted()
-    const sections = renderContextSections(assembly)
-    const context = this.runtimeContext.project(joinContextSections(sections), sections)
     const decision = await this.dispatch.waterfall(
       'agent/pre-step', { messages: claimed, ...position, signal },
       (): Promise<PreStepDecision> => Promise.resolve<PreStepDecision>({
         kind: 'enter',
-        messages: context === undefined ? claimed : [context, ...claimed],
+        messages: claimed,
       }),
     )
     signal.throwIfAborted()
@@ -455,7 +450,7 @@ export class ReactLoopAgent implements Agent {
     signal: AbortSignal,
   ): Promise<{ request: GenerateOptions; preparedCall?: PreparedLlmCall }> {
     const { session } = this
-    const surfaceGeneration = session.surface.replaceGeneration
+    const boundaryEventCount = session.events.length
 
     // A loop instance starts from its declared route, restoring only an explicit
     // effort owned by that exact model. Later steps re-resolve marked defaults.
@@ -526,10 +521,12 @@ export class ReactLoopAgent implements Agent {
     }
     signal.throwIfAborted()
 
-    // A request listener may complete an automatic compaction before returning
-    // its config. Rebuild the derived history so the retry/request uses the
-    // committed replacement rather than the pre-compaction message snapshot.
-    const requestMessages = session.surface.replaceGeneration === surfaceGeneration
+    // A request listener may complete an automatic compaction or append
+    // durable model-facing context (runtime-context recovery) before returning
+    // its config. Rebuild the derived history whenever the log grew during the
+    // waterfall, so the request carries the committed surface — both replace
+    // and append operations — instead of the boundary snapshot.
+    const requestMessages = session.events.length === boundaryEventCount
       ? boundaryMessages
       : session.deriveMessages()
     const requestHeaderSeq = session.events.findLast(event => event.type === 'request/header')?.seq

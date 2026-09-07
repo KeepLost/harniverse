@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import SystemPrompt, { AssembleContext, PromptAssembly, renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt, { AssembleContext, HARNESS_IDENTITY, PromptAssembly, renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 
 /**
  * Every assembly carries the plugin's own static built-in — `harness:identity`
@@ -9,7 +9,7 @@ import SystemPrompt, { AssembleContext, PromptAssembly, renderContextSnapshot, r
  * {@link contributed} to stay focused on their own sections.
  */
 const BUILT_IN = ['harness:identity']
-const IDENTITY = 'You are an AI agent powered by Harniverse.'
+const IDENTITY = HARNESS_IDENTITY
 function contributed(assembly: PromptAssembly): PromptAssembly['sections'] {
   return assembly.sections.filter(section => !BUILT_IN.includes(section.name))
 }

@@ -13,10 +13,10 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
     - tab "Capabilities"
-- button "Context injection @deepseek-ai/dsh-system-prompt":
+- button "Context injection @deepseek-ai/dsh-context-snapshot":
   - img
   - img
-  - text: Context injection @deepseek-ai/dsh-system-prompt
+  - text: Context injection @deepseek-ai/dsh-context-snapshot
 - text: "Using ONE run_code program: run bash `echo CODE_ROUND_OK`, then read the file missing.txt catching its error in the program. Return an object with both outcomes. Then reply DONE and stop. {{clock}}"
 - button "Copy":
   - img

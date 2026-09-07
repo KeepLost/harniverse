@@ -7,6 +7,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
+import * as ContextSnapshot from '@deepseek-ai/dsh-context-snapshot'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -41,6 +42,8 @@ export async function mountAgentLoopTestDependencies(
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, options.systemPrompt ?? {})
+  // Publish the system-prompt contexts plane as durable runtime-context snapshots.
+  await ctx.plugin(ContextSnapshot)
   await ctx.plugin(ToolRuntime, options.tools ?? {})
   await ctx.plugin(AgentRegistry)
 }

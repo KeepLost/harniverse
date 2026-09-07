@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import * as HarnessSource from '@deepseek-ai/dsh-harness-source'
 import SystemPrompt, { renderContextSnapshot } from '@deepseek-ai/dsh-system-prompt'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { apply, Config, internals } from '../src/index.ts'
@@ -110,10 +111,12 @@ describe('web-app runtime glue', () => {
     expect(patch).toMatch(/id: session-reference\s+name: '@deepseek-ai\/dsh-session-reference'/)
     expect(patch).toMatch(/id: file-reference-local\s+name: '@deepseek-ai\/dsh-file-reference-local'/)
     expect(patch).toMatch(/id: ui-reference\s+name: '@deepseek-ai\/dsh-client-ui-reference'/)
+    expect(patch).toMatch(/id: harness-source\s+name: '@deepseek-ai\/dsh-harness-source'/)
     expect(manifest.dependencies).toMatchObject({
       '@deepseek-ai/dsh-client-ui-reference': 'workspace:^',
       '@deepseek-ai/dsh-file-reference-local': 'workspace:^',
       '@deepseek-ai/dsh-session-reference': 'workspace:^',
+      '@deepseek-ai/dsh-harness-source': 'workspace:^',
     })
   })
 
@@ -133,6 +136,7 @@ describe('web-app runtime glue', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     apply(ctx, new Config({ printUrl: true, surfaceContext: true, trustedHosts: ['lab.internal'], trustedOrigins: ['https://ui.example.test'] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
+    await ctx.plugin(HarnessSource)
     // Settle the injected registrations.
     await new Promise(resolve => setTimeout(resolve, 0))
 
@@ -151,6 +155,13 @@ describe('web-app runtime glue', () => {
     expect(log).toHaveBeenCalledWith('dsh web trust: hosts=["192.168.1.5","lab.internal"] origins=["https://ui.example.test"] same-origin-only=false')
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.some(entry => entry.name === 'harness:source')).toBe(false)
+    // The harness-source plugin contributes its own context; web-app adds the
+    // web-surface one after it (−99 immediately before −98).
+    expect(assembly.contexts.map(entry => entry.name)).toEqual(['harness:source', 'app:web-surface', 'deployment:persona'])
+    const source = assembly.contexts.find(entry => entry.name === HarnessSource.HARNESS_SOURCE_CONTEXT)
+    expect(source?.text.startsWith(`The Harniverse implementation checkout is at ${HarnessSource.HARNESS_SOURCE_ROOT}. `)).toBe(true)
+    expect(source?.text).not.toContain('downstream')
+    expect(source?.text).not.toContain('NOT affiliated')
     const context = assembly.contexts.find(entry => entry.name === 'app:web-surface')
     const renderedContext = renderContextSnapshot(assembly)
     expect(renderedContext).toContain('Harniverse implementation checkout')
@@ -178,7 +189,7 @@ describe('web-app runtime glue', () => {
     await ctx.fiber.dispose()
   })
 
-  it('skips the surface context when disabled (the one-shot layer): no prompt context, no bash variables', async () => {
+  it('skips only the surface context when disabled (the one-shot layer): no web-surface prompt, no bash variables, checkout root still named', async () => {
     stageDist()
     const ctx = new Context()
     ctx.provide('webServer', fakeHttpServer().server)
@@ -191,10 +202,12 @@ describe('web-app runtime glue', () => {
     } as never)
     apply(ctx, new Config({ printUrl: false, surfaceContext: false, trustedHosts: [] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
+    // The harness-source plugin is mounted by the composition, not gated by
+    // web-app's surfaceContext; the one-shot layer keeps the checkout fact.
+    await ctx.plugin(HarnessSource)
     await new Promise(resolve => setTimeout(resolve, 0))
     const assembly = await ctx.systemPrompt.assemble()
-    expect(assembly.contexts.some(entry => entry.name === 'app:web-surface')).toBe(false)
-    expect(assembly.contexts.some(entry => entry.name === 'harness:source')).toBe(false)
+    expect(assembly.contexts.map(entry => entry.name)).toEqual(['harness:source', 'deployment:persona'])
     expect(contributions).toEqual([])
     await ctx.fiber.dispose()
   })

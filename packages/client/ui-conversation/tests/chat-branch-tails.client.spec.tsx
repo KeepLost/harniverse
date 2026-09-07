@@ -698,6 +698,29 @@ describe('MessageItem arms', () => {
     fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*plugin$/ }))
     expect(view.container.querySelector('[data-context-snapshot-supersedes]')?.textContent)
       .toBe('取代先前的快照')
+    expect(view.container.querySelector('[data-context-snapshot-partial]')).toBeNull()
+  })
+
+  it('a partial snapshot states its updates scope while still rendering its sections', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context', seq: 3, content: [{ type: 'text', text: 'Current runtime context has some updates.' }],
+        source: {
+          kind: 'plugin',
+          form: 'snapshot',
+          partial: true,
+          sections: [{ name: 'sandbox', text: 'partial text' }],
+        },
+        provenance: { role: 'inject', label: 'plugin' },
+        form: 'snapshot',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*plugin$/ }))
+    expect(view.container.querySelector('[data-context-snapshot-partial]')?.textContent)
+      .toBe('运行时上下文有部分更新。')
+    expect(view.container.querySelector('[data-context-snapshot-supersedes]')).toBeNull()
+    expect(view.container.querySelector('[data-context-sections]')?.textContent).toContain('partial text')
   })
 
   it('a relay names the agent that sent it above what it said', () => {

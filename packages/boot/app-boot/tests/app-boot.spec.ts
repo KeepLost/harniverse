@@ -4,10 +4,9 @@ import { join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import SystemPrompt, { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
-  addHarnessSourceContext, assertEntriesActivated, assertEntriesLoaded, boot,
-  FAIL_LOUD_RELEASE_TIMEOUT_MS, HARNESS_SOURCE_CONTEXT,
+  assertEntriesActivated, assertEntriesLoaded, boot,
+  FAIL_LOUD_RELEASE_TIMEOUT_MS,
   installFailLoud, loadEnv, loadLayeredEnv, loadOverlayPatches, resolveConfigPath, type FailLoudProcess,
 } from '../src/index.ts'
 
@@ -778,57 +777,5 @@ describe('boot', () => {
       `${NAME}: 1 entry did not activate`,
       './waiting.mjs: pending (waiting for service: neverProvided)',
     ].join('\n'))
-  })
-})
-
-describe('addHarnessSourceContext', () => {
-  const SOURCE_ROOT = `${sep}opt${sep}harness-src`
-  const EXPECTED = `The Harniverse implementation checkout is at ${SOURCE_ROOT}, which is a downstream of DeepSeek Harness (DSH). The checkout location and current working directory are separate values and may differ; never infer the working directory from this path. Use pwd to determine the current working directory. Use this checkout only to inspect or extend Harniverse itself.\n\nHarniverse is totally a third-party independent product. Though it is built upon DSH, it is NOT affiliated by DeepSeek. DSH is open-sourced and its license still apply to Harniverse where the implementation from DSH remains intact.`
-
-  it('distinguishes the source path from the current workdir in dynamic context order', async () => {
-    const ctx = new Context()
-    try {
-      await ctx.plugin(SystemPrompt, { persona: 'You are a coding agent.' })
-      const dispose = addHarnessSourceContext(ctx, SOURCE_ROOT)
-      expect(dispose).toBeTypeOf('function')
-      const systemPrompt = ctx.get('systemPrompt')!
-      const assembly = await systemPrompt.assemble()
-      expect(renderPrompt(assembly)).toBe('You are an AI agent powered by Harniverse.')
-      const rendered = renderContextSnapshot(assembly)
-      expect(rendered).toContain(EXPECTED)
-      const sourceAt = rendered.indexOf(EXPECTED)
-      const personaAt = rendered.indexOf('You are a coding agent.')
-      expect(sourceAt).toBeGreaterThanOrEqual(0)
-      expect(personaAt).toBeGreaterThanOrEqual(0)
-      expect(sourceAt).toBeLessThan(personaAt)
-      expect(assembly.contexts.map(context => context.name)).toEqual([HARNESS_SOURCE_CONTEXT, 'deployment:persona'])
-    } finally {
-      await ctx.fiber.dispose()
-    }
-  })
-
-  it('is a no-op returning undefined when no systemPrompt service is mounted', async () => {
-    const ctx = new Context()
-    try {
-      expect(addHarnessSourceContext(ctx, SOURCE_ROOT)).toBeUndefined()
-    } finally {
-      await ctx.fiber.dispose()
-    }
-  })
-
-  it('disposes the section it added, so a systemPrompt reload leaves no residue', async () => {
-    const ctx = new Context()
-    try {
-      await ctx.plugin(SystemPrompt, {})
-      const systemPrompt = ctx.get('systemPrompt')!
-      const dispose = addHarnessSourceContext(ctx, SOURCE_ROOT)!
-      const present = await systemPrompt.assemble()
-      expect(present.contexts.some(context => context.name === HARNESS_SOURCE_CONTEXT)).toBe(true)
-      dispose()
-      const gone = await systemPrompt.assemble()
-      expect(gone.contexts.some(context => context.name === HARNESS_SOURCE_CONTEXT)).toBe(false)
-    } finally {
-      await ctx.fiber.dispose()
-    }
   })
 })

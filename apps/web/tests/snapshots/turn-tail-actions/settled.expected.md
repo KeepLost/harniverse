@@ -13,10 +13,10 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
     - tab "Capabilities"
-- button "Context injection @deepseek-ai/dsh-system-prompt":
+- button "Context injection @deepseek-ai/dsh-context-snapshot":
   - img
   - img
-  - text: Context injection @deepseek-ai/dsh-system-prompt
+  - text: Context injection @deepseek-ai/dsh-context-snapshot
 - text: Begin your reply with the plain sentence "Reading the workspace now." as text, and in that same message call the bash tool with the command "echo alpha". After the tool result, reply with the single word DONE and stop. {{clock}}
 - button "Copy":
   - img

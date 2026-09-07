@@ -34,6 +34,11 @@
       name: '@deepseek-ai/dsh-session-reference'
     - id: file-reference-local
       name: '@deepseek-ai/dsh-file-reference-local'
+    # Names the implementation checkout root and separates it from the working
+    # directory; loaded by every web composition regardless of surfaceContext,
+    # because the fact is surface-independent.
+    - id: harness-source
+      name: '@deepseek-ai/dsh-harness-source'
 
 - id: tools
   config:

@@ -23,6 +23,7 @@ import type { UserMcpServerConfig } from '@deepseek-ai/dsh-mcp-user-config'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { HARNESS_IDENTITY } from '@deepseek-ai/dsh-system-prompt'
 
 const CONFIG_DIR = fileURLToPath(new URL('../config/', import.meta.url))
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -304,7 +305,7 @@ describe('the shipped Web composition', () => {
     try {
       const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent })
       expect(assembly.sections).toEqual([
-        { name: 'harness:identity', text: 'You are an AI agent powered by Harniverse.' },
+        { name: 'harness:identity', text: HARNESS_IDENTITY },
         { name: 'context:file-reference', text: '' },
         { name: 'tool:bash', text: 'Check the [exit code: N] marker on every bash result; investigate failures before moving on.' },
         { name: 'ui:deliverable-file-references', text: 'When you successfully create or modify files, mention the primary outputs in your final response. To make those and any other changed-file references clickable in Web, format them as Markdown inline code using the exact file-tool path, or a basename when unique among the files changed in that turn.' },

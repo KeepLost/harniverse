@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { makeBridgeHarness, textResponse, type BridgeHarness } from './harness.ts'
+import { HARNESS_IDENTITY } from '@deepseek-ai/dsh-system-prompt'
 
 describe('automation-only ACP bridge', () => {
   let harness: BridgeHarness | undefined
@@ -82,7 +83,7 @@ describe('automation-only ACP bridge', () => {
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
     await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
-    expect(harness.adapter.requests[0]?.system).toBe('You are an AI agent powered by Harniverse.')
+    expect(harness.adapter.requests[0]?.system).toBe(HARNESS_IDENTITY)
     expect(harness.adapter.requests[0]?.messages.some(message => message.content.some(block =>
       block.type === 'text' && block.text.includes(`Automation persona for mock in ${process.cwd()}.`),
     ))).toBe(true)

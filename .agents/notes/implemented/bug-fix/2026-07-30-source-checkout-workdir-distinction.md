@@ -2,6 +2,8 @@
 
 Status: implemented
 
+> Superseded in part by [2026-09-08-runtime-context-snapshot-plugin](../architecture/2026-09-08-runtime-context-snapshot-plugin.md): the checkout context is now owned by `dsh-harness-source` as a single paragraph; the workdir-separation sentences it decided are preserved verbatim, and the DSH relationship clauses moved to the harness identity.
+
 English | [中文](2026-07-30-source-checkout-workdir-distinction.zh.md)
 
 ## Problem

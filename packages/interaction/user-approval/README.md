@@ -18,7 +18,7 @@ The tools pipeline routes `ask` decisions through this seam and fails closed whe
 
 #### What the model sees
 
-The first request and each effective policy change append a full runtime-context snapshot after retained history. Under `ask`, the approval contribution states that configured answerers may be consulted and absence fails closed. Under `never`, it states the deterministic rejection and non-escalation consequence. Unchanged requests retain the earlier snapshot without adding another message.
+The first request appends the complete runtime-context snapshot after retained history; each later effective policy change appends a partial snapshot carrying only the changed sections. Under `ask`, the approval contribution states that configured answerers may be consulted and absence fails closed. Under `never`, it states the deterministic rejection and non-escalation consequence. Unchanged requests retain the earlier snapshot without adding another message.
 
 ##### Ask-policy contribution
 

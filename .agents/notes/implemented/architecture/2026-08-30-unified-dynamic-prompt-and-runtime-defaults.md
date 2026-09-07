@@ -10,7 +10,7 @@ The built-in Agent Profiles describe different capabilities, but their persona a
 
 ## Decision
 
-All built-in Profiles use the same `dsh-system-prompt` assembly path. The stable identity is the static system section `You are an AI agent powered by Harniverse.`. The deployment persona, scoped `dsh-persona` persona, harness checkout context, and Web surface context are dynamic contexts rendered into the durable runtime-context snapshot. Minimal differs only through the capabilities it mounts; it does not use a separate static persona, complete-prompt path, or runtime-context suppressor.
+All built-in Profiles use the same `dsh-system-prompt` assembly path. The stable identity is the static system section `HARNESS_IDENTITY` (`You are an AI agent powered by Harniverse, which is a downstream of DeepSeek Harness (DSH).` …). The deployment persona, scoped `dsh-persona` persona, harness checkout context, and Web surface context are dynamic contexts rendered into the durable runtime-context snapshot; the [runtime-context snapshot plugin](2026-09-08-runtime-context-snapshot-plugin.md) owns the snapshot lifecycle and the identity/checkout regrouping. Minimal differs only through the capabilities it mounts; it does not use a separate static persona, complete-prompt path, or runtime-context suppressor.
 
 The deployment persona and scoped Profile persona use one named dynamic context slot, `deployment:persona`. A scoped persona replaces the deployment value through normal scope precedence, and `{{model}}` and `{{cwd}}` are interpolated during assembly. Shipped Profile rows do not set `complete` or `includeRuntimeContext` to implement their capability differences.
 

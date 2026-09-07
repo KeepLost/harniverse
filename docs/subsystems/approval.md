@@ -46,7 +46,7 @@ type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
 type ApprovalPolicy = 'ask' | 'never'
 ```
 
-Both policies contribute their complete current meaning to the cache-safe runtime-context snapshot. The sourced `user/message` is the durable model-visible input; changing approval state appends a new full snapshot after retained history without rewriting the request header's system prompt.
+Both policies contribute their complete current meaning to the cache-safe runtime-context snapshot. The sourced `user/message` is the durable model-visible input; the first request carries the complete snapshot, and a later policy change appends a partial snapshot carrying only the changed sections, without rewriting the request header's system prompt.
 
 ## Approval request
 

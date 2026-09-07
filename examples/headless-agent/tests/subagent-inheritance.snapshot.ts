@@ -105,7 +105,7 @@ describe('parent-only override inheritance snapshot', () => {
           }
           if (record.type !== 'user/message'
             || record.data?.source?.kind !== 'plugin'
-            || record.data.source.plugin !== '@deepseek-ai/dsh-system-prompt') return []
+            || record.data.source.plugin !== '@deepseek-ai/dsh-context-snapshot') return []
           return record.data.content?.flatMap(block => block.type === 'text' && typeof block.text === 'string' ? [block.text] : []) ?? []
         })
         const policyContexts = [...runtimeContexts(parent), ...runtimeContexts(child)]

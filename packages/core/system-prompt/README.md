@@ -2,13 +2,13 @@
 
 English | [中文](README.zh.md)
 
-System prompt assembly registry. Plugins contribute ordered sections, dynamic contexts, tool schemas, and named variables. The loop assembles once per step and renders the static result as the complete model prompt while projecting dynamic contexts into durable runtime-context snapshots. This plugin owns the static harness identity and the deployment persona context; an agent-scoped persona shadows the global default.
+System prompt assembly registry. Plugins contribute ordered sections, dynamic contexts, tool schemas, and named variables. The loop assembles once per step and renders the static result as the complete model prompt; the [`dsh-context-snapshot`](../../context/context-snapshot/README.md) plugin publishes the dynamic contexts as durable runtime-context snapshots. This plugin owns the static harness identity and the deployment persona context; an agent-scoped persona shadows the global default.
 
 ## Config
 
 | Key | Default | Meaning |
 |---|---|---|
-| `includeHarnessIdentity` | `true` | Include the fixed `You are an AI agent powered by Harniverse.` order-−100 opener. Set false only when a compatibility deployment owns the complete system prompt. |
+| `includeHarnessIdentity` | `true` | Include the fixed order-−100 `HARNESS_IDENTITY` opener — `You are an AI agent powered by Harniverse, which is a downstream of DeepSeek Harness (DSH).` plus the third-party disclaimer — quoted in full under Model Experience below. Setting it false removes the whole opener, disclaimer included; set false only when a compatibility deployment owns the complete system prompt. |
 | `includeRuntimeContext` | `true` | Include ordered dynamic contexts in assembly. When false, context providers are not evaluated and contexts added by `system-prompt/assemble` listeners are discarded after the waterfall; other services and their enforcement remain active. |
 | `persona` | `''` | The global deployment-persona default: the ONE config-authored prompt fragment, rendered as the order-0 `deployment:persona` dynamic context unless an agent-scoped contribution shadows it. A template — complete `{{…}}` groups are interpreted strictly against the registered variables (the shipped loop registers `{{model}}`/`{{cwd}}`), with no escape syntax for literal braces yet. Empty ⇒ the context is omitted from the runtime snapshot. |
 | `toolOrder` | — | Explicit model-facing tool order, as a list of `ToolSchema.name`s with one `'<unlisted-tools>'` rest entry (`TOOL_ORDER_REST`): listed tools take their listed position, unlisted tools land at the rest entry in lexicographic name order. Absent ⇒ plain lexicographic name order. Applied to the collected tools BEFORE the `system-prompt/assemble` waterfall — like the sections' `order` sort, it canonicalizes what the registry contributed (registration order is a plugin-load artifact), and a waterfall listener that mutates the list owns the determinism of what it emits. Misconfiguration fails loud: a list without exactly one rest entry, or with duplicates, throws at load; a listed name with no registered tool rejects every `assemble()`; a tool provider returning the reserved rest-entry name also rejects. Under the shipped loop the turn fails before any model request. Why a central list and not per-plugin weights: [Explicit model-facing tool order](../../../.agents/notes/implemented/feature/2026-07-06-explicit-tool-order.md). |
@@ -18,7 +18,7 @@ System prompt assembly registry. Plugins contribute ordered sections, dynamic co
 ### Public API
 
 - `ctx.systemPrompt.section(section: PromptSection): () => void` Contribute a section. The layer is the calling context's scope: `agent.ctx` contributes to that agent alone, shadowing a same-named global section there. A `complete: true` section becomes the exact complete prompt after the assembly waterfall; more than one effective complete section rejects assembly. Duplicate names within one layer and non-finite orders throw. Disposed with the calling fiber.
-- `ctx.systemPrompt.context(context: PromptContext): () => void` Contribute ordered dynamic context for the calling scope. Providers are evaluated for each eligible assembly and become a sourced runtime-context snapshot in model history under the shipped loop.
+- `ctx.systemPrompt.context(context: PromptContext): () => void` Contribute ordered dynamic context for the calling scope. Providers are evaluated for each eligible assembly and become sourced runtime-context snapshots in model history in compositions that mount `dsh-context-snapshot` (the shipped `dsh-base` does).
 - `ctx.systemPrompt.suppressRuntimeContext(): () => void` Suppress every dynamic-context contribution for the calling scope. Multiple registrations compose independently; disposing the returned effect restores context when no suppressor remains.
 - `ctx.systemPrompt.tools(provider: (context: AssembleContext) => ToolProviderResult): () => void` Contribute tool schemas, evaluated at each assembly with that assembly's context. `ToolProviderResult` = `{ schemas, knownNames? }`: `schemas` is the post-restriction visible set; `knownNames` is the pre-restriction universe used by `toolOrder`. A provider must not return a schema named `TOOL_ORDER_REST`. Scoped providers are consulted only for their scope's assemblies. Disposed with the calling fiber.
 - `ctx.systemPrompt.variable(name: string, provider: (context) => string | undefined): () => void` Contribute a prompt variable, referenced from section text as `{{name}}`. Scoped variables shadow a same-named global for that agent. Duplicate-in-layer or unreferenceable names throw; `undefined` means "no value for this assembly". Disposed with the calling fiber.
@@ -58,7 +58,7 @@ By default every assembly starts with the harness identity and ordered static pl
 ##### Harness identity
 
 ```markdown
-You are an AI agent powered by Harniverse.
+You are an AI agent powered by Harniverse, which is a downstream of DeepSeek Harness (DSH). Harniverse is totally a third-party independent product. Though it is built upon DSH, it is NOT affiliated by DeepSeek. DSH is open-sourced and its license still apply to Harniverse where the implementation from DSH remains intact.
 ```
 
 #### Token effect

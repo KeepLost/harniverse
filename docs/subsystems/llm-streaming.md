@@ -148,6 +148,12 @@ type ContextFormed =
     readonly form: 'snapshot'
     /** The named contributions this snapshot assembled, in order. */
     readonly sections: readonly ContextSnapshotSection[]
+    /**
+     * Present when this snapshot updates ONLY the sections it carries; every
+     * section it does not carry remains as last published by the preceding
+     * visible runtime-context snapshots.
+     */
+    readonly partial?: true
   }
   | {
     readonly form: 'notice'

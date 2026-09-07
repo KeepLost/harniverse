@@ -476,6 +476,12 @@
       config:
         persona: ''
 
+    # Publishes the system-prompt contexts plane as durable runtime-context
+    # snapshots: complete at session start and after compaction, partial on
+    # policy changes, at step boundaries and request retries.
+    - id: context-snapshot
+      name: '@deepseek-ai/dsh-context-snapshot'
+
     # Agents created at startup. The base stays empty; raw overlays may create
     # agents, while Web creates sessions on client request.
     - id: agent-loop

@@ -1,5 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
-import SystemPrompt, { renderContextSnapshot } from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt, { HARNESS_IDENTITY, renderContextSnapshot } from '@deepseek-ai/dsh-system-prompt'
 import { createScope, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import { describe, expect, it } from 'vitest'
 import * as Persona from '@deepseek-ai/dsh-persona'
@@ -100,7 +100,7 @@ describe('the persona row', () => {
 
     const assembly = await ctx.systemPrompt.assemble({ scope: key })
     expect(assembly.sections).toEqual([
-      { name: 'harness:identity', text: 'You are an AI agent powered by Harniverse.' },
+      { name: 'harness:identity', text: HARNESS_IDENTITY },
       { name: 'global:extra', text: 'global guidance' },
       { name: 'late:extra', text: 'late guidance' },
     ])

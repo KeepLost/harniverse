@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-所有内置 Profile 使用同一套 `dsh-system-prompt` 组装路径。稳定身份使用静态 system section `You are an AI agent powered by Harniverse.`。deployment persona、作用域内的 `dsh-persona` persona、harness checkout 上下文和 Web 表层上下文都改为动态上下文，并组装进持久化 runtime-context snapshot。Minimal 只通过自身挂载的能力与其他 Profile 区分，不使用独立的静态 persona、complete prompt 路径或 runtime-context 抑制器。
+所有内置 Profile 使用同一套 `dsh-system-prompt` 组装路径。稳定身份使用静态 system section `HARNESS_IDENTITY`（`You are an AI agent powered by Harniverse, which is a downstream of DeepSeek Harness (DSH).` …）。deployment persona、作用域内的 `dsh-persona` persona、harness checkout 上下文和 Web 表层上下文都改为动态上下文，并组装进持久化 runtime-context snapshot；快照生命周期与身份/checkout 重组由[运行时上下文快照插件](2026-09-08-runtime-context-snapshot-plugin.md)持有。Minimal 只通过自身挂载的能力与其他 Profile 区分，不使用独立的静态 persona、complete prompt 路径或 runtime-context 抑制器。
 
 deployment persona 与作用域内 Profile persona 使用同一个命名的动态上下文槽位 `deployment:persona`。作用域内 persona 通过正常的作用域优先级替换 deployment 值，`{{model}}` 与 `{{cwd}}` 在组装时插值。已交付 Profile 行不再通过 `complete` 或 `includeRuntimeContext` 实现能力差异。
 
