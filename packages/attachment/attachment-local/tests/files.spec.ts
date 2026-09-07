@@ -12,9 +12,12 @@ import { publishFileHandle, readFileObject, saveFileObject } from '../src/files.
 const roots: string[] = []
 
 async function freshRoot(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), 'dsh-files-'))
-  roots.push(root)
-  return root
+  // Mirror the production layout (`<home>/attachments/v1`): the durability
+  // walk derives the home boundary as two levels above the root, so a bare
+  // tmpdir would walk to (and chmod) the filesystem root on unprivileged CI.
+  const base = await mkdtemp(join(tmpdir(), 'dsh-files-'))
+  roots.push(base)
+  return join(base, 'attachments', 'v1')
 }
 
 afterEach(async () => {
