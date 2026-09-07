@@ -72,7 +72,12 @@ Where a message came from is itself a merge-extensible sum type:
  * Merge-extensible sum type — plugins add their own `kind`s.
  */
 interface MessageSourceMap {
-  user: { kind: 'user' }
+  /**
+   * A direct human prompt. `files` carries the durable generic-file
+   * references admitted alongside this prompt (each also rendered as a
+   * handle text block in the message content); absent for text-only prompts.
+   */
+  user: { kind: 'user'; files?: readonly FileAttachmentRef[] }
   plugin: { kind: 'plugin'; plugin: string } & ContextFormed
   model: ModelMessageSource
   tool: ToolMessageSource
@@ -858,7 +863,7 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Source: [`packages/llm/llm/src/index.ts:285`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:286`](../../packages/llm/llm/src/index.ts)
 
 <a id="llm-events"></a>
 
@@ -907,5 +912,5 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 'llm/stream'(this: LlmRuntime, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
 ```
 
-Source: [`packages/llm/llm/src/index.ts:65`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:66`](../../packages/llm/llm/src/index.ts)
 <!-- END GENERATED cordis-surface -->

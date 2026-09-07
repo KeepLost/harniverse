@@ -138,7 +138,32 @@ abstract readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<Store
  * @returns the transient request image version.
  */
 readImageRequest( ref: ImageAttachmentRef, policy: ImageRequestPolicy, signal?: AbortSignal, ): Promise<RequestImageAttachment>
+
+/**
+ * Durably commit one generic file, bytes verbatim (no sniffing, no
+ * normalization). Default refusal keeps existing implementations valid.
+ * @param input - raw bytes, optional declared media type, optional display name.
+ * @returns a durable content-addressed reference.
+ */
+saveFile(input: SaveFileAttachment): Promise<FileAttachmentRef>
+
+/**
+ * Read one generic file and verify its bytes against the reference digest.
+ * Default refusal keeps existing implementations valid.
+ * @param ref - durable reference from the session log.
+ * @param signal - optional cancellation for backend read and verification work.
+ * @returns the verified bytes and canonical reference.
+ */
+readFile(ref: FileAttachmentRef, signal?: AbortSignal): Promise<StoredFileAttachment>
+
+/**
+ * Publish (idempotently) the read-only hard-link handle path a model reads
+ * a stored file through. Default refusal keeps existing implementations valid.
+ * @param ref - durable reference from the session log.
+ * @returns the absolute read-only path.
+ */
+publishFileHandle(ref: FileAttachmentRef): Promise<string>
 ```
 
-Source: [`packages/attachment/attachment/src/index.ts:36`](../../packages/attachment/attachment/src/index.ts)
+Source: [`packages/attachment/attachment/src/index.ts:45`](../../packages/attachment/attachment/src/index.ts)
 <!-- END GENERATED cordis-surface -->

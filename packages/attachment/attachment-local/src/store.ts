@@ -19,10 +19,20 @@ import { detectImage, probeImage } from './image.ts'
 const ID_PATTERN = /^sha256:([a-f0-9]{64})$/
 const durableHomes = new Set<string>()
 
+/**
+ * Digest one byte sequence with the content-addressing hash.
+ * @param data - the bytes to digest.
+ * @returns the hex sha256 digest.
+ */
 export function digest(data: Uint8Array): string {
   return createHash('sha256').update(data).digest('hex')
 }
 
+/**
+ * Clean one caller-supplied display name to a leaf without local path information.
+ * @param value - the raw display name.
+ * @returns the cleaned leaf, or `undefined` when nothing usable remains.
+ */
 export function displayName(value: string | undefined): string | undefined {
   if (value === undefined) return undefined
   // Strip both separator styles by hand: a POSIX host treats `\` as an
@@ -33,6 +43,12 @@ export function displayName(value: string | undefined): string | undefined {
   return clean === '' ? undefined : clean
 }
 
+/**
+ * The content-addressed object path for one digest.
+ * @param root - the attachment root.
+ * @param sha256 - the hex digest.
+ * @returns the object file path.
+ */
 export function objectPath(root: string, sha256: string): string {
   return join(root, 'objects', sha256.slice(0, 2), sha256)
 }
@@ -98,6 +114,11 @@ export async function publishObject(root: string, data: Uint8Array): Promise<str
   return sha256
 }
 
+/**
+ * Validate and strip one reference's digest from its opaque id.
+ * @param ref - the reference carrying the id.
+ * @returns the hex sha256 digest.
+ */
 export function ensureReference(ref: Pick<ImageAttachmentRef, 'attachmentId'>): string {
   const match = ID_PATTERN.exec(String(ref.attachmentId))
   if (match?.[1] === undefined) throw new AttachmentError('Attachment reference is invalid.', 'INVALID_ATTACHMENT_REF')
@@ -133,6 +154,7 @@ export async function validateImageFile(input: SaveImageAttachment, limits: Imag
  * A synced file alone does not survive a crash when its directory entry never
  * reached storage, so the publication directory is synced before a durable
  * reference is reported.
+ * @param path - the directory whose entries must become durable.
  */
 export async function syncDirectory(path: string): Promise<void> {
   /* v8 ignore next -- Windows cannot open directory handles; NTFS metadata journaling owns entry durability there. */
@@ -177,6 +199,8 @@ export async function ensureDurableDirectory(path: string, boundary: string): Pr
  * Establish this process's proof that one DSH_HOME entry and every ancestor
  * below the filesystem root are durable. Mere existence is insufficient: a
  * concurrent process may have created the directory but not synced its parent.
+ * @param path - the home directory to prove durable.
+ * @returns the resolved absolute home path.
  */
 export async function ensureDurableHome(path: string): Promise<string> {
   const home = resolve(path)
