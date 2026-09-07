@@ -215,6 +215,44 @@ describe('Typert contract preparation', () => {
   })
 })
 
+describe('CI web shard graph', () => {
+  it('builds once and runs the env-assigned browser share', () => {
+    const subject = withPnpmEntrypoint(() => {
+      process.env.DSH_CI_WEB_SHARD = '2/3'
+      try {
+        return gatesForMode('ci-web-shard')
+      } finally {
+        Reflect.deleteProperty(process.env, 'DSH_CI_WEB_SHARD')
+      }
+    })
+
+    expect(subject.map(item => item.id)).toEqual(['build', 'web-snapshot'])
+    const web = subject.find(item => item.id === 'web-snapshot')
+    expect(web?.args).toEqual([
+      '/private/pnpm.cjs',
+      'exec', 'vitest', 'run', '--config', 'vitest.web.config.ts', '--shard=2/3',
+    ])
+    expect(web?.displayCommand).toBe(
+      'DSH_SNAPSHOT=replay pnpm exec vitest run --config vitest.web.config.ts --shard=2/3',
+    )
+    expect(web?.env).toEqual({ DSH_SNAPSHOT: 'replay' })
+    expect(web?.needs).toEqual(['build'])
+  })
+
+  it('rejects a missing or out-of-range shard assignment', () => {
+    withPnpmEntrypoint(() => {
+      Reflect.deleteProperty(process.env, 'DSH_CI_WEB_SHARD')
+      expect(() => gatesForMode('ci-web-shard')).toThrow('DSH_CI_WEB_SHARD')
+      process.env.DSH_CI_WEB_SHARD = '4/3'
+      try {
+        expect(() => gatesForMode('ci-web-shard')).toThrow('exceeds total')
+      } finally {
+        Reflect.deleteProperty(process.env, 'DSH_CI_WEB_SHARD')
+      }
+    })
+  })
+})
+
 describe('Node compatibility graph', () => {
   it('runs the jsdom environment smoke on every advertised Node line', () => {
     const subject = withPnpmEntrypoint(() => gatesForMode('node-compat'))
@@ -275,7 +313,7 @@ describe('Node 24 lane ownership', () => {
     const subject = withPnpmEntrypoint(() => gatesForMode('ci-consumers'))
 
     expect(defaultConcurrency('ci-consumers', subject.length, 4)).toEqual({
-      workers: 10,
+      workers: 9,
       source: 'ci-consumers gate count',
     })
     expect(subject.map(item => item.id)).toEqual([
@@ -285,7 +323,6 @@ describe('Node 24 lane ownership', () => {
       'built-package-invariants',
       'lint-and-duplication',
       'snapshot',
-      'web-snapshot',
       'doc-typecheck',
       'node-next-types',
       'built-bin-smoke',
@@ -307,10 +344,6 @@ describe('Node 24 lane ownership', () => {
     ]) {
       expect(subject.find(item => item.id === id)?.needs).toEqual(['built-package-invariants'])
     }
-    expect(subject.find(item => item.id === 'web-snapshot')?.needs).toEqual([
-      'built-package-invariants',
-      'snapshot',
-    ])
     expect(subject.find(item => item.id === 'snapshot')?.env).toEqual({
       DSH_EXAMPLE_MODE: 'lib',
       DSH_SNAPSHOT_MAX_CONCURRENCY: '1',
@@ -324,11 +357,9 @@ describe('Node 24 lane ownership', () => {
         'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
       ]),
     )
-    expect(subject.find(item => item.id === 'web-snapshot')).toMatchObject({
-      displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
-      env: { DSH_SNAPSHOT: 'replay' },
-      allowFailure: false,
-    })
+    // The browser e2e inventory itself lives in the sharded ci-web-shard jobs;
+    // this lane keeps only the non-browser consumers of the validated build.
+    expect(subject.find(item => item.id === 'web-snapshot')).toBeUndefined()
   })
 })
 
@@ -338,7 +369,7 @@ describe('Linux primary graph', () => {
     const web = subject.find(item => item.id === 'web-snapshot')
 
     expect(web).toMatchObject({
-      displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
+      displayCommand: 'DSH_SNAPSHOT=replay pnpm exec vitest run --config vitest.web.config.ts',
       env: { DSH_SNAPSHOT: 'replay' },
       needs: ['built-package-invariants'],
     })

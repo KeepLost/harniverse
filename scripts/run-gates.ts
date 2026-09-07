@@ -22,6 +22,7 @@ export type Mode =
   | 'ci-snapshot'
   | 'ci-artifacts'
   | 'ci-consumers'
+  | 'ci-web-shard'
   | 'ci-windows-blocking'
   | 'ci-windows-complete'
   | 'ci-windows-observational'
@@ -107,6 +108,7 @@ function parseMode(raw: string | undefined): Mode {
     case 'ci-snapshot':
     case 'ci-artifacts':
     case 'ci-consumers':
+    case 'ci-web-shard':
     case 'ci-windows-blocking':
     case 'ci-windows-complete':
     case 'ci-windows-observational':
@@ -116,7 +118,7 @@ function parseMode(raw: string | undefined): Mode {
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-linux-primary | ci-static | ci-lint-contracts-ready | ci-coverage | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | check-all | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-linux-primary | ci-static | ci-lint-contracts-ready | ci-coverage | ci-snapshot | ci-artifacts | ci-consumers | ci-web-shard | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | check-all | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -218,6 +220,8 @@ export function gatesForMode(selected: Mode): Gate[] {
       return ciArtifactGates()
     case 'ci-consumers':
       return ciConsumerGates()
+    case 'ci-web-shard':
+      return ciWebShardGates()
     case 'ci-windows-blocking':
       return ciWindowsBlockingGates()
     case 'ci-windows-complete':
@@ -443,10 +447,9 @@ function ciConsumerGates(): Gate[] {
       needs: validatedBuild,
     }),
     snapshotGate(validatedBuild, { DSH_SNAPSHOT_MAX_CONCURRENCY: '1' }),
-    // The lib-mode snapshot gate also boots the Web snapshot suites. Keep the
-    // browser-heavy gates serial so independent Web scaffolds do not contend
-    // for runner resources and trip their startup hook timeout.
-    webSnapshotGate([...validatedBuild, 'snapshot']),
+    // The browser e2e inventory moved to dedicated sharded CI jobs
+    // (ci-web-shard): one runner per --shard=i/t keeps every browser scaffold
+    // resource-isolated instead of serializing ~23 minutes inside this lane.
     pnpmScript('doc-typecheck', 'doc-typecheck:contracts-ready', {
       needs: validatedBuild,
       env: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
@@ -459,14 +462,48 @@ function ciConsumerGates(): Gate[] {
   ]
 }
 
-function webSnapshotGate(needs: string[], allowFailure = false): Gate {
-  return pnpmScript('web-snapshot', 'test:web:built', {
+function webSnapshotGate(needs: string[], allowFailure = false, shard?: string): Gate {
+  const shardArgs = shard === undefined ? [] : [`--shard=${shard}`]
+  return {
+    id: 'web-snapshot',
     label: 'web browser snapshot',
-    displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
+    displayCommand: `DSH_SNAPSHOT=replay pnpm exec vitest run --config vitest.web.config.ts${shardArgs.length > 0 ? ` --shard=${shard}` : ''}`,
+    ...pnpmInvocation([
+      'exec', 'vitest', 'run', '--config', 'vitest.web.config.ts', ...shardArgs,
+    ]),
     env: { DSH_SNAPSHOT: 'replay' },
     needs,
     allowFailure,
-  })
+  }
+}
+
+/**
+ * Build once, then run exactly one CI-assigned share of the browser e2e
+ * inventory. Shards live in dedicated CI jobs (one runner per shard) because
+ * parallel browser scaffolds on one machine contend for resources and trip
+ * startup hook timeouts.
+ * @returns the shard gate aggregate (build + one `--shard=i/t` web run).
+ */
+function ciWebShardGates(): Gate[] {
+  return [ciBuildGate(), webSnapshotGate(['build'], false, webShardFromEnv())]
+}
+
+/** Read and validate the mandatory `DSH_CI_WEB_SHARD` (`i/t`) assignment. */
+function webShardFromEnv(): string {
+  const raw = process.env.DSH_CI_WEB_SHARD
+  const match = /^([1-9]\d*)\/([1-9]\d*)$/u.exec(raw ?? '')
+  if (match === null) {
+    throw new Error(
+      `run-gates: DSH_CI_WEB_SHARD must be set for ci-web-shard as 'i/t' (1-based), got ${JSON.stringify(raw ?? '')}.`,
+    )
+  }
+  const [, index, total] = match
+  if (Number(index) > Number(total)) {
+    throw new Error(
+      `run-gates: DSH_CI_WEB_SHARD index ${index} exceeds total ${total}.`,
+    )
+  }
+  return `${index}/${total}`
 }
 
 function ciWindowsBlockingGates(): Gate[] {
