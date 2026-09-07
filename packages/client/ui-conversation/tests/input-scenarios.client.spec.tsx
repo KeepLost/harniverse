@@ -20,6 +20,7 @@ import { FakeApiClient, fakeRemote, ok } from '../../runtime/tests/fake-api.clie
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { SessionInputShell } from '../src/client/input/facade.ts'
+import { stubFileUploads } from './input-file-uploads.client.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import { zh } from '../src/client/locales.ts'
@@ -107,7 +108,7 @@ async function scopedBench(register?: (inputTriggers: InputTriggerService) => vo
   const actx = sessions.scope(sessionId)!
   const controller = inputTriggers.sessionOf(actx)
   const sink = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
-  const shell = new SessionInputShell({ actx, inputTriggers: () => controller, defaultSink: sink })
+  const shell = new SessionInputShell({ fileUploads: stubFileUploads, actx, inputTriggers: () => controller, defaultSink: sink })
   // The hub's listener wiring, verbatim.
   actx.on('slash/input-begin-command', req => shell.beginCommand(req.claim, req.span) ? true : undefined)
   actx.on('slash/input-insert-reference', req => shell.insertReference(req.reference, req.span) ? true : undefined)
@@ -138,6 +139,8 @@ async function scopedBench(register?: (inputTriggers: InputTriggerService) => vo
     keyboard: shell,
     addImages: () => null,
     removeImage: () => {},
+    addFiles: () => {},
+    removeFile: () => {},
     draftImages: () => [],
     resolveSubmitMode: () => 'queue',
     toggleCommandMenu: (selection) => {
@@ -152,6 +155,7 @@ async function scopedBench(register?: (inputTriggers: InputTriggerService) => vo
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
     useMenuLauncher: bindSnapshotSelector(controller.launcher),
+    useFileDrafts: bindSnapshotSelector(shell.fileDrafts),
     renderSlot: (() => null) as InputBarProps['renderSlot'],
     stop: vi.fn(),
     command: () => Promise.resolve(true),
@@ -243,7 +247,7 @@ describe('scenario D: execute-kind /compact', () => {
     fireEvent.keyDown(b2.textarea, { key: 'Enter' })
     // execute with trailing → matchEnter answers undefined → default sink.
     await vi.waitFor(() => {
-      expect(b2.sink).toHaveBeenCalledWith('/compact 现在', [], 'queue', expect.any(AbortSignal))
+      expect(b2.sink).toHaveBeenCalledWith('/compact 现在', [], [], 'queue', expect.any(AbortSignal))
     })
     expect(b2.executed).toHaveLength(0)
   })
@@ -299,7 +303,7 @@ describe('scenario I: unknown /xyz + enter', () => {
     act(() => { b.shell.setDraft('/xyz 干点啥') })
     fireEvent.keyDown(b.textarea, { key: 'Enter' })
     await vi.waitFor(() => {
-      expect(b.sink).toHaveBeenCalledWith('/xyz 干点啥', [], 'queue', expect.any(AbortSignal))
+      expect(b.sink).toHaveBeenCalledWith('/xyz 干点啥', [], [], 'queue', expect.any(AbortSignal))
     })
     expect(b.shell.snapshot.phase).toBe('plain')
     expect(b.execute).not.toHaveBeenCalled()

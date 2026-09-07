@@ -15,7 +15,8 @@ import type { MessageId } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerBlock } from '../input/blocks.ts'
 import type {
-  ComposerKeyboard, DraftAttachmentId, EditSelection, InputActions, InputNotice, InputState,
+  ComposerFileDraft, ComposerKeyboard, DraftAttachmentId, EditSelection, InputActions, InputNotice,
+  InputState,
 } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
 import type { ComposerSubmitGesture, InputSubmitMode } from './composer-submission.ts'
@@ -499,6 +500,10 @@ export interface ComposerBarInjected {
   removeImage: ((id: DraftAttachmentId) => void) | undefined
   /** Resolve ordered input ids to browser-owned draft images. */
   draftImages: ((ids: readonly DraftAttachmentId[]) => readonly ComposerAttachment[]) | undefined
+  /** Begin draft-file uploads and append their chips to the session input. */
+  addFiles: ((files: readonly File[]) => void) | undefined
+  /** Remove one draft file (aborting its upload when still in flight). */
+  removeFile: ((id: DraftAttachmentId) => void) | undefined
   /** Resolve one keyboard submission gesture against the current running state and persisted preference. */
   resolveSubmitMode: (
     running: boolean,
@@ -529,6 +534,8 @@ export interface ComposerBarInjected {
     lexicon: ObservableSnapshot<ReadonlyMap<'/' | '@', readonly string[]>>
     /** Source name opened by the programmatic menu launcher, or null. */
     menuLauncher: ObservableSnapshot<string | null>
+    /** Live draft-file chips through their upload lifecycle (the chip row source). */
+    fileDrafts: ObservableSnapshot<readonly ComposerFileDraft[]>
   }
 }
 

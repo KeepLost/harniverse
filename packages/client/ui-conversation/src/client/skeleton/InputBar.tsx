@@ -10,9 +10,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  IconPlusOutline16, IconWarningOutline16, Toast, Tooltip,
+  IconPaperclipOutline16, IconPlusOutline16, IconWarningOutline16, Toast, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { AttachmentRail, DropOverlay, ImageLightbox } from '@deepseek-ai/dsh-client-ui-attachment'
+import { AttachmentRail, DropOverlay, FileChipRail, ImageLightbox } from '@deepseek-ai/dsh-client-ui-attachment'
 import type { AttachmentRailItem } from '@deepseek-ai/dsh-client-ui-attachment'
 // Type-only: the `plan` projection key merge (the TodoDock posture — the
 // composer reads a host-computed value; the domain owns the key).
@@ -28,7 +28,8 @@ import type { ComposerAttachment, ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
 import type { DraftDecorations } from '../input/decorations.ts'
 import {
-  attachmentErrorText, attachmentRailLabels, dropOverlayLabels, imageSizeText, lightboxLabels,
+  attachmentErrorText, attachmentRailLabels, dropOverlayLabels, fileChipLabels, imageSizeText,
+  lightboxLabels,
 } from '../image-labels.ts'
 import { ContextMeter } from './ContextMeter.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
@@ -48,8 +49,9 @@ export type InputBarProps = ComposerBarProps
 
 export function InputBar({
   useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages,
+  addFiles, removeFile,
   resolveSubmitMode, toggleCommandMenu, stop, command, t,
-  renderSlot, useNotices, useLexicon, useMenuLauncher,
+  renderSlot, useNotices, useLexicon, useMenuLauncher, useFileDrafts,
   useProjection, sessionId, variant, disabled: inert = false, blocked,
   workspacePickerOpen = false, onRequestWorkspace,
   placeholder, accessory, overlay, leftItems, rightItems, footer,
@@ -58,6 +60,7 @@ export function InputBar({
   const notice = useNotices(s => s)
   const lexicon = useLexicon(s => s)
   const commandMenuOpen = useMenuLauncher(source => source === 'command')
+  const fileChips = useFileDrafts(s => s)
   const promptError = useSession(s => s.promptError) ?? null
   const running = useSession(s => s.running) ?? false
   const subagent = useSession(s => s.subagent) ?? null
@@ -75,7 +78,11 @@ export function InputBar({
     () => input === undefined || draftImages === undefined ? [] : draftImages(input.imageIds),
     [draftImages, input?.imageIds],
   )
-  const empty = draft.trim() === '' && attachments.length === 0
+  // Done files make the send possible with an empty draft; uploading and
+  // error chips never do (an in-flight upload also locks the primary below).
+  const readyFileChips = fileChips.filter(chip => chip.status === 'done')
+  const uploadsInFlight = fileChips.some(chip => chip.status === 'uploading')
+  const empty = draft.trim() === '' && attachments.length === 0 && readyFileChips.length === 0
   const [preview, setPreview] = useState<ComposerAttachment | null>(null)
   const [dragActive, setDragActive] = useState(false)
   // Transient error banner (image-intake rejections and prompt failures): the
@@ -565,6 +572,16 @@ export function InputBar({
     if (el !== null) toggleCommandMenu?.(selectionOf(el))
   }
 
+  // The file entry: a hidden multiple input keeps the native picker behavior
+  // (OS dialog, same-file re-pick) behind one paperclip button. The value
+  // resets after every pick so choosing the same file twice re-uploads it.
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const onPickFiles = (e: ChangeEvent<HTMLInputElement>): void => {
+    const files = [...(e.target.files ?? [])]
+    e.target.value = ''
+    if (files.length > 0) addFiles?.(files)
+  }
+
   // Ordinary sessions retain their primary Send/Stop toggle. A continuable
   // child keeps Send as the primary action and exposes Stop independently so
   // pointer users can queue follow-ups while its current turn is running.
@@ -577,8 +594,9 @@ export function InputBar({
       return
     }
     if (inputActions === undefined) return // absent machine: the button is disabled
-    /* v8 ignore next -- defensive: the primary button is disabled while empty||disabled, so a click cannot reach the false arm. */
-    if (!empty && !disabled && !machineBusy) inputActions.submit()
+    /* v8 ignore next -- defensive: the primary button is disabled while
+     * empty||disabled||uploading, so a click cannot reach the false arm. */
+    if (!empty && !disabled && !machineBusy && !uploadsInFlight) inputActions.submit()
   }
 
   // The Access seat: the projection-fed permission chip (renders nothing
@@ -706,14 +724,23 @@ export function InputBar({
       >
         {overlay !== undefined && <div className={css.overlayAnchor}>{overlay}</div>}
         {accessory !== undefined && <div className={css.accessory}>{accessory}</div>}
-        {railItems.length > 0 && (
+        {(railItems.length > 0 || fileChips.length > 0) && (
           <div className={css.attachments}>
-            <AttachmentRail
-              items={railItems}
-              labels={attachmentRailLabels(t)}
-              onOpen={(item) => { setPreview(item.attachment) }}
-              onRemove={(item) => { removeImage?.(item.attachment.id) }}
-            />
+            {fileChips.length > 0 && (
+              <FileChipRail
+                items={fileChips}
+                labels={fileChipLabels(t)}
+                onRemove={(chip) => { removeFile?.(chip.id) }}
+              />
+            )}
+            {railItems.length > 0 && (
+              <AttachmentRail
+                items={railItems}
+                labels={attachmentRailLabels(t)}
+                onOpen={(item) => { setPreview(item.attachment) }}
+                onRemove={(item) => { removeImage?.(item.attachment.id) }}
+              />
+            )}
           </div>
         )}
         {/* One scrollport, two text layers. The hidden mirror renders draft+'\n' and stretches the
@@ -775,6 +802,27 @@ export function InputBar({
                 <IconPlusOutline16 size={14} />
               </button>
             </Tooltip>
+            <Tooltip label={t('file.choose')} side="top" delayMs={500}>
+              <button
+                type="button"
+                className={css.add}
+                aria-label={t('file.choose')}
+                disabled={locked || addFiles === undefined}
+                data-file-entry
+                onMouseDown={keepFocus}
+                onClick={() => { fileInputRef.current?.click() }}
+              >
+                <IconPaperclipOutline16 size={14} />
+              </button>
+            </Tooltip>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              hidden
+              data-file-input
+              onChange={onPickFiles}
+            />
             <div className={css.modes}>
               {accessSelect}
               {supervisionSelect}
@@ -807,7 +855,7 @@ export function InputBar({
                 type="button"
                 className={css.primary}
                 aria-label={primaryLabel}
-                disabled={primaryStops ? stop === undefined : empty || disabled || machineBusy}
+                disabled={primaryStops ? stop === undefined : empty || disabled || machineBusy || uploadsInFlight}
                 onMouseDown={keepFocus}
                 onClick={onPrimary}
               >

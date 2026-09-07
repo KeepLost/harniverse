@@ -3,7 +3,8 @@
  * application state; owners resolve every string). */
 
 import type {
-  AttachmentRailLabels, DropOverlayLabels, ImageLightboxLabels, MessageImageLabels,
+  AttachmentRailLabels, DropOverlayLabels, FileBadgeLabels, FileChipLabels, ImageLightboxLabels,
+  MessageImageLabels,
 } from '@deepseek-ai/dsh-client-ui-attachment'
 import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
@@ -52,6 +53,9 @@ export function attachmentErrorText(
     case 'IMAGES_TOO_LARGE':
       if (limits !== undefined) return t('image.totalTooLarge', { size: imageSizeText(limits.maxMessageImageBytes) })
       break
+    // Generic-file admission rejections (the whole prompt rolled back).
+    case 'ATTACHMENT_READ_FAILED': return t('file.readFailed')
+    case 'INVALID_ATTACHMENT_REF': return t('file.invalidRef')
     default: break
   }
   return t('image.sendFailed', { reason })
@@ -99,6 +103,46 @@ export function dropOverlayLabels(
     title: t('image.dropTitle'),
     desc: limits === undefined ? undefined : t('image.dropDesc', { count: limits.count, size: limits.size }),
   }
+}
+
+/**
+ * Resolve the composer draft-file rail strings.
+ * @param t - the conversation-namespace translate.
+ * @returns the chip-row group, remove-label, and uploading labels.
+ */
+export function fileChipLabels(t: Translate<ConversationKey>): FileChipLabels {
+  return {
+    group: t('file.pending'),
+    removeLabel: name => t('file.remove', { name }),
+    uploading: t('file.uploading'),
+  }
+}
+
+/**
+ * Resolve the message-flow file-badge strings.
+ * @param t - the conversation-namespace translate.
+ * @returns the badge-row group label.
+ */
+export function fileBadgeLabels(t: Translate<ConversationKey>): FileBadgeLabels {
+  return { group: t('file.badges') }
+}
+
+/**
+ * Product copy for one failed file upload (the composer chip's error line).
+ * The route's `{code, message}` failures map to actionable copy; everything
+ * else keeps the raw message when one exists, else a generic network line.
+ * @param t - the conversation-namespace translate.
+ * @param error - the transport rejection.
+ * @returns the chip error text.
+ */
+export function uploadErrorText(t: Translate<ConversationKey>, error: unknown): string {
+  if (typeof error !== 'object' || error === null) return t('file.failed')
+  const wire = error as { code?: unknown; status?: unknown }
+  if (wire.code === 'FILE_TOO_LARGE') return t('file.tooLarge')
+  if (wire.code === 'INVALID_FILE') return t('file.invalid')
+  if (wire.status === 403) return t('file.forbidden')
+  if (wire.status === 0) return t('file.networkError')
+  return error instanceof Error && error.message !== '' ? error.message : t('file.networkError')
 }
 
 /**
