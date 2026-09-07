@@ -18,6 +18,7 @@ import type {
 export { AttachmentId, ImageVariantId } from './brand.ts'
 export { AttachmentError } from './error.ts'
 export { admitEncodedImages } from './admission.ts'
+export { fileHandleText } from './file-handle.ts'
 export type {
   AttachmentId as AttachmentIdType,
   EncodedImageAttachment,

@@ -171,6 +171,8 @@ export interface SessionProjectionsBlock {
 export type PromptContentPart =
   | { type: 'text'; text: string }
   | { type: 'image'; mediaType: ImageMediaType; data: string; name?: string }
+  /** A prior upload receipt (POST /api/attachment/upload) admitted as prompt content. */
+  | { type: 'file'; attachmentId: string; bytes: number; name?: string; mediaType?: string }
 
 /** Complete model selection for one session. */
 export interface ModelSelection {
