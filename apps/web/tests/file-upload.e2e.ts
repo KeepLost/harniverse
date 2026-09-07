@@ -4,6 +4,10 @@
 // file parts, the log-only user/file event pair, the durable handle text the
 // model sees, the badge row's DOM shape, and the route's trust fence denying
 // a forged cross-origin caller. One deterministic replay turn.
+/* oxlint-disable typescript/no-unsafe-assignment, typescript/no-unsafe-member-access,
+ * typescript/no-unsafe-call, typescript/no-unsafe-return
+ * -- tsgolint resolves SessionEvent<'user/...'> generic narrowing as error-typed here;
+ * tsc -b apps/web verifies these accesses. */
 import { createHash } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -32,7 +36,7 @@ const DONE_MARKER = 'FILE_UPLOAD_DONE_001'
 
 function textStream(): StreamChunk[] {
   const response = `${FIRST_MARKER} acknowledged the attachment. ${DONE_MARKER}`
-  const deltas = [`${FIRST_MARKER} `, 'acknowledged ', 'the attachment. ', `${DONE_MARKER}`]
+  const deltas = [`${FIRST_MARKER} `, 'acknowledged ', 'the attachment. ', DONE_MARKER]
   return [
     { type: 'block-start', index: 0, blockType: 'text' },
     ...deltas.map(text => ({ type: 'text-delta' as const, index: 0, text })),

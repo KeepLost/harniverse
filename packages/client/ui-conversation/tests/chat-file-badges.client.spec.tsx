@@ -119,7 +119,7 @@ describe('messageDefinition files projection', () => {
           data: { id: 'm1', content: [], source: { kind: 'user', files } },
         },
       } as never,
-      { previous: () => (claimed === true ? { state: { claimed: new Set(['m1']) } } : undefined) } as never,
+      { previous: () => (claimed ? { state: { claimed: new Set(['m1']) } } : undefined) } as never,
     ) as { kind: string; files?: unknown }
 
     expect(start(false)).toMatchObject({ kind: 'user', files })

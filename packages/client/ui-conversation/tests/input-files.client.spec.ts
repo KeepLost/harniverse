@@ -29,7 +29,7 @@ function transport() {
     new Promise<FileAttachmentRef>((resolve, reject) => {
       const entry = { file, onProgress, signal, resolve, reject }
       calls.push(entry)
-      signal.addEventListener('abort', () => reject(new Error('aborted')))
+      signal.addEventListener('abort', () => { reject(new Error('aborted')) })
     })
   const fileUploads = {
     upload,
