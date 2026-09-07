@@ -131,6 +131,11 @@ describe('web e2e: Markdown inline-code links', () => {
 
     expect(await page.getByText(`curl ${linkUrl}`, { exact: true }).locator('a').count()).toBe(0)
     expect(await page.getByText('javascript:alert(1)', { exact: true }).locator('a').count()).toBe(0)
+    // Closing the app popup can leave the original tab's session projections refreshing.
+    await page.getByRole('navigation', { name: 'Session hierarchy' })
+      .getByRole('button', { name: 'Inline code links', exact: true, disabled: true }).waitFor()
+    await page.getByRole('button', { name: 'Access mode, current: Workspace Write', exact: true }).waitFor()
+    await page.getByRole('button', { name: 'Supervision mode: Supervised', exact: true }).waitFor()
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
       .split(linkUrl).join('{{linkUrl}}')
