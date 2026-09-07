@@ -46,10 +46,10 @@ const REF: FileAttachmentRef = {
   name: 'a.txt',
 }
 
-function provideStore(ctx: Context, failWith?: () => never): void {
+function provideStore(ctx: Context, failWith?: () => never, noLimits?: boolean): void {
   ctx.provide('attachments', {
     imageLimits: {},
-    fileLimits: { maxFileBytes: 1024 },
+    ...(noLimits === true ? {} : { fileLimits: { maxFileBytes: 1024 } }),
     saveFile: (input: SaveFileAttachment) => {
       saves.push(input)
       if (failWith !== undefined) failWith()
@@ -62,7 +62,7 @@ function provideStore(ctx: Context, failWith?: () => never): void {
 
 function uploadRequest(
   body: string,
-  headers: Record<string, string | undefined> = {},
+  headers: Record<string, string | string[] | undefined> = {},
 ): IncomingMessage {
   const request = Readable.from([Buffer.from(body)]) as unknown as IncomingMessage
   Object.assign(request, {
@@ -94,7 +94,7 @@ interface Mounted {
   dispose: () => Promise<void>
 }
 
-async function mounted(principal: AuthenticationPrincipal, failWith?: () => never): Promise<Mounted> {
+async function mounted(principal: AuthenticationPrincipal, failWith?: () => never, noLimits?: boolean): Promise<Mounted> {
   const ctx = new Context()
   const routes: WebRoute[] = []
   ctx.provide('webServer', {
@@ -106,7 +106,7 @@ async function mounted(principal: AuthenticationPrincipal, failWith?: () => neve
     protocol: 'http:',
   })
   provideAuthentication(ctx, principal)
-  provideStore(ctx, failWith)
+  provideStore(ctx, failWith, noLimits)
   const fiber = ctx.plugin({
     name: 'attachment-routes-test',
     inject: ['webServer', 'authentication', 'attachments'],
@@ -137,8 +137,101 @@ describe('attachment upload route', () => {
     await dispose()
   })
 
-  it('refuses an unauthenticated upload with 401 before reading the body', async () => {
+  it('refuses a request outside the /api trust fence with a bare 403', async () => {
+    saves.length = 0
+    const { route, dispose } = await mounted(OPERATE_PRINCIPAL)
+    const { res, state } = responseRecorder()
+    await route.handler(uploadRequest('data', { host: '10.0.0.9:8080' }), res)
+    expect(state.status).toBe(403)
+    expect(state.body).toBe('forbidden')
+    expect(saves).toHaveLength(0)
+
+    const bare = responseRecorder()
+    const request = Readable.from([Buffer.from('data')]) as unknown as IncomingMessage
+    Object.assign(request, {
+      method: 'POST',
+      headers: { host: '10.0.0.9:8080' },
+      socket: {},
+    })
+    await route.handler(request, bare.res)
+    expect(bare.state.status).toBe(403)
+    await dispose()
+  })
+
+  it('accepts an upload without a name or declared media type and collapses repeated headers', async () => {
+    saves.length = 0
+    const { route, dispose } = await mounted(OPERATE_PRINCIPAL)
+    const { res, state } = responseRecorder()
+    await route.handler(uploadRequest('data', { 'x-attachment-name': undefined, 'content-type': undefined }), res)
+    expect(state.status).toBe(200)
+    expect(saves).toHaveLength(1)
+    expect(saves[0]!.name).toBeUndefined()
+    expect(saves[0]!.mediaType).toBeUndefined()
+
+    const repeated = responseRecorder()
+    await route.handler(uploadRequest('data', { 'content-type': ['text/plain; charset=utf-8', 'text/html'] as unknown as string }), repeated.res)
+    expect(repeated.state.status).toBe(200)
+    expect(saves[1]!.mediaType).toBe('text/plain')
+
+    const bare = responseRecorder()
+    await route.handler(uploadRequest('data', { 'content-type': '; boundary=nothing' }), bare.res)
+    expect(bare.state.status).toBe(200)
+    expect(saves[2]!.mediaType).toBeUndefined()
+    await dispose()
+  })
+
+  it('reports an interrupted request stream as a plain upload failure', async () => {
+    saves.length = 0
+    const { route, dispose } = await mounted(OPERATE_PRINCIPAL)
+    const { res, state } = responseRecorder()
+    const request = new Readable({ read() {} }) as unknown as IncomingMessage
+    Object.assign(request, {
+      url: UPLOAD_PATH,
+      method: 'POST',
+      headers: { host: '127.0.0.1:3080', 'content-type': 'text/plain' },
+      socket: { remoteAddress: '127.0.0.1' },
+    })
+    const pending = route.handler(request, res)
+    await new Promise((resolve) => { setImmediate(resolve) })
+    request.emit('error', new Error('connection reset'))
+    await pending
+    expect(state.status).toBe(500)
+    expect(state.body).toBe('upload failed')
+    expect(saves).toHaveLength(0)
+    await dispose()
+  })
+
+  it('reports missing attachment storage with 501 and reads without configured file limits', async () => {
+    saves.length = 0
     const ctx = new Context()
+    const routes: WebRoute[] = []
+    ctx.provide('webServer', {
+      register(route: WebRoute) { routes.push(route); return () => {} },
+      registerUpgrade: () => () => {},
+      tapIndex: () => () => {},
+      port: 0, host: '127.0.0.1', protocol: 'http:',
+    })
+    provideAuthentication(ctx, OPERATE_PRINCIPAL)
+    const fiber = ctx.plugin({
+      name: 'attachment-routes-nostore-test',
+      inject: ['webServer', 'authentication'],
+      apply: (pluginCtx: Context) => { registerAttachmentRoutes(pluginCtx, [], []) },
+    })
+    await fiber.await()
+    const missing = responseRecorder()
+    await routes[0]!.handler(uploadRequest('data'), missing.res)
+    expect(missing.state.status).toBe(501)
+    await fiber.dispose()
+
+    const { route, dispose } = await mounted(OPERATE_PRINCIPAL, undefined, true)
+    const unlimited = responseRecorder()
+    await route.handler(uploadRequest('data', { 'content-length': '999999999999' }), unlimited.res)
+    expect(unlimited.state.status).toBe(200)
+    expect(saves).toHaveLength(1)
+    await dispose()
+  })
+
+  it('refuses an unauthenticated upload with 401 before reading the body', async () => {    const ctx = new Context()
     const routes: WebRoute[] = []
     ctx.provide('webServer', {
       register(route: WebRoute) { routes.push(route); return () => {} },
@@ -157,7 +250,13 @@ describe('attachment upload route', () => {
     })
     await fiber.await()
     const { res, state } = responseRecorder()
-    await routes[0]!.handler(uploadRequest('data'), res)
+    const anonymous = Readable.from([Buffer.from('data')]) as unknown as IncomingMessage
+    Object.assign(anonymous, {
+      method: 'POST',
+      headers: { host: '127.0.0.1:3080' },
+      socket: { remoteAddress: '127.0.0.1' },
+    })
+    await routes[0]!.handler(anonymous, res)
     expect(state.status).toBe(401)
     await fiber.dispose()
   })
@@ -215,6 +314,15 @@ describe('attachment upload route', () => {
     await invalid.route.handler(uploadRequest(''), empty.res)
     expect(empty.state.status).toBe(400)
     await invalid.dispose()
+
+    const unclassified = await mounted(OPERATE_PRINCIPAL, () => {
+      throw new AttachmentError('Storage refused the write.', 'ATTACHMENT_WRITE_FAILED')
+    })
+    const failed = responseRecorder()
+    await unclassified.route.handler(uploadRequest('data'), failed.res)
+    expect(failed.state.status).toBe(500)
+    expect(JSON.parse(failed.state.body!)).toMatchObject({ code: 'ATTACHMENT_WRITE_FAILED' })
+    await unclassified.dispose()
   })
 
   it('refuses an undecodable attachment-name header with 400', async () => {

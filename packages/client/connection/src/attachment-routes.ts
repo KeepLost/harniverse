@@ -64,6 +64,8 @@ function headerValue(value: string | string[] | undefined): string | undefined {
 
 /** Strip content-type parameters to the bare declared media type. */
 function declaredMediaType(value: string | string[] | undefined): string | undefined {
+  /* v8 ignore next -- callers pass headerValue's single-value collapse, so the
+   * array arm is defensive totality over Node's raw header domain. */
   const raw = Array.isArray(value) ? value[0] : value
   if (raw === undefined) return undefined
   const bare = raw.split(';', 1)[0]?.trim()

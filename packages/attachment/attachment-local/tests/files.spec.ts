@@ -1,7 +1,7 @@
 /** Generic-file storage: raw content-addressed bytes plus read-only hard-link handle publication. */
 
 import { createHash } from 'node:crypto'
-import { stat, writeFile } from 'node:fs/promises'
+import { mkdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -69,6 +69,12 @@ describe('saveFileObject', () => {
     await expect(saveFileObject(root, { data: new Uint8Array(0) }, LIMITS))
       .rejects.toMatchObject({ code: 'INVALID_FILE' })
   })
+
+  it('drops a display name that sanitizes to only whitespace', async () => {
+    const root = await freshRoot()
+    const ref = await saveFileObject(root, { data: new Uint8Array([5]), name: '   ' }, LIMITS)
+    expect(ref.name).toBeUndefined()
+  })
 })
 
 describe('readFileObject', () => {
@@ -81,6 +87,34 @@ describe('readFileObject', () => {
     await expect(readFileObject(root, ref)).rejects.toMatchObject({ code: 'ATTACHMENT_CORRUPT' })
     await expect(readFileObject(root, { attachmentId: AttachmentId(`sha256:${'0'.repeat(64)}`), bytes: 2 }))
       .rejects.toMatchObject({ code: 'ATTACHMENT_NOT_FOUND' })
+  })
+
+  it('reports a read failure that is not a missing object as ATTACHMENT_READ_FAILED', async () => {
+    const root = await freshRoot()
+    const sha = 'd'.repeat(64)
+    // A directory where the object belongs reads as EISDIR, not ENOENT.
+    await mkdir(join(root, 'objects', sha.slice(0, 2), sha), { recursive: true })
+    await expect(readFileObject(root, { attachmentId: AttachmentId(`sha256:${sha}`), bytes: 2 }))
+      .rejects.toMatchObject({ code: 'ATTACHMENT_READ_FAILED' })
+  })
+
+  it('flags a stored object whose declared length disagrees with its reference', async () => {
+    const root = await freshRoot()
+    const data = new Uint8Array([11, 22, 33, 44])
+    const sha = digest(data)
+    await mkdir(join(root, 'objects', sha.slice(0, 2)), { recursive: true })
+    await writeFile(join(root, 'objects', sha.slice(0, 2), sha), data)
+    await expect(readFileObject(root, { attachmentId: AttachmentId(`sha256:${sha}`), bytes: 3 }))
+      .rejects.toMatchObject({ code: 'ATTACHMENT_CORRUPT' })
+  })
+
+  it('preserves an aborted read signal reason before classifying the failure', async () => {
+    const root = await freshRoot()
+    const data = new Uint8Array([6, 6])
+    const ref = await saveFileObject(root, { data }, LIMITS)
+    const controller = new AbortController()
+    controller.abort(new Error('read cancelled'))
+    await expect(readFileObject(root, ref, controller.signal)).rejects.toThrow('read cancelled')
   })
 })
 
@@ -99,6 +133,16 @@ describe('publishFileHandle', () => {
     const after = await stat(path)
     // Same inode: the hard link and the object share content, not a copy.
     expect(after.ino).toBe(before.ino)
+  })
+
+  it('reports a publication failure that is not a same-inode link as ATTACHMENT_WRITE_FAILED', async () => {
+    const root = await freshRoot()
+    const sha = 'e'.repeat(64)
+    // A directory where the object belongs makes link(2) fail with a code
+    // other than EEXIST, which is a genuine publication failure.
+    await mkdir(join(root, 'objects', sha.slice(0, 2), sha), { recursive: true })
+    await expect(publishFileHandle(root, { attachmentId: AttachmentId(`sha256:${sha}`), bytes: 1, name: 'x.bin' }))
+      .rejects.toMatchObject({ code: 'ATTACHMENT_WRITE_FAILED' })
   })
 
   it('falls back to a .bin leaf and sanitizes separators when no usable name exists', async () => {

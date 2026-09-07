@@ -26,4 +26,9 @@ describe('fileHandleText', () => {
     expect(fileHandleText({ attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`), bytes: 7 }, path))
       .toBe(fileHandleText({ attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`), bytes: 7 }, path))
   })
+
+  it('rounds large magnitudes to whole units', () => {
+    const text = fileHandleText({ attachmentId: AttachmentId(`sha256:${'b'.repeat(64)}`), bytes: 16_384 }, '/x/links/bbbbbbbb-a.tar')
+    expect(text).toContain('16 KB')
+  })
 })

@@ -32,6 +32,9 @@ const UNSAFE_LEAF_CHARACTERS = /[/\\:*?"<>|]/g
 function safeLeaf(value: string | undefined): string | undefined {
   if (value === undefined) return undefined
   const safe = value.replace(UNSAFE_LEAF_CHARACTERS, '_').trim()
+  /* v8 ignore next -- displayName already trims to non-empty; replacing the
+   * unsafe characters never empties a non-empty string, so this arm is
+   * defensive totality over the input domain. */
   return safe === '' ? undefined : safe
 }
 
@@ -127,6 +130,9 @@ export async function publishFileHandle(root: string, ref: FileAttachmentRef): P
     // The link and its object are content-addressed: an existing link with
     // this exact name is the same inode, so re-publishing is a no-op.
     if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) {
+      /* v8 ignore next -- publishFileHandle's guarded calls throw OS errors,
+       * never AttachmentError; the re-throw arm keeps a future call change
+       * from swallowing a classified failure. */
       if (error instanceof AttachmentError) throw error
       throw new AttachmentError('Unable to publish the file handle link.', 'ATTACHMENT_WRITE_FAILED', { cause: error })
     }
