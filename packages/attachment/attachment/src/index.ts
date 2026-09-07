@@ -3,6 +3,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import { AttachmentError } from './error.ts'
 import type {
+  FileAttachmentLimits,
   FileAttachmentRef,
   ImageAttachmentLimits,
   ImageAttachmentRef,
@@ -47,6 +48,12 @@ export abstract class AttachmentStore extends Service {
 
   /** Deployment-resolved image policy used by authoritative and fast-path validation. */
   abstract readonly imageLimits: ImageAttachmentLimits
+
+  /**
+   * Deployment-resolved generic-file policy; providers that do not accept
+   * generic files leave this undefined and keep the default refusals.
+   */
+  readonly fileLimits?: FileAttachmentLimits
 
   /**
    * Validate one image without persisting it.
