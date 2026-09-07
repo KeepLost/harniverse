@@ -172,6 +172,33 @@ describe('web upload transport', () => {
     await expect(pending).rejects.toThrow('connection.upload: malformed receipt')
   })
 
+  it('rejects a receipt whose byte count is not a number', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXhr)
+    const pending = transport()(request())
+    const xhr = FakeXhr.instances[0]
+    if (xhr === undefined) throw new Error('xhr missing')
+    xhr.status = 200
+    xhr.responseText = JSON.stringify({ attachmentId: `sha256:${'a'.repeat(64)}`, bytes: '8' })
+    xhr.onload?.()
+    await expect(pending).rejects.toThrow('connection.upload: malformed receipt')
+  })
+
+  it('copies a bare Uint8Array body into its own buffer for XHR typing', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXhr)
+    const bytes = new Uint8Array([1, 2, 3, 4])
+    const pending = transport()(request({ data: bytes }))
+    const xhr = FakeXhr.instances[0]
+    if (xhr === undefined) throw new Error('xhr missing')
+    xhr.status = 200
+    xhr.responseText = JSON.stringify({ attachmentId: `sha256:${'b'.repeat(64)}`, bytes: 4 })
+    xhr.onload?.()
+    await expect(pending).resolves.toSatisfy((ref: unknown) =>
+      ref instanceof Object && (ref as { bytes: number }).bytes === 4)
+    const sent = FakeXhr.send.mock.calls[0]?.[0]
+    expect(sent).toBeInstanceOf(ArrayBuffer)
+    expect(sent).not.toBe(bytes.buffer)
+  })
+
   it('bridges AbortSignal to xhr.abort and reports pre-aborted signals', async () => {
     vi.stubGlobal('XMLHttpRequest', FakeXhr)
     const controller = new AbortController()
@@ -181,6 +208,13 @@ describe('web upload transport', () => {
     controller.abort()
     expect(xhr.aborted).toBe(true)
     await expect(pending).rejects.toThrow('aborted')
+
+    const stringReason = new AbortController()
+    const reasonPending = transport()(request(), hooks({ signal: stringReason.signal }))
+    const reasonXhr = FakeXhr.instances[1]
+    if (reasonXhr === undefined) throw new Error('reason xhr missing')
+    stringReason.abort('caller cancelled')
+    await expect(reasonPending).rejects.toThrow('connection.upload: aborted')
 
     const preAborted = new AbortController()
     preAborted.abort()

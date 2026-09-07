@@ -24,6 +24,9 @@ export function fileSizeText(bytes: number): string {
 /** LinkIcon category for one file name (document/other link-color language). */
 function fileGlyph(name: string): ReturnType<typeof classifyLinkPath> {
   const classified = classifyLinkPath(name)
+  /* v8 ignore next -- classifyLinkPath never returns 'folder' or 'url' (those
+   * kinds are caller-supplied elsewhere); the arms keep this mapper total over
+   * LinkIconKind if that ever changes. */
   return classified === 'folder' || classified === 'url' ? 'other' : classified
 }
 
