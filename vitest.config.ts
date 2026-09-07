@@ -191,6 +191,11 @@ export default defineConfig({
         'packages/*/*/src/types.ts',
         'packages/*/*/src/bin.ts',
         'packages/*/*/src/worker.ts',
+        // The dsh-base bundle's module is a doc-comment placeholder (`export {}`);
+        // its substance is cordis.patch.yml, pinned by tests/base.spec.ts. The
+        // Windows v8 provider still emits a zero-coverage entry for the empty
+        // module wrapper, so the placeholder is exempted explicitly.
+        'packages/bundle/base/src/index.ts',
         // Dynamic Host/Client composition is covered by its focused lifecycle
         // tests and assembled application checks rather than per-file coverage.
         'packages/self-modification/*/src/**/*.{ts,tsx}',

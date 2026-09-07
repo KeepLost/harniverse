@@ -16,6 +16,7 @@ import type { SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/cli
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { SessionInputShell } from '../src/client/input/facade.ts'
+import { stubFileUploads } from './input-file-uploads.client.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import { zh } from '../src/client/locales.ts'
@@ -52,12 +53,15 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
     keyboard: shell,
     addImages: () => null,
     removeImage: () => {},
+    addFiles: () => {},
+    removeFile: () => {},
     draftImages: () => [],
     resolveSubmitMode: () => 'queue',
     toggleCommandMenu: vi.fn(),
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
     useMenuLauncher: bindSnapshotSelector(createSnapshotStore<string | null>(null)),
+    useFileDrafts: bindSnapshotSelector(shell.fileDrafts),
     renderSlot: (() => null) as InputBarProps['renderSlot'],
     stop: vi.fn(),
     command: () => Promise.resolve(true),
@@ -70,7 +74,7 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
 
 function bench(over?: { running?: boolean; disabled?: boolean; submit?: (args: string) => Promise<SubmitOutcome> }) {
   const sink = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
-  const shell = new SessionInputShell({ actx: SCTX, defaultSink: sink })
+  const shell = new SessionInputShell({ fileUploads: stubFileUploads, actx: SCTX, defaultSink: sink })
   const wiring = shell
   const view = mountBar(shell, over)
   const textarea = view.container.querySelector('textarea')!
@@ -95,7 +99,7 @@ describe('matrix row: plain', () => {
     fireEvent.change(textarea, { target: { value: '普通消息' } })
     expect(shell.snapshot.claim).toBeUndefined()
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('普通消息', [], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('普通消息', [], [], 'queue', expect.any(AbortSignal))
     expect(shell.snapshot.phase).toBe('submitting')
     await vi.waitFor(() => { expect(shell.snapshot.phase).toBe('plain') })
   })
@@ -195,7 +199,7 @@ describe('matrix row: locked (session disabled)', () => {
     expect((textarea).disabled).toBe(false)
     fireEvent.change(textarea, { target: { value: '排队' } })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('排队', [], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('排队', [], [], 'queue', expect.any(AbortSignal))
   })
 })
 

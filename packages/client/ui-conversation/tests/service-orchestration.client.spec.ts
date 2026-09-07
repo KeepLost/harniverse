@@ -58,9 +58,49 @@ describe('ConversationController', () => {
     await b.scoped.cancel()
     await b.scoped.loadOlder()
     expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'hello' }], 'queue')
-    expect(b.updateQueue).toHaveBeenCalledWith('item-1', { kind: 'remove' })
+    expect(b.updateQueue).toHaveBeenCalledWith('item-1' as never, { kind: 'remove' })
     expect(b.cancel).toHaveBeenCalledOnce()
     expect(b.loadOlder).toHaveBeenCalledOnce()
+    await b.runtime.dispose()
+  })
+
+  it('assembles file parts before image parts and text in sendSession', async () => {
+    const b = await bench()
+    const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:draft-file-1')
+    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)
+    try {
+      const [attachment] = b.root.createDraftImages([
+        new File([new Uint8Array(4)], 'pic.png', { type: 'image/png' }),
+      ])
+      if (attachment === undefined) throw new Error('draft attachment missing')
+      const refs = [
+        {
+          attachmentId: AttachmentId(`sha256:${'1'.repeat(64)}`),
+          bytes: 12,
+          name: '笔记.txt',
+          mediaType: 'text/plain',
+        },
+        { attachmentId: AttachmentId(`sha256:${'2'.repeat(64)}`), bytes: 2048 },
+      ]
+      const session = b.runtime.sessions.binding('s1')!.session
+      await b.root.sendSession(session, '请分析', [attachment.id], refs, 'queue')
+      expect(b.prompt).toHaveBeenCalledTimes(1)
+      const [content, mode] = b.prompt.mock.calls[0] as unknown as [{ type: string }[], string]
+      expect(mode).toBe('queue')
+      expect(content.map(part => part.type)).toEqual(['file', 'file', 'image', 'text'])
+      expect(content[0]).toEqual({
+        type: 'file',
+        attachmentId: `sha256:${'1'.repeat(64)}`,
+        bytes: 12,
+        name: '笔记.txt',
+        mediaType: 'text/plain',
+      })
+      expect(content[1]).toEqual({ type: 'file', attachmentId: `sha256:${'2'.repeat(64)}`, bytes: 2048 })
+      expect(b.root.draftImages([attachment.id])).toHaveLength(0)
+    } finally {
+      created.mockRestore()
+      revoked.mockRestore()
+    }
     await b.runtime.dispose()
   })
 

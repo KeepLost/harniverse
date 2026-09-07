@@ -299,6 +299,9 @@ export class ReactLoopAgent implements Agent {
         phase.step = step
         try {
           for (const message of decision.messages) {
+            if (message.source.kind === 'user' && message.source.files !== undefined && message.source.files.length > 0) {
+              this.session.append('user/file', { files: message.source.files })
+            }
             this.session.append('user/message', message, { surfaceOp: 'append' })
           }
           // max-tokens is sticky: once any step hits the ceiling, later steps

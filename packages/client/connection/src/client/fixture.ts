@@ -20,7 +20,8 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from '@deepseek-ai/dsh-llm'
-import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentIdType, FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { FileUploadProgress, FileUploadRequest, FileUploadTransport } from './upload.ts'
 import type {
   SessionEvent,
   SessionId,
@@ -55,6 +56,50 @@ function text(t: string): ContentBlock[] {
 
 function userMessage(content: ContentBlock[], source: MessageSource = { kind: 'user' }): UserMessage {
   return createUserMessage({ content, source })
+}
+
+/** Byte size in the host handle text's human format (pinned to dsh-attachment/file-handle). */
+function fixtureHumanBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let unit = -1
+  do {
+    value /= 1024
+    unit += 1
+  } while (value >= 1024 && unit < units.length - 1)
+  return `${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10} ${units[unit]}`
+}
+
+/**
+ * Handle text for one admitted fixture file — the same three-line shape the
+ * Host's admission writes (pinned to `fileHandleText` in
+ * dsh-attachment/file-handle), with the fixture's synthetic read-only path.
+ */
+function fixtureFileHandleText(ref: FileAttachmentRef): string {
+  const sha8 = String(ref.attachmentId).slice('sha256:'.length, 'sha256:'.length + 8)
+  const name = ref.name ?? sha8
+  return [
+    `[文件] ${name} · ${fixtureHumanBytes(ref.bytes)} · sha256:${sha8}`,
+    `只读路径: /fixture/attachments/v1/links/${sha8}.bin`,
+    '用 read 工具读取该路径获得内容；不要凭名字猜测内容。',
+  ].join('\n')
+}
+
+/** Deterministic sha256-shaped id (64 lowercase hex) for fixture uploads. */
+function fixtureFileAttachmentId(name: string, bytes: number): string {
+  let out = ''
+  let round = 0
+  while (out.length < 64) {
+    let state = 0x811c9dc5 ^ Math.imul(round + 1, 0x9e3779b1)
+    for (const char of `${name}\u0000${bytes}\u0000${round}`) {
+      state ^= char.codePointAt(0) ?? 0
+      state = Math.imul(state, 0x01000193) >>> 0
+    }
+    out += (state >>> 0).toString(16).padStart(8, '0')
+    round += 1
+  }
+  return out.slice(0, 64)
 }
 
 function assistantMessage(content: ContentBlock[], model = 'fx-1'): AssistantMessage {
@@ -1494,6 +1539,8 @@ export interface FixtureWorld {
   readonly api: ApiProxy
   /** Generic Remote caller for the endpoints business services own. */
   readonly rpc: ClientConnectionRpc
+  /** In-memory upload transport minting receipts the prompt path admits. */
+  readonly upload: FileUploadTransport
 }
 
 /**
@@ -1523,6 +1570,32 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     String(FIXTURE_IMAGE_REF.attachmentId),
     { attachment: FIXTURE_IMAGE_REF, data: FIXTURE_IMAGE_DATA },
   ]])
+  /** Uploaded generic-file receipts; prompt admission is fail-closed against this table. */
+  const fileAttachments = new Map<string, FileAttachmentRef>()
+  /**
+   * Fixture upload: no network, no real digest — the deterministic id keys the
+   * receipt into `fileAttachments` so the prompt path can verify it exactly as
+   * the live one does against the Host store.
+   */
+  const upload: FileUploadTransport = async (request: FileUploadRequest, hooks) => {
+    const bytes =
+      request.data instanceof Blob
+        ? request.data.size
+        : request.data.byteLength
+    const name = request.name ?? ''
+    hooks?.onProgress?.({ loaded: 0, total: bytes } satisfies FileUploadProgress)
+    await Promise.resolve()
+    if (hooks?.signal?.aborted) throw new Error('fixture upload: aborted')
+    const ref: FileAttachmentRef = {
+      attachmentId: `sha256:${fixtureFileAttachmentId(name, bytes)}` as FileAttachmentRef['attachmentId'],
+      bytes,
+      ...(name === '' ? {} : { name }),
+      ...(request.mediaType === undefined ? {} : { mediaType: request.mediaType }),
+    }
+    fileAttachments.set(String(ref.attachmentId), ref)
+    hooks?.onProgress?.({ loaded: bytes, total: bytes } satisfies FileUploadProgress)
+    return ref
+  }
   /** Credential store double: set/unset flip the describe badge, values never read back. */
   const fixtureCredentials = new Map<string, true>([
     // The assembled fixture represents an already-configured shipped
@@ -2529,8 +2602,29 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         // First accepted prompt appends events: the summary stops being blank.
         summary.blank = false
         const userText = content.map(b => (b.type === 'text' ? b.text : '')).join('')
-        const durable: ContentBlock[] = content.map((block) => {
-          if (block.type === 'text') return block
+        // File admission (host parallel): receipts verified fail-closed against
+        // the upload table, then one deterministic handle-text block per part
+        // and the deduplicated refs riding source.files + a preceding user/file.
+        const files: FileAttachmentRef[] = []
+        const durable: ContentBlock[] = []
+        for (const block of content) {
+          if (block.type === 'text') {
+            durable.push(block)
+            continue
+          }
+          if (block.type === 'file') {
+            const stored = fileAttachments.get(block.attachmentId)
+            if (stored === undefined) {
+              return err(request, {
+                code: 'attachment-error',
+                message: 'fixture: file attachment was not uploaded',
+                details: { reason: 'ATTACHMENT_READ_FAILED' },
+              })
+            }
+            if (!files.some(file => file.attachmentId === stored.attachmentId)) files.push(stored)
+            durable.push({ type: 'text', text: fixtureFileHandleText(stored) })
+            continue
+          }
           const attachment: ImageAttachmentRef = {
             attachmentId: `fixture:${randomUuid()}` as AttachmentIdType,
             mediaType: block.mediaType,
@@ -2544,11 +2638,12 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
             ...block.name === undefined ? {} : { name: block.name },
           }
           attachments.set(String(attachment.attachmentId), { attachment, data: block.data })
-          return { type: 'image', attachment }
-        })
-        const message = userMessage(durable)
+          durable.push({ type: 'image', attachment })
+        }
+        const message = userMessage(durable, files.length === 0 ? { kind: 'user' } : { kind: 'user', files })
         if (mode === 'steer' && replays.has(id)) {
           // Steering: the durable user/message lands inside the current turn; the replay continues.
+          if (files.length > 0) append(id, { type: 'user/file', data: { files: [...files] } })
           append(id, { type: 'user/message', surfaceOp: 'append', data: message })
           return ok(request, { accepted: true as const, messageId: message.id, operationId: `operation:${message.id}` })
         }
@@ -2562,6 +2657,8 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         if (plan.wanted !== null && plan.wanted !== plan.active) {
           append(id, { type: 'plan/mode', data: { active: plan.wanted } })
         }
+        // Host parallel: the log-only file event immediately precedes its message.
+        if (files.length > 0) append(id, { type: 'user/file', data: { files: [...files] } })
         append(id, { type: 'user/message', surfaceOp: 'append', data: message })
         // Capacity parallel of the host token-meter's request/context record:
         // log-only, appended inside the open turn, and deduplicated against the
@@ -3304,7 +3401,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       }
     },
   }
-  return { api, rpc }
+  return { api, rpc, upload }
 }
 
 /**
@@ -3318,12 +3415,15 @@ export class FixtureApiClient extends AbstractApiClient {
   private readonly fixtureApi: ApiProxy
   /** Generic Remote caller backed by the same in-memory state as the legacy fixture API. */
   readonly rpc: ClientConnectionRpc
+  /** In-memory upload transport over the same state graph (receipts the prompt path admits). */
+  readonly upload: FileUploadTransport
 
   constructor() {
     super()
     const world = createFixtureWorld(fixtureOptionsFromLocation())
     this.fixtureApi = world.api
     this.rpc = world.rpc
+    this.upload = world.upload
   }
 
   protected doFetch(): Promise<Response> {

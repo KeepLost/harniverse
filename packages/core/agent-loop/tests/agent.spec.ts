@@ -1,4 +1,5 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
@@ -163,5 +164,34 @@ describe('Agent', () => {
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('agent event "agent/status" listener threw'),
     )
+  })
+
+  it('logs a user/file record immediately before a claimed prompt carrying file references', async () => {
+    const ctx = await harness(new MockAdapter([textResponse('ok'), textResponse('done')]))
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const ref = {
+      attachmentId: AttachmentId(`sha256:${'b'.repeat(64)}`),
+      bytes: 12,
+      name: 'notes.txt',
+    }
+
+    agent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'see the file' }],
+      source: { kind: 'user', files: [ref] },
+    }))
+    await agent.whenIdle()
+
+    const types = agent.session.events.map(event => event.type)
+    const messageIndex = types.indexOf('user/message')
+    const fileIndex = types.indexOf('user/file')
+    expect(fileIndex).toBe(messageIndex - 1)
+    const record = agent.session.events[fileIndex]
+    if (record?.type !== 'user/file') throw new Error('expected a user/file event')
+    expect(record.data.files).toEqual([ref])
+
+    // A text-only prompt never produces the record.
+    send(agent, 'plain')
+    await agent.whenIdle()
+    expect(agent.session.events.filter(event => event.type === 'user/file')).toHaveLength(1)
   })
 })

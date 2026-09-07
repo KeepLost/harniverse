@@ -849,6 +849,11 @@ function normalizeAria(snapshot: string, workspaceCwd: string): string {
     .replace(/\d{1,2}月\d{1,2}日 \d{2}:\d{2}/g, '{{clock}}')
     .replace(/(?<!\d)\d{1,2}:\d{2}:\d{2}(?:\.\d+)?(?:\s*[AP]M)?(?!\d)/gi, '{{clock}}')
     .replace(/(?<!\d)\d{2}:\d{2}(?!\d)/g, '{{clock}}')
+    // Session-tree rows carry transient activity prefixes ("Running …",
+    // "Completed …") whose arrival races slower terminal event streams across
+    // runners; collapse them so goldens compare the settled row identity,
+    // not the arrival frame.
+    .replace(/^( *- treeitem ")(?:Running |Completed )/gm, '$1')
 }
 
 /**

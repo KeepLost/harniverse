@@ -9,7 +9,9 @@ import { sameAuthenticationPrincipalIdentity, type HostDescription, type IApiCli
 import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type ConnectionState } from './connection.ts'
 import { FixtureApiClient } from './fixture.ts'
 import { WebApiClient } from './web-api-client.ts'
-import { createWebConnectionRpc } from './rpc.ts'
+import { createWebConnectionRpc, resolveBase } from './rpc.ts'
+import { createWebFileUploadTransport } from './upload.ts'
+import type { FileUploadTransport } from './upload.ts'
 import { isLoopbackHostname } from '../loopback-hostname.ts'
 import type { ClientConnectionRpc } from '../rpc.ts'
 
@@ -88,6 +90,12 @@ export interface ConnectionHandle {
   /** Generic logical RPC channels over the same Connection transport. */
   readonly rpc: ClientConnectionRpc
   /**
+   * Upload one file's raw bytes to the Host attachment route and resolve its
+   * content-addressed receipt (fixture mode: an in-memory transport over the
+   * same state graph). Progress and cancellation ride the hooks argument.
+   */
+  readonly upload: FileUploadTransport
+  /**
    * Start the connect/pump/reconnect loop with the consumer's frame sinks.
    * One consumer owns the streams (the runtime object layer); a second call
    * throws.
@@ -149,9 +157,11 @@ export function apply(ctx: Context): void {
     invalidateAuthentication,
   )
   const rpc = fixtureClient?.rpc ?? createWebConnectionRpc()
+  const upload: FileUploadTransport = fixtureClient?.upload ?? createWebFileUploadTransport(resolveBase)
   const handle: ConnectionHandle = {
     api,
     isLoopback: pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
+    upload,
     hostDescription: {
       getSnapshot: () => description,
       subscribe: (listener) => {

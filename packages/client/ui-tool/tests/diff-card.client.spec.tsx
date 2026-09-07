@@ -338,6 +338,8 @@ describe('DetailsPanel diff Output section', () => {
           addImages: () => true,
           removeImage: () => {},
           pruneImages: () => {},
+          addFiles: () => false,
+          removeFile: () => {},
           submit: () => {},
         }}
         useProjection={(() => undefined)}

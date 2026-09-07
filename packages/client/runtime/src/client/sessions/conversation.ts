@@ -8,7 +8,7 @@
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
@@ -80,6 +80,11 @@ export interface UserMessageNode {
   time: number
   content: readonly ContentBlock[]
   source: unknown
+  /**
+   * Generic-file receipts admitted with this prompt (the event source's
+   * `files`); the content's handle-text blocks are their model-facing form.
+   */
+  files?: readonly FileAttachmentRef[]
 }
 
 /** Recorded boundaries used to derive assistant latency and throughput. */
@@ -127,6 +132,8 @@ export interface SteeringMessageNode {
   time: number
   content: readonly ContentBlock[]
   source: unknown
+  /** Generic-file receipts admitted with this steering prompt (the event source's `files`). */
+  files?: readonly FileAttachmentRef[]
 }
 
 /** A context/system injection surfaced in the flow. */

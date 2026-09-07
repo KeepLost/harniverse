@@ -50,6 +50,15 @@ export const messageDefinition: ConversationNodeDefinition<MessageNode> = {
         form: contextForm(event.data.source),
       }
     }
+    // Event-association (preferred over parsing the content's handle text):
+    // the prompt's admitted file receipts ride the user source itself, so the
+    // badge row never depends on the text projection staying parseable.
+    // MessageSource's user arm also admits the RPC-request shape (rpcId, no
+    // files), hence the structural read.
+    const sourceFiles = (event.data.source as { files?: readonly unknown[] }).files
+    const files = sourceFiles !== undefined && sourceFiles.length > 0
+      ? (sourceFiles as UserMessageNode['files'])
+      : undefined
     const claimed = reader.previous<InboxState>('inbox-next-step')?.state.claimed.has(String(event.data.id)) === true
     return claimed
       ? {
@@ -59,6 +68,7 @@ export const messageDefinition: ConversationNodeDefinition<MessageNode> = {
         time: event.time,
         content: event.data.content,
         source: event.data.source,
+        ...(files !== undefined ? { files } : {}),
       }
       : {
         kind: 'user',
@@ -66,6 +76,7 @@ export const messageDefinition: ConversationNodeDefinition<MessageNode> = {
         time: event.time,
         content: event.data.content,
         source: event.data.source,
+        ...(files !== undefined ? { files } : {}),
       }
   },
   update: context => context.state,

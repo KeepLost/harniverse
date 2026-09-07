@@ -35,6 +35,8 @@
 - button "Commands":
   - img
 - tooltip "Commands"
+- button "Add files":
+  - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
 - 'button "Supervision mode: Supervised"': Supervised
 - button "Select model, current DeepSeek-V4-Flash":

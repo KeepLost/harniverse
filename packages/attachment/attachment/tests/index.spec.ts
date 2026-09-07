@@ -71,4 +71,14 @@ describe('AttachmentStore default behavior', () => {
     await expect(subject.readImageRequest({ attachmentId: AttachmentId('sha256:png'), mediaType: 'image/png', bytes: 1, width: 1, height: 1 }, { maxPixels: 1, maxBytes: 1 }))
       .rejects.toMatchObject({ code: 'ATTACHMENT_PROJECTION_UNSUPPORTED' })
   })
+
+  it('refuses generic-file storage through the default members a provider did not override', async () => {
+    const subject = store()
+    const data = new Uint8Array(4)
+    const ref = { attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`), bytes: 4 }
+    await expect(subject.saveFile({ data, mediaType: 'application/octet-stream' }))
+      .rejects.toMatchObject({ code: 'FILE_UPLOAD_UNSUPPORTED' })
+    await expect(subject.readFile(ref)).rejects.toMatchObject({ code: 'FILE_UPLOAD_UNSUPPORTED' })
+    await expect(subject.publishFileHandle(ref)).rejects.toMatchObject({ code: 'FILE_UPLOAD_UNSUPPORTED' })
+  })
 })

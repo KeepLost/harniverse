@@ -15,7 +15,10 @@ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts
 import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { SessionInputShell } from '../src/client/input/facade.ts'
+import type { SessionInputDeps } from '../src/client/input/facade.ts'
+import { stubFileUploads } from './input-file-uploads.client.ts'
 import type { ComposerAttachment } from '../src/client/contract/slots.ts'
+import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { DraftAttachmentId } from '../src/client/input/contract.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
@@ -53,6 +56,8 @@ interface BenchOptions {
   planEntry?: React.ReactNode
   /** The `plan` projection value the standard-kit useProjection serves. */
   plan?: { active: boolean; pending: boolean }
+  /** File-upload dep override (default: the never-settling idle stub). */
+  fileUploads?: SessionInputDeps['fileUploads']
   modelEntry?: React.ReactNode
   /** Hot text-ref lexicon (injects a minimal slash stub exposing only lexicon()). */
   lexicon?: ReadonlyMap<'/' | '@', readonly string[]>
@@ -121,6 +126,7 @@ function bench(over?: BenchOptions) {
   }))
   type ShellDeps = ConstructorParameters<typeof SessionInputShell>[0]
   const shell = new SessionInputShell({
+    fileUploads: over?.fileUploads ?? stubFileUploads,
     actx: SCTX,
     defaultSink: sink,
     queue: {
@@ -175,6 +181,8 @@ function bench(over?: BenchOptions) {
     keyboard: shell,
     addImages: over?.addImages ?? (() => null),
     removeImage,
+    addFiles: (files) => { shell.addFiles(files) },
+    removeFile: (id) => { shell.removeFile(id) },
     draftImages: ids => ids.flatMap((id) => {
       const attachment = over?.attachments?.find(candidate => candidate.id === id)
       return attachment === undefined ? [] : [attachment]
@@ -188,6 +196,7 @@ function bench(over?: BenchOptions) {
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
     useMenuLauncher: bindSnapshotSelector(menuLauncher),
+    useFileDrafts: bindSnapshotSelector(shell.fileDrafts),
     stop,
     command: over?.command ?? (() => Promise.resolve(true)),
     // Mirrors the real lookup chain (conversation namespace, then common).
@@ -384,7 +393,7 @@ describe('image draft rail', () => {
     const { view, textarea, sink, removeImage } = bench({ attachments: [attachment] })
     expect((view.getByRole('button', { name: '发送消息' }) as HTMLButtonElement).disabled).toBe(false)
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('', ['draft-1'], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('', ['draft-1'], [], 'queue', expect.any(AbortSignal))
     fireEvent.click(view.getByRole('button', { name: '移除图片 pixel.png' }))
     expect(removeImage).toHaveBeenCalledWith('draft-1')
   })
@@ -489,7 +498,7 @@ describe('Enter semantics', () => {
   it('plain Enter submits queue mode through the machine; repeat and empty are suppressed', () => {
     const { textarea, sink } = bench({ draft: 'hello' })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('hello', [], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('hello', [], [], 'queue', expect.any(AbortSignal))
     fireEvent.keyDown(textarea, { key: 'Enter', repeat: true })
     expect(sink).toHaveBeenCalledTimes(1)
     const empty = bench({ draft: '   ' })
@@ -514,15 +523,15 @@ describe('Enter semantics', () => {
   it('Ctrl/Meta+Enter sends normally while idle and steers while running', () => {
     const idle = bench({ draft: 'hello' })
     fireEvent.keyDown(idle.textarea, { key: 'Enter', metaKey: true })
-    expect(idle.sink).toHaveBeenCalledWith('hello', [], 'queue', expect.any(AbortSignal))
+    expect(idle.sink).toHaveBeenCalledWith('hello', [], [], 'queue', expect.any(AbortSignal))
 
     const busyCtrl = bench({ running: true, draft: 'steer with ctrl' })
     fireEvent.keyDown(busyCtrl.textarea, { key: 'Enter', ctrlKey: true })
-    expect(busyCtrl.sink).toHaveBeenCalledWith('steer with ctrl', [], 'steer', expect.any(AbortSignal))
+    expect(busyCtrl.sink).toHaveBeenCalledWith('steer with ctrl', [], [], 'steer', expect.any(AbortSignal))
 
     const busyMeta = bench({ running: true, draft: 'steer with cmd' })
     fireEvent.keyDown(busyMeta.textarea, { key: 'Enter', metaKey: true })
-    expect(busyMeta.sink).toHaveBeenCalledWith('steer with cmd', [], 'steer', expect.any(AbortSignal))
+    expect(busyMeta.sink).toHaveBeenCalledWith('steer with cmd', [], [], 'steer', expect.any(AbortSignal))
   })
 
   it('empty-draft Cmd/Ctrl+Enter steers the whole queue instead of submitting', () => {
@@ -587,7 +596,7 @@ describe('Enter semantics', () => {
     const steerQueue = vi.fn()
     const { textarea, sink } = bench({ running: true, queue: [row('q-1')], draft: '插话', steerQueue })
     fireEvent.keyDown(textarea, { key: 'Enter', ctrlKey: true })
-    expect(sink).toHaveBeenCalledWith('插话', [], 'steer', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('插话', [], [], 'steer', expect.any(AbortSignal))
     expect(steerQueue).not.toHaveBeenCalled()
   })
 
@@ -635,7 +644,7 @@ describe('running and lock semantics', () => {
     expect(textarea.disabled).toBe(false)
     fireEvent.change(textarea, { target: { value: '排队消息2' } })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('排队消息2', [], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('排队消息2', [], [], 'queue', expect.any(AbortSignal))
     expect(button.getAttribute('aria-label')).toBe('停止生成')
     fireEvent.click(button)
     expect(stop).toHaveBeenCalledTimes(1)
@@ -644,17 +653,17 @@ describe('running and lock semantics', () => {
   it('running plain Enter follows the busy-state Steer preference', () => {
     const { textarea, sink } = bench({ running: true, busyEnter: 'steer', draft: '直接插话' })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('直接插话', [], 'steer', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('直接插话', [], [], 'steer', expect.any(AbortSignal))
   })
 
   it('running Cmd/Ctrl+Enter uses the opposite of the busy-state Enter preference', () => {
     const meta = bench({ running: true, busyEnter: 'steer', draft: '排到下一轮' })
     fireEvent.keyDown(meta.textarea, { key: 'Enter', metaKey: true })
-    expect(meta.sink).toHaveBeenCalledWith('排到下一轮', [], 'queue', expect.any(AbortSignal))
+    expect(meta.sink).toHaveBeenCalledWith('排到下一轮', [], [], 'queue', expect.any(AbortSignal))
 
     const ctrl = bench({ running: true, busyEnter: 'steer', draft: 'also queue' })
     fireEvent.keyDown(ctrl.textarea, { key: 'Enter', ctrlKey: true })
-    expect(ctrl.sink).toHaveBeenCalledWith('also queue', [], 'queue', expect.any(AbortSignal))
+    expect(ctrl.sink).toHaveBeenCalledWith('also queue', [], [], 'queue', expect.any(AbortSignal))
   })
 
   it('running continuable subagent keeps Send beside an independent Stop', () => {
@@ -674,7 +683,7 @@ describe('running and lock semantics', () => {
     expect(interruptButton).not.toBeNull()
     expect(textarea.disabled).toBe(false)
     fireEvent.click(button)
-    expect(sink).toHaveBeenCalledWith('后续消息', [], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('后续消息', [], [], 'queue', expect.any(AbortSignal))
     fireEvent.click(interruptButton!)
     expect(stop).toHaveBeenCalledTimes(1)
   })
@@ -731,11 +740,11 @@ describe('running and lock semantics', () => {
     }
     const plain = bench({ running: true, busyEnter: 'steer', draft: 'plain', subagent })
     fireEvent.keyDown(plain.textarea, { key: 'Enter' })
-    expect(plain.sink).toHaveBeenCalledWith('plain', [], 'queue', expect.any(AbortSignal))
+    expect(plain.sink).toHaveBeenCalledWith('plain', [], [], 'queue', expect.any(AbortSignal))
 
     const accelerated = bench({ running: true, draft: 'accelerated', subagent })
     fireEvent.keyDown(accelerated.textarea, { key: 'Enter', metaKey: true })
-    expect(accelerated.sink).toHaveBeenCalledWith('accelerated', [], 'queue', expect.any(AbortSignal))
+    expect(accelerated.sink).toHaveBeenCalledWith('accelerated', [], [], 'queue', expect.any(AbortSignal))
   })
 
   it('disabled (session removed) locks the textarea and chrome', () => {
@@ -748,7 +757,7 @@ describe('running and lock semantics', () => {
   it('idle primary sends and disables on empty draft', () => {
     const { button, sink } = bench({ draft: 'go' })
     fireEvent.click(button)
-    expect(sink).toHaveBeenCalledWith('go', [], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('go', [], [], 'queue', expect.any(AbortSignal))
     const empty = bench()
     expect(empty.button.disabled).toBe(true)
   })
@@ -1496,5 +1505,92 @@ describe('slash menu Tab completion', () => {
     const b = bench({ arbitrate })
     expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 229 })).toBe(true)
     expect(arbitrate).not.toHaveBeenCalled()
+  })
+})
+
+describe('file intake', () => {
+  interface Held {
+    file: File
+    onProgress: (progress: { loaded: number; total: number }) => void
+    signal: AbortSignal
+    resolve: (ref: FileAttachmentRef) => void
+    reject: (reason?: unknown) => void
+  }
+
+  function holding() {
+    const held: Held[] = []
+    const fileUploads = {
+      upload: (file: File, onProgress: Held['onProgress'], signal: AbortSignal) =>
+        new Promise<FileAttachmentRef>((resolve, reject) => {
+          held.push({ file, onProgress, signal, resolve, reject })
+        }),
+      errorText: () => '上传失败',
+      inFlightNotice: () => '文件仍在上传，请等待上传完成后再发送',
+      unsupportedNotice: (token: string) => `/${token} 不接受文件附件`,
+    }
+    return { held, fileUploads }
+  }
+
+  function pick(view: ReturnType<typeof render>, files: readonly File[]): void {
+    const input = view.container.querySelector<HTMLInputElement>('[data-file-input]')
+    if (input === null) throw new Error('file input missing')
+    act(() => {
+      Object.defineProperty(input, 'files', { value: files, configurable: true })
+      fireEvent.change(input)
+    })
+  }
+
+  it('mints an uploading chip from the picker and locks the primary until it settles', async () => {
+    const { held, fileUploads } = holding()
+    const b = bench({ fileUploads })
+    expect(b.view.container.querySelector('[data-file-entry]')).not.toBeNull()
+    pick(b.view, [new File([new Uint8Array(6)], '笔记.txt', { type: 'text/plain' })])
+    expect(b.view.getByText('笔记.txt')).toBeDefined()
+    expect(b.view.container.querySelector('[data-file-chip="uploading"]')).not.toBeNull()
+    // Empty draft + uploading file: send stays locked.
+    expect(b.button.disabled).toBe(true)
+
+    held[0]!.onProgress({ loaded: 3, total: 6 })
+    held[0]!.resolve({
+      attachmentId: `sha256:${'a'.repeat(64)}` as FileAttachmentRef['attachmentId'],
+      bytes: 6,
+      name: '笔记.txt',
+    })
+    await vi.waitFor(() => {
+      expect(b.view.container.querySelector('[data-file-chip="done"]')).not.toBeNull()
+    })
+    // File-only send unlocks with the empty draft.
+    expect(b.button.disabled).toBe(false)
+    fireEvent.click(b.button)
+    await vi.waitFor(() => {
+      expect(b.sink).toHaveBeenCalledWith(
+        '',
+        [],
+        [expect.objectContaining({ bytes: 6, name: '笔记.txt' })],
+        'queue',
+        expect.any(AbortSignal),
+      )
+    })
+    await vi.waitFor(() => {
+      expect(b.view.container.querySelector('[data-file-chip]')).toBeNull()
+    })
+  })
+
+  it('keeps an error chip addressable until removed and never blocks text sends', async () => {
+    const { held, fileUploads } = holding()
+    const b = bench({ fileUploads, draft: '正文' })
+    pick(b.view, [new File([new Uint8Array(1)], 'x.bin')])
+    held[0]!.reject(new Error('HTTP 500'))
+    await vi.waitFor(() => {
+      expect(b.view.container.querySelector('[data-file-chip="error"]')).not.toBeNull()
+    })
+    // Text + settled-error chip: send stays available (the chip is inert).
+    expect(b.button.disabled).toBe(false)
+    fireEvent.click(b.button)
+    await vi.waitFor(() => { expect(b.sink).toHaveBeenCalledWith('正文', [], [], 'queue', expect.any(AbortSignal)) })
+    fireEvent.click(b.view.getByRole('button', { name: '移除文件 x.bin' }))
+    await vi.waitFor(() => {
+      expect(b.view.container.querySelector('[data-file-chip]')).toBeNull()
+    })
   })
 })
