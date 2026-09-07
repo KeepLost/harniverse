@@ -969,6 +969,24 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `user/*`
 
+<a id="userfile--log-only"></a>
+
+#### `user/file` — log-only
+
+```ts persistence-catalog
+/**
+ * Durable generic-file references admitted alongside the user prompt whose
+ * `user/message` follows in the same claim batch (correlated by position:
+ * the event is appended immediately before its message). Each reference also
+ * rides the message's own handle-text content block, so replay and model
+ * requests never depend on this log-only record; it exists for UI file
+ * badges, export manifests, and admission auditing.
+ */
+'user/file': { files: readonly FileAttachmentRef[] }
+```
+
+来源：[`packages/core/session/src/types.ts:285`](../packages/core/session/src/types.ts)
+
 <a id="usermessage--surface"></a>
 
 #### `user/message` — surface
