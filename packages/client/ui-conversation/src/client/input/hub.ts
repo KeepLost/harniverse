@@ -11,11 +11,13 @@
 import type { ClientContext, ISessions, SessionBinding, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InputTriggerController, SubmitImageAttachment, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
+import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { queueReadFaceOf } from '../queue/store.ts'
 import type { ComposerKeyboard, DraftAttachmentId, SessionInputResolver, SessionInput } from './contract.ts'
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import type { PopupDismissFace } from './facade.ts'
 import { SessionInputShell } from './facade.ts'
+import { uploadErrorText } from '../image-labels.ts'
 
 /** Structural command face for per-session popup resolution. */
 interface CommandFace {
@@ -28,6 +30,7 @@ interface ConversationAttachmentFace {
     session: SessionFace,
     text: string,
     imageIds: readonly DraftAttachmentId[],
+    fileRefs: readonly FileAttachmentRef[],
     mode: InputSubmitMode,
     signal?: AbortSignal,
   ): Promise<void>
@@ -36,6 +39,17 @@ interface ConversationAttachmentFace {
     signal?: AbortSignal,
   ): Promise<readonly SubmitImageAttachment[]>
   releaseDraftImage(id: DraftAttachmentId): void
+}
+
+/** Upload transport face of the connection service (structural; type-only reach). */
+interface ConnectionUploadFace {
+  upload(
+    request: { data: Blob | ArrayBuffer | Uint8Array; mediaType?: string; name?: string },
+    hooks?: {
+      onProgress?: (progress: { loaded: number; total: number }) => void
+      signal?: AbortSignal
+    },
+  ): Promise<FileAttachmentRef>
 }
 
 /** Session-addressed input facade registry (SessionInputResolver face + composer-layer extras). */
@@ -80,8 +94,20 @@ export class InputHub implements SessionInputResolver {
       inputTriggers: () => this.controller(actx),
       popup: () => this.popup(actx),
       queue: queueReadFaceOf(session),
-      defaultSink: (text, imageIds, mode, signal) => this.sink(session, text, imageIds, mode, signal),
+      defaultSink: (text, imageIds, fileRefs, mode, signal) =>
+        this.sink(session, text, imageIds, fileRefs, mode, signal),
       steerQueue: () => { void this.steerQueue(session, shell) },
+      fileUploads: {
+        upload: (file, onProgress, signal) => this.uploadConnection().upload(
+          { data: file, ...(file.type === '' ? {} : { mediaType: file.type }), name: file.name },
+          { onProgress, signal },
+        ),
+        errorText: error => uploadErrorText(this.t, error),
+        inFlightNotice: () => this.t('file.uploadInProgress'),
+        unsupportedNotice: token => this.t('command.filesUnsupported', {
+          command: token.trim().replace(/^\//u, ''),
+        }),
+      },
       commandImages: {
         serialize: (ids, signal) => this.conversation().serializeDraftImages(ids, signal),
         release: (ids) => {
@@ -160,11 +186,12 @@ export class InputHub implements SessionInputResolver {
     session: SessionFace,
     text: string,
     imageIds: readonly DraftAttachmentId[],
+    fileRefs: readonly FileAttachmentRef[],
     mode: InputSubmitMode,
     signal: AbortSignal,
   ): Promise<SubmitOutcome> {
-    if (text === '' && imageIds.length === 0) return Promise.resolve({ kind: 'success' })
-    return this.conversation().sendSession(session, text, imageIds, mode, signal).then(
+    if (text === '' && imageIds.length === 0 && fileRefs.length === 0) return Promise.resolve({ kind: 'success' })
+    return this.conversation().sendSession(session, text, imageIds, fileRefs, mode, signal).then(
       () => ({ kind: 'success' as const }),
       (error: unknown) => ({
         kind: 'error' as const,
@@ -217,5 +244,12 @@ export class InputHub implements SessionInputResolver {
     const conversation = this.rootCtx.get('conversation') as ConversationAttachmentFace | undefined
     if (conversation === undefined) throw new Error('conversation.input: conversation service unavailable')
     return conversation
+  }
+
+  /** The connection service's upload transport (browser wire or fixture). */
+  private uploadConnection(): ConnectionUploadFace {
+    const connection = this.rootCtx.get('connection') as ConnectionUploadFace | undefined
+    if (connection === undefined) throw new Error('conversation.input: connection service unavailable')
+    return connection
   }
 }

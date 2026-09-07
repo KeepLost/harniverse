@@ -22,8 +22,8 @@ import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import { setSupervisionMode } from '@deepseek-ai/dsh-supervision'
 import type {} from '@deepseek-ai/dsh-supervision'
-import { AttachmentError } from '@deepseek-ai/dsh-attachment'
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { AttachmentError, AttachmentId, fileHandleText } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, LlmCallConfig, MessageSource } from '@deepseek-ai/dsh-llm'
@@ -241,19 +241,30 @@ function decodeBase64(data: string): Uint8Array {
   return new Uint8Array(decoded)
 }
 
+/** Durable prompt content plus the generic-file references admitted alongside it. */
+interface DurablePrompt {
+  blocks: ContentBlock[]
+  files: readonly FileAttachmentRef[]
+}
+
 /** Validate one prompt as a batch before publishing any durable image object. */
-async function durablePromptContent(ctx: Context, content: readonly PromptContentPart[]): Promise<ContentBlock[]> {
+async function durablePromptContent(ctx: Context, content: readonly PromptContentPart[]): Promise<DurablePrompt> {
   if (content.every(part => part.type === 'text')) {
-    return content.map(part => ({ type: 'text', text: part.text }))
+    return { blocks: content.map(part => ({ type: 'text', text: part.text })), files: [] }
   }
+  // File receipts first: admission verifies every referenced object (digest
+  // included) and publishes every read-only handle before anything else is
+  // committed, so one bad receipt rolls the whole prompt back.
   const limits = ctx.attachments.imageLimits
   if (content.filter(part => part.type === 'image').length > limits.maxImagesPerMessage) {
     throw new AttachmentError('Prompt exceeds the configured image-count limit.', 'TOO_MANY_IMAGES')
   }
   const prepared = content.map(part => part.type === 'text'
     ? part
-    : { part, data: decodeBase64(part.data) })
-  const images = prepared.filter((part): part is Extract<typeof part, { data: Uint8Array }> => 'data' in part)
+    : part.type === 'image'
+      ? { part, data: decodeBase64(part.data) }
+      : { part })
+  const images = prepared.filter((part): part is Extract<typeof part, { data: Uint8Array } & { part: { type: 'image' } }> => 'data' in part)
   const totalBytes = images.reduce((sum, image) => sum + image.data.byteLength, 0)
   if (totalBytes > limits.maxMessageImageBytes) {
     throw new AttachmentError('Prompt exceeds the configured aggregate image-byte limit.', 'IMAGES_TOO_LARGE')
@@ -265,20 +276,52 @@ async function durablePromptContent(ctx: Context, content: readonly PromptConten
       ...image.part.name === undefined ? {} : { name: image.part.name },
     })
   }
+  const fileBlocks = new Map<string, ContentBlock>()
+  const admittedFiles = new Map<string, FileAttachmentRef>()
+  for (const part of content) {
+    if (part.type !== 'file') continue
+    if (!/^sha256:[0-9a-f]{64}$/.test(part.attachmentId)) {
+      throw new AttachmentError('File reference is not a valid attachment id.', 'INVALID_ATTACHMENT_REF')
+    }
+    const ref: FileAttachmentRef = {
+      attachmentId: AttachmentId(part.attachmentId),
+      bytes: part.bytes,
+      ...(part.mediaType !== undefined ? { mediaType: part.mediaType } : {}),
+      ...(part.name !== undefined ? { name: part.name } : {}),
+    }
+    try {
+      await ctx.attachments.readFile(ref)
+    } catch (error) {
+      if (error instanceof AttachmentError) throw error
+      throw new AttachmentError('Referenced file failed storage verification.', 'ATTACHMENT_READ_FAILED', { cause: error })
+    }
+    const path = await ctx.attachments.publishFileHandle(ref)
+    if (!admittedFiles.has(part.attachmentId)) {
+      admittedFiles.set(part.attachmentId, ref)
+      fileBlocks.set(part.attachmentId, { type: 'text', text: fileHandleText(ref, path) })
+    }
+  }
   const blocks: ContentBlock[] = []
   for (const item of prepared) {
-    if (!('data' in item)) {
-      blocks.push({ type: 'text', text: item.text })
+    if ('data' in item && item.part.type === 'image') {
+      const attachment = await ctx.attachments.saveImage({
+        data: item.data,
+        mediaType: item.part.mediaType,
+        ...item.part.name === undefined ? {} : { name: item.part.name },
+      })
+      blocks.push({ type: 'image', attachment })
       continue
     }
-    const attachment = await ctx.attachments.saveImage({
-      data: item.data,
-      mediaType: item.part.mediaType,
-      ...item.part.name === undefined ? {} : { name: item.part.name },
-    })
-    blocks.push({ type: 'image', attachment })
+    if ('part' in item) {
+      if (item.part.type === 'file') {
+        const block = fileBlocks.get(item.part.attachmentId)
+        if (block !== undefined) blocks.push(block)
+      }
+      continue
+    }
+    blocks.push({ type: 'text', text: item.text })
   }
-  return blocks
+  return { blocks, files: [...admittedFiles.values()] }
 }
 
 /** Search durable content for an image reference, including nested tool results. */
@@ -3554,7 +3597,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               }
             }
             const durable = await durablePromptContent(ctx, content)
-            const message: UserMessage = createUserMessage({ content: durable, source })
+            const message: UserMessage = createUserMessage({
+              content: durable.blocks,
+              source: {
+                ...source,
+                ...(durable.files.length > 0 ? { files: durable.files } : {}),
+              },
+            })
             if (mode === 'steer') agent.steer(message)
             else agent.followup(message)
             const operationId = `operation:${randomUUID()}`

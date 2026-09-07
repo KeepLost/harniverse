@@ -10,8 +10,10 @@ import type {
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MessageText, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatNodeViewProps, ChatViewSlotProps } from '../contract/slots.ts'
-import { ImageGallery, type ImageLoader } from '@deepseek-ai/dsh-client-ui-attachment'
-import { messageImageLabels } from '../image-labels.ts'
+import { FileBadgeList, ImageGallery, type ImageLoader } from '@deepseek-ai/dsh-client-ui-attachment'
+import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { fileBadgeLabels, messageImageLabels } from '../image-labels.ts'
+import { splitFileHandleText } from './file-badges.ts'
 import { CompactionItem } from './CompactionItem.tsx'
 import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
@@ -20,22 +22,19 @@ import css from './MessageItem.module.css'
 type UserImage = Extract<UserMessageNode['content'][number], { type: 'image' }>
 
 function contentParts(content: readonly unknown[]): {
-  text: string
   images: { attachment: UserImage['attachment'] }[]
   rest: unknown[]
 } {
-  const texts: string[] = []
   const images: { attachment: UserImage['attachment'] }[] = []
   const rest: unknown[] = []
   for (const block of content) {
     const b = block as { type?: string; text?: string; attachment?: unknown }
-    if (b.type === 'text' && typeof b.text === 'string') texts.push(b.text)
-    else if (b.type === 'image' && b.attachment !== undefined) {
+    if (b.type === 'image' && b.attachment !== undefined) {
       images.push({ attachment: (b as UserImage).attachment })
     }
-    else rest.push(block)
+    else if (b.type !== 'text') rest.push(block)
   }
-  return { text: texts.join(''), images, rest }
+  return { images, rest }
 }
 
 function retrySeconds(milliseconds: number): number {
@@ -177,9 +176,11 @@ function projectUserText(text: string): ReactNode {
 
 /** Right-aligned bubble shared by user and steering rows. */
 function UserStyleBubble({
-  content, imageLoader, actions, pending = false, t,
+  content, files, imageLoader, actions, pending = false, t,
 }: {
   content: readonly unknown[]
+  /** Admitted file receipts (event association); absent rows fall back to handle-text recovery. */
+  files?: readonly FileAttachmentRef[]
   imageLoader: ImageLoader
   /** Optional IconActions (or similar) below the bubble; receives the joined text. */
   actions?: (text: string) => ReactNode
@@ -187,12 +188,23 @@ function UserStyleBubble({
   pending?: boolean
   t: ChatViewSlotProps['t']
 }): ReactNode {
-  const { text, images, rest } = contentParts(content)
+  // Handle-text blocks leave the visible text (the badge row is their
+  // user-facing form) and double as the fallback badge source when the
+  // structured refs are absent.
+  const { text, badges: recovered } = splitFileHandleText(content)
+  const { images, rest } = contentParts(content)
+  const badges = files !== undefined && files.length > 0
+    ? files.map(file => ({
+      name: file.name ?? String(file.attachmentId).slice('sha256:'.length, 'sha256:'.length + 8),
+      bytes: file.bytes,
+    }))
+    : recovered
   const truncated = (total: number): string => t('json.truncated', { total })
   const showBubble = text !== '' || rest.length > 0
   return (
     <div className={css.userRow} data-pending-steering={pending || undefined} data-time-hover-root>
       <div className={css.userStack}>
+        <FileBadgeList files={badges} labels={fileBadgeLabels(t)} />
         <ImageGallery images={images} load={imageLoader} align="end" labels={messageImageLabels(t)} />
         {showBubble && <div className={css.bubble}>
           {projectUserText(text)}
@@ -242,6 +254,7 @@ export const UserMessageNodeView = memo(function UserMessageNodeView({
   return (
     <UserStyleBubble
       content={data.content}
+      {...data.files !== undefined ? { files: data.files } : {}}
       imageLoader={loadImage}
       t={t}
       actions={text => (

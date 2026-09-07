@@ -48,7 +48,11 @@ export function createWebConnectionRpc(): ClientConnectionRpc {
   }
 }
 
-function resolveBase(): string {
+/**
+ * Resolve the wire origin: the page origin in a real browser, the internal base otherwise.
+ * @returns the origin URL string shared by the RPC carrier and the upload transport.
+ */
+export function resolveBase(): string {
   const location = (globalThis as { location?: { origin?: string } }).location
   return location?.origin !== undefined && location.origin !== 'null' ? location.origin : INTERNAL_BASE
 }

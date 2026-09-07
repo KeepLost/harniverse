@@ -18,6 +18,7 @@ import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { createChatStore } from '../src/client/stores.ts'
 import { SessionInputShell } from '../src/client/input/facade.ts'
+import { stubFileUploads } from './input-file-uploads.client.ts'
 import { en, zh } from '../src/client/locales.ts'
 import { ConversationRoot } from '../src/client/skeleton/ConversationRoot.tsx'
 import { ConversationSession, ConversationSessionHeader } from '../src/client/skeleton/ConversationSession.tsx'
@@ -32,15 +33,33 @@ import type { ViewTab } from '../src/client/contract/views.ts'
 /** Machine-backed wiring over a sink spy. */
 function fakeWiring() {
   const sink = vi.fn(() => Promise.resolve({ kind: 'success' as const }))
-  const shell = new SessionInputShell({ actx: {} as ClientContext, defaultSink: sink })
+  const shell = new SessionInputShell({ fileUploads: stubFileUploads, actx: {} as ClientContext, defaultSink: sink })
   return { wiring: shell, sink, shell }
 }
 
-/** jsdom has no ResizeObserver; the composer seat publishes its height through one. */
+/** jsdom has no ResizeObserver; the composer seat and the root column publish
+ * through one. Instances record their callback so a case can fire resizes. */
 class ResizeObserverStub {
+  private static readonly all: ResizeObserverStub[] = []
+  /** Fire every live observer's callback once (a resize notification). */
+  static trigger(): void {
+    for (const stub of ResizeObserverStub.all) stub.callback?.()
+  }
+
+  private callback: (() => void) | null = null
+
+  constructor(callback: () => void) {
+    this.callback = callback
+    ResizeObserverStub.all.push(this)
+  }
+
   observe(): void {}
   unobserve(): void {}
-  disconnect(): void {}
+  disconnect(): void {
+    this.callback = null
+    const at = ResizeObserverStub.all.indexOf(this)
+    if (at !== -1) ResizeObserverStub.all.splice(at, 1)
+  }
 }
 
 afterEach(() => {
@@ -201,12 +220,15 @@ function mount(
           keyboard={wiring}
           addImages={() => null}
           removeImage={() => {}}
+          addFiles={() => {}}
+          removeFile={() => {}}
           draftImages={() => []}
           resolveSubmitMode={() => 'queue'}
           toggleCommandMenu={vi.fn()}
           useNotices={bindSnapshotSelector(wiring.notices)}
           useLexicon={bindSnapshotSelector(wiring.lexicon)}
           useMenuLauncher={bindSnapshotSelector(createSnapshotStore<string | null>(null))}
+          useFileDrafts={bindSnapshotSelector(wiring.fileDrafts)}
           stop={stop}
           command={() => Promise.resolve(true)}
           t={t}
@@ -256,6 +278,23 @@ function mount(
     rerender: () => { view.rerender(<ConversationRoot {...props} />) },
   }
 }
+
+describe('Adaptive content width', () => {
+  it('publishes the column width as --dsh-conversation-column-width on the root at mount', () => {
+    const b = mount(conversationSnapshot())
+    const root = b.view.container.firstElementChild as HTMLElement
+    // jsdom layout boxes report 0; the assertion pins the publication channel.
+    expect(root.style.getPropertyValue('--dsh-conversation-column-width')).toBe('0px')
+  })
+
+  it('republishes when a resize notification arrives', () => {
+    const b = mount(conversationSnapshot())
+    const root = b.view.container.firstElementChild as HTMLElement
+    root.style.setProperty('--dsh-conversation-column-width', 'stale')
+    act(() => { ResizeObserverStub.trigger() })
+    expect(root.style.getPropertyValue('--dsh-conversation-column-width')).toBe('0px')
+  })
+})
 
 describe('Hero chrome', () => {
   it('renders the English preview badge through the hero locale seat', () => {
@@ -309,7 +348,7 @@ describe('ConversationRoot resident composer', () => {
     fireEvent.change(box, { target: { value: 'ordinary revised' } })
     expect(b.chat.store.getSnapshot().draft).toBe('ordinary revised')
     fireEvent.keyDown(box, { key: 'Enter' })
-    expect(b.sink).toHaveBeenCalledWith('ordinary revised', [], 'queue', expect.any(AbortSignal))
+    expect(b.sink).toHaveBeenCalledWith('ordinary revised', [], [], 'queue', expect.any(AbortSignal))
     expect((b.view.getByRole('button', { name: 'Child' }) as HTMLButtonElement).disabled).toBe(true)
     expect(b.view.queryByText('Root')).toBeNull()
   })

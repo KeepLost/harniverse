@@ -68,6 +68,10 @@ The coordinator asserts the stored id and compares stored/live cwd before repair
 
 Re-exported from `dsh-session`: `SessionHeader` (immutable session metadata: `version`, `id`, `createdAt`, `cwd?`, `parentSession?`, `seedLength?`, `origin?`, `delegationDepth?`). `SessionLocation` is `{ readonly kind: string; readonly path: string }`; its path is an absolute backend target, not proof that the artifact exists or contains an unflushed turn.
 
+## Format-version edge (v0)
+
+The current Harniverse session vocabulary is format **v0**: every backend stamps `SESSION_FORMAT_VERSION` (`0`, owned by `dsh-session`) into the stored header at write time — the JSONL header line's `version` field and the SQLite `sessions.version` column — and the coordinator's load path refuses any other version fail-closed as `SessionFormatUnsupportedError` (a newer version reads as "upgrade the harness", never "corrupt session log"; the JSONL reader refuses before validating today's header shape, because a future format need not satisfy it). `classifySessionFormatVersion(version, currentVersion?)` exposes the same judgment as a total pure function for consumers that characterize a log without exception handling: `current` (readable natively), `migration-required` (an older generation; none exists while `0` is the oldest, so the class is reachable only through the injected-current face until the first version bump), `unsupported` (newer than this build), or `malformed` (not a non-negative safe integer). No migration chain, no generation renaming — the classification face is the anchor any future vocabulary evolution hangs from.
+
 ## Model Experience
 
 ### Resumed conversation history

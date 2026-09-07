@@ -1,0 +1,56 @@
+/* Font-size row: title + compact segmented control of the three tiers,
+ * sharing the Appearance row's rhythm (column gap 8, pad 16/0, hairline
+ * separator; the section column strips it when last). */
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.segmentRow {
+  display: inline-flex;
+  align-items: stretch;
+  align-self: flex-start;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.segment {
+  padding: 6px 18px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+/* Inner hairlines between segments; the row border owns the outer edges. */
+.segment + .segment {
+  border-left: 1px solid var(--dsw-alias-border-l2);
+}
+
+.segment:hover:not(.selected) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* Selected segment: the same platform fill and bluish border language as the
+ * Appearance cube's selected state (static token — the bluish-400 step has no
+ * alias-layer name). */
+.selected {
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: inset 0 0 0 1px var(--dsw-static-neutral-bluish-400);
+}

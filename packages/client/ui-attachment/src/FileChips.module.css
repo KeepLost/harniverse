@@ -1,0 +1,147 @@
+/* Generic-file chips and badges. Color, radius, and surface all come from
+   --dsw-* semantic tokens (docs/web-styling.md); the chip follows the
+   composer's small-control scale, the badge follows the message-flow link
+   language (B7 clickable-link / LinkIcon color). */
+
+.rail {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+  scrollbar-width: none;
+}
+
+.rail::-webkit-scrollbar {
+  display: none;
+}
+
+.chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+  padding: 6px 28px 6px 10px;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 10px;
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.chipError {
+  border-color: var(--dsw-alias-state-error-primary);
+}
+
+.chipIcon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--dsw-alias-link);
+}
+
+.chipBody {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chipName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.chipMeta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.progress {
+  position: relative;
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--dsw-alias-border-l1);
+}
+
+.progressFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: var(--dsw-alias-link);
+  transition: width 120ms ease-out;
+}
+
+.progressFill[data-indeterminate] {
+  /* Indeterminate: an eased half-width pulse stands in for an unknown fraction. */
+  animation: file-chip-indeterminate 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes file-chip-indeterminate {
+  from { width: 12%; }
+  to { width: 55%; }
+}
+
+.remove {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.remove:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  padding: 3px 10px;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 8px;
+  color: var(--dsw-alias-link);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.badgeName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.badgeSize {
+  flex: none;
+  font-size: 11px;
+  line-height: 14px;
+  opacity: 0.8;
+}

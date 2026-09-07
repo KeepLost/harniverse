@@ -68,6 +68,10 @@
 
 从 `dsh-session` 重新导出：`SessionHeader`（不可变会话元数据：`version`、`id`、`createdAt`、`cwd?`、`parentSession?`、`seedLength?`、`origin?`、`delegationDepth?`）。`SessionLocation` 是 `{ readonly kind: string; readonly path: string }`；其 path 是绝对后端目标，不证明产物已存在或包含未 flush 轮次。
 
+## 格式版本边（v0）
+
+当前 Harniverse 会话词汇为格式 **v0**：每个后端在写入时把 `SESSION_FORMAT_VERSION`（`0`，由 `dsh-session` 持有）盖入已存储头——JSONL 头行的 `version` 字段与 SQLite 的 `sessions.version` 列——协调器的加载路径对任何其它版本 fail-closed 拒绝为 `SessionFormatUnsupportedError`（更新版本读作"升级 harness"，绝不读作"会话日志损坏"；JSONL 读取器在校验今天的头形状之前先行拒绝，因为未来格式无需满足今天的结构检查）。`classifySessionFormatVersion(version, currentVersion?)` 把同一判定暴露为全纯函数，供无需异常处理即可刻画日志的消费者使用：`current`（原生可读）、`migration-required`（更旧的一代；`0` 是最老一代故当前不存在，首次版本提升之前该类只能经注入 current 的调用面触达）、`unsupported`（新于本构建）、`malformed`（不是非负安全整数）。没有迁移链、没有代际重命名——分类面就是未来任何词汇演进的挂靠锚点。
+
 ## 模型体验
 
 ### 恢复的对话历史

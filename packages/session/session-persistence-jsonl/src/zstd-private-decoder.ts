@@ -54,6 +54,27 @@ function privateZstdStream(
   return { stream: stream as NodeZstdPrivateStream, errorKey }
 }
 
+/** Latch holding the first stream-emitted or writeSync-thrown decoder error. */
+class DecoderErrorLatch {
+  private captured?: Error
+
+  /** Record the first stream-emitted error and ignore every later one. */
+  attach(stream: NodeZstdPrivateStream): void {
+    stream.on('error', (error: Error) => {
+      this.record(error)
+    })
+  }
+
+  /** Keep only the first recorded failure. */
+  record(error: Error): void {
+    this.captured ??= error
+  }
+
+  get error(): Error | undefined {
+    return this.captured
+  }
+}
+
 /**
  * Synchronous multi-frame decoder backed by one Node Zstd stream handle. Node
  * exposes synchronous decoding only as a one-shot API, so this adapter uses
@@ -62,7 +83,7 @@ function privateZstdStream(
  */
 export class NodePrivateZstdFrameDecoder implements ZstdFrameDecoder {
   private readonly output = Buffer.allocUnsafe(DECODE_CHUNK_SIZE)
-  private decoderError?: Error
+  private readonly errorLatch = new DecoderErrorLatch()
   private started = false
   private closed = false
 
@@ -70,9 +91,7 @@ export class NodePrivateZstdFrameDecoder implements ZstdFrameDecoder {
     private readonly stream: NodeZstdPrivateStream,
     private readonly errorKey: symbol,
   ) {
-    this.stream.on('error', (error: Error) => {
-      this.decoderError ??= error
-    })
+    this.errorLatch.attach(stream)
   }
 
   /**
@@ -133,7 +152,7 @@ export class NodePrivateZstdFrameDecoder implements ZstdFrameDecoder {
         0,
         this.output.length,
       )
-      if (this.decoderError !== undefined) throw this.decoderError
+      if (this.errorLatch.error !== undefined) throw this.errorLatch.error
       const internalError = this.stream[this.errorKey]
       if (internalError !== null) {
         if (internalError instanceof Error) throw internalError
@@ -173,6 +192,100 @@ export class NodePrivateZstdFrameDecoder implements ZstdFrameDecoder {
   close(): void {
     if (this.closed) return
     this.closed = true
+    this.stream.close()
+  }
+}
+
+/**
+ * Drain size handed to each synchronous prefix-decode output call. The decoder
+ * hands plaintext over in these slices, so a decode failure caused by
+ * corrupted tail bytes loses at most one slice instead of the whole prefix.
+ */
+const PREFIX_DRAIN_SIZE = 64 * 1024
+
+/**
+ * Self-contained synchronous prefix decoder for one structurally incomplete
+ * final frame. It owns an independent Node Zstandard stream — a torn frame
+ * must never pollute a shared decoder's stream state — and never throws:
+ * invalid bytes stop the decode with the plaintext already drained.
+ */
+export class NodePrivateZstdPrefixDecoder {
+  private readonly output = Buffer.allocUnsafe(PREFIX_DRAIN_SIZE)
+  private readonly errorLatch = new DecoderErrorLatch()
+
+  private constructor(
+    private readonly stream: NodeZstdPrivateStream,
+    private readonly errorKey: symbol,
+  ) {
+    this.errorLatch.attach(stream)
+  }
+
+  /**
+   * Create the prefix decoder when this Node release exposes the expected
+   * private stream shape.
+   * @returns an independent decoder, or `undefined` when prefix decoding is unavailable.
+   */
+  static create(): NodePrivateZstdPrefixDecoder | undefined {
+    const stream = createZstdDecompress({ chunkSize: DECODE_CHUNK_SIZE })
+    const privateAccess = privateZstdStream(stream)
+    /* v8 ignore next -- the active Node runtime passed the private-shape probe above. */
+    if (privateAccess !== undefined) {
+      return new NodePrivateZstdPrefixDecoder(privateAccess.stream, privateAccess.errorKey)
+    }
+    /* v8 ignore next -- the active Node runtime passed the private-shape probe above. */
+    stream.close()
+    /* v8 ignore next -- the active Node runtime passed the private-shape probe above. */
+    return undefined
+  }
+
+  /**
+   * Feed the whole torn frame and collect the plaintext the decoder produces
+   * until its input is exhausted or its bytes fail validation.
+   * @param input - available bytes of one structurally incomplete frame.
+   * @returns the drained plaintext; zero-length when nothing was produced.
+   */
+  decodePrefix(input: Buffer): Buffer {
+    const handle = this.stream._handle
+    /* v8 ignore next -- decodeZstdFramePrefix drains exactly once, before close() nulls the handle. */
+    if (handle === null) return Buffer.alloc(0)
+    let inputOffset = 0
+    let inputRemaining = input.length
+    const drained: Buffer[] = []
+    let outputBytes = 0
+    for (;;) {
+      try {
+        handle.writeSync(
+          this.stream._defaultFlushFlag,
+          input,
+          inputOffset,
+          inputRemaining,
+          this.output,
+          0,
+          this.output.length,
+        )
+      } catch (error: unknown) {
+        // Native writeSync failures that bypass both error channels stop the
+        // decode with the plaintext drained so far.
+        this.errorLatch.record(error as Error)
+        break
+      }
+      if (this.errorLatch.error !== undefined || this.stream[this.errorKey] !== null) break
+      const outputAfter = this.stream._writeState[0]
+      const inputAfter = this.stream._writeState[1]
+      const produced = this.output.length - outputAfter
+      if (produced > 0) {
+        outputBytes += produced
+        drained.push(Buffer.from(this.output.subarray(0, produced)))
+      }
+      if (outputAfter !== 0) break
+      inputOffset += inputRemaining - inputAfter
+      inputRemaining = inputAfter
+    }
+    return drained.length === 0 ? Buffer.alloc(0) : Buffer.concat(drained, outputBytes)
+  }
+
+  /** Release the underlying stream; harmless after an error. */
+  close(): void {
     this.stream.close()
   }
 }

@@ -11,10 +11,11 @@ import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/
 
 const TEST_AUTHENTICATION = { getSnapshot: () => ({ kind: 'bypass' as const }), subscribe: () => () => {}, validate: () => true }
 import { apply, inject, SETTINGS_NS } from '@deepseek-ai/dsh-client-ui-theme/client'
-import type { AppearanceRowInjected, ThemeRuntime } from '@deepseek-ai/dsh-client-ui-theme/client'
+import type { AppearanceRowInjected, FontSizeRowInjected, ThemeRuntime } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { THEME_SETTINGS_NAMESPACE, ThemeSettingsSchema } from '../src/theme-settings.ts'
 import { AppearanceRow } from '../src/client/AppearanceRow.tsx'
-import type { createAppearanceRowStore } from '../src/client/settings-store.ts'
+import { FontSizeRow } from '../src/client/FontSizeRow.tsx'
+import type { createAppearanceRowStore, createFontSizeRowStore } from '../src/client/settings-store.ts'
 
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
@@ -37,7 +38,7 @@ async function bench(isLoopback = true) {
   const namespace = () => ({
     ns: THEME_SETTINGS_NAMESPACE,
     schema: ThemeSettingsSchema.toJSON(),
-    value: { preference },
+    value: { preference, fontSize: 16 },
     applies: 'live' as const,
     secrets: [],
     revision: 0,
@@ -133,6 +134,27 @@ describe('ui-theme apply', () => {
     await vi.waitFor(() => { expect(b.mutate).toHaveBeenCalledTimes(2) })
   })
 
+  it('registers the font-size row beside the Appearance row and routes its face writes', async () => {
+    const b = await bench()
+    declareItems(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const theme = b.ctx.get('theme') as ThemeRuntime
+
+    const entry = b.slots.entries(SLOT).find(e => e.component === FontSizeRow)!
+    expect(entry.options).toMatchObject({ id: 'font-size', order: 20 })
+    expect(entry.locale).toBe(SETTINGS_NS)
+    // Bake the store and drive the injected face the way the renderer would.
+    const handle = entry.store as ReturnType<typeof createFontSizeRowStore>
+    const instance = handle.create()
+    const face = (entry.inject as unknown as (a: typeof instance.actions) => FontSizeRowInjected)(instance.actions)
+    expect(instance.getSnapshot().fontSize).toBe(16)
+
+    face.setContentFontSize(14)
+    expect(theme.getTheme().fontSize).toBe(14)
+    expect(instance.getSnapshot().fontSize).toBe(14)
+    await vi.waitFor(() => { expect(b.mutate).toHaveBeenCalled() })
+  })
+
   it('loads Host settings at boot, refreshes the shared document, and authorizes remote browsers through Host', async () => {
     const b = await bench()
     b.setHostPreference('dark')
@@ -186,7 +208,7 @@ describe('ui-theme apply', () => {
     const b = await bench()
     const host = declareItems(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    expect(b.slots.entries(SLOT)).toHaveLength(1)
+    expect(b.slots.entries(SLOT)).toHaveLength(2)
 
     // Collapse: the declarer dies, the cascade removes our entry while the
     // apply closure still holds its (now stale) disposer.
@@ -203,7 +225,7 @@ describe('ui-theme apply', () => {
     declareItems(b.slots)
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    expect(b.slots.entries(SLOT)).toHaveLength(1)
+    expect(b.slots.entries(SLOT)).toHaveLength(2)
     await fiber.dispose()
     expect(b.slots.entries(SLOT)).toHaveLength(0)
     // Dictionary disposal: translation falls back to the bare key.

@@ -13,7 +13,7 @@ import type { Context } from '@deepseek-ai/cordis'
 // error, so scope resolution goes through the sessions service (scopeOf
 // method) instead of the standalone helper.
 import type { ISessions, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { SubmitImageAttachment } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { ComposerAttachment } from './contract/slots.ts'
 import type { QueueAction, QueueItemId } from './contract/queue.ts'
@@ -134,10 +134,14 @@ export class ConversationController extends Service implements IConversation {
   }
 
   /**
-   * Submit ordered draft images with text through one host admission.
+   * Submit ordered draft images and uploaded files with text through one host
+   * admission. File parts precede image parts, which precede the text part —
+   * the order the Host's handle-text blocks and image blocks then carry into
+   * the durable message.
    * @param session - target session.
    * @param text - serialized prompt text.
    * @param imageIds - ordered draft-local attachment ids.
+   * @param fileRefs - uploaded-file receipts in chip order.
    * @param mode - queue or steer delivery selected by composer policy.
    * @param signal - optional cancellation for image encoding and Host admission.
    * @returns completion after Host acceptance and draft-image release.
@@ -146,6 +150,7 @@ export class ConversationController extends Service implements IConversation {
     session: SessionFace,
     text: string,
     imageIds: readonly DraftAttachmentId[],
+    fileRefs: readonly FileAttachmentRef[],
     mode: InputSubmitMode,
     signal?: AbortSignal,
   ): Promise<void> {
@@ -154,8 +159,19 @@ export class ConversationController extends Service implements IConversation {
     if (attachments.length !== imageIds.length) {
       throw new Error('conversation.sendSession: one or more draft images are no longer available')
     }
+    const files = fileRefs.map(ref => ({
+      type: 'file' as const,
+      attachmentId: String(ref.attachmentId),
+      bytes: ref.bytes,
+      ...ref.name === undefined ? {} : { name: ref.name },
+      ...ref.mediaType === undefined ? {} : { mediaType: ref.mediaType },
+    }))
     const uploaded = await this.serializeImages(attachments.map(attachment => attachment.file), signal)
-    const content = [...uploaded, ...(text === '' ? [] : [{ type: 'text' as const, text }])]
+    const content = [
+      ...files,
+      ...uploaded,
+      ...(text === '' ? [] : [{ type: 'text' as const, text }]),
+    ]
     const result = await session.prompt(content, mode, signal)
     if (!result.ok) throw new Error(`conversation.send failed: ${result.error.code}: ${result.error.message}`)
     this.releaseDraftImages(attachments)

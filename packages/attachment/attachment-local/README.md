@@ -8,9 +8,11 @@ The private local implementation of [`@deepseek-ai/dsh-attachment`](../attachmen
 
 The local backend implements `readImageRequest` with deterministic provider-request bytes under `<DSH_HOME>/attachments/v1/request-images`. A request version is aspect-preserving, never enlarged, and bounded by the selected pixel and byte policy. PNG, JPEG, and WebP may pass through when already within policy; other cases use bounded JPEG or WebP encoding. Sidecar files are owner-only, published atomically, revalidated before reuse, and remain separate from durable attachment objects.
 
+Generic files share the same object tree through the seam's file face: `saveFile` stores bytes verbatim under a `maxFileBytes` admission cap (default 100 MiB) with no format sniffing or normalization — the caller's declared media type is recorded as given — and `readFile` re-verifies the digest and byte length. `publishFileHandle` idempotently links a stored object into `<DSH_HOME>/attachments/v1/links/<sha8>-<leaf>` and marks the shared inode read-only (0o444): the handle path a model reads through keeps working even if the object tree is later reorganized, and re-publishing an existing link is a no-op. An unusable display name falls back to `<sha8>.bin`.
+
 ## Model Experience
 
-Indirectly, through durable replay of historical user images and structured model image output after restart and fork.
+Indirectly, through durable replay of historical user images and structured model image output after restart and fork. Generic files reach a model only as a deterministic handle text (name, byte count, sha256 prefix, read-only link path); the bytes themselves never enter a model request.
 
 #### KV Cache effect
 
@@ -21,3 +23,4 @@ None beyond the image block owned by the requesting adapter.
 - Objects are retained indefinitely; reference-aware garbage collection is deferred.
 - The local backend assumes the host and provider adapter share this filesystem service.
 - Animated GIF metadata is validated from the logical screen; frame-level decoding policy is provider-owned.
+- Generic-file media types are caller declarations recorded as given; the store does not verify them from bytes.

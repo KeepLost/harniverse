@@ -7,6 +7,7 @@
  */
 import type { ClientContext, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   ArbitrateKey, ArbitrateOutcome, CommandClaim, ConsumeTokenRequest, PickOutcome,
   ReferenceInsert, SubmitOutcome, TokenSpan,
@@ -16,6 +17,29 @@ import type { InputSubmitMode } from '../contract/composer-submission.ts'
 
 /** Browser-runtime identity of one unsent image draft. */
 export type DraftAttachmentId = Branded<'DraftAttachmentId'>
+
+/**
+ * One composer draft file through its upload lifecycle: selected → uploading
+ * (progress) → done (receipt) or error. Kept out of InputState on purpose —
+ * progress ticks would republish machine state per event; the shell owns a
+ * dedicated store (the notices pattern).
+ */
+export interface ComposerFileDraft {
+  /** Draft-local stable identity. */
+  readonly id: DraftAttachmentId
+  /** Display file name (may be empty for unnamed browser files). */
+  readonly name: string
+  /** Total file bytes. */
+  readonly bytes: number
+  /** Upload lifecycle state. */
+  readonly status: 'uploading' | 'done' | 'error'
+  /** Uploaded fraction 0..1 while measurable; absent otherwise. */
+  readonly progress?: number
+  /** Host receipt once `status === 'done'` (the prompt's file part payload). */
+  readonly receipt?: FileAttachmentRef
+  /** Localized failure line while `status === 'error'`. */
+  readonly error?: string
+}
 
 /**
  * The scoped-event application verbs: the hub's bail listeners call these,
@@ -39,6 +63,12 @@ export interface SessionInput extends InputTarget {
   removeImage(id: DraftAttachmentId): void
   /** Drop ids whose browser-owned objects no longer exist. */
   pruneImages(ids: readonly DraftAttachmentId[]): void
+  /** Begin draft-file uploads and append their chips; busy admission phases refuse. */
+  addFiles(files: readonly File[]): boolean
+  /** Remove one draft file (aborting its upload when still in flight). */
+  removeFile(id: DraftAttachmentId): void
+  /** Live draft-file chips (upload lifecycle state; the composer chip row source). */
+  readonly fileDrafts: SnapshotStore<readonly ComposerFileDraft[]>
   /**
    * THE complexity sink: enter adjudication, submit transaction, and the default sink live inside.
    * @param mode - delivery intent retained through asynchronous adjudication and serialization.
@@ -79,6 +109,10 @@ export interface InputActions {
   removeImage(id: DraftAttachmentId): void
   /** Drop ids whose browser-owned objects no longer exist. */
   pruneImages(ids: readonly DraftAttachmentId[]): void
+  /** Begin draft-file uploads and append their chips; busy admission phases refuse. */
+  addFiles(files: readonly File[]): boolean
+  /** Remove one draft file (aborting its upload when still in flight). */
+  removeFile(id: DraftAttachmentId): void
   /** Enter submission (adjudication / claim transaction / default sink inside). */
   submit(): void
 }

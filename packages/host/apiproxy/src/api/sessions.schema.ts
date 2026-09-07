@@ -365,6 +365,13 @@ export const imageMediaTypeSchema = z.union([
 export const promptContentPartSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), text: z.string() }),
   z.object({ type: z.literal('image'), mediaType: imageMediaTypeSchema, data: z.string(), name: z.string().optional() }),
+  z.object({
+    type: z.literal('file'),
+    attachmentId: z.string(),
+    bytes: z.number().multipleOf(1).min(0).max(Number.MAX_SAFE_INTEGER),
+    name: z.string().optional(),
+    mediaType: z.string().optional(),
+  }),
 ])
 
 /** session.prompt request payload, including optional browser-local request provenance. */

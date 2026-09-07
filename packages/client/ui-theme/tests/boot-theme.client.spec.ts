@@ -14,8 +14,9 @@ function mockSystemDark(matches: boolean): void {
 function executeBootstrap(
   preference?: ThemePreference,
   html = '<html><body><div id="root"></div><script type="module"></script></body></html>',
+  fontSize?: number,
 ): string {
-  const injected = injectBootTheme(html, preference)
+  const injected = injectBootTheme(html, preference, fontSize)
   const source = /<script>([\s\S]*?)<\/script>/.exec(injected)?.[1]
   if (source === undefined) throw new Error('theme bootstrap script missing')
   runInNewContext(source, { document, matchMedia: globalThis.matchMedia })
@@ -27,6 +28,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
   document.documentElement.style.removeProperty('color-scheme')
   document.body.removeAttribute(DARK_ATTRIBUTE)
+  document.body.style.removeProperty('--dsw-content-font-size')
 })
 
 describe('theme boot index transform', () => {
@@ -67,5 +69,15 @@ describe('theme boot index transform', () => {
   it('appends the script to a body-less fragment', () => {
     const html = injectBootTheme('<main>loading</main>', 'dark')
     expect(html.startsWith('<main>loading</main><script>')).toBe(true)
+  })
+
+  it.each([
+    [undefined, '16px'],
+    [14, '14px'],
+    [18, '18px'],
+  ] as const)('publishes the content font-size axis (fontSize=%s → %s)', (fontSize, expected) => {
+    mockSystemDark(false)
+    executeBootstrap('light', undefined, fontSize)
+    expect(document.body.style.getPropertyValue('--dsw-content-font-size')).toBe(expected)
   })
 })

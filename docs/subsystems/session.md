@@ -53,6 +53,15 @@ interface SessionEventMap {
    * project their `content` verbatim; `source` tells them apart.
    */
   'user/message': UserMessage
+  /**
+   * Durable generic-file references admitted alongside the user prompt whose
+   * `user/message` follows in the same claim batch (correlated by position:
+   * the event is appended immediately before its message). Each reference also
+   * rides the message's own handle-text content block, so replay and model
+   * requests never depend on this log-only record; it exists for UI file
+   * badges, export manifests, and admission auditing.
+   */
+  'user/file': { files: readonly FileAttachmentRef[] }
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /**

@@ -228,7 +228,7 @@ describe('connection node half', () => {
 
   it('registers API and browser-authentication routes plus one upgrade route per downlink', async () => {
     const { routes, upgrades, dispose } = await mounted()
-    expect(routes).toHaveLength(12)
+    expect(routes).toHaveLength(13)
     expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
     expect(upgrades.map(route => route.path)).toEqual([MUX_EVENTS_PATH, HOST_EVENTS_PATH])
     await dispose()
@@ -381,6 +381,20 @@ describe('connection node half', () => {
     const { routes, dispose } = await mounted(undefined, { kind: 'rejected', reason: 'missing-credential' })
     const { response, state } = fakeResponse()
     await routes[0]!.handler(fakeRequest({ host: '127.0.0.1:3080' }), response)
+    expect(state.status).toBe(401)
+    expect(state.body).toBe('unauthorized')
+    await dispose()
+  })
+
+  it('holds a declared trustedHosts entry at the fence: a forged Host authenticates nothing', async () => {
+    // Host is client-controlled, so a raw peer can claim any declared
+    // authority. Passing the fence must not skip or soften authentication:
+    // the entry widens the rebinding fence only, never the trust decision.
+    const { routes, dispose } = await mounted({ trustedHosts: ['harness.example'] }, { kind: 'rejected', reason: 'missing-credential' })
+    const { response, state } = fakeResponse()
+    await routes[0]!.handler(fakeRequest({
+      host: 'harness.example', origin: 'http://harness.example', 'sec-fetch-site': 'same-origin',
+    }), response)
     expect(state.status).toBe(401)
     expect(state.body).toBe('unauthorized')
     await dispose()
@@ -680,7 +694,7 @@ describe('connection node half', () => {
     provideAuthentication(ctx)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    expect(routes).toHaveLength(12)
+    expect(routes).toHaveLength(13)
     expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
 
     const connection = ctx.get('connection') as HostConnectionHandle
@@ -737,6 +751,7 @@ describe('connection node half', () => {
       '/auth/manage/grant/revoke',
       '/auth/manage/token',
       '/auth/logout',
+      '/api/attachment/upload',
     ])
     await fiber.dispose()
     expect(routes).toHaveLength(0)

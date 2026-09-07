@@ -31,26 +31,53 @@
 }
 
 /* One produced file. A link by behavior (it opens the file), a chip by shape:
-   full paths are long, while the measured lane stays on one row. */
+   full paths are long, while the measured lane stays on one row. The chip
+   keeps its pill geometry but joins the shared link language — link-blue at
+   rest with no underline, dotted underline on hover/focus; the leading glyph
+   names the file's category and rides the link color. */
 .file {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   flex: 0 0 auto;
   max-width: 320px;
+  min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   margin: 0;
   padding: 0 8px;
   border: none;
   border-radius: 6px;
   background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-secondary);
+  color: var(--dsw-alias-link);
   font: inherit;
+  font-weight: 500;
+  text-decoration: none;
   cursor: pointer;
 }
 
-.file:hover {
-  color: var(--dsw-alias-label-primary);
-  text-decoration: underline;
+/* Flex centering tracks box centers, but the text box carries its glyphs
+   below center (the baseline sits low in the leading); the nudge drops the
+   glyph onto the text's visual center. */
+.fileIcon {
+  flex: none;
+  width: 1.1em;
+  height: 1.1em;
+  position: relative;
+  top: 1.2px;
+}
+
+.fileName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file:hover,
+.file:focus-visible {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
 }
 
 .file:focus-visible,
@@ -70,6 +97,9 @@
   grid-column: 2;
   grid-row: 2;
   justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   margin: 0;
   padding: 0 2px;
   border: none;

@@ -8,13 +8,14 @@
  */
 import type { ClientContext, ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   ArbitrateKey, ArbitrateOutcome, CommandClaim, ConsumeTokenRequest, PickOutcome,
   ReferenceInsert, InputTriggerController, SubmitImageAttachment, SubmitOutcome, TokenSpan,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {
-  DraftAttachmentId, EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
-  PasteComponent, QueuedMessage, SessionInput, SubmitAttempt,
+  ComposerFileDraft, DraftAttachmentId, EditRange, EditSelection, InputActions, InputEffect,
+  InputNotice, InputState, PasteComponent, QueuedMessage, SessionInput, SubmitAttempt,
 } from './contract.ts'
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import { InputMachine } from './machine.ts'
@@ -48,6 +49,7 @@ export interface SessionInputDeps {
   defaultSink(
     text: string,
     imageIds: readonly DraftAttachmentId[],
+    fileRefs: readonly FileAttachmentRef[],
     mode: InputSubmitMode,
     signal: AbortSignal,
   ): Promise<SubmitOutcome>
@@ -60,13 +62,28 @@ export interface SessionInputDeps {
     release(ids: readonly DraftAttachmentId[]): void
     unsupportedNotice(token: string): string
   }
+  /** Draft-file upload transport and its localized surfaces. */
+  fileUploads: {
+    upload(
+      file: File,
+      onProgress: (progress: { loaded: number; total: number }) => void,
+      signal: AbortSignal,
+    ): Promise<FileAttachmentRef>
+    /** Localized chip error line for one failed upload. */
+    errorText(error: unknown): string
+    /** Notice while a submit meets a still-uploading file. */
+    inFlightNotice(): string
+    /** Notice while a claimed command draft carries done files (no file channel exists). */
+    unsupportedNotice(token: string): string
+  }
 }
 
-/** The sole lifecycle owner and attachment reservation for one image-only send. */
-interface ImageSendAttempt {
+/** The sole lifecycle owner and attachment reservation for one attachments-only send. */
+interface AttachmentSendAttempt {
   readonly controller: AbortController
   readonly draftSnapshot: string
   readonly imageIds: readonly DraftAttachmentId[]
+  readonly fileIds: readonly DraftAttachmentId[]
 }
 
 /** Guard tier from the machine phase. */
@@ -92,12 +109,16 @@ export class SessionInputShell implements SessionInput {
   readonly state: SnapshotStore<InputState>
   /** Latest surfaced notice (null after clear); the wiring renders it beside the error strip. */
   readonly notices: SnapshotStore<InputNotice | null> = createSnapshotStore<InputNotice | null>(null)
+  /** Live draft-file chips through their upload lifecycle (the composer chip-row source). */
+  readonly fileDrafts: SnapshotStore<readonly ComposerFileDraft[]> = createSnapshotStore<readonly ComposerFileDraft[]>([])
   /** The public provide-channel action face (one stable identity per session). */
   readonly actions: InputActions = {
     setDraft: (text) => { this.setDraft(text) },
     addImages: ids => this.addImages(ids),
     removeImage: (id) => { this.removeImage(id) },
     pruneImages: (ids) => { this.pruneImages(ids) },
+    addFiles: files => this.addFiles(files),
+    removeFile: (id) => { this.removeFile(id) },
     submit: () => { this.submit('queue') },
   }
 
@@ -107,8 +128,10 @@ export class SessionInputShell implements SessionInput {
   private noticeSeq = 0
   private lastDraft = ''
   private imageIds: readonly DraftAttachmentId[] = []
-  /** One image-only send at a time; its ids remain visible but unavailable to later sends. */
-  private imageSend: ImageSendAttempt | undefined
+  /** One attachments-only send at a time; its ids remain visible but unavailable to later sends. */
+  private attachmentSend: AttachmentSendAttempt | undefined
+  /** In-flight upload aborts keyed by draft-file id (removed with the chip). */
+  private readonly uploads = new Map<DraftAttachmentId, AbortController>()
   /** Transaction completions retained until settlement so teardown can reach quiescence. */
   private readonly completions = new Set<Promise<void>>()
   private disposal: Promise<void> | undefined
@@ -164,15 +187,102 @@ export class SessionInputShell implements SessionInput {
   }
 
   /**
-   * Commit a successful image-only send. Captured image ids leave regardless
+   * Begin one upload per file and append their uploading chips in order.
+   * @param files - browser files to upload.
+   * @returns whether the busy-phase guard accepted the batch.
+   */
+  addFiles(files: readonly File[]): boolean {
+    if (this.snapshot.phase === 'adjudicating' || this.snapshot.phase === 'submitting') return false
+    if (files.length === 0) return true
+    const drafts: ComposerFileDraft[] = files.map(file => ({
+      id: crypto.randomUUID() as DraftAttachmentId,
+      name: file.name,
+      bytes: file.size,
+      status: 'uploading',
+    }))
+    this.fileDrafts.set([...this.fileDrafts.getSnapshot(), ...drafts])
+    files.forEach((file, index) => { this.startUpload(drafts[index] as ComposerFileDraft, file) })
+    return true
+  }
+
+  /** Remove one draft file, aborting its upload when still in flight. */
+  removeFile(id: DraftAttachmentId): void {
+    if (this.snapshot.phase === 'adjudicating' || this.snapshot.phase === 'submitting') return
+    this.dropFile(id)
+  }
+
+  /** Chip removal core: store filter + in-flight upload abort (idempotent). */
+  private dropFile(id: DraftAttachmentId): void {
+    const next = this.fileDrafts.getSnapshot().filter(draft => draft.id !== id)
+    if (next.length === this.fileDrafts.getSnapshot().length) return
+    this.fileDrafts.set(next)
+    this.uploads.get(id)?.abort()
+    this.uploads.delete(id)
+  }
+
+  /**
+   * Drive one chip's upload to its settled state. Settling ignores chips the
+   * user removed and the whole shell after disposal (the abort already ran).
+   */
+  private startUpload(draft: ComposerFileDraft, file: File): void {
+    const uploads = this.deps.fileUploads
+    const id = draft.id
+    const controller = new AbortController()
+    this.uploads.set(id, controller)
+    const completion = uploads.upload(
+      file,
+      (progress) => {
+        this.patchFile(id, current => current.status === 'uploading'
+          ? (progress.total === 0 ? {} : { progress: progress.loaded / progress.total })
+          : {})
+      },
+      controller.signal,
+    ).then(
+      (receipt) => {
+        this.uploads.delete(id)
+        if (this.disposed) return
+        this.patchFile(id, () => ({ status: 'done', receipt, progress: 1 }))
+      },
+      (error: unknown) => {
+        this.uploads.delete(id)
+        // An aborted upload is the user's own removeFile/dropFile (or shell
+        // disposal): the chip is already gone, so the rejection lands nowhere.
+        if (controller.signal.aborted || this.disposed) return
+        this.patchFile(id, () => ({ status: 'error', error: uploads.errorText(error) }))
+      },
+    )
+    const tracked = completion.then(
+      () => { this.completions.delete(tracked) },
+      () => { this.completions.delete(tracked) },
+    )
+    this.completions.add(tracked)
+  }
+
+  /** Immutably patch one chip by id; a missing chip (removed mid-flight) is a no-op. */
+  private patchFile(id: DraftAttachmentId, patch: (current: ComposerFileDraft) => Partial<ComposerFileDraft>): void {
+    const drafts = this.fileDrafts.getSnapshot()
+    const index = drafts.findIndex(draft => draft.id === id)
+    if (index === -1) return
+    const current = drafts[index] as ComposerFileDraft
+    this.fileDrafts.set([
+      ...drafts.slice(0, index),
+      { ...current, ...patch(current) },
+      ...drafts.slice(index + 1),
+    ])
+  }
+
+  /**
+   * Commit a successful attachments-only send. Captured ids leave regardless
    * of later input ownership; the machine consumes the text snapshot and cuts
    * undo history only while no command or adjudication transaction owns it.
    * @param imageIds - admitted image ids to remove from this draft.
+   * @param fileIds - admitted draft-file ids whose chips leave.
    * @param draftSnapshot - submitted text whose pure live suffix survives.
    */
-  commitSend(imageIds: readonly DraftAttachmentId[], draftSnapshot: string): void {
+  commitSend(imageIds: readonly DraftAttachmentId[], fileIds: readonly DraftAttachmentId[], draftSnapshot: string): void {
     const submitted = new Set(imageIds)
     this.imageIds = this.imageIds.filter(id => !submitted.has(id))
+    this.consumeFiles(fileIds)
     this.run(this.core.dispatch({ type: 'send-committed', draftSnapshot }))
   }
 
@@ -215,21 +325,37 @@ export class SessionInputShell implements SessionInput {
    */
   submit(mode: InputSubmitMode = 'queue'): void {
     if (this.disposed) return
-    if (this.snapshot.draft.trim() === '' && this.imageIds.length > 0) {
-      if (this.snapshot.phase === 'plain' && this.imageSend === undefined) {
+    // A still-uploading file blocks every send shape: a partial prompt would
+    // strand the chip's receipt with no message to ride.
+    if (this.fileDrafts.getSnapshot().some(draft => draft.status === 'uploading')) {
+      this.notify('error', this.deps.fileUploads.inFlightNotice())
+      return
+    }
+    const doneFiles = this.readyFiles()
+    if (this.snapshot.draft.trim() === '' && (this.imageIds.length > 0 || doneFiles.ids.length > 0)) {
+      if (this.snapshot.phase === 'plain' && this.attachmentSend === undefined) {
         const imageIds = [...this.imageIds]
-        const attempt: ImageSendAttempt = {
+        const fileIds = [...doneFiles.ids]
+        const attempt: AttachmentSendAttempt = {
           controller: new AbortController(),
           draftSnapshot: this.snapshot.draft,
           imageIds,
+          fileIds,
         }
-        this.imageSend = attempt
-        this.settleImageSend(attempt, () => this.deps.defaultSink('', imageIds, mode, attempt.controller.signal))
+        this.attachmentSend = attempt
+        this.settleAttachmentSend(
+          attempt,
+          () => this.deps.defaultSink('', imageIds, doneFiles.refs, mode, attempt.controller.signal),
+        )
       }
       return
     }
     const availableImages = this.availableImageIds()
     const before = this.snapshot
+    if (before.phase === 'claimed' && doneFiles.ids.length > 0) {
+      this.notify('error', this.deps.fileUploads.unsupportedNotice(before.claim?.token ?? before.draft))
+      return
+    }
     if (before.phase === 'claimed' && availableImages.length > 0 && before.claim?.images !== true) {
       this.notify(
         'error',
@@ -397,9 +523,11 @@ export class SessionInputShell implements SessionInput {
   dispose(): Promise<void> {
     if (this.disposal !== undefined) return this.disposal
     this.disposed = true
-    const imageSend = this.imageSend
-    this.imageSend = undefined
-    imageSend?.controller.abort()
+    const attachmentSend = this.attachmentSend
+    this.attachmentSend = undefined
+    attachmentSend?.controller.abort()
+    for (const controller of this.uploads.values()) controller.abort()
+    this.uploads.clear()
     this.run(this.core.dispatch({ type: 'release' }))
     this.disposal = this.drain()
     return this.disposal
@@ -470,12 +598,14 @@ export class SessionInputShell implements SessionInput {
   /** Reference fan-out and default sink form one retained transaction completion. */
   private async serializeAndSubmit(attempt: SubmitAttempt, draft: string, mode: InputSubmitMode): Promise<void> {
     const imageIds = this.availableImageIds()
+    const files = this.readyFiles()
     const occurrences = this.core.state.occurrences
     if (occurrences.length === 0) {
       await this.settleSubmit(
         attempt,
-        () => this.deps.defaultSink(draft.trim(), imageIds, mode, attempt.signal),
+        () => this.deps.defaultSink(draft.trim(), imageIds, files.refs, mode, attempt.signal),
         imageIds,
+        files.ids,
       )
       return
     }
@@ -511,24 +641,29 @@ export class SessionInputShell implements SessionInput {
     out += draft.slice(cursor)
     await this.settleSubmit(
       attempt,
-      () => this.deps.defaultSink(out.trim(), imageIds, mode, attempt.signal),
+      () => this.deps.defaultSink(out.trim(), imageIds, files.refs, mode, attempt.signal),
       imageIds,
+      files.ids,
     )
   }
 
-  /** Settle one admission attempt; successful sends consume only their captured images. */
+  /** Settle one admission attempt; successful sends consume only their captured attachments. */
   private settleSubmit(
     attempt: SubmitAttempt,
     operation: () => Promise<SubmitOutcome>,
     imageIds: readonly DraftAttachmentId[] = [],
+    fileIds: readonly DraftAttachmentId[] = [],
     onSuccess?: () => void,
   ): Promise<void> {
     return this.invokeAsync(operation).then(
       (outcome) => {
         if (this.dead(attempt)) return
-        if (outcome.kind === 'success' && imageIds.length > 0) {
-          const submitted = new Set(imageIds)
-          this.imageIds = this.imageIds.filter(id => !submitted.has(id))
+        if (outcome.kind === 'success') {
+          if (imageIds.length > 0) {
+            const submitted = new Set(imageIds)
+            this.imageIds = this.imageIds.filter(id => !submitted.has(id))
+          }
+          if (fileIds.length > 0) this.consumeFiles(fileIds)
           onSuccess?.()
         }
         this.run(this.core.dispatch({
@@ -604,30 +739,33 @@ export class SessionInputShell implements SessionInput {
       }
     }
     if (this.dead(attempt)) return
+    // Commands carry no file parts (the claimed+files guard in submit refused
+    // that shape before the machine transaction began).
     await this.settleSubmit(
       attempt,
       () => Promise.resolve().then(() => claim.submit(args, this.deps.actx, images)),
       imageIds,
+      [],
       imageIds.length === 0 ? undefined : () => { this.deps.commandImages?.release(imageIds) },
     )
   }
 
-  /** Settle an image-only lifecycle and release its attachment reservation exactly once. */
-  private settleImageSend(
-    attempt: ImageSendAttempt,
+  /** Settle an attachments-only lifecycle and release its reservation exactly once. */
+  private settleAttachmentSend(
+    attempt: AttachmentSendAttempt,
     operation: () => Promise<SubmitOutcome>,
   ): void {
     this.own(this.invokeAsync(operation).then(
       (outcome) => {
-        if (this.imageSend !== attempt) return
-        this.imageSend = undefined
+        if (this.attachmentSend !== attempt) return
+        this.attachmentSend = undefined
         if (this.disposed) return
-        if (outcome.kind === 'success') this.commitSend(attempt.imageIds, attempt.draftSnapshot)
+        if (outcome.kind === 'success') this.commitSend(attempt.imageIds, attempt.fileIds, attempt.draftSnapshot)
         else this.notify('error', outcome.text ?? 'prompt failed')
       },
       (error: unknown) => {
-        if (this.imageSend !== attempt) return
-        this.imageSend = undefined
+        if (this.attachmentSend !== attempt) return
+        this.attachmentSend = undefined
         if (!this.disposed) this.notify('error', error instanceof Error ? error.message : String(error))
       },
     ))
@@ -642,12 +780,37 @@ export class SessionInputShell implements SessionInput {
     }
   }
 
-  /** Draft image ids not reserved by the unresolved image-only lifecycle. */
+  /** Draft image ids not reserved by the unresolved attachments-only lifecycle. */
   private availableImageIds(): readonly DraftAttachmentId[] {
-    const reserved = this.imageSend?.imageIds
+    const reserved = this.attachmentSend?.imageIds
     if (reserved === undefined) return [...this.imageIds]
     const reservedIds = new Set(reserved)
     return this.imageIds.filter(id => !reservedIds.has(id))
+  }
+
+  /**
+   * Done-file drafts not reserved by the unresolved attachments-only
+   * lifecycle, in chip order (the prompt's file parts and their consumed ids).
+   */
+  private readyFiles(): { ids: readonly DraftAttachmentId[]; refs: readonly FileAttachmentRef[] } {
+    const reserved = this.attachmentSend?.fileIds
+    const reservedIds = reserved === undefined ? undefined : new Set(reserved)
+    const ids: DraftAttachmentId[] = []
+    const refs: FileAttachmentRef[] = []
+    for (const draft of this.fileDrafts.getSnapshot()) {
+      if (draft.status !== 'done' || draft.receipt === undefined) continue
+      if (reservedIds !== undefined && reservedIds.has(draft.id)) continue
+      ids.push(draft.id)
+      refs.push(draft.receipt)
+    }
+    return { ids, refs }
+  }
+
+  /** Remove submitted chips (their uploads already settled; nothing to abort). */
+  private consumeFiles(fileIds: readonly DraftAttachmentId[]): void {
+    if (fileIds.length === 0) return
+    const submitted = new Set(fileIds)
+    this.fileDrafts.set(this.fileDrafts.getSnapshot().filter(draft => !submitted.has(draft.id)))
   }
 
   /** Retain one non-rejecting transaction completion until it settles. */

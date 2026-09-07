@@ -337,10 +337,12 @@ export interface Config {
   maxMessageImageBytes?: number
   /** Maximum intrinsic width multiplied by height accepted for one image. */
   maxImagePixels?: number
+  /** Maximum bytes accepted for one uploaded generic file. */
+  maxFileBytes?: number
 }
 ```
 
-来源：[`packages/attachment/attachment-local/src/index.ts:24`](../packages/attachment/attachment-local/src/index.ts)
+来源：[`packages/attachment/attachment-local/src/index.ts:40`](../packages/attachment/attachment-local/src/index.ts)
 
 <a id="deepseek-aidsh-auth-app"></a>
 
@@ -512,7 +514,7 @@ export interface ConnectionConfig {
 }
 ```
 
-来源：[`packages/client/connection/src/index.ts:56`](../packages/client/connection/src/index.ts)
+来源：[`packages/client/connection/src/index.ts:67`](../packages/client/connection/src/index.ts)
 
 <a id="deepseek-aidsh-client-hmr"></a>
 

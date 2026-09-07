@@ -19,11 +19,21 @@ import { detectImage, probeImage } from './image.ts'
 const ID_PATTERN = /^sha256:([a-f0-9]{64})$/
 const durableHomes = new Set<string>()
 
-function digest(data: Uint8Array): string {
+/**
+ * Digest one byte sequence with the content-addressing hash.
+ * @param data - the bytes to digest.
+ * @returns the hex sha256 digest.
+ */
+export function digest(data: Uint8Array): string {
   return createHash('sha256').update(data).digest('hex')
 }
 
-function displayName(value: string | undefined): string | undefined {
+/**
+ * Clean one caller-supplied display name to a leaf without local path information.
+ * @param value - the raw display name.
+ * @returns the cleaned leaf, or `undefined` when nothing usable remains.
+ */
+export function displayName(value: string | undefined): string | undefined {
   if (value === undefined) return undefined
   // Strip both separator styles by hand: a POSIX host treats `\` as an
   // ordinary character, so path.basename would keep a Windows client's full
@@ -33,11 +43,83 @@ function displayName(value: string | undefined): string | undefined {
   return clean === '' ? undefined : clean
 }
 
-function objectPath(root: string, sha256: string): string {
+/**
+ * The content-addressed object path for one digest.
+ * @param root - the attachment root.
+ * @param sha256 - the hex digest.
+ * @returns the object file path.
+ */
+export function objectPath(root: string, sha256: string): string {
   return join(root, 'objects', sha256.slice(0, 2), sha256)
 }
 
-function ensureReference(ref: ImageAttachmentRef): string {
+/**
+ * Stage, durably publish, and deduplicate one immutable object below a
+ * versioned attachment root. Shared by the image and generic-file save paths
+ * so both honor the identical durability and integrity discipline.
+ * @param root - absolute `DSH_HOME/attachments/v1` root.
+ * @param data - the exact bytes to publish.
+ * @returns the content digest of the published object.
+ */
+export async function publishObject(root: string, data: Uint8Array): Promise<string> {
+  const sha256 = digest(data)
+  const bucket = join(root, 'objects', sha256.slice(0, 2))
+  const staging = join(root, 'tmp')
+  // Establish DSH_HOME itself against the filesystem root once per process.
+  // Every process performs that proof independently, so observing a directory
+  // another process created can never be mistaken for durable publication.
+  const boundary = await ensureDurableHome(dirname(dirname(resolve(root))))
+  await ensureDurableDirectory(bucket, boundary)
+  await ensureDurableDirectory(staging, boundary)
+  const temporary = join(staging, randomUUID())
+  const target = objectPath(root, sha256)
+  let handle
+  try {
+    handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600)
+    await handle.writeFile(data)
+    await handle.sync()
+    await handle.close()
+    handle = undefined
+    try {
+      await link(temporary, target)
+    } catch (error) {
+      /* v8 ignore next -- Private same-filesystem directories make EEXIST the only recoverable link race. */
+      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
+      const existing = new Uint8Array(await readFile(target))
+      if (digest(existing) !== sha256) throw new AttachmentError('Stored attachment failed integrity verification.', 'ATTACHMENT_CORRUPT')
+    }
+    // Persist the target entry and close a concurrent bucket-creation window
+    // before the reference can reach a session checkpoint. The dedup path
+    // repeats both syncs because it may observe another writer's link before
+    // that writer reaches its own durability boundary.
+    await syncDirectory(bucket)
+    await syncDirectory(join(root, 'objects'))
+    await unlink(temporary)
+  } catch (error) {
+    /* v8 ignore next -- A descriptor can remain open only when the underlying write/sync/close operation fails. */
+    if (handle !== undefined) await handle.close().catch(
+      /* v8 ignore next -- Close failure is superseded by the storage operation that entered cleanup. */
+      () => {},
+    )
+    await unlink(temporary).catch(
+      /* v8 ignore next -- The callback requires a second independent staging-unlink failure. */
+      (cleanupError: unknown) => {
+        /* v8 ignore next -- Cleanup is best-effort only for a staging file already removed by a failed operation. */
+        if (!(cleanupError instanceof Error && 'code' in cleanupError && cleanupError.code === 'ENOENT')) throw cleanupError
+      },
+    )
+    if (error instanceof AttachmentError) throw error
+    throw new AttachmentError('Unable to persist attachment bytes.', 'ATTACHMENT_WRITE_FAILED', { cause: error })
+  }
+  return sha256
+}
+
+/**
+ * Validate and strip one reference's digest from its opaque id.
+ * @param ref - the reference carrying the id.
+ * @returns the hex sha256 digest.
+ */
+export function ensureReference(ref: Pick<ImageAttachmentRef, 'attachmentId'>): string {
   const match = ID_PATTERN.exec(String(ref.attachmentId))
   if (match?.[1] === undefined) throw new AttachmentError('Attachment reference is invalid.', 'INVALID_ATTACHMENT_REF')
   return match[1]
@@ -72,8 +154,9 @@ export async function validateImageFile(input: SaveImageAttachment, limits: Imag
  * A synced file alone does not survive a crash when its directory entry never
  * reached storage, so the publication directory is synced before a durable
  * reference is reported.
+ * @param path - the directory whose entries must become durable.
  */
-async function syncDirectory(path: string): Promise<void> {
+export async function syncDirectory(path: string): Promise<void> {
   /* v8 ignore next -- Windows cannot open directory handles; NTFS metadata journaling owns entry durability there. */
   if (process.platform === 'win32') return
   /* v8 ignore start -- Windows cannot exercise directory fsync; POSIX behavior tests enforce this peer. */
@@ -97,7 +180,7 @@ async function syncDirectory(path: string): Promise<void> {
  * @param path - absolute directory to create.
  * @param boundary - absolute ancestor the caller vouches is already durable.
  */
-async function ensureDurableDirectory(path: string, boundary: string): Promise<void> {
+export async function ensureDurableDirectory(path: string, boundary: string): Promise<void> {
   const target = resolve(path)
   const stop = resolve(boundary)
   await mkdir(target, { recursive: true, mode: 0o700 })
@@ -116,8 +199,10 @@ async function ensureDurableDirectory(path: string, boundary: string): Promise<v
  * Establish this process's proof that one DSH_HOME entry and every ancestor
  * below the filesystem root are durable. Mere existence is insufficient: a
  * concurrent process may have created the directory but not synced its parent.
+ * @param path - the home directory to prove durable.
+ * @returns the resolved absolute home path.
  */
-async function ensureDurableHome(path: string): Promise<string> {
+export async function ensureDurableHome(path: string): Promise<string> {
   const home = resolve(path)
   if (!durableHomes.has(home)) {
     await ensureDurableDirectory(home, parse(home).root)
@@ -136,55 +221,7 @@ async function ensureDurableHome(path: string): Promise<string> {
 export async function saveImageFile(root: string, input: SaveImageAttachment, limits: ImageAttachmentLimits): Promise<ImageAttachmentRef> {
   if (input.data.byteLength > limits.maxImageBytes) throw new AttachmentError('Image exceeds the configured byte limit.', 'IMAGE_TOO_LARGE')
   const metadata = await inspectMetadata(input.data, input.mediaType, limits.maxImagePixels)
-  const sha256 = digest(input.data)
-  const bucket = join(root, 'objects', sha256.slice(0, 2))
-  const staging = join(root, 'tmp')
-  // Establish DSH_HOME itself against the filesystem root once per process.
-  // Every process performs that proof independently, so observing a directory
-  // another process created can never be mistaken for durable publication.
-  const boundary = await ensureDurableHome(dirname(dirname(resolve(root))))
-  await ensureDurableDirectory(bucket, boundary)
-  await ensureDurableDirectory(staging, boundary)
-  const temporary = join(staging, randomUUID())
-  const target = objectPath(root, sha256)
-  let handle
-  try {
-    handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600)
-    await handle.writeFile(input.data)
-    await handle.sync()
-    await handle.close()
-    handle = undefined
-    try {
-      await link(temporary, target)
-    } catch (error) {
-      /* v8 ignore next -- Private same-filesystem directories make EEXIST the only recoverable link race. */
-      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
-      const existing = new Uint8Array(await readFile(target))
-      if (digest(existing) !== sha256) throw new AttachmentError('Stored attachment failed integrity verification.', 'ATTACHMENT_CORRUPT')
-    }
-    // Persist the target entry and close a concurrent bucket-creation window
-    // before the reference can reach a session checkpoint. The dedup path
-    // repeats both syncs because it may observe another writer's link before
-    // that writer reaches its own durability boundary.
-    await syncDirectory(bucket)
-    await syncDirectory(join(root, 'objects'))
-    await unlink(temporary)
-  } catch (error) {
-    /* v8 ignore next -- A descriptor can remain open only when the underlying write/sync/close operation fails. */
-    if (handle !== undefined) await handle.close().catch(
-      /* v8 ignore next -- Close failure is superseded by the storage operation that entered cleanup. */
-      () => {},
-    )
-    await unlink(temporary).catch(
-      /* v8 ignore next -- The callback requires a second independent staging-unlink failure. */
-      (cleanupError: unknown) => {
-        /* v8 ignore next -- Cleanup is best-effort only for a staging file already removed by a failed operation. */
-        if (!(cleanupError instanceof Error && 'code' in cleanupError && cleanupError.code === 'ENOENT')) throw cleanupError
-      },
-    )
-    if (error instanceof AttachmentError) throw error
-    throw new AttachmentError('Unable to persist image attachment.', 'ATTACHMENT_WRITE_FAILED', { cause: error })
-  }
+  const sha256 = await publishObject(root, input.data)
   const name = displayName(input.name)
   return {
     attachmentId: AttachmentId(`sha256:${sha256}`),

@@ -5,6 +5,7 @@
 // Host machine.
 
 import { useLayoutEffect, useRef, useState } from 'react'
+import { LinkIcon, classifyLinkPath } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostDescriptionSource } from '@deepseek-ai/dsh-client-connection/client'
 import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -127,13 +128,15 @@ export function ProducedFiles({
             aria-label={t('produced.open', { name: path })}
             onClick={() => { openFile(path) }}
           >
-            {basename(path)}
+            <LinkIcon kind={classifyLinkPath(path)} className={css.fileIcon} />
+            <span className={css.fileName}>{basename(path)}</span>
           </button>
         ))}
         {hidden > 0 && <span className={css.more}>{moreLabel(t, hidden)}</span>}
       </div>
       {hidden > 0 && canOpenPath && (
         <button type="button" className={css.showFolder} onClick={() => { openFile('.') }}>
+          <LinkIcon kind="folder" className={css.fileIcon} />
           {t('produced.showInFolder')}
         </button>
       )}
@@ -146,7 +149,8 @@ export function ProducedFiles({
             tabIndex={-1}
             className={`${css.file} ${css.probe}`}
           >
-            {basename(path)}
+            <LinkIcon kind={classifyLinkPath(path)} className={css.fileIcon} />
+            <span className={css.fileName}>{basename(path)}</span>
           </button>
         ))}
         <span ref={moreProbe} className={`${css.more} ${css.probe}`} />

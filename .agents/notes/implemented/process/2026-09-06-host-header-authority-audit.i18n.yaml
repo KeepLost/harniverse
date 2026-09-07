@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-06-host-header-authority-audit.md
+2026-09-06-host-header-authority-audit.md: f5e233b4db8e8f4b98a0518faa79bf65862803e8
+2026-09-06-host-header-authority-audit.zh.md: 86779b87e0d91068485d52b203e56b010f00170f

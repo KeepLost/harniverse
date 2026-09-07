@@ -65,6 +65,39 @@ export interface ImageRequestPolicy {
   maxBytes: number
 }
 
+/** Durable, serializable metadata for one immutable generic file object. */
+export interface FileAttachmentRef {
+  /** Opaque storage identifier; never a filesystem path or bearer URL. */
+  attachmentId: AttachmentId
+  /** Caller-declared media type recorded as given; bytes are never sniffed or normalized. Omitted when undeclared. */
+  mediaType?: string
+  /** Exact byte length. */
+  bytes: number
+  /** Optional display name stripped of local path information. */
+  name?: string
+}
+
+/** Deployment-resolved limits used by generic-file upload admission. */
+export interface FileAttachmentLimits {
+  /** Maximum bytes accepted for one file. */
+  maxFileBytes: number
+}
+
+/** Request to durably commit one generic file; bytes are stored verbatim. */
+export interface SaveFileAttachment {
+  data: Uint8Array
+  /** Caller-declared media type, recorded as given (never verified from bytes). */
+  mediaType?: string
+  /** Optional browser display name; it is never interpreted as a path. */
+  name?: string
+}
+
+/** Stored generic-file bytes returned after reference and digest verification. */
+export interface StoredFileAttachment {
+  ref: FileAttachmentRef
+  data: Uint8Array
+}
+
 /** Transient request version derived from one durable attachment. */
 export interface RequestImageAttachment {
   /** Identity over the attachment, policy, and fixed encoder version. */

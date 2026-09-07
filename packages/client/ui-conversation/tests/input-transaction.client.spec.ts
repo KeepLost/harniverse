@@ -4,6 +4,7 @@ import type {
   CommandClaim, InputTriggerController, SubmitImageAttachment, SubmitOutcome,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { SessionInputShell } from '../src/client/input/facade.ts'
+import { stubFileUploads } from './input-file-uploads.client.ts'
 import type { DraftAttachmentId } from '../src/client/input/contract.ts'
 
 function deferred<T>() {
@@ -21,6 +22,7 @@ describe('composer submit transaction', () => {
     let settle!: (outcome: SubmitOutcome) => void
     const sink = vi.fn(() => new Promise<SubmitOutcome>((resolve) => { settle = resolve }))
     const shell = new SessionInputShell({
+      fileUploads: stubFileUploads,
       actx: {} as ClientContext,
       defaultSink: sink,
     })
@@ -37,6 +39,7 @@ describe('composer submit transaction', () => {
   it('preserves text appended after the submitted snapshot on success', async () => {
     let settle!: (outcome: SubmitOutcome) => void
     const shell = new SessionInputShell({
+      fileUploads: stubFileUploads,
       actx: {} as ClientContext,
       defaultSink: () => new Promise<SubmitOutcome>((resolve) => { settle = resolve }),
     })
@@ -56,7 +59,7 @@ describe('composer submit transaction', () => {
       .mockImplementationOnce(() => first.promise)
       .mockImplementationOnce(() => second.promise)
       .mockResolvedValue({ kind: 'success' })
-    const shell = new SessionInputShell({ actx: {} as ClientContext, defaultSink: sink })
+    const shell = new SessionInputShell({ fileUploads: stubFileUploads, actx: {} as ClientContext, defaultSink: sink })
     shell.setDraft('hello')
 
     shell.submit(mode)
@@ -82,6 +85,7 @@ describe('composer submit transaction', () => {
     const pending = deferred<SubmitOutcome>()
     const sink = vi.fn(() => pending.promise)
     const shell = new SessionInputShell({
+      fileUploads: stubFileUploads,
       actx: {} as ClientContext,
       inputTriggers: () => ({
         adjudicate: () => Promise.resolve(undefined),
@@ -108,7 +112,7 @@ describe('composer submit transaction', () => {
       .mockImplementationOnce(() => first.promise)
       .mockImplementationOnce(() => second.promise)
       .mockResolvedValue({ kind: 'success' })
-    const shell = new SessionInputShell({ actx: {} as ClientContext, defaultSink: sink })
+    const shell = new SessionInputShell({ fileUploads: stubFileUploads, actx: {} as ClientContext, defaultSink: sink })
     shell.addImages(['image-1' as DraftAttachmentId])
 
     shell.submit('queue')
@@ -130,7 +134,7 @@ describe('composer submit transaction', () => {
     const sink = vi.fn()
       .mockImplementationOnce(() => { throw new Error('sync image sink') })
       .mockResolvedValue({ kind: 'success' })
-    const shell = new SessionInputShell({ actx: {} as ClientContext, defaultSink: sink })
+    const shell = new SessionInputShell({ fileUploads: stubFileUploads, actx: {} as ClientContext, defaultSink: sink })
     shell.addImages(['image-1' as DraftAttachmentId])
 
     expect(() => { shell.submit('queue') }).not.toThrow()
@@ -145,6 +149,7 @@ describe('composer submit transaction', () => {
   it('commits only captured images and preserves text appended during an image-only send', async () => {
     const pending = deferred<SubmitOutcome>()
     const shell = new SessionInputShell({
+      fileUploads: stubFileUploads,
       actx: {} as ClientContext,
       defaultSink: () => pending.promise,
     })
@@ -163,6 +168,7 @@ describe('composer submit transaction', () => {
     const image = deferred<SubmitOutcome>()
     const command = deferred<SubmitOutcome>()
     const shell = new SessionInputShell({
+      fileUploads: stubFileUploads,
       actx: {} as ClientContext,
       defaultSink: () => image.promise,
     })
@@ -187,6 +193,7 @@ describe('composer submit transaction', () => {
     const image = deferred<SubmitOutcome>()
     const adjudication = deferred<undefined>()
     const shell = new SessionInputShell({
+      fileUploads: stubFileUploads,
       actx: {} as ClientContext,
       inputTriggers: () => ({ adjudicate: () => adjudication.promise, track: vi.fn() }) as unknown as InputTriggerController,
       defaultSink: () => image.promise,
@@ -212,28 +219,28 @@ describe('composer submit transaction', () => {
       .mockImplementationOnce(() => image.promise)
       .mockImplementationOnce(() => text.promise)
       .mockResolvedValue({ kind: 'success' })
-    const shell = new SessionInputShell({ actx: {} as ClientContext, defaultSink: sink })
+    const shell = new SessionInputShell({ fileUploads: stubFileUploads, actx: {} as ClientContext, defaultSink: sink })
     shell.addImages(['image-1' as DraftAttachmentId])
     shell.submit('queue')
 
     shell.setDraft('text while image sends')
     shell.submit('steer')
 
-    expect(sink).toHaveBeenNthCalledWith(1, '', ['image-1'], 'queue', expect.any(AbortSignal))
-    expect(sink).toHaveBeenNthCalledWith(2, 'text while image sends', [], 'steer', expect.any(AbortSignal))
+    expect(sink).toHaveBeenNthCalledWith(1, '', ['image-1'], [], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenNthCalledWith(2, 'text while image sends', [], [], 'steer', expect.any(AbortSignal))
     text.resolve({ kind: 'error', text: 'retry text' })
     image.resolve({ kind: 'error', text: 'retry image' })
     await vi.waitFor(() => { expect(shell.snapshot.phase).toBe('plain') })
 
     shell.submit('queue')
-    expect(sink).toHaveBeenNthCalledWith(3, 'text while image sends', ['image-1'], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenNthCalledWith(3, 'text while image sends', ['image-1'], [], 'queue', expect.any(AbortSignal))
   })
 
   it('settles a synchronous sink throw and permits retry', async () => {
     const sink = vi.fn()
       .mockImplementationOnce(() => { throw new Error('sync sink') })
       .mockResolvedValue({ kind: 'success' })
-    const shell = new SessionInputShell({ actx: {} as ClientContext, defaultSink: sink })
+    const shell = new SessionInputShell({ fileUploads: stubFileUploads, actx: {} as ClientContext, defaultSink: sink })
     shell.setDraft('retry me')
 
     expect(() => { shell.submit('queue') }).not.toThrow()
@@ -251,6 +258,7 @@ describe('composer submit transaction', () => {
     let serializationSignal: AbortSignal | undefined
     const sink = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
     const shell = new SessionInputShell({
+      fileUploads: stubFileUploads,
       actx: {} as ClientContext,
       inputTriggers: () => ({
         track: vi.fn(),
@@ -287,8 +295,9 @@ describe('composer submit transaction', () => {
     const pending = deferred<SubmitOutcome>()
     let sinkSignal: AbortSignal | undefined
     const shell = new SessionInputShell({
+      fileUploads: stubFileUploads,
       actx: {} as ClientContext,
-      defaultSink: (_text, _images, _mode, signal) => {
+      defaultSink: (_text, _images, _files, _mode, signal) => {
         sinkSignal = signal
         return pending.promise
       },
@@ -315,6 +324,7 @@ describe('composer submit transaction', () => {
     const adjudication = deferred<undefined>()
     let adjudicationSignal: AbortSignal | undefined
     const shell = new SessionInputShell({
+      fileUploads: stubFileUploads,
       actx: {} as ClientContext,
       inputTriggers: () => ({
         track: vi.fn(),
@@ -348,6 +358,7 @@ describe('composer submit transaction', () => {
     let retry = false
     const sink = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
     const shell = new SessionInputShell({
+      fileUploads: stubFileUploads,
       actx: {} as ClientContext,
       inputTriggers: () => ({
         track: vi.fn(),
@@ -388,6 +399,7 @@ describe('composer submit transaction', () => {
     const submit = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
     const serialize = vi.fn(() => Promise.resolve<readonly SubmitImageAttachment[]>([]))
     const shell = new SessionInputShell({
+      fileUploads: stubFileUploads,
       actx: {} as ClientContext,
       defaultSink: vi.fn(),
       commandImages: {
@@ -424,6 +436,7 @@ describe('composer submit transaction', () => {
       .mockResolvedValueOnce({ kind: 'error', text: 'retry' })
       .mockResolvedValueOnce({ kind: 'success' })
     const shell = new SessionInputShell({
+      fileUploads: stubFileUploads,
       actx: {} as ClientContext,
       defaultSink: vi.fn(),
       commandImages: { serialize, release, unsupportedNotice: vi.fn() },
@@ -454,6 +467,7 @@ describe('composer submit transaction', () => {
     const release = vi.fn()
     const submit = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
     const shell = new SessionInputShell({
+      fileUploads: stubFileUploads,
       actx: {} as ClientContext,
       defaultSink: vi.fn(),
       commandImages: {

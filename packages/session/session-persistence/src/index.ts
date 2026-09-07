@@ -17,6 +17,8 @@ import type {
 // Re-export the metadata vocabulary so Consumers import it from the Service Definition.
 export type { SessionHeader } from '@deepseek-ai/dsh-session'
 export { SessionPersistenceRevision } from './revision.ts'
+export { classifySessionFormatVersion } from './format-classification.ts'
+export type { SessionFormatClassification } from './format-classification.ts'
 
 /** Lightweight immutable source identity returned without loading a full log. */
 export interface SessionPersistenceSnapshot {

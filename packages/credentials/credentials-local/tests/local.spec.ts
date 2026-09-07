@@ -408,11 +408,19 @@ describe('real hot reload', () => {
     await writeCredentials(path, 'DSH_CRED_TEST: live\nDSH_CRED_OTHER: extra\n')
     await vi.waitFor(async () => {
       expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'live', source: 'file' })
+      expect(await ctx.credentials.resolve(OTHER)).toEqual({ value: 'extra', source: 'file' })
     })
 
     // Wholesale replacement: an entry deleted on disk never lingers in memory.
+    // Expose an editor's truncate-before-write phase before its final document.
+    await writeCredentials(path, '')
+    await vi.waitFor(async () => {
+      expect(await ctx.credentials.resolve(KEY)).toBeUndefined()
+      expect(await ctx.credentials.resolve(OTHER)).toBeUndefined()
+    })
     await writeCredentials(path, 'DSH_CRED_TEST: live\n')
     await vi.waitFor(async () => {
+      expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'live', source: 'file' })
       expect(await ctx.credentials.resolve(OTHER)).toBeUndefined()
     })
 

@@ -15,7 +15,10 @@ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts
 import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { SessionInputShell } from '../src/client/input/facade.ts'
+import type { SessionInputDeps } from '../src/client/input/facade.ts'
+import { stubFileUploads } from './input-file-uploads.client.ts'
 import type { ComposerAttachment } from '../src/client/contract/slots.ts'
+import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { DraftAttachmentId } from '../src/client/input/contract.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
@@ -53,6 +56,8 @@ interface BenchOptions {
   planEntry?: React.ReactNode
   /** The `plan` projection value the standard-kit useProjection serves. */
   plan?: { active: boolean; pending: boolean }
+  /** File-upload dep override (default: the never-settling idle stub). */
+  fileUploads?: SessionInputDeps['fileUploads']
   modelEntry?: React.ReactNode
   /** Hot text-ref lexicon (injects a minimal slash stub exposing only lexicon()). */
   lexicon?: ReadonlyMap<'/' | '@', readonly string[]>
@@ -91,6 +96,8 @@ interface BenchOptions {
   commandMenuOpen?: boolean
   busyEnter?: 'queue' | 'steer'
   toggleCommandMenu?: (selection: { start: number; end: number }) => void
+  /** Menu arbitration stub riding the inputTriggers face (Tab completion cases). */
+  arbitrate?: (key: 'up' | 'down' | 'enter' | 'escape' | 'tab', composing: boolean) => 'consumed' | 'pick-highlighted' | 'pass'
 }
 
 /** One pending queue row (the runtime snapshot shape, as the dock tests build it). */
@@ -100,6 +107,11 @@ function row(id: string): ConversationSnapshot['queue'][number] {
     content: [{ type: 'text', text: id }], preview: id, text: id,
   }
 }
+
+// Stable empty lexicon shared by the arbitration stub benches: the factory is
+// re-invoked on every controller read, so an instance minted inside it would
+// change identity per call and loop the bound selector forever.
+const EMPTY_LEXICON_STUB = new Map()
 
 /** Real machine behind the bar entry: sink spy, no slash pipeline (plain text goes straight to the sink). */
 function bench(over?: BenchOptions) {
@@ -114,6 +126,7 @@ function bench(over?: BenchOptions) {
   }))
   type ShellDeps = ConstructorParameters<typeof SessionInputShell>[0]
   const shell = new SessionInputShell({
+    fileUploads: over?.fileUploads ?? stubFileUploads,
     actx: SCTX,
     defaultSink: sink,
     queue: {
@@ -122,11 +135,14 @@ function bench(over?: BenchOptions) {
     },
     ...(over?.steerQueue !== undefined ? { steerQueue: over.steerQueue } : {}),
     // Lexicon-only stub: adjudication untouched (undefined slash methods are
-    // never reached — these benches drive plain-draft flows only).
-    ...(lex !== undefined
+    // never reached — these benches drive plain-draft flows only), except the
+    // arbitration stub the Tab-completion cases inject (the face always
+    // carries a lexicon; the arbitration cases get a stable empty one).
+    ...(lex !== undefined || over?.arbitrate !== undefined
       ? {
         inputTriggers: (() => ({
-          lexicon: { getSnapshot: () => lex, subscribe: () => () => {} },
+          lexicon: { getSnapshot: () => lex ?? EMPTY_LEXICON_STUB, subscribe: () => () => {} },
+          ...(over?.arbitrate !== undefined ? { arbitrate: over.arbitrate } : {}),
         })) as unknown as NonNullable<ShellDeps['inputTriggers']>,
       }
       : {}),
@@ -165,6 +181,8 @@ function bench(over?: BenchOptions) {
     keyboard: shell,
     addImages: over?.addImages ?? (() => null),
     removeImage,
+    addFiles: (files) => { shell.addFiles(files) },
+    removeFile: (id) => { shell.removeFile(id) },
     draftImages: ids => ids.flatMap((id) => {
       const attachment = over?.attachments?.find(candidate => candidate.id === id)
       return attachment === undefined ? [] : [attachment]
@@ -178,6 +196,7 @@ function bench(over?: BenchOptions) {
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
     useMenuLauncher: bindSnapshotSelector(menuLauncher),
+    useFileDrafts: bindSnapshotSelector(shell.fileDrafts),
     stop,
     command: over?.command ?? (() => Promise.resolve(true)),
     // Mirrors the real lookup chain (conversation namespace, then common).
@@ -374,7 +393,7 @@ describe('image draft rail', () => {
     const { view, textarea, sink, removeImage } = bench({ attachments: [attachment] })
     expect((view.getByRole('button', { name: '发送消息' }) as HTMLButtonElement).disabled).toBe(false)
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('', ['draft-1'], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('', ['draft-1'], [], 'queue', expect.any(AbortSignal))
     fireEvent.click(view.getByRole('button', { name: '移除图片 pixel.png' }))
     expect(removeImage).toHaveBeenCalledWith('draft-1')
   })
@@ -479,7 +498,7 @@ describe('Enter semantics', () => {
   it('plain Enter submits queue mode through the machine; repeat and empty are suppressed', () => {
     const { textarea, sink } = bench({ draft: 'hello' })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('hello', [], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('hello', [], [], 'queue', expect.any(AbortSignal))
     fireEvent.keyDown(textarea, { key: 'Enter', repeat: true })
     expect(sink).toHaveBeenCalledTimes(1)
     const empty = bench({ draft: '   ' })
@@ -504,15 +523,15 @@ describe('Enter semantics', () => {
   it('Ctrl/Meta+Enter sends normally while idle and steers while running', () => {
     const idle = bench({ draft: 'hello' })
     fireEvent.keyDown(idle.textarea, { key: 'Enter', metaKey: true })
-    expect(idle.sink).toHaveBeenCalledWith('hello', [], 'queue', expect.any(AbortSignal))
+    expect(idle.sink).toHaveBeenCalledWith('hello', [], [], 'queue', expect.any(AbortSignal))
 
     const busyCtrl = bench({ running: true, draft: 'steer with ctrl' })
     fireEvent.keyDown(busyCtrl.textarea, { key: 'Enter', ctrlKey: true })
-    expect(busyCtrl.sink).toHaveBeenCalledWith('steer with ctrl', [], 'steer', expect.any(AbortSignal))
+    expect(busyCtrl.sink).toHaveBeenCalledWith('steer with ctrl', [], [], 'steer', expect.any(AbortSignal))
 
     const busyMeta = bench({ running: true, draft: 'steer with cmd' })
     fireEvent.keyDown(busyMeta.textarea, { key: 'Enter', metaKey: true })
-    expect(busyMeta.sink).toHaveBeenCalledWith('steer with cmd', [], 'steer', expect.any(AbortSignal))
+    expect(busyMeta.sink).toHaveBeenCalledWith('steer with cmd', [], [], 'steer', expect.any(AbortSignal))
   })
 
   it('empty-draft Cmd/Ctrl+Enter steers the whole queue instead of submitting', () => {
@@ -577,7 +596,7 @@ describe('Enter semantics', () => {
     const steerQueue = vi.fn()
     const { textarea, sink } = bench({ running: true, queue: [row('q-1')], draft: '插话', steerQueue })
     fireEvent.keyDown(textarea, { key: 'Enter', ctrlKey: true })
-    expect(sink).toHaveBeenCalledWith('插话', [], 'steer', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('插话', [], [], 'steer', expect.any(AbortSignal))
     expect(steerQueue).not.toHaveBeenCalled()
   })
 
@@ -625,7 +644,7 @@ describe('running and lock semantics', () => {
     expect(textarea.disabled).toBe(false)
     fireEvent.change(textarea, { target: { value: '排队消息2' } })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('排队消息2', [], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('排队消息2', [], [], 'queue', expect.any(AbortSignal))
     expect(button.getAttribute('aria-label')).toBe('停止生成')
     fireEvent.click(button)
     expect(stop).toHaveBeenCalledTimes(1)
@@ -634,17 +653,17 @@ describe('running and lock semantics', () => {
   it('running plain Enter follows the busy-state Steer preference', () => {
     const { textarea, sink } = bench({ running: true, busyEnter: 'steer', draft: '直接插话' })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('直接插话', [], 'steer', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('直接插话', [], [], 'steer', expect.any(AbortSignal))
   })
 
   it('running Cmd/Ctrl+Enter uses the opposite of the busy-state Enter preference', () => {
     const meta = bench({ running: true, busyEnter: 'steer', draft: '排到下一轮' })
     fireEvent.keyDown(meta.textarea, { key: 'Enter', metaKey: true })
-    expect(meta.sink).toHaveBeenCalledWith('排到下一轮', [], 'queue', expect.any(AbortSignal))
+    expect(meta.sink).toHaveBeenCalledWith('排到下一轮', [], [], 'queue', expect.any(AbortSignal))
 
     const ctrl = bench({ running: true, busyEnter: 'steer', draft: 'also queue' })
     fireEvent.keyDown(ctrl.textarea, { key: 'Enter', ctrlKey: true })
-    expect(ctrl.sink).toHaveBeenCalledWith('also queue', [], 'queue', expect.any(AbortSignal))
+    expect(ctrl.sink).toHaveBeenCalledWith('also queue', [], [], 'queue', expect.any(AbortSignal))
   })
 
   it('running continuable subagent keeps Send beside an independent Stop', () => {
@@ -664,7 +683,7 @@ describe('running and lock semantics', () => {
     expect(interruptButton).not.toBeNull()
     expect(textarea.disabled).toBe(false)
     fireEvent.click(button)
-    expect(sink).toHaveBeenCalledWith('后续消息', [], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('后续消息', [], [], 'queue', expect.any(AbortSignal))
     fireEvent.click(interruptButton!)
     expect(stop).toHaveBeenCalledTimes(1)
   })
@@ -721,11 +740,11 @@ describe('running and lock semantics', () => {
     }
     const plain = bench({ running: true, busyEnter: 'steer', draft: 'plain', subagent })
     fireEvent.keyDown(plain.textarea, { key: 'Enter' })
-    expect(plain.sink).toHaveBeenCalledWith('plain', [], 'queue', expect.any(AbortSignal))
+    expect(plain.sink).toHaveBeenCalledWith('plain', [], [], 'queue', expect.any(AbortSignal))
 
     const accelerated = bench({ running: true, draft: 'accelerated', subagent })
     fireEvent.keyDown(accelerated.textarea, { key: 'Enter', metaKey: true })
-    expect(accelerated.sink).toHaveBeenCalledWith('accelerated', [], 'queue', expect.any(AbortSignal))
+    expect(accelerated.sink).toHaveBeenCalledWith('accelerated', [], [], 'queue', expect.any(AbortSignal))
   })
 
   it('disabled (session removed) locks the textarea and chrome', () => {
@@ -738,7 +757,7 @@ describe('running and lock semantics', () => {
   it('idle primary sends and disables on empty draft', () => {
     const { button, sink } = bench({ draft: 'go' })
     fireEvent.click(button)
-    expect(sink).toHaveBeenCalledWith('go', [], 'queue', expect.any(AbortSignal))
+    expect(sink).toHaveBeenCalledWith('go', [], [], 'queue', expect.any(AbortSignal))
     const empty = bench()
     expect(empty.button.disabled).toBe(true)
   })
@@ -825,6 +844,116 @@ describe('running and lock semantics', () => {
     // The glyph layer carries the draft and nothing else — no height padding
     // to a second box's scroll extent.
     expect(backdrop.textContent).toBe('line\n'.repeat(40))
+  })
+
+  it('repairs Safari native overflow after the mirror shrinks the draft', () => {
+    const vendor = vi.spyOn(window.navigator, 'vendor', 'get').mockReturnValue('Apple Computer, Inc.')
+    const userAgent = vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15',
+    )
+    onTestFinished(() => {
+      vendor.mockRestore()
+      userAgent.mockRestore()
+    })
+    const { textarea } = bench({ draft: 'two wrapped lines' })
+    const scrollport = textarea.closest<HTMLElement>('[data-input-scroll]')!
+    let inputRepaired = false
+    let scrollportRepaired = false
+    const inputLayouts: string[] = []
+    const scrollportLayouts: string[] = []
+    Object.defineProperty(textarea, 'clientHeight', {
+      configurable: true,
+      get: () => textarea.style.height === '29px' ? 29 : 28,
+    })
+    Object.defineProperty(textarea, 'scrollHeight', {
+      configurable: true,
+      get: () => inputRepaired ? 28 : 52,
+    })
+    Object.defineProperty(textarea, 'offsetHeight', {
+      configurable: true,
+      get: () => {
+        inputLayouts.push(textarea.style.height)
+        if (textarea.style.height === '') inputRepaired = true
+        return textarea.clientHeight
+      },
+    })
+    Object.defineProperty(scrollport, 'clientHeight', {
+      configurable: true,
+      get: () => {
+        if (scrollport.style.height === '53px') return 53
+        if (inputRepaired && !scrollportRepaired) return 52
+        return 28
+      },
+    })
+    Object.defineProperty(scrollport, 'offsetHeight', {
+      configurable: true,
+      get: () => {
+        scrollportLayouts.push(scrollport.style.height)
+        if (scrollport.style.height === '') scrollportRepaired = true
+        return scrollport.clientHeight
+      },
+    })
+    textarea.setSelectionRange(5, 5)
+
+    fireEvent.change(textarea, { target: { value: 'one line' } })
+
+    expect(inputLayouts).toEqual(['29px', ''])
+    expect(scrollportLayouts).toEqual(['53px', ''])
+    expect(textarea.style.height).toBe('')
+    expect(scrollport.style.height).toBe('')
+    expect(textarea.scrollHeight).toBe(textarea.clientHeight)
+    expect(scrollport.clientHeight).toBe(28)
+  })
+
+  it('does not force the Safari recovery for another iOS browser', () => {
+    const vendor = vi.spyOn(window.navigator, 'vendor', 'get').mockReturnValue('Apple Computer, Inc.')
+    const userAgent = vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/140.0.0.0 Mobile/15E148 Safari/604.1',
+    )
+    onTestFinished(() => {
+      vendor.mockRestore()
+      userAgent.mockRestore()
+    })
+    const { textarea } = bench({ draft: 'two wrapped lines' })
+    const scrollport = textarea.closest<HTMLElement>('[data-input-scroll]')!
+    Object.defineProperty(textarea, 'clientHeight', { configurable: true, value: 28 })
+    Object.defineProperty(textarea, 'scrollHeight', { configurable: true, value: 52 })
+    Object.defineProperty(textarea, 'offsetHeight', {
+      configurable: true,
+      get: () => { throw new Error('non-Safari browser must not force textarea layout') },
+    })
+    Object.defineProperty(scrollport, 'offsetHeight', {
+      configurable: true,
+      get: () => { throw new Error('non-Safari browser must not force scrollport layout') },
+    })
+
+    fireEvent.change(textarea, { target: { value: 'one line' } })
+
+    expect(scrollport.style.height).toBe('')
+  })
+
+  it('does not read Safari layout while a native edit grows the draft', () => {
+    const vendor = vi.spyOn(window.navigator, 'vendor', 'get').mockReturnValue('Apple Computer, Inc.')
+    const userAgent = vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15',
+    )
+    onTestFinished(() => {
+      vendor.mockRestore()
+      userAgent.mockRestore()
+    })
+    const { textarea, shell } = bench({ draft: 'one line' })
+    Object.defineProperty(textarea, 'clientHeight', {
+      configurable: true,
+      get: () => { throw new Error('growing Safari input must not read layout') },
+    })
+    Object.defineProperty(textarea, 'scrollHeight', {
+      configurable: true,
+      get: () => { throw new Error('growing Safari input must not read layout') },
+    })
+
+    fireEvent.change(textarea, { target: { value: 'one line grows' } })
+
+    expect(shell.snapshot.draft).toBe('one line grows')
   })
 
   it('an edit the composer performs itself scrolls the caret back into view', async () => {
@@ -1345,5 +1474,123 @@ describe('command launcher chrome and control seats', () => {
     cleanup()
     const live = bench({ running: true, permissions })
     expect((live.view.getByLabelText(/^访问模式/) as HTMLButtonElement).disabled).toBe(false)
+  })
+})
+
+describe('slash menu Tab completion', () => {
+  it('Tab routes through menu arbitration and is consumed while the menu intercepts', () => {
+    const arbitrate = vi.fn(() => 'pick-highlighted' as const)
+    const b = bench({ arbitrate })
+    // fireEvent returns false when the event's default was prevented.
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab' })).toBe(false)
+    expect(arbitrate).toHaveBeenCalledWith('tab', false)
+  })
+
+  it('Tab keeps native focus traversal when the menu passes', () => {
+    const arbitrate = vi.fn(() => 'pass' as const)
+    const b = bench({ arbitrate })
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab' })).toBe(true)
+    expect(arbitrate).toHaveBeenCalledWith('tab', false)
+  })
+
+  it('Shift+Tab never reaches the menu (reverse focus traversal stays native)', () => {
+    const arbitrate = vi.fn(() => 'consumed' as const)
+    const b = bench({ arbitrate })
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab', shiftKey: true })).toBe(true)
+    expect(arbitrate).not.toHaveBeenCalled()
+  })
+
+  it('IME-composing Tab stays native', () => {
+    const arbitrate = vi.fn(() => 'consumed' as const)
+    const b = bench({ arbitrate })
+    expect(fireEvent.keyDown(b.textarea, { key: 'Tab', keyCode: 229 })).toBe(true)
+    expect(arbitrate).not.toHaveBeenCalled()
+  })
+})
+
+describe('file intake', () => {
+  interface Held {
+    file: File
+    onProgress: (progress: { loaded: number; total: number }) => void
+    signal: AbortSignal
+    resolve: (ref: FileAttachmentRef) => void
+    reject: (reason?: unknown) => void
+  }
+
+  function holding() {
+    const held: Held[] = []
+    const fileUploads = {
+      upload: (file: File, onProgress: Held['onProgress'], signal: AbortSignal) =>
+        new Promise<FileAttachmentRef>((resolve, reject) => {
+          held.push({ file, onProgress, signal, resolve, reject })
+        }),
+      errorText: () => '上传失败',
+      inFlightNotice: () => '文件仍在上传，请等待上传完成后再发送',
+      unsupportedNotice: (token: string) => `/${token} 不接受文件附件`,
+    }
+    return { held, fileUploads }
+  }
+
+  function pick(view: ReturnType<typeof render>, files: readonly File[]): void {
+    const input = view.container.querySelector<HTMLInputElement>('[data-file-input]')
+    if (input === null) throw new Error('file input missing')
+    act(() => {
+      Object.defineProperty(input, 'files', { value: files, configurable: true })
+      fireEvent.change(input)
+    })
+  }
+
+  it('mints an uploading chip from the picker and locks the primary until it settles', async () => {
+    const { held, fileUploads } = holding()
+    const b = bench({ fileUploads })
+    expect(b.view.container.querySelector('[data-file-entry]')).not.toBeNull()
+    pick(b.view, [new File([new Uint8Array(6)], '笔记.txt', { type: 'text/plain' })])
+    expect(b.view.getByText('笔记.txt')).toBeDefined()
+    expect(b.view.container.querySelector('[data-file-chip="uploading"]')).not.toBeNull()
+    // Empty draft + uploading file: send stays locked.
+    expect(b.button.disabled).toBe(true)
+
+    held[0]!.onProgress({ loaded: 3, total: 6 })
+    held[0]!.resolve({
+      attachmentId: `sha256:${'a'.repeat(64)}` as FileAttachmentRef['attachmentId'],
+      bytes: 6,
+      name: '笔记.txt',
+    })
+    await vi.waitFor(() => {
+      expect(b.view.container.querySelector('[data-file-chip="done"]')).not.toBeNull()
+    })
+    // File-only send unlocks with the empty draft.
+    expect(b.button.disabled).toBe(false)
+    fireEvent.click(b.button)
+    await vi.waitFor(() => {
+      expect(b.sink).toHaveBeenCalledWith(
+        '',
+        [],
+        [expect.objectContaining({ bytes: 6, name: '笔记.txt' })],
+        'queue',
+        expect.any(AbortSignal),
+      )
+    })
+    await vi.waitFor(() => {
+      expect(b.view.container.querySelector('[data-file-chip]')).toBeNull()
+    })
+  })
+
+  it('keeps an error chip addressable until removed and never blocks text sends', async () => {
+    const { held, fileUploads } = holding()
+    const b = bench({ fileUploads, draft: '正文' })
+    pick(b.view, [new File([new Uint8Array(1)], 'x.bin')])
+    held[0]!.reject(new Error('HTTP 500'))
+    await vi.waitFor(() => {
+      expect(b.view.container.querySelector('[data-file-chip="error"]')).not.toBeNull()
+    })
+    // Text + settled-error chip: send stays available (the chip is inert).
+    expect(b.button.disabled).toBe(false)
+    fireEvent.click(b.button)
+    await vi.waitFor(() => { expect(b.sink).toHaveBeenCalledWith('正文', [], [], 'queue', expect.any(AbortSignal)) })
+    fireEvent.click(b.view.getByRole('button', { name: '移除文件 x.bin' }))
+    await vi.waitFor(() => {
+      expect(b.view.container.querySelector('[data-file-chip]')).toBeNull()
+    })
   })
 })

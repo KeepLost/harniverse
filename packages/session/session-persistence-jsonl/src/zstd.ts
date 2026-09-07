@@ -9,7 +9,7 @@ import {
   constants, zstdCompress, zstdDecompress, type ZstdOptions,
 } from 'node:zlib'
 import { promisify } from 'node:util'
-import { NodePrivateZstdFrameDecoder } from './zstd-private-decoder.ts'
+import { NodePrivateZstdFrameDecoder, NodePrivateZstdPrefixDecoder } from './zstd-private-decoder.ts'
 import { PublicZstdFrameDecoder } from './zstd-public-decoder.ts'
 
 const ZSTD_MAGIC = 0xFD2FB528
@@ -17,9 +17,6 @@ const zstdCompressAsync = promisify(zstdCompress)
 const zstdDecompressAsync = promisify(zstdDecompress)
 const CHECKSUM_OPTIONS: ZstdOptions = {
   params: { [constants.ZSTD_c_checksumFlag]: 1 },
-}
-const INCOMPLETE_FRAME_OPTIONS: ZstdOptions = {
-  finishFlush: constants.ZSTD_e_flush,
 }
 
 /** Byte range occupied by one structurally complete Zstandard frame. */
@@ -145,12 +142,22 @@ export function createZstdFrameDecoder(): ZstdFrameDecoder {
 }
 
 /**
- * Recover available plaintext from a structurally incomplete final frame.
- * `ZSTD_e_flush` deliberately suppresses final-frame and checksum completion;
- * callers must establish the torn frame boundary before using this helper.
- * @param input - available bytes from a known incomplete Zstandard frame.
- * @returns plaintext produced from the available input.
+ * Recover the plaintext a structurally incomplete final frame has already
+ * produced. The decode runs on an independent stream — a torn frame must not
+ * pollute a shared decoder's state — and stops at input exhaustion or invalid
+ * bytes without throwing, so `undefined` always means "no recoverable
+ * plaintext", including when the running Node release exposes no private
+ * synchronous decoder contract.
+ * @param input - available bytes from one known-incomplete Zstandard frame.
+ * @returns the drained plaintext prefix, or `undefined` when none was produced.
  */
-export async function decompressZstdPrefix(input: Buffer): Promise<Buffer> {
-  return zstdDecompressAsync(input, INCOMPLETE_FRAME_OPTIONS)
+export function decodeZstdFramePrefix(input: Buffer): Buffer | undefined {
+  const decoder = NodePrivateZstdPrefixDecoder.create()
+  if (decoder === undefined) return undefined
+  try {
+    const plaintext = decoder.decodePrefix(input)
+    return plaintext.length > 0 ? plaintext : undefined
+  } finally {
+    decoder.close()
+  }
 }

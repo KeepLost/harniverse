@@ -1,6 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -34,6 +34,25 @@ describe('local attachment service', () => {
       ))
       const ref = await service.saveImage({ data, mediaType: 'image/png' })
       await expect(service.readImage(ref)).resolves.toEqual({ ref, data })
+    } finally {
+      await rm(dshHome, { recursive: true, force: true })
+    }
+  })
+
+  it('saves, reads, and publishes generic files through the service boundary', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'dsh-attachment-file-service-'))
+    try {
+      const service = new LocalAttachmentStore(new Context(), { dshHome })
+      const data = new Uint8Array([1, 2, 3, 4, 5])
+      const ref = await service.saveFile({ data, name: 'notes.txt', mediaType: 'text/plain' })
+      expect(ref.bytes).toBe(5)
+      expect(ref.name).toBe('notes.txt')
+      const stored = await service.readFile(ref)
+      expect(Buffer.from(stored.data).equals(Buffer.from(data))).toBe(true)
+      const path = await service.publishFileHandle(ref)
+      const mode = await stat(path)
+      expect(mode.mode & 0o777).toBe(0o444)
+      expect(String(ref.attachmentId).slice('sha256:'.length, 'sha256:'.length + 8)).toBeTruthy()
     } finally {
       await rm(dshHome, { recursive: true, force: true })
     }

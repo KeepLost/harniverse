@@ -31,7 +31,7 @@ import {
   type JsonlCompression,
 } from './format.ts'
 import {
-  compressZstdFrame, createZstdFrameDecoder, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames,
+  compressZstdFrame, createZstdFrameDecoder, decodeZstdFramePrefix, decompressZstdFrame, scanZstdFrames,
 } from './zstd.ts'
 import { SessionWriteLease } from './lease.ts'
 import { ensureDurableDirectoryWin32, publishNewFileWin32 } from './win32.ts'
@@ -196,7 +196,7 @@ export interface Config {
 /** Opaque coordinator token for replacing bytes recovered from a torn frame. */
 interface JsonlTornMarker {
   truncateTo: number
-  recoveredEvents: SessionEvent[]
+  recovered: readonly SessionEvent[]
 }
 
 interface FileRevisionIdentity {
@@ -563,7 +563,7 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
           meta,
           events,
           ...committedBytes < buffer.byteLength
-            ? { tornMarker: { truncateTo: committedBytes, recoveredEvents: [] } }
+            ? { tornMarker: { truncateTo: committedBytes, recovered: [] } }
             : {},
         }
       }
@@ -625,18 +625,10 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
         return { meta: prefix.meta, events: prefix.events }
       }
 
-      let recoveredPlaintext: Buffer = Buffer.alloc(0)
-      try {
-        signal?.throwIfAborted()
-        recoveredPlaintext = await decompressZstdPrefix(buffer.subarray(tornStart))
-      } catch {
-        /* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */
-        if (signal?.aborted) signal.throwIfAborted()
-        // A structurally incomplete final frame may end before Node's decoder can
-        // emit any plaintext; the complete prior frames remain recoverable.
-      }
       signal?.throwIfAborted()
-      scanner.write(recoveredPlaintext)
+      const recoveredPlaintext = decodeZstdFramePrefix(buffer.subarray(tornStart))
+      signal?.throwIfAborted()
+      if (recoveredPlaintext !== undefined) scanner.write(recoveredPlaintext)
       const recoveredPrefix = scanner.finish()
       signal?.throwIfAborted()
       return {
@@ -644,7 +636,7 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
         events: recoveredPrefix.events,
         tornMarker: {
           truncateTo: tornStart,
-          recoveredEvents: recoveredPrefix.events.slice(complete.eventCount),
+          recovered: recoveredPrefix.events.slice(complete.eventCount),
         },
       }
     } catch (error) {
@@ -668,9 +660,10 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
   }
 
   /**
-   * Make a crash repair durable: truncate a torn tail, restore complete events
-   * decoded from it, then append synthetic closers. Two fsync'd steps — the seam
-   * does not require this to be atomic.
+   * Make a crash repair durable: truncate a torn tail, restore the complete
+   * events it had already flushed as a fresh frame, then append synthetic
+   * closers. Separate fsync'd steps — the seam does not require this to be
+   * atomic.
    */
   async commitRepair(
     meta: SessionHeader,
@@ -678,9 +671,11 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     closers: readonly SessionEvent[],
   ): Promise<void> {
     if (tornMarker !== undefined || closers.length > 0) await this.ensureLease(meta)
-    if (tornMarker !== undefined) await this.repair(meta, tornMarker.truncateTo)
-    const repairedEvents = [...(tornMarker?.recoveredEvents ?? []), ...closers]
-    if (repairedEvents.length > 0) await this.appendLines(meta, repairedEvents)
+    if (tornMarker !== undefined) {
+      await this.repair(meta, tornMarker.truncateTo)
+      if (tornMarker.recovered.length > 0) await this.appendLines(meta, tornMarker.recovered)
+    }
+    if (closers.length > 0) await this.appendLines(meta, closers)
   }
 
   /** Remove the exact validated log file; shared attachment objects are outside this backend. */

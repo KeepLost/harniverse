@@ -1,5 +1,6 @@
 /** Message value types, identity, and immutable construction helpers. */
 
+import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { MessageId, type CallId } from './brand.ts'
 import { deepFreeze } from './call-config.ts'
 import type { ContentBlock, StreamChunk, ToolResultBlock } from './types.ts'
@@ -101,7 +102,12 @@ export type ContextFormed =
  * Merge-extensible sum type — plugins add their own `kind`s.
  */
 export interface MessageSourceMap {
-  user: { kind: 'user' }
+  /**
+   * A direct human prompt. `files` carries the durable generic-file
+   * references admitted alongside this prompt (each also rendered as a
+   * handle text block in the message content); absent for text-only prompts.
+   */
+  user: { kind: 'user'; files?: readonly FileAttachmentRef[] }
   plugin: { kind: 'plugin'; plugin: string } & ContextFormed
   model: ModelMessageSource
   tool: ToolMessageSource

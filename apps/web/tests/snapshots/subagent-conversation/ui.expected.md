@@ -56,6 +56,8 @@
 - textbox "Message the agent"
 - button "Commands":
   - img
+- button "Add files":
+  - img
 - 'button "Access mode, current: Custom"': Custom
 - 'button "Supervision mode: Supervised"': Supervised
 - button "6% of context used"

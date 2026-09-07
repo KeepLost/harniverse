@@ -58,6 +58,7 @@ async function mount(): Promise<Bench> {
   const handle: ConnectionHandle = {
     api,
     isLoopback: true,
+    upload: () => new Promise<never>(() => {}),
     authentication: {
       getSnapshot: () => ({ kind: 'bypass' }),
       subscribe: () => () => {},
