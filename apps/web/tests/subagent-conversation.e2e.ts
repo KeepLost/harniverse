@@ -440,6 +440,10 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     expect(await page.getByText('Ungrouped', { exact: true }).count()).toBe(0)
     const hierarchy = page.getByRole('navigation', { name: 'Session hierarchy' })
     await expect.poll(() => hierarchy.getByRole('button').count()).toBe(1)
+    // The fork row appears before its durable title arrives from history.
+    await page.getByRole('tree', { name: 'Sessions' }).getByRole('treeitem', {
+      name: /Explain event sourcing in one/, selected: true,
+    }).waitFor({ timeout: 15_000 })
     await compareOrRefreshGolden(
       FORK_EXPECTED,
       await captureStableAria(page, '[role="tree"][aria-label="Sessions"]', scaffold.workspaceCwd),
