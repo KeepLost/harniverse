@@ -194,7 +194,7 @@ describe('web upload transport', () => {
     xhr.onload?.()
     await expect(pending).resolves.toSatisfy((ref: unknown) =>
       ref instanceof Object && (ref as { bytes: number }).bytes === 4)
-    const sent = FakeXhr.send.mock.calls[0]?.[0]
+    const sent: unknown = FakeXhr.send.mock.calls[0]?.[0]
     expect(sent).toBeInstanceOf(ArrayBuffer)
     expect(sent).not.toBe(bytes.buffer)
   })
