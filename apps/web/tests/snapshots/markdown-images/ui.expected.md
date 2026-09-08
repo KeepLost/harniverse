@@ -1,6 +1,6 @@
 - banner:
   - navigation "Session hierarchy":
-    - button "{{workspace}}" [disabled]
+    - button "Markdown image policy" [disabled]
   - button "Session log":
     - text: Session log
     - img
@@ -33,6 +33,8 @@
   - img
 - button "Add files":
   - img
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- 'button "Supervision mode: Supervised"': Supervised
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
