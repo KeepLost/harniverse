@@ -29,6 +29,7 @@ async function mount(): Promise<Bench> {
   const api = new FakeApiClient()
   const bench: Bench = { ctx, api, sinks: undefined, stopped: 0 }
   const handle: ConnectionHandle = {
+    health: { getSnapshot: () => 'bypass', subscribe: () => () => {} },
     api,
     isLoopback: true,
     upload: () => new Promise<never>(() => {}),

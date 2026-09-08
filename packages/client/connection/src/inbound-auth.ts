@@ -58,6 +58,10 @@ export function rejectUnauthorized(
     res.end('rate limited')
     return
   }
-  res.writeHead(401, { 'www-authenticate': 'Bearer realm="dsh"' })
+  res.writeHead(401, {
+    'www-authenticate': 'Bearer realm="dsh"',
+    'cache-control': 'no-store',
+    'x-dsh-authentication': 'required',
+  })
   res.end('unauthorized')
 }

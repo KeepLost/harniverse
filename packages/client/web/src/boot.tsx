@@ -35,6 +35,8 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { createRoot, type Root } from 'react-dom/client'
 import * as ModulesClient from '@deepseek-ai/dsh-client-modules/client'
+import AuthenticationService from '@deepseek-ai/dsh-client-authentication'
+import type { ClientAuthentication } from '@deepseek-ai/dsh-client-authentication'
 import {
   ClientModuleSystem, parseBootManifest,
   type BootManifest, type ClientModuleSystemOptions, type DshWindow,
@@ -42,7 +44,7 @@ import {
 import * as AppShell from './app-shell.ts'
 import { APP_SHELL_ID } from './app-shell.ts'
 import { AppRoot } from './AppRoot.tsx'
-import { waitForBrowserAuthentication, type BrowserSessionRenewal } from './AuthenticationGate.tsx'
+import { waitForBrowserAuthentication } from './AuthenticationGate.tsx'
 import { getStaticModules } from './seed.ts'
 import { STATE_LABELS, createLoaderStatusStore, createSignal } from './loader-status.ts'
 import { markStartup, measureStartup } from './startup-timing.ts'
@@ -66,6 +68,7 @@ export type BootSeams = Pick<ClientModuleSystemOptions, 'loadBundle'>
  * twice.
  */
 const MODULES_ID = '@deepseek-ai/dsh-client-modules'
+const AUTHENTICATION_ID = '@deepseek-ai/dsh-client-authentication'
 
 /**
  * The web shell kernel: mounts the loading page into a DOM element and runs
@@ -84,15 +87,15 @@ export class AppWebEntry {
   private modules!: ClientModuleSystem
   private manifest!: BootManifest
   private root: Root | undefined
-  private authenticationRenewal: BrowserSessionRenewal | undefined
-  private readonly transferredAuthentication: BrowserSessionRenewal | undefined
+  private authenticationRenewal: ClientAuthentication | undefined
+  private readonly transferredAuthentication: ClientAuthentication | undefined
 
   /**
    * Hold the mount point; all work happens in {@link run}.
    * @param el - mount point (the app's #root).
    * @param seams - Optional module transport overrides for test environments.
    */
-  constructor(el: HTMLElement, seams?: BootSeams, transferredAuthentication?: BrowserSessionRenewal) {
+  constructor(el: HTMLElement, seams?: BootSeams, transferredAuthentication?: ClientAuthentication) {
     this.el = el
     this.seams = seams
     this.transferredAuthentication = transferredAuthentication
@@ -118,11 +121,16 @@ export class AppWebEntry {
       bootstrapUrl: this.manifest.bootstrapUrl,
       deferredBootstrapUrl: this.manifest.deferredBootstrapUrl,
       staticModules: getStaticModules(),
+      authentication: this.authenticationRenewal,
       ...this.seams,
     })
-    // The app-shell assembly is the only shell-own module: every other graph
-    // row is a plugin bundle arriving through fetch.
+    // Static entries adopt bootstrap infrastructure and assemble the shell;
+    // business factories arrive through the Host-authored plugin graph.
     this.modules.registerStatic(APP_SHELL_ID, AppShell)
+    const authentication = this.authenticationRenewal
+    this.modules.registerStatic(AUTHENTICATION_ID, {
+      apply: (ctx: Context) => { new AuthenticationService(ctx, authentication) },
+    })
     // Adoption handoff, supply side: register the modules
     // package's own client half under its bare package name (= graph row id
     // = entry name — a suffixed key would miss the statics branch and
@@ -243,11 +251,12 @@ export class AppWebEntry {
     // provide lives on the plugin face; see MODULES_ID for why the row loop
     // must then skip it).
     const rows = [
+      AUTHENTICATION_ID,
       MODULES_ID,
       ...this.manifest.plugins
         .filter(row => row.startup !== 'deferred')
         .map(row => row.id)
-        .filter(id => id !== MODULES_ID),
+        .filter(id => id !== MODULES_ID && id !== AUTHENTICATION_ID),
       APP_SHELL_ID,
     ]
     // Entry creation order carries no semantics (fiber inject waiting owns

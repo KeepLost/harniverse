@@ -1,4 +1,5 @@
 - button "New session"
+- img "Connected; local authentication bypass is enabled"
 - button "Collapse sidebar":
   - img
 - button "New session":

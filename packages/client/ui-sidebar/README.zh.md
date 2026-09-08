@@ -14,6 +14,8 @@ New Session 会启动运行时的页面局部前端 Session Intent。运行时�
 
 页脚承载 `sidebar.settings`：侧边栏只渲染固定在底部的布局 slot，并共享其栏状态（`wide`）；ui-settings 在此注册触发行和设置面板。
 
+根作用域的 `sidebar.header.status` seat 在展开时位于品牌与折叠控件之间，在窄栏中位于合并的标识与展开控件下方。它的 owner share 只有 `wide`；[ui-connection-status](../ui-connection-status/README.md) 提供只读图标。侧边栏既不拥有认证状态，也不执行续期工作。
+
 `/client` 导出表层只包含插件主体（`apply`／`inject`）及约定类型；SidebarRoot、行组件和树派生仍由 slot 注册封装在包内。
 
 ## 模型体验

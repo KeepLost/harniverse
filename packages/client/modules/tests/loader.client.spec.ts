@@ -69,6 +69,26 @@ function bench(
 }
 
 describe('lazy CJS arrival', () => {
+  it('waits for admission and retries a failed script through the shared Cookie check', async () => {
+    const actions: string[] = []
+    let attempt = 0
+    const loader = new ClientModuleSystem({
+      modules: [row('authenticated')], staticModules: {},
+      bootstrapUrl: '/plugins/bootstrap.js?rev=0',
+      authentication: {
+        ready: async () => { actions.push('ready') },
+        check: async () => { actions.push('check') },
+      },
+      loadBundle: async () => {
+        actions.push('load')
+        if (attempt++ === 0) throw new Error('script refused')
+        win.__ModuleLoader__!.load({ id: 'authenticated', factory: () => ({ admitted: true }) })
+      },
+    })
+    expect(await loader.import('authenticated')).toEqual({ admitted: true })
+    expect(actions).toEqual(['ready', 'load', 'check', 'load'])
+  })
+
   it('registers the complete graph through one bootstrap script without materializing factories', async () => {
     const ran: string[] = []
     const bootstrapUrl = '/plugins/bootstrap.js?rev=graph'

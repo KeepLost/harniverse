@@ -20,10 +20,28 @@ vi.mock('../src/browser-device.ts', () => ({
 
 import {
   AuthenticationGate,
-  logoutBrowserSession,
-  maintainBrowserSession,
-  stopBrowserSessionRenewal,
+  exchangeBrowserSession,
 } from '../src/AuthenticationGate.tsx'
+import { BrowserAuthentication, type ClientAuthentication } from '@deepseek-ai/dsh-client-authentication'
+import type { BrowserDevice } from '../src/browser-device.ts'
+
+const owners = new Set<ClientAuthentication>()
+function maintainBrowserSession(device: BrowserDevice, expiresAt: string, required?: () => void): void {
+  const authentication = new BrowserAuthentication({ expiresAt, exchange: signal => exchangeBrowserSession(device, signal) })
+  authentication.subscribe(() => { if (authentication.getSnapshot().phase === 'required') required?.() })
+  owners.add(authentication)
+}
+async function stopBrowserSessionRenewal(): Promise<void> {
+  await Promise.all([...owners].map(owner => owner.stop()))
+  owners.clear()
+}
+async function logoutBrowserSession(): Promise<void> {
+  await stopBrowserSessionRenewal()
+  await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' })
+}
+function authenticationSpy() {
+  return vi.fn((owner?: ClientAuthentication) => { if (owner !== undefined) owners.add(owner) })
+}
 
 afterEach(async () => {
   await stopBrowserSessionRenewal()
@@ -86,7 +104,7 @@ describe('browser authentication gate', () => {
       .mockResolvedValueOnce(Response.json({ id: 'challenge-id', payload: '{"bound":true}', expiresAt: '2099-01-01T00:00:00.000Z' }))
       .mockResolvedValueOnce(Response.json({ authenticated: true, expiresAt: new Date(Date.now() + 600_000).toISOString() }))
     vi.stubGlobal('fetch', fetch)
-    const authenticated = vi.fn()
+    const authenticated = authenticationSpy()
     render(<AuthenticationGate onAuthenticated={authenticated} />)
 
     await waitFor(() => { expect(authenticated).toHaveBeenCalledOnce() })
@@ -108,7 +126,7 @@ describe('browser authentication gate', () => {
       .mockResolvedValueOnce(Response.json({ id: 'challenge-id', payload: 'reload-proof', expiresAt: '2099-01-01T00:00:00.000Z' }))
       .mockResolvedValueOnce(Response.json({ authenticated: true, expiresAt: new Date(Date.now() + 600_000).toISOString() }))
     vi.stubGlobal('fetch', fetch)
-    const authenticated = vi.fn()
+    const authenticated = authenticationSpy()
     render(<AuthenticationGate onAuthenticated={authenticated} />)
 
     await waitFor(() => { expect(authenticated).toHaveBeenCalledOnce() })
@@ -123,7 +141,7 @@ describe('browser authentication gate', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(Response.json({
       mode: 'authenticated', sealed: false, authenticated: true,
     })))
-    const authenticated = vi.fn()
+    const authenticated = authenticationSpy()
     const view = render(<AuthenticationGate onAuthenticated={authenticated} />)
 
     expect(await view.findByRole('button', { name: '配对个人设备' })).toBeTruthy()
@@ -158,7 +176,7 @@ describe('browser authentication gate', () => {
       .mockResolvedValueOnce(Response.json([]))
       .mockResolvedValueOnce(Response.json([]))
     vi.stubGlobal('fetch', fetch)
-    const authenticated = vi.fn()
+    const authenticated = authenticationSpy()
     const view = render(<AuthenticationGate onAuthenticated={authenticated} />)
 
     expect(await view.findByText('a1b2c3d4')).toBeTruthy()
@@ -187,7 +205,7 @@ describe('browser authentication gate', () => {
       .mockResolvedValueOnce(Response.json([]))
       .mockResolvedValueOnce(Response.json([]))
     vi.stubGlobal('fetch', fetch)
-    const authenticated = vi.fn()
+    const authenticated = authenticationSpy()
     const view = render(<AuthenticationGate onAuthenticated={authenticated} />)
 
     expect(await view.findByText('等待批准')).toBeTruthy()

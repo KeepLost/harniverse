@@ -10,6 +10,8 @@ import type { RpcMessage } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
 import { FixtureApiClient } from '../src/client/fixture.ts'
 import { WebApiClient } from '../src/client/web-api-client.ts'
+import { createWebConnectionRpc } from '../src/client/rpc.ts'
+import type { ClientAuthentication, BrowserAuthenticationSnapshot } from '@deepseek-ai/dsh-client-authentication'
 
 type Win = { location?: { hostname: string; search: string; origin?: string } }
 type WebSocketGlobal = { WebSocket?: typeof WebSocket }
@@ -55,8 +57,17 @@ afterEach(() => {
   else globalThis.WebSocket = originalWebSocket
 })
 
-async function mount(): Promise<ConnectionHandle> {
+function authenticationDouble(): ClientAuthentication {
+  return {
+    getSnapshot: () => ({ mode: 'bypass', phase: 'ready', expiresAt: null, reason: null }),
+    subscribe: () => () => {}, ready: async () => {}, check: async () => {}, stop: async () => {}, requireRefresh: () => {},
+    fetch: (input: string | URL, init?: RequestInit) => globalThis.fetch(input, init),
+  }
+}
+
+async function mount(authentication = authenticationDouble()): Promise<ConnectionHandle> {
   const ctx = new Context()
+  ctx.provide('clientAuthentication', authentication)
   await ctx.plugin({ apply, inject: [] })
   const handle = ctx.get('connection') as ConnectionHandle | undefined
   if (handle === undefined) throw new Error('ctx.connection not provided')
@@ -64,6 +75,52 @@ async function mount(): Promise<ConnectionHandle> {
 }
 
 describe('connection client apply', () => {
+  it('projects authentication and transport health without exposing recovery actions to observers', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    let snapshot: BrowserAuthenticationSnapshot = { mode: 'authenticated', phase: 'ready', expiresAt: null, reason: null }
+    let notify!: () => void
+    const handle = await mount({ ...authenticationDouble(), getSnapshot: () => snapshot,
+      subscribe: (listener) => { notify = listener; return () => {} } })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const observed: string[] = []
+    const unsubscribe = handle.health.subscribe(() => { observed.push(handle.health.getSnapshot()) })
+    const stopThrowing = handle.health.subscribe(() => { throw new Error('observer failed') })
+    expect(handle.health.getSnapshot()).toBe('connecting')
+    const loop = handle.start({})
+    await vi.waitFor(() => { expect(handle.health.getSnapshot()).toBe('connected') })
+    for (const phase of ['renewing', 'recovering', 'required', 'stopped'] as const) {
+      snapshot = { ...snapshot, phase }
+      notify()
+      expect(handle.health.getSnapshot()).toBe(phase === 'stopped' ? 'required' : phase)
+    }
+    expect(handle.authentication.getSnapshot()).toBeUndefined()
+    expect(handle.hostDescription.getSnapshot()).toBeUndefined()
+    expect(observed).toContain('recovering')
+    expect(errors).toHaveBeenCalled()
+    unsubscribe(); stopThrowing(); loop.stop(); errors.mockRestore()
+  })
+
+  it('keeps standalone carriers usable with an explicitly supplied transport', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 503 })))
+    try {
+      await expect(new WebApiClient().host.describe({})).rejects.toThrow('HTTP 503')
+      await expect(createWebConnectionRpc().call('/api', 'test', {})).rejects.toThrow('HTTP 503')
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it.each([false, true])('checks admission when a downlink closes (authentication=%s)', async (authenticated) => {
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket
+    const check = vi.fn().mockResolvedValue(undefined)
+    const auth = authenticated ? { ...authenticationDouble(), check } : undefined
+    const api = new WebApiClient(undefined, undefined, undefined, auth)
+    const iterator = api.events.mux({}, new AbortController().signal)[Symbol.asyncIterator]()
+    const reading = iterator.next()
+    await vi.waitFor(() => { expect(sockets).toHaveLength(1) })
+    sockets[0]!.close()
+    expect((await reading).done).toBe(true)
+    expect(check).toHaveBeenCalledTimes(authenticated ? 1 : 0)
+  })
+
   it('mounts ctx.connection with the real client when no ?fixture switch is present', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
     const handle = await mount()
@@ -95,6 +152,7 @@ describe('connection client apply', () => {
       descriptions.push(handle.hostDescription.getSnapshot()?.canOpenPath)
     })
     expect(handle.hostDescription.getSnapshot()).toBeUndefined()
+    expect(handle.health.getSnapshot()).toBe('connecting')
     // config omitted: the `config ?? {}` default arm is part of the surface.
     let connected = 0
     const loop = handle.start({ onConnected: () => { connected++ } })
@@ -155,6 +213,7 @@ describe('connection client apply', () => {
       await vi.waitFor(() => {
         expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
       })
+      expect(handle.health.getSnapshot()).toBe('bypass')
       const timing = (globalThis as Record<string, unknown>).__fxTiming as
         | { breakStreams(): void }
         | undefined

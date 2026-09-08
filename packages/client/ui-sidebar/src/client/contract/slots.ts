@@ -15,6 +15,8 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
+    /** Read-only connection status between the brand and sidebar toggle. */
+    'sidebar.header.status': { kind: 'single'; scope: 'root'; owner: SidebarStatusOwnerProps }
     /**
      * The workspace/session browsing region: section header, search, the
      * grouped/flat session list, and every workspace dialog. Declared by this
@@ -34,6 +36,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'sidebar.footer.action': { kind: 'list'; scope: 'root'; owner: SidebarFooterActionOwnerProps }
   }
+}
+
+/** Sidebar geometry supplied to the read-only status occupant. */
+export interface SidebarStatusOwnerProps {
+  /** Wide header or collapsed icon rail. */
+  wide: boolean
 }
 
 /**
@@ -85,5 +93,5 @@ export type SidebarRootInjected = {
  */
 export type SidebarRootComponentProps =
   PropsRuntime<'sidebar'>
-  & PropsRenderSlots<'sidebar.workspaces' | 'sidebar.settings' | 'sidebar.footer.action'>
+  & PropsRenderSlots<'sidebar.workspaces' | 'sidebar.settings' | 'sidebar.footer.action' | 'sidebar.header.status'>
   & SidebarRootInjected & PropsLocale<'sidebar'>

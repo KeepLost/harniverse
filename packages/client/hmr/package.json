@@ -38,6 +38,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@deepseek-ai/dsh-client-authentication": "workspace:^",
     "@deepseek-ai/schemastery": "workspace:^"
   },
   "peerDependencies": {

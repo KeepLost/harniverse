@@ -270,4 +270,6 @@ export interface ClientModuleSystemOptions {
   staticModules: Record<string, unknown>
   /** Bundle-load hook. Defaults to a same-origin classic `<script src>` element. */
   loadBundle?: (url: string) => Promise<void>
+  /** Authentication admission before protected scripts, and verification after load failure. */
+  authentication?: { ready(): Promise<void>; check(): Promise<void> }
 }

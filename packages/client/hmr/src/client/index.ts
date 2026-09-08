@@ -62,6 +62,7 @@
  * leaves a FAILED fiber for the shell's status projection. Both log loudly.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-client-authentication'
 import type { Entry, Loader } from '@deepseek-ai/cordis-plugin-loader'
 import type { PluginsEventFrame } from '../events.ts'
 import { EVENTS_ENDPOINT } from '../events.ts'
@@ -73,7 +74,7 @@ export { EVENTS_ENDPOINT } from '../events.ts'
 export const name = 'client-hmr'
 
 /** Required services: the vendored Loader (entry governance) and the client module system (boot provide, service name `modules`). */
-export const inject = ['loader', 'modules']
+export const inject = ['loader', 'modules', 'clientAuthentication']
 
 /** Find the loader entry whose module specifier is `id` (entry tree ids are random; the package name lives in `options.name`). */
 function findEntry(loader: Loader, id: string): Entry | undefined {
@@ -164,7 +165,17 @@ export function apply(ctx: Context): void {
   }
 
   ctx.effect(() => {
+    const abort = new AbortController()
     const source = new EventSource(EVENTS_ENDPOINT)
+    source.addEventListener('error', () => {
+      void ctx.clientAuthentication.check(abort.signal).catch((error: unknown) => {
+        if (!abort.signal.aborted) ctx.logger.warn('client-hmr: authentication recovery unavailable', error)
+      })
+    })
+    const stopAuthentication = ctx.clientAuthentication.subscribe(() => {
+      const phase = ctx.clientAuthentication.getSnapshot().phase
+      if (phase === 'required' || phase === 'stopped') source.close()
+    })
     source.addEventListener('message', (event: MessageEvent<string>) => {
       let frame: PluginsEventFrame
       try {
@@ -176,6 +187,6 @@ export function apply(ctx: Context): void {
       }
       handle(frame)
     })
-    return () => { source.close() }
+    return () => { abort.abort(); stopAuthentication(); source.close() }
   }, 'client-hmr: event source')
 }

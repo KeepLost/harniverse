@@ -36,6 +36,10 @@ exports[`sidebar shell snapshots > renders the collapsed rail after the crossfad
           xmlns="http://www.w3.org/2000/svg"
         />
       </button>
+      <div
+        data-slot="sidebar.header.status"
+        style="display: contents;"
+      />
     </div>
     <button
       aria-label="New session"
@@ -109,6 +113,10 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
           width="182"
         />
       </button>
+      <div
+        data-slot="sidebar.header.status"
+        style="display: contents;"
+      />
       <button
         aria-label="Collapse sidebar"
         class="iconButton toggle"
@@ -202,6 +210,10 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
           width="182"
         />
       </button>
+      <div
+        data-slot="sidebar.header.status"
+        style="display: contents;"
+      />
       <button
         aria-label="收起侧边栏"
         class="iconButton toggle"
