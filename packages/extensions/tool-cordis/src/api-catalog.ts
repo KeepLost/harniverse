@@ -1438,6 +1438,44 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'scheduler',
+    summary: 'Durable scheduled prompts over the central scheduler store.',
+    description: 'Durable scheduled prompts over the central scheduler store. One instance owns the timer, per-record dispatch chains, and cold-session recycling.',
+    methods: [
+      {
+        signature: 'async list(): Promise<ScheduleRecord[]>',
+        description: 'All records ordered by next due moment.',
+        parameters: [],
+        returns: 'every stored record, earliest due first.',
+      },
+      {
+        signature: 'async listForSession(sessionId: SessionId): Promise<ScheduleRecord[]>',
+        description: 'Records one session owns: created there, or the job session it hosts.',
+        parameters: [{ name: 'sessionId', description: 'owning session identity.' }],
+        returns: 'the owned subset, earliest due first.',
+      },
+      {
+        signature: 'async create(input: ScheduleCreateInput): Promise<ScheduleRecord>',
+        description: 'Create one durable schedule.',
+        parameters: [{ name: 'input', description: 'validated prompt, rule candidate, target, and creator.' }],
+        returns: 'the stored record.',
+        throws: ['{@link ScheduleRuleError} for an invalid rule or prompt.'],
+      },
+      {
+        signature: 'async update(id: string, update: ScheduleUpdate, by?: SessionId): Promise<ScheduleRecord | undefined>',
+        description: 'Update editable fields of one record.',
+        parameters: [{ name: 'id', description: 'schedule identity.' }, { name: 'update', description: 'prompt and/or status patch.' }, { name: 'by', description: 'calling session allowed to edit; omitted for host authority.' }],
+        returns: 'the updated record, or `undefined` when absent or not owned.',
+      },
+      {
+        signature: 'async remove(id: string, by?: SessionId): Promise<boolean>',
+        description: 'Remove one record.',
+        parameters: [{ name: 'id', description: 'schedule identity.' }, { name: 'by', description: 'calling session allowed to delete; omitted for host authority.' }],
+        returns: 'whether a record was removed.',
+      },
+    ],
+  },
+  {
     key: 'sessionDelivery',
     summary: 'Service Definition for ordinary-session message delivery.',
     description: 'Service Definition for ordinary-session message delivery.',
@@ -4875,12 +4913,28 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SaveTextSpill {\n    signal: AbortSignal;\n    owner: SpillOwner;\n    source: SpillSource;\n    suggestedName: string;\n    content: string;\n}',
   },
   {
+    name: 'ScheduleCreateInput',
+    declaration: 'export interface ScheduleCreateInput {\n    readonly prompt: string;\n    readonly rule: SchedulerRule;\n    readonly target: {\n        readonly kind: \'current\' | \'job\';\n    };\n    readonly contextMode: \'fresh\' | \'continue\';\n    readonly createdBy: {\n        readonly kind: \'user\' | \'model\';\n        readonly sessionId: SessionId;\n    };\n}',
+  },
+  {
     name: 'ScheduledToolDispatch',
     declaration: 'export type ScheduledToolDispatch = {\n    kind: \'post-result\';\n    result: ToolExecutionResult;\n} | {\n    kind: \'final-result\';\n    result: ToolExecutionResult;\n};',
   },
   {
     name: 'ScheduledToolPreparation',
     declaration: 'export type ScheduledToolPreparation = {\n    kind: \'dispatch\';\n    exec: ToolRunContext;\n} | {\n    kind: \'post-result\';\n    exec: ToolRunContext;\n    result: ToolExecutionResult;\n} | {\n    kind: \'final-result\';\n    exec: ToolRunContext;\n    result: ToolExecutionResult;\n};',
+  },
+  {
+    name: 'SchedulerRule',
+    declaration: 'export type SchedulerRule = {\n    readonly kind: \'after\';\n    readonly delayMs: number;\n} | {\n    readonly kind: \'at\';\n    readonly at: string;\n} | {\n    readonly kind: \'every\';\n    readonly intervalMs: number;\n    readonly anchor: string;\n};',
+  },
+  {
+    name: 'ScheduleStatus',
+    declaration: 'export type ScheduleStatus = \'active\' | \'paused\' | \'done\';',
+  },
+  {
+    name: 'ScheduleUpdate',
+    declaration: 'export interface ScheduleUpdate {\n    readonly prompt?: string;\n    readonly status?: ScheduleStatus;\n}',
   },
   {
     name: 'Scoped',

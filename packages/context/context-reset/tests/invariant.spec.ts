@@ -75,7 +75,9 @@ describe('context-reset invariant companion', () => {
       surfaceOp: { op: 'replace', start: 0, end: 0 },
       sourceEventSeqs: [0],
     })
-    expect(() => replay(listener, session)).toThrow('invariant failure')
+    expect(() => {
+      replay(listener, session)
+    }).toThrow('invariant failure')
     expect(fail).toHaveBeenCalledWith('reset marker without a preceding reset/checkpoint anchor')
   })
 
@@ -84,7 +86,9 @@ describe('context-reset invariant companion', () => {
     const session = liveSession('reset-invariant-gap')
     session.append('reset/checkpoint', { resetId: ResetId('invariant-gap'), turn: null })
     session.append('turn/start', { turn: 1 })
-    expect(() => replay(listener, session)).toThrow('invariant failure')
+    expect(() => {
+      replay(listener, session)
+    }).toThrow('invariant failure')
     expect(fail).toHaveBeenCalledWith('reset/checkpoint at seq 0 is not immediately followed by its marker')
   })
 
@@ -103,7 +107,9 @@ describe('context-reset invariant companion', () => {
       surfaceOp: { op: 'replace', start: 0, end: 0 },
       sourceEventSeqs: [1, 0],
     })
-    expect(() => replay(listener, session)).toThrow('invariant failure')
+    expect(() => {
+      replay(listener, session)
+    }).toThrow('invariant failure')
     expect(fail).toHaveBeenCalledWith('reset marker at seq 2 must immediately follow its reset/checkpoint anchor')
   })
 })

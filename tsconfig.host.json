@@ -183,6 +183,7 @@
     { "path": "./packages/goal/command-goal" },
     { "path": "./packages/feedback/command-feedback" },
     { "path": "./packages/schedule/schedule" },
+    { "path": "./packages/schedule/scheduler" },
     { "path": "./packages/context/time-context" },
     { "path": "./packages/context/context-snapshot" },
     { "path": "./packages/context/context-reset" },

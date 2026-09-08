@@ -664,6 +664,28 @@ Source: [`packages/context/context-reset/src/types.ts:22`](../packages/context/c
 
 来源：[`packages/schedule/schedule/src/types.ts:219`](../packages/schedule/schedule/src/types.ts)
 
+<a id="scheduledispatch--log-only"></a>
+
+#### `schedule/dispatch` — log-only
+
+```ts persistence-catalog
+/**
+ * Durable provenance of one scheduler delivery — log-only, no surfaceOp.
+ * Appended to the target session immediately before the scheduled prompt
+ * enters the inbox, so a transcript can explain why the following
+ * `user/message` (plugin source `schedule`) exists. `turn` is always
+ * `null`: delivery claims the idle maintenance phase between turns.
+ */
+'schedule/dispatch': {
+  scheduleId: string
+  dueAt: number
+  targetSessionId: SessionId
+  turn: null
+}
+```
+
+来源：[`packages/schedule/scheduler/src/types.ts:71`](../packages/schedule/scheduler/src/types.ts)
+
 ### `session/*`
 
 <a id="sessionend-seed--log-only"></a>

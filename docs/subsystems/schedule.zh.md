@@ -184,3 +184,62 @@ type ScheduleView = ScheduleRecord & {
 到期工作会先等待 Agent 完全 idle 并认领 maintenance phase，再重新折叠状态、采样本次判断、将一个 `followup()` 排入队列，并追加对应的 dispatch 变更。它绝不会调用 `steer()`，也绝不会中断当前轮次。
 
 获得准入的一次性提醒或固定速率批次会启动一个普通的后续轮次，且只通过普通对话 transcript（文本记录）出现；Schedule 不提供独立的持久 Web 回执或浏览器渲染器。如果 framing 构造或同步队列准入失败，则不会记录 dispatch，提醒仍保持活动。队列准入后、持久 dispatch 前的狭窄崩溃窗口可能使提醒内容在恢复后重复，因此该边界提供的是尽力而为的至少一次交付，而非恰好一次交付。
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis API
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxscheduler--schedulerservice"></a>
+
+### `ctx.scheduler` — `SchedulerService`
+
+Durable scheduled prompts over the central scheduler store. One instance owns the timer, per-record dispatch chains, and cold-session recycling.
+
+```ts cordis-catalog
+/**
+ * All records ordered by next due moment.
+ * @returns every stored record, earliest due first.
+ */
+async list(): Promise<ScheduleRecord[]>
+
+/**
+ * Records one session owns: created there, or the job session it hosts.
+ * @param sessionId - owning session identity.
+ * @returns the owned subset, earliest due first.
+ */
+async listForSession(sessionId: SessionId): Promise<ScheduleRecord[]>
+
+/**
+ * Create one durable schedule.
+ * @param input - validated prompt, rule candidate, target, and creator.
+ * @returns the stored record.
+ * @throws {@link ScheduleRuleError} for an invalid rule or prompt.
+ */
+async create(input: ScheduleCreateInput): Promise<ScheduleRecord>
+
+/**
+ * Update editable fields of one record.
+ * @param id - schedule identity.
+ * @param update - prompt and/or status patch.
+ * @param by - calling session allowed to edit; omitted for host authority.
+ * @returns the updated record, or `undefined` when absent or not owned.
+ */
+async update(id: string, update: ScheduleUpdate, by?: SessionId): Promise<ScheduleRecord | undefined>
+
+/**
+ * Remove one record.
+ * @param id - schedule identity.
+ * @param by - calling session allowed to delete; omitted for host authority.
+ * @returns whether a record was removed.
+ */
+async remove(id: string, by?: SessionId): Promise<boolean>
+```
+
+Types: [SessionId](core.md)
+
+Source: [`packages/schedule/scheduler/src/index.ts:70`](../../packages/schedule/scheduler/src/index.ts)
+<!-- END GENERATED cordis-surface -->
