@@ -57,12 +57,17 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
     removeFile: () => {},
     draftImages: () => [],
     resolveSubmitMode: () => 'queue',
-    toggleCommandMenu: vi.fn(),
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
     useMenuLauncher: bindSnapshotSelector(createSnapshotStore<string | null>(null)),
     useFileDrafts: bindSnapshotSelector(shell.fileDrafts),
-    renderSlot: (() => null) as InputBarProps['renderSlot'],
+    renderSlot: ((key: string, owner: object) => {
+      // Lock-semantics stand-in: the real launcher lives in ui-input-trigger.
+      if (key === 'conversation.input.commands') {
+        return <button type="button" aria-label="命令" aria-haspopup="listbox" disabled={(owner as { locked: boolean }).locked} />
+      }
+      return null
+    }) as InputBarProps['renderSlot'],
     stop: vi.fn(),
     command: () => Promise.resolve(true),
     // Mirrors the real lookup chain (conversation namespace, then common).

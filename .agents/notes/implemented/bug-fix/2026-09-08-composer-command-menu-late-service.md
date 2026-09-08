@@ -1,0 +1,27 @@
+# Agent Note: The composer command-menu button stranded by a late slash service
+
+Status: implemented
+
+English | [中文](2026-09-08-composer-command-menu-late-service.zh.md)
+
+## Problem
+
+On a cold start (fresh tab, uncached bundles), opening the Web UI with a previous session restored left the composer's Commands button (`toggleCommandMenu`) permanently disabled: the textarea accepted input and typing `/` still opened the candidate menu, but the button never recovered — not after the late bundles finished loading, not on re-render, not on switching away and back to the session. A session created after load was unaffected, and a warm reload (F5) usually masked it.
+
+Three facts compose into the defect. Slot inject results cache per (entry × provide bundle): `runInject` in `web-react` memoizes on the bundle object identity, and bundles are identity-stable until the session provider roster moves. The composer bar's inject resolved the optional `inputTriggers` service through the hub (`rootCtx.get`), so an inject evaluated before the `ui-input-trigger` client bundle loads bakes `toggleCommandMenu: undefined` into that cache cell. And nothing invalidated the cell when the service arrived: the service was not on the session provide roster, so no roster change ever re-materialized the bundle — the same session id resolves the same bundle object on switch-back, and the stale inject result is served forever. The recovered-surface e2e golden had been faithfully recording the defect all along (`button "Commands" [disabled]` after reload).
+
+## Decision
+
+The launcher is now a slot: `dsh-client-ui-conversation`'s composer entry declares a third named control seat, `conversation.input.commands` (single, session scope — the exact shape of the plan and model seats beside it), and `dsh-client-ui-input-trigger` fills it with `CommandSeat`, the plus button. The bar's owner share is its disable state, its textarea focus keeper, and a click-time context callback (`captureContext`) capturing the selection endpoints, the leading/inline position, the draft revision, and the popup dismissal; the entry's inject face owns the toggle, aiming a synthetic `'/'` hit through its own session controller (`toggleSource('command', …)`), with the controller's launcher store exposed through the hooks compartment for `aria-expanded`. The SlotMap merge and the context/injected types live in `ui-input-trigger` (the same dependency-direction split as `conversation.input.overlay`: the owner package depends on the registering one, never the reverse), while the runtime declaration stays in the composer's children table. The `toggleCommandMenu` member is gone from `ComposerBarInjected`, and the composer inject no longer feeds the button.
+
+The seat renders nothing while the plugin is absent, so a late `ui-input-trigger` activation makes the button appear through the slot system's own lifecycle — `slots.inject` already waits on declarations, removes on collapse, reruns after redeclaration, and leaves with the plugin fiber. Presence is the availability signal; the disable state reduces to `locked` alone.
+
+## Alternatives considered
+
+- **A member-less existence seat on the session provide roster** (`sessions.provide({ resolve: () => ({}) })` from the plugin's `ctx.inject` callback). Implemented, verified fixing the button, and then reverted: registering the seat mid-lifetime is the first runtime roster mutation the system had ever seen, and it re-materializes every live session bundle, re-running every cached session inject across the app. CI broke twelve browser-replay scenarios (stuck candidate loading, lost composer drafts, snapshot drift, double-fulfilled route fixtures) — consumers were never exercised against inject re-runs, and the roster's append-at-boot assumption is load-bearing. The render-side contract (roster change → bundle identity rotation → inject re-resolution) stays pinned by a `web-react` regression test, but no shipped plugin mutates the roster at runtime.
+- **Click-time lazy resolution** — keep the button, resolve the service by strict `ctx.get` inside the click handler. Rejected: clicks would work, but the rendered disable state is a render-time read of the same stranded cache; fixing it would need a reactive availability observable with no cordis-native service-arrival event to feed it.
+- **Loading `ui-input-trigger` eagerly** instead of bootstrap-deferred. Rejected: narrows the race window without removing it and trades cold-start cost for correctness.
+
+## Consequences
+
+Reproduced on `master` with a real `dsh web` instance over the default home: repeated cold opens left the button disabled (`toggleCommandMenu === undefined` in the fiber, scope present, no block). With the slot seat, repeated cold opens — including restoring a previous session — render an enabled button that opens the command menu; keyboard `/` behavior is unchanged, and the recovered-surface golden now records the enabled launcher. The composer's `menuLauncher` hook still reads the controller store captured at inject time, so its one remaining consumer (`canSteerQueue`'s placeholder priority) can hold a stale-closed value when the service arrived after the inject — a bounded cosmetic staleness, noted here rather than widened. The pattern for any late plugin whose affordance other surfaces should reflect is now: contribute UI through your own slot entry and let presence be the signal.

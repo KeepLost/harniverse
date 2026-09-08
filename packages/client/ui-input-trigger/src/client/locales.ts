@@ -7,6 +7,7 @@
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
   'command': '命令',
+  'command.launcher': '命令',
   'skill': '技能',
   'subagent': '子智能体',
   'loading': '正在加载…',
@@ -19,6 +20,7 @@ export type MenuKey = keyof typeof zh
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
   'command': 'Commands',
+  'command.launcher': 'Commands',
   'skill': 'Skills',
   'subagent': 'Subagents',
   'loading': 'Loading…',

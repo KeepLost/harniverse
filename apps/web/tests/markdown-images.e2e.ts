@@ -200,6 +200,14 @@ describe('web e2e: remote Markdown image rendering', () => {
     expect(await page.getByText(LOCAL_ALT, { exact: true }).count()).toBe(1)
     expect(imageOrigin.requests).toEqual([{ path: '/image.png', referer: undefined }])
 
+    // The golden pins the settled composer surface: the session title and the
+    // capability-fed mode buttons land after first paint, and this scenario's
+    // image wait does not guarantee they beat the capture's stability poll.
+    // Wait them in explicitly so the captured moment is deterministic.
+    await expect.poll(() => page.getByRole('button', { name: 'Markdown image policy' }).count()).toBeGreaterThanOrEqual(1)
+    await expect.poll(() => page.getByRole('button', { name: 'Access mode, current: Workspace Write' }).count()).toBe(1)
+    await expect.poll(() => page.getByRole('button', { name: 'Supervision mode: Supervised' }).count()).toBe(1)
+
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
