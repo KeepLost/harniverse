@@ -8,6 +8,8 @@
 
 `hostDescription.bootId` 标识一个 API Proxy 进程生命周期。它在同一 Host 服务的多个连接 generation 间保持稳定，并在重启后改变，使消费方能够隔离缓存的进程本地状态，而不会把重连误判为重启。
 
+浏览器半侧消费[客户端认证](../authentication/README.md)来处理 HTTP 调用、上传接入及事件连接恢复。`health` 是认证快照与传输 generation 的只读投影；需要刷新的认证状态优先于仍打开的 socket。Host 对分发前的 HTTP 401 添加 `x-dsh-authentication: required` 和 `cache-control: no-store`。只有这种明确分类的拒绝才允许重试一次，网络故障和 403 不允许。上传重试保留 XHR 进度及取消能力，再次收到明确拒绝时需要手动重新认证。
+
 ## /api 响应编码
 
 Host bridge 会为每个带缓冲的 `/api` 响应协商 `content-encoding`：请求提供 `br` 时用 Brotli，否则用 gzip，两者都未提供时原样发送。以 `q=0` 提供的 token 视为拒绝。小于 1 KiB 的响应保持原样，因为该尺寸下编码省不出一个往返。每个带缓冲的响应即使原样发出也声明 `vary: accept-encoding`，使共享缓存不会把已编码正文发给从未提供该编码的客户端；上游的 `vary` 会被保留而非替换，而 `content-length` 始终描述实际写出的字节数。只有 `application/json` 会被缓冲，其余每种 content type 都原样流过：事件流必须逐帧到达浏览器，会话日志 ZIP 导出则在其自有的有界容量闸门下流式输出，以确保 Host 从不持有整个归档。该白名单使未来新增的流式 content type 无需在此处被记得也能保持正确。编码运行在 zlib 线程池而非同步执行，因为 Host 在同一事件循环上应答其他所有请求，数兆字节的历史页面否则会阻塞并发 RPC。Brotli 质量刻意低于其默认值：默认值会为这样一个页面多花约 60 ms 却只换来数个百分点的压缩率，等于把延迟从网络搬到 Host。这一点对冷历史页面最为重要，其中已结算的 `assistant/chunk` 事件压缩比约为十比一（[实测](../../../.agents/notes/implemented/architecture/2026-08-22-compaction-first-session-history.md)）。

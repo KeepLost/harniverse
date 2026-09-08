@@ -79,7 +79,18 @@ export class ClientModuleSystem implements ClientModuleLoader {
    */
   constructor(options: ClientModuleSystemOptions) {
     this.seed = new Map(Object.entries(options.staticModules))
-    this.loadBundle = options.loadBundle ?? defaultLoadBundle
+    const load = options.loadBundle ?? defaultLoadBundle
+    const authentication = options.authentication
+    this.loadBundle = authentication === undefined ? load : async (url) => {
+      await authentication.ready()
+      try { await load(url) }
+      catch {
+        await authentication.check()
+        // Verification may restore Cookie admission; script loads register
+        // factories only and never execute plugin bodies until materialization.
+        await load(url)
+      }
+    }
     this.bootstrapUrl = options.bootstrapUrl
     this.deferredBootstrapUrl = options.deferredBootstrapUrl ?? options.bootstrapUrl
 

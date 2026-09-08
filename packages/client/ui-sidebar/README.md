@@ -14,6 +14,8 @@ Scrollbars in the column are a pointer affordance: the shell rebinds ui-theme's 
 
 The foot is the `sidebar.settings` seat: the sidebar renders only the bottom-pinned layout slot and shares its column state (`wide`); ui-settings registers the trigger row and settings panel there.
 
+The root-scoped `sidebar.header.status` seat sits between the expanded brand and collapse control, and below the combined logo/expand control in the rail. Its owner share is only `wide`; [ui-connection-status](../ui-connection-status/README.md) supplies the read-only indicator. The sidebar owns neither authentication state nor renewal work.
+
 The `/client` exports are the plugin body (`apply`/`inject`) plus the contract types only; SidebarRoot, the row components, and the tree derivation remain package-internal behind the slot registration.
 
 ## Model Experience

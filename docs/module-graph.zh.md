@@ -143,6 +143,7 @@ flowchart TD
     pkg_capabilities["capabilities"]
   end
   subgraph group_client["packages/client"]
+    pkg_client_authentication["client-authentication"]
     pkg_client_connection["client-connection"]
     pkg_client_hmr["client-hmr"]
     pkg_client_locale["client-locale"]
@@ -153,6 +154,7 @@ flowchart TD
     pkg_client_ui_agent_preset["client-ui-agent-preset"]
     pkg_client_ui_attachment["client-ui-attachment"]
     pkg_client_ui_commands["client-ui-commands"]
+    pkg_client_ui_connection_status["client-ui-connection-status"]
     pkg_client_ui_conversation["client-ui-conversation"]
     pkg_client_ui_deliverables["client-ui-deliverables"]
     pkg_client_ui_directory_picker_browse["client-ui-directory-picker-browse"]
@@ -379,6 +381,7 @@ flowchart TD
   pkg_cmdline --> pkg_invariants
   pkg_auth_app --> pkg_invariants
   pkg_base --> pkg_invariants
+  pkg_client_authentication --> pkg_invariants
   pkg_client_schema_form --> pkg_invariants
   pkg_client_store --> pkg_invariants
   pkg_client_ui_attachment --> pkg_invariants
@@ -1449,6 +1452,13 @@ flowchart TD
   pkg_client_ui_user_questions --> pkg_api_remotes
   pkg_client_ui_user_questions --> pkg_client_locale
   pkg_client_ui_user_questions --> pkg_invariants
+  pkg_client_ui_connection_status --> pkg_client_connection
+  pkg_client_ui_connection_status --> pkg_client_locale
+  pkg_client_ui_connection_status --> pkg_client_runtime
+  pkg_client_ui_connection_status --> pkg_client_ui_primitives
+  pkg_client_ui_connection_status --> pkg_client_ui_sidebar
+  pkg_client_ui_connection_status --> pkg_client_ui_slots
+  pkg_client_ui_connection_status --> pkg_invariants
   pkg_client_ui_conversation --> pkg_agent
   pkg_client_ui_conversation --> pkg_api_remotes
   pkg_client_ui_conversation --> pkg_attachment
@@ -1680,6 +1690,7 @@ flowchart TD
 | [`cmdline`](../packages/boot/cmdline) | `boot` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`auth-app`](../packages/bundle/auth-app) | `bundle` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`base`](../packages/bundle/base) | `bundle` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`client-authentication`](../packages/client/authentication) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-schema-form`](../packages/client/schema-form) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-store`](../packages/client/store) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-attachment`](../packages/client/ui-attachment) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
@@ -1896,6 +1907,7 @@ flowchart TD
 | [`client-ui-theme`](../packages/client/ui-theme) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-trajectory`](../packages/client/ui-trajectory) | `client` | [`agent`](../packages/core/agent), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`compaction`](../packages/compaction/compaction), [`invariants`](../packages/runtime-diagnostics/invariants), [`tools`](../packages/core/tools) |
 | [`client-ui-user-questions`](../packages/client/ui-user-questions) | `client` | [`api-remotes`](../packages/api/remotes), [`client-locale`](../packages/client/locale), [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`client-ui-connection-status`](../packages/client/ui-connection-status) | `client` | [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-sidebar`](../packages/client/ui-sidebar), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-conversation`](../packages/client/ui-conversation) | `client` | [`agent`](../packages/core/agent), [`api-remotes`](../packages/api/remotes), [`attachment`](../packages/attachment/attachment), [`brand`](../packages/util/brand), [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-attachment`](../packages/client/ui-attachment), [`client-ui-input-trigger`](../packages/client/ui-input-trigger), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`commands`](../packages/interaction/commands), [`compaction`](../packages/compaction/compaction), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm-retry`](../packages/llm/llm-retry), [`session-stats`](../packages/session/session-stats), [`supervision`](../packages/interaction/supervision), [`token-meter`](../packages/llm/token-meter), [`tools`](../packages/core/tools) |
 | [`client-ui-layout`](../packages/client/ui-layout) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-slots`](../packages/client/ui-slots), [`client-ui-theme`](../packages/client/ui-theme), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-ui-reference`](../packages/client/ui-reference) | `client` | [`api-remotes`](../packages/api/remotes), [`client-runtime`](../packages/client/runtime), [`client-ui-input-trigger`](../packages/client/ui-input-trigger), [`file-reference`](../packages/context/file-reference), [`invariants`](../packages/runtime-diagnostics/invariants), [`session-reference`](../packages/context/session-reference) |

@@ -44,6 +44,7 @@ class FakeXhr {
     FakeXhr.open(method, url)
   }
   setRequestHeader = vi.fn()
+  getResponseHeader = vi.fn().mockReturnValue(null)
   send(body: unknown): void {
     void body
     FakeXhr.send(body)
@@ -74,6 +75,101 @@ afterEach(() => {
 })
 
 describe('web upload transport', () => {
+  it('does not replay when the authentication owner stops during the status check', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXhr)
+    let stopped = false
+    const auth = {
+      ready: async () => { if (stopped) throw new Error('authentication stopped') },
+      check: async () => { stopped = true },
+      requireRefresh: vi.fn(),
+    }
+    const pending = createWebFileUploadTransport(() => BASE, auth)(request())
+    const result = expect(pending).rejects.toThrow('authentication stopped')
+    await Promise.resolve()
+    const xhr = FakeXhr.instances[0]!
+    xhr.status = 401
+    xhr.getResponseHeader.mockReturnValue('required')
+    xhr.onload!()
+    await vi.waitFor(() => { expect(stopped).toBe(true) })
+    expect(FakeXhr.instances).toHaveLength(1)
+    await result
+  })
+
+  it.each([200, 401, 503])('recovers one classified refusal and settles the retry with %s', async (status) => {
+    vi.stubGlobal('XMLHttpRequest', FakeXhr)
+    const auth = { ready: vi.fn().mockResolvedValue(undefined), check: vi.fn().mockResolvedValue(undefined), requireRefresh: vi.fn() }
+    const upload = createWebFileUploadTransport(() => BASE, auth)
+    const pending = upload(request(), {})
+    const result = pending.then(value => ({ value }), (error: unknown) => ({ error }))
+    await Promise.resolve()
+    const first = FakeXhr.instances[0]!
+    first.status = 401
+    first.getResponseHeader.mockReturnValue('required')
+    first.onload!()
+    await vi.waitFor(() => { expect(FakeXhr.instances).toHaveLength(2) })
+    const second = FakeXhr.instances[1]!
+    second.status = status
+    second.getResponseHeader.mockReturnValue('required')
+    second.responseText = JSON.stringify({ attachmentId: `sha256:${'a'.repeat(64)}`, bytes: 8 })
+    second.onload!()
+    if (status === 200) expect(await result).toMatchObject({ value: { bytes: 8 } })
+    else expect(await result).toMatchObject({ error: { status } })
+    expect(auth.check).toHaveBeenCalledOnce()
+    expect(auth.requireRefresh).toHaveBeenCalledTimes(status === 401 ? 1 : 0)
+    expect(FakeXhr.send.mock.calls[0]?.[0]).toBe(FakeXhr.send.mock.calls[1]?.[0])
+  })
+
+  it.each([401, 503])('does not replay unclassified failure %s', async (status) => {
+    vi.stubGlobal('XMLHttpRequest', FakeXhr)
+    const auth = { ready: async () => {}, check: vi.fn(), requireRefresh: vi.fn() }
+    const pending = createWebFileUploadTransport(() => BASE, auth)(request())
+    const result = expect(pending).rejects.toMatchObject({ status })
+    await Promise.resolve()
+    const xhr = FakeXhr.instances[0]!
+    xhr.status = status
+    xhr.onload!()
+    await result
+    expect(auth.check).not.toHaveBeenCalled()
+    expect(FakeXhr.instances).toHaveLength(1)
+  })
+
+  it('does not replay an exception from the browser upload primitive', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXhr)
+    FakeXhr.send.mockImplementation(() => { throw new TypeError('send failed') })
+    const auth = { ready: async () => {}, check: vi.fn(), requireRefresh: vi.fn() }
+    await expect(createWebFileUploadTransport(() => BASE, auth)(request())).rejects.toThrow('send failed')
+    expect(auth.check).not.toHaveBeenCalled()
+  })
+
+  it('does not replay a successful authenticated upload', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXhr)
+    const auth = { ready: async () => {}, check: vi.fn(), requireRefresh: vi.fn() }
+    const pending = createWebFileUploadTransport(() => BASE, auth)(request())
+    await Promise.resolve()
+    const xhr = FakeXhr.instances[0]!
+    xhr.status = 200
+    xhr.responseText = JSON.stringify({ attachmentId: `sha256:${'a'.repeat(64)}`, bytes: 8 })
+    xhr.onload!()
+    expect(await pending).toMatchObject({ bytes: 8 })
+    expect(FakeXhr.instances).toHaveLength(1)
+    expect(auth.check).not.toHaveBeenCalled()
+  })
+
+  it('reports a primitive exception during the one allowed retry without requesting reauthentication', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXhr)
+    FakeXhr.send.mockImplementationOnce(() => {}).mockImplementationOnce(() => { throw new TypeError('retry failed') })
+    const auth = { ready: async () => {}, check: async () => {}, requireRefresh: vi.fn() }
+    const pending = createWebFileUploadTransport(() => BASE, auth)(request())
+    const result = expect(pending).rejects.toThrow('retry failed')
+    await Promise.resolve()
+    const xhr = FakeXhr.instances[0]!
+    xhr.status = 401
+    xhr.getResponseHeader.mockReturnValue('required')
+    xhr.onload!()
+    await result
+    expect(auth.requireRefresh).not.toHaveBeenCalled()
+  })
+
   it('posts raw bytes with the encoded name and bare MIME headers', async () => {
     vi.stubGlobal('XMLHttpRequest', FakeXhr)
     const pending = transport()(request(), hooks())

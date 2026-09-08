@@ -1,0 +1,22 @@
+.indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+  cursor: default;
+}
+.indicator:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary-new-colorprimary-new-color);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.indicator[data-state='connected'] { color: var(--dsw-alias-state-success-primary); }
+.indicator[data-state='required'] { color: var(--dsw-alias-state-error-primary); }
+.indicator[data-state='recovering'],
+.indicator[data-state='renewing'] { color: var(--dsw-alias-brand-primary-new-colorprimary-new-color); }
+.busy { transform-origin: center; animation: rotate 1s linear infinite; }
+@keyframes rotate { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .busy { animation: none; } }

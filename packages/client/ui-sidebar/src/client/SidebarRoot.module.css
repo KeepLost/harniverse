@@ -101,7 +101,9 @@
 }
 
 .collapsed .logoRow {
-  height: 36px;
+  height: auto;
+  flex-direction: column;
+  gap: 4px;
   padding: 0;
   margin-bottom: 12px;
   justify-content: flex-start;

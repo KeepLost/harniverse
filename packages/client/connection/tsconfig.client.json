@@ -19,6 +19,7 @@
     "src/rpc.ts"
   ],
   "references": [
+    { "path": "../authentication" },
     {
       "path": "../../../vendor/cordis"
     },

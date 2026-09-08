@@ -8,6 +8,7 @@ import { authenticationPrincipalIdentitySchema } from '@deepseek-ai/dsh-host-api
 import { hostFrameSchema, muxFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
 import { serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import { HOST_EVENTS_PATH, MUX_EVENTS_PATH } from '../api-path.ts'
+import type { ClientAuthentication } from '@deepseek-ai/dsh-client-authentication'
 
 type SocketItem<F> = { kind: 'frame'; envelope: RpcRequest<F> } | { kind: 'end' }
 
@@ -71,8 +72,15 @@ type Parser<F> = { parse(value: unknown): F }
 
 /** Browser platform subclass: unary/respond use fetch; mux/host use downlink-only WebSockets. */
 export class WebApiClient extends AbstractApiClient {
+  constructor(
+    timeoutMs?: number,
+    initiatingPrincipal?: () => AuthenticationPrincipalIdentity | undefined,
+    authenticationMismatch?: () => void,
+    private readonly authentication?: ClientAuthentication,
+  ) { super(timeoutMs, initiatingPrincipal, authenticationMismatch) }
+
   protected doFetch(input: URL, init?: RequestInit): Promise<Response> {
-    return globalThis.fetch(input, init)
+    return this.authentication?.fetch(input, init) ?? globalThis.fetch(input, init)
   }
 
   protected override openMux(
@@ -104,6 +112,7 @@ export class WebApiClient extends AbstractApiClient {
     onOpen?: () => void,
     onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void,
   ): AsyncGenerator<RpcRequest<F>> {
+    await this.authentication?.ready(signal)
     const url = new URL(path, this.resolveBase())
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     const socket = new WebSocket(url)
@@ -146,7 +155,10 @@ export class WebApiClient extends AbstractApiClient {
       while (true) {
         while (inbox.length > 0) {
           const item = inbox.take() as SocketItem<F>
-          if (item.kind === 'end') return
+          if (item.kind === 'end') {
+            if (!signal.aborted) await this.authentication?.check(signal)
+            return
+          }
           yield item.envelope
         }
         await new Promise<void>((resolve) => { wake = resolve })

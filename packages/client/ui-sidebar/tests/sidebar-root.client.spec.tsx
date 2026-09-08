@@ -37,6 +37,7 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
         key: string,
         owner: SidebarFooterActionOwnerProps | SidebarSectionOwnerProps | SidebarSettingsOwnerProps,
       ) => {
+        if (key === 'sidebar.header.status') return <span data-testid="connection-status" />
         if (key === 'sidebar.settings') {
           settingsOwner = owner
           return <div data-testid="settings-seat" data-wide={owner.wide} />

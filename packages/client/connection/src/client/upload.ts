@@ -8,6 +8,7 @@
  */
 
 import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { ClientAuthentication } from '@deepseek-ai/dsh-client-authentication'
 
 /** One upload's raw inputs (a browser File satisfies every field structurally). */
 export interface FileUploadRequest {
@@ -66,10 +67,11 @@ interface ReceiptShape {
 /**
  * Create the browser (XHR) upload transport.
  * @param resolveBase - origin resolver (shared with the RPC carrier).
+ * @param authentication - shared admission and recovery capability, retaining the XHR progress carrier.
  * @returns transport posting raw bytes to the Host attachment route.
  */
-export function createWebFileUploadTransport(resolveBase: () => string): FileUploadTransport {
-  return (request, hooks) => new Promise((resolve, reject) => {
+export function createWebFileUploadTransport(resolveBase: () => string, authentication?: Pick<ClientAuthentication, 'ready' | 'check' | 'requireRefresh'>): FileUploadTransport {
+  const upload: FileUploadTransport = (request, hooks) => new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', new URL('/api/attachment/upload', resolveBase()).toString())
     if (request.mediaType !== undefined) xhr.setRequestHeader('content-type', request.mediaType)
@@ -88,6 +90,10 @@ export function createWebFileUploadTransport(resolveBase: () => string): FileUpl
     xhr.onload = () => {
       settle(() => {
         if (xhr.status < 200 || xhr.status >= 300) {
+          if (xhr.status === 401 && xhr.getResponseHeader('x-dsh-authentication') === 'required') {
+            reject(new FileUploadError(401, 'authentication-required', 'connection.upload: authentication required'))
+            return
+          }
           reject(httpError(xhr.status, xhr.responseText))
           return
         }
@@ -122,6 +128,21 @@ export function createWebFileUploadTransport(resolveBase: () => string): FileUpl
       : request.data.slice().buffer
     xhr.send(body)
   })
+  if (authentication === undefined) return upload
+  return async (request, hooks) => {
+    await authentication.ready(hooks?.signal)
+    try { return await upload(request, hooks) }
+    catch (error) {
+      if (!(error instanceof FileUploadError) || error.code !== 'authentication-required') throw error
+      await authentication.check(hooks?.signal)
+      await authentication.ready(hooks?.signal)
+      try { return await upload(request, hooks) }
+      catch (retryError) {
+        if (retryError instanceof FileUploadError && retryError.code === 'authentication-required') authentication.requireRefresh()
+        throw retryError
+      }
+    }
+  }
 }
 
 /** Parse a route error body (`{code, message}` JSON) or fall back to a status line. */

@@ -56,6 +56,7 @@ async function mount(): Promise<Bench> {
     $dispatch: (event: string, args: readonly unknown[]) => { bench.dispatched.push([event, ...args]) },
   })
   const handle: ConnectionHandle = {
+    health: { getSnapshot: () => 'bypass', subscribe: () => () => {} },
     api,
     isLoopback: true,
     upload: () => new Promise<never>(() => {}),

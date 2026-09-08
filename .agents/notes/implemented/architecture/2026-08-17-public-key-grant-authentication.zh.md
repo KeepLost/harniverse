@@ -24,6 +24,8 @@ Authenticated Web 可以在没有 Grant 时以 sealed 状态启动。静态 shel
 
 硬切换拒绝 `$DSH_HOME/auth/tokens.json`。系统不提供迁移、长期 bearer 兼容或递归 token minting 层级。本决策完全取代已归档的具名 token [入站网络认证决策](../../archived/feature/2026-08-16-inbound-network-authentication.md)，同时保留其 trust fence、TLS、lease、访问日志和 fail-closed 要求。
 
+浏览器侧的生命周期归属和请求恢复由[共享浏览器认证生命周期](2026-09-08-browser-authentication-lifecycle.md)约束；本决策的配对、Grant 权限和 Host 强制校验保持不变。
+
 ## Alternatives considered
 
 **持久 bearer refresh token。** 拒绝，因为只靠 possession 的凭据从个人或公用设备复制后仍然有效。持久 server record 加私钥 proof 可以定向撤销，而不保存可重复使用的续期 secret。

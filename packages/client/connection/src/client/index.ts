@@ -5,6 +5,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
+import type {} from '@deepseek-ai/dsh-client-authentication'
 import { sameAuthenticationPrincipalIdentity, type HostDescription, type IApiClient } from './api.ts'
 import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type ConnectionState } from './connection.ts'
 import { FixtureApiClient } from './fixture.ts'
@@ -70,8 +71,17 @@ export interface ConnectionAuthenticationSource {
   validate(identity: AuthenticationPrincipalIdentity | undefined): boolean
 }
 
-/** Required services (none — this is the wire root). */
-export const inject: string[] = []
+/** Shared bootstrap authentication is available before any protected carrier opens. */
+export const inject = ['clientAuthentication']
+
+/** Transport/authentication projection consumed by the read-only status seat. */
+export type ConnectionHealthState = 'connecting' | 'connected' | 'reconnecting' | 'renewing' | 'recovering' | 'required' | 'bypass'
+
+/** Stable primitive snapshots avoid a second mutable copy of authentication state. */
+export interface ConnectionHealthSource {
+  getSnapshot(): ConnectionHealthState
+  subscribe(listener: () => void): () => void
+}
 
 /**
  * The ctx.connection service API: the API client plus a one-shot
@@ -87,6 +97,8 @@ export interface ConnectionHandle {
   readonly hostDescription: HostDescriptionSource
   /** Matched Host-verified identity of the active unary and stream transports. */
   readonly authentication: ConnectionAuthenticationSource
+  /** Combined admission and transport health, without credential material. */
+  readonly health: ConnectionHealthSource
   /** Generic logical RPC channels over the same Connection transport. */
   readonly rpc: ClientConnectionRpc
   /**
@@ -111,6 +123,7 @@ export interface ConnectionHandle {
  * @param ctx - client cordis context.
  */
 export function apply(ctx: Context): void {
+  const browserAuthentication = ctx.clientAuthentication
   const pageLocation = typeof location === 'undefined' ? undefined : location
   const fixture = pageLocation !== undefined && new URLSearchParams(pageLocation.search).has('fixture')
   let authentication: AuthenticationPrincipalIdentity | undefined
@@ -119,6 +132,25 @@ export function apply(ctx: Context): void {
   let description: HostDescription | undefined
   const descriptionListeners = new Set<() => void>()
   const authenticationListeners = new Set<() => void>()
+  const healthListeners = new Set<() => void>()
+  let transportState: ConnectionState | 'connecting' = 'connecting'
+  const health: ConnectionHealthSource = {
+    getSnapshot: () => {
+      const snapshot = browserAuthentication.getSnapshot()
+      if (snapshot.phase === 'required' || snapshot.phase === 'stopped') return 'required'
+      if (snapshot.phase === 'recovering') return 'recovering'
+      if (transportState !== 'connected') return transportState
+      if (authentication === undefined) return 'connecting'
+      if (snapshot.phase === 'renewing') return 'renewing'
+      return snapshot.mode === 'bypass' ? 'bypass' : 'connected'
+    },
+    subscribe: (listener) => { healthListeners.add(listener); return () => { healthListeners.delete(listener) } },
+  }
+  const publishHealth = (): void => {
+    for (const listener of [...healthListeners]) {
+      try { listener() } catch (error) { console.error('[client-connection] health observer failed:', error) }
+    }
+  }
   const publishDescription = (next: HostDescription | undefined): void => {
     if (Object.is(description, next)) return
     description = next
@@ -137,6 +169,7 @@ export function apply(ctx: Context): void {
     if (sameAuthenticationPrincipalIdentity(authentication, next)) return
     if (authentication === undefined && next === undefined) return
     authentication = next
+    publishHealth()
     for (const listener of [...authenticationListeners]) {
       try {
         listener()
@@ -155,11 +188,21 @@ export function apply(ctx: Context): void {
     undefined,
     () => authentication,
     invalidateAuthentication,
+    browserAuthentication,
   )
-  const rpc = fixtureClient?.rpc ?? createWebConnectionRpc()
-  const upload: FileUploadTransport = fixtureClient?.upload ?? createWebFileUploadTransport(resolveBase)
+  const rpc = fixtureClient?.rpc ?? createWebConnectionRpc((input, init) => browserAuthentication.fetch(input, init))
+  const upload: FileUploadTransport = fixtureClient?.upload ?? createWebFileUploadTransport(resolveBase, browserAuthentication)
+  ctx.effect(() => browserAuthentication.subscribe(() => {
+    if (health.getSnapshot() === 'required') {
+      controller?.stop()
+      publishAuthentication(undefined)
+      publishDescription(undefined)
+    }
+    publishHealth()
+  }), 'client-connection: authentication lifecycle')
   const handle: ConnectionHandle = {
     api,
+    health,
     isLoopback: pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
     upload,
     hostDescription: {
@@ -199,6 +242,8 @@ export function apply(ctx: Context): void {
           sinks.onConnected?.(next, identity)
         },
         onStateChange: (state) => {
+          transportState = state
+          publishHealth()
           if (state === 'reconnecting') {
             publishAuthentication(undefined)
             publishDescription(undefined)
@@ -211,6 +256,7 @@ export function apply(ctx: Context): void {
         stop: () => {
           controller?.stop()
           controller = undefined
+          transportState = 'connecting'
           publishAuthentication(undefined)
           publishDescription(undefined)
         },

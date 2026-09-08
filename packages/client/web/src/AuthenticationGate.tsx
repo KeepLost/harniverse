@@ -1,6 +1,7 @@
 /** Shell-owned device enrollment gate that runs before browser plugins load. */
 import { startTransition, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { Root } from 'react-dom/client'
+import { BrowserAuthentication, BrowserAuthenticationRequired, type ClientAuthentication } from '@deepseek-ai/dsh-client-authentication'
 import {
   clearBrowserDevice,
   generateBrowserDeviceKey,
@@ -81,7 +82,7 @@ function parseEnrollment(value: unknown): EnrollmentStatus {
   return value as EnrollmentStatus
 }
 
-async function exchangeBrowserSession(device: BrowserDevice, signal?: AbortSignal): Promise<string> {
+export async function exchangeBrowserSession(device: BrowserDevice, signal?: AbortSignal): Promise<string> {
   if (device.grantId === undefined) throw new Error('设备尚未获批准')
   markStartup('auth-challenge-start')
   const challenge = await responseJson(await fetch('/auth/challenge', {
@@ -110,175 +111,13 @@ async function exchangeBrowserSession(device: BrowserDevice, signal?: AbortSigna
   return (result as { expiresAt: string }).expiresAt
 }
 
-/** Cancellable owner of one browser-session renewal chain. */
-export interface BrowserSessionRenewal {
-  /** Stop future renewal and wait for any exchange already in flight. */
-  stop(): Promise<void>
-}
-
-const activeRenewals = new Set<BrowserSessionRenewal>()
-const RENEWAL_REQUEST_TIMEOUT_MS = 10_000
-const RENEWAL_RETRY_BASE_MS = 1_000
-const RENEWAL_RETRY_MAX_MS = 10_000
-
 function isAuthenticationRejection(reason: unknown): boolean {
   return reason instanceof Error && reason.message.endsWith('(401)')
 }
 
-/** Keep a browser session short while renewing it through device possession. */
-export function maintainBrowserSession(
-  device: BrowserDevice,
-  expiresAt: string,
-  recover: () => void = () => { window.location.reload() },
-): BrowserSessionRenewal {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  let inFlight: Promise<void> | undefined
-  let inFlightAbort: AbortController | undefined
-  let stopped = false
-  let deadline = Date.parse(expiresAt)
-  let renewAt = Number.POSITIVE_INFINITY
-  let terminalDeadline = false
-  let retryAttempt = 0
-
-  const isStopped = (): boolean => stopped
-
-  const clearTimer = (): void => {
-    if (timer !== undefined) clearTimeout(timer)
-    timer = undefined
-  }
-
-  const arm = (delay: number, action: () => void): void => {
-    if (stopped) return
-    clearTimer()
-    timer = setTimeout(() => {
-      timer = undefined
-      action()
-    }, Math.max(1, delay))
-  }
-
-  const schedule = (): void => {
-    if (stopped) return
-    const remaining = deadline - Date.now()
-    if (!Number.isFinite(deadline)) {
-      recoverOnce()
-      return
-    }
-    if (terminalDeadline) {
-      arm(remaining, recoverOnce)
-      return
-    }
-    renewAt = Date.now() + Math.max(1, Math.floor(Math.max(0, remaining) / 2))
-    arm(renewAt - Date.now(), renewNow)
-  }
-
-  const scheduleRetry = (): void => {
-    retryAttempt += 1
-    const delay = Math.min(
-      RENEWAL_RETRY_MAX_MS,
-      RENEWAL_RETRY_BASE_MS * 2 ** Math.min(30, retryAttempt - 1),
-    )
-    arm(delay, renewNow)
-  }
-
-  const removeWakeListeners = (): void => {
-    window.removeEventListener('focus', onFocus)
-    window.removeEventListener('online', onOnline)
-    document.removeEventListener('visibilitychange', onVisibilityChange)
-  }
-
-  function recoverOnce(): void {
-    if (stopped) return
-    stopped = true
-    clearTimer()
-    inFlightAbort?.abort()
-    removeWakeListeners()
-    activeRenewals.delete(renewal)
-    recover()
-  }
-
-  function renewNow(): void {
-    if (isStopped() || terminalDeadline || inFlight !== undefined) return
-    clearTimer()
-    const priorDeadline = deadline
-    const controller = new AbortController()
-    inFlightAbort = controller
-    const timeout = setTimeout(() => { controller.abort() }, RENEWAL_REQUEST_TIMEOUT_MS)
-    const operation = (async (): Promise<void> => {
-      try {
-        const nextExpiry = await exchangeBrowserSession(device, controller.signal)
-        if (isStopped()) return
-        const nextDeadline = Date.parse(nextExpiry)
-        if (!Number.isFinite(nextDeadline) || nextDeadline <= Date.now()) {
-          recoverOnce()
-          return
-        }
-        deadline = nextDeadline
-        retryAttempt = 0
-        terminalDeadline = nextDeadline <= priorDeadline
-        schedule()
-      } catch (reason) {
-        if (isStopped()) return
-        if (isAuthenticationRejection(reason)) {
-          recoverOnce()
-        } else {
-          scheduleRetry()
-        }
-      } finally {
-        clearTimeout(timeout)
-        inFlight = undefined
-        inFlightAbort = undefined
-      }
-    })()
-    inFlight = operation
-  }
-
-  function onFocus(): void {
-    if (Date.now() >= renewAt) renewNow()
-  }
-
-  function onOnline(): void {
-    renewNow()
-  }
-
-  function onVisibilityChange(): void {
-    if (document.visibilityState === 'visible' && Date.now() >= renewAt) renewNow()
-  }
-
-  const renewal: BrowserSessionRenewal = {
-    async stop() {
-      if (!stopped) {
-        stopped = true
-        clearTimer()
-        inFlightAbort?.abort()
-        removeWakeListeners()
-        activeRenewals.delete(renewal)
-      }
-      await inFlight?.catch(() => {})
-    },
-  }
-  activeRenewals.add(renewal)
-  window.addEventListener('focus', onFocus)
-  window.addEventListener('online', onOnline)
-  document.addEventListener('visibilitychange', onVisibilityChange)
-  schedule()
-  return renewal
-}
-
-/** Stop and drain every renewal chain owned by this page. */
-export async function stopBrowserSessionRenewal(): Promise<void> {
-  await Promise.all([...activeRenewals].map(renewal => renewal.stop()))
-}
-
-/** Stop renewal before clearing the current short browser session. */
-export async function logoutBrowserSession(): Promise<void> {
-  await stopBrowserSessionRenewal()
-  const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' })
-  if (!response.ok) throw new Error(`退出认证失败 (${String(response.status)})`)
-}
-
 /** Browser device enrollment and signed reauthentication UI. */
 export function AuthenticationGate({ onAuthenticated }: {
-  onAuthenticated: (renewal?: BrowserSessionRenewal) => void
+  onAuthenticated: (authentication: ClientAuthentication) => void
 }): React.JSX.Element {
   const management = window.location.pathname === '/auth/manage'
   const [status, setStatus] = useState<AuthenticationStatusResponse>()
@@ -287,13 +126,22 @@ export function AuthenticationGate({ onAuthenticated }: {
   const [name, setName] = useState('my-device')
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(true)
-  const renewal = useRef<BrowserSessionRenewal>()
+  const renewal = useRef<ClientAuthentication>()
 
   const authenticateDevice = async (candidate: BrowserDevice): Promise<void> => {
     try {
       const expiresAt = await exchangeBrowserSession(candidate)
       await renewal.current?.stop()
-      renewal.current = maintainBrowserSession(candidate, expiresAt)
+      renewal.current = new BrowserAuthentication({
+        expiresAt,
+        exchange: async (signal) => {
+          try { return await exchangeBrowserSession(candidate, signal) }
+          catch (reason) {
+            if (isAuthenticationRejection(reason)) throw new BrowserAuthenticationRequired()
+            throw reason
+          }
+        },
+      })
     } catch (reason) {
       if (candidate.kind === 'device' && isAuthenticationRejection(reason)) await clearBrowserDevice()
       throw reason
@@ -352,7 +200,7 @@ export function AuthenticationGate({ onAuthenticated }: {
           return
         }
         if (next.mode === 'bypass') {
-          onAuthenticated()
+          onAuthenticated(new BrowserAuthentication({ mode: 'bypass' }))
           return
         }
         startTransition(() => { setStatus(next) })
@@ -415,7 +263,11 @@ export function AuthenticationGate({ onAuthenticated }: {
   }
 
   if (management && status?.authenticated === true) {
-    return <AuthenticationManagement onLogout={() => logoutBrowserSession()} />
+    return <AuthenticationManagement onLogout={async () => {
+      await renewal.current?.stop()
+      const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' })
+      if (!response.ok) throw new Error(`退出认证失败 (${String(response.status)})`)
+    }} />
   }
 
   return (
@@ -603,7 +455,7 @@ function AuthenticationManagement({ onLogout }: { onLogout: () => Promise<void> 
 }
 
 /** Render and await the shell enrollment gate before constructing browser modules. */
-export function waitForBrowserAuthentication(root: Root): Promise<BrowserSessionRenewal | undefined> {
+export function waitForBrowserAuthentication(root: Root): Promise<ClientAuthentication> {
   return new Promise((resolve) => {
     root.render(<AuthenticationGate onAuthenticated={resolve} />)
   })

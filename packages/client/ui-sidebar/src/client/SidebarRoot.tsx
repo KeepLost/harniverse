@@ -142,6 +142,7 @@ export function SidebarRoot({
         )}
         {/* Rail resting state is the whale mark; hovering swaps in the panel
             icon (the expand affordance, figma sidebar-hover flow). */}
+        {wide && renderSlot('sidebar.header.status', { wide })}
         <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
           <button
             type="button"
@@ -154,6 +155,7 @@ export function SidebarRoot({
             <IconPanelLeftOutline16 className={css.panelIcon} size={wide ? 16 : 18} />
           </button>
         </Tooltip>
+        {!wide && renderSlot('sidebar.header.status', { wide })}
       </div>
 
       {/* Expanded, the button carries its own label — tooltip only on the rail. */}

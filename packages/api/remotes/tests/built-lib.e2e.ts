@@ -15,6 +15,7 @@ const artifact = (path: string): string => join(root, path)
 const artifactUrl = (path: string): string => pathToFileURL(artifact(path)).href
 
 const requiredArtifacts = [
+  'packages/client/authentication/lib/index.js',
   'packages/client/connection/lib/client.js',
   'packages/client/connection/lib/index.js',
   'packages/auth/authentication/lib/index.js',
@@ -34,6 +35,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
     const urls = Object.fromEntries(Object.entries({
       agent: 'packages/core/agent/lib/index.js',
       authentication: 'packages/auth/authentication/lib/index.js',
+      clientAuthentication: 'packages/client/authentication/lib/index.js',
       apiGatewayClient: 'packages/api/gateway/lib/client.js',
       apiGatewayHost: 'packages/api/gateway/lib/index.js',
       connectionClient: 'packages/client/connection/lib/client.js',
@@ -53,6 +55,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       const { Context } = cordis
       const { default: AgentRegistry } = await import(urls.agent)
       const { ALL_AUTHENTICATION_CAPABILITIES } = await import(urls.authentication)
+      const { default: BrowserAuthenticationService, BrowserAuthentication } = await import(urls.clientAuthentication)
       const connectionHost = await import(urls.connectionHost)
       const { default: TypertRemoteService } = await import(urls.apiGatewayHost)
       const { default: GoalService } = await import(urls.goal)
@@ -141,11 +144,13 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       const origin = 'http://127.0.0.1:' + String(address.port)
 
       const handoffs = new Map()
-      globalThis.window = {
+      globalThis.window = Object.assign(new EventTarget(), {
+        location: { origin },
         __ModuleLoader__: {
           load(handoff) { handoffs.set(handoff.id, handoff) },
         },
-      }
+      })
+      globalThis.document = new EventTarget()
       globalThis.location = { hostname: '127.0.0.1', origin, search: '' }
       await import(urls.registryClient)
       await import(urls.connectionClient)
@@ -161,6 +166,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
         })
       }
       const client = new Context()
+      await client.plugin(BrowserAuthenticationService, new BrowserAuthentication({ mode: 'bypass' })).await()
       for (const id of [
         '@deepseek-ai/dsh-typert-registry',
         '@deepseek-ai/dsh-client-connection',

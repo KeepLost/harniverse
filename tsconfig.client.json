@@ -49,6 +49,7 @@
     // leaf through a type-only import in transcript-adapter.ts; composite
     // rootDir rules make both paths depend on this runtime project reference.
     { "path": "./packages/compaction/compaction" },
+    { "path": "./packages/client/authentication" },
     { "path": "./packages/client/ui-slots" },
     { "path": "./packages/client/store" },
     { "path": "./packages/client/schema-form" },
@@ -67,6 +68,7 @@
     { "path": "./packages/test-support/client-runtime" },
     { "path": "./packages/client/ui-layout" },
     { "path": "./packages/client/ui-sidebar" },
+    { "path": "./packages/client/ui-connection-status" },
     { "path": "./packages/client/ui-conversation" },
     { "path": "./packages/client/ui-tool" },
     { "path": "./packages/client/ui-deliverables" },

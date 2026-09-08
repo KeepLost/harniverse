@@ -27,15 +27,22 @@ describe('web e2e: plugin bootstrap performance', () => {
       const path = new URL(request.url()).pathname
       if (path.startsWith('/plugins/') && path.endsWith('.js')) pluginScripts.push(path)
     })
-
-    const startedAt = performance.now()
-    await page.goto(scaffold.baseUrl, { waitUntil: 'domcontentloaded' })
-    await page.waitForSelector('[class*="frame"]', { timeout: 5_000 })
-    const navigationToFrameMs = performance.now() - startedAt
-
-    expect(navigationToFrameMs).toBeLessThan(5_000)
-    expect(pluginScripts).toEqual(['/plugins/bootstrap.js'])
-    await page.waitForRequest(request => new URL(request.url()).pathname === '/plugins/bootstrap-deferred.js')
+    let releaseDeferred!: () => void
+    const deferredGate = new Promise<void>((resolve) => { releaseDeferred = resolve })
+    // Hold delivery, not observation of the request: Playwright may notice the
+    // frame after the browser has already requested the deferred script.
+    await page.route(/\/plugins\/bootstrap-deferred\.js\?/, async (route) => {
+      await deferredGate
+      await route.continue()
+    })
+    const deferredRequest = page.waitForRequest(request => new URL(request.url()).pathname === '/plugins/bootstrap-deferred.js')
+    try {
+      const startedAt = performance.now()
+      await page.goto(scaffold.baseUrl, { waitUntil: 'domcontentloaded' })
+      await page.waitForSelector('[class*="frame"]', { timeout: 5_000 })
+      expect(performance.now() - startedAt).toBeLessThan(5_000)
+      await deferredRequest
+    } finally { releaseDeferred() }
     expect(pluginScripts).toEqual(['/plugins/bootstrap.js', '/plugins/bootstrap-deferred.js'])
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])

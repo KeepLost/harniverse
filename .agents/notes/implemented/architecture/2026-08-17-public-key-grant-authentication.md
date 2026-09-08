@@ -24,6 +24,8 @@ Authenticated Web may start sealed with no Grants. The static shell can create a
 
 The hard cut rejects `$DSH_HOME/auth/tokens.json`. It provides no migration, long-lived bearer compatibility, or recursive token-minting level. This decision fully supersedes the archived named-token [inbound network authentication decision](../../archived/feature/2026-08-16-inbound-network-authentication.md) while retaining its trust-fence, TLS, lease, access-log, and fail-closed requirements.
 
+Browser-side ownership and request recovery are governed by the [shared browser authentication lifecycle](2026-09-08-browser-authentication-lifecycle.md); enrollment, Grant authority, and Host enforcement in this decision remain unchanged.
+
 ## Alternatives considered
 
 **Durable bearer refresh tokens.** Rejected because possession alone would survive copying from a personal or public device. A durable server record plus private-key proof gives targeted revocation without storing a reusable renewal secret.

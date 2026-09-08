@@ -230,6 +230,8 @@
 
     - id: ui-sidebar
       name: '@deepseek-ai/dsh-client-ui-sidebar'
+    - id: ui-connection-status
+      name: '@deepseek-ai/dsh-client-ui-connection-status'
 
     - id: ui-settings
       name: '@deepseek-ai/dsh-client-ui-settings'
