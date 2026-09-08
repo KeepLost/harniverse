@@ -122,6 +122,13 @@ describe('web e2e: CJK-adjacent Markdown strong emphasis', () => {
       expect(await page.getByText(paragraph, { exact: true }).count()).toBe(1)
     }
 
+    await page.getByRole('button', { name: 'Session log', exact: true }).waitFor()
+    await page.getByRole('tab', { name: 'Trajectory', exact: true }).waitFor()
+    await page.getByRole('tab', { name: 'Capabilities', exact: true }).waitFor()
+    await page.getByRole('button', { name: 'Good response', exact: true }).waitFor()
+    await page.getByRole('button', { name: 'Commands', exact: true }).waitFor()
+    await page.getByRole('button', { name: 'Select model, current DeepSeek-V4-Flash', exact: true }).waitFor()
+
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
