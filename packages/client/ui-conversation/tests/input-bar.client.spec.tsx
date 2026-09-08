@@ -95,7 +95,7 @@ interface BenchOptions {
   addImages?: (files: readonly File[]) => string | null
   commandMenuOpen?: boolean
   busyEnter?: 'queue' | 'steer'
-  toggleCommandMenu?: (selection: { start: number; end: number }) => void
+  commandsEntry?: React.ReactNode
   /** Menu arbitration stub riding the inputTriggers face (Tab completion cases). */
   arbitrate?: (key: 'up' | 'down' | 'enter' | 'escape' | 'tab', composing: boolean) => 'consumed' | 'pick-highlighted' | 'pass'
 }
@@ -157,6 +157,12 @@ function bench(over?: BenchOptions) {
     slotCalls.push({ key, owner })
     if (key === 'conversation.input.plan') return over?.planEntry ?? null
     if (key === 'conversation.input.model') return over?.modelEntry ?? null
+    if (key === 'conversation.input.commands') {
+      return over?.commandsEntry ?? (
+        // Lock-semantics stand-in: the real launcher lives in ui-input-trigger.
+        <button type="button" aria-label="命令" aria-haspopup="listbox" disabled={(owner as { locked: boolean }).locked} />
+      )
+    }
     return null
   }) as InputBarProps['renderSlot']
   const props: InputBarProps = {
@@ -192,7 +198,6 @@ function bench(over?: BenchOptions) {
       const preferred = over?.busyEnter ?? 'queue'
       return gesture === 'enter' ? preferred : preferred === 'queue' ? 'steer' : 'queue'
     },
-    toggleCommandMenu: over?.toggleCommandMenu ?? vi.fn(),
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
     useMenuLauncher: bindSnapshotSelector(menuLauncher),
@@ -1286,29 +1291,44 @@ describe('strips and variants', () => {
 })
 
 describe('command launcher chrome and control seats', () => {
-  it('renders the command launcher; the Access chip is absent without the permissions projection; the control seats render EMPTY without entries', () => {
+  it('renders the file entry; the Access chip is absent without the permissions projection; the control seats render EMPTY without entries', () => {
     const { view, slotCalls } = bench()
-    expect(view.getByLabelText('命令')).toBeTruthy()
+    expect(view.getByLabelText('添加文件')).toBeTruthy()
     // Capability absent (no projection value): the chip renders nothing.
     expect(view.queryByLabelText(/^访问模式/)).toBeNull()
     // Every seat dispatched, nothing rendered.
     expect(slotCalls.map(c => c.key)).toEqual([
-      'conversation.input.plan', 'conversation.input.model',
+      'conversation.input.commands', 'conversation.input.plan', 'conversation.input.model',
     ])
     expect(view.queryByLabelText('Plan mode')).toBeNull()
     expect(view.queryByLabelText('Model')).toBeNull()
   })
 
-  it('passes the textarea selection to the command menu launcher and reflects its expanded state', () => {
-    const toggleCommandMenu = vi.fn()
-    const { view, textarea, menuLauncher } = bench({ draft: 'draft text', toggleCommandMenu })
+  it('dispatches the commands seat with the bar-side toggle context and focus keeper', () => {
+    const { textarea, slotCalls } = bench({ draft: 'draft text' })
+    const call = slotCalls.find(c => c.key === 'conversation.input.commands')
+    expect(call).toBeTruthy()
+    const owner = call!.owner as {
+      locked: boolean
+      keepFocus: (event: { preventDefault: () => void }) => void
+      captureContext: () => {
+        selection: { start: number; end: number }
+        leading: boolean
+        draftRev: number
+        dismissPopup: () => void
+      } | undefined
+    }
+    expect(owner.locked).toBe(false)
     textarea.setSelectionRange(2, 7)
-    const launcher = view.getByLabelText('命令')
-    expect(launcher.getAttribute('aria-expanded')).toBe('false')
-    fireEvent.click(launcher)
-    expect(toggleCommandMenu).toHaveBeenCalledExactlyOnceWith({ start: 2, end: 7 })
-    act(() => { menuLauncher.set('command') })
-    expect(launcher.getAttribute('aria-expanded')).toBe('true')
+    const context = owner.captureContext()!
+    expect(context.selection).toEqual({ start: 2, end: 7 })
+    expect(context.leading).toBe(false) // 'draft text' has text before offset 2
+    expect(typeof context.draftRev).toBe('number')
+    expect(typeof context.dismissPopup).toBe('function')
+    // The focus keeper suppresses the mousedown default so typing continues.
+    const preventDefault = vi.fn()
+    owner.keepFocus({ preventDefault })
+    expect(preventDefault).toHaveBeenCalledExactlyOnceWith()
   })
 
   it('the Access chip renders the projection value and submits a non-Full-access pick directly', async () => {

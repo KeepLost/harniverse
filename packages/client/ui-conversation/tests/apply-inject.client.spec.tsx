@@ -208,7 +208,6 @@ describe('conversation slot inject API', () => {
     // hooks compartment still present so the render side's hook order holds.
     const absent = injectFn(undefined)
     expect(absent.keyboard).toBeUndefined()
-    expect(absent.toggleCommandMenu).toBeUndefined()
     expect(absent.stop).toBeUndefined()
     expect(absent.hooks.notices.getSnapshot()).toBeNull()
     expect(absent.hooks.lexicon.getSnapshot().size).toBe(0)

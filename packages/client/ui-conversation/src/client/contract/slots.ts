@@ -15,7 +15,7 @@ import type { MessageId } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerBlock } from '../input/blocks.ts'
 import type {
-  ComposerFileDraft, ComposerKeyboard, DraftAttachmentId, EditSelection, InputActions, InputNotice,
+  ComposerFileDraft, ComposerKeyboard, DraftAttachmentId, InputActions, InputNotice,
   InputState,
 } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
@@ -210,6 +210,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * placeholder, so an absent plan plugin costs no layout.
      */
     'conversation.input.plan': { kind: 'single'; scope: 'session'; owner: InputControlOwnerProps }
+    // 'conversation.input.commands' merges in ui-input-trigger (same
+    // dependency-direction split as 'conversation.input.overlay' above: the
+    // registering package cannot import this one). The runtime declaration
+    // (children table in apply.ts) stays here with the other input slots.
     /**
      * The named model-select seat at the right end of the composer tool row,
      * left of the send button — one occupant, so taking it means rendering the
@@ -510,8 +514,6 @@ export interface ComposerBarInjected {
     gesture: ComposerSubmitGesture,
     steeringAvailable: boolean,
   ) => InputSubmitMode
-  /** Toggle the shared slash menu with only its command source; absent without ui-input-trigger or a session. */
-  toggleCommandMenu: ((selection: EditSelection) => void) | undefined
   /** Cancel the in-flight turn; absent with the session. */
   stop: (() => void) | undefined
   /**
@@ -551,7 +553,7 @@ export interface InputControlOwnerProps {
 /** Full composer-bar props: standard kit & owner share & control-seat render share & injected share (hooks bound) & locale seat. */
 export type ComposerBarProps =
   PropsRuntime<'conversation.composer.bar'>
-  & PropsRenderSlots<'conversation.input.plan' | 'conversation.input.model'>
+  & PropsRenderSlots<'conversation.input.plan' | 'conversation.input.model' | 'conversation.input.commands'>
   & InjectFace<ComposerBarInjected>
   & PropsLocale<'conversation'>
 

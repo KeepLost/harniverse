@@ -10,7 +10,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  IconPaperclipOutline16, IconPlusOutline16, IconWarningOutline16, Toast, Tooltip,
+  IconPaperclipOutline16, IconWarningOutline16, Toast, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { AttachmentRail, DropOverlay, FileChipRail, ImageLightbox } from '@deepseek-ai/dsh-client-ui-attachment'
 import type { AttachmentRailItem } from '@deepseek-ai/dsh-client-ui-attachment'
@@ -24,6 +24,7 @@ import type {} from '@deepseek-ai/dsh-goal/client'
 // wire types: apiproxy's sessions contract declares it, and client-runtime's
 // api-remotes import already places it in every client program.
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
+import type { CommandToggleContext } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { ComposerAttachment, ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
 import type { DraftDecorations } from '../input/decorations.ts'
@@ -50,7 +51,7 @@ export type InputBarProps = ComposerBarProps
 export function InputBar({
   useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages,
   addFiles, removeFile,
-  resolveSubmitMode, toggleCommandMenu, stop, command, t,
+  resolveSubmitMode, stop, command, t,
   renderSlot, useNotices, useLexicon, useMenuLauncher, useFileDrafts,
   useProjection, sessionId, variant, disabled: inert = false, blocked,
   workspacePickerOpen = false, onRequestWorkspace,
@@ -567,9 +568,20 @@ export function InputBar({
     inputRef.current?.focus({ preventScroll: true })
   }
 
-  const onToggleCommandMenu = (): void => {
+  // The commands seat's trigger context: the textarea selection plus the
+  // machine draft state a synthetic '/' hit needs, captured at click time
+  // (the seat owns the toggle itself; this is the bar-side half).
+  const captureCommandContext = (): CommandToggleContext | undefined => {
     const el = inputRef.current
-    if (el !== null) toggleCommandMenu?.(selectionOf(el))
+    if (el === null) return undefined
+    const selection = selectionOf(el)
+    const snapshot = keyboard?.snapshot
+    return {
+      selection,
+      leading: (snapshot?.draft ?? '').slice(0, selection.start).trim() === '',
+      draftRev: snapshot?.draftRev ?? 0,
+      dismissPopup: () => { keyboard?.dismissPopup() },
+    }
   }
 
   // The file entry: a hidden multiple input keeps the native picker behavior
@@ -788,20 +800,11 @@ export function InputBar({
         </div>
         <div className={css.row}>
           <div className={css.tools}>
-            <Tooltip label={t('input.commands')} side="top" delayMs={500}>
-              <button
-                type="button"
-                className={css.add}
-                aria-label={t('input.commands')}
-                aria-haspopup="listbox"
-                aria-expanded={commandMenuOpen}
-                disabled={locked || toggleCommandMenu === undefined}
-                onMouseDown={keepFocus}
-                onClick={onToggleCommandMenu}
-              >
-                <IconPlusOutline16 size={14} />
-              </button>
-            </Tooltip>
+            {renderSlot('conversation.input.commands', {
+              locked,
+              keepFocus,
+              captureContext: captureCommandContext,
+            })}
             <Tooltip label={t('file.choose')} side="top" delayMs={500}>
               <button
                 type="button"

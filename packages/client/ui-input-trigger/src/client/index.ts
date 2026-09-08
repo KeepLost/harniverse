@@ -1,21 +1,24 @@
 /**
  * Slash trigger plugin, browser half: the InputTriggerService (`ctx.inputTriggers`) owning
  * trigger detection, the candidate menu, and the pick pipeline; MenuView
- * self-registers into the conversation.input.overlay slot. Frozen pipeline
+ * self-registers into the conversation.input.overlay slot and CommandSeat
+ * into the conversation.input.commands seat (the tool row's plus button). Frozen pipeline
  * contract in ./contract.ts; sources register through ctx.inputTriggers alone.
  */
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { InputTriggerService } from './service.ts'
-import type { MenuViewInjected } from './slots.ts'
+import type { CommandSeatInjected, MenuViewInjected } from './slots.ts'
+import { CommandSeat } from './CommandSeat.tsx'
 import { MenuView } from './MenuView.tsx'
 import { en, zh, type MenuKey } from './locales.ts'
 
 export { InputTriggerService } from './service.ts'
 export { InputTriggerController } from './controller.ts'
 export type { InputTriggerControllerDeps, SourceRoster } from './controller.ts'
-export type { MenuViewInjected } from './slots.ts'
+export type { CommandSeatInjected, CommandToggleContext, MenuViewInjected } from './slots.ts'
+export type { CommandSeatProps } from './CommandSeat.tsx'
 export type { MenuViewProps } from './MenuView.tsx'
 export type { MenuKey } from './locales.ts'
 export type {
@@ -59,15 +62,33 @@ export function apply(ctx: ClientContext): void {
   ctx.inject(['slots', 'inputTriggers', 'sessions'], (scope: ClientContext) => {
     const inputTriggers = scope.inputTriggers
     const sessions = scope.sessions
-    // Existence seat on the session provide roster. Slot injects that resolve
-    // this optional service by name (the composer bar's command-menu toggle)
-    // cache per (entry x bundle), and this plugin's client bundle loads after
-    // the first render on a cold start — an inject evaluated in that window
-    // would strand its undefined forever. The seat contributes no members;
-    // registering it here (own fiber active, service strict-visible) and
-    // withdrawing it on teardown republishes every live bundle, so those
-    // injects re-resolve once the service is actually resolvable.
-    ctx.effect(() => sessions.provide({ resolve: () => ({}) }), 'ui-input-trigger: provide roster existence seat')
+    scope.slots.inject('conversation.input.commands', () => scope.slots.register({
+      name: 'conversation.input.commands',
+      locale: MENU_NS,
+      inject: (sessionId): CommandSeatInjected => {
+        // Session-scoped slot: resolve this session's controller (the slot
+        // frame hands ids, not ctx — the registered id→ctx interchange).
+        const actx = sessions.scope(sessionId)
+        if (actx === undefined) throw new Error(`ui-input-trigger: session "${String(sessionId)}" resolved no scope`)
+        const controller = inputTriggers.sessionOf(actx)
+        return {
+          toggle: (context) => {
+            context.dismissPopup()
+            controller.toggleSource('command', {
+              trigger: '/',
+              query: '',
+              position: context.leading ? 'leading' : 'inline',
+              span: {
+                start: context.selection.start,
+                end: context.selection.end,
+                draftRev: context.draftRev,
+              },
+            })
+          },
+          hooks: { launcher: controller.launcher },
+        }
+      },
+    }, CommandSeat))
     scope.slots.inject('conversation.input.overlay', () => scope.slots.register({
       name: 'conversation.input.overlay',
       id: 'slash-menu',

@@ -283,12 +283,13 @@ export function apply(ctx: Context): void {
   slots.register({
     name: 'conversation.composer.bar',
     locale: NS,
-    // The two named control seats in the bar's tool row (plan beside the
-    // access control, model right); empty until their owning plugins
-    // register.
+    // The named control seats in the bar's tool row (commands at its head,
+    // plan beside the access control, model right); empty until their owning
+    // plugins register.
     children: {
       'conversation.input.plan': { kind: 'single', scope: 'session' },
       'conversation.input.model': { kind: 'single', scope: 'session' },
+      'conversation.input.commands': { kind: 'single', scope: 'session' },
     },
     inject: (sessionId: SessionId | undefined): ComposerBarInjected => {
       if (sessionId === undefined) {
@@ -301,7 +302,6 @@ export function apply(ctx: Context): void {
           removeFile: undefined,
           resolveSubmitMode: (running, gesture, steeringAvailable) =>
             submissionPolicy.resolve(running, gesture, steeringAvailable),
-          toggleCommandMenu: undefined,
           stop: undefined,
           command: undefined,
           hooks: {
@@ -342,18 +342,6 @@ export function apply(ctx: Context): void {
         removeFile: (id) => { shell.removeFile(id) },
         resolveSubmitMode: (running, gesture, steeringAvailable) =>
           submissionPolicy.resolve(running, gesture, steeringAvailable),
-        toggleCommandMenu: inputTriggers === undefined
-          ? undefined
-          : (selection) => {
-            shell.dismissPopup()
-            const snapshot = shell.snapshot
-            inputTriggers.toggleSource('command', {
-              trigger: '/',
-              query: '',
-              position: snapshot.draft.slice(0, selection.start).trim() === '' ? 'leading' : 'inline',
-              span: { ...selection, draftRev: snapshot.draftRev },
-            })
-          },
         stop: () => {
           scopedConversation(sessions, sessionId).cancel().catch(() => {
             // Stop failure surfaces via snapshot.promptError; nothing to restore.
