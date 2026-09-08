@@ -128,6 +128,12 @@ describe('web e2e: CJK-adjacent Markdown strong emphasis', () => {
     await page.getByRole('button', { name: 'Good response', exact: true }).waitFor()
     await page.getByRole('button', { name: 'Commands', exact: true }).waitFor()
     await page.getByRole('button', { name: 'Select model, current DeepSeek-V4-Flash', exact: true }).waitFor()
+    // The golden pins the settled composer surface: the session title and the
+    // capability-fed mode buttons land after first paint, and the strong-span
+    // waits above do not guarantee they beat the capture's stability poll.
+    // Wait them in explicitly so the captured moment is deterministic.
+    await expect.poll(() => page.getByRole('button', { name: 'Access mode, current: Workspace Write' }).count()).toBe(1)
+    await expect.poll(() => page.getByRole('button', { name: 'Supervision mode: Supervised' }).count()).toBe(1)
 
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
