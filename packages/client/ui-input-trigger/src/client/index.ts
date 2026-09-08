@@ -59,6 +59,15 @@ export function apply(ctx: ClientContext): void {
   ctx.inject(['slots', 'inputTriggers', 'sessions'], (scope: ClientContext) => {
     const inputTriggers = scope.inputTriggers
     const sessions = scope.sessions
+    // Existence seat on the session provide roster. Slot injects that resolve
+    // this optional service by name (the composer bar's command-menu toggle)
+    // cache per (entry x bundle), and this plugin's client bundle loads after
+    // the first render on a cold start — an inject evaluated in that window
+    // would strand its undefined forever. The seat contributes no members;
+    // registering it here (own fiber active, service strict-visible) and
+    // withdrawing it on teardown republishes every live bundle, so those
+    // injects re-resolve once the service is actually resolvable.
+    ctx.effect(() => sessions.provide({ resolve: () => ({}) }), 'ui-input-trigger: provide roster existence seat')
     scope.slots.inject('conversation.input.overlay', () => scope.slots.register({
       name: 'conversation.input.overlay',
       id: 'slash-menu',

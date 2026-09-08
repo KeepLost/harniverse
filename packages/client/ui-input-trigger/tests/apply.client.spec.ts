@@ -19,6 +19,22 @@ usePinnedBrowserLanguages('zh-CN')
 
 const sid = (k: string): SessionId => k as SessionId
 
+// The sessions face: scope resolution for controllers plus the provide
+// roster the existence seat rides (recorded, so the seat's lifecycle is
+// assertable).
+const rosterSeats: unknown[][] = []
+const rosterDisposals: unknown[][] = []
+function sessionsFaceOver(scope: { ctx: Context }) {
+  return {
+    scope: (id: SessionId) => (id === sid('a') ? scope.ctx : undefined),
+    scopeOf: (c: Context) => scopeOf(c),
+    provide: (descriptor: unknown) => {
+      rosterSeats.push([descriptor])
+      return () => { rosterDisposals.push([descriptor]) }
+    },
+  }
+}
+
 async function bench() {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
@@ -32,10 +48,7 @@ async function bench() {
   )
   // Sessions face: mint one real scope for session 'a' and resolve it by id.
   const scope = createScope(ctx, sid('a'))
-  ctx.provide('sessions', {
-    scope: (id: SessionId) => (id === sid('a') ? scope.ctx : undefined),
-    scopeOf: (c: Context) => scopeOf(c),
-  })
+  ctx.provide('sessions', sessionsFaceOver(scope))
   const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
   return { ctx, slots, locale }
@@ -100,5 +113,23 @@ describe('apply', () => {
     await fiber.dispose()
     expect(slots.entries('conversation.input.overlay')).toHaveLength(0)
     expect(ctx.get('inputTriggers')).toBeUndefined()
+  })
+
+  it('holds a member-less provide-roster seat for the plugin fiber lifetime', async () => {
+    const { ctx } = await bench()
+    rosterSeats.length = 0
+    rosterDisposals.length = 0
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    // The seat exists to move the roster (its registration rebuilds session
+    // bundles so injects cached over the absent service re-resolve), not to
+    // contribute members: an empty descriptor is the whole contract.
+    expect(rosterSeats).toHaveLength(1)
+    const descriptor = rosterSeats[0]![0] as { hooks?: readonly string[]; props?: readonly string[] }
+    expect(descriptor.hooks ?? []).toEqual([])
+    expect(descriptor.props ?? []).toEqual([])
+    expect(rosterDisposals).toEqual([])
+    await fiber.dispose()
+    expect(rosterDisposals).toHaveLength(1)
   })
 })

@@ -203,6 +203,16 @@ function makeHost() {
       if (source === undefined) throw new Error(`unknown test session: ${id}`)
       source.set(snapshot)
     },
+    // Roster-change replay: re-materialize the id's bundle as a fresh object
+    // over the same session source (what SessionRuntime.rebuildBundles does
+    // when a provider registers), republishing it when current.
+    rebuildSession: (id: string) => {
+      const source = sessionSources.get(id)
+      if (source === undefined) throw new Error(`unknown test session: ${id}`)
+      const info: SessionProvideInfo = { sessionId: id, hooks: { session: source }, props: {} }
+      infos.set(id, info)
+      if (currentId === id) provide.set(info)
+    },
   }
 }
 
@@ -887,6 +897,36 @@ describe('inject: execution point, parameter derivation, cache granularity', () 
     act(() => { h.current.set('s1') })   // back: (entry x cell) cache hit
     expect(view.container.textContent).toBe('s1')
     expect(inject).toHaveBeenCalledTimes(2)
+  })
+
+  it('session inject re-runs when the provide roster rebuilds the bundle (late optional service arrives)', () => {
+    const h = makeHost()
+    h.declare('k.session', SINGLE_SESSION)
+    h.addSession('s1')
+    // The late-service shape: the inject reads a service slot that is absent
+    // on first render and present after a late plugin's bundle loads. A
+    // container keeps the binding hoisted for the inject closure while the
+    // assignment stays a plain mutation.
+    const late: { service: (() => void) | undefined } = { service: undefined }
+    const inject = vi.fn(() => ({ toggle: late.service }))
+    h.add('k.session', {
+      component: ({ toggle }: { toggle?: () => void }) => <b>{toggle === undefined ? 'absent' : 'present'}</b>,
+      inject,
+    })
+    const { view } = mountRoot(h, { 'k.session': SINGLE_SESSION }, renderSlot => (
+      <SessionProvider>{() => renderSlot('k.session', {})}</SessionProvider>
+    ))
+    act(() => { h.current.set('s1') })
+    expect(view.container.textContent).toBe('absent')
+    expect(inject).toHaveBeenCalledTimes(1)
+    // The late plugin mounts: its provide-roster seat rebuilds the current
+    // bundle, the (entry x bundle) cache misses, and the inject re-resolves
+    // against the now-present service.
+    late.service = () => {}
+    act(() => { h.rebuildSession('s1') })
+    expect(view.container.textContent).toBe('present')
+    expect(inject).toHaveBeenCalledTimes(2)
+    expect(inject).toHaveBeenLastCalledWith('s1')
   })
 
   it('store-declaring entries get baked actions appended to the inject parameters', () => {
