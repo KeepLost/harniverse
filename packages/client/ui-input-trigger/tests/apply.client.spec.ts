@@ -5,7 +5,7 @@
  * per-session controller from the slot's sessionId, and unregister on fiber teardown.
  */
 import { Context } from '@deepseek-ai/cordis'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { createScope, scopeOf, SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
@@ -117,12 +117,33 @@ describe('apply', () => {
     )
     // The launcher hook rides the controller's store (the expanded-state source).
     expect(face.hooks.launcher).toBe(controller.launcher)
+    const toggleSource = vi.spyOn(controller, 'toggleSource')
     const dismissPopup = () => {}
+    // The aimed position derives from the captured bar context: a blank draft
+    // before the selection is a leading trigger, anything else is inline.
     face.toggle({
       selection: { start: 0, end: 0 },
       leading: true,
       draftRev: 7,
       dismissPopup,
+    })
+    face.toggle({
+      selection: { start: 4, end: 4 },
+      leading: false,
+      draftRev: 7,
+      dismissPopup,
+    })
+    expect(toggleSource).toHaveBeenNthCalledWith(1, 'command', {
+      trigger: '/',
+      query: '',
+      position: 'leading',
+      span: { start: 0, end: 0, draftRev: 7 },
+    })
+    expect(toggleSource).toHaveBeenNthCalledWith(2, 'command', {
+      trigger: '/',
+      query: '',
+      position: 'inline',
+      span: { start: 4, end: 4, draftRev: 7 },
     })
     // No source named 'command' is registered on this bare bench: the toggle
     // collapses to a dismiss (the roster guard), proving the hit reached the
