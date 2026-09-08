@@ -97,6 +97,9 @@ flowchart LR
   svc_sessionDelivery["ctx.sessionDelivery<br/>Ordinary-session next-turn delivery"]
   pkg_session_delivery_local["session-delivery-local"]
   pkg_tool_session_delivery["tool-session-delivery"]
+  pkg_context_reset["context-reset"]
+  svc_contextReset["ctx.contextReset<br/>Whole-surface context reset"]
+  pkg_command_reset["command-reset"]
   svc_sessionQuery["ctx.sessionQuery<br/>Session reads, traces, filters, and search"]
   pkg_session_reference["session-reference"]
   pkg_tool_session_query["tool-session-query"]
@@ -255,6 +258,7 @@ flowchart LR
   pkg_compaction_lossless --> svc_compaction
   pkg_compaction_lossless --> svc_compactionHistory
   pkg_compaction_tool_result_pruner --> svc_toolResultPruner
+  pkg_context_reset --> svc_contextReset
   pkg_cordis_host_runner --> svc_cordisInspect
   pkg_cordis_host_runner --> svc_dynamicCordisRunner
   pkg_credentials --> svc_credentials
@@ -369,6 +373,7 @@ flowchart LR
   svc_compaction --> pkg_command_compact
   svc_compaction --> pkg_tool_compaction
   svc_compactionHistory --> pkg_tool_compaction_history
+  svc_contextReset --> pkg_command_reset
   svc_cordisInspect --> pkg_tool_cordis
   svc_credentials --> pkg_apiproxy
   svc_credentials --> pkg_llm_deepseek
@@ -518,6 +523,7 @@ flowchart LR
 | `ctx.messageFeedback` | `core` | [`message-feedback`](../packages/feedback/message-feedback) | - | - | - | Owns local per-assistant-message feedback, lifecycle and target validation, per-item compare-and-set, and the Host unary Remote contract without entering Session history or telemetry. |
 | `ctx.workspaceRegistry` | `core` | [`workspace`](../packages/workspace/workspace) | - | `apiproxy` | - | Owns WorkspaceId-branded records over the domain facility; stable sessionIds accounts drive Host RPC and GUI projections. |
 | `ctx.sessionDelivery` | `seam` | [`session-delivery`](../packages/session-query/session-delivery) | [`session-delivery-local`](../packages/session-query/session-delivery-local) | [`tool-session-delivery`](../packages/session-query/tool-session-delivery) | - | The interface acknowledges inbox acceptance only; the local Provider resolves live or persisted ordinary Agents, while the model Consumer never waits for completion or a reply. |
+| `ctx.contextReset` | `core` | [`context-reset`](../packages/context/context-reset) | - | [`command-reset`](../packages/context/command-reset) | - | Shadows every current surface node with one durable anchor-and-marker pair under surface-fold validation; idle-maintenance only, and display history cuts initial pages at the reset anchor. |
 | `ctx.sessionQuery` | `seam` | [`session-query`](../packages/session-query/session-query) | [`session-query-sqlite`](../packages/session-query/session-query-sqlite) | [`session-reference`](../packages/context/session-reference), [`tool-session-query`](../packages/session-query/tool-session-query) | - | The interface supplies exact reads, status, finalized message tails, filters, and traces; its concrete backend adds full-text reconciliation, while the model consumer binds exact observations by id and owns optional cwd filtering plus cursor-free rendering. |
 | `ctx.sessionReferenceResolver` | `core` | [`session-reference`](../packages/context/session-reference) | - | - | - | Projects bounded current-surface conversation snapshots into durable untrusted message context; host adapters own mention syntax. |
 | `ctx.sessionTitle` | `seam` | [`session-title`](../packages/session/session-title) | [`session-title-first-prompt-llm`](../packages/session/session-title-first-prompt-llm), [`session-title-all-prompts-llm`](../packages/session/session-title-all-prompts-llm) | - | - | Owns the deterministic fallback, latest-title fold, and sole optional asynchronous provider registration. |

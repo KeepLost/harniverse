@@ -740,6 +740,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'contextReset',
+    summary: 'Whole-surface context reset.',
+    description: 'Whole-surface context reset. A successful run replaces every current surface node with one checkpoint marker and leaves the shadowed history in the log. Load one instance per context as `ctx.contextReset`.',
+    methods: [
+      {
+        signature: 'resetNow( agent: Agent, signal: AbortSignal, sourceCommandId?: CommandId, ): Promise<ContextResetResult | null>',
+        description: 'Explicitly reset the model context even while the log keeps growing. The operation synchronously starts an idle task before any asynchronous work, replaces the whole current surface in one atomic append, then waits for one durability flush. Later waking prompts remain accepted in FIFO order and start only after the flush settles.',
+        parameters: [{ name: 'agent', description: 'agent whose session surface should be reset.' }, { name: 'signal', description: 'cancellation scoped to this reset request.' }, { name: 'sourceCommandId', description: 'initiating command identity for a manual reset.' }],
+        returns: 'the reset result, or `null` when the surface is already empty.',
+        throws: ['{@link ContextResetError} for expected busy, agent-cancellation, commit-stage, or persistence failures; an aborted request preserves its exact abort reason.'],
+      },
+    ],
+  },
+  {
     key: 'credentials',
     summary: 'Abstract credential service.',
     description: 'Abstract credential service. Providers implement the four operations over their source layers; one seam-wide rule binds them all: an empty stored value is absent everywhere — `resolve` skips it, `describe` reports it unconfigured — so a blank never masquerades as a configured secret.',
@@ -3853,6 +3867,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ContextFormed = {\n    readonly form?: never;\n} | {\n    readonly form: \'instructions\';\n} | {\n    readonly form: \'catalog\';\n} | {\n    readonly form: \'snapshot\';\n    readonly sections: readonly ContextSnapshotSection[];\n    readonly partial?: true;\n} | {\n    readonly form: \'notice\';\n    readonly summary: string;\n} | {\n    readonly form: \'relay\';\n} | {\n    readonly form: \'recall\';\n} | {\n    readonly form: \'system-injection\';\n};',
   },
   {
+    name: 'ContextResetResult',
+    declaration: 'export interface ContextResetResult {\n    readonly resetId: ResetId;\n    readonly sourceCommandId?: CommandId;\n    readonly checkpointSeq: number;\n    readonly markerSeq: number;\n    readonly shadowedSeqs: readonly number[];\n}',
+  },
+  {
     name: 'ContextSnapshotSection',
     declaration: 'export interface ContextSnapshotSection {\n    readonly name: string;\n    readonly text: string;\n}',
   },
@@ -4743,6 +4761,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RequestRunOutcome',
     declaration: 'export type RequestRunOutcome = \'approved\' | \'completed\' | \'rejected\' | \'cancelled\' | \'failed\';',
+  },
+  {
+    name: 'ResetId',
+    declaration: 'export type ResetId = Branded<\'ResetId\'>;',
   },
   {
     name: 'ResolvedAlwaysRetryPolicy',

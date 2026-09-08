@@ -597,6 +597,29 @@ Source: [`packages/core/session/src/types.ts:340`](../packages/core/session/src/
 
 Source: [`packages/core/session/src/types.ts:335`](../packages/core/session/src/types.ts)
 
+### `reset/*`
+
+<a id="resetcheckpoint--log-only"></a>
+
+#### `reset/checkpoint` — log-only
+
+```ts persistence-catalog
+/**
+ * Durable anchor of one context reset — log-only, no surfaceOp. Written
+ * immediately before the replacement `user/message` marker so the display
+ * checkpoint has a transaction start to cite, the `compaction/start`
+ * shape. `turn` is always `null`: a reset claims the idle maintenance
+ * phase between turns.
+ */
+'reset/checkpoint': {
+  resetId: ResetId
+  sourceCommandId?: CommandId
+  turn: null
+}
+```
+
+Source: [`packages/context/context-reset/src/types.ts:22`](../packages/context/context-reset/src/types.ts)
+
 ### `sandbox/*`
 
 <a id="sandboxmode--log-only"></a>

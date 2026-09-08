@@ -188,6 +188,29 @@ describe('the shipped Web composition', () => {
     expect(ctx.agents.get(sessionId)).toBeUndefined()
   })
 
+  it('discovers /reset globally without resuming a cold session', () => {
+    const sessionId = SessionId('cold-reset-discovery')
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
+    expect(commandNames(ctx, sessionId)).toContain('reset')
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
+  })
+
+  it('executes the global /reset command through every shipped Profile', async () => {
+    for (const profile of ['standard', 'minimal', 'cordis', 'code'] as const) {
+      const handle = await ctx.agents.create({
+        sessionId: SessionId(`preset-reset-${profile}-${randomUUID()}`),
+        setup: agentCtx => ctx.agentPresets.mount(agentCtx, profile).then(() => undefined),
+      })
+      try {
+        expect(commandNames(ctx, handle.agent.id)).toContain('reset')
+        const reset = await ctx.commands.execute(handle.agent, '/reset', [], new AbortController().signal)
+        expect(reset?.result, profile).toEqual({ kind: 'success', text: 'No history to reset yet.' })
+      } finally {
+        await handle.dispose()
+      }
+    }
+  })
+
   it('owns one live root compaction settings namespace without a default override', async () => {
     const ns = settingsNamespace('compaction')
     expect(ctx.settings.describe().find(row => row.ns === ns)).toMatchObject({

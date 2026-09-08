@@ -652,6 +652,35 @@ The backends that consume this contract are on [persistence.md](persistence.md).
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxcontextreset--contextresetservice"></a>
+
+### `ctx.contextReset` — `ContextResetService`
+
+Whole-surface context reset. A successful run replaces every current surface node with one checkpoint marker and leaves the shadowed history in the log. Load one instance per context as `ctx.contextReset`.
+
+```ts cordis-catalog
+/**
+ * Explicitly reset the model context even while the log keeps growing.
+ * The operation synchronously starts an idle task before any asynchronous
+ * work, replaces the whole current surface in one atomic append, then waits
+ * for one durability flush. Later waking prompts remain accepted in FIFO
+ * order and start only after the flush settles.
+ *
+ * @param agent - agent whose session surface should be reset.
+ * @param signal - cancellation scoped to this reset request.
+ * @param sourceCommandId - initiating command identity for a manual reset.
+ * @returns the reset result, or `null` when the surface is already empty.
+ * @throws {@link ContextResetError} for expected busy, agent-cancellation,
+ * commit-stage, or persistence failures; an aborted request preserves its
+ * exact abort reason.
+ */
+resetNow( agent: Agent, signal: AbortSignal, sourceCommandId?: CommandId, ): Promise<ContextResetResult | null>
+```
+
+Types: [Agent](core.md) · [CommandId](commands.md)
+
+Source: [`packages/context/context-reset/src/index.ts:79`](../../packages/context/context-reset/src/index.ts)
+
 <a id="ctxsessions--sessionstore"></a>
 
 ### `ctx.sessions` — `SessionStore`

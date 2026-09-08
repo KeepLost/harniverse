@@ -650,6 +650,71 @@ export function runPersistenceContract(
       expect(outOfWindow.preferred.events[0]!.seq).toBeGreaterThan(3)
     })
 
+    it('readHistoryPage treats a whole-surface reset checkpoint like a compaction cut', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const m = meta('history-reset-checkpoint', '/work')
+        const resetMarker = freezeMessage({
+          id: MessageId('history-reset-marker'),
+          role: 'user',
+          content: [{ type: 'text', text: 'context reset marker' }],
+          source: { kind: 'plugin', plugin: 'reset' },
+        })
+        const postReset = freezeMessage({
+          id: MessageId('history-reset-prompt'),
+          role: 'user',
+          content: [{ type: 'text', text: 'fresh prompt' }],
+          source: { kind: 'user' },
+        })
+        const postResetAnswer = freezeMessage({
+          id: MessageId('history-reset-prompt-answer'),
+          role: 'user',
+          content: [{ type: 'text', text: 'later prompt' }],
+          source: { kind: 'user' },
+        })
+        const log: SessionEvent[] = [
+          ...oneTurnLog(),
+          {
+            type: 'reset/checkpoint',
+            seq: 6,
+            time: 7,
+            data: { resetId: 'history-reset' as never, turn: null },
+          },
+          {
+            type: 'user/message',
+            seq: 7,
+            time: 8,
+            data: resetMarker,
+            surfaceOp: { op: 'replace', start: 1, end: 3 },
+            sourceEventSeqs: [6, 1, 2, 3],
+          },
+          { type: 'turn/start', seq: 8, time: 9, data: { turn: 2 } },
+          { type: 'user/message', seq: 9, time: 10, data: postReset, surfaceOp: 'append' },
+          { type: 'turn/end', seq: 10, time: 11, data: { turn: 2, reason: { kind: 'completed' } } },
+          { type: 'turn/start', seq: 11, time: 12, data: { turn: 3 } },
+          { type: 'user/message', seq: 12, time: 13, data: postResetAnswer, surfaceOp: 'append' },
+          { type: 'turn/end', seq: 13, time: 14, data: { turn: 3, reason: { kind: 'completed' } } },
+        ]
+        await persistence.create(m)
+        await persistence.append(m.id, log)
+
+        const preferred = await persistence.readHistoryPage(m.id, {
+          maxMessages: 1,
+          preferLatestCheckpoint: true,
+        })
+        // The initial page starts at the reset anchor instead of decoding the
+        // superseded prefix below the whole-surface replacement.
+        expect(preferred.events.map(event => event.seq)).toEqual([6, 7, 8, 9, 10, 11, 12, 13])
+        expect(preferred.hasMore).toBe(true)
+
+        const ordinary = await persistence.readHistoryPage(m.id, { maxMessages: 1 })
+        expect(ordinary.events.map(event => event.seq)).toEqual([12, 13])
+        expect(ordinary.hasMore).toBe(true)
+      } finally {
+        await dispose()
+      }
+    })
+
     it('readHistoryPage can stop an initial page at the latest replacement checkpoint transaction', async () => {
       const { persistence, dispose } = await make()
       try {
