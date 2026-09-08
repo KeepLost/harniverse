@@ -376,7 +376,8 @@ function snapshotSections(source: unknown): SnapshotSection[] | null {
  * which state instead of one undifferentiated wall.
  *
  * One sentence of the model-facing text is NOT in any section: the producer's
- * framing line declaring that this snapshot supersedes earlier ones. Unlike the
+ * framing line declaring that this snapshot supersedes earlier ones — or, for
+ * a `partial` snapshot, updates only the sections it carries. Unlike the
  * `<system-reminder>` wrapper an instruction context carries — which wraps
  * content and cannot be separated from it — that line states the form's own
  * semantics, so the body states them as a caption instead of reprinting the
@@ -392,10 +393,16 @@ export function SnapshotBody({ content, source, t }: {
   const sections = snapshotSections(source)
   /* v8 ignore next -- contextBody reads the sections before choosing this body. */
   if (sections === null) return <OpaqueBody content={content} source={source} t={t} />
+  // A partial snapshot updates only the sections it carries; the caption
+  // states that scope instead of full supersession.
+  const partial = asRecord(source)?.['partial'] === true
   return (
     <>
-      <p className={css.catalogNotice} data-context-snapshot-supersedes>
-        {t('message.context.snapshot.supersedes')}
+      <p
+        className={css.catalogNotice}
+        {...partial ? { 'data-context-snapshot-partial': true } : { 'data-context-snapshot-supersedes': true }}
+      >
+        {t(partial ? 'message.context.snapshot.partial' : 'message.context.snapshot.supersedes')}
       </p>
       <dl className={css.sections} data-context-sections>
         {sections.map((section, index) => (

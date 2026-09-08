@@ -130,6 +130,14 @@ export const PERSONA_SECTION = 'deployment:persona'
 /** Prompt order of the persona slot; it follows the negative-order contexts. */
 export const PERSONA_ORDER = 0
 
+/**
+ * The fixed order-−100 identity opener, including the Harniverse/DSH
+ * relationship disclaimer. Exported so tests and docs quote one source.
+ */
+export const HARNESS_IDENTITY = 'You are an AI agent powered by Harniverse, which is a downstream of DeepSeek Harness (DSH). '
+  + 'Harniverse is totally a third-party independent product. Though it is built upon DSH, it is NOT affiliated by DeepSeek. '
+  + 'DSH is open-sourced and its license still apply to Harniverse where the implementation from DSH remains intact.'
+
 /** Valid variable names: how they are written between the braces. */
 const VARIABLE_NAME = /^[a-z][a-z0-9_]*$/
 
@@ -358,7 +366,7 @@ export class SystemPrompt extends Service {
       this.section({
         name: 'harness:identity',
         order: -100,
-        text: 'You are an AI agent powered by Harniverse.',
+        text: HARNESS_IDENTITY,
       })
     }
     this.context({

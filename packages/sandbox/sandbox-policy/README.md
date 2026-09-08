@@ -22,11 +22,11 @@ Filesystem tools, one-shot bash commands, and terminal sessions may enforce the 
 - `setSandboxMode(session, mode)` — THE write path for a per-session override: appends exactly one `sandbox/mode` event. The switch IS its event; nothing mutates the mode out of band.
 - `SANDBOX_MODES` — every mode, for option advertisement and runtime validation.
 
-The optional `./invariant` companion rejects a forged durable `sandbox/mode` event whose value falls outside that closed vocabulary; Session and its companion own the surrounding storage and core execution-enclosure rules. The agent loop logs the assembled full runtime-context snapshot as a sourced `user/message`, so exact policy input remains reconstructable without an in-memory “last told” mirror.
+The optional `./invariant` companion rejects a forged durable `sandbox/mode` event whose value falls outside that closed vocabulary; Session and its companion own the surrounding storage and core execution-enclosure rules. [`dsh-context-snapshot`](../../context/context-snapshot/README.md) logs the assembled runtime-context snapshot as a sourced `user/message`, so exact policy input remains reconstructable without an in-memory “last told” mirror.
 
 ## The per-session store
 
-A runtime switch is one log-only `sandbox/mode` event on the session it applies to. `effective = explicit grant ?? fold(events) ?? deployment default`, so an override survives restart by replay and two sessions never see each other's state. Workspace identity does not need another event: the immutable `SessionHeader.cwd` recorded at creation is the root for every call in that session. The event stays log-only; before the next request, the owner contributes the current fact to the full runtime-context snapshot.
+A runtime switch is one log-only `sandbox/mode` event on the session it applies to. `effective = explicit grant ?? fold(events) ?? deployment default`, so an override survives restart by replay and two sessions never see each other's state. Workspace identity does not need another event: the immutable `SessionHeader.cwd` recorded at creation is the root for every call in that session. The event stays log-only; before the next request, the owner contributes the current fact to the runtime-context snapshot.
 
 ## Model Experience
 
@@ -60,7 +60,7 @@ One concise durable context message on the first request and each effective poli
 
 #### KV Cache effect
 
-The stable system prompt remains byte-identical across mode changes. A changed full context snapshot is appended after retained history, preserving the prior cached prefix; subsequent unchanged requests reuse that retained snapshot.
+The stable system prompt remains byte-identical across mode changes. A changed context snapshot — complete or partial — is appended after retained history, preserving the prior cached prefix; subsequent unchanged requests reuse that retained snapshot.
 
 ## Known Limitations and Deferred Work
 

@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { createUserMessage, CallId, LlmError, StreamChunk  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt, { HARNESS_IDENTITY, renderContextSections } from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from './mock-adapter.ts'
@@ -264,10 +264,11 @@ describe('agent loop', () => {
     expect(types).toContain('tool/result')
   })
 
-  it('renders the harness identity and tool guidance while the persona becomes runtime context', async () => {
+  it('renders the harness identity and tool guidance', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     // The persona is a TEMPLATE: {{model}} is the loop-registered variable
-    // projecting this agent's configured model, so the model knows its own name.
+    // projecting this agent's configured model; its durable materialization
+    // as runtime context is owned by @deepseek-ai/dsh-context-snapshot.
     const ctx = await harness(adapter, 'You are a test agent on {{model}}.')
     ctx.systemPrompt.section({ name: 'tool:noop', order: 100, text: 'Use the noop tool wisely.' })
     ctx.tools.register(defineContentToolFixture({
@@ -284,27 +285,8 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     const request = adapter.requests[0]
-    expect(request!.system).toBe('You are an AI agent powered by Harniverse.\n\nUse the noop tool wisely.')
-    expect(userTexts(agent).some(text => text.includes('You are a test agent on mock.'))).toBe(true)
+    expect(request!.system).toBe(`${HARNESS_IDENTITY}\n\nUse the noop tool wisely.`)
     expect(request!.tools?.map(t => t.name)).toEqual(['noop'])
-  })
-
-  it('places the dynamic system-prompt snapshot before the claimed user message', async () => {
-    const adapter = new MockAdapter([textResponse('ok')])
-    const ctx = await harness(adapter)
-    ctx.systemPrompt.context({ name: 'policy', order: 0, text: 'Mode: read-only.' })
-    const agent = ctx.agentLoop.create(SessionId('a-runtime-context-before-user'), { provider: 'mock', model: 'mock' })
-
-    send(agent, 'first user request')
-    await waitForIdle(ctx, agent)
-
-    const messages = agent.session.events.flatMap(event =>
-      event.type === 'user/message' ? [event.data] : [])
-    expect(messages[0]?.source).toMatchObject({
-      kind: 'plugin',
-      plugin: '@deepseek-ai/dsh-system-prompt',
-    })
-    expect(messages[1]?.source.kind).toBe('user')
   })
 
   it('resolves {{cwd}} from the agent session workspace (factory create with meta.cwd)', async () => {
@@ -317,51 +299,9 @@ describe('agent loop', () => {
     })
 
     const agent = handle.agent
-    send(agent, 'hi')
-    await waitForIdle(ctx, agent)
-
-    expect(adapter.requests[0]!.system).toBe('You are an AI agent powered by Harniverse.')
-    expect(userTexts(agent).some(text => text.includes('Working in /work/space.'))).toBe(true)
-  })
-
-  it('contains a strict-variable render failure: the turn errors, the loop keeps serving turns', async () => {
-    // A missing cwd variable must fail one turn without preventing a later valid turn.
-    const adapter = new MockAdapter([textResponse('ok after rescue')])
-    const ctx = await harness(adapter, 'In {{cwd}}.')
-    const errors: Error[] = []
-    ctx.on('agent/error', ({ error }) => {
-      if (error instanceof Error) errors.push(error)
-    })
-    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-
-    send(agent, 'hi')
-    await waitForIdle(ctx, agent)
-
-    expect(adapter.requests).toHaveLength(0) // the request was never sent
-    expect(errors.map(error => error.message)).toEqual([
-      'prompt variable "{{cwd}}" has no value for this assembly (context "deployment:persona")',
-    ])
-    const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('error')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error'
-      ? turnEnd.data.reason.error.message
-      : '').toContain('no value for this assembly')
-
-    // The loop survived: a waterfall listener rescues {{cwd}} and the SAME
-    // agent completes a real model turn.
-    ctx.on('system-prompt/assemble', async (assembly, _context, next) => {
-      assembly.variables['cwd'] = '/rescued'
-      return next()
-    })
-    send(agent, 'again')
-    await waitForIdle(ctx, agent)
-
-    expect(adapter.requests).toHaveLength(1)
-    expect(adapter.requests[0]!.system).toBe('You are an AI agent powered by Harniverse.')
-    expect(userTexts(agent).some(text => text.includes('In /rescued.'))).toBe(true)
-    const turnEnds = agent.session.events.filter(e => e.type === 'turn/end')
-    expect(turnEnds).toHaveLength(2)
-    expect(turnEnds[1]?.type === 'turn/end' && turnEnds[1].data.reason.kind).toBe('completed')
+    const sections = renderContextSections(
+      await ctx.systemPrompt.assemble(assembleContextFor(agent)))
+    expect(sections).toEqual([{ name: 'deployment:persona', text: 'Working in /work/space.' }])
   })
 
   it('supports the model-via-agent/request path with a {{model}} persona: the supplier states it via the assemble waterfall', async () => {
@@ -388,8 +328,7 @@ describe('agent loop', () => {
 
     expect(adapter.requests).toHaveLength(1)
     expect(adapter.requests[0]!.model).toBe('mock')
-    expect(adapter.requests[0]!.system).toBe('You are an AI agent powered by Harniverse.')
-    expect(userTexts(agent).some(text => text.includes('You run on mock.'))).toBe(true)
+    expect(adapter.requests[0]!.system).toBe(HARNESS_IDENTITY)
   })
 
   it('omits the system field when system-prompt/assemble short-circuits with an empty assembly', async () => {
@@ -406,178 +345,6 @@ describe('agent loop', () => {
 
     expect(adapter.requests).toHaveLength(1)
     expect('system' in adapter.requests[0]!).toBe(false)
-  })
-
-  it('materializes changed runtime context at the history tail without rewriting the system header', async () => {
-    const adapter = new MockAdapter([
-      textResponse('one'),
-      textResponse('two'),
-      textResponse('three'),
-      textResponse('four'),
-      textResponse('five'),
-    ])
-    const ctx = await harness(adapter)
-    let mode = 'read-only'
-    const dispose = ctx.systemPrompt.context({ name: 'policy', order: 0, text: () => `Mode: ${mode}.` })
-    const agent = ctx.agentLoop.create(SessionId('a-runtime-context'), { provider: 'mock', model: 'mock' })
-    const contextEvents = () => agent.session.events.flatMap(event =>
-      event.type === 'user/message'
-        && event.data.source.kind === 'plugin'
-        && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt'
-        ? [event]
-        : [])
-
-    send(agent, 'first')
-    await waitForIdle(ctx, agent)
-    expect(contextEvents()).toHaveLength(1)
-    expect(contextEvents()[0]?.data.content).toEqual([{
-      type: 'text',
-      text: 'Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nMode: read-only.',
-    }])
-
-    send(agent, 'unchanged')
-    await waitForIdle(ctx, agent)
-    expect(contextEvents()).toHaveLength(1)
-
-    mode = 'danger-full-access'
-    send(agent, 'changed')
-    await waitForIdle(ctx, agent)
-    expect(contextEvents()).toHaveLength(2)
-    const changedBlock = contextEvents()[1]?.data.content[0]
-    expect(changedBlock?.type).toBe('text')
-    if (changedBlock?.type !== 'text') throw new Error('changed runtime context is not text')
-    expect(changedBlock.text).toContain('danger-full-access')
-
-    dispose()
-    send(agent, 'cleared')
-    await waitForIdle(ctx, agent)
-    expect(contextEvents()).toHaveLength(3)
-    expect(contextEvents()[2]?.data.content).toEqual([{
-      type: 'text',
-      text: 'Current runtime context: none. Earlier runtime-context snapshots no longer apply.',
-    }])
-
-    send(agent, 'still clear')
-    await waitForIdle(ctx, agent)
-    expect(contextEvents()).toHaveLength(3)
-    expect(adapter.requests.map(request => request.system)).toEqual(Array(5).fill(adapter.requests[0]?.system))
-    expect(agent.session.events.filter(event => event.type === 'request/header')).toHaveLength(1)
-  })
-
-  it('re-emits unchanged runtime context when a surface replacement removed the retained snapshot', async () => {
-    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
-    const ctx = await harness(adapter)
-    ctx.systemPrompt.context({ name: 'policy', order: 0, text: 'Mode: read-only.' })
-    const agent = ctx.agentLoop.create(SessionId('a-runtime-context-compacted'), { provider: 'mock', model: 'mock' })
-
-    send(agent, 'first')
-    await waitForIdle(ctx, agent)
-    const contextEvent = agent.session.events.find(event =>
-      event.type === 'user/message'
-      && event.data.source.kind === 'plugin'
-      && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt')
-    if (contextEvent?.type !== 'user/message') throw new Error('first turn did not materialize runtime context')
-    agent.session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'compacted summary' }],
-      source: { kind: 'plugin', plugin: 'test-compaction' },
-    }), {
-      surfaceOp: { op: 'replace', start: contextEvent.seq, end: contextEvent.seq },
-      sourceEventSeqs: [contextEvent.seq],
-    })
-
-    send(agent, 'after compaction')
-    await waitForIdle(ctx, agent)
-    const runtimeContexts = agent.session.events.flatMap(event =>
-      event.type === 'user/message'
-        && event.data.source.kind === 'plugin'
-        && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt'
-        ? [event]
-        : [])
-    expect(runtimeContexts).toHaveLength(2)
-    expect(adapter.requests[1]?.messages.some(message =>
-      message.source.kind === 'plugin'
-      && message.source.plugin === '@deepseek-ai/dsh-system-prompt')).toBe(true)
-  })
-
-  it('clears compacted runtime context after the active set becomes empty', async () => {
-    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
-    const ctx = await harness(adapter)
-    const dispose = ctx.systemPrompt.context({ name: 'policy', order: 0, text: 'Mode: read-only.' })
-    const agent = ctx.agentLoop.create(SessionId('a-runtime-context-compacted-clear'), { provider: 'mock', model: 'mock' })
-
-    send(agent, 'first')
-    await waitForIdle(ctx, agent)
-    const contextEvent = agent.session.events.find(event =>
-      event.type === 'user/message'
-      && event.data.source.kind === 'plugin'
-      && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt')
-    if (contextEvent?.type !== 'user/message') throw new Error('first turn did not materialize runtime context')
-    agent.session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'summary retaining old mode: read-only' }],
-      source: { kind: 'plugin', plugin: 'test-compaction' },
-    }), {
-      surfaceOp: { op: 'replace', start: contextEvent.seq, end: contextEvent.seq },
-      sourceEventSeqs: [contextEvent.seq],
-    })
-    dispose()
-
-    send(agent, 'after compaction')
-    await waitForIdle(ctx, agent)
-    const clearing = adapter.requests[1]?.messages.find(message =>
-      message.source.kind === 'plugin'
-      && message.source.plugin === '@deepseek-ai/dsh-system-prompt')
-    expect(clearing?.content).toEqual([{
-      type: 'text',
-      text: 'Current runtime context: none. Earlier runtime-context snapshots no longer apply.',
-    }])
-  })
-
-  it('does not clear runtime context after an unrelated replacement', async () => {
-    const adapter = new MockAdapter([textResponse('ok')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a-runtime-context-unrelated-compaction'), { provider: 'mock', model: 'mock' })
-    const original = agent.session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'old context' }],
-      source: { kind: 'plugin', plugin: 'test-context' },
-    }), { surfaceOp: 'append' })
-    agent.session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'compacted summary' }],
-      source: { kind: 'plugin', plugin: 'test-compaction' },
-    }), {
-      surfaceOp: { op: 'replace', start: original.seq, end: original.seq },
-      sourceEventSeqs: [original.seq],
-    })
-
-    send(agent, 'after compaction')
-    await waitForIdle(ctx, agent)
-    expect(adapter.requests[0]?.messages.some(message =>
-      message.source.kind === 'plugin'
-      && message.source.plugin === '@deepseek-ai/dsh-system-prompt')).toBe(false)
-  })
-
-  it('replaces a malformed retained runtime-context message with the current complete snapshot', async () => {
-    const adapter = new MockAdapter([textResponse('ok')])
-    const ctx = await harness(adapter)
-    ctx.systemPrompt.context({ name: 'policy', order: 0, text: 'Mode: read-only.' })
-    const agent = ctx.agentLoop.create(SessionId('a-runtime-context-malformed'), { provider: 'mock', model: 'mock' })
-    agent.session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'broken' }, { type: 'text', text: 'snapshot' }],
-      source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' },
-    }), { surfaceOp: 'append' })
-
-    send(agent, 'repair context')
-    await waitForIdle(ctx, agent)
-    const runtimeContexts = agent.session.events.flatMap(event =>
-      event.type === 'user/message'
-        && event.data.source.kind === 'plugin'
-        && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt'
-        ? [event]
-        : [])
-    expect(runtimeContexts).toHaveLength(2)
-    expect(runtimeContexts[1]?.data.content).toEqual([{
-      type: 'text',
-      text: 'Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nMode: read-only.',
-    }])
   })
 
   it('records raw chunks for replay as assistant/chunk session events', async () => {

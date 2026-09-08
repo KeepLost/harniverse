@@ -800,30 +800,3 @@ export async function boot(
     throw new Error(`${binName}: ${stage}: ${detail}${stack}`, { cause })
   }
 }
-
-/** Prompt-context name for the harness-source location line an app bin adds after boot. */
-export const HARNESS_SOURCE_CONTEXT = 'harness:source'
-
-/**
- * Add a global prompt context naming the on-disk harness source checkout while
- * explicitly distinguishing it from the task workspace and current working
- * directory. The self-referential `dsh-tool-cordis` toolset reads and edits this
- * checkout. Call once on the settled boot context ({@link boot}); the context
- * orders just after the harness identity's negative order and before the
- * deployment persona (`0`). A booted tree with no `systemPrompt` service has no
- * prompt to augment, so this is then a no-op that returns `undefined`. The
- * context is registered against the `systemPrompt` service's fiber, so a dev HMR
- * reload of that plugin drops it until the next boot.
- * @param ctx - the settled boot context whose global system prompt to augment.
- * @param sourceRoot - the absolute path to the harness checkout root.
- * @returns the context disposer, or `undefined` when no `systemPrompt` service is mounted.
- */
-export function addHarnessSourceContext(ctx: Context, sourceRoot: string): (() => void) | undefined {
-  const systemPrompt = ctx.get('systemPrompt')
-  if (systemPrompt === undefined) return undefined
-  return systemPrompt.context({
-    name: HARNESS_SOURCE_CONTEXT,
-    order: -99,
-    text: `The Harniverse implementation checkout is at ${sourceRoot}, which is a downstream of DeepSeek Harness (DSH). The checkout location and current working directory are separate values and may differ; never infer the working directory from this path. Use pwd to determine the current working directory. Use this checkout only to inspect or extend Harniverse itself.\n\nHarniverse is totally a third-party independent product. Though it is built upon DSH, it is NOT affiliated by DeepSeek. DSH is open-sourced and its license still apply to Harniverse where the implementation from DSH remains intact.`,
-  })
-}

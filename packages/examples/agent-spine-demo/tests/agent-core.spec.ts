@@ -4,7 +4,7 @@ import { join, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import { renderContextSnapshot, renderPrompt, TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
+import { HARNESS_IDENTITY, renderContextSnapshot, renderPrompt, TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as agentCore from '../src/index.ts'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -375,7 +375,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       const firstRequestText = adapter.requests[0]?.messages.map(messageText).join('\n')
       expect(firstRequestText).toContain('hi')
       expect(firstRequestText).toContain('bundled project rule')
-      expect(adapter.requests[0]?.system).toContain('You are an AI agent powered by Harniverse.')
+      expect(adapter.requests[0]?.system).toContain(HARNESS_IDENTITY)
       expect(adapter.requests[0]?.system).not.toContain('bundled project rule')
       await handle.dispose()
       await ctx.fiber.dispose()

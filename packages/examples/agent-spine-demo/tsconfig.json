@@ -60,6 +60,9 @@
       "path": "../../context/agent-instructions"
     },
     {
+      "path": "../../context/context-snapshot"
+    },
+    {
       "path": "../../core/agent-loop"
     },
     {

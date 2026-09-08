@@ -83,7 +83,7 @@ turn/end
 
 Input reaches the driver through one inbox. Some messages wake it immediately; injected context waits in the inbox until another message does.
 
-`agent/pre-step` decides what the model sees. Listeners may rewrite the claimed messages or reject them outright; a rejected or empty first claim still closes a durable turn that spent no step, so the log records the attempt. Each step reads the prompt sections and tool schemas that plugins registered.
+`agent/pre-step` decides what the model sees. Listeners may rewrite the claimed messages or reject them outright; a rejected or empty first claim still closes a durable turn that spent no step, so the log records the attempt. Each step reads the prompt sections and tool schemas that plugins registered; `dsh-context-snapshot` prepends a due runtime-context snapshot ahead of the claimed input here.
 
 Agent teardown is one AgentLoop-owned quiescence boundary. It rejects new admission, cancels and drains the driver, unwinds the Agent scope, flushes the exact Session while it remains attached, then detaches the Agent and Session. Consumers close through `AgentHandle.dispose()` or the factory-owned capabilities retained by `ctx.agents.close(id)`; `ctx.agents.closeIfIdle(id)` atomically reserves teardown only from true idle with an empty inbox and treats maintenance as busy. Removing a SessionStore entry directly is never Agent teardown.
 
@@ -118,6 +118,7 @@ New behavior attaches to a documented extension point. Changing the loop itself 
 | Confine spawned processes | use a `ctx.sandbox` backend; consumers wrap argv before spawning |
 | Intercept a request, tool, or turn | use its `agent/*` or `tools/*` event; `agent/turn-stopping` stops a turn |
 | Add model-facing context | call `agent.inject()`; it lands in the next admitted request |
+| Republish current runtime context | owned by `dsh-context-snapshot`: durable snapshot appends at step, request, and compaction boundaries, not inbox injection |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
 | Add a Web Client Chat node | register a `ConversationNodeDefinition` + keyed renderer |
 | Add durable session state | extend `SessionEventMap`; render and replay from the log |

@@ -13,10 +13,10 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
     - tab "Capabilities"
-- button "Context injection @deepseek-ai/dsh-system-prompt":
+- button "Context injection @deepseek-ai/dsh-context-snapshot":
   - img
   - img
-  - text: Context injection @deepseek-ai/dsh-system-prompt
+  - text: Context injection @deepseek-ai/dsh-context-snapshot
 - text: Use the ask_user_question tool to ask me exactly one question with id "checkpoint", question "Ready to continue?", header "Checkpoint", and options labeled "Yes" and "No". After I answer, reply with one short sentence acknowledging my answer and stop. {{clock}}
 - button "Copy":
   - img

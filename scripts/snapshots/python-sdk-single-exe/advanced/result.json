@@ -226,7 +226,7 @@
         "url": "{{modelUrl}}/chat/completions",
         "method": "POST",
         "request": {
-          "bytes": 45178,
+          "bytes": 45459,
           "fingerprint": "{{fingerprint}}",
           "parameters": {
             "model": "smoke-model",
@@ -457,7 +457,7 @@
         "url": "{{modelUrl}}/chat/completions",
         "method": "POST",
         "request": {
-          "bytes": 46175,
+          "bytes": 46456,
           "fingerprint": "{{fingerprint}}",
           "parameters": {
             "model": "smoke-model",
@@ -726,7 +726,7 @@
         "url": "{{modelUrl}}/chat/completions",
         "method": "POST",
         "request": {
-          "bytes": 46863,
+          "bytes": 47144,
           "fingerprint": "{{fingerprint}}",
           "parameters": {
             "model": "smoke-model",
@@ -988,7 +988,7 @@
         "url": "{{modelUrl}}/chat/completions",
         "method": "POST",
         "request": {
-          "bytes": 47178,
+          "bytes": 47459,
           "fingerprint": "{{fingerprint}}",
           "parameters": {
             "model": "smoke-model",
@@ -1297,7 +1297,7 @@
         "url": "{{modelUrl}}/chat/completions",
         "method": "POST",
         "request": {
-          "bytes": 48021,
+          "bytes": 48302,
           "fingerprint": "{{fingerprint}}",
           "parameters": {
             "model": "smoke-model",
@@ -1564,7 +1564,7 @@
         "url": "{{modelUrl}}/chat/completions",
         "method": "POST",
         "request": {
-          "bytes": 48614,
+          "bytes": 48895,
           "fingerprint": "{{fingerprint}}",
           "parameters": {
             "model": "smoke-model",
@@ -1823,7 +1823,7 @@
         "url": "{{modelUrl}}/chat/completions",
         "method": "POST",
         "request": {
-          "bytes": 48516,
+          "bytes": 48797,
           "fingerprint": "{{fingerprint}}",
           "parameters": {
             "model": "smoke-model",
@@ -2226,7 +2226,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 45178,
+              "bytes": 45459,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",
@@ -2523,7 +2523,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 46175,
+              "bytes": 46456,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",
@@ -2864,7 +2864,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 46863,
+              "bytes": 47144,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",
@@ -3204,7 +3204,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 47178,
+              "bytes": 47459,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",
@@ -3407,7 +3407,7 @@
             ],
             "source": {
               "kind": "plugin",
-              "plugin": "@deepseek-ai/dsh-system-prompt",
+              "plugin": "@deepseek-ai/dsh-context-snapshot",
               "form": "snapshot",
               "sections": [
                 {
@@ -3650,7 +3650,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 46034,
+              "bytes": 46315,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",
@@ -4079,7 +4079,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 48021,
+              "bytes": 48302,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",
@@ -4313,7 +4313,7 @@
             ],
             "source": {
               "kind": "plugin",
-              "plugin": "@deepseek-ai/dsh-system-prompt",
+              "plugin": "@deepseek-ai/dsh-context-snapshot",
               "form": "snapshot",
               "sections": [
                 {
@@ -4574,7 +4574,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 46036,
+              "bytes": 46317,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",
@@ -4934,7 +4934,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 48614,
+              "bytes": 48895,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",
@@ -5265,7 +5265,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 48516,
+              "bytes": 48797,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",

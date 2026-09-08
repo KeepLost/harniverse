@@ -31,6 +31,7 @@ import * as agentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
 import * as bashEnv from '@deepseek-ai/dsh-shell-env'
 import * as workspaceContext from '@deepseek-ai/dsh-agent-instructions'
+import * as contextSnapshot from '@deepseek-ai/dsh-context-snapshot'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as toolJobs from '@deepseek-ai/dsh-tool-jobs'
 import AgentLoop, { type Config as AgentLoopConfig } from '@deepseek-ai/dsh-agent-loop'
@@ -229,6 +230,9 @@ export function apply(ctx: Context, config: Config): void {
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
   })
   ctx.plugin(ToolRuntime, config.tools ?? {})
+  // Publishes the system-prompt contexts plane (the persona and any dynamic
+  // context) as durable runtime-context snapshots ahead of the claimed input.
+  ctx.plugin(contextSnapshot)
   const skillsEnabled = config.skills?.enabled ?? true
   if (skillsEnabled) {
     ctx.plugin(SkillRegistry, config.skills?.registry ?? {})

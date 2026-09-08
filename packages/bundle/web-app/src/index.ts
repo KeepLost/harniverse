@@ -4,18 +4,16 @@
  * manifest field). The plugin owns the browser-surface glue: it resolves
  * the built frontend dist (workspace knowledge of this bundle, never user
  * config), mounts the `frontend-static` fallback owner over it, registers the
- * harness-source and web-surface dynamic contexts, the bash-visible web runtime
- * variable, and the URL line. App command-line values arrive through the
+ * web-surface dynamic context, the bash-visible web runtime variable, and the
+ * URL line. App command-line values arrive through the
  * `webStartup` service expressions in the bundle patch.
  * @module @deepseek-ai/dsh-web-app
  */
 
 import { createRequire } from 'node:module'
 import { networkInterfaces } from 'node:os'
-import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { addHarnessSourceContext } from '@deepseek-ai/dsh-app-boot'
 import * as FrontendStatic from '@deepseek-ai/dsh-host-frontend-static'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -24,9 +22,6 @@ import type {} from '@deepseek-ai/dsh-shell-env'
 
 /** Stable Cordis plugin name. */
 export const name = 'web-app'
-
-/** This dsh installation's root, from either this package's source or built entry. */
-const SOURCE_ROOT = fileURLToPath(new URL('../../../..', import.meta.url))
 
 /** Runtime service that releases Web rows after bind-dependent values resolve. */
 const WEB_RUNTIME_SERVICE = 'webRuntime'
@@ -154,7 +149,6 @@ export function apply(ctx: Context, config: Config): void {
   })
   if (config.surfaceContext) {
     ctx.inject(['systemPrompt'], (promptCtx) => {
-      addHarnessSourceContext(promptCtx, SOURCE_ROOT)
       promptCtx.systemPrompt.context({
         name: 'app:web-surface',
         order: -98,

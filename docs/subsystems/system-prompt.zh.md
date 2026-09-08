@@ -70,7 +70,7 @@ interface PromptSection {
 
 ## 动态提示词上下文
 
-`PromptContext` 是与 `PromptSection` 对应的缓存安全结构。组装会解析这些贡献并排序；agent loop（智能体循环）仅在完整当前快照发生变化或被压缩（compaction）移除时，才会将其记录在保留的模型历史之后。
+`PromptContext` 是与 `PromptSection` 对应的缓存安全结构。组装会解析这些贡献并排序；[`@deepseek-ai/dsh-context-snapshot`](../../packages/context/context-snapshot/README.md)（由 `dsh-base` 挂载）将该平面发布为持久的 user 角色快照：会话开始时、压缩（compaction）后以及章节名称集合变化时发布完整快照；文本原地变化时发布仅携带变化章节的部分快照；平面清空时发布清除标记。快照在步骤边界（`agent/pre-step`）、请求瀑布内的压缩之后（`agent/request`）以及空闲 agent 手动 `/compact` 之后追加。
 
 ```ts type-equiv
 /** Dynamic model context materialized as a durable user-role snapshot. */
@@ -156,7 +156,7 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:338`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:346`](../../packages/core/system-prompt/src/index.ts)
 
 <a id="system-prompt-events"></a>
 

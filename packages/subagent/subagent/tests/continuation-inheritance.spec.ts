@@ -106,7 +106,7 @@ describe('continuable policy inheritance', () => {
     const runtimeContext = loaded.events.find(
       (event): event is SessionEvent<'user/message'> => event.type === 'user/message'
         && event.data.source.kind === 'plugin'
-        && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt',
+        && event.data.source.plugin === '@deepseek-ai/dsh-context-snapshot',
     )
     const contextText = runtimeContext?.data.content
       .flatMap(block => block.type === 'text' ? [block.text] : [])

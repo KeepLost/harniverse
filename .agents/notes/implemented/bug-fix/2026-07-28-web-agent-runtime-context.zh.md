@@ -2,6 +2,8 @@
 
 Status: implemented
 
+> 部分被 [2026-09-08-runtime-context-snapshot-plugin](../architecture/2026-09-08-runtime-context-snapshot-plugin.md) 取代：快照发射从 agent-loop 移交 `dsh-context-snapshot` 插件，引入部分快照与压缩边界恢复。此处决定的 `surfaceContext` 门控仍只作用于 `app:web-surface`。
+
 [English](2026-07-28-web-agent-runtime-context.md) | 中文
 
 ## 问题

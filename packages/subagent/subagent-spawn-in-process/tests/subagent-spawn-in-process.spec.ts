@@ -15,6 +15,7 @@ import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from '
 import * as spawn from '../src/index.ts'
 import { STRUCTURED_OUTPUT_TOOL } from '@deepseek-ai/dsh-subagent-in-process-driver'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { HARNESS_IDENTITY } from '@deepseek-ai/dsh-system-prompt'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
@@ -396,7 +397,7 @@ describe('dsh-subagent-spawn-in-process', () => {
       })
       await run.result
       const childRequest = adapter.requests.at(-1)!
-      expect(childRequest.system).toBe('You are an AI agent powered by Harniverse.')
+      expect(childRequest.system).toBe(HARNESS_IDENTITY)
       expect(childRequest.messages.some(message => message.content.some(block =>
         block.type === 'text' && block.text.includes('You are the tersest test runner.'),
       ))).toBe(true)

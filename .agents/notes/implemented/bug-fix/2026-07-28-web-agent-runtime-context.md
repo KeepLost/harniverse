@@ -2,6 +2,8 @@
 
 Status: implemented
 
+> Superseded in part by [2026-09-08-runtime-context-snapshot-plugin](../architecture/2026-09-08-runtime-context-snapshot-plugin.md): snapshot emission moved from agent-loop to the `dsh-context-snapshot` plugin, with partial snapshots and compaction-boundary recovery. The `surfaceContext` gating decided here still applies to `app:web-surface`.
+
 English | [中文](2026-07-28-web-agent-runtime-context.zh.md)
 
 ## Problem

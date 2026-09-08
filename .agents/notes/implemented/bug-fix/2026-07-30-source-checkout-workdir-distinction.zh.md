@@ -2,6 +2,8 @@
 
 Status: implemented
 
+> 部分被 [2026-09-08-runtime-context-snapshot-plugin](../architecture/2026-09-08-runtime-context-snapshot-plugin.md) 取代：checkout 上下文改由 `dsh-harness-source` 以单段形式持有；其决定的工作目录区分句原文保留，DSH 关系条款移入 harness 身份句。
+
 [English](2026-07-30-source-checkout-workdir-distinction.md) | 中文
 
 ## 问题

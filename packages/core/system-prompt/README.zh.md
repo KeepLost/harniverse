@@ -2,13 +2,13 @@
 
 [English](README.md) | 中文
 
-系统提示词组装注册表。插件可以贡献有序段、动态上下文、工具 schema 和具名变量。循环在每个步骤组装一次，将静态结果渲染为完整的模型提示词，并将动态上下文投影为持久化 runtime-context 快照。此插件拥有静态 harness 身份和部署 persona 上下文；agent（智能体）作用域的 persona 会遮蔽全局默认值。
+系统提示词组装注册表。插件可以贡献有序段、动态上下文、工具 schema 和具名变量。循环在每个步骤组装一次，将静态结果渲染为完整的模型提示词；[`dsh-context-snapshot`](../../context/context-snapshot/README.md) 插件将动态上下文发布为持久化 runtime-context 快照。此插件拥有静态 harness 身份和部署 persona 上下文；agent（智能体）作用域的 persona 会遮蔽全局默认值。
 
 ## 配置
 
 | 键 | 默认值 | 含义 |
 |---|---|---|
-| `includeHarnessIdentity` | `true` | 是否包含顺序为 −100 的固定开场白 `You are an AI agent powered by Harniverse.`。仅当兼容性部署拥有完整系统提示词时设为 false。 |
+| `includeHarnessIdentity` | `true` | 是否包含顺序为 −100 的固定开场白 `HARNESS_IDENTITY` —— `You are an AI agent powered by Harniverse, which is a downstream of DeepSeek Harness (DSH).` 及第三方声明，全文见下方「模型体验」的 harness 身份一节。设为 false 会移除整个开场白（含声明）；仅当兼容性部署拥有完整系统提示词时才设为 false。 |
 | `includeRuntimeContext` | `true` | 是否在组装中包含有序动态上下文。设为 false 时不会求值上下文提供方，并会在 waterfall 后丢弃 `system-prompt/assemble` 监听器添加的上下文；其他服务及其强制机制仍然生效。 |
 | `persona` | `''` | 全局部署 persona 默认值：唯一由配置提供的提示词片段，渲染为顺序为 0 的 `deployment:persona` 动态上下文，除非 agent 作用域的贡献将其遮蔽。它是模板，完整的 `{{…}}` 组会严格按已注册变量解释（随附循环注册 `{{model}}`/`{{cwd}}`），目前没有表达字面量花括号的转义语法。为空 ⇒ 从 runtime 快照中省略该上下文。 |
 | `toolOrder` | 无 | 显式指定面向模型的工具顺序。该列表由 `ToolSchema.name` 组成，并且必须恰好包含一个 `'<unlisted-tools>'` 其余项标记（`TOOL_ORDER_REST`）：已列工具按列表位置排列，未列工具则按名称字典序插入该标记所在的位置。缺席 ⇒ 直接按名称字典序排列。该顺序会在 `system-prompt/assemble` waterfall（瀑布式事件）之前应用于已收集的工具。与段的 `order` 排序一样，它会规范化注册表贡献的内容；注册顺序只是插件加载时序的产物。修改列表的 waterfall 监听器对其输出的确定性负责。配置错误会明确失败：列表没有恰好一个其余项或存在重复项，会在加载时抛出；已列名称没有对应已注册工具，会使每次 `assemble()` 被拒绝；工具提供方返回保留的其余项名称也会被拒绝。在随附循环下，轮次会在任何模型请求前失败。为何采用中心列表而非每插件权重，见[显式面向模型工具顺序](../../../.agents/notes/implemented/feature/2026-07-06-explicit-tool-order.md)。 |
@@ -18,7 +18,7 @@
 ### 公开 API
 
 - `ctx.systemPrompt.section(section: PromptSection): () => void`：贡献一个段。层由调用上下文的作用域决定：`agent.ctx` 只为该 agent 贡献，并在该处遮蔽同名全局段。一个 `complete: true` 段会在组装 waterfall 之后成为精确的完整提示词；有效 complete 段超过一个时，组装会被拒绝。同一层中的重复名称和非有限顺序会抛出。随调用 fiber 一并 dispose（资源释放）。
-- `ctx.systemPrompt.context(context: PromptContext): () => void`：为调用作用域贡献有序动态上下文。每次符合条件的组装都会求值提供方，并在随附循环下成为模型历史中带来源的 runtime-context 快照。
+- `ctx.systemPrompt.context(context: PromptContext): () => void`：为调用作用域贡献有序动态上下文。每次符合条件的组装都会求值提供方；在挂载 `dsh-context-snapshot` 的组合（随附 `dsh-base` 即如此）中，它们成为模型历史中带来源的 runtime-context 快照。
 - `ctx.systemPrompt.suppressRuntimeContext(): () => void`：抑制调用作用域的所有动态上下文贡献。多个注册会独立组合；只有当不再存在抑制器时，dispose 返回的 effect 才会恢复上下文。
 - `ctx.systemPrompt.tools(provider: (context: AssembleContext) => ToolProviderResult): () => void`：贡献工具 schema；每次组装时使用该次组装的上下文求值。`ToolProviderResult` = `{ schemas, knownNames? }`：`schemas` 是限制后的可见集合；`knownNames` 是限制前由 `toolOrder` 使用的全集。提供方不得返回名为 `TOOL_ORDER_REST` 的 schema。带作用域提供方只在其作用域的组装中查询。随调用 fiber 一并 dispose。
 - `ctx.systemPrompt.variable(name: string, provider: (context) => string | undefined): () => void`：贡献提示词变量，在段文本中以 `{{name}}` 引用。带作用域变量会为该 agent 遮蔽同名全局变量。同层重复或无法引用的名称会抛出；`undefined` 表示「本次组装没有值」。随调用 fiber 一并 dispose。
@@ -60,7 +60,7 @@
 ##### harness 身份
 
 ```markdown
-You are an AI agent powered by Harniverse.
+You are an AI agent powered by Harniverse, which is a downstream of DeepSeek Harness (DSH). Harniverse is totally a third-party independent product. Though it is built upon DSH, it is NOT affiliated by DeepSeek. DSH is open-sourced and its license still apply to Harniverse where the implementation from DSH remains intact.
 ```
 
 #### Token 影响

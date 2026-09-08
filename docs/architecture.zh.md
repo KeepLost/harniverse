@@ -87,7 +87,7 @@ turn/end
 
 输入通过同一个 inbox 到达驱动器。有些消息会立即唤醒它；注入的上下文会留在 inbox 中，直到另一条消息将其唤醒。
 
-`agent/pre-step` 决定模型看到什么。监听器可以改写已领取的消息，也可以直接拒绝它们；首次领取被拒绝或被改写为空时，仍会关闭一个不含步骤的持久轮次，因此日志会记录这次尝试。每个步骤读取插件注册的提示词片段和工具 schema。
+`agent/pre-step` 决定模型看到什么。监听器可以改写已领取的消息，也可以直接拒绝它们；首次领取被拒绝或被改写为空时，仍会关闭一个不含步骤的持久轮次，因此日志会记录这次尝试。每个步骤读取插件注册的提示词片段和工具 schema；`dsh-context-snapshot` 会在这一步将到期的运行时上下文快照 prepend 到已领取的输入之前。
 
 Agent teardown 由 AgentLoop 的单一完全停稳边界持有。它依次拒绝新准入、取消并排空 driver、撤销 Agent scope、在确切 Session 仍附加时 flush，随后 detach Agent 和 Session。消费方通过 `AgentHandle.dispose()` 或 `ctx.agents.close(id)` 保留的工厂自有能力关闭；`ctx.agents.closeIfIdle(id)` 只会从 inbox 为空的真实 idle 状态原子预留 teardown，并把 maintenance 视为 busy。直接移除 SessionStore 条目绝不构成 Agent teardown。
 
@@ -122,6 +122,7 @@ seam 正是替换一个提供方就能改变整个产品的原因。文件系统
 | 限制所启动的进程 | 使用 `ctx.sandbox` 后端；消费方在启动进程前包装 argv |
 | 拦截请求、工具或轮次 | 使用相应的 `agent/*` 或 `tools/*` 事件；`agent/turn-stopping` 会停止轮次 |
 | 添加模型可见上下文 | 调用 `agent.inject()`；它会落到下一次获准的请求中 |
+| 重新发布当前运行时上下文 | 由 `dsh-context-snapshot` 持有：在步骤、请求和压缩边界追加持久快照，而非注入 inbox |
 | 添加 UI 或编辑器集成 | 驱动 `ctx.agents` 并从 `session/event` 渲染 |
 | 添加 Web Client Chat 节点 | 注册 `ConversationNodeDefinition` + keyed renderer |
 | 添加持久会话状态 | 扩展 `SessionEventMap`；从日志渲染和回放 |

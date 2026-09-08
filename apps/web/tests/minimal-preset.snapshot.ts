@@ -46,7 +46,7 @@ describe('minimal agent preset', () => {
     if (requestHeader === undefined) throw new Error('the minimal agent issued no model request')
     expect(agentHandle.agent.session.events.some(event => event.type === 'user/message'
       && event.data.source.kind === 'plugin'
-      && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt'
+      && event.data.source.plugin === '@deepseek-ai/dsh-context-snapshot'
       && JSON.stringify(event.data.content).includes('You are a helpful software engineer assistant.')))
       .toBe(true)
     const shellName = process.platform === 'win32' ? 'pwsh' : 'bash'
@@ -87,7 +87,7 @@ describe('minimal agent preset', () => {
         "editor": "Here's the content of {{cwd}}/preset-smoke.txt with line numbers (which has a total of 2 lines):
            1  MINIMAL_EDITOR_OK
            2",
-        "prompt": "You are an AI agent powered by Harniverse.
+        "prompt": "You are an AI agent powered by Harniverse, which is a downstream of DeepSeek Harness (DSH). Harniverse is totally a third-party independent product. Though it is built upon DSH, it is NOT affiliated by DeepSeek. DSH is open-sourced and its license still apply to Harniverse where the implementation from DSH remains intact.
 
       Check the [exit code: N] marker on every bash result; investigate failures before moving on.
 
