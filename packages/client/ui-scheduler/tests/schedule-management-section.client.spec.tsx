@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ScheduleRecord } from '@deepseek-ai/dsh-scheduler/client'
+import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { ScheduleManagementSection } from '../src/client/ScheduleManagementSection.tsx'
 import { zh } from '../src/client/locales.ts'
 
@@ -20,7 +21,7 @@ function record(id: string, status: ScheduleRecord['status'] = 'active'): Schedu
     rule: { kind: 'after', delayMs: 300_000 },
     target: { kind: 'current' },
     contextMode: 'continue',
-    createdBy: { kind: 'user', sessionId: 's1' },
+    createdBy: { kind: 'user', sessionId: 's1' as SessionId },
     status,
     createdAt: 1,
     nextDue: 2,
@@ -68,10 +69,10 @@ describe('ScheduleManagementSection', () => {
   })
 
   it('uses the current session without a workspace and renders completed failures', async () => {
-    const done = record('done', 'done') as ScheduleRecord & { nextDue?: number; lastRunAt?: number }
-    delete done.nextDue
-    delete done.lastRunAt
-    done.lastError = 'connection lost'
+    const done = record('done', 'done')
+    Object.defineProperty(done, 'nextDue', { value: undefined, configurable: true, enumerable: true })
+    Object.defineProperty(done, 'lastRunAt', { value: undefined, configurable: true, enumerable: true })
+    Object.defineProperty(done, 'lastError', { value: 'connection lost', configurable: true, enumerable: true })
     const face = props({
       list: vi.fn(async () => ({ ok: true as const, value: [done, { ...done, id: 'done-2' }, record('later')] })),
       useWorkspaces: (
@@ -155,7 +156,7 @@ describe('ScheduleManagementSection', () => {
       ) => selector({ items: [], recentWorkspaceId: undefined }),
     })} />)
     await screen.findByText(zh['management.empty'])
-    expect((screen.getByRole('button', { name: zh['management.create'] })).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: zh['management.create'] }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('keeps an empty form inert and surfaces a create failure', async () => {
