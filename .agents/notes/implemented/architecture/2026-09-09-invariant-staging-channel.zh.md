@@ -14,7 +14,7 @@ Status: implemented
 
 两个伴生插件现在遵循既有的 `goal` 与 `compaction` 形状：校验运行在带 `{ global: true }` 的 `internal/dispatch` 上，该通道在候选事件加入日志之前暂存它，因此 `fail()` 会在调用点拒绝 `session.append()`。`context-reset` 在这一拆分之上保持其增量折叠的诚实性 —— `internal/dispatch` 针对当前待定锚点校验候选并暂存所得状态，`session/event` 在发布时采纳暂存状态、并在任何事件未经暂存就到达发布时失败，而安装时从 `ctx.sessions.list()` 加 `session/created` 播种折叠，使得在既有历史之上安装的伴生插件携带正确的待定锚点。`scheduler` 不需要折叠：它的 dispatch 目标检查是逐事件的。
 
-两个 spec 都被重写为驱动真实 context —— `SessionStore`、`InvariantRegistry`，然后是伴生插件 —— 并通过 `expect(() => session.append(...)).toThrow(...)` 断言。当失败路径经由真实 append 到达后，每条分支都被确定性地记录，为抛错解栈臂添加的所有 `v8 ignore` 注释都已移除；仅剩的一条覆盖会话信封本已保证的 source 形状 guard。
+两个 spec 都被重写为驱动真实 context —— `SessionStore`、`InvariantRegistry`，然后是伴生插件 —— 并通过 `expect(() => session.append(...)).toThrow(...)` 断言。覆盖率通道对「仅由抛错退出来度量」的分支仍然记录不稳 —— 迁移之后，一次纯文档提交又让该文件翻回失败 —— 因此 `context-reset` 把每个判定先归结为一条消息（`markerProblem`、`pendingProblem`），只保留单一 `fail()` 调用点，该处承载为抛错解栈臂保留的唯一一条 ignore。这个形状使每条判定分支都由普通返回来度量。
 
 ## Consequences
 

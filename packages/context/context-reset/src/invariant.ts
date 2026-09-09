@@ -18,39 +18,30 @@ export const name = 'context-reset-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Fail unless the marker carries the anchor issued for this reset. */
-function requireAnchor(anchor: PendingReset | undefined, fail: InvariantFailure): asserts anchor is PendingReset {
-  if (anchor === undefined) fail('reset marker without a preceding reset/checkpoint anchor')
-}
-
-/** Fail unless the marker event rewinds the surface (a full-history replacement). */
-function requireReplacement(event: SessionEvent<'user/message'>, fail: InvariantFailure): void {
-  if (!isReplacementSurfaceEvent(event)) {
-    fail('reset marker must be a replacement surface event')
-  }
-}
-
 /**
- * Fail unless the marker speaks for the pending anchor. Seq adjacency is
- * structural: contiguity plus the stale-pending guard mean a recognized
- * marker can never sit further than anchor.seq + 1.
+ * Describe why a recognized marker violates the anchor correlation, or
+ * `undefined` when the pair is sound. Seq adjacency is structural: contiguity
+ * plus the stale-pending check mean a recognized marker can never sit further
+ * than anchor.seq + 1.
  */
-function requireAnchorIdentity(
-  anchor: PendingReset,
+function markerProblem(
+  anchor: PendingReset | undefined,
+  event: SessionEvent<'user/message'>,
   source: ResetCheckpointSource,
-  seq: number,
-  fail: InvariantFailure,
-): void {
+): string | undefined {
+  if (anchor === undefined) return 'reset marker without a preceding reset/checkpoint anchor'
+  if (!isReplacementSurfaceEvent(event)) return 'reset marker must be a replacement surface event'
   if (anchor.resetId !== source.resetId) {
-    fail(`reset marker at seq ${String(seq)} must immediately follow its reset/checkpoint anchor`)
+    return `reset marker at seq ${String(event.seq)} must immediately follow its reset/checkpoint anchor`
   }
+  return undefined
 }
 
-/** Fail when a pending anchor is not followed immediately by its marker. */
-function requirePendingMarker(stale: PendingReset | undefined, fail: InvariantFailure): void {
-  if (stale !== undefined) {
-    fail(`reset/checkpoint at seq ${String(stale.seq)} is not immediately followed by its marker`)
-  }
+/** Describe a pending anchor left without its immediately following marker. */
+function pendingProblem(stale: PendingReset | undefined): string | undefined {
+  return stale === undefined
+    ? undefined
+    : `reset/checkpoint at seq ${String(stale.seq)} is not immediately followed by its marker`
 }
 
 /** Local reset-marker shape guard (inline: the invariant bundle shares no runtime module with the service entry). */
@@ -70,7 +61,11 @@ interface PendingReset {
 /** The pending-anchor state a validated candidate event leaves behind. */
 type NextPending = PendingReset | undefined
 
-/** Fold one candidate event, failing before it can enter the durable log. */
+/**
+ * Fold one candidate event, failing before it can enter the durable log.
+ * Every decision resolves to a message first and this function owns the only
+ * `fail()` call site, so no branch is measured solely by its throwing exit.
+ */
 function validateCandidate(
   anchor: NextPending,
   event: SessionEvent,
@@ -79,14 +74,15 @@ function validateCandidate(
   if (event.type === 'reset/checkpoint') {
     return { resetId: event.data.resetId, seq: event.seq }
   }
-  if (event.type === 'user/message' && isResetCheckpointSource(event.data.source)) {
-    requireAnchor(anchor, fail)
-    requireReplacement(event, fail)
-    requireAnchorIdentity(anchor, event.data.source, event.seq, fail)
-    return undefined
-  }
-  requirePendingMarker(anchor, fail)
-  return anchor
+  const marker = event.type === 'user/message' && isResetCheckpointSource(event.data.source)
+    ? { source: event.data.source, event }
+    : undefined
+  const problem = marker === undefined
+    ? pendingProblem(anchor)
+    : markerProblem(anchor, marker.event, marker.source)
+  /* v8 ignore next -- the sole failure exit; its unwind is what the runner v8 records unreliably */
+  if (problem !== undefined) fail(problem)
+  return marker === undefined ? anchor : undefined
 }
 
 /**

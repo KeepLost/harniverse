@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-09-invariant-staging-channel.md
-2026-09-09-invariant-staging-channel.md: 6412811cba59b8d81f17be66ca19bc98a1d0176e
-2026-09-09-invariant-staging-channel.zh.md: cbd8c7bf2010c493009eb4ab12fcf6c8b73b8a6c
+2026-09-09-invariant-staging-channel.md: 5643b67d26a7076231b1030d0e6f90098860eab4
+2026-09-09-invariant-staging-channel.zh.md: 415a61f16b7c26d21a08ccda02e335114dbce0a4
