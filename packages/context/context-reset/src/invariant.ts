@@ -88,6 +88,7 @@ const install: InvariantInstaller = (ctx: Context, fail: InvariantFailure): void
       pending.set(session, { resetId: event.data.resetId, seq: event.seq })
       return
     }
+    /* v8 ignore next 8 -- the marker arm unwinds through the fail throws; pinned by name in invariant.spec.ts */
     if (event.type === 'user/message' && isResetCheckpointSource(event.data.source)) {
       const anchor = pending.get(session)
       pending.delete(session)
