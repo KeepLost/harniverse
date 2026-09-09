@@ -607,6 +607,7 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
   'Error',
   'Extract',
   'Map',
+  'Omit',
   'Partial',
   'Pick',
   'Promise',

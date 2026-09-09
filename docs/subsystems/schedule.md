@@ -214,6 +214,39 @@ list(): ScheduleRecord[]
 listForSession(sessionId: SessionId): ScheduleRecord[]
 
 /**
+ * Remote-facing read of one session's schedules.
+ * @param sessionId - owning session identity.
+ * @returns the owned subset, earliest due first.
+ */
+@Remote({ exportName: 'list', requiredCapability: 'harniverse.observe' }) listOwned(sessionId: SessionId): ScheduleRecord[]
+
+/**
+ * Remote-facing creation attributed to the owning session's human.
+ * @param sessionId - owning session identity.
+ * @param input - prompt, rule, target, and context mode.
+ * @returns the stored record.
+ * @throws ScheduleRuleError for an invalid rule or prompt.
+ */
+@Remote({ exportName: 'create', requiredCapability: 'harniverse.operate' }) createOwned(sessionId: SessionId, input: Omit<ScheduleCreateInput, 'createdBy'>): Promise<ScheduleRecord>
+
+/**
+ * Remote-facing edit under session ownership.
+ * @param sessionId - owning session identity.
+ * @param id - schedule identity.
+ * @param update - prompt and/or status patch.
+ * @returns the updated record, or `undefined` when absent or not owned.
+ */
+@Remote({ exportName: 'update', requiredCapability: 'harniverse.operate' }) updateOwned(sessionId: SessionId, id: string, update: ScheduleUpdate): Promise<ScheduleRecord | undefined>
+
+/**
+ * Remote-facing removal under session ownership.
+ * @param sessionId - owning session identity.
+ * @param id - schedule identity.
+ * @returns whether a record was removed.
+ */
+@Remote({ exportName: 'remove', requiredCapability: 'harniverse.operate' }) removeOwned(sessionId: SessionId, id: string): Promise<boolean>
+
+/**
  * Create one durable schedule.
  * @param input - validated prompt, rule candidate, target, and creator.
  * @returns the stored record.
@@ -241,5 +274,5 @@ async remove(id: string, by?: SessionId): Promise<boolean>
 
 Types: [SessionId](core.md)
 
-Source: [`packages/schedule/scheduler/src/index.ts:69`](../../packages/schedule/scheduler/src/index.ts)
+Source: [`packages/schedule/scheduler/src/index.ts:64`](../../packages/schedule/scheduler/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -81,6 +81,20 @@ describe('context-reset invariant companion', () => {
     expect(fail).toHaveBeenCalledWith('reset marker without a preceding reset/checkpoint anchor')
   })
 
+  it('fails a reset-source marker that is not a replacement surface event', () => {
+    const { listener, fail } = install()
+    const session = liveSession('reset-invariant-non-replacement')
+    session.append('reset/checkpoint', { resetId: ResetId('invariant-flat'), turn: null })
+    session.append('user/message', createUserMessage({
+      content: resetCheckpointContent(),
+      source: resetCheckpointSource(ResetId('invariant-flat')),
+    }), { surfaceOp: 'append' })
+    expect(() => {
+      replay(listener, session)
+    }).toThrow('invariant failure')
+    expect(fail).toHaveBeenCalledWith('reset marker must be a replacement surface event')
+  })
+
   it('fails an anchor followed by a foreign event before its marker', () => {
     const { listener, fail } = install()
     const session = liveSession('reset-invariant-gap')

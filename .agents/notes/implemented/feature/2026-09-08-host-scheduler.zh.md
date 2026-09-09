@@ -48,3 +48,7 @@
 ## 后续：工具移入预设作用域包
 
 初始实现把 `schedule_create/list/delete` 注册在服务的宿主上下文上，导致工具泄漏进 `minimal` Profile 的两工具契约（`apps/web/tests/minimal-preset.snapshot.ts` 在 CI 失败）。修复沿用 `dsh-tool-goal` 先例：服务保持在宿主平面，只注册 `schedule:pending` 运行时上下文；新的 `@deepseek-ai/dsh-tool-scheduler` 函数插件（`packages/schedule/tool-scheduler`）拥有这三个工具，由预设行（`standard`、`code`、`cordis`）决定 agent 可见性。该行在没有 `ctx.scheduler` 的组合中保持 pending，因此 CLI-native 图在服务进入该平面前不受影响。
+
+## 后续：B2 Remote 与会话头 UI
+
+服务现继承 `TypertRemoteService`（命名空间 `scheduler`），带四个会话作用域的 `@Remote` 方法 —— `list`（observe）、`create`、`update`、`remove`（operate）—— 均以 `exportName` 重命名，生成的客户端读作 `ctx.remote.scheduler.list(sessionId)`，与 goals 命名空间一致。`ScheduleCreateInput` 移入 `types.ts`：typert 分析器要求 Remote 边界类型位于公开的非根 type 子路径。生成的 `./remote` 客户端经 `dsh-api-remotes` 装配，`dsh-client-ui-scheduler` 贡献 `schedule-list` 头部操作（order 10），动作经插槽 `inject` 按会话绑定；仅当 Remote 报告存在归属记录时才渲染，现有快照不受影响。实时投递更新与独立管理页保持延后。

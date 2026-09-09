@@ -230,6 +230,7 @@
       "@deepseek-ai/dsh-client-ui-reference": ["./packages/client/ui-reference/src"],
       "@deepseek-ai/dsh-client-ui-settings-plugins": ["./packages/client/ui-settings-plugins/src"],
       "@deepseek-ai/dsh-client-ui-jobs": ["./packages/client/ui-jobs/src"],
+      "@deepseek-ai/dsh-client-ui-scheduler": ["./packages/client/ui-scheduler/src"],
       "@deepseek-ai/dsh-client-ui-plan": ["./packages/client/ui-plan/src"],
       "@deepseek-ai/dsh-client-ui-user-questions": ["./packages/client/ui-user-questions/src"],
       "@deepseek-ai/dsh-client-ui-trajectory": ["./packages/client/ui-trajectory/src"],

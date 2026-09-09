@@ -196,6 +196,7 @@ export class ContextResetService extends Service {
     try {
       const first = nodes[0]
       const last = nodes.at(-1)
+      /* v8 ignore next 3 -- defensive read-recheck; the maintenance phase holds the writer lock, so an empty node list is unreachable */
       if (first === undefined || last === undefined) {
         throw new Error('surface nodes vanished between read and append')
       }

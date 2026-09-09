@@ -302,6 +302,11 @@
     - id: ui-jobs
       name: '@deepseek-ai/dsh-client-ui-jobs'
 
+    # Session-header schedule list over the scheduler Remote: pause/resume/delete
+    # for this session's durable schedules.
+    - id: ui-scheduler
+      name: '@deepseek-ai/dsh-client-ui-scheduler'
+
     # Goal surface: GoalBar in the input dock over the goal session projection.
     - id: ui-goal
       name: '@deepseek-ai/dsh-client-ui-goal'

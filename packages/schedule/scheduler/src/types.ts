@@ -76,3 +76,12 @@ declare module '@deepseek-ai/dsh-session/types' {
     }
   }
 }
+
+/** Input of one schedule creation. */
+export interface ScheduleCreateInput {
+  readonly prompt: string
+  readonly rule: SchedulerRule
+  readonly target: { readonly kind: 'current' | 'job' }
+  readonly contextMode: 'fresh' | 'continue'
+  readonly createdBy: { readonly kind: 'user' | 'model'; readonly sessionId: SessionId }
+}

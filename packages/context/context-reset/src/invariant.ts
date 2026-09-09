@@ -8,7 +8,7 @@ import { isReplacementSurfaceEvent } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import type { ResetId } from './brand.ts'
-import { isResetCheckpointSource } from './checkpoint.ts'
+import type { ResetCheckpointSource } from './checkpoint.ts'
 import type {} from './types.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-context-reset'
@@ -17,6 +17,13 @@ const PACKAGE_NAME = '@deepseek-ai/dsh-context-reset'
 export const name = 'context-reset-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
+
+/** Local reset-marker shape guard (inline: the invariant bundle shares no runtime module with the service entry). */
+function isResetCheckpointSource(source: unknown): source is ResetCheckpointSource {
+  if (typeof source !== 'object' || source === null) return false
+  const candidate = source as { kind?: unknown; plugin?: unknown; resetId?: unknown }
+  return candidate.kind === 'plugin' && candidate.plugin === 'reset' && typeof candidate.resetId === 'string'
+}
 
 /** One durable anchor awaiting its immediately following marker. */
 interface PendingReset {

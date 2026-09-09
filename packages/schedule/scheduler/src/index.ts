@@ -4,11 +4,14 @@
  * ordinary sessions, optional pre-delivery context reset, and lazily created
  * job sessions. The `schedule:pending` runtime context registers with the
  * service; the model-facing tools live in `@deepseek-ai/dsh-tool-scheduler`.
+ * Session-scoped Remote methods (list/create/update/remove) expose the same
+ * store to the browser UI through the Typert Gateway.
  * @module @deepseek-ai/dsh-scheduler
  */
 
 import { randomUUID } from 'node:crypto'
 import { Service, type Context } from '@deepseek-ai/cordis'
+import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { installModelSelection, type Agent, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { resolveSessionProfile } from '@deepseek-ai/dsh-agent-presets'
@@ -25,21 +28,13 @@ import {
   subsequentDue,
   validateRule,
 } from './time.ts'
-import type { ScheduleRecord, ScheduleUpdate, SchedulerRule } from './types.ts'
+import type { ScheduleCreateInput, ScheduleRecord, ScheduleUpdate } from './types.ts'
 
 export { ScheduleRuleError } from './time.ts'
 export { MIN_EVERY_INTERVAL_MS, MAX_PROMPT_LENGTH, MAX_DELAY_MS } from './time.ts'
 export type { ScheduleRecord, ScheduleUpdate, SchedulerRule, ScheduleDispatchOutcome } from './types.ts'
 
 /** Input accepted by {@link SchedulerService.create}. */
-export interface ScheduleCreateInput {
-  readonly prompt: string
-  readonly rule: SchedulerRule
-  readonly target: { readonly kind: 'current' | 'job' }
-  readonly contextMode: 'fresh' | 'continue'
-  readonly createdBy: { readonly kind: 'user' | 'model'; readonly sessionId: SessionId }
-}
-
 declare module '@deepseek-ai/cordis' {
   interface Context {
     scheduler: SchedulerService
@@ -66,7 +61,7 @@ interface DeliveryTarget {
  * Durable scheduled prompts over the central scheduler store. One instance
  * owns the timer, per-record dispatch chains, and cold-session recycling.
  */
-export class SchedulerService extends Service {
+export class SchedulerService extends TypertRemoteService {
   static inject = ['agents', 'sessions', 'storageDomain']
 
   private readonly ownerCtx: Context
@@ -122,6 +117,54 @@ export class SchedulerService extends Service {
   listForSession(sessionId: SessionId): ScheduleRecord[] {
     return this.list().filter(record => record.createdBy.sessionId === sessionId
       || record.jobSessionId === sessionId)
+  }
+
+  /**
+   * Remote-facing read of one session's schedules.
+   * @param sessionId - owning session identity.
+   * @returns the owned subset, earliest due first.
+   */
+  @Remote({ exportName: 'list', requiredCapability: 'harniverse.observe' })
+  listOwned(sessionId: SessionId): ScheduleRecord[] {
+    return this.listForSession(sessionId)
+  }
+
+  /**
+   * Remote-facing creation attributed to the owning session's human.
+   * @param sessionId - owning session identity.
+   * @param input - prompt, rule, target, and context mode.
+   * @returns the stored record.
+   * @throws ScheduleRuleError for an invalid rule or prompt.
+   */
+  @Remote({ exportName: 'create', requiredCapability: 'harniverse.operate' })
+  createOwned(sessionId: SessionId, input: Omit<ScheduleCreateInput, 'createdBy'>): Promise<ScheduleRecord> {
+    return this.create({
+      ...input,
+      createdBy: { kind: 'user', sessionId },
+    })
+  }
+
+  /**
+   * Remote-facing edit under session ownership.
+   * @param sessionId - owning session identity.
+   * @param id - schedule identity.
+   * @param update - prompt and/or status patch.
+   * @returns the updated record, or `undefined` when absent or not owned.
+   */
+  @Remote({ exportName: 'update', requiredCapability: 'harniverse.operate' })
+  updateOwned(sessionId: SessionId, id: string, update: ScheduleUpdate): Promise<ScheduleRecord | undefined> {
+    return this.update(id, update, sessionId)
+  }
+
+  /**
+   * Remote-facing removal under session ownership.
+   * @param sessionId - owning session identity.
+   * @param id - schedule identity.
+   * @returns whether a record was removed.
+   */
+  @Remote({ exportName: 'remove', requiredCapability: 'harniverse.operate' })
+  removeOwned(sessionId: SessionId, id: string): Promise<boolean> {
+    return this.remove(id, sessionId)
   }
 
   /**

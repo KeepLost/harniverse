@@ -71,6 +71,7 @@
     "@deepseek-ai/dsh-client-ui-permission-presets": "workspace:^",
     "@deepseek-ai/dsh-client-ui-plan": "workspace:^",
     "@deepseek-ai/dsh-client-ui-reference": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-scheduler": "workspace:^",
     "@deepseek-ai/dsh-client-ui-settings": "workspace:^",
     "@deepseek-ai/dsh-client-ui-settings-capabilities": "workspace:^",
     "@deepseek-ai/dsh-client-ui-settings-general": "workspace:^",

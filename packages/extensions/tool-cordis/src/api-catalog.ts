@@ -1455,6 +1455,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the owned subset, earliest due first.',
       },
       {
+        signature: '@Remote({ exportName: \'list\', requiredCapability: \'harniverse.observe\' }) listOwned(sessionId: SessionId): ScheduleRecord[]',
+        description: 'Remote-facing read of one session\'s schedules.',
+        parameters: [{ name: 'sessionId', description: 'owning session identity.' }],
+        returns: 'the owned subset, earliest due first.',
+      },
+      {
+        signature: '@Remote({ exportName: \'create\', requiredCapability: \'harniverse.operate\' }) createOwned(sessionId: SessionId, input: Omit<ScheduleCreateInput, \'createdBy\'>): Promise<ScheduleRecord>',
+        description: 'Remote-facing creation attributed to the owning session\'s human.',
+        parameters: [{ name: 'sessionId', description: 'owning session identity.' }, { name: 'input', description: 'prompt, rule, target, and context mode.' }],
+        returns: 'the stored record.',
+        throws: ['ScheduleRuleError for an invalid rule or prompt.'],
+      },
+      {
+        signature: '@Remote({ exportName: \'update\', requiredCapability: \'harniverse.operate\' }) updateOwned(sessionId: SessionId, id: string, update: ScheduleUpdate): Promise<ScheduleRecord | undefined>',
+        description: 'Remote-facing edit under session ownership.',
+        parameters: [{ name: 'sessionId', description: 'owning session identity.' }, { name: 'id', description: 'schedule identity.' }, { name: 'update', description: 'prompt and/or status patch.' }],
+        returns: 'the updated record, or `undefined` when absent or not owned.',
+      },
+      {
+        signature: '@Remote({ exportName: \'remove\', requiredCapability: \'harniverse.operate\' }) removeOwned(sessionId: SessionId, id: string): Promise<boolean>',
+        description: 'Remote-facing removal under session ownership.',
+        parameters: [{ name: 'sessionId', description: 'owning session identity.' }, { name: 'id', description: 'schedule identity.' }],
+        returns: 'whether a record was removed.',
+      },
+      {
         signature: 'async create(input: ScheduleCreateInput): Promise<ScheduleRecord>',
         description: 'Create one durable schedule.',
         parameters: [{ name: 'input', description: 'validated prompt, rule candidate, target, and creator.' }],

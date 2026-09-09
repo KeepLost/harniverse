@@ -4,6 +4,10 @@
 
 宿主级持久调度器（`ctx.scheduler`）。定时 prompt 存放在唯一的中央 storage-domain 存储里；at/after/every 规则驱动 wall-clock 定时器；投递经 idle 维护相位到达热会话、经 `agents.resume` 冷唤醒冷会话，可先重置表面，并惰性创建专属作业会话。`schedule:pending` 运行时上下文随服务注册；模型面工具位于预设作用域的 `@deepseek-ai/dsh-tool-scheduler`。[定时投递 Agent Note](../../../.agents/notes/implemented/feature/2026-09-08-host-scheduler.md) 拥有设计决策。
 
+## Remote 面
+
+会话作用域的 Typert Remote 方法（带能力门控）把同一存储暴露给浏览器：`list`（`harniverse.observe`）与 `create` / `update` / `remove`（`harniverse.operate`）。生成的 `@deepseek-ai/dsh-scheduler/remote` 客户端经 `dsh-api-remotes` 装配，Web UI 组合的正是工具所用的同一组方法。
+
 ## 服务契约
 
 | 操作 | 结果 |
