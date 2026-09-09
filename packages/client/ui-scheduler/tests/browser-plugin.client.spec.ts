@@ -1,5 +1,5 @@
 /**
- * ui-scheduler plugin halves: the browser entry's dictionary and header-slot
+ * ui-scheduler plugin halves: the browser entry's dictionary and slot
  * registrations against the real SlotRegistry (with fiber teardown proving
  * removal — HMR safety), the inert node entry, and the invariant companion's
  * ownership reservation.
@@ -25,7 +25,7 @@ function headerEntryIds(ctx: Context): (string | undefined)[] {
 /** One registration captured while the plugin applies. */
 interface CapturedRegistration { options: Record<string, unknown>; component: unknown }
 
-/** Boot the browser half over a real slot tree that declares the header list. */
+/** Boot the browser half over a real slot tree declaring both contributions. */
 async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugin']>; captured: CapturedRegistration[] }> {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
@@ -33,6 +33,7 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
     name: 'root',
     children: {
       'conversation.session.header.actions': { kind: 'list', scope: 'session' },
+      'settings.section': { kind: 'list', scope: 'global' },
     },
   } as never, () => null)
   ctx.provide('sessions', {})
@@ -43,7 +44,9 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
     $on: () => () => {},
     scheduler: {
       list: async () => ({ ok: true, value: [] }),
+      create: async () => ({ ok: true, value: undefined }),
       update: async () => ({ ok: true, value: undefined }),
+      runs: async () => ({ ok: true, value: [] }),
       delete: async () => ({ ok: true, value: false }),
     },
   } as never)
@@ -78,11 +81,13 @@ describe('ui-scheduler browser half', () => {
     expect(inject).toEqual(['sessions', 'slots', 'locale', 'remote', 'remote.scheduler'])
   })
 
-  it('registers the header action, and fiber teardown removes it (HMR safety)', async () => {
+  it('registers both slots, and fiber teardown removes them (HMR safety)', async () => {
     const { ctx, fiber } = await bench()
     expect(headerEntryIds(ctx)).toContain('schedule-list')
+    expect(ctx.slots.entries('settings.section').map(entry => entry.options.id)).toContain('schedules')
     await fiber.dispose()
     expect(headerEntryIds(ctx)).not.toContain('schedule-list')
+    expect(ctx.slots.entries('settings.section')).toEqual([])
   })
 
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {
@@ -129,7 +134,47 @@ describe('ui-scheduler browser half', () => {
       ['update', 'session-z', 'sched-9', { status: 'paused' }],
       ['delete', 'session-z', 'sched-9'],
     ])
-  })})
+  })
+
+  it('binds the settings section verbs to the scheduler Remote', async () => {
+    const { ctx, fiber, captured } = await bench()
+    const registration = captured.find(({ options }) => options['id'] === 'schedules')
+    expect(registration).toBeDefined()
+    const label = registration!.options['label'] as () => string
+    expect(label()).toBe(zh['management.nav'])
+    const inject = registration!.options['inject'] as () => {
+      list: (sessionId: string) => Promise<unknown>
+      create: (sessionId: string, input: unknown) => Promise<unknown>
+      update: (sessionId: string, id: string, input: unknown) => Promise<unknown>
+      runs: (sessionId: string, id: string) => Promise<unknown>
+      remove: (sessionId: string, id: string) => Promise<unknown>
+    }
+    const calls: unknown[][] = []
+    const scheduler = (ctx.get('remote') as unknown as { scheduler: Record<string, ((...args: unknown[]) => Promise<unknown>) | undefined> }).scheduler
+    for (const name of ['list', 'create', 'update', 'runs', 'delete']) {
+      const verb = scheduler[name]
+      scheduler[name] = async (...args: unknown[]) => {
+        calls.push([name, ...args])
+        if (verb === undefined) throw new Error(`unexpected remote verb: ${name}`)
+        return await verb(...args)
+      }
+    }
+    const verbs = inject()
+    await expect(verbs.list('session-z')).resolves.toEqual({ ok: true, value: [] })
+    await expect(verbs.create('session-z', { prompt: 'new' })).resolves.toEqual({ ok: true, value: undefined })
+    await expect(verbs.update('session-z', 'sched-9', { status: 'paused' })).resolves.toEqual({ ok: true, value: undefined })
+    await expect(verbs.runs('session-z', 'sched-9')).resolves.toEqual({ ok: true, value: [] })
+    await expect(verbs.remove('session-z', 'sched-9')).resolves.toEqual({ ok: true, value: false })
+    expect(calls).toEqual([
+      ['list', 'session-z'],
+      ['create', 'session-z', { prompt: 'new' }],
+      ['update', 'session-z', 'sched-9', { status: 'paused' }],
+      ['runs', 'session-z', 'sched-9'],
+      ['delete', 'session-z', 'sched-9'],
+    ])
+    await fiber.dispose()
+  })
+})
 
 describe('ui-scheduler node half', () => {
   it('contributes no host behavior', () => {

@@ -333,14 +333,14 @@ describe('scheduler dispatch', () => {
         expect(after?.status).toBe('done')
         expect(after?.lastRunAt).toBeTypeOf('number')
         expect(after?.nextDue).toBeUndefined()
+        expect(test.service.listRuns(record.id, script.session.id)).toMatchObject([{
+          scheduleId: record.id,
+          ownerSessionId: script.session.id,
+          targetSessionId: script.session.id,
+          status: 'succeeded',
+          promptRevision: 1,
+        }])
       })
-      expect(test.service.listRuns(record.id, script.session.id)).toMatchObject([{
-        scheduleId: record.id,
-        ownerSessionId: script.session.id,
-        targetSessionId: script.session.id,
-        status: 'succeeded',
-        promptRevision: 1,
-      }])
       expect(test.service.listRunsOwned(script.session.id, record.id)).toHaveLength(1)
       expect(test.service.listRuns(record.id)).toHaveLength(1)
       await test.service.create({
@@ -702,8 +702,8 @@ describe('scheduler cold-path and edge failures', () => {
           expect.stringContaining('was not found'),
           expect.stringContaining('no recorded model'),
         ]))
+        expect(test.service.listRuns(attachedRecord.id)).toHaveLength(1)
       })
-      expect(test.service.listRuns(attachedRecord.id)).toHaveLength(1)
     } finally {
       await cleanup()
     }

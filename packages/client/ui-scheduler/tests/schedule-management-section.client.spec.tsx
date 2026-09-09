@@ -156,7 +156,7 @@ describe('ScheduleManagementSection', () => {
       ) => selector({ items: [], recentWorkspaceId: undefined }),
     })} />)
     await screen.findByText(zh['management.empty'])
-    expect((screen.getByRole('button', { name: zh['management.create'] }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: zh['management.create'] }).disabled).toBe(true)
   })
 
   it('keeps an empty form inert and surfaces a create failure', async () => {
