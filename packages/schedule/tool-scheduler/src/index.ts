@@ -1,20 +1,24 @@
 /**
- * Model-facing scheduler tools: `schedule_create`, `schedule_list`, and
- * `schedule_delete` over `ctx.scheduler`.
- * @module @deepseek-ai/dsh-scheduler/tools
+ * Preset-selected model-facing scheduler tools (`schedule_create`,
+ * `schedule_list`, `schedule_delete`) over the host `ctx.scheduler` service.
+ * The service stays on the host plane; what a preset row chooses is whether
+ * its agent can call these tools, mirroring `dsh-tool-goal`.
+ * @module @deepseek-ai/dsh-tool-scheduler
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { ScheduleRuleError } from './time.ts'
-import type { SchedulerRule } from './types.ts'
-import type { SchedulerService } from './index.ts'
+import { ScheduleRuleError } from '@deepseek-ai/dsh-scheduler'
+import type { SchedulerRule } from '@deepseek-ai/dsh-scheduler/types'
 
-/** Register the scheduler tool surface owned by the service.
- * @param ctx - context carrying the tools registry.
- * @param service - owning scheduler service the tools execute against.
- */
-export function registerSchedulerTools(ctx: Context, service: SchedulerService): void {
+/** Cordis plugin name. */
+export const name = 'tool-scheduler'
+
+/** Host scheduler service required before the tools can execute. */
+export const inject = ['scheduler', 'tools']
+
+/** Register the three scheduler tools on the mounting (preset agent) scope. */
+export function apply(ctx: Context): void {
   ctx.tools.register(defineTool({
     name: 'schedule_create',
     description: 'Schedule one prompt to run later in this session or in a dedicated job session, optionally on a repeating interval and optionally with a fresh context each run. Exactly one timing parameter (run_at or after_minutes) is required; add every_minutes to repeat.',
@@ -62,7 +66,7 @@ export function registerSchedulerTools(ctx: Context, service: SchedulerService):
           : { kind: 'after', delayMs: anchorMs - now }
         : { kind: 'every', intervalMs: args.every_minutes * 60_000, anchor: anchorIso }
       const target = args.target === 'job' ? { kind: 'job' as const } : { kind: 'current' as const }
-      const record = await service.create({
+      const record = await ctx.scheduler.create({
         prompt: args.prompt,
         rule,
         target,
@@ -117,15 +121,15 @@ export function registerSchedulerTools(ctx: Context, service: SchedulerService):
     },
     execute(_args, exec) {
       if (exec.agent === undefined) throw new Error('schedule_list requires a calling agent')
-      const records = service.listForSession(exec.agent.session.id)
+      const records = ctx.scheduler.listForSession(exec.agent.session.id)
       return Promise.resolve({
         schedules: records.map(record => ({
           scheduleId: record.id,
           prompt: record.prompt,
           status: record.status,
-          // v8 ignore next 1 -- exhausted projections are covered by the service dispatch tests
+          // v8 ignore next 1 -- exhausted projections are covered by the scheduler dispatch tests
           nextDue: record.nextDue === undefined ? 'none' : new Date(record.nextDue).toISOString(),
-          // v8 ignore next 1 -- dispatched job projections are covered by the service dispatch tests
+          // v8 ignore next 1 -- dispatched job projections are covered by the scheduler dispatch tests
           target: record.jobSessionId === undefined ? record.target.kind : 'job',
         })),
       })
@@ -155,7 +159,7 @@ export function registerSchedulerTools(ctx: Context, service: SchedulerService):
     },
     async execute(args, exec) {
       if (exec.agent === undefined) throw new Error('schedule_delete requires a calling agent')
-      const deleted = await service.remove(args.schedule_id, exec.agent.session.id)
+      const deleted = await ctx.scheduler.remove(args.schedule_id, exec.agent.session.id)
       return { deleted }
     },
   }))

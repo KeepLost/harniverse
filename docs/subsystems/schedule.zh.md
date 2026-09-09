@@ -204,14 +204,14 @@ Durable scheduled prompts over the central scheduler store. One instance owns th
  * All records ordered by next due moment.
  * @returns every stored record, earliest due first.
  */
-async list(): Promise<ScheduleRecord[]>
+list(): ScheduleRecord[]
 
 /**
  * Records one session owns: created there, or the job session it hosts.
  * @param sessionId - owning session identity.
  * @returns the owned subset, earliest due first.
  */
-async listForSession(sessionId: SessionId): Promise<ScheduleRecord[]>
+listForSession(sessionId: SessionId): ScheduleRecord[]
 
 /**
  * Create one durable schedule.
@@ -241,5 +241,5 @@ async remove(id: string, by?: SessionId): Promise<boolean>
 
 Types: [SessionId](core.md)
 
-Source: [`packages/schedule/scheduler/src/index.ts:70`](../../packages/schedule/scheduler/src/index.ts)
+Source: [`packages/schedule/scheduler/src/index.ts:69`](../../packages/schedule/scheduler/src/index.ts)
 <!-- END GENERATED cordis-surface -->

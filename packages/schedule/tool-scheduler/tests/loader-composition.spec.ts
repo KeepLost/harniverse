@@ -14,18 +14,20 @@ import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SchedulerService from '@deepseek-ai/dsh-scheduler'
 import * as SchedulerInvariant from '@deepseek-ai/dsh-scheduler/invariant'
+import * as ToolScheduler from '@deepseek-ai/dsh-tool-scheduler'
+import * as ToolSchedulerInvariant from '@deepseek-ai/dsh-tool-scheduler/invariant'
 
 /** Live state shared by the stub services the Loader composition mounts. */
 interface StubState {
   session: Session
   agent?: Agent
   followups: UserMessage[]
-  resets: number
+  toolNames: string[]
 }
 
 function stubPlugin(state: StubState) {
   return {
-    name: 'scheduler-composition-stubs',
+    name: 'tool-scheduler-composition-stubs',
     apply: (ctx: Context): void => {
       const signal = new AbortController().signal
       const agentOf = (): Agent => {
@@ -51,21 +53,21 @@ function stubPlugin(state: StubState) {
         resume: async () => { throw new Error('not used in this composition') },
         closeIfIdle: async () => 'busy' as const,
       })
+      ctx.provide('tools', {
+        register: (definition: { name: string }) => {
+          state.toolNames.push(definition.name)
+          return () => undefined
+        },
+      })
       ctx.provide('systemPrompt', {
         context: () => () => undefined,
-      })
-      ctx.provide('contextReset', {
-        resetNow: async () => {
-          state.resets += 1
-          return null
-        },
       })
     },
   }
 }
 
 let root: string | undefined
-let contexts: Context[] = []
+const contexts: Context[] = []
 
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
@@ -89,7 +91,8 @@ async function boot(state: StubState): Promise<Context> {
     '  config:',
     '    backend: json',
     '- name: \'@deepseek-ai/dsh-scheduler\'',
-    '- name: \'scheduler-composition-stubs\'',
+    '- name: \'@deepseek-ai/dsh-tool-scheduler\'',
+    '- name: \'tool-scheduler-composition-stubs\'',
     '',
   ].join('\n'))
   context.baseUrl = pathToFileURL(root!).href + '/'
@@ -102,7 +105,9 @@ async function boot(state: StubState): Promise<Context> {
     ['@deepseek-ai/dsh-storage-domain', StorageDomain],
     ['@deepseek-ai/dsh-scheduler', SchedulerService],
     ['@deepseek-ai/dsh-scheduler/invariant', SchedulerInvariant],
-    ['scheduler-composition-stubs', stubPlugin(state)],
+    ['@deepseek-ai/dsh-tool-scheduler', ToolScheduler],
+    ['@deepseek-ai/dsh-tool-scheduler/invariant', ToolSchedulerInvariant],
+    ['tool-scheduler-composition-stubs', stubPlugin(state)],
   ])
   context.loader.internal = {
     version: 'v2',
@@ -119,21 +124,22 @@ async function boot(state: StubState): Promise<Context> {
   return context
 }
 
-describe('scheduler real Loader composition', () => {
-  it('delivers a fresh-context schedule end to end and survives a restart', async () => {
-    root = await mkdtemp(join(tmpdir(), 'dsh-scheduler-loader-'))
-    const state: StubState = { session: undefined as never, followups: [], resets: 0 }
+describe('tool-scheduler real Loader composition', () => {
+  it('registers the preset-scoped tools and creates through them end to end', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-tool-scheduler-loader-'))
+    const state: StubState = { session: undefined as never, followups: [], toolNames: [] }
     const context = await boot(state)
-    const session = context.sessions.create(SessionId('scheduler-loader'))
+    const session = context.sessions.create(SessionId('tool-scheduler-loader'))
     state.session = session
 
+    expect(state.toolNames).toEqual(['schedule_create', 'schedule_list', 'schedule_delete'])
     expect(context.scheduler).toBeDefined()
 
     const record = await context.scheduler.create({
       prompt: 'run the nightly checklist',
       rule: { kind: 'after', delayMs: 1 },
       target: { kind: 'current' },
-      contextMode: 'fresh',
+      contextMode: 'continue',
       createdBy: { kind: 'user', sessionId: session.id },
     })
     expect(record.status).toBe('active')
@@ -141,29 +147,9 @@ describe('scheduler real Loader composition', () => {
     await vi.waitFor(() => {
       expect(state.followups).toHaveLength(1)
     }, { timeout: 5_000 })
-    expect(state.resets).toBe(1)
     expect(state.followups[0]!.content).toEqual([{ type: 'text', text: 'run the nightly checklist' }])
     expect(state.followups[0]!.source).toEqual({ kind: 'plugin', plugin: 'schedule' })
     const dispatch = session.events.find(event => event.type === 'schedule/dispatch')
     expect(dispatch).toBeDefined()
-
-    await vi.waitFor(async () => {
-      const after = (context.scheduler.list()).find(row => row.id === record.id)
-      expect(after?.status).toBe('done')
-    }, { timeout: 5_000 })
-
-    await context.fiber.dispose()
-    contexts = contexts.filter(item => item !== context)
-
-    const reborn: StubState = { session: undefined as never, followups: [], resets: 0 }
-    const second = await boot(reborn)
-    const persisted = second.scheduler.list()
-    expect(persisted).toHaveLength(1)
-    expect(persisted[0]).toMatchObject({
-      id: record.id,
-      status: 'done',
-      prompt: 'run the nightly checklist',
-    })
-    expect(persisted[0]?.lastRunAt).toBeTypeOf('number')
   })
 })

@@ -2,8 +2,8 @@
  * Host-level scheduler service (`ctx.scheduler`): durable scheduled prompts
  * with central storage, at/after/every rules, hot and cold delivery into
  * ordinary sessions, optional pre-delivery context reset, and lazily created
- * job sessions. The model-facing tools (`schedule_create/list/delete`) and the
- * `schedule:pending` runtime context register with the service.
+ * job sessions. The `schedule:pending` runtime context registers with the
+ * service; the model-facing tools live in `@deepseek-ai/dsh-tool-scheduler`.
  * @module @deepseek-ai/dsh-scheduler
  */
 
@@ -18,7 +18,6 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-context-reset'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { schedulerDomainSpec } from './spec.ts'
-import { registerSchedulerTools } from './tools.ts'
 import {
   MAX_PROMPT_LENGTH,
   ScheduleRuleError,
@@ -68,7 +67,7 @@ interface DeliveryTarget {
  * owns the timer, per-record dispatch chains, and cold-session recycling.
  */
 export class SchedulerService extends Service {
-  static inject = ['agents', 'sessions', 'tools', 'storageDomain']
+  static inject = ['agents', 'sessions', 'storageDomain']
 
   private readonly ownerCtx: Context
   private table: KvTable<string, ScheduleRecord> | undefined
@@ -91,7 +90,6 @@ export class SchedulerService extends Service {
       await Promise.allSettled([...this.chains.values()])
       await domain.close()
     }, 'scheduler lifecycle')
-    registerSchedulerTools(this.ctx, this)
     this.ctx.inject(['systemPrompt'], (promptCtx) => {
       promptCtx.systemPrompt.context({
         name: 'schedule:pending',

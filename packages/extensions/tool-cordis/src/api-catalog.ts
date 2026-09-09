@@ -1443,13 +1443,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Durable scheduled prompts over the central scheduler store. One instance owns the timer, per-record dispatch chains, and cold-session recycling.',
     methods: [
       {
-        signature: 'async list(): Promise<ScheduleRecord[]>',
+        signature: 'list(): ScheduleRecord[]',
         description: 'All records ordered by next due moment.',
         parameters: [],
         returns: 'every stored record, earliest due first.',
       },
       {
-        signature: 'async listForSession(sessionId: SessionId): Promise<ScheduleRecord[]>',
+        signature: 'listForSession(sessionId: SessionId): ScheduleRecord[]',
         description: 'Records one session owns: created there, or the job session it hosts.',
         parameters: [{ name: 'sessionId', description: 'owning session identity.' }],
         returns: 'the owned subset, earliest due first.',

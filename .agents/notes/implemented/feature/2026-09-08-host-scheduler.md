@@ -44,3 +44,7 @@ The rule grammar is the official `at`/`after`/`every` (five-minute floor, first-
 - `KNOWN_SESSION_EVENT_TYPES` gains `schedule/dispatch`; the persistence and config catalogs regenerate.
 - The management surface (HTTP CRUD + UI) lands as B2 over the same service methods; no scheduler-internal changes are planned for it.
 - Checkpointed resume (Track C) later removes the per-wake full-log cost for long job sessions; the scheduler needs no change to benefit.
+
+## Follow-up: tools moved to a preset-scoped package
+
+The initial implementation registered `schedule_create/list/delete` on the service's host context, which leaked the tools into the `minimal` profile's two-tool contract (`apps/web/tests/minimal-preset.snapshot.ts` failed in CI). The fix follows the `dsh-tool-goal` precedent: the service stays on the host plane and registers only the `schedule:pending` runtime context, while the new `@deepseek-ai/dsh-tool-scheduler` function plugin (`packages/schedule/tool-scheduler`) owns the three tools and preset rows (`standard`, `code`, `cordis`) decide agent visibility. The row stays pending on compositions without `ctx.scheduler`, so CLI-native graphs are unaffected until the service ships there.

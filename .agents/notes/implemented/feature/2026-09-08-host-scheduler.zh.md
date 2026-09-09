@@ -44,3 +44,7 @@
 - `KNOWN_SESSION_EVENT_TYPES` 新增 `schedule/dispatch`；持久化与配置目录再生成。
 - 管理面（HTTP CRUD + UI）作为 B2 落在同样的服务方法上；调度器内部无需为它改动。
 - 检查点化恢复（Track C）稍后消除长作业会话的每次唤醒全量日志成本；调度器无需改动即可受益。
+
+## 后续：工具移入预设作用域包
+
+初始实现把 `schedule_create/list/delete` 注册在服务的宿主上下文上，导致工具泄漏进 `minimal` Profile 的两工具契约（`apps/web/tests/minimal-preset.snapshot.ts` 在 CI 失败）。修复沿用 `dsh-tool-goal` 先例：服务保持在宿主平面，只注册 `schedule:pending` 运行时上下文；新的 `@deepseek-ai/dsh-tool-scheduler` 函数插件（`packages/schedule/tool-scheduler`）拥有这三个工具，由预设行（`standard`、`code`、`cordis`）决定 agent 可见性。该行在没有 `ctx.scheduler` 的组合中保持 pending，因此 CLI-native 图在服务进入该平面前不受影响。

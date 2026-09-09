@@ -98,6 +98,13 @@
 - id: tool-goal
   name: '@deepseek-ai/dsh-tool-goal'
 
+# The scheduler service stays on the host plane like the goal domain above; what
+# this row chooses is whether its agent can call the scheduler tools. The
+# service ships with the web-app bundle today, so this row stays pending on
+# compositions without it.
+- id: tool-scheduler
+  name: '@deepseek-ai/dsh-tool-scheduler'
+
 # ── plan mode ───────────────────────────────────────────────────────────────
 
 # Plan state is per-agent by nature, so an entry-local realm is not a

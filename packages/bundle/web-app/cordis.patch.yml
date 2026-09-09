@@ -79,8 +79,9 @@
         backend: json
 
     # Host-level durable scheduler: at/after/every prompts delivered into live
-    # or cold-resumed sessions, optional fresh-context resets, lazy job
-    # sessions, and the schedule_create/list/delete model tools.
+    # or cold-resumed sessions, optional fresh-context resets, and lazy job
+    # sessions. The schedule_create/list/delete model tools are preset-scoped
+    # through @deepseek-ai/dsh-tool-scheduler.
     - id: scheduler
       name: '@deepseek-ai/dsh-scheduler'
 

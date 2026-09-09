@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Host-level durable scheduler (`ctx.scheduler`). Scheduled prompts live in one central storage-domain store; at/after/every rules drive a wall-clock timer; delivery reaches live sessions through the idle maintenance phase and cold sessions through `agents.resume`, optionally resetting the surface first, and lazily creates dedicated job sessions. The model-facing `schedule_create` / `schedule_list` / `schedule_delete` tools and the `schedule:pending` runtime context register with the service. The [scheduled delivery Agent Note](../../../.agents/notes/implemented/feature/2026-09-08-host-scheduler.md) owns the design decisions.
+Host-level durable scheduler (`ctx.scheduler`). Scheduled prompts live in one central storage-domain store; at/after/every rules drive a wall-clock timer; delivery reaches live sessions through the idle maintenance phase and cold sessions through `agents.resume`, optionally resetting the surface first, and lazily creates dedicated job sessions. The `schedule:pending` runtime context registers with the service; the model-facing tools live in the preset-scoped `@deepseek-ai/dsh-tool-scheduler`. The [scheduled delivery Agent Note](../../../.agents/notes/implemented/feature/2026-09-08-host-scheduler.md) owns the design decisions.
 
 ## Service contract
 

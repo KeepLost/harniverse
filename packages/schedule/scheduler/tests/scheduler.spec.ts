@@ -10,7 +10,6 @@ import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SchedulerService, { ScheduleRuleError } from '../src/index.ts'
-import { registerSchedulerTools } from '../src/tools.ts'
 
 interface AgentScript {
   readonly session: Session
@@ -99,7 +98,6 @@ interface Harness {
   readonly service: SchedulerService
   readonly agentsState: AgentsStubState
   readonly scripts: Map<SessionId, AgentScript>
-  readonly toolNames: string[]
   readonly contextsRecorder: { name: string; text: (context: { agent?: Agent }) => string }[]
   readonly resetCalls: { agent: Agent; signal: AbortSignal }[]
   readonly provideReset: () => void
@@ -118,16 +116,6 @@ async function harness(prepare?: (ctx: Context) => void): Promise<{ test: Harnes
   const scripts = new Map<SessionId, AgentScript>()
   const agentsState: AgentsStubState = { live: new Map(), created: [], resumed: [], closed: [] }
   ctx.provide('agents', agentsStub(agentsState) as never)
-  const toolNames: string[] = []
-  ctx.provide('tools', {
-    register: (definition: { name: string }) => {
-      toolNames.push(definition.name)
-      return () => {
-        const index = toolNames.indexOf(definition.name)
-        if (index >= 0) toolNames.splice(index, 1)
-      }
-    },
-  } as never)
   const contextsRecorder: Harness['contextsRecorder'] = []
   ctx.provide('systemPrompt', {
     context: (entry: { name: string; text: (context: { agent?: Agent }) => string }) => {
@@ -164,7 +152,6 @@ async function harness(prepare?: (ctx: Context) => void): Promise<{ test: Harnes
     service,
     agentsState,
     scripts,
-    toolNames,
     contextsRecorder,
     resetCalls,
     provideReset,
@@ -204,10 +191,9 @@ afterEach(async () => {
 })
 
 describe('scheduler storage and ownership', () => {
-  it('registers its tools and runtime context on boot', async () => {
+  it('registers its runtime context on boot', async () => {
     const { test, cleanup } = await harness()
     try {
-      expect(test.toolNames).toEqual(['schedule_create', 'schedule_list', 'schedule_delete'])
       expect(test.contextsRecorder.map(entry => entry.name)).toEqual(['schedule:pending'])
     } finally {
       await cleanup()
@@ -535,48 +521,6 @@ describe('scheduler dispatch', () => {
   })
 })
 
-describe('scheduler model tools', () => {
-  it('schedule_create anchors recurrence and rejects ambiguous timing', async () => {
-    const { test, cleanup } = await harness()
-    vi.useFakeTimers()
-    try {
-      const definitions = toolDefinitions(test.service)
-      expect(Object.keys(definitions)).toEqual(['schedule_create', 'schedule_list', 'schedule_delete'])
-      const create = definitions.schedule_create
-      const list = definitions.schedule_list
-      const remove = definitions.schedule_delete
-
-      const script = liveScript(test, 'tool-owner')
-      const exec = { agent: liveAgentOf(test, script), signal: new AbortController().signal }
-      interface CreateOutcome { scheduleId: string; target: string }
-      interface ListRow { prompt: string; status: string }
-      interface ListOutcome { schedules: ListRow[] }
-      const created = await create.execute({
-        prompt: 'weekly digest',
-        after_minutes: 10,
-        every_minutes: 5,
-      }, exec) as CreateOutcome
-      expect(created.scheduleId).toBeTypeOf('string')
-      expect(created.target).toBe('current')
-      const listed = await list.execute({}, exec) as ListOutcome
-      expect(listed.schedules).toHaveLength(1)
-      expect(listed.schedules[0]).toMatchObject({ prompt: 'weekly digest', status: 'active' })
-
-      await expect(create.execute({
-        prompt: 'both',
-        run_at: '2026-09-09T00:00:00Z',
-        after_minutes: 5,
-      }, exec)).rejects.toThrow('exactly one')
-      await expect(create.execute({ prompt: 'none' }, exec)).rejects.toThrow('one valid timing')
-
-      const deleted = await remove.execute({ schedule_id: created.scheduleId }, exec) as { deleted: boolean }
-      expect(deleted).toEqual({ deleted: true })
-    } finally {
-      await cleanup()
-    }
-  })
-})
-
 describe('scheduler runtime context', () => {
   it('summarizes pending in-session schedules and stays empty otherwise', async () => {
     const { test, cleanup } = await harness()
@@ -606,30 +550,6 @@ function liveAgentOf(test: Harness, script: AgentScript): Agent {
   const agent = test.agentsState.live.get(script.session.id)
   if (agent === undefined) throw new Error('no live agent for script')
   return agent
-}
-
-/** Tool executions used by the model-facing tests. */
-interface ToolExecute {
-  execute: (args: Record<string, unknown>, exec: unknown) => Promise<unknown>
-}
-
-/** Collect the tool definitions registered through a fresh stub registry. */
-/** Tool-name keys collected by the stub registry. */
-type ToolName = 'schedule_create' | 'schedule_list' | 'schedule_delete'
-
-function toolDefinitions(service: SchedulerService): Record<ToolName, ToolExecute> {
-  const found = {} as Record<ToolName, ToolExecute>
-  registerSchedulerTools({
-    tools: {
-      register: (definition: { name: string }) => {
-        if ((['schedule_create', 'schedule_list', 'schedule_delete'] as const).includes(definition.name as ToolName)) {
-          found[definition.name as ToolName] = definition as unknown as ToolExecute
-        }
-        return () => undefined
-      },
-    },
-  } as never, service)
-  return found
 }
 
 describe('scheduler cold-path and edge failures', () => {
@@ -836,57 +756,3 @@ describe('scheduler list and pending edge coverage', () => {
     }
   })
 })
-
-describe('scheduler tool guards and renders', () => {
-  it('requires a calling agent and renders model-facing output', async () => {
-    const { test, cleanup } = await harness()
-    try {
-      const definitions = toolDefinitions(test.service)
-      await expect(definitions.schedule_create.execute({ prompt: 'x', after_minutes: 1 }, { signal: new AbortController().signal }))
-        .rejects.toThrow('requires a calling agent')
-      await expect(definitions.schedule_list.execute({}, { signal: new AbortController().signal }))
-        .rejects.toThrow('requires a calling agent')
-      await expect(definitions.schedule_delete.execute({ schedule_id: 'x' }, { signal: new AbortController().signal }))
-        .rejects.toThrow('requires a calling agent')
-
-      const script = liveScript(test, 'render-owner')
-      const agent = liveAgentOf(test, script)
-      const exec = { agent, signal: new AbortController().signal }
-      await definitions.schedule_create.execute({
-        prompt: 'absolute job run',
-        run_at: '2099-01-01T00:00:00Z',
-        target: 'job',
-        context: 'fresh',
-      }, exec)
-      const created = await definitions.schedule_create.execute({
-        prompt: 'rendered',
-        after_minutes: 10,
-      }, exec) as { scheduleId: string; nextDue: string; target: string }
-      const createRender = renderOf(definitions.schedule_create)
-      expect(createRender({ after_minutes: 10 }, created)[0]).toMatchObject({ type: 'text' })
-      expect(createRender({ every_minutes: 5 }, created)[0]).toMatchObject({ type: 'text' })
-      const listRender = renderOf(definitions.schedule_list)
-      expect(listRender({}, { schedules: [] })[0]).toMatchObject({
-        type: 'text',
-        text: 'No scheduled tasks owned by this session.',
-      })
-      expect(listRender({}, {
-        schedules: [{ scheduleId: created.scheduleId, prompt: 'rendered', status: 'active', nextDue: 'soon', target: 'current' }],
-      })[0]).toMatchObject({ type: 'text' })
-      const deleteRender = renderOf(definitions.schedule_delete)
-      expect(deleteRender({ schedule_id: created.scheduleId }, { deleted: true })[0]).toMatchObject({ type: 'text' })
-      expect(deleteRender({ schedule_id: 'missing' }, { deleted: false })[0]).toMatchObject({ type: 'text' })
-    } finally {
-      await cleanup()
-    }
-  })
-})
-
-/** Rendered block shape used by the model-facing tool tests. */
-interface RenderedBlock { type: string; text: string }
-
-/** Project the render function out of one collected tool definition. */
-function renderOf(definition: ToolExecute): (args: unknown, value: unknown) => RenderedBlock[] {
-  const holder = definition as unknown as { output: { render: (args: unknown, value: unknown) => RenderedBlock[] } }
-  return holder.output.render
-}

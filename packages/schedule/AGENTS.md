@@ -13,6 +13,7 @@ These rules supplement the repository and package instructions for `packages/sch
 
 The downstream host-level scheduler differs from the upstream `schedule` package on purpose; the upstream rules above bind only `packages/schedule/schedule`:
 
+- The model-facing tools live in `packages/schedule/tool-scheduler` (`dsh-tool-scheduler`), mounted by preset rows like `dsh-tool-goal`; the service itself registers no tools.
 - One central `storage-domain` table is the only durable scheduler state; session logs record only the log-only `schedule/dispatch` provenance event and the delivered plugin-source `user/message`.
 - Delivery targets ordinary sessions: live roots through the idle maintenance phase, cold sessions through the session-delivery-local resume sequence, job targets through one lazily created, forever-reused ordinary session.
 - Rule math stays pure in `src/time.ts`; production uses the platform wall clock, and tests supply fake timers without adding a production clock service.
