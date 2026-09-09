@@ -244,7 +244,7 @@ listForSession(sessionId: SessionId): ScheduleRecord[]
  * @param id - schedule identity.
  * @returns whether a record was removed.
  */
-@Remote({ exportName: 'remove', requiredCapability: 'harniverse.operate' }) removeOwned(sessionId: SessionId, id: string): Promise<boolean>
+@Remote({ exportName: 'delete', requiredCapability: 'harniverse.operate' }) removeOwned(sessionId: SessionId, id: string): Promise<boolean>
 
 /**
  * Create one durable schedule.

@@ -50,7 +50,7 @@ export function apply(ctx: ClientContext): void {
       inject: sessionId => ({
         onRefresh: () => ctx.remote.scheduler.list(sessionId),
         onUpdate: (id, patch) => ctx.remote.scheduler.update(sessionId, id, patch),
-        onRemove: id => ctx.remote.scheduler.remove(sessionId, id),
+        onRemove: id => ctx.remote.scheduler.delete(sessionId, id),
       }),
     }, ScheduleListAction),
   )

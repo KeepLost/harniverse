@@ -51,4 +51,4 @@
 
 ## 后续：B2 Remote 与会话头 UI
 
-服务现继承 `TypertRemoteService`（命名空间 `scheduler`），带四个会话作用域的 `@Remote` 方法 —— `list`（observe）、`create`、`update`、`remove`（operate）—— 均以 `exportName` 重命名，生成的客户端读作 `ctx.remote.scheduler.list(sessionId)`，与 goals 命名空间一致。`ScheduleCreateInput` 移入 `types.ts`：typert 分析器要求 Remote 边界类型位于公开的非根 type 子路径。生成的 `./remote` 客户端经 `dsh-api-remotes` 装配，`dsh-client-ui-scheduler` 贡献 `schedule-list` 头部操作（order 10），动作经插槽 `inject` 按会话绑定；仅当 Remote 报告存在归属记录时才渲染，现有快照不受影响。实时投递更新与独立管理页保持延后。
+服务现继承 `TypertRemoteService`（命名空间 `scheduler`），带四个会话作用域的 `@Remote` 方法 —— `list`（observe）、`create`、`update`、`delete`（operate）—— 均以 `exportName` 重命名，生成的客户端读作 `ctx.remote.scheduler.list(sessionId)`，与 goals 命名空间一致。`ScheduleCreateInput` 移入 `types.ts`：typert 分析器要求 Remote 边界类型位于公开的非根 type 子路径。生成的 `./remote` 客户端经 `dsh-api-remotes` 装配，`dsh-client-ui-scheduler` 贡献 `schedule-list` 头部操作（order 10），动作经插槽 `inject` 按会话绑定；仅当 Remote 报告存在归属记录时才渲染，现有快照不受影响。实时投递更新与独立管理页保持延后。

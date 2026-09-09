@@ -6,7 +6,7 @@ Host-level durable scheduler (`ctx.scheduler`). Scheduled prompts live in one ce
 
 ## Remote surface
 
-Session-scoped Typert Remote methods (capability-gated) expose the same store to the browser: `list` (`harniverse.observe`) plus `create` / `update` / `remove` (`harniverse.operate`). The generated `@deepseek-ai/dsh-scheduler/remote` client mounts through `dsh-api-remotes`, so the Web UI composes the identical methods the tools use.
+Session-scoped Typert Remote methods (capability-gated) expose the same store to the browser: `list` (`harniverse.observe`) plus `create` / `update` / `delete` (`harniverse.operate`). The generated `@deepseek-ai/dsh-scheduler/remote` client mounts through `dsh-api-remotes`, so the Web UI composes the identical methods the tools use.
 
 ## Service contract
 

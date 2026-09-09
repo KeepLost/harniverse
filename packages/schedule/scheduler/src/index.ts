@@ -162,7 +162,7 @@ export class SchedulerService extends TypertRemoteService {
    * @param id - schedule identity.
    * @returns whether a record was removed.
    */
-  @Remote({ exportName: 'remove', requiredCapability: 'harniverse.operate' })
+  @Remote({ exportName: 'delete', requiredCapability: 'harniverse.operate' })
   removeOwned(sessionId: SessionId, id: string): Promise<boolean> {
     return this.remove(id, sessionId)
   }

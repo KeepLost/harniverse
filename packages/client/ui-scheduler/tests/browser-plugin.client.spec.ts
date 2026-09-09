@@ -22,8 +22,11 @@ function headerEntryIds(ctx: Context): (string | undefined)[] {
     .map(entry => entry.options.id)
 }
 
+/** One registration captured while the plugin applies. */
+interface CapturedRegistration { options: Record<string, unknown>; component: unknown }
+
 /** Boot the browser half over a real slot tree that declares the header list. */
-async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugin']> }> {
+async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugin']>; captured: CapturedRegistration[] }> {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   ctx.slots.register({
@@ -36,7 +39,14 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
   // The locale plugin binds a settings scope, which reads the connection handle
   // and the forwarded-event port.
   ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
-  ctx.provide('remote', { $on: () => () => {} } as never)
+  ctx.provide('remote', {
+    $on: () => () => {},
+    scheduler: {
+      list: async () => ({ ok: true, value: [] }),
+      update: async () => ({ ok: true, value: undefined }),
+      delete: async () => ({ ok: true, value: false }),
+    },
+  } as never)
   ctx.provide('remote.scheduler', {
     list: async () => ({ ok: true, value: [] }),
     update: async () => ({ ok: true, value: undefined }),
@@ -44,9 +54,23 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
   } as never)
   ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
-  const fiber = ctx.plugin({ inject: [...inject], apply })
+  const captured: CapturedRegistration[] = []
+  const fiber = ctx.plugin({
+    inject: [...inject],
+    apply: (clientCtx) => {
+      const slots = clientCtx.slots as unknown as {
+        register: (options: Record<string, unknown>, component: unknown) => () => void
+      }
+      const inner = slots.register.bind(clientCtx.slots)
+      slots.register = (options, component) => {
+        captured.push({ options, component })
+        return inner(options, component)
+      }
+      apply(clientCtx)
+    },
+  })
   await fiber.await()
-  return { ctx, fiber }
+  return { ctx, fiber, captured }
 }
 
 describe('ui-scheduler browser half', () => {
@@ -76,7 +100,36 @@ describe('ui-scheduler browser half', () => {
   it('keeps the English dictionary key-identical to the Chinese source of truth', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
   })
-})
+
+  it('binds the slot inject verbs to the scheduler Remote per session', async () => {
+    const { ctx, captured } = await bench()
+    const registration = captured.find(({ options }) => options['id'] === 'schedule-list')
+    expect(registration).toBeDefined()
+    const inject = registration!.options['inject'] as (sessionId: string) => {
+      onRefresh: () => Promise<unknown>
+      onUpdate: (id: string, patch: { status?: 'active' | 'paused' }) => Promise<unknown>
+      onRemove: (id: string) => Promise<unknown>
+    }
+    const calls: unknown[][] = []
+    const scheduler = (ctx.get('remote') as unknown as { scheduler: Record<string, ((...args: unknown[]) => Promise<unknown>) | undefined> }).scheduler
+    for (const name of ['list', 'update', 'delete']) {
+      const verb = scheduler[name]
+      scheduler[name] = async (...args: unknown[]) => {
+        calls.push([name, ...args])
+        if (verb === undefined) throw new Error(`unexpected remote verb: ${name}`)
+        return await verb(...args)
+      }
+    }
+    const verbs = inject('session-z')
+    await verbs.onRefresh()
+    await verbs.onUpdate('sched-9', { status: 'paused' })
+    await verbs.onRemove('sched-9')
+    expect(calls).toEqual([
+      ['list', 'session-z'],
+      ['update', 'session-z', 'sched-9', { status: 'paused' }],
+      ['delete', 'session-z', 'sched-9'],
+    ])
+  })})
 
 describe('ui-scheduler node half', () => {
   it('contributes no host behavior', () => {

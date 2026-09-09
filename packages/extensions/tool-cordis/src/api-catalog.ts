@@ -1474,7 +1474,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the updated record, or `undefined` when absent or not owned.',
       },
       {
-        signature: '@Remote({ exportName: \'remove\', requiredCapability: \'harniverse.operate\' }) removeOwned(sessionId: SessionId, id: string): Promise<boolean>',
+        signature: '@Remote({ exportName: \'delete\', requiredCapability: \'harniverse.operate\' }) removeOwned(sessionId: SessionId, id: string): Promise<boolean>',
         description: 'Remote-facing removal under session ownership.',
         parameters: [{ name: 'sessionId', description: 'owning session identity.' }, { name: 'id', description: 'schedule identity.' }],
         returns: 'whether a record was removed.',

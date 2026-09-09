@@ -6,7 +6,7 @@
 
 ## Remote 面
 
-会话作用域的 Typert Remote 方法（带能力门控）把同一存储暴露给浏览器：`list`（`harniverse.observe`）与 `create` / `update` / `remove`（`harniverse.operate`）。生成的 `@deepseek-ai/dsh-scheduler/remote` 客户端经 `dsh-api-remotes` 装配，Web UI 组合的正是工具所用的同一组方法。
+会话作用域的 Typert Remote 方法（带能力门控）把同一存储暴露给浏览器：`list`（`harniverse.observe`）与 `create` / `update` / `delete`（`harniverse.operate`）。生成的 `@deepseek-ai/dsh-scheduler/remote` 客户端经 `dsh-api-remotes` 装配，Web UI 组合的正是工具所用的同一组方法。
 
 ## 服务契约
 

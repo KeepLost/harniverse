@@ -59,6 +59,63 @@ describe('ScheduleListAction', () => {
     await waitFor(() => { expect(screen.queryByRole('button')).toBeNull() })
   })
 
+  it('stays hidden when the refresh fails', async () => {
+    const rendered = {
+      onRefresh: vi.fn(async () => ({ ok: false as const, error: 'unreachable' })),
+      onUpdate: vi.fn(async () => ({ ok: true as const, value: undefined })),
+      onRemove: vi.fn(async () => ({ ok: true as const, value: true })),
+      sessionId: 'session',
+      t,
+    } as unknown as ScheduleListActionProps
+    const { container } = render(<ScheduleListAction {...rendered} />)
+    await waitFor(() => { expect(rendered.onRefresh).toHaveBeenCalled() })
+    expect(container.firstChild).toBeNull()
+  })
+
+  it('closes on outside pointerdown and on Escape, staying open for inside clicks and other keys', async () => {
+    const face: Face = { rows: [record()] }
+    render(<ScheduleListAction {...props(face)} />)
+    const trigger = await screen.findByRole('button', { name: zh['count.active.one'].replace('{count}', '1') })
+    fireEvent.click(trigger)
+    const list = screen.getByRole('list', { name: zh['list.aria'] })
+    expect(list).toBeDefined()
+    fireEvent.pointerDown(list.firstChild ?? list)
+    expect(screen.getByRole('list', { name: zh['list.aria'] })).toBeDefined()
+    fireEvent.keyDown(list, { key: 'Enter' })
+    expect(screen.getByRole('list', { name: zh['list.aria'] })).toBeDefined()
+    fireEvent.pointerDown(window)
+    expect(screen.getByRole('list', { name: zh['list.aria'] })).toBeDefined()
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('list', { name: zh['list.aria'] })).toBeNull()
+    fireEvent.click(trigger)
+    fireEvent.keyDown(screen.getByRole('list', { name: zh['list.aria'] }), { key: 'Escape' })
+    expect(screen.queryByRole('list', { name: zh['list.aria'] })).toBeNull()
+  })
+
+  it('closes itself when a mutation refresh empties the list while open', async () => {
+    const face: Face = { rows: [record()] }
+    const rendered = props(face)
+    render(<ScheduleListAction {...rendered} />)
+    const trigger = await screen.findByRole('button')
+    fireEvent.click(trigger)
+    expect(screen.getByRole('list', { name: zh['list.aria'] })).toBeDefined()
+    const emptyFace: Face = { rows: [] }
+    const emptied = props(emptyFace)
+    ;(rendered.onRefresh as ReturnType<typeof vi.fn>).mockImplementation(emptied.onRefresh)
+    fireEvent.click(screen.getByRole('button', { name: zh['action.pause'] }))
+    await waitFor(() => { expect(screen.queryByRole('list', { name: zh['list.aria'] })).toBeNull() })
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  it('uses plural labels for multiple rows', async () => {
+    const face: Face = { rows: [record(), record({ id: 'sched-2' })] }
+    render(<ScheduleListAction {...props(face)} />)
+    await screen.findByRole('button', { name: zh['count.active.other'].replace('{count}', '2') })
+    const pausedFace: Face = { rows: [record({ status: 'paused' }), record({ id: 'p2', status: 'paused' })] }
+    render(<ScheduleListAction {...props(pausedFace)} />)
+    await screen.findAllByRole('button', { name: zh['count.paused.other'].replace('{count}', '2') })
+  })
+
   it('shows the trigger after rows arrive and lists them with due moments', async () => {
     const face: Face = { rows: [record()] }
     render(<ScheduleListAction {...props(face)} />)
@@ -85,6 +142,9 @@ describe('ScheduleListAction', () => {
     fireEvent.click(trigger)
     fireEvent.click(await screen.findByRole('button', { name: zh['action.pause'] }))
     await waitFor(() => { expect(rendered.onUpdate).toHaveBeenCalledWith('sched-1', { status: 'paused' }) })
+    const resumes = await screen.findAllByRole('button', { name: zh['action.resume'] })
+    fireEvent.click(resumes[0]!)
+    await waitFor(() => { expect(rendered.onUpdate).toHaveBeenCalledWith('sched-2', { status: 'active' }) })
     const deletes = await screen.findAllByRole('button', { name: zh['action.delete'] })
     fireEvent.click(deletes[1]!)
     await waitFor(() => { expect(rendered.onRemove).toHaveBeenCalledWith('sched-2') })
