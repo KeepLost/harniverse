@@ -18,6 +18,46 @@ export const name = 'context-reset-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
+/** Fail unless the marker carries the anchor issued for this reset. */
+function requireAnchor(anchor: PendingReset | undefined, fail: InvariantFailure): asserts anchor is PendingReset {
+  if (anchor === undefined) fail('reset marker without a preceding reset/checkpoint anchor')
+}
+
+/** Fail unless the marker event rewinds the surface (a full-history replacement). */
+function requireReplacement(event: SessionEvent<'user/message'>, fail: InvariantFailure): void {
+  if (!isReplacementSurfaceEvent(event)) {
+    fail('reset marker must be a replacement surface event')
+  }
+}
+
+/**
+ * Fail unless the marker speaks for the pending anchor. Seq adjacency is
+ * structural: contiguity plus the stale-pending guard mean a recognized
+ * marker can never sit further than anchor.seq + 1.
+ */
+function requireAnchorIdentity(
+  anchor: PendingReset,
+  source: ResetCheckpointSource,
+  seq: number,
+  fail: InvariantFailure,
+): void {
+  if (anchor.resetId !== source.resetId) {
+    fail(`reset marker at seq ${String(seq)} must immediately follow its reset/checkpoint anchor`)
+  }
+}
+
+/** Fail when a pending anchor is not followed immediately by its marker. */
+function requirePendingMarker(
+  session: Session,
+  pending: WeakMap<Session, PendingReset>,
+  fail: InvariantFailure,
+): void {
+  const stale = pending.get(session)
+  if (stale !== undefined) {
+    fail(`reset/checkpoint at seq ${String(stale.seq)} is not immediately followed by its marker`)
+  }
+}
+
 /** Local reset-marker shape guard (inline: the invariant bundle shares no runtime module with the service entry). */
 function isResetCheckpointSource(source: unknown): source is ResetCheckpointSource {
   /* v8 ignore next 2 -- the session envelope guarantees an object source with a string kind before events reach listeners */
@@ -47,21 +87,12 @@ const install: InvariantInstaller = (ctx: Context, fail: InvariantFailure): void
     if (event.type === 'user/message' && isResetCheckpointSource(event.data.source)) {
       const anchor = pending.get(session)
       pending.delete(session)
-      if (anchor === undefined) fail('reset marker without a preceding reset/checkpoint anchor')
-      if (!isReplacementSurfaceEvent(event)) {
-        fail('reset marker must be a replacement surface event')
-      }
-      // Seq adjacency is structural: contiguity plus the stale-pending guard
-      // above mean a recognized marker can never sit further than anchor.seq + 1.
-      if (anchor.resetId !== event.data.source.resetId) {
-        fail(`reset marker at seq ${String(event.seq)} must immediately follow its reset/checkpoint anchor`)
-      }
+      requireAnchor(anchor, fail)
+      requireReplacement(event, fail)
+      requireAnchorIdentity(anchor, event.data.source, event.seq, fail)
       return
     }
-    const stale = pending.get(session)
-    if (stale !== undefined) {
-      fail(`reset/checkpoint at seq ${String(stale.seq)} is not immediately followed by its marker`)
-    }
+    requirePendingMarker(session, pending, fail)
   })
 }
 
