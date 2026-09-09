@@ -14,7 +14,7 @@ Status: implemented
 
 两个伴生插件现在遵循既有的 `goal` 与 `compaction` 形状：校验运行在带 `{ global: true }` 的 `internal/dispatch` 上，该通道在候选事件加入日志之前暂存它，因此 `fail()` 会在调用点拒绝 `session.append()`。`context-reset` 在这一拆分之上保持其增量折叠的诚实性 —— `internal/dispatch` 针对当前待定锚点校验候选并暂存所得状态，`session/event` 在发布时采纳暂存状态、并在任何事件未经暂存就到达发布时失败，而安装时从 `ctx.sessions.list()` 加 `session/created` 播种折叠，使得在既有历史之上安装的伴生插件携带正确的待定锚点。`scheduler` 不需要折叠：它的 dispatch 目标检查是逐事件的。
 
-两个 spec 都被重写为驱动真实 context —— `SessionStore`、`InvariantRegistry`，然后是伴生插件 —— 并通过 `expect(() => session.append(...)).toThrow(...)` 断言。覆盖率通道对「仅由抛错退出来度量」的分支仍然记录不稳 —— 迁移之后，一次纯文档提交又让该文件翻回失败 —— 因此 `context-reset` 把每个判定先归结为一条消息（`markerProblem`、`pendingProblem`），只保留单一 `fail()` 调用点，该处承载为抛错解栈臂保留的唯一一条 ignore。这个形状使每条判定分支都由普通返回来度量。
+两个 spec 都被重写为驱动真实 context —— `SessionStore`、`InvariantRegistry`，然后是伴生插件 —— 并通过 `expect(() => session.append(...)).toThrow(...)` 断言。该文件的分支记账不稳与通道迁移无关：纯文档提交就能让同一份源码在通过与失败之间翻转，而本地一次把 context-reset 与 scheduler 两个套件同跑，得到了**负数**分支计数（`[5,-3]`、`[22,-21]`）—— 正确的记账不可能产生负数。`istanbul-lib-coverage` 按下标合并分支数组，因此同一文件的两种不同形态插桩会把计数加进错位的槽位。自定义的 uncovered-locations reporter 只打印计数恰为 `0` 的条目，所以这些负数从未出现在 CI 日志里，而被清零的邻居则被报成未覆盖路径。因此 `context-reset` 把整个折叠保持在单个 `validateCandidate` 帧内 —— 这是仍能度量每条判定的最小记账面 —— 而不是散布到多个辅助函数帧。该合并缺陷本身属于工具链问题，不在此处修复。
 
 ## Consequences
 

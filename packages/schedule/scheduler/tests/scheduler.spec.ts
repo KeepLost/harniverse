@@ -11,6 +11,15 @@ import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SchedulerService, { ScheduleRuleError } from '../src/index.ts'
 
+/**
+ * Await one delivery-path assertion. Dispatch crosses durability barriers and
+ * an optional fresh-context reset before a followup lands, which outruns the
+ * default one-second budget on loaded Windows and macOS runners.
+ */
+function waitForDelivery(assertion: () => void | Promise<void>): Promise<void> {
+  return vi.waitFor(assertion, { timeout: 10_000, interval: 25 })
+}
+
 interface AgentScript {
   readonly session: Session
   followups: UserMessage[]
@@ -295,7 +304,7 @@ describe('scheduler dispatch', () => {
         createdBy: { kind: 'model', sessionId: script.session.id },
       })
       await vi.advanceTimersByTimeAsync(60_000)
-      await vi.waitFor(() => {
+      await waitForDelivery(() => {
         expect(script.followups).toHaveLength(1)
       })
       expect(script.followups[0]!.content).toEqual([{ type: 'text', text: 'time to report' }])
@@ -303,7 +312,7 @@ describe('scheduler dispatch', () => {
       const dispatch = script.session.events.find(event => event.type === 'schedule/dispatch')
       expect(dispatch).toBeDefined()
       expect(flush).toHaveBeenCalled()
-      await vi.waitFor(async () => {
+      await waitForDelivery(async () => {
         const after = test.service.list().find(row => row.id === record.id)
         expect(after?.status).toBe('done')
         expect(after?.lastRunAt).toBeTypeOf('number')
@@ -337,7 +346,7 @@ describe('scheduler dispatch', () => {
         createdBy: { kind: 'model', sessionId: script.session.id },
       })
       await vi.advanceTimersByTimeAsync(30_000)
-      await vi.waitFor(() => {
+      await waitForDelivery(() => {
         expect(test.resetCalls).toHaveLength(1)
         expect(script.followups).toHaveLength(1)
       })
@@ -359,7 +368,7 @@ describe('scheduler dispatch', () => {
         createdBy: { kind: 'model', sessionId: script.session.id },
       })
       await vi.advanceTimersByTimeAsync(30_000)
-      await vi.waitFor(async () => {
+      await waitForDelivery(async () => {
         const after = (test.service.list()).find(row => row.id === record.id)
         expect(after?.lastError).toContain('context reset')
         expect(after?.status).toBe('active')
@@ -395,21 +404,21 @@ describe('scheduler dispatch', () => {
         createdBy: { kind: 'model', sessionId: owner.session.id },
       })
       await vi.advanceTimersByTimeAsync(300_000)
-      await vi.waitFor(() => {
+      await waitForDelivery(() => {
         expect(test.agentsState.created).toHaveLength(1)
       })
       expect(jobScripts).toHaveLength(1)
-      await vi.waitFor(() => {
+      await waitForDelivery(() => {
         expect(jobScripts[0]!.followups).toHaveLength(1)
       })
       expect(test.resetCalls).toHaveLength(1)
-      await vi.waitFor(async () => {
+      await waitForDelivery(async () => {
         const stored = (test.service.list()).find(row => row.id === record.id)
         expect(stored?.jobSessionId).toBe(jobScripts[0]!.session.id)
         expect(stored?.nextDue).toBe(stored!.lastDue! + 300_000)
       })
       await vi.advanceTimersByTimeAsync(300_000)
-      await vi.waitFor(() => {
+      await waitForDelivery(() => {
         expect(jobScripts[0]!.followups).toHaveLength(2)
       })
       expect(test.agentsState.created).toHaveLength(1)
@@ -442,13 +451,13 @@ describe('scheduler dispatch', () => {
         createdBy: { kind: 'user', sessionId: coldSession.id },
       })
       await vi.advanceTimersByTimeAsync(30_000)
-      await vi.waitFor(() => {
+      await waitForDelivery(() => {
         expect(test.persistenceCalls.listed).toBe(true)
         expect(test.persistenceCalls.inspected).toEqual([coldSession.id])
         expect(test.agentsState.resumed).toHaveLength(1)
         expect(coldScript.followups).toHaveLength(1)
       })
-      await vi.waitFor(() => {
+      await waitForDelivery(() => {
         expect(test.agentsState.closed).toEqual([coldSession.id])
       })
     } finally {
@@ -472,7 +481,7 @@ describe('scheduler dispatch', () => {
         createdBy: { kind: 'model', sessionId: session.id },
       })
       await vi.advanceTimersByTimeAsync(30_000)
-      await vi.waitFor(() => {
+      await waitForDelivery(() => {
         expect(script.followups).toHaveLength(1)
       })
     } finally {
@@ -510,7 +519,7 @@ describe('scheduler dispatch', () => {
         contextMode: 'continue',
         createdBy: { kind: 'model', sessionId: overdue.session.id },
       })
-      await vi.waitFor(async () => {
+      await waitForDelivery(async () => {
         expect(overdue.followups).toHaveLength(1)
         const stored = (test.service.list()).find(row => row.id === overdueRecord.id)
         expect(stored?.lastDue).toBe(start - 650_000 + 600_000)
@@ -607,7 +616,7 @@ describe('scheduler cold-path and edge failures', () => {
         })
       }
       await vi.advanceTimersByTimeAsync(30_000)
-      await vi.waitFor(() => {
+      await waitForDelivery(() => {
         expect(coldScript.followups).toHaveLength(2)
         expect(test.agentsState.resumed).toHaveLength(1)
       })
@@ -647,7 +656,7 @@ describe('scheduler cold-path and edge failures', () => {
       })
       void missing
       await vi.advanceTimersByTimeAsync(30_000)
-      await vi.waitFor(async () => {
+      await waitForDelivery(async () => {
         const rows = test.service.list()
         const errors = rows.filter(row => row.lastError !== undefined)
         expect(errors).toHaveLength(3)
@@ -675,7 +684,7 @@ describe('scheduler cold-path and edge failures', () => {
         createdBy: { kind: 'model', sessionId: owner.session.id },
       })
       await vi.advanceTimersByTimeAsync(30_000)
-      await vi.waitFor(async () => {
+      await waitForDelivery(async () => {
         const after = (test.service.list()).find(row => row.id === record.id)
         expect(after?.lastError).toContain('deployment default model')
       })
@@ -699,7 +708,7 @@ describe('scheduler cold-path and edge failures', () => {
         contextMode: 'continue',
         createdBy: { kind: 'model', sessionId: session.id },
       })
-      await vi.waitFor(async () => {
+      await waitForDelivery(async () => {
         const after = (test.service.list()).find(row => row.id === record.id)
         expect(after?.lastError).toContain('still busy')
         expect(after?.nextDue).toBe(record.nextDue! + 300_000)

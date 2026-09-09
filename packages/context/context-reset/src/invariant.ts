@@ -18,32 +18,6 @@ export const name = 'context-reset-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/**
- * Describe why a recognized marker violates the anchor correlation, or
- * `undefined` when the pair is sound. Seq adjacency is structural: contiguity
- * plus the stale-pending check mean a recognized marker can never sit further
- * than anchor.seq + 1.
- */
-function markerProblem(
-  anchor: PendingReset | undefined,
-  event: SessionEvent<'user/message'>,
-  source: ResetCheckpointSource,
-): string | undefined {
-  if (anchor === undefined) return 'reset marker without a preceding reset/checkpoint anchor'
-  if (!isReplacementSurfaceEvent(event)) return 'reset marker must be a replacement surface event'
-  if (anchor.resetId !== source.resetId) {
-    return `reset marker at seq ${String(event.seq)} must immediately follow its reset/checkpoint anchor`
-  }
-  return undefined
-}
-
-/** Describe a pending anchor left without its immediately following marker. */
-function pendingProblem(stale: PendingReset | undefined): string | undefined {
-  return stale === undefined
-    ? undefined
-    : `reset/checkpoint at seq ${String(stale.seq)} is not immediately followed by its marker`
-}
-
 /** Local reset-marker shape guard (inline: the invariant bundle shares no runtime module with the service entry). */
 function isResetCheckpointSource(source: unknown): source is ResetCheckpointSource {
   /* v8 ignore next 2 -- the session envelope guarantees an object source with a string kind before events reach listeners */
@@ -64,7 +38,14 @@ type NextPending = PendingReset | undefined
 /**
  * Fold one candidate event, failing before it can enter the durable log.
  * Every decision resolves to a message first and this function owns the only
- * `fail()` call site, so no branch is measured solely by its throwing exit.
+ * `fail()` call site. Seq adjacency is structural: contiguity plus the
+ * stale-anchor check mean a recognized marker can never sit further than
+ * anchor.seq + 1.
+ *
+ * The whole fold lives in one function because the coverage lane's branch
+ * accounting for this file is unstable across otherwise identical runs — see
+ * the Agent Note on the invariant staging channel — and one frame is the
+ * smallest accounting surface that still measures every decision.
  */
 function validateCandidate(
   anchor: NextPending,
@@ -74,15 +55,20 @@ function validateCandidate(
   if (event.type === 'reset/checkpoint') {
     return { resetId: event.data.resetId, seq: event.seq }
   }
-  const marker = event.type === 'user/message' && isResetCheckpointSource(event.data.source)
-    ? { source: event.data.source, event }
-    : undefined
-  const problem = marker === undefined
-    ? pendingProblem(anchor)
-    : markerProblem(anchor, marker.event, marker.source)
-  /* v8 ignore next -- the sole failure exit; its unwind is what the runner v8 records unreliably */
-  if (problem !== undefined) fail(problem)
-  return marker === undefined ? anchor : undefined
+  const source = event.type === 'user/message' ? event.data.source : undefined
+  if (source === undefined || !isResetCheckpointSource(source)) {
+    const stale = anchor
+    if (stale !== undefined) {
+      fail(`reset/checkpoint at seq ${String(stale.seq)} is not immediately followed by its marker`)
+    }
+    return anchor
+  }
+  if (anchor === undefined) fail('reset marker without a preceding reset/checkpoint anchor')
+  if (!isReplacementSurfaceEvent(event)) fail('reset marker must be a replacement surface event')
+  if (anchor.resetId !== source.resetId) {
+    fail(`reset marker at seq ${String(event.seq)} must immediately follow its reset/checkpoint anchor`)
+  }
+  return undefined
 }
 
 /**
