@@ -27,6 +27,27 @@ export interface ScheduleCreator {
   readonly sessionId: SessionId
 }
 
+/** Server-derived provenance for the current prompt revision. */
+export interface SchedulePromptEdit {
+  readonly version: number
+  readonly prompt: string
+  readonly editedBy: ScheduleCreator
+  readonly editedAt: number
+}
+
+/** Durable result of one scheduled delivery attempt. */
+export interface ScheduleRun {
+  readonly id: string
+  readonly scheduleId: string
+  readonly ownerSessionId: SessionId
+  readonly targetSessionId: SessionId
+  readonly dueAt: number
+  readonly attemptedAt: number
+  readonly promptRevision: number | undefined
+  readonly status: 'succeeded' | 'failed'
+  readonly error?: string
+}
+
 /** One durable scheduled prompt. */
 export interface ScheduleRecord {
   readonly id: string
@@ -38,6 +59,10 @@ export interface ScheduleRecord {
   readonly status: ScheduleStatus
   readonly jobSessionId?: SessionId
   readonly createdAt: number
+  /** Monotonic prompt revision, including the creation revision. */
+  readonly promptRevision?: number
+  /** The latest prompt mutation, if this record predates provenance support. */
+  readonly lastPromptEdit?: SchedulePromptEdit
   readonly nextDue?: number
   readonly lastRunAt?: number
   readonly lastDue?: number

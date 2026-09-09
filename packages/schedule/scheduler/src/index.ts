@@ -46,11 +46,24 @@ import {
   subsequentDue,
   validateRule,
 } from './time.ts'
-import type { ScheduleCreateInput, ScheduleCreateRemoteInput, ScheduleRecord, ScheduleUpdate } from './types.ts'
+import type {
+  ScheduleCreateInput,
+  ScheduleCreateRemoteInput,
+  ScheduleRecord,
+  ScheduleRun,
+  ScheduleUpdate,
+} from './types.ts'
 
 export { ScheduleRuleError } from './time.ts'
 export { MIN_EVERY_INTERVAL_MS, MAX_PROMPT_LENGTH, MAX_DELAY_MS } from './time.ts'
-export type { ScheduleRecord, ScheduleUpdate, SchedulerRule, ScheduleDispatchOutcome } from './types.ts'
+export type {
+  SchedulePromptEdit,
+  ScheduleRecord,
+  ScheduleRun,
+  ScheduleUpdate,
+  SchedulerRule,
+  ScheduleDispatchOutcome,
+} from './types.ts'
 
 /** Input accepted by {@link SchedulerService.create}. */
 declare module '@deepseek-ai/cordis' {
@@ -84,6 +97,7 @@ export class SchedulerService extends TypertRemoteService {
 
   private readonly ownerCtx: Context
   private table: KvTable<string, ScheduleRecord> | undefined
+  private runs: KvTable<string, ScheduleRun> | undefined
   private timer: ReturnType<typeof setTimeout> | undefined
   private closed = false
   private readonly chains = new Map<string, Promise<unknown>>()
@@ -97,6 +111,7 @@ export class SchedulerService extends TypertRemoteService {
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(schedulerDomainSpec)
     this.table = domain.table('schedules')
+    this.runs = domain.table('runs')
     this.ownerCtx.effect(() => async () => {
       this.closed = true
       this.disarm()
@@ -185,6 +200,21 @@ export class SchedulerService extends TypertRemoteService {
     return this.remove(id, sessionId)
   }
 
+  /** Remote-facing execution history for one owned schedule. */
+  @Remote({ exportName: 'runs', requiredCapability: 'harniverse.observe' })
+  listRunsOwned(sessionId: SessionId, scheduleId: string): ScheduleRun[] {
+    return this.listRuns(scheduleId, sessionId)
+  }
+
+  /** Read durable delivery attempts, newest first, under session ownership. */
+  listRuns(scheduleId: string, ownerSessionId?: SessionId): ScheduleRun[] {
+    const runs = [...this.requireRuns().entries()]
+      .map(([, run]) => run)
+      .filter(run => run.scheduleId === scheduleId
+        && (ownerSessionId === undefined || run.ownerSessionId === ownerSessionId))
+    return runs.sort((a, b) => b.attemptedAt - a.attemptedAt)
+  }
+
   /**
    * Create one durable schedule.
    * @param input - validated prompt, rule candidate, target, and creator.
@@ -208,6 +238,13 @@ export class SchedulerService extends TypertRemoteService {
       createdBy: input.createdBy,
       status: 'active',
       createdAt,
+      promptRevision: 1,
+      lastPromptEdit: {
+        version: 1,
+        prompt,
+        editedBy: input.createdBy,
+        editedAt: createdAt,
+      },
       nextDue: due,
     }
     await this.requireTable().put(record.id, record)
@@ -229,10 +266,23 @@ export class SchedulerService extends TypertRemoteService {
       if (prompt.length > MAX_PROMPT_LENGTH) {
         throw new ScheduleRuleError(`prompt must be at most ${String(MAX_PROMPT_LENGTH)} characters`)
       }
+      const promptChanged = prompt !== record.prompt
+      const promptRevision = record.promptRevision ?? 1
       return {
         ...record,
         prompt,
         status: update.status ?? record.status,
+        ...(promptChanged
+          ? {
+            promptRevision: promptRevision + 1,
+            lastPromptEdit: {
+              version: promptRevision + 1,
+              prompt,
+              editedBy: by === undefined ? record.createdBy : { kind: 'user', sessionId: by },
+              editedAt: this.now(),
+            },
+          }
+          : {}),
       }
     })
   }
@@ -261,6 +311,12 @@ export class SchedulerService extends TypertRemoteService {
     // v8 ignore next 2 -- only reachable between construction and Service.init
     if (this.table === undefined) throw new Error('scheduler storage is not ready')
     return this.table
+  }
+
+  private requireRuns(): KvTable<string, ScheduleRun> {
+    // v8 ignore next 2 -- only reachable between construction and Service.init
+    if (this.runs === undefined) throw new Error('scheduler run storage is not ready')
+    return this.runs
   }
 
   private owns(record: ScheduleRecord, sessionId: SessionId): boolean {
@@ -363,6 +419,7 @@ export class SchedulerService extends TypertRemoteService {
     const planned = record.nextDue ?? record.createdAt
     const due = latestMissedDue(record.rule, planned, now)
     let target: DeliveryTarget | undefined
+    let failure: string | undefined
     try {
       target = await this.resolveTarget(record)
       if (record.contextMode === 'fresh') await this.resetTarget(target.agent)
@@ -374,14 +431,37 @@ export class SchedulerService extends TypertRemoteService {
       })
 
     } catch (error: unknown) {
+      failure = error instanceof Error ? error.message : String(error)
       await this.advance(record, {
         lastDue: due,
         lastRunAt: now,
-        lastError: error instanceof Error ? error.message : String(error),
+        lastError: failure,
       })
     } finally {
+      await this.recordRun(record, due, now, target?.sessionId ?? record.jobSessionId ?? record.createdBy.sessionId, failure)
       if (target !== undefined && target.resumedHere) this.recycle(target.sessionId)
     }
+  }
+
+  private async recordRun(
+    record: ScheduleRecord,
+    dueAt: number,
+    attemptedAt: number,
+    targetSessionId: SessionId,
+    error: string | undefined,
+  ): Promise<void> {
+    const id = randomUUID()
+    await this.requireRuns().put(id, {
+      id,
+      scheduleId: record.id,
+      ownerSessionId: record.createdBy.sessionId,
+      targetSessionId,
+      dueAt,
+      attemptedAt,
+      promptRevision: record.promptRevision,
+      status: error === undefined ? 'succeeded' : 'failed',
+      ...(error === undefined ? {} : { error }),
+    })
   }
 
   /** Advance durable dispatch state after one attempt. */

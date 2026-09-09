@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Session-header schedule list (`conversation.session.header.actions`). Shows this session's durable schedules from the generated scheduler Remote (`ctx.remote.scheduler`) with pause/resume/delete verbs. The trigger renders only when the session owns at least one schedule, so untouched conversations never grow a control.
+Session-header schedule list (`conversation.session.header.actions`) and workspace management section (`settings.section`). The header shows this session's durable schedules from the generated scheduler Remote (`ctx.remote.scheduler`) with pause/resume/delete verbs. The settings section aggregates the sessions in the current workspace and provides schedule CRUD plus next/last-run status.
 
 ## Composition
 
@@ -10,8 +10,10 @@ Session-header schedule list (`conversation.session.header.actions`). Shows this
 |---|---|
 | Injection | `sessions`, `slots`, `locale`, `remote`, `remote.scheduler`. |
 | Slot | `conversation.session.header.actions`, id `schedule-list`, order 10 (before the job catalog). |
+| Management slot | `settings.section`, id `schedules`, order 30. |
 | Data | One Remote read per popover open plus one after each mutation; no client store, the storage-domain table stays authoritative. |
-| Mutations | Pause/resume ride `update` with a status patch; delete rides `remove`; both operate only on records the session owns. |
+| Mutations | Pause/resume and prompt edits ride `update`; creation rides `create`; delete rides `remove`; all operations use the owning session identity. |
+| Provenance | Central records expose a monotonic `promptRevision` and server-derived `lastPromptEdit` actor/time metadata. |
 
 ## Model Experience
 
@@ -25,4 +27,4 @@ None; the package never assembles or sends provider requests.
 ## Known Limitations and Deferred Work
 
 - No live updates: dispatch-driven status changes appear on the next popover open, not streamed.
-- No creation surface from the header; creation stays with the `schedule_create` tool and future management page.
+- The management section aggregates by session membership because the current scheduler Remote is session-scoped; a future workspace-native Host query can remove the per-session reads.

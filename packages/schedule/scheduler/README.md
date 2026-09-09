@@ -6,7 +6,7 @@ Host-level durable scheduler (`ctx.scheduler`). Scheduled prompts live in one ce
 
 ## Remote surface
 
-Session-scoped Typert Remote methods (capability-gated) expose the same store to the browser: `list` (`harniverse.observe`) plus `create` / `update` / `delete` (`harniverse.operate`). The generated `@deepseek-ai/dsh-scheduler/remote` client mounts through `dsh-api-remotes`, so the Web UI composes the identical methods the tools use.
+Session-scoped Typert Remote methods (capability-gated) expose the same store to the browser: `list` and `runs` (`harniverse.observe`) plus `create` / `update` / `delete` (`harniverse.operate`). The generated `@deepseek-ai/dsh-scheduler/remote` client mounts through `dsh-api-remotes`, so the Web UI composes the identical methods the tools use.
 
 ## Service contract
 
@@ -14,6 +14,7 @@ Session-scoped Typert Remote methods (capability-gated) expose the same store to
 |---|---|
 | `create({prompt, rule, target, contextMode, createdBy})` | Validate and store one record; the first due moment arms the timer. |
 | `list()` / `listForSession(sessionId)` | All records by next due; the subset one session owns. |
+| `listRuns(scheduleId, ownerSessionId?)` | Durable delivery attempts, newest first; the optional owner limits the read. |
 | `update(id, {prompt?, status?}, by?)` | Edit prompt or lifecycle under session ownership; omitted `by` is host authority. |
 | `remove(id, by?)` | Delete under the same ownership rule. |
 
@@ -52,7 +53,7 @@ Tool schemas and results add a small fixed cost per request that lists tools; de
 
 #### KV Cache effect
 
-The `schedule:pending` runtime context republishes through the context-snapshot state machine only when its text changes; steady pending sets do not perturb the cache.
+The `schedule:pending` runtime context republishes through the context-snapshot state machine only when its text changes; steady pending sets do not perturb the cache. Run history is central storage metadata and is not injected into model context.
 
 ## Known Limitations and Deferred Work
 

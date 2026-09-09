@@ -6,15 +6,19 @@
  * the authoritative storage-domain table.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the generated Remote API and ctx.remote merge through the Client assembly boundary.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: loads the scheduler namespace merge onto TypertClientRemote.
 import type {} from '@deepseek-ai/dsh-scheduler/remote'
 // Type-only: pulls the ui-conversation SlotMap merge (the header action list).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only: pulls the settings section SlotMap merge.
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { ScheduleListAction } from './ScheduleListAction.tsx'
+import { ScheduleManagementSection } from './ScheduleManagementSection.tsx'
 import { en, NS, zh, type ScheduleKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -54,4 +58,25 @@ export function apply(ctx: ClientContext): void {
       }),
     }, ScheduleListAction),
   )
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'schedules',
+    order: 30,
+    locale: NS,
+    label: () => ctx.locale.bind(NS)('management.nav'),
+    inject: () => ({
+      list: (sessionId: SessionId) => ctx.remote.scheduler.list(sessionId),
+      create: (
+        sessionId: SessionId,
+        input: Parameters<typeof ctx.remote.scheduler.create>[1],
+      ) => ctx.remote.scheduler.create(sessionId, input),
+      update: (
+        sessionId: SessionId,
+        id: string,
+        input: Parameters<typeof ctx.remote.scheduler.update>[2],
+      ) => ctx.remote.scheduler.update(sessionId, id, input),
+      runs: (sessionId: SessionId, id: string) => ctx.remote.scheduler.runs(sessionId, id),
+      remove: (sessionId: SessionId, id: string) => ctx.remote.scheduler.delete(sessionId, id),
+    }),
+  }, ScheduleManagementSection))
 }

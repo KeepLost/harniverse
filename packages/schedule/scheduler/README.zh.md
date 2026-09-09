@@ -6,7 +6,7 @@
 
 ## Remote 面
 
-会话作用域的 Typert Remote 方法（带能力门控）把同一存储暴露给浏览器：`list`（`harniverse.observe`）与 `create` / `update` / `delete`（`harniverse.operate`）。生成的 `@deepseek-ai/dsh-scheduler/remote` 客户端经 `dsh-api-remotes` 装配，Web UI 组合的正是工具所用的同一组方法。
+会话作用域的 Typert Remote 方法（带能力门控）把同一存储暴露给浏览器：`list` 与 `runs`（`harniverse.observe`），以及 `create` / `update` / `delete`（`harniverse.operate`）。生成的 `@deepseek-ai/dsh-scheduler/remote` 客户端经 `dsh-api-remotes` 装配，Web UI 组合的正是工具所用的同一组方法。
 
 ## 服务契约
 
@@ -14,6 +14,7 @@
 |---|---|
 | `create({prompt, rule, target, contextMode, createdBy})` | 校验并存储一条记录；首个到期时刻武装定时器。 |
 | `list()` / `listForSession(sessionId)` | 全部记录按下次到期排序；某会话拥有的子集。 |
+| `listRuns(scheduleId, ownerSessionId?)` | 按最新优先返回持久化投递尝试；可选 owner 限制读取范围。 |
 | `update(id, {prompt?, status?}, by?)` | 在会话所有权下编辑 prompt 或生命周期；省略 `by` 为宿主权限。 |
 | `remove(id, by?)` | 以相同所有权规则删除。 |
 
@@ -52,7 +53,7 @@
 
 #### KV Cache 影响
 
-`schedule:pending` 运行时上下文仅在其文本变化时经 context-snapshot 状态机重发；稳定的挂起集合不扰动缓存。
+`schedule:pending` 运行时上下文仅在其文本变化时经 context-snapshot 状态机重发；稳定的挂起集合不扰动缓存。执行历史是中央存储元数据，不注入模型上下文。
 
 ## 已知限制与暂缓事项
 

@@ -275,8 +275,24 @@ describe('scheduler storage and ownership', () => {
         contextMode: 'continue',
         createdBy: { kind: 'user', sessionId: script.session.id },
       })
+      const table = (test.service as unknown as {
+        table: { put: (id: string, value: Record<string, unknown>) => Promise<void> }
+      }).table
+      const legacy = { ...record } as unknown as Record<string, unknown>
+      delete legacy.promptRevision
+      delete legacy.lastPromptEdit
+      await table.put(record.id, legacy)
       const edited = await test.service.update(record.id, { prompt: 'second', status: 'paused' }, script.session.id)
-      expect(edited).toMatchObject({ prompt: 'second', status: 'paused' })
+      expect(edited).toMatchObject({
+        prompt: 'second',
+        status: 'paused',
+        promptRevision: 2,
+        lastPromptEdit: {
+          version: 2,
+          prompt: 'second',
+          editedBy: { kind: 'user', sessionId: script.session.id },
+        },
+      })
       expect(await test.service.update(record.id, { prompt: 'nope' }, SessionId('stranger')))
         .toBeUndefined()
       expect(await test.service.remove(record.id, SessionId('stranger'))).toBe(false)
@@ -318,6 +334,15 @@ describe('scheduler dispatch', () => {
         expect(after?.lastRunAt).toBeTypeOf('number')
         expect(after?.nextDue).toBeUndefined()
       })
+      expect(test.service.listRuns(record.id, script.session.id)).toMatchObject([{
+        scheduleId: record.id,
+        ownerSessionId: script.session.id,
+        targetSessionId: script.session.id,
+        status: 'succeeded',
+        promptRevision: 1,
+      }])
+      expect(test.service.listRunsOwned(script.session.id, record.id)).toHaveLength(1)
+      expect(test.service.listRuns(record.id)).toHaveLength(1)
       await test.service.create({
         prompt: 'still pending',
         rule: { kind: 'after', delayMs: 60_000 },
@@ -422,6 +447,11 @@ describe('scheduler dispatch', () => {
         expect(jobScripts[0]!.followups).toHaveLength(2)
       })
       expect(test.agentsState.created).toHaveLength(1)
+      await waitForDelivery(() => {
+        expect(test.service.listRuns(record.id, owner.session.id)).toHaveLength(2)
+      })
+      expect(test.service.listRuns(record.id, SessionId('stranger'))).toEqual([])
+      expect(test.service.listRuns('missing')).toEqual([])
     } finally {
       await cleanup()
     }
