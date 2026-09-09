@@ -81,6 +81,26 @@ describe('context-reset invariant companion', () => {
     expect(fail).toHaveBeenCalledWith('reset marker without a preceding reset/checkpoint anchor')
   })
 
+  it('fails a reset marker with no preceding checkpoint anchor', () => {
+    const { listener, fail } = install()
+    const session = liveSession('reset-invariant-orphan')
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'prior' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: resetCheckpointContent(),
+      source: resetCheckpointSource(ResetId('orphan')),
+    }), {
+      surfaceOp: { op: 'replace', start: 0, end: 0 },
+      sourceEventSeqs: [0],
+    })
+    expect(() => {
+      replay(listener, session)
+    }).toThrow('invariant failure')
+    expect(fail).toHaveBeenCalledWith('reset marker without a preceding reset/checkpoint anchor')
+  })
+
   it('rejects malformed reset-marker provenance shapes', () => {
     const { listener, fail } = install()
     const session = liveSession('reset-invariant-malformed')

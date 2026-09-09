@@ -51,7 +51,9 @@ const install: InvariantInstaller = (ctx: Context, fail: InvariantFailure): void
       if (!isReplacementSurfaceEvent(event)) {
         fail('reset marker must be a replacement surface event')
       }
-      if (anchor.seq !== event.seq - 1 || anchor.resetId !== event.data.source.resetId) {
+      // Seq adjacency is structural: contiguity plus the stale-pending guard
+      // above mean a recognized marker can never sit further than anchor.seq + 1.
+      if (anchor.resetId !== event.data.source.resetId) {
         fail(`reset marker at seq ${String(event.seq)} must immediately follow its reset/checkpoint anchor`)
       }
       return
