@@ -486,9 +486,9 @@ const TOOL_PACKAGES: ToolPackage[] = [
         roots: () => [],
         list: () => [],
         isOwnedBy: () => false,
-        create: async () => { throw new Error('unused') },
-        resume: async () => { throw new Error('unused') },
-        closeIfIdle: async () => 'busy' as const,
+        create: () => Promise.reject(new Error('unused')),
+        resume: () => Promise.reject(new Error('unused')),
+        closeIfIdle: () => Promise.resolve('busy' as const),
       })
       await ctx.plugin(SchedulerService)
       await ctx.plugin(ToolScheduler)

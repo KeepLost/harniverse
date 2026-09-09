@@ -21,6 +21,24 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-context-reset'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { schedulerDomainSpec } from './spec.ts'
+
+declare module '@deepseek-ai/dsh-session/types' {
+  interface SessionEventMap {
+    /**
+     * Durable provenance of one scheduler delivery — log-only, no surfaceOp.
+     * Appended to the target session immediately before the scheduled prompt
+     * enters the inbox, so a transcript can explain why the following
+     * `user/message` (plugin source `schedule`) exists. `turn` is always
+     * `null`: delivery claims the idle maintenance phase between turns.
+     */
+    'schedule/dispatch': {
+      scheduleId: string
+      dueAt: number
+      targetSessionId: SessionId
+      turn: null
+    }
+  }
+}
 import {
   MAX_PROMPT_LENGTH,
   ScheduleRuleError,
@@ -28,7 +46,7 @@ import {
   subsequentDue,
   validateRule,
 } from './time.ts'
-import type { ScheduleCreateInput, ScheduleRecord, ScheduleUpdate } from './types.ts'
+import type { ScheduleCreateInput, ScheduleCreateRemoteInput, ScheduleRecord, ScheduleUpdate } from './types.ts'
 
 export { ScheduleRuleError } from './time.ts'
 export { MIN_EVERY_INTERVAL_MS, MAX_PROMPT_LENGTH, MAX_DELAY_MS } from './time.ts'
@@ -137,7 +155,7 @@ export class SchedulerService extends TypertRemoteService {
    * @throws ScheduleRuleError for an invalid rule or prompt.
    */
   @Remote({ exportName: 'create', requiredCapability: 'harniverse.operate' })
-  createOwned(sessionId: SessionId, input: Omit<ScheduleCreateInput, 'createdBy'>): Promise<ScheduleRecord> {
+  createOwned(sessionId: SessionId, input: ScheduleCreateRemoteInput): Promise<ScheduleRecord> {
     return this.create({
       ...input,
       createdBy: { kind: 'user', sessionId },

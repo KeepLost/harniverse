@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-scheduler/types
  */
 
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /** When one schedule fires. */
 export type SchedulerRule =
@@ -59,24 +59,6 @@ export interface ScheduleDispatchOutcome {
   readonly error?: string
 }
 
-declare module '@deepseek-ai/dsh-session/types' {
-  interface SessionEventMap {
-    /**
-     * Durable provenance of one scheduler delivery — log-only, no surfaceOp.
-     * Appended to the target session immediately before the scheduled prompt
-     * enters the inbox, so a transcript can explain why the following
-     * `user/message` (plugin source `schedule`) exists. `turn` is always
-     * `null`: delivery claims the idle maintenance phase between turns.
-     */
-    'schedule/dispatch': {
-      scheduleId: string
-      dueAt: number
-      targetSessionId: SessionId
-      turn: null
-    }
-  }
-}
-
 /** Input of one schedule creation. */
 export interface ScheduleCreateInput {
   readonly prompt: string
@@ -84,4 +66,13 @@ export interface ScheduleCreateInput {
   readonly target: { readonly kind: 'current' | 'job' }
   readonly contextMode: 'fresh' | 'continue'
   readonly createdBy: { readonly kind: 'user' | 'model'; readonly sessionId: SessionId }
+}
+
+/** Remote-facing creation input: {@link ScheduleCreateInput} without the
+ * server-derived `createdBy` provenance. */
+export interface ScheduleCreateRemoteInput {
+  readonly prompt: string
+  readonly rule: SchedulerRule
+  readonly target: { readonly kind: 'current' | 'job' }
+  readonly contextMode: 'fresh' | 'continue'
 }

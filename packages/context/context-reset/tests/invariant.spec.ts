@@ -81,6 +81,24 @@ describe('context-reset invariant companion', () => {
     expect(fail).toHaveBeenCalledWith('reset marker without a preceding reset/checkpoint anchor')
   })
 
+  it('rejects malformed reset-marker provenance shapes', () => {
+    const { listener, fail } = install()
+    const session = liveSession('reset-invariant-malformed')
+    session.append('reset/checkpoint', { resetId: ResetId('malformed'), turn: null })
+    for (const source of [{ kind: 'user' }, { kind: 'plugin', plugin: 'other', resetId: 'x' }, { kind: 'plugin', plugin: 'reset', resetId: 7 }]) {
+      session.append('user/message', createUserMessage({
+        content: resetCheckpointContent(),
+        source: source as never,
+      }), { surfaceOp: 'append' })
+    }
+    // None of the malformed shapes read as a reset marker, so the first one
+    // trips the anchor-gap assertion.
+    expect(() => {
+      replay(listener, session)
+    }).toThrow('invariant failure')
+    expect(fail).toHaveBeenCalledWith(expect.stringContaining('not immediately followed'))
+  })
+
   it('fails a reset-source marker that is not a replacement surface event', () => {
     const { listener, fail } = install()
     const session = liveSession('reset-invariant-non-replacement')

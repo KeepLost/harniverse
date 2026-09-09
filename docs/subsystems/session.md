@@ -472,7 +472,7 @@ declare class Session {
    * cast nor ordinary JavaScript can rewrite durable history.
    */
   get events(): readonly SessionEvent[];
-  /** The next event's sequence number — always the log length (the `seq = log.length` contiguity contract). */
+  /** The next event's sequence number — the window base plus the log length (the contiguity contract). */
   get seq(): number;
   /**
    * Append one typed event to the log and synchronously notify observers via
@@ -822,7 +822,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](persistence.md) · [PrepareSessionOptions](persistence.md) · [SessionId](core.md)
 
-Source: [`packages/core/session/src/index.ts:806`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:820`](../../packages/core/session/src/index.ts)
 
 <a id="session-events"></a>
 

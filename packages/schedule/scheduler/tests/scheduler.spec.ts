@@ -521,6 +521,37 @@ describe('scheduler dispatch', () => {
   })
 })
 
+describe('scheduler session-scoped Remote surface', () => {
+  it('lists, creates, updates, and removes under session ownership', async () => {
+    const { test, cleanup } = await harness()
+    try {
+      const owner = liveScript(test, 'remote-owner')
+      const foreign = liveScript(test, 'remote-foreign')
+      const created = await test.service.createOwned(owner.session.id, {
+        prompt: 'remote nightly',
+        rule: { kind: 'after', delayMs: 60_000 },
+        target: { kind: 'current' },
+        contextMode: 'continue',
+      })
+      expect(created.status).toBe('active')
+      expect(created.createdBy).toEqual({ kind: 'user', sessionId: owner.session.id })
+
+      expect(test.service.listOwned(owner.session.id).map(row => row.id)).toEqual([created.id])
+      expect(test.service.listOwned(foreign.session.id)).toEqual([])
+
+      const paused = await test.service.updateOwned(owner.session.id, created.id, { status: 'paused' })
+      expect(paused?.status).toBe('paused')
+      // Foreign sessions cannot edit or remove what they do not own.
+      expect(await test.service.updateOwned(foreign.session.id, created.id, { status: 'active' })).toBeUndefined()
+      expect(await test.service.removeOwned(foreign.session.id, created.id)).toBe(false)
+      expect(await test.service.removeOwned(owner.session.id, created.id)).toBe(true)
+      expect(test.service.listOwned(owner.session.id)).toEqual([])
+    } finally {
+      await cleanup()
+    }
+  })
+})
+
 describe('scheduler runtime context', () => {
   it('summarizes pending in-session schedules and stays empty otherwise', async () => {
     const { test, cleanup } = await harness()

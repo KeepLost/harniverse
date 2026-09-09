@@ -439,7 +439,10 @@ const attachments = new WeakMap<Session, SessionEntry>()
 export class Session {
   private log: SessionEvent[] = []
   /** Single incremental owner of surface acceptance and projection state. */
-  private readonly surfaceManager = new SurfaceManager(this.log)
+  /** Incremental fold over the (possibly windowed) log; rebuilt once when the seed opens a window. */
+  private surfaceManager: SurfaceManager
+  /** Absolute seq of the window's first event; 0 for a full log. */
+  private baseSeq = 0
 
   /** The ordered surface over this session's event log. */
   get surface(): SessionSurface {
@@ -519,6 +522,7 @@ export class Session {
     const restoredHeader = mode === 'restore'
       ? validateRestoredSessionHeader(id, header)
       : undefined
+    this.surfaceManager = new SurfaceManager(this.log)
     if (seed !== undefined) {
       // Validate the seed to the SAME invariants `append` enforces, so a
       // replay/fork (`ctx.sessions.create(id, { seed })`) cannot construct a
@@ -536,8 +540,17 @@ export class Session {
         }
         assertSessionEventEnvelope(snapshot, index)
         assertSupportedRequestHeader(snapshot.type, snapshot.data, `seed event at index ${index}`)
-        if (snapshot.seq !== index) {
-          throw new Error(`seed event at index ${index} has seq ${snapshot.seq} (expected ${index}); seed must be contiguous from 0`)
+        if (index === 0 && snapshot.seq > 0) {
+          // The first seed event names the window base; only a restore may
+          // adopt one, and the fold restarts from the still-empty manager.
+          if (mode !== 'restore') {
+            throw new Error(`seed starts at seq ${String(snapshot.seq)}; only a restore may adopt a window (seeds must be contiguous from 0)`)
+          }
+          this.baseSeq = snapshot.seq
+          this.surfaceManager = new SurfaceManager(this.log, snapshot.seq)
+        }
+        if (snapshot.seq !== this.baseSeq + index) {
+          throw new Error(`seed event at index ${index} has seq ${snapshot.seq} (expected ${String(this.baseSeq + index)}); seed must be contiguous from ${String(this.baseSeq)}`)
         }
         // A seed is accepted incrementally through the same transition as a
         // live append and a full-log fold. The candidate is planned before it
@@ -550,7 +563,7 @@ export class Session {
         this.log.push(mode === 'restore' ? freezeRestoredObject(snapshot) : deepFreeze(snapshot))
       }
     }
-    this.firstLiveSeq = this.log.length
+    this.firstLiveSeq = this.baseSeq + this.log.length
     this.header = restoredHeader ?? snapshotSessionHeader(id, header)
     // Appended here so the marker is already in `events` when a backend
     // captures the creation seed: no load-time write. Re-marking is skipped
@@ -575,9 +588,9 @@ export class Session {
     return this.eventsSnapshot
   }
 
-  /** The next event's sequence number — always the log length (the `seq = log.length` contiguity contract). */
+  /** The next event's sequence number — the window base plus the log length (the contiguity contract). */
   get seq(): number {
-    return this.log.length
+    return this.baseSeq + this.log.length
   }
 
   /**
@@ -640,7 +653,7 @@ export class Session {
     }
     const event = deepFreeze({
       type,
-      seq: this.log.length,
+      seq: this.baseSeq + this.log.length,
       time: Date.now(),
       data: dataSnapshot,
       ...(surfaceMetadataSnapshot as { surfaceOp?: unknown; sourceEventSeqs?: unknown }),
@@ -747,10 +760,11 @@ export class Session {
       this.derivedGeneration = generation
     }
     for (const seq of nodes.slice(this.derivedNodes)) {
-      // Surface sequences are built from this.log — seq is always a valid
-      // index by construction. The non-null assertion expresses that invariant.
+      // Surface sequences are built from this.log — a node seq is always a
+      // valid window index by construction. The non-null assertion expresses
+      // that invariant.
       // oxlint-disable-next-line typescript/no-non-null-assertion
-      const msg = this.deriveEventMessage(this.log[seq]!)
+      const msg = this.deriveEventMessage(this.log[seq - this.baseSeq]!)
       // A surface node is one of the five message-producing types, but an
       // empty-content assistant/message (a max-tokens step that hosts only
       // usage) derives to null and must not enter the transcript.

@@ -684,7 +684,7 @@ Source: [`packages/context/context-reset/src/types.ts:22`](../packages/context/c
 }
 ```
 
-来源：[`packages/schedule/scheduler/src/types.ts:71`](../packages/schedule/scheduler/src/types.ts)
+来源：[`packages/schedule/scheduler/src/index.ts:34`](../packages/schedule/scheduler/src/index.ts)
 
 ### `session/*`
 

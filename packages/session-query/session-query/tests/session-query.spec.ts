@@ -440,7 +440,9 @@ describe('session-query exact reads', () => {
     expect(snapshot).toEqual({ session: valid, events: validEvents })
     Object.assign(snapshot.events[0]!, { time: 999 })
     expect(TestPersistence.entries.get(valid.id)?.events[0]?.time).toBe(10)
-    await expect(ctx.sessionQuery.readSession(corrupt.id)).rejects.toThrow('seed event at index 0 has seq 1')
+    // A non-zero first seq now reads as an illegal window rather than a mere
+    // contiguity break; both messages reject the same corrupt persisted seed.
+    await expect(ctx.sessionQuery.readSession(corrupt.id)).rejects.toThrow('only a restore may adopt a window')
   })
 
   it('prefers a live owner that attaches while its persisted prefix is inspected', async () => {

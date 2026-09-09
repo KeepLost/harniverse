@@ -1,18 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId, SESSION_FORMAT_VERSION, type SessionHeader } from '@deepseek-ai/dsh-session'
 import { SurfaceManager } from '@deepseek-ai/dsh-session/surface'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { resetCheckpointContent, resetCheckpointSource } from '../src/checkpoint.ts'
 import { ResetId } from '../src/brand.ts'
 
-/** One user/message surface event text for compact log building. */
-function userEvent(session: Session, turn: number, text: string): void {
+/** One user/message surface event for compact log building. */
+function userEvent(session: Session, text: string): void {
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text }],
     source: { kind: 'user' },
   }), { surfaceOp: 'append' })
-  void turn
 }
 
 /** Build one session whose log carries a mid-log reset checkpoint pair. */
@@ -21,12 +20,12 @@ function checkpointedSession(): Session {
   void new SessionStore(ctx)
   const session = ctx.sessions.create(SessionId('checkpoint-window'))
   session.append('turn/start', { turn: 1 })
-  userEvent(session, 1, 'before one')
-  userEvent(session, 1, 'before two')
+  userEvent(session, 'before one')
+  userEvent(session, 'before two')
   const nodes = new SurfaceManager([...session.events]).nodes
   const resetId = ResetId('window-proof')
   const anchor = session.append('reset/checkpoint', { resetId, turn: null })
-  const marker = session.append('user/message', createUserMessage({
+  session.append('user/message', createUserMessage({
     content: resetCheckpointContent(),
     source: resetCheckpointSource(resetId),
   }), {
@@ -35,9 +34,8 @@ function checkpointedSession(): Session {
   })
   session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   session.append('turn/start', { turn: 2 })
-  userEvent(session, 2, 'after one')
+  userEvent(session, 'after one')
   session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
-  void marker
   return session
 }
 
@@ -66,14 +64,12 @@ describe('reset checkpoint window equivalence', () => {
     for (const seq of windowed.nodes) {
       expect(bySeq.get(seq)).toBeDefined()
     }
-    const fullMessages = full.nodes.map(seq => bySeq.get(seq)!)
+    const messagesOf = (nodes: readonly number[]) => nodes.map(seq => bySeq.get(seq)!)
       .filter(event => event.type === 'user/message' || event.type === 'assistant/message')
-    const windowMessages = windowed.nodes.map(seq => bySeq.get(seq)!)
-      .filter(event => event.type === 'user/message' || event.type === 'assistant/message')
-    expect(windowMessages).toEqual(fullMessages)
+    expect(messagesOf(windowed.nodes)).toEqual(messagesOf(full.nodes))
     // The pre-reset work left the surface: only the marker and post-reset
-    // messages remain, in both folds.
-    const texts = windowMessages.map(event => event.type === 'user/message'
+    // messages remain, in every fold.
+    const texts = messagesOf(windowed.nodes).map(event => event.type === 'user/message'
       ? event.data.content[0]!.type === 'text' ? event.data.content[0]!.text : ''
       : '')
     expect(texts.some(text => text.startsWith('This is an automatically generated context reset'))).toBe(true)
@@ -81,15 +77,53 @@ describe('reset checkpoint window equivalence', () => {
     expect(texts).toContain('after one')
   })
 
-  it('a window that omits the anchor pair is not assumed equivalent', () => {
+  it('a window that omits the marker pair is not assumed equivalent', () => {
     const session = checkpointedSession()
     const events = [...session.events]
     const anchorIndex = events.findIndex(event => event.type === 'reset/checkpoint')
-    // A window that starts AFTER the marker folds the same tail nodes, but it
-    // loses the anchor provenance the invariant and resume checks rely on —
-    // documented as a non-boundary: coordinator resume must cut AT the anchor.
+    // A window that starts after the marker still folds, but it loses the
+    // anchor provenance the invariant and resume checks rely on — the
+    // coordinator must cut AT the anchor, documented as the non-boundary.
     const late = new SurfaceManager(events.slice(anchorIndex + 2), events[anchorIndex + 2]!.seq)
     expect(late.nodes.length).toBeGreaterThan(0)
     expect(late.nodes).not.toContain(events[0]!.seq)
+  })
+})
+
+/** Storage metadata shape the restore path accepts. */
+function restoreHeader(id: SessionId): SessionHeader {
+  return { id, version: SESSION_FORMAT_VERSION, createdAt: 1 }
+}
+
+describe('windowed Session restore equivalence', () => {
+  it('derives the identical message history as a full-log restore', () => {
+    const source = checkpointedSession()
+    const events = [...source.events]
+    const markerIndex = events.findIndex(event => event.type === 'user/message'
+      && (event.data.source as { plugin?: string } | undefined)?.plugin === 'reset')
+    expect(markerIndex).toBeGreaterThan(0)
+
+    const full = Session.fromRestore(SessionId('window-full'), events, restoreHeader(SessionId('window-full')))
+    const windowStart = markerIndex - 1 // the reset anchor
+    const window = events.slice(windowStart)
+    const windowed = Session.fromRestore(SessionId('window-restored'), window, restoreHeader(SessionId('window-restored')))
+
+    expect(windowed.events.map(event => event.seq)).toEqual([3, 4, 5, 6, 7, 8, 9])
+    expect(windowed.seq).toBe(full.seq)
+    expect(windowed.firstLiveSeq).toBe(full.firstLiveSeq)
+    expect(windowed.events.length).toBe(full.events.length - windowStart)
+    expect(windowed.deriveMessages()).toEqual(full.deriveMessages())
+
+    // The windowed session stays append-contiguous in absolute seq space.
+    windowed.append('turn/start', { turn: 3 })
+    expect(windowed.events.at(-1)?.seq).toBe(full.events.at(-1)!.seq + 1)
+  })
+
+  it('rejects a windowed seed outside the restore path', () => {
+    const source = checkpointedSession()
+    const events = [...source.events]
+    expect(() => {
+      Session.create(SessionId('window-snapshot'), events.slice(1))
+    }).toThrow('only a restore may adopt a window')
   })
 })

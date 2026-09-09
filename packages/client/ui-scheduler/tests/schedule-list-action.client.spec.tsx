@@ -101,7 +101,7 @@ describe('ScheduleListAction', () => {
     expect(screen.getByRole('list', { name: zh['list.aria'] })).toBeDefined()
     const emptyFace: Face = { rows: [] }
     const emptied = props(emptyFace)
-    ;(rendered.onRefresh as ReturnType<typeof vi.fn>).mockImplementation(emptied.onRefresh)
+    vi.mocked(rendered.onRefresh).mockImplementation(emptied.onRefresh)
     fireEvent.click(screen.getByRole('button', { name: zh['action.pause'] }))
     await waitFor(() => { expect(screen.queryByRole('list', { name: zh['list.aria'] })).toBeNull() })
     expect(screen.queryByRole('button')).toBeNull()

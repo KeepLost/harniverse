@@ -227,7 +227,7 @@ listForSession(sessionId: SessionId): ScheduleRecord[]
  * @returns the stored record.
  * @throws ScheduleRuleError for an invalid rule or prompt.
  */
-@Remote({ exportName: 'create', requiredCapability: 'harniverse.operate' }) createOwned(sessionId: SessionId, input: Omit<ScheduleCreateInput, 'createdBy'>): Promise<ScheduleRecord>
+@Remote({ exportName: 'create', requiredCapability: 'harniverse.operate' }) createOwned(sessionId: SessionId, input: ScheduleCreateRemoteInput): Promise<ScheduleRecord>
 
 /**
  * Remote-facing edit under session ownership.
@@ -274,5 +274,5 @@ async remove(id: string, by?: SessionId): Promise<boolean>
 
 Types: [SessionId](core.md)
 
-Source: [`packages/schedule/scheduler/src/index.ts:64`](../../packages/schedule/scheduler/src/index.ts)
+Source: [`packages/schedule/scheduler/src/index.ts:82`](../../packages/schedule/scheduler/src/index.ts)
 <!-- END GENERATED cordis-surface -->

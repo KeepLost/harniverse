@@ -1461,7 +1461,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the owned subset, earliest due first.',
       },
       {
-        signature: '@Remote({ exportName: \'create\', requiredCapability: \'harniverse.operate\' }) createOwned(sessionId: SessionId, input: Omit<ScheduleCreateInput, \'createdBy\'>): Promise<ScheduleRecord>',
+        signature: '@Remote({ exportName: \'create\', requiredCapability: \'harniverse.operate\' }) createOwned(sessionId: SessionId, input: ScheduleCreateRemoteInput): Promise<ScheduleRecord>',
         description: 'Remote-facing creation attributed to the owning session\'s human.',
         parameters: [{ name: 'sessionId', description: 'owning session identity.' }, { name: 'input', description: 'prompt, rule, target, and context mode.' }],
         returns: 'the stored record.',
@@ -4940,6 +4940,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ScheduleCreateInput',
     declaration: 'export interface ScheduleCreateInput {\n    readonly prompt: string;\n    readonly rule: SchedulerRule;\n    readonly target: {\n        readonly kind: \'current\' | \'job\';\n    };\n    readonly contextMode: \'fresh\' | \'continue\';\n    readonly createdBy: {\n        readonly kind: \'user\' | \'model\';\n        readonly sessionId: SessionId;\n    };\n}',
+  },
+  {
+    name: 'ScheduleCreateRemoteInput',
+    declaration: 'export interface ScheduleCreateRemoteInput {\n    readonly prompt: string;\n    readonly rule: SchedulerRule;\n    readonly target: {\n        readonly kind: \'current\' | \'job\';\n    };\n    readonly contextMode: \'fresh\' | \'continue\';\n}',
   },
   {
     name: 'ScheduledToolDispatch',

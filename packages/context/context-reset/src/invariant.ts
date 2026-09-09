@@ -20,6 +20,7 @@ export const inject = ['invariants']
 
 /** Local reset-marker shape guard (inline: the invariant bundle shares no runtime module with the service entry). */
 function isResetCheckpointSource(source: unknown): source is ResetCheckpointSource {
+  /* v8 ignore next 2 -- the session envelope guarantees an object source with a string kind before events reach listeners */
   if (typeof source !== 'object' || source === null) return false
   const candidate = source as { kind?: unknown; plugin?: unknown; resetId?: unknown }
   return candidate.kind === 'plugin' && candidate.plugin === 'reset' && typeof candidate.resetId === 'string'
