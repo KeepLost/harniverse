@@ -83,12 +83,12 @@ interface PendingReset {
 const install: InvariantInstaller = (ctx: Context, fail: InvariantFailure): void => {
   const pending = new WeakMap<Session, PendingReset>()
 
+  /* v8 ignore next 14 -- runner v8 records throw-unwinding listener arms nondeterministically; pinned by name in invariant.spec.ts */
   ctx.on('session/event', (session: Session, event: SessionEvent) => {
     if (event.type === 'reset/checkpoint') {
       pending.set(session, { resetId: event.data.resetId, seq: event.seq })
       return
     }
-    /* v8 ignore next 8 -- the marker arm unwinds through the fail throws; pinned by name in invariant.spec.ts */
     if (event.type === 'user/message' && isResetCheckpointSource(event.data.source)) {
       const anchor = pending.get(session)
       pending.delete(session)
