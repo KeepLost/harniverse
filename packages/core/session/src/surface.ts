@@ -246,23 +246,33 @@ function assertProvenance(
 function replacementRange(
   state: SurfaceFoldState,
   op: Extract<SurfaceOp, { op: 'replace' }>,
+  baseSeq: number,
 ): Pick<SurfaceReplacePlan, 'startIdx' | 'endIdx' | 'shadowedSeqs'> {
   const startIdx = state.nodes.indexOf(op.start)
+  const endIdx = state.nodes.indexOf(op.end)
+  if (startIdx !== -1 && endIdx !== -1) {
+    if (startIdx > endIdx) {
+      throw new Error(`surface replace: start seq ${op.start} (index ${startIdx}) is after end seq ${op.end} (index ${endIdx})`)
+    }
+    return {
+      startIdx,
+      endIdx,
+      shadowedSeqs: state.nodes.slice(startIdx, endIdx + 1),
+    }
+  }
+  // Windowed fold only: a replacement whose entire range predates the window
+  // (both endpoints below baseSeq, nothing folded yet) shadowed nodes this
+  // manager never saw. The empty-state splice inserts the marker at the front,
+  // matching the full fold's post-replacement surface exactly; provenance and
+  // the durable anchor adjacency stay enforced on the complete log.
+  if (baseSeq > 0 && state.nodes.length === 0 && startIdx === -1 && endIdx === -1
+    && op.end < baseSeq && op.start <= op.end) {
+    return { startIdx: 0, endIdx: -1, shadowedSeqs: [] }
+  }
   if (startIdx === -1) {
     throw new Error(`surface replace: start seq ${op.start} not found in surface`)
   }
-  const endIdx = state.nodes.indexOf(op.end)
-  if (endIdx === -1) {
-    throw new Error(`surface replace: end seq ${op.end} not found in surface`)
-  }
-  if (startIdx > endIdx) {
-    throw new Error(`surface replace: start seq ${op.start} (index ${startIdx}) is after end seq ${op.end} (index ${endIdx})`)
-  }
-  return {
-    startIdx,
-    endIdx,
-    shadowedSeqs: state.nodes.slice(startIdx, endIdx + 1),
-  }
+  throw new Error(`surface replace: end seq ${op.end} not found in surface`)
 }
 
 /**
@@ -334,7 +344,7 @@ function planSurfaceEvent(
     assertProvenance(event, [])
     return { kind: 'append', seq: event.seq }
   }
-  const range = replacementRange(state, surfaceOp)
+  const range = replacementRange(state, surfaceOp, baseSeq)
   assertProvenance(event, range.shadowedSeqs)
   assertToolResultRewrite(event, range.shadowedSeqs, events, baseSeq)
   return {
