@@ -16,18 +16,20 @@ export const name = 'scheduler-invariant'
 export const inject = ['invariants']
 
 /**
- * Assert the durable correlation between `schedule/dispatch` anchors and the
- * scheduled prompt that follows: the anchor's target names the session it was
- * appended to, and the following inbox splice carries the schedule plugin
- * source's delivery identity.
+ * Assert that a `schedule/dispatch` provenance event names the session it is
+ * appended to. Validation runs on `internal/dispatch`, before the candidate
+ * joins the log, so a violation rejects the append instead of reaching
+ * observe-only publication where listener throws are contained.
  */
 const install: InvariantInstaller = (ctx: Context, fail: InvariantFailure): void => {
-  ctx.on('session/event', (session: Session, event: SessionEvent) => {
+  ctx.on('internal/dispatch', (_mode, eventName, args) => {
+    if (eventName !== 'session/event') return
+    const [session, event] = args as [Session, SessionEvent]
     if (event.type !== 'schedule/dispatch') return
     if (event.data.targetSessionId !== session.id) {
       fail(`schedule/dispatch at seq ${String(event.seq)} names target ${String(event.data.targetSessionId)} inside session ${String(session.id)}`)
     }
-  })
+  }, { global: true })
 }
 
 /**

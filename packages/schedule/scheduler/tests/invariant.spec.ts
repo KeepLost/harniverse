@@ -1,33 +1,55 @@
-import { describe, expect, it, vi } from 'vitest'
-import * as invariant from '@deepseek-ai/dsh-scheduler/invariant'
+import { describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import InvariantRegistry from '@deepseek-ai/dsh-invariants'
+import * as SchedulerInvariant from '@deepseek-ai/dsh-scheduler/invariant'
+
+/** A real context with the companion installed, so appends validate in place. */
+async function setup(): Promise<Context> {
+  const ctx = new Context()
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(InvariantRegistry)
+  await ctx.plugin(SchedulerInvariant)
+  return ctx
+}
 
 describe('scheduler invariant companion', () => {
-  it('registers the package-owned installer and verifies dispatch targets', async () => {
-    const listeners: ((session: unknown, event: unknown) => void)[] = []
-    const fail = vi.fn(() => { throw new Error('invariant failure') })
-    const register = vi.fn().mockImplementation((_name: string, installer: (ctx: unknown, fail: () => never) => void) => {
-      installer({
-        on: (event: string, listener: (session: unknown, event: unknown) => void) => {
-          if (event === 'session/event') listeners.push(listener)
-        },
-      }, fail)
-      return () => {}
-    })
-    const dispose = await invariant.apply({ invariants: { register } } as never)
-    expect(invariant.name).toBe('scheduler-invariant')
-    expect(invariant.inject).toEqual(['invariants'])
-    expect(register).toHaveBeenCalledWith('@deepseek-ai/dsh-scheduler', expect.any(Function))
-    expect(dispose).toBeTypeOf('function')
+  it('registers under its package name with the registry injected', () => {
+    expect(SchedulerInvariant.name).toBe('scheduler-invariant')
+    expect(SchedulerInvariant.inject).toEqual(['invariants'])
+  })
 
-    const listener = listeners[0]!
-    const session = { id: 'session-a' }
-    listener(session, { type: 'schedule/dispatch', seq: 3, data: { scheduleId: 's1', dueAt: 1, targetSessionId: 'session-a', turn: null } })
-    expect(fail).not.toHaveBeenCalled()
+  it('accepts a dispatch that names its own session', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create(SessionId('scheduler-invariant-self'))
     expect(() => {
-      listener(session, { type: 'schedule/dispatch', seq: 4, data: { scheduleId: 's2', dueAt: 1, targetSessionId: 'session-b', turn: null } })
-    }).toThrow('invariant failure')
-    expect(fail).toHaveBeenCalledTimes(1)
-    listener(session, { type: 'turn/start', seq: 5, data: { turn: 1 } })
-    expect(fail).toHaveBeenCalledTimes(1)
+      session.append('schedule/dispatch', {
+        scheduleId: 'schedule-a',
+        dueAt: 1,
+        targetSessionId: session.id,
+        turn: null,
+      })
+    }).not.toThrow()
+  })
+
+  it('rejects a dispatch appended to a session other than its target', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create(SessionId('scheduler-invariant-foreign'))
+    expect(() => {
+      session.append('schedule/dispatch', {
+        scheduleId: 'schedule-b',
+        dueAt: 1,
+        targetSessionId: SessionId('scheduler-invariant-other'),
+        turn: null,
+      })
+    }).toThrow(/names target scheduler-invariant-other inside session scheduler-invariant-foreign/)
+  })
+
+  it('ignores every event type it does not own', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create(SessionId('scheduler-invariant-foreign-types'))
+    expect(() => {
+      session.append('turn/start', { turn: 1 })
+    }).not.toThrow()
   })
 })
