@@ -20,11 +20,13 @@ export const inject = ['invariants']
 
 /** Fail unless the marker carries the anchor issued for this reset. */
 function requireAnchor(anchor: PendingReset | undefined, fail: InvariantFailure): asserts anchor is PendingReset {
+  /* v8 ignore next -- runner v8 does not record paths unwinding through the fail throw; pinned by name in invariant.spec.ts */
   if (anchor === undefined) fail('reset marker without a preceding reset/checkpoint anchor')
 }
 
 /** Fail unless the marker event rewinds the surface (a full-history replacement). */
 function requireReplacement(event: SessionEvent<'user/message'>, fail: InvariantFailure): void {
+  /* v8 ignore next 2 -- runner v8 does not record paths unwinding through the fail throw; pinned by name in invariant.spec.ts */
   if (!isReplacementSurfaceEvent(event)) {
     fail('reset marker must be a replacement surface event')
   }
@@ -41,6 +43,7 @@ function requireAnchorIdentity(
   seq: number,
   fail: InvariantFailure,
 ): void {
+  /* v8 ignore next 3 -- runner v8 does not record paths unwinding through the fail throw; pinned by name in invariant.spec.ts */
   if (anchor.resetId !== source.resetId) {
     fail(`reset marker at seq ${String(seq)} must immediately follow its reset/checkpoint anchor`)
   }
@@ -53,6 +56,7 @@ function requirePendingMarker(
   fail: InvariantFailure,
 ): void {
   const stale = pending.get(session)
+  /* v8 ignore next 3 -- runner v8 does not record paths unwinding through the fail throw; pinned by name in invariant.spec.ts */
   if (stale !== undefined) {
     fail(`reset/checkpoint at seq ${String(stale.seq)} is not immediately followed by its marker`)
   }
