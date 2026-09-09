@@ -109,6 +109,12 @@ describe('gate graph validation', () => {
     expect(byId.get('duplication')?.allowFailure).toBe(true)
   })
 
+  it('serializes instrumented coverage after the uninstrumented heavy lane', () => {
+    const gates = withPnpmEntrypoint(() => gatesForMode('ci-coverage'))
+    const coverage = gates.find(subject => subject.id === 'coverage')
+    expect(coverage?.needs).toEqual(['coverage-exempt-heavy'])
+  })
+
   it.each([
     ['empty', [], /gate graph has no gates/],
     ['duplicate ids', [gate('same'), gate('same')], /duplicate gate id "same"/],
