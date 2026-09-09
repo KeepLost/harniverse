@@ -627,6 +627,8 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   SessionDeliveryRequest: 'delivery input is owned by packages/session-query/session-delivery/README.md',
   ContextResetResult: 'reset result is owned by packages/context/context-reset/README.md',
   ScheduleRecord: 'scheduler record is owned by packages/schedule/scheduler/README.md',
+  SchedulePromptEdit: 'scheduler prompt provenance is owned by packages/schedule/scheduler/README.md',
+  ScheduleRun: 'scheduler run history is owned by packages/schedule/scheduler/README.md',
   ScheduleCreateRemoteInput: 'remote creation input is owned by packages/schedule/scheduler/README.md',
   ScheduleCreateInput: 'scheduler create input is owned by packages/schedule/scheduler/README.md',
   ScheduleUpdate: 'scheduler update patch is owned by packages/schedule/scheduler/README.md',

@@ -660,13 +660,20 @@ describe('scheduler cold-path and edge failures', () => {
     vi.useFakeTimers()
     try {
       const attached = test.ctx.sessions.create(SessionId('attached-only'))
-      await test.service.create({
+      const attachedRecord = await test.service.create({
         prompt: 'attached',
         rule: { kind: 'after', delayMs: 30_000 },
         target: { kind: 'current' },
         contextMode: 'continue',
         createdBy: { kind: 'user', sessionId: attached.id },
       })
+      const schedulerTable = (test.service as unknown as {
+        table: { put: (id: string, value: Record<string, unknown>) => Promise<void> }
+      }).table
+      const legacyAttached = { ...attachedRecord } as unknown as Record<string, unknown>
+      delete legacyAttached.promptRevision
+      delete legacyAttached.lastPromptEdit
+      await schedulerTable.put(attachedRecord.id, legacyAttached)
       const noModel = Session.create(SessionId('no-model'))
       test.scripts.set(noModel.id, { session: noModel, followups: [] })
       await test.service.create({
@@ -696,6 +703,7 @@ describe('scheduler cold-path and edge failures', () => {
           expect.stringContaining('no recorded model'),
         ]))
       })
+      expect(test.service.listRuns(attachedRecord.id)).toHaveLength(1)
     } finally {
       await cleanup()
     }

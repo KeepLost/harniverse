@@ -43,7 +43,7 @@ export interface ScheduleRun {
   readonly targetSessionId: SessionId
   readonly dueAt: number
   readonly attemptedAt: number
-  readonly promptRevision: number | undefined
+  readonly promptRevision?: number
   readonly status: 'succeeded' | 'failed'
   readonly error?: string
 }

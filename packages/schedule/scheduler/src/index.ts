@@ -200,13 +200,23 @@ export class SchedulerService extends TypertRemoteService {
     return this.remove(id, sessionId)
   }
 
-  /** Remote-facing execution history for one owned schedule. */
+  /**
+   * Read execution history through the scheduler Remote.
+   * @param sessionId - session requesting the history.
+   * @param scheduleId - schedule whose attempts are requested.
+   * @returns the requester's durable delivery attempts, newest first.
+   */
   @Remote({ exportName: 'runs', requiredCapability: 'harniverse.observe' })
   listRunsOwned(sessionId: SessionId, scheduleId: string): ScheduleRun[] {
     return this.listRuns(scheduleId, sessionId)
   }
 
-  /** Read durable delivery attempts, newest first, under session ownership. */
+  /**
+   * Read durable delivery attempts, newest first, under session ownership.
+   * @param scheduleId - schedule whose attempts are requested.
+   * @param ownerSessionId - optional owner restriction for host-side reads.
+   * @returns matching durable delivery attempts, newest first.
+   */
   listRuns(scheduleId: string, ownerSessionId?: SessionId): ScheduleRun[] {
     const runs = [...this.requireRuns().entries()]
       .map(([, run]) => run)
@@ -458,7 +468,7 @@ export class SchedulerService extends TypertRemoteService {
       targetSessionId,
       dueAt,
       attemptedAt,
-      promptRevision: record.promptRevision,
+      ...(record.promptRevision === undefined ? {} : { promptRevision: record.promptRevision }),
       status: error === undefined ? 'succeeded' : 'failed',
       ...(error === undefined ? {} : { error }),
     })

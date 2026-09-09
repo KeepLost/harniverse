@@ -247,6 +247,22 @@ listForSession(sessionId: SessionId): ScheduleRecord[]
 @Remote({ exportName: 'delete', requiredCapability: 'harniverse.operate' }) removeOwned(sessionId: SessionId, id: string): Promise<boolean>
 
 /**
+ * Read execution history through the scheduler Remote.
+ * @param sessionId - session requesting the history.
+ * @param scheduleId - schedule whose attempts are requested.
+ * @returns the requester's durable delivery attempts, newest first.
+ */
+@Remote({ exportName: 'runs', requiredCapability: 'harniverse.observe' }) listRunsOwned(sessionId: SessionId, scheduleId: string): ScheduleRun[]
+
+/**
+ * Read durable delivery attempts, newest first, under session ownership.
+ * @param scheduleId - schedule whose attempts are requested.
+ * @param ownerSessionId - optional owner restriction for host-side reads.
+ * @returns matching durable delivery attempts, newest first.
+ */
+listRuns(scheduleId: string, ownerSessionId?: SessionId): ScheduleRun[]
+
+/**
  * Create one durable schedule.
  * @param input - validated prompt, rule candidate, target, and creator.
  * @returns the stored record.
@@ -274,5 +290,5 @@ async remove(id: string, by?: SessionId): Promise<boolean>
 
 Types: [SessionId](core.md)
 
-Source: [`packages/schedule/scheduler/src/index.ts:82`](../../packages/schedule/scheduler/src/index.ts)
+Source: [`packages/schedule/scheduler/src/index.ts:95`](../../packages/schedule/scheduler/src/index.ts)
 <!-- END GENERATED cordis-surface -->

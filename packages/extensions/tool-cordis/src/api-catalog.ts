@@ -1480,6 +1480,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'whether a record was removed.',
       },
       {
+        signature: '@Remote({ exportName: \'runs\', requiredCapability: \'harniverse.observe\' }) listRunsOwned(sessionId: SessionId, scheduleId: string): ScheduleRun[]',
+        description: 'Read execution history through the scheduler Remote.',
+        parameters: [{ name: 'sessionId', description: 'session requesting the history.' }, { name: 'scheduleId', description: 'schedule whose attempts are requested.' }],
+        returns: 'the requester\'s durable delivery attempts, newest first.',
+      },
+      {
+        signature: 'listRuns(scheduleId: string, ownerSessionId?: SessionId): ScheduleRun[]',
+        description: 'Read durable delivery attempts, newest first, under session ownership.',
+        parameters: [{ name: 'scheduleId', description: 'schedule whose attempts are requested.' }, { name: 'ownerSessionId', description: 'optional owner restriction for host-side reads.' }],
+        returns: 'matching durable delivery attempts, newest first.',
+      },
+      {
         signature: 'async create(input: ScheduleCreateInput): Promise<ScheduleRecord>',
         description: 'Create one durable schedule.',
         parameters: [{ name: 'input', description: 'validated prompt, rule candidate, target, and creator.' }],
@@ -4956,6 +4968,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SchedulerRule',
     declaration: 'export type SchedulerRule = {\n    readonly kind: \'after\';\n    readonly delayMs: number;\n} | {\n    readonly kind: \'at\';\n    readonly at: string;\n} | {\n    readonly kind: \'every\';\n    readonly intervalMs: number;\n    readonly anchor: string;\n};',
+  },
+  {
+    name: 'ScheduleRun',
+    declaration: 'export interface ScheduleRun {\n    readonly id: string;\n    readonly scheduleId: string;\n    readonly ownerSessionId: SessionId;\n    readonly targetSessionId: SessionId;\n    readonly dueAt: number;\n    readonly attemptedAt: number;\n    readonly promptRevision?: number;\n    readonly status: \'succeeded\' | \'failed\';\n    readonly error?: string;\n}',
   },
   {
     name: 'ScheduleStatus',
