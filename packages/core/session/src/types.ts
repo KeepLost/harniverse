@@ -134,6 +134,16 @@ export interface RestoredSessionOptions {
   readonly meta: SessionHeader
   /** Select the persistence ownership-transfer path. */
   readonly seedSource: 'persistence'
+  /** Optional complete-history resolver for a windowed persistence seed. */
+  readonly history?: SessionHistorySource
+  /** Existing surface state at the window boundary, in model-visible order. */
+  readonly surface?: { readonly nodes: readonly number[]; readonly replaceGeneration: number }
+}
+
+/** Absolute-sequence lookup for the portion of a restored log outside its seed window. */
+export interface SessionHistorySource {
+  readonly firstSeq: number
+  eventAt(seq: number): SessionEvent | undefined
 }
 
 /** Inputs accepted while constructing an unpublished Session. */

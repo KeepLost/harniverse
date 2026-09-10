@@ -1709,6 +1709,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'checkpoint', description: 'persisted rows for one session (possibly stale or empty).' }, { name: 'events', description: 'the stored events with `seq >= baseSeq`, in seq order.' }, { name: 'baseSeq', description: 'the seq `events` starts at (its first event\'s seq when non-empty).' }],
         returns: 'the snapshot cut at the supplied log end (`asOfSeq` is the last supplied event\'s seq, `baseSeq - 1` for an empty tail) plus the refreshed checkpoint rows at that cut, ready for a durable write-back.',
       },
+      {
+        signature: 'hydrate( session: Session, checkpoint: ProjectionCheckpoint, events: readonly SessionEvent[], baseSeq: number, ): ProjectionSnapshot',
+        description: 'Seed every registered unit\'s live cell from a validated checkpoint and forward tail. The cells are installed only after the detached restore succeeds, so a missing or mismatched row at a nonzero `baseSeq` rejects before changing live state. The supplied tail is folded exactly once; later snapshots use the installed cells instead of lazily refolding the session log.',
+        parameters: [{ name: 'session', description: 'the live session whose cells are seeded.' }, { name: 'checkpoint', description: 'persisted rows for one session.' }, { name: 'events', description: 'stored events with `seq >= baseSeq`, in seq order.' }, { name: 'baseSeq', description: 'the seq the supplied tail starts at.' }],
+        returns: 'the snapshot at the supplied tail\'s log end.',
+      },
     ],
   },
   {
@@ -4871,7 +4877,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RestoredSessionOptions',
-    declaration: 'export interface RestoredSessionOptions {\n    readonly seed: SessionEvent[];\n    readonly meta: SessionHeader;\n    readonly seedSource: \'persistence\';\n}',
+    declaration: 'export interface RestoredSessionOptions {\n    readonly seed: SessionEvent[];\n    readonly meta: SessionHeader;\n    readonly seedSource: \'persistence\';\n    readonly history?: SessionHistorySource;\n    readonly surface?: {\n        readonly nodes: readonly number[];\n        readonly replaceGeneration: number;\n    };\n}',
   },
   {
     name: 'ResumeAgentOptions',
@@ -5132,6 +5138,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionHistoryPageRequest',
     declaration: 'export interface SessionHistoryPageRequest {\n    readonly beforeSeq?: number;\n    readonly maxMessages: number;\n    readonly preferLatestCheckpoint?: boolean;\n}',
+  },
+  {
+    name: 'SessionHistorySource',
+    declaration: 'export interface SessionHistorySource {\n    readonly firstSeq: number;\n    eventAt(seq: number): SessionEvent | undefined;\n}',
   },
   {
     name: 'SessionId',

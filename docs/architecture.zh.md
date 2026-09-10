@@ -95,7 +95,7 @@ Agent teardown 由 AgentLoop 的单一完全停稳边界持有。它依次拒绝
 
 ## 会话日志
 
-会话日志是模型所见上下文的来源。`deriveMessages()` 从中投影出模型历史，原始 `assistant/chunk` 事件则保证回放和 UI 保真。fork、恢复、transcript（文本记录）、遥测和持久化都派生自该事件流。非 surface 的 `llm/wire-attempt` 事件补充适配器传输事实，但不复制对话内容。
+会话日志是模型所见上下文的来源。`deriveMessages()` 从中投影出模型历史，原始 `assistant/chunk` 事件则保证回放和 UI 保真。fork、恢复、transcript（文本记录）、遥测和持久化都派生自该事件流。非 surface 的 `llm/wire-attempt` 事件补充适配器传输事实，但不复制对话内容。窗口化恢复保留绝对事件标识和请求边界；检查点恢复归持久化和投影插件所有，不归 agent loop 所有。
 
 **模型可见即已记录。** 抵达模型请求的一切都必须能从日志重建，并由一项运行时不变量断言这一点。因此，新增一项模型可见输入就需要新增一个会话事件：扩展 `SessionEventMap` 并从日志渲染。
 

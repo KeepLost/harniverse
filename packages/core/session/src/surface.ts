@@ -297,15 +297,14 @@ function isDeepEqualJson(a: unknown, b: unknown): boolean {
 function assertToolResultRewrite(
   event: SessionEvent,
   shadowedSeqs: readonly number[],
-  events: readonly SessionEvent[],
-  baseSeq: number,
+  eventAt: (seq: number) => SessionEvent | undefined,
 ): void {
   if (event.type !== 'tool/result') return
   if (shadowedSeqs.length !== 1) {
     throw new Error('tool/result surface replacement must rewrite exactly one current node')
   }
   for (const originalSeq of shadowedSeqs) {
-    const original = events[originalSeq - baseSeq]
+    const original = eventAt(originalSeq)
     if (original?.type !== 'tool/result') {
       throw new Error('tool/result surface replacement must target a current tool/result')
     }
@@ -332,7 +331,7 @@ function planSurfaceEvent(
   state: SurfaceFoldState,
   event: SessionEvent,
   expectedSeq: number,
-  events: readonly SessionEvent[],
+  eventAt: (seq: number) => SessionEvent | undefined,
   baseSeq: number,
 ): SurfacePlan | undefined {
   if (event.seq !== expectedSeq) {
@@ -346,7 +345,7 @@ function planSurfaceEvent(
   }
   const range = replacementRange(state, surfaceOp, baseSeq)
   assertProvenance(event, range.shadowedSeqs)
-  assertToolResultRewrite(event, range.shadowedSeqs, events, baseSeq)
+  assertToolResultRewrite(event, range.shadowedSeqs, eventAt)
   return {
     kind: 'replace',
     seq: event.seq,
@@ -361,10 +360,10 @@ function applySurfaceEvent(
   state: SurfaceFoldState,
   event: SessionEvent,
   expectedSeq: number,
-  events: readonly SessionEvent[],
+  eventAt: (seq: number) => SessionEvent | undefined,
   baseSeq: number,
 ): SurfaceFoldReplacement | undefined {
-  const plan = planSurfaceEvent(state, event, expectedSeq, events, baseSeq)
+  const plan = planSurfaceEvent(state, event, expectedSeq, eventAt, baseSeq)
   return applySurfacePlan(state, plan)
 }
 
@@ -398,7 +397,7 @@ export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult 
   const state = createFoldState()
   const replacements: SurfaceFoldReplacement[] = []
   for (const [index, event] of events.entries()) {
-    const replacement = applySurfaceEvent(state, event, index, events, 0)
+    const replacement = applySurfaceEvent(state, event, index, seq => events[seq], 0)
     if (replacement !== undefined) replacements.push(replacement)
   }
   return { nodes: [...state.nodes], replacements }
@@ -420,8 +419,16 @@ export class SurfaceManager implements SessionSurface {
   constructor(
     private log: readonly SessionEvent[],
     private readonly baseSeq = 0,
+    private readonly initial?: {
+      readonly nodes: readonly number[]
+      readonly replaceGeneration: number
+      readonly eventAt?: (seq: number) => SessionEvent | undefined
+    },
   ) {
     this._lastProcessedSeq = baseSeq - 1
+    if (initial !== undefined) {
+      this._state = { nodes: [...initial.nodes], replaceGeneration: initial.replaceGeneration }
+    }
   }
 
   /**
@@ -434,7 +441,7 @@ export class SurfaceManager implements SessionSurface {
     this._pendingPlan = {
       event,
       expectedSeq,
-      plan: planSurfaceEvent(this._state, event, expectedSeq, this.log, this.baseSeq),
+      plan: planSurfaceEvent(this._state, event, expectedSeq, seq => this.eventAt(seq), this.baseSeq),
     }
   }
 
@@ -461,10 +468,14 @@ export class SurfaceManager implements SessionSurface {
       if (pending?.event === event && pending.expectedSeq === seq) {
         applySurfacePlan(this._state, pending.plan)
       } else {
-        applySurfaceEvent(this._state, event, seq, this.log, this.baseSeq)
+        applySurfaceEvent(this._state, event, seq, value => this.eventAt(value), this.baseSeq)
       }
       if (pending !== undefined && pending.expectedSeq <= seq) this._pendingPlan = undefined
       this._lastProcessedSeq = seq
     }
+  }
+
+  private eventAt(seq: number): SessionEvent | undefined {
+    return this.initial?.eventAt?.(seq) ?? this.log[seq - this.baseSeq]
   }
 }

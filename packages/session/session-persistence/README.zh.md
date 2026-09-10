@@ -20,6 +20,7 @@
 | `load(id): Promise<{ meta; events }>` | 转换同一格式版本中受支持的旧记录后，返回不可变、平衡的逻辑日志，并提交冷恢复。实时 load 先 flush 其快照，并在轮次开放时拒绝；冷 load 保留中断的最终轮次，并用合成 `tool/result`/`step/end?`/`turn/end {interrupted}` 事件持久关闭它。只丢弃撕裂尾部碎片；已提交损坏和格式错误的记录以 `SessionPersistenceCorruptionError` 拒绝，不支持的格式 `version` 或本构建不认识且信封未带 `ignorable` 标记的事件类型以 `SessionFormatUnsupportedError` 拒绝，消息说明拒绝方向，并在后端为每个会话保留独立文件时给出原始日志路径。 |
 | `inspect(id, signal?): Promise<{ meta; events }>` | 返回已经升级、验证和深度冻结的逻辑视图，但不提交恢复或发布 Session。冷视图会获得仅存在于内存的合成恢复 closer，物理撕裂尾部保持不变；实时状态下的视图则是当前不可变快照，可能包含开放的轮次。基于协调器的实现会在有界 LRU 中保留该冷状态下未发布的 Session 本身，供后续 `prepare` 使用，但已存储修订值变化后会丢弃并重新读取。同 id 检查共享进行中的读取。 |
 | `readFrom(id, fromSeq, signal?): Promise<{ meta; events }>` | 返回 `seq >= fromSeq` 的有效已存储事件，不进入 preparation 缓存、不截断、不合成 closer，也不发布协调器状态。`fromSeq` 达到或超过已存储末尾时返回空事件列表；负数或非安全整数 `fromSeq` 会被拒绝。可寻址后端（SQLite）只读后缀，除非转换受支持的旧记录需要读取更早的记录；顺序后端（JSONL）解析整个产物并向前跳过。未知类型拒绝遵循同一读取方式：寻址读取只检查返回的后缀，顺序回退路径还会拒绝窗口以下的未知必需事件。供 checkpoint 消费方只应用已存序号之后的事件。 |
+| `loadStoredWindow?` / `readStoredEventAt?`（后端钩子） | SQLite 可以从 replacement 之前已验证的 surface 状态恢复，包括 reset 和部分 compaction。协调器接收带绝对序列的常驻后缀和历史 resolver；缺少钩子、撕裂尾部、格式错误标记或前缀 hash 不匹配都会回退普通全量路径。 |
 | `readRequestHeader(id, signal?): Promise<EpochHeader \| undefined>` | 从有效已存储前缀观察最后一条 `request/header`，不 prepare 或发布 Session。第一方协调器允许这一非变更读取与同 id 的 detached history 读取并行，而不加入 per-id 变更链，因此小型 selection 查询不会排在大型展示页之后。顺序后端仍可能解析物理日志；结果是该次读取观察到的稳定前缀。第三方直接实现若未覆写，则继承通过 `inspect` 完成的安全逻辑回退。 |
 | `readHistoryPage(id, request): Promise<{ meta; events; hasMore }>` | 返回一个脱离 Session 的倒序显示历史页，不恢复 Session。`beforeSeq` 为排他上界，`maxMessages` 只计算 append-origin 的 user/assistant 消息。初始请求启用 `preferLatestCheckpoint` 时，会返回最近的 compact 插件 replacement 检查点事务及其后的全部原始事件，即使超过 `maxMessages`；`hasMore` 仍使被替代前缀可达。该搜索最多再多扫描 `CHECKPOINT_SEARCH_MESSAGE_BUDGET` 条 append-origin 消息，绝不会走到日志头部，因此没有压缩的会话只付出普通的有界尾部读取代价，而不是全产物扫描。该窗口内没有检查点时，返回普通配额页。SQLite 直接查询候选消息与连续范围；JSONL 从产物尾部反向读取，遇到损坏或旧布局时回退到完整校验。 |
 | `readRawEventPage(id, request): Promise<{ meta; events; hasMore }>` | 返回一个按原始事件数量而非显示消息边界限制的脱离 Session 页面。`beforeSeq` 为排他上界，`maxEvents` 是原始事件配额。SQLite 查询最新物理行并只解码有界逻辑范围；JSONL 从最新存储记录开始解码，达到配额即停止；第三方后端继承通过已验证检查完成的回退路径。 |
@@ -32,6 +33,7 @@
 - **连续 seq。**`load` 拒绝日志中间的 `seq` 缺口/解析错误；`append` 的第一个 `seq` 必须等于已存储 next-seq。
 - **JSON 可序列化数据。**`append` 通过共享单遍无损 JSON 边界实体化每个直接/回放批次。活动 `Session` 事件已深度冻结，但写入协调器仍将每个事件复制到持久化自有缓冲区。
 - **持久性。**`append` 只在批次持久后返回。
+- **检查点恢复只是优化。**窗口 seed 绝不替代权威日志：读取 `Session.events` 会按绝对序列顺序物化完整、冻结的快照，`eventAt()` 则按需解析单个历史事件。任何检查点不确定性都会回退完整回放。
 
 ## 写入协调器
 

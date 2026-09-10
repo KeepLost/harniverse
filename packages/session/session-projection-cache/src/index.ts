@@ -214,6 +214,13 @@ export class SessionProjectionCache extends Service {
   // --- write-behind (throttle + mandatory points) ---
 
   private installWritePath(): void {
+    this.ctx.on('session/created', (session) => {
+      try {
+        this.hydrate(session)
+      } catch {
+        // A missing, stale, or invalid derived row leaves canonical live replay in charge.
+      }
+    })
     // Every committed event advances the dirty counter; turn/end is a
     // mandatory point (the durable value most reads want is the turn-final
     // one), count/interval throttle the in-turn stream.
@@ -251,6 +258,13 @@ export class SessionProjectionCache extends Service {
       }
       this.dirty.clear()
     }, 'sessionProjectionCache.timers')
+  }
+
+  private hydrate(session: Session): void {
+    const record = this.recordFor(session.id, identityOf(session.header))
+    if (record === undefined) return
+    const baseSeq = session.firstResidentSeq
+    this.ctx.sessionProjections.hydrate(session, record.rows, session.eventsFrom(baseSeq), baseSeq)
   }
 
   /**

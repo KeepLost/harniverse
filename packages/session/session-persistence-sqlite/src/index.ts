@@ -21,11 +21,13 @@ import {
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
   type SessionInspection, type SessionPersistenceRevision as PersistenceRevision,
   type SessionHistoryPageRequest, type SessionRawEventPageRequest, type StoredHistoryPage,
-  type StoredRawEventPage, type StoredPrefix, type StoredSuffix,
+  type StoredRawEventPage, type StoredPrefix, type StoredSuffix, type StoredWindow,
 } from '@deepseek-ai/dsh-session-persistence'
+import { KNOWN_SESSION_EVENT_TYPES, Session } from '@deepseek-ai/dsh-session'
+import { SurfaceManager } from '@deepseek-ai/dsh-session/surface'
 import type { EpochHeader, SessionEvent, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
 import {
-  type JournalMode, openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow, validateSchemaForMutation,
+  type JournalMode, openDatabase, physicalPrefixHash, rowToMeta, scanRows, type EventRow, type SessionRow, validateSchemaForMutation,
 } from './schema.ts'
 import { rowToEvent } from './schema.ts'
 import { bindRecord, decodeRow } from './compression.ts'
@@ -286,6 +288,62 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
     return { meta, events: preserved.filter(event => event.seq >= fromSeq) }
   }
 
+  /** Read a hash-bound surface checkpoint and its balanced-boundary suffix. */
+  async loadStoredWindow(id: SessionId, signal?: AbortSignal): Promise<StoredWindow<number> | undefined> {
+    signal?.throwIfAborted()
+    await this.ready
+    signal?.throwIfAborted()
+    this.db.exec('BEGIN')
+    try {
+      const row = this.rowFor(id)
+      const checkpoint = this.db.prepare(
+        'SELECT checkpoint_seq, base_seq, surface_json, prefix_hash FROM session_checkpoints WHERE session_id = ?',
+      ).get(id) as { checkpoint_seq: number; base_seq: number; surface_json: string; prefix_hash: string } | undefined
+      if (row === undefined || checkpoint === undefined) return undefined
+      const meta = rowToMeta(row)
+      const binding = JSON.stringify([
+        this.storeIdentity, row.incarnation, checkpoint.checkpoint_seq, checkpoint.base_seq, checkpoint.surface_json,
+      ])
+      const rows = this.db.prepare(
+        `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+         FROM events WHERE session_id = ? AND seq <= ? ORDER BY seq`,
+      ).iterate(id, checkpoint.checkpoint_seq) as unknown as Iterable<EventRow>
+      if (physicalPrefixHash(meta, rows, binding) !== checkpoint.prefix_hash) return undefined
+      const types = this.db.prepare(
+        'SELECT DISTINCT type, ignorable FROM events WHERE session_id = ? AND seq < ?',
+      ).all(id, checkpoint.base_seq) as { type: string; ignorable: number | null }[]
+      if (types.some(value => value.ignorable === 0
+        ? !['text-chunks', 'reasoning-chunks', 'tool-call-chunks'].includes(value.type)
+        : value.ignorable !== 1 && !KNOWN_SESSION_EVENT_TYPES.has(value.type))) {
+        return undefined
+      }
+      const surface = JSON.parse(checkpoint.surface_json) as StoredWindow['surface']
+      const physical = this.physicalSpanFrom(id, checkpoint.base_seq)
+      const { preserved, tornFrom } = scanRows(physical.eventRows, physical.base)
+      const last = preserved.at(-1)
+      if (tornFrom !== undefined || last === undefined || last.seq < checkpoint.checkpoint_seq) return undefined
+      return {
+        meta,
+        events: preserved.filter(event => event.seq >= checkpoint.base_seq),
+        baseSeq: checkpoint.base_seq,
+        surface,
+        revision: sqliteRevision(this.storeIdentity, row),
+      }
+    } catch {
+      // Invalid derived metadata is a cache miss; full recovery owns log diagnostics.
+      return undefined
+    } finally {
+      this.db.exec('ROLLBACK')
+    }
+  }
+
+  /** Decode one absolute event on demand for a windowed Session. */
+  readStoredEventAt(id: SessionId, seq: number): SessionEvent | undefined {
+    const span = this.physicalSpanFrom(id, seq, seq + 1)
+    const { preserved } = scanRows(span.eventRows, span.base)
+    return preserved.find(event => event.seq === seq)
+  }
+
   /**
    * Read a backward display page without materializing the complete log. The
    * append-origin candidates identify the message cut; one contiguous range
@@ -453,6 +511,8 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
       if (!isMaterialized) this.writeRow(meta)
       for (const record of packChunkRuns(events)) this.insertRecord(insertEvent, meta.id, bindRecord(record))
       this.db.prepare('UPDATE sessions SET revision = revision + 1 WHERE id = ?').run(meta.id)
+      const replacement = events.findLast(event => 'surfaceOp' in event && typeof event.surfaceOp === 'object')
+      if (replacement !== undefined) this.writeCheckpoint(meta.id, replacement.seq)
       this.db.exec('COMMIT')
     } catch (error) {
       this.db.exec('ROLLBACK')
@@ -588,6 +648,36 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
       meta.agentProfile ?? null,
       randomUUID(),
     )
+  }
+
+  /** Cache the surface before the last completed turn boundary preceding a replacement. */
+  private writeCheckpoint(id: SessionId, replacementSeq: number): void {
+    try {
+      const row = this.rowFor(id) as SessionRow
+      const meta = rowToMeta(row)
+      const rows = this.db.prepare(
+        `SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable
+         FROM events WHERE session_id = ? AND seq <= ? ORDER BY seq`,
+      ).all(id, replacementSeq) as unknown as EventRow[]
+      const { preserved, tornFrom } = scanRows(rows)
+      if (tornFrom !== undefined) return
+      const baseSeq = (preserved.findLast(event => event.type === 'turn/end')?.seq ?? -1) + 1
+      if (baseSeq === 0 || baseSeq > replacementSeq) return
+      // Only a fully valid canonical prefix may certify a later partial restore.
+      Session.fromRestore(id, preserved, meta)
+      const surface = new SurfaceManager(preserved.slice(0, baseSeq))
+      const surfaceJson = JSON.stringify({ nodes: surface.nodes, replaceGeneration: surface.replaceGeneration })
+      const binding = JSON.stringify([this.storeIdentity, row.incarnation, replacementSeq, baseSeq, surfaceJson])
+      const hash = physicalPrefixHash(meta, rows, binding)
+      this.db.prepare(
+        `INSERT INTO session_checkpoints (session_id, checkpoint_seq, base_seq, surface_json, prefix_hash)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET checkpoint_seq = excluded.checkpoint_seq,
+           base_seq = excluded.base_seq, surface_json = excluded.surface_json, prefix_hash = excluded.prefix_hash`,
+      ).run(id, replacementSeq, baseSeq, surfaceJson, hash)
+    } catch {
+      // A failed derived checkpoint never rejects an otherwise durable canonical append.
+    }
   }
 
   private physicalSpanFrom(

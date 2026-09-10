@@ -157,7 +157,11 @@ interface RestoredSessionOptions {
   /** Fresh detached storage metadata to validate and freeze in place. */
   readonly meta: SessionHeader
   /** Select the persistence ownership-transfer path. */
-  readonly seedSource: 'persistence'
+   readonly seedSource: 'persistence'
+   /** Optional complete-history resolver for a windowed persistence seed. */
+   readonly history?: SessionHistorySource
+   /** Existing surface state at the window boundary, in model-visible order. */
+   readonly surface?: { readonly nodes: readonly number[]; readonly replaceGeneration: number }
 }
 ```
 
@@ -254,12 +258,12 @@ interface SessionPersistenceSnapshot {
 
 ## 后端
 
-两者都实现同一个抽象 `SessionPersistence`（在 `SessionEvent` 上执行 locate/create/append/prepare/load/inspect/readFrom/readHistoryPage/list/listSnapshots，观察方法可选支持取消），并通过共享的 `runPersistenceContract` 套件：
+两者都实现同一个抽象 `SessionPersistence`（在 `SessionEvent` 上执行 locate/create/append/prepare/load/inspect/readFrom/readHistoryPage/list/listSnapshots，观察方法可选支持取消），并通过共享的 `runPersistenceContract` 套件。SQLite 额外提供内部检查点窗口钩子：replacement 之前经过 hash 验证的 surface 状态，包括 reset 和部分 compaction，可以结合绝对序列后缀播种恢复 Session。`Session.events` 保留完整的惰性历史视图；显式 `load()` 和 `inspect()` 返回独立历史，后端关闭后仍可读取。检查点缺失或损坏时回退完整回放；JSONL 始终使用回退路径。
 
 初始显示历史请求可以优先采用最近一次 compact 插件 replacement 检查点事务。此模式从检查点事务开始，并返回其后的全部原始事件，不受普通消息配额限制；`hasMore` 与 `beforeSeq` 继续提供对被替代前缀的访问。其他初始请求和更早分页仍遵循普通 append 消息上限。
 
 - **[dsh-session-persistence-jsonl](../../packages/session/session-persistence-jsonl)**——每个会话一份仅追加的逻辑 JSONL 日志，默认存储为带 checksum 的连续 Zstandard frame，也可配置为原始行；支持崩溃安全的原子写入、被中断轮次的恢复以及读取/回放路径。
-- **[dsh-session-persistence-sqlite](../../packages/session/session-persistence-sqlite)**：基于 `node:sqlite`，普通事件使用标量行，相容的 `assistant/chunk` 连续段使用 schema-17 打包物理行。读取方会先重建精确的逻辑流，再应用后缀或历史分页范围；物理上限、压缩、来源编码和修复规则由包 README 定义。
+- **[dsh-session-persistence-sqlite](../../packages/session/session-persistence-sqlite)**：基于 `node:sqlite`，普通事件使用标量行，相容的 `assistant/chunk` 连续段使用 schema-18 打包物理行及 hash 绑定的检查点元数据。读取方会先重建精确的逻辑流，再应用后缀或历史分页范围；物理上限、压缩、来源编码和修复规则由包 README 定义。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -450,5 +454,5 @@ abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot
 
 Types: [EpochHeader](session.md) · [SessionEvent](session.md) · [SessionId](core.md)
 
-Source: [`packages/session/session-persistence/src/index.ts:99`](../../packages/session/session-persistence/src/index.ts)
+Source: [`packages/session/session-persistence/src/index.ts:100`](../../packages/session/session-persistence/src/index.ts)
 <!-- END GENERATED cordis-surface -->

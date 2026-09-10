@@ -39,6 +39,22 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
 }
 
 describe('Inbox', () => {
+  it('preserves pending messages before a restored surface window', () => {
+    const source = Session.create(SessionId('window-inbox'))
+    const message = createUserMessage({ content: [{ type: 'text', text: 'queued before reset' }], source: { kind: 'user' } })
+    source.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [message] })
+    source.append('session/end-seed', {})
+    const events = [...source.events]
+    const restored = Session.fromRestore(source.id, events.slice(1), structuredClone(source.header), {
+      firstSeq: 1,
+      eventAt: seq => events[seq],
+    })
+    const inbox = new Inbox(restored, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
+    expect(inbox.nextTurn).toEqual([message])
+    expect(inbox.claim('next-turn', 1)).toEqual([message])
+    expect(inbox.hasPending).toBe(false)
+  })
+
   it('rejects an invalid durable splice during reconstruction', () => {
     const session = Session.create(SessionId('invalid-inbox-replay'))
     session.append('agent/inbox/spliced', {

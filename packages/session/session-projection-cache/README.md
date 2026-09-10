@@ -36,6 +36,8 @@ The read ladder, zero full-log load on the happy path: cached rows → `sessionP
 
 `write(session)` is the synchronous-cut checkpoint both mandatory points use; carriers may call it directly (not fail-soft — the fail-soft wrappers own containment).
 
+When a persisted Session is published, the cache attempts identity-checked hydration of its rows into the registry. Hydration failure is treated as a cache miss and never makes the canonical session log unavailable.
+
 ## Composition
 
 ```yaml

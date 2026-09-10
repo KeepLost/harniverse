@@ -395,6 +395,89 @@ describe('SessionProjectionRegistry drive', () => {
     expect(current.values['test/count']).toBe(5)
   })
 
+  it('hydrates a live cell from a checkpoint row and its forward tail', async () => {
+    const { ctx, session } = await harness()
+    session.append('turn/start', { turn: 1 })
+    session.append('turn/start', { turn: 2 })
+    session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    const apply = vi.fn((state: number) => state + 1)
+    ctx.sessionProjections.register({
+      key: 'test/count',
+      schema: z.number().int().nonnegative(),
+      init: () => 0,
+      apply,
+      view: state => state,
+      stateVersion: 1,
+    })
+
+    const snapshot = ctx.sessionProjections.hydrate(
+      session,
+      { 'test/count': { ver: 1, seq: 1, val: 2 } },
+      [session.events[2]!],
+      2,
+    )
+
+    expect(snapshot).toEqual({ asOfSeq: 2, values: { 'test/count': 3 } })
+    expect(apply).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects invalid hydration bounds and discontinuous tails without replacing live cells', async () => {
+    const { ctx, session } = await harness()
+    ctx.sessionProjections.register(countUnit())
+    session.append('turn/start', { turn: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    const before = ctx.sessionProjections.snapshot(session)
+    const events = session.events
+    for (const [baseSeq, tail] of [
+      [-1, []], [0.5, []], [Number.NaN, []], [session.seq + 1, []],
+      [0, events.slice(1)], [0, [...events].reverse()],
+    ] as const) {
+      expect(() => ctx.sessionProjections.hydrate(session, {}, tail, baseSeq))
+        .toThrow('projection hydration requires a contiguous tail through the current Session end')
+      expect(ctx.sessionProjections.snapshot(session)).toEqual(before)
+    }
+  })
+
+  it('refuses to hydrate a nonzero-base tail when its row is invalid', async () => {
+    const { ctx, session } = await harness()
+    ctx.sessionProjections.register(countUnit())
+    session.append('turn/start', { turn: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    expect(() => ctx.sessionProjections.hydrate(
+      session,
+      { 'test/count': { ver: 99, seq: 0, val: 1 } },
+      [session.events[1]!],
+      1,
+    )).toThrow(/re-read from seq 0/)
+  })
+
+  it('does not lazily fold a tail again after hydration', async () => {
+    const { ctx, session } = await harness()
+    session.append('turn/start', { turn: 1 })
+    session.append('turn/start', { turn: 2 })
+    const tail = session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    const apply = vi.fn((state: number) => state + 1)
+    ctx.sessionProjections.register({
+      key: 'test/count',
+      schema: z.number().int().nonnegative(),
+      init: () => 0,
+      apply,
+      view: state => state,
+      stateVersion: 1,
+    })
+
+    ctx.sessionProjections.hydrate(
+      session,
+      { 'test/count': { ver: 1, seq: 1, val: 2 } },
+      [tail],
+      2,
+    )
+    expect(ctx.sessionProjections.snapshot(session).values['test/count']).toBe(3)
+    expect(ctx.sessionProjections.snapshot(session).values['test/count']).toBe(3)
+    expect(apply).toHaveBeenCalledTimes(1)
+  })
+
   it('viewCheckpoint serves version-matching rows without any log and skips mismatched keys', async () => {
     const { ctx } = await harness()
     ctx.sessionProjections.register(marksUnit())

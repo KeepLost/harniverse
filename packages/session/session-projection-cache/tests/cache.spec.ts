@@ -11,8 +11,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
@@ -118,6 +118,29 @@ afterEach(async () => {
 })
 
 describe('SessionProjectionCache write policy', () => {
+  it('hydrates a published window from its persisted rows without replaying the prefix', async () => {
+    const first = await harness()
+    const source = Session.create(SessionId('hydrate-window'), undefined, headerOf(SessionId('hydrate-window')))
+    mark(source, ['before'])
+    source.append('session/end-seed', {})
+    await first.cache.write(source)
+    const second = await harness({ pool: first.pool })
+    const events = [...source.events]
+    const read = vi.fn((seq: number) => events[seq])
+    const restored = Session.fromRestore(source.id, events.slice(1), structuredClone(source.header), { firstSeq: 1, eventAt: read })
+    const detach = second.ctx.sessions.enter(restored)
+    try {
+      second.ctx.sessions.announce(restored)
+      expect(second.ctx.sessionProjections.snapshot(restored).values['cache-test/marks']).toEqual({ marks: ['before'] })
+      expect(read).not.toHaveBeenCalled()
+      mark(restored, ['after'])
+      expect(second.ctx.sessionProjections.snapshot(restored).values['cache-test/marks']).toEqual({ marks: ['after'] })
+      expect(read).not.toHaveBeenCalled()
+    } finally {
+      detach()
+    }
+  })
+
   it('writes a durable checkpoint at turn/end (mandatory point)', async () => {
     const { ctx, pool } = await harness()
     const session = ctx.sessions.create(SessionId('turn-end'))
