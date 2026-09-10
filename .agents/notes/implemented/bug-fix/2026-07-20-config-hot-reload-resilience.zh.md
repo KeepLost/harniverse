@@ -18,7 +18,7 @@ Loader 会先导入变化后的模块名，再 dispose（资源释放）活动 f
 
 Include 读取并校验尚未提交的候选内容，把补丁应用到其副本，对账 Loader 树，然后才提交缓存内容和解析数据。解析、校验、应用或回滚失败后，`refresh()` 会向调用方 reject。初始加载仍会明确报错；只有文件不存在时才可以使用 `initial`。YAML/JSON 结果若不是数组即为无效；文件刷新和 Include 配置更新都会重新应用补丁，且不修改缓存的解析结果。
 
-HMR 收容实时刷新 rejection。其 `registerConfig(filename, refresh)` 方法从最近的现有祖先目录开始监听一个确切路径，串行化并合并刷新，并返回一个异步 disposer；该 disposer 会关闭 watcher 并排空活跃工作。确切路径和普通配置文件的刷新都使用此队列。失败会被规范化为 `Error`、记入日志，并通过并行事件 `hmr/config-update-failed(filename, error)` 广播；发生 rejection 的观察者会被记录，但不会阻止后续刷新。创建、变更和移除均会被观察。
+HMR 收容实时刷新 rejection。其 `registerConfig(filename, refresh)` 方法通过最近的现有规范祖先目录解析一个确切路径，持有 stat 基线和异步轮询，并返回一个停止轮询、排空活跃工作的异步 disposer（[就绪条件决策](2026-09-11-ci-readiness-boundaries.md)）。确切路径和普通配置文件的刷新都使用串行化、合并队列。失败会被规范化为 `Error`、记入日志，并通过并行事件 `hmr/config-update-failed(filename, error)` 广播；发生 rejection 的观察者会被记录，但不会阻止后续刷新。创建、变更和移除均会被观察。
 
 ## Alternatives considered
 
@@ -33,7 +33,7 @@ HMR 收容实时刷新 rejection。其 `registerConfig(filename, refresh)` 方�
 - 实时刷新失败会在内部 reject；补偿成功时会保留或恢复上一份完好的树，并广播一次类型化失败，而不会成为未处理的 rejection。
 - 回滚失败可见，并可能使一个配置项不可用；事件和日志不会误称其已恢复。
 - 等待已声明依赖的 fiber 仍是有效的 pending 配置项：生命周期完成只表示当前工作均未失败，而不表示每项依赖都存在。
-- 确切配置 watcher 只为已注册路径增加文件系统资源，并随其所属 HMR fiber 一起释放。
+- 确切配置轮询只为已注册路径增加定时器和 stat I/O，并随其所属 HMR fiber 一起排空。
 - vendor 中的 Loader、Include、HMR 与核心事件类型定义进一步偏离上游；全部分叉均维护在 vendor manifest（元数据清单）中。
 
 ## Testing
