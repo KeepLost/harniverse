@@ -49,7 +49,9 @@ describe('web e2e: goal bar clear convergence', () => {
     await input.press('Enter')
 
     const bar = page.locator('[data-goal-bar]')
-    await bar.waitFor({ timeout: 10_000 })
+    // Command → session event → SSE → render spans several hops; CI load can
+    // push first paint past a 10s budget even though the bar is imminent.
+    await bar.waitFor({ timeout: 30_000 })
     const snapshot = await captureStableAria(page, '[data-goal-bar]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(ACTIVE_EXPECTED, snapshot, MODE)
 
