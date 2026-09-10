@@ -18,6 +18,8 @@ Workspace workbench implementation tracking: `9a74618b20`; real-browser interact
 
 Session checkpoint recovery implementation tracking: `0b617df8d6fd04d0f73dba3afdd4d969cfe07972`.
 
+Exact-config HMR readiness implementation tracking: `7b3ab6ae97595affd9ca12e3bd9ca3a987a98f7e`.
+
 ## Official Plugin Inventory
 
 <!-- official-inventory-start -->
