@@ -1,0 +1,39 @@
+{
+  "patches": [
+    {
+      "at": 4,
+      "entry": {
+        "kind": "chunks",
+        "chunks": [
+          { "type": "block-start", "index": 0, "blockType": "text" },
+          { "type": "block-end", "index": 0, "block": { "type": "text", "text": "CORDIS_UI_RUNNING" } },
+          { "type": "finish", "reason": { "kind": "stop" } }
+        ]
+      }
+    },
+    {
+      "at": 5,
+      "entry": {
+        "kind": "chunks",
+        "chunks": [
+          { "type": "block-start", "index": 0, "blockType": "tool-call" },
+          { "type": "block-end", "index": 0, "block": { "type": "tool-call", "id": "cordis-stop", "name": "cordis_stop", "arguments": "{\"pluginId\":\"snap-1\"}" } },
+          { "type": "usage", "usage": { "inputTokens": 3, "outputTokens": 3 } },
+          { "type": "finish", "reason": { "kind": "tool-calls" } }
+        ]
+      }
+    },
+    {
+      "at": 6,
+      "entry": {
+        "kind": "chunks",
+        "chunks": [
+          { "type": "block-start", "index": 0, "blockType": "text" },
+          { "type": "block-end", "index": 0, "block": { "type": "text", "text": "CORDIS_UI_DONE" } },
+          { "type": "usage", "usage": { "inputTokens": 3, "outputTokens": 3 } },
+          { "type": "finish", "reason": { "kind": "stop" } }
+        ]
+      }
+    }
+  ]
+}

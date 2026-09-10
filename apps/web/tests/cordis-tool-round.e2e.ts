@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
@@ -21,6 +21,9 @@ import {
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
 const FIXTURE = fileURLToPath(new URL('./snapshots/cordis-tool-round/session.jsonl', import.meta.url))
+// Replay-only acknowledgement of host-runner steering; the JSONL remains unchanged.
+// The sidecar shifts the original stop responses by one call, not a new API recording.
+const OVERRIDE = fileURLToPath(new URL('./snapshots/cordis-tool-round/replay.override.json', import.meta.url))
 const UI_EXPECTED = fileURLToPath(new URL('./snapshots/cordis-tool-round/ui.expected.md', import.meta.url))
 const SHIPPED_PRESETS = fileURLToPath(new URL('../../cli/config/agent-presets/', import.meta.url))
 const MODE = webSnapshotMode()
@@ -44,17 +47,30 @@ const STOP_PROMPT = 'Use only Cordis tools. Call cordis_stop with pluginId "snap
   + 'After it succeeds, reply exactly CORDIS_UI_DONE and stop.'
 
 function assertCompleteCordisLifecycle(events: readonly SessionEvent[]): void {
-  const turnEnd = events.findLast(
+  const turnEnds = events.filter(
     (event): event is Extract<SessionEvent, { type: 'turn/end' }> => event.type === 'turn/end',
   )
-  const reason = turnEnd?.data.reason
-  const reasonSummary = { kind: reason?.kind }
-  expect(reasonSummary).toEqual({ kind: 'completed' })
+  expect(turnEnds.map(event => event.data)).toEqual([
+    { turn: 1, reason: { kind: 'completed' } },
+    { turn: 2, reason: { kind: 'completed' } },
+    { turn: 3, reason: { kind: 'completed' } },
+  ])
 
   const calls = events.filter(
     (event): event is Extract<SessionEvent, { type: 'tool/call' }> => event.type === 'tool/call',
   )
   expect(calls.map(event => event.data.name)).toEqual(CORDIS_TOOLS)
+  const approvalOutcome = events.find(event => event.type === 'user/message'
+    && event.data.source.kind === 'plugin' && event.data.source.plugin === 'cordis-host-runner')
+  expect(approvalOutcome?.seq, 'approval continuation must follow READY settlement')
+    .toBeGreaterThan(turnEnds[0]!.seq)
+  expect(approvalOutcome?.seq).toBeLessThan(turnEnds[1]!.seq)
+  const stopPrompt = events.find(event => event.type === 'user/message'
+    && event.data.source.kind === 'user'
+    && event.data.content.some(block => block.type === 'text' && block.text === STOP_PROMPT))
+  expect(stopPrompt, 'the explicit stop prompt must reach this session').toBeDefined()
+  expect(stopPrompt!.seq, 'the stop prompt must follow approval settlement').toBeGreaterThan(turnEnds[1]!.seq)
+  expect(calls[3]!.seq, 'cordis_stop must follow the explicit stop prompt').toBeGreaterThan(stopPrompt!.seq)
 
   const callIds = new Set(calls.map(event => String(event.data.callId)))
   const results = events.filter(
@@ -70,14 +86,34 @@ describe('web e2e: Cordis tools use their owned cards', () => {
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
-  const sessionEvents: SessionEvent[] = []
+  let session: Session
+
+  async function waitForTurnIdle(turn: number): Promise<void> {
+    // Durable conditions cannot miss a fast completion or borrow another session's turn.
+    await expect.poll(() => session?.events.some(event => event.type === 'turn/end' && event.data.turn === turn), {
+      timeout: MODE === 'record' ? 180_000 : 30_000,
+    }).toBe(true)
+    const agent = scaffold.ctx.agents.get(session.id)
+    expect(agent).toBeDefined()
+    await agent!.whenIdle()
+    await scaffold.ctx.sessions.flush(session)
+    const turnEnds = session.events.filter(event => event.type === 'turn/end')
+    expect(turnEnds).toHaveLength(turn)
+    expect(turnEnds.at(-1)!.data).toEqual({ turn, reason: { kind: 'completed' } })
+  }
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({
       agentPresets: { roots: [{ path: SHIPPED_PRESETS, trust: 'system' }], default: 'cordis' },
-      ...(MODE === 'record' ? {} : { replayFixture: FIXTURE, paceMs: 15 }),
+      ...(MODE === 'record' ? {} : { replayFixture: FIXTURE, replayOverride: OVERRIDE, paceMs: 15 }),
     })
-    scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
+    scaffold.ctx.on('session/event', (candidate, event: SessionEvent) => {
+      if (event.type === 'user/message' && event.data.source.kind === 'user'
+        && event.data.content.some(block => block.type === 'text' && block.text === PROMPT)) {
+        expect(session).toBeUndefined()
+        session = candidate
+      }
+    })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
@@ -98,9 +134,10 @@ describe('web e2e: Cordis tools use their owned cards', () => {
     }
     const input = page.locator('textarea').first()
     await input.waitFor({ timeout: 10_000 })
-    const runTurnSettled = scaffold.whenTurnSettled()
     await input.fill(PROMPT)
     await input.press('Enter')
+    await waitForTurnIdle(1)
+    await expect.poll(() => page.getByText('CORDIS_UI_READY', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
 
     // The approval is the TEST's action in every mode: the fixture pins what the
     // model said, and the gate is a real round trip through the real panel.
@@ -111,23 +148,24 @@ describe('web e2e: Cordis tools use their owned cards', () => {
     // been fetched, evaluated, or mounted anywhere on this page.
     expect(await page.locator('[data-snapshot-probe]').count()).toBe(0)
     await approve.click()
+    await waitForTurnIdle(2)
     await expect.poll(() => page.locator('[data-snapshot-probe]').count(), { timeout: 30_000 }).toBe(1)
+    expect(session.events.filter(event => event.type === 'tool/call').map(event => event.data.name))
+      .toEqual(CORDIS_TOOLS.slice(0, 3))
 
-    const sessionId = await runTurnSettled
-    const stopTurnSettled = scaffold.whenTurnSettled()
     await input.fill(STOP_PROMPT)
     await input.press('Enter')
-    await stopTurnSettled
+    await waitForTurnIdle(3)
+    assertCompleteCordisLifecycle(session.events)
     if (MODE === 'record') {
-      assertCompleteCordisLifecycle(sessionEvents)
       await expect.poll(() => page.getByText('CORDIS_UI_DONE', { exact: true }).count(), { timeout: 15_000 })
         .toBeGreaterThanOrEqual(1)
-      await recordFixture(scaffold, sessionId, FIXTURE)
+      await recordFixture(scaffold, session.id, FIXTURE)
     }
   }, 200_000)
 
   it.skipIf(MODE === 'record')('the durable log carries one complete Cordis lifecycle', () => {
-    assertCompleteCordisLifecycle(sessionEvents)
+    assertCompleteCordisLifecycle(session.events)
   })
 
   it.skipIf(MODE === 'record')('renders localized Cordis lifecycle cards', async () => {
@@ -164,6 +202,7 @@ describe('web e2e: Cordis tools use their owned cards', () => {
 
   it.skipIf(MODE === 'record')('matches the conversation aria golden', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-cordis-aria'))
+    assertCompleteCordisLifecycle(session.events)
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
   })

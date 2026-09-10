@@ -18,6 +18,8 @@ Workspace workbench implementation tracking: `9a74618b20`; real-browser interact
 
 Session checkpoint recovery implementation tracking: `0b617df8d6fd04d0f73dba3afdd4d969cfe07972`.
 
+Exact-config HMR readiness implementation tracking: `7b3ab6ae97595affd9ca12e3bd9ca3a987a98f7e`.
+
 ## Official Plugin Inventory
 
 <!-- official-inventory-start -->
@@ -179,6 +181,7 @@ Harniverse groups downstream package manifests by complete capability family rat
 | Composition surface | Current Harniverse change |
 |---|---|
 | Vendored Cordis namespace | Vendored framework packages publish under the `@deepseek-ai` scope, and harness module specifiers use those names. Stable product and protocol identifiers remain independent: the `cordis` Agent Profile id, `cordis/*` events, diagnostics ids, and translation keys are not npm subpaths. The rescope gate preserves those distinctions while requiring every actual package reference to use the downstream namespace. |
+| Vendored Cordis exact-config HMR | `@deepseek-ai/cordis-plugin-hmr` owns an initial stat baseline and asynchronous exact-path polling for `registerConfig`, independent of native watcher startup and module roots. Polling uses `interval` (default 100 ms), refreshes existing files once, and coalesces later observed changes. Cordis effects own registration and quiescent disposal; serialized refreshes, failure broadcasts, and the main Chokidar module/Include watcher remain intact. The [readiness decision](.agents/notes/implemented/bug-fix/2026-09-11-ci-readiness-boundaries.md) records timing, errors, and verification. |
 | `dsh-base` model adapters | Native `dsh-llm-deepseek` remains installed but defaults disabled; official `dsh-llm-pi-ai` is the enabled vendor-neutral adapter. |
 | `dsh-base` Web providers | DeepSeek, Exa, Perplexity, Tavily, Brave, and Kagi provide search; Firecrawl provides aggregate Search/Scrape; HTTP provides fetch. Search and fetch defaults are live settings-backed and explicit operation provider ids never fall back. |
 | `dsh-base` model Web tools | `dsh-tool-web` remains loaded with both search and fetch disabled by default. |

@@ -18,7 +18,7 @@ Two defects compounded:
 Both halves are fixed in the vendored packages (logged in `vendor/README.md`):
 
 - `include/src/index.ts` funnels every child-tree mutation — initial apply, refresh, and `internal/update` patch re-application — through one per-Include promise queue. The group's transactional `update` is not reentrant, so serialization is a correctness requirement, not a throughput choice. `refresh()` also reads inside the queue so its changed-content check compares against the predecessor's committed state.
-- `hmr/src/index.ts` passes `ignoreInitial: true` to the main watcher. The initial scan only re-announces files boot has just consumed; suppressing it removes both the boot-time refresh and the spurious `add` events for already-loaded modules. `registerConfig()` keeps its own `ignoreInitial: false` watcher because a personal config present at registration must apply exactly once.
+- `hmr/src/index.ts` passes `ignoreInitial: true` to the main watcher. The initial scan only re-announces files boot has just consumed; suppressing it removes both the boot-time refresh and the spurious `add` events for already-loaded modules. `registerConfig()` owns a separate stat baseline and requests one initial refresh for an existing personal config ([exact-path readiness](2026-09-11-ci-readiness-boundaries.md)).
 
 With both in place a failing boot follows the intended path: the single apply fails, the rollback disposes the tree (running the TUI's own shutdown, restoring the terminal), `loader.create` rejects, and `boot()` rethrows the labelled diagnostic with exit 1.
 
@@ -32,7 +32,7 @@ With both in place a failing boot follows the intended path: the single apply fa
 
 ## Consequences
 
-A config file edit landing inside the watcher's startup scan window is now picked up by the next `change` event rather than the scan itself; steady-state reload behavior is unchanged.
+The main watcher's initial scan does not apply config edits; its subsequent `change` events drive Include reloads. Exact-path registrations independently compare stat snapshots and do not depend on native subscription startup.
 
 One latent gap remains: a config edit made during a *failing* initial apply can still queue a refresh that the rollback's HMR teardown waits on — the same deadlock shape with a human-scale trigger window of one failing boot. If that ever bites, the fix is refresh-job cancellation at HMR teardown.
 

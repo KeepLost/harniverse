@@ -857,9 +857,9 @@ function normalizeAria(snapshot: string, workspaceCwd: string): string {
 }
 
 /**
- * Capture the region's aria snapshot at a settled milestone: poll until two
- * consecutive normalized captures are equal — a single-shot capture races the
- * last React commits.
+ * Capture after the caller has observed the scenario's data-ready milestone.
+ * Two equal normalized captures settle React commits, not pending I/O: loading
+ * placeholders can remain unchanged while commands or history are in flight.
  * @param page - the page under test.
  * @param selector - the region locator selector.
  * @param workspaceCwd - normalization input.

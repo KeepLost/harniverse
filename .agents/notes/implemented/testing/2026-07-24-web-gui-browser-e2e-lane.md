@@ -32,6 +32,8 @@ Every scenario fails on any pageerror and on the client's connection-loss/gap-re
 
 ### Expected outputs
 
+Callers establish scenario data readiness before `captureStableAria`; equal normalized samples settle rendering, not pending command or history I/O. The [readiness decision](../bug-fix/2026-09-11-ci-readiness-boundaries.md) owns the concrete waits and the Cordis approval continuation's separate completed turn.
+
 Scenarios with a stable owning region commit a normalized `ariaSnapshot()` for each distinct user-visible state; cross-region workspace-management states instead use semantic DOM assertions plus authoritative host-state checks. UUID, cwd, workspace basename, and duration volatility collapse to stable tokens; captures poll until consecutive normalized reads agree. Role and text anchors remain semantic guards around the reviewable goldens and own cross-region states directly. World-state assertions use root-context session events rather than a second committed log golden because the ACP, headless, and TUI suites already pin the persisted-log surface through the same loop and persistence. `refresh` is the sole golden writer; a missing replay golden fails with the regeneration command.
 
 The typecheck plane split is structural: the host scaffold, its support module, and every web spec that boots or inspects the host composition are excluded from the client-registered `apps/web` project and included file-by-file in `tsconfig.host.json`. One program cannot hold both sides of the Cordis `Context` merges.
@@ -76,7 +78,7 @@ Surveyed AI-chat/agent web UIs and mocking layers (LibreChat, vercel/ai-chatbot 
 
 **Running the high-cardinality performance case in the required browser gate.** Rejected: its fixture setup and full-history render add tens of seconds, while wall-clock and memory values vary with the host and cannot supply a stable correctness threshold. The required lane keeps deterministic behavior assertions; contributors run the diagnostic case when investigating or changing large-list and long-history rendering.
 
-**A client `data-dsh-busy` settled signal.** Deferred: the host-side `whenIdle` barrier plus stable DOM polls cover the current scenarios. Reconsider after the first settled-poll flake or when a required state is not observable in the DOM.
+**A client `data-dsh-busy` settled signal.** Deferred: the host-side `whenIdle` barrier plus scenario data-ready conditions and stable DOM polls cover the current scenarios. Reconsider when a required state is not observable in the DOM; equal loading placeholders do not justify a global busy protocol when loaded content is already observable.
 
 ## Testing
 
