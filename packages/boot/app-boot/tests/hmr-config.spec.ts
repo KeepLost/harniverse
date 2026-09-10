@@ -26,7 +26,10 @@ async function bootHmr(dir: string, root: string[] = [], usePolling?: boolean): 
 }
 
 async function eventually(test: () => boolean, message: string): Promise<void> {
-  const deadline = Date.now() + 10_000
+  // Loaded macOS runners can trail FSEvents delivery by more than 10s; the
+  // contract under test is eventual observation, so the deadline buys CI
+  // headroom while callers keep their total wait budget above it.
+  const deadline = Date.now() + 18_000
   while (!test()) {
     if (Date.now() >= deadline) throw new Error(message)
     await new Promise(resolve => setTimeout(resolve, 10))
@@ -85,7 +88,7 @@ describe('HMR exact config paths', () => {
     }
   })
 
-  it('observes add, change, and unlink outside its module roots', { timeout: 20_000 }, async () => {
+  it('observes add, change, and unlink outside its module roots', { timeout: 60_000 }, async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hmr-config-'))
     const filename = join(dir, 'plugins.yml')
     const ctx = await bootHmr(dir)
