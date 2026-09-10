@@ -16,6 +16,8 @@ The two baseline commits have the same Git tree. All downstream statements there
 
 Workspace workbench implementation tracking: `9a74618b20`; real-browser interaction hardening: `f986355714`; navigation, preview, and glob integration: `6fdf45691a`; session-control work-status response baseline: `fd4a04a42cc08ca07ccb09143ffdc2870b3cad5f`; native macOS shell and Intel runtime coverage: `97a196e925`; native macOS process-path portability: `bcc4186fb5`; native macOS resource-bound portability: `71befd15fe`; native Windows lease-cleanup contention: `277be8ca8a`; global compaction controls: `5a794a57bd`; client-aborted HTTP request handling: `2b8ee0cc0f`.
 
+Session checkpoint recovery implementation tracking: `0b617df8d6fd04d0f73dba3afdd4d969cfe07972`.
+
 ## Official Plugin Inventory
 
 <!-- official-inventory-start -->
