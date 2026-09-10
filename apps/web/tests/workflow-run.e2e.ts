@@ -77,15 +77,20 @@ describe.skipIf(MODE === 'record')('web e2e: durable workflow run in Chat', () =
     const workflow = page.locator('[data-workflow-run][data-run-status="running"]')
     await workflow.waitFor({ timeout: 45_000 })
     const disclosures = workflow.locator('[data-disclosure-row]')
-    await disclosures.nth(1).waitFor({ timeout: 15_000 })
+    // CI browsers can trail the host-driven replay by seconds; both waits
+    // below only need the run's live paint, not a fast one.
+    await disclosures.nth(1).waitFor({ timeout: 30_000 })
     expect(await disclosures.nth(0).getAttribute('role')).toBeNull()
     expect(await disclosures.nth(0).getAttribute('aria-expanded')).toBeNull()
     expect(await disclosures.nth(1).getAttribute('role')).toBeNull()
     expect(await disclosures.nth(1).getAttribute('aria-expanded')).toBeNull()
     expect(await disclosures.nth(0).evaluate(element => getComputedStyle(element).cursor)).not.toBe('pointer')
     expect(await disclosures.nth(1).evaluate(element => getComputedStyle(element).cursor)).not.toBe('pointer')
-    const member = workflow.locator('button[data-member-status]').first()
-    await member.waitFor({ timeout: 15_000 })
+    // Anchor on the run node, not its running status: under load the browser
+    // can first paint the member after the run already settled host-side, and
+    // the Open button survives until parent-turn settlement removes it.
+    const member = page.locator('[data-workflow-run]').locator('button[data-member-status]').first()
+    await member.waitFor({ timeout: 30_000 })
     expect(await member.getAttribute('aria-label')).toMatch(/^Open /)
     await member.focus()
 
