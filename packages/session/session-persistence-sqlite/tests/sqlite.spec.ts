@@ -1,6 +1,6 @@
 /* oxlint-disable typescript/no-unsafe-assignment -- backend-only rows are intentionally opaque in this boundary test. */
 
-import { createUserMessage, createMessage, freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
+import { CallId, createUserMessage, createMessage, freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { existsSync } from 'node:fs'
@@ -8,8 +8,8 @@ import { chmod, mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/pro
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
 import SqliteSessionPersistence, { SCHEMA_VERSION } from '@deepseek-ai/dsh-session-persistence-sqlite'
 import {
   openDatabase,
@@ -171,6 +171,260 @@ describe('scanRows', () => {
     expect(preserved).toEqual(oneTurnLog())
     expect(tornFrom).toBe(6)
   })
+})
+
+describe('SQLite checkpoint restore', () => {
+  it('does not certify a checkpoint over a torn physical prefix', async () => {
+    const mounted = await backend()
+    const id = SessionId('checkpoint-over-gap')
+    const replacement: SessionEvent = {
+      type: 'user/message', seq: 7, time: 8,
+      data: createUserMessage({ content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact' } }),
+      surfaceOp: { op: 'replace', start: 1, end: 3 }, sourceEventSeqs: [1, 3],
+    }
+    try {
+      await store(mounted.ctx).appendBatch(meta(id), [...oneTurnLog(), replacement], false)
+      expect(await store(mounted.ctx).loadStoredWindow(id)).toBeUndefined()
+      expect((await store(mounted.ctx).loadStored(id))?.events).toEqual(oneTurnLog())
+    } finally {
+      await mounted.dispose()
+    }
+  })
+
+  it.each(['load', 'inspect'] as const)('keeps %s history readable after the persistence backend closes', async (method) => {
+    const mounted = await backend()
+    const id = SessionId('detached-checkpoint-inspection')
+    const source = Session.create(id, oneTurnLog(), meta(id))
+    source.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact' },
+    }), { surfaceOp: { op: 'replace', start: 1, end: 3 }, sourceEventSeqs: [1, 3] })
+    let inspection: Awaited<ReturnType<typeof mounted.ctx.sessionPersistence.load>>
+    try {
+      await mounted.ctx.sessionPersistence.create(source.header)
+      await mounted.ctx.sessionPersistence.append(id, [...source.events])
+      inspection = await mounted.ctx.sessionPersistence[method](id)
+    } finally {
+      await mounted.dispose()
+    }
+    expect(inspection.events).toEqual(source.events)
+    expect(Object.isFrozen(inspection.events)).toBe(true)
+  })
+
+  it.each([false, true])('accepts an unknown prefix event only when ignorable is true (%s)', async (ignorable) => {
+    const mounted = await backend()
+    const id = SessionId(`unknown-checkpoint-${ignorable}`)
+    const unknown = { type: 'future/event', seq: 0, time: 1, data: {}, ...ignorable ? { ignorable: true } : {} }
+    const prefix = [unknown, ...oneTurnLog()].map((event, seq) => ({ ...event, seq })) as SessionEvent[]
+    const source = Session.create(id, prefix, meta(id))
+    source.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact' },
+    }), { surfaceOp: { op: 'replace', start: 2, end: 4 }, sourceEventSeqs: [2, 4] })
+    try {
+      await mounted.ctx.sessionPersistence.create(source.header)
+      await mounted.ctx.sessionPersistence.append(id, [...source.events])
+      const window = await store(mounted.ctx).loadStoredWindow(id)
+      if (ignorable) {
+        expect(window?.baseSeq).toBe(7)
+        using preparation = await store(mounted.ctx).prepare(id)
+        expect(preparation.session.firstResidentSeq).toBe(7)
+        expect(preparation.session.deriveMessages()).toEqual(source.deriveMessages())
+      } else {
+        expect(window).toBeUndefined()
+        await expect(store(mounted.ctx).prepare(id)).rejects.toThrow(/future\/event/)
+      }
+    } finally {
+      await mounted.dispose()
+    }
+  })
+
+  it.each(['text-delta', 'reasoning-delta', 'tool-call-delta'] as const)(
+    'restores a checkpoint after packed %s events without full replay', async (type) => {
+      const mounted = await backend()
+      const id = SessionId(`packed-checkpoint-${type}`)
+      const turn = oneTurnLog()
+      const chunks: SessionEvent<'assistant/chunk'>[] = ['a'.repeat(5_000), 'b', 'c'].map((text, index) => ({
+        type: 'assistant/chunk', seq: 3 + index, time: 4 + index,
+        data: {
+          turn: 1, step: 1,
+          chunk: type === 'tool-call-delta'
+            ? { type, index: 0, id: CallId('packed-call'), name: 'lookup', argumentsDelta: text }
+            : { type, index: 0, text },
+        },
+      }))
+      const prefix = [...turn.slice(0, 3), ...chunks, ...turn.slice(3)].map((event, seq) => ({ ...event, seq }))
+      const source = Session.create(id, prefix, meta(id))
+      source.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact' },
+      }), { surfaceOp: { op: 'replace', start: 1, end: 6 }, sourceEventSeqs: [1, 6] })
+      try {
+        await mounted.ctx.sessionPersistence.create(source.header)
+        await mounted.ctx.sessionPersistence.append(id, [...source.events])
+        expect((await store(mounted.ctx).loadStoredWindow(id))?.baseSeq).toBe(9)
+        store(mounted.ctx).loadStored = async () => { throw new Error('complete-log reader was used') }
+        using preparation = await store(mounted.ctx).prepare(id)
+        expect(preparation.session.firstResidentSeq).toBe(9)
+        expect(JSON.stringify(preparation.session.deriveMessages())).toBe(JSON.stringify(source.deriveMessages()))
+        expect(preparation.session.events.slice(0, source.seq)).toEqual(source.events)
+      } finally {
+        await mounted.dispose()
+      }
+    },
+  )
+
+  it('restores a partial replacement while retaining earlier current surface nodes', async () => {
+    const mounted = await backend()
+    const id = SessionId('partial-checkpoint')
+    const source = Session.create(id, oneTurnLog(), meta(id))
+    source.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'summary of the first message' }],
+      source: { kind: 'plugin', plugin: 'compact' },
+    }), { surfaceOp: { op: 'replace', start: 1, end: 1 }, sourceEventSeqs: [1] })
+    await mounted.ctx.sessionPersistence.create(source.header)
+    await mounted.ctx.sessionPersistence.append(id, [...source.events])
+    const window = await store(mounted.ctx).loadStoredWindow(id)
+    expect(window).toBeDefined()
+    expect(window?.baseSeq).toBe(6)
+    const preparation = await store(mounted.ctx).prepare(id)
+    try {
+      expect(preparation.session.firstResidentSeq).toBe(6)
+      expect(JSON.stringify(preparation.session.deriveMessages())).toBe(JSON.stringify(source.deriveMessages()))
+      const session = preparation.session
+      const detach = mounted.ctx.sessions.enter(session)
+      try {
+        mounted.ctx.sessions.announce(session)
+        session.append('user/message', createUserMessage({
+          content: [{ type: 'text', text: 'after resume' }], source: { kind: 'user' },
+        }), { surfaceOp: 'append' })
+        await mounted.ctx.sessions.flush(session)
+        expect((await store(mounted.ctx).loadStored(id))?.events).toEqual(session.events)
+        expect(session.events.map(event => event.seq)).toEqual(Array.from({ length: session.seq }, (_, seq) => seq))
+      } finally {
+        detach()
+      }
+    } finally {
+      preparation[Symbol.dispose]()
+      await mounted.dispose()
+    }
+  })
+
+  it('prepares a reset-window session without calling the complete-log reader', async () => {
+    const mounted = await backend()
+    const id = SessionId('sqlite-checkpoint-window')
+    const header = meta(id, '/checkpoint')
+    const prefix = oneTurnLog()
+    const events = [
+      ...prefix,
+      { type: 'reset/checkpoint', seq: 6, time: 7, data: { resetId: 'reset-1', turn: null } },
+      {
+        type: 'user/message',
+        seq: 7,
+        time: 8,
+        data: createUserMessage({
+          content: [{ type: 'text', text: 'context reset' }],
+          source: { kind: 'plugin', plugin: 'reset', resetId: 'reset-1' },
+        }),
+        surfaceOp: { op: 'replace', start: 1, end: 3 },
+        sourceEventSeqs: [6, 1, 3],
+      },
+      { type: 'turn/start', seq: 8, time: 9, data: { turn: 2 } },
+      {
+        type: 'user/message',
+        seq: 9,
+        time: 10,
+        data: createUserMessage({ content: [{ type: 'text', text: 'after reset' }], source: { kind: 'user' } }),
+        surfaceOp: 'append',
+      },
+      { type: 'turn/end', seq: 10, time: 11, data: { turn: 2, reason: { kind: 'completed' } } },
+    ] as unknown as SessionEvent[]
+    await mounted.ctx.sessionPersistence.create(header)
+    await mounted.ctx.sessionPersistence.append(id, events)
+    const persistence = store(mounted.ctx) as unknown as {
+      loadStored: () => Promise<unknown>
+      prepare: (sessionId: SessionId) => Promise<import('@deepseek-ai/dsh-session').SessionPreparation>
+    }
+    persistence.loadStored = async () => { throw new Error('complete-log reader was used') }
+
+    const preparation = await persistence.prepare(id)
+    try {
+      expect(preparation.session.deriveMessages().map(message => message.content)).toEqual([
+        [{ type: 'text', text: 'context reset' }],
+        [{ type: 'text', text: 'after reset' }],
+      ])
+      expect(preparation.session.events).toHaveLength(events.length + 1)
+      expect(preparation.session.events[0]?.seq).toBe(0)
+    } finally {
+      preparation[Symbol.dispose]()
+      await mounted.dispose()
+    }
+  })
+
+  it.each(['hash', 'surface', 'boundary', 'prefix', 'torn-tail', 'missing', 'resolver', 'table'] as const)(
+    'falls back to complete replay for an unusable checkpoint (%s)', async (damage) => {
+      const path = await freshDbPath()
+      const mounted = await backend(path)
+      const id = SessionId('sqlite-checkpoint-hash-mismatch')
+      const header = meta(id, '/checkpoint-hash')
+      const events = [
+        ...oneTurnLog(),
+        { type: 'reset/checkpoint', seq: 6, time: 7, data: { resetId: 'reset-1', turn: null } },
+        {
+          type: 'user/message',
+          seq: 7,
+          time: 8,
+          data: createUserMessage({
+            content: [{ type: 'text', text: 'context reset' }],
+            source: { kind: 'plugin', plugin: 'reset', resetId: 'reset-1' },
+          }),
+          surfaceOp: { op: 'replace', start: 1, end: 3 },
+          sourceEventSeqs: [6, 1, 3],
+        },
+        { type: 'turn/start', seq: 8, time: 9, data: { turn: 2 } },
+        { type: 'turn/end', seq: 9, time: 10, data: { turn: 2, reason: { kind: 'completed' } } },
+      ] as unknown as SessionEvent[]
+      await mounted.ctx.sessionPersistence.create(header)
+      await mounted.ctx.sessionPersistence.append(id, events)
+      const db = openDatabase(path, 'wal')
+      switch (damage) {
+        case 'hash':
+          db.prepare('UPDATE session_checkpoints SET prefix_hash = ? WHERE session_id = ?').run('stale', id)
+          break
+        case 'surface':
+          db.prepare('UPDATE session_checkpoints SET surface_json = ? WHERE session_id = ?').run('{invalid', id)
+          break
+        case 'boundary':
+          db.prepare('UPDATE session_checkpoints SET base_seq = ? WHERE session_id = ?').run(-1, id)
+          break
+        case 'prefix':
+          db.prepare('UPDATE events SET time = time + 1 WHERE session_id = ? AND seq = 0').run(id)
+          break
+        case 'torn-tail':
+          db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
+            .run(id, events.length, 'assistant/chunk', 11, '{invalid')
+          break
+        case 'missing':
+          db.prepare('DELETE FROM session_checkpoints WHERE session_id = ?').run(id)
+          break
+        case 'resolver':
+          Object.defineProperty(store(mounted.ctx), 'readStoredEventAt', { value: undefined })
+          break
+        case 'table':
+          db.exec('DROP TABLE session_checkpoints')
+          break
+      }
+      db.close()
+
+      try {
+        if (damage !== 'resolver') expect(await store(mounted.ctx).loadStoredWindow(id)).toBeUndefined()
+        using preparation = await mounted.ctx.sessionPersistence.prepare(id)
+        // Torn-tail recovery commits a repair, then revalidates the still-valid checkpoint.
+        expect(preparation.session.firstResidentSeq).toBe(damage === 'torn-tail' ? 6 : 0)
+        if (damage === 'torn-tail') expect((await store(mounted.ctx).loadStored(id))?.events).toEqual(events)
+        expect(JSON.stringify(preparation.session.deriveMessages())).toBe(JSON.stringify(Session.create(id, events).deriveMessages()))
+      } finally {
+        await mounted.dispose()
+      }
+    },
+  )
 })
 
 describe('rowToMeta', () => {
@@ -696,7 +950,7 @@ describe('SqliteSessionPersistence: durability and crash semantics', () => {
   })
 
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(17)
+    expect(SCHEMA_VERSION).toBe(18)
   })
 
   it('keeps the revision stable for an empty repair hook', async () => {

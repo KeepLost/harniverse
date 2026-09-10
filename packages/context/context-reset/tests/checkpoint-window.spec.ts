@@ -15,10 +15,14 @@ function userEvent(session: Session, text: string): void {
 }
 
 /** Build one session whose log carries a mid-log reset checkpoint pair. */
-function checkpointedSession(): Session {
+function checkpointedSession(withRequestState = false): Session {
   const ctx = new Context()
   void new SessionStore(ctx)
   const session = ctx.sessions.create(SessionId('checkpoint-window'))
+  if (withRequestState) {
+    session.append('request/header', { header: { config: { provider: 'mock', model: 'model' } }, reason: 'initial' })
+    session.append('request/context', { provider: 'mock', model: 'model' })
+  }
   session.append('turn/start', { turn: 1 })
   userEvent(session, 'before one')
   userEvent(session, 'before two')
@@ -117,6 +121,49 @@ describe('windowed Session restore equivalence', () => {
     // The windowed session stays append-contiguous in absolute seq space.
     windowed.append('turn/start', { turn: 3 })
     expect(windowed.events.at(-1)?.seq).toBe(full.events.at(-1)!.seq + 1)
+  })
+
+  it('keeps the historical prefix lazy until a full-history consumer asks for it', () => {
+    const source = checkpointedSession()
+    const events = [...source.events]
+    const markerIndex = events.findIndex(event => event.type === 'user/message'
+      && (event.data.source as { plugin?: string } | undefined)?.plugin === 'reset')
+    const calls: number[] = []
+    const windowStart = markerIndex - 1
+    const windowed = Session.fromRestore(
+      SessionId('window-lazy'),
+      events.slice(windowStart),
+      restoreHeader(SessionId('window-lazy')),
+      { firstSeq: windowStart, eventAt: (seq) => { calls.push(seq); return events[seq] } },
+    )
+
+    expect(windowed.deriveMessages()).toEqual(Session.fromRestore(
+      SessionId('window-full-lazy'), events, restoreHeader(SessionId('window-full-lazy')),
+    ).deriveMessages())
+    expect(calls).toEqual([])
+    expect(windowed.eventAt(0)?.seq).toBe(0)
+    expect(calls).toEqual([0])
+    expect(windowed.events).toHaveLength(windowed.seq)
+    expect(calls).toEqual(Array.from({ length: windowStart }, (_, seq) => seq))
+  })
+
+  it('preserves request state when the checkpoint window starts after its events', () => {
+    const source = checkpointedSession(true)
+    const events = [...source.events]
+    const anchorIndex = events.findIndex(event => event.type === 'reset/checkpoint')
+    const windowStart = anchorIndex
+    const anchor = events[windowStart]
+    if (anchor === undefined) throw new Error('checkpoint anchor missing')
+    const full = Session.fromRestore(SessionId('request-state-full'), events, restoreHeader(SessionId('request-state-full')))
+    const windowed = Session.fromRestore(
+      SessionId('request-state-window'),
+      events.slice(windowStart),
+      restoreHeader(SessionId('request-state-window')),
+      { firstSeq: anchor.seq, eventAt: seq => events[seq] },
+    )
+
+    expect(windowed.requestHeader()).toEqual(full.requestHeader())
+    expect(windowed.requestContext()).toEqual(full.requestContext())
   })
 
   it('rejects a windowed seed outside the restore path', () => {

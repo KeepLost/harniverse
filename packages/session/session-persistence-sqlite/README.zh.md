@@ -10,7 +10,7 @@ SQLite 持久会话存储后端：第二个 `SessionPersistence` 提供方（见
 
 ## 存储模型
 
-Schema 17 把普通 `SessionEvent` 存为标量行，把至少三个连续且相容的 `assistant/chunk` 文本、推理或工具调用 delta 存为打包物理行。打包保留每个逻辑事件、时间戳、序列号、分片边界和可选 surface 字段。一个物理行最多表示 1,024 个逻辑事件和 1 MiB 未压缩 UTF-8 `data`；达到 4 KiB 的 payload 仅在 Zstandard level 3 frame 更小时使用压缩。标量 `source_event_seqs` 使用无损 Varint/ZigZag 差值编码，并为有值的空列表保留独立表示。完整物理规则与理由见 [SQLite 分片行 Agent Note](../../../.agents/notes/implemented/architecture/2026-08-22-sqlite-physical-chunk-row-compression.md)。
+Schema 18 把普通 `SessionEvent` 存为标量行，把至少三个连续且相容的 `assistant/chunk` 文本、推理或工具调用 delta 存为打包物理行，并为 replacement 检查点保存由 hash 绑定的 surface 状态，包括 reset 和部分 compaction。打包保留每个逻辑事件、时间戳、序列号、分片边界和可选 surface 字段。一个物理行最多表示 1,024 个逻辑事件和 1 MiB 未压缩 UTF-8 `data`；达到 4 KiB 的 payload 仅在 Zstandard level 3 frame 更小时使用压缩。标量 `source_event_seqs` 使用无损 Varint/ZigZag 差值编码，并为有值的空列表保留独立表示。完整物理规则与理由见 [SQLite 分片行 Agent Note](../../../.agents/notes/implemented/architecture/2026-08-22-sqlite-physical-chunk-row-compression.md)。
 
 日志外元数据（`SessionHeader`）、每实体化 incarnation id 和每日志单调修订位于 `sessions` 行；`createdAt` 是存储在 strict `INTEGER` 列中的非负安全整数。单例状态行携带不可变存储 id。`sessions` 行只由第一次 `append` 写入，其存在性是延迟实体化信号（`list` 精确报告有行的会话）。
 
@@ -24,6 +24,7 @@ Schema 17 把普通 `SessionEvent` 存为标量行，把至少三个连续且相
 - **延迟实体化。**`create()` 只在内存记录意图，第一次 `append` 前不写行。已创建但从未 append 的会话没有 `sessions` 行，因此不在 `list()` 中（它精确报告有行的会话）。
 - **在 load 时关闭中断轮次。**`load()` 实现共享[崩溃恢复约定](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)：保留有效中断轮次，在一个事务中追加合成关闭事件，并只移除撕裂物理尾部。已提交解析错误或逻辑序列缺口使会话无法加载。修复会在写锁下重新验证物理 marker，因此陈旧恢复不能删除更新的有效后缀。
 - **物理行上的逻辑后缀。**`readFrom()`、`readHistoryPage()` 与 `readRawEventPage()` 会检查可能包含请求序列的有界打包前驱，把它解码为一个逻辑范围，再只返回请求范围内的成员。
+- **窗口化检查点恢复。**检查点将 replacement 之前最后一个已完成 turn 之后的 surface 状态与直到该 replacement 的物理前缀绑定。协调器恢复这一 surface 状态及其后缀，并按绝对序列解析早期事件。已知打包行标签属于物理编码，不是未知 required Session 事件。缺少或损坏的检查点元数据会回退普通全量恢复，JSONL 继续使用全量读取路径。
 - **非修改式检查。**`inspect()` 返回不可变、平衡的逻辑视图，并可在内存中合成恢复 closer，但不会删除撕裂尾部行、追加恢复行或更改轻量修订。
 - **冷删除。**`delete(id)` 以一条语句移除 `sessions` 行，外键在同一事务中级联删除其事件行。共享协调器会拒绝实时或被独占 preparation 的身份，并把删除与同 id 操作串行化。重建同一 id 会获得新的 incarnation，因此其轻量 revision 不会与已删除生命周期冲突。
 - **轻量修订。**`listSnapshots(signal?)` 组合不可变存储与数据库文件身份、每实体化 incarnation id，以及在每个变更事务中递增的每会话计数器。完整前缀读取在同一个读事务中捕获该 revision 及其事件行，`readStoredRevision()` 则只查询 session 行来校验保留的 preparation。它在不解析事件行的情况下保持未变观察稳定，并区分独立存储和重建的同 id 日志。它在共享就绪和同步元数据查询前后检查取消；查询本身不可抢占。
@@ -64,5 +65,6 @@ SQLite 存储不修改当前请求前缀。只有重建历史、当前 envelope 
 
 - **`DatabaseSync` 是同步的**：每个 append 事务在整个期间阻塞事件循环；对本地存储可接受，对繁忙多会话服务器是吞吐上限。
 - **写入争用会同步阻塞**：每个连接最多等待 `busyTimeoutMs` 以取得竞争锁，`DatabaseSync` 会在等待期间阻塞其 JavaScript 线程。
+- **检查点验证仍扫描物理前缀。**它避免的是 payload 解码，而不是所有前缀 I/O。完整历史消费方仍可能物化早期事件；组装后的 Agent 内存不受恢复窗口大小约束。
 - **只有 pristine 新数据库或当前自有 `SCHEMA_VERSION` 才能打开**：无版本 schema 对象、外部 application identity 和所有其他 schema 版本被拒绝，而不是迁移（未发布软件，无持久用户数据需要保留）。
 - **TODO：** 该后端直接调用 `node:sqlite`。如果采用 Cordis 数据库服务（`cordis/db` / `@cordisjs` SQL driver 插件），应改为通过该服务路由，而不在此直接持有 `DatabaseSync`；约定接口（`SessionPersistence`）不会变，只更换存储驱动。

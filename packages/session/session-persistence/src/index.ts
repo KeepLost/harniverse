@@ -64,6 +64,7 @@ export type {
   StoredRawEventPage,
   StoredPrefix,
   StoredSuffix,
+  StoredWindow,
 } from './coordinator.ts'
 export {
   CHECKPOINT_SEARCH_MESSAGE_BUDGET, paginateRawEventPage, paginateSessionHistory, replacementCheckpointStart,

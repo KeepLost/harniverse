@@ -400,6 +400,10 @@ interface SurfaceFoldResult {
 
 The body-stripped declaration keeps the plain class's detached factory, state accessors, append method, and history projections synchronized with source. Store operations remain in the generated [`ctx.sessions` section](#ctxsessions--sessionstore).
 
+Reading `events` explicitly materializes a complete, frozen, independent array in absolute sequence order. A caller-held snapshot stays readable after the history backend closes and never grows on later appends. A windowed Session caches this array only through `WeakRef`; it reuses a surviving snapshot until append invalidates the cache, and otherwise rebuilds it. Non-windowed Sessions retain the strong snapshot cache.
+
+`eventAt(seq)` resolves one event on demand without materializing the full array. Windowed historical payloads are cached in `Map<number, WeakRef<SessionEvent>>`, so payloads without other strong references can be collected after callers release their snapshots; later uncached reads require the history backend. Map metadata still grows with the historical sequences accessed. Agent inbox replay still reads complete history, and synchronous full-history materialization still incurs its peak allocation; total memory is not strictly bounded by the window. Checkpoint hash verification also retains physical-prefix I/O; see the [checkpoint decision](../../.agents/notes/implemented/feature/2026-09-09-checkpoint-window-fold.md).
+
 ```ts public-api
 /**
  * An event-sourced session: an append-only log of {@link SessionEvent}s.
@@ -445,7 +449,9 @@ declare class Session {
    * store attaches and therefore does not publish either. Otherwise this seq
    * holds an ordinary published write.
    */
-  readonly firstLiveSeq: number;
+   readonly firstLiveSeq: number;
+   /** Absolute sequence of the first resident event in this instance. */
+   get firstResidentSeq(): number;
   /**
    * Create a detached session by validating and snapshotting borrowed seed
    * events and storage metadata.
@@ -462,16 +468,36 @@ declare class Session {
    * @param id - restored session identity.
    * @param seed - fresh detached events whose ownership is transferred.
    * @param header - fresh detached metadata whose ownership is transferred.
+   * @param history - optional absolute-sequence resolver for a windowed seed.
+   * @param surface - optional surface state already folded at the window boundary.
    * @returns a restored detached session.
    */
-  static fromRestore(id: SessionId, seed: readonly SessionEvent[], header: SessionHeader): Session;
+   static fromRestore(
+     id: SessionId,
+     seed: readonly SessionEvent[],
+     header: SessionHeader,
+     history?: SessionHistorySource,
+     surface?: { readonly nodes: readonly number[]; readonly replaceGeneration: number },
+   ): Session;
   /**
    * An immutable snapshot of the append-only event log. The snapshot is reused
    * until the next append; a previously returned array does not grow later.
    * Events and their nested data are deep-frozen at acceptance, so neither a
    * cast nor ordinary JavaScript can rewrite durable history.
    */
-  get events(): readonly SessionEvent[];
+   get events(): readonly SessionEvent[];
+   /**
+    * Resolve one event by its absolute sequence without requiring a full snapshot.
+    * @param seq - absolute event sequence to resolve.
+    * @returns the event at `seq`, or `undefined` when it is outside the log.
+    */
+   eventAt(seq: number): SessionEvent | undefined;
+   /**
+    * Return the resident suffix at an absolute sequence without expanding a historical prefix.
+    * @param fromSeq - absolute sequence at which the resident suffix starts.
+    * @returns immutable resident events from `fromSeq` through the current end.
+    */
+   eventsFrom(fromSeq: number): readonly SessionEvent[];
   /** The next event's sequence number — the window base plus the log length (the contiguity contract). */
   get seq(): number;
   /**
@@ -822,7 +848,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](persistence.md) · [PrepareSessionOptions](persistence.md) · [SessionId](core.md)
 
-Source: [`packages/core/session/src/index.ts:820`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:912`](../../packages/core/session/src/index.ts)
 
 <a id="session-events"></a>
 

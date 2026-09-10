@@ -157,7 +157,11 @@ interface RestoredSessionOptions {
   /** Fresh detached storage metadata to validate and freeze in place. */
   readonly meta: SessionHeader
   /** Select the persistence ownership-transfer path. */
-  readonly seedSource: 'persistence'
+   readonly seedSource: 'persistence'
+   /** Optional complete-history resolver for a windowed persistence seed. */
+   readonly history?: SessionHistorySource
+   /** Existing surface state at the window boundary, in model-visible order. */
+   readonly surface?: { readonly nodes: readonly number[]; readonly replaceGeneration: number }
 }
 ```
 
@@ -254,12 +258,12 @@ interface SessionPersistenceSnapshot {
 
 ## The backends
 
-Both implement the same abstract `SessionPersistence` (locate/create/append/prepare/load/inspect/readFrom/readHistoryPage/list/listSnapshots over `SessionEvent`, with optional cancellation on observation methods) and pass the shared `runPersistenceContract` suite:
+Both implement the same abstract `SessionPersistence` (locate/create/append/prepare/load/inspect/readFrom/readHistoryPage/list/listSnapshots over `SessionEvent`, with optional cancellation on observation methods) and pass the shared `runPersistenceContract` suite. SQLite additionally exposes an internal checkpoint-window hook: hash-verified surface state before a replacement, including reset and partial compaction, can seed a restored Session with its absolute-sequence suffix. `Session.events` remains a complete lazy history view; explicit `load()` and `inspect()` return detached history that remains readable after backend closure. Missing or damaged checkpoint data falls back to complete replay; JSONL always uses that fallback path.
 
 An initial display-history request can prefer the latest compact-plugin replacement checkpoint transaction. In that mode the page starts at the checkpoint transaction and includes every later raw event regardless of the ordinary message quota; `hasMore` and `beforeSeq` retain access to the superseded prefix. Other initial and older-page requests keep the ordinary append-message bound.
 
 - **[dsh-session-persistence-jsonl](../../packages/session/session-persistence-jsonl)** — an append-only logical JSONL log per session, stored as checksummed concatenated Zstandard frames by default or raw lines by configuration, with crash-safe atomic writes, interrupted-turn recovery, and a read/replay path.
-- **[dsh-session-persistence-sqlite](../../packages/session/session-persistence-sqlite)** — `node:sqlite`, with scalar rows for ordinary events and schema-17 packed physical rows for compatible `assistant/chunk` runs. Reads reconstruct the exact logical stream before applying suffix or history-page bounds; the package README owns the physical limits, compression, provenance encoding, and repair rules.
+- **[dsh-session-persistence-sqlite](../../packages/session/session-persistence-sqlite)** — `node:sqlite`, with scalar rows for ordinary events and schema-18 packed physical rows plus hash-bound checkpoint metadata for compatible `assistant/chunk` runs. Reads reconstruct the exact logical stream before applying suffix or history-page bounds; the package README owns the physical limits, compression, provenance encoding, and repair rules.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -450,5 +454,5 @@ abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot
 
 Types: [EpochHeader](session.md) · [SessionEvent](session.md) · [SessionId](core.md)
 
-Source: [`packages/session/session-persistence/src/index.ts:99`](../../packages/session/session-persistence/src/index.ts)
+Source: [`packages/session/session-persistence/src/index.ts:100`](../../packages/session/session-persistence/src/index.ts)
 <!-- END GENERATED cordis-surface -->

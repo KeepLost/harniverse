@@ -391,6 +391,41 @@ export class SessionProjectionRegistry extends Service {
     }
   }
 
+  /**
+   * Seed every registered unit's live cell from a validated checkpoint and
+   * forward tail. The cells are installed only after the detached restore
+   * succeeds, so a missing or mismatched row at a nonzero `baseSeq` rejects
+   * before changing live state. The supplied tail is folded exactly once;
+   * later snapshots use the installed cells instead of lazily refolding the
+   * session log.
+   * @param session - the live session whose cells are seeded.
+   * @param checkpoint - persisted rows for one session.
+   * @param events - stored events with `seq >= baseSeq`, in seq order.
+   * @param baseSeq - the seq the supplied tail starts at.
+   * @returns the snapshot at the supplied tail's log end.
+   */
+  hydrate(
+    session: Session,
+    checkpoint: ProjectionCheckpoint,
+    events: readonly SessionEvent[],
+    baseSeq: number,
+  ): ProjectionSnapshot {
+    if (!Number.isSafeInteger(baseSeq) || baseSeq < 0 || baseSeq > session.seq
+      || events.length !== session.seq - baseSeq || events.some((event, index) => event.seq !== baseSeq + index)) {
+      throw new Error('projection hydration requires a contiguous tail through the current Session end')
+    }
+    const restored = this.restore(structuredClone(checkpoint), events, baseSeq)
+    for (const registration of this.registrations.values()) {
+      const row = restored.checkpoint[registration.def.key] as ProjectionCheckpointRow
+      registration.cells.set(session, {
+        state: row.val,
+        observedSeq: restored.snapshot.asOfSeq,
+        views: [undefined, undefined],
+      })
+    }
+    return restored.snapshot
+  }
+
   /** Fold one unit from init over `events`, producing a cell watermarked at the last folded event. */
   private buildCell(def: ErasedDefinition, events: readonly SessionEvent[]): UnitCell {
     let state = def.init()
