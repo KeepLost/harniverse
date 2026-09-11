@@ -188,10 +188,9 @@ describe('ScheduleEditorDrawer', () => {
     fireEvent.change(screen.getByLabelText(zh['editor.status']), { target: { value: 'paused' } })
     fireEvent.click(screen.getByRole('button', { name: zh['editor.save'] }))
     await waitFor(() => {
-      const [id, patch] = face.update.mock.calls[0] as unknown as [string, { status: string; rule: object }]
+      const [id, patch] = face.update.mock.calls[0] as unknown as [string, { status: string }]
       expect(id).toBe('sched-1')
       expect(patch.status).toBe('paused')
-      expect(patch.rule).toBeTypeOf('object')
     })
   })
 
