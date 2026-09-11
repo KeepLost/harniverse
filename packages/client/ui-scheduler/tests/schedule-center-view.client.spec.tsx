@@ -20,7 +20,9 @@ afterEach(() => {
 
 const t: ScheduleCenterViewProps['t'] = makeTranslate(zh)
 
-function record(over: Partial<ScheduleRecord> = {}): ScheduleRecord {
+type RecordOverrides = Partial<Omit<ScheduleRecord, 'nextDue'>> & { nextDue?: number | undefined }
+
+function record(over: RecordOverrides = {}): ScheduleRecord {
   return {
     id: 'sched-1',
     prompt: 'nightly digest',
@@ -134,6 +136,45 @@ describe('ScheduleCenterView', () => {
     expect(screen.getAllByText(zh['status.paused']).length).toBeGreaterThan(0)
   })
 
+  it('renders job and at rules, missing moments, completed status, and unknown sessions', async () => {
+    const rows = [record({
+      id: 'sched-at',
+      rule: { kind: 'at', at: '2026-09-11T01:00:00.000Z' },
+      target: { kind: 'job' },
+      jobSessionId: sid('unknown-session'),
+      nextDue: 3,
+    }), record({
+      id: 'sched-job',
+      rule: { kind: 'after', delayMs: 60_000 },
+      target: { kind: 'job' },
+      nextDue: undefined,
+      status: 'done',
+    }), record({
+      id: 'sched-undef-2',
+      target: { kind: 'job' },
+      nextDue: undefined,
+    })]
+    mount(verbs(rows))
+    await waitFor(() => { expect(screen.getByTitle('sched-job')).toBeTruthy() })
+    expect(screen.getByTitle('任务会话 · #unknown-')).toBeTruthy()
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0)
+    expect(screen.getByText(zh['status.done'])).toBeTruthy()
+    const completedRow = screen.getByTitle('sched-job').closest('tr')
+    expect(completedRow).not.toBeNull()
+    expect(within(completedRow as HTMLElement).queryByRole('button', { name: zh['action.pause'] })).toBeNull()
+    expect(screen.getByText(zh['rule.after'].replace('{minutes}', '1'))).toBeTruthy()
+  })
+
+  it('shows no latest run when the history Remote fails and resumes paused rows', async () => {
+    const face = verbs([record({ status: 'paused' })])
+    face.runsOf.mockResolvedValue({ ok: false, error: { code: 'denied', message: 'no history', details: {} } } as never)
+    mount(face)
+    await waitFor(() => { expect(screen.getByText('nightly digest')).toBeTruthy() })
+    expect(screen.getByText(zh['run.none'])).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: zh['action.resume'] }))
+    await waitFor(() => { expect(face.update).toHaveBeenCalledWith('sched-1', { status: 'active' }) })
+  })
+
   it('pauses, resumes, and deletes through the global verbs, refreshing after each', async () => {
     const face = verbs([record()])
     mount(face)
@@ -166,6 +207,15 @@ describe('ScheduleCenterView', () => {
     await waitFor(() => { expect(screen.getByText(zh['view.empty'])).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: zh['view.close'] }))
     expect(face.closeView).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes from the header action', async () => {
+    const face = verbs([])
+    mount(face)
+    await waitFor(() => { expect(screen.getByText(zh['view.empty'])).toBeTruthy() })
+    const calls = face.listAll.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: zh['view.refresh'] }))
+    await waitFor(() => { expect(face.listAll.mock.calls.length).toBe(calls + 1) })
   })
 
   it('creates a schedule through the drawer bound to the current session', async () => {
@@ -214,5 +264,17 @@ describe('ScheduleCenterView', () => {
     expect(patch.rule?.kind).toBe('after')
     expect(patch.rule?.kind === 'after' && patch.rule.delayMs).toBe(10 * 60_000)
     await waitFor(() => { expect(screen.getByText('新指令')).toBeTruthy() })
+  })
+
+  it('uses the first session as create owner when no session is current', async () => {
+    const face = verbs([])
+    const sessions = { ...sessionsState(), current: undefined } as SessionListState
+    mount(face, sessions)
+    await waitFor(() => { expect(screen.getByText(zh['view.empty'])).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: zh['view.create'] }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText(zh['editor.prompt']), { target: { value: 'fallback owner' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: zh['editor.save'] }))
+    await waitFor(() => { expect(face.create).toHaveBeenCalledWith('session-a', expect.anything()) })
   })
 })

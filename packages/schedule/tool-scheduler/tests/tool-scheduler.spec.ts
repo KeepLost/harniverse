@@ -218,6 +218,12 @@ describe('tool-scheduler unit composition', () => {
       }
       expect(listed.schedules[0]).toMatchObject({ prompt: 'after edit', status: 'active' })
 
+      const promptOnly = await update.execute({
+        schedule_id: created.scheduleId,
+        prompt: 'prompt only',
+      }, ownerExec) as { updated: boolean; status: string }
+      expect(promptOnly).toMatchObject({ updated: true, status: 'active' })
+
       // Foreign sessions cannot edit what they do not own.
       const denied = await update.execute({ schedule_id: created.scheduleId, status: 'paused' }, foreignExec) as {
         updated: boolean

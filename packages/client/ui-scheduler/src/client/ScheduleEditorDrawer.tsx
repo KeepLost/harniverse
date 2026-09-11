@@ -117,6 +117,7 @@ export function ScheduleEditorDrawer({
     setFailure(undefined)
     try {
       if (record === undefined) {
+        /* v8 ignore next -- `valid` requires an owner for creation. */
         if (ownerSessionId === undefined) return
         const target = draft.targetKind === 'session'
           ? { kind: 'session' as const, sessionId: draft.targetSessionId as SessionId }
@@ -149,6 +150,7 @@ export function ScheduleEditorDrawer({
   }
 
   const remove = async (): Promise<void> => {
+    /* v8 ignore next -- the delete control only renders for an edited record. */
     if (record === undefined || busy) return
     setBusy(true)
     setFailure(undefined)
