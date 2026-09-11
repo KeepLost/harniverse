@@ -20,6 +20,15 @@ Global style sheets belong in `ui-theme/src/styles/`. Component styles live besi
 - Put presentation in CSS. Inline React styles may pass component-local custom-property values but must not encode theme branches.
 - Preserve keyboard focus visibility and reduced-motion behavior when adding transitions or hover-only controls.
 
+## Adapting to width
+
+The client has one breakpoint scale, and [`ui-layout`](../packages/client/ui-layout/README.md) owns it: AppFrame classifies its own width into a form factor and publishes it as `data-viewport` on the frame element — `phone` below 600px, `compact` below 1024px, `regular` above. A phone frame is a single-column surface: the sidebar overlays the center column instead of holding a track beside it.
+
+- Select on the frame attribute rather than declaring a media query: `:global([data-viewport='phone']) .row`. A feature component does not introduce a fourth width class, and the attribute is assertable in a component test where a media query is not.
+- Prefer a container query when the constraint is the component's own box rather than the device. The center column's width moves independently of the viewport (the sidebar collapses, the right region opens), so a control row that must fit its card measures the card: declare `container-type: inline-size` on the owning box and query it anonymously, as the composer row does.
+- Reserve media queries for surfaces outside the frame. The shell's pre-plugin authentication pages have no frame ancestor and use their own.
+- A phone layout is a form change, not a scaled-down desktop one: a horizontal control row becomes a stack or a scroller, a table becomes a list of cards, and a fixed-width panel becomes a full-screen sheet. Do not rely on a hover-only affordance to carry information on a touch surface — `@media (hover: hover)` and `(pointer: coarse)` state that intent.
+
 ## Changing the system
 
 Add or change a shared token in the owning `ui-theme` sheet, then consume its semantic alias from feature packages. Update the owning package reference when a public styling contract changes. Visual behavior follows the [testing policy](testing.md); the [styling-system Agent Note](../.agents/notes/implemented/process/2026-07-19-web-styling-system.md) records framework rationale.

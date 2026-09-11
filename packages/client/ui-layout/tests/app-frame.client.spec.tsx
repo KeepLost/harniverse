@@ -17,7 +17,7 @@ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { AppFrame } from '../src/client/AppFrame.tsx'
 import type { AppFrameProps } from '../src/client/AppFrame.tsx'
-import { SIDEBAR_COLLAPSED } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
+import { SIDEBAR_COLLAPSED, SIDEBAR_MAX } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
 import { zh } from '@deepseek-ai/dsh-client-ui-layout/src/client/locales.ts'
 import { createLayoutStore, PROVISIONAL_RIGHT_ACCOUNT_PREFIX } from '@deepseek-ai/dsh-client-ui-layout/src/client/stores.ts'
 import type {
@@ -579,6 +579,83 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
     frameWidth = 1920
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
     expect(tracks(frame)).toEqual([400, 0])
+  })
+})
+
+describe('AppFrame — phone form factor', () => {
+  it('publishes the form factor as data-viewport at each width', () => {
+    frameWidth = 390
+    const { frame } = mountFrame()
+    expect(frame.getAttribute('data-viewport')).toBe('phone')
+    frameWidth = 800
+    act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
+    expect(frame.getAttribute('data-viewport')).toBe('compact')
+    frameWidth = 1920
+    act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
+    expect(frame.getAttribute('data-viewport')).toBe('regular')
+  })
+
+  it('expands the sidebar as an overlay instead of squeezing the center', () => {
+    frameWidth = 390
+    const { frame, instance, slotCalls } = mountFrame()
+    // Collapsed phone frame is the plain rail: no overlay, no scrim.
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    expect(frame.hasAttribute('data-sidebar-drawer')).toBe(false)
+
+    act(() => { instance.actions.toggleSidebar() })
+
+    // The grid track stays at the rail width — the center column keeps its
+    // geometry while the drawer covers it.
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    expect(frame.hasAttribute('data-sidebar-drawer')).toBe(true)
+    expect(frame.style.getPropertyValue('--dsh-frame-sidebar-drawer-width')).toBe(`${String(390 - SIDEBAR_COLLAPSED)}px`)
+    // The occupant is told the width it actually renders at.
+    expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props)
+      .toEqual({ collapsed: false, width: 390 - SIDEBAR_COLLAPSED })
+    // No resize handle for an overlay, and the covered center is inert.
+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
+    expect(frame.querySelector('[class*="centerCol"]')?.hasAttribute('inert')).toBe(true)
+  })
+
+  it('dismisses the phone drawer through the scrim', () => {
+    frameWidth = 390
+    const { frame, instance, getByRole } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+
+    act(() => { getByRole('button', { name: '收起侧栏' }).click() })
+
+    expect(frame.hasAttribute('data-sidebar-drawer')).toBe(false)
+    expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
+    expect(frame.querySelector('[class*="centerCol"]')?.hasAttribute('inert')).toBe(false)
+  })
+
+  it('clamps the overlay width into the sidebar drag range', () => {
+    // A wide phone-form frame would otherwise overlay past SIDEBAR_MAX.
+    frameWidth = 599
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+    expect(599 - SIDEBAR_COLLAPSED).toBeGreaterThan(SIDEBAR_MAX)
+    expect(frame.style.getPropertyValue('--dsh-frame-sidebar-drawer-width')).toBe(`${String(SIDEBAR_MAX)}px`)
+  })
+
+  it('a compact frame still expands the sidebar into its own track', () => {
+    frameWidth = 800
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+    expect(frame.hasAttribute('data-sidebar-drawer')).toBe(false)
+    expect(tracks(frame)).toEqual([280, 0])
+  })
+
+  it('the phone drawer outranks an open right drawer', () => {
+    frameWidth = 390
+    const { frame, instance, getByTestId } = mountFrame()
+    act(() => { instance.actions.openDetails() })
+    expect(frame.hasAttribute('data-right-drawer')).toBe(true)
+
+    act(() => { instance.actions.toggleSidebar() })
+
+    expect(getByTestId('sidebar-content').parentElement?.hasAttribute('inert')).toBe(false)
+    expect(getByTestId('details-content').parentElement?.hasAttribute('inert')).toBe(true)
   })
 })
 
