@@ -16,9 +16,6 @@
     - button "Agent 预设":
       - img
       - text: Agent 预设
-    - button "定时任务":
-      - img
-      - text: 定时任务
   - button "打开配置文件"
   - button "关闭":
     - img

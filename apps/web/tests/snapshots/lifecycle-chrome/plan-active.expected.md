@@ -20,6 +20,9 @@
     - img
     - text: workspace
   - treeitem "New Session" [selected]
+- button "Open scheduled tasks":
+  - img
+  - text: Scheduled tasks
 - button "Settings":
   - img
   - text: Settings

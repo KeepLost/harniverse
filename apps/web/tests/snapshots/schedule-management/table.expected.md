@@ -1,0 +1,30 @@
+- region "定时任务":
+  - text: 定时任务 共 1 个任务
+  - button "刷新"
+  - button "新建任务"
+  - button "返回会话":
+    - img
+  - table:
+    - rowgroup:
+      - row "ID 指令 绑定会话 规则 下次执行 最近执行 状态 操作":
+        - columnheader "ID"
+        - columnheader "指令"
+        - columnheader "绑定会话"
+        - columnheader "规则"
+        - columnheader "下次执行"
+        - columnheader "最近执行"
+        - columnheader "状态"
+        - columnheader "操作"
+    - rowgroup:
+      - row "{{scheduleId}} 整理收件箱并汇总未读 本会话 · schedule-management (#schedule) 30 分钟后 {{date}} {{clock}} 暂无执行 运行中 编辑 暂停 删除":
+        - cell "{{scheduleId}}"
+        - cell "整理收件箱并汇总未读"
+        - cell "本会话 · schedule-management (#schedule)"
+        - cell "30 分钟后"
+        - cell "{{date}} {{clock}}"
+        - cell "暂无执行"
+        - cell "运行中"
+        - cell "编辑 暂停 删除":
+          - button "编辑"
+          - button "暂停"
+          - button "删除"
