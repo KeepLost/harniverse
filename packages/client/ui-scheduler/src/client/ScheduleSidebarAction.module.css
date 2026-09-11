@@ -1,0 +1,55 @@
+/* Sidebar footer trigger for the schedules management view. */
+
+.row,
+.rail {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.row {
+  width: 100%;
+  height: 49px;
+  padding: 0 8px 0 6px;
+  border-radius: 12px;
+}
+
+.row:hover,
+.row:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+}
+
+.row[data-active] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.rail {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.rail:hover,
+.rail:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+}
+
+.rail[data-active] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
