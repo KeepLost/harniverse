@@ -266,6 +266,16 @@ describe('ScheduleCenterView', () => {
     await waitFor(() => { expect(screen.getByText('新指令')).toBeTruthy() })
   })
 
+  it('opens an editor with empty history when run history is unavailable', async () => {
+    const face = verbs([record({ prompt: 'without history' })])
+    face.runsOf.mockResolvedValue({ ok: false, error: { code: 'denied', message: 'history unavailable', details: {} } } as never)
+    mount(face)
+    await waitFor(() => { expect(screen.getByText('without history')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: zh['table.edit'] }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(zh['run.none'])).toBeTruthy()
+  })
+
   it('uses the first session as create owner when no session is current', async () => {
     const face = verbs([])
     const sessions = { ...sessionsState(), current: undefined } as SessionListState
