@@ -132,7 +132,7 @@ describe('tool-scheduler real Loader composition', () => {
     const session = context.sessions.create(SessionId('tool-scheduler-loader'))
     state.session = session
 
-    expect(state.toolNames).toEqual(['schedule_create', 'schedule_list', 'schedule_delete'])
+    expect(state.toolNames).toEqual(['schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete'])
     expect(context.scheduler).toBeDefined()
 
     const record = await context.scheduler.create({

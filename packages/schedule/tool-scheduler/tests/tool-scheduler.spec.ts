@@ -16,7 +16,7 @@ interface Harness {
   readonly definitions: Record<ToolName, ToolExecute>
 }
 
-type ToolName = 'schedule_create' | 'schedule_list' | 'schedule_delete'
+type ToolName = 'schedule_create' | 'schedule_list' | 'schedule_update' | 'schedule_delete'
 
 interface ToolExecute {
   execute: (args: Record<string, unknown>, exec: unknown) => Promise<unknown>
@@ -42,7 +42,7 @@ async function harness(): Promise<{ test: Harness; cleanup: () => Promise<void> 
   const definitions = {} as Record<ToolName, ToolExecute>
   ctx.provide('tools', {
     register: (definition: { name: string }) => {
-      if ((['schedule_create', 'schedule_list', 'schedule_delete'] as const).includes(definition.name as ToolName)) {
+      if ((['schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete'] as const).includes(definition.name as ToolName)) {
         definitions[definition.name as ToolName] = definition as unknown as ToolExecute
       }
       return () => undefined
@@ -95,7 +95,7 @@ describe('tool-scheduler unit composition', () => {
     const { test, cleanup } = await harness()
     try {
       const definitions = test.definitions
-      expect(Object.keys(definitions)).toEqual(['schedule_create', 'schedule_list', 'schedule_delete'])
+      expect(Object.keys(definitions)).toEqual(['schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete'])
       const create = definitions.schedule_create
       const list = definitions.schedule_list
       const remove = definitions.schedule_delete
@@ -141,6 +141,8 @@ describe('tool-scheduler unit composition', () => {
         .rejects.toThrow('requires a calling agent')
       await expect(definitions.schedule_delete.execute({ schedule_id: 'x' }, { signal: new AbortController().signal }))
         .rejects.toThrow('requires a calling agent')
+      await expect(definitions.schedule_update.execute({ schedule_id: 'x' }, { signal: new AbortController().signal }))
+        .rejects.toThrow('requires a calling agent')
 
       const session = test.ctx.sessions.create(SessionId('render-owner'))
       const exec = { agent: agentOf(session), signal: new AbortController().signal }
@@ -168,6 +170,59 @@ describe('tool-scheduler unit composition', () => {
       const deleteRender = renderOf(definitions.schedule_delete)
       expect(deleteRender({ schedule_id: created.scheduleId }, { deleted: true })[0]).toMatchObject({ type: 'text' })
       expect(deleteRender({ schedule_id: 'missing' }, { deleted: false })[0]).toMatchObject({ type: 'text' })
+      const updateRender = renderOf(definitions.schedule_update)
+      expect(updateRender({ schedule_id: created.scheduleId }, {
+        updated: true, scheduleId: created.scheduleId, status: 'paused', nextDue: '2099-01-01T00:00:00.000Z',
+      })[0]).toMatchObject({ type: 'text' })
+      expect(updateRender({ schedule_id: 'missing' }, {
+        updated: false, scheduleId: 'missing', status: 'unknown', nextDue: 'none',
+      })[0]).toMatchObject({ type: 'text' })
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('schedule_update edits prompts, pauses, resumes, and enforces ownership', async () => {
+    const { test, cleanup } = await harness()
+    try {
+      const update = test.definitions.schedule_update
+      const owner = test.ctx.sessions.create(SessionId('update-owner'))
+      const foreign = test.ctx.sessions.create(SessionId('update-foreign'))
+      const ownerExec = { agent: agentOf(owner), signal: new AbortController().signal }
+      const foreignExec = { agent: agentOf(foreign), signal: new AbortController().signal }
+      const created = await test.definitions.schedule_create.execute({
+        prompt: 'before edit',
+        after_minutes: 10,
+      }, ownerExec) as { scheduleId: string }
+
+      await expect(update.execute({ schedule_id: created.scheduleId }, ownerExec))
+        .rejects.toThrow('at least one')
+
+      const paused = await update.execute({ schedule_id: created.scheduleId, status: 'paused' }, ownerExec) as {
+        updated: boolean
+        status: string
+      }
+      expect(paused).toMatchObject({ updated: true, status: 'paused' })
+
+      const rewritten = await update.execute({
+        schedule_id: created.scheduleId,
+        prompt: 'after edit',
+        status: 'active',
+      }, ownerExec) as {
+        updated: boolean
+        status: string
+      }
+      expect(rewritten).toMatchObject({ updated: true, status: 'active' })
+      const listed = await test.definitions.schedule_list.execute({}, ownerExec) as {
+        schedules: { prompt: string; status: string }[]
+      }
+      expect(listed.schedules[0]).toMatchObject({ prompt: 'after edit', status: 'active' })
+
+      // Foreign sessions cannot edit what they do not own.
+      const denied = await update.execute({ schedule_id: created.scheduleId, status: 'paused' }, foreignExec) as {
+        updated: boolean
+      }
+      expect(denied.updated).toBe(false)
     } finally {
       await cleanup()
     }

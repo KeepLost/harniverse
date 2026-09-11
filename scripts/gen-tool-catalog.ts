@@ -496,7 +496,8 @@ const TOOL_PACKAGES: ToolPackage[] = [
     note:
       'Preset-scoped like dsh-tool-goal: the host scheduler service stays on the host plane and this row decides agent visibility, so the minimal profile keeps its two-tool contract. '
       + 'create takes exactly one of run_at/after_minutes with an optional every_minutes recurrence (minimum 5 minutes); '
-      + 'list and delete filter by the calling session\'s ownership.',
+      + 'list, update, and delete filter by the calling session\'s ownership; update edits prompt and pause/resume status only '
+      + '(rule and target rebinding stay human-only in the management view).',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-lsp',

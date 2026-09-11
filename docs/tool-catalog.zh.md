@@ -31,7 +31,7 @@
 | `@deepseek-ai/dsh-tool-terminal` | `terminal_close`、`terminal_list`、`terminal_open`、`terminal_read`、`terminal_send`、`terminal_signal` | `ctx.tools`、`ctx.terminals`、`ctx.systemPrompt`、`ctx.jobs at call time for run_in_background` | `tool/call`、`tool/result` | - | 这 6 个终端工具需要选择启用，用于补充一次性 bash／文件系统工具。`terminal_send(run_in_background: true)` 会注册到 `ctx.jobs`；schema 不包含 TUI、具名按键序列、BEL、调整尺寸、自动启动和跨 agent 共享。 |
 | `@deepseek-ai/dsh-tool-goal` | `create_goal`、`get_goal`、`update_goal` | `ctx.tools`、`ctx.agents`、`ctx.goals`、`ctx.systemPrompt`、`a calling Agent in an authorized open turn` | `tool/call`、`goal/change for mutations`、`tool/result` | - | create、edit、pause 和 resume 要求直接来自人类的根权限；complete 和 blocked 也接受确切的当前 Goal Round。blocked 的默认下限是 3 个获准的 Round。 |
 | `@deepseek-ai/dsh-schedule` | `schedule_create`、`schedule_delete`、`schedule_list` | `ctx.tools`、`ctx.sessions`、Session 持久化、未来创建的 live 根 Agent | `tool/call`、`schedule/change create or delete`、`tool/result` | - | 仅在选择启用的 Schedule 插件加载后创建的 live 根 Agent scope 内注册。版本 1 接受 after_seconds、显式绝对 at 和有界固定速率 every_seconds，并披露 session-local 交付；管理读取与变更必须通过共享的 Session 持久化 barrier。 |
-| `@deepseek-ai/dsh-tool-scheduler` | `schedule_create`、`schedule_delete`、`schedule_list` | `ctx.tools`、`ctx.scheduler`（web-app bundle）、开放回合中的调用 Agent | `tool/call`、`schedule store create or delete`、`tool/result` | - | 与 dsh-tool-goal 一样按预设选配：宿主调度服务保持在宿主平面，本行决定 agent 可见性，minimal Profile 因此保持两工具契约。create 恰好接受 run_at/after_minutes 之一，可选 every_minutes 周期（最小 5 分钟）；list 与 delete 按调用会话的归属过滤。 |
+| `@deepseek-ai/dsh-tool-scheduler` | `schedule_create`、`schedule_delete`、`schedule_list`、`schedule_update` | `ctx.tools`、`ctx.scheduler`（web-app bundle）、开放回合中的调用 Agent | `tool/call`、`schedule store create or delete`、`tool/result` | - | 与 dsh-tool-goal 一样按预设选配：宿主调度服务保持在宿主平面，本行决定 agent 可见性，minimal Profile 因此保持两工具契约。create 恰好接受 run_at/after_minutes 之一，可选 every_minutes 周期（最小 5 分钟）；list、update 与 delete 按调用会话的归属过滤；update 仅编辑 prompt 与暂停/恢复状态（规则与目标改绑只在管理界面中由人类完成）。 |
 | `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`、`ctx.lsp`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，因此其模型可见 schema 在更换提供方时保持稳定。运行时要求已注册提供方，例如 `@deepseek-ai/dsh-lsp-stdio`；如果没有提供方，查询会返回结构化 `LSP_UNAVAILABLE` 错误，而不会改变 schema。 |
 | `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`、`ctx.workflowEngine`、`ctx.subagents`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents every fresh round)` | `tool/call`、`tool/result`、`workflow and child session events during execution` | - | 固定的前台工作流会在每个 Round 启动一个全新的结构化子级；模型只能选择不可变目标和可选的 Round 上限。 |
 | `@deepseek-ai/dsh-tool-compaction` | `context_compact` | `ctx.tools`、`ctx.compaction`、`a direct calling Agent` | `tool/call`、`compaction/* on success`、`tool/result` | - | direct 模型调用要求已配置的压缩 provider 在保留近期上下文的同时压缩一个安全的较早前缀。nested transport dispatch 会被拒绝。 |
@@ -1261,7 +1261,40 @@ Source: [`packages/schedule/tool-scheduler/src/index.ts`](../packages/schedule/t
 
 Source: [`packages/schedule/tool-scheduler/src/index.ts`](../packages/schedule/tool-scheduler/src/index.ts)
 
-与 dsh-tool-goal 一样按预设选配：宿主调度服务保持在宿主平面，本行决定 agent 可见性，minimal Profile 因此保持两工具契约。create 恰好接受 run_at/after_minutes 之一，可选 every_minutes 周期（最小 5 分钟）；list 与 delete 按调用会话的归属过滤。
+### `schedule_update`
+
+更新本会话拥有的一个已调度任务：替换其 prompt 和/或暂停、恢复。至少提供一个字段；schedule id 来自 schedule_create 或 schedule_list。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "schedule_id": {
+      "type": "string",
+      "description": "Schedule id from schedule_create or schedule_list."
+    },
+    "prompt": {
+      "type": "string",
+      "description": "Replacement prompt delivered at the scheduled time."
+    },
+    "status": {
+      "type": "string",
+      "description": "Pause (paused) or resume (active) the schedule.",
+      "enum": [
+        "active",
+        "paused"
+      ]
+    }
+  },
+  "required": [
+    "schedule_id"
+  ]
+}
+```
+
+Source: [`packages/schedule/tool-scheduler/src/index.ts`](../packages/schedule/tool-scheduler/src/index.ts)
+
+与 dsh-tool-goal 一样按预设选配：宿主调度服务保持在宿主平面，本行决定 agent 可见性，minimal Profile 因此保持两工具契约。create 恰好接受 run_at/after_minutes 之一，可选 every_minutes 周期（最小 5 分钟）；list、update 与 delete 按调用会话的归属过滤；update 仅编辑 prompt 与暂停/恢复状态（规则与目标改绑只在管理界面中由人类完成）。
 
 <a id="deepseek-aidsh-tool-lsp"></a>
 

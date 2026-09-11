@@ -29,7 +29,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-terminal` | `terminal_close`, `terminal_list`, `terminal_open`, `terminal_read`, `terminal_send`, `terminal_signal` | `ctx.tools`, `ctx.terminals`, `ctx.systemPrompt`, `ctx.jobs at call time for run_in_background` | `tool/call`, `tool/result` | - | The six terminal tools are opt-in and complement one-shot shell/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.jobs`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema. |
 | `@deepseek-ai/dsh-tool-goal` | `create_goal`, `get_goal`, `update_goal` | `ctx.tools`, `ctx.agents`, `ctx.goals`, `ctx.systemPrompt`, `a calling Agent in an authorized open turn` | `tool/call`, `goal/change for mutations`, `tool/result` | - | create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds. |
 | `@deepseek-ai/dsh-schedule` | `schedule_create`, `schedule_delete`, `schedule_list` | `ctx.tools`, `ctx.sessions`, `Session persistence`, `a future live root Agent` | `tool/call`, `schedule/change create or delete`, `tool/result` | - | Registered only inside live root Agent scopes created after the opt-in Schedule plugin loads. Version 1 accepts after_seconds, explicit absolute at, and bounded fixed-rate every_seconds, and discloses session-local delivery; management reads and mutations require the shared Session persistence barrier. |
-| `@deepseek-ai/dsh-tool-scheduler` | `schedule_create`, `schedule_delete`, `schedule_list` | `ctx.tools`, `ctx.scheduler (web-app bundle)`, `a calling Agent in an open turn` | `tool/call`, `schedule store create or delete`, `tool/result` | - | Preset-scoped like dsh-tool-goal: the host scheduler service stays on the host plane and this row decides agent visibility, so the minimal profile keeps its two-tool contract. create takes exactly one of run_at/after_minutes with an optional every_minutes recurrence (minimum 5 minutes); list and delete filter by the calling session's ownership. |
+| `@deepseek-ai/dsh-tool-scheduler` | `schedule_create`, `schedule_delete`, `schedule_list`, `schedule_update` | `ctx.tools`, `ctx.scheduler (web-app bundle)`, `a calling Agent in an open turn` | `tool/call`, `schedule store create or delete`, `tool/result` | - | Preset-scoped like dsh-tool-goal: the host scheduler service stays on the host plane and this row decides agent visibility, so the minimal profile keeps its two-tool contract. create takes exactly one of run_at/after_minutes with an optional every_minutes recurrence (minimum 5 minutes); list, update, and delete filter by the calling session's ownership; update edits prompt and pause/resume status only (rule and target rebinding stay human-only in the management view). |
 | `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`, `ctx.lsp`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-stdio`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema. |
 | `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`, `ctx.workflowEngine`, `ctx.subagents`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents every fresh round)` | `tool/call`, `tool/result`, `workflow and child session events during execution` | - | A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap. |
 | `@deepseek-ai/dsh-tool-compaction` | `context_compact` | `ctx.tools`, `ctx.compaction`, `a direct calling Agent` | `tool/call`, `compaction/* on success`, `tool/result` | - | The direct model call asks the configured compaction provider to condense one safe older prefix while retaining recent context. Nested transport dispatches are rejected. |
@@ -1257,7 +1257,40 @@ List scheduled tasks owned by this session, earliest first.
 
 Source: [`packages/schedule/tool-scheduler/src/index.ts`](../packages/schedule/tool-scheduler/src/index.ts)
 
-Preset-scoped like dsh-tool-goal: the host scheduler service stays on the host plane and this row decides agent visibility, so the minimal profile keeps its two-tool contract. create takes exactly one of run_at/after_minutes with an optional every_minutes recurrence (minimum 5 minutes); list and delete filter by the calling session's ownership.
+### `schedule_update`
+
+Update one scheduled task owned by this session: replace its prompt and/or pause or resume it. At least one field is required; the schedule id comes from schedule_create or schedule_list.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "schedule_id": {
+      "type": "string",
+      "description": "Schedule id from schedule_create or schedule_list."
+    },
+    "prompt": {
+      "type": "string",
+      "description": "Replacement prompt delivered at the scheduled time."
+    },
+    "status": {
+      "type": "string",
+      "description": "Pause (paused) or resume (active) the schedule.",
+      "enum": [
+        "active",
+        "paused"
+      ]
+    }
+  },
+  "required": [
+    "schedule_id"
+  ]
+}
+```
+
+Source: [`packages/schedule/tool-scheduler/src/index.ts`](../packages/schedule/tool-scheduler/src/index.ts)
+
+Preset-scoped like dsh-tool-goal: the host scheduler service stays on the host plane and this row decides agent visibility, so the minimal profile keeps its two-tool contract. create takes exactly one of run_at/after_minutes with an optional every_minutes recurrence (minimum 5 minutes); list, update, and delete filter by the calling session's ownership; update edits prompt and pause/resume status only (rule and target rebinding stay human-only in the management view).
 
 <a id="deepseek-aidsh-tool-lsp"></a>
 
