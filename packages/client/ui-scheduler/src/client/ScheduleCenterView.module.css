@@ -353,3 +353,81 @@
   margin-left: auto;
   color: var(--dsw-alias-label-secondary);
 }
+
+/* Phone form (frame data-viewport, ui-layout): eight nowrap columns cannot fit
+   a phone column, and a horizontally scrolling table hides the actions. Each
+   row becomes a card of label/value pairs, the header labels moving into each
+   cell through data-label. */
+:global([data-viewport='phone']) .header {
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 12px 14px;
+}
+
+:global([data-viewport='phone']) .body {
+  padding: 12px 14px 20px;
+}
+
+:global([data-viewport='phone']) .table,
+:global([data-viewport='phone']) .table tbody,
+:global([data-viewport='phone']) .table tr {
+  display: block;
+}
+
+:global([data-viewport='phone']) .table thead {
+  display: none;
+}
+
+:global([data-viewport='phone']) .table tr {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+:global([data-viewport='phone']) .table td {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  max-width: none;
+  width: auto;
+  padding: 3px 0;
+  border-bottom: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+:global([data-viewport='phone']) .table td::before {
+  content: attr(data-label);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+:global([data-viewport='phone']) .promptCell {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* The action row carries its own affordances; a header label would be noise. */
+:global([data-viewport='phone']) .actionsCell {
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 4px;
+}
+
+:global([data-viewport='phone']) .actionsCell::before {
+  content: none;
+}
+
+:global([data-viewport='phone']) .rowActions {
+  flex-wrap: wrap;
+  gap: 6px;
+  white-space: normal;
+}
+
+:global([data-viewport='phone']) .rowActions button {
+  min-height: 30px;
+  padding: 4px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+}

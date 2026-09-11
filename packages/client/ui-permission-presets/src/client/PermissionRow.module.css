@@ -58,3 +58,16 @@
 .chevron {
   flex: none;
 }
+
+/* Phone form (frame data-viewport, ui-layout): the label column's 48px right
+   inset was clearance against a wide desktop column; on a phone it costs the
+   text more than the pill needs, so the row wraps its control instead. */
+:global([data-viewport='phone']) .row {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+:global([data-viewport='phone']) .rowText {
+  flex-basis: 100%;
+  padding-right: 0;
+}

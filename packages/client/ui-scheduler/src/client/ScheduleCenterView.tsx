@@ -167,12 +167,15 @@ export function ScheduleCenterView({
                 const lastRun = runsById[record.id]?.[0]
                 return (
                   <tr key={record.id} data-schedule-row={record.id}>
-                    <td className={css.idCell} title={record.id}>{record.id.slice(0, 8)}</td>
-                    <td className={css.promptCell} title={record.prompt}>{record.prompt}</td>
-                    <td title={targetSummary(record, sessionLabel, t)}>{targetSummary(record, sessionLabel, t)}</td>
-                    <td>{ruleSummary(record.rule, t)}</td>
-                    <td>{moment(record.nextDue)}</td>
-                    <td>
+                    {/* data-label is the column header the card form prints
+                        beside each value once the table stops being a grid
+                        (phone rule in the sheet). */}
+                    <td className={css.idCell} data-label={t('table.id')} title={record.id}>{record.id.slice(0, 8)}</td>
+                    <td className={css.promptCell} data-label={t('table.prompt')} title={record.prompt}>{record.prompt}</td>
+                    <td data-label={t('table.target')} title={targetSummary(record, sessionLabel, t)}>{targetSummary(record, sessionLabel, t)}</td>
+                    <td data-label={t('table.rule')}>{ruleSummary(record.rule, t)}</td>
+                    <td data-label={t('table.next')}>{moment(record.nextDue)}</td>
+                    <td data-label={t('table.lastRun')}>
                       {lastRun === undefined ? t('run.none') : (
                         <span title={sessionLabel(lastRun.targetSessionId)}>
                           {t(lastRun.status === 'succeeded' ? 'run.succeeded' : 'run.failed', { time: new Date(lastRun.attemptedAt).toLocaleString() })}
@@ -181,8 +184,8 @@ export function ScheduleCenterView({
                         </span>
                       )}
                     </td>
-                    <td><span className={record.status === 'active' ? css.statusActive : record.status === 'paused' ? css.statusPaused : css.statusDone}>{t(`status.${record.status}`)}</span></td>
-                    <td>
+                    <td data-label={t('table.status')}><span className={record.status === 'active' ? css.statusActive : record.status === 'paused' ? css.statusPaused : css.statusDone}>{t(`status.${record.status}`)}</span></td>
+                    <td className={css.actionsCell}>
                       <span className={css.rowActions}>
                         <button type="button" disabled={busy} onClick={() => { setEditor({ kind: 'edit', record }) }}>{t('table.edit')}</button>
                         {record.status === 'done' ? null : (
