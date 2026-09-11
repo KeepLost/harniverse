@@ -337,7 +337,7 @@ describe('the shipped Web composition', () => {
       expect(assembly.contexts).toEqual([
         // The checkout-root paragraph embeds this machine's absolute path, so
         // match its stable opening instead of a literal.
-        { name: 'harness:source', text: expect.stringContaining('The Harniverse implementation checkout is at') },
+        { name: 'harness:source', text: expect.stringContaining('The Harniverse implementation checkout is at') as string },
         { name: 'deployment:persona', text: MINIMAL_PROMPT },
         { name: 'sandbox:policy', text: '' },
         { name: 'approval:policy', text: '' },
