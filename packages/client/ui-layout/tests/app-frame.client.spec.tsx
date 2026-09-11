@@ -66,6 +66,7 @@ function mountFrame() {
     slotCalls.push({ key, props: owner })
     if (key === 'sidebar') return <button type="button" data-testid="sidebar-content">Sidebar</button>
     if (key === 'conversation') return <div data-testid="center-content" />
+    if (key === 'center.view') return <div data-testid="center-view-content" />
     if (key === 'details') return <div data-testid="details-content" />
     if (key === 'workbench') return <div data-testid="workbench-content"><button type="button">Workbench first</button><div style={{ display: 'none' }}><button type="button">Workbench hidden</button></div><button type="button">Workbench last</button></div>
     if (key === 'conversation.empty') return <div data-testid="empty-content" />
@@ -184,6 +185,44 @@ describe('AppFrame', () => {
     const { slotCalls, getByTestId } = mountFrame()
     expect(getByTestId('center-content')).toBeTruthy()
     expect(slotCalls.map(c => c.key)).toContain('conversation')
+  })
+
+  it('covers the mounted conversation with the named center view', () => {
+    const { instance, slotCalls, getByTestId, queryByTestId, rerenderFrame } = mountFrame()
+    expect(getByTestId('center-content')).toBeTruthy()
+    expect(queryByTestId('center-view-content')).toBeNull()
+
+    act(() => { instance.actions.setCenterView('schedules') })
+    rerenderFrame()
+
+    // The conversation keeps its mounted identity, removed from interaction.
+    const conversationRegion = getByTestId('center-content').parentElement as HTMLElement
+    expect(conversationRegion.hasAttribute('inert')).toBe(true)
+    expect(conversationRegion.getAttribute('aria-hidden')).toBe('true')
+    // The named view renders with its active owner share.
+    expect(getByTestId('center-view-content')).toBeTruthy()
+    const call = slotCalls.find(c => c.key === 'center.view')
+    expect(call?.props).toEqual({ active: true })
+
+    // Clearing returns to the live conversation.
+    act(() => { instance.actions.setCenterView(undefined) })
+    rerenderFrame()
+    expect(queryByTestId('center-view-content')).toBeNull()
+    expect(getByTestId('center-content').parentElement?.hasAttribute('inert')).toBe(false)
+  })
+
+  it('clears the center view when the current session changes', () => {
+    const { instance, rerenderFrame, queryByTestId } = mountFrame()
+    act(() => { instance.actions.setCenterView('schedules') })
+    rerenderFrame()
+    expect(queryByTestId('center-view-content')).toBeTruthy()
+
+    act(() => {
+      selectedSession.current = 's-other' as SessionId
+      rerenderFrame()
+    })
+    expect(queryByTestId('center-view-content')).toBeNull()
+    expect(instance.getSnapshot().centerView).toBeUndefined()
   })
 
   it('renders both column occupants before baselines settle (no loading gate)', () => {

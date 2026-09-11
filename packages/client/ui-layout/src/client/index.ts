@@ -1,9 +1,10 @@
 /**
  * Layout plugin, browser half: one register() call contributes AppFrame into
  * the runtime's built-in 'root' slot and, in the same breath, declares the
- * five child slots (declaration = exclusive render authority), seats the
- * layout store (panel geometry), and wires the panel-action service face.
- * ctx.layout is the cross-plugin panel-action contract; navigation state lives
+ * six child slots (declaration = exclusive render authority), seats the
+ * layout store (panel geometry + the center-view switch), and wires the
+ * panel-action service face. ctx.layout is the cross-plugin panel-action
+ * contract; navigation state lives
  * with the runtime sessions service. A second effect seats the theme
  * presenter, which projects ctx.theme snapshots onto document.body.
  */
@@ -68,6 +69,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'conversation': { kind: 'single'; scope: 'session-maybe'; owner: ConvOwnerProps }
     /**
+     * A named full-center view over the conversation. Entries render only
+     * while the layout names their id (`ctx.layout.setCenterView`); the
+     * conversation stays mounted underneath, inert, and a session switch
+     * clears the view. Registering adds a candidate view beside the shipped
+     * ones — it never replaces the conversation seat.
+     */
+    'center.view': { kind: 'list'; scope: 'root'; owner: CenterViewOwnerProps }
+    /**
      * The right details column, shown when the layout opens it. OCCUPIED by
      * ui-conversation's DetailsPanel, which declares the tool-details seat
      * inside it — registering here replaces the column and takes that seat
@@ -118,6 +127,16 @@ export interface SidebarOwnerProps {
 
 /** Conversation owner share: business state and actions belong to the registrant. */
 export interface ConvOwnerProps {}
+
+/**
+ * Center-view owner share: the occupancy fact the frame alone resolves. The
+ * frame renders only the named entry, so `active` is always true at the
+ * render site — it exists so an entry can treat its mount as activation.
+ */
+export interface CenterViewOwnerProps {
+  /** True while this view occupies the center column. */
+  active: boolean
+}
 
 /** Details owner share: empty — sessionId arrives as a framework-standard prop. */
 export interface DetailsOwnerProps {}
@@ -176,6 +195,7 @@ export function apply(ctx: ClientContext): void {
       children: {
         'sidebar': { kind: 'single', scope: 'root' },
         'conversation': { kind: 'single', scope: 'session-maybe' },
+        'center.view': { kind: 'list', scope: 'root' },
         'details': { kind: 'single', scope: 'session' },
         'workbench': { kind: 'single', scope: 'root' },
         'shell.overlay': { kind: 'list', scope: 'root' },
