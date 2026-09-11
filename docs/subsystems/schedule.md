@@ -247,6 +247,37 @@ listForSession(sessionId: SessionId): ScheduleRecord[]
 @Remote({ exportName: 'delete', requiredCapability: 'harniverse.operate' }) removeOwned(sessionId: SessionId, id: string): Promise<boolean>
 
 /**
+ * Remote-facing global read of every schedule for the management view.
+ * @returns every stored record, earliest due first.
+ */
+@Remote({ exportName: 'listAll', requiredCapability: 'harniverse.observe' }) listAll(): ScheduleRecord[]
+
+/**
+ * Remote-facing global edit for the management view; the
+ * `harniverse.operate` capability authenticates the human where the
+ * session-scoped `update` checks session ownership instead. Prompt edits
+ * through this surface attribute their revision to the record origin.
+ * @param id - schedule identity.
+ * @param update - prompt, status, and/or rule patch.
+ * @returns the updated record, or `undefined` when absent.
+ */
+@Remote({ exportName: 'updateAny', requiredCapability: 'harniverse.operate' }) updateAny(id: string, update: ScheduleUpdate): Promise<ScheduleRecord | undefined>
+
+/**
+ * Remote-facing global removal for the management view.
+ * @param id - schedule identity.
+ * @returns whether a record was removed.
+ */
+@Remote({ exportName: 'deleteAny', requiredCapability: 'harniverse.operate' }) removeAny(id: string): Promise<boolean>
+
+/**
+ * Read one schedule's full execution history through the scheduler Remote.
+ * @param scheduleId - schedule whose attempts are requested.
+ * @returns its durable delivery attempts, newest first.
+ */
+@Remote({ exportName: 'runsOf', requiredCapability: 'harniverse.observe' }) listRunsOf(scheduleId: string): ScheduleRun[]
+
+/**
  * Read execution history through the scheduler Remote.
  * @param sessionId - session requesting the history.
  * @param scheduleId - schedule whose attempts are requested.
@@ -271,9 +302,11 @@ listRuns(scheduleId: string, ownerSessionId?: SessionId): ScheduleRun[]
 async create(input: ScheduleCreateInput): Promise<ScheduleRecord>
 
 /**
- * Update editable fields of one record.
+ * Update editable fields of one record. A rule patch recomputes the next
+ * due moment from now and re-arms the timer; a finished record rejects
+ * rescheduling.
  * @param id - schedule identity.
- * @param update - prompt and/or status patch.
+ * @param update - prompt, status, and/or rule patch.
  * @param by - calling session allowed to edit; omitted for host authority.
  * @returns the updated record, or `undefined` when absent or not owned.
  */
@@ -290,5 +323,5 @@ async remove(id: string, by?: SessionId): Promise<boolean>
 
 Types: [SessionId](core.md)
 
-Source: [`packages/schedule/scheduler/src/index.ts:95`](../../packages/schedule/scheduler/src/index.ts)
+Source: [`packages/schedule/scheduler/src/index.ts:97`](../../packages/schedule/scheduler/src/index.ts)
 <!-- END GENERATED cordis-surface -->

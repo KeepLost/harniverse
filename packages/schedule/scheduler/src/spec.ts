@@ -17,11 +17,17 @@ const scheduleRuleSchema = z.discriminatedUnion('kind', [
   }),
 ])
 
+const scheduleTargetSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('current') }),
+  z.object({ kind: z.literal('job') }),
+  z.object({ kind: z.literal('session'), sessionId: z.string().min(1) }),
+])
+
 const scheduleRecordSchema = z.object({
   id: z.string().min(1),
   prompt: z.string().min(1),
   rule: scheduleRuleSchema,
-  target: z.object({ kind: z.enum(['current', 'job']) }),
+  target: scheduleTargetSchema,
   contextMode: z.enum(['fresh', 'continue']),
   createdBy: z.object({
     kind: z.enum(['user', 'model']),
@@ -58,10 +64,15 @@ const scheduleRunSchema = z.object({
   error: z.string().optional(),
 }) as unknown as z.ZodType<ScheduleRun>
 
-/** Durable central store for scheduled prompts. */
+/**
+ * Durable central store for scheduled prompts. Version 1 adds the `session`
+ * delivery target; records of version 0 keep their layout unchanged, so the
+ * stamp rewrites in place through `migrateFrom`.
+ */
 export const schedulerDomainSpec = defineDomain({
   name: 'scheduler',
-  version: 0,
+  version: 1,
+  migrateFrom: [0],
   tables: {
     schedules: domainTable<string, ScheduleRecord>(scheduleRecordSchema),
     runs: domainTable<string, ScheduleRun>(scheduleRunSchema),

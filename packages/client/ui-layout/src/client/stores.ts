@@ -84,6 +84,8 @@ export type LayoutState = {
   rightByAccount: Record<string, RightPanelPreference>
   narrow: boolean
   narrowExpanded: boolean
+  /** Registered center view occupying the center column; undefined = conversation. */
+  centerView: string | undefined
 }
 
 /**
@@ -102,6 +104,7 @@ type LayoutActions = {
   closeDetails: (draft: LayoutState) => void
   openWorkbench: (draft: LayoutState) => void
   closeWorkbench: (draft: LayoutState) => void
+  setCenterView: (draft: LayoutState, id: string | undefined) => void
 }
 
 /**
@@ -121,6 +124,7 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
       rightByAccount: {},
       narrow: false,
       narrowExpanded: false,
+      centerView: undefined,
     }),
     persist: {
       name: RIGHT_PERSIST_KEY,
@@ -194,6 +198,9 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
       closeDetails: (d) => { ensureRight(d).open = false },
       openWorkbench: (d) => { const right = ensureRight(d); right.mode = 'workbench'; right.open = true },
       closeWorkbench: (d) => { ensureRight(d).open = false },
+      // Center views are transient viewing state: assigning undefined returns
+      // to the conversation. Session selection clears the view in AppFrame.
+      setCenterView: (d, id: string | undefined) => { d.centerView = id },
     },
   })
   return handle

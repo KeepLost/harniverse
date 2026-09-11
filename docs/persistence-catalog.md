@@ -681,7 +681,7 @@ Source: [`packages/schedule/schedule/src/types.ts:219`](../packages/schedule/sch
 }
 ```
 
-Source: [`packages/schedule/scheduler/src/index.ts:34`](../packages/schedule/scheduler/src/index.ts)
+Source: [`packages/schedule/scheduler/src/index.ts:36`](../packages/schedule/scheduler/src/index.ts)
 
 ### `session/*`
 

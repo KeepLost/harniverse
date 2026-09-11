@@ -244,7 +244,8 @@
 }
 
 /* Footer seats: additive actions stack above Settings. Each occupant owns its
-   button geometry and hover chrome. */
+   button geometry and hover chrome; multiple actions stack vertically so each
+   stays a full-width row like Settings. */
 .footArea {
   flex: none;
   display: flex;
@@ -260,6 +261,7 @@
 
 .footerActions {
   display: flex;
+  flex-direction: column;
 }
 
 .collapsed .footArea {

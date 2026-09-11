@@ -28,7 +28,16 @@ describe('createLayoutStore', () => {
       rightByAccount: {},
       narrow: false,
       narrowExpanded: false,
+      centerView: undefined,
     })
+  })
+
+  it('setCenterView names the occupying view and undefined returns to the conversation', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.setCenterView('schedules')
+    expect(store.getSnapshot().centerView).toBe('schedules')
+    actions.setCenterView(undefined)
+    expect(store.getSnapshot().centerView).toBeUndefined()
   })
 
   it('each create() is an independent instance (factory is not a singleton)', () => {

@@ -5,7 +5,9 @@
  * job sessions. The `schedule:pending` runtime context registers with the
  * service; the model-facing tools live in `@deepseek-ai/dsh-tool-scheduler`.
  * Session-scoped Remote methods (list/create/update/remove) expose the same
- * store to the browser UI through the Typert Gateway.
+ * store to the browser UI through the Typert Gateway, beside the
+ * capability-gated global surface (listAll/runsOf/updateAny/deleteAny) the
+ * schedule management view reads.
  * @module @deepseek-ai/dsh-scheduler
  */
 
@@ -201,6 +203,49 @@ export class SchedulerService extends TypertRemoteService {
   }
 
   /**
+   * Remote-facing global read of every schedule for the management view.
+   * @returns every stored record, earliest due first.
+   */
+  @Remote({ exportName: 'listAll', requiredCapability: 'harniverse.observe' })
+  listAll(): ScheduleRecord[] {
+    return this.list()
+  }
+
+  /**
+   * Remote-facing global edit for the management view; the
+   * `harniverse.operate` capability authenticates the human where the
+   * session-scoped `update` checks session ownership instead. Prompt edits
+   * through this surface attribute their revision to the record origin.
+   * @param id - schedule identity.
+   * @param update - prompt, status, and/or rule patch.
+   * @returns the updated record, or `undefined` when absent.
+   */
+  @Remote({ exportName: 'updateAny', requiredCapability: 'harniverse.operate' })
+  updateAny(id: string, update: ScheduleUpdate): Promise<ScheduleRecord | undefined> {
+    return this.update(id, update)
+  }
+
+  /**
+   * Remote-facing global removal for the management view.
+   * @param id - schedule identity.
+   * @returns whether a record was removed.
+   */
+  @Remote({ exportName: 'deleteAny', requiredCapability: 'harniverse.operate' })
+  removeAny(id: string): Promise<boolean> {
+    return this.remove(id)
+  }
+
+  /**
+   * Read one schedule's full execution history through the scheduler Remote.
+   * @param scheduleId - schedule whose attempts are requested.
+   * @returns its durable delivery attempts, newest first.
+   */
+  @Remote({ exportName: 'runsOf', requiredCapability: 'harniverse.observe' })
+  listRunsOf(scheduleId: string): ScheduleRun[] {
+    return this.listRuns(scheduleId)
+  }
+
+  /**
    * Read execution history through the scheduler Remote.
    * @param sessionId - session requesting the history.
    * @param scheduleId - schedule whose attempts are requested.
@@ -263,9 +308,11 @@ export class SchedulerService extends TypertRemoteService {
   }
 
   /**
-   * Update editable fields of one record.
+   * Update editable fields of one record. A rule patch recomputes the next
+   * due moment from now and re-arms the timer; a finished record rejects
+   * rescheduling.
    * @param id - schedule identity.
-   * @param update - prompt and/or status patch.
+   * @param update - prompt, status, and/or rule patch.
    * @param by - calling session allowed to edit; omitted for host authority.
    * @returns the updated record, or `undefined` when absent or not owned.
    */
@@ -276,12 +323,18 @@ export class SchedulerService extends TypertRemoteService {
       if (prompt.length > MAX_PROMPT_LENGTH) {
         throw new ScheduleRuleError(`prompt must be at most ${String(MAX_PROMPT_LENGTH)} characters`)
       }
+      if (update.rule !== undefined && record.status === 'done') {
+        throw new ScheduleRuleError('a finished schedule cannot be rescheduled')
+      }
+      const rescheduled = update.rule === undefined ? undefined : validateRule(update.rule, this.now())
       const promptChanged = prompt !== record.prompt
       const promptRevision = record.promptRevision ?? 1
       return {
         ...record,
         prompt,
+        rule: rescheduled?.rule ?? record.rule,
         status: update.status ?? record.status,
+        ...(rescheduled === undefined ? {} : { nextDue: rescheduled.due }),
         ...(promptChanged
           ? {
             promptRevision: promptRevision + 1,
@@ -353,8 +406,9 @@ export class SchedulerService extends TypertRemoteService {
   private pendingText(agent: Agent | undefined): string {
     if (agent === undefined || this.table === undefined) return ''
     const pending = this.records().filter(record => record.status === 'active'
-      && record.target.kind === 'current'
-      && record.createdBy.sessionId === agent.session.id)
+      && (record.target.kind === 'current'
+        ? record.createdBy.sessionId === agent.session.id
+        : record.target.kind === 'session' && record.target.sessionId === agent.session.id))
     if (pending.length === 0) return ''
     /* v8 ignore next 1 -- active records always carry nextDue; the fallback only guards a corrupted store */
     const next = pending.map(record => record.nextDue ?? record.createdAt).reduce((a, b) => Math.min(a, b))
@@ -448,7 +502,10 @@ export class SchedulerService extends TypertRemoteService {
         lastError: failure,
       })
     } finally {
-      await this.recordRun(record, due, now, target?.sessionId ?? record.jobSessionId ?? record.createdBy.sessionId, failure)
+      const fallbackTarget = record.target.kind === 'session'
+        ? record.target.sessionId
+        : record.jobSessionId ?? record.createdBy.sessionId
+      await this.recordRun(record, due, now, target?.sessionId ?? fallbackTarget, failure)
       if (target !== undefined && target.resumedHere) this.recycle(target.sessionId)
     }
   }
@@ -518,6 +575,12 @@ export class SchedulerService extends TypertRemoteService {
       const wasLive = this.ctx.agents.get(record.jobSessionId) !== undefined
       const agent = await this.resolveAgent(record.jobSessionId)
       return { agent, sessionId: record.jobSessionId, resumedHere: !wasLive }
+    }
+    if (record.target.kind === 'session') {
+      const sessionId = record.target.sessionId
+      const wasLive = this.ctx.agents.get(sessionId) !== undefined
+      const agent = await this.resolveAgent(sessionId)
+      return { agent, sessionId, resumedHere: !wasLive }
     }
     const sessionId = record.createdBy.sessionId
     const wasLive = this.ctx.agents.get(sessionId) !== undefined

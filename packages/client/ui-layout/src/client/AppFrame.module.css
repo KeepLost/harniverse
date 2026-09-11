@@ -30,10 +30,32 @@
 }
 
 .centerCol {
+  position: relative; /* anchors the center-view layer, which covers the column */
   min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* Conversation region: the column's default occupant, kept mounted (inert)
+   under a center view so returning is identity-preserving. */
+.centerConversation {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* A named center view covers the whole column while the layout names it. */
+.centerViewLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--dsw-alias-bg-base);
 }
 
 .detailsCol {

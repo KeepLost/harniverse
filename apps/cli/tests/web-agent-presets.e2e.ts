@@ -306,6 +306,7 @@ describe('the shipped Web composition', () => {
         'artifact_read', 'ask_user_question', 'bash', 'child_profile_define', 'child_profile_list',
         'compaction_history_expand', 'compaction_history_search', 'context_compact', 'create_goal',
         'edit', 'exit_plan_mode', 'get_goal', 'job_kill', 'job_list', 'job_output', 'ralph', 'read', 'read_image',
+        'schedule_create', 'schedule_delete', 'schedule_list', 'schedule_update',
         'session_create', 'session_event_search', 'session_find', 'session_inspect', 'session_message', 'session_search',
         'session_unload', 'skill', 'subagent', 'todo_write', 'update_goal', 'web_fetch', 'web_search',
         'workflow', 'write',
@@ -334,9 +335,17 @@ describe('the shipped Web composition', () => {
         { name: 'ui:deliverable-file-references', text: 'When you successfully create or modify files, mention the primary outputs in your final response. To make those and any other changed-file references clickable in Web, format them as Markdown inline code using the exact file-tool path, or a basename when unique among the files changed in that turn.' },
       ])
       expect(assembly.contexts).toEqual([
+        // The checkout-root paragraph embeds this machine's absolute path, so
+        // match its stable opening instead of a literal.
+        { name: 'harness:source', text: expect.stringContaining('The Harniverse implementation checkout is at') as string },
         { name: 'deployment:persona', text: MINIMAL_PROMPT },
         { name: 'sandbox:policy', text: '' },
         { name: 'approval:policy', text: '' },
+        {
+          name: 'supervision:policy',
+          text: 'Supervision mode: supervised. Human questions and approval requests are available when the task genuinely requires a user decision. Inspect and use available tools before asking the user for discoverable facts.',
+        },
+        { name: 'schedule:pending', text: '' },
       ])
       expect(assembly.tools.map(tool => tool.name)).toEqual(MINIMAL_TOOL_NAMES)
       expect(JSON.stringify(assembly.tools.find(tool => tool.name === 'str_replace_editor')?.parameters))

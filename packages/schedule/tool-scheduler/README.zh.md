@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-预设选配的模型侧调度工具：`schedule_create`、`schedule_list`、`schedule_delete`，运行在宿主 `ctx.scheduler` 服务之上。服务保持在宿主平面；本包的预设行决定其 agent 能否调用这些工具，与 `@deepseek-ai/dsh-tool-goal` 同构。设计决策见[定时投递 Agent Note](../../../.agents/notes/implemented/feature/2026-09-08-host-scheduler.md)。
+预设选配的模型侧调度工具：`schedule_create`、`schedule_list`、`schedule_update`、`schedule_delete`，运行在宿主 `ctx.scheduler` 服务之上。服务保持在宿主平面；本包的预设行决定其 agent 能否调用这些工具，与 `@deepseek-ai/dsh-tool-goal` 同构。设计决策见[定时投递 Agent Note](../../../.agents/notes/implemented/feature/2026-09-08-host-scheduler.md)。
 
 ## 工具
 
@@ -10,6 +10,7 @@
 |---|---|
 | `schedule_create` | 恰好一个时间参数（`run_at` 或 `after_minutes`），可选 `every_minutes`（最小 5）、`target`（`current`/`job`）与 `context`（`continue`/`fresh`）。经 `ctx.scheduler.create` 创建并归属到调用方 agent。 |
 | `schedule_list` | 调用会话拥有的调度，按到期时间升序。 |
+| `schedule_update` | 就地改写 prompt 和/或暂停、恢复调用会话拥有的一个调度；至少需要一个字段。 |
 | `schedule_delete` | 取消调用会话拥有的一个调度。 |
 
 ## 组合
@@ -18,7 +19,7 @@
 |---|---|
 | 注入 | 依赖 `scheduler`；没有该服务的组合中保持 pending。 |
 | 作用域 | 在挂载它的预设作用域上注册，`minimal` Profile 因此保持两工具契约。 |
-| 归属 | 创建写入 `{kind: 'model', sessionId}`；list 与 delete 都按调用会话过滤。 |
+| 归属 | 创建写入 `{kind: 'model', sessionId}`；list、update 与 delete 都按调用会话过滤。 |
 
 ## Model Experience
 
@@ -26,7 +27,7 @@
 
 #### 模型所见
 
-`schedule_create` 接受 `prompt` 与恰好一个时间参数（`run_at` 或 `after_minutes`）、可选的 `every_minutes` 周期、可选的 `target`（`current`/`job`）与 `context`（`continue`/`fresh`）。`schedule_list` 按到期升序列出调用会话的调度；`schedule_delete` 按 id 取消一个。输出文本陈述创建的 id、首次到期时刻、目标会话与周期。
+`schedule_create` 接受 `prompt` 与恰好一个时间参数（`run_at` 或 `after_minutes`）、可选的 `every_minutes` 周期、可选的 `target`（`current`/`job`）与 `context`（`continue`/`fresh`）。`schedule_list` 按到期升序列出调用会话的调度；`schedule_update` 按 id 就地改写 prompt 和/或暂停、恢复；`schedule_delete` 按 id 取消一个。输出文本陈述创建的 id、首次到期时刻、目标会话与周期。
 
 #### Token 影响
 
@@ -39,5 +40,5 @@
 
 ## Known Limitations and Deferred Work（已知限制与延后工作）
 
-- 没有暂停/恢复工具面；状态编辑走服务 API 与 Remote 面。
-- 没有 `update` 工具；就地改写 prompt 延后到真实模型工作流需要时再做。
+- **模型面不支持改规则** —— `schedule_update` 只覆盖 prompt 与状态；重排意味着删除后重建，模型因此始终留在自己会话的权限域内。
+- **`schedule_create` 不支持任意 `session` 目标** —— 将任务绑定到任意命名会话是经管理视图 Remote 面做出的人工决策。
