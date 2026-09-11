@@ -6,7 +6,7 @@
 
 ## Remote 面
 
-会话作用域的 Typert Remote 方法（带能力门控）把同一存储暴露给浏览器：`list` 与 `runs`（`harniverse.observe`），以及 `create` / `update` / `delete`（`harniverse.operate`）。生成的 `@deepseek-ai/dsh-scheduler/remote` 客户端经 `dsh-api-remotes` 装配，Web UI 组合的正是工具所用的同一组方法。
+会话作用域的 Typert Remote 方法（带能力门控）把同一存储暴露给浏览器：`list` 与 `runs`（`harniverse.observe`），以及 `create` / `update` / `delete`（`harniverse.operate`）。全局管理面为定时任务管理视图补充 `listAll` / `runsOf`（`harniverse.observe`）与 `updateAny` / `deleteAny`（`harniverse.operate`）：读取覆盖全部记录，编辑以能力认证的人工取代会话所有权检查；全局面上的 prompt 修订归属记录来源。生成的 `@deepseek-ai/dsh-scheduler/remote` 客户端经 `dsh-api-remotes` 装配，Web UI 组合的正是工具所用的同一组方法。
 
 ## 服务契约
 
@@ -15,8 +15,10 @@
 | `create({prompt, rule, target, contextMode, createdBy})` | 校验并存储一条记录；首个到期时刻武装定时器。 |
 | `list()` / `listForSession(sessionId)` | 全部记录按下次到期排序；某会话拥有的子集。 |
 | `listRuns(scheduleId, ownerSessionId?)` | 按最新优先返回持久化投递尝试；可选 owner 限制读取范围。 |
-| `update(id, {prompt?, status?}, by?)` | 在会话所有权下编辑 prompt 或生命周期；省略 `by` 为宿主权限。 |
+| `update(id, {prompt?, status?, rule?}, by?)` | 在会话所有权下编辑 prompt、生命周期或规则；规则补丁从当下重算下次到期并重新武装定时器；省略 `by` 为宿主权限。 |
 | `remove(id, by?)` | 以相同所有权规则删除。 |
+
+目标沿用官方词表并加一个下游扩展：`current`（创建者会话）、`job`（惰性创建的专属会话）、`session`（由人工经管理视图显式绑定的任意命名会话——热或冷唤醒；所有权仍归创建者）。
 
 规则沿用官方词表：`after`（一次性延迟）、`at`（一次性时刻，逾期补跑一次）、`every`（锚定周期，最短五分钟，错过跳至最近槽位）。失败的一次性任务十分钟后重试并记录 `lastError`；失败的 `every` 在下一槽位继续。`fresh` 投递先经 `ctx.contextReset` 重置目标表面。每次派发追加一条 log-only 的 `schedule/dispatch` 溯源事件与一条 plugin source 为 `schedule` 的 `user/message`，随后 flush。
 
@@ -60,3 +62,5 @@
 - **无 cron 表达式与 DST 锚定的日历周期** —— `every` 是锚定首次运行的固定毫秒间隔；日历锚点暂缓。
 - **作业会话以组合默认运行** —— 调度器尚未为惰性创建的作业会话挂载录制的 Agent Profile。
 - **错过的运行合并为一次投递** —— 逾期的 `every` 按最近错过槽位补跑一次后继续；不提供逐槽追赶。
+- **`session` 目标在派发时校验而非创建时** —— 写错或已被删除的目标会话以带 `lastError` 的失败运行呈现，而非创建时拒绝；管理视图的选择器只提供已知会话。
+- **已完成的任务不可重排** —— `done` 记录拒绝规则补丁；请重新创建。

@@ -6,7 +6,7 @@ Host-level durable scheduler (`ctx.scheduler`). Scheduled prompts live in one ce
 
 ## Remote surface
 
-Session-scoped Typert Remote methods (capability-gated) expose the same store to the browser: `list` and `runs` (`harniverse.observe`) plus `create` / `update` / `delete` (`harniverse.operate`). The generated `@deepseek-ai/dsh-scheduler/remote` client mounts through `dsh-api-remotes`, so the Web UI composes the identical methods the tools use.
+Session-scoped Typert Remote methods (capability-gated) expose the same store to the browser: `list` and `runs` (`harniverse.observe`) plus `create` / `update` / `delete` (`harniverse.operate`). The global management surface adds `listAll` / `runsOf` (`harniverse.observe`) and `updateAny` / `deleteAny` (`harniverse.operate`) for the schedule management view: reads carry every record, and edits trade the session-ownership check for the capability-authenticated human. Prompt revisions through the global surface attribute to the record origin. The generated `@deepseek-ai/dsh-scheduler/remote` client mounts through `dsh-api-remotes`, so the Web UI composes the identical methods the tools use.
 
 ## Service contract
 
@@ -15,8 +15,10 @@ Session-scoped Typert Remote methods (capability-gated) expose the same store to
 | `create({prompt, rule, target, contextMode, createdBy})` | Validate and store one record; the first due moment arms the timer. |
 | `list()` / `listForSession(sessionId)` | All records by next due; the subset one session owns. |
 | `listRuns(scheduleId, ownerSessionId?)` | Durable delivery attempts, newest first; the optional owner limits the read. |
-| `update(id, {prompt?, status?}, by?)` | Edit prompt or lifecycle under session ownership; omitted `by` is host authority. |
+| `update(id, {prompt?, status?, rule?}, by?)` | Edit prompt, lifecycle, or rule under session ownership; a rule patch recomputes the next due moment from now and re-arms the timer; omitted `by` is host authority. |
 | `remove(id, by?)` | Delete under the same ownership rule. |
+
+Targets follow the official vocabulary plus one downstream extension: `current` (the creator's session), `job` (a lazily created dedicated session), and `session` (any named session — live or cold-resumed — bound explicitly by the human through the management view; ownership stays with the creator).
 
 Rules follow the official vocabulary: `after` (one-shot delay), `at` (one-shot instant, firing late once when overdue), `every` (anchored recurrence, minimum five minutes, skipping missed slots to the latest). A failed one-shot retries after ten minutes with the recorded `lastError`; a failed `every` continues at its next slot. `fresh` deliveries reset the target surface through `ctx.contextReset` before the prompt lands. Dispatch appends one log-only `schedule/dispatch` provenance event and one plugin-source `user/message` per run, then flushes.
 
@@ -60,3 +62,5 @@ The `schedule:pending` runtime context republishes through the context-snapshot 
 - **No cron expressions or DST-anchored wall-clock recurrences** — `every` is a fixed millisecond interval anchored at its first run; calendar anchors are deferred.
 - **Job sessions run with the composition default** — the scheduler does not yet mount a recorded Agent Profile for lazily created job sessions.
 - **Missed runs collapse to one delivery** — an overdue `every` fires once for its latest missed slot and continues; per-slot catch-up is not offered.
+- **`session` targets validate at dispatch, not at create** — a typo'd or since-deleted target session surfaces as a failed run with `lastError` rather than a create-time rejection; the management view's selector only offers known sessions.
+- **Finished schedules cannot be rescheduled** — a `done` record rejects rule patches; recreate instead.

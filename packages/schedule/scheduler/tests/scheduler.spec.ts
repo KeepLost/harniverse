@@ -591,6 +591,127 @@ describe('scheduler session-scoped Remote surface', () => {
   })
 })
 
+describe('scheduler global management surface', () => {
+  it('lists, edits, reschedules, and removes without session ownership', async () => {
+    const { test, cleanup } = await harness()
+    vi.useFakeTimers()
+    try {
+      const owner = liveScript(test, 'global-owner')
+      const created = await test.service.createOwned(owner.session.id, {
+        prompt: 'global surface',
+        rule: { kind: 'after', delayMs: 60_000 },
+        target: { kind: 'current' },
+        contextMode: 'continue',
+      })
+
+      // The global read carries every record regardless of ownership.
+      expect(test.service.listAll().map(row => row.id)).toEqual([created.id])
+
+      // Host-authority edits bypass session ownership entirely.
+      const edited = await test.service.updateAny(created.id, { prompt: 'global surface, revised' })
+      expect(edited?.prompt).toBe('global surface, revised')
+      // Prompt revisions through the global surface attribute to the origin.
+      expect(edited?.lastPromptEdit?.editedBy).toEqual(created.createdBy)
+      expect(edited?.promptRevision).toBe(2)
+
+      // A rule patch recomputes the next due moment from now.
+      const anchor = new Date('2027-01-01T00:00:00Z').toISOString()
+      const rescheduled = await test.service.updateAny(created.id, {
+        rule: { kind: 'every', intervalMs: 5 * 60_000, anchor },
+      })
+      expect(rescheduled?.rule).toEqual({ kind: 'every', intervalMs: 5 * 60_000, anchor })
+      expect(rescheduled?.nextDue).toBe(Date.parse(anchor))
+
+      expect(await test.service.removeAny(created.id)).toBe(true)
+      expect(test.service.listAll()).toEqual([])
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('rejects rescheduling a finished schedule and reads any run history', async () => {
+    const { test, cleanup } = await harness()
+    vi.useFakeTimers()
+    try {
+      const owner = liveScript(test, 'global-done')
+      const created = await test.service.createOwned(owner.session.id, {
+        prompt: 'one and done',
+        rule: { kind: 'at', at: '2000-01-01T00:00:00Z' },
+        target: { kind: 'current' },
+        contextMode: 'continue',
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      await waitForDelivery(() => {
+        expect(test.service.listAll().find(row => row.id === created.id)?.status).toBe('done')
+      })
+
+      await expect(test.service.updateAny(created.id, {
+        rule: { kind: 'after', delayMs: 60_000 },
+      })).rejects.toThrow('a finished schedule cannot be rescheduled')
+
+      // The delivered attempt is readable without an owner restriction.
+      const runs = test.service.listRunsOf(created.id)
+      expect(runs).toHaveLength(1)
+      expect(runs[0]?.status).toBe('succeeded')
+      expect(runs[0]?.targetSessionId).toBe(owner.session.id)
+    } finally {
+      await cleanup()
+    }
+  })
+})
+
+describe('scheduler session targets', () => {
+  it('delivers a session-bound schedule into the named session only', async () => {
+    const { test, cleanup } = await harness()
+    vi.useFakeTimers()
+    try {
+      const creator = liveScript(test, 'session-target-creator')
+      const target = liveScript(test, 'session-target-dest')
+      const created = await test.service.create({
+        prompt: 'ship it into the other room',
+        rule: { kind: 'at', at: '2000-01-01T00:00:00Z' },
+        target: { kind: 'session', sessionId: target.session.id },
+        contextMode: 'continue',
+        createdBy: { kind: 'user', sessionId: creator.session.id },
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      await waitForDelivery(() => {
+        expect(target.followups).toHaveLength(1)
+      })
+      expect(target.followups[0]?.content[0]).toMatchObject({ type: 'text', text: 'ship it into the other room' })
+      expect(creator.followups).toHaveLength(0)
+      // Ownership stays with the creator: the target session holds no claim.
+      expect(test.service.listForSession(creator.session.id).map(row => row.id)).toEqual([created.id])
+      expect(test.service.listForSession(target.session.id)).toEqual([])
+      await waitForDelivery(() => {
+        expect(test.service.listRunsOf(created.id)[0]?.targetSessionId).toBe(target.session.id)
+      })
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('counts a session-bound schedule in the target session runtime context', async () => {
+    const { test, cleanup } = await harness()
+    try {
+      const creator = liveScript(test, 'context-foreign')
+      const target = liveScript(test, 'context-named')
+      await test.service.create({
+        prompt: 'headed your way',
+        rule: { kind: 'after', delayMs: 60_000 },
+        target: { kind: 'session', sessionId: target.session.id },
+        contextMode: 'continue',
+        createdBy: { kind: 'user', sessionId: creator.session.id },
+      })
+      const entry = test.contextsRecorder.find(item => item.name === 'schedule:pending')!
+      expect(entry.text({ agent: liveAgentOf(test, creator) })).toBe('')
+      expect(entry.text({ agent: liveAgentOf(test, target) })).toContain('1 pending for this session')
+    } finally {
+      await cleanup()
+    }
+  })
+})
+
 describe('scheduler runtime context', () => {
   it('summarizes pending in-session schedules and stays empty otherwise', async () => {
     const { test, cleanup } = await harness()
