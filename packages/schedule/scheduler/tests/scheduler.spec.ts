@@ -643,6 +643,7 @@ describe('scheduler global management surface', () => {
       await vi.advanceTimersByTimeAsync(0)
       await waitForDelivery(() => {
         expect(test.service.listAll().find(row => row.id === created.id)?.status).toBe('done')
+        expect(test.service.listRunsOf(created.id)).toHaveLength(1)
       })
 
       await expect(test.service.updateAny(created.id, {
