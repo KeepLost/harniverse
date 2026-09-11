@@ -8,6 +8,8 @@ The loading page is self-sufficient: its status store and signals live in `loade
 
 Before parsing the plugin manifest, the shell enrolls or reauthenticates a browser-held P-256 device key through the static authentication routes. It transfers the same [authentication runtime](../authentication/README.md) to its Cordis Provider through an explicit static closure, not serialized Loader configuration. The Provider owns renewal after the gate unmounts; Connection consumes it for request and event-carrier recovery. A valid Cookie without a renewable device key does not release the ordinary application. Logout drains exchanges before clearing the Cookie. Terminal authentication failure is visible through the read-only sidebar status; no background recovery reloads the page.
 
+The gate's documents — the pairing page and the `/auth/manage` surface — paint before any plugin bundle arrives, so the shell carries their styling: `document.css` holds the design tokens and the document reset (the app entry imports it too, so Vite lands it in the shared eager chunk instead of the plugin one), and `auth.css` holds everything only these documents draw. Neither resolves a colour scheme; ui-theme's index tap already wrote the durable preference onto the body attribute the token sheets key their dark set on, for every document the frontend serves.
+
 `PLATFORM_MODULES` (src/platform.ts) is the single source of truth for shared modules: seed-table keys, tsdown client externals, and the Vite alias set are its projections.
 
 The optional override parameter `seams` forwards the module system's `loadBundle` transport override (`BootSeams`) for environments where external `<script>` execution cannot reach the page context; ordinary browser callers omit it.

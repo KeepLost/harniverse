@@ -12,6 +12,7 @@
 | 插槽 | `conversation.session.header.actions`，id `schedule-list`，order 10（先于 job 目录）。 |
 | 触发器插槽 | `sidebar.footer.action`，id `schedule-view`，order 10（后于 Cordis 面板）；调用 `ctx.layout.setCenterView('schedules')`。 |
 | 视图插槽 | `center.view`，id `schedules`；被布局指名时覆盖中心栏，通过 `ctx.layout.clearCenterView()` 关闭（切换会话同样会清除）。 |
+| 手机形态 | 在框架的 `phone` 形态下（见[Web 样式](../../../docs/web-styling.md)），表格每一行画成标签/值配对的卡片，表头文字通过各单元格的 `data-label` 提供；触发器采用与「设置」行一致的几何，因此 footer 两个入口共用同一条左边缘。 |
 | 存储 | 一个共享的 `createScheduleViewStore` 实例：中心视图在挂载/卸载时写入占用事实，底部触发器把它镜像为按下态。 |
 | 数据 | 视图每次挂载读一次 Remote，每次变更后再读一次；无业务存储，storage-domain 表始终是权威。 |
 | 变更 | 会话头走会话属主的 `update`/`delete`；视图走全局 `updateAny`/`deleteAny`（能力鉴权），创建通过 `create` 归属到当前会话。 |

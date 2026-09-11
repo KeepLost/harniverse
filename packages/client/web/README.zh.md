@@ -8,6 +8,8 @@ Web 外壳内核：`new AppWebEntry(el, seams?).run()` 通过两阶段启动（w
 
 外壳在解析插件 manifest 之前，通过静态认证路由 enrollment 或重新认证浏览器持有的 P-256 设备密钥。它通过显式静态闭包把同一个[认证运行实例](../authentication/README.md)交给 Cordis Provider，不使用序列化的 Loader 配置。认证 gate 卸载后由 Provider 拥有续期，Connection 消费它来恢复请求与事件载体。只有有效 Cookie 却没有可续期设备密钥时，普通应用不会被放行。Logout 排空交换后才清除 Cookie。终止性的认证失败通过只读侧边栏状态显示，后台恢复不会刷新页面。
 
+认证门渲染的文档——配对页与 `/auth/manage` 界面——在任何插件产物到达之前就要绘制，因此外壳承载它们的样式：`document.css` 持有设计 token 与文档重置（应用入口也会 import，因此 Vite 会把它落在共享的 eager chunk 而不是插件 chunk 里），`auth.css` 持有只有这两个文档会画的东西。两者都不解析配色；ui-theme 的 index tap 已经为前端提供的每一个文档，把持久化偏好写到了 token 样式表深色集所依据的 body 属性上。
+
 `PLATFORM_MODULES`（src/platform.ts）是共享模块接口的唯一真源：种子表 key、tsdown 客户端 external 和 vite alias 集都是它的投影。
 
 可选的覆盖参数 `seams` 会为外部 `<script>` 执行无法到达页面上下文的环境转发模块系统的 `loadBundle` 传输覆盖（`BootSeams`）；普通浏览器调用方省略此参数。
