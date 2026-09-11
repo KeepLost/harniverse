@@ -12,7 +12,10 @@ import {
 } from './browser-device.ts'
 import { markStartup, measureStartup } from './startup-timing.ts'
 // document.css first: auth.css reads its tokens. This document renders before
-// any plugin bundle is fetched, so it must carry both sheets itself.
+// any plugin bundle is fetched, so it must carry both sheets itself. The dark
+// set keys on the body attribute the Host's index tap already resolved from the
+// durable preference (ui-theme injectBootTheme, applied to `/` and
+// `/auth/manage` alike), so nothing here resolves a colour scheme.
 import './document.css'
 import './auth.css'
 
@@ -328,18 +331,6 @@ export function AuthenticationGate({ onAuthenticated }: {
   }
 
   useEffect(() => { void check() }, [])
-
-  // No theme presenter exists yet (it ships with the layout plugin), so this
-  // document mirrors the OS preference onto the attribute the token sheet keys
-  // its dark set on. The attribute is left in place on unmount: the presenter
-  // rewrites it from the user's resolved preference as the app boots.
-  useEffect(() => {
-    const query = window.matchMedia('(prefers-color-scheme: dark)')
-    const apply = (): void => { document.body.toggleAttribute('data-ds-dark-theme', query.matches) }
-    apply()
-    query.addEventListener('change', apply)
-    return () => { query.removeEventListener('change', apply) }
-  }, [])
 
   useEffect(() => () => { void renewal.current?.stop() }, [])
 

@@ -38,14 +38,20 @@
   bottom: 0;
   left: 0;
   z-index: 26;
+  /* border-box so the solved overlay width is the drawer's outer edge, which is
+     also where the scrim below starts. */
+  box-sizing: border-box;
   width: var(--dsh-frame-sidebar-drawer-width);
   box-shadow: var(--dsw-shadow-lv3);
 }
 
-/* Dismiss target under the drawer: the visible sliver of center column. */
+/* Tap-outside exit for the phone drawer: it owns exactly the strip the drawer
+   leaves exposed. The drawer is opaque, so there is nothing to dim underneath
+   it, and a scrim spanning the whole frame would bury its own hit area under
+   the drawer — the gesture would land on the sidebar it means to dismiss. */
 .sidebarScrim {
   position: absolute;
-  inset: 0;
+  inset: 0 0 0 var(--dsh-frame-sidebar-drawer-width);
   z-index: 25;
   border: 0;
   padding: 0;

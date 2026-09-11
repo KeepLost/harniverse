@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 
 const deviceApi = vi.hoisted(() => ({
   clear: vi.fn(),
@@ -42,25 +42,6 @@ async function logoutBrowserSession(): Promise<void> {
 function authenticationSpy() {
   return vi.fn((owner?: ClientAuthentication) => { if (owner !== undefined) owners.add(owner) })
 }
-
-/**
- * jsdom implements no matchMedia despite lib.dom declaring it, and the gate
- * mirrors the OS color-scheme preference onto body (no theme presenter exists
- * before the app loads). The listener pair is captured so a test can flip the
- * preference.
- */
-const colorScheme = { matches: false, listeners: new Set<() => void>() }
-function stubColorScheme(): void {
-  colorScheme.matches = false
-  colorScheme.listeners.clear()
-  vi.stubGlobal('matchMedia', vi.fn(() => ({
-    get matches() { return colorScheme.matches },
-    addEventListener: (_type: string, listener: () => void) => { colorScheme.listeners.add(listener) },
-    removeEventListener: (_type: string, listener: () => void) => { colorScheme.listeners.delete(listener) },
-  }) as unknown as MediaQueryList))
-}
-
-beforeEach(() => { stubColorScheme() })
 
 afterEach(async () => {
   await stopBrowserSessionRenewal()
@@ -233,8 +214,12 @@ describe('browser authentication gate', () => {
     expect(deviceApi.sign).toHaveBeenCalledWith(privateKey, 'owner-challenge')
   })
 
-  it('mirrors the OS color scheme onto body while no theme presenter exists', async () => {
-    colorScheme.matches = true
+  it('leaves the colour scheme the index tap resolved before it mounted', async () => {
+    // ui-theme's index tap writes the durable preference onto body for every
+    // document it serves, this one included. A gate that re-derived the scheme
+    // from the OS would silently downgrade a `dark` preference to the OS value
+    // on every boot that passes through here.
+    document.body.toggleAttribute('data-ds-dark-theme', true)
     deviceApi.read.mockResolvedValue(undefined)
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({
       mode: 'authenticated', sealed: false, authenticated: false,
@@ -243,10 +228,6 @@ describe('browser authentication gate', () => {
     await view.findByLabelText('设备名称')
 
     expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(true)
-
-    colorScheme.matches = false
-    act(() => { for (const listener of colorScheme.listeners) listener() })
-    expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(false)
   })
 
   it('copies the approval code and the host command onto the clipboard', async () => {
