@@ -1,8 +1,9 @@
 /**
  * Preset-selected model-facing scheduler tools (`schedule_create`,
- * `schedule_list`, `schedule_delete`) over the host `ctx.scheduler` service.
- * The service stays on the host plane; what a preset row chooses is whether
- * its agent can call these tools, mirroring `dsh-tool-goal`.
+ * `schedule_list`, `schedule_update`, `schedule_delete`) over the host
+ * `ctx.scheduler` service. The service stays on the host plane; what a
+ * preset row chooses is whether its agent can call these tools, mirroring
+ * `dsh-tool-goal`.
  * @module @deepseek-ai/dsh-tool-scheduler
  */
 
@@ -17,7 +18,7 @@ export const name = 'tool-scheduler'
 /** Host scheduler service required before the tools can execute. */
 export const inject = ['scheduler', 'tools']
 
-/** Register the three scheduler tools on the mounting (preset agent) scope. */
+/** Register the four scheduler tools on the mounting (preset agent) scope. */
 export function apply(ctx: Context): void {
   ctx.tools.register(defineTool({
     name: 'schedule_create',
@@ -133,6 +134,51 @@ export function apply(ctx: Context): void {
           target: record.jobSessionId === undefined ? record.target.kind : 'job',
         })),
       })
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'schedule_update',
+    description: 'Update one scheduled task owned by this session: replace its prompt and/or pause or resume it. At least one field is required; the schedule id comes from schedule_create or schedule_list.',
+    parameters: {
+      schedule_id: { type: 'string', required: true, description: 'Schedule id from schedule_create or schedule_list.' },
+      prompt: { type: 'string', description: 'Replacement prompt delivered at the scheduled time.' },
+      status: { type: 'string', enum: ['active', 'paused'], description: 'Pause (paused) or resume (active) the schedule.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          updated: { type: 'boolean', required: true },
+          scheduleId: { type: 'string', required: true },
+          status: { type: 'string', required: true },
+          nextDue: { type: 'string', required: true },
+        },
+      },
+      render: (args, value) => [{
+        type: 'text',
+        text: value.updated
+          ? `Scheduled task ${value.scheduleId} is now ${value.status}; the next run is at ${value.nextDue}.`
+          : `No scheduled task ${args.schedule_id} owned by this session was found.`,
+      }],
+    },
+    async execute(args, exec) {
+      if (exec.agent === undefined) throw new Error('schedule_update requires a calling agent')
+      if (args.prompt === undefined && args.status === undefined) {
+        throw new ScheduleRuleError('provide at least one of prompt or status')
+      }
+      const updated = await ctx.scheduler.update(args.schedule_id, {
+        ...(args.prompt === undefined ? {} : { prompt: args.prompt }),
+        ...(args.status === undefined ? {} : { status: args.status }),
+      }, exec.agent.session.id)
+      return {
+        updated: updated !== undefined,
+        scheduleId: args.schedule_id,
+        status: updated?.status ?? 'unknown',
+        // v8 ignore next 1 -- paused and exhausted projections carry no due moment
+        nextDue: updated?.nextDue === undefined ? 'none' : new Date(updated.nextDue).toISOString(),
+      }
     },
   }))
 

@@ -26,7 +26,7 @@ import css from './AppFrame.module.css'
 /** Full composed props: runtime share + child-slot render share + store share. */
 export type AppFrameProps =
   & PropsRuntime<'root'>
-  & PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'workbench' | 'shell.overlay'>
+  & PropsRenderSlots<'sidebar' | 'conversation' | 'center.view' | 'details' | 'workbench' | 'shell.overlay'>
   & PropsStore<ReturnType<typeof createLayoutStore>>
   & PropsLocale<'layout'>
 
@@ -66,11 +66,6 @@ function FrameRegion(props: { children?: ReactNode; className: string | undefine
       {props.children}
     </div>
   )
-}
-
-/** Center column grid item (session-body building block). */
-function CenterColumn(props: { children?: ReactNode; blocked: boolean }) {
-  return <FrameRegion className={css.centerCol} blocked={props.blocked}>{props.children}</FrameRegion>
 }
 
 /** Details column grid item; width 0 keeps the subtree mounted (never unmount on close). */
@@ -231,6 +226,8 @@ export function AppFrame({
   t,
 }: AppFrameProps) {
   const panels = useStore(s => s)
+  const centerView = panels.centerView
+  const currentSession = useSessions(s => s.current)
   const detailsSession = useSessions((s) => {
     const current = s.current
     return current !== undefined && s.byId[current]?.blank === false ? current : undefined
@@ -255,6 +252,18 @@ export function AppFrame({
   useEffect(() => {
     if (retainedAccounts !== null) actions.retainRightAccounts(retainedAccounts)
   }, [actions, retainedAccounts])
+
+  // Selecting a session is the natural exit from a center view: the frame
+  // clears the occupancy on every current-session change, matching how the
+  // conversation re-targets.
+  const firstRender = useRef(true)
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false
+      return
+    }
+    actions.setCenterView(undefined)
+  }, [actions, currentSession])
 
   // Track the frame and its animated grid tracks: rAF-throttled observation
   // keeps the frame-wide overlay aligned with the actual used geometry, not
@@ -374,11 +383,22 @@ export function AppFrame({
       </FrameRegion>
       <>
         {/* Both column occupants stay at fixed tree positions from first
-            paint — no loading gate: a bare status line reads worse than
-            the shell's own pending rendering. The conversation
+            paint — no loading gate: a bare status line reads worse than the
+            shell's own pending rendering. The conversation
             is session-maybe; the strict details entry naturally renders
             empty while no session is current. */}
-        <CenterColumn blocked={rightDrawer}>{renderSlot('conversation', {})}</CenterColumn>
+        <FrameRegion className={css.centerCol} blocked={false}>
+          {/* The conversation keeps its mounted identity under a center view;
+              inert removes it from the tab and a11y trees while covered. */}
+          <FrameRegion className={css.centerConversation} blocked={rightDrawer || centerView !== undefined}>
+            {renderSlot('conversation', {})}
+          </FrameRegion>
+          {centerView !== undefined && (
+            <FrameRegion className={css.centerViewLayer} blocked={rightDrawer}>
+              {renderSlot('center.view', { active: true }, { only: centerView })}
+            </FrameRegion>
+          )}
+        </FrameRegion>
         <DetailsColumn
           drawer={rightDrawer}
           blocked={!rightOpen}

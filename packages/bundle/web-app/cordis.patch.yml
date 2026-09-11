@@ -302,8 +302,9 @@
     - id: ui-jobs
       name: '@deepseek-ai/dsh-client-ui-jobs'
 
-    # Session-header schedule list over the scheduler Remote: pause/resume/delete
-    # for this session's durable schedules.
+    # Scheduled-task management: the sidebar footer trigger + global center
+    # view over the host-authority scheduler Remote, plus the session-header
+    # list (pause/resume/delete) over the session-owned Remote verbs.
     - id: ui-scheduler
       name: '@deepseek-ai/dsh-client-ui-scheduler'
 

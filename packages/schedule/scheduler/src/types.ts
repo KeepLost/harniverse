@@ -12,8 +12,15 @@ export type SchedulerRule =
   | { readonly kind: 'at'; readonly at: string }
   | { readonly kind: 'every'; readonly intervalMs: number; readonly anchor: string }
 
-/** Which session a schedule delivers into. */
-export type ScheduleTargetKind = 'current' | 'job'
+/** Which session a schedule delivers into: the creator's, a dedicated job
+ * session, or any named session. */
+export type ScheduleTargetKind = 'current' | 'job' | 'session'
+
+/** Delivery destination of one schedule. */
+export type ScheduleTarget =
+  | { readonly kind: 'current' }
+  | { readonly kind: 'job' }
+  | { readonly kind: 'session'; readonly sessionId: SessionId }
 
 /** Whether the target surface is reset before the prompt is delivered. */
 export type ScheduleContextMode = 'fresh' | 'continue'
@@ -53,7 +60,7 @@ export interface ScheduleRecord {
   readonly id: string
   readonly prompt: string
   readonly rule: SchedulerRule
-  readonly target: { readonly kind: ScheduleTargetKind }
+  readonly target: ScheduleTarget
   readonly contextMode: ScheduleContextMode
   readonly createdBy: ScheduleCreator
   readonly status: ScheduleStatus
@@ -73,6 +80,8 @@ export interface ScheduleRecord {
 export interface ScheduleUpdate {
   readonly prompt?: string
   readonly status?: ScheduleStatus
+  /** Replacement rule; recomputes the next due moment from now. */
+  readonly rule?: SchedulerRule
 }
 
 /** Result of one dispatch attempt against a due schedule. */
@@ -88,7 +97,7 @@ export interface ScheduleDispatchOutcome {
 export interface ScheduleCreateInput {
   readonly prompt: string
   readonly rule: SchedulerRule
-  readonly target: { readonly kind: 'current' | 'job' }
+  readonly target: ScheduleTarget
   readonly contextMode: 'fresh' | 'continue'
   readonly createdBy: { readonly kind: 'user' | 'model'; readonly sessionId: SessionId }
 }
@@ -98,6 +107,6 @@ export interface ScheduleCreateInput {
 export interface ScheduleCreateRemoteInput {
   readonly prompt: string
   readonly rule: SchedulerRule
-  readonly target: { readonly kind: 'current' | 'job' }
+  readonly target: ScheduleTarget
   readonly contextMode: 'fresh' | 'continue'
 }

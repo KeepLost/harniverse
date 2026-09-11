@@ -31,6 +31,10 @@ export interface ILayout {
   openWorkbench(): void
   /** Close the workspace workbench while retaining its width. */
   closeWorkbench(): void
+  /** Occupy the center column with one registered center view. */
+  setCenterView(id: string): void
+  /** Return to the conversation in the center column. */
+  clearCenterView(): void
 }
 
 /** Cross-plugin panel-action face (ctx.layout). */
@@ -71,6 +75,20 @@ export class LayoutController implements ILayout {
   /** Close the workspace workbench while retaining its width. */
   closeWorkbench(): void {
     this.#require().closeWorkbench()
+  }
+
+  /**
+   * Occupy the center column with one registered center view; the
+   * conversation stays mounted underneath, inert.
+   * @param id - registrant id of the center view ('schedules', …).
+   */
+  setCenterView(id: string): void {
+    this.#require().setCenterView(id)
+  }
+
+  /** Return to the conversation in the center column. */
+  clearCenterView(): void {
+    this.#require().setCenterView(undefined)
   }
 
   #require(): PanelActions {

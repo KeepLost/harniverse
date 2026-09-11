@@ -21,6 +21,7 @@ function fakePanels(): PanelActions {
     closeDetails: vi.fn(),
     openWorkbench: vi.fn(),
     closeWorkbench: vi.fn(),
+    setCenterView: vi.fn(),
   }
 }
 
@@ -45,6 +46,18 @@ describe('LayoutController', () => {
     expect(panels.setRightWidth).not.toHaveBeenCalled()
   })
 
+  it('forwards center-view occupancy as a named set and an undefined clear', () => {
+    const service = new LayoutController()
+    const panels = fakePanels()
+    service.attachPanels(panels)
+
+    service.setCenterView('schedules')
+    service.clearCenterView()
+
+    expect(panels.setCenterView).toHaveBeenNthCalledWith(1, 'schedules')
+    expect(panels.setCenterView).toHaveBeenNthCalledWith(2, undefined)
+  })
+
   it('fails loud before the root entry wired its actions', () => {
     const service = new LayoutController()
     expect(() => { service.toggleSidebar() }).toThrow(/panel actions not wired/)
@@ -52,6 +65,8 @@ describe('LayoutController', () => {
     expect(() => { service.closeDetails() }).toThrow(/panel actions not wired/)
     expect(() => { service.openWorkbench() }).toThrow(/panel actions not wired/)
     expect(() => { service.closeWorkbench() }).toThrow(/panel actions not wired/)
+    expect(() => { service.setCenterView('schedules') }).toThrow(/panel actions not wired/)
+    expect(() => { service.clearCenterView() }).toThrow(/panel actions not wired/)
   })
 
   it('re-attach overwrites the stale action set (entry re-register)', () => {

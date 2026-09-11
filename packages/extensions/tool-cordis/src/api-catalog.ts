@@ -1480,6 +1480,30 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'whether a record was removed.',
       },
       {
+        signature: '@Remote({ exportName: \'listAll\', requiredCapability: \'harniverse.observe\' }) listAll(): ScheduleRecord[]',
+        description: 'Remote-facing global read of every schedule for the management view.',
+        parameters: [],
+        returns: 'every stored record, earliest due first.',
+      },
+      {
+        signature: '@Remote({ exportName: \'updateAny\', requiredCapability: \'harniverse.operate\' }) updateAny(id: string, update: ScheduleUpdate): Promise<ScheduleRecord | undefined>',
+        description: 'Remote-facing global edit for the management view; the `harniverse.operate` capability authenticates the human where the session-scoped `update` checks session ownership instead. Prompt edits through this surface attribute their revision to the record origin.',
+        parameters: [{ name: 'id', description: 'schedule identity.' }, { name: 'update', description: 'prompt, status, and/or rule patch.' }],
+        returns: 'the updated record, or `undefined` when absent.',
+      },
+      {
+        signature: '@Remote({ exportName: \'deleteAny\', requiredCapability: \'harniverse.operate\' }) removeAny(id: string): Promise<boolean>',
+        description: 'Remote-facing global removal for the management view.',
+        parameters: [{ name: 'id', description: 'schedule identity.' }],
+        returns: 'whether a record was removed.',
+      },
+      {
+        signature: '@Remote({ exportName: \'runsOf\', requiredCapability: \'harniverse.observe\' }) listRunsOf(scheduleId: string): ScheduleRun[]',
+        description: 'Read one schedule\'s full execution history through the scheduler Remote.',
+        parameters: [{ name: 'scheduleId', description: 'schedule whose attempts are requested.' }],
+        returns: 'its durable delivery attempts, newest first.',
+      },
+      {
         signature: '@Remote({ exportName: \'runs\', requiredCapability: \'harniverse.observe\' }) listRunsOwned(sessionId: SessionId, scheduleId: string): ScheduleRun[]',
         description: 'Read execution history through the scheduler Remote.',
         parameters: [{ name: 'sessionId', description: 'session requesting the history.' }, { name: 'scheduleId', description: 'schedule whose attempts are requested.' }],
@@ -1500,8 +1524,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async update(id: string, update: ScheduleUpdate, by?: SessionId): Promise<ScheduleRecord | undefined>',
-        description: 'Update editable fields of one record.',
-        parameters: [{ name: 'id', description: 'schedule identity.' }, { name: 'update', description: 'prompt and/or status patch.' }, { name: 'by', description: 'calling session allowed to edit; omitted for host authority.' }],
+        description: 'Update editable fields of one record. A rule patch recomputes the next due moment from now and re-arms the timer; a finished record rejects rescheduling.',
+        parameters: [{ name: 'id', description: 'schedule identity.' }, { name: 'update', description: 'prompt, status, and/or rule patch.' }, { name: 'by', description: 'calling session allowed to edit; omitted for host authority.' }],
         returns: 'the updated record, or `undefined` when absent or not owned.',
       },
       {
@@ -4957,11 +4981,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ScheduleCreateInput',
-    declaration: 'export interface ScheduleCreateInput {\n    readonly prompt: string;\n    readonly rule: SchedulerRule;\n    readonly target: {\n        readonly kind: \'current\' | \'job\';\n    };\n    readonly contextMode: \'fresh\' | \'continue\';\n    readonly createdBy: {\n        readonly kind: \'user\' | \'model\';\n        readonly sessionId: SessionId;\n    };\n}',
+    declaration: 'export interface ScheduleCreateInput {\n    readonly prompt: string;\n    readonly rule: SchedulerRule;\n    readonly target: ScheduleTarget;\n    readonly contextMode: \'fresh\' | \'continue\';\n    readonly createdBy: {\n        readonly kind: \'user\' | \'model\';\n        readonly sessionId: SessionId;\n    };\n}',
   },
   {
     name: 'ScheduleCreateRemoteInput',
-    declaration: 'export interface ScheduleCreateRemoteInput {\n    readonly prompt: string;\n    readonly rule: SchedulerRule;\n    readonly target: {\n        readonly kind: \'current\' | \'job\';\n    };\n    readonly contextMode: \'fresh\' | \'continue\';\n}',
+    declaration: 'export interface ScheduleCreateRemoteInput {\n    readonly prompt: string;\n    readonly rule: SchedulerRule;\n    readonly target: ScheduleTarget;\n    readonly contextMode: \'fresh\' | \'continue\';\n}',
   },
   {
     name: 'ScheduledToolDispatch',
@@ -4984,8 +5008,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ScheduleStatus = \'active\' | \'paused\' | \'done\';',
   },
   {
+    name: 'ScheduleTarget',
+    declaration: 'export type ScheduleTarget = {\n    readonly kind: \'current\';\n} | {\n    readonly kind: \'job\';\n} | {\n    readonly kind: \'session\';\n    readonly sessionId: SessionId;\n};',
+  },
+  {
     name: 'ScheduleUpdate',
-    declaration: 'export interface ScheduleUpdate {\n    readonly prompt?: string;\n    readonly status?: ScheduleStatus;\n}',
+    declaration: 'export interface ScheduleUpdate {\n    readonly prompt?: string;\n    readonly status?: ScheduleStatus;\n    readonly rule?: SchedulerRule;\n}',
   },
   {
     name: 'Scoped',
