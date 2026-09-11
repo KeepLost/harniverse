@@ -321,9 +321,54 @@
   gap: 12px;
 }
 
+/* The right group concedes too. Held at `flex: none` it spent no width, so the
+   whole row deficit landed on .tools: the mode chips hit min-content and the
+   row overflowed the card, printing the supervision label over the model name.
+   Everything inside that must not shrink already says so (.primary and the
+   context ring are `flex: none`), so the give comes from the model trigger's
+   own min-width: 0 / ellipsis. */
 .trailing {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
   gap: 12px;
+}
+
+/* Narrow card: the row's gaps are the cheapest width to give back before any
+   control has to change shape. Anonymous container query — CSS modules hash
+   container-name per module, so the query matches .row's own container. */
+@container (max-width: 460px) {
+  .row {
+    gap: 8px;
+    padding-inline: 6px;
+  }
+
+  .tools {
+    gap: 10px;
+  }
+
+  .modes,
+  .trailing {
+    gap: 8px;
+  }
+}
+
+/* Phone-width card: two lines instead of one squeezed line — tools above,
+   model and send below. Below this width the single row cannot hold a model
+   name AND two mode chips without eliding one of them to a bare chevron. */
+@container (max-width: 360px) {
+  .row {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  .tools {
+    flex: 1 1 100%;
+  }
+
+  .trailing {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+  }
 }
 
 /* Attach circle (figma + control): 28px, selector fill, primary glyph. */
@@ -345,38 +390,6 @@
 }
 
 .add:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-/* Plan / Read-only / model — native <select>, chip-like closed chrome
-   (figma ToggleButton: 13/20 medium secondary, 12px chevron). */
-.select {
-  max-width: 220px;
-  height: 28px;
-  padding: 0 20px 0 8px;
-  border: none;
-  border-radius: 8px;
-  outline: none;
-  background-color: transparent;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 4px center;
-  background-size: 12px 12px;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-  appearance: none;
-}
-
-.select:hover:not(:disabled) {
-  background-color: var(--dsw-alias-interactive-bg-hover);
-}
-
-.select:disabled {
   opacity: 0.5;
   cursor: default;
 }
