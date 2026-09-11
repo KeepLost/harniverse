@@ -209,6 +209,7 @@ export function ScheduleCenterView({
             ownerSessionId={ownerSessionId}
             sessionIds={sessionIds}
             sessionLabel={sessionLabel}
+            /* v8 ignore next -- refresh writes a history entry for every rendered row. */
             runs={editor.kind === 'edit' ? (runsById[editor.record.id] ?? []) : []}
             verbs={{ create, update, remove }}
             onClose={() => { setEditor(undefined) }}
