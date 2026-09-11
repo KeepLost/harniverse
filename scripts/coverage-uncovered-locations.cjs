@@ -7,6 +7,13 @@
  * printed just above those ERROR lines (reports run before threshold checks).
  * Files at 100% print nothing, so a green run stays silent.
  *
+ * Counts below zero are reported separately as corrupt, never as uncovered:
+ * `istanbul-lib-coverage` merges branch arrays by index, so two differently
+ * shaped instrumentations of one file add counts into mismatched slots and can
+ * drive an entry negative while zeroing a sibling. Reporting only exact zeros
+ * hid that, presenting a merge defect as an ordinary coverage gap — see the
+ * Agent Note on the invariant staging channel.
+ *
  * CommonJS by requirement: istanbul-reports loads custom reporters with a bare
  * require() outside the tsx/ESM pipeline (istanbul-reports index.js create()),
  * so this file can be neither TypeScript nor ESM. Wired into vitest.config.ts
@@ -55,27 +62,44 @@ class UncoveredLocationsReport extends ReportBase {
 
   onStart() {
     this.records = [];
+    this.corrupt = [];
   }
 
   onDetail(node) {
     const fc = node.getFileCoverage();
     const rel = path.relative(this.projectRoot, fc.path).split(path.sep).join('/');
     const items = [];
+    const corrupt = [];
     const add = (loc, text) => items.push({ line: loc.start.line, column: loc.start.column, text });
+    const addCorrupt = (loc, text) => corrupt.push({
+      line: usable(loc) ? loc.start.line : 0,
+      column: usable(loc) ? loc.start.column : 0,
+      text,
+    });
 
     for (const id of Object.keys(fc.statementMap)) {
-      if (fc.s[id] !== 0) continue;
+      const count = fc.s[id];
       const loc = fc.statementMap[id];
       if (!usable(loc)) continue;
+      if (count < 0) {
+        addCorrupt(loc, `${rel}:${pos(loc)} corrupt statement count ${count}${endSuffix(loc)}`);
+        continue;
+      }
+      if (count !== 0) continue;
       add(loc, `${rel}:${pos(loc)} uncovered statement${endSuffix(loc)}`);
     }
 
     for (const id of Object.keys(fc.fnMap)) {
-      if (fc.f[id] !== 0) continue;
+      const count = fc.f[id];
       const fn = fc.fnMap[id];
       const loc = usable(fn.decl) ? fn.decl : fn.loc;
       if (!usable(loc)) continue;
       const name = fn.name ? ` ${fn.name}` : '';
+      if (count < 0) {
+        addCorrupt(loc, `${rel}:${pos(loc)} corrupt function count ${count}${name}`);
+        continue;
+      }
+      if (count !== 0) continue;
       add(loc, `${rel}:${pos(loc)} uncovered function${name}`);
     }
 
@@ -83,21 +107,43 @@ class UncoveredLocationsReport extends ReportBase {
       const counts = fc.b[id];
       const branch = fc.branchMap[id];
       for (let i = 0; i < counts.length; i += 1) {
-        if (counts[i] !== 0) continue;
+        const count = counts[i];
+        if (count > 0) continue;
         // Implicit arms (e.g. a missing else) may carry an empty location;
         // fall back to the branch's own span so the record stays clickable.
         const loc = usable(branch.locations && branch.locations[i]) ? branch.locations[i] : branch.loc;
         if (!usable(loc)) continue;
-        add(loc, `${rel}:${pos(loc)} uncovered branch (${branch.type}, path ${i + 1}/${counts.length})`);
+        const where = `${rel}:${pos(loc)}`;
+        const which = `${branch.type}, path ${i + 1}/${counts.length}`;
+        if (count < 0) {
+          addCorrupt(loc, `${where} corrupt branch count ${count} (${which})`);
+          continue;
+        }
+        add(loc, `${where} uncovered branch (${which})`);
       }
     }
 
+    const order = (a, b) => a.line - b.line || a.column - b.column;
+    if (corrupt.length > 0) {
+      corrupt.sort(order);
+      for (const item of corrupt) this.corrupt.push(item.text);
+    }
     if (items.length === 0) return;
-    items.sort((a, b) => a.line - b.line || a.column - b.column);
+    items.sort(order);
     for (const item of items) this.records.push(item.text);
   }
 
   onEnd() {
+    if (this.corrupt.length > 0) {
+      console.log(`\nCorrupt coverage counts (below zero, merge defect — NOT a coverage gap): ${this.corrupt.length}`);
+      for (const record of this.corrupt) console.log(record);
+      console.log(
+        'A count below zero means merged coverage for one file came from differently shaped '
+        + 'instrumentations; sibling entries zeroed the same way are reported as uncovered but are not. '
+        + 'Re-read the file with a single suite before trusting any gap above.',
+      );
+      console.log('');
+    }
     if (this.records.length === 0) return;
     console.log(`\nUncovered locations (per-file 100% gate): ${this.records.length}`);
     for (const record of this.records) console.log(record);

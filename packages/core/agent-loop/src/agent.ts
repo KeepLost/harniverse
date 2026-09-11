@@ -450,7 +450,7 @@ export class ReactLoopAgent implements Agent {
     signal: AbortSignal,
   ): Promise<{ request: GenerateOptions; preparedCall?: PreparedLlmCall }> {
     const { session } = this
-    const boundaryEventCount = session.events.length
+    const boundaryEventCount = session.seq
 
     // A loop instance starts from its declared route, restoring only an explicit
     // effort owned by that exact model. Later steps re-resolve marked defaults.
@@ -526,14 +526,14 @@ export class ReactLoopAgent implements Agent {
     // its config. Rebuild the derived history whenever the log grew during the
     // waterfall, so the request carries the committed surface — both replace
     // and append operations — instead of the boundary snapshot.
-    const requestMessages = session.events.length === boundaryEventCount
+    const requestMessages = session.seq === boundaryEventCount
       ? boundaryMessages
       : session.deriveMessages()
     const requestHeaderSeq = session.events.findLast(event => event.type === 'request/header')?.seq
     /* v8 ignore next -- the request/header event is committed above before wire dispatch. */
     if (requestHeaderSeq === undefined) throw new Error('agent request header was not logged before wire dispatch')
     const requestContextSeq = session.events.findLast(event => event.type === 'request/context')?.seq
-    const historyCutSeq = session.events.at(-1)?.seq
+    const historyCutSeq = session.eventAt(session.seq - 1)?.seq
     const wireExchangeId = crypto.randomUUID()
     const onWireAttempt = (attempt: LlmWireAttempt): void => {
       session.append('llm/wire-attempt', {

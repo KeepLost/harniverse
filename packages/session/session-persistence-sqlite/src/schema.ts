@@ -8,7 +8,7 @@
  * @module dsh-session-persistence-sqlite/schema
  */
 
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import { decodeScalarRow, scanRows as scanPhysicalRows } from './compression.ts'
@@ -18,7 +18,7 @@ import { decodeScalarRow, scanRows as scanPhysicalRows } from './compression.ts'
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 17
+export const SCHEMA_VERSION = 18
 
 /** SQLite application id protecting unrelated databases from persistence writes. */
 export const SESSION_PERSISTENCE_SQLITE_APPLICATION_ID = 0x44534850
@@ -114,6 +114,14 @@ const SCHEMA_SQL = `
       )
     ),
     PRIMARY KEY (session_id, seq)
+  ) STRICT;
+
+  CREATE TABLE IF NOT EXISTS session_checkpoints (
+    session_id   TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    checkpoint_seq INTEGER NOT NULL,
+    base_seq INTEGER NOT NULL,
+    surface_json TEXT NOT NULL,
+    prefix_hash  TEXT NOT NULL
   ) STRICT;
 `
 
@@ -287,4 +295,26 @@ export function rowToEvent(row: EventRow): SessionEvent {
  */
 export function scanRows(rows: readonly EventRow[], base = 0): { preserved: SessionEvent[]; tornFrom?: number } {
   return scanPhysicalRows(rows, base)
+}
+
+/**
+ * Hash a physical prefix and its derived checkpoint without decoding payloads.
+ * @param meta - stored session metadata bound to the prefix.
+ * @param rows - ordered physical rows through the checkpoint replacement.
+ * @param checkpoint - serialized boundary, surface state, and store identity.
+ * @returns the hexadecimal cumulative SHA-256 hash.
+ */
+export function physicalPrefixHash(meta: SessionHeader, rows: Iterable<EventRow>, checkpoint: string): string {
+  let hash = createHash('sha256').update(JSON.stringify([meta, checkpoint])).digest()
+  for (const row of rows) {
+    const data = typeof row.data === 'string' ? Buffer.from(row.data) : row.data
+    const provenance = row.source_event_seqs ?? new Uint8Array()
+    hash = createHash('sha256').update(hash)
+      .update(JSON.stringify([
+        row.seq, row.type, row.time, row.surface_op, row.ignorable,
+        typeof row.data, data.byteLength, row.source_event_seqs === null, provenance.byteLength,
+      ]))
+      .update(data).update(provenance).digest()
+  }
+  return hash.toString('hex')
 }

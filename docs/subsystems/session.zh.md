@@ -400,6 +400,10 @@ interface SurfaceFoldResult {
 
 去除方法体的声明与源码中的普通类保持同步，覆盖其脱离态工厂、状态访问器、append 方法和历史投影。存储操作仍由生成的 [`ctx.sessions` 小节](#ctxsessions--sessionstore)记录。
 
+显式读取 `events` 会立即按绝对序列顺序物化完整、冻结的独立数组。调用方持有的快照在历史后端关闭后仍可读取，也不会随后续追加增长。窗口化 Session 仅通过 `WeakRef` 缓存该数组；追加使缓存失效前会复用仍存活的快照，否则重新构建。非窗口化 Session 仍强引用缓存快照。
+
+`eventAt(seq)` 按需解析单个事件，不物化完整数组。窗口化历史载荷缓存在 `Map<number, WeakRef<SessionEvent>>` 中，因此调用方释放快照后，没有其他强引用的载荷可以被回收；之后未命中缓存的读取仍需要历史后端。Map 元数据仍随访问过的历史序列数量增长。Agent inbox 仍回放完整历史，同步物化完整历史仍有分配峰值，因此总内存并不严格受窗口大小约束。检查点 hash 验证也仍有物理前缀 I/O；见[检查点决策](../../.agents/notes/implemented/feature/2026-09-09-checkpoint-window-fold.md)。
+
 ```ts public-api
 /**
  * An event-sourced session: an append-only log of {@link SessionEvent}s.
@@ -445,7 +449,9 @@ declare class Session {
    * store attaches and therefore does not publish either. Otherwise this seq
    * holds an ordinary published write.
    */
-  readonly firstLiveSeq: number;
+   readonly firstLiveSeq: number;
+   /** Absolute sequence of the first resident event in this instance. */
+   get firstResidentSeq(): number;
   /**
    * Create a detached session by validating and snapshotting borrowed seed
    * events and storage metadata.
@@ -462,17 +468,37 @@ declare class Session {
    * @param id - restored session identity.
    * @param seed - fresh detached events whose ownership is transferred.
    * @param header - fresh detached metadata whose ownership is transferred.
+   * @param history - optional absolute-sequence resolver for a windowed seed.
+   * @param surface - optional surface state already folded at the window boundary.
    * @returns a restored detached session.
    */
-  static fromRestore(id: SessionId, seed: readonly SessionEvent[], header: SessionHeader): Session;
+   static fromRestore(
+     id: SessionId,
+     seed: readonly SessionEvent[],
+     header: SessionHeader,
+     history?: SessionHistorySource,
+     surface?: { readonly nodes: readonly number[]; readonly replaceGeneration: number },
+   ): Session;
   /**
    * An immutable snapshot of the append-only event log. The snapshot is reused
    * until the next append; a previously returned array does not grow later.
    * Events and their nested data are deep-frozen at acceptance, so neither a
    * cast nor ordinary JavaScript can rewrite durable history.
    */
-  get events(): readonly SessionEvent[];
-  /** The next event's sequence number — always the log length (the `seq = log.length` contiguity contract). */
+   get events(): readonly SessionEvent[];
+   /**
+    * Resolve one event by its absolute sequence without requiring a full snapshot.
+    * @param seq - absolute event sequence to resolve.
+    * @returns the event at `seq`, or `undefined` when it is outside the log.
+    */
+   eventAt(seq: number): SessionEvent | undefined;
+   /**
+    * Return the resident suffix at an absolute sequence without expanding a historical prefix.
+    * @param fromSeq - absolute sequence at which the resident suffix starts.
+    * @returns immutable resident events from `fromSeq` through the current end.
+    */
+   eventsFrom(fromSeq: number): readonly SessionEvent[];
+  /** The next event's sequence number — the window base plus the log length (the contiguity contract). */
   get seq(): number;
   /**
    * Append one typed event to the log and synchronously notify observers via
@@ -654,6 +680,35 @@ interface TurnEndReasonMap {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxcontextreset--contextresetservice"></a>
+
+### `ctx.contextReset` — `ContextResetService`
+
+Whole-surface context reset. A successful run replaces every current surface node with one checkpoint marker and leaves the shadowed history in the log. Load one instance per context as `ctx.contextReset`.
+
+```ts cordis-catalog
+/**
+ * Explicitly reset the model context even while the log keeps growing.
+ * The operation synchronously starts an idle task before any asynchronous
+ * work, replaces the whole current surface in one atomic append, then waits
+ * for one durability flush. Later waking prompts remain accepted in FIFO
+ * order and start only after the flush settles.
+ *
+ * @param agent - agent whose session surface should be reset.
+ * @param signal - cancellation scoped to this reset request.
+ * @param sourceCommandId - initiating command identity for a manual reset.
+ * @returns the reset result, or `null` when the surface is already empty.
+ * @throws {@link ContextResetError} for expected busy, agent-cancellation,
+ * commit-stage, or persistence failures; an aborted request preserves its
+ * exact abort reason.
+ */
+resetNow( agent: Agent, signal: AbortSignal, sourceCommandId?: CommandId, ): Promise<ContextResetResult | null>
+```
+
+Types: [Agent](core.md) · [CommandId](commands.md)
+
+Source: [`packages/context/context-reset/src/index.ts:79`](../../packages/context/context-reset/src/index.ts)
+
 <a id="ctxsessions--sessionstore"></a>
 
 ### `ctx.sessions` — `SessionStore`
@@ -795,7 +850,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](persistence.md) · [PrepareSessionOptions](persistence.md) · [SessionId](core.md)
 
-Source: [`packages/core/session/src/index.ts:806`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:912`](../../packages/core/session/src/index.ts)
 
 <a id="session-events"></a>
 

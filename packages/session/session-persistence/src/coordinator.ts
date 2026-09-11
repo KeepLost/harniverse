@@ -16,7 +16,7 @@ import {
   snapshotJsonValue,
   snapshotSessionEvent,
 } from '@deepseek-ai/dsh-session'
-import type { EpochHeader, Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { EpochHeader, Session, SessionEvent, SessionHistorySource, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { SessionInspection, SessionLocation } from './index.ts'
 import { paginateRawEventPage, paginateSessionHistory } from './history.ts'
@@ -136,6 +136,18 @@ export interface StoredSuffix {
   events: SessionEvent[]
 }
 
+/** A balanced suffix with verified pre-boundary surface state for a replacement checkpoint. */
+export interface StoredWindow<TornMarker = unknown> extends StoredSuffix {
+  /** Absolute sequence of the first returned event. */
+  baseSeq: number
+  /** Revision of the complete stored log used to select this window. */
+  revision: SessionPersistenceRevision
+  /** Surface state immediately before baseSeq, validated against the stored prefix. */
+  surface: { readonly nodes: readonly number[]; readonly replaceGeneration: number }
+  /** Physical torn-tail marker, when the bounded read found one. */
+  tornMarker?: TornMarker
+}
+
 /** Raw display-history page returned by a seek-capable backend. */
 export interface StoredHistoryPage {
   meta: SessionHeader
@@ -210,6 +222,12 @@ export interface PersistenceBackend<TornMarker = unknown> {
    * @param signal - optional cancellation for backend read work.
    */
   loadStoredFrom?(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<StoredSuffix | undefined>
+
+  /** Optional bounded restore seed with validated surface state for a replacement checkpoint. */
+  loadStoredWindow?(id: SessionId, signal?: AbortSignal): Promise<StoredWindow<TornMarker> | undefined>
+
+  /** Synchronous absolute event lookup used by a live windowed Session on demand. */
+  readStoredEventAt?(id: SessionId, seq: number): SessionEvent | undefined
 
   /**
    * Optional native backward display-history page. Backends may inspect only
@@ -864,7 +882,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
           this.preparations.release(
             reservation,
             reservation.state.owner === undefined
-              && reservation.source.session.events.length === reservation.source.sessionLength,
+              && reservation.source.session.seq === reservation.source.sessionLength,
           )
         },
       })
@@ -1152,38 +1170,22 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   /** Read, repair in memory, validate, and freeze one cold source once. */
   private async prepareCore(id: SessionId): Promise<PreparedSessionSource<TornMarker>> {
+    if (this.backend.readStoredEventAt !== undefined) {
+      try {
+        const window = await this.backend.loadStoredWindow?.(id)
+        if (window !== undefined && window.tornMarker === undefined
+          && Number.isSafeInteger(window.baseSeq) && window.baseSeq > 0 && window.events[0]?.seq === window.baseSeq) {
+          return this.prepareStored(id, window, window)
+        }
+      } catch {
+        // A derived checkpoint is optional; canonical replay diagnoses its underlying log.
+      }
+    }
     const stored = await this.backend.loadStored(id)
     if (stored === undefined) throw new Error(`session "${id}" not found`)
     try {
-      const { meta, events, revision, tornMarker } = stored
-      this.assertStoredId(id, meta)
-      this.assertVersion(meta)
-      const storedEvents = adoptStoredEvents(events, id)
-      this.assertEventsSupported(meta, storedEvents)
-
-      // Preserve complete interrupted events and synthesize only missing closers.
-      const closers = interruptedTurnClosers(storedEvents).map(adoptSessionEvent)
-      const balanced = [...storedEvents, ...closers]
-      const session = this.ctx.sessions.prepare(id, {
-        seed: balanced,
-        meta,
-        seedSource: 'persistence',
-      })
-      const inspection: SessionInspection = Object.freeze({
-        meta: session.header,
-        events: Object.freeze(balanced),
-      })
-      return {
-        inspection,
-        session,
-        revision,
-        sessionLength: session.events.length,
-        tornMarker,
-        closers,
-      }
+      return this.prepareStored(id, stored)
     } catch (error: unknown) {
-      // An unsupported format is a refusal over an intact log, not damage —
-      // surface it unwrapped so callers can point at the raw artifact.
       if (error instanceof SessionFormatUnsupportedError) throw error
       throw new SessionPersistenceCorruptionError(
         `stored session "${id}" failed validation: ${String(error)}`,
@@ -1192,29 +1194,73 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }
   }
 
+  private prepareStored(
+    id: SessionId,
+    stored: StoredPrefix<TornMarker>,
+    window?: StoredWindow<TornMarker>,
+  ): PreparedSessionSource<TornMarker> {
+    const { meta, events, revision, tornMarker } = stored
+    this.assertStoredId(id, meta)
+    this.assertVersion(meta)
+    const sourceEvents = window?.events ?? events
+    const storedEvents = adoptStoredEvents(sourceEvents, id)
+    this.assertEventsSupported(meta, storedEvents)
+
+    // Preserve complete interrupted events and synthesize only missing closers.
+    const closers = interruptedTurnClosers(storedEvents).map(adoptSessionEvent)
+    const balanced = [...storedEvents, ...closers]
+    const history: SessionHistorySource | undefined = window !== undefined && this.backend.readStoredEventAt !== undefined
+      ? {
+        firstSeq: window.baseSeq,
+        eventAt: seq => this.backend.readStoredEventAt?.(id, seq),
+      }
+      : undefined
+    const session = this.ctx.sessions.prepare(id, {
+      seed: balanced,
+      meta,
+      seedSource: 'persistence',
+      ...history === undefined ? {} : { history },
+      ...window === undefined ? {} : { surface: window.surface },
+    })
+    let inspection: SessionInspection | undefined
+    return {
+      get inspection() {
+        return inspection ??= Object.freeze({
+          meta: session.header,
+          events: Object.freeze(session.events.slice(0, session.firstLiveSeq)),
+        })
+      },
+      session,
+      revision,
+      sessionLength: session.seq,
+      tornMarker,
+      closers,
+    }
+  }
+
   /** Commit one prepared repair and establish its ownerless durable cursor. */
   private async commitPrepared(
     source: PreparedSessionSource<TornMarker>,
   ): Promise<{ source: PreparedSessionSource<TornMarker>; state: SessionState } | undefined> {
-    const id = source.inspection.meta.id
-    const cursor = source.inspection.events.length
+    const id = source.session.id
+    const cursor = source.session.firstLiveSeq
     const existing = this.states.get(id)
     if (existing?.owner !== undefined) {
       throw new Error(`session "${id}" already has a live persistence owner`)
     }
     if (!await this.isPreparedSourceCurrent(source)) return undefined
     if (source.tornMarker !== undefined || source.closers.length > 0) {
-      await this.backend.commitRepair(source.inspection.meta, source.tornMarker, source.closers)
+      await this.backend.commitRepair(source.session.header, source.tornMarker, source.closers)
       // The repair changed the durable revision. Reload the exact committed
       // graph instead of associating the old in-memory view with a newer revision.
       return undefined
     }
     const state = existing ?? {
-      meta: source.inspection.meta,
+      meta: source.session.header,
       cursor,
       materialized: true,
     }
-    state.meta = source.inspection.meta
+    state.meta = source.session.header
     state.cursor = cursor
     state.materialized = true
     this.states.set(id, state)
@@ -1229,7 +1275,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     source: PreparedSessionSource<TornMarker>,
     signal?: AbortSignal,
   ): Promise<boolean> {
-    return await this.backend.readStoredRevision(source.inspection.meta.id, signal) === source.revision
+    return await this.backend.readStoredRevision(source.session.id, signal) === source.revision
   }
 
   /** Return one durable immutable view of an already-live Session. */
@@ -1460,11 +1506,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   ): LiveSessionState {
     const { source, state } = reservation
     if (source.session !== session || state.owner !== undefined
-      || state.cursor !== source.inspection.events.length
       || session.firstLiveSeq !== state.cursor) {
       throw new Error(`session "${session.id}" preparation no longer matches its persistence state`)
     }
-    const suffix = session.events.slice(state.cursor).map(event => structuredClone(event))
+    const suffix = session.eventsFrom(state.cursor).map(event => structuredClone(event))
     this.preparations.attach(reservation)
     state.owner = session
     const live: LiveSessionState = {

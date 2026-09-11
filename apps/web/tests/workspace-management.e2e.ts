@@ -469,9 +469,12 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
   }, 60_000)
 
   /**
-   * Expand Ungrouped and return its seeded session row. The only visible child
-   * is the non-blank persisted Session; the blank Session created while
-   * adopting the Workspace stays hidden.
+   * Expand Ungrouped and return its seeded session row, anchored on the
+   * session-actions button rather than a positional index so a list re-render
+   * cannot retarget the row mid-test. The only visible child is the non-blank
+   * persisted Session; the blank Session created while adopting the Workspace
+   * stays hidden, so exactly one actions-bearing row must exist — asserted
+   * loudly instead of archiving/hovering the wrong node.
    * @returns the session row locator, already present.
    */
   async function seededSessionRow() {
@@ -486,26 +489,41 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
       }
       return await ungroupedRow.getAttribute('aria-expanded')
     }, { timeout: 5_000 }).toBe('true')
-    const row = ungroupedSection.locator('[role="treeitem"]').nth(1)
-    await row.waitFor({ timeout: 10_000 })
-    return row
+    // CSS attribute match, not getByRole: the actions button is display:none
+    // until its row hovers, and role queries skip hidden nodes.
+    const sessionRows = ungroupedSection.locator('[role="treeitem"]')
+      .filter({ has: page.locator('button[aria-label^="Session actions for "]') })
+    await expect.poll(() => sessionRows.count(), { timeout: 10_000 }).toBe(1)
+    return sessionRows.first()
   }
 
   it('shows the session hover card after a dwell on the row', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-hover'))
     // Dwell on the seeded row; the card opens after a 500ms hover delay,
-    // portaled to body.
+    // portaled to body. Card content carries the full title plus the Idle
+    // status line (the Idle text anchor stays the stable content selector).
     const sessionRow = await seededSessionRow()
     const rowTitle = await sessionRow.locator('[class*="title"]').innerText()
-    await sessionRow.hover()
-    // Card content: the full title plus the Idle status line (no aria role —
-    // text anchors are the stable selector).
-    await expect.poll(() => page.getByText('Idle', { exact: true }).count(), { timeout: 5_000 }).toBeGreaterThanOrEqual(1)
-    // The card is REACHABLE: it sits 8px off the row, so getting to it means
-    // crossing ground that belongs to neither. Hovering it must not dismiss
-    // it — the hazard this scenario pins.
     const card = page.getByRole('button', { name: `Copy: ${rowTitle}` })
-    await card.hover()
+    // The card is REACHABLE: it sits 8px off the row, so getting to it means
+    // crossing ground that belongs to neither — hovering it must not dismiss
+    // it, the hazard this scenario pins. A projection update can dismiss the
+    // freshly opened card before the pointer reaches it, so converge on a
+    // reachable card the same way clickHoverAction converges hover-only row
+    // buttons; a hover that dismissed its own card never lands, so the poll
+    // keeps failing and the hazard stays pinned.
+    await expect.poll(async () => {
+      if (!await card.isVisible()) {
+        await sessionRow.hover()
+        return false
+      }
+      try {
+        await card.hover({ timeout: 1_000 })
+        return true
+      } catch {
+        return false
+      }
+    }, { timeout: 15_000 }).toBe(true)
     await page.waitForTimeout(POINTER_HOLD_MS)
     expect(await page.getByText('Idle', { exact: true }).count()).toBeGreaterThanOrEqual(1)
     // The full title is the card's primary value: activating anywhere on the

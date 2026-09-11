@@ -1,6 +1,6 @@
-# Agent Note：HMR 初始扫描使失败的启动死锁为静默的 exit 13
+# Agent Note: HMR 初始扫描使失败的启动死锁为静默的 exit 13
 
-状态：已实现
+Status: implemented
 
 [English](2026-08-03-hmr-initial-scan-boot-deadlock.md) | 中文
 
@@ -18,7 +18,7 @@
 两处修复都落在 vendored 包中（记录于 `vendor/README.md`）：
 
 - `include/src/index.ts` 将每次子树变更——首次 apply、refresh、`internal/update` 补丁重应用——汇入每个 Include 一条的 promise 队列。group 的事务化 `update` 不可重入，因此序列化是正确性要求，而不是吞吐取舍。`refresh()` 也在队列内读取文件，使其内容变更判断与前一任务提交后的状态比较。
-- `hmr/src/index.ts` 给主 watcher 传入 `ignoreInitial: true`。初始扫描只会重新宣告启动刚刚消费过的文件；抑制它同时消除了启动期 refresh 和对已加载模块的多余 `add` 事件。`registerConfig()` 保留自己 `ignoreInitial: false` 的 watcher，因为注册时已存在的个人配置必须恰好应用一次。
+- `hmr/src/index.ts` 给主 watcher 传入 `ignoreInitial: true`。初始扫描只会重新宣告启动刚刚消费过的文件；抑制它同时消除了启动期 refresh 和对已加载模块的多余 `add` 事件。`registerConfig()` 持有独立的 stat 基线，并为已存在的个人配置请求一次初始刷新（[确切路径的就绪条件](2026-09-11-ci-readiness-boundaries.md)）。
 
 两者齐备后，失败的启动走上预期路径：唯一一次 apply 失败，回滚并 dispose（资源释放）整棵树（执行 TUI 自身的 shutdown、恢复终端），`loader.create` reject，`boot()` 重新抛出带标签的诊断并以 1 退出。
 
@@ -32,7 +32,7 @@
 
 ## 后果
 
-落在 watcher 启动扫描窗口内的配置文件编辑，现在由下一个 `change` 事件而非扫描本身拾取；稳态的重载行为不变。
+主 watcher 的初始扫描不会应用配置编辑；其后续 `change` 事件驱动 Include 重载。确切路径注册独立比较 stat 快照，不依赖原生订阅启动。
 
 仍留有一个潜在缺口：在一次*失败的*首次 apply 期间进行的配置编辑，仍可能排入一个被回滚的 HMR 拆卸所等待的 refresh——同样的死锁形态，但触发窗口缩小到一次失败启动的人力尺度。若它真的发生，修复方向是在 HMR 拆卸时取消 refresh 任务。
 

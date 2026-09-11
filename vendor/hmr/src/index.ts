@@ -1,4 +1,4 @@
-import { Context, Service, type Plugin } from '@deepseek-ai/cordis'
+import { Context, CordisError, Service, type Plugin } from '@deepseek-ai/cordis'
 import type { Dict } from '@deepseek-ai/cosmokit'
 import { ModuleLoader, type ModuleJob, type ResolveResult } from '@deepseek-ai/cordis-plugin-loader'
 import type { Include } from '@deepseek-ai/cordis-plugin-include'
@@ -58,27 +58,21 @@ interface ConfigRefresh {
 }
 
 interface ConfigRegistration {
-  watcher: FSWatcher
+  close(): Promise<void>
 }
 
-async function findWatchRoot(filename: string): Promise<{ filename: string; root: string; depth: number }> {
+async function resolveConfigPath(filename: string): Promise<string> {
   let root = dirname(filename)
-  let depth = 0
   while (true) {
     try {
       if (!(await stat(root)).isDirectory()) throw new Error(`config watch parent is not a directory: ${root}`)
       const canonicalRoot = await realpath(root)
-      return {
-        filename: resolve(canonicalRoot, relative(root, filename)),
-        root: canonicalRoot,
-        depth,
-      }
+      return resolve(canonicalRoot, relative(root, filename))
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       const parent = dirname(root)
       if (parent === root) throw error
       root = parent
-      depth += 1
     }
   }
 }
@@ -125,65 +119,73 @@ class Hmr extends Service {
   }
 
   /**
-   * Watch one exact config path outside the configured module roots.
+   * Stat-poll one exact config path outside the configured module roots.
+   * Existing files refresh once at registration; later snapshots coalesce
+   * changes at `interval` (default 100 ms), independently of native events.
    * @param filename - Config path, resolved against the HMR base directory.
    * @param refresh - Refresh callback run serially on add, change, or unlink.
-   * @returns an asynchronous disposer once the exact watch is ready.
-   * @throws when HMR is inactive, the path is already registered, or watcher startup fails.
+   * @returns an asynchronous disposer once the initial stat baseline is owned.
+   * @throws when HMR is inactive, the path is already registered, or the initial stat fails.
    */
   async registerConfig(filename: string, refresh: () => Promise<void> | void): Promise<() => Promise<void>> {
     if (!this.watcher) throw new Error('HMR is not active')
     filename = resolve(this.baseDir, filename)
-    const target = await findWatchRoot(filename)
-    const watchFilename = target.filename
+    const watchFilename = await resolveConfigPath(filename)
+    const snapshot = async () => {
+      try {
+        const value = await stat(watchFilename, { bigint: true })
+        return `${value.dev}:${value.ino}:${value.size}:${value.mtimeNs}:${value.ctimeNs}`
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error
+        return undefined
+      }
+    }
+    let baseline = await snapshot()
+    if (this.watcher.closed) throw new CordisError('INACTIVE_EFFECT')
     if (this.configs.has(watchFilename)) throw new Error(`config path already registered: ${filename}`)
 
-    const { root, depth } = target
-    const watcher = watch(root, {
-      ...this.config,
-      cwd: undefined,
-      depth,
-      ignored: undefined,
-      ignoreInitial: false,
-    })
-    const registration = { watcher }
-    this.configs.set(watchFilename, registration)
-    const onChange = (path: string) => {
-      const observed = resolve(path)
-      if (observed !== filename && observed !== watchFilename) return
-      this.refreshConfig(registration, filename, refresh)
+    let stopped = false
+    let timer: NodeJS.Timeout
+    let pending: Promise<void> | undefined
+    let closing: Promise<void> | undefined
+    const registration: ConfigRegistration = {
+      close: () => {
+        stopped = true
+        clearTimeout(timer)
+        return closing ??= (async () => {
+          await pending
+          await this.configRefreshes.get(registration)?.running
+        })().finally(() => {
+          if (this.configs.get(watchFilename) === registration) this.configs.delete(watchFilename)
+        })
+      },
     }
-    watcher.on('add', onChange)
-    watcher.on('change', onChange)
-    watcher.on('unlink', onChange)
-
-    const ready = Promise.withResolvers<void>()
-    let readyState: 'pending' | 'resolved' | 'rejected' = 'pending'
-    watcher.once('ready', () => {
-      readyState = 'resolved'
-      ready.resolve()
-    })
-    watcher.on('error', (error) => {
-      if (readyState === 'pending') {
-        readyState = 'rejected'
-        ready.reject(error)
-      } else {
-        this.ctx.logger.warn(error)
+    const schedule = () => {
+      timer = setTimeout(() => { pending = poll() }, this.config.interval ?? 100)
+      timer.unref()
+    }
+    const poll = async () => {
+      try {
+        const current = await snapshot()
+        if (stopped || current === baseline) return
+        baseline = current
+        this.refreshConfig(registration, filename, refresh)
+      } catch (error) {
+        if (!stopped) this.ctx.logger.warn(error)
+      } finally {
+        if (!stopped) schedule()
       }
-    })
-
-    try {
-      await ready.promise
-      return this.ctx.effect(() => async () => {
-        if (this.configs.get(watchFilename) === registration) this.configs.delete(watchFilename)
-        await watcher.close()
-        await this.configRefreshes.get(registration)?.running
-      }, 'hmr.registerConfig()')
-    } catch (error) {
-      this.configs.delete(watchFilename)
-      await watcher.close()
-      throw error
     }
+
+    const dispose = this.ctx.effect(() => {
+      this.configs.set(watchFilename, registration)
+      schedule()
+      return registration.close
+    }, 'hmr.registerConfig()')
+    // Cleanup owns the poll before refresh can synchronously dispose its owner.
+    if (baseline !== undefined) this.refreshConfig(registration, filename, refresh)
+    return dispose
   }
 
   /**
@@ -198,8 +200,10 @@ class Hmr extends Service {
 
   async* [Service.init]() {
     yield async () => {
-      await this.watcher?.close()
-      await Promise.allSettled([...this.configs.values()].map(registration => registration.watcher.close()))
+      await Promise.allSettled([
+        this.watcher?.close(),
+        ...[...this.configs.values()].map(registration => registration.close()),
+      ])
       this.configs.clear()
       await Promise.allSettled([...this.refreshTasks])
     }
@@ -234,7 +238,7 @@ class Hmr extends Service {
       // be in flight, and a failing apply then rolls this plugin back while
       // the scan-triggered refresh waits on that apply — a teardown deadlock
       // that strands boot without a diagnostic. Only events after the scan
-      // matter here; `registerConfig` keeps its own initial scan because a
+      // matter here; `registerConfig` requests an initial refresh because a
       // user patch layer present at registration must apply once.
       ignoreInitial: true,
     })

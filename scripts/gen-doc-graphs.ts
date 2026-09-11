@@ -312,6 +312,22 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The interface acknowledges inbox acceptance only; the local Provider resolves live or persisted ordinary Agents, while the model Consumer never waits for completion or a reply.',
   },
   {
+    key: 'contextReset',
+    pkg: 'context-reset',
+    title: 'Whole-surface context reset',
+    mode: 'core',
+    consumers: ['command-reset', 'scheduler'],
+    note: 'Shadows every current surface node with one durable anchor-and-marker pair under surface-fold validation; idle-maintenance only, and display history cuts initial pages at the reset anchor.',
+  },
+  {
+    key: 'scheduler',
+    pkg: 'scheduler',
+    title: 'Host-level durable scheduler',
+    mode: 'core',
+    consumers: [],
+    note: 'Central storage-domain records with at/after/every rules; delivery reaches live roots through the idle maintenance phase and cold sessions through the resume sequence, with optional pre-delivery resets and lazily created job sessions.',
+  },
+  {
     key: 'sessionQuery',
     pkg: 'session-query',
     title: 'Session reads, traces, filters, and search',

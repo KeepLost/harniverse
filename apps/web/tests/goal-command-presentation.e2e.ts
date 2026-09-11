@@ -50,13 +50,18 @@ describe('web e2e: /goal human transcript presentation', () => {
     }).toBe(1)
     const input = page.locator('textarea').first()
     await input.fill('/goal')
+    // The composer can still be settling after the welcome row appears;
+    // verify the typed command actually landed before Enter interprets it.
+    await expect.poll(() => input.inputValue()).toBe('/goal')
     await input.press('Enter')
-    await expect.poll(() => input.inputValue()).toBe('/goal ')
+    // Command-mode engagement re-renders the composer; under CI load that
+    // transition outruns an untimed poll's 1s default budget.
+    await expect.poll(() => input.inputValue(), { timeout: 10_000 }).toBe('/goal ')
     await input.press('Enter')
 
     const commandInput = page.locator('[data-command-input]')
     await commandInput.waitFor({ timeout: 10_000 })
-    await expect.poll(() => commandInput.textContent()).toBe('/goal')
+    await expect.poll(() => commandInput.textContent(), { timeout: 10_000 }).toBe('/goal')
     expect(await commandInput.getAttribute('role')).toBe('group')
     expect(await commandInput.getAttribute('aria-label')).toBe('Command input')
     expect(await commandInput.getByRole('button').count()).toBe(0)

@@ -74,6 +74,18 @@
   - img
   - img
   - text: Context injection cordis-host-runner
+- paragraph: CORDIS_UI_RUNNING
+- button "Copy":
+  - img
+- button "Good response":
+  - img
+- button "Bad response":
+  - img
+- button "Branch into a new conversation":
+  - img
+- text: {{clock}} Ran for {{duration}} Use only Cordis tools. Call cordis_stop with pluginId "snap-1". After it succeeds, reply exactly CORDIS_UI_DONE and stop. {{clock}}
+- button "Copy":
+  - img
 - img
 - text: Stop Cordis Plugin snap-1
 - button "Inspect"
@@ -87,12 +99,7 @@
   - img
 - button "Branch into a new conversation":
   - img
-- text: {{clock}} Ran for {{duration}} Use only Cordis tools. Call cordis_stop with pluginId "snap-1". After it succeeds, reply exactly CORDIS_UI_DONE and stop. {{clock}}
-- button "Copy":
-  - img
-- status:
-  - text: "This turn failedllm-replay: script exhausted — session requested model call #7 but its script has only 6; re-record the scenario"
-  - code: UNKNOWN
+- text: {{clock}} Ran for {{duration}}
 - button "Back to bottom":
   - img
 - textbox "Message the agent"

@@ -591,6 +591,10 @@ function coverageGates(): Gate[] {
       ...workers.instrumented,
     ], {
       label: 'test:coverage',
+      // Both Vitest processes use the repository's shared Vite transform
+      // cache. Running the instrumented and uninstrumented lanes together can
+      // mix incompatible branch maps before Istanbul merges their counters.
+      needs: ['coverage-exempt-heavy'],
       env: { [COVERAGE_EXEMPT_ENV]: '1' },
     }),
     pnpmExec('coverage-exempt-heavy', [

@@ -78,6 +78,13 @@
       config:
         backend: json
 
+    # Host-level durable scheduler: at/after/every prompts delivered into live
+    # or cold-resumed sessions, optional fresh-context resets, and lazy job
+    # sessions. The schedule_create/list/delete model tools are preset-scoped
+    # through @deepseek-ai/dsh-tool-scheduler.
+    - id: scheduler
+      name: '@deepseek-ai/dsh-scheduler'
+
     - id: message-feedback
       name: '@deepseek-ai/dsh-message-feedback'
       config:
@@ -294,6 +301,11 @@
     # Background jobs: the session-header list over the jobsBySession mirror.
     - id: ui-jobs
       name: '@deepseek-ai/dsh-client-ui-jobs'
+
+    # Session-header schedule list over the scheduler Remote: pause/resume/delete
+    # for this session's durable schedules.
+    - id: ui-scheduler
+      name: '@deepseek-ai/dsh-client-ui-scheduler'
 
     # Goal surface: GoalBar in the input dock over the goal session projection.
     - id: ui-goal

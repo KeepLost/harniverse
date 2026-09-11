@@ -312,6 +312,15 @@
     - id: command-compact
       name: '@deepseek-ai/dsh-command-compact'
 
+    # Whole-surface context reset (`ctx.contextReset`) and its human `/reset`
+    # adapter: one replacement marker shadows the current surface while the
+    # retained log stays append-only and searchable.
+    - id: context-reset
+      name: '@deepseek-ai/dsh-context-reset'
+
+    - id: command-reset
+      name: '@deepseek-ai/dsh-command-reset'
+
     - id: subagent
       name: '@deepseek-ai/dsh-subagent'
 

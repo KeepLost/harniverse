@@ -14,7 +14,7 @@ import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
 import type { TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
-import type { CreateSessionOptions, EpochHeader, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SessionHistorySource, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
 import { deriveEventMessage, SurfaceManager } from './surface.ts'
 import type { SessionSurface } from './surface.ts'
@@ -439,7 +439,14 @@ const attachments = new WeakMap<Session, SessionEntry>()
 export class Session {
   private log: SessionEvent[] = []
   /** Single incremental owner of surface acceptance and projection state. */
-  private readonly surfaceManager = new SurfaceManager(this.log)
+  /** Incremental fold over the (possibly windowed) log; rebuilt once when the seed opens a window. */
+  private surfaceManager: SurfaceManager
+  /** Absolute seq of the window's first event; 0 for a full log. */
+  private baseSeq = 0
+  /** History before a windowed restore, resolved only when a consumer requests it. */
+  private readonly history: SessionHistorySource | undefined
+  /** Keep historical payloads collectible after complete-history consumers release their snapshots. */
+  private readonly historical = new Map<number, WeakRef<SessionEvent>>()
 
   /** The ordered surface over this session's event log. */
   get surface(): SessionSurface {
@@ -485,6 +492,11 @@ export class Session {
    */
   readonly firstLiveSeq: number
 
+  /** Absolute sequence of the first resident event in this instance. */
+  get firstResidentSeq(): number {
+    return this.baseSeq
+  }
+
   /**
    * Create a detached session by validating and snapshotting borrowed seed
    * events and storage metadata.
@@ -504,10 +516,18 @@ export class Session {
    * @param id - restored session identity.
    * @param seed - fresh detached events whose ownership is transferred.
    * @param header - fresh detached metadata whose ownership is transferred.
+   * @param history - optional absolute-sequence resolver for a windowed seed.
+   * @param surface - optional surface state already folded at the window boundary.
    * @returns a restored detached session.
    */
-  static fromRestore(id: SessionId, seed: readonly SessionEvent[], header: SessionHeader): Session {
-    return new Session(id, seed, header, 'restore')
+  static fromRestore(
+    id: SessionId,
+    seed: readonly SessionEvent[],
+    header: SessionHeader,
+    history?: SessionHistorySource,
+    surface?: { readonly nodes: readonly number[]; readonly replaceGeneration: number },
+  ): Session {
+    return new Session(id, seed, header, 'restore', history, surface)
   }
 
   private constructor(
@@ -515,10 +535,14 @@ export class Session {
     seed?: readonly SessionEvent[],
     header?: SessionHeader,
     mode: 'snapshot' | 'restore' = 'snapshot',
+    history?: SessionHistorySource,
+    initialSurface?: { readonly nodes: readonly number[]; readonly replaceGeneration: number },
   ) {
+    this.history = history
     const restoredHeader = mode === 'restore'
       ? validateRestoredSessionHeader(id, header)
       : undefined
+    this.surfaceManager = new SurfaceManager(this.log)
     if (seed !== undefined) {
       // Validate the seed to the SAME invariants `append` enforces, so a
       // replay/fork (`ctx.sessions.create(id, { seed })`) cannot construct a
@@ -536,8 +560,24 @@ export class Session {
         }
         assertSessionEventEnvelope(snapshot, index)
         assertSupportedRequestHeader(snapshot.type, snapshot.data, `seed event at index ${index}`)
-        if (snapshot.seq !== index) {
-          throw new Error(`seed event at index ${index} has seq ${snapshot.seq} (expected ${index}); seed must be contiguous from 0`)
+        if (index === 0 && history !== undefined && history.firstSeq !== snapshot.seq) {
+          throw new Error(`session "${id}" history starts at seq ${history.firstSeq}, but its seed starts at seq ${snapshot.seq}`)
+        }
+        if (index === 0 && snapshot.seq > 0) {
+          // The first seed event names the window base; only a restore may
+          // adopt one, and the fold restarts from the still-empty manager.
+          if (mode !== 'restore') {
+            throw new Error(`seed starts at seq ${String(snapshot.seq)}; only a restore may adopt a window (seeds must be contiguous from 0)`)
+          }
+          this.baseSeq = snapshot.seq
+          this.surfaceManager = new SurfaceManager(this.log, snapshot.seq, {
+            nodes: initialSurface?.nodes ?? [],
+            replaceGeneration: initialSurface?.replaceGeneration ?? 0,
+            eventAt: seq => this.eventAt(seq),
+          })
+        }
+        if (snapshot.seq !== this.baseSeq + index) {
+          throw new Error(`seed event at index ${index} has seq ${snapshot.seq} (expected ${String(this.baseSeq + index)}); seed must be contiguous from ${String(this.baseSeq)}`)
         }
         // A seed is accepted incrementally through the same transition as a
         // live append and a full-log fold. The candidate is planned before it
@@ -550,7 +590,7 @@ export class Session {
         this.log.push(mode === 'restore' ? freezeRestoredObject(snapshot) : deepFreeze(snapshot))
       }
     }
-    this.firstLiveSeq = this.log.length
+    this.firstLiveSeq = this.baseSeq + this.log.length
     this.header = restoredHeader ?? snapshotSessionHeader(id, header)
     // Appended here so the marker is already in `events` when a backend
     // captures the creation seed: no load-time write. Re-marking is skipped
@@ -562,7 +602,7 @@ export class Session {
   }
 
   /** Cached immutable public snapshot of the private append-only log. */
-  private eventsSnapshot: readonly SessionEvent[] | undefined
+  private eventsSnapshot: readonly SessionEvent[] | WeakRef<readonly SessionEvent[]> | undefined
 
   /**
    * An immutable snapshot of the append-only event log. The snapshot is reused
@@ -571,13 +611,58 @@ export class Session {
    * cast nor ordinary JavaScript can rewrite durable history.
    */
   get events(): readonly SessionEvent[] {
-    this.eventsSnapshot ??= Object.freeze([...this.log])
-    return this.eventsSnapshot
+    const cached = this.eventsSnapshot instanceof WeakRef ? this.eventsSnapshot.deref() : this.eventsSnapshot
+    if (cached !== undefined) return cached
+    const snapshot = Object.freeze(this.history === undefined ? [...this.log] : Array.from({ length: this.seq }, (_, seq) => {
+      const event = this.eventAt(seq)
+      if (event === undefined) throw new Error(`session "${this.id}" has no event at seq ${seq}`)
+      return event
+    }))
+    this.eventsSnapshot = this.history === undefined ? snapshot : new WeakRef(snapshot)
+    return snapshot
   }
 
-  /** The next event's sequence number — always the log length (the `seq = log.length` contiguity contract). */
+  /**
+   * Resolve one event by its absolute sequence without requiring a full snapshot.
+   * @param seq - absolute event sequence to resolve.
+   * @returns the event at `seq`, or `undefined` when it is outside the log.
+   */
+  eventAt(seq: number): SessionEvent | undefined {
+    if (!Number.isSafeInteger(seq) || seq < 0 || seq >= this.seq) return undefined
+    return this.eventAtInternal(seq)
+  }
+
+  /**
+   * Return the resident suffix at an absolute sequence without expanding a historical prefix.
+   * @param fromSeq - absolute sequence at which the resident suffix starts.
+   * @returns immutable resident events from `fromSeq` through the current end.
+   */
+  eventsFrom(fromSeq: number): readonly SessionEvent[] {
+    if (!Number.isSafeInteger(fromSeq) || fromSeq < this.baseSeq || fromSeq > this.seq) {
+      throw new RangeError(`session "${this.id}" suffix starts outside [${this.baseSeq}, ${this.seq}]`)
+    }
+    return Object.freeze([...this.log.slice(fromSeq - this.baseSeq)])
+  }
+
+  private eventAtInternal(seq: number): SessionEvent | undefined {
+    if (seq >= this.baseSeq) return this.log[seq - this.baseSeq]
+    const cached = this.historical.get(seq)?.deref()
+    if (cached !== undefined) return cached
+    const source = this.history?.eventAt(seq)
+    if (source === undefined) return undefined
+    const snapshot = snapshotJsonValue(source)
+    if (snapshot === undefined) throw new Error(`session "${this.id}" history event at seq ${seq} is not losslessly JSON-serializable`)
+    if (snapshot.seq !== seq) throw new Error(`session "${this.id}" history event has seq ${snapshot.seq}, expected ${seq}`)
+    assertSessionEventEnvelope(snapshot, seq)
+    assertSupportedRequestHeader(snapshot.type, snapshot.data, `history event at seq ${seq}`)
+    const frozen = deepFreeze(snapshot)
+    this.historical.set(seq, new WeakRef(frozen))
+    return frozen
+  }
+
+  /** The next event's sequence number — the window base plus the log length (the contiguity contract). */
   get seq(): number {
-    return this.log.length
+    return this.baseSeq + this.log.length
   }
 
   /**
@@ -640,7 +725,7 @@ export class Session {
     }
     const event = deepFreeze({
       type,
-      seq: this.log.length,
+      seq: this.baseSeq + this.log.length,
       time: Date.now(),
       data: dataSnapshot,
       ...(surfaceMetadataSnapshot as { surfaceOp?: unknown; sourceEventSeqs?: unknown }),
@@ -672,6 +757,8 @@ export class Session {
   private headerFold: EpochHeader | undefined
   /** Log position (events consumed) the header fold has reached. */
   private headerFoldSeq = 0
+  /** Whether the lazy historical prefix has supplied request projection state. */
+  private historicalRequestStateLoaded = false
 
   /**
    * The {@link EpochHeader} in force after the log's last header event — the
@@ -682,6 +769,7 @@ export class Session {
    * @returns the folded header, or undefined when no header event exists yet.
    */
   requestHeader(): EpochHeader | undefined {
+    this.loadHistoricalRequestState()
     if (this.headerFoldSeq < this.log.length) {
       // Frozen on update: the fold is session state exposed by reference — a
       // consumer mutating it in place (instead of building a replacement)
@@ -703,6 +791,7 @@ export class Session {
    * @returns the latest immutable route metadata.
    */
   requestContext(): RequestContext | undefined {
+    this.loadHistoricalRequestState()
     if (this.contextFoldSeq < this.log.length) {
       for (const event of this.log.slice(this.contextFoldSeq)) {
         if (event.type === 'request/context') this.contextFold = deepFreeze({ ...event.data })
@@ -710,6 +799,24 @@ export class Session {
       this.contextFoldSeq = this.log.length
     }
     return this.contextFold
+  }
+
+  /** Seed incremental request projections from a lazy prefix only when needed. */
+  private loadHistoricalRequestState(): void {
+    if (this.historicalRequestStateLoaded || this.history === undefined) return
+    let header: EpochHeader | undefined
+    let context: RequestContext | undefined
+    for (let seq = this.seq - 1; seq >= 0 && (header === undefined || context === undefined); seq -= 1) {
+      const event = this.eventAtInternal(seq)
+      if (event === undefined) throw new Error(`session "${this.id}" has no event at seq ${seq}`)
+      if (header === undefined && event.type === 'request/header') header = deepFreeze(foldRequestHeader([event]))
+      if (context === undefined && event.type === 'request/context') context = deepFreeze({ ...event.data })
+    }
+    this.headerFold = header
+    this.contextFold = context
+    this.headerFoldSeq = this.log.length
+    this.contextFoldSeq = this.log.length
+    this.historicalRequestStateLoaded = true
   }
 
   /** The derived-message cache: frozen projections, extended per unseen node. */
@@ -747,10 +854,9 @@ export class Session {
       this.derivedGeneration = generation
     }
     for (const seq of nodes.slice(this.derivedNodes)) {
-      // Surface sequences are built from this.log — seq is always a valid
-      // index by construction. The non-null assertion expresses that invariant.
-      // oxlint-disable-next-line typescript/no-non-null-assertion
-      const msg = this.deriveEventMessage(this.log[seq]!)
+      const event = this.eventAt(seq)
+      if (event === undefined) throw new Error(`session "${this.id}" has no surface event at seq ${seq}`)
+      const msg = this.deriveEventMessage(event)
       // A surface node is one of the five message-producing types, but an
       // empty-content assistant/message (a max-tokens step that hosts only
       // usage) derives to null and must not enter the transcript.
@@ -884,7 +990,7 @@ export class SessionStore extends Service {
     }
     if (this.store.has(sessionId)) throw new Error(`session "${sessionId}" already exists`)
     if (options?.seedSource === 'persistence') {
-      return Session.fromRestore(sessionId, options.seed, options.meta)
+      return Session.fromRestore(sessionId, options.seed, options.meta, options.history, options.surface)
     }
     const seed = options?.seed
     const meta = options?.meta

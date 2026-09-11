@@ -265,6 +265,21 @@ viewCheckpoint(checkpoint: ProjectionCheckpoint): Partial<SessionProjectionMap>
  *   refreshed checkpoint rows at that cut, ready for a durable write-back.
  */
 restore(checkpoint: ProjectionCheckpoint, events: readonly SessionEvent[], baseSeq: number): { snapshot: ProjectionSnapshot; checkpoint: ProjectionCheckpoint }
+
+/**
+ * Seed every registered unit's live cell from a validated checkpoint and
+ * forward tail. The cells are installed only after the detached restore
+ * succeeds, so a missing or mismatched row at a nonzero `baseSeq` rejects
+ * before changing live state. The supplied tail is folded exactly once;
+ * later snapshots use the installed cells instead of lazily refolding the
+ * session log.
+ * @param session - the live session whose cells are seeded.
+ * @param checkpoint - persisted rows for one session.
+ * @param events - stored events with `seq >= baseSeq`, in seq order.
+ * @param baseSeq - the seq the supplied tail starts at.
+ * @returns the snapshot at the supplied tail's log end.
+ */
+hydrate( session: Session, checkpoint: ProjectionCheckpoint, events: readonly SessionEvent[], baseSeq: number, ): ProjectionSnapshot
 ```
 
 Types: [Session](session.md) · [SessionEvent](session.md)

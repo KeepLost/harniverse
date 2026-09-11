@@ -740,6 +740,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'contextReset',
+    summary: 'Whole-surface context reset.',
+    description: 'Whole-surface context reset. A successful run replaces every current surface node with one checkpoint marker and leaves the shadowed history in the log. Load one instance per context as `ctx.contextReset`.',
+    methods: [
+      {
+        signature: 'resetNow( agent: Agent, signal: AbortSignal, sourceCommandId?: CommandId, ): Promise<ContextResetResult | null>',
+        description: 'Explicitly reset the model context even while the log keeps growing. The operation synchronously starts an idle task before any asynchronous work, replaces the whole current surface in one atomic append, then waits for one durability flush. Later waking prompts remain accepted in FIFO order and start only after the flush settles.',
+        parameters: [{ name: 'agent', description: 'agent whose session surface should be reset.' }, { name: 'signal', description: 'cancellation scoped to this reset request.' }, { name: 'sourceCommandId', description: 'initiating command identity for a manual reset.' }],
+        returns: 'the reset result, or `null` when the surface is already empty.',
+        throws: ['{@link ContextResetError} for expected busy, agent-cancellation, commit-stage, or persistence failures; an aborted request preserves its exact abort reason.'],
+      },
+    ],
+  },
+  {
     key: 'credentials',
     summary: 'Abstract credential service.',
     description: 'Abstract credential service. Providers implement the four operations over their source layers; one seam-wide rule binds them all: an empty stored value is absent everywhere — `resolve` skips it, `describe` reports it unconfigured — so a blank never masquerades as a configured secret.',
@@ -1424,6 +1438,81 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'scheduler',
+    summary: 'Durable scheduled prompts over the central scheduler store.',
+    description: 'Durable scheduled prompts over the central scheduler store. One instance owns the timer, per-record dispatch chains, and cold-session recycling.',
+    methods: [
+      {
+        signature: 'list(): ScheduleRecord[]',
+        description: 'All records ordered by next due moment.',
+        parameters: [],
+        returns: 'every stored record, earliest due first.',
+      },
+      {
+        signature: 'listForSession(sessionId: SessionId): ScheduleRecord[]',
+        description: 'Records one session owns: created there, or the job session it hosts.',
+        parameters: [{ name: 'sessionId', description: 'owning session identity.' }],
+        returns: 'the owned subset, earliest due first.',
+      },
+      {
+        signature: '@Remote({ exportName: \'list\', requiredCapability: \'harniverse.observe\' }) listOwned(sessionId: SessionId): ScheduleRecord[]',
+        description: 'Remote-facing read of one session\'s schedules.',
+        parameters: [{ name: 'sessionId', description: 'owning session identity.' }],
+        returns: 'the owned subset, earliest due first.',
+      },
+      {
+        signature: '@Remote({ exportName: \'create\', requiredCapability: \'harniverse.operate\' }) createOwned(sessionId: SessionId, input: ScheduleCreateRemoteInput): Promise<ScheduleRecord>',
+        description: 'Remote-facing creation attributed to the owning session\'s human.',
+        parameters: [{ name: 'sessionId', description: 'owning session identity.' }, { name: 'input', description: 'prompt, rule, target, and context mode.' }],
+        returns: 'the stored record.',
+        throws: ['ScheduleRuleError for an invalid rule or prompt.'],
+      },
+      {
+        signature: '@Remote({ exportName: \'update\', requiredCapability: \'harniverse.operate\' }) updateOwned(sessionId: SessionId, id: string, update: ScheduleUpdate): Promise<ScheduleRecord | undefined>',
+        description: 'Remote-facing edit under session ownership.',
+        parameters: [{ name: 'sessionId', description: 'owning session identity.' }, { name: 'id', description: 'schedule identity.' }, { name: 'update', description: 'prompt and/or status patch.' }],
+        returns: 'the updated record, or `undefined` when absent or not owned.',
+      },
+      {
+        signature: '@Remote({ exportName: \'delete\', requiredCapability: \'harniverse.operate\' }) removeOwned(sessionId: SessionId, id: string): Promise<boolean>',
+        description: 'Remote-facing removal under session ownership.',
+        parameters: [{ name: 'sessionId', description: 'owning session identity.' }, { name: 'id', description: 'schedule identity.' }],
+        returns: 'whether a record was removed.',
+      },
+      {
+        signature: '@Remote({ exportName: \'runs\', requiredCapability: \'harniverse.observe\' }) listRunsOwned(sessionId: SessionId, scheduleId: string): ScheduleRun[]',
+        description: 'Read execution history through the scheduler Remote.',
+        parameters: [{ name: 'sessionId', description: 'session requesting the history.' }, { name: 'scheduleId', description: 'schedule whose attempts are requested.' }],
+        returns: 'the requester\'s durable delivery attempts, newest first.',
+      },
+      {
+        signature: 'listRuns(scheduleId: string, ownerSessionId?: SessionId): ScheduleRun[]',
+        description: 'Read durable delivery attempts, newest first, under session ownership.',
+        parameters: [{ name: 'scheduleId', description: 'schedule whose attempts are requested.' }, { name: 'ownerSessionId', description: 'optional owner restriction for host-side reads.' }],
+        returns: 'matching durable delivery attempts, newest first.',
+      },
+      {
+        signature: 'async create(input: ScheduleCreateInput): Promise<ScheduleRecord>',
+        description: 'Create one durable schedule.',
+        parameters: [{ name: 'input', description: 'validated prompt, rule candidate, target, and creator.' }],
+        returns: 'the stored record.',
+        throws: ['{@link ScheduleRuleError} for an invalid rule or prompt.'],
+      },
+      {
+        signature: 'async update(id: string, update: ScheduleUpdate, by?: SessionId): Promise<ScheduleRecord | undefined>',
+        description: 'Update editable fields of one record.',
+        parameters: [{ name: 'id', description: 'schedule identity.' }, { name: 'update', description: 'prompt and/or status patch.' }, { name: 'by', description: 'calling session allowed to edit; omitted for host authority.' }],
+        returns: 'the updated record, or `undefined` when absent or not owned.',
+      },
+      {
+        signature: 'async remove(id: string, by?: SessionId): Promise<boolean>',
+        description: 'Remove one record.',
+        parameters: [{ name: 'id', description: 'schedule identity.' }, { name: 'by', description: 'calling session allowed to delete; omitted for host authority.' }],
+        returns: 'whether a record was removed.',
+      },
+    ],
+  },
+  {
     key: 'sessionDelivery',
     summary: 'Service Definition for ordinary-session message delivery.',
     description: 'Service Definition for ordinary-session message delivery.',
@@ -1619,6 +1708,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Cold read: fold every registered unit over a stored log suffix, seeding each from its checkpoint row when usable — the one read recipe (cached state + forward tail replay + `view`) applied without a live `Session`. Call with the events returned by a persistence `readFrom(id, restoreFloor(checkpoint))` and that same floor as `baseSeq`; the floor\'s one-below anchor makes the supplied end honest, so a shrunk log is detected here. A row is usable iff its `ver` matches the live unit\'s `stateVersion`, it does not predate `baseSeq` (`seq >= baseSeq - 1`), and it does not claim events past the supplied end (`seq <= endSeq`); an unusable row is discarded and its key refolds from `init` — which is only sound over the full log, so a discarded row with `baseSeq > 0` throws (the caller re-reads from seq 0, e.g. after a crash-repair truncation shrank the log below a row\'s watermark).',
         parameters: [{ name: 'checkpoint', description: 'persisted rows for one session (possibly stale or empty).' }, { name: 'events', description: 'the stored events with `seq >= baseSeq`, in seq order.' }, { name: 'baseSeq', description: 'the seq `events` starts at (its first event\'s seq when non-empty).' }],
         returns: 'the snapshot cut at the supplied log end (`asOfSeq` is the last supplied event\'s seq, `baseSeq - 1` for an empty tail) plus the refreshed checkpoint rows at that cut, ready for a durable write-back.',
+      },
+      {
+        signature: 'hydrate( session: Session, checkpoint: ProjectionCheckpoint, events: readonly SessionEvent[], baseSeq: number, ): ProjectionSnapshot',
+        description: 'Seed every registered unit\'s live cell from a validated checkpoint and forward tail. The cells are installed only after the detached restore succeeds, so a missing or mismatched row at a nonzero `baseSeq` rejects before changing live state. The supplied tail is folded exactly once; later snapshots use the installed cells instead of lazily refolding the session log.',
+        parameters: [{ name: 'session', description: 'the live session whose cells are seeded.' }, { name: 'checkpoint', description: 'persisted rows for one session.' }, { name: 'events', description: 'stored events with `seq >= baseSeq`, in seq order.' }, { name: 'baseSeq', description: 'the seq the supplied tail starts at.' }],
+        returns: 'the snapshot at the supplied tail\'s log end.',
       },
     ],
   },
@@ -3853,6 +3948,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ContextFormed = {\n    readonly form?: never;\n} | {\n    readonly form: \'instructions\';\n} | {\n    readonly form: \'catalog\';\n} | {\n    readonly form: \'snapshot\';\n    readonly sections: readonly ContextSnapshotSection[];\n    readonly partial?: true;\n} | {\n    readonly form: \'notice\';\n    readonly summary: string;\n} | {\n    readonly form: \'relay\';\n} | {\n    readonly form: \'recall\';\n} | {\n    readonly form: \'system-injection\';\n};',
   },
   {
+    name: 'ContextResetResult',
+    declaration: 'export interface ContextResetResult {\n    readonly resetId: ResetId;\n    readonly sourceCommandId?: CommandId;\n    readonly checkpointSeq: number;\n    readonly markerSeq: number;\n    readonly shadowedSeqs: readonly number[];\n}',
+  },
+  {
     name: 'ContextSnapshotSection',
     declaration: 'export interface ContextSnapshotSection {\n    readonly name: string;\n    readonly text: string;\n}',
   },
@@ -4745,6 +4844,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type RequestRunOutcome = \'approved\' | \'completed\' | \'rejected\' | \'cancelled\' | \'failed\';',
   },
   {
+    name: 'ResetId',
+    declaration: 'export type ResetId = Branded<\'ResetId\'>;',
+  },
+  {
     name: 'ResolvedAlwaysRetryPolicy',
     declaration: 'export interface ResolvedAlwaysRetryPolicy extends ResolvedRetryBackoff {\n    readonly mode: \'always\';\n}',
   },
@@ -4774,7 +4877,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RestoredSessionOptions',
-    declaration: 'export interface RestoredSessionOptions {\n    readonly seed: SessionEvent[];\n    readonly meta: SessionHeader;\n    readonly seedSource: \'persistence\';\n}',
+    declaration: 'export interface RestoredSessionOptions {\n    readonly seed: SessionEvent[];\n    readonly meta: SessionHeader;\n    readonly seedSource: \'persistence\';\n    readonly history?: SessionHistorySource;\n    readonly surface?: {\n        readonly nodes: readonly number[];\n        readonly replaceGeneration: number;\n    };\n}',
   },
   {
     name: 'ResumeAgentOptions',
@@ -4853,12 +4956,36 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SaveTextSpill {\n    signal: AbortSignal;\n    owner: SpillOwner;\n    source: SpillSource;\n    suggestedName: string;\n    content: string;\n}',
   },
   {
+    name: 'ScheduleCreateInput',
+    declaration: 'export interface ScheduleCreateInput {\n    readonly prompt: string;\n    readonly rule: SchedulerRule;\n    readonly target: {\n        readonly kind: \'current\' | \'job\';\n    };\n    readonly contextMode: \'fresh\' | \'continue\';\n    readonly createdBy: {\n        readonly kind: \'user\' | \'model\';\n        readonly sessionId: SessionId;\n    };\n}',
+  },
+  {
+    name: 'ScheduleCreateRemoteInput',
+    declaration: 'export interface ScheduleCreateRemoteInput {\n    readonly prompt: string;\n    readonly rule: SchedulerRule;\n    readonly target: {\n        readonly kind: \'current\' | \'job\';\n    };\n    readonly contextMode: \'fresh\' | \'continue\';\n}',
+  },
+  {
     name: 'ScheduledToolDispatch',
     declaration: 'export type ScheduledToolDispatch = {\n    kind: \'post-result\';\n    result: ToolExecutionResult;\n} | {\n    kind: \'final-result\';\n    result: ToolExecutionResult;\n};',
   },
   {
     name: 'ScheduledToolPreparation',
     declaration: 'export type ScheduledToolPreparation = {\n    kind: \'dispatch\';\n    exec: ToolRunContext;\n} | {\n    kind: \'post-result\';\n    exec: ToolRunContext;\n    result: ToolExecutionResult;\n} | {\n    kind: \'final-result\';\n    exec: ToolRunContext;\n    result: ToolExecutionResult;\n};',
+  },
+  {
+    name: 'SchedulerRule',
+    declaration: 'export type SchedulerRule = {\n    readonly kind: \'after\';\n    readonly delayMs: number;\n} | {\n    readonly kind: \'at\';\n    readonly at: string;\n} | {\n    readonly kind: \'every\';\n    readonly intervalMs: number;\n    readonly anchor: string;\n};',
+  },
+  {
+    name: 'ScheduleRun',
+    declaration: 'export interface ScheduleRun {\n    readonly id: string;\n    readonly scheduleId: string;\n    readonly ownerSessionId: SessionId;\n    readonly targetSessionId: SessionId;\n    readonly dueAt: number;\n    readonly attemptedAt: number;\n    readonly promptRevision?: number;\n    readonly status: \'succeeded\' | \'failed\';\n    readonly error?: string;\n}',
+  },
+  {
+    name: 'ScheduleStatus',
+    declaration: 'export type ScheduleStatus = \'active\' | \'paused\' | \'done\';',
+  },
+  {
+    name: 'ScheduleUpdate',
+    declaration: 'export interface ScheduleUpdate {\n    readonly prompt?: string;\n    readonly status?: ScheduleStatus;\n}',
   },
   {
     name: 'Scoped',
@@ -5011,6 +5138,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionHistoryPageRequest',
     declaration: 'export interface SessionHistoryPageRequest {\n    readonly beforeSeq?: number;\n    readonly maxMessages: number;\n    readonly preferLatestCheckpoint?: boolean;\n}',
+  },
+  {
+    name: 'SessionHistorySource',
+    declaration: 'export interface SessionHistorySource {\n    readonly firstSeq: number;\n    eventAt(seq: number): SessionEvent | undefined;\n}',
   },
   {
     name: 'SessionId',

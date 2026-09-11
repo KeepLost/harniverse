@@ -48,16 +48,19 @@ export interface SessionRawEventPage {
   readonly hasMore: boolean
 }
 
+/** Replacement-marker plugins whose transaction prefix opens a display checkpoint. */
+const CHECKPOINT_PLUGINS: ReadonlySet<string> = new Set(['compact', 'reset'])
+
 /**
  * Locate the contiguous transaction prefix required to present one replacement
  * checkpoint without loading the older surface range it superseded.
  * @param event - candidate durable event.
- * @returns first cited seq, which compact checkpoints reserve for transaction start.
+ * @returns first cited seq, which checkpoint markers reserve for their transaction start.
  */
 export function replacementCheckpointStart(event: SessionEvent): number | undefined {
   if (event.type !== 'user/message' || !isReplacementSurfaceEvent(event)) return undefined
   const source = event.data.source
-  if (source.kind !== 'plugin' || source.plugin !== 'compact') return undefined
+  if (source.kind !== 'plugin' || !CHECKPOINT_PLUGINS.has(source.plugin)) return undefined
   const start = event.sourceEventSeqs?.[0]
   return start !== undefined && start < event.seq ? start : undefined
 }

@@ -210,6 +210,8 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
       const send = page.getByRole('button', { name: 'Send message' })
       expect(await send.count()).toBe(1)
       expect(await send.isDisabled()).toBe(true)
+      // The offline controls arrive before the independently fetched child history.
+      await page.getByText('partial', { exact: true }).waitFor({ timeout: 15_000 })
       await compareOrRefreshGolden(
         OFFLINE_COMPOSER_EXPECTED,
         await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd),

@@ -99,6 +99,11 @@ flowchart LR
   svc_sessionDelivery["ctx.sessionDelivery<br/>Ordinary-session next-turn delivery"]
   pkg_session_delivery_local["session-delivery-local"]
   pkg_tool_session_delivery["tool-session-delivery"]
+  pkg_context_reset["context-reset"]
+  svc_contextReset["ctx.contextReset<br/>Whole-surface context reset"]
+  pkg_command_reset["command-reset"]
+  pkg_scheduler["scheduler"]
+  svc_scheduler["ctx.scheduler<br/>Host-level durable scheduler"]
   svc_sessionQuery["ctx.sessionQuery<br/>Session reads, traces, filters, and search"]
   pkg_session_reference["session-reference"]
   pkg_tool_session_query["tool-session-query"]
@@ -257,6 +262,7 @@ flowchart LR
   pkg_compaction_lossless --> svc_compaction
   pkg_compaction_lossless --> svc_compactionHistory
   pkg_compaction_tool_result_pruner --> svc_toolResultPruner
+  pkg_context_reset --> svc_contextReset
   pkg_cordis_host_runner --> svc_cordisInspect
   pkg_cordis_host_runner --> svc_dynamicCordisRunner
   pkg_credentials --> svc_credentials
@@ -296,6 +302,7 @@ flowchart LR
   pkg_sandbox --> svc_sandbox
   pkg_sandbox_local --> svc_sandbox
   pkg_sandbox_policy --> svc_sandboxPolicy
+  pkg_scheduler --> svc_scheduler
   pkg_session --> svc_sessions
   pkg_session_delivery --> svc_sessionDelivery
   pkg_session_delivery_local --> svc_sessionDelivery
@@ -371,6 +378,8 @@ flowchart LR
   svc_compaction --> pkg_command_compact
   svc_compaction --> pkg_tool_compaction
   svc_compactionHistory --> pkg_tool_compaction_history
+  svc_contextReset --> pkg_command_reset
+  svc_contextReset --> pkg_scheduler
   svc_cordisInspect --> pkg_tool_cordis
   svc_credentials --> pkg_apiproxy
   svc_credentials --> pkg_llm_deepseek
@@ -520,6 +529,8 @@ flowchart LR
 | `ctx.messageFeedback` | `core` | [`message-feedback`](../packages/feedback/message-feedback) | - | - | - | 拥有本地逐 assistant 消息反馈、生命周期与目标校验、逐条目 compare-and-set 及 Host 一元 Remote 契约，且不进入 Session 历史或遥测。 |
 | `ctx.workspaceRegistry` | `core` | [`workspace`](../packages/workspace/workspace) | - | `apiproxy` | - | 通过领域设施拥有带 WorkspaceId 品牌类型的记录；稳定的 sessionIds 账户驱动 Host RPC 与 GUI 投影。 |
 | `ctx.sessionDelivery` | `seam` | [`session-delivery`](../packages/session-query/session-delivery) | [`session-delivery-local`](../packages/session-query/session-delivery-local) | [`tool-session-delivery`](../packages/session-query/tool-session-delivery) | - | 该接口只确认 inbox 接受；本地 Provider 解析 live 或持久化普通 Agent，模型 Consumer 不等待完成或回复。 |
+| `ctx.contextReset` | `core` | [`context-reset`](../packages/context/context-reset) | - | [`command-reset`](../packages/context/command-reset), [`scheduler`](../packages/schedule/scheduler) | - | 以一对持久的锚+标记遮蔽当前全部表面节点，校验由表面折叠承担；仅 idle 维护相位执行，显示历史首页在 reset 锚处截断。 |
+| `ctx.scheduler` | `core` | [`scheduler`](../packages/schedule/scheduler) | - | - | - | 宿主级持久调度：中央 storage-domain 记录与 at/after/every 规则；热会话经 idle 维护相位投递，冷会话经 resume 序列，可选投递前重置与惰性作业会话。 |
 | `ctx.sessionQuery` | `seam` | [`session-query`](../packages/session-query/session-query) | [`session-query-sqlite`](../packages/session-query/session-query-sqlite) | [`session-reference`](../packages/context/session-reference), [`tool-session-query`](../packages/session-query/tool-session-query) | - | 该接口提供精确读取、状态、最终消息尾部、过滤和追踪；具体后端增加全文协调，而模型 Consumer 按 id 绑定精确观察，并负责可选 cwd 过滤与无游标渲染。 |
 | `ctx.sessionReferenceResolver` | `core` | [`session-reference`](../packages/context/session-reference) | - | - | - | 将当前表层中有界的对话快照投影为持久但不可信的消息上下文；Host 适配器负责提及语法。 |
 | `ctx.sessionTitle` | `seam` | [`session-title`](../packages/session/session-title) | [`session-title-first-prompt-llm`](../packages/session/session-title-first-prompt-llm), [`session-title-all-prompts-llm`](../packages/session/session-title-all-prompts-llm) | - | - | 负责确定性回退、最新标题折叠区，以及唯一的可选异步提供方注册。 |

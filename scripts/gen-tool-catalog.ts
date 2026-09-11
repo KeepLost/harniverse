@@ -7,6 +7,9 @@
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { basename, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
@@ -14,6 +17,10 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import Storage from '@deepseek-ai/dsh-storage'
+import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
+import * as StorageJson from '@deepseek-ai/dsh-storage-json'
+import SchedulerService from '@deepseek-ai/dsh-scheduler'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SqliteSessionQueryEngine from '@deepseek-ai/dsh-session-query-sqlite'
 import GoalService from '@deepseek-ai/dsh-goal'
@@ -52,6 +59,7 @@ import * as ToolStrReplaceEditor from '@deepseek-ai/dsh-tool-str-replace-editor'
 import TerminalSessionService from '@deepseek-ai/dsh-terminal'
 import * as ToolPty from '@deepseek-ai/dsh-tool-terminal'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
+import * as ToolScheduler from '@deepseek-ai/dsh-tool-scheduler'
 import * as ToolSchedule from '@deepseek-ai/dsh-schedule'
 import Lsp from '@deepseek-ai/dsh-lsp'
 import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
@@ -459,6 +467,36 @@ const TOOL_PACKAGES: ToolPackage[] = [
       + 'Version 1 accepts after_seconds, explicit absolute at, and bounded fixed-rate every_seconds, '
       + 'and discloses session-local delivery; '
       + 'management reads and mutations require the shared Session persistence barrier.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-scheduler',
+    dir: 'tool-scheduler',
+    source: 'packages/schedule/tool-scheduler/src/index.ts',
+    requires: ['ctx.tools', 'ctx.scheduler (web-app bundle)', 'a calling Agent in an open turn'],
+    writes: ['tool/call', 'schedule store create or delete', 'tool/result'],
+    async mount(ctx) {
+      const root = await mkdtemp(join(tmpdir(), 'dsh-tool-catalog-scheduler-'))
+      ctx.effect(() => () => { void rm(root, { recursive: true, force: true }) })
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(Storage)
+      await ctx.plugin(StorageJson, { root })
+      await ctx.plugin(StorageDomain, { backend: 'json' })
+      ctx.provide('agents', {
+        get: () => undefined,
+        roots: () => [],
+        list: () => [],
+        isOwnedBy: () => false,
+        create: () => Promise.reject(new Error('unused')),
+        resume: () => Promise.reject(new Error('unused')),
+        closeIfIdle: () => Promise.resolve('busy' as const),
+      })
+      await ctx.plugin(SchedulerService)
+      await ctx.plugin(ToolScheduler)
+    },
+    note:
+      'Preset-scoped like dsh-tool-goal: the host scheduler service stays on the host plane and this row decides agent visibility, so the minimal profile keeps its two-tool contract. '
+      + 'create takes exactly one of run_at/after_minutes with an optional every_minutes recurrence (minimum 5 minutes); '
+      + 'list and delete filter by the calling session\'s ownership.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-lsp',

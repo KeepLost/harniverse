@@ -22,14 +22,18 @@
     },
     {
       "path": "../../credentials/credentials"
-
     },
     {
       "path": "../../extensions/cordis-host-runner"
     },
-    { "path": "../../context/file-reference" },
+    {
+      "path": "../../context/file-reference"
+    },
     {
       "path": "../../goal/goal"
+    },
+    {
+      "path": "../../schedule/scheduler"
     },
     {
       "path": "../../feedback/message-feedback"
@@ -52,7 +56,9 @@
     {
       "path": "../../settings/settings"
     },
-    { "path": "../../context/session-reference" },
+    {
+      "path": "../../context/session-reference"
+    },
     {
       "path": "../../typert/protocol"
     }

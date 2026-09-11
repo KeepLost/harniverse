@@ -9,6 +9,7 @@ import pluginInventoryRemote from '@deepseek-ai/dsh-host-plugin-inventory/remote
 import capabilityManagementRemote from '@deepseek-ai/dsh-host-capability-management/remote'
 import messageFeedbackRemote from '@deepseek-ai/dsh-message-feedback/remote'
 import sessionReferencesRemote from '@deepseek-ai/dsh-session-reference/remote'
+import schedulerRemote from '@deepseek-ai/dsh-scheduler/remote'
 import type { TypertClientRemote } from '@deepseek-ai/dsh-typert-protocol'
 
 export type { TypertClientRemote as ClientRemote } from '@deepseek-ai/dsh-typert-protocol'
@@ -147,6 +148,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       capabilityManagementRemote,
       messageFeedbackRemote,
       sessionReferencesRemote,
+      schedulerRemote,
     ]) {
       disposers.push(await ctx.remote.$mount(contribution))
     }

@@ -599,6 +599,29 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/core/session/src/types.ts:325`](../packages/core/session/src/types.ts)
 
+### `reset/*`
+
+<a id="resetcheckpoint--log-only"></a>
+
+#### `reset/checkpoint` — log-only
+
+```ts persistence-catalog
+/**
+ * Durable anchor of one context reset — log-only, no surfaceOp. Written
+ * immediately before the replacement `user/message` marker so the display
+ * checkpoint has a transaction start to cite, the `compaction/start`
+ * shape. `turn` is always `null`: a reset claims the idle maintenance
+ * phase between turns.
+ */
+'reset/checkpoint': {
+  resetId: ResetId
+  sourceCommandId?: CommandId
+  turn: null
+}
+```
+
+Source: [`packages/context/context-reset/src/types.ts:22`](../packages/context/context-reset/src/types.ts)
+
 ### `sandbox/*`
 
 <a id="sandboxmode--log-only"></a>
@@ -622,6 +645,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/sandbox/sandbox-policy/src/session-mode.ts)
 
+
 ### `schedule/*`
 
 <a id="schedulechange--log-only"></a>
@@ -639,6 +663,28 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 类型：[ScheduleChange](subsystems/schedule.md)
 
 来源：[`packages/schedule/schedule/src/types.ts:219`](../packages/schedule/schedule/src/types.ts)
+
+<a id="scheduledispatch--log-only"></a>
+
+#### `schedule/dispatch` — log-only
+
+```ts persistence-catalog
+/**
+ * Durable provenance of one scheduler delivery — log-only, no surfaceOp.
+ * Appended to the target session immediately before the scheduled prompt
+ * enters the inbox, so a transcript can explain why the following
+ * `user/message` (plugin source `schedule`) exists. `turn` is always
+ * `null`: delivery claims the idle maintenance phase between turns.
+ */
+'schedule/dispatch': {
+  scheduleId: string
+  dueAt: number
+  targetSessionId: SessionId
+  turn: null
+}
+```
+
+来源：[`packages/schedule/scheduler/src/index.ts:34`](../packages/schedule/scheduler/src/index.ts)
 
 ### `session/*`
 
