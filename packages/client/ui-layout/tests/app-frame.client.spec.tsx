@@ -622,7 +622,7 @@ describe('AppFrame — phone form factor', () => {
     const { frame, instance, getByRole } = mountFrame()
     act(() => { instance.actions.toggleSidebar() })
 
-    act(() => { getByRole('button', { name: '收起侧栏' }).click() })
+    act(() => { getByRole('button', { name: '关闭侧栏遮罩' }).click() })
 
     expect(frame.hasAttribute('data-sidebar-drawer')).toBe(false)
     expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)

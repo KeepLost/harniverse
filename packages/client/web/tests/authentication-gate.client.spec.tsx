@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 
 const deviceApi = vi.hoisted(() => ({
   clear: vi.fn(),
@@ -43,10 +43,30 @@ function authenticationSpy() {
   return vi.fn((owner?: ClientAuthentication) => { if (owner !== undefined) owners.add(owner) })
 }
 
+/**
+ * jsdom implements no matchMedia despite lib.dom declaring it, and the gate
+ * mirrors the OS color-scheme preference onto body (no theme presenter exists
+ * before the app loads). The listener pair is captured so a test can flip the
+ * preference.
+ */
+const colorScheme = { matches: false, listeners: new Set<() => void>() }
+function stubColorScheme(): void {
+  colorScheme.matches = false
+  colorScheme.listeners.clear()
+  vi.stubGlobal('matchMedia', vi.fn(() => ({
+    get matches() { return colorScheme.matches },
+    addEventListener: (_type: string, listener: () => void) => { colorScheme.listeners.add(listener) },
+    removeEventListener: (_type: string, listener: () => void) => { colorScheme.listeners.delete(listener) },
+  }) as unknown as MediaQueryList))
+}
+
+beforeEach(() => { stubColorScheme() })
+
 afterEach(async () => {
   await stopBrowserSessionRenewal()
   cleanup()
   window.history.replaceState({}, '', '/')
+  document.body.removeAttribute('data-ds-dark-theme')
   vi.unstubAllGlobals()
   vi.clearAllMocks()
   vi.useRealTimers()
@@ -211,6 +231,130 @@ describe('browser authentication gate', () => {
     expect(await view.findByText('等待批准')).toBeTruthy()
     expect(authenticated).not.toHaveBeenCalled()
     expect(deviceApi.sign).toHaveBeenCalledWith(privateKey, 'owner-challenge')
+  })
+
+  it('mirrors the OS color scheme onto body while no theme presenter exists', async () => {
+    colorScheme.matches = true
+    deviceApi.read.mockResolvedValue(undefined)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({
+      mode: 'authenticated', sealed: false, authenticated: false,
+    })))
+    const view = render(<AuthenticationGate onAuthenticated={() => {}} />)
+    await view.findByLabelText('设备名称')
+
+    expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(true)
+
+    colorScheme.matches = false
+    act(() => { for (const listener of colorScheme.listeners) listener() })
+    expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(false)
+  })
+
+  it('copies the approval code and the host command onto the clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    deviceApi.read.mockResolvedValue(undefined)
+    deviceApi.generate.mockResolvedValue({ privateKey: { type: 'private' }, publicKey: 'p256-spki' })
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(Response.json({ mode: 'authenticated', sealed: false, authenticated: false }))
+      .mockResolvedValueOnce(Response.json({
+        state: 'pending', id: 'request-id', approvalCode: 'a1b2c3d4', name: 'tablet', kind: 'device', expiresAt: '2099-01-01T09:30:00.000Z',
+      }, { status: 202 })))
+    const view = render(<AuthenticationGate onAuthenticated={() => {}} />)
+    fireEvent.click(await view.findByRole('button', { name: '配对个人设备' }))
+    await view.findByText('a1b2c3d4')
+    // The request deadline reads as a plain minute stamp, not a raw instant.
+    expect(view.getByText(/2099-01-01 09:30/)).toBeTruthy()
+
+    fireEvent.click(view.getByRole('button', { name: '复制批准码' }))
+    await waitFor(() => { expect(view.getByRole('button', { name: '复制批准码' }).textContent).toBe('已复制') })
+    fireEvent.click(view.getByRole('button', { name: '复制主机命令' }))
+    await waitFor(() => { expect(view.getByRole('button', { name: '复制主机命令' }).textContent).toBe('已复制') })
+
+    expect(writeText.mock.calls).toEqual([
+      ['a1b2c3d4'],
+      ['dsh auth device approve request-id --profile owner'],
+    ])
+  })
+
+  it('reports a refused clipboard instead of silently dropping the copy', async () => {
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } })
+    deviceApi.read.mockResolvedValue(undefined)
+    deviceApi.generate.mockResolvedValue({ privateKey: { type: 'private' }, publicKey: 'p256-spki' })
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(Response.json({ mode: 'authenticated', sealed: false, authenticated: false }))
+      .mockResolvedValueOnce(Response.json({
+        state: 'pending', id: 'request-id', approvalCode: 'a1b2c3d4', name: 'tablet', kind: 'device', expiresAt: '2099-01-01T00:00:00.000Z',
+      }, { status: 202 })))
+    const view = render(<AuthenticationGate onAuthenticated={() => {}} />)
+    fireEvent.click(await view.findByRole('button', { name: '配对个人设备' }))
+    await view.findByText('a1b2c3d4')
+
+    fireEvent.click(view.getByRole('button', { name: '复制批准码' }))
+
+    expect((await view.findByRole('alert')).textContent).toBe('浏览器拒绝了剪贴板访问，请手动选中文本复制')
+    expect(view.getByRole('button', { name: '复制批准码' }).textContent).toBe('复制')
+  })
+
+  it('asks once before revoking a device, and cancelling leaves the grant alone', async () => {
+    window.history.replaceState({}, '', '/auth/manage')
+    const grants = [
+      {
+        id: 'grant-permanent', name: 'workstation', kind: 'device', revision: 1,
+        capabilities: ['harniverse.observe', 'harniverse.operate'], createdAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'grant-temporary', name: 'library-pc', kind: 'temporary', revision: 1,
+        capabilities: ['harniverse.observe'], createdAt: '2026-01-01T00:00:00.000Z',
+        expiresAt: '2026-01-01T12:45:00.000Z',
+      },
+    ]
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ mode: 'authenticated', sealed: false, authenticated: true }))
+      .mockResolvedValueOnce(Response.json([]))
+      .mockResolvedValueOnce(Response.json(grants))
+      .mockResolvedValueOnce(Response.json({ revoked: true }))
+      .mockResolvedValueOnce(Response.json([]))
+      .mockResolvedValueOnce(Response.json([grants[0]]))
+    vi.stubGlobal('fetch', fetch)
+    const view = render(<AuthenticationGate onAuthenticated={authenticationSpy()} />)
+
+    expect(await view.findByText('workstation')).toBeTruthy()
+    expect(view.getByText('长期有效')).toBeTruthy()
+    expect(view.getByText('有效期至 2026-01-01 12:45')).toBeTruthy()
+    expect(view.getAllByText('harniverse.observe')).toHaveLength(2)
+
+    // Cancelling returns the row to its resting state without a request.
+    fireEvent.click(view.getAllByRole('button', { name: '撤销' })[0]!)
+    fireEvent.click(view.getByRole('button', { name: '取消' }))
+    expect(view.getAllByRole('button', { name: '撤销' })).toHaveLength(2)
+    expect(fetch).toHaveBeenCalledTimes(3)
+
+    fireEvent.click(view.getAllByRole('button', { name: '撤销' })[1]!)
+    fireEvent.click(view.getByRole('button', { name: '确认撤销' }))
+
+    await waitFor(() => { expect(fetch).toHaveBeenCalledTimes(6) })
+    expect(fetch).toHaveBeenNthCalledWith(4, '/auth/manage/grant/revoke', expect.objectContaining({
+      body: JSON.stringify({ grantId: 'grant-temporary' }),
+    }))
+  })
+
+  it('shows a one-time emergency token with its own copy control', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    window.history.replaceState({}, '', '/auth/manage')
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(Response.json({ mode: 'authenticated', sealed: false, authenticated: true }))
+      .mockResolvedValueOnce(Response.json([]))
+      .mockResolvedValueOnce(Response.json([]))
+      .mockResolvedValueOnce(Response.json({ accessToken: 'emergency-token-value' })))
+    const view = render(<AuthenticationGate onAuthenticated={authenticationSpy()} />)
+    await view.findByText('应急访问')
+
+    fireEvent.click(view.getByRole('button', { name: '签发 5 分钟 operator 令牌' }))
+
+    expect(await view.findByText('emergency-token-value')).toBeTruthy()
+    fireEvent.click(view.getByRole('button', { name: '复制应急令牌' }))
+    await waitFor(() => { expect(writeText).toHaveBeenCalledWith('emergency-token-value') })
   })
 
   it('renews the short browser session through possession before expiry', async () => {
