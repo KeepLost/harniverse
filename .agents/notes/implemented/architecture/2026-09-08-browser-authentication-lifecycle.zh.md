@@ -16,6 +16,8 @@ Connection 通过该能力处理受保护 HTTP 和无法取得状态码的载体
 
 传输存活状态仍由 Connection 拥有。其健康状态可观察源从当前传输状态和认证快照派生稳定的基本值；下行仍打开不能覆盖需要刷新的认证状态。[状态插件](../../../../packages/client/ui-connection-status/README.md) 使用声明注入和框架绑定的可观察钩子，填充侧边栏拥有的 `sidebar.header.status` 根 slot。展开时位于字标与切换按钮之间，收起后的窄栏将只读图标放在合并的标识与切换控件下方。悬停或聚焦说明状态，包括手动刷新提示。图标不拥有网络操作或续期定时器。
 
+认证门渲染的文档——配对页与 `/auth/manage`——自带样式，因为它们在任何插件产物被取回之前就要绘制。外壳为它们持有两张样式表：`document.css`（设计 token 加文档重置，应用入口与认证门都会 import）与 `auth.css`（只有这两个文档会画的东西）。两者都不自行推导配色：ui-theme 的 index tap 已经把持久化偏好解析到 body 属性上，而 token 样式表的深色集正是以该属性为键，并且它会变换前端提供的每一个文档，`/auth/manage` 也在其中。若认证门再从操作系统推导一次配色，那么每一次经过它的启动——包括跳过认证的启动——都会把已存的 `dark` 偏好悄悄降级。
+
 本决策部分扩展[公钥 Grant 决策](2026-08-17-public-key-grant-authentication.md)，其中的配对、权限、撤销和凭据边界仍然有效。[WebSocket 载体决策](2026-08-04-websocket-downlink-carrier.md) 保持不变：HTTP 上行和两条只下行事件连接共享一个应用协议。
 
 ## Alternatives considered

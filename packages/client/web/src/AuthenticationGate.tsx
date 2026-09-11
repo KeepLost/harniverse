@@ -1,5 +1,5 @@
 /** Shell-owned device enrollment gate that runs before browser plugins load. */
-import { startTransition, useEffect, useRef, useState, type FormEvent } from 'react'
+import { startTransition, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import type { Root } from 'react-dom/client'
 import { BrowserAuthentication, BrowserAuthenticationRequired, type ClientAuthentication } from '@deepseek-ai/dsh-client-authentication'
 import {
@@ -11,6 +11,13 @@ import {
   type BrowserDevice,
 } from './browser-device.ts'
 import { markStartup, measureStartup } from './startup-timing.ts'
+// document.css first: auth.css reads its tokens. This document renders before
+// any plugin bundle is fetched, so it must carry both sheets itself. The dark
+// set keys on the body attribute the Host's index tap already resolved from the
+// durable preference (ui-theme injectBootTheme, applied to `/` and
+// `/auth/manage` alike), so nothing here resolves a colour scheme.
+import './document.css'
+import './auth.css'
 
 interface AuthenticationStatusResponse {
   mode: 'authenticated' | 'bypass'
@@ -113,6 +120,110 @@ export async function exchangeBrowserSession(device: BrowserDevice, signal?: Abo
 
 function isAuthenticationRejection(reason: unknown): boolean {
   return reason instanceof Error && reason.message.endsWith('(401)')
+}
+
+/**
+ * Render an ISO deadline as a locale-independent minute stamp. The document has
+ * no locale service and this text is compared against host output, so a fixed
+ * form beats a localized one.
+ * @param iso - ISO 8601 instant.
+ * @returns `YYYY-MM-DD HH:MM` in the instant's own (UTC) offset.
+ */
+function formatDeadline(iso: string): string {
+  return iso.slice(0, 16).replace('T', ' ')
+}
+
+/**
+ * Put one credential on the clipboard.
+ * @param value - text to copy.
+ * @returns true when the browser accepted the write.
+ */
+async function copyToClipboard(value: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(value)
+    return true
+  } catch {
+    // Swallows the clipboard rejection only: an insecure origin has no
+    // navigator.clipboard and a permissions policy can deny the write. The
+    // caller reports the failure, and the text stays selectable either way.
+    return false
+  }
+}
+
+/** Copy control for a credential the user would otherwise retype by hand. */
+function CopyButton({ label, value, onFailure }: {
+  label: string
+  value: string
+  onFailure: (message: string) => void
+}): React.JSX.Element {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      className="dsh-auth-btn dsh-auth-secondary dsh-auth-compact dsh-auth-copy"
+      aria-label={label}
+      onClick={() => {
+        void copyToClipboard(value).then((accepted) => {
+          if (accepted) setCopied(true)
+          else onFailure('浏览器拒绝了剪贴板访问，请手动选中文本复制')
+        })
+      }}
+    >{copied ? '已复制' : '复制'}</button>
+  )
+}
+
+/**
+ * Waiting-for-approval state: the approval code the user compares against the
+ * host, and the host command that approves this request.
+ */
+function PendingPairing({ pending, onCopyFailure }: {
+  pending: PendingEnrollment
+  onCopyFailure: (message: string) => void
+}): React.JSX.Element {
+  const command = `dsh auth device approve ${pending.id} --profile ${pending.kind === 'temporary' ? 'temporary' : 'owner'}`
+  return (
+    <div className="dsh-auth-pending">
+      <p className="dsh-auth-status">
+        <span className="dsh-auth-spinner" aria-hidden="true" />
+        正在等待主机批准「{pending.name}」
+      </p>
+      <div className="dsh-auth-credential">
+        <div className="dsh-auth-credential-body">
+          <p className="dsh-auth-credential-label">批准码</p>
+          <p className="dsh-auth-code">{pending.approvalCode}</p>
+        </div>
+        <CopyButton label="复制批准码" value={pending.approvalCode} onFailure={onCopyFailure} />
+      </div>
+      <div className="dsh-auth-command">
+        <p className="dsh-auth-credential-label">在主机执行</p>
+        <div className="dsh-auth-command-row">
+          <code>{command}</code>
+          <CopyButton label="复制主机命令" value={command} onFailure={onCopyFailure} />
+        </div>
+      </div>
+      <p className="dsh-auth-hint">
+        请先在主机终端核对批准码，再执行上面的命令。请求有效期至 {formatDeadline(pending.expiresAt)}，批准后本页面会自动继续。
+      </p>
+    </div>
+  )
+}
+
+/** Shared card chrome for both authentication pages: mark, product line, title. */
+function AuthCardHeader({ titleId, title, children }: {
+  titleId: string
+  title: string
+  children?: ReactNode
+}): React.JSX.Element {
+  return (
+    <header className="dsh-auth-head">
+      <div className="dsh-auth-mark" aria-hidden="true">DSH</div>
+      <div className="dsh-auth-titles">
+        <p className="dsh-auth-eyebrow">DeepSeek Harness</p>
+        <h1 id={titleId}>{title}</h1>
+      </div>
+      {children !== undefined && <div className="dsh-auth-head-actions">{children}</div>}
+    </header>
+  )
 }
 
 /** Browser device enrollment and signed reauthentication UI. */
@@ -271,49 +382,54 @@ export function AuthenticationGate({ onAuthenticated }: {
   }
 
   return (
-    <main className="dsh-auth-gate">
-      <section className="dsh-auth-panel" aria-labelledby="dsh-auth-title">
-        <div className="dsh-auth-mark" aria-hidden="true">DSH</div>
-        <p className="dsh-auth-eyebrow">DeepSeek Harness</p>
-        <h1 id="dsh-auth-title">配对此设备</h1>
+    <main className="dsh-auth">
+      <section className="dsh-auth-card" aria-labelledby="dsh-auth-title">
+        <AuthCardHeader titleId="dsh-auth-title" title="配对此设备" />
         {pending === undefined ? (
           <>
-            <p className="dsh-auth-copy">
+            <p className="dsh-auth-lede">
               {status?.sealed === true
-                ? '此实例尚无已批准设备。创建请求后，请在主机终端批准第一个 owner。'
-                : '使用此浏览器生成的设备密钥配对。私钥不可导出，服务器只保存公钥。'}
+                ? '此实例尚无已批准设备。创建配对请求后，请在主机终端批准第一个 owner。'
+                : '为这台设备生成一对密钥并申请配对，主机批准后即可使用。'}
             </p>
-            <form onSubmit={(event: FormEvent) => { event.preventDefault(); void enroll('device') }}>
-              <label htmlFor="dsh-auth-device-name">设备名称</label>
-              <input
-                id="dsh-auth-device-name"
-                type="text"
-                autoComplete="off"
-                spellCheck={false}
-                value={name}
-                onChange={(event) => { setName(event.target.value) }}
-                disabled={busy}
-                autoFocus
-              />
-              <button type="submit" disabled={busy || name.length === 0}>
-                {busy ? '准备中...' : '配对个人设备'}
-              </button>
-              <button type="button" disabled={busy || name.length === 0} onClick={() => { void enroll('temporary') }}>
-                临时使用公用设备
-              </button>
+            <form className="dsh-auth-form" onSubmit={(event: FormEvent) => { event.preventDefault(); void enroll('device') }}>
+              <div className="dsh-auth-field">
+                <label htmlFor="dsh-auth-device-name">设备名称</label>
+                <input
+                  id="dsh-auth-device-name"
+                  type="text"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={name}
+                  onChange={(event) => { setName(event.target.value) }}
+                  disabled={busy}
+                  autoFocus
+                />
+              </div>
+              <div className="dsh-auth-actions">
+                <button type="submit" className="dsh-auth-btn dsh-auth-primary" disabled={busy || name.length === 0}>
+                  {busy ? '准备中...' : '配对个人设备'}
+                </button>
+                <button
+                  type="button"
+                  className="dsh-auth-btn dsh-auth-secondary"
+                  disabled={busy || name.length === 0}
+                  onClick={() => { void enroll('temporary') }}
+                >
+                  临时使用公用设备
+                </button>
+              </div>
             </form>
+            <p className="dsh-auth-hint">
+              私钥留在此浏览器且不可导出，服务器只保存公钥。公用设备的密钥仅存在于内存中，关闭页面即失效。
+            </p>
           </>
         ) : (
-          <div className="dsh-auth-copy">
-            <p>配对请求正在等待批准。请核对批准码：</p>
-            <p><code>{pending.approvalCode}</code></p>
-            <p>主机命令：<code>dsh auth device approve {pending.id} --profile {pending.kind === 'temporary' ? 'temporary' : 'owner'}</code></p>
-            <p>批准后本页面会自动继续。</p>
-          </div>
+          <PendingPairing pending={pending} onCopyFailure={setError} />
         )}
         {error !== undefined && <p className="dsh-auth-error" role="alert">{error}</p>}
         {error !== undefined && (
-          <button className="dsh-auth-retry" type="button" onClick={() => { void check() }} disabled={busy}>重新检查</button>
+          <button className="dsh-auth-btn dsh-auth-secondary dsh-auth-retry" type="button" onClick={() => { void check() }} disabled={busy}>重新检查</button>
         )}
       </section>
     </main>
@@ -334,6 +450,8 @@ function AuthenticationManagement({ onLogout }: { onLogout: () => Promise<void> 
   const [issuedToken, setIssuedToken] = useState<string>()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(true)
+  /** Grant id awaiting revoke confirmation; at most one row asks at a time. */
+  const [confirming, setConfirming] = useState<string>()
 
   const reload = async (): Promise<void> => {
     setBusy(true)
@@ -421,33 +539,122 @@ function AuthenticationManagement({ onLogout }: { onLogout: () => Promise<void> 
   }
 
   return (
-    <main className="dsh-auth-gate">
-      <section className="dsh-auth-panel" aria-labelledby="dsh-auth-manage-title">
-        <p className="dsh-auth-eyebrow">DeepSeek Harness</p>
-        <h1 id="dsh-auth-manage-title">设备与授权</h1>
-        <button type="button" disabled={busy} onClick={() => { void logout() }}>退出当前会话</button>
-        <label htmlFor="dsh-auth-profile">新设备权限</label>
-        <select id="dsh-auth-profile" value={profile} onChange={(event) => { setProfile(event.target.value as keyof typeof MANAGEMENT_PROFILES) }}>
-          {Object.keys(MANAGEMENT_PROFILES).map(value => <option key={value} value={value}>{value}</option>)}
-        </select>
-        <h2>等待批准</h2>
-        {enrollments.length === 0 && <p>没有等待批准的设备。</p>}
-        {enrollments.map(request => (
-          <div key={request.id}>
-            <strong>{request.name}</strong> <code>{request.approvalCode}</code> ({request.kind})
-            <button type="button" disabled={busy} onClick={() => { void approve(request) }}>批准</button>
+    <main className="dsh-auth dsh-auth-wide">
+      <section className="dsh-auth-card" aria-labelledby="dsh-auth-manage-title">
+        <AuthCardHeader titleId="dsh-auth-manage-title" title="设备与授权">
+          <button type="button" className="dsh-auth-btn dsh-auth-ghost dsh-auth-compact" disabled={busy} onClick={() => { void logout() }}>
+            退出当前会话
+          </button>
+        </AuthCardHeader>
+
+        <section className="dsh-auth-block">
+          <div className="dsh-auth-block-head">
+            <h2>等待批准</h2>
+            <span className="dsh-auth-count">{enrollments.length}</span>
           </div>
-        ))}
-        <h2>已批准</h2>
-        {grants.map(grant => (
-          <div key={grant.id}>
-            <strong>{grant.name}</strong> ({grant.kind}) <small>{grant.capabilities.join(', ')}</small>
-            <button type="button" disabled={busy} onClick={() => { void revoke(grant.id) }}>撤销</button>
+          <p className="dsh-auth-hint">批准前请与申请设备核对批准码。</p>
+          <div className="dsh-auth-field dsh-auth-field-inline">
+            <label htmlFor="dsh-auth-profile">新设备权限</label>
+            <select id="dsh-auth-profile" value={profile} onChange={(event) => { setProfile(event.target.value as keyof typeof MANAGEMENT_PROFILES) }}>
+              {Object.keys(MANAGEMENT_PROFILES).map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
           </div>
-        ))}
-        <h2>应急访问</h2>
-        <button type="button" disabled={busy} onClick={() => { void issueEmergencyToken() }}>签发 5 分钟 operator 令牌</button>
-        {issuedToken !== undefined && <p><code>{issuedToken}</code><br />此令牌只显示一次，不能续期，也不能授权其他设备。</p>}
+          {enrollments.length === 0 && <p className="dsh-auth-empty">没有等待批准的设备。</p>}
+          <ul className="dsh-auth-list">
+            {enrollments.map(request => (
+              <li key={request.id} className="dsh-auth-row">
+                <div className="dsh-auth-row-main">
+                  <span className="dsh-auth-row-title">{request.name}</span>
+                  <span className="dsh-auth-badge">{request.kind}</span>
+                  <code className="dsh-auth-inline-code">{request.approvalCode}</code>
+                  <span className="dsh-auth-row-meta">请求有效期至 {formatDeadline(request.expiresAt)}</span>
+                </div>
+                <div className="dsh-auth-row-actions">
+                  <button type="button" className="dsh-auth-btn dsh-auth-primary dsh-auth-compact" disabled={busy} onClick={() => { void approve(request) }}>
+                    批准
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="dsh-auth-block">
+          <div className="dsh-auth-block-head">
+            <h2>已批准</h2>
+            <span className="dsh-auth-count">{grants.length}</span>
+          </div>
+          {grants.length === 0 && <p className="dsh-auth-empty">还没有已批准的设备。</p>}
+          <ul className="dsh-auth-list">
+            {grants.map(grant => (
+              <li key={grant.id} className="dsh-auth-row">
+                <div className="dsh-auth-row-main">
+                  <span className="dsh-auth-row-title">{grant.name}</span>
+                  <span className="dsh-auth-badge">{grant.kind}</span>
+                  {grant.capabilities.map(capability => (
+                    <span key={capability} className="dsh-auth-chip">{capability}</span>
+                  ))}
+                  <span className="dsh-auth-row-meta">
+                    {grant.expiresAt === undefined ? '长期有效' : `有效期至 ${formatDeadline(grant.expiresAt)}`}
+                  </span>
+                </div>
+                {/* Revoking cuts a device off immediately, so it asks once. */}
+                <div className="dsh-auth-row-actions">
+                  {confirming === grant.id ? (
+                    <>
+                      <button
+                        type="button"
+                        className="dsh-auth-btn dsh-auth-danger dsh-auth-compact"
+                        disabled={busy}
+                        onClick={() => { setConfirming(undefined); void revoke(grant.id) }}
+                      >
+                        确认撤销
+                      </button>
+                      <button
+                        type="button"
+                        className="dsh-auth-btn dsh-auth-ghost dsh-auth-compact"
+                        disabled={busy}
+                        onClick={() => { setConfirming(undefined) }}
+                      >
+                        取消
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="dsh-auth-btn dsh-auth-danger dsh-auth-compact"
+                      disabled={busy}
+                      onClick={() => { setConfirming(grant.id) }}
+                    >
+                      撤销
+                    </button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="dsh-auth-block">
+          <h2>应急访问</h2>
+          <p className="dsh-auth-hint">短期 operator 令牌用于设备无法配对时的救急访问；它不能续期，也不能授权其他设备。</p>
+          <div className="dsh-auth-actions">
+            <button type="button" className="dsh-auth-btn dsh-auth-secondary" disabled={busy} onClick={() => { void issueEmergencyToken() }}>
+              签发 5 分钟 operator 令牌
+            </button>
+          </div>
+          {issuedToken !== undefined && (
+            <div className="dsh-auth-token">
+              <p className="dsh-auth-credential-label">一次性令牌</p>
+              <div className="dsh-auth-command-row">
+                <code>{issuedToken}</code>
+                <CopyButton label="复制应急令牌" value={issuedToken} onFailure={setError} />
+              </div>
+              <p className="dsh-auth-hint">此令牌只显示一次，离开本页后无法再次查看。</p>
+            </div>
+          )}
+        </section>
+
         {error !== undefined && <p className="dsh-auth-error" role="alert">{error}</p>}
       </section>
     </main>

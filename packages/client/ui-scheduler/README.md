@@ -12,6 +12,7 @@ Scheduled-task management surfaces: the global center view (`center.view`, opene
 | Slot | `conversation.session.header.actions`, id `schedule-list`, order 10 (before the job catalog). |
 | Trigger slot | `sidebar.footer.action`, id `schedule-view`, order 10 (after the Cordis panel); calls `ctx.layout.setCenterView('schedules')`. |
 | View slot | `center.view`, id `schedules`; covers the center column while the layout names it, and closes through `ctx.layout.clearCenterView()` (a session switch also clears it). |
+| Phone form | At the frame's `phone` form factor ([web styling](../../../docs/web-styling.md)) each table row draws as a card of label/value pairs, its header labels supplied per cell through `data-label`; the trigger matches the Settings row's geometry so the two footer entries share one left edge. |
 | Store | One shared `createScheduleViewStore` instance: the center view writes occupancy on mount/unmount, the footer trigger mirrors it as its pressed affordance. |
 | Data | One Remote read per view mount plus one after each mutation; no business store, the storage-domain table stays authoritative. |
 | Mutations | The header rides session-owned `update`/`delete`; the view rides global `updateAny`/`deleteAny` (capability-authenticated) and attributes creation to the current session through `create`. |

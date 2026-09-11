@@ -1,0 +1,46 @@
+/* Document base for EVERY shell document, not just the loaded app: the token
+ * sheets plus the html/body/#root reset.
+ *
+ * Both shell entries import this sheet, and that is the point. The
+ * authentication document renders before a single plugin bundle is fetched, so
+ * a sheet reachable only through the app entry (base.css) leaves it with no
+ * tokens and no reset at all. Sharing one module also keeps the bytes shared:
+ * the bundler emits it once for the entry both documents descend from.
+ *
+ * Sheets only the loaded app needs (scrollbar, shiki) stay in base.css. */
+@import '@deepseek-ai/dsh-client-ui-theme/styles/base.css';
+@import '@deepseek-ai/dsh-client-ui-theme/styles/design-platform.css';
+@import '@deepseek-ai/dsh-client-ui-theme/styles/gradient-shadow-text.css';
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+/* Native UA chrome follows the OS preference until the theme presenter pins a
+ * resolved scheme; the authentication document has no presenter at all. */
+html {
+  color-scheme: light dark;
+}
+
+body {
+  font-family: var(--dsw-font-family);
+  /* Grayscale antialiasing over subpixel rendering: WebKit/Blink and the
+     Firefox macOS equivalent; other engines ignore both lines. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+}
+
+/* Form controls don't inherit the body font (UA sheets pin their families —
+   Chrome buttons fall back to Arial, textareas to monospace), so the app
+   stack is re-applied to them explicitly, as upstream's global reset does. */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}

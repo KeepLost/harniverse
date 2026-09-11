@@ -29,6 +29,36 @@
   border-right: 1px solid var(--dsw-alias-border-l1);
 }
 
+/* Phone form: the expanded sidebar leaves its grid track at the rail width and
+   covers the center column instead, so the center geometry never changes and
+   the frame stays single-column. Width is the frame's solved overlay width. */
+.frame[data-sidebar-drawer] .sidebarCol {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 26;
+  /* border-box so the solved overlay width is the drawer's outer edge, which is
+     also where the scrim below starts. */
+  box-sizing: border-box;
+  width: var(--dsh-frame-sidebar-drawer-width);
+  box-shadow: var(--dsw-shadow-lv3);
+}
+
+/* Tap-outside exit for the phone drawer: it owns exactly the strip the drawer
+   leaves exposed. The drawer is opaque, so there is nothing to dim underneath
+   it, and a scrim spanning the whole frame would bury its own hit area under
+   the drawer — the gesture would land on the sidebar it means to dismiss. */
+.sidebarScrim {
+  position: absolute;
+  inset: 0 0 0 var(--dsh-frame-sidebar-drawer-width);
+  z-index: 25;
+  border: 0;
+  padding: 0;
+  background: var(--dsw-alias-bg-mask-1);
+  cursor: pointer;
+}
+
 .centerCol {
   position: relative; /* anchors the center-view layer, which covers the column */
   min-width: 0;

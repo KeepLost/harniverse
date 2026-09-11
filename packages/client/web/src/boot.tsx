@@ -48,6 +48,8 @@ import { waitForBrowserAuthentication } from './AuthenticationGate.tsx'
 import { getStaticModules } from './seed.ts'
 import { STATE_LABELS, createLoaderStatusStore, createSignal } from './loader-status.ts'
 import { markStartup, measureStartup } from './startup-timing.ts'
+// document.css first: base.css's sheets read its tokens.
+import './document.css'
 import './base.css'
 
 declare module '@deepseek-ai/cordis' {
