@@ -1989,6 +1989,26 @@
       "doc": "docs/subsystems/feedback.md",
       "symbol": "MessageFeedbackDeleteResult",
       "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/governor.md",
+      "symbol": "ResourceSample",
+      "source": "packages/monitor/governor/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/governor.md",
+      "symbol": "CommandView",
+      "source": "packages/monitor/governor/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/governor.md",
+      "symbol": "SessionQuotaState",
+      "source": "packages/monitor/governor/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/governor.md",
+      "symbol": "GovernorBreachRecord",
+      "source": "packages/monitor/governor/src/types.ts"
     }
   ]
 }

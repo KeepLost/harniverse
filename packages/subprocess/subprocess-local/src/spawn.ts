@@ -64,6 +64,8 @@ export interface SpawnInternals {
   platform?: NodeJS.Platform
   /** Linux process-group member probe (defaults to `/proc` inspection). */
   linuxProcessGroupHasLiveMembers?: (processGroupId: number) => boolean | undefined
+  /** Overrides the `prlimit` availability probe result for tests. */
+  prlimitAvailable?: boolean
 }
 
 /**

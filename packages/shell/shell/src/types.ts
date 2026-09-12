@@ -8,7 +8,7 @@
  */
 
 import type { SandboxEnforcement, SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import type { CollectedOutput, DshEnvironment } from '@deepseek-ai/dsh-subprocess'
+import type { CollectedOutput, DshEnvironment, SubprocessCorrelation, SubprocessLimits } from '@deepseek-ai/dsh-subprocess'
 
 export { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-subprocess'
 export type { CollectedOutput, DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-subprocess'
@@ -76,6 +76,14 @@ export interface ShellExecRequest {
   dshEnv?: DshEnvironment | undefined
   /** Fully resolved per-call sandbox policy; sandboxing executors default it. */
   sandboxPolicy?: SandboxExecutionPolicy | undefined
+  /**
+   * Metering identity carried through to the subprocess provider: present
+   * requests opt the command into resource metering and quota enforcement.
+   * The model-facing bash tool stamps it from the calling agent's session.
+   */
+  correlation?: SubprocessCorrelation | undefined
+  /** Resource bounds the provider should enforce for this command. */
+  limits?: SubprocessLimits | undefined
 }
 
 /**
@@ -107,6 +115,10 @@ export interface ShellExecSpec {
   dshEnv?: DshEnvironment | undefined
   /** Resolved sandbox policy; ignored by executors that do not confine. */
   sandboxPolicy: SandboxExecutionPolicy | undefined
+  /** Metering identity carried verbatim from {@link ShellExecRequest.correlation}. */
+  correlation?: SubprocessCorrelation | undefined
+  /** Resource bounds carried verbatim from {@link ShellExecRequest.limits}. */
+  limits?: SubprocessLimits | undefined
 }
 
 /** The outcome of one completed (or killed) foreground run. */

@@ -106,6 +106,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   supervision: 'supervision.md',
   subagents: 'subagent.md',
   subprocess: 'subprocess.md',
+  governor: 'governor.md',
   systemPrompt: 'system-prompt.md',
   jobs: 'jobs.md',
   sessionTelemetry: 'session-telemetry.md',
@@ -176,6 +177,8 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
  * {@link EVENT_WALK_EXEMPTIONS} names each one with its documentation owner.
  */
 export const EVENT_SCOPE_PAGE: Record<string, string> = {
+  'subprocess': 'subprocess.md',
+  'governor': 'governor.md',
   'agent': 'core.md',
   'agent-loop': 'core.md',
   'agent-presets': 'capabilities.md',
@@ -627,6 +630,15 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   SessionDeliveryRequest: 'delivery input is owned by packages/session-query/session-delivery/README.md',
   ContextResetResult: 'reset result is owned by packages/context/context-reset/README.md',
   ScheduleRecord: 'scheduler record is owned by packages/schedule/scheduler/README.md',
+  SubprocessMeteredSpawn: 'metering event contract is owned by packages/monitor/governor/README.md',
+  SubprocessMeteredExit: 'metering event contract is owned by packages/monitor/governor/README.md',
+  SubprocessMeteredTerminalSpawn: 'metering event contract is owned by packages/monitor/governor/README.md',
+  SubprocessMeteredTerminalExit: 'metering event contract is owned by packages/monitor/governor/README.md',
+  GovernorBreachRecord: 'breach record is owned by packages/monitor/governor/README.md',
+  SessionQuotaState: 'quota state is owned by packages/monitor/governor/README.md',
+  GovernorOverview: 'board overview is owned by packages/monitor/governor/README.md',
+  CommandView: 'command view is owned by packages/monitor/governor/README.md',
+  GovernorConfig: 'governor config is owned by packages/monitor/governor/README.md',
   SchedulePromptEdit: 'scheduler prompt provenance is owned by packages/schedule/scheduler/README.md',
   ScheduleRun: 'scheduler run history is owned by packages/schedule/scheduler/README.md',
   ScheduleCreateRemoteInput: 'remote creation input is owned by packages/schedule/scheduler/README.md',

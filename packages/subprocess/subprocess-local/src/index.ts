@@ -11,18 +11,20 @@
 import { constants } from 'node:fs'
 import { access, stat } from 'node:fs/promises'
 import { delimiter, extname, isAbsolute, resolve } from 'node:path'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import * as nodePty from 'node-pty'
 import type { IPtyForkOptions } from 'node-pty'
 import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import type {
   SubprocessHandle,
+  SubprocessOutcome,
   SubprocessSpawnSpec,
   SubprocessTerminalHandle,
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import { childEnv, spawnSubprocess } from './spawn.ts'
 import type { LocalSubprocessHandle, SpawnInternals } from './spawn.ts'
+import { applyAddressSpaceLimit } from './metering.ts'
 import { createProcessInspector } from './process-inspector.ts'
 import type { ProcessInspector } from './process-inspector.ts'
 import { LocalTerminalHandle } from './terminal.ts'
@@ -43,6 +45,8 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
   internals: SpawnInternals = {}
   /** Test hook for platform process inspection; production resolves lazily on terminal spawn. */
   terminalInspector: ProcessInspector | undefined
+  /** Whether `prlimit` can front address-space-limited spawns; probed on init, optimistic until then. */
+  private prlimitAvailable = process.platform === 'linux'
 
   constructor(ctx: Context) {
     super(ctx)
@@ -57,6 +61,26 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
         }
       }
     }, 'local subprocess teardown')
+  }
+
+  protected async [Service.init](): Promise<void> {
+    this.prlimitAvailable = await this.probePrlimit()
+  }
+
+  /**
+   * Resolve `prlimit` availability for address-space-limited spawns: the
+   * explicit test override wins, non-Linux platforms have no util-linux, and
+   * Linux resolves the binary on PATH once per boot.
+   * @returns whether rlimit prefixing is available.
+   */
+  protected async probePrlimit(): Promise<boolean> {
+    if (this.internals.prlimitAvailable !== undefined) {
+      return this.internals.prlimitAvailable
+    }
+    if ((this.internals.platform ?? process.platform) !== 'linux') {
+      return false
+    }
+    return await this.resolveExecutable('prlimit').then(() => true, () => false)
   }
 
   private terminateForHostExit(): void {
@@ -144,7 +168,13 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
   }
 
   spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
-    const handle = spawnSubprocess(spec, this.internals)
+    const argv = applyAddressSpaceLimit(spec.argv, spec.limits, {
+      platform: process.platform,
+      // The internals override stays live at spawn time for tests; production
+      // reads the cached boot probe result.
+      prlimitAvailable: this.internals.prlimitAvailable ?? this.prlimitAvailable,
+    })
+    const handle = spawnSubprocess(argv === spec.argv ? spec : { ...spec, argv }, this.internals)
     this.live.add(handle)
     // Release ownership only once the whole TREE is gone, not at direct-child
     // settlement — a TERM-trapping helper that outlives the leader must stay
@@ -153,6 +183,16 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     const release = (): Promise<void> =>
       handle.waitForExit().then(() => { this.live.delete(handle) })
     handle.done.then(release, release)
+    if (spec.correlation !== undefined && handle.pid > 0) {
+      const correlation = spec.correlation
+      this.ctx.emit('subprocess/spawned', { correlation, handle })
+      const reportExit = (outcome: SubprocessOutcome): void => {
+        this.ctx.emit('subprocess/exited', { correlation, handle, outcome })
+      }
+      // Spawn-level failures carry no exit facts; metering consumers still
+      // need the paired exit to drop the command from their live sets.
+      handle.done.then(reportExit, () =>{  reportExit({ exitCode: null, signal: null }) })
+    }
     return handle
   }
 
@@ -175,6 +215,14 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     const terminal = nodePty.spawn(file, [...spec.argv.slice(1)], options)
     const handle = new LocalTerminalHandle(terminal, inspector, spec.graceMs)
     this.terminals.add(handle)
+    if (spec.correlation !== undefined && handle.pid > 0) {
+      const correlation = spec.correlation
+      this.ctx.emit('subprocess/terminal-spawned', { correlation, handle })
+      const reportExit = (outcome: SubprocessOutcome): void => {
+        this.ctx.emit('subprocess/terminal-exited', { correlation, handle, outcome })
+      }
+      handle.done.then(reportExit, () =>{  reportExit({ exitCode: null, signal: null }) })
+    }
     const release = async (): Promise<void> => {
       await handle.terminate()
       this.terminals.delete(handle)

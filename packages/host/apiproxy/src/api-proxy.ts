@@ -4472,6 +4472,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           model: selection.model,
           attachedSessions: ctx.agents.list().length,
           canOpenPath: canOpenPaths(),
+          // Optional governor: the tier it resolved tells clients what
+          // enforcement backs the resource board (absent when unmounted).
+          ...(ctx.get('governor') as { overview(): { tier: 'cgroup' | 'rlimit' | 'observe' } } | undefined) !== undefined
+            ? { resourceGovernor: { tier: (ctx.get('governor') as { overview(): { tier: 'cgroup' | 'rlimit' | 'observe' } }).overview().tier } }
+            : {},
         }))
       },
 

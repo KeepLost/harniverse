@@ -186,6 +186,7 @@
     { "path": "./packages/feedback/command-feedback" },
     { "path": "./packages/schedule/schedule" },
     { "path": "./packages/schedule/scheduler" },
+    { "path": "./packages/monitor/governor" },
     { "path": "./packages/schedule/tool-scheduler" },
     { "path": "./packages/context/time-context" },
     { "path": "./packages/context/context-snapshot" },

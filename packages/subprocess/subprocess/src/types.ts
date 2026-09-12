@@ -67,6 +67,30 @@ export interface SubprocessStdio {
 }
 
 /**
+ * Runtime identity of one metered execution: which session asked for it and
+ * which command invocation it answers to. Consumers that stamp a correlation
+ * opt the spawn into resource metering; unstamped spawns stay unmetered.
+ */
+export interface SubprocessCorrelation {
+  /** Owning session id (the agent whose command is running). */
+  readonly sessionId: string
+  /** Caller-stable command invocation id (e.g. the tool call id). */
+  readonly commandId: string
+  /** Execution surface that stamped the correlation. */
+  readonly kind: 'shell' | 'terminal' | 'other'
+}
+
+/**
+ * Kernel-enforced resource bounds requested for one spawn. Providers apply
+ * them best-effort with substrate-appropriate mechanisms; the absence of a
+ * bound means unbounded, not a hidden default.
+ */
+export interface SubprocessLimits {
+  /** Address-space (approximate resident-memory) ceiling in bytes. */
+  readonly maxMemoryBytes?: number
+}
+
+/**
  * A fully-specified spawn request. This seam applies no defaults: every
  * disposition, limit, and directory is explicit, so the caller's own config —
  * not a hidden subprocess-service default — decides them (the `dsh-shell`
@@ -101,6 +125,15 @@ export interface SubprocessSpawnSpec {
    * tombstone that removes an ordinary ambient entry from the child.
    */
   env?: NodeJS.ProcessEnv | undefined
+  /**
+   * Metering identity: stamps the spawn as belonging to one session command.
+   * Present spawns are reported through `subprocess/spawned` / `subprocess/exited`
+   * and become eligible for resource metering; absent spawns stay private to
+   * their spawner.
+   */
+  correlation?: SubprocessCorrelation | undefined
+  /** Resource bounds the provider should enforce for this spawn. */
+  limits?: SubprocessLimits | undefined
 }
 
 /**
@@ -216,6 +249,8 @@ export interface SubprocessTerminalSpawnSpec {
   graceMs: number
   /** Cancellation of terminal allocation; a published handle owns its later lifetime. */
   signal?: AbortSignal | undefined
+  /** Metering identity for the terminal session (see {@link SubprocessSpawnSpec.correlation}). */
+  correlation?: SubprocessCorrelation | undefined
 }
 
 /** Current foreground process-group facts for one terminal. */
