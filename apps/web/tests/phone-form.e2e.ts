@@ -5,15 +5,18 @@
 // instead of clipping, an expanded sidebar overlays the center column, the two
 // footer triggers share one left edge, the settings panel is a full-bleed
 // sheet with a horizontal nav, and the eight-column schedule table becomes a
-// card per row.
+// card per row. A second scaffold replays one recorded round trip at the same
+// width so the turn-end meta line (clock · duration · TTFT · throughput) is
+// asserted against real transcript content.
 import { mkdtemp, mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { launchWebScaffold, seedBlankSession, watchConsole, type WebScaffold } from './scaffold.ts'
-import { ZH_BROWSER_LOCALE, saveFailureShot } from './support.ts'
+import { connectFreshWorkspaceZh, ZH_BROWSER_LOCALE, saveFailureShot } from './support.ts'
 
 /** iPhone-class portrait viewport: the narrowest width the phone form claims. */
 const PHONE = { width: 390, height: 844 }
@@ -90,20 +93,26 @@ describe('web e2e: phone form factor', () => {
     expect(overflow).toBe(0)
   })
 
-  it('stacks the composer row instead of overlapping its two groups', async () => {
+  it('stacks the composer row into two lines with the send seat spanning both', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-phone-composer'))
-    const tools = page.locator('[class*="tools"]').first()
-    const trailing = page.locator('[class*="trailing"]').first()
-    await tools.waitFor({ timeout: 15_000 })
-    const left = (await tools.boundingBox())!
-    const right = (await trailing.boundingBox())!
-    // Either the groups sit side by side or the row wrapped; what must never
-    // happen is the two overlapping.
-    const disjoint = left.x + left.width <= right.x + 1 || left.y + left.height <= right.y + 1
-    expect(disjoint).toBe(true)
-    // Both groups stay inside the viewport: nothing is pushed out of reach.
-    expect(left.x).toBeGreaterThanOrEqual(0)
-    expect(right.x + right.width).toBeLessThanOrEqual(PHONE.width + 1)
+    const card = page.locator('[data-composer-card]').first()
+    await card.waitFor({ timeout: 15_000 })
+    const buttonRow = (await card.locator('[class*="tools"]').first().boundingBox())!
+    const modelRow = (await card.locator('[class*="trailing"]').first().boundingBox())!
+    const sendSeat = (await card.locator('[class*="sendSeat"]').first().boundingBox())!
+    // The model row is a line of its own below the button group, so a long
+    // model name can no longer crowd the mode chips out of the card.
+    expect(modelRow.y).toBeGreaterThanOrEqual(buttonRow.y + buttonRow.height - 1)
+    // The send seat spans both lines and centers on their shared midline.
+    expect(sendSeat.y).toBeLessThan(modelRow.y)
+    expect(sendSeat.y + sendSeat.height).toBeGreaterThanOrEqual(modelRow.y + modelRow.height - 1)
+    const blockTop = Math.min(buttonRow.y, sendSeat.y)
+    const blockBottom = Math.max(buttonRow.y + buttonRow.height, modelRow.y + modelRow.height)
+    expect(Math.abs(sendSeat.y + sendSeat.height / 2 - (blockTop + blockBottom) / 2)).toBeLessThanOrEqual(1.5)
+    // All three groups stay inside the viewport: nothing is pushed out of reach.
+    expect(buttonRow.x).toBeGreaterThanOrEqual(0)
+    expect(modelRow.x).toBeGreaterThanOrEqual(0)
+    expect(sendSeat.x + sendSeat.width).toBeLessThanOrEqual(PHONE.width + 1)
   })
 
   it('wraps the stats line instead of clipping it', async () => {
@@ -224,5 +233,62 @@ describe('web e2e: phone form factor', () => {
     await view.getByText('还没有任何定时任务。').waitFor({ timeout: 10_000 })
     await view.getByRole('button', { name: '返回会话' }).click()
     await page.getByRole('region', { name: '定时任务' }).waitFor({ state: 'hidden', timeout: 10_000 })
+  })
+})
+
+/** The recorded drive prompt of the fresh-round-trip fixture (positional). */
+const ROUND_TRIP_PROMPT = 'Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop.'
+
+describe('web e2e: phone form factor turn meta line', () => {
+  let scaffold: WebScaffold
+  let browser: Browser
+  let page: Page
+  let tripwire: ReturnType<typeof watchConsole>
+  let harnessHome: string
+
+  beforeAll(async () => {
+    harnessHome = await mkdtemp(join(tmpdir(), 'dsh-web-phone-meta-home-'))
+    scaffold = await launchWebScaffold({
+      harnessHome,
+      replayFixture: fileURLToPath(new URL('./snapshots/fresh-round-trip/session.jsonl', import.meta.url)),
+      paceMs: 15,
+    })
+    browser = await chromium.launch()
+    page = await browser.newPage({ viewport: PHONE, locale: ZH_BROWSER_LOCALE })
+    tripwire = watchConsole(page)
+    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    await connectFreshWorkspaceZh(page, scaffold.workspaceCwd)
+    const input = page.locator('textarea').first()
+    await input.waitFor({ timeout: 10_000 })
+    const settled = scaffold.whenTurnSettled(120_000)
+    await input.fill(ROUND_TRIP_PROMPT)
+    await input.press('Enter')
+    await settled
+  }, 180_000)
+
+  afterAll(async () => {
+    await browser?.close()
+    await scaffold?.close()
+    await rm(harnessHome, { recursive: true, force: true })
+    expect(tripwire.warnings).toEqual([])
+    expect(tripwire.pageErrors).toEqual([])
+  })
+
+  it('wraps the turn-end meta line instead of overflowing the transcript', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-phone-turn-meta'))
+    const meta = page.locator('[class*="timeEnd"]').first()
+    await meta.waitFor({ timeout: 30_000 })
+    // The clock · duration · TTFT · throughput line gives up its nowrap at the
+    // phone form and breaks between its dot-separated segments instead of
+    // printing past the column edge (landscape and desktop keep one line).
+    expect(await styleOf(page, '[class*="timeEnd"]', 'white-space')).toBe('normal')
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+    expect(overflow).toBe(0)
+    const clipped = await page.evaluate(() => {
+      const node = document.querySelector('[class*="timeEnd"]')!
+      return node.scrollWidth > node.clientWidth + 1
+    })
+    expect(clipped).toBe(false)
   })
 })

@@ -17,6 +17,7 @@ const CSS = '../src/client/skeleton/ConversationRoot.module.css'
 const MESSAGE_CSS = '../src/client/chat/MessageItem.module.css'
 const INPUT_CSS = '../src/client/skeleton/InputBar.module.css'
 const STATS_CSS = '../src/client/chat/StatsLine.module.css'
+const ICON_CSS = '../src/client/chat/MessageIconActions.module.css'
 
 /** Declarations of every rule whose selector list contains the selector. */
 function declarationsOf(relative: string, selector: string): [string, string][] {
@@ -72,11 +73,26 @@ describe('composer row concession', () => {
     ] as [string, string][]))
   })
 
-  it('the narrowest card wraps the row rather than eliding a control to a bare chevron', () => {
-    // Both groups take the full line at the phone step; the row wraps them.
-    expect(declarationsOf(INPUT_CSS, '.tools')).toEqual(expect.arrayContaining([['flex', '1 1 100%']] as [string, string][]))
-    expect(declarationsOf(INPUT_CSS, '.trailing')).toEqual(expect.arrayContaining([['flex', '1 1 100%']] as [string, string][]))
-    expect(declarationsOf(INPUT_CSS, '.row')).toEqual(expect.arrayContaining([['flex-wrap', 'wrap']] as [string, string][]))
+  it('the wide card keeps the send pair as the rightmost flex item of the row', () => {
+    expect(declarationsOf(INPUT_CSS, '.trailing')).toEqual(expect.arrayContaining([
+      ['margin-left', 'auto'],
+    ] as [string, string][]))
+    expect(declarationsOf(INPUT_CSS, '.sendSeat')).toEqual(expect.arrayContaining([
+      ['flex', 'none'],
+    ] as [string, string][]))
+  })
+
+  it('the narrow card becomes a two-line grid with the send seat spanning both lines', () => {
+    // Phone portrait: one squeezed line cannot hold the button group AND a
+    // model name. Tools take the first line, model + context meter the second,
+    // and the send seat spans both at the right edge.
+    expect(declarationsOf(INPUT_CSS, '.row')).toEqual(expect.arrayContaining([
+      ['display', 'grid'],
+      ['grid-template-columns', 'minmax(0, 1fr) auto'],
+    ] as [string, string][]))
+    expect(declarationsOf(INPUT_CSS, '.tools')).toEqual(expect.arrayContaining([['grid-area', 'tools']] as [string, string][]))
+    expect(declarationsOf(INPUT_CSS, '.trailing')).toEqual(expect.arrayContaining([['grid-area', 'trail']] as [string, string][]))
+    expect(declarationsOf(INPUT_CSS, '.sendSeat')).toEqual(expect.arrayContaining([['grid-area', 'seat']] as [string, string][]))
   })
 })
 
@@ -86,5 +102,19 @@ describe('session stats row', () => {
     expect(phone['white-space']).toBe('normal')
     expect(phone.overflow).toBe('visible')
     expect(phone['padding-inline']).toBe('var(--dsh-composer-side-clearance)')
+  })
+})
+
+describe('turn meta line', () => {
+  it('wraps on a phone frame instead of overflowing past the icon actions', () => {
+    // The clock · duration · TTFT · throughput line is nowrap on wide frames;
+    // a 390px column cannot hold it beside the icons, so the row wraps and
+    // grows past the single-line height only when a second line is needed.
+    const phone = Object.fromEntries(declarationsOf(ICON_CSS, ":global([data-viewport='phone']) .actions"))
+    expect(phone['flex-wrap']).toBe('wrap')
+    expect(phone.height).toBe('auto')
+    expect(phone['min-height']).toBe('calc(28px + var(--dsw-content-font-delta, 0px))')
+    const time = Object.fromEntries(declarationsOf(ICON_CSS, ":global([data-viewport='phone']) .timeEnd"))
+    expect(time['white-space']).toBe('normal')
   })
 })
