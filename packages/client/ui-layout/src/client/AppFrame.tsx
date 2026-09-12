@@ -12,6 +12,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { IconPanelLeftOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   clampWidth, computeColumns, DETAILS_DRAWER_BREAKPOINT, DETAILS_MAX, DETAILS_MIN,
@@ -311,12 +312,21 @@ export function AppFrame({
   // absorbs the squeeze.
   const narrow = form !== 'regular'
   useEffect(() => { actions.setNarrow(narrow) }, [actions, narrow])
+
+  // Opening a center view is the natural exit from the phone sidebar drawer:
+  // the view covers the column the drawer would otherwise keep floating over
+  // (the drawer ranks above the center-view layer, below shell overlays).
+  useEffect(() => {
+    if (centerView !== undefined && form === 'phone' && panels.narrowExpanded) actions.toggleSidebar()
+  }, [actions, centerView, form, panels.narrowExpanded])
   const sidebarCollapsed = narrow ? !panels.narrowExpanded : panels.sidebar === 0
   // A phone frame has no room for a second track: an expanded sidebar overlays
-  // the center column instead of squeezing it to nothing, keeping the rail's
-  // grid width so the center geometry never changes. The overlay leaves the
-  // rail's width of center visible as the dismiss target.
+  // the center column instead of squeezing it to nothing, and even the
+  // collapsed frame gives up the compact rail's track — the center column owns
+  // the full width in both states, so its geometry never changes at all. The
+  // portrait entry to the sidebar is the floating control below, not a rail.
   const sidebarDrawer = form === 'phone' && !sidebarCollapsed
+  const sidebarHidden = form === 'phone' && !sidebarDrawer
   const sidebarPreference = sidebarCollapsed || sidebarDrawer
     ? 0
     : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
@@ -333,6 +343,9 @@ export function AppFrame({
     || dockedCols.details === 0
   )
   const cols = rightDrawer ? computeColumns(viewport, sidebarPreference, 0, rightLimits) : dockedCols
+  // Phone form: the sidebar never holds a track (collapsed hides it outright,
+  // expanded overlays), so the grid dedicates the frame to the center column.
+  const sidebarTrack = form === 'phone' ? 0 : cols.sidebar
   const colsRef = useRef(cols)
   colsRef.current = cols
 
@@ -361,17 +374,33 @@ export function AppFrame({
     else actions.closeDetails()
   }, [actions, right.mode])
 
+  // Escape closes the phone sidebar drawer, matching the right drawer's
+  // dismissal. Capture-phase: with both drawers open, this handler runs and
+  // stops the event before the right drawer's bubble-phase listener, so one
+  // Escape peels one layer instead of closing both.
+  useEffect(() => {
+    if (!sidebarDrawer) return
+    const onDocumentKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      actions.toggleSidebar()
+    }
+    document.addEventListener('keydown', onDocumentKeyDown, { capture: true })
+    return () => { document.removeEventListener('keydown', onDocumentKeyDown, { capture: true }) }
+  }, [actions, sidebarDrawer])
+
   return (
     <div
       ref={frameRef}
       className={css.frame}
       style={{
-        gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px`,
+        gridTemplateColumns: `${sidebarTrack}px minmax(0, 1fr) ${cols.details}px`,
         // Initial target widths, published for surfaces outside the columns
         // (the shell.overlay layer spans the whole frame and has no other way
         // to learn where a column's edge sits). The observer above refines
         // them to the animated used widths after layout.
-        '--dsh-frame-sidebar-width': `${String(cols.sidebar)}px`,
+        '--dsh-frame-sidebar-width': `${String(sidebarTrack)}px`,
         '--dsh-frame-right-width': `${String(cols.details)}px`,
         // Overlay width for the phone sidebar drawer; the CSS rule keyed on
         // data-sidebar-drawer reads it, so the column's presentation stays in
@@ -386,18 +415,37 @@ export function AppFrame({
       data-right-drawer={rightDrawer || undefined}
       data-dragging={dragging || undefined}
     >
-      <FrameRegion className={css.sidebarCol} blocked={rightDrawer && !sidebarDrawer}>
+      <FrameRegion className={css.sidebarCol} blocked={(rightDrawer || sidebarHidden) && !sidebarDrawer}>
         {/* Render-site slot call with live concession output: a closed
             sidebar keeps the mounted slot at the compact-rail width, and the
             component sees its rendered state as owner params decided here
             (collapsed follows the resolved rail, so a derived auto-collapse
             renders the rail UI too). An expanded phone sidebar reports its
-            overlay width, which is what it actually renders at. */}
+            overlay width, which is what it actually renders at; a collapsed
+            phone sidebar renders nothing visible (zero track, inert) — the
+            floating entry below is its only affordance. */}
         {renderSlot('sidebar', {
           collapsed: sidebarCollapsed,
-          width: sidebarDrawer ? sidebarDrawerWidth : cols.sidebar,
+          width: sidebarDrawer ? sidebarDrawerWidth : sidebarTrack,
         })}
       </FrameRegion>
+      {/* Portrait sidebar entry: the phone form's only collapsed affordance.
+          Mounted whenever the frame is a phone (stable tab order), hidden by
+          CSS while the drawer it opens covers it, and ranked below the center
+          view layer so a full-column view replaces it instead of sharing the
+          corner. The same glyph as the sidebar's own collapse toggle, so the
+          pair reads as one control. */}
+      {form === 'phone' && (
+        <button
+          type="button"
+          className={css.sidebarEntry}
+          aria-label={t('sidebar.open')}
+          aria-expanded={sidebarDrawer}
+          onClick={actions.toggleSidebar}
+        >
+          <IconPanelLeftOutline16 size={18} />
+        </button>
+      )}
       {/* Phone sidebar drawer dismiss target: the sliver of center column the
           overlay leaves visible. The sidebar's own toggle stays reachable
           inside the drawer, so this is a convenience, not the only exit. */}
