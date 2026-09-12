@@ -6,7 +6,7 @@
 
 该行跟随共享的授权感知 Settings 镜像。每次 mutation 都会在接纳脱敏 namespace 响应前校验 Host 附带的 principal 身份；principal generation 变化会同步清空权限值、选项、可写性、revision 与 saving 状态，即使写入仍在等待中也一样。结算被拒绝时不会发布前一 principal 的选择值或错误。
 
-当前会话界面仍是挂在 host `/permission` 命令上的 popupSelect **装饰**（`ctx.commandUi.decorate`）。装饰不是第二条命令——host 命令保留斜杠菜单行、带参路径（`/permission <preset>` 直接切换）与持久生命周期记账；装饰只把裸调用替换为选择框：一张扁平预设列表，当前值标记为 active，kebab-case 预设名渲染为 Title Case 标签（`workspace-write` → `Workspace Write`，与 composer chip 的显示变换孪生），选中即提交 `/permission <preset>` 命令行。选项与 active 标记读取会话的 `permissions` 投影（与 composer chip 渲染的同一份 host 计算 select），因此两个当前会话界面共享同一读源与同一写路径，推送的投影帧是两者共同跟随的唯一确认。装饰恰在投影 key 存在时可用；无权限组合既不显示选择框，也不显示 Settings 行。
+当前会话界面仍是挂在 host `/permission` 命令上的 popupSelect **装饰**（`ctx.commandUi.decorate`）。装饰不是第二条命令——host 命令保留斜杠菜单行、带参路径（`/permission <preset>` 直接切换）与持久生命周期记账；装饰只把裸调用替换为选择框：一张扁平预设列表，当前值标记为 active，内置预设渲染为本地化产品名（`workspace-write` → 中文「工作区内修改」，与 composer chip 的显示变换孪生），host 自定义预设保留其名称，选中即提交 `/permission <preset>` 命令行。选项与 active 标记读取会话的 `permissions` 投影（与 composer chip 渲染的同一份 host 计算 select），因此两个当前会话界面共享同一读源与同一写路径，推送的投影帧是两者共同跟随的唯一确认。装饰恰在投影 key 存在时可用；无权限组合既不显示选择框，也不显示 Settings 行。
 
 `/client` 导出面为插件本体（`apply`／`inject`）。
 
