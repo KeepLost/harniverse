@@ -1377,6 +1377,26 @@ describe('command launcher chrome and control seats', () => {
 
     expect(command).toHaveBeenCalledWith('/supervision unsupervised')
     expect((view.getByLabelText('Supervision mode: Unsupervised') as HTMLButtonElement).disabled).toBe(true)
+    // A mode glyph is what identifies the chip once a narrow composer row drops
+    // its label, so the trigger carries one alongside the chevron.
+    expect(trigger.querySelectorAll('svg').length).toBe(2)
+    await act(async () => {})
+  })
+
+  it('names supervision modes from the host instead of a hard-coded pair', async () => {
+    const supervision = {
+      options: [
+        { value: 'supervised' as const, name: '需要确认', description: '按配置提问。' },
+        { value: 'unsupervised' as const, name: '自主执行', description: '不等待人工决定。' },
+      ],
+      currentValue: 'unsupervised' as const,
+    }
+    const { view } = bench({ supervision, command: vi.fn(() => Promise.resolve(true)) })
+
+    const trigger = view.getByLabelText('Supervision mode: 自主执行')
+    expect(trigger.textContent).toContain('自主执行')
+    fireEvent.click(trigger)
+    expect(view.getByRole('menuitem', { name: '需要确认' })).toBeTruthy()
     await act(async () => {})
   })
 

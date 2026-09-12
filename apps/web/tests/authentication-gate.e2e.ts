@@ -42,6 +42,21 @@ describe('web e2e: authentication gate', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-authentication-gate'))
     const input = page.getByLabel('设备名称')
     await input.waitFor({ timeout: 30_000 })
+    // The authentication document renders before any plugin bundle, so its
+    // sheet AND the theme tokens must arrive with the entry rather than the
+    // post-authentication chunk — otherwise this page ships unstyled.
+    const chrome = await page.evaluate(() => {
+      const card = document.querySelector('.dsh-auth-card')
+      const styles = window.getComputedStyle(card as Element)
+      return {
+        radius: styles.borderTopLeftRadius,
+        bodyBackground: window.getComputedStyle(document.body).backgroundColor,
+        primaryFill: window.getComputedStyle(document.querySelector('.dsh-auth-primary') as Element).backgroundColor,
+      }
+    })
+    expect(chrome.radius).toBe('20px')
+    expect(chrome.bodyBackground).not.toBe('rgba(0, 0, 0, 0)')
+    expect(chrome.primaryFill).not.toBe('rgba(0, 0, 0, 0)')
     expect(pluginRequests).toEqual([])
     const sealedBundle = await page.request.get(`${scaffold.baseUrl}/plugins/@deepseek-ai/dsh-client-connection/client.js`)
     const sealedTopology = await page.request.get(`${scaffold.baseUrl}/plugins/events`)

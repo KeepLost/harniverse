@@ -16,6 +16,22 @@
 /** Resolved widths for one frame; center may drop below CENTER_MIN only at the final fallback. */
 export interface Columns { sidebar: number; center: number; details: number }
 
+/**
+ * The frame's coarse form factor, published as `data-viewport` on the frame
+ * element. It is the ONE breakpoint scale for the whole client: feature CSS
+ * selects on the frame attribute instead of declaring its own media query, so
+ * a component cannot invent a fourth width class.
+ *
+ * - `phone`: single-column device. The sidebar cannot hold a track beside the
+ *   center column, so an expanded sidebar overlays it (AppFrame).
+ * - `compact`: the sidebar auto-collapses to its rail but still holds a track.
+ * - `regular`: the full three-column desktop frame.
+ */
+export type ViewportForm = 'phone' | 'compact' | 'regular'
+
+/** Frame width below which the frame is a single-column phone surface. */
+export const VIEWPORT_PHONE_MAX = 600
+
 // Contract-frozen geometry: the three-column concession chain's fixed points.
 /** Center column floor; only the final fallback may go below it. */
 export const CENTER_MIN = 640
@@ -49,6 +65,18 @@ export const WORKBENCH_DEFAULT = 760
 export const WORKBENCH_CENTER_MIN = 480
 /** Workbench switches to a full-frame drawer below this width. */
 export const WORKBENCH_DRAWER_BREAKPOINT = 1320
+
+/**
+ * Classify a frame width into its form factor. Pure and hysteresis-free, like
+ * the column solve: crossing a boundary in either direction is symmetric.
+ * @param viewport - available frame width in px.
+ * @returns the form factor whose rules apply at that width.
+ */
+export function viewportForm(viewport: number): ViewportForm {
+  if (viewport < VIEWPORT_PHONE_MAX) return 'phone'
+  if (viewport < SIDEBAR_AUTO_COLLAPSE) return 'compact'
+  return 'regular'
+}
 
 /** Mode-specific right-column constraints. */
 export interface RightColumnLimits { centerMin: number; rightMin: number; rightMax: number }

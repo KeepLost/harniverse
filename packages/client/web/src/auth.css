@@ -1,0 +1,530 @@
+/* Authentication surface: device pairing and the owner's device/authorization
+ * management page. Both render BEFORE any plugin bundle is fetched, so this
+ * sheet is self-contained — plain class names rather than CSS Modules, no
+ * component library, and every value a `--dsw-*` token (document.css supplies
+ * them, including the dark set the gate turns on from the OS preference).
+ *
+ * Two card widths: pairing is a single decision in a 440px column, management
+ * is a list surface in a 760px one. Below the phone breakpoint both become a
+ * full-bleed sheet. The frame's data-viewport scale does not reach here — this
+ * document has no AppFrame — so this is one of the few sheets that owns a
+ * media query (docs/web-styling.md). */
+
+.dsh-auth {
+  box-sizing: border-box;
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 32px 24px;
+  /* Two soft washes over the base surface: a brand-tinted corner light and a
+     platform-toned diagonal, so the card reads as elevated without a literal
+     color anywhere. */
+  background:
+    radial-gradient(circle at 12% 10%, color-mix(in srgb, var(--dsw-alias-button-info-fill) 16%, transparent), transparent 38%),
+    radial-gradient(circle at 88% 92%, color-mix(in srgb, var(--dsw-alias-button-info-fill) 8%, transparent), transparent 42%),
+    linear-gradient(150deg, var(--dsw-alias-bg-base), var(--dsw-alias-bg-module-platform));
+}
+
+.dsh-auth-card {
+  box-sizing: border-box;
+  width: min(100%, 440px);
+  padding: 36px 36px 32px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 92%, transparent);
+  box-shadow: var(--dsw-shadow-lv3);
+}
+
+/* Management is a list surface, not a single decision: it needs the wider column. */
+.dsh-auth-wide .dsh-auth-card {
+  width: min(100%, 760px);
+}
+
+/* Identity block: mark beside the product line and the page title. */
+.dsh-auth-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.dsh-auth-mark {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  color: var(--dsw-alias-label-primary-foreground);
+  background: var(--dsw-alias-button-info-fill);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+
+.dsh-auth-titles {
+  min-width: 0;
+}
+
+.dsh-auth-eyebrow {
+  margin: 0 0 2px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.dsh-auth-card h1 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 30px;
+  font-weight: 600;
+}
+
+.dsh-auth-lede {
+  margin: 20px 0 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.dsh-auth-hint {
+  margin: 12px 0 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* ---- form ---- */
+
+.dsh-auth-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.dsh-auth-field {
+  display: grid;
+  gap: 6px;
+}
+
+.dsh-auth-field label {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.dsh-auth-field input,
+.dsh-auth-field select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 12px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+  font-size: 14px;
+  outline: none;
+}
+
+.dsh-auth-field input:hover:not(:disabled),
+.dsh-auth-field select:hover:not(:disabled) {
+  border-color: var(--dsw-alias-border-l4);
+}
+
+.dsh-auth-field input:focus-visible,
+.dsh-auth-field select:focus-visible {
+  border-color: var(--dsw-alias-button-info-fill);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-button-info-fill) 22%, transparent);
+}
+
+.dsh-auth-field input:disabled,
+.dsh-auth-field select:disabled {
+  color: var(--dsw-alias-label-dimmed);
+  cursor: default;
+}
+
+/* Inline field: label beside the control, for a list section's own setting. */
+.dsh-auth-field-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dsh-auth-field-inline select {
+  width: auto;
+  min-width: 160px;
+  min-height: 34px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.dsh-auth-actions {
+  display: grid;
+  gap: 10px;
+}
+
+/* ---- buttons: four tiers, so weight matches consequence ---- */
+
+.dsh-auth-btn {
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.dsh-auth-btn:disabled {
+  cursor: default;
+  opacity: .5;
+}
+
+.dsh-auth-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-button-info-fill) 30%, transparent);
+}
+
+/* Primary: the one action the page exists for. */
+.dsh-auth-primary {
+  color: var(--dsw-alias-label-primary-foreground);
+  background: var(--dsw-alias-button-info-fill);
+}
+
+.dsh-auth-primary:hover:not(:disabled) {
+  background: var(--dsw-alias-button-info-hover);
+}
+
+/* Secondary: a real alternative, deliberately quieter than primary. */
+.dsh-auth-secondary {
+  border-color: var(--dsw-alias-border-l3);
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+}
+
+.dsh-auth-secondary:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+}
+
+/* Ghost: navigation and escape hatches; carries no visual weight at rest. */
+.dsh-auth-ghost {
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+}
+
+.dsh-auth-ghost:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* Danger: destructive, and never the same color as its neighbour. */
+.dsh-auth-danger {
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 40%, transparent);
+  color: var(--dsw-alias-state-error-primary);
+  background: transparent;
+}
+
+.dsh-auth-danger:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+/* Compact variant for a row's trailing control. */
+.dsh-auth-compact {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 9px;
+  font-size: 13px;
+}
+
+/* ---- pending pairing: the credential the user must actually read ---- */
+
+.dsh-auth-pending {
+  margin-top: 24px;
+}
+
+.dsh-auth-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+}
+
+.dsh-auth-spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid color-mix(in srgb, var(--dsw-alias-button-info-fill) 28%, transparent);
+  border-top-color: var(--dsw-alias-button-info-fill);
+  border-radius: 50%;
+  animation: dsh-auth-spin 900ms linear infinite;
+}
+
+@keyframes dsh-auth-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dsh-auth-spinner {
+    animation: none;
+  }
+}
+
+/* Credential card: the approval code is the one thing on the page the user
+   compares against the host, so it gets the page's largest type. */
+.dsh-auth-credential {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.dsh-auth-credential-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.dsh-auth-credential-label {
+  margin: 0 0 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.dsh-auth-code {
+  margin: 0;
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--ds-font-family-code);
+  font-size: 26px;
+  line-height: 34px;
+  font-weight: 600;
+  /* Grouping by letter-spacing rather than inserted characters: the string
+     stays exactly what the host prints, so it can be compared and copied. */
+  letter-spacing: .22em;
+  overflow-wrap: anywhere;
+}
+
+/* Command block: the host-side instruction, kept selectable and copyable. */
+.dsh-auth-command {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-base);
+}
+
+.dsh-auth-command-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.dsh-auth-command code {
+  flex: 1;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--ds-font-family-code);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.dsh-auth-copy {
+  flex: none;
+}
+
+/* ---- management sections ---- */
+
+.dsh-auth-head-actions {
+  margin-left: auto;
+}
+
+.dsh-auth-block {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
+.dsh-auth-block-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.dsh-auth-card h2 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+}
+
+.dsh-auth-count {
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dsh-auth-empty {
+  margin: 12px 0 0;
+  color: var(--dsw-alias-label-caption);
+  font-size: 13px;
+}
+
+.dsh-auth-list {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dsh-auth-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-base);
+}
+
+.dsh-auth-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.dsh-auth-row-title {
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.dsh-auth-row-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dsh-auth-row-meta {
+  flex-basis: 100%;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.dsh-auth-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.dsh-auth-chip {
+  padding: 1px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--ds-font-family-code);
+  font-size: 11px;
+}
+
+.dsh-auth-inline-code {
+  color: var(--dsw-alias-label-secondary);
+  font-family: var(--ds-font-family-code);
+  font-size: 13px;
+  letter-spacing: .08em;
+}
+
+/* Issued token: shown once, never again — warn-toned so that reads as a
+   deadline rather than a success. */
+.dsh-auth-token {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warn-primary) 40%, transparent);
+  border-radius: 14px;
+  background: var(--dsw-alias-state-warn-tertiary);
+}
+
+.dsh-auth-token code {
+  display: block;
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--ds-font-family-code);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.dsh-auth-error {
+  margin: 20px 0 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 36%, transparent);
+  border-radius: 12px;
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.dsh-auth-retry {
+  width: 100%;
+  margin-top: 12px;
+}
+
+/* Phone form: the card becomes the document. Same rules as the app's phone
+   surfaces — a fixed-width panel is a full-bleed sheet here. */
+@media (max-width: 599px) {
+  .dsh-auth {
+    align-items: stretch;
+    padding: 0;
+  }
+
+  .dsh-auth-card,
+  .dsh-auth-wide .dsh-auth-card {
+    width: 100%;
+    min-height: 100%;
+    padding: 28px 20px 32px;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .dsh-auth-code {
+    font-size: 22px;
+    line-height: 30px;
+  }
+
+  .dsh-auth-command-row {
+    flex-direction: column;
+  }
+
+  .dsh-auth-copy {
+    align-self: flex-start;
+  }
+
+  .dsh-auth-row {
+    flex-wrap: wrap;
+  }
+
+  .dsh-auth-row-actions {
+    flex-basis: 100%;
+  }
+}

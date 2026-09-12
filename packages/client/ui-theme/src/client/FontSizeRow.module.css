@@ -54,3 +54,15 @@
   color: var(--dsw-alias-label-primary);
   box-shadow: inset 0 0 0 1px var(--dsw-static-neutral-bluish-400);
 }
+
+/* Phone form (frame data-viewport, ui-layout): the segmented control takes the
+   full column with equal segments instead of overflowing its 18px side pads. */
+:global([data-viewport='phone']) .segmentRow {
+  align-self: stretch;
+}
+
+:global([data-viewport='phone']) .segment {
+  flex: 1;
+  padding: 8px 4px;
+  text-align: center;
+}

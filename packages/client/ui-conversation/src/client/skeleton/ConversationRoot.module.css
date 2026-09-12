@@ -31,6 +31,14 @@
   --dsh-composer-dock-inset: 8px;
 }
 
+/* Phone form (frame data-viewport, ui-layout): W follows the column instead of
+   holding the 748px desktop floor, and the side clearance halves. The relation
+   W + 32 = input card still holds, so the whole column narrows together. */
+:global([data-viewport='phone']) .root {
+  --dsh-chat-content-width: min(748px, 100%);
+  --dsh-composer-side-clearance: 8px;
+}
+
 .header {
   position: relative;
   flex: none;

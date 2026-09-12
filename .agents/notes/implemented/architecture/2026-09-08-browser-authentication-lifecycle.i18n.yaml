@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-08-browser-authentication-lifecycle.md
-2026-09-08-browser-authentication-lifecycle.md: c770654aea00556428bace0a7d5bbbeef5a7b3f8
-2026-09-08-browser-authentication-lifecycle.zh.md: 3009455fe1e2bbb09aa776b034c50b034264f176
+2026-09-08-browser-authentication-lifecycle.md: e577a312c49ed6797c1d92d0528d02d86a189609
+2026-09-08-browser-authentication-lifecycle.zh.md: 49adc68b24860d73e464504bbfc40d1d04d3713d

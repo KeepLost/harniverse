@@ -14,8 +14,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { ReactNode } from 'react'
 import type { PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  computeColumns, DETAILS_DRAWER_BREAKPOINT, DETAILS_MAX, DETAILS_MIN,
-  SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, WORKBENCH_CENTER_MIN,
+  clampWidth, computeColumns, DETAILS_DRAWER_BREAKPOINT, DETAILS_MAX, DETAILS_MIN,
+  SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, viewportForm, WORKBENCH_CENTER_MIN,
   WORKBENCH_DRAWER_BREAKPOINT, WORKBENCH_MAX, WORKBENCH_MIN,
 } from './columns.ts'
 import {
@@ -299,18 +299,28 @@ export function AppFrame({
     }
   }, [])
 
+  // The frame's form factor is the client's ONE breakpoint scale, published as
+  // data-viewport below so feature CSS selects on it instead of declaring its
+  // own media query (columns.ts viewportForm).
+  const form = viewportForm(viewport)
   // Narrow viewports auto-collapse the sidebar; the store mirror keeps
   // toggleSidebar's semantics right (narrow toggles flip the manual
   // re-expand override, stores.ts). Collapsed is decided here, so the
   // solver stays breakpoint-free: a narrow re-expand passes the preference
   // (or the default when the wide preference is closed) and the center
   // absorbs the squeeze.
-  const narrow = viewport < SIDEBAR_AUTO_COLLAPSE
+  const narrow = form !== 'regular'
   useEffect(() => { actions.setNarrow(narrow) }, [actions, narrow])
   const sidebarCollapsed = narrow ? !panels.narrowExpanded : panels.sidebar === 0
-  const sidebarPreference = sidebarCollapsed
+  // A phone frame has no room for a second track: an expanded sidebar overlays
+  // the center column instead of squeezing it to nothing, keeping the rail's
+  // grid width so the center geometry never changes. The overlay leaves the
+  // rail's width of center visible as the dismiss target.
+  const sidebarDrawer = form === 'phone' && !sidebarCollapsed
+  const sidebarPreference = sidebarCollapsed || sidebarDrawer
     ? 0
     : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
+  const sidebarDrawerWidth = clampWidth(viewport - SIDEBAR_COLLAPSED, SIDEBAR_MIN, SIDEBAR_MAX)
   const right = rightPreferenceFor(panels, rightAccount)
   const rightOpen = detailsSession !== undefined && right.open
   const rightLimits = right.mode === 'workbench'
@@ -363,31 +373,49 @@ export function AppFrame({
         // them to the animated used widths after layout.
         '--dsh-frame-sidebar-width': `${String(cols.sidebar)}px`,
         '--dsh-frame-right-width': `${String(cols.details)}px`,
+        // Overlay width for the phone sidebar drawer; the CSS rule keyed on
+        // data-sidebar-drawer reads it, so the column's presentation stays in
+        // the sheet while the solved geometry stays here.
+        '--dsh-frame-sidebar-drawer-width': `${String(sidebarDrawerWidth)}px`,
       } as React.CSSProperties}
+      data-viewport={form}
+      data-sidebar-drawer={sidebarDrawer || undefined}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
       data-details-collapsed={cols.details === 0 || undefined}
       data-right-mode={right.mode}
       data-right-drawer={rightDrawer || undefined}
       data-dragging={dragging || undefined}
     >
-      <FrameRegion className={css.sidebarCol} blocked={rightDrawer}>
+      <FrameRegion className={css.sidebarCol} blocked={rightDrawer && !sidebarDrawer}>
         {/* Render-site slot call with live concession output: a closed
             sidebar keeps the mounted slot at the compact-rail width, and the
             component sees its rendered state as owner params decided here
             (collapsed follows the resolved rail, so a derived auto-collapse
-            renders the rail UI too). */}
+            renders the rail UI too). An expanded phone sidebar reports its
+            overlay width, which is what it actually renders at. */}
         {renderSlot('sidebar', {
           collapsed: sidebarCollapsed,
-          width: cols.sidebar,
+          width: sidebarDrawer ? sidebarDrawerWidth : cols.sidebar,
         })}
       </FrameRegion>
+      {/* Phone sidebar drawer dismiss target: the sliver of center column the
+          overlay leaves visible. The sidebar's own toggle stays reachable
+          inside the drawer, so this is a convenience, not the only exit. */}
+      {sidebarDrawer && (
+        <button
+          type="button"
+          className={css.sidebarScrim}
+          aria-label={t('sidebar.dismiss')}
+          onClick={actions.toggleSidebar}
+        />
+      )}
       <>
         {/* Both column occupants stay at fixed tree positions from first
             paint — no loading gate: a bare status line reads worse than the
             shell's own pending rendering. The conversation
             is session-maybe; the strict details entry naturally renders
             empty while no session is current. */}
-        <FrameRegion className={css.centerCol} blocked={false}>
+        <FrameRegion className={css.centerCol} blocked={sidebarDrawer}>
           {/* The conversation keeps its mounted identity under a center view;
               inert removes it from the tab and a11y trees while covered. */}
           <FrameRegion className={css.centerConversation} blocked={rightDrawer || centerView !== undefined}>
@@ -401,14 +429,14 @@ export function AppFrame({
         </FrameRegion>
         <DetailsColumn
           drawer={rightDrawer}
-          blocked={!rightOpen}
+          blocked={!rightOpen || sidebarDrawer}
           label={t(right.mode === 'workbench' ? 'drawer.workbench' : 'drawer.details')}
           onDismiss={closeRight}
         >
           {right.mode === 'workbench' ? renderSlot('workbench', { drawer: rightDrawer }) : renderSlot('details', {})}
         </DetailsColumn>
       </>
-      <FrameRegion className={css.overlayLayer} blocked={rightDrawer} overlay>
+      <FrameRegion className={css.overlayLayer} blocked={rightDrawer || sidebarDrawer} overlay>
         {renderSlot('shell.overlay', {
           rightMode: right.mode,
           rightOpen,
@@ -416,7 +444,7 @@ export function AppFrame({
         })}
       </FrameRegion>
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
-      {!rightDrawer && !sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} value={cols.sidebar} min={SIDEBAR_MIN} max={SIDEBAR_MAX} label={t('resize.sidebar')} onSet={actions.setSidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
+      {!rightDrawer && !sidebarCollapsed && !sidebarDrawer && <DragHandle side="sidebar" left={cols.sidebar} value={cols.sidebar} min={SIDEBAR_MIN} max={SIDEBAR_MAX} label={t('resize.sidebar')} onSet={actions.setSidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
       {cols.details > 0 && !rightDrawer && <DragHandle side="details" left={viewport - cols.details} value={cols.details} min={rightLimits.rightMin} max={rightLimits.rightMax} label={t('resize.right')} onSet={(value) => { actions.setRightWidth(right.mode, value) }} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} onReset={onDetailsReset} />}
     </div>
   )

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   CENTER_MIN, clampWidth, computeColumns,
-  DETAILS_DEFAULT, DETAILS_MIN, SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_MIN,
+  DETAILS_DEFAULT, DETAILS_MIN, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_MIN,
+  VIEWPORT_PHONE_MAX, viewportForm,
 } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
 
 // Numeric preference form (0 = closed); helpers keep the scenario names readable.
@@ -83,6 +84,22 @@ describe('computeColumns', () => {
     const restored = computeColumns(1920, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT))
     expect(restored.details).toBe(DETAILS_DEFAULT)
     expect(restored.sidebar).toBe(SIDEBAR_DEFAULT)
+  })
+})
+
+describe('viewportForm', () => {
+  it('classifies the three form factors on their boundaries', () => {
+    expect(viewportForm(390)).toBe('phone')
+    expect(viewportForm(VIEWPORT_PHONE_MAX - 1)).toBe('phone')
+    expect(viewportForm(VIEWPORT_PHONE_MAX)).toBe('compact')
+    expect(viewportForm(SIDEBAR_AUTO_COLLAPSE - 1)).toBe('compact')
+    expect(viewportForm(SIDEBAR_AUTO_COLLAPSE)).toBe('regular')
+    expect(viewportForm(1920)).toBe('regular')
+  })
+
+  it('is hysteresis-free: the same width always classifies the same way', () => {
+    expect(viewportForm(800)).toBe(viewportForm(800))
+    expect(viewportForm(VIEWPORT_PHONE_MAX)).not.toBe(viewportForm(VIEWPORT_PHONE_MAX - 1))
   })
 })
 

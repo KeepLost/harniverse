@@ -76,6 +76,7 @@
     "tests/shipped-composition.e2e.ts",
     "tests/schedule-after.e2e.ts",
     "tests/schedule-management.e2e.ts",
+    "tests/phone-form.e2e.ts",
     "tests/feedback-command.e2e.ts",
     "tests/startup-auto-selection.e2e.ts",
     "tests/produced-files.e2e.ts",
