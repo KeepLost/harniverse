@@ -598,15 +598,16 @@ describe('AppFrame — phone form factor', () => {
   it('expands the sidebar as an overlay instead of squeezing the center', () => {
     frameWidth = 390
     const { frame, instance, slotCalls } = mountFrame()
-    // Collapsed phone frame is the plain rail: no overlay, no scrim.
-    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    // Collapsed phone frame owns the full width: no rail track, no overlay,
+    // no scrim — the floating entry is the only sidebar affordance.
+    expect(tracks(frame)).toEqual([0, 0])
     expect(frame.hasAttribute('data-sidebar-drawer')).toBe(false)
 
     act(() => { instance.actions.toggleSidebar() })
 
-    // The grid track stays at the rail width — the center column keeps its
-    // geometry while the drawer covers it.
-    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    // The grid track stays at zero — the center column keeps its geometry
+    // while the drawer covers it.
+    expect(tracks(frame)).toEqual([0, 0])
     expect(frame.hasAttribute('data-sidebar-drawer')).toBe(true)
     expect(frame.style.getPropertyValue('--dsh-frame-sidebar-drawer-width')).toBe(`${String(390 - SIDEBAR_COLLAPSED)}px`)
     // The occupant is told the width it actually renders at.
@@ -615,6 +616,51 @@ describe('AppFrame — phone form factor', () => {
     // No resize handle for an overlay, and the covered center is inert.
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
     expect(frame.querySelector('[class*="centerCol"]')?.hasAttribute('inert')).toBe(true)
+  })
+
+  it('hides the collapsed sidebar entirely behind the floating entry', () => {
+    frameWidth = 390
+    const { frame, getByTestId, getByRole, slotCalls } = mountFrame()
+    // Zero track, and the mounted sidebar subtree leaves the a11y tree while
+    // invisible: its rail controls must not linger in the tab order.
+    expect(tracks(frame)).toEqual([0, 0])
+    const sidebarRegion = getByTestId('sidebar-content').parentElement!
+    expect(sidebarRegion.hasAttribute('inert')).toBe(true)
+    expect(sidebarRegion.getAttribute('aria-hidden')).toBe('true')
+    expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props).toEqual({ collapsed: true, width: 0 })
+
+    // The entry is the frame's own control: opens the drawer, reflects it.
+    const entry = getByRole('button', { name: '打开侧边栏' })
+    expect(entry.getAttribute('aria-expanded')).toBe('false')
+    act(() => { entry.click() })
+    expect(frame.hasAttribute('data-sidebar-drawer')).toBe(true)
+    expect(entry.getAttribute('aria-expanded')).toBe('true')
+    expect(getByTestId('sidebar-content').parentElement?.hasAttribute('inert')).toBe(false)
+  })
+
+  it('closes the phone drawer with Escape', () => {
+    frameWidth = 390
+    const { frame, getByRole } = mountFrame()
+    act(() => { getByRole('button', { name: '打开侧边栏' }).click() })
+    expect(frame.hasAttribute('data-sidebar-drawer')).toBe(true)
+
+    act(() => { fireEvent.keyDown(document, { key: 'Escape' }) })
+
+    expect(frame.hasAttribute('data-sidebar-drawer')).toBe(false)
+    expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
+  })
+
+  it('opening a center view exits the phone sidebar drawer', () => {
+    frameWidth = 390
+    const { frame, instance, getByTestId } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+    expect(frame.hasAttribute('data-sidebar-drawer')).toBe(true)
+
+    act(() => { instance.actions.setCenterView('schedules') })
+
+    // The drawer cannot keep floating over the view that replaced the column.
+    expect(frame.hasAttribute('data-sidebar-drawer')).toBe(false)
+    expect(getByTestId('center-view-content')).toBeTruthy()
   })
 
   it('dismisses the phone drawer through the scrim', () => {

@@ -39,6 +39,13 @@
   --dsh-composer-side-clearance: 8px;
 }
 
+/* Phone portrait parks the frame's floating sidebar entry (ui-layout) in the
+   header's leading corner, so the breadcrumb row cedes exactly that notch
+   instead of sharing the corner with the control. */
+:global([data-viewport='phone']) .header {
+  padding-left: 56px;
+}
+
 .header {
   position: relative;
   flex: none;

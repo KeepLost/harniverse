@@ -42,9 +42,9 @@ async function styleOf(page: Page, selector: string, property: string, pseudo?: 
  * Drive the sidebar to one state so each case starts from a known frame,
  * whatever the previous case left behind.
  * @param page - page under test.
- * @param want - `drawer` for the expanded overlay, `rail` for the collapsed rail.
+ * @param want - `drawer` for the expanded overlay, `closed` for the hidden portrait state.
  */
-async function sidebar(page: Page, want: 'drawer' | 'rail'): Promise<void> {
+async function sidebar(page: Page, want: 'drawer' | 'closed'): Promise<void> {
   const frame = page.locator('[data-viewport]').first()
   const open = await frame.getAttribute('data-sidebar-drawer') === 'true'
   if (open === (want === 'drawer')) return
@@ -86,11 +86,35 @@ describe('web e2e: phone form factor', () => {
     const frame = page.locator('[data-viewport]').first()
     await frame.waitFor({ timeout: 10_000 })
     expect(await frame.getAttribute('data-viewport')).toBe('phone')
-    // The sidebar auto-collapses to its rail below 1024px and the details
-    // column closes, so the frame fits the viewport exactly.
+    // The sidebar hides entirely below the phone breakpoint (no rail track)
+    // and the details column closes, so the frame fits the viewport exactly.
     expect(await frame.getAttribute('data-sidebar-drawer')).toBeNull()
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
     expect(overflow).toBe(0)
+  })
+
+  it('gives the portrait conversation the full width with a floating sidebar entry', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-phone-sidebar-entry'))
+    // The collapsed sidebar holds no track: the center column spans the
+    // viewport, and the corner entry is its only affordance.
+    const sidebarCol = (await page.locator('[class*="sidebarCol"]').first().boundingBox())!
+    expect(sidebarCol.width).toBe(0)
+    const center = (await page.locator('[class*="centerCol"]').first().boundingBox())!
+    expect(Math.abs(center.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(center.width - PHONE.width)).toBeLessThanOrEqual(1)
+
+    const entry = page.getByRole('button', { name: '打开侧边栏' })
+    await entry.waitFor({ timeout: 10_000 })
+    expect(await entry.getAttribute('aria-expanded')).toBe('false')
+    const entryBox = (await entry.boundingBox())!
+    // Parked in the reserved leading corner: the control box clears the
+    // frame edge and the conversation header's breadcrumb notch starts
+    // after it, so nothing sits underneath.
+    expect(entryBox.x).toBeGreaterThanOrEqual(8)
+    expect(entryBox.x + entryBox.width).toBeLessThanOrEqual(48)
+    expect(entryBox.y).toBeGreaterThanOrEqual(8)
+    // The hidden sidebar leaves no rail controls in the accessible page.
+    await page.getByRole('button', { name: '收起侧边栏' }).waitFor({ state: 'hidden', timeout: 10_000 })
   })
 
   it('stacks the composer row into two lines with the send seat spanning both', async () => {
@@ -133,11 +157,13 @@ describe('web e2e: phone form factor', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-phone-sidebar'))
     const frame = page.locator('[data-viewport]').first()
     await sidebar(page, 'drawer')
-    // The overlay is wider than the rail it replaced and stops short of the
-    // right edge so the center column stays visible behind it.
+    // The overlay is wider than the track it left (zero in this form) and
+    // stops short of the right edge so the center column stays visible
+    // behind it. The entry that opened it steps aside while it is up.
     const drawer = (await page.locator('[class*="sidebarCol"]').first().boundingBox())!
     expect(drawer.width).toBeGreaterThan(200)
     expect(drawer.width).toBeLessThan(PHONE.width)
+    await page.getByRole('button', { name: '打开侧边栏' }).waitFor({ state: 'hidden', timeout: 10_000 })
 
     // The scrim owns exactly the strip the drawer leaves exposed, so the
     // tap-outside gesture cannot land on the sidebar it is dismissing.
@@ -146,6 +172,14 @@ describe('web e2e: phone form factor', () => {
     expect(Math.abs(scrim.x - (drawer.x + drawer.width))).toBeLessThanOrEqual(1)
     expect(Math.abs(scrim.x + scrim.width - PHONE.width)).toBeLessThanOrEqual(1)
     await dismiss.click()
+    await expect.poll(() => frame.getAttribute('data-sidebar-drawer'), { timeout: 10_000 }).toBeNull()
+  })
+
+  it('closes the sidebar drawer with Escape', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-phone-sidebar-escape'))
+    const frame = page.locator('[data-viewport]').first()
+    await sidebar(page, 'drawer')
+    await page.keyboard.press('Escape')
     await expect.poll(() => frame.getAttribute('data-sidebar-drawer'), { timeout: 10_000 }).toBeNull()
   })
 
@@ -163,12 +197,12 @@ describe('web e2e: phone form factor', () => {
     expect(Math.abs(scheduleBox.width - settingsBox.width)).toBeLessThanOrEqual(1)
     expect(Math.abs(scheduleBox.height - settingsBox.height)).toBeLessThanOrEqual(1)
     expect(scheduleBox.y).toBeLessThan(settingsBox.y)
-    await sidebar(page, 'rail')
+    await sidebar(page, 'drawer')
   })
 
   it('opens the settings panel as a full-bleed sheet with a horizontal nav', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-phone-settings'))
-    await sidebar(page, 'rail')
+    await sidebar(page, 'drawer')
     await page.getByRole('button', { name: '设置', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '设置' })
     await dialog.waitFor({ timeout: 15_000 })
@@ -201,7 +235,7 @@ describe('web e2e: phone form factor', () => {
 
   it('renders each schedule table row as a card of labelled values', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-phone-schedules'))
-    await sidebar(page, 'rail')
+    await sidebar(page, 'drawer')
     await page.getByRole('button', { name: '打开定时任务' }).click()
     const view = page.getByRole('region', { name: '定时任务' })
     await view.waitFor({ timeout: 15_000 })
