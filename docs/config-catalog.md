@@ -873,7 +873,7 @@ export interface GovernorHistoryConfig {
 }
 ```
 
-Source: [`packages/monitor/governor/src/config.ts:35`](../packages/monitor/governor/src/config.ts)
+Source: [`packages/monitor/governor/src/types.ts:189`](../packages/monitor/governor/src/types.ts)
 
 <a id="deepseek-aidsh-headless"></a>
 

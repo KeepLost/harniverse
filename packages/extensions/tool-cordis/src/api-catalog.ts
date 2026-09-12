@@ -4410,20 +4410,8 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface GovernorConfig {\n    memory: GovernorMemoryConfig;\n    sampling: GovernorSamplingConfig;\n    history: GovernorHistoryConfig;\n}',
   },
   {
-    name: 'GovernorHistoryConfig',
-    declaration: 'export interface GovernorHistoryConfig {\n    persist: boolean;\n    resolutionMs: number;\n    retentionMs: number;\n}',
-  },
-  {
-    name: 'GovernorMemoryConfig',
-    declaration: 'export interface GovernorMemoryConfig {\n    limit: \'auto\' | number;\n}',
-  },
-  {
     name: 'GovernorOverview',
     declaration: 'export interface GovernorOverview {\n    readonly tier: GovernorTier;\n    readonly globalLimitBytes: number;\n    readonly liveRssBytes: number;\n    readonly sessions: readonly SessionResourceRow[];\n    readonly hostFreeBytes?: number;\n    readonly hostNetRxBytes?: number;\n    readonly hostNetTxBytes?: number;\n    readonly t: number;\n}',
-  },
-  {
-    name: 'GovernorSamplingConfig',
-    declaration: 'export interface GovernorSamplingConfig {\n    baseMs: number;\n    hotMs: number;\n}',
   },
   {
     name: 'GovernorTier',

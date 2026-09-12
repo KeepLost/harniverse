@@ -154,22 +154,22 @@ async adjustQuota(sessionId: string, memoryBytes: number | null, reason: 'board'
 @Remote({ exportName: 'sessionQuotaAdjust', requiredCapability: 'harniverse.operate' }) async sessionQuotaAdjust(sessionId: string, memoryBytes: number | null): Promise<SessionQuotaState>
 
 /**
-   * Breach history, newest first (`harniverse.observe`).
-   * @returns the bounded breach list.
-   */
+ * Breach history, newest first (`harniverse.observe`).
+ * @returns the bounded breach list.
+ */
 @Remote({ exportName: 'breaches', requiredCapability: 'harniverse.observe' }) breaches(): readonly GovernorBreachRecord[]
 
 /**
-   * Effective settings plus the resolved budget (`harniverse.observe`).
-   * @returns the config with `globalLimitBytes` attached.
-   */
+ * Effective settings plus the resolved budget (`harniverse.observe`).
+ * @returns the config with `globalLimitBytes` attached.
+ */
 @Remote({ exportName: 'configGet', requiredCapability: 'harniverse.observe' }) configGet(): GovernorConfig & { globalLimitBytes: number }
 
 /** Re-resolve settings and re-apply the global budget (`harniverse.administer`). */
 @Remote({ exportName: 'reload', requiredCapability: 'harniverse.administer' }) async reload(): Promise<void>
 ```
 
-Source: [`packages/monitor/governor/src/index.ts:121`](../../packages/monitor/governor/src/index.ts)
+Source: [`packages/monitor/governor/src/index.ts:129`](../../packages/monitor/governor/src/index.ts)
 
 <a id="governor-events"></a>
 

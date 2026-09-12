@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/governor.md
-governor.md: bc5a72d776de8c9996c5f21f4b8ccc1b26bc4101
-governor.zh.md: f3f93b348f516e1f0127f393269e446d0cd1d8be
+governor.md: a72c127246fd381797da5c77e9544c060ad66610
+governor.zh.md: c72d2217c95f401ce41b65e216cbe94bcd8f62b4
