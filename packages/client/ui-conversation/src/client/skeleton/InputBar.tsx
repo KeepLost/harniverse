@@ -837,6 +837,12 @@ export function InputBar({
             {rightItems}
             {renderSlot('conversation.input.model', { locked: modelSeatLocked })}
             <ContextMeter useProjection={useProjection} t={t} />
+          </div>
+          {/* The send/stop pair owns its own seat so the narrow-card grid can
+              span it across both control rows; on the wide card it is simply
+              the row's rightmost flex item, exactly where it sat inside the
+              trailing group. */}
+          <div className={css.sendSeat}>
             {interruptible && (
               <Tooltip label={t('input.stop')} side="top" delayMs={500}>
                 <button

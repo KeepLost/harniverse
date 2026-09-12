@@ -5,6 +5,7 @@ import type { PermissionSelect as PermissionSelectValue } from '@deepseek-ai/dsh
 import { IconChevronDownOutline14, Menu, RiskConfirmation } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ComposerBarProps } from '../contract/slots.ts'
+import { en } from '../locales.ts'
 import css from './PermissionSelect.module.css'
 
 const FULL_ACCESS = 'danger-full-access'
@@ -57,8 +58,30 @@ function displayName(name: string): string {
   return name.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
 }
 
-function optionLabel(option: PermissionSelectValue['options'][number]): string {
-  return option.value === FULL_ACCESS ? 'Full access' : displayName(option.name)
+/** Built-in preset machine values → their English product labels. */
+const BUILT_IN_PERMISSION_NAMES = new Map<string, string>([
+  ['read-only', en['access.preset.readOnly']],
+  ['workspace-write', en['access.preset.workspaceWrite']],
+  [FULL_ACCESS, en['access.preset.fullAccess']],
+])
+
+/**
+ * Product label of one preset: built-in machine values render under their
+ * locale product names when the host did not customize them; everything else
+ * passes through the display transform.
+ * @param value - preset machine value.
+ * @param name - host-supplied preset name.
+ * @param t - the owning bar's locale seat.
+ * @returns the localized built-in label or the conventional display name.
+ */
+function permissionLabel(value: string, name: string, t: ComposerBarProps['t']): string {
+  const builtInName = BUILT_IN_PERMISSION_NAMES.get(value)
+  if (builtInName !== undefined && (name === value || name === builtInName)) {
+    if (value === 'read-only') return t('access.preset.readOnly')
+    if (value === 'workspace-write') return t('access.preset.workspaceWrite')
+    if (value === FULL_ACCESS) return t('access.preset.fullAccess')
+  }
+  return displayName(name)
 }
 
 export interface PermissionSelectProps {
@@ -86,13 +109,16 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
 
   const currentValue = pick ?? value.currentValue
   const current = value.options.find(option => option.value === currentValue)
+  const currentLabel = current === undefined
+    ? permissionLabel(currentValue, currentValue, t)
+    : permissionLabel(current.value, current.name, t)
   const busy = pick !== null || confirmation !== null
 
   const items: MenuEntry[] = value.options
     .filter(o => o.value !== 'custom')
     .map((option) => {
       const icon = permissionGlyph(option.value)
-      return { id: option.value, label: optionLabel(option), ...icon === undefined ? {} : { icon } }
+      return { id: option.value, label: permissionLabel(option.value, option.name, t), ...icon === undefined ? {} : { icon } }
     })
 
   const submit = (id: string): void => {
@@ -138,7 +164,7 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
           <button
             type="button"
             className={css.trigger}
-            aria-label={t('input.accessMode', { name: current === undefined ? displayName(currentValue) : optionLabel(current) })}
+            aria-label={t('input.accessMode', { name: currentLabel })}
             title={current?.description}
             disabled={locked || busy}
             onClick={() => { setOpen(!open) }}
@@ -146,7 +172,7 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
             {permissionGlyph(currentValue) !== undefined && (
               <span className={css.triggerIcon} aria-hidden>{permissionGlyph(currentValue)}</span>
             )}
-            <span className={css.triggerLabel}>{current === undefined ? displayName(currentValue) : optionLabel(current)}</span>
+            <span className={css.triggerLabel}>{currentLabel}</span>
             {/* Same glyph + open rotation as the sibling ModelSelect trigger. */}
             <span className={clsx(css.chevron, open && css.chevronOpen)} aria-hidden>
               <IconChevronDownOutline14 />

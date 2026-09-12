@@ -57,6 +57,11 @@
   position: relative; /* overlay anchor positioning context */
   display: flex;
   flex-direction: column;
+  /* Container for the row-level narrow-card queries below: an element cannot
+     match a query against itself, so .row's own two-line restyle measures the
+     card (anonymous container — CSS modules hash container-name per module,
+     so the queries in this sheet match this sheet's containers only). */
+  container-type: inline-size;
   /* figma Input 75:8208: 12px between the text area and the button row; 10px
      top pad on the card before .InputText. */
   gap: 12px;
@@ -284,11 +289,12 @@
 }
 
 /* Toolbar: attach + Plan + Read-only on the left; model + send on the right
-   (figma Input_Bottom chrome). */
+   (figma Input_Bottom chrome). The trailing group owns the right edge via an
+   auto margin (not space-between) so the send seat can be its own third flex
+   item without redistributing the row's free space. */
 .row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   /* 2px moved from the bottom pad to the top: the whole control row sits 2px
      lower in the card (it read too high against the textarea) while the card
@@ -304,7 +310,8 @@
 
 .tools,
 .modes,
-.trailing {
+.trailing,
+.sendSeat {
   display: flex;
   align-items: center;
   min-width: 0;
@@ -331,18 +338,38 @@
   flex: 0 1 auto;
   min-width: 0;
   gap: 12px;
+  margin-left: auto;
 }
 
-/* Narrow card: the row's gaps are the cheapest width to give back before any
-   control has to change shape. Anonymous container query — CSS modules hash
-   container-name per module, so the query matches .row's own container. */
+/* The send/stop pair: always the row's rightmost item. On the narrow-card
+   grid below it spans both control rows and centers on their shared midline;
+   the pair's 12px gap matches the trailing group's so the wide card's chrome
+   is unchanged. */
+.sendSeat {
+  flex: none;
+  gap: 12px;
+}
+
+/* Narrow card (phone portrait): one squeezed line cannot hold the button
+   group AND a model name, so the row becomes two grid lines — tools above,
+   model + context meter below, and the send seat spanning both lines at the
+   right edge. The .row declarations answer to the card container; the chip
+   declarations answer to .row (their nearest container). */
 @container (max-width: 460px) {
   .row {
-    gap: 8px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'tools seat'
+      'trail seat';
+    align-items: center;
+    column-gap: 8px;
+    row-gap: 4px;
     padding-inline: 6px;
   }
 
   .tools {
+    grid-area: tools;
     gap: 10px;
   }
 
@@ -350,24 +377,28 @@
   .trailing {
     gap: 8px;
   }
+
+  .trailing {
+    grid-area: trail;
+    /* The wide-card auto margin would right-align the model row inside its
+       grid column; under the buttons it starts from the left edge. */
+    margin-left: 0;
+  }
+
+  .sendSeat {
+    grid-area: seat;
+  }
 }
 
-/* Phone-width card: two lines instead of one squeezed line — tools above,
-   model and send below. Below this width the single row cannot hold a model
-   name AND two mode chips without eliding one of them to a bare chevron. */
+/* Narrowest card: tighten the two lines; the mode chips themselves collapse
+   to icon-only inside their own container (PermissionSelect rule). */
 @container (max-width: 360px) {
   .row {
-    flex-wrap: wrap;
     row-gap: 2px;
   }
 
   .tools {
-    flex: 1 1 100%;
-  }
-
-  .trailing {
-    flex: 1 1 100%;
-    justify-content: flex-end;
+    gap: 8px;
   }
 }
 
