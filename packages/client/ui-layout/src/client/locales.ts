@@ -5,6 +5,7 @@ export const zh = {
   'drawer.details': '会话详情',
   'drawer.workbench': '工作区工作台',
   'sidebar.dismiss': '关闭侧栏遮罩',
+  'sidebar.open': '打开侧边栏',
 } as const
 
 /** English layout accessibility copy. */
@@ -14,6 +15,7 @@ export const en: Record<keyof typeof zh, string> = {
   'drawer.details': 'Session details',
   'drawer.workbench': 'Workspace workbench',
   'sidebar.dismiss': 'Dismiss sidebar overlay',
+  'sidebar.open': 'Open sidebar',
 }
 
 /** Closed key set for the layout locale namespace. */

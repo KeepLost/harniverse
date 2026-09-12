@@ -29,20 +29,60 @@
   border-right: 1px solid var(--dsw-alias-border-l1);
 }
 
-/* Phone form: the expanded sidebar leaves its grid track at the rail width and
-   covers the center column instead, so the center geometry never changes and
-   the frame stays single-column. Width is the frame's solved overlay width. */
+/* Phone form: the expanded sidebar leaves its grid track (zero in this form)
+   and covers the center column instead, so the center geometry never changes
+   and the frame stays single-column. Width is the frame's solved overlay width.
+   Ranked under the shell.overlay layer (z 20): a full-bleed sheet opened from
+   the drawer must cover it, not share the frame with it. */
 .frame[data-sidebar-drawer] .sidebarCol {
   position: absolute;
   top: 0;
   bottom: 0;
   left: 0;
-  z-index: 26;
+  z-index: 18;
   /* border-box so the solved overlay width is the drawer's outer edge, which is
      also where the scrim below starts. */
   box-sizing: border-box;
   width: var(--dsh-frame-sidebar-drawer-width);
   box-shadow: var(--dsw-shadow-lv3);
+}
+
+/* A hidden phone sidebar has no track at all: the zero-width column must not
+   paint its rail border as a seam down the frame's left edge. */
+.frame[data-viewport='phone'][data-sidebar-collapsed] .sidebarCol {
+  border-right: none;
+}
+
+/* Portrait sidebar entry: the collapsed phone frame's only sidebar affordance.
+   Same 36x36 control-box geometry and inks as the sidebar rail's boxes, parked
+   in the corner the conversation header reserves for it. Ranked under the
+   center-view layer (z 5) so a full-column view replaces it, and under the
+   overlay layer (z 20) so modal sheets cover it; hidden while the drawer it
+   opened is up. */
+.sidebarEntry {
+  position: absolute;
+  top: 12px;
+  left: 10px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sidebarEntry:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.frame[data-sidebar-drawer] .sidebarEntry {
+  display: none;
 }
 
 /* Tap-outside exit for the phone drawer: it owns exactly the strip the drawer
@@ -52,7 +92,7 @@
 .sidebarScrim {
   position: absolute;
   inset: 0 0 0 var(--dsh-frame-sidebar-drawer-width);
-  z-index: 25;
+  z-index: 17;
   border: 0;
   padding: 0;
   background: var(--dsw-alias-bg-mask-1);
