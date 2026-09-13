@@ -14,7 +14,7 @@ afterEach(async () => {
 })
 
 describe('default internals against the real filesystem', () => {
-  it('reads this process through the default /proc internals', async () => {
+  it.skipIf(process.platform !== 'linux')('reads this process through the default /proc internals', async () => {
     const memory = await readProcMemory(process.pid)
     expect(memory.rssBytes).toBeGreaterThan(0)
     const io = await readProcIo(process.pid)

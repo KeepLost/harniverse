@@ -32,7 +32,7 @@ describe('coverage fill: proc and net arms', () => {
     expect(buckets.get('pgid:31')).toMatchObject({ cpuTicks: 10, rssBytes: 0, readBytes: 0, fdCount: 0, hasSocket: false })
   })
 
-  it('readProcFds covers the default readLink and the vanished-link catch', async () => {
+  it.skipIf(process.platform !== 'linux')('readProcFds covers the default readLink and the vanished-link catch', async () => {
     const fds = await readProcFds(process.pid)
     expect(fds.count).toBeGreaterThan(0)
     const broken: ProcInternals = {
