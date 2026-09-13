@@ -1,0 +1,116 @@
+/* Governor settings page: a quota form framed like the board's header and
+ * notes column, on the shared theme tokens. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 20px 24px;
+  overflow: auto;
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.note,
+.hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border, var(--dsw-alias-label-secondary));
+  border-radius: 8px;
+}
+
+.legend {
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.modeRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+
+.radioLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+}
+
+.customRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.unitLabel {
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.number {
+  box-sizing: border-box;
+  width: 96px;
+  padding: 4px 8px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+  border: 1px solid var(--dsw-alias-border, var(--dsw-alias-label-secondary));
+  border-radius: 6px;
+}
+
+.number:disabled,
+.apply:disabled {
+  opacity: 0.5;
+}
+
+.error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-danger, #e5484d);
+}
+
+.apply {
+  align-self: flex-start;
+  padding: 4px 14px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.apply:not(:disabled):hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  filter: brightness(1.1);
+}
+
+.effective {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+}
