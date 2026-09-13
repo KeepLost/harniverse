@@ -85,8 +85,9 @@ describe('LocalSubprocessRuntime spawn metering events', () => {
     const exited: number[] = []
     ctx.on('subprocess/spawned', ({ correlation }) => { spawned.push(correlation.commandId) })
     ctx.on('subprocess/exited', ({ outcome }) => { exited.push(outcome.exitCode ?? -1) })
+    // The node binary is the one spawn target every CI platform owns.
     const handle = ctx.subprocess.spawn({
-      argv: ['/bin/sh', '-c', 'exit 0'],
+      argv: [process.execPath, '-e', 'process.exit(0)'],
       cwd: process.cwd(),
       graceMs: 1_000,
       stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
