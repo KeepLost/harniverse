@@ -14,6 +14,28 @@ function streamText(output: CollectedOutput): string {
   return `${output.text}\n[output truncated; full output: ${output.spillPath ?? '(unavailable)'}]`
 }
 
+/** Governor breach facts reported for one killed command. */
+export interface GovernorBreachInfo {
+  /** Breach kind, e.g. `memory-limit` or `session-quota`. */
+  killed: string
+  /** Peak resident memory observed for the command, when known. */
+  peakBytes?: number
+  /** The limit that was exceeded, when known. */
+  limitBytes?: number
+}
+
+/** Render a byte count with a binary unit, e.g. `6.5GiB`. */
+function formatBytes(bytes: number): string {
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${unit === 0 ? value : value.toFixed(1)}${units[unit]}`
+}
+
 /**
  * Shape one finished run into the text the model sees: stdout, then a marked
  * stderr section, then exit-status markers. Non-zero exits are reported, not
@@ -23,11 +45,14 @@ function streamText(output: CollectedOutput): string {
  * @param escalationModes - the escalation targets this composition advertises;
  *   non-empty adds the same-turn escalation hint after a denial marker
  *   (default `[]`: no hint).
- * @returns the model-facing text: output body (or `(no output)`), then any timeout/signal/exit markers, each on its own line.
+ * @param breach - governor breach facts reported for one killed command,
+ *   rendered before the exit markers.
+ * @returns the model-facing text: output body (or `(no output)`), then any timeout/breach/signal/exit markers, each on its own line.
  */
 export function renderResult(
   result: ShellRunResult,
   escalationModes: readonly SandboxMode[] = [],
+  breach?: GovernorBreachInfo,
 ): string {
   const out = streamText(result.stdout)
   const err = streamText(result.stderr)
@@ -51,6 +76,11 @@ export function renderResult(
   }
   // A command may trap SIGTERM and exit 0 after timeout; still report interruption.
   if (result.timedOut) markers.push(`[timed out after ${result.timeoutMs}ms]`)
+  if (breach !== undefined) {
+    const peak = breach.peakBytes === undefined ? '' : ` (peak ${formatBytes(breach.peakBytes)}`
+      + (breach.limitBytes === undefined ? '' : ` > limit ${formatBytes(breach.limitBytes)}`) + ')'
+    markers.push(`[killed by ${breach.killed}${peak}]`)
+  }
   if (result.signal !== null) {
     markers.push(`[killed by signal: ${result.signal}]`)
   } else if (result.exitCode !== 0) {

@@ -187,6 +187,12 @@ const BACKGROUND_OUTPUT_PROPERTIES = {
   jobId: { type: 'string', required: true },
 } as const
 
+/** Configured deployment of the resource governor, read structurally so this tool never hard-depends on it. */
+interface GovernorCollaborator {
+  limitsFor(sessionId: string): { maxMemoryBytes?: number } | undefined
+  breachFor(commandId: string): import('./render.ts').GovernorBreachInfo | undefined
+}
+
 export function apply(ctx: Context, config: Config = {}): void {
   const backgroundEnabled = config.enableRunInBackground ?? true
   const defaultMode = ctx.shell.sandboxMode
@@ -195,6 +201,9 @@ export function apply(ctx: Context, config: Config = {}): void {
   if (defaultMode !== undefined && sandboxPolicy === undefined) {
     throw new Error('tool-bash: the mounted bash executor confines but ctx.sandboxPolicy is missing')
   }
+  // Optional governor: stamps spawn limits and reports quota breaches; absent
+  // means unmetered commands (the structural read keeps this plugin decoupled).
+  const governor = ctx.get('governor') as GovernorCollaborator | undefined
   /** Resolve the complete standing policy for this call when a confining executor is mounted. */
   const resolveSandboxPolicy = (exec: ToolExecution): SandboxExecutionPolicy | undefined =>
     sandboxPolicy?.resolve(exec.agent === undefined ? {} : { session: exec.agent.session })
@@ -316,6 +325,15 @@ export function apply(ctx: Context, config: Config = {}): void {
                   runnerFailed: { type: 'boolean' },
                 },
               },
+              governor: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  killed: { type: 'string', required: true },
+                  peakBytes: { type: 'number' },
+                  limitBytes: { type: 'number' },
+                },
+              },
             },
           },
         ],
@@ -324,7 +342,11 @@ export function apply(ctx: Context, config: Config = {}): void {
         type: 'text',
         text: value.kind === 'background'
           ? `started background job ${value.jobId}`
-          : renderResult(value as { kind: 'foreground' } & ShellRunResult, escalationModes),
+          : renderResult(
+            value as { kind: 'foreground' } & ShellRunResult,
+            escalationModes,
+            (value as { governor?: import('./render.ts').GovernorBreachInfo }).governor,
+          ),
       }],
     },
     async execute(args: BashToolArgs, exec) {
@@ -339,12 +361,23 @@ export function apply(ctx: Context, config: Config = {}): void {
         : { ...(standingPolicy as SandboxExecutionPolicy), mode: approvedMode }
       const workdir = resolveWorkdir(args.workdir, exec, standingPolicy?.workspaceRoot)
       const dshEnv = ctx.shellEnv.collect(exec)
+      // Metering identity: every bash call is attributable to its session
+      // (correlation always stamped when the agent is known); bounds apply
+      // only when a governor is mounted and resolved a quota for the session.
+      const correlation = exec.agent === undefined ? undefined : {
+        sessionId: exec.agent.session.id,
+        commandId: exec.callId,
+        kind: 'shell' as const,
+      }
+      const limits = correlation === undefined ? undefined : governor?.limitsFor(correlation.sessionId)
       const request = {
         command: args.command,
         ...workdir !== undefined ? { workdir } : {},
         ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
         dshEnv,
         ...policy !== undefined ? { sandboxPolicy: policy } : {},
+        ...correlation !== undefined ? { correlation } : {},
+        ...limits !== undefined ? { limits } : {},
       }
       if (args.run_in_background === true) {
         // Undeclared keys are allowed, so schema omission also needs enforcement.
@@ -386,7 +419,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         error.name = 'AbortError'
         throw error
       }
-      return { kind: 'foreground' as const, ...canonicalBashResult(result) }
+      const breach = correlation === undefined ? undefined : governor?.breachFor(correlation.commandId)
+      return { kind: 'foreground' as const, ...canonicalBashResult(result), ...breach !== undefined ? { governor: breach } : {} }
     },
     presentCall: presentBashCall,
     presentResult: presentBashResult,
