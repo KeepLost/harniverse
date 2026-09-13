@@ -31,6 +31,13 @@ function formatBytes(bytes: number, t: PropsLocale<typeof NS>['t']): string {
   return t('units.bytes', { value: String(bytes) })
 }
 
+/** Label the explicit quota cell; non-shared rows always carry a quota. */
+function quotaLabel(row: SessionResourceRow, t: PropsLocale<typeof NS>['t']): string {
+  /* v8 ignore next 1 -- the builder sets quotaBytes exactly when an override
+     exists, so shared === false implies a defined quota; 0 narrows the type. */
+  return formatBytes(row.quota.quotaBytes ?? 0, t)
+}
+
 /**
  * The sessions-as-processes board: one row per session with live metering,
  * quota state, breach badges, and inline quota negotiation; a header with
@@ -180,9 +187,9 @@ function SessionRow({ row, busy, draft, onDraft, onApply, onClear, t }: SessionR
       </td>
       <td>
         <div className={css.quotaCell}>
-          <span>{row.quota.shared ? t('quota.shared') : /* v8 ignore next 1 -- non-shared rows always carry a quota (the builder sets
-             quotaBytes exactly when the override exists); the fallback only narrows the type. */
-            formatBytes(row.quota.quotaBytes ?? 0, t)}</span>
+          <span>
+            {row.quota.shared ? t('quota.shared') : quotaLabel(row, t)}
+          </span>
           <input
             className={css.quotaInput}
             type="number"

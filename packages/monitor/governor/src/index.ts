@@ -16,8 +16,6 @@ import type { Session, SessionClosedEvent } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
-import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -98,14 +96,6 @@ export const governorDomainSpec = defineDomain({
 export interface GovernorInternals {
   readonly cgroup?: CgroupInternals
   readonly sampler?: Partial<SamplerOptions>
-}
-
-/** Smallest meaningful raise the tool accepts. */
-export const MIN_RAISE_BYTES = 64 * 1024 * 1024
-
-/** The optional quota field of one state projection (shared helper keeps one branch). */
-function quotaField(state: SessionQuotaState): { quotaBytes?: number } {
-  return state.quotaBytes !== undefined ? { quotaBytes: state.quotaBytes } : {}
 }
 
 /** Persistence is best-effort: storage failures surface through the backends. */
@@ -189,7 +179,6 @@ export class GovernorService extends TypertRemoteService {
     this.ctx.on('subprocess/exited', ({ correlation }) => { this.requireEngine().settle(correlation.commandId) })
     this.ctx.on('subprocess/terminal-exited', ({ correlation }) => { this.requireEngine().settle(correlation.commandId) })
 
-    this.registerTools()
     this.ctx.on('session/created', (session) => { void this.onSessionCreated(session) })
     // Explicit closes drop the override; teardown cascades (session/disposed)
     // must NOT — quota decisions survive host restarts by design, and the
@@ -397,6 +386,35 @@ export class GovernorService extends TypertRemoteService {
   }
 
   /**
+   * Admission facts for one explicit-quota request from the model-facing
+   * tool: the session's current effective limit before admission, the
+   * granted bytes (clamped to the remaining global budget), and whether the
+   * clamp fired. Commit happens separately through {@link adjustQuota}.
+   * @param sessionId - session id.
+   * @param memoryBytes - requested explicit quota in bytes.
+   * @returns before/granted/clamp facts for the caller to gate on.
+   */
+  admitExplicit(sessionId: string, memoryBytes: number): { beforeBytes: number; grantedBytes: number; clamped: boolean } {
+    const beforeBytes = this.requireBook().effectiveLimitBytes(sessionId)
+    const { grantedBytes, clamped } = this.requireBook().admit(sessionId, memoryBytes)
+    return { beforeBytes, grantedBytes, clamped }
+  }
+
+  /** The resolved global memory budget in bytes. */
+  get budgetLimitBytes(): number {
+    return this.globalLimitBytes
+  }
+
+  /**
+   * Latest sampled RSS for one session, zero before the first tick.
+   * @param sessionId - session id.
+   * @returns the most recent resident-set sample in bytes.
+   */
+  liveRssBytes(sessionId: string): number {
+    return this.lastTick?.sessionRss.get(sessionId) ?? 0
+  }
+
+  /**
    * Effective quota state for one session.
    * @param sessionId - session id.
    * @returns the explicit quota (when set), effective limit, and pool membership.
@@ -532,138 +550,6 @@ export class GovernorService extends TypertRemoteService {
   @Remote({ exportName: 'reload', requiredCapability: 'harniverse.administer' })
   async reload(): Promise<void> {
     await this.applyGlobalLimit()
-  }
-
-  /** Register the model-facing quota tool (mounted when `ctx.tools` exists). */
-  private registerTools(): void {
-    this.ctx.inject(['tools'], (scope: Context) => {
-      scope.effect(() => scope.tools.register(defineTool({
-        name: 'resource-quota',
-        description: 'Read or negotiate the memory quota of YOUR current session. Get returns the effective limit, the global budget, and current usage. Set with memoryBytes to request a different explicit quota (must exceed 64MiB to be meaningful); omit memoryBytes to drop the explicit quota and rejoin the shared pool. Raises may require user approval and are always clamped by the remaining global budget. This tool cannot touch other sessions or the global budget.',
-        parameters: {
-          action: { type: 'string', required: true, enum: ['get', 'set'], description: 'get reads the quota state; set negotiates a change.' },
-          memoryBytes: { type: 'number', description: 'With action=set: the explicit memory quota in bytes. Omit to clear the explicit quota and rejoin the shared pool.' },
-        },
-        output: {
-          schema: {
-            oneOf: [
-              {
-                type: 'object',
-                additionalProperties: false,
-                properties: {
-                  kind: { type: 'string', required: true, const: 'state' },
-                  sessionId: { type: 'string', required: true },
-                  quotaBytes: { type: 'number' },
-                  effectiveLimitBytes: { type: 'number', required: true },
-                  globalLimitBytes: { type: 'number', required: true },
-                  shared: { type: 'boolean', required: true },
-                  clamped: { type: 'boolean' },
-                  liveRssBytes: { type: 'number', required: true },
-                },
-              },
-              {
-                type: 'object',
-                additionalProperties: false,
-                properties: {
-                  kind: { type: 'string', required: true, const: 'rejected' },
-                  reason: { type: 'string', required: true },
-                },
-              },
-            ],
-          },
-          render: (_args, value) => [{
-            type: 'text',
-            text: value.kind === 'rejected'
-              ? `quota request rejected: ${value.reason}`
-              : `session ${value.sessionId} memory quota: ${value.shared ? 'shared pool' : `${String(value.quotaBytes)} bytes`}`
-                + `, effective limit ${String(value.effectiveLimitBytes)} bytes, global budget ${String(value.globalLimitBytes)} bytes`
-                + (value.clamped === true ? ' (clamped to the remaining budget)' : ''),
-          }],
-          presentationMeta: (_args, value) => value,
-        },
-        execute: async (args: { action: string; memoryBytes?: number }, exec: ToolExecution) => {
-          const agent = exec.agent
-          if (agent === undefined) throw new Error('resource-quota requires a session context')
-          const sessionId = agent.session.id
-          if (args.action === 'get') {
-            const state = this.quotaStateOf(sessionId)
-            return {
-              kind: 'state' as const,
-              sessionId,
-              ...quotaField(state),
-              effectiveLimitBytes: state.effectiveLimitBytes,
-              globalLimitBytes: this.globalLimitBytes,
-              shared: state.shared,
-              liveRssBytes: this.lastTick?.sessionRss.get(sessionId) ?? 0,
-            }
-          }
-          if (args.memoryBytes === undefined) {
-            const state = await this.adjustQuota(sessionId, null, 'clear')
-            return this.toolState(sessionId, state, false)
-          }
-          if (!Number.isFinite(args.memoryBytes) || args.memoryBytes <= 0) {
-            throw new Error('memoryBytes must be a positive number')
-          }
-          const before = this.requireBook().effectiveLimitBytes(sessionId)
-          const { grantedBytes, clamped } = this.requireBook().admit(sessionId, args.memoryBytes)
-          const raise = grantedBytes > before
-          if (raise && grantedBytes < MIN_RAISE_BYTES) {
-            return { kind: 'rejected' as const, reason: `the raise is below the ${MIN_RAISE_BYTES}-byte minimum a quota is meaningful at` }
-          }
-          if (raise && !await this.approveRaise(scope, agent, exec, before, grantedBytes)) {
-            return { kind: 'rejected' as const, reason: 'the quota raise was not approved' }
-          }
-          const state = await this.adjustQuota(sessionId, grantedBytes, 'tool')
-          return this.toolState(sessionId, state, clamped)
-        },
-      })), 'governor: resource-quota tool')
-    })
-  }
-
-  /**
-   * Ask for approval on one raise under an `ask` policy; `never` (the
-   * danger-full-access posture) proceeds — admission still clamps, and a
-   * missing approval service means no gate is configured.
-   */
-  private async approveRaise(scope: Context, agent: ToolExecution['agent'], exec: ToolExecution, before: number, grantedBytes: number): Promise<boolean> {
-    const approval = scope.get('approval') as {
-      effectivePolicy(session: Session): 'ask' | 'never'
-      request(req: { agent: unknown; toolName: string; callId?: string; reason: string; signal?: AbortSignal }): Promise<string>
-    } | undefined
-    /* v8 ignore next 2 -- the tool execute rejects an agent-less call before
-       reaching the raise gate, so `agent === undefined` is unreachable here. */
-    if (approval === undefined || agent === undefined || approval.effectivePolicy(agent.session) === 'never') return true
-    const outcome = await approval.request({
-      agent,
-      toolName: 'resource-quota',
-      callId: exec.callId,
-      reason: `raise the session memory quota from ${before} to ${grantedBytes} bytes`,
-      signal: exec.signal,
-    })
-    return outcome === 'allowed-once'
-  }
-
-  /** Common shape of tool state results. */
-  private toolState(sessionId: string, state: SessionQuotaState, clamped: boolean): {
-    kind: 'state'
-    sessionId: string
-    quotaBytes?: number
-    effectiveLimitBytes: number
-    globalLimitBytes: number
-    shared: boolean
-    clamped: boolean
-    liveRssBytes: number
-  } {
-    return {
-      kind: 'state' as const,
-      sessionId,
-      ...quotaField(state),
-      effectiveLimitBytes: state.effectiveLimitBytes,
-      globalLimitBytes: this.globalLimitBytes,
-      shared: state.shared,
-      clamped,
-      liveRssBytes: this.lastTick?.sessionRss.get(sessionId) ?? 0,
-    }
   }
 }
 

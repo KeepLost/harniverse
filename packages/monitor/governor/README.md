@@ -43,6 +43,8 @@ governor:
     retentionMs: 604800000
 ```
 
+Mounted through the separately loadable `@deepseek-ai/dsh-governor/tool` Consumer entry (`inject: governor, tools`): preset compositions decide per agent whether quota negotiation is model-visible, while the service itself stays on the host plane. The shipped Web roster mounts it in the `standard` preset; compositions without the governor service leave the row pending harmlessly.
+
 ## Model Experience
 
 ### resource-quota tool
@@ -58,6 +60,8 @@ The tool schema adds a small fixed cost per request that lists tools; results ar
 #### KV Cache effect
 
 Quota state is never injected into system context; steady sessions do not perturb the cache.
+
+
 
 ## Known Limitations and Deferred Work
 

@@ -26,6 +26,10 @@
       "types": "./lib/types/types.d.ts",
       "default": "./lib/types/types.js"
     },
+    "./tool": {
+      "types": "./lib/types/tool.d.ts",
+      "default": "./lib/types/tool.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json",
     "./client": {

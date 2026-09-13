@@ -43,6 +43,8 @@ governor:
     retentionMs: 604800000
 ```
 
+通过独立加载的 `@deepseek-ai/dsh-governor/tool` Consumer 入口挂载（`inject: governor, tools`）：由预设组合逐代理决定配额协商是否对模型可见，服务本身留在宿主平面。出厂 Web 名册在 `standard` 预设中挂载它；未挂 governor 服务的组合中该行无害地保持 pending。
+
 ## Model Experience
 
 ### resource-quota 工具

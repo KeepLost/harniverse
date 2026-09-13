@@ -110,6 +110,24 @@ limitsFor(sessionId: string): { maxMemoryBytes?: number } | undefined
 breachFor(commandId: string): GovernorBreachRecord | undefined
 
 /**
+ * Admission facts for one explicit-quota request from the model-facing
+ * tool: the session's current effective limit before admission, the
+ * granted bytes (clamped to the remaining global budget), and whether the
+ * clamp fired. Commit happens separately through {@link adjustQuota}.
+ * @param sessionId - session id.
+ * @param memoryBytes - requested explicit quota in bytes.
+ * @returns before/granted/clamp facts for the caller to gate on.
+ */
+admitExplicit(sessionId: string, memoryBytes: number): { beforeBytes: number; grantedBytes: number; clamped: boolean }
+
+/**
+ * Latest sampled RSS for one session, zero before the first tick.
+ * @param sessionId - session id.
+ * @returns the most recent resident-set sample in bytes.
+ */
+liveRssBytes(sessionId: string): number
+
+/**
  * Effective quota state for one session.
  * @param sessionId - session id.
  * @returns the explicit quota (when set), effective limit, and pool membership.
@@ -169,7 +187,7 @@ async adjustQuota(sessionId: string, memoryBytes: number | null, reason: 'board'
 @Remote({ exportName: 'reload', requiredCapability: 'harniverse.administer' }) async reload(): Promise<void>
 ```
 
-Source: [`packages/monitor/governor/src/index.ts:129`](../../packages/monitor/governor/src/index.ts)
+Source: [`packages/monitor/governor/src/index.ts:119`](../../packages/monitor/governor/src/index.ts)
 
 <a id="governor-events"></a>
 
@@ -191,5 +209,5 @@ One metered command was killed by enforcement. Consumers surface the breach on h
 'governor/breach'(event: GovernorBreachRecord): void
 ```
 
-Source: [`packages/monitor/governor/src/index.ts:51`](../../packages/monitor/governor/src/index.ts)
+Source: [`packages/monitor/governor/src/index.ts:49`](../../packages/monitor/governor/src/index.ts)
 <!-- END GENERATED cordis-surface -->

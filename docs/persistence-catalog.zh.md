@@ -432,7 +432,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/monitor/governor/src/index.ts:58`](../packages/monitor/governor/src/index.ts)
+来源：[`packages/monitor/governor/src/index.ts:56`](../packages/monitor/governor/src/index.ts)
 
 ### `hook/*`
 

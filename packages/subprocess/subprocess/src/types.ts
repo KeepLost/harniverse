@@ -129,7 +129,8 @@ export interface SubprocessSpawnSpec {
    * Metering identity: stamps the spawn as belonging to one session command.
    * Present spawns are reported through `subprocess/spawned` / `subprocess/exited`
    * and become eligible for resource metering; absent spawns stay private to
-   * their spawner.
+   * their spawner. A spawn that fails before acquiring a pid reports only the
+   * paired `subprocess/exited` with null exit facts.
    */
   correlation?: SubprocessCorrelation | undefined
   /** Resource bounds the provider should enforce for this spawn. */

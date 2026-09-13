@@ -1009,6 +1009,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the recorded breach when one exists.',
       },
       {
+        signature: 'admitExplicit(sessionId: string, memoryBytes: number): { beforeBytes: number; grantedBytes: number; clamped: boolean }',
+        description: 'Admission facts for one explicit-quota request from the model-facing tool: the session\'s current effective limit before admission, the granted bytes (clamped to the remaining global budget), and whether the clamp fired. Commit happens separately through adjustQuota.',
+        parameters: [{ name: 'sessionId', description: 'session id.' }, { name: 'memoryBytes', description: 'requested explicit quota in bytes.' }],
+        returns: 'before/granted/clamp facts for the caller to gate on.',
+      },
+      {
+        signature: 'liveRssBytes(sessionId: string): number',
+        description: 'Latest sampled RSS for one session, zero before the first tick.',
+        parameters: [{ name: 'sessionId', description: 'session id.' }],
+        returns: 'the most recent resident-set sample in bytes.',
+      },
+      {
         signature: 'quotaStateOf(sessionId: string): SessionQuotaState',
         description: 'Effective quota state for one session.',
         parameters: [{ name: 'sessionId', description: 'session id.' }],

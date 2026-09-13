@@ -16,6 +16,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import GovernorService from '../src/index.ts'
+import * as GovernorTool from '../src/tool.ts'
 import * as GovernorInvariant from '../src/invariant.ts'
 
 /** Live state shared by the stub services the Loader composition mounts. */
@@ -79,6 +80,7 @@ async function boot(state: StubState): Promise<Context> {
     '- name: \'@deepseek-ai/dsh-system-prompt\'',
     '- name: \'@deepseek-ai/dsh-tools\'',
     '- name: \'@deepseek-ai/dsh-governor\'',
+    '- name: \'@deepseek-ai/dsh-governor/tool\'',
     '- name: \'governor-composition-stubs\'',
     '',
   ].join('\n'))
@@ -93,6 +95,7 @@ async function boot(state: StubState): Promise<Context> {
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['@deepseek-ai/dsh-governor', GovernorService],
+    ['@deepseek-ai/dsh-governor/tool', GovernorTool],
     ['@deepseek-ai/dsh-governor/invariant', GovernorInvariant],
     ['governor-composition-stubs', stubPlugin(state)],
   ])

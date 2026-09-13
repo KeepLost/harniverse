@@ -12,6 +12,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import GovernorService from '../src/index.ts'
+import * as GovernorTool from '../src/tool.ts'
 import type { GovernorInternals } from '../src/index.ts'
 import type { CgroupInternals } from '../src/cgroup.ts'
 import { DEFAULT_CONFIG } from '../src/config.ts'
@@ -53,7 +54,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 
-async function harness(policy: 'ask' | 'never', memoryLimit = 10_000_000) {
+async function harness(policy: 'ask' | 'never' | 'none', memoryLimit = 10_000_000) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-governor-tool-'))
   roots.push(root)
   const ctx = new Context()
@@ -63,10 +64,12 @@ async function harness(policy: 'ask' | 'never', memoryLimit = 10_000_000) {
   await ctx.plugin(StorageDomain, { backend: 'json' })
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(class extends ApprovalStub {
-    constructor(scope: Context) { super(scope, policy) }
-  })
-  const approval = ctx.get('approval') as unknown as ApprovalStub
+  if (policy !== 'none') {
+    await ctx.plugin(class extends ApprovalStub {
+      constructor(scope: Context) { super(scope, policy === 'ask' ? 'ask' : 'never') }
+    })
+  }
+  const approval = ctx.get('approval') as unknown as ApprovalStub | undefined
   const session = ctx.sessions.create(SessionId('tool-session'))
   const agent = { id: session.id, session } as unknown as Agent
   ctx.provide('agents', {
@@ -84,6 +87,7 @@ async function harness(policy: 'ask' | 'never', memoryLimit = 10_000_000) {
     }
   }
   await ctx.plugin(G)
+  await ctx.plugin(GovernorTool)
   return { ctx, session, agent, approval }
 }
 
@@ -107,10 +111,10 @@ describe('resource-quota tool', () => {
     const { ctx, agent, approval } = await harness('ask')
     const result = await call(ctx, agent, { action: 'set', memoryBytes: 4_000_000 })
     expect(result.meta).toEqual(expect.objectContaining({ kind: 'state', quotaBytes: 4_000_000, shared: false }))
-    expect(approval.requests).toHaveLength(0)
+    expect(approval?.requests).toHaveLength(0)
     const cleared = await call(ctx, agent, { action: 'set' })
     expect(cleared.meta).toEqual(expect.objectContaining({ kind: 'state', shared: true }))
-    expect(approval.requests).toHaveLength(0)
+    expect(approval?.requests).toHaveLength(0)
     void cleared
     await ctx.fiber.dispose()
   })
@@ -122,19 +126,29 @@ describe('resource-quota tool', () => {
     await ctx.fiber.dispose()
   })
 
+  it('raises without asking when no approval service is mounted', async () => {
+    const { ctx, agent } = await harness('none', 200_000_000)
+    // Establish a low explicit quota first; the raise afterwards skips the
+    // approval gate entirely because no service is mounted.
+    await call(ctx, agent, { action: 'set', memoryBytes: 70_000_000 })
+    const result = await call(ctx, agent, { action: 'set', memoryBytes: 80_000_000 })
+    expect(result.meta).toMatchObject({ kind: 'state', quotaBytes: 80_000_000 })
+    await ctx.fiber.dispose()
+  })
+
   it('asks once for a raise under an ask policy and honors rejection', async () => {
     const { ctx, agent, approval } = await harness('ask', 200_000_000)
     // Establish a low explicit quota first; 80M afterwards is a genuine raise.
     await call(ctx, agent, { action: 'set', memoryBytes: 70_000_000 })
-    approval.outcome = 'rejected'
+    approval!.outcome = 'rejected'
     const rejected = await call(ctx, agent, { action: 'set', memoryBytes: 80_000_000 })
     expect(rejected.meta).toMatchObject({ kind: 'rejected' })
-    expect(approval.requests).toHaveLength(1)
+    expect(approval!.requests).toHaveLength(1)
     expect(ctx.governor.quotaStateOf('tool-session').quotaBytes).toBe(70_000_000)
-    approval.outcome = 'allowed-once'
+    approval!.outcome = 'allowed-once'
     const allowed = await call(ctx, agent, { action: 'set', memoryBytes: 80_000_000 })
     expect(allowed.meta).toMatchObject({ kind: 'state', quotaBytes: 80_000_000 })
-    expect(approval.requests).toHaveLength(2)
+    expect(approval!.requests).toHaveLength(2)
     await ctx.fiber.dispose()
   })
 

@@ -38,3 +38,9 @@ cgroup 档通过可注入的文件系统抽象操作；本开发容器 cgroupfs 
 - 机器级保证不依赖 systemd 成立：cgroup 父组（C 档）或准入检查加看门狗（R 档）把总消耗保持在全局预算内。
 - 未来的沙箱 provider 只要尊重 spawn spec 里的 correlation 并按共享样本 schema 上报，就获得了计量与配额执法；宿主侧无需重新设计。
 - 已知限制：UDP 流量与子间隔短命 TCP 连接不可见；C 档在本环境的真实 cgroupfs 上未测；Windows 依赖未来的 Job Object provider；网络看门狗默认只告警不击杀。
+
+## 交付跟进（2026-09-13）
+
+- **`dsh-subprocess-local` 启动竞态修复。** 原先 `[Service.init]` 中的 prlimit 探测（约 140ms 真实 fs I/O）阻塞服务启动；由于 `dsh-tool-bash` 惰性读取 `ctx.shell`，其被推迟的 apply 输给了第一个组装的模型请求，于是把 bash 工具挂在 `dsh-subprocess-local` 之后的组合会在第一轮对话里丢失 bash 工具（ACP 快照通道复现）。探测现在从构造器 fire-and-forget 发起、绝不阻塞启动；`prlimitAvailable` 在落定前保持乐观值，测试的 `internals` 覆盖仍在 spawn 时优先。
+- **计量 exit 配对不再依赖 spawn 结果。** `subprocess/spawned` 只为拿到 pid 的句柄发出，但配对的 `subprocess/exited`（携带空 exit 事实）现在也会为尚未拿到 pid 即失败的关联 spawn 发出——否则计量消费者会为从未启动的命令泄漏活跃集条目。终端孪生事件同形（node-pty 失败时同步抛出，存活终端句柄必有 pid）。
+- **`resource-quota` 预设域挂载，而非服务域。** 工具从 governor 服务自身的注册迁移到独立加载的 `@deepseek-ai/dsh-governor/tool` Consumer 入口（`inject: governor, tools`），由出厂 `standard` 代理预设挂载；全局工具层按代理面架构保持为空，未挂 governor 服务的组合中该行无害地 pending。服务暴露 `admitExplicit`/`budgetLimitBytes`/`liveRssBytes` 作为工具的公共接缝。

@@ -160,6 +160,8 @@ export async function scanBuckets(
       } else {
         owned.push(existing)
       }
+      /* v8 ignore next 1 -- owned always holds this pid's fresh or existing
+         bucket from the loop above; the fallback only narrows the index type. */
       const bucket = owned.at(-1) ?? { pids: [], cpu: 0, rss: 0, read: 0, write: 0, fds: 0, socket: false }
       bucket.pids.push(pid)
       bucket.cpu += stat.utime + stat.stime

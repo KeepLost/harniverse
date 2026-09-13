@@ -430,7 +430,7 @@ Source: [`packages/goal/goal/src/domain.ts:66`](../packages/goal/goal/src/domain
 }
 ```
 
-Source: [`packages/monitor/governor/src/index.ts:58`](../packages/monitor/governor/src/index.ts)
+Source: [`packages/monitor/governor/src/index.ts:56`](../packages/monitor/governor/src/index.ts)
 
 ### `hook/*`
 

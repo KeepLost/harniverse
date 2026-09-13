@@ -17,6 +17,9 @@ export interface QuotaOverrideStore {
   delete(sessionId: string): Promise<boolean>
 }
 
+/** Smallest meaningful raise the model-facing tool accepts. */
+export const MIN_RAISE_BYTES = 64 * 1024 * 1024
+
 /** Result of one admission request. */
 export interface AdmissionResult {
   /** The quota that was actually granted (<= the requested amount). */
