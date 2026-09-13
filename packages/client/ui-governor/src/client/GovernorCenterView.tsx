@@ -3,6 +3,7 @@ import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { GovernorOverview, SessionResourceRow } from '@deepseek-ai/dsh-governor/client'
 import type { InjectFace, PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import type { createGovernorViewStore } from './stores.ts'
+import { formatBytes } from './bytes.ts'
 import { NS } from './locales.ts'
 import css from './GovernorCenterView.module.css'
 
@@ -22,14 +23,6 @@ export type GovernorCenterViewProps =
   & PropsLocale<typeof NS>
 
 type LoadState = 'loading' | 'ready' | 'error'
-
-/** Format a byte count into the dictionary's unit scale. */
-function formatBytes(bytes: number, t: PropsLocale<typeof NS>['t']): string {
-  if (bytes >= 1024 ** 3) return t('units.gib', { value: (bytes / 1024 ** 3).toFixed(1) })
-  if (bytes >= 1024 ** 2) return t('units.mib', { value: (bytes / 1024 ** 2).toFixed(1) })
-  if (bytes >= 1024) return t('units.kib', { value: (bytes / 1024).toFixed(1) })
-  return t('units.bytes', { value: String(bytes) })
-}
 
 /** Label the explicit quota cell; non-shared rows always carry a quota. */
 function quotaLabel(row: SessionResourceRow, t: PropsLocale<typeof NS>['t']): string {

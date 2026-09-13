@@ -13,6 +13,9 @@
     - button "插件":
       - img
       - text: 插件
+    - button "资源治理":
+      - img
+      - text: 资源治理
     - button "Agent 预设":
       - img
       - text: Agent 预设

@@ -24,6 +24,7 @@ async function bench(): Promise<{
   fiber: ReturnType<Context['plugin']>
   captured: CapturedRegistration[]
   layoutCalls: string[]
+  quotaStub: ReturnType<typeof stubSettingsScope>
 }> {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
@@ -32,6 +33,7 @@ async function bench(): Promise<{
     children: {
       'sidebar.footer.action': { kind: 'list', scope: 'global' },
       'center.view': { kind: 'list', scope: 'global' },
+      'settings.section': { kind: 'list', scope: 'global' },
     },
   } as never, () => null)
   ctx.provide('sessions', {})
@@ -42,10 +44,12 @@ async function bench(): Promise<{
     governor: {
       overview: async () => ({ ok: true, value: undefined }),
       sessionQuotaAdjust: async () => ({ ok: true, value: undefined }),
+      configGet: async () => ({ ok: true, value: undefined }),
     },
   } as never)
   ctx.provide('remote.governor', {} as never)
-  ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
+  const quotaStub = stubSettingsScope()
+  ctx.provide('settingsScope', { bind: () => quotaStub.scope } as never)
   const layoutCalls: string[] = []
   ctx.provide('layout', {
     setCenterView: (id: string | undefined) => { layoutCalls.push(id === undefined ? 'clear' : `set:${id}`) },
@@ -68,21 +72,23 @@ async function bench(): Promise<{
     },
   })
   await fiber.await()
-  return { ctx, fiber, captured, layoutCalls }
+  return { ctx, fiber, captured, layoutCalls, quotaStub }
 }
 
 describe('ui-governor browser half', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.governor', 'layout'])
+    expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.governor', 'layout', 'settingsScope'])
   })
 
   it('registers both slots, and fiber teardown removes them (HMR safety)', async () => {
     const { ctx, fiber } = await bench()
     expect(ctx.slots.entries('sidebar.footer.action').map(entry => entry.options.id)).toContain('governor-view')
     expect(ctx.slots.entries('center.view').map(entry => entry.options.id)).toContain('governor')
+    expect(ctx.slots.entries('settings.section').map(entry => entry.options.id)).toContain('governor')
     await fiber.dispose()
     expect(ctx.slots.entries('sidebar.footer.action')).toEqual([])
     expect(ctx.slots.entries('center.view')).toEqual([])
+    expect(ctx.slots.entries('settings.section')).toEqual([])
   })
 
   it('shares one view store between the footer trigger and the board', async () => {
@@ -152,6 +158,32 @@ describe('ui-governor browser half', () => {
     const centerInject = centerRegistration!.options['inject'] as () => { closeView: () => void }
     centerInject().closeView()
     expect(layoutCalls).toEqual(['set:governor', 'clear'])
+  })
+
+  it('binds the settings section to the settings scope and the configGet verb', async () => {
+    const { ctx, captured, quotaStub } = await bench()
+    const registration = captured.find(({ options }) => options['id'] === 'governor' && options['name'] === 'settings.section')
+    expect(registration).toBeDefined()
+    expect((registration!.options['label'] as () => string)()).toBe(zh['settings.nav'])
+    const calls: unknown[][] = []
+    const governor = (ctx.get('remote') as unknown as { governor: Record<string, ((...args: unknown[]) => Promise<unknown>) | undefined> }).governor
+    const verb = governor['configGet']
+    governor['configGet'] = async (...args: unknown[]) => {
+      calls.push(['configGet', ...args])
+      if (verb === undefined) throw new Error('unexpected remote verb: configGet')
+      return await verb(...args)
+    }
+    const injectFace = registration!.options['inject'] as () => {
+      hooks: { scope: unknown }
+      setMemoryLimit: (limit: 'auto' | number) => Promise<void>
+      configGet: () => Promise<unknown>
+    }
+    const face = injectFace()
+    expect(face.hooks.scope).toBe(quotaStub.scope)
+    await face.setMemoryLimit(2_684_354_560)
+    expect(quotaStub.set).toHaveBeenCalledWith('memory', { limit: 2_684_354_560 })
+    await face.configGet()
+    expect(calls).toEqual([['configGet']])
   })
 })
 
