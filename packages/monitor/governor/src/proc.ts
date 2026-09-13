@@ -8,7 +8,6 @@
  * @module @deepseek-ai/dsh-governor/proc
  */
 
-import { readFile, readdir, readlink, statfs } from 'node:fs/promises'
 
 /** Kernel clock ticks per second (`sysconf(_SC_CLK_TCK)` on mainstream Linux). */
 export const CLK_TCK = 100
@@ -62,16 +61,7 @@ export interface HostNetCounters {
 /** Injectable filesystem internals (tests substitute in-memory maps). */
 export type { ProcInternals } from './types.ts'
 import type { ProcInternals } from './types.ts'
-
-const defaultInternals: ProcInternals = {
-  readFile: path => readFile(path, 'utf8'),
-  readDir: path => readdir(path),
-  readLink: path => readlink(path),
-  statfs: async (path) => {
-    const stats = await statfs(path)
-    return { bavail: stats.bavail, bsize: stats.bsize }
-  },
-}
+import { defaultInternals } from './proc-defaults.ts'
 
 /**
  * Parse one `/proc/<pid>/stat` line. The comm field may contain spaces and
