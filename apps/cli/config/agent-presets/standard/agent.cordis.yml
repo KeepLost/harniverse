@@ -117,6 +117,14 @@
 - id: tool-scheduler
   name: '@deepseek-ai/dsh-tool-scheduler'
 
+# The resource governor stays on the host plane like the scheduler above: the
+# service meters every session's subprocesses, so it cannot live inside a
+# per-preset realm. This row chooses whether an agent can read and negotiate
+# its own session's memory quota through the `resource-quota` tool; the row
+# stays pending on compositions without the governor service.
+- id: tool-governor
+  name: '@deepseek-ai/dsh-governor/tool'
+
 # ── plan mode ───────────────────────────────────────────────────────────────
 
 # Plan state is per-agent by nature, so an entry-local realm is not a

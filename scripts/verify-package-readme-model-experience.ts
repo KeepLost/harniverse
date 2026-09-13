@@ -72,6 +72,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/connection': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
   'packages/client/authentication': { kind: 'none', reason: 'Browser credential renewal and request admission register no model context or tools.' },
   'packages/client/ui-connection-status': { kind: 'none', reason: 'Read-only browser connection indicator; it neither initiates operations nor registers model context.' },
+  'packages/client/ui-governor': { kind: 'none', reason: 'Browser-side governor board over the Remote; quota negotiation by the model rides the host package resource-quota tool.' },
   'packages/api/remotes': { kind: 'none', reason: 'The Remote BFF selects business methods and identity policy; selected services own any model-visible effect.' },
   'packages/client/runtime': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
   'packages/client/ui-layout': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },

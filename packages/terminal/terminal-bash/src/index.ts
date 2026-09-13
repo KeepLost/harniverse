@@ -135,6 +135,10 @@ export class BashTerminalBackend implements TerminalBackend {
       cols: this.config.cols,
       graceMs: this.config.disposeGraceMs,
       signal: spec.signal,
+      // One metering identity per terminal session: the owning agent's
+      // session plus the service's pty id; terminal spawns are enforcement-
+      // free (interactive shells get watchdog/cgroup tiers only).
+      correlation: { sessionId: spec.owner.session.id, commandId: spec.sessionId, kind: 'terminal' },
     })
     const session = this.createSession(terminal, this.config)
     try {

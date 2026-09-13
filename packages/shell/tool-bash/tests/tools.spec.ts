@@ -2,7 +2,8 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
+import { spawn as realSpawn } from 'node:child_process'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { ShellExecutor } from '@deepseek-ai/dsh-shell'
 import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellProcessRead, ShellRunResult } from '@deepseek-ai/dsh-shell'
@@ -838,6 +839,20 @@ describe('session-cwd routing (per-session workdir)', () => {
   })
 })
 
+describe('renderResult breach and unit formats', () => {
+  const empty = { exitCode: 0, signal: null, timedOut: false, aborted: false, timeoutMs: 1000, stdout: { text: '', truncated: false }, stderr: { text: '', truncated: false } }
+
+  it('renders a breach without peak or limit and small byte units', () => {
+    const text = renderResult(empty, [], { killed: 'memory-limit' })
+    expect(text).toContain('[killed by memory-limit]')
+  })
+
+  it('renders a breach with peak but no limit', () => {
+    const text = renderResult(empty, [], { killed: 'session-quota', peakBytes: 512 })
+    expect(text).toContain('[killed by session-quota (peak 512B)]')
+  })
+})
+
 describe('renderResult', () => {
   const base = {
     exitCode: 0 as number | null,
@@ -1274,5 +1289,91 @@ describe('the model-facing bash tool builds its request from named args only (no
     expect('env' in request).toBe(false)
     expect('stdin' in request).toBe(false)
     expect('stdoutMaxBytes' in request).toBe(false)
+  })
+})
+
+describe('governor collaboration (correlation, limits, breach meta)', () => {
+  /** Mount a structural fake governor service under the 'governor' name. */
+  function mountFakeGovernor(
+    ctx: Context,
+    limits: { maxMemoryBytes?: number } | undefined,
+    breach: import('../src/render.ts').GovernorBreachInfo | undefined,
+  ) {
+    class FakeGovernor extends Service {
+      constructor(c: Context) { super(c, 'governor') }
+      limitsFor(): { maxMemoryBytes?: number } | undefined { return limits }
+      breachFor(): import('../src/render.ts').GovernorBreachInfo | undefined { return breach }
+    }
+    return ctx.plugin(FakeGovernor)
+  }
+
+  /** Real-subprocess harness with an argv capture and the metering events wired. */
+  async function setupGovernorHarness(
+    limits: { maxMemoryBytes?: number } | undefined,
+    breach: import('../src/render.ts').GovernorBreachInfo | undefined,
+  ) {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(LocalSubprocessRuntime)
+    const captured: string[][] = []
+    ;(ctx.subprocess as LocalSubprocessRuntime).internals = {
+      spillDir,
+      prlimitAvailable: true,
+      spawn: (program, args, options) => {
+        captured.push([program, ...(args as string[])])
+        return realSpawn(program, args, options)
+      },
+    }
+    await ctx.plugin(BashEnvPlugin)
+    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, graceMs: 200 })
+    const governorFiber = await mountFakeGovernor(ctx, limits, breach)
+    await ctx.plugin(ToolBash)
+    const spawned: { sessionId: string; commandId: string; kind: string }[] = []
+    ctx.on('subprocess/spawned', ({ correlation }) => {
+      spawned.push({ sessionId: correlation.sessionId, commandId: correlation.commandId, kind: correlation.kind })
+    })
+    return { ctx, captured, spawned, fibers: [governorFiber] }
+  }
+
+  it('stamps the correlation, applies governor limits, and merges breach meta', async () => {
+    const { ctx, captured, spawned, fibers } = await setupGovernorHarness(
+      { maxMemoryBytes: 4_000_000_000 },
+      { killed: 'memory-limit', peakBytes: 4_100_000_000, limitBytes: 4_000_000_000 },
+    )
+    const agent = registerFakeAgent(ctx, 'gov-session-1')
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('gov-call-1'),
+      name: 'bash',
+      arguments: { command: 'echo hi', description: 'governor probe' },
+      agent,
+    })
+    expect(spawned).toHaveLength(1)
+    expect(spawned[0]).toEqual({ sessionId: 'gov-session-1', commandId: 'gov-call-1', kind: 'shell' })
+    // The prlimit prefix is a Linux-only enforcement arm; elsewhere the metered
+    // spawn still runs, just without the address-space bound.
+    if (process.platform === 'linux') {
+      expect(captured[0]?.slice(0, 3)).toEqual(['prlimit', '--as=4000000000', '--'])
+    }
+    expect(text(result)).toContain('[killed by memory-limit (peak 3.8GiB > limit 3.7GiB)]')
+    for (const fiber of fibers) await fiber.dispose()
+  })
+
+  it('stays unmetered without an agent even when a governor is mounted', async () => {
+    const { ctx, captured, spawned, fibers } = await setupGovernorHarness({ maxMemoryBytes: 1_000_000_000 }, undefined)
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('gov-call-2'),
+      name: 'bash',
+      arguments: { command: 'echo hi', description: 'no agent' },
+    })
+    expect(spawned).toHaveLength(0)
+    // The executor resolves the platform login shell (zsh on macOS), so assert
+    // the command text rather than the binary name.
+    expect(captured[0]?.at(-1)).toBe('echo hi')
+    expect(text(result)).not.toContain('killed by')
+    for (const fiber of fibers) await fiber.dispose()
   })
 })

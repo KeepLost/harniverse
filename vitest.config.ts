@@ -73,6 +73,13 @@ const windowsOnlyCoverageExclusions = process.platform !== 'win32'
 // would run the confinement in-process if imported, and vitest's v8 coverage
 // never measures child processes. Its behavior is pinned end-to-end by
 // tests/runner.spec.ts, which spawns the real entry through tsx.
+// governor's default /proc internals read Linux procfs paths directly; the
+// Windows lane cannot execute them (the /proc-dependent suites skip off
+// Linux), so the Linux coverage lane owns those lines at the full 100% bar.
+const governorProcDefaultsWindowsExclusions = process.platform === 'win32'
+  ? ['packages/monitor/governor/src/proc-defaults.ts']
+  : []
+
 const windowsRunnerCoverageExclusions = process.platform === 'win32'
   ? ['packages/sandbox/sandbox-windows-acl/src/runner.ts']
   : []
@@ -290,6 +297,7 @@ export default defineConfig({
         ...windowsUnsupportedCoveragePackages.map(path => `${path}/src/**/*.ts`),
         ...windowsOnlyCoverageExclusions,
         ...windowsRunnerCoverageExclusions,
+        ...governorProcDefaultsWindowsExclusions,
         ...pwshCoverageExclusions,
       ],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).

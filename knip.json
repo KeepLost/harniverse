@@ -10,6 +10,7 @@
     "openssl",
     "python3",
     "sandbox-exec",
+    "ss",
     "tar",
     "taskkill",
     "where.exe"

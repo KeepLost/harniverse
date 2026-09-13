@@ -126,6 +126,16 @@ interface SubprocessSpawnSpec {
    * tombstone that removes an ordinary ambient entry from the child.
    */
   env?: NodeJS.ProcessEnv | undefined
+  /**
+   * Metering identity: stamps the spawn as belonging to one session command.
+   * Present spawns are reported through `subprocess/spawned` / `subprocess/exited`
+   * and become eligible for resource metering; absent spawns stay private to
+   * their spawner. A spawn that fails before acquiring a pid reports only the
+   * paired `subprocess/exited` with null exit facts.
+   */
+  correlation?: SubprocessCorrelation | undefined
+  /** Resource bounds the provider should enforce for this spawn. */
+  limits?: SubprocessLimits | undefined
 }
 ```
 
@@ -320,5 +330,82 @@ abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle
 abstract spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle>
 ```
 
-Source: [`packages/subprocess/subprocess/src/index.ts:110`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:170`](../../packages/subprocess/subprocess/src/index.ts)
+
+<a id="subprocess-events"></a>
+
+### `subprocess/*` events
+
+<a id="subprocessexited--emit"></a>
+
+#### `subprocess/exited` — emit
+
+One metered spawn's tree fully exited. Follows the matching `subprocess/spawned` for the same command id.
+
+```ts cordis-catalog
+/**
+ * One metered spawn's tree fully exited. Follows the matching
+ * `subprocess/spawned` for the same command id.
+ * @param event - the settled spawn's correlation, handle, and outcome.
+ * @mode emit
+ */
+'subprocess/exited'(event: SubprocessMeteredExit): void
+```
+
+Source: [`packages/subprocess/subprocess/src/index.ts:99`](../../packages/subprocess/subprocess/src/index.ts)
+
+<a id="subprocessspawned--emit"></a>
+
+#### `subprocess/spawned` — emit
+
+One metered spawn started: a process spawned with a SubprocessCorrelation is now live. Providers that cannot meter (remote sandboxes without host-side /proc) simply never emit this family; metering consumers must treat silence as "not metered here".
+
+```ts cordis-catalog
+/**
+ * One metered spawn started: a process spawned with a
+ * {@link SubprocessCorrelation} is now live. Providers that cannot meter
+ * (remote sandboxes without host-side /proc) simply never emit this
+ * family; metering consumers must treat silence as "not metered here".
+ * @param event - the live spawn's correlation and handle.
+ * @mode emit
+ */
+'subprocess/spawned'(event: SubprocessMeteredSpawn): void
+```
+
+Source: [`packages/subprocess/subprocess/src/index.ts:92`](../../packages/subprocess/subprocess/src/index.ts)
+
+<a id="subprocessterminal-exited--emit"></a>
+
+#### `subprocess/terminal-exited` — emit
+
+One metered terminal session fully exited.
+
+```ts cordis-catalog
+/**
+ * One metered terminal session fully exited.
+ * @param event - the settled terminal session's correlation, handle, and outcome.
+ * @mode emit
+ */
+'subprocess/terminal-exited'(event: SubprocessMeteredTerminalExit): void
+```
+
+Source: [`packages/subprocess/subprocess/src/index.ts:112`](../../packages/subprocess/subprocess/src/index.ts)
+
+<a id="subprocessterminal-spawned--emit"></a>
+
+#### `subprocess/terminal-spawned` — emit
+
+One metered terminal session became live (PTY spawns carry their own POSIX session; metering attributes by session id, not process group).
+
+```ts cordis-catalog
+/**
+ * One metered terminal session became live (PTY spawns carry their own
+ * POSIX session; metering attributes by session id, not process group).
+ * @param event - the live terminal session's correlation and handle.
+ * @mode emit
+ */
+'subprocess/terminal-spawned'(event: SubprocessMeteredTerminalSpawn): void
+```
+
+Source: [`packages/subprocess/subprocess/src/index.ts:106`](../../packages/subprocess/subprocess/src/index.ts)
 <!-- END GENERATED cordis-surface -->
