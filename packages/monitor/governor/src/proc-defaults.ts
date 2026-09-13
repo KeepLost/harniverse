@@ -11,6 +11,10 @@
 import { readFile, readdir, readlink, statfs } from 'node:fs/promises'
 import type { ProcInternals } from './types.ts'
 
+/**
+ * The real-filesystem internals the metering readers use when a caller
+ * injects none: straight `node:fs/promises` seams over procfs paths.
+ */
 export const defaultInternals: ProcInternals = {
   readFile: path => readFile(path, 'utf8'),
   readDir: path => readdir(path),
