@@ -1352,7 +1352,11 @@ describe('governor collaboration (correlation, limits, breach meta)', () => {
     })
     expect(spawned).toHaveLength(1)
     expect(spawned[0]).toEqual({ sessionId: 'gov-session-1', commandId: 'gov-call-1', kind: 'shell' })
-    expect(captured[0]?.slice(0, 3)).toEqual(['prlimit', '--as=4000000000', '--'])
+    // The prlimit prefix is a Linux-only enforcement arm; elsewhere the metered
+    // spawn still runs, just without the address-space bound.
+    if (process.platform === 'linux') {
+      expect(captured[0]?.slice(0, 3)).toEqual(['prlimit', '--as=4000000000', '--'])
+    }
     expect(text(result)).toContain('[killed by memory-limit (peak 3.8GiB > limit 3.7GiB)]')
     for (const fiber of fibers) await fiber.dispose()
   })
@@ -1366,7 +1370,9 @@ describe('governor collaboration (correlation, limits, breach meta)', () => {
       arguments: { command: 'echo hi', description: 'no agent' },
     })
     expect(spawned).toHaveLength(0)
-    expect(captured[0]?.[0]).toBe('bash')
+    // The executor resolves the platform login shell (zsh on macOS), so assert
+    // the command text rather than the binary name.
+    expect(captured[0]?.at(-1)).toBe('echo hi')
     expect(text(result)).not.toContain('killed by')
     for (const fiber of fibers) await fiber.dispose()
   })
