@@ -91,7 +91,7 @@ describe('LocalSubprocessRuntime spawn metering events', () => {
       cwd: process.cwd(),
       graceMs: 1_000,
       stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
-      limits: { maxMemoryBytes: 512 * 1024 * 1024 },
+      limits: { maxMemoryBytes: 4_000_000_000 },
       correlation: { sessionId: 's1', commandId: 'cmd-limited', kind: 'shell' },
     })
     await handle.done
