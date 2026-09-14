@@ -214,7 +214,7 @@ function operationStatusOf(status: SessionWorkStatus): OperationStatus {
  * is deferred work.
  */
 const WEB_SETTINGS_NAMESPACES = [
-  'agent-loop', 'compaction', 'shell', 'locale', 'permission', 'ui-conversation', 'ui-theme',
+  'agent-loop', 'compaction', 'governor', 'shell', 'locale', 'permission', 'ui-conversation', 'ui-theme',
   'web', 'web-search-deepseek', 'web-search-exa', 'web-search-perplexity',
   'web-search-tavily', 'web-search-brave', 'web-search-kagi', 'web-firecrawl',
 ] as const

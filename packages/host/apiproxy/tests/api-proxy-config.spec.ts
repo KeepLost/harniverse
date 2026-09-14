@@ -528,6 +528,32 @@ describe('settings domain', () => {
     expect(frames).toEqual([forwardedSettings('ui-onboarding'), forwardedSettings('ui-theme')])
   })
 
+  it('serves the governor namespace, so the Resource-governance page can edit the global memory budget', async () => {
+    const ctx = await harness()
+    // Mirrors the governor plugin's own `governor:` section schema.
+    ctx.settings.register(settingsNamespace('governor'), z.object({
+      memory: z.object({
+        limit: z.union(['auto', z.number()]).default('auto'),
+      }).default({ limit: 'auto' }),
+    }))
+    const api = createApiProxy(ctx, DEFAULTS)
+
+    // The settings page's scope derives its availability from describe: a
+    // registered-but-unlisted namespace renders the page's unavailable arm
+    // instead of the budget form.
+    expect(expectOk(await api.settings.describe(request({}))).namespaces.map(view => view.ns))
+      .toContain('governor')
+
+    const budgetBytes = 2 * 1024 ** 3
+    const view = expectOk(await api.settings.mutate(request({
+      ns: 'governor',
+      ops: [{ op: 'set', path: ['memory', 'limit'], value: budgetBytes }],
+    })))
+    expect(view.value).toEqual({ memory: { limit: budgetBytes } })
+    expect(ctx.settings.describe().find(d => String(d.ns) === 'governor')?.value)
+      .toEqual({ memory: { limit: budgetBytes } })
+  })
+
   it('serves the agent-preset namespace, so a browser preset picker can persist its choice', async () => {
     const ctx = await harness()
     ctx.settings.register(settingsNamespace('agent-presets'), z.object({ default: z.string() }))
