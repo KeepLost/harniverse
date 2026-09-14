@@ -574,6 +574,37 @@ describe('provider profile lifecycle', () => {
     })
   })
 
+  it('prefers the model default effort over the route default and can pin none', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'acme-gateway': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          api: 'openai-completions',
+          baseURL: 'https://acme.test/v1',
+          reasoning: 'medium',
+          models: [
+            { id: 'pinned', contextWindow: 65_536, maxTokens: 4096, reasoningEfforts: { off: null, low: 'low', medium: 'medium' }, defaultReasoningEffort: 'low' },
+            { id: 'suppressed', contextWindow: 65_536, maxTokens: 4096, reasoningEfforts: { off: null, low: 'low', medium: 'medium' }, defaultReasoningEffort: 'default' },
+            { id: 'inherit', contextWindow: 65_536, maxTokens: 4096, reasoningEfforts: { off: null, low: 'low', medium: 'medium' } },
+          ],
+        },
+      },
+    })
+
+    await expect(ctx.llm.resolveModelInfo('acme-gateway', 'pinned')).resolves.toMatchObject({
+      reasoning: { defaultEffort: ReasoningEffortId('low') },
+    })
+    // "default" is the model's explicit "send no effort": the route-level
+    // default stops at it instead of flowing through.
+    const suppressed = await ctx.llm.resolveModelInfo('acme-gateway', 'suppressed')
+    expect(suppressed.reasoning?.defaultEffort).toBeUndefined()
+    await expect(ctx.llm.resolveModelInfo('acme-gateway', 'inherit')).resolves.toMatchObject({
+      reasoning: { defaultEffort: ReasoningEffortId('medium') },
+    })
+  })
+
   it('sends the declared wire spelling and refuses undeclared levels before network I/O', async () => {
     vi.stubEnv('PI_TEST_KEY', 'test-key')
     const server = await mockServer([{ events: textEvents }])

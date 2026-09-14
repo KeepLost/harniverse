@@ -265,6 +265,73 @@ describe('model list editing', () => {
     expect(mutate).not.toHaveBeenCalled()
   })
 
+  it('declares image input and a tuned reasoning set on the model row', async () => {
+    const { mutate } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-think' } })
+    expandModel(1)
+    fireEvent.click(screen.getByLabelText(en.modelImageInput))
+    fireEvent.click(screen.getByLabelText(en.modelReasoning))
+    // The checked set starts at off/medium/high; narrow it to off/high and
+    // give high a provider-specific wire spelling.
+    fireEvent.click(screen.getByLabelText('medium'))
+    fireEvent.change(screen.getByLabelText(`${en.modelEffortWire} high`), { target: { value: 'ultra' } })
+    fireEvent.change(screen.getByLabelText(en.modelDefaultEffort), { target: { value: 'high' } })
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalled() })
+    expect(firstMutate(mutate).ops[0]?.value).toEqual([{
+      id: 'acme-think',
+      input: ['text', 'image'],
+      reasoningEfforts: { off: null, high: 'ultra' },
+      defaultReasoningEffort: 'high',
+    }])
+  })
+
+  it('refuses a reasoning declaration that offers no level beyond off', async () => {
+    const { mutate } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'm' } })
+    expandModel(1)
+    fireEvent.click(screen.getByLabelText(en.modelReasoning))
+    fireEvent.click(screen.getByLabelText('medium'))
+    fireEvent.click(screen.getByLabelText('high'))
+
+    expect(await screen.findByText(`${en.model} 1: ${en.modelEffortsInvalid}`)).toBeTruthy()
+    expect(buttonNamed(en.apply).disabled).toBe(true)
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('writes chat-template dispatch with custom thinking fields', async () => {
+    const { mutate } = await mountSection({
+      providers: {
+        openai: { apiKeyEnv: 'OPENAI_API_KEY', baseURL: 'https://proxy.example/v1', api: 'openai-completions' },
+      },
+    })
+    openEditor('openai')
+
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'm' } })
+    expandModel(1)
+    fireEvent.change(screen.getByLabelText(en.modelThinkingFormat), { target: { value: 'chat-template' } })
+    fireEvent.click(screen.getByText(en.modelKwargAdd))
+    fireEvent.change(screen.getByLabelText(`${en.modelKwargName} 1`), { target: { value: 'enable_thinking' } })
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalled() })
+    expect(firstMutate(mutate).ops[0]?.value).toEqual([{
+      id: 'm',
+      compat: {
+        thinkingFormat: 'chat-template',
+        chatTemplateKwargs: { enable_thinking: { $var: 'thinking.enabled' } },
+      },
+    }])
+  })
+
   it('reads K and M suffixes and keeps the text the user typed', async () => {
     const { mutate } = await mountSection()
     openEditor('openai')

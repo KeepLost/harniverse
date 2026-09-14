@@ -545,6 +545,114 @@
   padding: 8px 4px 2px;
 }
 
+/* The capability declaration spans the full disclosure width: its effort grid
+   and kwargs rows are wider than one auto-fit column. */
+.capabilityGroup {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 0 0;
+  border: none;
+}
+
+.capabilityLegend {
+  padding: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* A capability control that must span the auto-fit grid the disclosure uses. */
+.capabilitySpan {
+  grid-column: 1 / -1;
+}
+
+.capabilityCheck {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.capabilityBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.effortGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 4px 12px;
+}
+
+.effortRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.effortWire {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+.effortWire:focus {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.kwargRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kwargName,
+.kwargValue {
+  box-sizing: border-box;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+.kwargName {
+  flex: 0 1 180px;
+  min-width: 0;
+}
+
+.kwargValue {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+
+.kwargName:focus,
+.kwargValue:focus {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
+}
+
 .modelField {
   display: flex;
   flex-direction: column;
