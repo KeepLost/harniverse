@@ -120,7 +120,9 @@ export class GovernorService extends TypertRemoteService {
   static inject = ['agents', 'sessions', 'storageDomain']
 
   private readonly ownerCtx: Context
-  private config: GovernorConfig
+  private configSource: () => GovernorConfig
+  /** Effective settings, always read fresh from the attached source thunk. */
+  get config(): GovernorConfig { return this.configSource() }
   private globalLimitBytes = 0
   private book: QuotaBook | undefined
   private engine: MeteringEngine | undefined
@@ -138,12 +140,12 @@ export class GovernorService extends TypertRemoteService {
   constructor(ctx: Context, config: GovernorConfig = DEFAULT_CONFIG, internals: GovernorInternals = {}) {
     super(ctx, 'governor')
     this.ownerCtx = ctx
-    this.config = config
+    this.configSource = () => config
     this.cgroup = new CgroupRoot('/sys/fs/cgroup', internals.cgroup)
     this.samplerOptions = internals.sampler ?? {}
     installSettingsSection(this.ctx, GOVERNOR_SETTINGS_NAMESPACE, Config, config, {
       setSource: (current) => {
-        this.config = current()
+        this.configSource = current
       },
       onChange: () => {
         void this.applyGlobalLimit()
@@ -202,12 +204,24 @@ export class GovernorService extends TypertRemoteService {
     return this.engine
   }
 
-  /** Resolve the effective settings and (re)apply the global budget. */
+  /** Monotonic epoch of started budget applies; only the newest may settle. */
+  private applyEpoch = 0
+
+  /**
+   * Resolve the effective settings and (re)apply the global budget. Settings
+   * attach can start one apply while the init-time apply is still resolving,
+   * and the later-started apply always read the newer source — so a stale
+   * settlement must not overwrite it: superseded applies stop before any
+   * effect, and the leaf pass below simply waits for the newest re-application
+   * when the book is not built yet.
+   */
   private async applyGlobalLimit(): Promise<void> {
-    this.globalLimitBytes = await resolveGlobalLimitBytes(this.config)
+    const epoch = ++this.applyEpoch
+    const limit = await resolveGlobalLimitBytes(this.config)
+    if (epoch !== this.applyEpoch) return
+    this.globalLimitBytes = limit
     await this.cgroup.ensureParent(this.globalLimitBytes)
-    // Settings attach can fire this before Service.init builds the book; the
-    // leaf pass then simply waits for the init-time re-application.
+    if (epoch !== this.applyEpoch) return
     for (const [sessionId, record] of this.book?.entries() ?? []) {
       await this.cgroup.ensureSession(sessionId, record.memoryBytes)
     }
