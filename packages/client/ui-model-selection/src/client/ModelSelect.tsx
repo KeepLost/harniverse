@@ -16,25 +16,18 @@ import {
   type KeyboardEvent, type FocusEvent,
 } from 'react'
 import clsx from 'clsx'
-import type { ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   IconCheckOutline16, IconChevronDownOutline14, IconChevronRightOutline14,
   IconWarningOutline16, Toast,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelSelectInjected } from './slots.ts'
+import { effortChoicesOf, effortLabelOf, effectiveEffortOf } from './effort.ts'
 import css from './ModelSelect.module.css'
 
 /** Which pane the dropdown shows: the two-row root or one drilled-in list. */
 type Pane = 'root' | 'profile' | 'route' | 'model' | 'effort'
-
-/** One dynamic effort row; undefined means preserve the provider default. */
-interface EffortChoice {
-  key: string
-  effort: string | undefined
-  label: string
-  description?: string
-}
 
 /**
  * Render the composer model seat.
@@ -81,25 +74,9 @@ export function ModelSelect(
     : choices.findIndex(c => c.selection.provider === state.current?.provider && c.selection.model === state.current.model)
   const currentChoice = choices[selectedIndex]
   const reasoning = currentChoice?.model.reasoning
-  const effectiveEffort = state.current?.reasoningEffort ?? reasoning?.defaultEffort
-  const effortLabel = reasoning === undefined
-    ? undefined
-    : effectiveEffort === undefined
-      ? t('effort.providerDefault')
-      : reasoning.efforts.find(level => level.id === effectiveEffort)?.name ?? effectiveEffort
-  const effortChoices = useMemo<readonly EffortChoice[]>(() => reasoning === undefined
-    ? []
-    : [
-      ...reasoning.defaultEffort === undefined
-        ? [{ key: 'provider-default', effort: undefined, label: t('effort.providerDefault') }]
-        : [],
-      ...reasoning.efforts.map((effort: ModelReasoningEffort) => ({
-        key: `effort:${effort.id}`,
-        effort: effort.id,
-        label: effort.name,
-        ...effort.description === undefined ? {} : { description: effort.description },
-      })),
-    ], [reasoning, t])
+  const effectiveEffort = effectiveEffortOf(state.current, reasoning)
+  const effortLabel = effortLabelOf(effectiveEffort, reasoning, t)
+  const effortChoices = useMemo(() => effortChoicesOf(reasoning, t), [reasoning, t])
   const busy = state.status === 'selecting'
 
   const reload = (): void => {

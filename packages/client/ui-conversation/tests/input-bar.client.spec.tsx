@@ -1299,6 +1299,7 @@ describe('command launcher chrome and control seats', () => {
     // Every seat dispatched, nothing rendered.
     expect(slotCalls.map(c => c.key)).toEqual([
       'conversation.input.commands', 'conversation.input.plan', 'conversation.input.model',
+      'conversation.input.effort',
     ])
     expect(view.queryByLabelText('Plan mode')).toBeNull()
     expect(view.queryByLabelText('Model')).toBeNull()

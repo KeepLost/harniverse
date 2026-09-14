@@ -224,6 +224,15 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * a model here.
      */
     'conversation.input.model': { kind: 'single'; scope: 'session'; owner: InputControlOwnerProps }
+    /**
+     * The named reasoning-effort seat directly right of the model seat in
+     * the composer tool row — one occupant, so taking it means rendering
+     * the quick effort affordance yourself. Same `locked`-only owner share
+     * and same renders-nothing-while-empty contract as the model seat: the
+     * occupant hides itself while the current model declares no effort
+     * levels, so a model without reasoning costs no layout.
+     */
+    'conversation.input.effort': { kind: 'single'; scope: 'session'; owner: InputControlOwnerProps }
   }
 
   /**
@@ -553,7 +562,7 @@ export interface InputControlOwnerProps {
 /** Full composer-bar props: standard kit & owner share & control-seat render share & injected share (hooks bound) & locale seat. */
 export type ComposerBarProps =
   PropsRuntime<'conversation.composer.bar'>
-  & PropsRenderSlots<'conversation.input.plan' | 'conversation.input.model' | 'conversation.input.commands'>
+  & PropsRenderSlots<'conversation.input.plan' | 'conversation.input.model' | 'conversation.input.effort' | 'conversation.input.commands'>
   & InjectFace<ComposerBarInjected>
   & PropsLocale<'conversation'>
 

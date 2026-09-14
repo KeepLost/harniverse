@@ -836,6 +836,7 @@ export function InputBar({
           <div className={css.trailing}>
             {rightItems}
             {renderSlot('conversation.input.model', { locked: modelSeatLocked })}
+            {renderSlot('conversation.input.effort', { locked: modelSeatLocked })}
             <ContextMeter useProjection={useProjection} t={t} />
           </div>
           {/* The send/stop pair owns its own seat so the narrow-card grid can
