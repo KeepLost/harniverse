@@ -16,6 +16,7 @@ import { builtinProviders, getBuiltinModels, getBuiltinProviders } from '@earend
 import type { BuiltinProvider } from '@earendil-works/pi-ai/providers/all'
 import type {
   Api,
+  ChatTemplateKwargValue,
   Model,
   ModelCost,
   ModelThinkingLevel,
@@ -83,10 +84,11 @@ export const THINKING_LEVELS = Object.keys(THINKING_LEVEL_GATE) as readonly Mode
 type PiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFormat']>
 
 /**
- * pi-ai thinking formats a profile cannot name: both drive the request through
- * `chatTemplateKwargs`, which this configuration does not expose.
+ * pi-ai thinking formats a profile cannot name: `qwen-chat-template` drives
+ * the request through pi-ai's own fixed `enable_thinking` /
+ * `preserve_thinking` kwargs, which need no per-deployment spelling.
  */
-type WithheldThinkingFormat = 'chat-template' | 'qwen-chat-template'
+type WithheldThinkingFormat = 'qwen-chat-template'
 
 /** One reasoning-dispatch wire format a profile may name. */
 export type PiAiThinkingFormat = Exclude<PiThinkingFormat, WithheldThinkingFormat>
@@ -106,6 +108,7 @@ const THINKING_FORMAT_GATE: Record<PiAiThinkingFormat, true> = {
   'qwen': true,
   'string-thinking': true,
   'ant-ling': true,
+  'chat-template': true,
 }
 
 /** Reasoning-dispatch wire formats a profile may name, most-reached first. */
@@ -196,6 +199,14 @@ export interface PiAiCompatProfile {
   thinkingFormat?: PiAiThinkingFormat
   /** Whether the endpoint accepts `reasoning_effort`; absent keeps the catalog entry's, then pi-ai's baseURL-derived guess. */
   supportsReasoningEffort?: boolean
+  /**
+   * Fields dispatched as `chat_template_kwargs.<name>` under the
+   * `chat-template` format — the arbitrary-field escape hatch for endpoints
+   * whose thinking switch lives in a field no named format spells. Values are
+   * literals, or pi-ai's `thinking.enabled` / `thinking.effort` variables;
+   * per-model entries win over the route.
+   */
+  chatTemplateKwargs?: Record<string, ChatTemplateKwargValue>
 }
 
 /** One configured model entry: an id plus the catalog fields it overrides. */
@@ -233,6 +244,14 @@ export interface PiAiModelProfile {
    * declares the offered levels and their wire spellings.
    */
   reasoningEfforts?: false | PiAiReasoningEfforts
+  /**
+   * Effort a selection on this model starts from: a declared level, `off`, or
+   * `default` — the model's explicit "send no effort", which stops a
+   * route-level `reasoning` default from reaching it. Absent inherits the
+   * route default; only meaningful beside a dict `reasoningEfforts`, which is
+   * what resolution validates.
+   */
+  defaultReasoningEffort?: ModelThinkingLevel | 'default'
   /** Reasoning-dispatch switches for this model, winning over the route's. */
   compat?: PiAiCompatProfile
 }
@@ -385,6 +404,17 @@ function resolveModelReasoning(
  * @param api - the model's resolved wire protocol.
  * @returns a `compat` field to spread into the model, or nothing.
  */
+/**
+ * A compat profile's kwargs, or `undefined` when none carry a key. The config
+ * schema materializes an absent dict as `{}`, so emptiness — not presence —
+ * is the "not set here" the entry/route precedence reads.
+ */
+function declaredKwargs(kwargs: Record<string, ChatTemplateKwargValue> | undefined):
+  | Record<string, ChatTemplateKwargValue>
+  | undefined {
+  return kwargs !== undefined && Object.keys(kwargs).length > 0 ? kwargs : undefined
+}
+
 function resolveModelCompat(
   provider: string,
   entry: PiAiModelProfile,
@@ -394,13 +424,26 @@ function resolveModelCompat(
 ): { compat: OpenAICompletionsCompat } | Record<string, never> {
   const thinkingFormat = entry.compat?.thinkingFormat ?? route?.thinkingFormat
   const supportsReasoningEffort = entry.compat?.supportsReasoningEffort ?? route?.supportsReasoningEffort
-  if (thinkingFormat === undefined && supportsReasoningEffort === undefined) return {}
+  const chatTemplateKwargs = declaredKwargs(entry.compat?.chatTemplateKwargs)
+    ?? declaredKwargs(route?.chatTemplateKwargs)
+  if (thinkingFormat === undefined && supportsReasoningEffort === undefined && chatTemplateKwargs === undefined) {
+    return {}
+  }
   if (api !== 'openai-completions') {
-    if (entry.compat?.thinkingFormat !== undefined || entry.compat?.supportsReasoningEffort !== undefined) {
+    if (entry.compat?.thinkingFormat !== undefined || entry.compat?.supportsReasoningEffort !== undefined
+      || declaredKwargs(entry.compat?.chatTemplateKwargs) !== undefined) {
       invalid(provider, `model "${entry.id}" sets compat reasoning switches, but its api is "${api}";`
         + ' thinkingFormat and supportsReasoningEffort exist only on openai-completions')
     }
     return {}
+  }
+  // Kwargs travel only with the format that dispatches them; under any other
+  // they are dead configuration, which is a typo someone would hunt in the
+  // request body. The resolved format decides, so an entry's kwargs may ride
+  // a route-level format.
+  if (chatTemplateKwargs !== undefined && thinkingFormat !== 'chat-template') {
+    invalid(provider, 'sets chatTemplateKwargs, but the resolved thinkingFormat is not "chat-template";'
+      + ' chatTemplateKwargs is dispatched only by the chat-template format')
   }
   // The installed entry's compat matches the entry's OWN api — a route-level
   // `api` repoint (an anthropic catalog served through an OpenAI-compatible
@@ -414,6 +457,7 @@ function resolveModelCompat(
       ...inherited,
       ...thinkingFormat === undefined ? {} : { thinkingFormat },
       ...supportsReasoningEffort === undefined ? {} : { supportsReasoningEffort },
+      ...chatTemplateKwargs === undefined ? {} : { chatTemplateKwargs },
     },
   }
 }
@@ -433,6 +477,13 @@ export interface RouteCatalog {
    * picked, so only an explicit configuration lands here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /**
+   * Per-model default reasoning efforts this profile explicitly configured,
+   * by model id. `default` is the model's explicit "send no effort", which
+   * stops the route-level `reasoning` default; a level name is what a
+   * selection on that model starts from.
+   */
+  configuredDefaultEffort: ReadonlyMap<string, ModelThinkingLevel | 'default'>
 }
 
 /**
@@ -487,8 +538,10 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
   const routeApi = sharedCatalogApi(defaults)
   const routeCompatDefined = request.compat?.thinkingFormat !== undefined
     || request.compat?.supportsReasoningEffort !== undefined
+    || declaredKwargs(request.compat?.chatTemplateKwargs) !== undefined
   const seen = new Set<string>()
   const configuredMaxTokens = new Map<string, number>()
+  const configuredDefaultEffort = new Map<string, ModelThinkingLevel | 'default'>()
   const models = entries.map((entry) => {
     if (entry.id.length === 0) invalid(provider, 'has a model with an empty id')
     if (seen.has(entry.id)) invalid(provider, `lists model "${entry.id}" more than once`)
@@ -518,6 +571,22 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
     // Only a value the profile named is a deployment choice; the catalog's is
     // the model's capability and stays out of request defaults.
     if (entry.maxTokens !== undefined) configuredMaxTokens.set(entry.id, entry.maxTokens)
+    if (entry.defaultReasoningEffort !== undefined) {
+      const efforts = entry.reasoningEfforts
+      // A default selects among the declared levels, so it means nothing on a
+      // model that declares none — refusing names the field instead of letting
+      // a route default silently keep applying.
+      if (efforts === undefined || efforts === false) {
+        invalid(provider, `model "${entry.id}" sets defaultReasoningEffort, which requires reasoningEfforts`
+          + ' declaring the offered levels')
+      }
+      const wanted = entry.defaultReasoningEffort
+      if (wanted !== 'default' && efforts[wanted] === undefined) {
+        invalid(provider, `model "${entry.id}" defaultReasoningEffort "${wanted}" is not among its declared`
+          + ' reasoningEfforts')
+      }
+      configuredDefaultEffort.set(entry.id, wanted)
+    }
     return {
       // The installed entry lays the floor, and the fields below override it.
       // Enumerating instead would silently drop every `Model` field this
@@ -542,5 +611,5 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
     invalid(provider, 'sets compat reasoning switches, but no model on the route speaks openai-completions;'
       + ' thinkingFormat and supportsReasoningEffort exist only on that protocol')
   }
-  return { models, configuredMaxTokens }
+  return { models, configuredMaxTokens, configuredDefaultEffort }
 }

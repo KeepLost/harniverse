@@ -166,6 +166,13 @@ export interface ResolvedPiAiProviderProfile
    * own, so a catalog capability must not appear here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /**
+   * Per-model default reasoning efforts this profile explicitly configured,
+   * by model id. `default` pins "send no effort" for its model, stopping the
+   * route-level `reasoning` default; a level name is what a selection on
+   * that model starts from.
+   */
+  configuredDefaultEffort: ReadonlyMap<string, ModelThinkingLevel | 'default'>
 }
 
 /** Plugin configuration: the provider routes this instance owns. */
@@ -185,10 +192,19 @@ const thinkingBudgets = z.object({
   high: z.number(),
 })
 
-const compatProfile: z<PiAiCompatProfile> = z.object({
+/** One `chat_template_kwargs` value: a literal, or a pi-ai thinking variable. */
+const chatTemplateKwarg = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.object({ $var: z.union(['thinking.enabled', 'thinking.effort']), omitWhenOff: z.boolean() }) as never,
+]) as never
+
+const compatProfile = z.object({
   thinkingFormat: z.union(SUPPORTED_THINKING_FORMATS),
   supportsReasoningEffort: z.boolean(),
-})
+  chatTemplateKwargs: z.dict(chatTemplateKwarg),
+}) as unknown as z<PiAiCompatProfile>
 
 /**
  * Keys are the offered levels, values their wire spellings. A valueless key
@@ -218,6 +234,9 @@ const modelFields = {
   // `{}`, and absent must stay distinguishable — it means "inherit the
   // installed catalog's capability", while `false` disables reasoning.
   reasoningEfforts: z.union([z.const(false), reasoningEfforts]),
+  // "default" is writable like a level: it is the model's explicit "send no
+  // effort", and needs the same first-class spelling a level has.
+  defaultReasoningEffort: z.union([...THINKING_LEVELS, 'default']),
   compat: compatProfile,
 }
 
@@ -373,6 +392,7 @@ export function resolveProfiles(
       ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
       ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
       configuredMaxTokens: catalog.configuredMaxTokens,
+      configuredDefaultEffort: catalog.configuredDefaultEffort,
       piProvider: buildProvider({
         provider,
         displayName,
