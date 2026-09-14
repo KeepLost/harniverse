@@ -11,7 +11,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import { proxyEnvironmentForChild } from '@deepseek-ai/dsh-http-proxy'
 import { DSH_ENV_PREFIX } from './types.ts'
-import type { SubprocessHandle, SubprocessSpawnSpec } from './types.ts'
+import type { SubprocessCorrelation, SubprocessHandle, SubprocessOutcome, SubprocessSpawnSpec } from './types.ts'
 import type { SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from './types.ts'
 
 export { DSH_ENV_PREFIX } from './types.ts'
@@ -21,7 +21,9 @@ export type {
   DshEnvironmentKey,
   SubprocessCollect,
   SubprocessCollectedOutputs,
+  SubprocessCorrelation,
   SubprocessHandle,
+  SubprocessLimits,
   SubprocessOutcome,
   SubprocessOutputMode,
   SubprocessOutputRead,
@@ -77,6 +79,64 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     subprocess: SubprocessRuntime
   }
+
+  interface Events {
+    /**
+     * One metered spawn started: a process spawned with a
+     * {@link SubprocessCorrelation} is now live. Providers that cannot meter
+     * (remote sandboxes without host-side /proc) simply never emit this
+     * family; metering consumers must treat silence as "not metered here".
+     * @param event - the live spawn's correlation and handle.
+     * @mode emit
+     */
+    'subprocess/spawned'(event: SubprocessMeteredSpawn): void
+    /**
+     * One metered spawn's tree fully exited. Follows the matching
+     * `subprocess/spawned` for the same command id.
+     * @param event - the settled spawn's correlation, handle, and outcome.
+     * @mode emit
+     */
+    'subprocess/exited'(event: SubprocessMeteredExit): void
+    /**
+     * One metered terminal session became live (PTY spawns carry their own
+     * POSIX session; metering attributes by session id, not process group).
+     * @param event - the live terminal session's correlation and handle.
+     * @mode emit
+     */
+    'subprocess/terminal-spawned'(event: SubprocessMeteredTerminalSpawn): void
+    /**
+     * One metered terminal session fully exited.
+     * @param event - the settled terminal session's correlation, handle, and outcome.
+     * @mode emit
+     */
+    'subprocess/terminal-exited'(event: SubprocessMeteredTerminalExit): void
+  }
+}
+
+/** A live metered process spawn reported by the provider. */
+export interface SubprocessMeteredSpawn {
+  readonly correlation: SubprocessCorrelation
+  readonly handle: SubprocessHandle
+}
+
+/** Final facts of one metered process spawn. */
+export interface SubprocessMeteredExit {
+  readonly correlation: SubprocessCorrelation
+  readonly handle: SubprocessHandle
+  readonly outcome: SubprocessOutcome
+}
+
+/** A live metered terminal session reported by the provider. */
+export interface SubprocessMeteredTerminalSpawn {
+  readonly correlation: SubprocessCorrelation
+  readonly handle: SubprocessTerminalHandle
+}
+
+/** Final facts of one metered terminal session. */
+export interface SubprocessMeteredTerminalExit {
+  readonly correlation: SubprocessCorrelation
+  readonly handle: SubprocessTerminalHandle
+  readonly outcome: SubprocessOutcome
 }
 
 /**

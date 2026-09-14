@@ -1,0 +1,69 @@
+/* Sidebar footer trigger for the resource board.
+ *
+ * The box mirrors the sibling footer triggers (ui-scheduler
+ * ScheduleSidebarAction.module.css): same 34px compact row, same left-aligned
+ * content, same -4px side bleed so the hover fill reaches the column inset,
+ * and the same 36px circle on the rail. */
+
+.row,
+.rail {
+  display: flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.row {
+  flex: none;
+  box-sizing: border-box;
+  gap: 8px;
+  width: calc(100% + 8px);
+  height: 34px;
+  margin: 4px -4px;
+  padding: 6px 2px 6px 10px;
+  border-radius: 12px;
+}
+
+.row:hover,
+.row:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* Occupying the center column is a persistent state, so it takes the nav's
+   selected fill rather than the hover wash. */
+.row[data-active] {
+  background: var(--dsw-specific-sidebar-nav-item-active);
+}
+
+.rail {
+  flex: none;
+  box-sizing: border-box;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin: 4px 0;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.rail:hover,
+.rail:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.rail[data-active] {
+  background: var(--dsw-specific-sidebar-nav-item-active);
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -379,6 +379,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['when no turn is open or either audit event fails before the session append commit point.'],
       },
       {
+        signature: 'effectivePolicy(session: Session): ApprovalPolicy',
+        description: 'The session\'s effective policy: its own `approval/policy` fold, else the configured default (the schema already defaulted an omitted policy to `\'ask\'`; the `??` only narrows the optional-input TYPE).',
+        parameters: [{ name: 'session', description: 'the exact accepted session whose policy applies.' }],
+        returns: 'the policy every ask for this session resolves under right now.',
+      },
+      {
         signature: 'overrideOf(session: Session): ApprovalPolicy | undefined',
         description: 'Read the session override without applying the configured default.',
         parameters: [{ name: 'session', description: 'session whose log supplies the override.' }],
@@ -982,6 +988,90 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Create one Goal through the remote boundary.',
         parameters: [{ name: 'agent', description: 'exact live Agent resolved from the wire identity.' }, { name: 'request', description: 'objective and optional round cap.' }],
         returns: 'the created Goal identity.',
+      },
+    ],
+  },
+  {
+    key: 'governor',
+    summary: 'The resource governor service.',
+    description: 'The resource governor service. See the package README and the Agent Note (`2026-09-12-resource-governor-metering-and-quotas`) for the tier model, shared-pool semantics, and sandbox-realm integration contract.',
+    methods: [
+      {
+        signature: 'limitsFor(sessionId: string): { maxMemoryBytes?: number } | undefined',
+        description: 'Spawn bounds for one session — the tool-bash collaboration seam. Every metered command carries its session\'s effective limit: an explicit quota for leaf sessions, the shared global budget for pool members.',
+        parameters: [{ name: 'sessionId', description: 'session id.' }],
+        returns: 'the limits the provider should enforce.',
+      },
+      {
+        signature: 'breachFor(commandId: string): GovernorBreachRecord | undefined',
+        description: 'Breach facts for one command — the tool-bash result-merge seam.',
+        parameters: [{ name: 'commandId', description: 'command id.' }],
+        returns: 'the recorded breach when one exists.',
+      },
+      {
+        signature: 'admitExplicit(sessionId: string, memoryBytes: number): { beforeBytes: number; grantedBytes: number; clamped: boolean }',
+        description: 'Admission facts for one explicit-quota request from the model-facing tool: the session\'s current effective limit before admission, the granted bytes (clamped to the remaining global budget), and whether the clamp fired. Commit happens separately through adjustQuota.',
+        parameters: [{ name: 'sessionId', description: 'session id.' }, { name: 'memoryBytes', description: 'requested explicit quota in bytes.' }],
+        returns: 'before/granted/clamp facts for the caller to gate on.',
+      },
+      {
+        signature: 'liveRssBytes(sessionId: string): number',
+        description: 'Latest sampled RSS for one session, zero before the first tick.',
+        parameters: [{ name: 'sessionId', description: 'session id.' }],
+        returns: 'the most recent resident-set sample in bytes.',
+      },
+      {
+        signature: 'quotaStateOf(sessionId: string): SessionQuotaState',
+        description: 'Effective quota state for one session.',
+        parameters: [{ name: 'sessionId', description: 'session id.' }],
+        returns: 'the explicit quota (when set), effective limit, and pool membership.',
+      },
+      {
+        signature: 'async adjustQuota(sessionId: string, memoryBytes: number | null, reason: \'board\' | \'tool\' | \'clear\'): Promise<SessionQuotaState>',
+        description: 'Adjust one session\'s quota (board/HTTP path — operate capability).',
+        parameters: [{ name: 'sessionId', description: 'session id.' }, { name: 'memoryBytes', description: 'explicit quota in bytes, or null to rejoin the pool.' }, { name: 'reason', description: 'audit trail origin of the decision.' }],
+        returns: 'the session\'s quota state after admission and persistence.',
+      },
+      {
+        signature: '@Remote({ exportName: \'overview\', requiredCapability: \'harniverse.observe\' }) overview(): GovernorOverview',
+        description: 'Board overview (`harniverse.observe`).',
+        parameters: [],
+        returns: 'tier, global budget usage, per-session rows, and host sentinels.',
+      },
+      {
+        signature: '@Remote({ exportName: \'sessionSamples\', requiredCapability: \'harniverse.observe\' }) sessionSamples(sessionId: string): CommandView[]',
+        description: 'Per-session command views (`harniverse.observe`).',
+        parameters: [{ name: 'sessionId', description: 'session id.' }],
+        returns: 'live commands first, then settled ones, with sample rings.',
+      },
+      {
+        signature: '@Remote({ exportName: \'sessionQuotaGet\', requiredCapability: \'harniverse.observe\' }) sessionQuotaGet(sessionId: string): SessionQuotaState',
+        description: 'Read one session\'s quota state (`harniverse.observe`).',
+        parameters: [{ name: 'sessionId', description: 'session id.' }],
+        returns: 'the explicit quota, effective limit, and pool membership.',
+      },
+      {
+        signature: '@Remote({ exportName: \'sessionQuotaAdjust\', requiredCapability: \'harniverse.operate\' }) async sessionQuotaAdjust(sessionId: string, memoryBytes: number | null): Promise<SessionQuotaState>',
+        description: 'Adjust one session\'s quota (`harniverse.operate`).',
+        parameters: [{ name: 'sessionId', description: 'session id.' }, { name: 'memoryBytes', description: 'explicit quota in bytes, or null to rejoin the pool.' }],
+        returns: 'the session\'s quota state after admission and persistence.',
+      },
+      {
+        signature: '@Remote({ exportName: \'breaches\', requiredCapability: \'harniverse.observe\' }) breaches(): readonly GovernorBreachRecord[]',
+        description: 'Breach history, newest first (`harniverse.observe`).',
+        parameters: [],
+        returns: 'the bounded breach list.',
+      },
+      {
+        signature: '@Remote({ exportName: \'configGet\', requiredCapability: \'harniverse.observe\' }) configGet(): GovernorConfig & { globalLimitBytes: number }',
+        description: 'Effective settings plus the resolved budget (`harniverse.observe`).',
+        parameters: [],
+        returns: 'the config with `globalLimitBytes` attached.',
+      },
+      {
+        signature: '@Remote({ exportName: \'reload\', requiredCapability: \'harniverse.administer\' }) async reload(): Promise<void>',
+        description: 'Re-resolve settings and re-apply the global budget (`harniverse.administer`).',
+        parameters: [],
       },
     ],
   },
@@ -3188,6 +3278,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'payload', description: '.change - fresh current projection or clear tombstone.' }],
   },
   {
+    name: 'governor/breach',
+    mode: 'emit',
+    signature: '\'governor/breach\'(event: GovernorBreachRecord): void',
+    summary: 'One metered command was killed by enforcement.',
+    description: 'One metered command was killed by enforcement. Consumers surface the breach on host-level UI; the session sees it through the tool result.',
+    parameters: [{ name: 'event', description: 'the recorded breach facts.' }],
+  },
+  {
     name: 'llm/adapters-updated',
     mode: 'emit',
     signature: '\'llm/adapters-updated\'(): void',
@@ -3322,6 +3420,38 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A provider established a published child.',
     description: 'A provider established a published child. For in-process providers, `ctx.agents.get(info.id)` resolves during this notification. Scope-filtered dispatch keys the carrier by the delegating parent, so a parent-scoped listener observes only its own delegations. Paired with `subagent/end`.',
     parameters: [{ name: 'info', description: 'the provider and published child identity.' }],
+  },
+  {
+    name: 'subprocess/exited',
+    mode: 'emit',
+    signature: '\'subprocess/exited\'(event: SubprocessMeteredExit): void',
+    summary: 'One metered spawn\'s tree fully exited.',
+    description: 'One metered spawn\'s tree fully exited. Follows the matching `subprocess/spawned` for the same command id.',
+    parameters: [{ name: 'event', description: 'the settled spawn\'s correlation, handle, and outcome.' }],
+  },
+  {
+    name: 'subprocess/spawned',
+    mode: 'emit',
+    signature: '\'subprocess/spawned\'(event: SubprocessMeteredSpawn): void',
+    summary: 'One metered spawn started: a process spawned with a SubprocessCorrelation is now live.',
+    description: 'One metered spawn started: a process spawned with a SubprocessCorrelation is now live. Providers that cannot meter (remote sandboxes without host-side /proc) simply never emit this family; metering consumers must treat silence as "not metered here".',
+    parameters: [{ name: 'event', description: 'the live spawn\'s correlation and handle.' }],
+  },
+  {
+    name: 'subprocess/terminal-exited',
+    mode: 'emit',
+    signature: '\'subprocess/terminal-exited\'(event: SubprocessMeteredTerminalExit): void',
+    summary: 'One metered terminal session fully exited.',
+    description: 'One metered terminal session fully exited.',
+    parameters: [{ name: 'event', description: 'the settled terminal session\'s correlation, handle, and outcome.' }],
+  },
+  {
+    name: 'subprocess/terminal-spawned',
+    mode: 'emit',
+    signature: '\'subprocess/terminal-spawned\'(event: SubprocessMeteredTerminalSpawn): void',
+    summary: 'One metered terminal session became live (PTY spawns carry their own POSIX session; metering attributes by session id, not process group).',
+    description: 'One metered terminal session became live (PTY spawns carry their own POSIX session; metering attributes by session id, not process group).',
+    parameters: [{ name: 'event', description: 'the live terminal session\'s correlation and handle.' }],
   },
   {
     name: 'system-prompt/assemble',
@@ -3529,7 +3659,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ApprovalService',
-    declaration: 'export class ApprovalService extends Service {\n    static Config: z<Config>;\n    constructor(ctx: Context, public config: Config);\n    setPolicy(agent: Agent, policy: ApprovalPolicy): void;\n    async request(req: ApprovalRequest): Promise<ApprovalOutcome>;\n    overrideOf(session: Session): ApprovalPolicy | undefined;\n}',
+    declaration: 'export class ApprovalService extends Service {\n    static Config: z<Config>;\n    constructor(ctx: Context, public config: Config);\n    setPolicy(agent: Agent, policy: ApprovalPolicy): void;\n    async request(req: ApprovalRequest): Promise<ApprovalOutcome>;\n    effectivePolicy(session: Session): ApprovalPolicy;\n    overrideOf(session: Session): ApprovalPolicy | undefined;\n}',
   },
   {
     name: 'AskUserQuestionAnswer',
@@ -3894,6 +4024,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CommandResult',
     declaration: 'export type CommandResult = {\n    readonly kind: \'success\';\n    readonly text?: string;\n    readonly sourceEventSeq?: number;\n} | {\n    readonly kind: \'error\';\n    readonly text: string;\n};',
+  },
+  {
+    name: 'CommandView',
+    declaration: 'export interface CommandView {\n    readonly sessionId: string;\n    readonly commandId: string;\n    readonly kind: \'shell\' | \'terminal\' | \'other\';\n    readonly startedAt: number;\n    readonly exitedAt?: number;\n    readonly samples: readonly ResourceSample[];\n    readonly peakRssBytes: number;\n    readonly totalCpuTicks: number;\n    readonly totalReadBytes: number;\n    readonly totalWriteBytes: number;\n    readonly breach?: GovernorBreachRecord;\n}',
   },
   {
     name: 'CompactionAgentContext',
@@ -4274,6 +4408,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'GoalView',
     declaration: 'export interface GoalView extends GoalSnapshot {\n    readonly roundsStarted: number;\n    readonly createdAt: number;\n    readonly updatedAt: number;\n    readonly activation: GoalActivation;\n}',
+  },
+  {
+    name: 'GovernorBreachKind',
+    declaration: 'export type GovernorBreachKind = \'memory-limit\' | \'session-quota\';',
+  },
+  {
+    name: 'GovernorBreachRecord',
+    declaration: 'export interface GovernorBreachRecord {\n    readonly kind: GovernorBreachKind;\n    readonly sessionId: string;\n    readonly commandId: string;\n    readonly peakBytes?: number;\n    readonly limitBytes?: number;\n    readonly at: number;\n}',
+  },
+  {
+    name: 'GovernorConfig',
+    declaration: 'export interface GovernorConfig {\n    memory: GovernorMemoryConfig;\n    sampling: GovernorSamplingConfig;\n    history: GovernorHistoryConfig;\n}',
+  },
+  {
+    name: 'GovernorOverview',
+    declaration: 'export interface GovernorOverview {\n    readonly tier: GovernorTier;\n    readonly globalLimitBytes: number;\n    readonly liveRssBytes: number;\n    readonly sessions: readonly SessionResourceRow[];\n    readonly hostFreeBytes?: number;\n    readonly hostNetRxBytes?: number;\n    readonly hostNetTxBytes?: number;\n    readonly t: number;\n}',
+  },
+  {
+    name: 'GovernorTier',
+    declaration: 'export type GovernorTier = \'cgroup\' | \'rlimit\' | \'observe\';',
   },
   {
     name: 'ImageAttachmentLimits',
@@ -4900,6 +5054,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ResolvedSubagentStartRequest extends SubagentStartRequest {\n    readonly descriptor: SubagentDescriptorData;\n}',
   },
   {
+    name: 'ResourceSample',
+    declaration: 'export interface ResourceSample {\n    readonly t: number;\n    readonly cpuTicks: number;\n    readonly rssBytes: number;\n    readonly pssBytes?: number;\n    readonly readBytes: number;\n    readonly writeBytes: number;\n    readonly fdCount: number;\n    readonly netTxBytes?: number;\n    readonly netRxBytes?: number;\n}',
+  },
+  {
     name: 'RestoredSessionOptions',
     declaration: 'export interface RestoredSessionOptions {\n    readonly seed: SessionEvent[];\n    readonly meta: SessionHeader;\n    readonly seedSource: \'persistence\';\n    readonly history?: SessionHistorySource;\n    readonly surface?: {\n        readonly nodes: readonly number[];\n        readonly replaceGeneration: number;\n    };\n}',
   },
@@ -5228,6 +5386,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionProjectionMap {\n}',
   },
   {
+    name: 'SessionQuotaState',
+    declaration: 'export interface SessionQuotaState {\n    readonly sessionId: string;\n    readonly quotaBytes?: number;\n    readonly effectiveLimitBytes: number;\n    readonly shared: boolean;\n}',
+  },
+  {
     name: 'SessionRawArtifact',
     declaration: 'export interface SessionRawArtifact {\n    readonly meta: SessionHeader;\n    readonly filename: string;\n    readonly content: string;\n}',
   },
@@ -5254,6 +5416,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionReferenceMentionCandidate',
     declaration: 'export interface SessionReferenceMentionCandidate extends SessionReferenceCandidate {\n    mention: string;\n}',
+  },
+  {
+    name: 'SessionResourceRow',
+    declaration: 'export interface SessionResourceRow {\n    readonly sessionId: string;\n    readonly rssBytes: number;\n    readonly cpuTicks: number;\n    readonly commands: number;\n    readonly quota: SessionQuotaState;\n    readonly breaches: readonly GovernorBreachRecord[];\n}',
   },
   {
     name: 'SessionResultFilter',
@@ -5397,11 +5563,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ShellExecRequest',
-    declaration: 'export interface ShellExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    stdoutMaxBytes?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy?: SandboxExecutionPolicy | undefined;\n}',
+    declaration: 'export interface ShellExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    stdoutMaxBytes?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy?: SandboxExecutionPolicy | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n    limits?: SubprocessLimits | undefined;\n}',
   },
   {
     name: 'ShellExecSpec',
-    declaration: 'export interface ShellExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    stdoutMaxBytes: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy: SandboxExecutionPolicy | undefined;\n}',
+    declaration: 'export interface ShellExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    stdoutMaxBytes: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy: SandboxExecutionPolicy | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n    limits?: SubprocessLimits | undefined;\n}',
   },
   {
     name: 'ShellProcess',
@@ -5604,8 +5770,32 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SubprocessCollectedOutputs {\n    readonly stdout?: SubprocessOutputReader;\n    readonly stderr?: SubprocessOutputReader;\n}',
   },
   {
+    name: 'SubprocessCorrelation',
+    declaration: 'export interface SubprocessCorrelation {\n    readonly sessionId: string;\n    readonly commandId: string;\n    readonly kind: \'shell\' | \'terminal\' | \'other\';\n}',
+  },
+  {
     name: 'SubprocessHandle',
     declaration: 'export interface SubprocessHandle {\n    readonly pid: number;\n    readonly stdin: Writable | undefined;\n    readonly stdout: Readable | undefined;\n    readonly stderr: Readable | undefined;\n    readonly collected: SubprocessCollectedOutputs;\n    readonly done: Promise<SubprocessOutcome>;\n    terminate(): void;\n    waitForExit(signal?: AbortSignal): Promise<boolean>;\n}',
+  },
+  {
+    name: 'SubprocessLimits',
+    declaration: 'export interface SubprocessLimits {\n    readonly maxMemoryBytes?: number;\n}',
+  },
+  {
+    name: 'SubprocessMeteredExit',
+    declaration: 'export interface SubprocessMeteredExit {\n    readonly correlation: SubprocessCorrelation;\n    readonly handle: SubprocessHandle;\n    readonly outcome: SubprocessOutcome;\n}',
+  },
+  {
+    name: 'SubprocessMeteredSpawn',
+    declaration: 'export interface SubprocessMeteredSpawn {\n    readonly correlation: SubprocessCorrelation;\n    readonly handle: SubprocessHandle;\n}',
+  },
+  {
+    name: 'SubprocessMeteredTerminalExit',
+    declaration: 'export interface SubprocessMeteredTerminalExit {\n    readonly correlation: SubprocessCorrelation;\n    readonly handle: SubprocessTerminalHandle;\n    readonly outcome: SubprocessOutcome;\n}',
+  },
+  {
+    name: 'SubprocessMeteredTerminalSpawn',
+    declaration: 'export interface SubprocessMeteredTerminalSpawn {\n    readonly correlation: SubprocessCorrelation;\n    readonly handle: SubprocessTerminalHandle;\n}',
   },
   {
     name: 'SubprocessOutcome',
@@ -5625,7 +5815,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubprocessSpawnSpec',
-    declaration: 'export interface SubprocessSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    stdio: SubprocessStdio;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n    env?: NodeJS.ProcessEnv | undefined;\n}',
+    declaration: 'export interface SubprocessSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    stdio: SubprocessStdio;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n    env?: NodeJS.ProcessEnv | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n    limits?: SubprocessLimits | undefined;\n}',
   },
   {
     name: 'SubprocessStdinMode',
@@ -5649,7 +5839,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubprocessTerminalSpawnSpec',
-    declaration: 'export interface SubprocessTerminalSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    env?: Record<string, string> | undefined;\n    rows: number;\n    cols: number;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n}',
+    declaration: 'export interface SubprocessTerminalSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    env?: Record<string, string> | undefined;\n    rows: number;\n    cols: number;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n}',
   },
   {
     name: 'SupervisionMode',

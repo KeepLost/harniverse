@@ -831,6 +831,50 @@ export interface Config {
 
 Source: [`packages/goal/goal/src/index.ts:116`](../packages/goal/goal/src/index.ts)
 
+<a id="deepseek-aidsh-governor"></a>
+
+## `@deepseek-ai/dsh-governor`
+
+Requires: `agents` · `sessions` · `storageDomain`
+
+```ts config-catalog
+/** Effective governor settings after schema defaults. */
+export interface GovernorConfig {
+  /** Global memory budget. */
+  memory: GovernorMemoryConfig
+  /** Sampling cadence. */
+  sampling: GovernorSamplingConfig
+  /** Opt-in history persistence. */
+  history: GovernorHistoryConfig
+}
+
+/** Global memory budget settings. */
+export interface GovernorMemoryConfig {
+  /** `'auto'` or an explicit byte budget. */
+  limit: 'auto' | number
+}
+
+/** Sampling cadence settings. */
+export interface GovernorSamplingConfig {
+  /** Base cadence in milliseconds while no command is near a limit. */
+  baseMs: number
+  /** Tightened cadence while any session rides above 70% of its budget. */
+  hotMs: number
+}
+
+/** Opt-in history persistence settings. */
+export interface GovernorHistoryConfig {
+  /** Opt-in persistence of history rows. */
+  persist: boolean
+  /** Minimum spacing between persisted rows per command. */
+  resolutionMs: number
+  /** Age at which persisted rows are swept. */
+  retentionMs: number
+}
+```
+
+Source: [`packages/monitor/governor/src/types.ts:189`](../packages/monitor/governor/src/types.ts)
+
 <a id="deepseek-aidsh-headless"></a>
 
 ## `@deepseek-ai/dsh-headless`
@@ -3713,6 +3757,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-directory-picker-browse` ([`packages/client/ui-directory-picker-browse/src/index.ts`](../packages/client/ui-directory-picker-browse/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-directory-picker-native` ([`packages/client/ui-directory-picker-native/src/index.ts`](../packages/client/ui-directory-picker-native/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-goal` ([`packages/client/ui-goal/src/index.ts`](../packages/client/ui-goal/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-governor` ([`packages/client/ui-governor/src/index.ts`](../packages/client/ui-governor/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-input-trigger` ([`packages/client/ui-input-trigger/src/index.ts`](../packages/client/ui-input-trigger/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-jobs` ([`packages/client/ui-jobs/src/index.ts`](../packages/client/ui-jobs/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-layout` ([`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts))

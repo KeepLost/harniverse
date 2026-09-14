@@ -454,6 +454,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Unit tests (native macOS)
+        env:
+          # The host tsc project sits near the default 2GB V8 heap on this
+          # runner class; give the compiler headroom so the informational
+          # signal does not flake on allocator pressure.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: pnpm run test
 
       - name: Seatbelt e2e (real kernel confinement)

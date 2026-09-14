@@ -414,6 +414,26 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/goal/goal/src/domain.ts:66`](../packages/goal/goal/src/domain.ts)
 
+### `governor/*`
+
+<a id="governorquota--log-only"></a>
+
+#### `governor/quota` — log-only
+
+```ts persistence-catalog
+/** Log-only audit trail of one decided quota (no SurfaceIntent). */
+'governor/quota': {
+  sessionId: string
+  fromBytes: number | null
+  toBytes: number | null
+  reason: 'tool' | 'board' | 'resume' | 'clear'
+  clamped: boolean
+  turn: null
+}
+```
+
+来源：[`packages/monitor/governor/src/index.ts:56`](../packages/monitor/governor/src/index.ts)
+
 ### `hook/*`
 
 <a id="hookinvoked--log-only"></a>

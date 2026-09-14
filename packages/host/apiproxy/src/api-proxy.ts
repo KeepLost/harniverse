@@ -214,7 +214,7 @@ function operationStatusOf(status: SessionWorkStatus): OperationStatus {
  * is deferred work.
  */
 const WEB_SETTINGS_NAMESPACES = [
-  'agent-loop', 'compaction', 'shell', 'locale', 'permission', 'ui-conversation', 'ui-theme',
+  'agent-loop', 'compaction', 'governor', 'shell', 'locale', 'permission', 'ui-conversation', 'ui-theme',
   'web', 'web-search-deepseek', 'web-search-exa', 'web-search-perplexity',
   'web-search-tavily', 'web-search-brave', 'web-search-kagi', 'web-firecrawl',
 ] as const
@@ -4472,6 +4472,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           model: selection.model,
           attachedSessions: ctx.agents.list().length,
           canOpenPath: canOpenPaths(),
+          // Optional governor: the tier it resolved tells clients what
+          // enforcement backs the resource board (absent when unmounted).
+          ...(ctx.get('governor') as { overview(): { tier: 'cgroup' | 'rlimit' | 'observe' } } | undefined) !== undefined
+            ? { resourceGovernor: { tier: (ctx.get('governor') as { overview(): { tier: 'cgroup' | 'rlimit' | 'observe' } }).overview().tier } }
+            : {},
         }))
       },
 

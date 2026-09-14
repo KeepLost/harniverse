@@ -65,6 +65,10 @@ export interface HostApi {
     model?: string
     attachedSessions: number
     canOpenPath: boolean
+    /** Enforcement/metering tier the resource governor resolved, when mounted. */
+    resourceGovernor?: {
+      tier: 'cgroup' | 'rlimit' | 'observe'
+    }
   }>>
 
   /**

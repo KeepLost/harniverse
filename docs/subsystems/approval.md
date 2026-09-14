@@ -132,6 +132,15 @@ setPolicy(agent: Agent, policy: ApprovalPolicy): void
 async request(req: ApprovalRequest): Promise<ApprovalOutcome>
 
 /**
+ * The session's effective policy: its own `approval/policy` fold, else the
+ * configured default (the schema already defaulted an omitted policy to
+ * `'ask'`; the `??` only narrows the optional-input TYPE).
+ * @param session - the exact accepted session whose policy applies.
+ * @returns the policy every ask for this session resolves under right now.
+ */
+effectivePolicy(session: Session): ApprovalPolicy
+
+/**
  * Read the session override without applying the configured default.
  * @param session - session whose log supplies the override.
  * @returns the last logged policy, or `undefined` without one.

@@ -442,6 +442,11 @@ interface ToolOutputMap {
       enforcement?: string;
       runnerFailed?: boolean;
     };
+    governor?: {
+      killed: string;
+      peakBytes?: number;
+      limitBytes?: number;
+    };
   };
   cordis_define: {
     pluginId: string;

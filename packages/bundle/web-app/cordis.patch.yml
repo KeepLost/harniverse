@@ -85,6 +85,11 @@
     - id: scheduler
       name: '@deepseek-ai/dsh-scheduler'
 
+    # Resource governor: metering of correlated shell/terminal spawns, tiered
+    # memory enforcement, shared-pool session quotas, and the governor Remote.
+    - id: governor
+      name: '@deepseek-ai/dsh-governor'
+
     - id: message-feedback
       name: '@deepseek-ai/dsh-message-feedback'
       config:
@@ -307,6 +312,11 @@
     # list (pause/resume/delete) over the session-owned Remote verbs.
     - id: ui-scheduler
       name: '@deepseek-ai/dsh-client-ui-scheduler'
+
+    # Resource board over the governor Remote: sessions-as-processes overview
+    # with per-session memory quota adjustment.
+    - id: ui-governor
+      name: '@deepseek-ai/dsh-client-ui-governor'
 
     # Goal surface: GoalBar in the input dock over the goal session projection.
     - id: ui-goal

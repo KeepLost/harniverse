@@ -118,6 +118,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     slotInject: '',
     declaredBy: 'an entry in \'root\' (client-ui-layout), so it exists while that entry is mounted',
     occupants: [
+      'client-ui-governor GovernorCenterView id \'governor\'',
       'client-ui-scheduler ScheduleCenterView id \'schedules\'',
     ],
     replaceRisk: 'none',
@@ -1476,6 +1477,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     declaredBy: 'an entry in \'sidebar.settings\' (client-ui-settings-general), so it exists while that entry is mounted',
     occupants: [
       'client-ui-agent-preset AgentPresetSection id \'agent-presets\'',
+      'client-ui-governor GovernorSettingsSection id \'governor\'',
       'client-ui-settings-general GeneralSection id \'general\'',
       'client-ui-settings-models ModelsSection id \'models\'',
       'client-ui-settings-models ModelPolicySection id \'model-policy\'',
@@ -1621,6 +1623,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     slotInject: '',
     declaredBy: 'an entry in \'sidebar\' (client-ui-sidebar), so it exists while that entry is mounted',
     occupants: [
+      'client-ui-governor GovernorSidebarAction id \'governor-view\'',
       'client-ui-scheduler ScheduleSidebarAction id \'schedule-view\'',
       'client-ui-cordis CordisPanel id \'cordis-panel\'',
     ],

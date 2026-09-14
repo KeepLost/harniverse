@@ -50,6 +50,7 @@ const EXPECTED_TOOLS = [
   'ralph',
   'read',
   'read_image',
+  'resource-quota',
   'schedule_create',
   'schedule_delete',
   'schedule_list',

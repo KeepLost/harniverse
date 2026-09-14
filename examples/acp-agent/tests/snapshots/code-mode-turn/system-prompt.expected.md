@@ -270,6 +270,11 @@ interface ToolOutputMap {
       enforcement?: string;
       runnerFailed?: boolean;
     };
+    governor?: {
+      killed: string;
+      peakBytes?: number;
+      limitBytes?: number;
+    };
   };
   create_goal: {
     goal: null;

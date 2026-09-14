@@ -43,6 +43,7 @@ const TOOLS_BY_PACKAGE: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-tool-todo': ['todo_write'],
   '@deepseek-ai/dsh-tool-web': ['web_fetch', 'web_search'],
   '@deepseek-ai/dsh-tool-workflow': ['workflow'],
+  '@deepseek-ai/dsh-governor/tool': ['resource-quota'],
 }
 
 /** Native Loader recipe retained only for Host-side generation compilation. */
