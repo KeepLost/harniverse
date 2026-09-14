@@ -205,6 +205,17 @@ jobs:
           # Makefile exists. Re-run the pinned node-gyp configure step so its
           # node-addon-api target fragments exist before the manylinux make.
           npm exec --yes --package=node-gyp@11.4.2 -- node-gyp configure --directory "$addon_dir"
+          # quay.io intermittently 502s a pull; retry the fetch so a registry
+          # hiccup cannot fail the build.
+          for attempt in 1 2 3 4 5; do
+            docker pull "$image" && break
+            if [ "$attempt" = 5 ]; then
+              echo "::error::docker pull $image failed after 5 attempts"
+              exit 1
+            fi
+            echo "docker pull $image failed (attempt $attempt); retrying in 20s"
+            sleep 20
+          done
           docker run --rm \
             --user "$(id -u):$(id -g)" \
             -v "$PWD:$PWD" \
@@ -314,6 +325,16 @@ jobs:
             ARM64) image=quay.io/pypa/manylinux_2_28_aarch64 ;;
             *) echo "::error::Unsupported Linux runner architecture $RUNNER_ARCH"; exit 1 ;;
           esac
+          # Same registry-retry guard as the addon rebuild step.
+          for attempt in 1 2 3 4 5; do
+            docker pull "$image" && break
+            if [ "$attempt" = 5 ]; then
+              echo "::error::docker pull $image failed after 5 attempts"
+              exit 1
+            fi
+            echo "docker pull $image failed (attempt $attempt); retrying in 20s"
+            sleep 20
+          done
           docker run --rm -e VERSION -e DSH_TELEMETRY_DISABLED -v "$PWD:/work" -w /work "$image" bash -euxo pipefail -c '
             /opt/python/cp310-cp310/bin/python -m venv /tmp/dsh-sdk
             /tmp/dsh-sdk/bin/python -m pip install --find-links /work/dist-python deepseek-harness-sdk=="$VERSION"

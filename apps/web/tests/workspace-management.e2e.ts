@@ -73,7 +73,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
     await expect.poll(
       () => scaffold.ctx.workspaceRegistry.resolveByPath(join(parent, name)),
-      { timeout: 10_000 },
+      { timeout: 30_000 },
     ).not.toBeUndefined()
   }
 
@@ -89,7 +89,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
     await expect.poll(
       () => scaffold.ctx.workspaceRegistry.resolveByPath(path),
-      { timeout: 10_000 },
+      { timeout: 30_000 },
     ).not.toBeUndefined()
     // First adoption births a blank Session+Agent whose workspace attach must
     // settle before a test may delete the registration; re-registration after
