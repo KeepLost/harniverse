@@ -140,6 +140,15 @@ describe('web e2e: a finished turn ends with the files it produced', () => {
     await page.setViewportSize({ width: 780, height: 900 })
     const row = page.locator('[data-produced-files-row]')
     await row.waitFor({ timeout: 15_000 })
+    // How many chips fit is a font-metric decision; a width that collapses
+    // to exactly two chips on one machine can fit three on another's fonts.
+    // Converge on the two-chip collapse instead of pinning that width.
+    for (let width = 780; width >= 420; width -= 60) {
+      await page.setViewportSize({ width, height: 900 })
+      const collapsed = await expect.poll(() => row.getByRole('button').count(), { timeout: 3_000 })
+        .toBeLessThanOrEqual(2).then(() => true, () => false)
+      if (collapsed) break
+    }
     const chips = row.getByRole('button')
     await expect.poll(() => chips.count()).toBe(2)
     expect(await chips.nth(0).innerText()).toBe('关于我.md')
