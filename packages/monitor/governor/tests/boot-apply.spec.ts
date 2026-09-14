@@ -134,7 +134,7 @@ describe('GovernorService boot-apply ordering', () => {
     await ctx.plugin(StorageDomain, { backend: 'json' })
     ctx.provide('agents', { get: () => undefined, list: () => [], roots: () => [] } as never)
 
-    const internals: GovernorInternals = { cgroup: gatedCgroup as never }
+    const internals: GovernorInternals = { cgroup: gatedCgroup }
     class G extends GovernorService {
       constructor(scope: Context) {
         super(scope, DEFAULT_CONFIG, internals)
