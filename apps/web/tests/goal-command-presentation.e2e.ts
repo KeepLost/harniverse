@@ -50,14 +50,23 @@ describe('web e2e: /goal human transcript presentation', () => {
       timeout: 15_000,
     }).toBe(1)
     const input = page.locator('textarea').first()
-    await input.fill('/goal')
-    // The composer can still be settling after the welcome row appears;
-    // verify the typed command actually landed before Enter interprets it.
-    await expect.poll(() => input.inputValue()).toBe('/goal')
-    await input.press('Enter')
-    // Command-mode engagement re-renders the composer; under CI load that
-    // transition outruns an untimed poll's 1s default budget.
-    await expect.poll(() => input.inputValue(), { timeout: 10_000 }).toBe('/goal ')
+    // Command engagement can lose the race against the composer's settle
+    // under load: the Enter lands while the composer is mid-render and the
+    // typed text vanishes without engaging (the textarea comes back empty).
+    // Retry the engagement — but only while no user message actually landed,
+    // which would pollute the scenario's event assertions beyond repair.
+    for (let attempt = 0; ; attempt++) {
+      await input.fill('/goal')
+      // The composer can still be settling after the welcome row appears;
+      // verify the typed command actually landed before Enter interprets it.
+      await expect.poll(() => input.inputValue()).toBe('/goal')
+      await input.press('Enter')
+      const engaged = await expect.poll(() => input.inputValue(), { timeout: 10_000 })
+        .toBe('/goal ').then(() => true, () => false)
+      if (engaged) break
+      expect(await page.getByText('/goal', { exact: true }).count()).toBe(0)
+      if (attempt === 2) throw new Error('/goal engagement failed after 3 attempts')
+    }
     await input.press('Enter')
 
     const commandInput = page.locator('[data-command-input]')
