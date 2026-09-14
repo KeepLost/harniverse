@@ -63,13 +63,6 @@ function effortsOf(model: ModelDraft): Record<string, string | null> | undefined
   return value as Record<string, string | null>
 }
 
-/** The wire spelling a level's text field holds, or its canonical default. */
-function wireOf(efforts: Record<string, string | null>, level: string): string {
-  const stored = efforts[level]
-  if (typeof stored === 'string' && stored.length > 0) return stored
-  return level === 'off' ? '' : level
-}
-
 /** The kwargs rows the form drafts from a stored compat object. */
 function kwargsOf(model: ModelDraft): KwargDraft[] {
   const compat = model['compat']
@@ -122,11 +115,11 @@ export function ModelCapabilities(props: ModelCapabilitiesProps): ReactNode {
   }
 
   const toggleLevel = (level: string, checked: boolean): void => {
-    const next = { ...(efforts ?? {}) }
+    const next = { ...efforts }
     if (checked) {
-      // Empty text means the canonical spelling: "off" sends nothing, every
-      // other level sends its own name until a wire value is typed.
-      next[level] = level === 'off' ? null : wireOf(next, level)
+      // The canonical spelling: "off" sends nothing, every other level sends
+      // its own name until a wire value is typed.
+      next[level] = level === 'off' ? null : level
     } else {
       // Rebuilt rather than deleted: the lint boundary keeps dynamic-key
       // deletes out of a profile the wire may carry verbatim.
@@ -143,7 +136,7 @@ export function ModelCapabilities(props: ModelCapabilitiesProps): ReactNode {
   }
 
   const setWire = (level: string, text: string): void => {
-    const next = { ...(efforts ?? {}) }
+    const next = { ...efforts }
     next[level] = text.length === 0 ? (level === 'off' ? null : level) : text
     writeEfforts(next)
   }

@@ -543,6 +543,10 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByText(en.customized))
     expandRow(1)
     fireEvent.click(screen.getByLabelText(en.modelImageInput))
+    // Unchecking restores the adapter's text-only default rather than
+    // storing an explicit narrow list.
+    fireEvent.click(screen.getByLabelText(en.modelImageInput))
+    fireEvent.click(screen.getByLabelText(en.modelImageInput))
     fireEvent.click(screen.getByText(en.apply))
 
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
@@ -575,6 +579,41 @@ describe('ModelsSection', () => {
     expect(validateDeepSeekModels([{ id: 'model', maxTokens: 0 }]))
       .toEqual({ index: 0, key: 'modelMaxTokensInvalid' })
     expect(validateDeepSeekModels([{ id: 'model', maxTokens: 8192 }])).toBeUndefined()
+  })
+
+  it('validates the capability declaration a model row may carry', () => {
+    // Shapes the form does not write but the open draft can hold.
+    expect(validateDeepSeekModels([{ id: 'model', reasoningEfforts: false }])).toBeUndefined()
+    expect(validateDeepSeekModels([{ id: 'model', reasoningEfforts: 'bogus' }])).toBeUndefined()
+    expect(validateDeepSeekModels([{ id: 'model', reasoningEfforts: ['off'] }])).toBeUndefined()
+    expect(validateDeepSeekModels([{ id: 'model', reasoningEfforts: null }])).toBeUndefined()
+    // The declaration itself.
+    expect(validateDeepSeekModels([{ id: 'model', reasoningEfforts: {} }]))
+      .toEqual({ index: 0, key: 'modelEffortsInvalid' })
+    expect(validateDeepSeekModels([{ id: 'model', reasoningEfforts: { off: null } }]))
+      .toEqual({ index: 0, key: 'modelEffortsInvalid' })
+    expect(validateDeepSeekModels([{ id: 'model', reasoningEfforts: { off: null, high: 'high' } }]))
+      .toBeUndefined()
+    // The default must name a declared level; `default` and absence are both
+    // fine, and kwargs only fail on a nameless row.
+    expect(validateDeepSeekModels([
+      { id: 'model', reasoningEfforts: { off: null, high: 'high' }, defaultReasoningEffort: 'low' },
+    ])).toEqual({ index: 0, key: 'modelDefaultEffortInvalid' })
+    expect(validateDeepSeekModels([
+      { id: 'model', reasoningEfforts: { off: null, high: 'high' }, defaultReasoningEffort: 'default' },
+    ])).toBeUndefined()
+    expect(validateDeepSeekModels([
+      { id: 'model', reasoningEfforts: { off: null, high: 'high' }, defaultReasoningEffort: 'off' },
+    ])).toBeUndefined()
+    expect(validateDeepSeekModels([
+      { id: 'model', reasoningEfforts: { high: 'high' }, compat: { chatTemplateKwargs: { '': 'x' } } },
+    ])).toEqual({ index: 0, key: 'modelKwargNameRequired' })
+    expect(validateDeepSeekModels([
+      { id: 'model', reasoningEfforts: { high: 'high' }, compat: { chatTemplateKwargs: { named: 'x' } } },
+    ])).toBeUndefined()
+    expect(validateDeepSeekModels([
+      { id: 'model', reasoningEfforts: { high: 'high' }, compat: 'bogus' },
+    ])).toBeUndefined()
   })
 
   it('reads context windows written as counts, thousands, or millions', () => {
