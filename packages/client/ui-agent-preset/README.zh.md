@@ -18,7 +18,7 @@ chip 从不修改当前 Session，无论它空白还是已经开始。Profile �
 
 ## 会话标题旁的标签
 
-第三个表层，位于会话标题旁：**本 Session** 所运行的 Profile，作为静态装饰呈现。它从 Session 摘要读取不可变的 `agentProfile`，并在 General 行所读的同一份名单上解析显示名称。
+第三个表层，位于会话标题旁：**本 Session** 所运行的 Profile，作为静态装饰呈现。它从 Session 摘要读取不可变的 `agentProfile`，并在 General 行所读的同一份名单上解析显示名称。名单读取落地之前，标签不渲染任何内容，而不是闪现原始 preset id；已完成的名单确实不含该会话的 preset（部署漂移）时，以记录在案的 id 作为诚实名称。
 
 ## 它读什么、写什么
 

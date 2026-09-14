@@ -19,6 +19,7 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
+  waitForAgentPresetLabel,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
@@ -119,6 +120,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
       // mean the submitted text is gone yet: under load the capture can catch
       // a textbox still holding `/plan`.
       await expect.poll(() => input.inputValue(), { timeout: 10_000 }).toBe('')
+      await activePage.getByRole('button', { name: 'Standard mode' }).waitFor({ timeout: 15_000 })
       const planSnapshot = await captureStableAria(activePage, '[class*="frame"]', activeScaffold.workspaceCwd)
       await compareOrRefreshGolden(PLAN_ACTIVE_EXPECTED, planSnapshot, MODE)
       const planStyle = await planButton.evaluate((element) => {
@@ -169,6 +171,9 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     if (MODE !== 'record') {
       // Golden of the hero's stable waiting state (captured before any send;
       // the conversation-region goldens belong to the other scenarios).
+      // The hero chip is roster-gated: capture only after it renders, or a
+      // pre-roster frame diffs every hero golden.
+      await page.getByRole('button', { name: 'Standard mode' }).waitFor({ timeout: 15_000 })
       const snapshot = await captureStableAria(page, '[class*="frame"]', scaffold.workspaceCwd)
       await compareOrRefreshGolden(HERO_EXPECTED, snapshot, MODE)
     }
@@ -233,6 +238,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     await expect.poll(() => page.getByText('LIGHTHOUSE', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
     await expect.poll(() => page.locator('[role="treeitem"][aria-selected="true"]').count(), { timeout: 10_000 }).toBe(1)
     await page.getByRole('button', { name: /^Select model, current/ }).waitFor({ timeout: 15_000 })
+    await waitForAgentPresetLabel(page)
     // Golden of the recovered conversation region: rebuilt from the log, it
     // must render the same settled transcript the live turn produced.
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
