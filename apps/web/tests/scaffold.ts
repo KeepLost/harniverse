@@ -878,6 +878,19 @@ export async function captureStableAria(page: Page, selector: string, workspaceC
 }
 
 /**
+ * Wait for the session header's agent-preset label to resolve its name.
+ * The label renders nothing until its roster read lands, so a golden that
+ * includes the header must wait for it before capture: under CI load the
+ * roster can arrive after the rest of the page has long looked settled,
+ * and a stable-capture frame without the label would diff every header
+ * golden at once.
+ * @param page - the page under test.
+ */
+export async function waitForAgentPresetLabel(page: Page): Promise<void> {
+  await page.locator('[data-agent-preset-label]').first().waitFor({ timeout: 15_000 })
+}
+
+/**
  * Compare a normalized golden, or rewrite it under refresh. Refresh is the
  * ONLY writer: a missing golden in replay mode fails with the healing command
  * instead of silently self-bootstrapping.

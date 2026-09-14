@@ -18,7 +18,7 @@ The chip never mutates the current Session, whether blank or started. Profile id
 
 ## The session-header label
 
-A third surface, beside the session title: the Profile THIS Session runs, as static chrome. It reads immutable `agentProfile` from the Session summary and resolves the display name against the same roster the General row reads.
+A third surface, beside the session title: the Profile THIS Session runs, as static chrome. It reads immutable `agentProfile` from the Session summary and resolves the display name against the same roster the General row reads. Until that roster read settles, the label renders nothing rather than flashing the raw preset id; once a completed roster genuinely lacks the session's preset (deployment drift), the id of record is the honest name.
 
 ## What it reads and writes
 

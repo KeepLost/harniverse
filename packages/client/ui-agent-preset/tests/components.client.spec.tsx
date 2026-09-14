@@ -381,12 +381,37 @@ describe('the session-header label', () => {
     expect(screen.getByTitle(en.headerHint).textContent).toBe('mine')
   })
 
-  it('shows the id until the roster resolves it', () => {
+  it('shows the id once a settled roster genuinely lacks the preset', () => {
     renderLabel({ blank: false, agentProfile: 'standard' }, { options: [] })
 
-    // The session's own summary is the authority on which preset it runs; the
-    // roster only supplies the display name, and its arrival is a later frame.
+    // A completed roster that does not contain the preset is deployment
+    // drift: the session's id of record is the honest name.
     expect(screen.getByTitle(en.headerHint).textContent).toBe('standard')
+  })
+
+  it('renders nothing while the roster that would name the preset is still in flight', () => {
+    // Mid-load the raw id is not honest copy — painting it would flash the
+    // slug (and land it in goldens captured under load).
+    const loading = renderLabel(
+      { blank: false, agentProfile: 'standard' },
+      { options: [], status: 'loading' },
+    )
+    expect(loading.view.container.firstChild).toBeNull()
+    cleanup()
+
+    const idle = renderLabel(
+      { blank: false, agentProfile: 'standard' },
+      { options: [], status: 'idle' },
+    )
+    expect(idle.view.container.firstChild).toBeNull()
+  })
+
+  it('carries the stable hook the e2e goldens wait on', async () => {
+    const { load } = renderLabel({ blank: false, agentProfile: 'standard' })
+
+    await waitFor(() => { expect(load).toHaveBeenCalledTimes(1) })
+    expect(screen.getByTitle(en.presetStandardDescription).getAttribute('data-agent-preset-label'))
+      .toBe('standard')
   })
 
   it('renders nothing, and reads no roster, when the session records no preset', async () => {

@@ -9,6 +9,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-commands/types'
 import {
   acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria,
+  waitForAgentPresetLabel,
   compareOrRefreshGolden, launchWebScaffold, watchConsole, webSnapshotMode,
   type WebScaffold,
 } from './scaffold.ts'
@@ -96,6 +97,7 @@ describe('web e2e: /goal human transcript presentation', () => {
     expect(events.some(event => event.type === 'step/start')).toBe(false)
     expect(events.some(event => event.type === 'request/header')).toBe(false)
 
+    await waitForAgentPresetLabel(page)
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
   }, 60_000)

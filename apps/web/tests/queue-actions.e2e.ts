@@ -119,16 +119,26 @@ describe('web e2e: queue row actions', () => {
     expect(queueBox!.x).toBeGreaterThanOrEqual(composerBox!.x)
     expect(queueBox!.x + queueBox!.width)
       .toBeLessThanOrEqual(composerBox!.x + composerBox!.width)
-    const queueLeftInset = queueBox!.x - composerBox!.x
-    const queueRightInset = composerBox!.x + composerBox!.width - queueBox!.x - queueBox!.width
     const composerMetrics = await page.locator('[data-composer-card]').evaluate((element) => {
       const style = getComputedStyle(element)
       return {
         dockInset: Number.parseFloat(style.getPropertyValue('--dsh-composer-dock-inset')),
       }
     })
-    expect(queueLeftInset).toBeCloseTo(composerMetrics.dockInset, 1)
-    expect(queueRightInset).toBeCloseTo(composerMetrics.dockInset, 1)
+    // The insets settle only after the card finishes its layout pass; under
+    // CI load a single-shot measure catches them mid-settle.
+    const queueLeftInsetOf = async (): Promise<number> => {
+      const queue = await page.locator('[data-queue-dock]').boundingBox()
+      const composer = await page.locator('[data-composer-card]').boundingBox()
+      return queue!.x - composer!.x
+    }
+    const queueRightInsetOf = async (): Promise<number> => {
+      const queue = await page.locator('[data-queue-dock]').boundingBox()
+      const composer = await page.locator('[data-composer-card]').boundingBox()
+      return composer!.x + composer!.width - queue!.x - queue!.width
+    }
+    await expect.poll(queueLeftInsetOf, { timeout: 15_000 }).toBeCloseTo(composerMetrics.dockInset, 1)
+    await expect.poll(queueRightInsetOf, { timeout: 15_000 }).toBeCloseTo(composerMetrics.dockInset, 1)
     await page.setViewportSize({ width: 1680, height: 1000 })
 
     const editRow = page.getByText(EDIT, { exact: true }).locator('..')

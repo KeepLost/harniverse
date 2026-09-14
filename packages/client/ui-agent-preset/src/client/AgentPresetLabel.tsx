@@ -44,6 +44,7 @@ export function AgentPresetLabel({
 }: AgentPresetLabelProps) {
   const preset = useSessions(state => state.byId[sessionId]?.agentProfile)
   const options = useAgentPresets(state => state.options)
+  const rosterStatus = useAgentPresets(state => state.status)
 
   useEffect(() => {
     // Deployments that compose no presets never label anything, so the roster
@@ -54,9 +55,19 @@ export function AgentPresetLabel({
   if (preset === undefined) return null
 
   const option = options.find(entry => entry.id === preset)
+  // A roster that has not completed says nothing honest yet: painting the
+  // raw id here would flash the slug mid-load (and land it in goldens
+  // captured under load). Only a settled roster that genuinely lacks the
+  // preset — deployment drift — names the session by its id of record.
+  const rosterSettled = rosterStatus !== 'idle' && rosterStatus !== 'loading'
+  if (option === undefined && !rosterSettled) return null
   const text = option === undefined ? undefined : presetDisplayText(option, t)
   return (
-    <span className={css.label} title={text?.description ?? t('headerHint')}>
+    <span
+      className={css.label}
+      data-agent-preset-label={preset}
+      title={text?.description ?? t('headerHint')}
+    >
       <IconAgentPresetOutline16 size={14} className={css.icon} />
       {text?.name ?? preset}
     </span>
