@@ -17,7 +17,7 @@ import styles from './ModelsSection.module.css'
 export type DeepSeekModelDraft = Record<string, unknown>
 
 /** The catalog fields this editor writes. */
-type CatalogField = 'id' | 'name' | 'contextWindow' | 'maxTokens'
+type CatalogField = 'id' | 'name' | 'contextWindow' | 'maxTokens' | 'inputModalities'
 
 /** The two token counts edited as K/M-suffixed text behind a row's disclosure. */
 type CapacityField = 'contextWindow' | 'maxTokens'
@@ -75,6 +75,34 @@ export interface DeepSeekModelsValidationFailure {
   /** Message key owned by the Models settings section. */
   key: 'modelIdRequired' | 'modelIdDuplicate' | 'modelNameInvalid' | 'modelContextInvalid'
   | 'modelMaxTokensInvalid'
+  | 'modelEffortsInvalid' | 'modelDefaultEffortInvalid' | 'modelKwargNameRequired'
+}
+
+/**
+ * Validate the capability declaration of one row: the effort set a model
+ * offers, the default that points into it, and the chat-template fields.
+ * @param model - one user-owned row.
+ * @returns the first failure key, or undefined when the adapter will accept it.
+ */
+function capabilityFailure(model: DeepSeekModelDraft): DeepSeekModelsValidationFailure['key'] | undefined {
+  const efforts = model['reasoningEfforts']
+  if (efforts === undefined || efforts === false || efforts === null) return undefined
+  if (typeof efforts !== 'object' || Array.isArray(efforts)) return undefined
+  const declared = Object.keys(efforts)
+  if (declared.filter(level => level !== 'off').length === 0) return 'modelEffortsInvalid'
+  const wanted = model['defaultReasoningEffort']
+  if (typeof wanted === 'string' && wanted !== 'default' && !declared.includes(wanted)) {
+    return 'modelDefaultEffortInvalid'
+  }
+  const compat = model['compat']
+  if (typeof compat === 'object' && compat !== null) {
+    const kwargs = (compat as Record<string, unknown>)['chatTemplateKwargs']
+    if (typeof kwargs === 'object' && kwargs !== null
+      && Object.keys(kwargs).some(name => name.length === 0)) {
+      return 'modelKwargNameRequired'
+    }
+  }
+  return undefined
 }
 
 /** Convert a schema-validated catalog value into records without dropping hidden fields. */
@@ -118,6 +146,8 @@ export function validateDeepSeekModels(value: unknown): DeepSeekModelsValidation
       && (typeof maxTokens !== 'number' || !Number.isInteger(maxTokens) || maxTokens <= 0)) {
       return { index, key: 'modelMaxTokensInvalid' }
     }
+    const capability = capabilityFailure(model)
+    if (capability !== undefined) return { index, key: capability }
   }
   return undefined
 }
@@ -343,6 +373,23 @@ export function DeepSeekModelsEditor(props: DeepSeekModelsEditorProps): ReactNod
                     <div className={styles['modelAdvanced']}>
                       {capacityField(model, index, 'contextWindow', props.defaultContextWindow)}
                       {capacityField(model, index, 'maxTokens', props.defaultMaxTokens)}
+                      {/* The catalog field is `inputModalities`; an unchecked
+                          box leaves the field unset, which the adapter reads
+                          as its text-only default. */}
+                      <label className={`${styles['capabilityCheck']} ${styles['capabilitySpan']}`}>
+                        <input
+                          type="checkbox"
+                          checked={Array.isArray(model['inputModalities'])
+                            && model['inputModalities'].includes('image')}
+                          disabled={props.disabled}
+                          onChange={(event) => {
+                            update(index, 'inputModalities', event.target.checked
+                              ? ['text', 'image']
+                              : undefined)
+                          }}
+                        />
+                        {props.t('modelImageInput')}
+                      </label>
                     </div>
                   )
                   : null}

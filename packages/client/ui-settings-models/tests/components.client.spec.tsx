@@ -536,6 +536,23 @@ describe('ModelsSection', () => {
     expect(mutate).not.toHaveBeenCalled()
   })
 
+  it('declares image input on a DeepSeek catalog row', async () => {
+    const { mutate } = await mountDeepSeekCard({
+      mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
+    })
+    fireEvent.click(screen.getByText(en.customized))
+    expandRow(1)
+    fireEvent.click(screen.getByLabelText(en.modelImageInput))
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    const call = mutate.mock.calls[0]?.[0] as { ops: { value: unknown }[] }
+    expect(call.ops[0]?.value).toEqual([
+      { ...DEFAULT_DEEPSEEK_MODELS[0], inputModalities: ['text', 'image'] },
+      ...DEFAULT_DEEPSEEK_MODELS.slice(1),
+    ])
+  })
+
   it('validates every adapter-owned model catalog invariant', () => {
     expect(modelDrafts(undefined)).toEqual([])
     expect(modelDrafts([null, 'bad', { id: 'ok' }])).toEqual([{}, {}, { id: 'ok' }])
