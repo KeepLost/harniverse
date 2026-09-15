@@ -1,9 +1,8 @@
 /**
- * Model selection plugin, browser half — THREE entries over ONE per-session
+ * Model selection plugin, browser half — TWO entries over ONE per-session
  * directory owned by ModelDirectoryResolver (`ctx.modelDirectories`): the
- * /model popupSelect contribution, the composer's named
- * `conversation.input.model` seat, and the `conversation.input.effort`
- * quick seat directly right of it. All three load the session's
+ * /model popupSelect contribution and the composer's named
+ * `conversation.input.model` seat. Both load the session's
  * provider-grouped advisory directory (`session.models`) and submit through
  * `session.selectModel` via the same directory instance,
  * so the host-reported current selection is the single fact both surfaces echo
@@ -26,7 +25,6 @@ import type { ModelDirectoryState } from './directory.ts'
 import { ModelDirectoryResolver } from './service.ts'
 import type { ModelSelectInjected } from './slots.ts'
 import { ModelSelect } from './ModelSelect.tsx'
-import { EffortButton } from './EffortButton.tsx'
 import { en, zh, type ModelKey } from './locales.ts'
 
 export { ModelDirectory } from './directory.ts'
@@ -153,9 +151,8 @@ export function apply(ctx: ClientContext): void {
     }), 'ui-model-selection: /model contribution')
   })
 
-  // Entry 2: the composer's named model seat over the SAME directory, with
-  // the standalone effort seat directly right of it (Entry 3) over the same
-  // face — one directory, one selection verb, two affordances.
+  // Entry 2: the composer's named model seat over the SAME directory —
+  // one directory, one selection verb.
   ctx.inject(['slots', 'modelDirectories'], (scope: ClientContext) => {
     const models = scope.modelDirectories
     const sessions = scope.sessions
@@ -184,10 +181,5 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
       inject: seatInject,
     }, ModelSelect))
-    scope.slots.inject('conversation.input.effort', () => scope.slots.register({
-      name: 'conversation.input.effort',
-      locale: NS,
-      inject: seatInject,
-    }, EffortButton))
   })
 }

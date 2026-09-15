@@ -126,7 +126,6 @@ async function bench() {
     ctx, fiber, mint, calls,
     contribution: () => contribution!,
     seat: () => seats.get('conversation.input.model')!,
-    effortSeat: () => seats.get('conversation.input.effort')!,
     hostCurrent: () => current,
     setHostCurrent: (selection: ModelSelection) => { current = selection },
     address: (id: SessionId) => { addressed.add(id) },
@@ -145,22 +144,6 @@ describe('ui-model-selection entries', () => {
     expect(b.seat().inject).toBeTypeOf('function')
     // Copy rides the standard locale seat.
     expect(b.seat().locale).toBe('model')
-  })
-
-  it('registers the effort seat over the same per-session directory as the model seat', async () => {
-    const b = await bench()
-    b.mint('s')
-    const modelFace = b.seat().inject!(sid('s'))
-    const effortFace = b.effortSeat().inject!(sid('s'))
-    // Copy rides the standard locale seat on both seats.
-    expect(b.effortSeat().locale).toBe('model')
-    expect(effortFace.available).toBe(true)
-    // One directory instance per session across both seats.
-    expect(effortFace.directory).toBe(modelFace.directory)
-    // And the effort face keeps the subagent withholding the model face has.
-    b.mint('child')
-    b.address(sid('child'))
-    expect(b.effortSeat().inject!(sid('child')).available).toBe(false)
   })
 
   it('popup options mark the host current active with the provider group in the detail', async () => {

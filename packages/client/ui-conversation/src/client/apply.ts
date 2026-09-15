@@ -289,7 +289,6 @@ export function apply(ctx: Context): void {
     children: {
       'conversation.input.plan': { kind: 'single', scope: 'session' },
       'conversation.input.model': { kind: 'single', scope: 'session' },
-      'conversation.input.effort': { kind: 'single', scope: 'session' },
       'conversation.input.commands': { kind: 'single', scope: 'session' },
     },
     inject: (sessionId: SessionId | undefined): ComposerBarInjected => {
