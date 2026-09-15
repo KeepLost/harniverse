@@ -136,7 +136,7 @@ async function bench() {
 
 const projection = (id: string) => ({ sessionId: sid(id) })
 
-describe('ui-model-selection dual entry', () => {
+describe('ui-model-selection entries', () => {
   it('registers the /model contribution and the composer model seat', async () => {
     const b = await bench()
     expect(b.contribution().name).toBe('model')

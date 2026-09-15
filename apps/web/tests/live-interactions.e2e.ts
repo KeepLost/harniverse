@@ -21,6 +21,7 @@ import type { ReplayOverrideDoc } from '@deepseek-ai/dsh-llm-replay'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
+  waitForAgentPresetLabel,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
@@ -139,6 +140,7 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
       { timeout: 10_000 },
     ).toBe(true)
     await page.getByText('Standard mode', { exact: true }).waitFor()
+    await waitForAgentPresetLabel(page)
     const loadingSnapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(LOADING_EXPECTED, loadingSnapshot, MODE)
     await page.getByRole('button', { name: 'Stop generating' }).click()
@@ -151,6 +153,7 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     await expect.poll(() => page.locator('[data-streaming="true"]').count(), { timeout: 10_000 }).toBe(0)
     // Golden of the aborted end-state: the prompt bubble plus the frozen
     // partial ('partial' is the hang entry's replayed prefix) and no more.
+    await waitForAgentPresetLabel(page)
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(CANCEL_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
@@ -174,6 +177,7 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     expect(await errorStatus.textContent()).toContain('API key is invalid')
     expect(await errorStatus.textContent()).toContain('AUTH')
     expect(await page.locator('body').textContent()).not.toContain('sk-preview-secret')
+    await waitForAgentPresetLabel(page)
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(ERROR_EXPECTED, snapshot, MODE)
     await page.getByRole('tab', { name: 'Trajectory' }).click()
@@ -234,6 +238,7 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     await expect.poll(() => page.getByText('event sourcing', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThan(0)
     // Golden of the recovered end-state: the discarded partial stays absent,
     // while the settled retry row remains as durable recovery context.
+    await waitForAgentPresetLabel(page)
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(RETRY_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])

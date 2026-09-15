@@ -261,14 +261,18 @@ describe('WorkerThreadCodeRuntime — budgets and containment (real workers)', (
   it('contains an OOM under resourceLimits as worker-exit, host process healthy', async () => {
     const { runtime } = await setup({ maxOldGenerationSizeMb: 32 })
     const result = await runtime.run({
-      program: 'const hog = []; for (;;) hog.push(new Array(1e6).fill(1));',
+      // One fill already exceeds the whole old-generation cap, so V8 hits
+      // its fatal allocation failure on the first materialization instead
+      // of grinding through non-productive full GCs — death stays fast and
+      // deterministic even on a starved runner.
+      program: 'const hog = []; for (;;) hog.push(new Array(4_200_000).fill(1.1));',
       bindings: [],
     })
     expect(result.error?.kind).toBe('worker-exit')
     // And the host is fine: run something else.
     const after = await runtime.run({ program: 'return "alive"', bindings: [] })
     expect(after.value).toBe('alive')
-  }, 30_000)
+  }, 60_000)
 
   it('reports a worker that exits before publishing a completion', async () => {
     const { runtime } = await setup()

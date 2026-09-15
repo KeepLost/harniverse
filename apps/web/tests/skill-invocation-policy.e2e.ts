@@ -108,6 +108,12 @@ describe('web e2e: skill invocation policy through the real host', () => {
     expect(await menu.getByRole('option', { name: /policy-user-only user-only · / }).count()).toBe(1)
     expect(await menu.getByRole('option', { name: /policy-model-only/ }).count()).toBe(0)
     expect(await menu.getByRole('option', { name: /policy-trusted-only/ }).count()).toBe(0)
+    // The command roster loads asynchronously; the golden pins the settled
+    // menu, so wait out its loading group before capture.
+    await expect.poll(
+      () => menu.getByText('Loading', { exact: false }).count(),
+      { timeout: 15_000 },
+    ).toBe(0)
 
     const snapshot = await captureStableAria(page, '[role="listbox"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(MENU_EXPECTED, snapshot, MODE)

@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it, onTestFailed } from 'vitest'
 import type { ReplayOverrideDoc } from '@deepseek-ai/dsh-llm-replay'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
-  assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
+  assertFixtureInventory, captureStableAria, waitForAgentPresetLabel, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
@@ -128,6 +128,7 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     await expect.poll(() => copyButtons.count(), { timeout: 10_000 }).toBe(1)
     expect(await page.getByRole('button', { name: 'Branch into a new conversation' }).count()).toBe(0)
     await copyButtons.first().focus()
+    await waitForAgentPresetLabel(page)
     const running = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(RUNNING_EXPECTED, running, MODE)
 
@@ -140,6 +141,7 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     await expect.poll(() => copyButtons.count(), { timeout: 10_000 }).toBe(2)
     await expect.poll(() => page.locator('[data-streaming="true"]').count(), { timeout: 10_000 }).toBe(0)
     await copyButtons.last().focus()
+    await waitForAgentPresetLabel(page)
     const settledAria = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(SETTLED_EXPECTED, settledAria, MODE)
     expect(tripwire.pageErrors).toEqual([])

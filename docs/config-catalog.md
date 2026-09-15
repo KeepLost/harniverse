@@ -1314,6 +1314,14 @@ export interface PiAiModelProfile {
    * declares the offered levels and their wire spellings.
    */
   reasoningEfforts?: false | PiAiReasoningEfforts
+  /**
+   * Effort a selection on this model starts from: a declared level, `off`, or
+   * `default` — the model's explicit "send no effort", which stops a
+   * route-level `reasoning` default from reaching it. Absent inherits the
+   * route default; only meaningful beside a dict `reasoningEfforts`, which is
+   * what resolution validates.
+   */
+  defaultReasoningEffort?: ModelThinkingLevel | 'default'
   /** Reasoning-dispatch switches for this model, winning over the route's. */
   compat?: PiAiCompatProfile
 }
@@ -1341,6 +1349,14 @@ export interface PiAiCompatProfile {
   thinkingFormat?: PiAiThinkingFormat
   /** Whether the endpoint accepts `reasoning_effort`; absent keeps the catalog entry's, then pi-ai's baseURL-derived guess. */
   supportsReasoningEffort?: boolean
+  /**
+   * Fields dispatched as `chat_template_kwargs.<name>` under the
+   * `chat-template` format — the arbitrary-field escape hatch for endpoints
+   * whose thinking switch lives in a field no named format spells. Values are
+   * literals, or pi-ai's `thinking.enabled` / `thinking.effort` variables;
+   * per-model entries win over the route.
+   */
+  chatTemplateKwargs?: Record<string, ChatTemplateKwargValue>
 }
 
 /** One request modality a pi-ai model may accept. */
@@ -1363,15 +1379,16 @@ export type PiAiThinkingFormat = Exclude<PiThinkingFormat, WithheldThinkingForma
 type PiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFormat']>
 
 /**
- * pi-ai thinking formats a profile cannot name: both drive the request through
- * `chatTemplateKwargs`, which this configuration does not expose.
+ * pi-ai thinking formats a profile cannot name: `qwen-chat-template` drives
+ * the request through pi-ai's own fixed `enable_thinking` /
+ * `preserve_thinking` kwargs, which need no per-deployment spelling.
  */
-type WithheldThinkingFormat = 'chat-template' | 'qwen-chat-template'
+type WithheldThinkingFormat = 'qwen-chat-template'
 ```
 
-Depends on: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-works/pi-ai`) · `Model` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `OpenAICompletionsCompat` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
+Depends on: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-works/pi-ai`) · `ChatTemplateKwargValue` (`@earendil-works/pi-ai`) · `Model` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `OpenAICompletionsCompat` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
 
-Source: [`packages/llm/llm-pi-ai/src/config.ts:172`](../packages/llm/llm-pi-ai/src/config.ts)
+Source: [`packages/llm/llm-pi-ai/src/config.ts:179`](../packages/llm/llm-pi-ai/src/config.ts)
 
 <a id="deepseek-aidsh-llm-replay"></a>
 

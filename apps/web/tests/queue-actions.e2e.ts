@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, onTestFailed } from 'vitest'
 import { deriveReplayScript, parseSessionLog, type ReplayEntry } from '@deepseek-ai/dsh-llm-replay'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
-  assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
+  assertFixtureInventory, captureStableAria, waitForAgentPresetLabel, compareOrRefreshGolden,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
@@ -99,6 +99,7 @@ describe('web e2e: queue row actions', () => {
     const queueHeader = page.getByRole('button', { name: '2 queued messages' })
     await expect.poll(() => queueHeader.getAttribute('aria-expanded'), { timeout: 10_000 })
       .toBe('false')
+    await waitForAgentPresetLabel(page)
     const collapsedSnapshot = await captureStableAria(
       page,
       '[class*="centerCol"]',
@@ -119,22 +120,33 @@ describe('web e2e: queue row actions', () => {
     expect(queueBox!.x).toBeGreaterThanOrEqual(composerBox!.x)
     expect(queueBox!.x + queueBox!.width)
       .toBeLessThanOrEqual(composerBox!.x + composerBox!.width)
-    const queueLeftInset = queueBox!.x - composerBox!.x
-    const queueRightInset = composerBox!.x + composerBox!.width - queueBox!.x - queueBox!.width
     const composerMetrics = await page.locator('[data-composer-card]').evaluate((element) => {
       const style = getComputedStyle(element)
       return {
         dockInset: Number.parseFloat(style.getPropertyValue('--dsh-composer-dock-inset')),
       }
     })
-    expect(queueLeftInset).toBeCloseTo(composerMetrics.dockInset, 1)
-    expect(queueRightInset).toBeCloseTo(composerMetrics.dockInset, 1)
+    // The insets settle only after the card finishes its layout pass; under
+    // CI load a single-shot measure catches them mid-settle.
+    const queueLeftInsetOf = async (): Promise<number> => {
+      const queue = await page.locator('[data-queue-dock]').boundingBox()
+      const composer = await page.locator('[data-composer-card]').boundingBox()
+      return queue!.x - composer!.x
+    }
+    const queueRightInsetOf = async (): Promise<number> => {
+      const queue = await page.locator('[data-queue-dock]').boundingBox()
+      const composer = await page.locator('[data-composer-card]').boundingBox()
+      return composer!.x + composer!.width - queue!.x - queue!.width
+    }
+    await expect.poll(queueLeftInsetOf, { timeout: 15_000 }).toBeCloseTo(composerMetrics.dockInset, 1)
+    await expect.poll(queueRightInsetOf, { timeout: 15_000 }).toBeCloseTo(composerMetrics.dockInset, 1)
     await page.setViewportSize({ width: 1680, height: 1000 })
 
     const editRow = page.getByText(EDIT, { exact: true }).locator('..')
     await editRow.getByRole('button', { name: 'Edit queued message' }).click()
     const editor = page.getByRole('textbox', { name: 'Edit queued message' })
     await editor.fill(EDITED)
+    await waitForAgentPresetLabel(page)
     const editingSnapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(EDITING_EXPECTED, editingSnapshot, MODE)
     await page.getByRole('button', { name: 'Save queued message' }).click()
@@ -144,6 +156,7 @@ describe('web e2e: queue row actions', () => {
     await removeRow.getByRole('button', { name: 'Remove queued message' }).click()
     await expect.poll(() => page.getByText(REMOVE, { exact: true }).count()).toBe(0)
 
+    await waitForAgentPresetLabel(page)
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
     expect(sessionEvents.filter(event => event.type === 'user/message' && event.data.source.kind === 'user')).toHaveLength(1)

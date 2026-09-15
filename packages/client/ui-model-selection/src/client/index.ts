@@ -1,9 +1,10 @@
 /**
  * Model selection plugin, browser half — TWO entries over ONE per-session
- * directory owned by ModelDirectoryResolver (`ctx.modelDirectories`). The /model popupSelect
- * contribution and the composer's named `conversation.input.model` seat both
- * load the session's provider-grouped advisory directory (`session.models`)
- * and submit through `session.selectModel` via the same directory instance,
+ * directory owned by ModelDirectoryResolver (`ctx.modelDirectories`): the
+ * /model popupSelect contribution and the composer's named
+ * `conversation.input.model` seat. Both load the session's
+ * provider-grouped advisory directory (`session.models`) and submit through
+ * `session.selectModel` via the same directory instance,
  * so the host-reported current selection is the single fact both surfaces echo
  * — a switch made in either entry is what the other shows next. Failures
  * ride each entry's own retry surface (popup shell error/retry; seat menu
@@ -12,7 +13,7 @@
  * history outside the direct-parent continuation path.
  */
 // Type-only: the carrier types, the forwarded Host-event face and the ctx.remote merge.
-import type { ModelSelection, SessionModels } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ModelSelection, SessionId, SessionModels } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CommandUiContract, SelectOption } from '@deepseek-ai/dsh-client-ui-commands/client'
 // Type-only: pulls the ui-conversation SlotMap merge (the input.model seat).
@@ -150,33 +151,35 @@ export function apply(ctx: ClientContext): void {
     }), 'ui-model-selection: /model contribution')
   })
 
-  // Entry 2: the composer's named model seat over the SAME directory.
+  // Entry 2: the composer's named model seat over the SAME directory —
+  // one directory, one selection verb.
   ctx.inject(['slots', 'modelDirectories'], (scope: ClientContext) => {
     const models = scope.modelDirectories
     const sessions = scope.sessions
+    const seatInject = (sessionId: SessionId): ModelSelectInjected => {
+      const directory = models.directoryFor(sessionId)
+      const available = sessions.subagentAddress(sessionId) === undefined
+      return {
+        available,
+        directory: directory.store,
+        load: () => {
+          if (available) directory.load().catch(() => { /* surfaced on the store */ })
+        },
+        select: (selection: ModelSelection) => available
+          ? directory.select(selection).then(() => true, () => false)
+          : Promise.resolve(false),
+        selectProfile: (profileId: string) => available
+          ? directory.selectProfile(profileId).then(() => true, () => false)
+          : Promise.resolve(false),
+        selectRoute: (routeId: string) => available
+          ? directory.selectRoute(routeId).then(() => true, () => false)
+          : Promise.resolve(false),
+      }
+    }
     scope.slots.inject('conversation.input.model', () => scope.slots.register({
       name: 'conversation.input.model',
       locale: NS,
-      inject: (sessionId): ModelSelectInjected => {
-        const directory = models.directoryFor(sessionId)
-        const available = sessions.subagentAddress(sessionId) === undefined
-        return {
-          available,
-          directory: directory.store,
-          load: () => {
-            if (available) directory.load().catch(() => { /* surfaced on the store */ })
-          },
-          select: (selection: ModelSelection) => available
-            ? directory.select(selection).then(() => true, () => false)
-            : Promise.resolve(false),
-          selectProfile: (profileId: string) => available
-            ? directory.selectProfile(profileId).then(() => true, () => false)
-            : Promise.resolve(false),
-          selectRoute: (routeId: string) => available
-            ? directory.selectRoute(routeId).then(() => true, () => false)
-            : Promise.resolve(false),
-        }
-      },
+      inject: seatInject,
     }, ModelSelect))
   })
 }

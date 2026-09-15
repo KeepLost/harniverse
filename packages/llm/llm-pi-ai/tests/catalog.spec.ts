@@ -683,6 +683,34 @@ describe('per-model reasoning efforts', () => {
     expect(declare({ high: null })).toThrow(/only "off" may leave it empty/)
     expect(declare({ high: '' })).toThrow(/must not be an empty string/)
   })
+
+  it('resolves a per-model default effort beside the declared levels', () => {
+    const route = resolveProfiles(declared([
+      {
+        id: 'm',
+        reasoningEfforts: { off: null, low: 'low', medium: 'medium' },
+        defaultReasoningEffort: 'medium',
+      },
+      // "default" pins "no default" for this model, so a route default cannot
+      // reach it; it resolves like an unset one rather than an error.
+      { id: 'none-pinned', reasoningEfforts: { off: null, low: 'low' }, defaultReasoningEffort: 'default' },
+    ])).get('acme-gateway')
+
+    expect(route?.configuredDefaultEffort.get('m')).toBe('medium')
+    expect(route?.configuredDefaultEffort.get('none-pinned')).toBe('default')
+  })
+
+  it('rejects a default effort the declaration does not offer or a model that declares none', () => {
+    const declare = (entry: LlmPiAi.PiAiModelProfile): (() => unknown) =>
+      () => resolveProfiles(declared([entry]))
+
+    // A level the dict does not offer would silently fall back to nothing.
+    expect(declare({ id: 'm', reasoningEfforts: { high: 'high' }, defaultReasoningEffort: 'low' }))
+      .toThrow(/defaultReasoningEffort "low"/)
+    // Without declared efforts there is nothing a default could select.
+    expect(declare({ id: 'm', defaultReasoningEffort: 'low' })).toThrow(/defaultReasoningEffort/)
+    expect(declare({ id: 'm', reasoningEfforts: false, defaultReasoningEffort: 'off' })).toThrow(/defaultReasoningEffort/)
+  })
 })
 
 describe('modelOverrides', () => {
@@ -820,6 +848,39 @@ describe('reasoning-dispatch compat switches', () => {
         models: [{ id: 'claude-sonnet-4-5', compat: { thinkingFormat: 'openai' } }],
       },
     })).toThrow(/exist only on openai-completions/)
+  })
+
+  it('names the chat-template dialect and carries its kwargs onto the model', () => {
+    const models = modelsOf({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test',
+        compat: {
+          thinkingFormat: 'chat-template',
+          chatTemplateKwargs: { enable_thinking: { $var: 'thinking.enabled' } },
+        },
+        models: [{ id: 'm', reasoningEfforts: { off: null, high: 'high' } }],
+      },
+    }, 'acme-gateway')
+
+    expect(models.get('m')?.compat).toEqual({
+      thinkingFormat: 'chat-template',
+      chatTemplateKwargs: { enable_thinking: { $var: 'thinking.enabled' } },
+    })
+  })
+
+  it('rejects chat-template kwargs dispatched by any other format', () => {
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test',
+        compat: {
+          thinkingFormat: 'openai',
+          chatTemplateKwargs: { enable_thinking: { $var: 'thinking.enabled' } },
+        },
+        models: [{ id: 'm', reasoningEfforts: { off: null, high: 'high' } }],
+      },
+    })).toThrow(/chatTemplateKwargs.*chat-template/)
   })
 
   it('rejects route switches no model on the route can take', () => {

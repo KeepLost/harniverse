@@ -11,7 +11,7 @@ import { parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-goal'
 import {
-  assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
+  assertFixtureInventory, captureStableAria, waitForAgentPresetLabel, compareOrRefreshGolden,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
@@ -156,6 +156,7 @@ describe('web e2e: Goal keeps one assistant action row per completed turn', () =
     expect(await branchButtons.evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-disabled'))))
       .toEqual([null, null])
     await branchButtons.last().focus()
+    await waitForAgentPresetLabel(page)
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])

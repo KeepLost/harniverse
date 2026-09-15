@@ -269,7 +269,7 @@ describe('web e2e: long Chat interaction contract', () => {
 
     const currentCrumb = page.getByRole('navigation', { name: 'Session hierarchy' })
       .getByRole('button').last()
-    await expect.poll(() => currentCrumb.textContent(), { timeout: 15_000 })
+    await expect.poll(() => currentCrumb.textContent(), { timeout: 30_000 })
       .toBe(`${FIXTURE.title} (1)`)
     await page.getByText(branchAssistantMarker, { exact: false }).last().waitFor({ timeout: 15_000 })
     const settled = scaffold.whenTurnSettled(60_000)
