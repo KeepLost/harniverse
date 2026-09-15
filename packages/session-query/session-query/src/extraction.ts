@@ -1,6 +1,7 @@
 /** First-party semantic text extraction for session-query consumers. */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-compaction'
 
 /**
  * Extract searchable semantic text from one first-party session event.
@@ -26,6 +27,8 @@ export function extractSessionEventText(event: SessionEvent): string {
       ])
     case 'todo/write':
       return joinText(event.data.todos.flatMap(todo => [todo.status, todo.content]))
+    case 'compaction/summary':
+      return contentText(event.data.summary)
     case 'turn/end':
       return turnEndText(event.data.reason)
     case 'turn/start':

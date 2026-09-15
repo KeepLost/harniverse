@@ -61,8 +61,13 @@ describe('web e2e: /goal human transcript presentation', () => {
       // verify the typed command actually landed before Enter interprets it.
       await expect.poll(() => input.inputValue()).toBe('/goal')
       await input.press('Enter')
-      const engaged = await expect.poll(() => input.inputValue(), { timeout: 10_000 })
-        .toBe('/goal ').then(() => true, () => false)
+      // Engagement is visible through either signal: the composer keeps the
+      // '/goal ' prefix, or the command bubble itself mounts. On slow runners
+      // the prefix render can trail the bubble, so accept either.
+      const engaged = await expect.poll(async () => {
+        if (await page.locator('[data-command-input]').count() > 0) return true
+        return await input.inputValue() === '/goal '
+      }, { timeout: 10_000 }).toBe(true).then(() => true, () => false)
       if (engaged) break
       expect(await page.getByText('/goal', { exact: true }).count()).toBe(0)
       if (attempt === 2) throw new Error('/goal engagement failed after 3 attempts')

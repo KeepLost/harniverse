@@ -249,7 +249,7 @@ describe('SQLite search predicate compilation', () => {
 
 describe('SQLite query identity and presentation', () => {
   it('quotes all caller MATCH syntax as data', () => {
-    expect(quoteFtsData('say "needle" OR *')).toBe('"say ""needle"" OR *"')
+    expect(quoteFtsData('say "needle" OR *')).toBe('"say" """needle""" "OR" "*"')
   })
 
   it('canonicalizes request and filter ordering in both scopes', () => {

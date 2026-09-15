@@ -31,6 +31,7 @@ interface SearchCollection<T> {
 
 interface SessionSearchCallArgs {
   readonly query: string
+  readonly session_ids?: readonly string[]
 }
 
 interface SessionFindCallArgs {
@@ -39,10 +40,6 @@ interface SessionFindCallArgs {
   readonly created_at_to?: string
   readonly active_at_from?: string
   readonly active_at_to?: string
-}
-
-interface EventSearchCallArgs {
-  readonly query: string
 }
 
 interface SessionTargetCallArgs {
@@ -255,7 +252,9 @@ function formatTime(value: number): string {
 }
 
 function presentSessionSearchCall(args: SessionSearchCallArgs): GenericCallView {
-  return { card: 'generic', kind: 'search', title: 'Search prior sessions', rawInput: args.query }
+  return args.session_ids?.length === 1
+    ? { card: 'generic', kind: 'search', title: `Search every event in session ${args.session_ids[0]}`, rawInput: args.query }
+    : { card: 'generic', kind: 'search', title: 'Search prior sessions', rawInput: args.query }
 }
 
 function presentSessionFindCall(args: SessionFindCallArgs): GenericCallView {
@@ -265,10 +264,6 @@ function presentSessionFindCall(args: SessionFindCallArgs): GenericCallView {
     title: 'Find prior sessions',
     rawInput: args,
   }
-}
-
-function presentEventSearchCall(args: EventSearchCallArgs): GenericCallView {
-  return { card: 'generic', kind: 'search', title: 'Search session events', rawInput: args.query }
 }
 
 function presentSessionTargetCall(action: string, args: SessionTargetCallArgs): GenericCallView {
@@ -295,6 +290,5 @@ export const presentation = {
   formatLogTail,
   presentSessionFindCall,
   presentSessionSearchCall,
-  presentEventSearchCall,
   presentSessionTargetCall,
 }

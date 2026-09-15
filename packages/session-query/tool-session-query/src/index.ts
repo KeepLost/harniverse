@@ -66,11 +66,12 @@ const TEXT_OUTPUT = {
 }
 
 const PROMPT_TEXT =
-  'Use session_find to locate prior sessions by current title, creation time, or raw-event activity time; session_find returns session metadata without content-match events or snippets. '
-  + 'Use session_search to search prior-session content; session_search returns matching event seqs and snippets. Use session_event_search for content inside one session. '
-  + 'Use session_inspect for one authorized session view: summary, messages, history, event, or lineage; add seq to lineage to inspect one event\'s replacement and source relationships. '
-  + 'Use session_message to continue a known ordinary session or direct subagent session; inbox acceptance does not mean completion. A subagent result and settlement notice identify its durable Session id, which session_message and session_inspect accept as session_id. '
-  + 'The messages view reads the folded current model-message surface, while history and event read complete raw events including shadowed and log-only trajectory. Search and find results are cursor-free.'
+  'Session research: find prior sessions by title, creation time, or activity window with session_find, which returns session metadata only. '
+  + 'Find sessions by content wording with session_search, which returns each session\'s strongest matching event with seq and snippet; any language matches, including sub-word CJK terms, and compacted turns remain searchable. '
+  + 'Pass exactly one session_id to session_search to list every matching event in that one session instead; the current session is an allowed target and stops before the active step. '
+  + 'Read one session with session_inspect: summary status; messages (the current folded view — compacted turns are absent); history (complete raw events, compacted originals included); one event; or lineage. '
+  + 'The current session\'s compacted summaries are recovered with compaction_history_search then compaction_history_expand. '
+  + 'Use session_message to continue a known ordinary session or direct subagent session; inbox acceptance does not mean completion. Search and find results are cursor-free.'
 
 /** Register discovery, search, and unified inspection tools with shared guidance. */
 export function apply(ctx: Context, config: Config): void {
@@ -83,7 +84,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'session_find',
-    description: 'Find prior sessions by current title, creation time, or raw-event activity time. Returns session metadata, never content-match events or snippets.',
+    description: 'Find prior sessions by current title, creation time, or raw-event activity time. Returns session metadata only — no matched content or snippets. Start here when you know when a session happened or what it is titled, not the words inside it.',
     parameters: toolInput.sessionFindParameters,
     output: TEXT_OUTPUT,
     timeoutMs: resolved.searchTimeoutMs,
@@ -93,7 +94,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'session_search',
-    description: 'Search prior sessions and return the strongest matching event from each session; optionally filter by cwd.',
+    description: 'Search session content and return each session\'s strongest matching event with seq and snippet. Pass exactly one session_id to return every matching event in that session instead, including the current session up to the previous step. Compacted turns stay searchable; CJK sub-words match.',
     parameters: toolInput.sessionSearchParameters,
     output: TEXT_OUTPUT,
     timeoutMs: resolved.searchTimeoutMs,
@@ -102,18 +103,8 @@ export function apply(ctx: Context, config: Config): void {
   }))
 
   ctx.tools.register(defineTool({
-    name: 'session_event_search',
-    description: 'Search prior events in one authorized session; the current session excludes the step performing this call.',
-    parameters: toolInput.eventSearchParameters,
-    output: TEXT_OUTPUT,
-    timeoutMs: resolved.searchTimeoutMs,
-    execute: (args, exec) => operations.executeEventSearch(ctx, args, exec, resolved.maxSearchResults),
-    presentCall: presentation.presentEventSearchCall,
-  }))
-
-  ctx.tools.register(defineTool({
     name: 'session_inspect',
-    description: 'Inspect one authorized session through a unified view: summary status, folded messages, raw history, one event, or lineage. Never resumes a cold session.',
+    description: 'Read one authorized session through a unified view: summary status, folded messages, raw history, one event, or lineage. Compacted turns are absent from the messages view — read history or lineage for them. Never resumes a cold session.',
     parameters: toolInput.sessionInspectParameters,
     output: TEXT_OUTPUT,
     isConcurrencySafe: () => true,

@@ -550,7 +550,10 @@ describe('SQLite session search', () => {
     ctx.sessions.create(SessionId('quote'), { seed: messageEvents('say "needle" exactly', 10), meta: { createdAt: 1 } })
 
     const phrase = await ctx.sessionQuery.searchSessions({ query: 'alpha beta' })
-    expect(phrase.items.map(item => item.header.id)).toEqual([SessionId('b'), SessionId('d'), SessionId('a')])
+    // Terms are ANDed independent phrases: 'c' matches both terms across the
+    // middle word, so it ranks below the adjacent 'b'/'d' pair.
+    expect(phrase.items.map(item => item.header.id))
+      .toEqual([SessionId('b'), SessionId('d'), SessionId('c'), SessionId('a')])
     expect(phrase.items.every(item => Array.from(item.bestMatch.snippet).length <= 5)).toBe(true)
     await expect(ctx.sessionQuery.searchSessions({ query: 'AI' })).resolves.toEqual({ items: [] })
     await expect(ctx.sessionQuery.searchSessions({ query: 'needle OR absent' }))

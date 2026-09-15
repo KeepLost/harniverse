@@ -156,11 +156,25 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     // The row action owns a distinct ui-workspace injection from the message
     // action above, so exercise both through the loaded app before capture.
     const sourceRow = page.locator('[role="treeitem"][aria-selected="true"]')
-    const rowBox = await sourceRow.boundingBox()
-    if (rowBox === null) throw new Error('fork source row has no layout box')
     const actionButton = sourceRow.locator('button[aria-label^="Session actions for "]')
-    await sourceRow.hover({ position: { x: rowBox.width - 16, y: rowBox.height / 2 } })
-    await expect.poll(() => actionButton.isVisible(), { timeout: 15_000 }).toBe(true)
+    // The fork's title projection lands late on slow runners and reflows the
+    // row, sliding the hover point off the action zone; settle the row's
+    // layout first, then keep re-hovering until the action reveals.
+    let rowBox = await sourceRow.boundingBox()
+    if (rowBox === null) throw new Error('fork source row has no layout box')
+    await expect.poll(async () => {
+      const next = await sourceRow.boundingBox()
+      const settled = next !== null
+        && Math.abs(next.width - rowBox!.width) < 1
+        && Math.abs(next.y - rowBox!.y) < 1
+      if (next !== null) rowBox = next
+      return settled
+    }, { timeout: 15_000 }).toBe(true)
+    await expect.poll(async () => {
+      if (await actionButton.isVisible()) return true
+      await sourceRow.hover({ position: { x: rowBox!.width - 16, y: rowBox!.height / 2 } })
+      return false
+    }, { timeout: 15_000 }).toBe(true)
     const buttonBox = await actionButton.boundingBox()
     if (buttonBox === null) throw new Error('fork source row action has no layout box')
     await page.mouse.click(buttonBox.x + buttonBox.width / 2, buttonBox.y + buttonBox.height / 2)
