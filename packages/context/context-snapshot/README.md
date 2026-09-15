@@ -26,7 +26,7 @@ Three paths share the emission rules:
 
 - **`agent/pre-step`** — after the waterfall decides, a due message is prepended to the entering batch, ahead of the claimed user input, so the model reads current runtime context before the material it must act on.
 - **`agent/request`** — when compaction completes inside the request waterfall and shadows the retained snapshot, a fresh Complete (or Cleared) message is appended durably; the request history is rebuilt from the surface, so the retried request carries it without new user input. Failures are logged and the request proceeds.
-- **`compaction/end`** (no `error`) while the agent is idle — manual `/compact` runs no step, so a contained async recovery appends the due message durably. In-flight turns and requests own their recovery through the paths above.
+- **`compaction/end`** (no `error`) — a contained async recovery appends the due message durably. When the agent is already idle this is immediate (manual `/compact`); when a turn is still running the recovery waits for the idle settle, because a compaction landing in the turn's final request has no later boundary inside that turn. The append is idempotent, so a turn that already restored the snapshot through the paths above writes nothing here.
 
 ## Model Experience
 
@@ -98,5 +98,5 @@ Append-only, like the complete snapshot.
 
 - **Partial identity is per-section text** — reordered sections with identical name set and texts produce no update; a same-named context whose meaning drifted without a text change is invisible to the diff.
 - **No cross-message merge on the wire** — the model reconstructs current state by reading the snapshot sequence; the plugin does not rewrite or compact its own earlier messages.
-- **Compaction recovery is best-effort after idle** — a `compaction/end` that lands between idle checks is recovered at the next step or request boundary; no durable marker tracks a missed recovery.
+- **Compaction recovery is best-effort after idle** — a `compaction/end` that lands between idle checks is recovered at the idle settle or the next step or request boundary; no durable marker tracks a missed recovery.
 - **Request-boundary recovery recomputes one assembly** — the recovery assembles the prompt plane once inside the request waterfall; a provider whose context contribution is expensive pays that cost again on the compacted retry.

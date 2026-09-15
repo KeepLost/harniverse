@@ -74,7 +74,7 @@ function mountWorkbench(
       [sid('s-a')]: { id: sid('s-a'), displayTitle: 'A', cwd: '/projects/a', running: false, blank: false, updatedAt: 1 },
       [sid('s-b')]: { id: sid('s-b'), displayTitle: 'B', cwd: '/projects/b', running: false, blank: false, updatedAt: 1 },
     },
-    current, phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
+    current, phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined, selectionSeq: 0,
   })
   const element = () => (
     <>

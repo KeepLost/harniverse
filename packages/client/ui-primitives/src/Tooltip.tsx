@@ -10,6 +10,7 @@
 
 import { cloneElement, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FocusEventHandler, MouseEventHandler, MutableRefObject, ReactElement, Ref } from 'react'
+import { hoverCapablePointer } from './hover-capable.ts'
 import css from './Tooltip.module.css'
 
 /** Bubble placement relative to the anchor. */
@@ -147,7 +148,14 @@ export function Tooltip({ label, side = 'right', delayMs = 0, disabled = false, 
     <>
       {cloneElement(children, {
         ref: mergedRef,
-        onMouseEnter: (e) => { children.props.onMouseEnter?.(e); triggers.current.hover = true; showAfterHoverDelay() },
+        onMouseEnter: (e) => {
+          children.props.onMouseEnter?.(e)
+          // Touch primaries never dispatch the matching mouseleave, so the
+          // hover bubble must not open there at all (hover-capable.ts).
+          if (!hoverCapablePointer()) return
+          triggers.current.hover = true
+          showAfterHoverDelay()
+        },
         onMouseLeave: (e) => { children.props.onMouseLeave?.(e); triggers.current.hover = false; cancelShow(); setPos(null) },
         onFocus: (e) => { children.props.onFocus?.(e); triggers.current.focus = true; cancelShow(); show() },
         onBlur: (e) => { children.props.onBlur?.(e); triggers.current.focus = false; hide() },

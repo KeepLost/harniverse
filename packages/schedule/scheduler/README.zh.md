@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-宿主级持久调度器（`ctx.scheduler`）。定时 prompt 存放在唯一的中央 storage-domain 存储里；at/after/every 规则驱动 wall-clock 定时器；投递经 idle 维护相位到达热会话、经 `agents.resume` 冷唤醒冷会话，可先重置表面，并惰性创建专属作业会话。`schedule:pending` 运行时上下文随服务注册；模型面工具位于预设作用域的 `@deepseek-ai/dsh-tool-scheduler`。[定时投递 Agent Note](../../../.agents/notes/implemented/feature/2026-09-08-host-scheduler.md) 拥有设计决策。
+宿主级持久调度器（`ctx.scheduler`）。定时 prompt 存放在唯一的中央 storage-domain 存储里；at/after/every 规则驱动 wall-clock 定时器；投递经 idle 维护相位到达热会话、经 `agents.resume` 冷唤醒冷会话，可先重置表面，并惰性创建专属作业会话。每条投递消息在逐字 prompt 外携带模型面进展信封（调度 id、规则、计划与实际触发时刻、下次运行），同样的事实以结构化字段随消息 source 传递；模型面工具位于预设作用域的 `@deepseek-ai/dsh-tool-scheduler`。[定时投递 Agent Note](../../../.agents/notes/implemented/feature/2026-09-08-host-scheduler.md) 拥有设计决策。
 
 ## Remote 面
 
@@ -55,7 +55,7 @@
 
 #### KV Cache 影响
 
-`schedule:pending` 运行时上下文仅在其文本变化时经 context-snapshot 状态机重发；稳定的挂起集合不扰动缓存。执行历史是中央存储元数据，不注入模型上下文。
+调度器不再注册任何运行时上下文 section：创建、运行或删除定时任务都不会扰动 context-snapshot 状态机，调度事实仅通过每条投递的信封到达模型。执行历史是中央存储元数据，不注入模型上下文。
 
 ## 已知限制与暂缓事项
 

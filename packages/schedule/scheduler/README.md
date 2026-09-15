@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Host-level durable scheduler (`ctx.scheduler`). Scheduled prompts live in one central storage-domain store; at/after/every rules drive a wall-clock timer; delivery reaches live sessions through the idle maintenance phase and cold sessions through `agents.resume`, optionally resetting the surface first, and lazily creates dedicated job sessions. The `schedule:pending` runtime context registers with the service; the model-facing tools live in the preset-scoped `@deepseek-ai/dsh-tool-scheduler`. The [scheduled delivery Agent Note](../../../.agents/notes/implemented/feature/2026-09-08-host-scheduler.md) owns the design decisions.
+Host-level durable scheduler (`ctx.scheduler`). Scheduled prompts live in one central storage-domain store; at/after/every rules drive a wall-clock timer; delivery reaches live sessions through the idle maintenance phase and cold sessions through `agents.resume`, optionally resetting the surface first, and lazily creates dedicated job sessions. Each delivered message carries a model-facing progress envelope (schedule id, rule, planned and fired moments, next run) around the verbatim prompt, with the same facts structured on the message source; the model-facing tools live in the preset-scoped `@deepseek-ai/dsh-tool-scheduler`. The [scheduled delivery Agent Note](../../../.agents/notes/implemented/feature/2026-09-08-host-scheduler.md) owns the design decisions.
 
 ## Remote surface
 
@@ -55,7 +55,7 @@ Tool schemas and results add a small fixed cost per request that lists tools; de
 
 #### KV Cache effect
 
-The `schedule:pending` runtime context republishes through the context-snapshot state machine only when its text changes; steady pending sets do not perturb the cache. Run history is central storage metadata and is not injected into model context.
+The scheduler registers no runtime-context section: creating, running, or deleting a schedule never perturbs the context-snapshot state machine, and schedule facts reach the model only through each delivery's envelope. Run history is central storage metadata and is not injected into model context.
 
 ## Known Limitations and Deferred Work
 

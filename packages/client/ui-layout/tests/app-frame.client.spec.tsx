@@ -26,6 +26,7 @@ import type {
 
 // Session selection controls for the SessionProvider and useSessions stubs.
 const selectedSession = { current: 's-test' as SessionId | undefined }
+const selectedSeq = { current: 0 }
 const selectedSessionBlank = { current: false }
 const selectedSessionCwd = { current: '/projects/test' }
 const baselinesReady = { current: true }
@@ -81,6 +82,7 @@ function mountFrame() {
         : { [current]: { id: current, displayTitle: 'Test', cwd: selectedSessionCwd.current, running: false, blank: selectedSessionBlank.current, updatedAt: 1 } },
       current,
       phase: 'ready',
+      selectionSeq: selectedSeq.current,
     } as SessionListState
     return sel(sessionState)
   }) as never
@@ -219,6 +221,22 @@ describe('AppFrame', () => {
 
     act(() => {
       selectedSession.current = 's-other' as SessionId
+      rerenderFrame()
+    })
+    expect(queryByTestId('center-view-content')).toBeNull()
+    expect(instance.getSnapshot().centerView).toBeUndefined()
+  })
+
+  it('clears the center view when the current session is re-selected', () => {
+    // Sidebar re-click on the already-current session: `current` does not
+    // change, so the exit rides the selection counter instead.
+    const { instance, rerenderFrame, queryByTestId } = mountFrame()
+    act(() => { instance.actions.setCenterView('schedules') })
+    rerenderFrame()
+    expect(queryByTestId('center-view-content')).toBeTruthy()
+
+    act(() => {
+      selectedSeq.current += 1
       rerenderFrame()
     })
     expect(queryByTestId('center-view-content')).toBeNull()

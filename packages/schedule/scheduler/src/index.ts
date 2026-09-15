@@ -17,12 +17,12 @@ import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { installModelSelection, type Agent, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { resolveSessionProfile } from '@deepseek-ai/dsh-agent-presets'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { foldRequestHeader, SessionId, type Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-context-reset'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { schedulerDomainSpec } from './spec.ts'
+import { scheduledDeliveryMessage } from './envelope.ts'
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
@@ -120,13 +120,6 @@ export class SchedulerService extends TypertRemoteService {
       await Promise.allSettled([...this.chains.values()])
       await domain.close()
     }, 'scheduler lifecycle')
-    this.ctx.inject(['systemPrompt'], (promptCtx) => {
-      promptCtx.systemPrompt.context({
-        name: 'schedule:pending',
-        order: 118,
-        text: ({ agent }) => this.pendingText(agent),
-      })
-    })
     this.rearm()
   }
 
@@ -402,20 +395,6 @@ export class SchedulerService extends TypertRemoteService {
     return updated
   }
 
-  /** Runtime-context text for one agent's pending in-session schedules. */
-  private pendingText(agent: Agent | undefined): string {
-    if (agent === undefined || this.table === undefined) return ''
-    const pending = this.records().filter(record => record.status === 'active'
-      && (record.target.kind === 'current'
-        ? record.createdBy.sessionId === agent.session.id
-        : record.target.kind === 'session' && record.target.sessionId === agent.session.id))
-    if (pending.length === 0) return ''
-    /* v8 ignore next 1 -- active records always carry nextDue; the fallback only guards a corrupted store */
-    const next = pending.map(record => record.nextDue ?? record.createdAt).reduce((a, b) => Math.min(a, b))
-    const nextText = new Date(next).toISOString()
-    return `Scheduled tasks: ${String(pending.length)} pending for this session; the next runs at ${nextText}. Use schedule_list to review or schedule_delete to cancel.`
-  }
-
   /** Clear the pending timer, if any. */
   private disarm(): void {
     if (this.timer !== undefined) {
@@ -680,10 +659,9 @@ export class SchedulerService extends TypertRemoteService {
     due: number,
   ): Promise<void> {
     const session: Session = target.agent.session
-    const message = createUserMessage({
-      content: [{ type: 'text', text: record.prompt }],
-      source: { kind: 'plugin', plugin: 'schedule' },
-    })
+    // The envelope carries the schedule's progress so the delivered prompt is
+    // self-contained; lifecycle writes never touch the runtime context.
+    const message = scheduledDeliveryMessage(record, due, this.now(), subsequentDue(record.rule, due))
     const send = (): void => {
       session.append('schedule/dispatch', {
         scheduleId: record.id,

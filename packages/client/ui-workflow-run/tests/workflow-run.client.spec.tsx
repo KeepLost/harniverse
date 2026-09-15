@@ -277,7 +277,7 @@ const listState = (overrides: Partial<SessionListState> = {}): SessionListState 
     },
   },
   jobsBySession: {},
-  currentAddress: undefined,
+  currentAddress: undefined, selectionSeq: 0,
   ...overrides,
 })
 

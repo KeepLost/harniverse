@@ -147,8 +147,9 @@ describe('tool-scheduler real Loader composition', () => {
     await vi.waitFor(() => {
       expect(state.followups).toHaveLength(1)
     }, { timeout: 5_000 })
-    expect(state.followups[0]!.content).toEqual([{ type: 'text', text: 'run the nightly checklist' }])
-    expect(state.followups[0]!.source).toEqual({ kind: 'plugin', plugin: 'schedule' })
+    expect((state.followups[0]!.content[0] as { text: string }).text.endsWith('\n\nrun the nightly checklist')).toBe(true)
+    expect(state.followups[0]!.source).toMatchObject({ kind: 'plugin', plugin: 'schedule' })
+    expect(typeof (state.followups[0]!.source as unknown as { scheduleId: string }).scheduleId).toBe('string')
     const dispatch = session.events.find(event => event.type === 'schedule/dispatch')
     expect(dispatch).toBeDefined()
   })

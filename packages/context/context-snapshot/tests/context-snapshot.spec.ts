@@ -278,7 +278,7 @@ describe('context-snapshot', () => {
     expect(adapter.requests).toHaveLength(1)
   })
 
-  it('skips compaction-end recovery while a turn is running', async () => {
+  it('defers compaction-end recovery until the running turn settles', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
     await ctx.plugin(ContextSnapshot)
@@ -292,10 +292,47 @@ describe('context-snapshot', () => {
     compactionEnd(agent)
     await new Promise(resolve => setTimeout(resolve, 10))
 
+    // No append fires mid-turn; the in-flight turn owns its boundary.
     expect(ownedEvents(agent)).toHaveLength(1)
     agent.cancel({ kind: 'user' })
     await waitForIdle(ctx, agent)
-    expect(ownedEvents(agent)).toHaveLength(1)
+    // Once the turn settles, the deferred recovery lands.
+    await vi.waitFor(() => { expect(ownedEvents(agent)).toHaveLength(2) })
+    expect(ownedTexts(agent)[1]).toBe(`${COMPLETE}\n\nMode: read-only.`)
+  })
+
+  it('recovers after a compaction that lands in the turn\'s final request', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    ctx.systemPrompt.context({ name: 'policy', order: 0, text: 'Mode: read-only.' })
+    // Simulate pressure compaction completing in the request waterfall's
+    // return leg, after this plugin's own request-boundary recovery pass:
+    // the turn then ends with no later boundary, so only the idle settle can
+    // restore the shadowed snapshot.
+    let compacted = false
+    ctx.on('agent/request', async ({ agent }, next) => {
+      const config = await next()
+      if (!compacted) {
+        const published = ownedEvents(agent)[0]
+        if (published !== undefined) {
+          compacted = true
+          shadow(agent, published.seq)
+          compactionEnd(agent)
+        }
+      }
+      return config
+    })
+    await ctx.plugin(ContextSnapshot)
+    const agent = ctx.agentLoop.create(SessionId('a-final-request'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    expect(compacted).toBe(true)
+
+    await vi.waitFor(() => { expect(ownedEvents(agent)).toHaveLength(2) })
+    expect(ownedTexts(agent)[1]).toBe(`${COMPLETE}\n\nMode: read-only.`)
+    expect(agent.session.surface.nodes).toContain(ownedEvents(agent)[1]!.seq)
+    expect(adapter.requests).toHaveLength(1)
   })
 
   it('skips compaction-end recovery for a failed compaction or an unknown session', async () => {
