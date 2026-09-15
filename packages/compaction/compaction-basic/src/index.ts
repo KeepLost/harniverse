@@ -27,6 +27,7 @@ import {
   assertNoActiveCompaction,
   compactSurfaceRegion,
   selectCompactableRange,
+  UnhelpfulSummaryError,
 } from './region.ts'
 import type { RegionDependencies } from './region.ts'
 import { summarizeWithLlm } from './summarizer.ts'
@@ -39,6 +40,9 @@ import type {
 } from './types.ts'
 
 const COMPACTION_SETTINGS_NAMESPACE = 'compaction' as SettingsNamespace
+
+/** Output headroom the route-fit pre-flight keeps below the routed window. */
+const FIT_RESERVE_TOKENS = 1_024
 
 interface CompactionSettings {
   readonly thresholdRatio?: number
@@ -254,6 +258,24 @@ export class BasicCompactionEngine extends CompactionEngine {
           signal.throwIfAborted()
           const message = error instanceof Error ? error.message : String(error)
           ctx.logger.warn(`request pressure compaction failed: ${message}; continuing with a reduced output budget`)
+        }
+      }
+
+      // Route-fit pre-flight: a history written under a larger window (model
+      // switch, reroute) must shrink before the doomed request is sent. Local
+      // providers that silently truncate never surface a provider overflow,
+      // so recovery cannot wait for the request-error path. Windows at or
+      // below the reserve cannot host a fit margin; only an already-overflowing
+      // envelope triggers recovery there.
+      const fitTarget = contextWindow > FIT_RESERVE_TOKENS ? contextWindow - FIT_RESERVE_TOKENS : contextWindow
+      if (measurement.totalTokens > fitTarget) {
+        try {
+          await this.compactToFit(agent, fitTarget, target, policy, signal)
+          measurement = ctx.tokenMeter.measure(agent.session)
+        } catch (error: unknown) {
+          signal.throwIfAborted()
+          const message = error instanceof Error ? error.message : String(error)
+          ctx.logger.warn(`route-fit compaction failed: ${message}; leaving recovery to the provider error path`)
         }
       }
 
@@ -549,6 +571,86 @@ export class BasicCompactionEngine extends CompactionEngine {
       progress: (session, compactionId: CompactionId, phase, text) => {
         this.ctx.emit('compaction/progress', { session, compactionId, phase, text })
       },
+    }
+  }
+
+  /**
+   * Iteratively reduce the session until it fits a routed window, before the
+   * request is sent. Each layer halves the retained budget, so recovery
+   * converges from the balanced policy toward the minimal prefix while later
+   * layers summarize earlier checkpoints (summary-of-summary). Stops without
+   * repairing when no distinct compactable range remains; the caller then
+   * leaves failure to the provider error path.
+   * @param agent - running agent whose open turn owns every layer.
+   * @param fitTarget - inclusive ceiling the session must reach.
+   * @param target - routed provider/model pair, for diagnostics.
+   * @param policy - resolved compaction policy for the routed target.
+   * @param signal - live turn cancellation signal forwarded to summarization.
+   */
+  private async compactToFit(
+    agent: Agent,
+    fitTarget: number,
+
+    target: Pick<LlmCallConfig, 'provider' | 'model'>,
+    policy: ResolvedTargetPolicy,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const { session } = agent
+    const spec = resolveCompactSpec(policy, fitTarget + FIT_RESERVE_TOKENS)
+    let retain = spec.retainTokens
+    let measurement = this.ctx.tokenMeter.measure(session)
+    let lastRange: { start: number; end: number } | null = null
+    while (measurement.totalTokens > fitTarget) {
+      const range = selectCompactableRange(session, measurement, retain)
+      // A range that repeats the last one, or none at all, means the retained
+      // budget admits no fresh layer; halve before giving up so one oversized
+      // starting budget cannot mask smaller valid layers.
+      if (range === null
+        || (lastRange !== null && range.start === lastRange.start && range.end === lastRange.end)) {
+        if (retain === 0) break
+        retain = Math.floor(retain / 2)
+        continue
+      }
+      const before = measurement.totalTokens
+      lastRange = range
+      let result: CompactionResult
+      try {
+        result = await compactSurfaceRegion(
+          this.regionDependencies(),
+          session,
+          range.start,
+          range.end,
+          agent,
+          { owner: 'current-turn', stability: 'whole-surface' },
+          signal,
+        )
+      } catch (error: unknown) {
+        signal.throwIfAborted()
+        // A span the summary cannot shrink (a lone checkpoint, or a tail the
+        // budget cannot see past) is layer feedback, not a failure: halve the
+        // retained budget and try a wider layer.
+        if (error instanceof UnhelpfulSummaryError && retain > 0) {
+          retain = Math.floor(retain / 2)
+          continue
+        }
+        throw error
+      }
+      this.ctx.logger.info(
+        `compaction (route-fit): shadowed ${result.shadowedSeqs.length} surface nodes `
+        + `(seqs ${result.shadowedRange.start}-${result.shadowedRange.end}, `
+        + `~${result.shadowedTokenCount} tokens)`,
+      )
+      measurement = this.ctx.tokenMeter.measure(session)
+      retain = Math.floor(retain / 2)
+      // A summary replacing an earlier same-sized checkpoint makes no net
+      // progress; halve again instead of churning summaries forever.
+      if (measurement.totalTokens >= before && retain > 0) continue
+      if (measurement.totalTokens >= before) break
+    }
+    if (measurement.totalTokens > fitTarget) {
+      this.ctx.logger.warn(
+        `compaction: history cannot fit ${target.provider}/${target.model}; continuing to the provider`,
+      )
     }
   }
 }
