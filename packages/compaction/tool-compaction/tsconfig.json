@@ -10,6 +10,7 @@
     { "path": "../../../vendor/cordis" },
     { "path": "../../core/tools" },
     { "path": "../compaction" },
+    { "path": "../../llm/token-meter" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]
 }

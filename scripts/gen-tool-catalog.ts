@@ -78,6 +78,7 @@ import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolResultArtifacts from '@deepseek-ai/dsh-tool-result-artifacts'
 import CompactionEngine from '@deepseek-ai/dsh-compaction'
+import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import type {
   CompactionAgentContext,
   CompactionResult,
@@ -532,10 +533,11 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-compaction',
     dir: 'tool-compaction',
     source: 'packages/compaction/tool-compaction/src/index.ts',
-    requires: ['ctx.tools', 'ctx.compaction', 'a direct calling Agent'],
+    requires: ['ctx.tools', 'ctx.compaction', 'ctx.tokenMeter', 'a direct calling Agent'],
     writes: ['tool/call', 'compaction/* on success', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(CatalogCompactionEngine)
+      await ctx.plugin(TokenMeter)
       await ctx.plugin(ToolCompaction)
     },
     note:

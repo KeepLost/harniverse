@@ -50,6 +50,8 @@ flowchart LR
   svc_pluginDiagnostics["ctx.pluginDiagnostics<br/>Read-only plugin diagnostics"]
   pkg_plugin_diagnostics_cordis["plugin-diagnostics-cordis"]
   pkg_host_plugin_inventory["host-plugin-inventory"]
+  pkg_context_inspector["context-inspector"]
+  svc_contextInspector["ctx.contextInspector<br/>Read-only next-request audit manifest"]
   pkg_capabilities["capabilities"]
   svc_capabilities["ctx.capabilities<br/>Agent Profile capability composition"]
   pkg_host_capability_management["host-capability-management"]
@@ -265,6 +267,7 @@ flowchart LR
   pkg_compaction_lossless --> svc_compaction
   pkg_compaction_lossless --> svc_compactionHistory
   pkg_compaction_tool_result_pruner --> svc_toolResultPruner
+  pkg_context_inspector --> svc_contextInspector
   pkg_context_reset --> svc_contextReset
   pkg_cordis_host_runner --> svc_cordisInspect
   pkg_cordis_host_runner --> svc_dynamicCordisRunner
@@ -382,6 +385,7 @@ flowchart LR
   svc_compaction --> pkg_command_compact
   svc_compaction --> pkg_tool_compaction
   svc_compactionHistory --> pkg_tool_compaction_history
+  svc_contextInspector --> pkg_agent
   svc_contextReset --> pkg_command_reset
   svc_contextReset --> pkg_scheduler
   svc_cordisInspect --> pkg_tool_cordis
@@ -521,6 +525,7 @@ flowchart LR
 | `ctx.sessions` | `core` | [`session`](../packages/core/session) | - | [`agent-loop`](../packages/core/agent-loop), [`agent`](../packages/core/agent), [`session-persistence`](../packages/session/session-persistence), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), `subagent-inprocess`, [`invariants`](../packages/runtime-diagnostics/invariants), [`message-feedback`](../packages/feedback/message-feedback) | - | 拥有仅追加的 Session 实例，并发出持久的会话事件流。 |
 | `ctx.invariants` | `core` | [`invariants`](../packages/runtime-diagnostics/invariants) | - | [`session`](../packages/core/session), [`agent`](../packages/core/agent), [`scope`](../packages/core/scope), [`agent-loop`](../packages/core/agent-loop) | - | 配套子路径注册所属包本地的检查；该服务负责选择、唯一性、子 fiber，以及标明所属包的失败。 |
 | `ctx.pluginDiagnostics` | `seam` | [`plugin-diagnostics`](../packages/runtime-diagnostics/plugin-diagnostics) | [`plugin-diagnostics-cordis`](../packages/runtime-diagnostics/plugin-diagnostics-cordis) | [`host-plugin-inventory`](../packages/host/plugin-inventory) | - | effect 作用域检查观察 Host 生命周期 owner；现有经授权的清单 Remote 与 Web 设置标签页渲染结构化发现项，不提供修复操作。 |
+| `ctx.contextInspector` | `seam` | [`context-inspector`](../packages/context/context-inspector) | - | [`agent`](../packages/core/agent) | - | 投影 agent 循环使用的同一组组装原语;逐段日志 seq 溯源与被遮蔽检查点让压缩影响可审计,且无修复操作。 |
 | `ctx.capabilities` | `seam` | [`capabilities`](../packages/capability/capabilities) | [`host-capability-management`](../packages/host/capability-management) | [`agent-presets`](../packages/preset/agent-presets), [`mcp-client`](../packages/mcp/mcp-client) | - | 原生 adapter 投影作用域能力；受 revision 约束的组装 plan 改变未来 Profile generation，而不控制 Loader 生命周期。 |
 | `ctx.typert` | `core` | [`typert-registry`](../packages/typert/registry) | - | [`typert-loader`](../packages/typert/loader), [`api-gateway`](../packages/api/gateway) | - | 插件直接或通过 dsh-typert-loader 注册实时 zod 贡献；API 网关消费调用描述符和提供方，其他运行时消费方则在各自边界查询 schema 与反射元数据。 |
 | `ctx.typertGateway` | `core` | [`api-gateway`](../packages/api/gateway) | - | - | - | 将生成的 Remote 描述符与实时 Cordis 服务关联，解析已注册的身份，并通过共享的 Connection RPC 载体提供一元调用。 |

@@ -182,7 +182,16 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['plugin-diagnostics-cordis'],
     consumers: ['host-plugin-inventory'],
     note: 'Effect-scoped checks observe Host lifecycle owners; the existing authorized inventory Remote and Web Settings tab render structured findings without a repair operation.',
+  },  {
+    key: 'contextInspector',
+    pkg: 'context-inspector',
+    title: 'Read-only next-request audit manifest',
+    mode: 'seam',
+    implementations: [],
+    consumers: ['agent'],
+    note: 'Projects the same assembly primitives the agent loop uses; per-segment log-seq provenance and shadowed checkpoints make compaction impact auditable without a repair operation.',
   },
+
   {
     key: 'capabilities',
     pkg: 'capabilities',

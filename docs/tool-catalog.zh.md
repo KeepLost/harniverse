@@ -34,7 +34,7 @@
 | `@deepseek-ai/dsh-tool-scheduler` | `schedule_create`、`schedule_delete`、`schedule_list`、`schedule_update` | `ctx.tools`、`ctx.scheduler`（web-app bundle）、开放回合中的调用 Agent | `tool/call`、`schedule store create or delete`、`tool/result` | - | 与 dsh-tool-goal 一样按预设选配：宿主调度服务保持在宿主平面，本行决定 agent 可见性，minimal Profile 因此保持两工具契约。create 恰好接受 run_at/after_minutes 之一，可选 every_minutes 周期（最小 5 分钟）；list、update 与 delete 按调用会话的归属过滤；update 仅编辑 prompt 与暂停/恢复状态（规则与目标改绑只在管理界面中由人类完成）。 |
 | `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`、`ctx.lsp`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，因此其模型可见 schema 在更换提供方时保持稳定。运行时要求已注册提供方，例如 `@deepseek-ai/dsh-lsp-stdio`；如果没有提供方，查询会返回结构化 `LSP_UNAVAILABLE` 错误，而不会改变 schema。 |
 | `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`、`ctx.workflowEngine`、`ctx.subagents`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents every fresh round)` | `tool/call`、`tool/result`、`workflow and child session events during execution` | - | 固定的前台工作流会在每个 Round 启动一个全新的结构化子级；模型只能选择不可变目标和可选的 Round 上限。 |
-| `@deepseek-ai/dsh-tool-compaction` | `context_compact` | `ctx.tools`、`ctx.compaction`、`a direct calling Agent` | `tool/call`、`compaction/* on success`、`tool/result` | - | direct 模型调用要求已配置的压缩 provider 在保留近期上下文的同时压缩一个安全的较早前缀。nested transport dispatch 会被拒绝。 |
+| `@deepseek-ai/dsh-tool-compaction` | `context_compact` | `ctx.tools`、`ctx.compaction`、`a direct calling Agent` | `tool/call`、`compaction/* on success`、`tool/result` | - | direct 模型调用要求已配置的压缩 provider 在保留近期上下文的同时压缩一个安全的较早前缀。nested transport dispatch 会被拒绝。显式 `from`/`to` 跨度以 1 起算位置指名要压缩的消息，边界吸附保持工具调用配对，结果回报保留上下文规模。 |
 | `@deepseek-ai/dsh-tool-compaction-history` | `compaction_history_expand`、`compaction_history_search` | `ctx.tools`、`ctx.systemPrompt`、`ctx.compactionHistory`、`a calling Agent for Session identity` | `tool/call`、`tool/result` | - | 随附工具只搜索调用方 live Session 中已提交的 summary checkpoint。展开输出把恢复历史视为不可信内容，并应用配置的深度与确定性 token 估算 cap。 |
 | `@deepseek-ai/dsh-tool-result-artifacts` | `artifact_read` | `ctx.tools`、`ctx.spillStore` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`、`ctx.agents`、`ctx.skills` | `tool/call`、`tool/result`、`user/message replacement catalogs via agent.inject()` | - | - |
@@ -1390,6 +1390,14 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
     "reason": {
       "type": "string",
       "description": "Briefly explain why older context can be condensed now."
+    },
+    "from": {
+      "type": "number",
+      "description": "First message to compact, as a 1-based position from the oldest retained message. Omit both positions to let policy choose the span."
+    },
+    "to": {
+      "type": "number",
+      "description": "Last message to compact, inclusive, in the same positioning. The span must end before the current turn; boundaries snap to keep tool calls paired."
     }
   },
   "required": [
@@ -1400,7 +1408,7 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 
 来源：[`packages/compaction/tool-compaction/src/index.ts`](../packages/compaction/tool-compaction/src/index.ts)
 
-direct 模型调用要求已配置的压缩 provider 在保留近期上下文的同时压缩一个安全的较早前缀。nested transport dispatch 会被拒绝。
+direct 模型调用要求已配置的压缩 provider 在保留近期上下文的同时压缩一个安全的较早前缀。nested transport dispatch 会被拒绝。显式 `from`/`to` 跨度以 1 起算位置指名要压缩的消息，边界吸附保持工具调用配对，结果回报保留上下文规模。
 
 <a id="deepseek-aidsh-tool-compaction-history"></a>
 
