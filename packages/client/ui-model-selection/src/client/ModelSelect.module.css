@@ -89,6 +89,17 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
+/* Portrait: the composer's model chip sits near the screen's left edge, so
+   the right-aligned (leftward-expanding) anchor pushes the menu off-screen.
+   Anchor to the trigger's left edge instead, expanding rightward where the
+   space is; landscape keeps the leftward expansion. */
+@media (orientation: portrait) {
+  .menu {
+    right: auto;
+    left: 0;
+  }
+}
+
 .status,
 .empty {
   padding: 10px;

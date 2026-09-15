@@ -228,12 +228,22 @@ export function apply(ctx: Context): void {
   ctx.on('session/event', (subject: Session, event) => {
     if (event.type !== 'compaction/end' || event.data.error !== undefined) return
     const agent = ctx.agents.get(subject.id)
-    // In-flight turns and requests own their recovery through the listeners above.
-    if (agent === undefined || agent.status !== 'idle') return
-    void (async () => {
-      appendOwed(agent, await currentSections(ctx, agent))
-    })().catch((error: unknown) => {
-      ctx.logger.warn(`context-snapshot: manual-compaction recovery failed: ${String(error)}`)
-    })
+    if (agent === undefined) return
+    // In-flight turns and requests own their recovery through the listeners
+    // above — but a compaction landing in the turn's final response has no
+    // later boundary inside that turn. Defer to the idle settle; the append
+    // is idempotent (snapshotMessage owes nothing once recovered), so a turn
+    // that already restored it in a later request writes nothing here.
+    const recover = (): void => {
+      void (async () => {
+        appendOwed(agent, await currentSections(ctx, agent))
+      })().catch((error: unknown) => {
+        ctx.logger.warn(`context-snapshot: manual-compaction recovery failed: ${String(error)}`)
+      })
+    }
+    if (agent.status === 'idle') recover()
+    else agent.whenIdle().then(recover, /* v8 ignore next -- fires only when the agent's driver promise
+      hard-fails, a containment path the loop owns; the owed snapshot then recovers at the next
+      ordinary boundary */ () => undefined)
   })
 }

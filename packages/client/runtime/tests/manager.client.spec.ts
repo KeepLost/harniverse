@@ -1081,6 +1081,22 @@ describe('completed reminder', () => {
     expect(entry(manager, S2)?.completed).toBe(false)
   })
 
+  it('advances the selection counter on every selection, including re-selection', () => {
+    const manager = new SessionManager(new FakeApiClient(), fakeRemote())
+    manager.handleHostEnvelope(added('h1', S1))
+    manager.handleHostEnvelope(added('h2', S2))
+    const start = manager.getListSnapshot().selectionSeq
+    manager.select(S1)
+    expect(manager.getListSnapshot().selectionSeq).toBe(start + 1)
+    // Re-selecting the same id is still a selection gesture.
+    manager.select(S1)
+    expect(manager.getListSnapshot().selectionSeq).toBe(start + 2)
+    manager.select(S2)
+    expect(manager.getListSnapshot().selectionSeq).toBe(start + 3)
+    manager.clearSelection()
+    expect(manager.getListSnapshot().selectionSeq).toBe(start + 4)
+  })
+
   it('never arms for the session being watched and re-arms after a switch-away re-run', () => {
     const manager = new SessionManager(new FakeApiClient(), fakeRemote())
     manager.handleHostEnvelope(added('h1', S1))

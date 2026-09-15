@@ -229,6 +229,9 @@ export function AppFrame({
   const panels = useStore(s => s)
   const centerView = panels.centerView
   const currentSession = useSessions(s => s.current)
+  // The selection gesture, not the resulting id: re-selecting the current
+  // session must also exit a center view, and `current` does not change there.
+  const selectionSeq = useSessions(s => s.selectionSeq)
   const detailsSession = useSessions((s) => {
     const current = s.current
     return current !== undefined && s.byId[current]?.blank === false ? current : undefined
@@ -255,8 +258,10 @@ export function AppFrame({
   }, [actions, retainedAccounts])
 
   // Selecting a session is the natural exit from a center view: the frame
-  // clears the occupancy on every current-session change, matching how the
-  // conversation re-targets.
+  // clears the occupancy on every selection — a changed current session, but
+  // also re-selecting the current one (selectionSeq), matching how the
+  // conversation re-targets. Assigning undefined is idempotent, so the extra
+  // fires on unrelated selections cost nothing.
   const firstRender = useRef(true)
   useEffect(() => {
     if (firstRender.current) {
@@ -264,7 +269,7 @@ export function AppFrame({
       return
     }
     actions.setCenterView(undefined)
-  }, [actions, currentSession])
+  }, [actions, currentSession, selectionSeq])
 
   // Track the frame and its animated grid tracks: rAF-throttled observation
   // keeps the frame-wide overlay aligned with the actual used geometry, not

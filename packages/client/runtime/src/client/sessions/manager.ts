@@ -54,6 +54,15 @@ export interface SessionListSnapshot {
   /** Background jobs per session; an absent key is an empty set. */
   jobsBySession: Readonly<Record<SessionId, readonly JobView[]>>
   currentAddress: SubagentAddress | undefined
+  /**
+   * Monotonic counter advanced by every selection write (select,
+   * selectSubagent, clearSelection), including re-selecting the current id.
+   * Selection consumers that must react to the gesture rather than the
+   * resulting id (e.g. the shell exiting a center view on re-selection)
+   * subscribe to this instead of `current`, which does not change on a
+   * re-selection.
+   */
+  selectionSeq: number
 }
 
 /** One parent-addressed durable catalog projected through the sessions snapshot. */
@@ -152,6 +161,8 @@ export class SessionManager {
 
   private selected: SessionId | undefined
 
+  private selectionSeq = 0
+
   private listSnapshotCache: SessionListSnapshot
   /** Entry-identity cache (reference stability): list rebuilds reuse the previous entry
    *  object when every field matches — wire refreshes mint all-new summary objects, so identity
@@ -198,6 +209,7 @@ export class SessionManager {
         : this.catalogs.get(address.parentSessionId)?.parentAvailable ?? false,
     )
     this.selected = sessionId
+    this.selectionSeq += 1
     // Looking at the session consumes its completion reminder (dot clears).
     this.completedNotifications.delete(sessionId)
     void this.refreshSubagents(sessionId)
@@ -217,6 +229,7 @@ export class SessionManager {
     this.addresses.set(address.childSessionId, address)
     this.sessions.get(address.childSessionId)?.configureSubagent(address, catalog?.parentAvailable ?? false)
     this.selected = address.childSessionId
+    this.selectionSeq += 1
     this.completedNotifications.delete(address.childSessionId)
     void this.refreshSubagents(address.childSessionId)
     this.notifier.notifyNow()
@@ -225,6 +238,7 @@ export class SessionManager {
   /** Clear the selection (the layout falls to the no-session view state). */
   clearSelection(): void {
     this.selected = undefined
+    this.selectionSeq += 1
     this.notifier.notifyNow()
   }
 
@@ -1144,6 +1158,7 @@ export class SessionManager {
       subagentsByParent: Object.fromEntries(this.catalogs),
       jobsBySession: Object.fromEntries(this.jobsBySession),
       currentAddress: current === undefined ? undefined : this.addresses.get(current),
+      selectionSeq: this.selectionSeq,
     }
   }
 }

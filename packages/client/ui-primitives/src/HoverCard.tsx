@@ -12,6 +12,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { writeClipboard } from './clipboard.ts'
+import { hoverCapablePointer } from './hover-capable.ts'
 import { usePointerGrace } from './pointer-grace.ts'
 import css from './HoverCard.module.css'
 
@@ -183,6 +184,9 @@ export function HoverCard({
       className={css.root}
       onPointerEnter={() => {
         if (disabled) return
+        // Touch primaries never dispatch the matching pointerleave, so the
+        // hover preview must not open there at all (hover-capable.ts).
+        if (!hoverCapablePointer()) return
         // Coming back inside during the grace (the gap, or the card itself)
         // keeps the current card rather than restarting the dwell.
         cancelClose()
