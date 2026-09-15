@@ -264,7 +264,7 @@ async manifest(agent: Agent, signal?: AbortSignal): Promise<ContextManifest>
 
 Types: [Agent](core.md)
 
-Source: [`packages/context/context-inspector/src/index.ts:63`](../../packages/context/context-inspector/src/index.ts)
+Source: [`packages/context/context-inspector/src/index.ts:64`](../../packages/context/context-inspector/src/index.ts)
 
 <a id="ctxtoolresultpruner--toolresultpruner"></a>
 
