@@ -271,7 +271,6 @@ describe('registration and schemas', () => {
     expect(names).toEqual([
       'session_find',
       'session_search',
-      'session_event_search',
       'session_inspect',
     ])
     const sessionSchema = mounted.ctx.tools.schemas().find(schema => schema.name === 'session_search')
@@ -285,8 +284,13 @@ describe('registration and schemas', () => {
       .toEqual([{ type: 'text', text: 'rendered' }])
     expect(mounted.ctx.tools.get('session_search')?.presentCall?.({ query: 'needle' }))
       .toEqual({ card: 'generic', kind: 'search', title: 'Search prior sessions', rawInput: 'needle' })
-    expect(mounted.ctx.tools.get('session_event_search')?.presentCall?.({ query: 'needle' }))
-      .toEqual({ card: 'generic', kind: 'search', title: 'Search session events', rawInput: 'needle' })
+    expect(mounted.ctx.tools.get('session_search')?.presentCall?.({ query: 'needle', session_ids: ['other'] }))
+      .toEqual({
+        card: 'generic',
+        kind: 'search',
+        title: 'Search every event in session other',
+        rawInput: 'needle',
+      })
     expect(mounted.ctx.tools.get('session_find')?.presentCall?.({ cwd: '/work' }))
       .toEqual({ card: 'generic', kind: 'search', title: 'Find prior sessions', rawInput: { cwd: '/work' } })
     expect(mounted.ctx.tools.get('session_inspect')?.presentCall?.({ session_id: 'other', view: 'messages' }))
@@ -302,13 +306,15 @@ describe('registration and schemas', () => {
       .toEqual({ card: 'generic', kind: 'read', title: 'Inspect summary current session' })
     const assembly = await mounted.ctx.systemPrompt.assemble()
     expect(assembly.sections.find(section => section.name === 'tool:session-query')?.text)
-      .toContain('session_find returns session metadata without content-match events or snippets')
+      .toContain('returns session metadata only')
     expect(assembly.sections.find(section => section.name === 'tool:session-query')?.text)
-      .toContain('session_search returns matching event seqs and snippets')
+      .toContain("each session's strongest matching event")
     expect(assembly.sections.find(section => section.name === 'tool:session-query')?.text)
-      .toContain('history and event read complete raw events')
+      .toContain('stops before the active step')
     expect(assembly.sections.find(section => section.name === 'tool:session-query')?.text)
-      .toContain('Use session_message to continue a known ordinary session or direct subagent session')
+      .toContain('history (complete raw events, compacted originals included)')
+    expect(assembly.sections.find(section => section.name === 'tool:session-query')?.text)
+      .toContain('compaction_history_search')
     const inspect = mounted.ctx.tools.schemas().find(schema => schema.name === 'session_inspect')
     expect(inspect?.parameters).toHaveProperty('properties.limit.description', expect.stringContaining('Defaults to 10 for messages and 20 for history; maximum 50'))
     expect(inspect?.parameters).toHaveProperty('properties.seq.description', expect.stringContaining('Required for event'))
@@ -324,7 +330,7 @@ describe('registration and schemas', () => {
     const classifications = [
       ['session_find', {}, 'exclusive'],
       ['session_search', { query: 'q' }, 'exclusive'],
-      ['session_event_search', { query: 'q' }, 'exclusive'],
+      ['session_search', { query: 'q', session_ids: ['caller'] }, 'exclusive'],
       ['session_inspect', { view: 'lineage' }, 'parallel'],
     ] as const
 
@@ -879,10 +885,11 @@ describe('input validation and translation', () => {
       to: -Number.MIN_VALUE,
     })
 
-    await mounted.call('session_event_search', {
+    await mounted.call('session_search', {
+      session_ids: [mounted.caller.id],
       query: 'q',
-      time_from: '1969-12-31T23:59:59.87600001Z',
-      time_to: '1969-12-31T19:59:59.8769999-04:00',
+      event_time_from: '1969-12-31T23:59:59.87600001Z',
+      event_time_to: '1969-12-31T19:59:59.8769999-04:00',
     })
     const range = FakeQuery.eventRequests[0]?.filters?.find(filter => filter.kind === 'time')
     expect(range).toBeDefined()
@@ -1087,8 +1094,8 @@ describe('target identity and lineage visibility', () => {
     )
     const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
 
-    const result = await mounted.call('session_event_search', {
-      session_id: target.id,
+    const result = await mounted.call('session_search', {
+      session_ids: [target.id],
       query: 'needle',
     })
 
@@ -1513,8 +1520,8 @@ describe('target identity and lineage visibility', () => {
       session: movedHeader,
       items: [eventHit(target.id, 0, 'secret event hit')],
     })
-    const search = await mounted.call('session_event_search', {
-      session_id: target.id,
+    const search = await mounted.call('session_search', {
+      session_ids: [target.id],
       query: 'secret',
     })
     expect(errorCode(search)).toBe('SESSION_QUERY_TOOL_UNAUTHORIZED')
@@ -1676,8 +1683,8 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
       ),
     },
     {
-      toolName: 'session_event_search',
-      args: { query: 'needle' },
+      toolName: 'session_search',
+      args: { query: 'needle', session_ids: ['caller'] },
       secrets: [
         'plain event provider failure at hidden-event-session-secret',
         'hidden-event-cause-secret',
@@ -1689,10 +1696,10 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
     },
   ] as const)('sanitizes $toolName provider diagnostics', async ({ toolName, args, secrets, failure }) => {
     const mounted = await mount()
-    if (toolName === 'session_search') {
-      FakeQuery.sessionSearch = () => Promise.reject(failure())
-    } else {
+    if ('session_ids' in args) {
       FakeQuery.eventSearch = () => Promise.reject(failure())
+    } else {
+      FakeQuery.sessionSearch = () => Promise.reject(failure())
     }
     const warn = vi.spyOn(mounted.ctx.logger, 'warn').mockImplementation(() => undefined)
 
@@ -1942,28 +1949,30 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
       session: header(request.sessionId, '/work'),
       items: [eventHit(request.sessionId, 1)],
     })
-    await mounted.call('session_event_search', {
+    await mounted.call('session_search', {
+      session_ids: [mounted.caller.id],
       query: 'prior',
-      seq_from: 0,
-      seq_to: 99,
+      event_seq_from: 0,
+      event_seq_to: 99,
     })
     expect(FakeQuery.eventRequests[0]?.filters).toContainEqual({ kind: 'seq', from: 0, to: 1 })
 
     const other = createSession(mounted.ctx, 'other', '/work')
-    await mounted.call('session_event_search', {
-      session_id: other.id,
+    await mounted.call('session_search', {
+      session_ids: [other.id],
       query: 'prior',
-      seq_from: 0,
-      seq_to: 99,
+      event_seq_from: 0,
+      event_seq_to: 99,
     })
     expect(FakeQuery.eventRequests[1]?.filters).toContainEqual({ kind: 'seq', from: 0, to: 99 })
   })
 
   it('returns no current-session hits without calling FTS when the user range starts in the active step', async () => {
     const mounted = await mount()
-    const result = await mounted.call('session_event_search', {
+    const result = await mounted.call('session_search', {
+      session_ids: [mounted.caller.id],
       query: 'prior',
-      seq_from: 2,
+      event_seq_from: 2,
     })
     expect(result.isError).toBe(false)
     expect(text(result)).toContain('No prior event matches found.')
@@ -1974,8 +1983,8 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
     const mounted = await mount({ maxSearchResults: 2 })
     const noStep = createSession(mounted.ctx, 'no-step', '/work')
     const missing = await mounted.call(
-      'session_event_search',
-      { query: 'q' },
+      'session_search',
+      { query: 'q', session_ids: [noStep.id] },
       { agent: fakeAgent(noStep) },
     )
     expect(errorCode(missing)).toBe('SESSION_QUERY_TOOL_NO_CURRENT_STEP')
@@ -1992,8 +2001,8 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
         session: header(other.id, '/work'),
         items: [eventHit(other.id, 2), eventHit(other.id, 3)],
       })
-    const result = await mounted.call('session_event_search', {
-      session_id: other.id,
+    const result = await mounted.call('session_search', {
+      session_ids: [other.id],
       query: 'q',
     })
     expect(FakeQuery.eventRequests.map(request => request.cursor)).toEqual([undefined, cursor])
@@ -2164,8 +2173,8 @@ describe('search paging, prior-history bounds, titles, and cancellation', () => 
       })
 
     const pending = mounted.call(
-      'session_event_search',
-      { session_id: target.id, query: 'needle' },
+      'session_search',
+      { session_ids: [target.id], query: 'needle' },
       { signal: controller.signal },
     )
     let settled = false

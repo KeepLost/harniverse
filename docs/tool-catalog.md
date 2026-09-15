@@ -37,7 +37,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-result-artifacts` | `artifact_read` | `ctx.tools`, `ctx.spillStore` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.agents`, `ctx.skills` | `tool/call`, `tool/result`, `user/message replacement catalogs via agent.inject()` | - | - |
 | `@deepseek-ai/dsh-tool-session-delivery` | `session_create`, `session_message`, `session_unload` | `ctx.tools`, `ctx.sessionDelivery`, `a calling Agent` | `tool/call`, `tool/result`, `target user/message through the selected Provider` | - | The tool confirms inbox acceptance only and never waits for target completion or a reply. |
-| `@deepseek-ai/dsh-tool-session-query` | `session_event_search`, `session_find`, `session_inspect`, `session_search` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for caller identity` | `tool/call`, `tool/result` | - | The read-only tools separate title/time discovery, content matches, unified session inspection, current-message tails, and complete raw-log reads while hiding provider cursors and binding exact observations to opaque session ids. |
+| `@deepseek-ai/dsh-tool-session-query` | `session_find`, `session_inspect`, `session_search` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for caller identity` | `tool/call`, `tool/result` | - | The read-only tools separate title/time discovery, content matches, unified session inspection, current-message tails, and complete raw-log reads while hiding provider cursors and binding exact observations to opaque session ids. |
 | `@deepseek-ai/dsh-tool-subagent` | `child_profile_define`, `child_profile_list`, `subagent` | `ctx.tools`, `ctx.subagents`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent` | This harvest matches the shipped continuable spawn-backed `subagent` plus its Standard, Code, and Cordis Child Profile management tools. Base omits the profile tools, Minimal omits delegation, and custom compositions may load provider-bound instances under distinct names. |
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`, `list_agents`, `send_message`, `subagent_history` | `ctx.tools`, `ctx.subagents`, `ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`, `tool/result`, `child session events through ctx.subagents` | - | The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries). |
 | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`, `ctx.systemPrompt`, `a live continuable in-process child Agent` | `tool/call`, `tool/result`, `a user-role message in the direct parent session` | - | Registered per continuable in-process child rather than globally, so this schema is visible only inside such a child and survives its global `toolFilter`. The same contribution installs the child-scoped `tool:report` prompt section, which this catalog does not render. The parent-facing `send_message` tool is installed independently. |
@@ -1591,69 +1591,9 @@ The tool confirms inbox acceptance only and never waits for target completion or
 
 ## `@deepseek-ai/dsh-tool-session-query`
 
-### `session_event_search`
-
-Search prior events in one authorized session; the current session excludes the step performing this call.
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "session_id": {
-      "type": "string",
-      "description": "Target session id. Omit for the current session."
-    },
-    "query": {
-      "type": "string",
-      "description": "Literal full-text query over the target session."
-    },
-    "seq_from": {
-      "type": "integer",
-      "description": "Inclusive event sequence lower bound."
-    },
-    "seq_to": {
-      "type": "integer",
-      "description": "Inclusive event sequence upper bound."
-    },
-    "time_from": {
-      "type": "string",
-      "description": "Inclusive timezone-qualified ISO 8601 event-time lower bound."
-    },
-    "time_to": {
-      "type": "string",
-      "description": "Inclusive timezone-qualified ISO 8601 event-time upper bound."
-    },
-    "event_types": {
-      "type": "array",
-      "description": "Event types to include.",
-      "items": {
-        "type": "string"
-      }
-    },
-    "surfaces": {
-      "type": "array",
-      "description": "Event surfaces to include.",
-      "items": {
-        "type": "string",
-        "enum": [
-          "current",
-          "shadowed",
-          "log-only"
-        ]
-      }
-    }
-  },
-  "required": [
-    "query"
-  ]
-}
-```
-
-Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
-
 ### `session_find`
 
-Find prior sessions by current title, creation time, or raw-event activity time. Returns session metadata, never content-match events or snippets.
+Find prior sessions by current title, creation time, or raw-event activity time. Returns session metadata only — no matched content or snippets. Start here when you know when a session happened or what it is titled, not the words inside it.
 
 ```json
 {
@@ -1727,7 +1667,7 @@ Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/s
 
 ### `session_inspect`
 
-Inspect one authorized session through a unified view: summary status, folded messages, raw history, one event, or lineage. Never resumes a cold session.
+Read one authorized session through a unified view: summary status, folded messages, raw history, one event, or lineage. Compacted turns are absent from the messages view — read history or lineage for them. Never resumes a cold session.
 
 ```json
 {
@@ -1775,7 +1715,7 @@ Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/s
 
 ### `session_search`
 
-Search prior sessions and return the strongest matching event from each session; optionally filter by cwd.
+Search session content and return each session's strongest matching event with seq and snippet. Pass exactly one session_id to return every matching event in that session instead, including the current session up to the previous step. Compacted turns stay searchable; CJK sub-words match.
 
 ```json
 {
@@ -1783,7 +1723,7 @@ Search prior sessions and return the strongest matching event from each session;
   "properties": {
     "query": {
       "type": "string",
-      "description": "Literal full-text query over prior session history."
+      "description": "Full-text query over session content; matches sub-word CJK terms and unordered term combinations."
     },
     "cwd": {
       "oneOf": [
@@ -1798,7 +1738,7 @@ Search prior sessions and return the strongest matching event from each session;
     },
     "session_ids": {
       "type": "array",
-      "description": "Optional session ids to include.",
+      "description": "Optional session ids to restrict the search. Exactly one id returns every matching event in that session (the current session is allowed and stops before the active step); several ids or none return each session's strongest match.",
       "items": {
         "type": "string"
       }

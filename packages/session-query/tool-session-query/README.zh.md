@@ -15,7 +15,7 @@
 
 调用方只能来自 `ToolExecution.exec.agent`。精确目标由不透明 session id 选择，所有返回观察都必须保持该 id；`cwd` 仅是可选的精确发现/搜索过滤器，省略时不限制部署可见语料，`null` 选择没有 cwd 的会话。发现和搜索不公开提供方游标、偏移、分页大小或模型可控上限。`session_find` 和两个内容搜索工具独占执行；`session_inspect` 可并行执行。
 
-`session_find` 按当前标题、创建时间、原始事件活动时间和会话元数据发现会话；其结果不包含内容匹配事件或摘录。`session_search` 保持为内容全文搜索，并返回最强匹配事件及其 seq 和摘录。两者都省略调用方会话。请求的父 id 会被去重，并在索引操作前检查是否存在。当前会话中的 `session_event_search` 会在调用它的步骤之前停止。`session_inspect` 通过一个有界只读约定分发摘要状态、折叠消息、原始历史、单个事件窗口或 lineage，并且不会恢复 cold 会话。messages 视图只读取折叠当前表层；history 和 event 会渲染包括 shadowed 与 log-only 记录在内的完整原始事件。在 lineage 中加入 `seq` 会检查该事件的替换与来源关系。
+`session_find` 按当前标题、创建时间、原始事件活动时间和会话元数据发现会话；其结果不包含内容匹配事件或摘录。`session_search` 保持为内容全文搜索，并返回最强匹配事件及其 seq 和摘录；中日韩子词可命中，被压缩的轮次仍可搜索。宽范围发现始终省略调用方会话，而传入恰好一个 `session_ids` 条目时改为返回该会话的全部匹配事件——调用方自己的会话也是允许的单目标，且止于当前活动步骤之前。请求的父 id 会被去重，并在索引操作前检查是否存在。`session_inspect` 通过一个有界只读约定分发摘要状态、折叠消息、原始历史、单个事件窗口或 lineage，并且不会恢复 cold 会话。messages 视图只读取折叠当前表层；history 和 event 会渲染包括 shadowed 与 log-only 记录在内的完整原始事件。在 lineage 中加入 `seq` 会检查该事件的替换与来源关系。
 
 每个可信 `ctx.sessionQuery` 调用都会经过一个模型边界净化器。首先检查调用方取消，并精确保留。可获取的语料库诊断信息和提供方诊断信息（包括可安全检查的嵌套原因）会尽力记录到内部日志；不可打印的失败使用固定日志占位符。诊断格式化和错误分类各自独立受保护，因此不可打印的原因无法逃逸，也无法阻止已安全分类的外层错误；不安全的分类或日志记录则回退到固定 `SESSION_QUERY_TOOL_FAILED` 代码和消息。本地参数验证和授权错误保留精确的工具自有消息。
 
@@ -32,7 +32,7 @@
 ##### 既往历史指引
 
 ```markdown
-Use session_find to locate prior sessions by current title, creation time, or raw-event activity time; session_find returns session metadata without content-match events or snippets. Use session_search to search prior-session content; session_search returns matching event seqs and snippets. Use session_event_search for content inside one session. Use session_inspect for one authorized session view: summary, messages, history, event, or lineage; add seq to lineage to inspect one event's replacement and source relationships. Use session_message to continue a known ordinary session or direct subagent session; inbox acceptance does not mean completion. A subagent result and settlement notice identify its durable Session id, which session_message and session_inspect accept as session_id. The messages view reads the folded current model-message surface, while history and event read complete raw events including shadowed and log-only trajectory. Search and find results are cursor-free.
+Session research: find prior sessions by title, creation time, or activity window with session_find, which returns session metadata only. Find sessions by content wording with session_search, which returns each session's strongest matching event with seq and snippet; any language matches, including sub-word CJK terms, and compacted turns remain searchable. Pass exactly one session_id to session_search to list every matching event in that one session instead; the current session is an allowed target and stops before the active step. Read one session with session_inspect: summary status; messages (the current folded view — compacted turns are absent); history (complete raw events, compacted originals included); one event; or lineage. The current session's compacted summaries are recovered with compaction_history_search then compaction_history_expand. Use session_message to continue a known ordinary session or direct subagent session; inbox acceptance does not mean completion. Search and find results are cursor-free.
 ```
 
 #### Token 影响
@@ -47,7 +47,7 @@ Use session_find to locate prior sessions by current title, creation time, or ra
 
 #### 模型看到的内容
 
-模型会看到[生成的四个 session-query schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-session-query)：`session_find`、`session_search`、`session_event_search` 和统一的 `session_inspect` 约定。`cwd` 可作为发现/搜索过滤器输入，但不会出现在结果中。
+模型会看到[生成的三个 session-query schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-session-query)：`session_find`、`session_search` 和统一的 `session_inspect` 约定。`cwd` 可作为发现/搜索过滤器输入，但不会出现在结果中。
 
 #### Token 影响
 

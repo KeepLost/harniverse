@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-session-query-sqlite
  */
 
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import { Context, Service, type Fiber } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -58,7 +58,7 @@ import {
   normalizeSessionRequest,
   quoteFtsData,
   requestFingerprint,
-  sanitizeFtsText,
+  ngramFtsText,
   SQLITE_MAX_PAGE_LIMIT,
 } from './query.ts'
 
@@ -138,6 +138,18 @@ interface ObservedSession {
   fingerprint: string
 }
 
+/** Live-session observation reduced to its O(1) version identity. */
+interface LiveObservation {
+  fingerprint: string
+  persisted: boolean
+  /**
+   * Full observation present only when the fingerprint moved: unchanged
+   * sessions keep their indexed rows and skip cloning, folding, and
+   * document rebuilding entirely.
+   */
+  loaded?: ObservedSession
+}
+
 interface ObservedPersistedSession {
   header: SessionHeader
   revision: SessionPersistenceRevision
@@ -152,7 +164,7 @@ interface PersistenceBinding {
 interface Observation {
   persistenceBinding: PersistenceBinding
   persisted: Map<SessionId, ObservedPersistedSession>
-  live: Map<SessionId, ObservedSession>
+  live: Map<SessionId, LiveObservation>
 }
 
 interface IndexedPersistedRow {
@@ -447,7 +459,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     ).all() as unknown as IndexedLiveRow[]
     const persistedById = new Map(persistedRows.map(row => [row.id as SessionId, row]))
     const liveById = new Map(liveRows.map(row => [row.id as SessionId, row]))
-    const observation = await this._observeStable(persistedById, signal)
+    const observation = await this._observeStable(persistedById, liveById, signal)
     assertNotAborted(signal)
     const persistentChanges = observation.persistenceBinding.service === undefined
       ? []
@@ -455,28 +467,27 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     const persistentDeletes = observation.persistenceBinding.service === undefined
       ? []
       : persistedRows.filter(row => !observation.persisted.has(row.id as SessionId))
-    const liveChanges = [...observation.live.values()].filter((entry) => {
-      const indexed = liveById.get(entry.header.id)
-      const persisted = observation.persisted.has(entry.header.id) ? 1 : 0
-      return indexed?.fingerprint !== entry.fingerprint || indexed.persisted !== persisted
-    })
+    /** Live observations whose fingerprint moved and whose rows need a rewrite. */
+    const changedLive = [...observation.live.values()].filter(
+      (entry): entry is LiveObservation & { loaded: ObservedSession } => entry.loaded !== undefined,
+    )
     const liveDeletes = liveRows.filter(row => !observation.live.has(row.id as SessionId))
     const pointerChanged = this._lastPersistenceIdentity !== undefined
       && this._lastPersistenceIdentity !== observation.persistenceBinding.identity
     const hasWrites = persistentChanges.length > 0
       || persistentDeletes.length > 0
-      || liveChanges.length > 0
+      || changedLive.length > 0
       || liveDeletes.length > 0
 
     let nextMainGeneration = this._mainGeneration()
     let nextLocalGeneration = this._localGeneration
     if (persistentChanges.length > 0 || persistentDeletes.length > 0) nextMainGeneration += 1
-    const liveReplacements = liveChanges.map((entry) => {
+    const liveReplacements = changedLive.map((entry) => {
       nextLocalGeneration = Math.max(nextLocalGeneration, nextMainGeneration) + 1
       return {
-        entry,
+        entry: entry.loaded,
         generation: nextLocalGeneration,
-        persisted: observation.persisted.has(entry.header.id),
+        persisted: entry.persisted,
       }
     })
 
@@ -526,6 +537,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
 
   private async _observeStable(
     indexed: ReadonlyMap<SessionId, IndexedPersistedRow>,
+    liveById: ReadonlyMap<SessionId, IndexedLiveRow>,
     signal: AbortSignal | undefined,
   ): Promise<Observation> {
     for (let attempt = 0; attempt < STABLE_OBSERVATION_ATTEMPTS; attempt += 1) {
@@ -575,12 +587,22 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
           )
         }
       }
-      const live = new Map<SessionId, ObservedSession>()
+      const live = new Map<SessionId, LiveObservation>()
       for (const session of this.ctx.sessions.list()) {
+        const persistedKnown = persisted.has(session.id)
+        const fingerprint = liveFingerprint(session)
+        const indexed = liveById.get(session.id)
+        // An unchanged fingerprint with matching persisted state means the
+        // indexed rows are current: skip clone, fold, and document rebuild.
+        if (indexed !== undefined && indexed.fingerprint === fingerprint
+          && indexed.persisted === (persistedKnown ? 1 : 0)) {
+          live.set(session.id, { fingerprint, persisted: persistedKnown })
+          continue
+        }
         const observed = observeLive(session)
         const durable = persisted.get(session.id)
         if (durable !== undefined) assertSessionHeadersCompatible(observed.header, durable.header)
-        live.set(session.id, observed)
+        live.set(session.id, { fingerprint, persisted: persistedKnown, loaded: observed })
       }
       if (!sameSessionIds(initiallyLive, live)) continue
       return { persistenceBinding, persisted, live }
@@ -635,7 +657,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
     for (const document of entry.documents) {
-      const text = sanitizeFtsText(document.text)
+      const text = ngramFtsText(document.text)
       insert.run(
         text,
         document.sessionId,
@@ -667,7 +689,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
     for (const document of entry.documents) {
-      const text = sanitizeFtsText(document.text)
+      const text = ngramFtsText(document.text)
       insert.run(
         text,
         document.sessionId,
@@ -901,7 +923,7 @@ function insertObservedMetadata(
     insertActivity.run(entry.header.id, event.seq, event.time)
   }
   if (entry.title === undefined) return
-  const title = sanitizeFtsText(entry.title.text)
+  const title = ngramFtsText(entry.title.text)
   db.prepare(`
     INSERT INTO ${prefix}_titles (title, raw_title, session_id, updated_at, codepoint_length)
     VALUES (?, ?, ?, ?, ?)
@@ -1093,7 +1115,8 @@ function selectedDocumentsParams(query: string, persistenceVisible: boolean): Ar
 }
 
 function observeLive(session: Session): ObservedSession {
-  return observeSession(session.header, session.events)
+  const observed = observeSession(session.header, session.events)
+  return { ...observed, fingerprint: liveFingerprint(session) }
 }
 
 function observeSession(header: SessionHeader, events: readonly SessionEvent[]): ObservedSession {
@@ -1105,10 +1128,21 @@ function observeSession(header: SessionHeader, events: readonly SessionEvent[]):
     activity: detachedEvents.map(event => ({ seq: event.seq, time: event.time })),
     ...title === undefined ? {} : { title: { text: title.title, updatedAt: title.updatedAt } },
     documents: buildSessionEventSearchDocuments(detachedHeader.id, detachedEvents),
-    fingerprint: createHash('sha256')
-      .update(JSON.stringify({ header: detachedHeader, events: detachedEvents }))
-      .digest('base64url'),
+    fingerprint: `${detachedEvents.length}:${detachedEvents.at(-1)?.seq ?? 'none'}`,
   }
+}
+
+/**
+ * O(1) live-session version. The log is append-only and surface replacements
+ * only increment the generation, so (event count, last seq, replace
+ * generation) identifies content as strongly as a hash while costing three
+ * reads instead of serializing and hashing the entire log.
+ * @param session - live session whose version to state.
+ * @returns deterministic version identity for index skip decisions.
+ */
+function liveFingerprint(session: Session): string {
+  const events = session.events
+  return `${events.length}:${events.at(-1)?.seq ?? 'none'}:${session.surface.replaceGeneration}`
 }
 
 function materializePersistenceSnapshots(
@@ -1147,7 +1181,7 @@ function samePersistenceSnapshots(
 
 function sameSessionIds(
   before: ReadonlySet<SessionId>,
-  after: ReadonlyMap<SessionId, ObservedSession>,
+  after: ReadonlyMap<SessionId, LiveObservation>,
 ): boolean {
   if (before.size !== after.size) return false
   for (const id of before) {

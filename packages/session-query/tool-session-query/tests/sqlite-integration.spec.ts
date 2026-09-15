@@ -166,8 +166,8 @@ describe('tool-session-query with the real SQLite provider', () => {
     expect(rawWindowText).toContain('Earlier integration title')
     expect(rawWindowText).toContain('Current persisted discovery title')
     expect(rawWindowText).toContain('"type": "turn/start"')
-    const persistedEvents = await execute('session_event_search', {
-      session_id: persisted,
+    const persistedEvents = await execute('session_search', {
+      session_ids: [persisted],
       query: 'persisted integration needle',
     })
     expect(persistedEvents.isError).toBe(false)
@@ -179,7 +179,7 @@ describe('tool-session-query with the real SQLite provider', () => {
     expect(statusText).toContain('Availability: persisted')
     expect(statusText).toContain('Loaded: no')
     expect(statusText).toContain('Running: no')
-    const liveEvents = await execute('session_event_search', { query: 'live integration needle' })
+    const liveEvents = await execute('session_search', { session_ids: [caller.id], query: 'live integration needle' })
     expect(liveEvents.isError).toBe(false)
     expect(liveEvents.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
       .toContain('seq 1')
@@ -253,7 +253,7 @@ describe('tool-session-query with the real SQLite provider', () => {
     })
     let call = 0
     const execute = (args: unknown) => ctx.tools.execute({
-      name: 'session_event_search',
+      name: 'session_search',
       arguments: args,
       callId: CallId(`fractional-integration-${++call}`),
       signal: new AbortController().signal,
@@ -261,9 +261,9 @@ describe('tool-session-query with the real SQLite provider', () => {
     })
 
     const lowerBound = await execute({
-      session_id: persisted,
+      session_ids: [persisted],
       query: 'fractional integration needle',
-      time_from: '2026-07-24T00:00:00.12300001Z',
+      event_time_from: '2026-07-24T00:00:00.12300001Z',
     })
     expect(lowerBound.isError).toBe(false)
     const lowerText = lowerBound.content.map(block => block.type === 'text' ? block.text : '').join('\n')
@@ -271,9 +271,9 @@ describe('tool-session-query with the real SQLite provider', () => {
     expect(lowerText).not.toContain('seq 0')
 
     const upperBound = await execute({
-      session_id: persisted,
+      session_ids: [persisted],
       query: 'fractional integration needle',
-      time_to: '2026-07-24T08:00:00.1239999+08:00',
+      event_time_to: '2026-07-24T08:00:00.1239999+08:00',
     })
     expect(upperBound.isError).toBe(false)
     const upperText = upperBound.content.map(block => block.type === 'text' ? block.text : '').join('\n')
@@ -281,19 +281,19 @@ describe('tool-session-query with the real SQLite provider', () => {
     expect(upperText).not.toContain('seq 1')
 
     const emptySameMillisecond = await execute({
-      session_id: persisted,
+      session_ids: [persisted],
       query: 'fractional integration needle',
-      time_from: '2026-07-24T00:00:00.12300001Z',
-      time_to: '2026-07-24T08:00:00.1239999+08:00',
+      event_time_from: '2026-07-24T00:00:00.12300001Z',
+      event_time_to: '2026-07-24T08:00:00.1239999+08:00',
     })
     expect(emptySameMillisecond.isError).toBe(false)
     expect(emptySameMillisecond.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
       .toContain('No prior event matches found.')
 
     const preEpochLower = await execute({
-      session_id: persisted,
+      session_ids: [persisted],
       query: 'pre-epoch fractional needle',
-      time_from: '1969-12-31T23:59:59.87600001Z',
+      event_time_from: '1969-12-31T23:59:59.87600001Z',
     })
     expect(preEpochLower.isError).toBe(false)
     const preEpochLowerText = preEpochLower.content
@@ -302,14 +302,91 @@ describe('tool-session-query with the real SQLite provider', () => {
     expect(preEpochLowerText).not.toContain('seq 2')
 
     const preEpochUpper = await execute({
-      session_id: persisted,
+      session_ids: [persisted],
       query: 'pre-epoch fractional needle',
-      time_to: '1969-12-31T19:59:59.8769999-04:00',
+      event_time_to: '1969-12-31T19:59:59.8769999-04:00',
     })
     expect(preEpochUpper.isError).toBe(false)
     const preEpochUpperText = preEpochUpper.content
       .map(block => block.type === 'text' ? block.text : '').join('\n')
     expect(preEpochUpperText).toContain('seq 2')
     expect(preEpochUpperText).not.toContain('seq 3')
+  })
+
+  it('matches CJK sub-word queries across live and persisted documents', { timeout: 20_000 }, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-tool-session-query-'))
+    temporaryDirectories.push(root)
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
+    await ctx.plugin(SqliteSessionQueryEngine, { path: join(root, 'session-query.db') })
+    await ctx.plugin(ToolSessionQuery)
+
+    const persisted = SessionId('cjk-persisted')
+    await ctx.sessionPersistence.create({
+      version: SESSION_FORMAT_VERSION,
+      id: persisted,
+      createdAt: 1,
+      cwd: '/work',
+    })
+    await ctx.sessionPersistence.append(persisted, [{
+      type: 'user/message',
+      seq: 0,
+      time: 2,
+      data: createUserMessage({
+        content: [{ type: 'text', text: '我们昨天讨论了压缩历史的问题' }],
+        source: { kind: 'user' },
+      }),
+      surfaceOp: 'append',
+    }])
+
+    const caller = ctx.sessions.create(SessionId('cjk-caller'), {
+      meta: { createdAt: 10, cwd: '/work' },
+    })
+    caller.append('turn/start', { turn: 1 })
+    caller.append(
+      'user/message',
+      createUserMessage({
+        content: [{ type: 'text', text: '回放日志里记录了压缩配置' }], source: { kind: 'user' },
+      }),
+      { surfaceOp: 'append' },
+    )
+    caller.append('step/start', { turn: 1, step: 1 })
+
+    let call = 0
+    const execute = (name: string, args: unknown) => ctx.tools.execute({
+      name,
+      arguments: args,
+      callId: CallId(`cjk-integration-${++call}`),
+      signal: new AbortController().signal,
+      agent: fakeAgent(caller),
+    })
+
+    const doubleCharacter = await execute('session_search', { query: '压缩' })
+    expect(doubleCharacter.isError).toBe(false)
+    const doubleText = doubleCharacter.content.map(block => block.type === 'text' ? block.text : '').join('\n')
+    expect(doubleText).toContain('Session cjk-persisted')
+    expect(doubleText).not.toContain('Session cjk-caller')
+
+    const phrase = await execute('session_search', { query: '压缩历史' })
+    expect(phrase.isError).toBe(false)
+    const phraseText = phrase.content.map(block => block.type === 'text' ? block.text : '').join('\n')
+    expect(phraseText).toContain('Session cjk-persisted')
+    expect(phraseText).not.toContain('Session cjk-caller')
+
+    const absent = await execute('session_search', { query: '解压缩包' })
+    expect(absent.isError).toBe(false)
+    expect(absent.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
+      .toContain('No prior session matches found.')
+
+    const mixedScript = await execute('session_search', { query: '压缩 问题' })
+    expect(mixedScript.isError).toBe(false)
+    expect(mixedScript.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
+      .toContain('Session cjk-persisted')
+    expect(mixedScript.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
+      .not.toContain('Session cjk-caller')
   })
 })

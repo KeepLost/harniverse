@@ -6,11 +6,10 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import {
   SessionQueryError,
   type SessionEventSearchPage,
-  type SessionEventSurface,
   type SessionRecord,
   type SessionResultFilter,
   type SessionSearchCursor,
@@ -21,17 +20,6 @@ import type { SessionFindArgs, SessionInspectArgs, SessionSearchArgs } from './i
 import { presentation } from './presentation.ts'
 import { serviceBoundary } from './service-boundary.ts'
 import { workspaceAccess } from './workspace-access.ts'
-
-interface EventSearchArgs {
-  session_id?: string
-  query: string
-  seq_from?: number
-  seq_to?: number
-  time_from?: string
-  time_to?: string
-  event_types?: string[]
-  surfaces?: SessionEventSurface[]
-}
 
 interface SessionTargetArgs {
   session_id?: string
@@ -64,6 +52,12 @@ async function executeSessionSearch(
   maxResults: number,
 ): Promise<string> {
   const caller = workspaceAccess.callerOf(exec)
+  // One explicit target narrows the call to that session's every matching
+  // event; absent or multiple ids keep the per-session best-match reading.
+  const onlyTarget = args.session_ids?.length === 1 ? args.session_ids[0] : undefined
+  if (onlyTarget !== undefined) {
+    return executeOneSessionContentSearch(ctx, args, exec, maxResults, caller, SessionId(onlyTarget))
+  }
   const query = toolInput.normalizeQuery(args.query)
   const sessionFilters = toolInput.buildSessionFilters(args)
   const eventFilters = toolInput.buildEventFilters({
@@ -131,17 +125,17 @@ async function executeSessionFind(
   return presentation.formatSessionFind(collected)
 }
 
-async function executeEventSearch(
+async function executeOneSessionContentSearch(
   ctx: Context,
-  args: EventSearchArgs,
+  args: SessionSearchArgs,
   exec: ToolRunContext,
   maxResults: number,
+  caller: ReturnType<typeof workspaceAccess.callerOf>,
+  sessionId: SessionId,
 ): Promise<string> {
-  const caller = workspaceAccess.callerOf(exec)
-  const sessionId = workspaceAccess.targetId(args, caller)
   await workspaceAccess.authorizeTarget(ctx, caller, sessionId, exec.signal)
   const query = toolInput.normalizeQuery(args.query)
-  const range = toolInput.sequenceRange(args.seq_from, args.seq_to)
+  const range = toolInput.sequenceRange(args.event_seq_from, args.event_seq_to)
   if (sessionId === caller.id) {
     const stepStart = caller.events.findLast(event => event.type === 'step/start')
     if (stepStart === undefined) {
@@ -159,10 +153,10 @@ async function executeEventSearch(
   const filters = toolInput.buildEventFilters({
     seqFrom: range.from,
     seqTo: range.to,
-    timeFrom: args.time_from,
-    timeTo: args.time_to,
+    timeFrom: args.event_time_from,
+    timeTo: args.event_time_to,
     eventTypes: args.event_types,
-    surfaces: args.surfaces,
+    surfaces: args.event_surfaces,
   })
   const collected = await collectPages(
     maxResults,
@@ -409,7 +403,7 @@ async function collectPages<T>(
 export const operations = {
   executeSessionFind,
   executeSessionSearch,
-  executeEventSearch,
+
   executeSessionTrace,
   executeEventTrace,
   executeEventRead,
