@@ -200,10 +200,12 @@ afterEach(async () => {
 })
 
 describe('scheduler storage and ownership', () => {
-  it('registers its runtime context on boot', async () => {
+  it('registers no runtime context on boot', async () => {
+    // The delivery envelope owns schedule facts; lifecycle writes must not
+    // perturb the runtime-context snapshot.
     const { test, cleanup } = await harness()
     try {
-      expect(test.contextsRecorder.map(entry => entry.name)).toEqual(['schedule:pending'])
+      expect(test.contextsRecorder).toEqual([])
     } finally {
       await cleanup()
     }
@@ -306,10 +308,47 @@ describe('scheduler storage and ownership', () => {
 })
 
 describe('scheduler dispatch', () => {
+  it('envelopes a recurring delivery with its next run', async () => {
+    const { test, cleanup } = await harness()
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(0)
+      const script = liveScript(test, 'every-envelope')
+      await test.service.create({
+        prompt: 'heartbeat',
+        rule: { kind: 'every', intervalMs: 300_000, anchor: new Date(0).toISOString() },
+        target: { kind: 'current' },
+        contextMode: 'continue',
+        createdBy: { kind: 'model', sessionId: script.session.id },
+      })
+      // The epoch anchor itself is the first due moment: the scheduler fires
+      // immediately and the envelope names the next interval boundary.
+      await vi.advanceTimersByTimeAsync(0)
+      await waitForDelivery(() => {
+        expect(script.followups).toHaveLength(1)
+      })
+      const delivered = script.followups[0]!
+      const deliveredText = (delivered.content[0] as { text: string }).text
+      expect(deliveredText).toMatch(/^Scheduled task .+ fired \(rule: every 300000ms from .+\)\./)
+      expect(deliveredText).toContain('the next run is due 1970-01-01T00:05:00.000Z')
+      expect(deliveredText.endsWith('\n\nheartbeat')).toBe(true)
+      expect(delivered.source).toMatchObject({
+        scheduleId: (delivered.source as unknown as { scheduleId: string }).scheduleId,
+        rule: { kind: 'every', intervalMs: 300_000 },
+        dueAt: 0,
+        firedAt: 0,
+        nextDue: 300_000,
+      })
+    } finally {
+      await cleanup()
+    }
+  })
+
   it('delivers a due prompt through the idle maintenance phase', async () => {
     const { test, cleanup } = await harness()
     vi.useFakeTimers()
     try {
+      vi.setSystemTime(0)
       const script = liveScript(test, 'hot')
       const flush = vi.spyOn(test.ctx.sessions, 'flush').mockResolvedValue(true)
       const record = await test.service.create({
@@ -323,8 +362,21 @@ describe('scheduler dispatch', () => {
       await waitForDelivery(() => {
         expect(script.followups).toHaveLength(1)
       })
-      expect(script.followups[0]!.content).toEqual([{ type: 'text', text: 'time to report' }])
-      expect(script.followups[0]!.source).toEqual({ kind: 'plugin', plugin: 'schedule' })
+      // The delivery carries a progress envelope around the verbatim prompt.
+      const delivered = script.followups[0]!
+      const deliveredText = (delivered.content[0] as { text: string }).text
+      expect(deliveredText).toContain('time to report')
+      expect(deliveredText).toMatch(/^Scheduled task .+ fired \(rule: once, 60000ms after creation\)\./)
+      expect(deliveredText).toContain('no further runs are scheduled')
+      expect(deliveredText).toContain('Use schedule_list to review or schedule_delete to cancel.')
+      expect(delivered.source).toMatchObject({
+        kind: 'plugin',
+        plugin: 'schedule',
+        scheduleId: record.id,
+        rule: { kind: 'after', delayMs: 60_000 },
+        dueAt: 60_000,
+        firedAt: 60_000,
+      })
       const dispatch = script.session.events.find(event => event.type === 'schedule/dispatch')
       expect(dispatch).toBeDefined()
       expect(flush).toHaveBeenCalled()
@@ -679,7 +731,7 @@ describe('scheduler session targets', () => {
       await waitForDelivery(() => {
         expect(target.followups).toHaveLength(1)
       })
-      expect(target.followups[0]?.content[0]).toMatchObject({ type: 'text', text: 'ship it into the other room' })
+      expect((target.followups[0]?.content[0] as { text: string } | undefined)?.text.endsWith('\n\nship it into the other room')).toBe(true)
       expect(creator.followups).toHaveLength(0)
       // Ownership stays with the creator: the target session holds no claim.
       expect(test.service.listForSession(creator.session.id).map(row => row.id)).toEqual([created.id])
@@ -692,57 +744,7 @@ describe('scheduler session targets', () => {
     }
   })
 
-  it('counts a session-bound schedule in the target session runtime context', async () => {
-    const { test, cleanup } = await harness()
-    try {
-      const creator = liveScript(test, 'context-foreign')
-      const target = liveScript(test, 'context-named')
-      await test.service.create({
-        prompt: 'headed your way',
-        rule: { kind: 'after', delayMs: 60_000 },
-        target: { kind: 'session', sessionId: target.session.id },
-        contextMode: 'continue',
-        createdBy: { kind: 'user', sessionId: creator.session.id },
-      })
-      const entry = test.contextsRecorder.find(item => item.name === 'schedule:pending')!
-      expect(entry.text({ agent: liveAgentOf(test, creator) })).toBe('')
-      expect(entry.text({ agent: liveAgentOf(test, target) })).toContain('1 pending for this session')
-    } finally {
-      await cleanup()
-    }
-  })
 })
-
-describe('scheduler runtime context', () => {
-  it('summarizes pending in-session schedules and stays empty otherwise', async () => {
-    const { test, cleanup } = await harness()
-    vi.useFakeTimers()
-    try {
-      const script = liveScript(test, 'context-owner')
-      const entry = test.contextsRecorder.find(item => item.name === 'schedule:pending')
-      expect(entry).toBeDefined()
-      expect(entry!.text({})).toBe('')
-      await test.service.create({
-        prompt: 'tick',
-        rule: { kind: 'after', delayMs: 60_000 },
-        target: { kind: 'current' },
-        contextMode: 'continue',
-        createdBy: { kind: 'model', sessionId: script.session.id },
-      })
-      const agent = liveAgentOf(test, script)
-      expect(entry!.text({ agent })).toContain('1 pending for this session')
-    } finally {
-      await cleanup()
-    }
-  })
-})
-
-/** The live agent handle for one scripted session. */
-function liveAgentOf(test: Harness, script: AgentScript): Agent {
-  const agent = test.agentsState.live.get(script.session.id)
-  if (agent === undefined) throw new Error('no live agent for script')
-  return agent
-}
 
 describe('scheduler cold-path and edge failures', () => {
   it('deduplicates concurrent cold resumes of one target session', async () => {
@@ -944,15 +946,4 @@ describe('scheduler list and pending edge coverage', () => {
     }
   })
 
-  it('renders empty pending text for an agent without schedules', async () => {
-    const { test, cleanup } = await harness()
-    try {
-      const script = liveScript(test, 'empty-pending')
-      const entry = test.contextsRecorder.find(item => item.name === 'schedule:pending')
-      const agent = liveAgentOf(test, script)
-      expect(entry!.text({ agent })).toBe('')
-    } finally {
-      await cleanup()
-    }
-  })
 })

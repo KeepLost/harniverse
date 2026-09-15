@@ -31,7 +31,7 @@ const sessionState = (items: readonly SessionSummary[], overrides: Partial<Sessi
   current: undefined,
   phase: 'ready',
   subagentsByParent: {}, jobsBySession: {},
-  currentAddress: undefined,
+  currentAddress: undefined, selectionSeq: 0,
   ...overrides,
 })
 const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView => ({

@@ -65,12 +65,16 @@ interface EventFilterInput {
 }
 
 const sessionSearchParameters = {
-  query: { type: 'string', required: true, description: 'Literal full-text query over prior session history.' },
+  query: { type: 'string', required: true, description: 'Full-text query over session content; matches sub-word CJK terms and unordered term combinations.' },
   cwd: {
     oneOf: [{ type: 'string' }, { type: 'null' }],
     description: 'Optional exact cwd filter. Omit to search all sessions; use null for sessions without a cwd.',
   },
-  session_ids: { type: 'array', items: { type: 'string' }, description: 'Optional session ids to include.' },
+  session_ids: {
+    type: 'array',
+    items: { type: 'string' },
+    description: 'Optional session ids to restrict the search. Exactly one id returns every matching event in that session (the current session is allowed and stops before the active step); several ids or none return each session\'s strongest match.',
+  },
   created_at_from: { type: 'string', description: 'Inclusive timezone-qualified ISO 8601 creation-time lower bound.' },
   created_at_to: { type: 'string', description: 'Inclusive timezone-qualified ISO 8601 creation-time upper bound.' },
   parent_session_ids: { type: 'array', items: { type: 'string' }, description: 'Optional direct parent session ids.' },
@@ -109,21 +113,6 @@ const sessionFindParameters = {
     type: 'array',
     items: { type: 'string', enum: ['live', 'persisted'] },
     description: 'Require at least one selected source availability.',
-  },
-} as const
-
-const eventSearchParameters = {
-  session_id: { type: 'string', description: 'Target session id. Omit for the current session.' },
-  query: { type: 'string', required: true, description: 'Literal full-text query over the target session.' },
-  seq_from: { type: 'integer', description: 'Inclusive event sequence lower bound.' },
-  seq_to: { type: 'integer', description: 'Inclusive event sequence upper bound.' },
-  time_from: { type: 'string', description: 'Inclusive timezone-qualified ISO 8601 event-time lower bound.' },
-  time_to: { type: 'string', description: 'Inclusive timezone-qualified ISO 8601 event-time upper bound.' },
-  event_types: { type: 'array', items: { type: 'string' }, description: 'Event types to include.' },
-  surfaces: {
-    type: 'array',
-    items: { type: 'string', enum: ['current', 'shadowed', 'log-only'] },
-    description: 'Event surfaces to include.',
   },
 } as const
 
@@ -372,7 +361,6 @@ function assertNonEmptyArray(name: string, values: readonly unknown[]): void {
 export const toolInput = {
   sessionSearchParameters,
   sessionFindParameters,
-  eventSearchParameters,
   targetSessionParameter,
   messageTailParameters,
   logTailParameters,

@@ -39,7 +39,7 @@
 | `@deepseek-ai/dsh-tool-result-artifacts` | `artifact_read` | `ctx.tools`、`ctx.spillStore` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`、`ctx.agents`、`ctx.skills` | `tool/call`、`tool/result`、`user/message replacement catalogs via agent.inject()` | - | - |
 | `@deepseek-ai/dsh-tool-session-delivery` | `session_create`、`session_message`、`session_unload` | `ctx.tools`、`ctx.sessionDelivery`、`a calling Agent` | `tool/call`、`tool/result`、`target user/message through the selected Provider` | - | 该工具只确认 inbox 接受，绝不等待目标完成或回复。 |
-| `@deepseek-ai/dsh-tool-session-query` | `session_event_search`、`session_find`、`session_inspect`、`session_search` | `ctx.tools`、`ctx.systemPrompt`、`ctx.sessionQuery`、`a calling Agent for caller identity` | `tool/call`、`tool/result` | - | 这些只读工具区分标题/时间发现、内容命中、统一会话检查、当前消息尾部和完整原始日志读取，同时隐藏提供方游标，并把精确观察绑定到不透明 session id。 |
+| `@deepseek-ai/dsh-tool-session-query` | `session_find`、`session_inspect`、`session_search` | `ctx.tools`、`ctx.systemPrompt`、`ctx.sessionQuery`、`a calling Agent for caller identity` | `tool/call`、`tool/result` | - | 这些只读工具区分标题/时间发现、内容命中、统一会话检查、当前消息尾部和完整原始日志读取，同时隐藏提供方游标，并把精确观察绑定到不透明 session id。 |
 | `@deepseek-ai/dsh-tool-subagent` | `child_profile_define`、`child_profile_list`、`subagent` | `ctx.tools`、`ctx.subagents`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`child session events through the chosen provider` | `subagent` | 本次采集对应交付的 continuable spawn-backed `subagent`，以及 Standard、Code 和 Cordis 的 Child Profile 管理工具。Base 不包含 Profile 工具，Minimal 不包含委派；自定义组合可以用不同名称和后台策略加载绑定提供方的实例。 |
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`、`list_agents`、`send_message`、`subagent_history` | `ctx.tools`、`ctx.subagents`、`ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`、`tool/result`、`child session events through ctx.subagents` | - | 这些是控制可继续后台 subagent 的全局命名工具：绑定提供方的 `tool-subagent` 实例注册不同的委派工具；本包注册一次 `send_message` 和 `interrupt_agent`，另由 `list_agents` 通过单独加载的 `/list-agents` 插件提供，其目录行使用 sessionProjections 和实时 Agent 注册表。 |
 | `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`、`ctx.systemPrompt`、`a live continuable in-process child Agent` | `tool/call`、`tool/result`、`a user-role message in the direct parent session` | - | 按可继续的进程内子级注册，而非全局注册，因此该 schema 仅在这种子级内部可见，并且不受其全局 `toolFilter` 影响。同一份贡献还会安装子级作用域的 `tool:report` 系统提示词 section，本目录不渲染该 section。面向父级的 `send_message` 工具单独安装。 |
@@ -1595,69 +1595,9 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
 
 ## `@deepseek-ai/dsh-tool-session-query`
 
-### `session_event_search`
-
-在一个已获授权的会话中搜索先前事件；如果搜索当前会话，则排除执行此次调用的步骤。
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "session_id": {
-      "type": "string",
-      "description": "Target session id. Omit for the current session."
-    },
-    "query": {
-      "type": "string",
-      "description": "Literal full-text query over the target session."
-    },
-    "seq_from": {
-      "type": "integer",
-      "description": "Inclusive event sequence lower bound."
-    },
-    "seq_to": {
-      "type": "integer",
-      "description": "Inclusive event sequence upper bound."
-    },
-    "time_from": {
-      "type": "string",
-      "description": "Inclusive timezone-qualified ISO 8601 event-time lower bound."
-    },
-    "time_to": {
-      "type": "string",
-      "description": "Inclusive timezone-qualified ISO 8601 event-time upper bound."
-    },
-    "event_types": {
-      "type": "array",
-      "description": "Event types to include.",
-      "items": {
-        "type": "string"
-      }
-    },
-    "surfaces": {
-      "type": "array",
-      "description": "Event surfaces to include.",
-      "items": {
-        "type": "string",
-        "enum": [
-          "current",
-          "shadowed",
-          "log-only"
-        ]
-      }
-    }
-  },
-  "required": [
-    "query"
-  ]
-}
-```
-
-来源：[`packages/session-query/tool-session-query/src/index.ts`](../packages/session-query/tool-session-query/src/index.ts)
-
 ### `session_find`
 
-按当前标题、创建时间或原始事件活动时间查找先前会话。只返回会话元数据，绝不返回内容匹配事件或摘录。
+按当前标题、创建时间或原始事件活动时间查找先前会话。只返回会话元数据——不含匹配内容或摘录。当你知道会话发生的时间或标题、而非其中的措辞时，从这里开始。
 
 ```json
 {
@@ -1779,7 +1719,7 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
 
 ### `session_search`
 
-搜索先前会话，并从每个会话返回匹配度最高的事件；可按 cwd 过滤。
+搜索会话内容，返回每个会话匹配度最高的事件（含 seq 与片段）。传入恰好一个 session_id 时改为返回该会话的全部匹配事件，当前会话亦可作为目标且止于上一个步骤。被压缩的轮次仍可搜索；中日韩子词可命中。
 
 ```json
 {
@@ -1787,7 +1727,7 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
   "properties": {
     "query": {
       "type": "string",
-      "description": "Literal full-text query over prior session history."
+      "description": "Full-text query over session content; matches sub-word CJK terms and unordered term combinations."
     },
     "cwd": {
       "oneOf": [
@@ -1802,7 +1742,7 @@ direct 模型调用要求已配置的压缩 provider 在保留近期上下文的
     },
     "session_ids": {
       "type": "array",
-      "description": "Optional session ids to include.",
+      "description": "Optional session ids to restrict the search. Exactly one id returns every matching event in that session (the current session is allowed and stops before the active step); several ids or none return each session's strongest match.",
       "items": {
         "type": "string"
       }

@@ -96,6 +96,12 @@ export interface SessionListState {
   jobsBySession: Readonly<Record<SessionId, readonly JobView[]>>
   /** Current session's catalog-derived address, absent on ordinary navigation. */
   currentAddress: SubagentAddress | undefined
+  /**
+   * Monotonic selection counter projected 1:1 from the manager snapshot
+   * (see {@link SessionListSnapshot.selectionSeq}): advances on every
+   * selection write, including re-selecting the current id.
+   */
+  selectionSeq: number
 }
 
 /** Persisted navigation cell: address survives refresh for correct history routing. */
@@ -303,7 +309,7 @@ export class SessionRuntime implements ISessions {
     )
     this.list = createSnapshotStore<SessionListState>({
       ids: [], byId: {}, current: undefined, phase: 'pending',
-      subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
+      subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined, selectionSeq: 0,
     })
     // The manager owns wire truth; the store is its projection. Manager
     // notifications are already microtask-batched.
@@ -685,7 +691,7 @@ export class SessionRuntime implements ISessions {
   /** Project the manager's list snapshot into the store (title derivation is display-only). */
   private projectList(): void {
     const {
-      items, current, phase, subagentsByParent, jobsBySession, currentAddress,
+      items, current, phase, subagentsByParent, jobsBySession, currentAddress, selectionSeq,
     } = this.manager.getListSnapshot()
     const ids: SessionId[] = []
     const byId: Record<SessionId, SessionSummary> = {}
@@ -781,7 +787,7 @@ export class SessionRuntime implements ISessions {
         ...(currentAddress === undefined ? {} : { subagentAddress: currentAddress }),
       })
     }
-    this.list.set({ ids, byId, current, phase, subagentsByParent, jobsBySession, currentAddress })
+    this.list.set({ ids, byId, current, phase, subagentsByParent, jobsBySession, currentAddress, selectionSeq })
     this.pruneScopes()
   }
 

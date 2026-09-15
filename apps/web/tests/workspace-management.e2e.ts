@@ -68,7 +68,12 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     await dialog.getByRole('button', { name: 'New folder' }).click()
     await page.getByLabel('Folder name').fill(name)
     await page.getByRole('button', { name: 'Create', exact: true }).click()
-    // Creating selects the new folder in the listing; Open adopts it.
+    // Creating selects the new folder in the listing; on slow runners the
+    // selection rides the host mkdir, so wait for the folder row before Open
+    // adopts — otherwise Open grabs the still-selected parent and the
+    // follow-up realpath on the new folder fails with ENOENT.
+    await expect.poll(() => dialog.getByText(name, { exact: true }).count(), { timeout: 10_000 })
+      .toBeGreaterThanOrEqual(1)
     await dialog.getByRole('button', { name: 'Open', exact: true }).click()
     await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
     await expect.poll(

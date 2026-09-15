@@ -426,4 +426,20 @@ describe('HoverCard', () => {
     act(() => { vi.advanceTimersByTime(1000) })
     expect(screen.queryByText('card body')).toBeNull()
   })
+
+  it('never opens on a touch primary', () => {
+    // Touch primaries dispatch a synthetic pointerenter with no matching
+    // leave, so the hover preview must stay suppressed entirely there.
+    const media = window.matchMedia
+    window.matchMedia = () => ({ matches: false } as MediaQueryList)
+    try {
+      const { wrapper } = mount()
+      fireEvent.pointerEnter(wrapper)
+      act(() => { vi.advanceTimersByTime(10_000) })
+      expect(screen.queryByText('card body')).toBeNull()
+    } finally {
+      if (media === undefined) Reflect.deleteProperty(window, 'matchMedia')
+      else window.matchMedia = media
+    }
+  })
 })

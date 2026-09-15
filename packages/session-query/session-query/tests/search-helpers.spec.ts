@@ -6,6 +6,7 @@ import SessionStore, {
   SessionId,
 } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
+import { CompactionId } from '@deepseek-ai/dsh-compaction'
 import {
   buildSessionEventRecords,
   buildSessionEventSearchDocuments,
@@ -115,6 +116,23 @@ describe('session-query semantic extraction', () => {
     expect(extractSessionEventText(events[4]!)).toBe('failed\nOops\nE_OOPS')
     expect(extractSessionEventText(events[5]!)).toBe('')
     expect(extractSessionEventText(events[6]!)).toBe('in_progress\nship search')
+    expect(extractSessionEventText({
+      type: 'compaction/summary',
+      seq: 7,
+      time: 9,
+      data: {
+        compactionId: CompactionId('compaction-id'),
+        summary: [
+          { type: 'text', text: '压缩摘要:讨论了会话搜索' },
+          { type: 'text', text: 'compaction digest of search tools' },
+        ],
+        shadowedRange: { start: 0, end: 2 },
+        shadowedSeqs: [0, 1, 2],
+        shadowedTokenCount: 100,
+        provider: 'mock',
+        model: 'mock',
+      },
+    })).toBe('压缩摘要:讨论了会话搜索\ncompaction digest of search tools')
   })
 
   it('extracts meaningful turn outcomes and skips structural or unknown events', () => {

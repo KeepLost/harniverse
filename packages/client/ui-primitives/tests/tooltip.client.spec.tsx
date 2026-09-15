@@ -354,4 +354,26 @@ describe('Tooltip', () => {
     )
     expect(screen.queryByRole('tooltip')).toBeNull()
   })
+
+  it('never opens the hover bubble on a touch primary', () => {
+    // iOS Safari: a tap synthesizes mouseenter but no mouseleave follows, so
+    // the hover trigger must stay suppressed while the primary cannot hover.
+    const media = window.matchMedia
+    window.matchMedia = () => ({ matches: false } as MediaQueryList)
+    try {
+      vi.useFakeTimers()
+      render(
+        <Tooltip label="View archived sessions" delayMs={500}>
+          <button type="button">anchor</button>
+        </Tooltip>,
+      )
+      fireEvent.mouseEnter(screen.getByText('anchor'))
+      act(() => { vi.advanceTimersByTime(10_000) })
+      expect(screen.queryByRole('tooltip')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+      if (media === undefined) Reflect.deleteProperty(window, 'matchMedia')
+      else window.matchMedia = media
+    }
+  })
 })

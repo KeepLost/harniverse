@@ -56,7 +56,6 @@ const EXPECTED_TOOLS = [
   'schedule_list',
   'schedule_update',
   'session_create',
-  'session_event_search',
   'session_find',
   'session_inspect',
   'session_message',

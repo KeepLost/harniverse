@@ -270,12 +270,18 @@ export function buildActivityWhere(activity: SessionResultRange | undefined): Sq
 }
 
 /**
- * Quote caller text as one FTS5 phrase so query syntax remains inert data.
- * @param query - normalized caller query.
- * @returns FTS5 expression containing one escaped literal phrase.
+ * Quote caller text as FTS5 literals so query syntax remains inert data.
+ * Whitespace-separated terms are quoted individually and joined with spaces:
+ * FTS5 treats them as ANDed phrases instead of one adjacency-demanding
+ * phrase, matching both adjacent and reordered term order.
+ * @param query - normalized caller query with single-space separators.
+ * @returns FTS5 expression of escaped literal phrases.
  */
 export function quoteFtsData(query: string): string {
-  return `"${query.replaceAll('"', '""')}"`
+  return query.split(' ')
+    .filter(term => term.length > 0)
+    .map(term => `"${term.replaceAll('"', '""')}"`)
+    .join(' ')
 }
 
 /**
@@ -289,6 +295,40 @@ export function sanitizeFtsText(text: string): string {
     .replaceAll(FTS_HIGHLIGHT_START, '\uFFFD')
     .replaceAll(FTS_HIGHLIGHT_END, '\uFFFD')
 }
+
+/**
+ * Script continua `unicode61` tokenizes as one whole token, making sub-word
+ * CJK/kana/hangul queries miss unless they equal the entire run.
+ */
+const UNSPACED_SCRIPT_RUN = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]+/gu
+
+/**
+ * Normalize text for both index and query sides of FTS5 `unicode61`: every
+ * script continuum longer than two characters becomes space-joined overlapping
+ * bigrams, so a two-character query matches inside longer runs and multi-word
+ * queries match as contiguous bigram phrases. Runs of one or two characters
+ * stay verbatim (they are already matchable tokens).
+ * @param text - extracted document text or normalized caller query.
+ * @returns sanitized text with bigram-separated script continua.
+ */
+export function ngramFtsText(text: string): string {
+  return sanitizeFtsText(text).replace(UNSPACED_SCRIPT_RUN, (run) => {
+    const characters = Array.from(run)
+    if (characters.length <= 2) return run
+    return Array.from({ length: characters.length - 1 }, (_, index) => characters.slice(index, index + 2).join(''))
+      .join(' ')
+  })
+}
+
+/**
+ * Whitespace inserted between bigrams of the same script continuum. Built as
+ * lookbehind/lookahead joins over {@link UNSPACED_SCRIPT_RUN} so snippet
+ * restoration cannot collapse whitespace between other scripts.
+ */
+const BIGRAM_JOIN_WHITESPACE = new RegExp(
+  `(?<=${UNSPACED_SCRIPT_RUN.source}) (?=${UNSPACED_SCRIPT_RUN.source})`,
+  'gu',
+)
 
 /**
  * Build the stable normalized request identity stored in opaque cursors.
@@ -346,8 +386,12 @@ function materializeActivityRange(range: SessionResultRange): SessionResultRange
  */
 export function makeSnippet(markedText: string, maxChars: number): string {
   const { text: clean, matchStart } = normalizeMarkedText(markedText)
-  const characters = Array.from(clean)
-  if (characters.length <= maxChars) return clean
+  // Bigram joins are index-side artifacts; remove them so snippets read as
+  // the original prose. matchStart stays approximate: it only anchors the
+  // excerpt window, and shrinking whitespace shifts it by at most one slot.
+  const readable = clean.replace(BIGRAM_JOIN_WHITESPACE, '')
+  const characters = Array.from(readable)
+  if (characters.length <= maxChars) return readable
   if (maxChars === 1) return '…'
   const matchedIndex = Math.min(matchStart, characters.length - 1)
   let start = Math.max(0, matchedIndex - Math.floor(maxChars / 3))
@@ -410,7 +454,7 @@ function normalizeQuery(value: string): string {
       'SESSION_QUERY_INVALID_QUERY',
     )
   }
-  return sanitizeFtsText(query)
+  return ngramFtsText(query)
 }
 
 function materializeCursor(cursor: SessionSearchCursor | undefined): SessionSearchCursor | undefined {

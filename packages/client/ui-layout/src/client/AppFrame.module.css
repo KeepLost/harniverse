@@ -108,8 +108,12 @@
 }
 
 /* Conversation region: the column's default occupant, kept mounted (inert)
-   under a center view so returning is identity-preserving. */
+   under a center view so returning is identity-preserving. The isolation
+   scopes every descendant stacking (sticky code-block banners, fixed
+   tooltips) inside the region, so the center-view layer above never has to
+   out-rank individual z-indexes chosen deep in conversation content. */
 .centerConversation {
+  isolation: isolate;
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
