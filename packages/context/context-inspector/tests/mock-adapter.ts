@@ -1,5 +1,5 @@
 import type { GenerateOptions, LlmModelReasoningInfo, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 
 /** Helpers to write scripted responses tersely. */
 export function textResponse(text: string): StreamChunk[] {
@@ -12,33 +12,6 @@ export function textResponse(text: string): StreamChunk[] {
   ]
 }
 
-export function toolCallResponse(rawCallId: string, name: string, args: object, text?: string): StreamChunk[] {
-  const callId = CallId(rawCallId)
-  const argumentsJson = JSON.stringify(args)
-  const chunks: StreamChunk[] = []
-  let index = 0
-  if (text) {
-    chunks.push(
-      { type: 'block-start', index, blockType: 'text' },
-      { type: 'text-delta', index, text },
-      { type: 'block-end', index, block: { type: 'text', text } },
-    )
-    index += 1
-  }
-  chunks.push(
-    { type: 'block-start', index, blockType: 'tool-call' },
-    { type: 'tool-call-delta', index, id: callId, name, argumentsDelta: argumentsJson.slice(0, 5) },
-    { type: 'tool-call-delta', index, id: callId, argumentsDelta: argumentsJson.slice(5) },
-    {
-      type: 'block-end',
-      index,
-      block: { type: 'tool-call', id: callId, name, arguments: argumentsJson },
-    },
-    { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } },
-    { type: 'finish', reason: { kind: 'tool-calls' } },
-  )
-  return chunks
-}
 
 /**
  * Mock adapter driven by a script: each model call consumes the next entry.

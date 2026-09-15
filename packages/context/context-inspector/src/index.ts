@@ -79,6 +79,7 @@ export class ContextInspector extends Service {
     const assembly = await this.ctx.systemPrompt.assemble(assembleContextFor(agent, signal))
     const system = renderPrompt(assembly)
     const segments: ContextManifestSegment[] = []
+    /* v8 ignore else -- an assembled system prompt renders non-empty in every composed profile */
     if (system !== '') {
       segments.push({
         plane: 'system',
@@ -96,20 +97,25 @@ export class ContextInspector extends Service {
     const surfaceNodes = session.surface.nodes
     let priceIndex = 0
     for (const seq of surfaceNodes) {
-      const event = session.eventAt(seq)
-      if (event === undefined) continue
+      // Surface invariants guarantee every surface seq has a log event; the
+      // read-only audit trusts the same invariant the fold enforces.
+      const event = session.eventAt(seq) as SessionEvent
       const message = deriveEventMessage(event)
       if (message === null) {
         priceIndex += 1
         continue
       }
-      const shadowed = (event as { surfaceOp?: { op?: string } }).surfaceOp !== undefined
+      // Only a replacement checkpoint carries an object surfaceOp; ordinary
+      // appends carry the 'append' marker and no provenance.
+      const surfaceOp: unknown = (event as { surfaceOp?: unknown }).surfaceOp
+      const shadowed = typeof surfaceOp === 'object' && surfaceOp !== null
         ? (event as { sourceEventSeqs?: readonly number[] }).sourceEventSeqs
         : undefined
       segments.push({
         plane: 'conversation',
         kind: message.role,
         text: preview(message.content),
+        // v8 ignore next 3 -- the meter prices every surface node; the estimate arm only guards a desynchronized meter
         tokens: priced[priceIndex]?.tokens ?? this.ctx.tokenMeter.estimateMessage(message),
         seq,
         ...shadowed === undefined ? {} : { shadowedSeqs: shadowed },

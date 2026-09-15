@@ -4,28 +4,34 @@
 // projection against it.
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import ContextInspector from '@deepseek-ai/dsh-context-inspector'
 import type { ContextManifest } from '@deepseek-ai/dsh-context-inspector'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
-async function harness(adapter: MockAdapter): Promise<Context> {
+async function harness(adapter: MockAdapter, persona = 'You are precise.'): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt, { persona: 'You are precise.' })
+  await ctx.plugin(SystemPrompt, { persona })
   await ctx.plugin(TokenMeter)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(ContextInspector)
   ctx.llm.registerAdapter(['mock'], adapter)
+  ctx.tools.register(defineContentToolFixture({
+    name: 'context_compact',
+    description: 'Compact older conversation history.',
+    parameters: {},
+    execute: () => Promise.resolve([{ type: 'text', text: 'ok' }]),
+  }))
   return ctx
 }
 
@@ -74,6 +80,7 @@ describe('context-inspector', () => {
         + (request.system.length > 159 ? '…' : '')
     expect(system?.text).toBe(expectedSystem)
     expect(manifest?.totalTokens).toBeGreaterThan(0)
+    expect(manifest?.tools).toContain('context_compact')
     expect(manifest?.segments.every(segment => segment.tokens >= 0)).toBe(true)
   })
 
@@ -105,18 +112,33 @@ describe('context-inspector', () => {
 
   it('is a read-only projection: manifest calls do not append session events', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
-    const ctx = await harness(adapter)
+    const ctx = await harness(adapter, '')
     const agent = ctx.agentLoop.create(SessionId('readonly'), { provider: 'mock', model: 'mock' })
     agent.session.append('turn/start', { turn: 1 })
     agent.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'stable' }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
+    agent.session.append('step/start', { turn: 1, step: 1 })
+    agent.session.append('assistant/message', {
+      turn: 1,
+      step: 1,
+      usage: { input: 1, output: 1 },
+      message: createMessage({
+        role: 'assistant',
+        content: [],
+        source: { kind: 'model', provider: 'mock', model: 'mock' },
+      }),
+    }, { surfaceOp: 'append' })
+    agent.session.append('step/end', { turn: 1, step: 1 })
     const before = agent.session.events.length
 
-    await ctx.contextInspector.manifest(agent)
+    const manifest = await ctx.contextInspector.manifest(agent)
     await ctx.contextInspector.manifest(agent)
 
     expect(agent.session.events.length).toBe(before)
+    // A usage-only assistant node derives no message and yields no segment.
+    const texts = manifest.segments.filter(s => s.plane === 'conversation').map(s => s.text)
+    expect(texts).toContain('stable')
   })
 })
