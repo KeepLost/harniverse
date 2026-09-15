@@ -52,8 +52,8 @@ async function harness(options: {
 }
 
 /** Append a durable user message sized in whole estimated tokens. */
-function appendUser(agent: Agent, text: string): void {
-  agent.session.append('user/message', createUserMessage({
+function appendUser(target: { session: Agent['session'] }, text: string): void {
+  target.session.append('user/message', createUserMessage({
     content: [{ type: 'text', text }],
     source: { kind: 'user' },
   }), { surfaceOp: 'append' })
@@ -140,6 +140,112 @@ describe('context-nudge', () => {
     appendUser(agent, 'well above the threshold '.repeat(64))
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(notices).toHaveLength(0)
+  })
+
+  it('uses a valid settings override as the notice threshold', async () => {
+    const { agent, notices } = await harness({
+      settings: { nudgeThresholdTokens: 48, nudgeRefireDeltaTokens: 16 },
+      config: { thresholdTokens: 64, refireDeltaTokens: 32 },
+    })
+    appendUser(agent, 'above the smaller override '.repeat(16))
+    await vi.waitFor(() => { expect(notices.length).toBe(1) })
+    const source = notices[0]!.source as { thresholdTokens?: number }
+    expect(source.thresholdTokens).toBe(48)
+  })
+
+  it('rejects a delta at or above the threshold and falls to the composition defaults', async () => {
+    const { agent, notices } = await harness({
+      settings: { nudgeThresholdTokens: 10, nudgeRefireDeltaTokens: 20 },
+      config: { thresholdTokens: 64, refireDeltaTokens: 32 },
+    })
+    // The effective policy ignored 10/20 in favor of 64/32.
+    appendUser(agent, 'above the composition threshold '.repeat(24))
+    await vi.waitFor(() => { expect(notices.length).toBe(1) })
+    // A second read stays quiet about the already-reported policy.
+    appendUser(agent, 'growth '.repeat(2))
+    const source = notices[0]!.source as { thresholdTokens?: number }
+    expect(source.thresholdTokens).toBe(64)
+  })
+
+  it('falls to shipped defaults from an invalid combination when config is silent', async () => {
+    const { agent, notices } = await harness({
+      settings: { nudgeThresholdTokens: 10, nudgeRefireDeltaTokens: 20 },
+    })
+    appendUser(agent, 'padding '.repeat(80_000))
+    await vi.waitFor(() => { expect(notices.length).toBe(1) })
+    const source = notices[0]!.source as { thresholdTokens?: number }
+    expect(source.thresholdTokens).toBe(ContextNudge.DEFAULT_THRESHOLD_TOKENS)
+  })
+
+  it('stays silent when the assembled tool catalog cannot be read', async () => {
+    const { ctx, agent, notices } = await harness({
+      config: { thresholdTokens: 64, refireDeltaTokens: 32 },
+    })
+    const assemble = vi.spyOn(ctx.systemPrompt, 'assemble').mockRejectedValueOnce(new Error('catalog down'))
+    appendUser(agent, 'well above the threshold '.repeat(64))
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(notices).toHaveLength(0)
+    assemble.mockRestore()
+  })
+
+  it('ignores sessions no live agent owns', async () => {
+    const { ctx, agent, notices } = await harness({
+      config: { thresholdTokens: 64, refireDeltaTokens: 32 },
+    })
+    void agent
+    const orphan = ctx.sessions.create(SessionId('orphan'))
+    appendUser({ session: orphan }, 'well above the threshold '.repeat(64))
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(notices).toHaveLength(0)
+  })
+
+  it('contains an inject rejection and keeps listening', async () => {
+    const { agent, notices } = await harness({
+      config: { thresholdTokens: 64, refireDeltaTokens: 32 },
+    })
+    const inject = vi.spyOn(agent, 'inject').mockImplementationOnce(() => {
+      throw new Error('inbox closed')
+    })
+    appendUser(agent, 'well above the threshold '.repeat(64))
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(notices).toHaveLength(0)
+    inject.mockRestore()
+    appendUser(agent, 'more growth past the delta '.repeat(64))
+    await vi.waitFor(() => { expect(notices.length).toBe(1) })
+  })
+
+  it('withdraws a due notice when the delivery-time measurement dropped below it', async () => {
+    const { ctx, agent, notices } = await harness({
+      config: { thresholdTokens: 64, refireDeltaTokens: 32 },
+    })
+    const measure = vi.spyOn(ctx.tokenMeter, 'measure')
+    measure.mockReturnValueOnce({ totalTokens: 200, nodes: [] } as never)
+      .mockReturnValueOnce({ totalTokens: 10, nodes: [] } as never)
+    appendUser(agent, 'anything at all')
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(notices).toHaveLength(0)
+    measure.mockRestore()
+  })
+
+  it('ships whole-token defaults when neither settings nor config speak', async () => {
+    const { agent, notices } = await harness({})
+    // ~128k estimated tokens crosses the shipped 120k default once.
+    appendUser(agent, 'padding '.repeat(80_000))
+    await vi.waitFor(() => { expect(notices.length).toBe(1) })
+    const source = notices[0]!.source as { thresholdTokens?: number }
+    expect(source.thresholdTokens).toBe(ContextNudge.DEFAULT_THRESHOLD_TOKENS)
+  })
+
+  it('falls back to defaults when a settings override is not a whole token count', async () => {
+    const { agent, notices } = await harness({
+      settings: { nudgeThresholdTokens: 64.5, nudgeRefireDeltaTokens: -3 },
+      config: { thresholdTokens: 64, refireDeltaTokens: 32 },
+    })
+    appendUser(agent, 'well above the threshold '.repeat(64))
+    await vi.waitFor(() => { expect(notices.length).toBe(1) })
+    const source = notices[0]!.source as { thresholdTokens?: number }
+    // The fractional and negative overrides were ignored in favor of config.
+    expect(source.thresholdTokens).toBe(64)
   })
 
   it('ignores its own pending notices when measuring', async () => {

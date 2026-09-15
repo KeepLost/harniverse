@@ -133,7 +133,7 @@ export function apply(ctx: Context): void {
       const retained = ctx.tokenMeter.measure(exec.agent.session).totalTokens
       return `Compacted ${result.shadowedSeqs.length} history items `
         + `(~${result.shadowedTokenCount} tokens); retained context is ~${retained} tokens`
-        + (resolved.snapped > 0 ? ` (${resolved.snapped} position${resolved.snapped === 1 ? '' : 's'} snapped to keep tool calls paired)` : '')
+        + (resolved.snapped > 0 ? ` (${resolved.snapped} snapped position(s); boundaries keep tool calls paired)` : '')
         + '.'
     },
   }))

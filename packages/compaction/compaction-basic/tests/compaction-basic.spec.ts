@@ -2557,6 +2557,51 @@ describe('route-fit pre-flight compaction', () => {
     expect(provenance).toContain(checkpoints[0]!.seq)
   })
 
+  it('leaves recovery to the provider when a route-fit layer fails operationally', async () => {
+    const probeCtx = new Context()
+    void new LlmRuntime(probeCtx)
+    void new TokenMeter(probeCtx)
+    const probeSession = conversation(24)
+    const total = probeCtx.tokenMeter.measure(probeSession).totalTokens
+    const small = 4_000
+    const ctx = routedContext({ big: total + 50_000, small })
+    const compact = new TestCompactionEngine(ctx, {
+      auto: true,
+      thresholdRatio: 0.99,
+      retainTokens: 3_500,
+    })
+    compact.error = 'summarizer unavailable'
+    const owner = agent(conversation(24), 'big')
+
+    const resolved = await fireRequest(ctx, owner, 'small')
+
+    // The failed layer is reported, not thrown: the request still resolves
+    // and the provider error path owns any remaining overflow.
+    expect(resolved.provider).toBe('small')
+    expect(compact.calls.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('renders a thrown Error route-fit layer through the same contained path', async () => {
+    const probeCtx = new Context()
+    void new LlmRuntime(probeCtx)
+    void new TokenMeter(probeCtx)
+    const probeSession = conversation(24)
+    const total = probeCtx.tokenMeter.measure(probeSession).totalTokens
+    const small = 4_000
+    const ctx = routedContext({ big: total + 50_000, small })
+    const compact = new TestCompactionEngine(ctx, {
+      auto: true,
+      thresholdRatio: 0.99,
+      retainTokens: 3_500,
+    })
+    compact.error = new Error('summarizer crashed')
+    const owner = agent(conversation(24), 'big')
+
+    const resolved = await fireRequest(ctx, owner, 'small')
+    expect(resolved.provider).toBe('small')
+    expect(compact.calls.length).toBeGreaterThanOrEqual(1)
+  })
+
   it('stops at an unrepairable envelope and still resolves the request', async () => {
     const session = Session.create(SessionId('unrepairable'))
     session.append('turn/start', { turn: 1 })

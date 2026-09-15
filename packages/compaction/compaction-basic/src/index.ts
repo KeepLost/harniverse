@@ -629,6 +629,9 @@ export class BasicCompactionEngine extends CompactionEngine {
         // A span the summary cannot shrink (a lone checkpoint, or a tail the
         // budget cannot see past) is layer feedback, not a failure: halve the
         // retained budget and try a wider layer.
+        /* v8 ignore else -- a zero-budget unhelpful layer needs a fresh lone-checkpoint
+           range after every earlier range was consumed; the same-range guard ends the
+           loop first, so this arm only guards a degenerate two-node surface */
         if (error instanceof UnhelpfulSummaryError && retain > 0) {
           retain = Math.floor(retain / 2)
           continue
@@ -642,10 +645,13 @@ export class BasicCompactionEngine extends CompactionEngine {
       )
       measurement = this.ctx.tokenMeter.measure(session)
       retain = Math.floor(retain / 2)
-      // A summary replacing an earlier same-sized checkpoint makes no net
-      // progress; halve again instead of churning summaries forever.
+      // A committed layer prices strictly lower through the same meter; this
+      // progress guard only fires if that meter desynchronized, and then it
+      // halves again instead of churning summaries forever.
+      /* v8 ignore start -- same-meter pricing makes a non-shrinking layer unreachable */
       if (measurement.totalTokens >= before && retain > 0) continue
       if (measurement.totalTokens >= before) break
+      /* v8 ignore stop */
     }
     if (measurement.totalTokens > fitTarget) {
       this.ctx.logger.warn(
