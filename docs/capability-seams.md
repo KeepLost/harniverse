@@ -48,6 +48,8 @@ flowchart LR
   svc_pluginDiagnostics["ctx.pluginDiagnostics<br/>Read-only plugin diagnostics"]
   pkg_plugin_diagnostics_cordis["plugin-diagnostics-cordis"]
   pkg_host_plugin_inventory["host-plugin-inventory"]
+  pkg_context_inspector["context-inspector"]
+  svc_contextInspector["ctx.contextInspector<br/>Read-only next-request audit manifest"]
   pkg_capabilities["capabilities"]
   svc_capabilities["ctx.capabilities<br/>Agent Profile capability composition"]
   pkg_host_capability_management["host-capability-management"]
@@ -263,6 +265,7 @@ flowchart LR
   pkg_compaction_lossless --> svc_compaction
   pkg_compaction_lossless --> svc_compactionHistory
   pkg_compaction_tool_result_pruner --> svc_toolResultPruner
+  pkg_context_inspector --> svc_contextInspector
   pkg_context_reset --> svc_contextReset
   pkg_cordis_host_runner --> svc_cordisInspect
   pkg_cordis_host_runner --> svc_dynamicCordisRunner
@@ -380,6 +383,7 @@ flowchart LR
   svc_compaction --> pkg_command_compact
   svc_compaction --> pkg_tool_compaction
   svc_compactionHistory --> pkg_tool_compaction_history
+  svc_contextInspector --> pkg_agent
   svc_contextReset --> pkg_command_reset
   svc_contextReset --> pkg_scheduler
   svc_cordisInspect --> pkg_tool_cordis
@@ -519,6 +523,7 @@ flowchart LR
 | `ctx.sessions` | `core` | [`session`](../packages/core/session) | - | [`agent-loop`](../packages/core/agent-loop), [`agent`](../packages/core/agent), [`session-persistence`](../packages/session/session-persistence), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), `subagent-inprocess`, [`invariants`](../packages/runtime-diagnostics/invariants), [`message-feedback`](../packages/feedback/message-feedback) | - | Owns append-only Session instances and emits the durable session event feed. |
 | `ctx.invariants` | `core` | [`invariants`](../packages/runtime-diagnostics/invariants) | - | [`session`](../packages/core/session), [`agent`](../packages/core/agent), [`scope`](../packages/core/scope), [`agent-loop`](../packages/core/agent-loop) | - | Companion subpaths register owner-local checks; the service owns selection, uniqueness, child fibers, and package-attributed failures. |
 | `ctx.pluginDiagnostics` | `seam` | [`plugin-diagnostics`](../packages/runtime-diagnostics/plugin-diagnostics) | [`plugin-diagnostics-cordis`](../packages/runtime-diagnostics/plugin-diagnostics-cordis) | [`host-plugin-inventory`](../packages/host/plugin-inventory) | - | Effect-scoped checks observe Host lifecycle owners; the existing authorized inventory Remote and Web Settings tab render structured findings without a repair operation. |
+| `ctx.contextInspector` | `seam` | [`context-inspector`](../packages/context/context-inspector) | - | [`agent`](../packages/core/agent) | - | Projects the same assembly primitives the agent loop uses; per-segment log-seq provenance and shadowed checkpoints make compaction impact auditable without a repair operation. |
 | `ctx.capabilities` | `seam` | [`capabilities`](../packages/capability/capabilities) | [`host-capability-management`](../packages/host/capability-management) | [`agent-presets`](../packages/preset/agent-presets), [`mcp-client`](../packages/mcp/mcp-client) | - | Native adapters project scoped capabilities; revision-fenced composition plans alter future Profile generations without controlling Loader lifecycle. |
 | `ctx.typert` | `core` | [`typert-registry`](../packages/typert/registry) | - | [`typert-loader`](../packages/typert/loader), [`api-gateway`](../packages/api/gateway) | - | Plugins register live zod contributions directly or through dsh-typert-loader; the API gateway consumes invocation descriptors and providers, while other runtime consumers query schemas and reflection metadata at their own edges. |
 | `ctx.typertGateway` | `core` | [`api-gateway`](../packages/api/gateway) | - | - | - | Associates generated Remote descriptors with live Cordis services, resolves registered identities, and exposes unary calls through the shared Connection RPC carrier. |
