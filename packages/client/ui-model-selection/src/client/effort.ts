@@ -1,8 +1,7 @@
 /**
- * Effort derivation shared by the two effort affordances — the model seat's
- * drilled effort pane and the standalone effort button right of it. Both
- * render from the SAME per-session directory, so the label and rows they
- * show must come from one pure derivation.
+ * Effort derivation for the model seat's drilled effort pane: the trigger
+ * label and the pane's rows come from one pure derivation over the
+ * per-session directory.
  */
 import type { ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
@@ -19,25 +18,6 @@ export interface EffortChoice {
 
 /** The reasoning metadata a directory model row may carry. */
 export type ModelReasoning = NonNullable<ModelDirectoryState['groups'][number]['models'][number]['reasoning']>
-
-/** The current selection paired with the reasoning its model declares. */
-export interface ReasoningEntry {
-  current: ModelSelection
-  reasoning: ModelReasoning
-}
-
-/**
- * Find the current selection's reasoning metadata in the loaded groups.
- * @param state - the session's directory snapshot.
- * @returns the current selection and its model's reasoning, or undefined
- * when the host has no current selection or the model advertises none.
- */
-export function reasoningOf(state: ModelDirectoryState): ReasoningEntry | undefined {
-  if (state.current === null) return undefined
-  const group = state.groups.find(candidate => candidate.id === state.current?.provider)
-  const reasoning = group?.models.find(candidate => candidate.id === state.current?.model)?.reasoning
-  return reasoning === undefined ? undefined : { current: state.current, reasoning }
-}
 
 /**
  * The effort the next assembled step carries: the session's explicit pick,
