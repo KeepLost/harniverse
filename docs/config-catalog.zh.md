@@ -679,6 +679,12 @@ export interface CompactionHistoryConfig {
 export interface CompactionSettings {
   /** Automatic pressure threshold as a context-window ratio. */
   thresholdRatio?: number
+  /** Whether the context-nudge consumer delivers pressure notices. */
+  nudgeEnabled?: boolean
+  /** First context-nudge notice threshold, in estimated framed tokens. */
+  nudgeThresholdTokens?: number
+  /** Growth between context-nudge notices, in estimated framed tokens. */
+  nudgeRefireDeltaTokens?: number
 }
 ```
 
@@ -703,6 +709,27 @@ export interface ToolResultPruneConfig {
 ```
 
 来源：[`packages/compaction/compaction-tool-result-pruner/src/types.ts:4`](../packages/compaction/compaction-tool-result-pruner/src/types.ts)
+
+<a id="deepseek-aidsh-context-nudge"></a>
+
+## `@deepseek-ai/dsh-context-nudge`
+
+需要： `agents` · `systemPrompt` · `tokenMeter`
+
+```ts config-catalog
+/** Composition-level defaults; live user overrides arrive through settings. */
+export interface ContextNudgeConfig {
+  /** First-notice threshold in estimated framed tokens. */
+  thresholdTokens?: number
+  /** Growth between notices in estimated framed tokens. */
+  refireDeltaTokens?: number
+  /** Whether notices are delivered at all. */
+  enabled?: boolean
+}
+```
+
+来源： [`packages/context/context-nudge/src/index.ts:33`](../packages/context/context-nudge/src/index.ts)
+
 
 <a id="deepseek-aidsh-cordis-host-runner"></a>
 
@@ -3806,6 +3833,7 @@ export interface Config {
 - `@deepseek-ai/dsh-command-goal` — 需要 `commands` · `goals`（[`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts)）
 - `@deepseek-ai/dsh-command-reset` — 需要 `commands`（[`packages/context/command-reset/src/index.ts`](../packages/context/command-reset/src/index.ts)）
 - `@deepseek-ai/dsh-commands`（[`packages/interaction/commands/src/index.ts`](../packages/interaction/commands/src/index.ts)）
+- `@deepseek-ai/dsh-context-inspector`（[`packages/context/context-inspector/src/index.ts`](../packages/context/context-inspector/src/index.ts)）
 - `@deepseek-ai/dsh-context-reset` — 需要 `sessions`（[`packages/context/context-reset/src/index.ts`](../packages/context/context-reset/src/index.ts)）
 - `@deepseek-ai/dsh-context-snapshot` — 需要 `agents` · `systemPrompt`（[`packages/context/context-snapshot/src/index.ts`](../packages/context/context-snapshot/src/index.ts)）
 - `@deepseek-ai/dsh-cordis-client-runner`（[`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts)）
@@ -3836,7 +3864,7 @@ export interface Config {
 - `@deepseek-ai/dsh-terminal`（[`packages/terminal/terminal/src/index.ts`](../packages/terminal/terminal/src/index.ts)）
 - `@deepseek-ai/dsh-tool-ask-user` — 需要 `tools` · `userInteraction`（[`packages/interaction/tool-ask-user/src/index.ts`](../packages/interaction/tool-ask-user/src/index.ts)）
 - `@deepseek-ai/dsh-tool-call-timeout-policy` — 需要 `tools`（[`packages/guard/timeout-policy/src/index.ts`](../packages/guard/timeout-policy/src/index.ts)）
-- `@deepseek-ai/dsh-tool-compaction` — 需要 `tools` · `compaction`（[`packages/compaction/tool-compaction/src/index.ts`](../packages/compaction/tool-compaction/src/index.ts)）
+- `@deepseek-ai/dsh-tool-compaction` — 需要 `tools` · `compaction` · `tokenMeter`（[`packages/compaction/tool-compaction/src/index.ts`](../packages/compaction/tool-compaction/src/index.ts)）
 - `@deepseek-ai/dsh-tool-cordis` — 需要 `tools` · `systemPrompt` · `dynamicCordisRunner` · `cordisInspect`（[`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)）
 - `@deepseek-ai/dsh-tool-scheduler` — 需要 `scheduler` · `tools`（[`packages/schedule/tool-scheduler/src/index.ts`](../packages/schedule/tool-scheduler/src/index.ts)）
 - `@deepseek-ai/dsh-tool-session-delivery` — 需要 `tools` · `sessionDelivery`（[`packages/session-query/tool-session-delivery/src/index.ts`](../packages/session-query/tool-session-delivery/src/index.ts)）

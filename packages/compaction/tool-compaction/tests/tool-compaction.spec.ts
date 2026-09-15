@@ -9,9 +9,10 @@ import {
   type CompactionTrigger,
   type ManualCompactAgentContext,
 } from '@deepseek-ai/dsh-compaction'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { CallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as toolCompaction from '@deepseek-ai/dsh-tool-compaction'
 
@@ -40,8 +41,13 @@ class RecordingCompactionEngine extends CompactionEngine {
     throw new Error('unexpected compactNow call')
   }
 
-  override compactRegion(): Promise<CompactionResult> {
-    throw new Error('unexpected compactRegion call')
+  readonly compactRegionMock = vi.fn(
+    (_start: number, _end: number, _agent: CompactionAgentContext, _signal?: AbortSignal): Promise<CompactionResult> =>
+      Promise.resolve(RESULT),
+  )
+
+  override compactRegion(start: number, end: number, agent: CompactionAgentContext, signal?: AbortSignal): Promise<CompactionResult> {
+    return this.compactRegionMock(start, end, agent, signal)
   }
 }
 
@@ -55,6 +61,7 @@ afterEach(async () => {
 async function setup(): Promise<{ ctx: Context; compact: RecordingCompactionEngine; agent: Agent }> {
   ctx = new Context()
   await ctx.plugin(SystemPrompt)
+  await ctx.plugin(TokenMeter)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(RecordingCompactionEngine)
   const compact = ctx.compaction as RecordingCompactionEngine
@@ -77,6 +84,14 @@ describe('context_compact', () => {
           reason: {
             type: 'string',
             description: 'Briefly explain why older context can be condensed now.',
+          },
+          from: {
+            type: 'number',
+            description: 'First message to compact, as a 1-based position from the oldest retained message. Omit both positions to let policy choose the span.',
+          },
+          to: {
+            type: 'number',
+            description: 'Last message to compact, inclusive, in the same positioning. The span must end before the current turn; boundaries snap to keep tool calls paired.',
           },
         },
         required: ['reason'],
@@ -153,5 +168,271 @@ describe('context_compact', () => {
     const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
     expect(text).toContain(message)
     expect(test.compact.compactIfNeeded).not.toHaveBeenCalled()
+  })
+
+  it('compacts a model-named span through the explicit compactRegion path', async () => {
+    const test = await setup()
+    // Five closed-turn nodes (seqs 3,5,7,9,11) plus an open turn's node.
+    for (let turn = 1; turn <= 3; turn += 1) {
+      test.agent.session.append('turn/start', { turn })
+      test.agent.session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: `closed user ${turn}` }],
+        source: { kind: 'user' },
+      }), { surfaceOp: 'append' })
+      test.agent.session.append('turn/end', { turn, reason: { kind: 'completed' } })
+    }
+    test.agent.session.append('turn/start', { turn: 4 })
+    test.agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'open turn' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    const before = test.agent.session.surface.nodes.length
+
+    const result = await test.ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('span'),
+      name: 'context_compact',
+      arguments: { reason: 'early scratch work', from: 2, to: 3 },
+      agent: test.agent,
+    })
+
+    expect(result.isError).toBe(false)
+    const nodes = test.agent.session.surface.nodes
+    // Positions 2..3 of the closed history map to the middle closed nodes.
+    expect(test.compact.compactRegionMock).toHaveBeenCalledWith(nodes[1], nodes[2], test.agent, expect.anything())
+    expect(test.compact.compactIfNeeded).not.toHaveBeenCalled()
+    expect(test.agent.session.surface.nodes.length).toBe(before)
+    const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
+    expect(text).toContain('Compacted 4 history items')
+    expect(text).toContain('retained context is ~')
+    expect(text).toContain('tokens')
+  })
+
+  it('caps a span at the closed-turn boundary and reports the usable range', async () => {
+    const test = await setup()
+    test.agent.session.append('turn/start', { turn: 1 })
+    test.agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'closed user' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    test.agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    test.agent.session.append('turn/start', { turn: 2 })
+    test.agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'open turn' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+
+    const result = await test.ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('cap'),
+      name: 'context_compact',
+      arguments: { reason: 'too greedy', from: 1, to: 99 },
+      agent: test.agent,
+    })
+
+    expect(result.isError).toBe(false)
+    const nodes = test.agent.session.surface.nodes
+    expect(test.compact.compactRegionMock).toHaveBeenCalledWith(nodes[0], nodes[0], test.agent, expect.anything())
+  })
+
+  it('rejects a span with no closed-turn history', async () => {
+    const test = await setup()
+    test.agent.session.append('turn/start', { turn: 1 })
+    test.agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'only an open turn' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+
+    const result = await test.ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('no-closed'),
+      name: 'context_compact',
+      arguments: { reason: 'too early', from: 1, to: 1 },
+      agent: test.agent,
+    })
+
+    expect(result.isError).toBe(false)
+    const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
+    expect(text).toContain('No closed-turn history')
+    expect(test.compact.compactRegionMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects from without to', async () => {
+    const test = await setup()
+    const result = await test.ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('half-span'),
+      name: 'context_compact',
+      arguments: { reason: 'half a span', from: 2 },
+      agent: test.agent,
+    })
+    expect(result.isError).toBe(true)
+    expect(test.compact.compactRegionMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects non-positive, reversed, and out-of-range positions', async () => {
+    const test = await setup()
+    test.agent.session.append('turn/start', { turn: 1 })
+    test.agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'closed' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    test.agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    for (const [args, fragment] of [
+      [{ reason: 'bad', from: 0, to: 1 }, 'positive whole positions'],
+      [{ reason: 'bad', from: 2, to: 1 }, 'must not exceed'],
+      [{ reason: 'bad', from: 5, to: 9 }, 'stay within the 1 closed-turn'],
+    ] as const) {
+      const result = await test.ctx.tools.execute({
+        signal: new AbortController().signal,
+        callId: CallId(`bad-${fragment}`),
+        name: 'context_compact',
+        arguments: args,
+        agent: test.agent,
+      })
+      expect(result.isError).toBe(false)
+      const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
+      expect(text).toContain(fragment)
+    }
+    expect(test.compact.compactRegionMock).not.toHaveBeenCalled()
+  })
+
+  it('advances the span start past a result whose call stays kept', async () => {
+    const test = await setup()
+    const session = test.agent.session
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'tool-call', id: CallId('head-call'), name: 'read', arguments: '{}' }],
+        source: { kind: 'model', provider: 'p', model: 'm' },
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({
+        callId: CallId('head-call'),
+        content: [{ type: 'text', text: 'result' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'after' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    // Position 2 is the call's result; shadowing it alone orphans the call.
+    const result = await test.ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('head-snap'),
+      name: 'context_compact',
+      arguments: { reason: 'skip the pair', from: 2, to: 3 },
+      agent: test.agent,
+    })
+
+    expect(result.isError).toBe(false)
+    const nodes = session.surface.nodes
+    expect(test.compact.compactRegionMock).toHaveBeenCalledWith(nodes[2], nodes[2], test.agent, expect.anything())
+    const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
+    expect(text).toContain('snapped position(s)')
+  })
+
+  it('collapses a span that is only an unanswered call', async () => {
+    const test = await setup()
+    const session = test.agent.session
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'tool-call', id: CallId('lone-call'), name: 'read', arguments: '{}' }],
+        source: { kind: 'model', provider: 'p', model: 'm' },
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({
+        callId: CallId('lone-call'),
+        content: [{ type: 'text', text: 'result' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    const result = await test.ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('collapse'),
+      name: 'context_compact',
+      arguments: { reason: 'just the call', from: 1, to: 1 },
+      agent: test.agent,
+    })
+
+    expect(result.isError).toBe(false)
+    const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
+    expect(text).toContain('collapses after keeping tool calls paired')
+    expect(test.compact.compactRegionMock).not.toHaveBeenCalled()
+  })
+
+  it('snaps a span that would split a tool call from its result', async () => {
+    const test = await setup()
+    const session = test.agent.session
+    session.append('turn/start', { turn: 1 })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'run the tool' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'tool-call', id: CallId('call-1'), name: 'read', arguments: '{}' }],
+        source: { kind: 'model', provider: 'p', model: 'm' },
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({
+        callId: CallId('call-1'),
+        content: [{ type: 'text', text: 'tool output' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'follow-up' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/start', { turn: 2 })
+
+    // Positions 1..2 would shadow the call (position 2) while keeping its
+    // result; the tail cut cannot orphan it.
+    const result = await test.ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('snap'),
+      name: 'context_compact',
+      arguments: { reason: 'scratch', from: 1, to: 2 },
+      agent: test.agent,
+    })
+
+    expect(result.isError).toBe(false)
+    const nodes = session.surface.nodes
+    // The tail cut must stay pairing-balanced: the span shrinks to position 1.
+    expect(test.compact.compactRegionMock).toHaveBeenCalledWith(nodes[0], nodes[0], test.agent, expect.anything())
+    const text = result.content[0]?.type === 'text' ? result.content[0].text : ''
+    expect(text).toContain('snapped')
   })
 })

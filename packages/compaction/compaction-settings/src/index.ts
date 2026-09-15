@@ -11,11 +11,20 @@ export const COMPACTION_SETTINGS_NAMESPACE = settingsNamespace('compaction')
 export interface CompactionSettings {
   /** Automatic pressure threshold as a context-window ratio. */
   thresholdRatio?: number
+  /** Whether the context-nudge consumer delivers pressure notices. */
+  nudgeEnabled?: boolean
+  /** First context-nudge notice threshold, in estimated framed tokens. */
+  nudgeThresholdTokens?: number
+  /** Growth between context-nudge notices, in estimated framed tokens. */
+  nudgeRefireDeltaTokens?: number
 }
 
 /** Stored compaction settings schema. */
 export const Config: z<CompactionSettings> = z.object({
   thresholdRatio: z.number().min(0.17).max(1).step(0.01),
+  nudgeEnabled: z.boolean(),
+  nudgeThresholdTokens: z.number().min(1).step(1),
+  nudgeRefireDeltaTokens: z.number().min(1).step(1),
 })
 
 /** Cordis plugin name. */

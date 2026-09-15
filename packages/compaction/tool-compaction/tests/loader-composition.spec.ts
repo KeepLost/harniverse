@@ -18,6 +18,7 @@ import {
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as toolCompaction from '@deepseek-ai/dsh-tool-compaction'
 
@@ -70,6 +71,7 @@ describe('tool-compaction real Loader composition', () => {
     const configPath = join(root, 'cordis.yml')
     await writeFile(configPath, [
       "- name: '@deepseek-ai/dsh-system-prompt'",
+      "- name: '@deepseek-ai/dsh-token-meter'",
       "- name: '@deepseek-ai/dsh-tools'",
       "- name: '@test/compaction-backend'",
       "- name: '@deepseek-ai/dsh-tool-compaction'",
@@ -82,6 +84,7 @@ describe('tool-compaction real Loader composition', () => {
     context.loader.builtins.include = Include
     const modules = new Map<string, unknown>([
       ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
+      ['@deepseek-ai/dsh-token-meter', TokenMeter],
       ['@deepseek-ai/dsh-tools', ToolRuntime],
       ['@test/compaction-backend', LoaderCompactionEngine],
       ['@deepseek-ai/dsh-tool-compaction', toolCompaction],

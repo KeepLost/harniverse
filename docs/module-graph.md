@@ -206,6 +206,8 @@ flowchart TD
   subgraph group_context["packages/context"]
     pkg_agent_instructions["agent-instructions"]
     pkg_command_reset["command-reset"]
+    pkg_context_inspector["context-inspector"]
+    pkg_context_nudge["context-nudge"]
     pkg_context_reset["context-reset"]
     pkg_context_snapshot["context-snapshot"]
     pkg_file_reference["file-reference"]
@@ -629,6 +631,16 @@ flowchart TD
   pkg_session_delivery --> pkg_invariants
   pkg_session_delivery --> pkg_llm
   pkg_session_delivery --> pkg_session
+  pkg_context_inspector --> pkg_agent
+  pkg_context_inspector --> pkg_invariants
+  pkg_context_inspector --> pkg_llm
+  pkg_context_inspector --> pkg_session
+  pkg_context_inspector --> pkg_system_prompt
+  pkg_context_nudge --> pkg_agent
+  pkg_context_nudge --> pkg_invariants
+  pkg_context_nudge --> pkg_llm
+  pkg_context_nudge --> pkg_session
+  pkg_context_nudge --> pkg_system_prompt
   pkg_file_reference --> pkg_agent
   pkg_file_reference --> pkg_invariants
   pkg_file_reference --> pkg_typert_protocol
@@ -1833,6 +1845,8 @@ flowchart TD
 | [`web-search-deepseek`](../packages/web/web-search-deepseek) | `web` | [`agent`](../packages/core/agent), [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`session`](../packages/core/session), [`settings`](../packages/settings/settings), [`web`](../packages/web/web) |
 | [`spill-local`](../packages/spill/spill-local) | `spill` | [`invariants`](../packages/runtime-diagnostics/invariants), [`spill`](../packages/spill/spill) |
 | [`session-delivery`](../packages/session-query/session-delivery) | `session-query` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
+| [`context-inspector`](../packages/context/context-inspector) | `context` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
+| [`context-nudge`](../packages/context/context-nudge) | `context` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
 | [`file-reference`](../packages/context/file-reference) | `context` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`typert-protocol`](../packages/typert/protocol) |
 | [`time-context`](../packages/context/time-context) | `context` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session) |
 | [`message-feedback`](../packages/feedback/message-feedback) | `feedback` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`storage-domain`](../packages/storage/storage-domain), [`typert-protocol`](../packages/typert/protocol) |
