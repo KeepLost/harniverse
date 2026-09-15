@@ -123,7 +123,7 @@ describe('context-inspector', () => {
     agent.session.append('assistant/message', {
       turn: 1,
       step: 1,
-      usage: { input: 1, output: 1 },
+      usage: { inputTokens: 1, outputTokens: 1 },
       message: createMessage({
         role: 'assistant',
         content: [],
