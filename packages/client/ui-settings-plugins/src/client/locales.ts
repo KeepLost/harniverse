@@ -9,6 +9,7 @@ export type PluginsSettingsLocaleKey =
   | 'bashMaxOutputBytes' | 'bashMaxOutputBytesHint'
   | 'agentLoopTitle' | 'agentLoopDescription' | 'agentLoopMaxParallel' | 'agentLoopMaxParallelHint'
   | 'compactionTitle' | 'compactionDescription' | 'compactionThreshold' | 'compactionThresholdHint'
+  | 'nudgeThreshold' | 'nudgeThresholdHint' | 'nudgeDelta' | 'nudgeDeltaHint' | 'invalidTokens'
   | 'webSearchTitle' | 'webSearchDescription'
   | 'webSearchProvider' | 'webSearchProviderHint' | 'webSearchProviderUnavailable'
   | 'webSearchProviderDeepSeek' | 'webSearchProviderExa' | 'webSearchProviderPerplexity'
@@ -77,6 +78,11 @@ export const en: Record<PluginsSettingsLocaleKey, string> = {
   compactionDescription: 'Control when older conversation history is reduced.',
   compactionThreshold: 'Automatic threshold (%)',
   compactionThresholdHint: 'Use 17–100. Leave blank to keep each Agent Profile’s configured threshold.',
+  nudgeThreshold: 'Pressure notice threshold (tokens)',
+  nudgeThresholdHint: 'Whole tokens. When retained history crosses this, the model gets a non-waking notice to compact. Leave blank for the composition default.',
+  nudgeDelta: 'Pressure notice spacing (tokens)',
+  nudgeDeltaHint: 'Whole tokens. Growth required before the next notice. Must be smaller than the threshold.',
+  invalidTokens: 'Enter a whole number of tokens (≥ 1).',
   webSearchTitle: 'Web search',
   webSearchDescription: 'Select and configure the active search provider.',
   webSearchProvider: 'Search provider',
@@ -182,6 +188,11 @@ export const zh: Record<PluginsSettingsLocaleKey, string> = {
   compactionTitle: '上下文压缩',
   compactionDescription: '控制何时缩减较早的对话历史。',
   compactionThreshold: '自动压缩阈值（%）',
+  nudgeThreshold: '压力提醒阈值（token）',
+  nudgeThresholdHint: '整数 token。保留历史超过该值时，向模型投递一条不唤醒的压缩提醒。留空使用组合默认值。',
+  nudgeDelta: '压力提醒间隔（token）',
+  nudgeDeltaHint: '整数 token。再次提醒前需要增长的数量。必须小于阈值。',
+  invalidTokens: '请输入整数 token 数（≥ 1）。',
   compactionThresholdHint: '范围为 17–100；留空则保留各 Agent Profile 配置的阈值。',
   webSearchTitle: '网页搜索',
   webSearchDescription: '选择并配置当前使用的搜索提供方。',

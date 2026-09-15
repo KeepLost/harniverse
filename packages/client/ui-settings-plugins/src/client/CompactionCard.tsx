@@ -39,6 +39,34 @@ export function CompactionCard(props: CompactionCardProps) {
         onEdit={(text) => { props.edit('thresholdRatio', text) }}
         onReset={() => { props.resetField('thresholdRatio') }}
       />
+      <ValueField
+        id="plugin-config-nudge-threshold"
+        label={t('nudgeThreshold')}
+        hint={t('nudgeThresholdHint')}
+        overriddenLabel={t('overridden')}
+        resetLabel={t('reset')}
+        invalidLabel={t('invalidTokens')}
+        placeholder="120000"
+        numeric
+        disabled={!state.writable}
+        {...state.nudgeThresholdTokens}
+        onEdit={(text) => { props.edit('nudgeThresholdTokens', text) }}
+        onReset={() => { props.resetField('nudgeThresholdTokens') }}
+      />
+      <ValueField
+        id="plugin-config-nudge-delta"
+        label={t('nudgeDelta')}
+        hint={t('nudgeDeltaHint')}
+        overriddenLabel={t('overridden')}
+        resetLabel={t('reset')}
+        invalidLabel={t('invalidTokens')}
+        placeholder="20000"
+        numeric
+        disabled={!state.writable}
+        {...state.nudgeRefireDeltaTokens}
+        onEdit={(text) => { props.edit('nudgeRefireDeltaTokens', text) }}
+        onReset={() => { props.resetField('nudgeRefireDeltaTokens') }}
+      />
     </PluginCard>
   )
 }

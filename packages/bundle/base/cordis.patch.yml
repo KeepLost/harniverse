@@ -491,6 +491,19 @@
     - id: context-snapshot
       name: '@deepseek-ai/dsh-context-snapshot'
 
+    # Threshold-gated context-pressure notices. Delivered through the
+    # non-waking inject inbox once retained history crosses an absolute token
+    # threshold, spaced by a growth delta; silent for agents whose tool
+    # catalog has no context_compact.
+    - id: context-nudge
+      name: '@deepseek-ai/dsh-context-nudge'
+
+    # Read-only audit projection of an agent's next request surface: system
+    # sections, ordered conversation segments with log-seq provenance, tools,
+    # and token estimates derived through the same assembly primitives.
+    - id: context-inspector
+      name: '@deepseek-ai/dsh-context-inspector'
+
     # Agents created at startup. The base stays empty; raw overlays may create
     # agents, while Web creates sessions on client request.
     - id: agent-loop

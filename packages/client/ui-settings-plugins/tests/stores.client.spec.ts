@@ -570,6 +570,38 @@ describe('CompactionCardController', () => {
     await vi.waitFor(() => { expect(host.unset).toHaveBeenCalledWith('thresholdRatio') })
   })
 
+  it('renders whole-token nudge fields, stores them, and rejects non-whole input', async () => {
+    const host = stubSettingsScope<CompactionSettings>()
+    acceptWrites(host)
+    const controller = new CompactionCardController(host.scope)
+    host.publish({
+      status: 'ready',
+      writable: true,
+      value: { nudgeThresholdTokens: 120_000, nudgeRefireDeltaTokens: 20_000 },
+      base: {},
+      user: { nudgeThresholdTokens: 120_000, nudgeRefireDeltaTokens: 20_000 },
+    })
+    const face = controller.inject()
+
+    expect(face.hooks.compactionCard.getSnapshot().nudgeThresholdTokens)
+      .toEqual({ text: '120000', overridden: true, invalid: false })
+    expect(face.hooks.compactionCard.getSnapshot().nudgeRefireDeltaTokens.text).toBe('20000')
+
+    for (const invalid of ['0', '-5', '12.5', 'abc']) {
+      face.edit('nudgeThresholdTokens', invalid)
+      expect(face.hooks.compactionCard.getSnapshot().nudgeThresholdTokens)
+        .toMatchObject({ text: invalid, invalid: true })
+    }
+
+    face.edit('nudgeThresholdTokens', '90000')
+    face.edit('nudgeRefireDeltaTokens', '  ')
+    face.save()
+    await vi.waitFor(() => {
+      expect(host.set).toHaveBeenCalledWith('nudgeThresholdTokens', 90_000)
+      expect(host.unset).toHaveBeenCalledWith('nudgeRefireDeltaTokens')
+    })
+  })
+
   it('clears a staged percentage when its input is blank', async () => {
     const host = stubSettingsScope<CompactionSettings>()
     acceptWrites(host)

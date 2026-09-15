@@ -340,6 +340,8 @@ describe('CompactionCard', () => {
       ...settled,
       dirty: true,
       thresholdPercent: field('80', { overridden: true }),
+      nudgeThresholdTokens: field('120000', { overridden: true }),
+      nudgeRefireDeltaTokens: field('20000', { overridden: true }),
     })
     const actions = cardActions()
     const props = {
@@ -351,10 +353,14 @@ describe('CompactionCard', () => {
 
     fireEvent.click(screen.getByText(en.compactionTitle))
     fireEvent.change(screen.getByLabelText(en.compactionThreshold), { target: { value: '65' } })
-    fireEvent.click(screen.getByRole('button', { name: en.reset }))
+    fireEvent.change(screen.getByLabelText(en.nudgeThreshold), { target: { value: '90000' } })
+    fireEvent.change(screen.getByLabelText(en.nudgeDelta), { target: { value: '15000' } })
+    for (const reset of screen.getAllByRole('button', { name: en.reset })) fireEvent.click(reset)
     fireEvent.click(screen.getByRole('button', { name: en.save }))
 
     expect(actions.edit).toHaveBeenCalledWith('thresholdRatio', '65')
+    expect(actions.edit).toHaveBeenCalledWith('nudgeThresholdTokens', '90000')
+    expect(actions.edit).toHaveBeenCalledWith('nudgeRefireDeltaTokens', '15000')
     expect(actions.resetField).toHaveBeenCalledWith('thresholdRatio')
     expect(actions.save).toHaveBeenCalledOnce()
   })
@@ -364,6 +370,8 @@ describe('CompactionCard', () => {
       ...settled,
       available: false,
       thresholdPercent: field(''),
+      nudgeThresholdTokens: field('120000', { overridden: true }),
+      nudgeRefireDeltaTokens: field('20000', { overridden: true }),
     })
     const props = {
       ...cardActions(),
