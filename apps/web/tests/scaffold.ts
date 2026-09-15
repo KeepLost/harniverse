@@ -863,18 +863,31 @@ function normalizeAria(snapshot: string, workspaceCwd: string): string {
  * @param page - the page under test.
  * @param selector - the region locator selector.
  * @param workspaceCwd - normalization input.
+ * @param strip - per-line drop rules for components whose presence in the
+ * captured frame is environment-timing-dependent (they arrive on projections
+ * a mid-turn frame cannot wait for); the golden then asserts everything but
+ * those lines, whose settled presence other goldens cover.
  * @returns the stable normalized snapshot.
  */
-export async function captureStableAria(page: Page, selector: string, workspaceCwd: string): Promise<string> {
+export async function captureStableAria(
+  page: Page, selector: string, workspaceCwd: string, strip: readonly RegExp[] = [],
+): Promise<string> {
   const region = page.locator(selector).first()
-  let previous = normalizeAria(await region.ariaSnapshot(), workspaceCwd)
+  const settle = async (): Promise<string> => normalizeAriaStrip(await region.ariaSnapshot(), workspaceCwd, strip)
+  let previous = await settle()
   await expect.poll(async () => {
-    const current = normalizeAria(await region.ariaSnapshot(), workspaceCwd)
+    const current = await settle()
     const stable = current === previous
     previous = current
     return stable
   }, { timeout: 5_000, message: 'aria snapshot did not stabilize' }).toBe(true)
   return previous
+}
+
+/** {@link captureStableAria}'s normalization plus the caller's line drops. */
+function normalizeAriaStrip(snapshot: string, workspaceCwd: string, strip: readonly RegExp[]): string {
+  const normalized = normalizeAria(snapshot, workspaceCwd)
+  return strip.length === 0 ? normalized : normalized.split('\n').filter(line => !strip.some(rule => rule.test(line))).join('\n')
 }
 
 /**

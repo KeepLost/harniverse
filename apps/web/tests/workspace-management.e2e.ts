@@ -602,9 +602,13 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     await clickHoverAction(sessionRow, `Session actions for ${rowTitle}`)
     await page.getByRole('menuitem', { name: 'Archive session' }).click()
     // The row disappears on the archive-set echo; with no other visible
-    // stray, the whole Ungrouped bucket withdraws.
+    // stray, the whole Ungrouped bucket withdraws. Scope the count to the
+    // browser tree: the empty hero's workspace chip independently falls
+    // back to the same "Ungrouped" label, and a page-wide count would let
+    // that unrelated surface fail the bucket-withdrawal assertion.
+    const sidebarTree = page.getByRole('tree', { name: /sessions/i })
     await expect.poll(() => page.getByText(rowTitle, { exact: true }).count(), { timeout: 10_000 }).toBe(0)
-    await expect.poll(() => page.getByText('Ungrouped', { exact: true }).count(), { timeout: 10_000 }).toBe(0)
+    await expect.poll(() => sidebarTree.getByText('Ungrouped', { exact: true }).count(), { timeout: 10_000 }).toBe(0)
     // Durable on the host: the registry-global set carries the id while the
     // session log itself stays in persistence untouched.
     expect([...scaffold.ctx.workspaceRegistry.archivedSessionIds]).toEqual([SessionId(SEED_ID)])

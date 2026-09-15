@@ -127,7 +127,15 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
       expect(await pendingSteering.count()).toBe(1)
       expect(await page.getByRole('button', { name: 'Edit queued message' }).count()).toBe(0)
       await waitForAgentPresetLabel(page)
-      const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
+      // The trailing ContextMeter and the stats line arrive on projections
+      // that a mid-turn frame cannot wait for (their push rides step
+      // settlement elsewhere): drop them from THIS golden instead of pinning
+      // whichever arrival frame the runner's timing produces. The settled
+      // golden below asserts both in their terminal state.
+      const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd, [
+        /^ *- button "\d+% of context used"$/,
+        /^ *- text: .*Cache hit/,
+      ])
       await compareOrRefreshGolden(MID_EXPECTED, snapshot, MODE)
     }
 
@@ -360,7 +368,15 @@ describe('web e2e: empty-draft Cmd+Enter steers the whole queue', () => {
     // for the block to settle so the mid snapshot does not race its transient
     // visually-hidden Running label while the question keeps the turn open.
     await page.locator('[data-variant="think"][data-state="ok"]').first().waitFor({ timeout: 10_000 })
-    const mid = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
+    // The replay stream pauses at the ask_user_question call only once the
+    // tool row itself has landed; wait for that pause point so the mid
+    // capture settles on the blocked frame instead of racing its arrival.
+    await page.getByRole('button', { name: /^Ask question/ }).first().waitFor({ timeout: 10_000 })
+    // Same mid-turn projection drops as the first scenario's mid golden.
+    const mid = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd, [
+      /^ *- button "\d+% of context used"$/,
+      /^ *- text: .*Cache hit/,
+    ])
     await compareOrRefreshGolden(STEER_ALL_MID, mid, MODE)
 
     // Answer the question; the step closes, the loop drains both steerings
