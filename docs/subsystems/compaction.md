@@ -246,6 +246,26 @@ Types: [SessionId](core.md)
 
 Source: [`packages/compaction/compaction-lossless/src/index.ts:143`](../../packages/compaction/compaction-lossless/src/index.ts)
 
+<a id="ctxcontextinspector--contextinspector"></a>
+
+### `ctx.contextInspector` — `ContextInspector`
+
+Read-only projection service over the same assembly primitives the agent loop uses (`systemPrompt.assemble`, `renderPrompt`, the session surface fold, and the shared token meter). Nothing here mutates or wakes anything.
+
+```ts cordis-catalog
+/**
+ * Project one agent's next request surface for audit.
+ * @param agent - the agent whose session and prompt assembly are inspected.
+ * @param signal - optional cancellation forwarded to prompt assembly.
+ * @returns the ordered manifest with per-segment provenance.
+ */
+async manifest(agent: Agent, signal?: AbortSignal): Promise<ContextManifest>
+```
+
+Types: [Agent](core.md)
+
+Source: [`packages/context/context-inspector/src/index.ts:63`](../../packages/context/context-inspector/src/index.ts)
+
 <a id="ctxtoolresultpruner--toolresultpruner"></a>
 
 ### `ctx.toolResultPruner` — `ToolResultPruner`
