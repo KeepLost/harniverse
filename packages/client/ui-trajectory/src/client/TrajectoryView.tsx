@@ -508,15 +508,16 @@ export function TrajectoryView({
           onInspectApplied={() => { setContextLocateSeq(null); onInspectDone?.() }}
           onOpenSubagent={openSubagent}
         />
-        <ContextStrip
-          segments={contextSegments}
-          onLocate={setContextLocateSeq}
-          title={t('context.strip')}
-          describe={segment => segment.kind === 'summary'
-            ? `${t('context.compaction')} #${segment.seq} · ${t('context.replaced')} ${segment.shadowedItemCount ?? '?'}`
-            : `${t('context.locate')} #${segment.seq} · ${segment.role}`}
-        />
       </div>
+      <ContextStrip
+        segments={contextSegments}
+        onLocate={setContextLocateSeq}
+        title={t('context.strip')}
+        empty={t('context.empty')}
+        describe={segment => segment.kind === 'summary'
+          ? `${t('context.compaction')} #${segment.seq} · ${t('context.replaced')} ${segment.shadowedItemCount ?? '?'}`
+          : `${t('context.locate')} #${segment.seq} · ${segment.role}`}
+      />
     </div>
   )
 }

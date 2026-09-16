@@ -89,12 +89,22 @@ describe('ContextStrip', () => {
   const DESCRIBE = (segment: ContextStripSegment): string =>
     segment.kind === 'summary' ? `summary #${segment.seq}` : `message #${segment.seq}`
 
+  it('stamps each block with its surface role for role-coded styling', () => {
+    render(<ContextStrip
+      segments={SEGMENTS} onLocate={() => {}} title="Current context" empty="No live context" describe={DESCRIBE}
+    />)
+    const blocks = screen.getAllByRole('button')
+    expect(blocks[0]?.getAttribute('data-role')).toBe('summary')
+    expect(blocks[1]?.getAttribute('data-role')).toBe('user')
+  })
+
   it('renders one block per segment and reports clicks by seq', () => {
     const onLocate = vi.fn()
     render(<ContextStrip
       segments={SEGMENTS}
       onLocate={onLocate}
       title="Current context"
+      empty="No live context"
       describe={DESCRIBE}
     />)
     const blocks = screen.getAllByRole('button')
@@ -105,7 +115,10 @@ describe('ContextStrip', () => {
   })
 
   it('renders an empty band with the caption for an empty context', () => {
-    render(<ContextStrip segments={[]} onLocate={() => {}} title="Current context" describe={DESCRIBE} />)
+    render(<ContextStrip
+      segments={[]} onLocate={() => {}} title="Current context" empty="No live context" describe={DESCRIBE}
+    />)
+    expect(screen.getByText('No live context')).toBeTruthy()
     expect(screen.getByTestId('context-strip')).toBeTruthy()
     expect(screen.queryAllByRole('button')).toHaveLength(0)
   })

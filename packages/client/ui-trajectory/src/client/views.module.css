@@ -2,6 +2,10 @@
 .root {
   --dsh-trajectory-toolbar-height: 32px;
 
+  /* ConversationRoot publishes the floating composer's live height; both the
+   * ledger scroll padding and the context strip's bottom offset consume it. */
+  --dsh-trajectory-bottom-clearance: calc(var(--dsh-composer-height, 152px) + 16px);
+
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -22,9 +26,6 @@
   min-height: 0;
   min-width: 0;
   overflow: hidden;
-
-  /* ConversationRoot publishes the floating composer's live height. */
-  --dsh-trajectory-bottom-clearance: calc(var(--dsh-composer-height, 152px) + 16px);
 }
 
 .contextPage {

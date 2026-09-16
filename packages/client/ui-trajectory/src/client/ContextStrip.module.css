@@ -1,17 +1,26 @@
+/** Bottom band under the trajectory ledger: full-width, above the floating
+ * composer (the published --dsh-trajectory-bottom-clearance lifts it), with a
+ * top divider separating it from the ledger scroll area. */
 .strip {
+  position: relative;
+  z-index: 2;
   display: flex;
   flex: none;
   align-items: center;
   gap: 8px;
-  padding: 4px 12px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 35px;
+  padding: 0 12px;
   border-top: 1px solid var(--dsw-alias-border-l2);
-  min-height: 30px;
+  background: var(--dsw-alias-bg-layer-1);
+  margin-bottom: var(--dsh-trajectory-bottom-clearance, 0px);
 }
 
 .title {
   flex: none;
-  font-size: 11px;
-  color: var(--dsw-alias-label-dimmed);
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
   white-space: nowrap;
 }
 
@@ -32,10 +41,12 @@
   min-width: 6px;
 }
 
+/* Role-coded live blocks: the fill names the surface role; the hover outline
+ * stays role-agnostic so one interaction affordance covers every role. */
 .block {
   display: block;
   width: 10px;
-  height: 18px;
+  height: 20px;
   padding: 0;
   border: none;
   border-radius: 2px;
@@ -43,21 +54,42 @@
   cursor: pointer;
 }
 
-.block:hover {
+.block[data-role='user'] {
   background: var(--dsw-alias-brand-primary-new-colorprimary-new-color);
 }
 
+.block[data-role='assistant'] {
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.block[data-role='tool'] {
+  background: var(--dsw-alias-state-business-tertiary);
+}
+
+.block[data-role='context'] {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.block:hover,
+.block:focus-visible {
+  outline: 1px solid var(--dsw-alias-label-primary);
+  outline-offset: 1px;
+}
+
+/* Landed compactions keep the hatched texture over the roles they replaced. */
 .blockSummary {
   background: repeating-linear-gradient(
     135deg,
-    var(--dsw-alias-label-dimmed),
-    var(--dsw-alias-label-dimmed) 2px,
+    var(--dsw-alias-state-warn-secondary),
+    var(--dsw-alias-state-warn-secondary) 2px,
     transparent 2px,
     transparent 4px
   );
-  outline: 1px solid var(--dsw-alias-border-l2);
+  outline: 1px solid var(--dsw-alias-state-warn-primary);
 }
 
 .empty {
   flex: 1 1 auto;
+  font-size: 12px;
+  color: var(--dsw-alias-label-dimmed);
 }
