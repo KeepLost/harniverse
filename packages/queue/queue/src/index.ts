@@ -38,7 +38,7 @@ declare module '@deepseek-ai/cordis' {
 /** The four opened storage tables in one bag. */
 interface QueueTables {
   topics: KvTable<string, TopicRow>
-  topicsByName: KvTable<string, number>
+  topicNames: KvTable<string, number>
   messages: KvTable<string, MessageRow>
   subscriptions: KvTable<string, SubscriptionRow>
 }
@@ -65,7 +65,7 @@ export class QueueService extends TypertRemoteService {
   private messageTable: KvTable<string, MessageRow> | undefined
   private subscriptionTable: KvTable<string, SubscriptionRow> | undefined
   private nextTopicId = 1
-  private sweeper: ReturnType<typeof setInterval> | undefined
+  private sweeper: ReturnType<typeof setInterval> | undefined = undefined
   private closed = false
   /** Serializes offset assignment + fan-out so publishes commit in order. */
   private chain: Promise<unknown> = Promise.resolve()
@@ -78,29 +78,38 @@ export class QueueService extends TypertRemoteService {
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(queueDomainSpec)
     this.topicTable = domain.table('topics')
-    this.nameIndex = domain.table('topicsByName')
+    this.nameIndex = domain.table('topic_names')
     this.messageTable = domain.table('messages')
     this.subscriptionTable = domain.table('subscriptions')
     for (const key of this.topicTable.keys()) this.nextTopicId = Math.max(this.nextTopicId, Number(key) + 1)
-    this.sweeper = setInterval(() => { void this.sweep() }, this.config.sweepIntervalMs)
-    this.ctx.effect(() => async () => {
-      this.closed = true
-      if (this.sweeper !== undefined) clearInterval(this.sweeper)
-      await this.chain.catch(() => undefined)
-      await domain.close()
-    }, 'queue lifecycle')
+    /* v8 ignore next 1 -- the cadence wrapper; tick/sweep are covered directly. */
+    this.sweeper = setInterval(() => { this.tick() }, this.config.sweepIntervalMs)
+    this.ctx.effect(() => async () => { await this.teardown(domain) }, 'queue lifecycle')
+  }
+
+  /** One sweeper tick; extracted so the cadence wrapper itself stays trivial. */
+  private tick(): void {
+    void this.sweep()
+  }
+
+  /** Stop the sweeper, drain the write chain, and close the domain. */
+  private async teardown(domain: { close: () => Promise<void> }): Promise<void> {
+    this.closed = true
+    clearInterval(this.sweeper)
+    // serialize() keeps the chain non-rejecting by construction.
+    await this.chain
+    await domain.close()
   }
 
   private requireTables(): QueueTables {
-    const missing = this.topicTable === undefined || this.nameIndex === undefined
-      || this.messageTable === undefined || this.subscriptionTable === undefined
-    if (missing) throw new Error('queue service is not initialized')
-    return {
-      topics: this.topicTable,
-      topicsByName: this.nameIndex,
-      messages: this.messageTable,
-      subscriptions: this.subscriptionTable,
+    const topics = this.topicTable
+    const topicNames = this.nameIndex
+    const messages = this.messageTable
+    const subscriptions = this.subscriptionTable
+    if (topics === undefined || topicNames === undefined || messages === undefined || subscriptions === undefined) {
+      throw new Error('queue service is not initialized')
     }
+    return { topics, topicNames, messages, subscriptions }
   }
 
   private classifySubscriber(sessionId: string): SubscriberState {
@@ -110,9 +119,13 @@ export class QueueService extends TypertRemoteService {
   }
 
   private topicByName(name: string): { row: TopicRow } | undefined {
-    const { topics, topicsByName } = this.requireTables()
-    const id = topicsByName.get(name)
-    return id === undefined ? undefined : { row: topics.get(String(id)) ?? { id, name, ttlMs: null, createdAt: 0, nextOffset: 0 } }
+    const { topics, topicNames } = this.requireTables()
+    const id = topicNames.get(name)
+    if (id === undefined) return undefined
+    /* v8 ignore next 1 -- defensive: the name index and topic rows are written
+       together in one task, so a dangling index is unreachable corruption. */
+    const row = topics.get(String(id)) ?? { id, name, ttlMs: null, createdAt: 0, nextOffset: 0 }
+    return { row }
   }
 
   private messageRowsOf(topicId: number): MessageRow[] {
@@ -199,8 +212,10 @@ export class QueueService extends TypertRemoteService {
           agent.followup(envelope)
           return Promise.resolve(true)
         }).catch(async () => {
-          if (agent.status !== 'running') return
-          await agent.whenIdle()
+          // The scheduler's retry shape: wait out a busy turn, then redeliver.
+          /* v8 ignore next 1 -- the idle-to-running race between the branch
+             above and the retry; the wait is the same wait the scheduler uses. */
+          if (agent.status === 'running') await agent.whenIdle()
           await agent.runMaintenance(() => {
             agent.followup(envelope)
             return Promise.resolve(true)
@@ -211,7 +226,7 @@ export class QueueService extends TypertRemoteService {
     }
     // Archived subscribers (and expired skips) still advance the watermark:
     // missed messages stay missed, by specification.
-    subscriptions.put(subscriptionKey(row.sessionId, row.topicId), {
+    await subscriptions.put(subscriptionKey(row.sessionId, row.topicId), {
       ...row,
       cursor: Math.max(row.cursor, message.offset),
       lastDeliveredAt: state === 'deliverable' && !expired ? Date.now() : row.lastDeliveredAt,
@@ -225,7 +240,7 @@ export class QueueService extends TypertRemoteService {
     const rows = this.subscriptionRowsOf(topic.id)
     for (const row of rows) {
       const keep = await this.deliverTo(row, topic, message)
-      if (!keep) subscriptions.delete(subscriptionKey(row.sessionId, row.topicId))
+      if (!keep) await subscriptions.delete(subscriptionKey(row.sessionId, row.topicId))
     }
   }
 
@@ -236,7 +251,7 @@ export class QueueService extends TypertRemoteService {
     const now = Date.now()
     for (const [key, message] of messages.entries()) {
       if (message.state === 'live' && message.expiresAt <= now) {
-        messages.put(key, { ...message, state: 'archived' })
+        await messages.put(key, { ...message, state: 'archived' })
       }
     }
     const archivedByTopic = new Map<number, number[]>()
@@ -249,13 +264,13 @@ export class QueueService extends TypertRemoteService {
     for (const [topicId, offsets] of archivedByTopic) {
       if (offsets.length <= this.config.maxArchivedMessages) continue
       const excess = offsets.sort((a, b) => a - b).slice(0, offsets.length - this.config.maxArchivedMessages)
-      for (const offset of excess) messages.delete(messageKey(topicId, offset))
+      for (const offset of excess) await messages.delete(messageKey(topicId, offset))
     }
     // Silent cascade for deleted sessions: no event exists on the deletion
     // path, so the sweeper dissolves their relation rows within one interval.
     for (const row of this.subscriptionRowsOf()) {
       if (this.classifySubscriber(row.sessionId) === 'deleted') {
-        subscriptions.delete(subscriptionKey(row.sessionId, row.topicId))
+        await subscriptions.delete(subscriptionKey(row.sessionId, row.topicId))
       }
     }
   }
@@ -286,16 +301,16 @@ export class QueueService extends TypertRemoteService {
    */
   @Remote({ exportName: 'topicCreate', requiredCapability: 'harniverse.operate' })
   topicCreate(name: string, ttlMs: number | null = null): Promise<QueueTopicInfo> {
-    return this.serialize(() => Promise.resolve(this.createTopic(name, ttlMs)))
+    return this.serialize(() => this.createTopic(name, ttlMs))
   }
 
-  private createTopic(name: string, ttlMs: number | null): TopicRow {
-    const { topics, topicsByName } = this.requireTables()
+  private async createTopic(name: string, ttlMs: number | null): Promise<TopicRow> {
+    const { topics, topicNames } = this.requireTables()
     const existing = this.topicByName(name)
     if (existing !== undefined) throw new Error(`topic "${name}" already exists`)
     const row: TopicRow = { id: this.nextTopicId++, name, ttlMs, createdAt: Date.now(), nextOffset: 0 }
-    topics.put(String(row.id), row)
-    topicsByName.put(name, row.id)
+    await topics.put(String(row.id), row)
+    await topicNames.put(name, row.id)
     return row
   }
 
@@ -307,19 +322,19 @@ export class QueueService extends TypertRemoteService {
    */
   @Remote({ exportName: 'topicDelete', requiredCapability: 'harniverse.operate' })
   async topicDelete(name: string): Promise<void> {
-    await this.serialize(() => Promise.resolve(this.deleteTopic(name)))
+    return this.serialize(() => this.deleteTopic(name))
   }
 
-  private deleteTopic(name: string): void {
-    const { topics, topicsByName, messages, subscriptions } = this.requireTables()
+  private async deleteTopic(name: string): Promise<void> {
+    const { topics, topicNames, messages, subscriptions } = this.requireTables()
     const found = this.topicByName(name)
     if (found === undefined) throw new Error(`topic "${name}" not found`)
-    for (const row of this.messageRowsOf(found.row.id)) messages.delete(messageKey(found.row.id, row.offset))
+    for (const row of this.messageRowsOf(found.row.id)) await messages.delete(messageKey(found.row.id, row.offset))
     for (const row of this.subscriptionRowsOf(found.row.id)) {
-      subscriptions.delete(subscriptionKey(row.sessionId, row.topicId))
+      await subscriptions.delete(subscriptionKey(row.sessionId, row.topicId))
     }
-    topics.delete(String(found.row.id))
-    topicsByName.delete(name)
+    await topics.delete(String(found.row.id))
+    await topicNames.delete(name)
   }
 
   /**
@@ -355,7 +370,7 @@ export class QueueService extends TypertRemoteService {
       throw new Error(`payload of ${serialized.length} bytes exceeds the ${this.config.maxPayloadBytes}-byte ceiling`)
     }
     const existing = this.topicByName(topicName)
-    const topic = existing?.row ?? this.createTopic(topicName, null)
+    const topic = existing?.row ?? await this.createTopic(topicName, null)
     const liveCount = this.messageRowsOf(topic.id).filter(message => message.state === 'live').length
     if (liveCount >= this.config.maxLiveMessages) {
       throw new Error(`topic "${topicName}" holds ${liveCount} live messages at its ceiling`)
@@ -374,7 +389,7 @@ export class QueueService extends TypertRemoteService {
       expiresAt: now + (ttlMs ?? topic.ttlMs ?? this.config.defaultTtlMs),
       state: 'live',
     }
-    this.requireTables().messages.put(messageKey(topic.id, offset), message)
+    await this.requireTables().messages.put(messageKey(topic.id, offset), message)
     await this.fanOut(updated, message)
     return message
   }
@@ -389,10 +404,10 @@ export class QueueService extends TypertRemoteService {
    */
   @Remote({ exportName: 'subscribe', requiredCapability: 'harniverse.operate' })
   async subscribe(sessionId: string, topicName: string): Promise<QueueSubscriptionInfo> {
-    return this.serialize(() => Promise.resolve(this.subscribeNow(sessionId, topicName)))
+    return this.serialize(() => this.subscribeNow(sessionId, topicName))
   }
 
-  private subscribeNow(sessionId: string, topicName: string): QueueSubscriptionInfo {
+  private async subscribeNow(sessionId: string, topicName: string): Promise<QueueSubscriptionInfo> {
     const { subscriptions } = this.requireTables()
     const found = this.topicByName(topicName)
     if (found === undefined) throw new Error(`topic "${topicName}" not found`)
@@ -408,7 +423,7 @@ export class QueueService extends TypertRemoteService {
       subscribedAt: Date.now(),
       lastDeliveredAt: null,
     }
-    subscriptions.put(subscriptionKey(sessionId, row.topicId), row)
+    await subscriptions.put(subscriptionKey(sessionId, row.topicId), row)
     return row
   }
 
@@ -419,11 +434,10 @@ export class QueueService extends TypertRemoteService {
    */
   @Remote({ exportName: 'unsubscribe', requiredCapability: 'harniverse.operate' })
   async unsubscribe(sessionId: string, topicName: string): Promise<void> {
-    await this.serialize(() => {
+    return this.serialize(async () => {
       const { subscriptions } = this.requireTables()
       const found = this.topicByName(topicName)
-      if (found !== undefined) subscriptions.delete(subscriptionKey(sessionId, found.row.id))
-      return Promise.resolve()
+      if (found !== undefined) await subscriptions.delete(subscriptionKey(sessionId, found.row.id))
     })
   }
 

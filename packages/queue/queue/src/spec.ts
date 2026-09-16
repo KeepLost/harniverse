@@ -42,10 +42,10 @@ export const queueDomainSpec = defineDomain({
   version: 1,
   migrateFrom: [],
   tables: {
-    /** Topic records keyed by their numeric id rendered as a string; `topicsByName` holds the unique alias index. */
+    /** Topic records keyed by their numeric id rendered as a string; `topic_names` holds the unique alias index. */
     topics: domainTable<string, z.infer<typeof topicSchema>>(topicSchema),
     /** Unique-name index: topic name -> topic id. */
-    topicsByName: domainTable<string, number>(z.number().int().nonnegative()),
+    topic_names: domainTable<string, number>(z.number().int().nonnegative()),
     /** All messages (live and archived), keyed `topicId#offset`. */
     messages: domainTable<string, z.infer<typeof messageSchema>>(messageSchema),
     /** The subscription relation model, keyed `sessionId#topicId`. */
