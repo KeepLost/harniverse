@@ -23,7 +23,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import { GovernorCenterView } from './GovernorCenterView.tsx'
+import { GovernorCenterView, type GovernorTabsSource } from './GovernorCenterView.tsx'
+import { GovernorResourcesTab } from './GovernorResourcesTab.tsx'
 import { GovernorSettingsSection } from './GovernorSettingsSection.tsx'
 import type { GovernorQuotaSettings } from './GovernorSettingsSection.tsx'
 import { GovernorSidebarAction } from './GovernorSidebarAction.tsx'
@@ -35,7 +36,20 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     /** Governor board copy. */
     'governor': GovernorKey
   }
+  interface SlotMap {
+    /**
+     * One in-page tab of the panel (会话看板) center view. Entries render in
+     * ascending `order` as the tab ring; each renders its own surface when
+     * active. The shell passes nothing: a tab is self-sufficient through its
+     * own inject face (the resources tab holds the governor Remote verbs).
+     */
+    'governor.center.tab': { kind: 'list'; scope: 'root'; owner: GovernorCenterTabOwnerProps }
+  }
 }
+
+/** Owner share of one panel tab: deliberately empty — every tab is self-sufficient. */
+export interface GovernorCenterTabOwnerProps {}
+
 
 export type { GovernorSidebarActionProps, GovernorSidebarFace } from './GovernorSidebarAction.tsx'
 export type { GovernorCenterActions, GovernorCenterViewProps } from './GovernorCenterView.tsx'
@@ -77,19 +91,52 @@ export function apply(ctx: ClientContext): void {
       openView: () => { ctx.layout.setCenterView('governor') },
     }),
   }, GovernorSidebarAction))
+  // The tab ledger over the governor.center.tab registry: same shape as the
+  // conversation view ring (version-keyed subscription, list on render).
+  const t = ctx.locale.bind(NS)
+  const tabs: GovernorTabsSource = {
+    list: () => {
+      const descriptors: { id: string; label: string }[] = []
+      for (const entry of ctx.slots.entries('governor.center.tab')) {
+        /* v8 ignore next 2 -- unreachable: list registration validates id at load. */
+        if (entry.options.id === undefined) continue
+        const label = typeof entry.options.label === 'function' ? entry.options.label() : entry.options.label
+        descriptors.push({ id: entry.options.id, label: label ?? entry.options.id })
+      }
+      return descriptors
+    },
+    subscribe: fn => ctx.slots.subscribe('governor.center.tab', fn),
+    version: () => ctx.slots.getVersion('governor.center.tab'),
+  }
+
   ctx.slots.inject('center.view', () => ctx.slots.register({
     name: 'center.view',
     id: 'governor',
     locale: NS,
     store: viewStore,
+    children: {
+      'governor.center.tab': { kind: 'list', scope: 'root' },
+    },
     inject: () => ({
-      overview: () => ctx.remote.governor.overview(),
-      adjustQuota: (sessionId, memoryBytes) => ctx.remote.governor.sessionQuotaAdjust(sessionId, memoryBytes),
       closeView: () => { ctx.layout.clearCenterView() },
-      pollMs: POLL_MS,
+      tabs,
     }),
   }, GovernorCenterView))
-  const t = ctx.locale.bind(NS)
+
+  // The built-in resources tab: the metering surface this view used to be.
+  ctx.slots.inject('governor.center.tab', () => ctx.slots.register({
+    name: 'governor.center.tab',
+    id: 'resources',
+    order: 10,
+    locale: NS,
+    label: () => t('tab.resources'),
+    inject: () => ({
+      overview: () => ctx.remote.governor.overview(),
+      adjustQuota: (sessionId: string, memoryBytes: number | null) =>
+        ctx.remote.governor.sessionQuotaAdjust(sessionId, memoryBytes),
+      pollMs: POLL_MS,
+    }),
+  }, GovernorResourcesTab))
   const quotaScope = ctx.settingsScope.bind<GovernorQuotaSettings>({ namespace: GOVERNOR_SETTINGS_NS })
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',

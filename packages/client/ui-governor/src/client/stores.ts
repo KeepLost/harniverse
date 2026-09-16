@@ -12,6 +12,8 @@ import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-run
 type GovernorViewState = {
   /** Whether the governor board occupies the center column. */
   open: boolean
+  /** Active in-page tab id (a `governor.center.tab` entry id, resources first). */
+  tab: string
 }
 
 /**
@@ -20,6 +22,7 @@ type GovernorViewState = {
  */
 type GovernorViewActions = {
   setOpen: (draft: GovernorViewState, open: boolean) => void
+  setTab: (draft: GovernorViewState, tab: string) => void
 }
 
 /**
@@ -28,9 +31,10 @@ type GovernorViewActions = {
  */
 export function createGovernorViewStore(): EngineStoreHandle<GovernorViewState, GovernorViewActions> {
   return defineStore({
-    init: (): GovernorViewState => ({ open: false }),
+    init: (): GovernorViewState => ({ open: false, tab: 'resources' }),
     actions: {
       setOpen: (d, open: boolean) => { d.open = open },
+      setTab: (d, tab: string) => { d.tab = tab },
     },
   })
 }

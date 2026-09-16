@@ -120,10 +120,12 @@ describe('ui-governor browser half', () => {
     const { ctx, captured, layoutCalls } = await bench()
     const registration = captured.find(({ options }) => options['id'] === 'governor')
     expect(registration).toBeDefined()
-    const injectFace = registration!.options['inject'] as () => {
+    const shellFace = registration!.options['inject'] as () => { closeView: () => void }
+    const resources = captured.find(({ options }) => options['id'] === 'resources')
+    expect(resources).toBeDefined()
+    const injectFace = resources!.options['inject'] as () => {
       overview: () => Promise<unknown>
       adjustQuota: (sessionId: string, memoryBytes: number | null) => Promise<unknown>
-      closeView: () => void
       pollMs: number
     }
     const calls: unknown[][] = []
@@ -144,7 +146,7 @@ describe('ui-governor browser half', () => {
       ['sessionQuotaAdjust', 'session-z', 1_048_576],
     ])
     expect(verbs.pollMs).toBe(5_000)
-    verbs.closeView()
+    shellFace().closeView()
     expect(layoutCalls).toContain('clear')
   })
 
