@@ -21,4 +21,4 @@ The Trajectory request inspector gains a `Context` tab. A pure derivation (`requ
 
 ## Consequences
 
-The deferred-inspector gap is closed on the Web; the CLI viewing surface remains the suite's last open consumer and is tracked for immediate delivery. Future context-affecting features must extend the derivation (or its fixtures) rather than bypassing it, because the tab is now the user-facing contract for "what did this request see".
+The deferred-inspector gap is closed on both consumers: the Web tab above, and the `/context` slash command (`dsh-command-context`) rendering the inspector manifest for the CLI with per-segment seq provenance. Future context-affecting features must extend the derivation (or its fixtures) rather than bypassing it, because the tab is now the user-facing contract for "what did this request see".

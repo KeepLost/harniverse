@@ -62,6 +62,7 @@
     "@deepseek-ai/dsh-context-snapshot": "workspace:^",
     "@deepseek-ai/dsh-context-nudge": "workspace:^",
     "@deepseek-ai/dsh-context-inspector": "workspace:^",
+    "@deepseek-ai/dsh-command-context": "workspace:^",
     "@deepseek-ai/dsh-credentials-local": "workspace:^",
     "@deepseek-ai/dsh-fs-local": "workspace:^",
     "@deepseek-ai/dsh-fs-observation-policy": "workspace:^",

@@ -198,6 +198,8 @@ flowchart LR
   cfg --> plugin_dsh_base_context_nudge
   plugin_dsh_base_context_inspector["context-inspector<br/>@deepseek-ai/dsh-context-inspector"]
   cfg --> plugin_dsh_base_context_inspector
+  plugin_dsh_base_command_context["command-context<br/>@deepseek-ai/dsh-command-context"]
+  cfg --> plugin_dsh_base_command_context
   plugin_dsh_base_agent_loop["agent-loop<br/>@deepseek-ai/dsh-agent-loop"]
   cfg --> plugin_dsh_base_agent_loop
   plugin_dsh_base_fs_sandbox["fs-sandbox<br/>@deepseek-ai/dsh-fs-sandbox"]
@@ -303,6 +305,7 @@ flowchart LR
 | `context-snapshot` | `@deepseek-ai/dsh-context-snapshot` |
 | `context-nudge` | `@deepseek-ai/dsh-context-nudge` |
 | `context-inspector` | `@deepseek-ai/dsh-context-inspector` |
+| `command-context` | `@deepseek-ai/dsh-command-context` |
 | `agent-loop` | `@deepseek-ai/dsh-agent-loop` |
 | `fs-sandbox` | `@deepseek-ai/dsh-fs-sandbox` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |

@@ -504,6 +504,10 @@
     - id: context-inspector
       name: '@deepseek-ai/dsh-context-inspector'
 
+    # Human `/context`: render the inspector's next-request manifest for the CLI.
+    - id: command-context
+      name: '@deepseek-ai/dsh-command-context'
+
     # Agents created at startup. The base stays empty; raw overlays may create
     # agents, while Web creates sessions on client request.
     - id: agent-loop
