@@ -234,7 +234,7 @@ describe('web e2e: phone form factor', () => {
     // rows (phone sheet regression: content stranded below the fold).
     const scroll = await page.evaluate(() => {
       const options = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] *'))
-        .find(el => el.className.includes('options'))
+        .find(el => (el.getAttribute('class') ?? '').includes('options'))
       if (options === undefined) throw new Error('settings options scroller not found')
       const rect = options.getBoundingClientRect()
       options.scrollTop = options.scrollHeight
