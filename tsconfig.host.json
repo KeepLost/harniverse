@@ -192,6 +192,7 @@
     { "path": "./packages/context/context-snapshot" },
     { "path": "./packages/context/context-nudge" },
     { "path": "./packages/context/context-inspector" },
+    { "path": "./packages/context/command-context" },
     { "path": "./packages/context/context-reset" },
     { "path": "./packages/context/command-reset" },
     { "path": "./packages/context/harness-source" },

@@ -62,6 +62,9 @@ function preview(content: readonly ContentBlock[]): string {
  * fold, and the shared token meter). Nothing here mutates or wakes anything.
  */
 export class ContextInspector extends Service {
+  /** Services the read-only projection reads; declared so cross-fiber callers route legally. */
+  static inject = ['systemPrompt', 'tokenMeter']
+
   /**
    * Create the process-local inspector registry.
    * @param ctx - Cordis context that owns assembly and metering.

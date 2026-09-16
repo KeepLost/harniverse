@@ -3829,11 +3829,12 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-workflow-run`（[`packages/client/ui-workflow-run/src/index.ts`](../packages/client/ui-workflow-run/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-workspace`（[`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts)）
 - `@deepseek-ai/dsh-command-compact` — 需要 `commands`（[`packages/compaction/command-compact/src/index.ts`](../packages/compaction/command-compact/src/index.ts)）
+- `@deepseek-ai/dsh-command-context` — 需要 `commands`（[`packages/context/command-context/src/index.ts`](../packages/context/command-context/src/index.ts)）
 - `@deepseek-ai/dsh-command-feedback` — 需要 `commands`（[`packages/feedback/command-feedback/src/index.ts`](../packages/feedback/command-feedback/src/index.ts)）
 - `@deepseek-ai/dsh-command-goal` — 需要 `commands` · `goals`（[`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts)）
 - `@deepseek-ai/dsh-command-reset` — 需要 `commands`（[`packages/context/command-reset/src/index.ts`](../packages/context/command-reset/src/index.ts)）
 - `@deepseek-ai/dsh-commands`（[`packages/interaction/commands/src/index.ts`](../packages/interaction/commands/src/index.ts)）
-- `@deepseek-ai/dsh-context-inspector`（[`packages/context/context-inspector/src/index.ts`](../packages/context/context-inspector/src/index.ts)）
+- `@deepseek-ai/dsh-context-inspector` — 需要 `systemPrompt` · `tokenMeter`（[`packages/context/context-inspector/src/index.ts`](../packages/context/context-inspector/src/index.ts)）
 - `@deepseek-ai/dsh-context-reset` — 需要 `sessions`（[`packages/context/context-reset/src/index.ts`](../packages/context/context-reset/src/index.ts)）
 - `@deepseek-ai/dsh-context-snapshot` — 需要 `agents` · `systemPrompt`（[`packages/context/context-snapshot/src/index.ts`](../packages/context/context-snapshot/src/index.ts)）
 - `@deepseek-ai/dsh-cordis-client-runner`（[`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts)）
