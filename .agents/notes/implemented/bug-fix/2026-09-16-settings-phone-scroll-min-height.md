@@ -6,7 +6,7 @@ English | [中文](2026-09-16-settings-phone-scroll-min-height.zh.md)
 
 - Date: 2026-09-16
 - Scope: `@deepseek-ai/dsh-client-ui-settings-general` (SettingsRoot shell CSS)
-- PR: to record (fill the merge SHA after the fix PR lands)
+- PR: #4c53c1d03a (merge)
 
 ## Problem
 

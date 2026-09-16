@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-16-settings-phone-scroll-min-height.md
-2026-09-16-settings-phone-scroll-min-height.md: 9a25136ea684367839a5082bbf801ecf63b28ceb
-2026-09-16-settings-phone-scroll-min-height.zh.md: da944341b81d7603a23553117111796eaa146210
+2026-09-16-settings-phone-scroll-min-height.md: 2c332ca7de33fdbdba2076dc502e706c4e532562
+2026-09-16-settings-phone-scroll-min-height.zh.md: 5dd2dc06481b512cd1126c4b61320d76b04446a5
