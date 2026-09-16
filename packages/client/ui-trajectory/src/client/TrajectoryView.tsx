@@ -480,6 +480,7 @@ export function TrajectoryView({
       <div className={css.ledger}>
         <TrajectoryTable
           requestNumbers={requestNumbers}
+          contextNodes={nodes}
           turns={timelineTurns}
           streamingCells={streamingCells}
           timelineFocusIndexes={timelineFocusIndexes}
