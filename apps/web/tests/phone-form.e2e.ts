@@ -229,6 +229,29 @@ describe('web e2e: phone form factor', () => {
     const cubeBox = (await cube.boundingBox())!
     expect(cubeBox.width).toBeGreaterThan(PHONE.width * 0.7)
 
+    // The options column is the scroller, not an overflow the panel clips: it
+    // ends inside the viewport and its own scroll range reaches the clipped
+    // rows (phone sheet regression: content stranded below the fold).
+    const scroll = await page.evaluate(() => {
+      const options = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] *'))
+        .find(el => el.className.includes('options'))
+      if (options === undefined) throw new Error('settings options scroller not found')
+      const rect = options.getBoundingClientRect()
+      options.scrollTop = options.scrollHeight
+      return {
+        bottom: rect.bottom,
+        innerHeight: window.innerHeight,
+        scrollHeight: options.scrollHeight,
+        clientHeight: options.clientHeight,
+        maxScrollTop: options.scrollHeight - options.clientHeight,
+        scrollTopAfter: options.scrollTop,
+      }
+    })
+    expect(scroll.bottom).toBeLessThanOrEqual(scroll.innerHeight + 1)
+    expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight)
+    expect(scroll.scrollTopAfter).toBe(scroll.maxScrollTop)
+    expect(scroll.maxScrollTop).toBeGreaterThan(0)
+
     await dialog.getByRole('button', { name: '关闭' }).click()
     await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
   })
