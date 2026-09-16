@@ -46,7 +46,10 @@
     "access": "public"
   },
   "files": [
-    "lib",
+    "lib/index.js",
+    "lib/invariant.js",
+    "lib/client.js",
+    "lib/types/**/*.d.ts",
     "README.md",
     "README.zh.md",
     "README.i18n.yaml"
