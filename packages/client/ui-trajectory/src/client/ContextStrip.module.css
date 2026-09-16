@@ -4,7 +4,7 @@
   align-items: center;
   gap: 8px;
   padding: 4px 12px;
-  border-top: 1px solid var(--dsw-alias-border-l-weak, var(--dsw-alias-border-l));
+  border-top: 1px solid var(--dsw-alias-border-l2);
   min-height: 30px;
 }
 
@@ -55,7 +55,7 @@
     transparent 2px,
     transparent 4px
   );
-  outline: 1px solid var(--dsw-alias-border-l-weak, var(--dsw-alias-border-l));
+  outline: 1px solid var(--dsw-alias-border-l2);
 }
 
 .empty {
