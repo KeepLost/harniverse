@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-/** Request context derivation and its panel wiring in the trajectory ledger. */
+/** Live context derivation and its ContextStrip band under the Trajectory ledger. */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
 import { deriveRequestContext } from '../src/client/request-context.ts'
-import { RequestContextPanel } from '../src/client/RequestContextPanel.tsx'
+import { ContextStrip, type ContextStripSegment } from '../src/client/ContextStrip.tsx'
 import { TrajectoryTable } from '../src/client/TrajectoryTable.tsx'
 import type { TrajectoryTurnModel } from '../src/client/layout.ts'
 
@@ -81,30 +81,37 @@ describe('deriveRequestContext', () => {
   })
 })
 
-describe('RequestContextPanel', () => {
-  it('renders one locating row per segment and reports clicks', () => {
+describe('ContextStrip', () => {
+  const SEGMENTS = [
+    { kind: 'summary' as const, seq: 5, role: 'compaction', shadowedItemCount: 3 },
+    { kind: 'message' as const, seq: 6, role: 'user' },
+  ]
+  const DESCRIBE = (segment: ContextStripSegment): string =>
+    segment.kind === 'summary' ? `summary #${segment.seq}` : `message #${segment.seq}`
+
+  it('renders one block per segment and reports clicks by seq', () => {
     const onLocate = vi.fn()
-    render(<RequestContextPanel
-      segments={[
-        { kind: 'summary', seq: 5, role: 'compaction', shadowedItemCount: 3, shadowedTokenCount: 900 },
-        { kind: 'message', seq: 6, role: 'user' },
-      ]}
+    render(<ContextStrip
+      segments={SEGMENTS}
       onLocate={onLocate}
+      title="Current context"
+      describe={DESCRIBE}
     />)
-    fireEvent.click(screen.getByTitle('Locate #5 in the trajectory'))
-    expect(onLocate).toHaveBeenCalledWith(5)
-    fireEvent.click(screen.getByTitle('Locate #6 in the trajectory'))
+    const blocks = screen.getAllByRole('button')
+    expect(blocks).toHaveLength(2)
+    expect(screen.getByRole('button', { name: 'summary #5' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'message #6' }))
     expect(onLocate).toHaveBeenCalledWith(6)
-    expect(screen.getByText('replaced 3 items (~900 tokens)')).toBeTruthy()
   })
 
-  it('states an empty composition plainly', () => {
-    render(<RequestContextPanel segments={[]} onLocate={() => {}} />)
-    expect(screen.getByText('No context items before this request.')).toBeTruthy()
+  it('renders an empty band with the caption for an empty context', () => {
+    render(<ContextStrip segments={[]} onLocate={() => {}} title="Current context" describe={DESCRIBE} />)
+    expect(screen.getByTestId('context-strip')).toBeTruthy()
+    expect(screen.queryAllByRole('button')).toHaveLength(0)
   })
 })
 
-describe('TrajectoryTable request context tab', () => {
+describe('TrajectoryTable inspectSeq handoff', () => {
   const FOLD_PROPS = {
     collapsedTurns: new Set<number>(),
     onToggleTurn: () => {},
@@ -112,55 +119,19 @@ describe('TrajectoryTable request context tab', () => {
     onToggleAssistant: () => {},
   }
 
-  const TURNS: readonly TrajectoryTurnModel[] = [{
-    turn: 1,
-    groups: [{
-      title: 'Step 1',
-      cells: [{
-        index: 1,
-        kind: 'message',
-        sourceSeq: 3,
-        text: 'after compaction',
-        timeSeconds: 0.5,
+  it('opens and scrolls to the record owning the requested seq', async () => {
+    const TURNS: readonly TrajectoryTurnModel[] = [{
+      turn: 1,
+      groups: [{
+        title: 'Step 1',
+        cells: [{ index: 1, kind: 'message', sourceSeq: 7, text: 'target row', timeSeconds: 0.1 }],
       }],
-    }],
-  }]
-
-  function renderTable(): void {
-    render(<TrajectoryTable
-      turns={TURNS}
-      requestNumbers={[{
-        seq: 4,
-        turn: 1,
-        step: 1,
-        group: 'Step 1',
-        number: 1,
-      }]}
-      contextNodes={[
-        node({ kind: 'user', seq: 1 }),
-        node({
-          kind: 'compaction', seq: 2, summary: 'summarized',
-          summaryEventSeq: 2, shadowedItemCount: 1, shadowedTokenCount: 10,
-        }),
-        node({ kind: 'user', seq: 3 }),
-      ]}
-      {...FOLD_PROPS}
-    />)
-  }
-
-  it('derives the composition for the selected request and locates a segment row', () => {
-    const scrollIntoView = vi.fn()
-    HTMLElement.prototype.scrollIntoView = scrollIntoView
-    renderTable()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Request #1' }))
-    fireEvent.click(screen.getByRole('tab', { name: 'Context' }))
-
-    const rows = screen.getAllByTitle(/Locate #/)
-    expect(rows).toHaveLength(2)
-    expect(screen.getByText('replaced 1 item (~10 tokens)')).toBeTruthy()
-
-    fireEvent.click(screen.getByTitle('Locate #3 in the trajectory'))
-    expect(scrollIntoView).toHaveBeenCalledWith(expect.objectContaining({ block: 'center' }))
+    }]
+    const applied = vi.fn()
+    render(<TrajectoryTable turns={TURNS} inspectSeq={7} onInspectApplied={applied} {...FOLD_PROPS} />)
+    await waitFor(() => {
+      expect(screen.getAllByText('target row').length).toBeGreaterThanOrEqual(2)
+    })
+    expect(applied).toHaveBeenCalled()
   })
 })

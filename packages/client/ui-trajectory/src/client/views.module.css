@@ -26,3 +26,33 @@
   /* ConversationRoot publishes the floating composer's live height. */
   --dsh-trajectory-bottom-clearance: calc(var(--dsh-composer-height, 152px) + 16px);
 }
+
+.contextPage {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.contextHeader {
+  padding: 12px 16px 4px;
+}
+
+.contextHeader h2 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.contextHeader p {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.contextUnavailable {
+  margin: 0;
+  padding: 16px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-dimmed);
+}

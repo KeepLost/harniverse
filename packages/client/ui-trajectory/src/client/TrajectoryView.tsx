@@ -24,6 +24,8 @@ import {
   type TrajectoryTimeRange,
 } from './timeline.ts'
 import { trajectoryRecordId } from './trajectory-record.ts'
+import { ContextStrip } from './ContextStrip.tsx'
+import { deriveRequestContext } from './request-context.ts'
 import { TrajectorySearchIndex } from './trajectory-search-index.ts'
 import { EMPTY_TRAJECTORY_SNAPSHOT } from './trajectory-snapshot-builder.ts'
 import css from './views.module.css'
@@ -122,6 +124,7 @@ export function TrajectoryView({
   useSession, useDuration, loadOlder, setActualDuration, openSubagent,
   inspect, onInspectDone, t,
 }: ConvViewProps & InjectFace<TrajectoryViewInjected> & PropsLocale<'trajectory'>) {
+  const [contextLocateSeq, setContextLocateSeq] = useState<number | null>(null)
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_TURN_IDS)
   const [collapsedAssistants, setCollapsedAssistants] =
     useState<ReadonlySet<string>>(EMPTY_RECORD_IDS)
@@ -146,6 +149,8 @@ export function TrajectoryView({
   const olderHistoryLoading = useSession(snapshot => snapshot.loadingOlder)
   const hasOlderHistory = useSession(snapshot => snapshot.hasMore)
   const nodes = inspection.eventNodes
+  const contextSegments = useMemo(
+    () => deriveRequestContext(nodes, undefined), [nodes])
   const eventLocations = inspection.eventLocations
   const historyBaseSeq = nodes[0]?.seq ?? 0
   const partial = inspection.partial
@@ -480,7 +485,6 @@ export function TrajectoryView({
       <div className={css.ledger}>
         <TrajectoryTable
           requestNumbers={requestNumbers}
-          contextNodes={nodes}
           turns={timelineTurns}
           streamingCells={streamingCells}
           timelineFocusIndexes={timelineFocusIndexes}
@@ -500,8 +504,17 @@ export function TrajectoryView({
           collapsedAssistants={collapsedAssistants}
           onToggleAssistant={toggleAssistant}
           inspectCallId={inspect?.callId ?? null}
-          onInspectApplied={onInspectDone}
+          inspectSeq={contextLocateSeq}
+          onInspectApplied={() => { setContextLocateSeq(null); onInspectDone?.() }}
           onOpenSubagent={openSubagent}
+        />
+        <ContextStrip
+          segments={contextSegments}
+          onLocate={setContextLocateSeq}
+          title={t('context.strip')}
+          describe={segment => segment.kind === 'summary'
+            ? `${t('context.compaction')} #${segment.seq} · ${t('context.replaced')} ${segment.shadowedItemCount ?? '?'}`
+            : `${t('context.locate')} #${segment.seq} · ${segment.role}`}
         />
       </div>
     </div>

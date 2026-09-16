@@ -1,4 +1,4 @@
-# Agent Note: Trajectory request Context tab — model-visible composition with seq navigation
+# Agent Note: Trajectory current-context strip — live composition blocks with seq navigation
 
 Status: implemented
 
@@ -12,12 +12,12 @@ The context-management suite shipped the server-side audit manifest (`ctx.contex
 
 ## Decision
 
-The Trajectory request inspector gains a `Context` tab. A pure derivation (`request-context.ts`) walks the assembled `ConversationNode`s before the request's anchor seq: every live surface item (user, assistant, tool, steering, context injections) becomes one segment, and each landed `CompactionSummaryNode` absorbs the items it replaced into a single summary segment carrying its recorded item and token counts. Segment rows navigate the ledger by `sourceSeq` through the existing record-identity path, so every context entry links to its trajectory row. The streaming request (no anchor yet) derives the full current window. No runtime, host, or event-format change: composition is a replayable projection of data the ledger already holds.
+A `Current context` strip renders under the Trajectory ledger: a horizontal band of equal-width blocks, one per live model-visible surface item (user, assistant, tool, steering, context injections), landed compaction summaries in a distinct striped style. The strip always mirrors the current window — a pure derivation (`request-context.ts`) over the assembled `ConversationNode`s with no anchor — so it changes the moment the context changes and never tracks ledger selection. Clicking a block hands its `sourceSeq` to the ledger's one-shot inspect path, opening and scrolling to the owning record above. No runtime, host, or event-format change: composition is a replayable projection of data the ledger already holds.
 
 ## Alternatives considered
 
 - Exposing the server manifest over a new HTTP/RPC endpoint: rejected — the composition is derivable client-side from the session log, and a wire surface would duplicate the one authoritative derivation the inspector already pins.
-- Rendering the panel inline in ledger rows: rejected — the request details inspector already owns per-request composition views (Options/Usage/Timing); the tab is the native seam.
+- A standalone conversation-view tab and a request-details `Context` tab were each built and then withdrawn per owner direction: the strip under the ledger is the specified surface — the context viewable in place, each block jumping the log above.
 
 ## Consequences
 

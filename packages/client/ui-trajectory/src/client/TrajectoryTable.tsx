@@ -14,7 +14,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { structuredPatch } from 'diff'
 import type {
-  AssistantRequestConfig, ConversationNode, ConversationPromptSnapshot, SessionId,
+  AssistantRequestConfig, ConversationPromptSnapshot, SessionId,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   AssistantMetricDetail, TrajectoryCellKind, TrajectoryCellProps, TrajectorySourceBlock,
@@ -26,8 +26,6 @@ import {
 import type { TrajectoryVirtualRow } from './trajectory-virtual-rows.ts'
 import type { TrajectoryTurnModel } from './layout.ts'
 import { trajectoryPreviewText } from './trajectory-preview.ts'
-import { deriveRequestContext } from './request-context.ts'
-import { RequestContextPanel } from './RequestContextPanel.tsx'
 import css from './TrajectoryTable.module.css'
 
 const BOTTOM_FOLLOW_THRESHOLD_PX = 2
@@ -167,7 +165,6 @@ type DetailTab =
   | 'options'
   | 'usage'
   | 'timing'
-  | 'context'
   | 'diff'
 type RecordState = 'complete' | 'running' | 'error'
 
@@ -217,11 +214,8 @@ const SYSTEM_UPDATE_TABS: readonly DetailTabItem[] = [
   { id: 'diff', label: 'Diff' },
   ...SYSTEM_PROMPT_TABS,
 ]
-const EMPTY_CONTEXT_NODES: readonly ConversationNode[] = []
-
 const REQUEST_TABS: readonly DetailTabItem[] = [
   { id: 'overview', label: 'Summary' },
-  { id: 'context', label: 'Context' },
   { id: 'options', label: 'Options' },
   { id: 'usage', label: 'Usage' },
   { id: 'timing', label: 'Timing' },
@@ -353,8 +347,6 @@ function AssistantTimingPanel({ metrics }: { metrics: AssistantMetricDetail }) {
 export interface TrajectoryTableProps {
   /** Session-global request numbers for the request groups visible in this context. */
   requestNumbers?: readonly TrajectoryRequestNumber[]
-  /** Assembled conversation nodes used to derive request context composition. */
-  contextNodes?: readonly ConversationNode[]
   /** Grouped records in display order. */
   turns: readonly TrajectoryTurnModel[]
   /** In-flight cells whose content replaces the matching structural record index. */
@@ -393,6 +385,8 @@ export interface TrajectoryTableProps {
   onToggleAssistant: (id: string) => void
   /** One-shot cross-view inspect: open and scroll to this call's record. */
   inspectCallId?: string | null
+  /** One-shot cross-view inspect: open and scroll to the record owning this surface seq. */
+  inspectSeq?: number | null
   /** Acknowledge a consumed (or unresolvable) inspect request. */
   onInspectApplied?: (() => void) | undefined
   /** Open the complete history of a child created by a delegation tool. */
@@ -1707,7 +1701,6 @@ function OverviewSection({
  */
 export function TrajectoryTable({
   requestNumbers: sessionRequestNumbers,
-  contextNodes = EMPTY_CONTEXT_NODES,
   turns,
   streamingCells = [],
   timelineFocusIndexes = null,
@@ -1727,6 +1720,7 @@ export function TrajectoryTable({
   collapsedAssistants,
   onToggleAssistant,
   inspectCallId = null,
+  inspectSeq = null,
   onInspectApplied,
   onOpenSubagent,
 }: TrajectoryTableProps) {
@@ -1927,12 +1921,6 @@ export function TrajectoryTable({
   )
   const selectedRequestCumulativeUsage =
     selectedRequestInfo?.cumulativeUsage ?? selectedRequestUsage
-  const selectedRequestContext = useMemo(
-    () => selectedRequestInfo === undefined
-      ? []
-      : deriveRequestContext(contextNodes, selectedRequestInfo.seq),
-    [contextNodes, selectedRequestInfo],
-  )
   const selectedRequestOptions = selectedRequestInfo?.requestConfig
   const activeTurn = selectedRequest === null ? selected?.turn : selectedRequest.turn
   const activeSection = selectedRequest === null
@@ -1970,27 +1958,6 @@ export function TrajectoryTable({
     : {
       '--trajectory-tool-request-width': `calc(58cqw - ${toolRequestOffset}px)`,
     }
-
-  const locateContextSeq = useCallback((seq: number) => {
-    const target = records.find(record =>
-      record.collapsedSummary === undefined && record.cell.sourceSeq === seq)
-    if (target === undefined) return
-    const id = trajectoryRecordId(target.cell)
-    if (virtualizationEnabled) {
-      const virtualIndex = virtualIndexByRecordId.get(id)
-      if (virtualIndex === undefined) return
-      followsTableTail.current = false
-      rowVirtualizer.scrollToIndex(virtualIndex, { behavior: 'smooth', align: 'center' })
-      return
-    }
-    followsTableTail.current = false
-    const row = rootRef.current?.querySelector<HTMLElement>(
-      `tr[data-record-index="${target.cell.index}"]`)
-    /* v8 ignore next -- jsdom lacks scrollIntoView; browsers always have it. */
-    if (row !== undefined && row !== null && typeof row.scrollIntoView === 'function') {
-      row.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
-  }, [records, rowVirtualizer, virtualIndexByRecordId, virtualizationEnabled])
 
   const activateTab = (tab: DetailTab) => {
     tabHistory.current.delete(tab)
@@ -2086,6 +2053,15 @@ export function TrajectoryTable({
     pendingScrollRecordId.current = trajectoryRecordId(target.cell)
     onInspectApplied?.()
   }, [inspectCallId, turns, onInspectApplied])
+  useEffect(() => {
+    if (inspectSeq === null) return
+    const target = flattenRecords(turns).find(record =>
+      record.collapsedSummary === undefined && record.cell.sourceSeq === inspectSeq)
+    if (target === undefined) return
+    openRecordSummaryRef.current(target)
+    pendingScrollRecordId.current = trajectoryRecordId(target.cell)
+    onInspectApplied?.()
+  }, [inspectSeq, turns, onInspectApplied])
   useEffect(() => {
     const id = pendingScrollRecordId.current
     if (id === null) return
@@ -2869,12 +2845,6 @@ export function TrajectoryTable({
                   </OverviewSection>
                 </div>
               </>
-            )}
-            {selectedRequest !== null && activeTab === 'context' && (
-              <RequestContextPanel
-                segments={selectedRequestContext}
-                onLocate={locateContextSeq}
-              />
             )}
             {selectedRequest !== null && activeTab === 'options' && (
               <RequestOptions options={selectedRequestOptions} />

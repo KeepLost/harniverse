@@ -17,7 +17,7 @@ Scope: `packages/client/ui-trajectory`
 ## Alternatives considered
 
 - 通过新增 HTTP/RPC 端点暴露服务端清单:否决——组成可在客户端从会话日志推导,线上接口会复制检查器已钉死的唯一权威推导。
-- 在账本行内渲染面板:否决——请求详情检查器已拥有按请求的组合视图(Options/Usage/Timing),标签页是原生缝。
+- 独立会话视图页与请求详情 `Context` 标签均曾实现并按所有者指示撤回:账本下方的方块条才是规格所在——上下文就地可见,每个方块跳转上方日志。
 
 ## Consequences
 
