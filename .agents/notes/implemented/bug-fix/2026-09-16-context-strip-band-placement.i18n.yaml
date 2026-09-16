@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-16-context-strip-band-placement.md
+2026-09-16-context-strip-band-placement.md: 642fe85cca28e12827b1d43753d53776592970fe
+2026-09-16-context-strip-band-placement.zh.md: de014eb3281e7886a7a77f659fd92f8c24cf7e94
