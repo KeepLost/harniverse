@@ -746,6 +746,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'contextInspector',
+    summary: 'Read-only projection service over the same assembly primitives the agent loop uses (`systemPrompt.assemble`, `renderPrompt`, the session surface fold, and the shared token meter).',
+    description: 'Read-only projection service over the same assembly primitives the agent loop uses (`systemPrompt.assemble`, `renderPrompt`, the session surface fold, and the shared token meter). Nothing here mutates or wakes anything.',
+    methods: [
+      {
+        signature: 'async manifest(agent: Agent, signal?: AbortSignal): Promise<ContextManifest>',
+        description: 'Project one agent\'s next request surface for audit.',
+        parameters: [{ name: 'agent', description: 'the agent whose session and prompt assembly are inspected.' }, { name: 'signal', description: 'optional cancellation forwarded to prompt assembly.' }],
+        returns: 'the ordered manifest with per-segment provenance.',
+      },
+    ],
+  },
+  {
     key: 'contextReset',
     summary: 'Whole-surface context reset.',
     description: 'Whole-surface context reset. A successful run replaces every current surface node with one checkpoint marker and leaves the shadowed history in the log. Load one instance per context as `ctx.contextReset`.',
@@ -4104,6 +4117,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ContextFormed',
     declaration: 'export type ContextFormed = {\n    readonly form?: never;\n} | {\n    readonly form: \'instructions\';\n} | {\n    readonly form: \'catalog\';\n} | {\n    readonly form: \'snapshot\';\n    readonly sections: readonly ContextSnapshotSection[];\n    readonly partial?: true;\n} | {\n    readonly form: \'notice\';\n    readonly summary: string;\n} | {\n    readonly form: \'relay\';\n} | {\n    readonly form: \'recall\';\n} | {\n    readonly form: \'system-injection\';\n};',
+  },
+  {
+    name: 'ContextManifest',
+    declaration: 'export interface ContextManifest {\n    readonly segments: readonly ContextManifestSegment[];\n    readonly tools: readonly string[];\n    readonly totalTokens: number;\n}',
+  },
+  {
+    name: 'ContextManifestSegment',
+    declaration: 'export interface ContextManifestSegment {\n    readonly plane: \'system\' | \'conversation\';\n    readonly kind: string;\n    readonly text: string;\n    readonly tokens: number;\n    readonly seq?: number;\n    readonly shadowedSeqs?: readonly number[];\n}',
   },
   {
     name: 'ContextResetResult',

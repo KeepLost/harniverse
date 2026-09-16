@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Registers the root-owned `compaction` Settings namespace. The optional `thresholdRatio` value overrides the automatic pressure threshold for every Agent Profile on its next compaction decision. When the value is absent, each Profile's compaction provider keeps its composed threshold.
+Registers the root-owned `compaction` Settings namespace. The optional `thresholdRatio` value overrides the automatic pressure threshold for every Agent Profile on its next compaction decision. The namespace also carries the context-nudge policy — `nudgeEnabled`, `nudgeThresholdTokens` (first notice at this absolute token occupancy), and `nudgeRefireDeltaTokens` (growth required before the next notice; must be smaller than the threshold or the override is ignored) — consumed by [`@deepseek-ai/dsh-context-nudge`](../../context/context-nudge/README.md) and exposed on the Web settings compaction card. When the value is absent, each Profile's compaction provider keeps its composed threshold.
 
 Exact provider/model policies remain higher priority than this global override. The supported range is `0.17` through `1`; the lower bound stays above the default `0.16` retention ratio. A Profile whose ratio-based retention is at or above the global threshold keeps its own valid threshold instead of disabling compaction.
 

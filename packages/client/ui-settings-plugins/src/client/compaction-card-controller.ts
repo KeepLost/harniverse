@@ -16,12 +16,20 @@ export const COMPACTION_NS = 'compaction'
 export interface CompactionSettings {
   /** Automatic pressure threshold as a context-window ratio. */
   thresholdRatio?: number
+  /** First context-nudge notice threshold, in estimated framed tokens. */
+  nudgeThresholdTokens?: number
+  /** Growth between context-nudge notices, in estimated framed tokens. */
+  nudgeRefireDeltaTokens?: number
 }
 
 /** What the compaction card renders. */
 export interface CompactionCardState extends CardShell {
   /** Pressure threshold rendered as an integer percentage. */
   thresholdPercent: CardFieldState
+  /** First context-nudge notice threshold, in tokens. */
+  nudgeThresholdTokens: CardFieldState
+  /** Growth between context-nudge notices, in tokens. */
+  nudgeRefireDeltaTokens: CardFieldState
 }
 
 /** The registration-side face the compaction card's slot entry injects. */
@@ -46,6 +54,22 @@ const thresholdField: CardFieldSpec = {
   },
 }
 
+/** Convert a positive whole-token override to and from the shown integer. */
+function tokenField(field: 'nudgeThresholdTokens' | 'nudgeRefireDeltaTokens'): CardFieldSpec {
+  return {
+    field,
+    format: value => typeof value === 'number' ? String(value) : '',
+    parse: (text) => {
+      const trimmed = text.trim()
+      if (trimmed === '') return { kind: 'clear' }
+      const tokens = Number(trimmed)
+      return Number.isSafeInteger(tokens) && tokens >= 1
+        ? { kind: 'set', value: tokens }
+        : undefined
+    },
+  }
+}
+
 /** Bridges the `compaction` scope onto the card's staged percentage form. */
 export class CompactionCardController {
   private readonly form: CardForm<CompactionSettings>
@@ -53,7 +77,7 @@ export class CompactionCardController {
 
   /** @param scope - the bound settings scope for the `compaction` namespace. */
   constructor(scope: SettingsScope<CompactionSettings>) {
-    this.form = new CardForm(scope, [thresholdField])
+    this.form = new CardForm(scope, [thresholdField, tokenField('nudgeThresholdTokens'), tokenField('nudgeRefireDeltaTokens')])
     this.store = this.form.bind(() => this.projection())
   }
 
@@ -61,6 +85,8 @@ export class CompactionCardController {
     return {
       ...this.form.shell(),
       thresholdPercent: this.form.field('thresholdRatio'),
+      nudgeThresholdTokens: this.form.field('nudgeThresholdTokens'),
+      nudgeRefireDeltaTokens: this.form.field('nudgeRefireDeltaTokens'),
     }
   }
 

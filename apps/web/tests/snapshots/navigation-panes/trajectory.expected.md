@@ -52,3 +52,22 @@
     - tab "Schema"
     - tab "Timing"
   - tabpanel "Result": NAVIGATION_OK
+- region "Current context (8)":
+  - text: Current context
+  - list:
+    - listitem:
+      - 'button "Locate message #1 · user"'
+    - listitem:
+      - 'button "Locate message #133 · assistant"'
+    - listitem:
+      - 'button "Locate message #135 · tool"'
+    - listitem:
+      - 'button "Locate message #138 · tool"'
+    - listitem:
+      - 'button "Locate message #139 · tool"'
+    - listitem:
+      - 'button "Locate message #203 · assistant"'
+    - listitem:
+      - 'button "Locate message #207 · user"'
+    - listitem:
+      - 'button "Locate message #250 · assistant"'

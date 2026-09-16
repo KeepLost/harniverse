@@ -677,6 +677,12 @@ Requires: `settings`
 export interface CompactionSettings {
   /** Automatic pressure threshold as a context-window ratio. */
   thresholdRatio?: number
+  /** Whether the context-nudge consumer delivers pressure notices. */
+  nudgeEnabled?: boolean
+  /** First context-nudge notice threshold, in estimated framed tokens. */
+  nudgeThresholdTokens?: number
+  /** Growth between context-nudge notices, in estimated framed tokens. */
+  nudgeRefireDeltaTokens?: number
 }
 ```
 
@@ -701,6 +707,26 @@ export interface ToolResultPruneConfig {
 ```
 
 Source: [`packages/compaction/compaction-tool-result-pruner/src/types.ts:4`](../packages/compaction/compaction-tool-result-pruner/src/types.ts)
+
+<a id="deepseek-aidsh-context-nudge"></a>
+
+## `@deepseek-ai/dsh-context-nudge`
+
+Requires: `agents` · `systemPrompt` · `tokenMeter`
+
+```ts config-catalog
+/** Composition-level defaults; live user overrides arrive through settings. */
+export interface ContextNudgeConfig {
+  /** First-notice threshold in estimated framed tokens. */
+  thresholdTokens?: number
+  /** Growth between notices in estimated framed tokens. */
+  refireDeltaTokens?: number
+  /** Whether notices are delivered at all. */
+  enabled?: boolean
+}
+```
+
+Source: [`packages/context/context-nudge/src/index.ts:33`](../packages/context/context-nudge/src/index.ts)
 
 <a id="deepseek-aidsh-cordis-host-runner"></a>
 
@@ -3800,10 +3826,12 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-workflow-run` ([`packages/client/ui-workflow-run/src/index.ts`](../packages/client/ui-workflow-run/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-workspace` ([`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts))
 - `@deepseek-ai/dsh-command-compact` — requires `commands` ([`packages/compaction/command-compact/src/index.ts`](../packages/compaction/command-compact/src/index.ts))
+- `@deepseek-ai/dsh-command-context` — requires `commands` ([`packages/context/command-context/src/index.ts`](../packages/context/command-context/src/index.ts))
 - `@deepseek-ai/dsh-command-feedback` — requires `commands` ([`packages/feedback/command-feedback/src/index.ts`](../packages/feedback/command-feedback/src/index.ts))
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))
 - `@deepseek-ai/dsh-command-reset` — requires `commands` ([`packages/context/command-reset/src/index.ts`](../packages/context/command-reset/src/index.ts))
 - `@deepseek-ai/dsh-commands` ([`packages/interaction/commands/src/index.ts`](../packages/interaction/commands/src/index.ts))
+- `@deepseek-ai/dsh-context-inspector` — requires `systemPrompt` · `tokenMeter` ([`packages/context/context-inspector/src/index.ts`](../packages/context/context-inspector/src/index.ts))
 - `@deepseek-ai/dsh-context-reset` — requires `sessions` ([`packages/context/context-reset/src/index.ts`](../packages/context/context-reset/src/index.ts))
 - `@deepseek-ai/dsh-context-snapshot` — requires `agents` · `systemPrompt` ([`packages/context/context-snapshot/src/index.ts`](../packages/context/context-snapshot/src/index.ts))
 - `@deepseek-ai/dsh-cordis-client-runner` ([`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts))
@@ -3834,7 +3862,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-terminal` ([`packages/terminal/terminal/src/index.ts`](../packages/terminal/terminal/src/index.ts))
 - `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userQuestions` ([`packages/interaction/tool-ask-user/src/index.ts`](../packages/interaction/tool-ask-user/src/index.ts))
 - `@deepseek-ai/dsh-tool-call-timeout-policy` — requires `tools` ([`packages/guard/timeout-policy/src/index.ts`](../packages/guard/timeout-policy/src/index.ts))
-- `@deepseek-ai/dsh-tool-compaction` — requires `tools` · `compaction` ([`packages/compaction/tool-compaction/src/index.ts`](../packages/compaction/tool-compaction/src/index.ts))
+- `@deepseek-ai/dsh-tool-compaction` — requires `tools` · `compaction` · `tokenMeter` ([`packages/compaction/tool-compaction/src/index.ts`](../packages/compaction/tool-compaction/src/index.ts))
 - `@deepseek-ai/dsh-tool-cordis` — requires `tools` · `systemPrompt` · `dynamicCordisRunner` · `cordisInspect` ([`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts))
 - `@deepseek-ai/dsh-tool-scheduler` — requires `scheduler` · `tools` ([`packages/schedule/tool-scheduler/src/index.ts`](../packages/schedule/tool-scheduler/src/index.ts))
 - `@deepseek-ai/dsh-tool-session-delivery` — requires `tools` · `sessionDelivery` ([`packages/session-query/tool-session-delivery/src/index.ts`](../packages/session-query/tool-session-delivery/src/index.ts))

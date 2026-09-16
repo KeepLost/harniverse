@@ -94,6 +94,17 @@ type StabilityCheck = (
   prepared: PreparedCompaction,
 ) => void
 
+/** A summary that cannot shrink its shadowed span; the transaction commits no replacement. */
+export class UnhelpfulSummaryError extends Error {
+  constructor(framedSummaryTokens: number, shadowedTokens: number) {
+    super(
+      'summary is not smaller than the shadowed content '
+      + `(${framedSummaryTokens} estimated framed tokens >= ${shadowedTokens})`,
+    )
+    this.name = 'UnhelpfulSummaryError'
+  }
+}
+
 /** Failure captured after `compaction/start` has committed. */
 interface TransactionFailure {
   readonly error: unknown
@@ -398,9 +409,7 @@ async function summarizeCompaction(
   })
   const framedSummaryTokenCount = dependencies.meter.estimateMessage(checkpointMessage)
   if (framedSummaryTokenCount >= prepared.shadowedTokenCount) {
-    throw new Error(
-      `summary is not smaller than the shadowed content (${framedSummaryTokenCount} estimated framed tokens >= ${prepared.shadowedTokenCount})`,
-    )
+    throw new UnhelpfulSummaryError(framedSummaryTokenCount, prepared.shadowedTokenCount)
   }
   return {
     ...prepared,

@@ -385,6 +385,8 @@ export interface TrajectoryTableProps {
   onToggleAssistant: (id: string) => void
   /** One-shot cross-view inspect: open and scroll to this call's record. */
   inspectCallId?: string | null
+  /** One-shot cross-view inspect: open and scroll to the record owning this surface seq. */
+  inspectSeq?: number | null
   /** Acknowledge a consumed (or unresolvable) inspect request. */
   onInspectApplied?: (() => void) | undefined
   /** Open the complete history of a child created by a delegation tool. */
@@ -1718,6 +1720,7 @@ export function TrajectoryTable({
   collapsedAssistants,
   onToggleAssistant,
   inspectCallId = null,
+  inspectSeq = null,
   onInspectApplied,
   onOpenSubagent,
 }: TrajectoryTableProps) {
@@ -2050,6 +2053,15 @@ export function TrajectoryTable({
     pendingScrollRecordId.current = trajectoryRecordId(target.cell)
     onInspectApplied?.()
   }, [inspectCallId, turns, onInspectApplied])
+  useEffect(() => {
+    if (inspectSeq === null) return
+    const target = flattenRecords(turns).find(record =>
+      record.collapsedSummary === undefined && record.cell.sourceSeq === inspectSeq)
+    if (target === undefined) return
+    openRecordSummaryRef.current(target)
+    pendingScrollRecordId.current = trajectoryRecordId(target.cell)
+    onInspectApplied?.()
+  }, [inspectSeq, turns, onInspectApplied])
   useEffect(() => {
     const id = pendingScrollRecordId.current
     if (id === null) return

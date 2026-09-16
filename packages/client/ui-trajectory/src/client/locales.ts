@@ -19,6 +19,10 @@ export type TrajectoryKey =
   | 'toolbar.collapseCalls'
   | 'toolbar.search'
   | 'toolbar.searchPlaceholder'
+  | 'context.strip'
+  | 'context.locate'
+  | 'context.compaction'
+  | 'context.replaced'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -43,6 +47,10 @@ export const zh: Record<TrajectoryKey, string> = {
   'toolbar.collapseCalls': 'Collapse calls',
   'toolbar.search': '搜索轨迹',
   'toolbar.searchPlaceholder': '搜索',
+  'context.strip': '当前上下文',
+  'context.locate': '定位消息',
+  'context.compaction': '压缩摘要',
+  'context.replaced': '覆盖条目',
 }
 
 /** English dictionary. */
@@ -61,4 +69,8 @@ export const en: Record<TrajectoryKey, string> = {
   'toolbar.collapseCalls': 'Collapse calls',
   'toolbar.search': 'Search trajectory',
   'toolbar.searchPlaceholder': 'Search',
+  'context.strip': 'Current context',
+  'context.locate': 'Locate message',
+  'context.compaction': 'Compaction summary',
+  'context.replaced': 'replaced items',
 }

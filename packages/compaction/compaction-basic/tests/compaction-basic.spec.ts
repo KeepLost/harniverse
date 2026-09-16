@@ -2499,3 +2499,131 @@ describe('automatic listener and loader composition', () => {
     expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
   })
 })
+
+describe('route-fit pre-flight compaction', () => {
+  function routedContext(windows: Readonly<Record<string, number>>): Context {
+    const ctx = new Context()
+    void new LlmRuntime(ctx)
+    void new TokenMeter(ctx)
+    ctx.llm.registerAdapter(Object.keys(windows), new RoutedContextAdapter(windows))
+    return ctx
+  }
+
+  async function fireRequest(
+    ctx: Context,
+    owner: Agent,
+    provider: string,
+    signal = SIGNAL,
+  ): Promise<{ provider: string; model: string; maxTokens?: number }> {
+    const turn = owner.session.events.findLast(event => event.type === 'turn/start')?.data.turn ?? 1
+    return agentEvents(ctx, owner).waterfall(
+      'agent/request',
+      { turn, step: 1, signal },
+      () => Promise.resolve({ provider, model: provider }),
+    )
+  }
+
+  it('layered-compacts a session that outgrew a smaller routed window before the request is sent', async () => {
+    const probeCtx = new Context()
+    void new LlmRuntime(probeCtx)
+    void new TokenMeter(probeCtx)
+    const probeSession = conversation(24)
+    const total = probeCtx.tokenMeter.measure(probeSession).totalTokens
+    // The history fits the route it was written under, but not the new one.
+    const small = 4_000
+    expect(total).toBeGreaterThan(small)
+    const ctx = routedContext({ big: total + 50_000, small })
+    const compact = new TestCompactionEngine(ctx, {
+      auto: true,
+      thresholdRatio: 0.99,
+      retainTokens: 3_500,
+    })
+    const owner = agent(conversation(24), 'big')
+
+    const resolved = await fireRequest(ctx, owner, 'small')
+
+    expect(resolved.provider).toBe('small')
+    const final = ctx.tokenMeter.measure(owner.session).totalTokens
+    expect(final).toBeLessThanOrEqual(small - 1_024)
+    // Layered recovery compacted more than once, and a later layer summarized
+    // the checkpoint an earlier layer produced (summary-of-summary).
+    expect(compact.calls.length).toBeGreaterThanOrEqual(2)
+    expect(compact.calls.slice(1).some(call => summarizedText(call.input).includes('small checkpoint'))).toBe(true)
+    const checkpoints = owner.session.events
+      .filter(event => event.type === 'user/message')
+      .filter(event => typeof (event as { surfaceOp?: unknown }).surfaceOp === 'object')
+    expect(checkpoints.length).toBeGreaterThanOrEqual(2)
+    const provenance = (checkpoints[1] as { sourceEventSeqs?: number[] }).sourceEventSeqs
+    expect(provenance).toContain(checkpoints[0]!.seq)
+  })
+
+  it('leaves recovery to the provider when a route-fit layer fails operationally', async () => {
+    const probeCtx = new Context()
+    void new LlmRuntime(probeCtx)
+    void new TokenMeter(probeCtx)
+    const probeSession = conversation(24)
+    const total = probeCtx.tokenMeter.measure(probeSession).totalTokens
+    const small = 4_000
+    const ctx = routedContext({ big: total + 50_000, small })
+    const compact = new TestCompactionEngine(ctx, {
+      auto: true,
+      thresholdRatio: 0.99,
+      retainTokens: 3_500,
+    })
+    compact.error = 'summarizer unavailable'
+    const owner = agent(conversation(24), 'big')
+
+    const resolved = await fireRequest(ctx, owner, 'small')
+
+    // The failed layer is reported, not thrown: the request still resolves
+    // and the provider error path owns any remaining overflow.
+    expect(resolved.provider).toBe('small')
+    expect(compact.calls.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('renders a thrown Error route-fit layer through the same contained path', async () => {
+    const probeCtx = new Context()
+    void new LlmRuntime(probeCtx)
+    void new TokenMeter(probeCtx)
+    const probeSession = conversation(24)
+    const total = probeCtx.tokenMeter.measure(probeSession).totalTokens
+    const small = 4_000
+    const ctx = routedContext({ big: total + 50_000, small })
+    const compact = new TestCompactionEngine(ctx, {
+      auto: true,
+      thresholdRatio: 0.99,
+      retainTokens: 3_500,
+    })
+    compact.error = new Error('summarizer crashed')
+    const owner = agent(conversation(24), 'big')
+
+    const resolved = await fireRequest(ctx, owner, 'small')
+    expect(resolved.provider).toBe('small')
+    expect(compact.calls.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('stops at an unrepairable envelope and still resolves the request', async () => {
+    const session = Session.create(SessionId('unrepairable'))
+    session.append('turn/start', { turn: 1 })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'one huge message '.repeat(4_000) }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    const probeCtx = new Context()
+    void new LlmRuntime(probeCtx)
+    void new TokenMeter(probeCtx)
+    const total = probeCtx.tokenMeter.measure(session).totalTokens
+
+    const ctx = routedContext({ tiny: Math.max(64, Math.floor(total / 4)) })
+    const compact = new TestCompactionEngine(ctx, { auto: true, thresholdRatio: 0.99 })
+    const owner = agent(session, 'tiny')
+
+    const resolved = await fireRequest(ctx, owner, 'tiny')
+
+    expect(resolved.provider).toBe('tiny')
+    // The single surface node cannot be split; recovery bailed out without
+    // looping and left the request to fail through the provider path.
+    expect(compact.calls.length).toBe(0)
+    expect(session.events.some(event => event.type === 'compaction/start')).toBe(false)
+  })
+})
