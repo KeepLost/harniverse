@@ -11,7 +11,11 @@ Message-queue panel tab, browser half: registers the 消息队列 tab into the p
 
 ## Model Experience
 
-The tab is presentation-only: it sends no model-visible input and reads nothing from any session log. Model-visible behavior (delivery injection) belongs to the `dsh-queue` service and its tools.
+None, as the tab only polls the queue Remote; delivery injection belongs to the `dsh-queue` service and its tools.
+
+#### KV Cache effect
+
+None; this plugin neither assembles nor sends provider requests.
 
 ## Known Limitations and Deferred Work
 - Message history is capped to the first page (100 rows) per refresh; pagination and offset-range queries ride the same Remote verbs when needed.

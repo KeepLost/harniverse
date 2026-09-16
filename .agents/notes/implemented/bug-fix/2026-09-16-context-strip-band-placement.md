@@ -6,7 +6,7 @@ English | [中文](2026-09-16-context-strip-band-placement.zh.md)
 
 - Date: 2026-09-16
 - Scope: `@deepseek-ai/dsh-client-ui-trajectory` (ContextStrip placement and styling)
-- PR: to record (fill the merge SHA after the fix PR lands)
+- PR: #857e25018f (merge)
 
 ## Problem
 

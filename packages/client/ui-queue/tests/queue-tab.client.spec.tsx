@@ -123,8 +123,7 @@ describe('QueueTab', () => {
   it('reports a denied operation through the failure note', async () => {
     const ok = <T,>(value: T): RemoteResult<T> => ({ ok: true as const, value })
     mount({
-      topicDelete: async () => ({ ok: false as const, error: { message: 'no capability' } as never }) as RemoteResult<void>,
-      _unused: undefined,
+      topicDelete: async () => ({ ok: false as const, error: { message: 'no capability' } }),
     } as Partial<Verbs>)
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     await waitFor(() => { expect(screen.getByText('ops')).toBeTruthy() })
@@ -149,8 +148,8 @@ describe('QueueTab', () => {
 
   it('tolerates a failing messages/subscriptions fetch while the list succeeds', async () => {
     mount({
-      messages: async () => ({ ok: false as const, error: { message: 'denied' } as never }) as never,
-      subscriptions: async () => ({ ok: false as const, error: { message: 'denied' } as never }) as never,
+      messages: async () => ({ ok: false as const, error: { message: 'denied' } }),
+      subscriptions: async () => ({ ok: false as const, error: { message: 'denied' } }),
     })
     await waitFor(() => { expect(screen.getByText('ops')).toBeTruthy() })
     fireEvent.click(screen.getByText(zh['topic.select']))
@@ -159,7 +158,7 @@ describe('QueueTab', () => {
 
   it('renders a bare error value through the failure note fallback', async () => {
     mount({
-      topicDelete: async () => ({ ok: false as const, error: 'plain-denied' as never }) as never,
+      topicDelete: async () => ({ ok: false as const, error: 'plain-denied' }),
     })
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     await waitFor(() => { expect(screen.getByText('ops')).toBeTruthy() })

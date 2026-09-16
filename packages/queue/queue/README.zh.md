@@ -22,12 +22,15 @@
 ### 队列投递
 
 #### 模型看到什么
+
 投递以 `queue` 标注的用户角色上下文注入到达:一行信封(topic、offset、发布者、过期时刻)+ 载荷原文。
 
 #### Token 影响
+
 一条投递 = 信封(约 30 token)+ 载荷。没有轮询动词——需要历史的 agent 显式调用 `queue-history`。
 
 #### KV Cache 影响
+
 投递在日志尾部追加,缓存复用与普通追加轮次一致;运行中会话的批量发布在下一 step 边界合并,只多一次前缀扩展。
 
 ## Known Limitations and Deferred Work

@@ -139,7 +139,7 @@ describe('QueueService', () => {
     const agent = h.agents.get('s1')!
     expect(agent.followup).toHaveLength(2)
     expect(agent.followup[0]!.content[0]).toMatchObject({ type: 'text' })
-    expect(String((agent.followup[0]!.content[0] as { text: string }).text)).toContain('alerts')
+    expect((agent.followup[0]!.content[0] as { text: string }).text).toContain('alerts')
     expect((agent.followup[0]!.source as { plugin: string }).plugin).toBe('queue')
     expect(h.service.stats('alerts')).toMatchObject({ liveCount: 2, subscriberCount: 1, newestLiveOffset: 1 })
     await h.ctx.fiber.dispose()

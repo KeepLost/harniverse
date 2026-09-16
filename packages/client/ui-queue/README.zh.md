@@ -11,7 +11,11 @@
 
 ## Model Experience
 
-本 tab 纯展示:不发送任何模型可见输入,不读任何会话日志。模型可见行为(投递注入)属于 `dsh-queue` 服务与其工具。
+无,本 tab 仅轮询 queue Remote;投递注入属于 `dsh-queue` 服务与其工具。
+
+#### KV Cache 影响
+
+无;本插件不组装也不发送供应商请求。
 
 ## Known Limitations and Deferred Work
 - 每次刷新的消息历史只取首页(100 条);分页与 offset 区间查询按需走同一 Remote 动词。

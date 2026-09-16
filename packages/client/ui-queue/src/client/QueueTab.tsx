@@ -182,8 +182,15 @@ export function QueueTab({
             <input className={css.input} placeholder={t('detail.ttl')} value={ttlOverride} onChange={(event) => { setTtlOverride(event.target.value) }} />
             <button type="button" className={css.button} onClick={() => {
               const ttl = Number(ttlOverride)
-              void run(async () => publish(selectedStats.topic.name, JSON.parse(payload), {},
-                ttlOverride.trim().length === 0 || !Number.isFinite(ttl) || ttl <= 0 ? null : ttl, 'panel'))
+              const ttlMs = ttlOverride.trim().length === 0 || !Number.isFinite(ttl) || ttl <= 0 ? null : ttl
+              let parsed: JsonValue
+              try {
+                parsed = JSON.parse(payload) as JsonValue
+              } catch {
+                setFailure(t('op.failed', { message: 'invalid JSON' }))
+                return
+              }
+              void run(() => publish(selectedStats.topic.name, parsed, {}, ttlMs, 'panel'))
             }}>{t('detail.publish')}</button>
           </div>
           <h4 className={css.subsTitle}>{t('subs.title')}</h4>

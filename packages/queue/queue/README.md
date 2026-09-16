@@ -22,12 +22,15 @@ The `queue` Typert Remote namespace mounts through `dsh-api-remotes`: `topicList
 ### Queue delivery
 
 #### What the model sees
+
 A delivered message arrives as a user-role context injection labelled `queue`: an envelope line naming the topic, offset, publisher, and expiry, then the payload verbatim.
 
 #### Token effect
+
 One delivered message costs its envelope (about 30 tokens) plus the payload. There is no polling verb — an agent that needs history calls `queue-history` explicitly.
 
 #### KV Cache effect
+
 Deliveries append at the log tail, so cache reuse matches ordinary appended turns. Bulk publishes to a running session coalesce at the next step boundary and cost one prefix extension.
 
 ## Known Limitations and Deferred Work

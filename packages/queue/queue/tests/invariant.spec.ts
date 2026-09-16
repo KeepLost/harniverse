@@ -21,7 +21,7 @@ async function mounted(): Promise<{ installers: Installer[]; dispatch: (event: u
       return () => {}
     },
   }
-  apply(ctx)
+  await apply(ctx)
   await Promise.resolve()
   for (const installer of installers) installer(ctxLike, (message) => { failures.push(message) })
   const dispatch = (event: unknown): void => {

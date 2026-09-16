@@ -36,6 +36,9 @@ declare module '@deepseek-ai/cordis' {
 
 /** Row shapes as stored (the wire infos are derived views of these). */
 
+/** Constructor input: every config field optional, defaults applied on parse. */
+export type QueueConfigInput = Partial<QueueConfig>
+
 /** The four opened storage tables in one bag. */
 interface QueueTables {
   topics: KvTable<string, TopicRow>
@@ -71,7 +74,7 @@ export class QueueService extends TypertRemoteService {
   /** Serializes offset assignment + fan-out so publishes commit in order. */
   private chain: Promise<unknown> = Promise.resolve()
 
-  constructor(ctx: Context, config: Partial<QueueConfig> = {}) {
+  constructor(ctx: Context, config: QueueConfigInput = {}) {
     super(ctx, 'queue')
     this.config = queueConfigSchema.parse(config)
   }
@@ -378,7 +381,7 @@ export class QueueService extends TypertRemoteService {
     }
     const offset = topic.nextOffset
     const updated: TopicRow = { ...topic, nextOffset: offset + 1 }
-    topics.put(String(updated.id), updated)
+    await topics.put(String(updated.id), updated)
     const now = Date.now()
     const message: MessageRow = {
       topicId: topic.id,
@@ -402,6 +405,7 @@ export class QueueService extends TypertRemoteService {
    * New subscriptions start at latest: only future messages arrive.
    * @param sessionId - subscriber session id.
    * @param topicName - existing topic name.
+   * @returns the relation row with its dormant classification.
    */
   @Remote({ exportName: 'subscribe', requiredCapability: 'harniverse.operate' })
   subscribe(sessionId: string, topicName: string): Promise<QueueSubscriptionInfo & { dormant: boolean }> {

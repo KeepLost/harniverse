@@ -83,9 +83,9 @@ export function apply(ctx: Context, _config: Config = {}): void {
       },
       render: (_args, value) => [{ type: 'text', text: `${value.kind}${value.detail === undefined ? '' : `: ${value.detail}`}` }],
     },
-    execute: async (args: { topic: string; fromOffset?: number; limit?: number; includeArchived?: boolean }) => {
+    execute: (args: { topic: string; fromOffset?: number; limit?: number; includeArchived?: boolean }) => {
       const messages = queue.messages(args.topic, args.fromOffset ?? 0, args.limit ?? 100, args.includeArchived ?? false)
-      return { kind: 'history', detail: JSON.stringify({ topic: args.topic, messages }) }
+      return Promise.resolve({ kind: 'history', detail: JSON.stringify({ topic: args.topic, messages }) })
     },
   })), 'queue: queue-history tool')
 

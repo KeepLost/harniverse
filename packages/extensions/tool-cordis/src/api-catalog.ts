@@ -1499,6 +1499,70 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'queue',
+    summary: 'The session message queue service (`ctx.queue`).',
+    description: 'The session message queue service (`ctx.queue`). One instance owns the storage domain, the forced-archive sweeper, and the delivery fan-out.',
+    methods: [
+      {
+        signature: 'async sweep(): Promise<void>',
+        description: 'Forced-archive pass: flip expired live rows, prune archive overflow, drop vanished sessions.',
+        parameters: [],
+      },
+      {
+        signature: '@Remote({ exportName: \'topicList\', requiredCapability: \'harniverse.observe\' }) topicList(): QueueTopicStats[]',
+        description: 'Topic list with aggregates (`harniverse.observe`).',
+        parameters: [],
+        returns: 'every topic with live/archived counts, subscribers, and offsets.',
+      },
+      {
+        signature: '@Remote({ exportName: \'topicCreate\', requiredCapability: \'harniverse.operate\' }) topicCreate(name: string, ttlMs: number | null): Promise<QueueTopicInfo>',
+        description: 'Create a topic explicitly (`harniverse.operate`); publishing creates one implicitly.',
+        parameters: [{ name: 'name', description: 'unique topic name.' }, { name: 'ttlMs', description: 'optional topic-level TTL override.' }],
+        returns: 'the created topic.',
+      },
+      {
+        signature: '@Remote({ exportName: \'topicDelete\', requiredCapability: \'harniverse.operate\' }) async topicDelete(name: string): Promise<void>',
+        description: 'Delete a topic and everything it owns (`harniverse.operate`): messages and every subscription row dissolve silently in the same batch — subscribers are not notified. A later topic under the same name starts fresh.',
+        parameters: [{ name: 'name', description: 'topic name.' }],
+      },
+      {
+        signature: '@Remote({ exportName: \'publish\', requiredCapability: \'harniverse.operate\' }) publish( topicName: string, payload: JsonValue, headers: Readonly<Record<string, string>>, ttlMs: number | null, publisher: string, ): Promise<QueueMessageInfo>',
+        description: 'Append one message and fan it out (`harniverse.operate`).',
+        parameters: [{ name: 'topicName', description: 'target topic (created with defaults when absent).' }, { name: 'payload', description: 'JSON payload (bounded by `maxPayloadBytes`).' }, { name: 'headers', description: 'optional string headers.' }, { name: 'ttlMs', description: 'optional per-message TTL override.' }, { name: 'publisher', description: 'publisher identity for auditing.' }],
+        returns: 'the stored message with its assigned offset.',
+      },
+      {
+        signature: '@Remote({ exportName: \'subscribe\', requiredCapability: \'harniverse.operate\' }) subscribe(sessionId: string, topicName: string): Promise<QueueSubscriptionInfo & { dormant: boolean }>',
+        description: 'Subscribe one session to one topic (`harniverse.operate`). The relation belongs to the named session — the panel surface manages it for housekeeping; the model tool binds it to the calling session only. New subscriptions start at latest: only future messages arrive.',
+        parameters: [{ name: 'sessionId', description: 'subscriber session id.' }, { name: 'topicName', description: 'existing topic name.' }],
+        returns: 'the relation row with its dormant classification.',
+      },
+      {
+        signature: '@Remote({ exportName: \'unsubscribe\', requiredCapability: \'harniverse.operate\' }) async unsubscribe(sessionId: string, topicName: string): Promise<void>',
+        description: 'Dissolve one subscription (`harniverse.operate`); absent rows resolve.',
+        parameters: [{ name: 'sessionId', description: 'subscriber session id.' }, { name: 'topicName', description: 'topic name.' }],
+      },
+      {
+        signature: '@Remote({ exportName: \'subscriptions\', requiredCapability: \'harniverse.observe\' }) subscriptions(topicName: string | null, sessionId: string | null): Array<QueueSubscriptionInfo & { dormant: boolean }>',
+        description: 'Read the subscription relation (`harniverse.observe`), by topic, by session, or whole.',
+        parameters: [{ name: 'topicName', description: 'filter by topic when given.' }, { name: 'sessionId', description: 'filter by session when given.' }],
+        returns: 'matching relation rows.',
+      },
+      {
+        signature: '@Remote({ exportName: \'messages\', requiredCapability: \'harniverse.observe\' }) messages(topicName: string, fromOffset: number, limit: number, includeArchived: boolean): QueueMessageInfo[]',
+        description: 'Query one topic\'s messages (`harniverse.observe`) — the past-tense, cursor-free history read; it never moves a watermark.',
+        parameters: [{ name: 'topicName', description: 'topic name.' }, { name: 'fromOffset', description: 'first offset to include.' }, { name: 'limit', description: 'maximum rows to return.' }, { name: 'includeArchived', description: 'include forced-archived rows when true.' }],
+        returns: 'matching messages in offset order.',
+      },
+      {
+        signature: '@Remote({ exportName: \'stats\', requiredCapability: \'harniverse.observe\' }) stats(topicName: string): QueueTopicStats',
+        description: 'Aggregate stats for one topic (`harniverse.observe`).',
+        parameters: [{ name: 'topicName', description: 'topic name.' }],
+        returns: 'counts, subscriber total, and live offset bounds.',
+      },
+    ],
+  },
+  {
     key: 'sandbox',
     summary: 'Abstract process-sandbox service.',
     description: 'Abstract process-sandbox service. confine must return enforcing argv or fail closed at wrap or runner-execution time; silent unconfined passthrough is forbidden. Functional probes arbitrate multi-runner chains and may be skipped for a sole candidate, whose own refusal remains the fail-closed end.',
@@ -4981,6 +5045,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PruneResult',
     declaration: 'export interface PruneResult {\n    readonly pruned: readonly PrunedEntry[];\n    readonly charsRemoved: number;\n}',
+  },
+  {
+    name: 'QueueMessageInfo',
+    declaration: 'export interface QueueMessageInfo {\n    topicId: number;\n    offset: number;\n    payload: JsonValue;\n    headers: Readonly<Record<string, string>>;\n    publisher: string;\n    publishedAt: number;\n    expiresAt: number;\n    state: QueueMessageState;\n}',
+  },
+  {
+    name: 'QueueMessageState',
+    declaration: 'export type QueueMessageState = \'live\' | \'archived\';',
+  },
+  {
+    name: 'QueueSubscriptionInfo',
+    declaration: 'export interface QueueSubscriptionInfo {\n    sessionId: string;\n    topicId: number;\n    cursor: number;\n    subscribedAt: number;\n    lastDeliveredAt: number | null;\n    dormant: boolean;\n}',
+  },
+  {
+    name: 'QueueTopicInfo',
+    declaration: 'export interface QueueTopicInfo {\n    id: number;\n    name: string;\n    ttlMs: number | null;\n    createdAt: number;\n    nextOffset: number;\n}',
+  },
+  {
+    name: 'QueueTopicStats',
+    declaration: 'export interface QueueTopicStats {\n    topic: QueueTopicInfo;\n    liveCount: number;\n    archivedCount: number;\n    subscriberCount: number;\n    oldestLiveOffset: number | null;\n    newestLiveOffset: number | null;\n}',
   },
   {
     name: 'ReadFileLine',
