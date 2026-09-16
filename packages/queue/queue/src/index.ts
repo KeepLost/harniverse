@@ -13,6 +13,7 @@
 
 import { Service, type Context } from '@deepseek-ai/cordis'
 import { foldRequestHeader, SessionId, type Session } from '@deepseek-ai/dsh-session'
+import type { JsonValue } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
@@ -43,8 +44,8 @@ interface QueueTables {
   subscriptions: KvTable<string, SubscriptionRow>
 }
 type TopicRow = { id: number; name: string; ttlMs: number | null; createdAt: number; nextOffset: number }
-type MessageRow = QueueMessageInfo
-type SubscriptionRow = QueueSubscriptionInfo
+type MessageRow = Omit<QueueMessageInfo, 'payload'> & { payload: unknown }
+type SubscriptionRow = Omit<QueueSubscriptionInfo, 'dormant'>
 
 /** Session-state classification the fan-out and subscribe gates read. */
 type SubscriberState = 'deliverable' | 'archived' | 'deleted'
@@ -300,7 +301,7 @@ export class QueueService extends TypertRemoteService {
    * @returns the created topic.
    */
   @Remote({ exportName: 'topicCreate', requiredCapability: 'harniverse.operate' })
-  topicCreate(name: string, ttlMs: number | null = null): Promise<QueueTopicInfo> {
+  topicCreate(name: string, ttlMs: number | null): Promise<QueueTopicInfo> {
     return this.serialize(() => this.createTopic(name, ttlMs))
   }
 
@@ -349,17 +350,17 @@ export class QueueService extends TypertRemoteService {
   @Remote({ exportName: 'publish', requiredCapability: 'harniverse.operate' })
   publish(
     topicName: string,
-    payload: unknown,
-    headers: Readonly<Record<string, string>> = {},
-    ttlMs: number | null = null,
-    publisher = 'panel',
+    payload: JsonValue,
+    headers: Readonly<Record<string, string>>,
+    ttlMs: number | null,
+    publisher: string,
   ): Promise<QueueMessageInfo> {
     return this.serialize(() => this.publishNow(topicName, payload, headers, ttlMs, publisher))
   }
 
   private async publishNow(
     topicName: string,
-    payload: unknown,
+    payload: JsonValue,
     headers: Readonly<Record<string, string>>,
     ttlMs: number | null,
     publisher: string,
@@ -391,7 +392,7 @@ export class QueueService extends TypertRemoteService {
     }
     await this.requireTables().messages.put(messageKey(topic.id, offset), message)
     await this.fanOut(updated, message)
-    return message
+    return message as QueueMessageInfo
   }
 
   /**
@@ -403,11 +404,14 @@ export class QueueService extends TypertRemoteService {
    * @param topicName - existing topic name.
    */
   @Remote({ exportName: 'subscribe', requiredCapability: 'harniverse.operate' })
-  async subscribe(sessionId: string, topicName: string): Promise<QueueSubscriptionInfo> {
-    return this.serialize(() => this.subscribeNow(sessionId, topicName))
+  subscribe(sessionId: string, topicName: string): Promise<QueueSubscriptionInfo & { dormant: boolean }> {
+    return this.serialize(async () => {
+      const row = await this.subscribeNow(sessionId, topicName)
+      return { ...row, dormant: this.classifySubscriber(row.sessionId) === 'archived' }
+    })
   }
 
-  private async subscribeNow(sessionId: string, topicName: string): Promise<QueueSubscriptionInfo> {
+  private async subscribeNow(sessionId: string, topicName: string): Promise<SubscriptionRow> {
     const { subscriptions } = this.requireTables()
     const found = this.topicByName(topicName)
     if (found === undefined) throw new Error(`topic "${topicName}" not found`)
@@ -416,7 +420,7 @@ export class QueueService extends TypertRemoteService {
     }
     const existing = subscriptions.get(subscriptionKey(sessionId, found.row.id))
     if (existing !== undefined) return existing
-    const row: QueueSubscriptionInfo = {
+    const row: SubscriptionRow = {
       sessionId,
       topicId: found.row.id,
       cursor: Math.max(0, found.row.nextOffset - 1),
@@ -448,9 +452,10 @@ export class QueueService extends TypertRemoteService {
    * @returns matching relation rows.
    */
   @Remote({ exportName: 'subscriptions', requiredCapability: 'harniverse.observe' })
-  subscriptions(topicName: string | null = null, sessionId: string | null = null): QueueSubscriptionInfo[] {
+  subscriptions(topicName: string | null, sessionId: string | null): Array<QueueSubscriptionInfo & { dormant: boolean }> {
     const topicId = topicName === null ? undefined : this.topicByName(topicName)?.row.id
     return this.subscriptionRowsOf(topicId, sessionId ?? undefined)
+      .map(row => ({ ...row, dormant: this.classifySubscriber(row.sessionId) === 'archived' }))
   }
 
   /**
@@ -463,13 +468,13 @@ export class QueueService extends TypertRemoteService {
    * @returns matching messages in offset order.
    */
   @Remote({ exportName: 'messages', requiredCapability: 'harniverse.observe' })
-  messages(topicName: string, fromOffset = 0, limit = 100, includeArchived = false): QueueMessageInfo[] {
+  messages(topicName: string, fromOffset: number, limit: number, includeArchived: boolean): QueueMessageInfo[] {
     const found = this.topicByName(topicName)
     if (found === undefined) throw new Error(`topic "${topicName}" not found`)
     const rows = this.messageRowsOf(found.row.id)
       .filter(message => message.offset >= fromOffset)
       .filter(message => includeArchived || message.state === 'live')
-    return rows.slice(0, Math.max(1, limit))
+    return rows.slice(0, Math.max(1, limit)) as QueueMessageInfo[]
   }
 
   /**

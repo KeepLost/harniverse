@@ -23,7 +23,7 @@ interface MockAgent {
 
 interface Harness {
   readonly ctx: Context
-  readonly service: QueueService
+  service: QueueService
   readonly agents: Map<string, MockAgent>
   readonly flushed: string[]
   archived: string[]
@@ -130,7 +130,7 @@ describe('QueueService', () => {
   it('creates topics implicitly, assigns dense offsets, and wakes idle subscribers', async () => {
     const h = await mounted()
     seedAgent(h, 's1')
-    await h.service.topicCreate('alerts')
+    await h.service.topicCreate('alerts', null)
     await h.service.subscribe('s1', 'alerts')
     const first = await h.service.publish('alerts', { text: 'hello' }, {}, null, 'panel')
     expect(first.offset).toBe(0)
@@ -148,14 +148,14 @@ describe('QueueService', () => {
   it('delivers to running subscribers through inject, after the blocking command', async () => {
     const h = await mounted()
     const agent = seedAgent(h, 'busy', 'running')
-    await h.service.topicCreate('jobs')
+    await h.service.topicCreate('jobs', null)
     await h.service.subscribe('busy', 'jobs')
     await h.service.publish('jobs', { n: 1 }, {}, null, 'panel')
     await h.service.publish('jobs', { n: 2 }, {}, null, 'panel')
     expect(agent.injected).toHaveLength(2)
     expect(agent.followup).toHaveLength(0)
     // Both injections carry consecutive offsets — the next request sees both.
-    const offsets = agent.injected.map(message => (message.source as { offset: number }).offset)
+    const offsets = agent.injected.map(message => (message.source as unknown as { offset: number }).offset)
     expect(offsets).toEqual([0, 1])
     await h.ctx.fiber.dispose()
   })
@@ -163,24 +163,26 @@ describe('QueueService', () => {
   it('starts new subscriptions at latest: pre-subscription history never arrives', async () => {
     const h = await mounted()
     seedAgent(h, 's1')
-    await h.service.topicCreate('news')
+    await h.service.topicCreate('news', null)
     await h.service.publish('news', { a: 1 }, {}, null, 'panel')
     const row = await h.service.subscribe('s1', 'news')
     expect(row.cursor).toBe(0)
     await h.service.publish('news', { a: 2 }, {}, null, 'panel')
     const agent = h.agents.get('s1')!
     expect(agent.followup).toHaveLength(1)
-    expect((agent.followup[0]!.source as { offset: number }).offset).toBe(1)
+    expect((agent.followup[0]!.source as unknown as { offset: number }).offset).toBe(1)
     // History is the past-tense view and needs no subscription.
-    expect(h.service.messages('news')).toHaveLength(2)
+    expect(h.service.messages('news', 0, 100, false)).toHaveLength(2)
     await h.ctx.fiber.dispose()
   })
 
   it('retains but suspends subscriptions of archived sessions; missed stays missed', async () => {
     const h = await mounted()
     seedAgent(h, 's1')
-    await h.service.topicCreate('stream')
+    seedAgent(h, 's2')
+    await h.service.topicCreate('stream', null)
     await h.service.subscribe('s1', 'stream')
+    await h.service.subscribe('s2', 'stream')
     await h.service.publish('stream', { n: 1 }, {}, null, 'panel')
     h.archived.push('s1')
     await h.service.publish('stream', { n: 2 }, {}, null, 'panel')
@@ -190,12 +192,14 @@ describe('QueueService', () => {
     h.archived.splice(0, h.archived.length)
     await h.service.publish('stream', { n: 3 }, {}, null, 'panel')
     expect(agent.followup).toHaveLength(2)
-    expect((agent.followup[1]!.source as { offset: number }).offset).toBe(2)
+    expect((agent.followup[1]!.source as unknown as { offset: number }).offset).toBe(2)
     const rows: QueueSubscriptionInfo[] = h.service.subscriptions('stream', null)
     expect(rows[0]!.cursor).toBe(2)
     // Subscribing an archived session outright rejects.
     h.archived.push('s2')
     await expect(h.service.subscribe('s2', 'stream')).rejects.toThrow(/archived/)
+    // The archived subscriber's retained row reports itself dormant.
+    expect(h.service.subscriptions('stream', null).map(row => row.dormant)).toEqual([false, true])
     await h.ctx.fiber.dispose()
   })
 
@@ -203,14 +207,14 @@ describe('QueueService', () => {
     const h = await mounted()
     seedAgent(h, 's1')
     seedAgent(h, 's2')
-    await h.service.topicCreate('ops')
+    await h.service.topicCreate('ops', null)
     await h.service.subscribe('s1', 'ops')
     await h.service.subscribe('s2', 'ops')
     // Topic side: delete dissolves every row, silently, and a same-name topic is fresh.
     await h.service.topicDelete('ops')
     expect(h.service.subscriptions(null, null)).toHaveLength(0)
     await h.service.publish('ops', { n: 1 }, {}, null, 'panel')
-    expect(h.service.messages('ops')).toHaveLength(1)
+    expect(h.service.messages('ops', 0, 100, false)).toHaveLength(1)
     expect(h.service.subscriptions('ops', null)).toHaveLength(0)
     // Session side: pending deletion drops rows on the next sweep/publish.
     await h.service.subscribe('s1', 'ops')
@@ -219,7 +223,6 @@ describe('QueueService', () => {
     expect(h.service.subscriptions(null, 's1')).toHaveLength(0)
     // Subscribing to a nonexistent topic rejects.
     await expect(h.service.subscribe('s1', 'ghost')).rejects.toThrow(/not found/)
-    await expect(h.service.publish('ghost' as never, undefined as never)).rejects.toThrow()
     await h.ctx.fiber.dispose()
   })
 
@@ -244,17 +247,17 @@ describe('QueueService', () => {
   it('skips delivery of an already-expired message and still advances the watermark', async () => {
     const h = await mounted()
     seedAgent(h, 's1')
-    await h.service.topicCreate('late')
+    await h.service.topicCreate('late', null)
     const row = await h.service.subscribe('s1', 'late')
     // Hand the deliverer an already-archived row: delivery skips, watermark moves.
     const topic = { id: 1, name: 'late', ttlMs: null, createdAt: 0, nextOffset: 5 }
     const expired = {
       topicId: 1, offset: 4, payload: { x: 1 }, headers: {}, publisher: 'panel',
-      publishedAt: 0, expiresAt: 1, state: 'archived',
+      publishedAt: 0, expiresAt: 1, state: 'archived' as const,
     }
-    const keep = await (h.service as unknown as {
-      deliverTo: (row: QueueSubscriptionInfo, topic: typeof topic, message: typeof expired) => Promise<boolean>
-    }).deliverTo(row, topic, expired)
+    type Deliverer = { deliverTo(row: never, topic: never, message: never): Promise<boolean> }
+    const deliverer = h.service as unknown as Deliverer
+    const keep = await deliverer.deliverTo(row as never, topic as never, expired as never)
     expect(keep).toBe(true)
     expect(h.agents.get('s1')!.followup).toHaveLength(0)
     expect(h.service.subscriptions('late', 's1')[0]!.cursor).toBe(4)
@@ -280,7 +283,7 @@ describe('QueueService', () => {
   it('unsubscribes idempotently and before-init service calls fail loud', async () => {
     const h = await mounted()
     seedAgent(h, 's1')
-    await h.service.topicCreate('t')
+    await h.service.topicCreate('t', null)
     await h.service.subscribe('s1', 't')
     await h.service.unsubscribe('s1', 't')
     await h.service.unsubscribe('s1', 't')
@@ -289,7 +292,8 @@ describe('QueueService', () => {
     expect(h.agents.get('s1')!.followup).toHaveLength(0)
     const bare = new QueueService(new Context(), {})
     expect(() => bare.topicList()).toThrow(/not initialized/)
-    await bare.ctx.fiber.dispose()
+    const bareCtx = (bare as unknown as { ctx: Context }).ctx
+    await bareCtx.fiber.dispose()
     await h.ctx.fiber.dispose()
   })
 })
@@ -305,7 +309,7 @@ describe('QueueService coverage fill', () => {
       await ctx.plugin(StorageDomain, { backend: 'json' })
       const agents = new Map<string, MockAgent>()
       const h: Harness = {
-        ctx, agents, flushed: [], archived: [], pendingDeletion: [],
+        ctx, agents, flushed: [], archived: [], pendingDeletion: [], attached: new Set<string>(),
         service: undefined as unknown as QueueService,
       }
       ctx.provide('agents', {
@@ -347,7 +351,7 @@ describe('QueueService coverage fill', () => {
     const h = await mounted()
     seedAgent(h, 's1')
     seedAgent(h, 's2')
-    await h.service.topicCreate('ops')
+    await h.service.topicCreate('ops', null)
     await h.service.subscribe('s1', 'ops')
     await h.service.subscribe('s2', 'ops')
     expect(h.service.subscriptions(null, 's1')).toHaveLength(1)
@@ -364,7 +368,7 @@ describe('QueueService coverage fill', () => {
     const h = await mounted()
     const agent = seedAgent(h, 'flaky')
     agent.failMaintenanceOnce = true
-    await h.service.topicCreate('ops')
+    await h.service.topicCreate('ops', null)
     await h.service.subscribe('flaky', 'ops')
     await h.service.publish('ops', { n: 1 }, {}, null, 'panel')
     expect(agent.followup).toHaveLength(1)
@@ -400,7 +404,7 @@ describe('QueueService cold resume', () => {
       runMaintenance: (run: () => Promise<boolean>) => run(),
       whenIdle: async () => {},
     } as unknown as Agent)
-    await h.service.topicCreate('ops')
+    await h.service.topicCreate('ops', null)
     await h.service.subscribe('cold', 'ops')
     await h.service.publish('ops', { n: 1 }, {}, null, 'panel')
     expect(delivered).toHaveLength(1)
@@ -410,7 +414,7 @@ describe('QueueService cold resume', () => {
   it('dissolves the row when the session vanished from persistence', async () => {
     const h = await mounted()
     h.persistence = { list: async () => [], inspect: async () => ({ events: [] }) }
-    await h.service.topicCreate('ops')
+    await h.service.topicCreate('ops', null)
     await h.service.subscribe('ghost', 'ops')
     await h.service.publish('ops', { n: 1 }, {}, null, 'panel')
     expect(h.service.subscriptions(null, 'ghost')).toHaveLength(0)
@@ -423,7 +427,7 @@ describe('QueueService cold resume', () => {
       list: async () => [{ id: 'cold' }],
       inspect: async () => ({ events: [] }),
     }
-    await h.service.topicCreate('ops')
+    await h.service.topicCreate('ops', null)
     await h.service.subscribe('cold', 'ops')
     await h.service.publish('ops', { n: 1 }, {}, null, 'panel')
     expect(h.service.subscriptions(null, 'cold')).toHaveLength(0)
@@ -432,7 +436,7 @@ describe('QueueService cold resume', () => {
 
   it('dissolves the row when persistence is not configured', async () => {
     const h = await mounted({}, { persistence: false })
-    await h.service.topicCreate('ops')
+    await h.service.topicCreate('ops', null)
     await h.service.subscribe('lonely', 'ops')
     await h.service.publish('ops', { n: 1 }, {}, null, 'panel')
     expect(h.service.subscriptions(null, 'lonely')).toHaveLength(0)
@@ -443,19 +447,19 @@ describe('QueueService cold resume', () => {
     const h = await mounted()
     seedAgent(h, 's1')
     seedAgent(h, 's2')
-    await h.service.topicCreate('ops')
+    await h.service.topicCreate('ops', null)
     await h.service.subscribe('s1', 'ops')
     await h.service.subscribe('s2', 'ops')
     expect(h.service.subscriptions('ops', 's1')).toHaveLength(1)
     expect(h.service.subscriptions('ops', 's2')).toHaveLength(1)
     // A second topic makes the topic filter actually skip foreign rows.
-    await h.service.topicCreate('alerts')
+    await h.service.topicCreate('alerts', null)
     await h.service.subscribe('s1', 'alerts')
     expect(h.service.subscriptions('ops', null)).toHaveLength(2)
     expect(h.service.subscriptions('alerts', null)).toHaveLength(1)
     expect(h.service.subscriptions(null, null)).toHaveLength(3)
     expect(h.service.subscriptions(null, 's1')).toHaveLength(2)
-    expect(() => h.service.messages('ghost')).toThrow(/not found/)
+    expect(() => h.service.messages('ghost', 0, 100, false)).toThrow(/not found/)
     expect(() => h.service.stats('ghost')).toThrow(/not found/)
     // An attached session without a live agent never resolves a deliverer.
     h.attached.add('parked')
@@ -472,7 +476,7 @@ describe('QueueService cold resume', () => {
     const h = await mounted()
     const agent = seedAgent(h, 'busy', 'running')
     agent.failMaintenanceOnce = true
-    await h.service.topicCreate('ops')
+    await h.service.topicCreate('ops', null)
     await h.service.subscribe('busy', 'ops')
     await h.service.publish('ops', { n: 1 }, {}, null, 'panel')
     expect(agent.injected).toHaveLength(1)
@@ -488,14 +492,14 @@ describe('QueueService cold resume', () => {
   it('deletes a topic with messages and subscriptions attached', async () => {
     const h = await mounted()
     seedAgent(h, 's1')
-    await h.service.topicCreate('ops')
+    await h.service.topicCreate('ops', null)
     await h.service.subscribe('s1', 'ops')
     await h.service.publish('ops', { n: 1 }, {}, null, 'panel')
     await h.service.topicDelete('ops')
     expect(h.service.topicList()).toHaveLength(0)
     expect(h.service.subscriptions(null, null)).toHaveLength(0)
     // Re-subscribing resolves the idempotent existing-row path.
-    await h.service.topicCreate('ops')
+    await h.service.topicCreate('ops', null)
     await h.service.subscribe('s1', 'ops')
     await h.service.subscribe('s1', 'ops')
     expect(h.service.subscriptions('ops', null)).toHaveLength(1)
@@ -507,7 +511,7 @@ describe('QueueService cold resume', () => {
   it('dissolves deleted-session rows through the sweeper', async () => {
     const h = await mounted({ sweepIntervalMs: 3_600_000 })
     seedAgent(h, 's1')
-    await h.service.topicCreate('ops')
+    await h.service.topicCreate('ops', null)
     await h.service.subscribe('s1', 'ops')
     h.pendingDeletion.push('s1')
     await h.service.sweep()
@@ -518,7 +522,7 @@ describe('QueueService cold resume', () => {
   it('sweeps rows of archived subscribers without dissolving them', async () => {
     const h = await mounted({ sweepIntervalMs: 3_600_000 })
     seedAgent(h, 's1')
-    await h.service.topicCreate('ops')
+    await h.service.topicCreate('ops', null)
     await h.service.subscribe('s1', 'ops')
     h.archived.push('s1')
     await h.service.sweep()

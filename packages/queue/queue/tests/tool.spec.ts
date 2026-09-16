@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type QueueService from '../src/index.ts'
+import type { JsonValue } from '@deepseek-ai/dsh-session/types'
 import { apply } from '../src/tool.ts'
 
 interface Captured {
@@ -59,7 +60,7 @@ describe('queue tools', () => {
 
   it('queue-history reads through the cursor-free view', async () => {
     const tools = await mounted({
-      messages: () => [{ offset: 0, state: 'live' as const }],
+      messages: (() => [{ offset: 0, state: 'live' as const }]) as unknown as QueueService['messages'],
     })
     const history = tools.find(tool => tool.name === 'queue-history')!
     const result = await history.execute({ topic: 'ops' }, { agent }) as { kind: string; detail: string }
@@ -73,7 +74,7 @@ describe('queue tools', () => {
     const tools = await mounted({
       subscribe: async (sessionId: string, topic: string) => {
         subscribed.push([sessionId, topic])
-        return { sessionId, topicId: 1, cursor: 4, subscribedAt: 0, lastDeliveredAt: null }
+        return { sessionId, topicId: 1, cursor: 4, subscribedAt: 0, lastDeliveredAt: null, dormant: false }
       },
       unsubscribe: async (sessionId: string, topic: string) => { unsubscribed.push([sessionId, topic]) },
     })
@@ -91,7 +92,7 @@ describe('queue tools', () => {
   it('queue-publish stamps the calling session as publisher', async () => {
     const published: [string, unknown, string][] = []
     const tools = await mounted({
-      publish: async (topic: string, payload: unknown, _headers: unknown, ttlMs: number | null, publisher: string) => {
+      publish: async (topic: string, payload: JsonValue, _headers: unknown, ttlMs: number | null, publisher: string) => {
         published.push([topic, payload, publisher])
         return { topicId: 1, offset: 7, payload, headers: {}, publisher, publishedAt: 0, expiresAt: ttlMs ?? 0, state: 'live' as const }
       },

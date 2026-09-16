@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod'
+import type { JsonValue } from '@deepseek-ai/dsh-session/types'
 
 /** Deployment config of the queue service. */
 export const queueConfigSchema = z.object({
@@ -42,7 +43,7 @@ export interface QueueMessageInfo {
   topicId: number
   /** Kafka-style offset inside the topic; dense, monotonic, never reused. */
   offset: number
-  payload: unknown
+  payload: JsonValue
   headers: Readonly<Record<string, string>>
   /** Publisher identity: a session id or `panel`. */
   publisher: string
@@ -59,6 +60,8 @@ export interface QueueSubscriptionInfo {
   cursor: number
   subscribedAt: number
   lastDeliveredAt: number | null
+  /** True while the subscriber session is archived: the relation is dormant. */
+  dormant: boolean
 }
 
 /** Aggregate topic view for list and stats surfaces. */

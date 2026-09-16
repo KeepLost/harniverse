@@ -15,6 +15,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import QueueService from './index.ts'
 import { defineTool, type ToolExecution } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-session/types'
 
 export const name = 'queue-tools'
 export const inject = ['queue', 'tools']
@@ -145,7 +146,7 @@ export function apply(ctx: Context, _config: Config = {}): void {
         text: `published #${String(value.offset ?? 0)} to ${value.topic ?? ''}; expires at ${String(value.expiresAt ?? 0)}`,
       }],
     },
-    execute: async (args: { topic: string; payload: object; ttlMs?: number }, exec: ToolExecution) => {
+    execute: async (args: { topic: string; payload: JsonValue; ttlMs?: number }, exec: ToolExecution) => {
       const publisher = exec.agent?.session.id ?? 'tool'
       const message = await queue.publish(args.topic, args.payload, {}, args.ttlMs ?? null, publisher)
       return { kind: 'published', topic: args.topic, offset: message.offset, expiresAt: message.expiresAt }
