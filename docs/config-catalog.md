@@ -1982,6 +1982,24 @@ Depends on: [`LocalConfig`](#deepseek-aidsh-pwsh-local)
 
 Source: [`packages/shell/pwsh-sandbox/src/index.ts:40`](../packages/shell/pwsh-sandbox/src/index.ts)
 
+<a id="deepseek-aidsh-queue"></a>
+
+## `@deepseek-ai/dsh-queue`
+
+Requires: `agents` · `sessions` · `workspaceRegistry` · `storageDomain`
+
+```ts config-catalog
+/** Constructor input: every config field optional, defaults applied on parse. */
+export type QueueConfigInput = Partial<QueueConfig>
+
+/** Resolved deployment config (all defaults applied). */
+export type QueueConfig = z.infer<typeof queueConfigSchema>
+```
+
+Depends on: `z` (`zod`)
+
+Source: [`packages/queue/queue/src/index.ts:40`](../packages/queue/queue/src/index.ts)
+
 <a id="deepseek-aidsh-repeat-tool-reminder"></a>
 
 ## `@deepseek-ai/dsh-repeat-tool-reminder`
@@ -3808,6 +3826,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-model-selection` ([`packages/client/ui-model-selection/src/index.ts`](../packages/client/ui-model-selection/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-permission-presets` ([`packages/client/ui-permission-presets/src/index.ts`](../packages/client/ui-permission-presets/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-plan` ([`packages/client/ui-plan/src/index.ts`](../packages/client/ui-plan/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-queue` ([`packages/client/ui-queue/src/index.ts`](../packages/client/ui-queue/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-reference` ([`packages/client/ui-reference/src/index.ts`](../packages/client/ui-reference/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-scheduler` ([`packages/client/ui-scheduler/src/index.ts`](../packages/client/ui-scheduler/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings` ([`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts))

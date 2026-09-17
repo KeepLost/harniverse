@@ -6,7 +6,7 @@ Status: implemented
 
 - 日期: 2026-09-16
 - 影响面: `@deepseek-ai/dsh-client-ui-trajectory`(ContextStrip 摆位与样式)
-- PR: 待补(修复 PR 合并后回填 SHA)
+- PR: #857e25018f (merge)
 
 ## Problem
 

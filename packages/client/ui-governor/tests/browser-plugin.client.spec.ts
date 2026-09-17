@@ -120,10 +120,12 @@ describe('ui-governor browser half', () => {
     const { ctx, captured, layoutCalls } = await bench()
     const registration = captured.find(({ options }) => options['id'] === 'governor')
     expect(registration).toBeDefined()
-    const injectFace = registration!.options['inject'] as () => {
+    const shellFace = registration!.options['inject'] as () => { closeView: () => void }
+    const resources = captured.find(({ options }) => options['id'] === 'resources')
+    expect(resources).toBeDefined()
+    const injectFace = resources!.options['inject'] as () => {
       overview: () => Promise<unknown>
       adjustQuota: (sessionId: string, memoryBytes: number | null) => Promise<unknown>
-      closeView: () => void
       pollMs: number
     }
     const calls: unknown[][] = []
@@ -144,8 +146,40 @@ describe('ui-governor browser half', () => {
       ['sessionQuotaAdjust', 'session-z', 1_048_576],
     ])
     expect(verbs.pollMs).toBe(5_000)
-    verbs.closeView()
+    shellFace().closeView()
     expect(layoutCalls).toContain('clear')
+  })
+
+  it('serves the tab ledger with thunk, string, and absent labels', async () => {
+    const { ctx, captured } = await bench()
+    // Extra entries through the real registry: a string label and an absent one.
+    ctx.slots.register({
+      name: 'governor.center.tab', id: 'string-labelled', order: 30, locale: NS, label: 'Fixed label',
+    } as never, () => null)
+    ctx.slots.register({ name: 'governor.center.tab', id: 'unlabelled', order: 40, locale: NS } as never, () => null)
+    const view = captured.find(({ options }) => options['id'] === 'governor')
+    interface TabsSource {
+      list: () => Array<{ id: string; label: string }>
+      subscribe: (fn: () => void) => () => void
+      version: () => number
+    }
+    const face = view!.options['inject'] as () => { tabs: TabsSource; closeView: () => void }
+    const { tabs, closeView } = face()
+    void closeView
+    const descriptors = tabs.list()
+    const byId = new Map(descriptors.map(d => [d.id, d.label]))
+    expect(byId.get('resources')).toBe(zh['tab.resources'])
+    expect(byId.get('string-labelled')).toBe('Fixed label')
+    expect(byId.get('unlabelled')).toBe('unlabelled')
+    const before = tabs.version()
+    let notified = 0
+    const release = tabs.subscribe(() => { notified += 1 })
+    ctx.slots.register({ name: 'governor.center.tab', id: 'late', order: 50, locale: NS } as never, () => null)
+    expect(tabs.list().map(d => d.id)).toContain('late')
+    void notified
+    expect(tabs.version()).toBeGreaterThan(before)
+    release()
+    await ctx.fiber.dispose()
   })
 
   it('binds the footer trigger to the layout center-view occupancy', async () => {

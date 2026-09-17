@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-资源看板，浏览器半：一个侧栏底部触发器占用中心列，呈现「会话即进程」总览——每会话 CPU tick、对照有效限额的内存热条、活动命令数、违约徽标、内联内存配额协商（MiB）、执法档位徽标、全局预算条，以及宿主磁盘/网络哨兵。数据经生成的 `governor` Remote（`ctx.remote.governor`）按采样节奏轮询，因此页面构造上就是脚本使用的同一 HTTP API 面。节点半不注册宿主行为；宿主服务位于 `@deepseek-ai/dsh-governor`。
+会话看板（Panel），浏览器半：一个侧栏底部触发器占用中心列，壳层自带页内选项卡环（`governor.center.tab` 槽位贡献；仅一个贡献时不显示选项卡）。「资源」选项卡呈现「会话即进程」总览——每会话 CPU tick、对照有效限额的内存热条、活动命令数、违约徽标、内联内存配额协商（MiB）、执法档位徽标、全局预算条，以及宿主磁盘/网络哨兵。数据经生成的 `governor` Remote（`ctx.remote.governor`）按采样节奏轮询，因此页面构造上就是脚本使用的同一 HTTP API 面。节点半不注册宿主行为；宿主服务位于 `@deepseek-ai/dsh-governor`。
 
 ## Composition
 

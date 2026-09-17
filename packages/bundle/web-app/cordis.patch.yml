@@ -90,6 +90,12 @@
     - id: governor
       name: '@deepseek-ai/dsh-governor'
 
+    # Session message queue: Kafka-style durable topics with forced archival,
+    # silent subscription cascades, and wake-on-deliver fan-out; the queue
+    # model tools are preset-scoped through @deepseek-ai/dsh-queue/tool.
+    - id: queue
+      name: '@deepseek-ai/dsh-queue'
+
     - id: message-feedback
       name: '@deepseek-ai/dsh-message-feedback'
       config:
@@ -317,6 +323,10 @@
     # with per-session memory quota adjustment.
     - id: ui-governor
       name: '@deepseek-ai/dsh-client-ui-governor'
+
+    # Message-queue tab of the panel (会话看板) over the queue Remote.
+    - id: ui-queue
+      name: '@deepseek-ai/dsh-client-ui-queue'
 
     # Goal surface: GoalBar in the input dock over the goal session projection.
     - id: ui-goal
