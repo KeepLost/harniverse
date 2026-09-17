@@ -7,6 +7,7 @@ import { withFileLock, writeFileAtomic } from '../src/index.ts'
 const state = vi.hoisted(() => ({
   renameAttempts: 0,
   renameFailures: [] as string[],
+  lockCreateFailures: [] as string[],
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -22,6 +23,16 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       }
       return actual.rename(...args)
     }),
+    writeFile: (async (...args: Parameters<typeof actual.writeFile>) => {
+      const [path] = args
+      const code = typeof path === 'string' && path.endsWith('.lock')
+        ? state.lockCreateFailures.shift()
+        : undefined
+      if (code !== undefined) {
+        throw Object.assign(new Error(`${code}: injected lock create failure`), { code })
+      }
+      return actual.writeFile(...args)
+    }),
   }
 })
 
@@ -32,6 +43,7 @@ afterEach(async () => {
   vi.restoreAllMocks()
   state.renameAttempts = 0
   state.renameFailures.length = 0
+  state.lockCreateFailures.length = 0
   await Promise.all(scratchDirs.splice(0).map(dir => rm(dir, {
     force: true,
     maxRetries: 10,
@@ -153,5 +165,20 @@ describe('withFileLock', () => {
       called = true
     })).rejects.toThrow(/ENOENT|ENOTDIR|not a directory/i)
     expect(called).toBe(false)
+  })
+
+  it('waits out a Windows delete-pending EPERM on the lock create', async () => {
+    const dir = await scratch()
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    state.lockCreateFailures.push('EPERM')
+    await expect(withFileLock(join(dir, 'document.yaml'), async () => 'done')).resolves.toBe('done')
+    platform.mockRestore()
+  })
+
+  it('surfaces a real EPERM lock create on POSIX', async () => {
+    const dir = await scratch()
+    state.lockCreateFailures.push('EPERM')
+    await expect(withFileLock(join(dir, 'document.yaml'), async () => 'done'))
+      .rejects.toMatchObject({ code: 'EPERM' })
   })
 })
