@@ -27,6 +27,7 @@ A branch gesture taken within roughly a second after a reconnect produced a chil
 ## Consequences
 
 - A branch taken while the list store lags a title re-land now still produces the incremented child title; the "silently unsuffixed child" state is gone.
+- Forks from subagent sessions now increment too: their list rows never carried a `title` (the catalog path sets only `displayTitle`), so the old store-backed read always skipped their rename. The `subagent-conversation` fork golden is refreshed to the suffixed row, matching the ordinary-fork golden convention.
 - `titleOf` is the single sanctioned synchronous title read for policy code; list rows and policy now share one source of truth.
 - The pre-existing no-title behavior is preserved: no durable title means no rename, by design.
 
