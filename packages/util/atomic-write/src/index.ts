@@ -98,6 +98,15 @@ function isEEXIST(error: unknown): boolean {
 }
 
 /**
+ * Whether an exclusive lock create failed because the lock is held — including
+ * Windows reporting the previous holder's still-pending delete as EPERM.
+ */
+function isLockCreateContention(error: unknown): boolean {
+  if (isEEXIST(error)) return true
+  return process.platform === 'win32' && (error as NodeJS.ErrnoException | null)?.code === 'EPERM'
+}
+
+/**
  * Writer-lock protocol constants. These are robustness invariants of the
  * cross-process write protocol, not deployment tunables: contention normally
  * resolves within the retry deadline, while expiry fails the contender without
@@ -131,7 +140,7 @@ export async function withFileLock<T>(
       await writeFile(lockPath, `${process.pid}\n`, { mode: 0o600, flag: 'wx' })
       break
     } catch (error) {
-      if (!isEEXIST(error)) throw error
+      if (!isLockCreateContention(error)) throw error
     }
     if (Date.now() >= deadline) {
       throw new Error(`atomic-write: timed out waiting for the writer lock at ${lockPath}`)
