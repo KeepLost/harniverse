@@ -61,7 +61,6 @@ async function mounted(config: Record<string, number> = {}, opts: { persistence?
     flushed: [],
     archived: [],
     pendingDeletion: [],
-    // eslint-disable-next-line @typescript-eslint/no-use-before-define
     service: undefined as unknown as QueueService,
     attached: new Set<string>(),
   }

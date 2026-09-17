@@ -81,6 +81,24 @@ describe('GovernorCenterView', () => {
     expect(renderedOnly[renderedOnly.length - 1]).toBe('queue')
   })
 
+  it('renders nothing when the ledger is empty', () => {
+    const instance = createGovernorViewStore().create()
+    const renderSlot = (() => <p>tab-body</p>) as unknown as GovernorCenterViewProps['renderSlot']
+    render(
+      <GovernorCenterView
+        {...{
+          useStore: hookOf(instance),
+          actions: instance.actions,
+          closeView: () => {},
+          tabs: tabsOf([]),
+          renderSlot,
+          t,
+        } as unknown as GovernorCenterViewProps}
+      />,
+    )
+    expect(screen.queryByText('tab-body')).toBeNull()
+  })
+
   it('falls back to the first descriptor when the stored tab id is unknown', () => {
     const instance = createGovernorViewStore().create()
     instance.actions.setTab('gone')

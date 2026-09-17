@@ -124,7 +124,7 @@ describe('QueueTab', () => {
     const ok = <T,>(value: T): RemoteResult<T> => ({ ok: true as const, value })
     mount({
       topicDelete: async () => ({ ok: false as const, error: { message: 'no capability' } as never }),
-    } as Partial<Verbs>)
+    })
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     await waitFor(() => { expect(screen.getByText('ops')).toBeTruthy() })
     fireEvent.click(screen.getByText(zh['topic.delete']))

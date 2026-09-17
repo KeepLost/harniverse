@@ -150,6 +150,38 @@ describe('ui-governor browser half', () => {
     expect(layoutCalls).toContain('clear')
   })
 
+  it('serves the tab ledger with thunk, string, and absent labels', async () => {
+    const { ctx, captured } = await bench()
+    // Extra entries through the real registry: a string label and an absent one.
+    ctx.slots.register({
+      name: 'governor.center.tab', id: 'string-labelled', order: 30, locale: NS, label: 'Fixed label',
+    } as never, () => null)
+    ctx.slots.register({ name: 'governor.center.tab', id: 'unlabelled', order: 40, locale: NS } as never, () => null)
+    const view = captured.find(({ options }) => options['id'] === 'governor')
+    interface TabsSource {
+      list: () => Array<{ id: string; label: string }>
+      subscribe: (fn: () => void) => () => void
+      version: () => number
+    }
+    const face = view!.options['inject'] as () => { tabs: TabsSource; closeView: () => void }
+    const { tabs, closeView } = face()
+    void closeView
+    const descriptors = tabs.list()
+    const byId = new Map(descriptors.map(d => [d.id, d.label]))
+    expect(byId.get('resources')).toBe(zh['tab.resources'])
+    expect(byId.get('string-labelled')).toBe('Fixed label')
+    expect(byId.get('unlabelled')).toBe('unlabelled')
+    const before = tabs.version()
+    let notified = 0
+    const release = tabs.subscribe(() => { notified += 1 })
+    ctx.slots.register({ name: 'governor.center.tab', id: 'late', order: 50, locale: NS } as never, () => null)
+    expect(tabs.list().map(d => d.id)).toContain('late')
+    void notified
+    expect(tabs.version()).toBeGreaterThan(before)
+    release()
+    await ctx.fiber.dispose()
+  })
+
   it('binds the footer trigger to the layout center-view occupancy', async () => {
     const { captured, layoutCalls } = await bench()
     const registration = captured.find(({ options }) => options['id'] === 'governor-view')
