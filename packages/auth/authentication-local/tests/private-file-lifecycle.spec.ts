@@ -4,7 +4,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, rm, rmdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -241,7 +241,15 @@ describe('stale writer lock reclamation', () => {
     await craftLock(lockPath, { pid: process.pid, nonce: hex('a') })
     const acquisition = withPrivateFileLock(target, async () => 'waited out')
     await new Promise(resolve => setTimeout(resolve, 5))
-    await rm(lockPath, { recursive: true, force: true })
+    // Release the way a real owner does: owner file first, then the now-empty
+    // directory. An ENOTEMPTY on the rmdir means the waiter's rename took the
+    // empty-directory window — the acquisition under test — not a failed
+    // release simulation.
+    const [crafted] = await readdir(lockPath) as [string]
+    await rm(join(lockPath, crafted), { force: true })
+    await rmdir(lockPath).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOTEMPTY') throw error
+    })
     await expect(acquisition).resolves.toBe('waited out')
   })
 
