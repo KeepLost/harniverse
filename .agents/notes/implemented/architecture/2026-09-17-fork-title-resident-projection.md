@@ -18,6 +18,18 @@ A branch gesture taken within roughly a second after a reconnect produced a chil
 
 `fork` now reads the source title through `SessionManager.titleOf(sessionId)` — a synchronous read of the resident `'title'` projection, the exact source `buildListSnapshot` itself reads when building list rows. The snapshot builder reuses the same accessor so the two reads cannot drift. The projected list store keeps its role for rendering; it is no longer an input to the fork title policy.
 
+## Alternatives considered
+
+- **Retry or await the list flush before reading the title**: rejected — it would add a wait to a user gesture to paper over reading the wrong source; the authoritative value is already synchronously readable.
+- **Move the increment host-side (fork RPC gains rename semantics)**: a wire-contract change out of proportion to the defect; the client already owns the title policy (`increaseTitle` is a client concern).
+- **Treat a missing title as a fork failure**: would break branching for sessions that legitimately have no title yet (blank cwd-only sessions).
+
+## Consequences
+
+- A branch taken while the list store lags a title re-land now still produces the incremented child title; the "silently unsuffixed child" state is gone.
+- `titleOf` is the single sanctioned synchronous title read for policy code; list rows and policy now share one source of truth.
+- The pre-existing no-title behavior is preserved: no durable title means no rename, by design.
+
 ## Verification
 
 - New regression test in `sessions-service.client.spec.ts`: a fork issued in the same synchronous tick as the `session/projection` title frame — before any flush can land it in the list store — still sends the `session.rename` increment. The test fails against the previous store-backed read.

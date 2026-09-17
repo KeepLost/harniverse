@@ -340,7 +340,6 @@ export class SessionManager {
     })
   }
 
-  /** Rebuild every resident Session after one coalesced registry transaction. */
   /**
    * Durable list-row title of one session, read from the resident 'title'
    * projection — the same source {@link buildListSnapshot} reads — so callers
@@ -354,6 +353,7 @@ export class SessionManager {
     return typeof title === 'string' && title !== '' ? title : undefined
   }
 
+  /** Rebuild every resident Session after one coalesced registry transaction. */
   rebuildConversationRegistry(): void {
     for (const session of this.sessions.values()) session.rebuildConversationRegistry()
   }
