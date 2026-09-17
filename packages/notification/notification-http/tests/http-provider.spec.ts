@@ -227,6 +227,17 @@ describe('HTTP notification provider', () => {
       backend.emit(event('retry'))
       backend.emit(event('dead'))
       backend.emit(event('redirect'))
+      // Admission, the durable outbox write, and the fetch are asynchronous
+      // by contract; converge on the server's record instead of assuming
+      // shutdown() finds every delivery already drained.
+      const settled = async (): Promise<boolean> =>
+        attempts.get('retry')?.length === 2
+        && attempts.get('dead')?.length === 1
+        && attempts.get('redirect')?.length === 1
+      const deadline = Date.now() + 15_000
+      while (!await settled() && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 25))
+      }
       await backend.shutdown()
 
       expect(attempts.get('retry')).toHaveLength(2)

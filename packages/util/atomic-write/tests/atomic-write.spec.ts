@@ -177,8 +177,10 @@ describe('withFileLock', () => {
 
   it('surfaces a real EPERM lock create on POSIX', async () => {
     const dir = await scratch()
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
     state.lockCreateFailures.push('EPERM')
     await expect(withFileLock(join(dir, 'document.yaml'), async () => 'done'))
       .rejects.toMatchObject({ code: 'EPERM' })
+    platform.mockRestore()
   })
 })
