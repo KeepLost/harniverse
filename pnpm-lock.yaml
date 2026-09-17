@@ -956,6 +956,9 @@ importers:
       '@deepseek-ai/dsh-governor':
         specifier: workspace:^
         version: link:../../monitor/governor
+      '@deepseek-ai/dsh-queue':
+        specifier: workspace:^
+        version: link:../../queue/queue
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:^
         version: link:../../typert/protocol
