@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it, onTestFailed } from 'vitest'
 import type { ReplayOverrideDoc } from '@deepseek-ai/dsh-llm-replay'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
-  assertFixtureInventory, captureStableAria, waitForAgentPresetLabel, compareOrRefreshGolden, fixtureUserPrompts,
+  assertFixtureInventory, captureStableAria, waitForAgentPresetLabel, compareGoldenWhenSettled, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
@@ -129,8 +129,11 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     expect(await page.getByRole('button', { name: 'Branch into a new conversation' }).count()).toBe(0)
     await copyButtons.first().focus()
     await waitForAgentPresetLabel(page)
-    const running = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
-    await compareOrRefreshGolden(RUNNING_EXPECTED, running, MODE)
+    await compareGoldenWhenSettled(
+      RUNNING_EXPECTED,
+      () => captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd),
+      MODE,
+    )
 
     // Closing the turn from the park is the state change under test: an
     // aborted turn is durably closed, so its transcript tail (the frozen
@@ -142,8 +145,11 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     await expect.poll(() => page.locator('[data-streaming="true"]').count(), { timeout: 10_000 }).toBe(0)
     await copyButtons.last().focus()
     await waitForAgentPresetLabel(page)
-    const settledAria = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
-    await compareOrRefreshGolden(SETTLED_EXPECTED, settledAria, MODE)
+    await compareGoldenWhenSettled(
+      SETTLED_EXPECTED,
+      () => captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd),
+      MODE,
+    )
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   }, 120_000)

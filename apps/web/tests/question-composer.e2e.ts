@@ -15,7 +15,7 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
-  assertFixtureInventory, captureStableAria, waitForAgentPresetLabel, compareOrRefreshGolden, fixtureUserPrompts,
+  assertFixtureInventory, captureStableAria, waitForAgentPresetLabel, compareGoldenWhenSettled, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
@@ -84,10 +84,16 @@ describe('web e2e: resident question composer round trip', () => {
     if (MODE !== 'record') {
       // This golden owns the stable question surface; the answered-state
       // golden below owns the resulting transcript.
-      const snapshot = await captureStableAria(page, '[data-question-key]', scaffold.workspaceCwd)
-      await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
-      const sidebar = await captureStableAria(page, '[role="treeitem"][aria-selected="true"]', scaffold.workspaceCwd)
-      await compareOrRefreshGolden(SIDEBAR_EXPECTED, sidebar, MODE)
+      await compareGoldenWhenSettled(
+        UI_EXPECTED,
+        () => captureStableAria(page, '[data-question-key]', scaffold.workspaceCwd),
+        MODE,
+      )
+      await compareGoldenWhenSettled(
+        SIDEBAR_EXPECTED,
+        () => captureStableAria(page, '[role="treeitem"][aria-selected="true"]', scaffold.workspaceCwd),
+        MODE,
+      )
     }
 
     // Squeezed card: the option rows are the capped card's scroll content, so
@@ -139,8 +145,11 @@ describe('web e2e: resident question composer round trip', () => {
     expect(await blue.getAttribute('aria-checked')).toBe('true')
     expect(await custom.inputValue()).toBe('Include accessibility notes')
     if (MODE !== 'record') {
-      const snapshot = await captureStableAria(page, '[data-question-key]', scaffold.workspaceCwd)
-      await compareOrRefreshGolden(COMPOSED_EXPECTED, snapshot, MODE)
+      await compareGoldenWhenSettled(
+        COMPOSED_EXPECTED,
+        () => captureStableAria(page, '[data-question-key]', scaffold.workspaceCwd),
+        MODE,
+      )
     }
     await custom.press('Enter')
 
@@ -167,8 +176,11 @@ describe('web e2e: resident question composer round trip', () => {
     // Golden of the answered transcript: the ask_user_question round trip
     // rendered as history (question tool row + DONE), composer takeover gone.
     await waitForAgentPresetLabel(page)
-    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(ANSWERED_EXPECTED, snapshot, MODE)
+    await compareGoldenWhenSettled(
+      ANSWERED_EXPECTED,
+      () => captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd),
+      MODE,
+    )
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   }, 200_000)

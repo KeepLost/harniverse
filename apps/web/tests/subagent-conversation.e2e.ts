@@ -11,7 +11,7 @@ import {
 import type {} from '@deepseek-ai/dsh-agent'
 import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import {
-  acknowledgeReloadConnectionLoss, captureStableAria, compareOrRefreshGolden,
+  acknowledgeReloadConnectionLoss, captureStableAria, compareGoldenWhenSettled, compareOrRefreshGolden,
   launchWebScaffold, watchConsole,
   webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
@@ -301,12 +301,15 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     await page.getByRole('treeitem', { name: new RegExp(NESTED_LABEL) }).waitFor({ timeout: 15_000 })
     expect(scaffold.ctx.agents.get(childId)).toBeUndefined()
     expect(scaffold.ctx.agents.get(grandchildId)).toBeUndefined()
-    const snapshot = await captureStableAria(
-      page,
-      '[role="tree"][aria-label="Subagent sessions"]',
-      scaffold.workspaceCwd,
+    await compareGoldenWhenSettled(
+      TREE_EXPECTED,
+      () => captureStableAria(
+        page,
+        '[role="tree"][aria-label="Subagent sessions"]',
+        scaffold.workspaceCwd,
+      ),
+      MODE,
     )
-    await compareOrRefreshGolden(TREE_EXPECTED, snapshot, MODE)
     await page.getByRole('tree', { name: 'Subagent sessions' }).press('Escape')
   })
 
@@ -323,12 +326,15 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     }
     const hierarchy = page.getByRole('navigation', { name: 'Session hierarchy' })
     await hierarchy.getByRole('button', { name: LABEL, disabled: true }).waitFor()
-    const sidebar = await captureStableAria(
-      page,
-      '[role="tree"][aria-label="Sessions"]',
-      scaffold.workspaceCwd,
+    await compareGoldenWhenSettled(
+      SIDEBAR_EXPECTED,
+      () => captureStableAria(
+        page,
+        '[role="tree"][aria-label="Sessions"]',
+        scaffold.workspaceCwd,
+      ),
+      MODE,
     )
-    await compareOrRefreshGolden(SIDEBAR_EXPECTED, sidebar, MODE)
   })
 
   it('continues through FIFO follow-up admission and receives the child mux events', async () => {
@@ -360,8 +366,11 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
 
   it('matches the settled addressed-conversation aria golden and stays clean', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-aria'))
-    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(AVAILABLE_CHILD_EXPECTED, snapshot, MODE)
+    await compareGoldenWhenSettled(
+      AVAILABLE_CHILD_EXPECTED,
+      () => captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd),
+      MODE,
+    )
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   })

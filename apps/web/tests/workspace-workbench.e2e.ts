@@ -8,7 +8,7 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { approveEnrollmentRequest, listEnrollmentRequests } from '@deepseek-ai/dsh-authentication-local'
 import {
-  assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
+  assertFixtureInventory, captureStableAria, compareGoldenWhenSettled, fixtureUserPrompts,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
@@ -94,8 +94,11 @@ describe.skipIf(MODE === 'record')('web e2e: read-only Workspace workbench', () 
     const enteringClipBox = await previewClip.boundingBox()
     if (enteringClipBox === null || sidebarBox === null) throw new Error('frame surface has no layout box')
     expect(enteringClipBox.x).toBeGreaterThanOrEqual(sidebarBox.x + sidebarBox.width - 1)
-    const dockedPreviewSnapshot = await captureStableAria(page, '[role="region"][aria-label="Workspace file preview"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(WORKBENCH_PREVIEW_EXPECTED, dockedPreviewSnapshot, MODE)
+    await compareGoldenWhenSettled(
+      WORKBENCH_PREVIEW_EXPECTED,
+      () => captureStableAria(page, '[role="region"][aria-label="Workspace file preview"]', scaffold.workspaceCwd),
+      MODE,
+    )
     const detailsSeparator = page.getByRole('separator', { name: 'Resize right panel' })
     await detailsSeparator.focus()
     await detailsSeparator.press('ArrowLeft')
@@ -145,8 +148,11 @@ describe.skipIf(MODE === 'record')('web e2e: read-only Workspace workbench', () 
     await expect.poll(() => frame.getAttribute('data-right-drawer'), { timeout: 10_000 }).toBe('true')
     let drawerPreview = workbench.getByRole('region', { name: 'Workspace file preview' })
     await drawerPreview.waitFor({ timeout: 10_000 })
-    const drawerPreviewSnapshot = await captureStableAria(page, '[role="region"][aria-label="Workspace file preview"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(WORKBENCH_DRAWER_PREVIEW_EXPECTED, drawerPreviewSnapshot, MODE)
+    await compareGoldenWhenSettled(
+      WORKBENCH_DRAWER_PREVIEW_EXPECTED,
+      () => captureStableAria(page, '[role="region"][aria-label="Workspace file preview"]', scaffold.workspaceCwd),
+      MODE,
+    )
     await drawerPreview.getByRole('button', { name: 'Close file preview' }).click()
     await workbench.getByRole('tab', { name: 'Files', exact: true }).click()
     await navigation.getByRole('button', { name: /README\.md$/ }).click()
@@ -154,8 +160,11 @@ describe.skipIf(MODE === 'record')('web e2e: read-only Workspace workbench', () 
     await drawerPreview.waitFor({ timeout: 10_000 })
     await drawerPreview.getByRole('button', { name: 'Close file preview' }).click()
     await expect.poll(() => navigation.isVisible(), { timeout: 10_000 }).toBe(true)
-    const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(WORKBENCH_EXPECTED, snapshot, MODE)
+    await compareGoldenWhenSettled(
+      WORKBENCH_EXPECTED,
+      () => captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd),
+      MODE,
+    )
 
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
