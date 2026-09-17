@@ -5,7 +5,7 @@ import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 
 /** Current derived-index schema version. Incompatible versions reset in place. */
-export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 10
+export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 11
 
 /** SQLite application id protecting unrelated databases from derived resets. */
 export const SESSION_QUERY_SQLITE_APPLICATION_ID = 0x44534851
@@ -29,6 +29,7 @@ const DERIVED_USER_TABLES = new Set([
   'persisted_docs_content',
   'persisted_docs_docsize',
   'persisted_docs_config',
+  'persisted_docs_vocab',
 ])
 
 /**
@@ -133,6 +134,7 @@ function ensurePersistentSchema(db: DatabaseSync): void {
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS persisted_docs USING fts5(
       text,
+      raw_text UNINDEXED,
       session_id UNINDEXED,
       seq UNINDEXED,
       type UNINDEXED,
@@ -141,6 +143,9 @@ function ensurePersistentSchema(db: DatabaseSync): void {
       codepoint_length UNINDEXED,
       tokenize = 'unicode61'
     )
+  `)
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS persisted_docs_vocab USING fts5vocab(persisted_docs, 'instance')
   `)
   db.exec(`
     CREATE TABLE IF NOT EXISTS persisted_activity (
@@ -183,6 +188,7 @@ function ensureTemporarySchema(db: DatabaseSync): void {
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS temp.live_docs USING fts5(
       text,
+      raw_text UNINDEXED,
       session_id UNINDEXED,
       seq UNINDEXED,
       type UNINDEXED,
@@ -191,6 +197,21 @@ function ensureTemporarySchema(db: DatabaseSync): void {
       codepoint_length UNINDEXED,
       tokenize = 'unicode61'
     )
+  `)
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS temp.live_docs_vocab USING fts5vocab(live_docs, 'instance')
+  `)
+  // Tokenizer oracle: SQLite folds caller queries with the same `unicode61`
+  // configuration the document indexes use, so ranking terms need no
+  // reimplementation of case folding or diacritic removal in JavaScript.
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS temp.query_tokens USING fts5(
+      text,
+      tokenize = 'unicode61'
+    )
+  `)
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS temp.query_tokens_vocab USING fts5vocab(query_tokens, 'row')
   `)
   db.exec(`
     CREATE TEMP TABLE IF NOT EXISTS live_activity (

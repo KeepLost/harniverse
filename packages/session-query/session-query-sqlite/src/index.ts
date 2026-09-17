@@ -52,6 +52,7 @@ import {
   buildActivityWhere,
   buildEventWhere,
   buildSessionWhere,
+  ftsTermList,
   makeSnippet,
   normalizeEventRequest,
   normalizeFindRequest,
@@ -59,6 +60,7 @@ import {
   quoteFtsData,
   requestFingerprint,
   ngramFtsText,
+  sanitizeFtsText,
   SQLITE_MAX_PAGE_LIMIT,
 } from './query.ts'
 
@@ -198,8 +200,9 @@ interface SearchRow extends SessionHeaderRow {
   type: string
   time: number
   surface: string
-  marked_text: string
-  match_count: number
+  body: string
+  /** Query-term instances in this document; `null` when no indexed term matched it. */
+  match_count: number | null
   document_length: number
 }
 
@@ -298,7 +301,8 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
         ? 0
         : decodeCursor(normalized.cursor, this._instance, 'sessions', fingerprint, generation)
       const rows = this._querySessions(normalized, offset, persistenceBinding)
-      return page(rows, normalized.limit, row => this._sessionHit(row), cursorOffset => encodeCursor({
+      const anchors = ftsTermList(ngramFtsText(normalized.query))
+      return page(rows, normalized.limit, row => this._sessionHit(row, anchors), cursorOffset => encodeCursor({
         version: 1,
         instance: this._instance,
         scope: 'sessions',
@@ -354,9 +358,10 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
         ? 0
         : decodeCursor(normalized.cursor, this._instance, 'events', fingerprint, target.generation)
       const rows = this._queryEvents(normalized, offset, persistenceBinding)
+      const anchors = ftsTermList(ngramFtsText(normalized.query))
       return {
         session: target.header,
-        ...page(rows, normalized.limit, row => this._eventHit(row), cursorOffset => encodeCursor({
+        ...page(rows, normalized.limit, row => this._eventHit(row, anchors), cursorOffset => encodeCursor({
           version: 1,
           instance: this._instance,
           scope: 'events',
@@ -653,20 +658,11 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     )
     insertObservedMetadata(db, 'persisted', entry)
     const insert = db.prepare(`
-      INSERT INTO persisted_docs (text, session_id, seq, type, time, surface, codepoint_length)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO persisted_docs (text, raw_text, session_id, seq, type, time, surface, codepoint_length)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
     for (const document of entry.documents) {
-      const text = ngramFtsText(document.text)
-      insert.run(
-        text,
-        document.sessionId,
-        document.seq,
-        document.type,
-        document.time,
-        document.surface,
-        Array.from(text).length,
-      )
+      insert.run(...documentBindings(document))
     }
   }
 
@@ -685,20 +681,11 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     )
     insertObservedMetadata(db, 'live', entry)
     const insert = db.prepare(`
-      INSERT INTO temp.live_docs (text, session_id, seq, type, time, surface, codepoint_length)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO temp.live_docs (text, raw_text, session_id, seq, type, time, surface, codepoint_length)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
     for (const document of entry.documents) {
-      const text = ngramFtsText(document.text)
-      insert.run(
-        text,
-        document.sessionId,
-        document.seq,
-        document.type,
-        document.time,
-        document.surface,
-        Array.from(text).length,
-      )
+      insert.run(...documentBindings(document))
     }
   }
 
@@ -707,13 +694,14 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     offset: number,
     persistenceBinding: PersistenceBinding,
   ): SearchRow[] {
-    const selected = selectedDocumentsSql()
+    const terms = this._indexedQueryTerms(request.query)
+    const selected = selectedDocumentsSql(terms.length)
     const sessionWhere = buildSessionWhere(request.sessionFilters)
     const eventWhere = buildEventWhere(request.eventFilters)
     assertFts5OuterPredicateCount(sessionWhere.predicateCount + eventWhere.predicateCount)
     const where = [sessionWhere.sql, eventWhere.sql].filter(Boolean).join(' AND ')
     const bindings = [
-      ...selectedDocumentsParams(request.query, persistenceBinding.service !== undefined),
+      ...selectedDocumentsParams(request.query, terms, persistenceBinding.service !== undefined),
       ...sessionWhere.params,
       ...eventWhere.params,
       request.limit + 1,
@@ -793,12 +781,13 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     offset: number,
     persistenceBinding: PersistenceBinding,
   ): SearchRow[] {
-    const selected = selectedDocumentsSql()
+    const terms = this._indexedQueryTerms(request.query)
+    const selected = selectedDocumentsSql(terms.length)
     const eventWhere = buildEventWhere(request.filters)
     assertFts5OuterPredicateCount(1 + eventWhere.predicateCount)
     const where = ['session_id = ?', eventWhere.sql].filter(Boolean).join(' AND ')
     const bindings = [
-      ...selectedDocumentsParams(request.query, persistenceBinding.service !== undefined),
+      ...selectedDocumentsParams(request.query, terms, persistenceBinding.service !== undefined),
       request.sessionId,
       ...eventWhere.params,
       request.limit + 1,
@@ -848,12 +837,28 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     )
   }
 
-  private _sessionHit(row: SearchRow): SessionSearchHit {
+  /**
+   * Fold the caller query the way the document indexes are folded, then let
+   * SQLite tokenize it with the same `unicode61` configuration. The resulting
+   * terms address the index exactly, including its case folding and diacritic
+   * removal, without reimplementing either in JavaScript.
+   */
+  private _indexedQueryTerms(query: string): string[] {
+    const db = this._requireDb()
+    db.prepare('DELETE FROM temp.query_tokens').run()
+    db.prepare('INSERT INTO temp.query_tokens (text) VALUES (?)').run(ngramFtsText(query))
+    const rows = db.prepare('SELECT term FROM temp.query_tokens_vocab').all() as unknown as Array<{
+      term: string
+    }>
+    return rows.map(row => row.term)
+  }
+
+  private _sessionHit(row: SearchRow, terms: readonly string[]): SessionSearchHit {
     return {
       header: rowHeader(row),
       live: row.live === 1,
       persisted: row.persisted === 1,
-      bestMatch: this._eventHit(row),
+      bestMatch: this._eventHit(row, terms),
     }
   }
 
@@ -868,14 +873,14 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     }
   }
 
-  private _eventHit(row: SearchRow): SessionEventSearchHit {
+  private _eventHit(row: SearchRow, terms: readonly string[]): SessionEventSearchHit {
     return {
       sessionId: row.session_id as SessionId,
       seq: row.seq,
       type: row.type as SessionEventSearchHit['type'],
       time: row.time,
       surface: row.surface as SessionEventSearchHit['surface'],
-      snippet: makeSnippet(row.marked_text, this.config.snippetChars),
+      snippet: makeSnippet(row.body, terms, this.config.snippetChars),
     }
   }
 
@@ -906,6 +911,30 @@ function headerBindings(header: SessionHeader): (string | number | null)[] {
     header.seedLength ?? null,
     header.delegationDepth ?? null,
     header.agentProfile ?? null,
+  ]
+}
+
+/**
+ * The document columns both document inserts bind, in the order their INSERT
+ * lists them. `raw_text` carries the source prose snippets present, and stays
+ * NULL whenever folding left the indexed text unchanged, so corpora without
+ * folded script continua store no second copy. `codepoint_length` measures the
+ * source prose so relevance tie-breaking compares documents, not encodings.
+ * @param document - one projected searchable session event.
+ * @returns one bound value per document column.
+ */
+function documentBindings(document: SessionEventSearchDocument): (string | number | null)[] {
+  const text = ngramFtsText(document.text)
+  const raw = sanitizeFtsText(document.text)
+  return [
+    text,
+    text === raw ? null : raw,
+    document.sessionId,
+    document.seq,
+    document.type,
+    document.time,
+    document.surface,
+    Array.from(raw).length,
   ]
 }
 
@@ -950,7 +979,7 @@ function selectedFindSql(
     )`
     params.push(visible)
   } else {
-    const expression = quoteFtsData(title)
+    const expression = quoteFtsData(ngramFtsText(title))
     titleSql = `title_candidates AS (
       SELECT
         pt.session_id,
@@ -1040,9 +1069,25 @@ function selectedFindSql(
   }
 }
 
-function selectedDocumentsSql(): { sql: string } {
+/**
+ * Compile the source-comparable selection both document scopes rank over.
+ * Relevance counts indexed term instances straight from each table's `fts5vocab`
+ * companion, so no candidate document is read or re-scanned to score it, and the
+ * two counts stay comparable because both come from the same raw measure.
+ * Snippets project the stored source prose, never the folded index text.
+ * @param termCount - indexed query terms bound to the instance counters.
+ * @returns SQL prelude ending in the `matched` selection.
+ */
+function selectedDocumentsSql(termCount: number): { sql: string } {
+  const terms = termCount === 0
+    ? 'WHERE 0'
+    : `WHERE term IN (${Array.from({ length: termCount }, () => '?').join(', ')})`
   return {
-    sql: `WITH candidates AS (
+    sql: `WITH persisted_counts AS (
+      SELECT doc AS rid, COUNT(*) AS match_count FROM persisted_docs_vocab ${terms} GROUP BY doc
+    ), live_counts AS (
+      SELECT doc AS rid, COUNT(*) AS match_count FROM temp.live_docs_vocab ${terms} GROUP BY doc
+    ), matched AS (
       SELECT
         pd.session_id AS session_id,
         ps.version AS version,
@@ -1058,10 +1103,12 @@ function selectedDocumentsSql(): { sql: string } {
         pd.type AS type,
         CAST(pd.time AS INTEGER) AS time,
         pd.surface AS surface,
-        highlight(persisted_docs, 0, ?, ?) AS marked_text,
+        COALESCE(pd.raw_text, pd.text) AS body,
+        persisted_counts.match_count AS match_count,
         CAST(pd.codepoint_length AS INTEGER) AS document_length
       FROM persisted_docs AS pd
       JOIN persisted_sessions AS ps ON ps.id = pd.session_id
+      LEFT JOIN persisted_counts ON persisted_counts.rid = pd.rowid
       WHERE persisted_docs MATCH ?
         AND ? = 1
         AND NOT EXISTS (SELECT 1 FROM temp.live_sessions AS ls WHERE ls.id = pd.session_id)
@@ -1081,36 +1128,31 @@ function selectedDocumentsSql(): { sql: string } {
         ld.type AS type,
         CAST(ld.time AS INTEGER) AS time,
         ld.surface AS surface,
-        highlight(live_docs, 0, ?, ?) AS marked_text,
+        COALESCE(ld.raw_text, ld.text) AS body,
+        live_counts.match_count AS match_count,
         CAST(ld.codepoint_length AS INTEGER) AS document_length
       FROM temp.live_docs AS ld
       JOIN temp.live_sessions AS ls ON ls.id = ld.session_id
+      LEFT JOIN live_counts ON live_counts.rid = ld.rowid
       WHERE live_docs MATCH ?
-    ), matched AS (
-      SELECT *,
-        (
-          length(CAST(marked_text AS BLOB))
-          - length(CAST(replace(marked_text, ?, '') AS BLOB))
-        ) / ? AS match_count
-      FROM candidates
     )`,
   }
 }
 
-function selectedDocumentsParams(query: string, persistenceVisible: boolean): Array<string | number> {
-  const expression = quoteFtsData(query)
+function selectedDocumentsParams(
+  query: string,
+  terms: readonly string[],
+  persistenceVisible: boolean,
+): Array<string | number> {
+  const expression = quoteFtsData(ngramFtsText(query))
   const visible = persistenceVisible ? 1 : 0
   return [
-    FTS_HIGHLIGHT_START,
-    FTS_HIGHLIGHT_END,
+    ...terms,
+    ...terms,
     expression,
     visible,
     visible,
-    FTS_HIGHLIGHT_START,
-    FTS_HIGHLIGHT_END,
     expression,
-    FTS_HIGHLIGHT_START,
-    Buffer.byteLength(FTS_HIGHLIGHT_START, 'utf8'),
   ]
 }
 
