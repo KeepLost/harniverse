@@ -1125,6 +1125,52 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     source: 'packages/client/ui-layout/src/client/index.ts:88',
   },
   {
+    key: 'governor.center.tab',
+    kind: 'list',
+    scope: 'root',
+    summary: 'One in-page tab of the panel (会话看板) center view.',
+    doc: 'One in-page tab of the panel (会话看板) center view. Entries render in\nascending `order` as the tab ring; each renders its own surface when\nactive. The shell passes nothing: a tab is self-sufficient through its\nown inject face (the resources tab holds the governor Remote verbs).',
+    registerOptions: [
+      {
+        name: 'id',
+        requirement: 'required',
+        type: 'string',
+        doc: 'Your cell key. Use an id of your own: a fresh id is added beside the shipped entries, while reusing a shipped id puts you in THAT cell and replaces it. Owners that filter by id address you by it.',
+      },
+      {
+        name: 'order',
+        requirement: 'optional',
+        type: 'number',
+        doc: 'Position among the entries, ascending (default 0).',
+      },
+      {
+        name: 'label',
+        requirement: 'optional',
+        type: 'string | (() => string)',
+        doc: 'Display text where the owner projects one (nav rows, tabs). A thunk is re-read on every projection, so localized text follows the active locale without re-registering.',
+      },
+    ],
+    ownerProps: [
+      '/** Owner share of one panel tab: deliberately empty — every tab is self-sufficient. */\nexport interface GovernorCenterTabOwnerProps {}',
+    ],
+    ownerPropsReferences: [],
+    standardProps: [
+      'useSessions: SnapshotSelectorHook<SessionListState>',
+      'useWorkspaces: SnapshotSelectorHook<import(\'./workspaces/service.ts\').WorkspaceListState>',
+    ],
+    keyDomain: '',
+    hookContext: '',
+    slotInject: '',
+    declaredBy: 'an entry in \'center.view\' (client-ui-governor), so it exists while that entry is mounted',
+    occupants: [
+      'client-ui-governor GovernorResourcesTab id \'resources\'',
+      'client-ui-queue QueueTab id \'queue\'',
+    ],
+    replaceRisk: 'none',
+    example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'governor.center.tab\', () => ctx.slots.register(\n      { name: \'governor.center.tab\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
+    source: 'packages/client/ui-governor/src/client/index.ts:46',
+  },
+  {
     key: 'root',
     kind: 'single',
     scope: 'root',

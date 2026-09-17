@@ -1,0 +1,83 @@
+/** `queue` namespace dictionaries. */
+
+/** Dictionary namespace owned by this plugin. */
+export const NS = 'queue'
+
+/** Simplified Chinese dictionary (the key-set source of truth). */
+export const zh = {
+  'tab.queue': '消息队列',
+  'view.loading': '正在加载消息队列数据…',
+  'view.error': '消息队列加载失败。',
+  'view.retry': '重试',
+  'view.refresh': '刷新',
+  'view.empty': '当前没有任何 topic。',
+  'topic.create': '新建 topic',
+  'topic.name': '名称',
+  'topic.ttl': '默认 TTL(毫秒,可空)',
+  'topic.delete': '删除',
+  'topic.deleteConfirm': '删除将静默解除全部订阅关系,确定?',
+  'topic.select': '查看',
+  'table.name': 'topic',
+  'table.live': 'live 消息',
+  'table.archived': '已归档',
+  'table.subscribers': '订阅数',
+  'table.nextOffset': '下一 offset',
+  'detail.title': 'topic 详情',
+  'detail.showArchived': '显示已归档消息',
+  'detail.publish': '发布消息',
+  'detail.payload': 'JSON 载荷',
+  'detail.ttl': 'TTL 覆盖(毫秒,可空)',
+  'messages.offset': 'offset',
+  'messages.publisher': '发布者',
+  'messages.expires': '过期时刻',
+  'messages.payload': '载荷',
+  'messages.empty': '没有匹配的消息。',
+  'subs.title': '订阅关系',
+  'subs.session': '订阅会话',
+  'subs.cursor': '投递水位',
+  'subs.dormant': '休眠(会话已归档)',
+  'subs.subscribe': '订阅',
+  'subs.unsubscribe': '退订',
+  'op.failed': '操作失败:{message}',
+} as const
+
+/** All dictionary keys. */
+export type QueueKey = keyof typeof zh
+
+/** English dictionary, key-identical to the Chinese source of truth. */
+export const en: Record<QueueKey, string> = {
+  'tab.queue': 'Message queue',
+  'view.loading': 'Loading queue data…',
+  'view.error': 'Failed to load the queue.',
+  'view.retry': 'Retry',
+  'view.refresh': 'Refresh',
+  'view.empty': 'No topics yet.',
+  'topic.create': 'Create topic',
+  'topic.name': 'Name',
+  'topic.ttl': 'Default TTL (ms, optional)',
+  'topic.delete': 'Delete',
+  'topic.deleteConfirm': 'Deleting silently dissolves every subscription. Proceed?',
+  'topic.select': 'Open',
+  'table.name': 'topic',
+  'table.live': 'live messages',
+  'table.archived': 'archived',
+  'table.subscribers': 'subscribers',
+  'table.nextOffset': 'next offset',
+  'detail.title': 'Topic detail',
+  'detail.showArchived': 'Show archived messages',
+  'detail.publish': 'Publish',
+  'detail.payload': 'JSON payload',
+  'detail.ttl': 'TTL override (ms, optional)',
+  'messages.offset': 'offset',
+  'messages.publisher': 'publisher',
+  'messages.expires': 'expires at',
+  'messages.payload': 'payload',
+  'messages.empty': 'No matching messages.',
+  'subs.title': 'Subscriptions',
+  'subs.session': 'subscriber session',
+  'subs.cursor': 'delivery watermark',
+  'subs.dormant': 'dormant (session archived)',
+  'subs.subscribe': 'Subscribe',
+  'subs.unsubscribe': 'Unsubscribe',
+  'op.failed': 'Operation failed: {message}',
+}

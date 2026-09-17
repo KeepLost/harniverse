@@ -168,6 +168,9 @@ flowchart LR
   pkg_subagent_codex["subagent-codex"]
   pkg_subagent_claude_code["subagent-claude-code"]
   pkg_governor["governor"]
+  pkg_queue["queue"]
+  svc_queue["ctx.queue<br/>Session message queue"]
+  pkg_client_ui_queue["client-ui-queue"]
   svc_governor["ctx.governor<br/>Resource governor"]
   pkg_client_ui_governor["client-ui-governor"]
   pkg_shell["shell"]
@@ -304,6 +307,7 @@ flowchart LR
   pkg_plugin_diagnostics --> svc_pluginDiagnostics
   pkg_plugin_diagnostics_cordis --> svc_pluginDiagnostics
   pkg_pwsh_local --> svc_shell
+  pkg_queue --> svc_queue
   pkg_sandbox --> svc_sandbox
   pkg_sandbox_local --> svc_sandbox
   pkg_sandbox_policy --> svc_sandboxPolicy
@@ -417,6 +421,7 @@ flowchart LR
   svc_modelPolicy --> pkg_ui_model_selection
   svc_notification --> pkg_notification
   svc_pluginDiagnostics --> pkg_host_plugin_inventory
+  svc_queue --> pkg_client_ui_queue
   svc_sandbox --> pkg_bash_sandbox
   svc_sandbox --> pkg_terminal_bash
   svc_sandboxPolicy --> pkg_bash_sandbox
@@ -560,6 +565,7 @@ flowchart LR
 | `ctx.goals` | `core` | [`goal`](../packages/goal/goal) | - | - | - | Folds revisioned objective state from the session log and keeps live continuation activation process-local. |
 | `ctx.e2b` | `core` | [`e2b`](../packages/e2b/e2b) | - | [`fs-e2b`](../packages/e2b/fs-e2b), [`subprocess-e2b`](../packages/e2b/subprocess-e2b) | - | Owns one shared E2B SDK handle, remote working directory, and final sandbox disposition so both fundamental E2B providers inhabit the same Linux runtime. |
 | `ctx.subprocess` | `seam` | [`subprocess`](../packages/subprocess/subprocess) | [`subprocess-local`](../packages/subprocess/subprocess-local), [`subprocess-e2b`](../packages/e2b/subprocess-e2b) | [`bash-local`](../packages/shell/bash-local), [`bash-sandbox`](../packages/shell/bash-sandbox), [`terminal-bash`](../packages/terminal/terminal-bash), [`lsp-stdio`](../packages/lsp/lsp-stdio), [`subagent-acp`](../packages/subagent/subagent-acp), [`subagent-codex`](../packages/subagent/subagent-codex), [`subagent-claude-code`](../packages/subagent/subagent-claude-code), [`governor`](../packages/monitor/governor) | - | The bash executors, the PTY shell backend, the LSP host, and the out-of-process ACP, Codex, and Claude Code subagent backends spawn through ctx.subprocess; the service owns process coordinates, tree/session lifetime, stdio dispositions, terminal mechanics, and kill escalation. Correlated spawns additionally feed the governor through the subprocess/spawned metering events. |
+| `ctx.queue` | `seam` | [`queue`](../packages/queue/queue) | [`queue`](../packages/queue/queue) | [`client-ui-queue`](../packages/client/ui-queue) | - | The queue owns Kafka-style durable topics with forced archival and wake-on-deliver fan-out; the four model tools (queue-topic/history/subscription/publish) mount through the separately loadable queue/tool Consumer, and the panel tab polls the queue Remote. |
 | `ctx.governor` | `seam` | [`governor`](../packages/monitor/governor) | [`governor`](../packages/monitor/governor) | [`tool-bash`](../packages/shell/tool-bash), [`client-ui-governor`](../packages/client/ui-governor) | - | The governor meters correlated shell/terminal spawns from /proc (plus ss TCP attribution), enforces the global memory budget in tiers (cgroup-v2, prlimit plus watchdog, observe), and arbitrates shared-pool session quotas; the bash tool stamps correlations and merges breach facts into result meta, and the board consumes the governor Remote. |
 | `ctx.shell` | `seam` | [`shell`](../packages/shell/shell) | [`bash-local`](../packages/shell/bash-local), [`bash-sandbox`](../packages/shell/bash-sandbox), [`pwsh-local`](../packages/shell/pwsh-local) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex) | - | The model-facing shell tools and hook bridges consume this seam; sandboxed, remote, or PowerShell executors replace bash-local without touching them. |
 | `ctx.shellEnv` | `core` | [`shell-env`](../packages/shell/shell-env) | - | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh) | - | Plugins declare effect-scoped DSH_* facts; each shell tool collects one trusted snapshot per execution and its executor rebuilds the namespace. |

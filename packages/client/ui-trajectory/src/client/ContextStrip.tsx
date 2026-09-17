@@ -22,12 +22,14 @@ export interface ContextStripProps {
   onLocate: (seq: number) => void
   /** Strip caption; the segment count appends automatically. */
   title: string
+  /** Placeholder copy when the live context is empty. */
+  empty: string
   /** Tooltip template: `(role, seq) -> text` for one block. */
   describe: (segment: ContextStripSegment) => string
 }
 
 /** Render the horizontal current-context block band. */
-export function ContextStrip({ segments, onLocate, title, describe }: ContextStripProps) {
+export function ContextStrip({ segments, onLocate, title, empty, describe }: ContextStripProps) {
   return (
     <section
       className={css.strip}
@@ -36,13 +38,14 @@ export function ContextStrip({ segments, onLocate, title, describe }: ContextStr
     >
       <span className={css.title}>{title}</span>
       {segments.length === 0
-        ? <span className={css.empty} />
+        ? <span className={css.empty}>{empty}</span>
         : (
           <ol className={css.blocks}>
             {segments.map(segment => (
               <li key={`${segment.kind}\u0000${segment.seq}`}>
                 <button
                   type="button"
+                  data-role={segment.kind === 'summary' ? 'summary' : segment.role}
                   className={segment.kind === 'summary'
                     ? `${css.block} ${css.blockSummary}`
                     : css.block}

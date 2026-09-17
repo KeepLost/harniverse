@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Resource governor board, browser half: a sidebar footer trigger occupies the center column with the sessions-as-processes overview — per-session CPU ticks, memory against effective limits with hot bars, live command counts, breach badges, inline memory quota negotiation (MiB), the enforcement tier badge, the global budget bar, and host disk/network sentinels. Data arrives through the generated `governor` Remote (`ctx.remote.governor`) polled at the sampling cadence, so the page is by construction the same HTTP API surface scripts use. The node half registers no host behavior; the host service lives in `@deepseek-ai/dsh-governor`.
+Panel board (会话看板), browser half: a sidebar footer trigger occupies the center column; the shell carries an in-page tab ring over `governor.center.tab` slot contributions (hidden with a single contribution), and the built-in Resources tab renders the sessions-as-processes overview — per-session CPU ticks, memory against effective limits with hot bars, live command counts, breach badges, inline memory quota negotiation (MiB), the enforcement tier badge, the global budget bar, and host disk/network sentinels. Data arrives through the generated `governor` Remote (`ctx.remote.governor`) polled at the sampling cadence, so the page is by construction the same HTTP API surface scripts use. The node half registers no host behavior; the host service lives in `@deepseek-ai/dsh-governor`.
 
 ## Composition
 

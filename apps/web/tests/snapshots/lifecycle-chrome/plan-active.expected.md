@@ -23,9 +23,9 @@
 - button "Open scheduled tasks":
   - img
   - text: Scheduled tasks
-- button "Open the resource board":
+- button "Open the panel":
   - img
-  - text: Resources
+  - text: Panel
 - button "Settings":
   - img
   - text: Settings

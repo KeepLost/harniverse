@@ -1,5 +1,5 @@
-/* Resource board center view: a metering table framed like the schedules
- * management view (header actions row, summary strip, full-width table). */
+/** Panel (会话看板) center view: a header over an in-page tab ring, each tab
+ * rendering one governor.center.tab contribution (resources first). */
 
 .view {
   display: flex;
@@ -165,4 +165,59 @@
   font-size: 12px;
   background: var(--dsw-alias-danger, #e5484d);
   color: var(--dsw-alias-danger-contrast, #fff);
+}
+
+/* In-page tab ring, mirroring the session header tabs: 35px strip, 13/16
+ * text, bottom-aligned 2px indicator in the business blue. */
+.tabs {
+  display: flex;
+  gap: 36px;
+  padding: 0 0 0 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.tab {
+  position: relative;
+  padding: 0 0 11px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.tab::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.tabActive {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.tabActive::after {
+  background: var(--dsw-alias-state-business-primary);
+}
+
+/* One tab's surface: the shell gap rhythm continues inside the tab body. */
+.tabBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.tabToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }

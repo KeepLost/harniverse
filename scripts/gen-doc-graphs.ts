@@ -487,6 +487,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The bash executors, the PTY shell backend, the LSP host, and the out-of-process ACP, Codex, and Claude Code subagent backends spawn through ctx.subprocess; the service owns process coordinates, tree/session lifetime, stdio dispositions, terminal mechanics, and kill escalation. Correlated spawns additionally feed the governor through the subprocess/spawned metering events.',
   },
   {
+    key: 'queue',
+    pkg: 'queue',
+    title: 'Session message queue',
+    mode: 'seam',
+    implementations: ['queue'],
+    consumers: ['client-ui-queue'],
+    note: 'The queue owns Kafka-style durable topics with forced archival and wake-on-deliver fan-out; the four model tools (queue-topic/history/subscription/publish) mount through the separately loadable queue/tool Consumer, and the panel tab polls the queue Remote.',
+  },
+  {
     key: 'governor',
     pkg: 'governor',
     title: 'Resource governor',
