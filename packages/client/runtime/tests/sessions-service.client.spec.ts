@@ -557,6 +557,25 @@ describe('fork', () => {
     })
   })
 
+  it('increments the title from the resident projection even before the list flush lands it', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 'source', cwd: '/work' }])
+    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child') }))
+    b.api.onRename = (payload) => {
+      const { title } = payload as { title: string }
+      return Promise.resolve(ok({ title, seq: 3 }))
+    }
+    b.svc.handleMuxEnvelope({
+      rpcId: 'source-title' as never,
+      payload: { type: 'session/projection', sessionId: sid('source'), key: 'title', value: 'Roadmap', seq: 2 } as never,
+    })
+    // Fork in the same synchronous tick as the projection frame: the projected
+    // list store has not flushed the title yet (exactly a fork racing a
+    // reconnect baseline), while the resident projection already owns it.
+    await expect(b.svc.fork({ sessionId: sid('source'), increaseTitle: true })).resolves.toBe('child')
+    expect(b.api.callsOf('session.rename')).toEqual([{ sessionId: 'child', title: 'Roadmap (1)' }])
+  })
+
   it('floors a fractional anchor to the real event seq the wire accepts', async () => {
     const b = bench()
     await feedList(b, [{ id: 'source', cwd: '/work' }])
