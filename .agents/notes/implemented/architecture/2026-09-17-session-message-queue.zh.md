@@ -6,7 +6,7 @@ Status: implemented
 
 - 日期: 2026-09-17
 - 影响面: `@deepseek-ai/dsh-queue`(含 `/tool`)、`@deepseek-ai/dsh-client-ui-queue`、`dsh-client-ui-governor`(会话看板改名 + tab 环)
-- PR: 待补(特性 PR 合并后回填 SHA)
+- PR: 6307ab410842837fa1c23a0f0f7adede0f45affc(特性 PR 合并后回填 SHA)
 
 ## Problem
 

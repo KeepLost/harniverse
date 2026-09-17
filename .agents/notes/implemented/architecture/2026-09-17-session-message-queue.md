@@ -6,7 +6,7 @@ English | [中文](2026-09-17-session-message-queue.zh.md)
 
 - Date: 2026-09-17
 - Scope: `@deepseek-ai/dsh-queue` (+`/tool`), `@deepseek-ai/dsh-client-ui-queue`, `dsh-client-ui-governor` (panel rename + tab ring)
-- PR: to record (fill the merge SHA after the feature PR lands)
+- PR: 6307ab410842837fa1c23a0f0f7adede0f45affc (backfilled after the feature PR landed)
 
 ## Problem
 
