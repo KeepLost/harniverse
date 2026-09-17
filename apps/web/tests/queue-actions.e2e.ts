@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, onTestFailed } from 'vitest'
 import { deriveReplayScript, parseSessionLog, type ReplayEntry } from '@deepseek-ai/dsh-llm-replay'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
-  assertFixtureInventory, captureStableAria, waitForAgentPresetLabel, compareOrRefreshGolden,
+  assertFixtureInventory, captureStableAria, waitForAgentPresetLabel, compareGoldenWhenSettled,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
@@ -84,6 +84,8 @@ describe('web e2e: queue row actions', () => {
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
+    // Read once: a capture closure runs after the narrowing statements above.
+    const cwd = scaffold.workspaceCwd
     onTestFailed(() => saveFailureShot(page, 'web-e2e-queue-actions'))
 
     const input = page.locator('textarea').first()
@@ -100,12 +102,11 @@ describe('web e2e: queue row actions', () => {
     await expect.poll(() => queueHeader.getAttribute('aria-expanded'), { timeout: 10_000 })
       .toBe('false')
     await waitForAgentPresetLabel(page)
-    const collapsedSnapshot = await captureStableAria(
-      page,
-      '[class*="centerCol"]',
-      scaffold.workspaceCwd,
+    await compareGoldenWhenSettled(
+      COLLAPSED_EXPECTED,
+      () => captureStableAria(page, '[class*="centerCol"]', cwd),
+      MODE,
     )
-    await compareOrRefreshGolden(COLLAPSED_EXPECTED, collapsedSnapshot, MODE)
     await queueHeader.click()
     await expect.poll(
       () => page.getByRole('button', { name: 'Remove queued message' }).count(),
@@ -147,8 +148,11 @@ describe('web e2e: queue row actions', () => {
     const editor = page.getByRole('textbox', { name: 'Edit queued message' })
     await editor.fill(EDITED)
     await waitForAgentPresetLabel(page)
-    const editingSnapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(EDITING_EXPECTED, editingSnapshot, MODE)
+    await compareGoldenWhenSettled(
+      EDITING_EXPECTED,
+      () => captureStableAria(page, '[class*="centerCol"]', cwd),
+      MODE,
+    )
     await page.getByRole('button', { name: 'Save queued message' }).click()
     await page.getByText(EDITED, { exact: true }).waitFor()
 
@@ -157,8 +161,11 @@ describe('web e2e: queue row actions', () => {
     await expect.poll(() => page.getByText(REMOVE, { exact: true }).count()).toBe(0)
 
     await waitForAgentPresetLabel(page)
-    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
+    await compareGoldenWhenSettled(
+      UI_EXPECTED,
+      () => captureStableAria(page, '[class*="centerCol"]', cwd),
+      MODE,
+    )
     expect(sessionEvents.filter(event => event.type === 'user/message' && event.data.source.kind === 'user')).toHaveLength(1)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
@@ -177,8 +184,11 @@ describe('web e2e: queue row actions', () => {
     await expect.poll(() => page.getByRole('button', { name: 'Remove queued message' }).count())
       .toBe(2)
 
-    const preservedSnapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(PRESERVED_EXPECTED, preservedSnapshot, MODE)
+    await compareGoldenWhenSettled(
+      PRESERVED_EXPECTED,
+      () => captureStableAria(page, '[class*="centerCol"]', cwd),
+      MODE,
+    )
 
     const settled = scaffold.whenTurnSettled()
     await input.fill(WAKE)
@@ -207,6 +217,8 @@ describe('web e2e: queue row actions', () => {
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
+    // Read once: a capture closure runs after the narrowing statements above.
+    const cwd = scaffold.workspaceCwd
     onTestFailed(() => saveFailureShot(page, 'web-e2e-context-layout'))
 
     const input = page.locator('textarea').first()
@@ -234,12 +246,11 @@ describe('web e2e: queue row actions', () => {
     await expect.poll(() => queueHeader.getAttribute('aria-expanded'), { timeout: 10_000 })
       .toBe('false')
 
-    const layoutSnapshot = await captureStableAria(
-      page,
-      '[class*="centerCol"]',
-      scaffold.workspaceCwd,
+    await compareGoldenWhenSettled(
+      LAYOUT_EXPECTED,
+      () => captureStableAria(page, '[class*="centerCol"]', cwd),
+      MODE,
     )
-    await compareOrRefreshGolden(LAYOUT_EXPECTED, layoutSnapshot, MODE)
 
     const expectAlignedContextPanels = async () => {
       // The adaptive content width republishes --dsh-conversation-column-width

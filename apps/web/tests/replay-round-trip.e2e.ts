@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import {
-  assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
+  assertFixtureInventory, captureStableAria, compareGoldenWhenSettled, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
@@ -160,8 +160,11 @@ describe('web e2e: fresh round trip through the real assembly', () => {
     await page.getByRole('button', {
       name: 'Select model, current DeepSeek-V4-Flash',
     }).waitFor({ timeout: 10_000 })
-    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
+    await compareGoldenWhenSettled(
+      UI_EXPECTED,
+      () => captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd),
+      MODE,
+    )
   })
 
   it.skipIf(MODE === 'record')('expands and collapses the reasoning fold from its click target', async () => {

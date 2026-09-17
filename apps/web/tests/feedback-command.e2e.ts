@@ -15,7 +15,7 @@ import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
-  assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
+  assertFixtureInventory, captureStableAria, compareGoldenWhenSettled, fixtureUserPrompts,
   waitForAgentPresetLabel,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
@@ -90,8 +90,11 @@ describe('web e2e: /feedback command acknowledgement', () => {
     await page.getByText(/Feedback recorded for session/).waitFor({ timeout: 10_000 })
     expect(await page.getByText(/Session sharing is enabled/).count()).toBe(1)
     await waitForAgentPresetLabel(page)
-    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(ACK_EXPECTED, snapshot, MODE)
+    await compareGoldenWhenSettled(
+      ACK_EXPECTED,
+      () => captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd),
+      MODE,
+    )
 
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])

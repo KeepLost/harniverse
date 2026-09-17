@@ -21,7 +21,7 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import {
-  acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
+  acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareGoldenWhenSettled,
   launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { newEnglishPage, saveFailureShot } from './support.ts'
@@ -423,8 +423,11 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     try {
       const dialog = await browseTo(staged)
       await expect.poll(() => dialog.getByText('alpha', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
-      const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
-      await compareOrRefreshGolden(BROWSER_EXPECTED, snapshot, MODE)
+      await compareGoldenWhenSettled(
+        BROWSER_EXPECTED,
+        () => captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd),
+        MODE,
+      )
       await dialog.getByRole('button', { name: 'Cancel' }).click()
       await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
     } finally {

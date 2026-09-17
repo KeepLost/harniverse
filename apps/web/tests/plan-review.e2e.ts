@@ -15,8 +15,9 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
-  assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
-  launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
+  assertFixtureInventory, captureStableAria, compareGoldenWhenSettled, fixtureUserPrompts,
+  launchWebScaffold, recordFixture, waitForAgentPresetLabel, watchConsole, webSnapshotMode,
+  type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
@@ -88,10 +89,16 @@ describe('web e2e: plan review takeover round trip', () => {
     await expect.poll(() => selectedRow.getByText('Plan awaiting review', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
 
     if (MODE !== 'record') {
-      const snapshot = await captureStableAria(page, '[data-plan-review-key]', scaffold.workspaceCwd)
-      await compareOrRefreshGolden(REVIEW_EXPECTED, snapshot, MODE)
-      const sidebar = await captureStableAria(page, '[role="treeitem"][aria-selected="true"]', scaffold.workspaceCwd)
-      await compareOrRefreshGolden(SIDEBAR_EXPECTED, sidebar, MODE)
+      await compareGoldenWhenSettled(
+        REVIEW_EXPECTED,
+        () => captureStableAria(page, '[data-plan-review-key]', scaffold.workspaceCwd),
+        MODE,
+      )
+      await compareGoldenWhenSettled(
+        SIDEBAR_EXPECTED,
+        () => captureStableAria(page, '[role="treeitem"][aria-selected="true"]', scaffold.workspaceCwd),
+        MODE,
+      )
     }
 
     await card.getByRole('button', { name: 'Approve' }).click()
@@ -109,8 +116,12 @@ describe('web e2e: plan review takeover round trip', () => {
     expect(await page.locator('[data-plan-review-key]').count()).toBe(0)
     expect(await selectedRow.locator('[data-state="warning"]').count()).toBe(0)
     await expect.poll(() => page.locator('textarea').first().isEnabled(), { timeout: 10_000 }).toBe(true)
-    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(APPROVED_EXPECTED, snapshot, MODE)
+    await waitForAgentPresetLabel(page)
+    await compareGoldenWhenSettled(
+      APPROVED_EXPECTED,
+      () => captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd),
+      MODE,
+    )
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   }, 200_000)

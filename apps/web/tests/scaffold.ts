@@ -27,7 +27,7 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type { Page } from 'playwright'
+import type { Locator, Page } from 'playwright'
 import { expect } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
@@ -873,6 +873,7 @@ export async function captureStableAria(
   page: Page, selector: string, workspaceCwd: string, strip: readonly RegExp[] = [],
 ): Promise<string> {
   const region = page.locator(selector).first()
+  await waitForSettledModelTrigger(region)
   const settle = async (): Promise<string> => normalizeAriaStrip(await region.ariaSnapshot(), workspaceCwd, strip)
   let previous = await settle()
   await expect.poll(async () => {
@@ -882,6 +883,26 @@ export async function captureStableAria(
     return stable
   }, { timeout: 5_000, message: 'aria snapshot did not stabilize' }).toBe(true)
   return previous
+}
+
+/**
+ * Hold a capture until the composer's model trigger stops showing its
+ * pre-catalog fallback. The trigger's accessible name carries the current
+ * model, and two equal frames do not prove the catalog read landed — an
+ * unresolved trigger is simply unchanged, so under CI load a stable frame can
+ * pin "Select model" into a golden that records the resolved name. Regions
+ * without a trigger (panels, sidebars, dialogs) wait on nothing.
+ * @param region - the locator whose subtree the caller is about to capture.
+ */
+async function waitForSettledModelTrigger(region: Locator): Promise<void> {
+  const trigger = region.locator('[data-model-trigger]').first()
+  if (await trigger.count() === 0) return
+  await expect
+    .poll(() => trigger.getAttribute('data-model-trigger'), {
+      timeout: 15_000,
+      message: 'model trigger did not settle its catalog read before capture',
+    })
+    .toBe('settled')
 }
 
 /** {@link captureStableAria}'s normalization plus the caller's line drops. */
@@ -901,6 +922,50 @@ function normalizeAriaStrip(snapshot: string, workspaceCwd: string, strip: reado
  */
 export async function waitForAgentPresetLabel(page: Page): Promise<void> {
   await page.locator('[data-agent-preset-label]').first().waitFor({ timeout: 15_000 })
+}
+
+/**
+ * Compare a golden against captures re-taken until one matches, for regions
+ * whose content arrives on several independent plugin reads.
+ *
+ * {@link captureStableAria} calls a frame settled when two consecutive
+ * captures match, which proves React stopped committing but not that pending
+ * I/O landed: chrome still in flight is equally unchanged between frames, so
+ * under load a stable frame can record a page mid-assembly (a missing model
+ * name, session-log button, tablist, or feedback row). No per-element barrier
+ * fixes that in general — the header and composer draw from five plugins,
+ * each landing on its own read.
+ *
+ * Under replay the golden IS the expected settled state, so it is the only
+ * complete readiness predicate available: poll the capture until it matches,
+ * then assert once so a real regression still reports as a diff rather than a
+ * timeout. Refresh takes a single capture — there is nothing to converge on
+ * while the golden is being rewritten.
+ * @param goldenPath - the committed expected-output path.
+ * @param capture - takes one normalized capture; called repeatedly.
+ * @param mode - the active snapshot mode.
+ */
+export async function compareGoldenWhenSettled(
+  goldenPath: string, capture: () => Promise<string>, mode: WebSnapshotMode,
+): Promise<void> {
+  if (mode === 'refresh') {
+    await compareOrRefreshGolden(goldenPath, await capture(), mode)
+    return
+  }
+  if (!existsSync(goldenPath)) {
+    throw new Error(`missing golden ${goldenPath} — run DSH_SNAPSHOT=refresh pnpm run test:web to generate it`)
+  }
+  const expected = await readFile(goldenPath, 'utf8')
+  // The last capture is asserted rather than the match flag, so a genuine
+  // regression fails with the golden diff that names it instead of a bare
+  // timeout.
+  const deadline = Date.now() + 20_000
+  let latest = await capture()
+  while (`${latest}\n` !== expected && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 250))
+    latest = await capture()
+  }
+  expect(`${latest}\n`).toBe(expected)
 }
 
 /**

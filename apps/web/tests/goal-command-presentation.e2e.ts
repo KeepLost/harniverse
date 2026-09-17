@@ -10,7 +10,7 @@ import type {} from '@deepseek-ai/dsh-commands/types'
 import {
   acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria,
   waitForAgentPresetLabel,
-  compareOrRefreshGolden, launchWebScaffold, watchConsole, webSnapshotMode,
+  compareGoldenWhenSettled, launchWebScaffold, watchConsole, webSnapshotMode,
   type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
@@ -112,8 +112,11 @@ describe('web e2e: /goal human transcript presentation', () => {
     expect(events.some(event => event.type === 'request/header')).toBe(false)
 
     await waitForAgentPresetLabel(page)
-    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
+    await compareGoldenWhenSettled(
+      UI_EXPECTED,
+      () => captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd),
+      MODE,
+    )
   }, 60_000)
 
   it('reloads the same bubble and result from the persisted command lifecycle', async () => {

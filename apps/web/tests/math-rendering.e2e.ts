@@ -8,7 +8,7 @@ import type {} from '@deepseek-ai/dsh-session-title'
 import {
   assertFixtureInventory,
   captureStableAria,
-  compareOrRefreshGolden,
+  compareGoldenWhenSettled,
   launchWebScaffold,
   seedSession,
   watchConsole,
@@ -124,9 +124,9 @@ describe('web e2e: settled Markdown math rendering', () => {
       { timeout: 10_000 },
     ).toBe(1)
 
-    const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
-      .split(SEED_ID).join('{{seededId}}')
-    await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
+    await compareGoldenWhenSettled(UI_EXPECTED, async () =>
+      (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
+        .split(SEED_ID).join('{{seededId}}'), MODE)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, ['ui.expected.md'])

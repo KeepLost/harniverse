@@ -10,7 +10,7 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import {
-  assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
+  assertFixtureInventory, captureStableAria, compareGoldenWhenSettled, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { newEnglishPage, saveFailureShot } from './support.ts'
@@ -197,12 +197,15 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
       () => page.locator('[role="treeitem"][aria-selected="true"]').textContent(),
       { timeout: 10_000 },
     ).toContain('Use the read tool twice (2)')
-    const tree = await captureStableAria(
-      page,
-      '[role="tree"][aria-label="Sessions"]',
-      scaffold.workspaceCwd,
+    await compareGoldenWhenSettled(
+      FORK_EXPECTED,
+      () => captureStableAria(
+        page,
+        '[role="tree"][aria-label="Sessions"]',
+        scaffold.workspaceCwd,
+      ),
+      MODE,
     )
-    await compareOrRefreshGolden(FORK_EXPECTED, tree, MODE)
   })
 
   it.skipIf(MODE === 'record')('issued zero model calls and kept a closed inventory', async () => {
