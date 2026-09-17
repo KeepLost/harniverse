@@ -5,9 +5,9 @@ import {
   buildActivityWhere,
   buildEventWhere,
   buildSessionWhere,
-  FTS_HIGHLIGHT_END,
-  FTS_HIGHLIGHT_START,
+  ftsTermList,
   makeSnippet,
+  ngramFtsText,
   normalizeEventRequest,
   normalizeFindRequest,
   normalizeSessionRequest,
@@ -315,14 +315,48 @@ describe('SQLite query identity and presentation', () => {
   })
 
   it('normalizes, bounds, and positions snippets by Unicode code point', () => {
-    expect(makeSnippet('  short\ntext  ', 20)).toBe('short text')
-    expect(makeSnippet(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 1)).toBe('…')
-    expect(makeSnippet('abcdefghij', 5)).toBe('abcd…')
-    expect(makeSnippet(`ab${FTS_HIGHLIGHT_START}c${FTS_HIGHLIGHT_END}defghij`, 5)).toBe('…bcd…')
-    expect(makeSnippet(`ab${FTS_HIGHLIGHT_START}c${FTS_HIGHLIGHT_END}defghij`, 3)).toBe('…c…')
-    expect(makeSnippet(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 2)).toBe('…f')
-    expect(makeSnippet(`abcde${FTS_HIGHLIGHT_START}f${FTS_HIGHLIGHT_END}`, 5)).toBe('…cdef')
-    expect(makeSnippet(`  x—${FTS_HIGHLIGHT_START}café${FTS_HIGHLIGHT_END}\n y  `, 20))
-      .toBe('x—café y')
+    expect(makeSnippet('  short\ntext  ', [], 20)).toBe('short text')
+    expect(makeSnippet('abcdef', ['f'], 1)).toBe('…')
+    expect(makeSnippet('abcdefghij', [], 5)).toBe('abcd…')
+    expect(makeSnippet('abcdefghij', ['c'], 5)).toBe('…bcd…')
+    expect(makeSnippet('abcdefghij', ['c'], 3)).toBe('…c…')
+    expect(makeSnippet('abcdef', ['f'], 2)).toBe('…f')
+    expect(makeSnippet('abcdef', ['f'], 5)).toBe('…cdef')
+    expect(makeSnippet('  x—café\n y  ', ['café'], 20)).toBe('x—café y')
+  })
+
+  it('presents folded script continua as their source prose', () => {
+    // Bigram folding is how CJK/kana/hangul sub-words stay searchable under
+    // `unicode61`. It is an index encoding: snippets carry the source prose,
+    // so no character repeats and no author whitespace disappears.
+    for (const prose of [
+      '中文文字符总是会重复吗',
+      '压缩会话历史检索',
+      '你好 世界',
+      '日本語 テスト',
+      '한국어 검색',
+      'hello 世界 foo',
+    ]) {
+      expect(makeSnippet(prose, ftsTermList(ngramFtsText(prose)), 240)).toBe(prose)
+    }
+  })
+
+  it('anchors the excerpt window on the earliest folded term occurrence', () => {
+    const prose = `${'补白'.repeat(20)}锚点${'补白'.repeat(20)}`
+    const anchored = makeSnippet(prose, ftsTermList(ngramFtsText('锚点')), 12)
+    expect(anchored).toBe('…补白补白锚点补白补白…')
+    // Terms are tried in query order, but the window follows the earliest hit.
+    expect(makeSnippet('alpha bravo charlie', ['charlie', 'bravo'], 9)).toBe('…ha brav…')
+    // Case and diacritics fold for anchoring; an unmatched term keeps the head.
+    expect(makeSnippet('a—Café serves tea', ['cafe'], 9)).toBe('a—Café s…')
+    expect(makeSnippet('abcdefghij', ['zz'], 5)).toBe('abcd…')
+    // Combining marks and characters whose lowercase expands stay comparable.
+    expect(makeSnippet(`abc\u0301İ${'d'.repeat(20)}`, ['İ'], 6)).toBe('…c\u0301İd…')
+  })
+
+  it('splits folded text into anchor terms and drops empty pieces', () => {
+    expect(ftsTermList(ngramFtsText('压缩会话 归档'))).toEqual(['压缩', '缩会', '会话', '归档'])
+    expect(ftsTermList('')).toEqual([])
+    expect(ftsTermList(' alpha  bravo ')).toEqual(['alpha', 'bravo'])
   })
 })
