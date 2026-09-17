@@ -6,7 +6,7 @@ English | [中文](2026-09-17-session-search-snippet-fidelity.zh.md)
 
 - Date: 2026-09-17
 - Scope: `@deepseek-ai/dsh-session-query-sqlite` (schema version 11, ranking, snippet presentation)
-- PR: <!-- SHA backfilled after merge -->
+- PR: 8ed5459ecbbbb0fd043212658f06a67a8da97a92 (backfilled after the fix PR landed)
 
 ## Problem
 
