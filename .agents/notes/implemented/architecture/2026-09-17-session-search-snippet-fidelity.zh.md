@@ -6,7 +6,7 @@ Status: implemented
 
 - 日期: 2026-09-17
 - 影响面: `@deepseek-ai/dsh-session-query-sqlite`(schema 版本 11、排名、片段展示)
-- PR: <!-- 合并后回填 SHA -->
+- PR: 8ed5459ecbbbb0fd043212658f06a67a8da97a92(修复 PR 合并后回填 SHA)
 
 ## Problem
 
