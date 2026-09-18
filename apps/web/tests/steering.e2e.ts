@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
-  assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
+  assertFixtureInventory, captureStableAria, compareGoldenWhenSettled, fixtureUserPrompts,
   waitForAgentPresetLabel,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
@@ -132,11 +132,14 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
       // settlement elsewhere): drop them from THIS golden instead of pinning
       // whichever arrival frame the runner's timing produces. The settled
       // golden below asserts both in their terminal state.
-      const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd, [
-        /^ *- button "\d+% of context used"$/,
-        /^ *- text: .*Cache hit/,
-      ])
-      await compareOrRefreshGolden(MID_EXPECTED, snapshot, MODE)
+      await compareGoldenWhenSettled(
+        MID_EXPECTED,
+        () => captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd, [
+          /^ *- button "\d+% of context used"$/,
+          /^ *- text: .*Cache hit/,
+        ]),
+        MODE,
+      )
     }
 
     // Answer the composer; the tool result closes the step, the loop drains
@@ -174,8 +177,11 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
     // Settled golden: steer text between the question round trip and the
     // obeying reply, composer takeover gone.
     await waitForAgentPresetLabel(page)
-    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(SETTLED_EXPECTED, snapshot, MODE)
+    await compareGoldenWhenSettled(
+      SETTLED_EXPECTED,
+      () => captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd),
+      MODE,
+    )
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   }, 200_000)
@@ -373,11 +379,14 @@ describe('web e2e: empty-draft Cmd+Enter steers the whole queue', () => {
     // capture settles on the blocked frame instead of racing its arrival.
     await page.getByRole('button', { name: /^Ask question/ }).first().waitFor({ timeout: 10_000 })
     // Same mid-turn projection drops as the first scenario's mid golden.
-    const mid = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd, [
-      /^ *- button "\d+% of context used"$/,
-      /^ *- text: .*Cache hit/,
-    ])
-    await compareOrRefreshGolden(STEER_ALL_MID, mid, MODE)
+    await compareGoldenWhenSettled(
+      STEER_ALL_MID,
+      () => captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd, [
+        /^ *- button "\d+% of context used"$/,
+        /^ *- text: .*Cache hit/,
+      ]),
+      MODE,
+    )
 
     // Answer the question; the step closes, the loop drains both steerings
     // into one next-step request, and the final reply obeys both markers.
@@ -397,8 +406,11 @@ describe('web e2e: empty-draft Cmd+Enter steers the whole queue', () => {
     await expect.poll(() => page.getByText(STEER_TWO, { exact: true }).count(), { timeout: 15_000 }).toBe(1)
     expect(await page.locator('[data-pending-steering]').count()).toBe(0)
     await waitForAgentPresetLabel(page)
-    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(STEER_ALL_SETTLED, snapshot, MODE)
+    await compareGoldenWhenSettled(
+      STEER_ALL_SETTLED,
+      () => captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd),
+      MODE,
+    )
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   }, 200_000)

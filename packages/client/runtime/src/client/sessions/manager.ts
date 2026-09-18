@@ -340,6 +340,19 @@ export class SessionManager {
     })
   }
 
+  /**
+   * Durable list-row title of one session, read from the resident 'title'
+   * projection — the same source {@link buildListSnapshot} reads — so callers
+   * racing the next list flush (a title re-landing right after a reconnect
+   * baseline) still see the current title, not the pre-flush store copy.
+   * @param sessionId - session whose title is read.
+   * @returns the durable title, or undefined while none has landed.
+   */
+  titleOf(sessionId: SessionId): string | undefined {
+    const title = this.projectionStores.get(sessionId)?.get('title')
+    return typeof title === 'string' && title !== '' ? title : undefined
+  }
+
   /** Rebuild every resident Session after one coalesced registry transaction. */
   rebuildConversationRegistry(): void {
     for (const session of this.sessions.values()) session.rebuildConversationRegistry()
@@ -1108,11 +1121,11 @@ export class SessionManager {
       // List rows read the generic 'title' projection key (host-computed unit
       // value; there is no dedicated title frame).
       const projectionStore = this.projectionStores.get(summary.sessionId)
-      const title = projectionStore?.get('title')
+      const title = this.titleOf(summary.sessionId)
       const projectionValues = projectionStore?.values()
       return {
         ...summary,
-        ...(typeof title === 'string' && title !== '' ? { title } : {}),
+        ...(title !== undefined ? { title } : {}),
         ...(projectionValues === undefined ? {} : { projectionValues }),
       }
     })

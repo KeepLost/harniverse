@@ -389,4 +389,52 @@ describe('tool-session-query with the real SQLite provider', () => {
     expect(mixedScript.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
       .not.toContain('Session cjk-caller')
   })
+
+  it('presents CJK snippets as the original prose', { timeout: 20_000 }, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-tool-session-query-'))
+    temporaryDirectories.push(root)
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
+    await ctx.plugin(SqliteSessionQueryEngine, { path: join(root, 'session-query.db') })
+    await ctx.plugin(ToolSessionQuery)
+
+    const prose = '我们昨天讨论了压缩历史的问题 归档 会话'
+    const persisted = SessionId('snippet-persisted')
+    await ctx.sessionPersistence.create({
+      version: SESSION_FORMAT_VERSION,
+      id: persisted,
+      createdAt: 1,
+      cwd: '/work',
+    })
+    await ctx.sessionPersistence.append(persisted, [{
+      type: 'user/message',
+      seq: 0,
+      time: 2,
+      data: createUserMessage({ content: [{ type: 'text', text: prose }], source: { kind: 'user' } }),
+      surfaceOp: 'append',
+    }])
+
+    const caller = ctx.sessions.create(SessionId('snippet-caller'), {
+      meta: { createdAt: 10, cwd: '/work' },
+    })
+    caller.append('turn/start', { turn: 1 })
+    caller.append('step/start', { turn: 1, step: 1 })
+
+    const search = await ctx.tools.execute({
+      name: 'session_search',
+      arguments: { query: '压缩' },
+      callId: CallId('snippet-integration-1'),
+      signal: new AbortController().signal,
+      agent: fakeAgent(caller),
+    })
+    expect(search.isError).toBe(false)
+    const text = search.content.map(block => block.type === 'text' ? block.text : '').join('\n')
+    // Bigram folding is an index-side encoding for CJK sub-word recall. It must
+    // never reach the model: no duplicated characters, no eaten author spaces.
+    expect(text).toContain(`Snippet: ${prose}`)
+  })
 })

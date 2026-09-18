@@ -16,7 +16,7 @@ import {
   assertFixtureInventory,
   captureStableAria,
   waitForAgentPresetLabel,
-  compareOrRefreshGolden,
+  compareGoldenWhenSettled,
   launchWebScaffold,
   watchConsole,
   webSnapshotMode,
@@ -140,8 +140,11 @@ describe.skipIf(MODE === 'record')('web e2e: user-explicit skill invocation thro
     await settled
 
     await waitForAgentPresetLabel(page)
-    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
+    await compareGoldenWhenSettled(
+      UI_EXPECTED,
+      () => captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd),
+      MODE,
+    )
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   }, 60_000)

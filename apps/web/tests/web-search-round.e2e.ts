@@ -13,7 +13,7 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { WEB_SEARCH_MAX_RESULTS } from '@deepseek-ai/dsh-tool-web'
 import {
-  assertFixtureInventory, captureStableAria, waitForAgentPresetLabel, compareOrRefreshGolden, fixtureUserPrompts,
+  assertFixtureInventory, captureStableAria, waitForAgentPresetLabel, compareGoldenWhenSettled, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
@@ -302,8 +302,11 @@ describe('web e2e: opt-in DeepSeek web search', () => {
       .toBeGreaterThanOrEqual(1)
     await page.locator('[data-tool="web_search"]').waitFor({ timeout: 10_000 })
     await waitForAgentPresetLabel(page)
-    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
+    await compareGoldenWhenSettled(
+      UI_EXPECTED,
+      () => captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd),
+      MODE,
+    )
   })
 
   it.skipIf(MODE === 'record')('scrolls the capped source list inside the fixed-height container', async () => {

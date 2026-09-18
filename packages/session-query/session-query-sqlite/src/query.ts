@@ -321,14 +321,16 @@ export function ngramFtsText(text: string): string {
 }
 
 /**
- * Whitespace inserted between bigrams of the same script continuum. Built as
- * lookbehind/lookahead joins over {@link UNSPACED_SCRIPT_RUN} so snippet
- * restoration cannot collapse whitespace between other scripts.
+ * Split index-side folded text into the literal terms a snippet window can
+ * anchor on. Every folded term is a literal substring of the source prose:
+ * a bigram spans two adjacent characters of its script continuum, and other
+ * scripts fold to themselves.
+ * @param text - caller query already folded by {@link ngramFtsText}.
+ * @returns non-empty folded terms in first-appearance order.
  */
-const BIGRAM_JOIN_WHITESPACE = new RegExp(
-  `(?<=${UNSPACED_SCRIPT_RUN.source}) (?=${UNSPACED_SCRIPT_RUN.source})`,
-  'gu',
-)
+export function ftsTermList(text: string): string[] {
+  return text.split(' ').filter(term => term.length > 0)
+}
 
 /**
  * Build the stable normalized request identity stored in opaque cursors.
@@ -379,21 +381,18 @@ function materializeActivityRange(range: SessionResultRange): SessionResultRange
 }
 
 /**
- * Build a whitespace-normalized excerpt no longer than `maxChars`.
- * @param markedText - complete document with FTS5 `highlight()` markers.
+ * Build a whitespace-normalized excerpt of source prose no longer than `maxChars`.
+ * @param text - stored document text exactly as its session event carried it.
+ * @param terms - folded query terms from {@link ftsTermList} used to place the window.
  * @param maxChars - maximum result length in Unicode code points.
  * @returns bounded plain-text snippet.
  */
-export function makeSnippet(markedText: string, maxChars: number): string {
-  const { text: clean, matchStart } = normalizeMarkedText(markedText)
-  // Bigram joins are index-side artifacts; remove them so snippets read as
-  // the original prose. matchStart stays approximate: it only anchors the
-  // excerpt window, and shrinking whitespace shifts it by at most one slot.
-  const readable = clean.replace(BIGRAM_JOIN_WHITESPACE, '')
-  const characters = Array.from(readable)
+export function makeSnippet(text: string, terms: readonly string[], maxChars: number): string {
+  const characters = normalizeWhitespace(text)
+  const readable = characters.join('')
   if (characters.length <= maxChars) return readable
   if (maxChars === 1) return '…'
-  const matchedIndex = Math.min(matchStart, characters.length - 1)
+  const matchedIndex = Math.min(locateTerm(characters, terms), characters.length - 1)
   let start = Math.max(0, matchedIndex - Math.floor(maxChars / 3))
   const prefix = start > 0 ? '…' : ''
   let suffix = '…'
@@ -415,15 +414,9 @@ export function makeSnippet(markedText: string, maxChars: number): string {
   return `${prefix}${characters.slice(start, end).join('')}${suffix}`
 }
 
-function normalizeMarkedText(markedText: string): { text: string; matchStart: number } {
+function normalizeWhitespace(text: string): string[] {
   const characters: string[] = []
-  let matchStart: number | undefined
-  for (const character of markedText) {
-    if (character === FTS_HIGHLIGHT_START) {
-      matchStart ??= characters.length
-      continue
-    }
-    if (character === FTS_HIGHLIGHT_END) continue
+  for (const character of text) {
     if (/\s/u.test(character)) {
       if (characters.length > 0 && characters.at(-1) !== ' ') characters.push(' ')
     } else {
@@ -431,10 +424,37 @@ function normalizeMarkedText(markedText: string): { text: string; matchStart: nu
     }
   }
   if (characters.at(-1) === ' ') characters.pop()
-  return {
-    text: characters.join(''),
-    matchStart: matchStart ?? 0,
+  return characters
+}
+
+/**
+ * Fold one character the way the excerpt window compares text: lowercase and
+ * strip diacritics, but only while the result stays a single code point so
+ * folded positions keep addressing the source characters.
+ */
+function foldCharacter(character: string): string {
+  const lowered = character.toLowerCase()
+  if (Array.from(lowered).length !== 1) return character
+  const stripped = lowered.normalize('NFD').replace(/\p{M}/gu, '')
+  return Array.from(stripped).length === 1 ? stripped : lowered
+}
+
+/**
+ * Position the excerpt window on the earliest folded term occurrence. The
+ * anchor is approximate by contract: `unicode61` equivalences this comparison
+ * does not reproduce fall back to the start of the document.
+ */
+function locateTerm(characters: readonly string[], terms: readonly string[]): number {
+  const folded = characters.map(foldCharacter).join('')
+  let earliest: number | undefined
+  for (const term of terms) {
+    const needle = Array.from(term).map(foldCharacter).join('')
+    const index = folded.indexOf(needle)
+    if (index >= 0 && (earliest === undefined || index < earliest)) earliest = index
   }
+  // Folding preserves one code point per source character, so a hit lands on a
+  // code-point boundary and its prefix length is the source character index.
+  return earliest === undefined ? 0 : Array.from(folded.slice(0, earliest)).length
 }
 
 function normalizeQuery(value: string): string {
@@ -454,7 +474,7 @@ function normalizeQuery(value: string): string {
       'SESSION_QUERY_INVALID_QUERY',
     )
   }
-  return ngramFtsText(query)
+  return query
 }
 
 function materializeCursor(cursor: SessionSearchCursor | undefined): SessionSearchCursor | undefined {

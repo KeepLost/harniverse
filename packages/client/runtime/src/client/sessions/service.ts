@@ -526,9 +526,11 @@ export class SessionRuntime implements ISessions {
     atSeq?: number
     increaseTitle?: boolean
   }): Promise<SessionId> {
-    const sourceTitle = opts.increaseTitle
-      ? this.list.getSnapshot().byId[opts.sessionId]?.title
-      : undefined
+    // The resident projection is the title's authoritative client-side home
+    // (the list row reads it too): reading the projected list store instead
+    // would race its flush and silently skip the increment when a fork
+    // follows a reconnect baseline that has not re-landed the title yet.
+    const sourceTitle = opts.increaseTitle ? this.manager.titleOf(opts.sessionId) : undefined
     const result = await this.manager.fork({
       sessionId: opts.sessionId,
       // Flooring lands inside the anchor's own turn (every turn opens with a

@@ -18,7 +18,7 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
-  acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
+  acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareGoldenWhenSettled, fixtureUserPrompts,
   waitForAgentPresetLabel,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
@@ -71,8 +71,12 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     // The listbox exists during directory loading; snapshot only populated commands.
     await menu.getByRole('option', { name: 'compact Compact older conversation history', exact: true })
       .waitFor({ timeout: 10_000 })
-    const snapshot = await captureStableAria(page, '[role="listbox"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(COMMAND_MENU_EXPECTED, snapshot, MODE)
+    let snapshot = ''
+    await compareGoldenWhenSettled(
+      COMMAND_MENU_EXPECTED,
+      async () => snapshot = await captureStableAria(page, '[role="listbox"]', scaffold.workspaceCwd),
+      MODE,
+    )
     expect(snapshot).toContain('text: Commands')
     expect(snapshot).not.toContain('text: Skills')
     expect(snapshot).not.toContain('text: Subagents')
@@ -93,8 +97,11 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     await expect.poll(() => menu.getByRole('option').allTextContents()).toEqual([
       'compactCompact older conversation history',
     ])
-    const fuzzySnapshot = await captureStableAria(page, '[role="listbox"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(FUZZY_COMMAND_MENU_EXPECTED, fuzzySnapshot, MODE)
+    await compareGoldenWhenSettled(
+      FUZZY_COMMAND_MENU_EXPECTED,
+      () => captureStableAria(page, '[role="listbox"]', scaffold.workspaceCwd),
+      MODE,
+    )
     await input.fill('')
     await expect.poll(() => menu.count()).toBe(0)
   })
@@ -121,8 +128,11 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
       // a textbox still holding `/plan`.
       await expect.poll(() => input.inputValue(), { timeout: 10_000 }).toBe('')
       await activePage.getByRole('button', { name: 'Standard mode' }).waitFor({ timeout: 15_000 })
-      const planSnapshot = await captureStableAria(activePage, '[class*="frame"]', activeScaffold.workspaceCwd)
-      await compareOrRefreshGolden(PLAN_ACTIVE_EXPECTED, planSnapshot, MODE)
+      await compareGoldenWhenSettled(
+        PLAN_ACTIVE_EXPECTED,
+        () => captureStableAria(activePage, '[class*="frame"]', activeScaffold.workspaceCwd),
+        MODE,
+      )
       const planStyle = await planButton.evaluate((element) => {
         const probe = document.createElement('span')
         probe.style.color = 'var(--dsw-alias-state-warn-label)'
@@ -174,8 +184,11 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
       // The hero chip is roster-gated: capture only after it renders, or a
       // pre-roster frame diffs every hero golden.
       await page.getByRole('button', { name: 'Standard mode' }).waitFor({ timeout: 15_000 })
-      const snapshot = await captureStableAria(page, '[class*="frame"]', scaffold.workspaceCwd)
-      await compareOrRefreshGolden(HERO_EXPECTED, snapshot, MODE)
+      await compareGoldenWhenSettled(
+        HERO_EXPECTED,
+        () => captureStableAria(page, '[class*="frame"]', scaffold.workspaceCwd),
+        MODE,
+      )
     }
     const settled = scaffold.whenTurnSettled()
     await input.fill(PROMPT)
@@ -241,8 +254,11 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     await waitForAgentPresetLabel(page)
     // Golden of the recovered conversation region: rebuilt from the log, it
     // must render the same settled transcript the live turn produced.
-    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(RELOADED_EXPECTED, snapshot, MODE)
+    await compareGoldenWhenSettled(
+      RELOADED_EXPECTED,
+      () => captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd),
+      MODE,
+    )
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
 
