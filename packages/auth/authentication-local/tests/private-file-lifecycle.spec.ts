@@ -15,6 +15,7 @@ const failures = vi.hoisted(() => ({
   rmPrefix: undefined as string | undefined,
   statMode: undefined as { path: string; mode: number } | undefined,
   statFailure: undefined as { path: string; code: string } | undefined,
+  readdirFailure: undefined as { path: string; code: string; once: boolean } | undefined,
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -44,6 +45,14 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     rm: async (path: string, options?: { force?: boolean; recursive?: boolean }): Promise<void> => {
       if (failures.rmPrefix !== undefined && path.startsWith(`${failures.rmPrefix}${sep}`)) return
       await actual.rm(path, options)
+    },
+    readdir: async (...args: Parameters<typeof actual.readdir>): Promise<ReturnType<typeof actual.readdir>> => {
+      const failure = failures.readdirFailure
+      if (failure && failure.path === String(args[0])) {
+        if (failure.once) failures.readdirFailure = undefined
+        throw Object.assign(new Error('simulated readdir failure'), { code: failure.code })
+      }
+      return await actual.readdir(...args)
     },
     stat: async (...args: Parameters<typeof actual.stat>): Promise<ReturnType<typeof actual.stat>> => {
       if (failures.statFailure !== undefined && String(args[0]) === failures.statFailure.path) {
@@ -76,6 +85,7 @@ afterEach(async () => {
   failures.rmPrefix = undefined
   failures.statMode = undefined
   failures.statFailure = undefined
+  failures.readdirFailure = undefined
   Object.defineProperty(process, 'platform', platformDescriptor)
   vi.restoreAllMocks()
   while (roots.length > 0) await rm(roots.pop()!, { recursive: true, force: true })
@@ -251,6 +261,57 @@ describe('stale writer lock reclamation', () => {
       if ((error as NodeJS.ErrnoException).code !== 'ENOTEMPTY') throw error
     })
     await expect(acquisition).resolves.toBe('waited out')
+  })
+
+  it('waits out a Windows delete-pending EPERM from a concurrent release', async () => {
+    const root = await prepare()
+    const target = join(root, 'value.json')
+    const lockPath = `${target}.lock`
+    await craftLock(lockPath, { pid: process.pid, nonce: hex('b') })
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    // The waiter's owner reads hit the lock directory mid-release on Windows:
+    // readdir on a delete-pending directory fails with EPERM until the
+    // release finishes and the plant is disarmed.
+    failures.readdirFailure = { path: lockPath, code: 'EPERM', once: false }
+    const acquisition = withPrivateFileLock(target, async () => 'waited out')
+    await new Promise(resolve => setTimeout(resolve, 60))
+    await rm(join(lockPath, `owner-${hex('b')}.json`), { force: true })
+    await rmdir(lockPath).catch(() => {})
+    failures.readdirFailure = undefined
+    await expect(acquisition).resolves.toBe('waited out')
+  })
+
+  it('resolves despite a Windows delete-pending EPERM during release', async () => {
+    const root = await prepare()
+    const target = join(root, 'value.json')
+    const lockPath = `${target}.lock`
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    failures.readdirFailure = { path: lockPath, code: 'EPERM', once: true }
+    // No contending lock: the acquisition succeeds outright and the planted
+    // failure lands on the release-side owner read.
+    await expect(withPrivateFileLock(target, async () => 'released anyway')).resolves.toBe('released anyway')
+  })
+
+  it('tolerates a Windows delete-pending EPERM while clearing a dead owner', async () => {
+    const root = await prepare()
+    const target = join(root, 'value.json')
+    const lockPath = `${target}.lock`
+    await craftLock(lockPath, { pid: await deadPid(), nonce: hex('d') })
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    failures.rmdirPath = { path: lockPath, code: 'EPERM', once: true }
+    await expect(withPrivateFileLock(target, async () => 'reclaimed')).resolves.toBe('reclaimed')
+  })
+
+  it('times out when a delete-pending lock directory never resolves', async () => {
+    const root = await prepare()
+    const target = join(root, 'value.json')
+    const lockPath = `${target}.lock`
+    await craftLock(lockPath, { pid: process.pid, nonce: hex('e') })
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    failures.readdirFailure = { path: lockPath, code: 'EPERM', once: false }
+    vi.spyOn(Date, 'now').mockImplementationOnce(() => 0).mockImplementationOnce(() => 100_000)
+    await expect(withPrivateFileLock(target, async () => 'never'))
+      .rejects.toThrow('timed out waiting for writer lock')
   })
 
   it('tolerates a lock directory that stayed non-empty during reclamation', async () => {

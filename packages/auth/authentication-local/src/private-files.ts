@@ -22,6 +22,14 @@ function isLockContention(error: unknown): boolean {
     || (process.platform === 'win32' && isCode(error, 'EPERM'))
 }
 
+function isLockRemovalRace(error: unknown): boolean {
+  // ENOENT: another waiter already removed the directory. ENOTEMPTY: the
+  // release interleaved with a new writer taking it. EPERM on Windows: the
+  // directory is delete-pending under another remover's rmdir.
+  return isCode(error, 'ENOENT') || isCode(error, 'ENOTEMPTY')
+    || (process.platform === 'win32' && isCode(error, 'EPERM'))
+}
+
 function nonce(): string {
   return randomBytes(16).toString('hex')
 }
@@ -147,6 +155,16 @@ export async function withPrivateFileLock<T>(target: string, operation: () => Pr
         current = await readLockOwner(lockPath)
       } catch (readError) {
         if (isCode(readError, 'ENOENT')) continue
+        // Windows reports EPERM from readdir while the lock directory is in
+        // its delete-pending state after a concurrent release; that is
+        // contention the wait loop can outlast, not a corrupt lock.
+        if (isCode(readError, 'EPERM') && process.platform === 'win32') {
+          if (Date.now() >= deadline) {
+            throw new Error(`authentication-local: timed out waiting for writer lock ${lockPath}`)
+          }
+          await new Promise(resolve => setTimeout(resolve, LOCK_RETRY_MS))
+          continue
+        }
         // A torn lock belongs to no live writer; clear the remnant so the next
         // candidate rename can take the lock even on platforms where rename
         // cannot replace an existing (empty) directory.
@@ -157,7 +175,7 @@ export async function withPrivateFileLock<T>(target: string, operation: () => Pr
           try {
             await rmdir(lockPath)
           } catch (clearError) {
-            if (!isCode(clearError, 'ENOENT') && !isCode(clearError, 'ENOTEMPTY')) throw clearError
+            if (!isLockRemovalRace(clearError)) throw clearError
           }
           await new Promise(resolve => setTimeout(resolve, LOCK_RETRY_MS))
           continue
@@ -169,7 +187,7 @@ export async function withPrivateFileLock<T>(target: string, operation: () => Pr
         try {
           await rmdir(lockPath)
         } catch (removeError) {
-          if (!isCode(removeError, 'ENOENT') && !isCode(removeError, 'ENOTEMPTY')) throw removeError
+          if (!isLockRemovalRace(removeError)) throw removeError
         }
         continue
       }
@@ -195,7 +213,11 @@ export async function withPrivateFileLock<T>(target: string, operation: () => Pr
         }
       }
     } catch (error) {
-      if (!isCode(error, 'ENOENT')) throw error
+      // A Windows delete-pending lock directory also surfaces here when
+      // another waiter clears the released remnant concurrently; the lock is
+      // on its way out either way, so the completed operation still resolves.
+      if (!isCode(error, 'ENOENT')
+        && !(process.platform === 'win32' && isCode(error, 'EPERM'))) throw error
     }
   }
 }
