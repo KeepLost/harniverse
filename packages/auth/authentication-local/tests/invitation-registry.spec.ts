@@ -77,6 +77,18 @@ describe('enrollment invitation issue', () => {
     expect((JSON.parse(document) as { invitations: unknown[] }).invitations).toHaveLength(1)
   })
 
+  it('rejects a non-positive or fractional lifetime before touching the registry', async () => {
+    const dshHome = await home()
+    await expect(issueEnrollmentInvitation({ capabilities: ['harniverse.observe'], kind: 'device', ttlMs: 0 }, { dshHome }))
+      .rejects.toThrow(/ttlMs must be a positive integer/)
+    await expect(issueEnrollmentInvitation({ capabilities: ['harniverse.observe'], kind: 'device', ttlMs: 1.5 }, { dshHome }))
+      .rejects.toThrow(/ttlMs must be a positive integer/)
+    await expect(issueEnrollmentInvitation(
+      { capabilities: ['harniverse.observe'], kind: 'device', ttlMs: 60_000 },
+      { dshHome, maxActiveInvitations: 0 },
+    )).rejects.toThrow(/maxActiveInvitations must be a positive integer/)
+  })
+
   it('requires a bounded lifetime and enforces the active-invitation bound', async () => {
     const dshHome = await home()
     await expect(issueEnrollmentInvitation({
@@ -184,6 +196,18 @@ describe('enrollment invitation redemption', () => {
     expect(grant).toMatchObject({ kind: 'temporary', idleTimeoutMs: 15 * 60_000 })
     expect(grant?.expiresAt !== undefined
       && Date.parse(grant.expiresAt) - Date.parse(grant.createdAt)).toBe(60 * 60_000)
+  })
+
+  it('rejects an out-of-bounds receipt lifetime before touching the registry', async () => {
+    const dshHome = await home()
+    const issued = await issueEnrollmentInvitation({
+      capabilities: OWNER_CAPS, kind: 'device', ttlMs: 60_000,
+    }, { dshHome })
+    const request = await createEnrollmentRequest({
+      name: 'phone', kind: 'device', publicKey: publicKey(),
+    }, { dshHome })
+    await expect(redeemEnrollmentInvitation(request.id, issued.token, { dshHome, enrollmentTtlMs: 15 * 60_000 + 1 }))
+      .rejects.toThrow(/enrollmentTtlMs must be between 1 millisecond and 15 minutes/)
   })
 
   it('rejects expired invitations, expired enrollments, and kind or binding mismatches', async () => {
@@ -311,10 +335,21 @@ describe('invitation registry parsing', () => {
   })
 
   it('rejects malformed invitation records', () => {
+    expect(() => parseGrantRegistry(registryDocument(['not-an-object']))).toThrow(/must be an object/)
+    expect(() => parseGrantRegistry(registryDocument([['nested']]))).toThrow(/must be an object/)
+    expect(() => parseGrantRegistry(registryDocument([activeInvitation({ id: 'short' })]))).toThrow(/invalid id/)
+    expect(() => parseGrantRegistry(registryDocument([activeInvitation({ kind: 'visitor' })]))).toThrow(/invalid kind/)
+    expect(() => parseGrantRegistry(registryDocument([activeInvitation({ state: 'expired' })]))).toThrow(/invalid state/)
     expect(() => parseGrantRegistry(registryDocument([activeInvitation({ codeHash: 'short' })]))).toThrow(/code hash/)
     expect(() => parseGrantRegistry(registryDocument([activeInvitation({ kind: 'temporary', capabilities: ['harniverse.authorize'] })])))
       .toThrow(/temporary invitation cannot authorize/)
+    expect(() => parseGrantRegistry(registryDocument([activeInvitation({ createdAt: '2027-09-18T00:00:00.000Z' })]))).toThrow(/too far in the future/)
+    expect(() => parseGrantRegistry(registryDocument([activeInvitation({ expiresAt: '2026-09-17T00:00:00.000Z' })]))).toThrow(/expiry must follow creation/)
     expect(() => parseGrantRegistry(registryDocument([activeInvitation({ usedByName: 'phone' })]))).toThrow(/unexpected fields/)
+  })
+
+  it('rejects a non-list invitations field', () => {
+    expect(() => parseGrantRegistry(registryDocument({ folded: true }))).toThrow(/lists are invalid/)
   })
 
   it('rejects duplicate invitation ids or code hashes', () => {

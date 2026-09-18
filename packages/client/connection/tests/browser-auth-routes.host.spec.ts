@@ -343,6 +343,11 @@ describe('browser invitation redemption', () => {
       const state = await harness.call(jsonRequest('POST', '/auth/enrollment/redeem', body))
       expect(state.status).toBe(400)
     }
+    const refused = await harness.call(request({
+      method: 'POST', path: '/auth/enrollment/redeem', body: '{not json',
+      headers: { 'content-type': 'application/json' },
+    }))
+    expect(refused.status).toBe(400)
     await harness.dispose()
   })
 
@@ -373,6 +378,42 @@ describe('browser invitation redemption', () => {
     expect(JSON.parse(state.body!)).toMatchObject({ state: 'approved', grantId: 'grant-1' })
     expect(seen).toEqual([['enrollment-1', 'dshi1_token', '127.0.0.1']])
     await harness.dispose()
+  })
+
+  it('logs an absent peer as a dash for both redemption outcomes', async () => {
+    const accepted = await mounted({
+      overrides: {
+        redeemEnrollmentInvitation: () => Promise.resolve({
+          kind: 'accepted' as const,
+          value: {
+            state: 'approved' as const,
+            id: authenticationEnrollmentId('e1'),
+            grantId: authenticationGrantId('grant-1'),
+            grantRevision: 1,
+            capabilities: ['harniverse.observe'],
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          },
+        }),
+      },
+    })
+    const acceptedState = await accepted.call(request({
+      method: 'POST', path: '/auth/enrollment/redeem', body: JSON.stringify({ id: 'e1', invitation: 'dshi1_t' }),
+      headers: { 'content-type': 'application/json' }, peerless: true,
+    }))
+    expect(acceptedState.status).toBe(200)
+    expect(accepted.infos.join('\n')).toContain('peer=\"-\"')
+    await accepted.dispose()
+
+    const rejected = await mounted({
+      overrides: { redeemEnrollmentInvitation: () => Promise.resolve({ kind: 'rejected' as const, reason: 'invalid-invitation' }) },
+    })
+    const rejectedState = await rejected.call(request({
+      method: 'POST', path: '/auth/enrollment/redeem', body: JSON.stringify({ id: 'e1', invitation: 'dshi1_t' }),
+      headers: { 'content-type': 'application/json' }, peerless: true,
+    }))
+    expect(rejectedState.status).toBe(401)
+    expect(rejected.warnings.join('\n')).toContain('peer=\"-\"')
+    await rejected.dispose()
   })
 
   it('maps stable redemption rejections to transport statuses', async () => {

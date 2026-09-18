@@ -166,6 +166,16 @@ describe('authentication management app', () => {
     expect(rejected.err).toContain('unknown capability profile "bogus"')
   })
 
+  it('issues a single millisecond-dated invitation by default', async () => {
+    const dshHome = await temporaryDirectory('dsh-auth-app-home-')
+    await approveOwner(dshHome)
+    const issued = await invoke(['code', 'issue', '--profile', 'owner', '--ttl', '90000'], dshHome)
+
+    expect(issued).toMatchObject({ code: 0, err: '' })
+    expect(issued.out.trim().split('\n')).toHaveLength(1)
+    expect(Date.parse(issued.out.trim().split('\t').at(-1)!)).toBeGreaterThan(Date.now())
+  })
+
   it('issues, lists, and revokes one-time enrollment invitations', async () => {
     const dshHome = await temporaryDirectory('dsh-auth-app-home-')
     await approveOwner(dshHome)
@@ -304,6 +314,28 @@ describe('authentication management app', () => {
       expect(() => { applyStartup(ctx) }).toThrow('client add requires exactly one of --profile or --capability')
       await ctx.fiber.dispose()
     }
+  })
+
+  it('applies runner defaults for omitted invitation options', async () => {
+    const dshHome = await temporaryDirectory('dsh-auth-app-home-')
+    await approveOwner(dshHome)
+
+    const ctx = new Context()
+    let out = ''
+    runnerInternals.stdout = { write: (chunk: string) => { out += chunk; return true } }
+    ctx.provide('appExit', () => {})
+    applyRunner(ctx, { operation: 'code-issue', ttl: '30s', profile: 'owner', dshHome })
+    expect(out.trim().split('\n')).toHaveLength(1)
+    await ctx.fiber.dispose()
+
+    const bare = new Context()
+    let err = ''
+    runnerInternals.stderr = { write: (chunk: string) => { err += chunk; return true } }
+    const exited = new Promise<number>((resolve) => { bare.provide('appExit', resolve) })
+    applyRunner(bare, { operation: 'code-issue', ttl: '30s', dshHome })
+    expect(await exited).toBe(1)
+    expect(err).toContain('must be supported harniverse.* capabilities')
+    await bare.fiber.dispose()
   })
 
   it('fails loud for invalid runner composition', async () => {
