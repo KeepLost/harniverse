@@ -6,7 +6,7 @@ The [authentication Service Definition](../../packages/auth/authentication) norm
 
 Each endpoint requires one of four orthogonal capabilities: `harniverse.observe`, `harniverse.operate`, `harniverse.administer`, or `harniverse.authorize`. A Grant principal carries its exact Grant id and revision, capabilities, and expiry. Registry changes revoke matching Access Tokens, browser sessions, and WebSockets without invalidating unrelated Grants.
 
-Authenticated startup permits an empty sealed registry so a browser can submit the first device enrollment request; local CLI approval creates the first owner Grant. Pending enrollment has a durable global bound and per-peer creation limit. Devices and API clients exchange a single-use P-256 signed challenge for a short credential. Temporary devices require expiry and idle timeout, emergency tokens cannot authorize, and `$DSH_HOME/auth/tokens.json` is rejected without migration. Explicit bypass retains the per-home instance lease and mandatory access records and remains loopback-only; all-interface listeners require direct TLS.
+Authenticated startup permits an empty sealed registry so a browser can submit the first device enrollment request; local CLI approval creates the first owner Grant. Pending enrollment has a durable global bound and per-peer creation limit. A CLI-issued enrollment invitation acts as pre-issued approval: the browser redeems a one-time `dshi1_` token against its own pending request, capabilities are capped at the invitation ceiling, and only invalid redemptions count toward the per-peer invalid-credential limiter. Devices and API clients exchange a single-use P-256 signed challenge for a short credential. Temporary devices require expiry and idle timeout, emergency tokens cannot authorize, and `$DSH_HOME/auth/tokens.json` is rejected without migration. Explicit bypass retains the per-home instance lease and mandatory access records and remains loopback-only; all-interface listeners require direct TLS.
 
 Source: [`packages/auth/authentication/src/index.ts`](../../packages/auth/authentication/src/index.ts)
 
@@ -76,6 +76,15 @@ abstract listPendingEnrollments(): Promise<readonly Extract<AuthenticationEnroll
 abstract approveEnrollment( id: AuthenticationEnrollmentId, approval: AuthenticationEnrollmentApproval, ): Promise<AuthenticationGrantSummary>
 
 /**
+ * Redeem one pre-issued invitation against a pending enrollment.
+ * @param id - exact pending enrollment id submitted by the same browser key.
+ * @param invitation - one-time invitation token; possession acts as approval.
+ * @param peerAddress - direct peer used for redemption rate limiting.
+ * @returns the approved enrollment or a stable rejection reason.
+ */
+abstract redeemEnrollmentInvitation( id: AuthenticationEnrollmentId, invitation: string, peerAddress?: string, ): Promise<AuthenticationInvitationDecision>
+
+/**
  * List approved Grants without exposing public keys.
  * @returns approved Grant metadata without public keys.
  */
@@ -119,7 +128,7 @@ abstract issueEmergencyAccessToken( issuer: AuthenticationPrincipal, capabilitie
 abstract revokeBrowserSession(value?: string): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:300`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:308`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authentication-events"></a>
 
@@ -139,7 +148,7 @@ Credential freshness was reconciled after an unavailable interval.
 'authentication/available'(): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:295`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:303`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authenticationrevoked--emit"></a>
 
@@ -156,7 +165,7 @@ A committed Grant registry change invalidated Grant revisions.
 'authentication/revoked'(revocation: AuthenticationRevocation): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:283`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:291`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authenticationunavailable--emit"></a>
 
@@ -172,5 +181,5 @@ Credential freshness became unavailable; current sockets must close.
 'authentication/unavailable'(): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:289`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:297`](../../packages/auth/authentication/src/index.ts)
 <!-- END GENERATED cordis-surface -->

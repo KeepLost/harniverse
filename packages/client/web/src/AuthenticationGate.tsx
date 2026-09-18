@@ -55,6 +55,47 @@ interface GrantSummary {
   expiresAt?: string
 }
 
+/** Issued invitation token shape mirrored from the local provider. */
+const INVITATION_PATTERN = /^dshi1_[A-Za-z0-9_-]{27}$/
+
+/** Invitation field value with copy artifacts (tab columns, newlines) removed. */
+function normalizeInvitation(value: string): string {
+  return value.trim().split(/\s+/).at(0) ?? ''
+}
+
+/** One invitation-redemption failure with its recovery affordance. */
+class RedeemFailure extends Error {
+  /**
+   * @param message - user-facing Chinese copy.
+   * @param restart - whether re-pairing from the name form can recover.
+   */
+  constructor(message: string, readonly restart: boolean) {
+    super(message)
+  }
+}
+
+/** Parse one redemption response into an approved receipt or a recoverable failure. */
+async function parseRedeemResponse(response: Response): Promise<ApprovedEnrollment> {
+  if (response.status === 409) {
+    const body = await response.json().catch(() => undefined) as { expected?: unknown } | null | undefined
+    if (typeof body === 'object' && body !== null && (body.expected === 'device' || body.expected === 'temporary')) {
+      const wanted = body.expected === 'temporary' ? '临时使用公用设备' : '配对个人设备'
+      throw new RedeemFailure(`这枚口令适用于${body.expected === 'temporary' ? '临时公用设备' : '个人设备'}，请以「${wanted}」重新提交`, true)
+    }
+    throw new RedeemFailure('口令已绑定指定设备名，请向签发者确认名称后重新配对', true)
+  }
+  if (response.status === 401) throw new RedeemFailure('邀请口令无效或已被使用', false)
+  if (response.status === 404) throw new RedeemFailure('配对请求已过期或不存在，请重新配对', true)
+  if (response.status === 429) {
+    const parsed = Number(response.headers.get('retry-after') ?? '60')
+    throw new RedeemFailure(`尝试过于频繁，请 ${Number.isFinite(parsed) && parsed > 0 ? parsed : 60} 秒后重试`, false)
+  }
+  if (!response.ok) throw new RedeemFailure(`口令兑换失败 (${String(response.status)})`, false)
+  const value = parseEnrollment(await response.json())
+  if (value.state !== 'approved') throw new RedeemFailure('认证服务返回了无效配对状态', false)
+  return value
+}
+
 function parseStatus(value: unknown): AuthenticationStatusResponse {
   if (typeof value !== 'object' || value === null
     || !['authenticated', 'bypass'].includes(String((value as { mode?: unknown }).mode))
@@ -172,13 +213,43 @@ function CopyButton({ label, value, onFailure }: {
   )
 }
 
+/** One invitation-redemption error block: message plus optional re-pairing exit. */
+function InvitationRedeemError({ failure, onRestart, busy }: {
+  failure: RedeemFailure
+  onRestart: () => void
+  busy: boolean
+}): React.JSX.Element {
+  return (
+    <>
+      <p className="dsh-auth-invitation-error" role="alert">{failure.message}</p>
+      {failure.restart && (
+        <button
+          type="button"
+          className="dsh-auth-btn dsh-auth-ghost dsh-auth-compact"
+          disabled={busy}
+          onClick={onRestart}
+        >
+          重新配对
+        </button>
+      )}
+    </>
+  )
+}
+
 /**
  * Waiting-for-approval state: the approval code the user compares against the
- * host, and the host command that approves this request.
+ * host, the host command that approves this request, and the parallel
+ * invitation path that approves it immediately.
  */
-function PendingPairing({ pending, onCopyFailure }: {
+function PendingPairing({ pending, onCopyFailure, invitation, onInvitationChange, onRedeem, redeemBusy, redeemError, onRestart }: {
   pending: PendingEnrollment
   onCopyFailure: (message: string) => void
+  invitation: string
+  onInvitationChange: (value: string) => void
+  onRedeem: () => void
+  redeemBusy: boolean
+  redeemError: RedeemFailure | undefined
+  onRestart: () => void
 }): React.JSX.Element {
   const command = `dsh auth device approve ${pending.id} --profile ${pending.kind === 'temporary' ? 'temporary' : 'owner'}`
   return (
@@ -201,8 +272,37 @@ function PendingPairing({ pending, onCopyFailure }: {
           <CopyButton label="复制主机命令" value={command} onFailure={onCopyFailure} />
         </div>
       </div>
+      <div className="dsh-auth-divider" aria-hidden="true"><span>或者</span></div>
+      <div className="dsh-auth-invitation">
+        <label className="dsh-auth-credential-label" htmlFor="dsh-auth-invitation-input">使用邀请口令立即完成配对</label>
+        <div className="dsh-auth-field dsh-auth-invitation-row">
+          <input
+            id="dsh-auth-invitation-input"
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            autoCapitalize="off"
+            className="dsh-auth-invitation-input"
+            placeholder="粘贴以 dshi1_ 开头的整段口令"
+            value={invitation}
+            onChange={(event) => { onInvitationChange(normalizeInvitation(event.target.value)) }}
+            disabled={redeemBusy}
+          />
+          <button
+            type="button"
+            className="dsh-auth-btn dsh-auth-primary dsh-auth-compact"
+            disabled={redeemBusy || invitation.length === 0}
+            onClick={onRedeem}
+          >
+            {redeemBusy ? '验证中…' : '凭口令完成配对'}
+          </button>
+        </div>
+        {redeemError !== undefined && (
+          <InvitationRedeemError failure={redeemError} onRestart={onRestart} busy={redeemBusy} />
+        )}
+      </div>
       <p className="dsh-auth-hint">
-        请先在主机终端核对批准码，再执行上面的命令。请求有效期至 {formatDeadline(pending.expiresAt)}，批准后本页面会自动继续。
+        请先在主机终端核对批准码，再执行上面的命令；或输入邀请口令跳过等待。请求有效期至 {formatDeadline(pending.expiresAt)}，批准后本页面会自动继续。
       </p>
     </div>
   )
@@ -235,9 +335,16 @@ export function AuthenticationGate({ onAuthenticated }: {
   const [device, setDevice] = useState<BrowserDevice>()
   const [pending, setPending] = useState<PendingEnrollment>()
   const [name, setName] = useState('my-device')
+  const [invitation, setInvitation] = useState('')
+  const [redeemBusy, setRedeemBusy] = useState(false)
+  const [redeemError, setRedeemError] = useState<RedeemFailure>()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(true)
   const renewal = useRef<ClientAuthentication>()
+  /** Enrollment id whose redemption or polling still owns the pending screen. */
+  const pendingId = useRef<string>()
+  /** Keypair retained across re-pairing so one browser key keeps one pending request. */
+  const retainedKey = useRef<{ privateKey: BrowserDevice['privateKey']; publicKey: string }>()
 
   const authenticateDevice = async (candidate: BrowserDevice): Promise<void> => {
     try {
@@ -283,9 +390,54 @@ export function AuthenticationGate({ onAuthenticated }: {
       grantId: value.grantId,
     }
     if (approved.kind === 'device') await writeBrowserDevice(approved)
+    pendingId.current = undefined
     setDevice(approved)
     setPending(undefined)
+    setRedeemError(undefined)
     await authenticateDevice(approved)
+  }
+
+  /** Redeem one invitation against the pending enrollment of the same key. */
+  const redeem = async (candidate: BrowserDevice, enrollmentId: string, token: string): Promise<void> => {
+    setRedeemBusy(true)
+    setRedeemError(undefined)
+    try {
+      const value = await parseRedeemResponse(await fetch('/auth/enrollment/redeem', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: enrollmentId, invitation: token }),
+      }))
+      if (pendingId.current !== enrollmentId) return
+      const approved: BrowserDevice = {
+        name: candidate.name,
+        kind: candidate.kind,
+        privateKey: candidate.privateKey,
+        grantId: value.grantId,
+      }
+      if (approved.kind === 'device') await writeBrowserDevice(approved)
+      pendingId.current = undefined
+      setDevice(approved)
+      setPending(undefined)
+      await authenticateDevice(approved)
+    } catch (reason) {
+      if (pendingId.current !== enrollmentId) return
+      setRedeemError(reason instanceof RedeemFailure
+        ? reason
+        : new RedeemFailure(reason instanceof Error ? reason.message : String(reason), false))
+    } finally {
+      setRedeemBusy(false)
+    }
+  }
+
+  /** Drop the pending request and return to the name form, keeping the keypair. */
+  const restartPairing = async (): Promise<void> => {
+    await clearBrowserDevice()
+    pendingId.current = undefined
+    setDevice(undefined)
+    setPending(undefined)
+    setRedeemError(undefined)
+    setBusy(false)
   }
 
   const check = async (): Promise<void> => {
@@ -349,7 +501,7 @@ export function AuthenticationGate({ onAuthenticated }: {
     setBusy(true)
     setError(undefined)
     try {
-      const generated = await generateBrowserDeviceKey()
+      const generated = retainedKey.current ?? await generateBrowserDeviceKey()
       const enrollment = parseEnrollment(await responseJson(await fetch('/auth/enrollment', {
         method: 'POST',
         credentials: 'same-origin',
@@ -363,9 +515,16 @@ export function AuthenticationGate({ onAuthenticated }: {
         privateKey: generated.privateKey,
         enrollmentId: enrollment.id,
       }
+      retainedKey.current = generated
       if (kind === 'device') await writeBrowserDevice(next)
+      pendingId.current = enrollment.id
       setDevice(next)
       setPending(enrollment)
+      if (INVITATION_PATTERN.test(invitation)) {
+        void redeem(next, enrollment.id, invitation)
+      } else if (invitation.length > 0) {
+        setRedeemError(new RedeemFailure('邀请口令格式不对：请完整复制以 dshi1_ 开头的整段口令', false))
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -406,6 +565,21 @@ export function AuthenticationGate({ onAuthenticated }: {
                   autoFocus
                 />
               </div>
+              <div className="dsh-auth-field">
+                <label htmlFor="dsh-auth-invitation">邀请口令（可选）</label>
+                <input
+                  id="dsh-auth-invitation"
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  className="dsh-auth-invitation-input"
+                  placeholder="粘贴以 dshi1_ 开头的整段口令"
+                  value={invitation}
+                  onChange={(event) => { setInvitation(normalizeInvitation(event.target.value)) }}
+                  disabled={busy}
+                />
+              </div>
               <div className="dsh-auth-actions">
                 <button type="submit" className="dsh-auth-btn dsh-auth-primary" disabled={busy || name.length === 0}>
                   {busy ? '准备中...' : '配对个人设备'}
@@ -422,10 +596,27 @@ export function AuthenticationGate({ onAuthenticated }: {
             </form>
             <p className="dsh-auth-hint">
               私钥留在此浏览器且不可导出，服务器只保存公钥。公用设备的密钥仅存在于内存中，关闭页面即失效。
+              有邀请口令时，提交后输入即可立即完成配对，无需终端批准。
             </p>
           </>
         ) : (
-          <PendingPairing pending={pending} onCopyFailure={setError} />
+          <PendingPairing
+            pending={pending}
+            onCopyFailure={setError}
+            invitation={invitation}
+            onInvitationChange={setInvitation}
+            onRedeem={() => {
+              if (device === undefined || device.enrollmentId === undefined) return
+              if (!INVITATION_PATTERN.test(invitation)) {
+                setRedeemError(new RedeemFailure('邀请口令格式不对：请完整复制以 dshi1_ 开头的整段口令', false))
+                return
+              }
+              void redeem(device, device.enrollmentId, invitation)
+            }}
+            redeemBusy={redeemBusy}
+            redeemError={redeemError}
+            onRestart={() => { void restartPairing() }}
+          />
         )}
         {error !== undefined && <p className="dsh-auth-error" role="alert">{error}</p>}
         {error !== undefined && (

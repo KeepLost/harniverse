@@ -330,6 +330,103 @@ describe('browser enrollment', () => {
   })
 })
 
+describe('browser invitation redemption', () => {
+  it('rejects malformed redemption bodies', async () => {
+    const harness = await mounted()
+    for (const body of [
+      { id: 'e1' },
+      { id: 'e1', invitation: 'dshi1_t', extra: 1 },
+      { id: 7, invitation: 'dshi1_t' },
+      { id: 'x'.repeat(65), invitation: 'dshi1_t' },
+      { id: 'e1', invitation: 'y'.repeat(129) },
+    ]) {
+      const state = await harness.call(jsonRequest('POST', '/auth/enrollment/redeem', body))
+      expect(state.status).toBe(400)
+    }
+    await harness.dispose()
+  })
+
+  it('returns the approved enrollment for a redeemed invitation', async () => {
+    const seen: Array<[string, string, string | undefined]> = []
+    const harness = await mounted({
+      overrides: {
+        redeemEnrollmentInvitation: (id: string, invitation: string, peerAddress?: string) => {
+          seen.push([id, invitation, peerAddress])
+          return Promise.resolve({
+            kind: 'accepted' as const,
+            value: {
+              state: 'approved' as const,
+              id: authenticationEnrollmentId(id),
+              grantId: authenticationGrantId('grant-1'),
+              grantRevision: 1,
+              capabilities: ['harniverse.observe'],
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            },
+          })
+        },
+      },
+    })
+    const state = await harness.call(jsonRequest('POST', '/auth/enrollment/redeem', {
+      id: 'enrollment-1', invitation: 'dshi1_token',
+    }))
+    expect(state.status).toBe(200)
+    expect(JSON.parse(state.body!)).toMatchObject({ state: 'approved', grantId: 'grant-1' })
+    expect(seen).toEqual([['enrollment-1', 'dshi1_token', '127.0.0.1']])
+    await harness.dispose()
+  })
+
+  it('maps stable redemption rejections to transport statuses', async () => {
+    for (const [reason, status, bodyPart] of [
+      ['invalid-invitation', 401, 'invalid invitation'],
+      ['invitation-name', 409, 'invitation name mismatch'],
+      ['not-found', 404, 'not found'],
+      ['authentication-unavailable', 503, 'authentication unavailable'],
+    ] as const) {
+      const harness = await mounted({
+        overrides: { redeemEnrollmentInvitation: () => Promise.resolve({ kind: 'rejected' as const, reason }) },
+      })
+      const state = await harness.call(jsonRequest('POST', '/auth/enrollment/redeem', { id: 'e1', invitation: 'dshi1_t' }))
+      expect(state).toMatchObject({ status, body: bodyPart })
+      await harness.dispose()
+    }
+
+    const kindHarness = await mounted({
+      overrides: {
+        redeemEnrollmentInvitation: () => Promise.resolve({
+          kind: 'rejected' as const, reason: 'invitation-kind' as const, expected: 'temporary' as const,
+        }),
+      },
+    })
+    const kindState = await kindHarness.call(jsonRequest('POST', '/auth/enrollment/redeem', { id: 'e1', invitation: 'dshi1_t' }))
+    expect(kindState.status).toBe(409)
+    expect(JSON.parse(kindState.body!)).toEqual({ error: 'invitation kind mismatch', expected: 'temporary' })
+    await kindHarness.dispose()
+
+    const rateHarness = await mounted({
+      overrides: {
+        redeemEnrollmentInvitation: () => Promise.resolve({
+          kind: 'rejected' as const, reason: 'rate-limited' as const, retryAfterMs: 90_000,
+        }),
+      },
+    })
+    const rateState = await rateHarness.call(jsonRequest('POST', '/auth/enrollment/redeem', { id: 'e1', invitation: 'dshi1_t' }))
+    expect(rateState.status).toBe(429)
+    expect(rateState.headers).toMatchObject({ 'retry-after': '90' })
+    await rateHarness.dispose()
+  })
+
+  it('reports a failing redemption service without leaking its error', async () => {
+    const harness = await mounted({
+      overrides: { redeemEnrollmentInvitation: () => Promise.reject(new Error('registry corruption detail')) },
+    })
+    const state = await harness.call(jsonRequest('POST', '/auth/enrollment/redeem', { id: 'e1', invitation: 'dshi1_t' }))
+    expect(state.status).toBe(500)
+    expect(state.body).not.toContain('registry corruption detail')
+    expect(harness.warnings.length).toBeGreaterThan(0)
+    await harness.dispose()
+  })
+})
+
 describe('browser challenge', () => {
   it.each([
     ['a non-object body', 'null'],

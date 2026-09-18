@@ -220,6 +220,14 @@ export type AuthenticationEnrollmentDecision =
   | { kind: 'rejected'; reason: 'rate-limited'; retryAfterMs: number }
   | { kind: 'rejected'; reason: 'invalid-name' | 'invalid-public-key' | 'name-conflict' }
 
+/** Invitation redemption result with stable client-actionable rejections. */
+export type AuthenticationInvitationDecision =
+  | { kind: 'accepted'; value: Extract<AuthenticationEnrollmentStatus, { state: 'approved' }> }
+  | { kind: 'rejected'; reason: 'authentication-unavailable' }
+  | { kind: 'rejected'; reason: 'rate-limited'; retryAfterMs: number }
+  | { kind: 'rejected'; reason: 'invalid-invitation' | 'invitation-name' | 'not-found' }
+  | { kind: 'rejected'; reason: 'invitation-kind'; expected: AuthenticationEnrollmentKind }
+
 /** Owner-selected authorization and lifetime for a pending enrollment. */
 export interface AuthenticationEnrollmentApproval {
   capabilities: readonly AuthenticationCapability[]
@@ -360,6 +368,19 @@ export abstract class InboundAuthentication extends Service {
     id: AuthenticationEnrollmentId,
     approval: AuthenticationEnrollmentApproval,
   ): Promise<AuthenticationGrantSummary>
+
+  /**
+   * Redeem one pre-issued invitation against a pending enrollment.
+   * @param id - exact pending enrollment id submitted by the same browser key.
+   * @param invitation - one-time invitation token; possession acts as approval.
+   * @param peerAddress - direct peer used for redemption rate limiting.
+   * @returns the approved enrollment or a stable rejection reason.
+   */
+  abstract redeemEnrollmentInvitation(
+    id: AuthenticationEnrollmentId,
+    invitation: string,
+    peerAddress?: string,
+  ): Promise<AuthenticationInvitationDecision>
 
   /**
    * List approved Grants without exposing public keys.
