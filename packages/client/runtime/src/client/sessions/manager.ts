@@ -766,12 +766,19 @@ export class SessionManager {
     if (frame.type === 'stream/error') return // Controller already treats this as stream failure
     if (
       frame.type === 'session/event'
-      && frame.event.type === 'user/message'
-      && frame.event.data.source.kind === 'user'
+      && (
+        (frame.event.type === 'user/message' && frame.event.data.source.kind === 'user')
+        || frame.event.type === 'assistant/message'
+        || frame.event.type === 'tool/result'
+        || frame.event.type === 'turn/end'
+      )
     ) {
-      // session.list supplies the cold baseline, while a direct prompt or an
-      // admitted steer advances it between pulls. Max keeps replayed or
-      // repaired older user messages from moving the row backwards.
+      // session.list supplies the cold baseline, while settled turn activity
+      // (a direct prompt, an admitted steer, a completed assistant message or
+      // tool round trip, a turn boundary) advances it between pulls — the
+      // list row's recency and downstream staleness signals (e.g. the
+      // Workspace workbench revalidation) ride the same watermark. Max keeps
+      // replayed or repaired older events from moving the row backwards.
       this.recordMutation({ kind: 'activity', sessionId: frame.sessionId, updatedAt: frame.event.time })
     }
     if (frame.type === 'session/projection') {

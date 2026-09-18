@@ -14,7 +14,7 @@ This document records the exact DeepSeek Harness plugin baseline imported by Har
 
 The two baseline commits have the same Git tree. All downstream statements therefore describe `440d2ae5a4..HEAD` without upstream-version ambiguity. The official inventory below covers first-party packages under `packages/*/*`; vendored Cordis packages are framework dependencies, while `apps/*` are launchers and assembled application hosts.
 
-Workspace workbench implementation tracking: `9a74618b20`; real-browser interaction hardening: `f986355714`; navigation, preview, and glob integration: `6fdf45691a`; session-control work-status response baseline: `fd4a04a42cc08ca07ccb09143ffdc2870b3cad5f`; native macOS shell and Intel runtime coverage: `97a196e925`; native macOS process-path portability: `bcc4186fb5`; native macOS resource-bound portability: `71befd15fe`; native Windows lease-cleanup contention: `277be8ca8a`; global compaction controls: `5a794a57bd`; client-aborted HTTP request handling: `2b8ee0cc0f`.
+Workspace workbench implementation tracking: `9a74618b20`; real-browser interaction hardening: `f986355714`; navigation, preview, and glob integration: `6fdf45691a`; session-control work-status response baseline: `fd4a04a42cc08ca07ccb09143ffdc2870b3cad5f`; native macOS shell and Intel runtime coverage: `97a196e925`; native macOS process-path portability: `bcc4186fb5`; native macOS resource-bound portability: `71befd15fe`; native Windows lease-cleanup contention: `277be8ca8a`; global compaction controls: `5a794a57bd`; client-aborted HTTP request handling: `2b8ee0cc0f`; workbench session-activity revalidation: `9c55cda6ba6424ac5d60d0383b66852b971c4453`.
 
 Session checkpoint recovery implementation tracking: `0b617df8d6fd04d0f73dba3afdd4d969cfe07972`.
 
