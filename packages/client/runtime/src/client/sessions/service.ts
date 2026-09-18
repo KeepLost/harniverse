@@ -188,8 +188,13 @@ function displayTitleOf(title: string | undefined, cwd: string | undefined, id: 
  * @param title - source session's durable title.
  * @returns the title assigned to the fork child.
  */
-function increasedForkTitle(title: string): string {
-  const ascii = /^(.*?)\((\d+)\)$/u.exec(title)
+/** Bounded wait for a trailing 'title' projection before the fork title policy reads it. */
+const FORK_TITLE_SETTLE_WAIT_MS = 5_000
+
+/** Poll cadence for that wait. */
+const FORK_TITLE_SETTLE_POLL_MS = 50
+
+function increasedForkTitle(title: string): string {  const ascii = /^(.*?)\((\d+)\)$/u.exec(title)
   if (ascii?.[1] !== undefined && ascii[2] !== undefined) {
     return `${ascii[1]}(${BigInt(ascii[2]) + 1n})`
   }
@@ -530,7 +535,9 @@ export class SessionRuntime implements ISessions {
     // (the list row reads it too): reading the projected list store instead
     // would race its flush and silently skip the increment when a fork
     // follows a reconnect baseline that has not re-landed the title yet.
-    const sourceTitle = opts.increaseTitle ? this.manager.titleOf(opts.sessionId) : undefined
+    const sourceTitle = opts.increaseTitle
+      ? await this.settledSourceTitle(opts.sessionId)
+      : undefined
     const result = await this.manager.fork({
       sessionId: opts.sessionId,
       // Flooring lands inside the anchor's own turn (every turn opens with a
@@ -548,6 +555,27 @@ export class SessionRuntime implements ISessions {
       if (!renamed.ok) throw new Error(`fork child rename failed: ${renamed.error.code}: ${renamed.error.message}`)
     }
     return childId
+  }
+
+  /**
+   * The fork title policy's source title, tolerating a briefly trailing
+   * 'title' projection frame: under load the frame can land after the branch
+   * gesture started, and reading once would silently drop the increment.
+   * Bounded polling waits for the authoritative value; past the bound the
+   * design's no-title-no-rename rule keeps holding (blank sessions branch
+   * without a suffix by design).
+   * @param sessionId - the fork's source session.
+   * @returns the durable source title, or undefined when none lands in time.
+   */
+  private async settledSourceTitle(sessionId: SessionId): Promise<string | undefined> {
+    const direct = this.manager.titleOf(sessionId)
+    if (direct !== undefined) return direct
+    const deadline = Date.now() + FORK_TITLE_SETTLE_WAIT_MS
+    for (;;) {
+      await new Promise(resolve => setTimeout(resolve, FORK_TITLE_SETTLE_POLL_MS))
+      const title = this.manager.titleOf(sessionId)
+      if (title !== undefined || Date.now() >= deadline) return title
+    }
   }
 
   /** Read one archived Session without changing the current selection. */
