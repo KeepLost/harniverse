@@ -3,7 +3,7 @@ import type { Browser, BrowserContext, Page } from 'playwright'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
-import { approveEnrollmentRequest, listEnrollmentRequests } from '@deepseek-ai/dsh-authentication-local'
+import { approveEnrollmentRequest, issueEnrollmentInvitation, listEnrollmentRequests } from '@deepseek-ai/dsh-authentication-local'
 import { launchWebScaffold, watchConsole, type WebScaffold } from './scaffold.ts'
 import { connectFreshWorkspace, saveFailureShot } from './support.ts'
 
@@ -135,4 +135,60 @@ describe('web e2e: authentication gate', () => {
     expect(tripwire.pageErrors).toEqual([])
     await sibling.close()
   }, 120_000)
+
+  it('redeems a pre-issued invitation from a sealed registry without terminal approval', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-invitation-redeem'))
+    // The previous test revoked the only owner Grant, so this invitation
+    // carries owner capabilities and its redemption bootstraps the registry.
+    const issued = await issueEnrollmentInvitation({
+      capabilities: ['harniverse.observe', 'harniverse.operate', 'harniverse.administer', 'harniverse.authorize'],
+      kind: 'device',
+      ttlMs: 30 * 60_000,
+    }, { dshHome: scaffold.harnessHome })
+    const invited = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'en-US' })
+    const invitePage = await invited.newPage()
+    const inviteTripwire = watchConsole(invitePage)
+    const invitePluginRequests: string[] = []
+    invitePage.on('request', (request) => {
+      if (new URL(request.url()).pathname.startsWith('/plugins/')) invitePluginRequests.push(request.url())
+    })
+    try {
+      await invitePage.goto(scaffold.baseUrl, { waitUntil: 'load' })
+      await invitePage.getByLabel('设备名称').fill('受邀设备')
+      await invitePage.getByLabel('邀请口令（可选）').fill(issued.token)
+      const redeemPromise = invitePage.waitForResponse(
+        response => new URL(response.url()).pathname === '/auth/enrollment/redeem' && response.request().method() === 'POST',
+      )
+      const exchangePromise = invitePage.waitForResponse(
+        response => new URL(response.url()).pathname === '/auth/exchange' && response.status() === 200,
+      )
+      await invitePage.getByRole('button', { name: '配对个人设备' }).click()
+      const redeem = await redeemPromise
+      expect(redeem.status()).toBe(200)
+      await exchangePromise
+      await invitePage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      expect(invitePluginRequests.length).toBeGreaterThan(0)
+      expect(inviteTripwire.pageErrors).toEqual([])
+
+      // The consumed token cannot approve a second enrollment.
+      const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign'])
+      const spki = await crypto.subtle.exportKey('spki', pair.publicKey)
+      const replayEnrollment = await invitePage.request.post(`${scaffold.baseUrl}/auth/enrollment`, {
+        data: { name: 'replay-attempt', kind: 'device', publicKey: Buffer.from(spki).toString('base64url') },
+      })
+      expect(replayEnrollment.status()).toBe(202)
+      const replay = await invitePage.request.post(`${scaffold.baseUrl}/auth/enrollment/redeem`, {
+        data: { id: (await redeemEnrollmentId(replayEnrollment)), invitation: issued.token },
+      })
+      expect(replay.status()).toBe(401)
+    } finally {
+      await invited.close()
+    }
+  }, 120_000)
 })
+
+async function redeemEnrollmentId(response: { json: () => Promise<unknown> }): Promise<string> {
+  const body = await response.json() as { id?: unknown }
+  if (typeof body.id !== 'string') throw new Error('enrollment response carried no id')
+  return body.id
+}

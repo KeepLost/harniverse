@@ -6,7 +6,7 @@
 
 每个 endpoint 要求四项正交 capability 之一：`harniverse.observe`、`harniverse.operate`、`harniverse.administer` 或 `harniverse.authorize`。Grant principal 携带准确的 Grant id 与 revision、capability 和过期时间。注册表变更会撤销匹配的 Access Token、浏览器会话和 WebSocket，而不影响其他 Grant。
 
-Authenticated 启动允许空的 sealed 注册表，以便浏览器提交首个设备 enrollment 请求；本地 CLI 批准后创建首个 owner Grant。待处理 enrollment 受持久全局上限和每 peer 创建限制约束。设备与 API client 使用一次性 P-256 签名 challenge 换取短期凭据。临时设备必须有过期时间和空闲超时，应急 token 不能 authorize，且 `$DSH_HOME/auth/tokens.json` 会在不迁移的情况下被拒绝。显式 bypass 仍保留每主目录实例 lease 与强制访问记录并仅限回环；全接口 listener 必须直接启用 TLS。
+Authenticated 启动允许空的 sealed 注册表，以便浏览器提交首个设备 enrollment 请求；本地 CLI 批准后创建首个 owner Grant。待处理 enrollment 受持久全局上限和每 peer 创建限制约束。CLI 签发的 enrollment 邀请口令是预签发的批准：浏览器用一次性 `dshi1_` token 兑换自己的待处理请求，capability 以口令上限封顶，且只有无效兑换才计入每 peer 的无效凭据限速器。设备与 API client 使用一次性 P-256 签名 challenge 换取短期凭据。临时设备必须有过期时间和空闲超时，应急 token 不能 authorize，且 `$DSH_HOME/auth/tokens.json` 会在不迁移的情况下被拒绝。显式 bypass 仍保留每主目录实例 lease 与强制访问记录并仅限回环；全接口 listener 必须直接启用 TLS。
 
 来源：[`packages/auth/authentication/src/index.ts`](../../packages/auth/authentication/src/index.ts)
 
@@ -76,6 +76,15 @@ abstract listPendingEnrollments(): Promise<readonly Extract<AuthenticationEnroll
 abstract approveEnrollment( id: AuthenticationEnrollmentId, approval: AuthenticationEnrollmentApproval, ): Promise<AuthenticationGrantSummary>
 
 /**
+ * Redeem one pre-issued invitation against a pending enrollment.
+ * @param id - exact pending enrollment id submitted by the same browser key.
+ * @param invitation - one-time invitation token; possession acts as approval.
+ * @param peerAddress - direct peer used for redemption rate limiting.
+ * @returns the approved enrollment or a stable rejection reason.
+ */
+abstract redeemEnrollmentInvitation( id: AuthenticationEnrollmentId, invitation: string, peerAddress?: string, ): Promise<AuthenticationInvitationDecision>
+
+/**
  * List approved Grants without exposing public keys.
  * @returns approved Grant metadata without public keys.
  */
@@ -119,7 +128,7 @@ abstract issueEmergencyAccessToken( issuer: AuthenticationPrincipal, capabilitie
 abstract revokeBrowserSession(value?: string): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:300`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:308`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authentication-events"></a>
 
@@ -139,7 +148,7 @@ Credential freshness was reconciled after an unavailable interval.
 'authentication/available'(): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:295`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:303`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authenticationrevoked--emit"></a>
 
@@ -156,7 +165,7 @@ A committed Grant registry change invalidated Grant revisions.
 'authentication/revoked'(revocation: AuthenticationRevocation): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:283`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:291`](../../packages/auth/authentication/src/index.ts)
 
 <a id="authenticationunavailable--emit"></a>
 
@@ -172,5 +181,5 @@ Credential freshness became unavailable; current sockets must close.
 'authentication/unavailable'(): void
 ```
 
-Source: [`packages/auth/authentication/src/index.ts:289`](../../packages/auth/authentication/src/index.ts)
+Source: [`packages/auth/authentication/src/index.ts:297`](../../packages/auth/authentication/src/index.ts)
 <!-- END GENERATED cordis-surface -->

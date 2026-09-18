@@ -17,6 +17,7 @@ import { browserSessionFromCookie } from './inbound-auth.ts'
 
 const AUTH_STATUS_PATH = '/auth/status'
 const AUTH_ENROLLMENT_PATH = '/auth/enrollment'
+const AUTH_REDEEM_PATH = '/auth/enrollment/redeem'
 const AUTH_CHALLENGE_PATH = '/auth/challenge'
 const AUTH_EXCHANGE_PATH = '/auth/exchange'
 const AUTH_TOKEN_PATH = '/auth/token'
@@ -166,6 +167,53 @@ function browserAuthenticationHandler(ctx: Context, peerAddress?: string): Fetch
         const status = await ctx.authentication.enrollmentStatus(authenticationEnrollmentId(values[0]))
         return status === undefined ? text('not found', 404) : json(status)
       }
+      if (pathname === AUTH_REDEEM_PATH && request.method === 'POST') {
+        const parsed = await jsonBody(request)
+        if (parsed.kind === 'refused') return parsed.response
+        const body = parsed.value
+        if (typeof body !== 'object' || body === null || Array.isArray(body)
+          || Object.keys(body).length !== 2
+          || typeof (body as { id?: unknown }).id !== 'string'
+          || typeof (body as { invitation?: unknown }).invitation !== 'string'
+          || (body as { id: string }).id.length === 0 || (body as { id: string }).id.length > 64
+          || (body as { invitation: string }).invitation.length === 0 || (body as { invitation: string }).invitation.length > 128) {
+          return text('invalid redemption request', 400)
+        }
+        const enrollmentId = (body as { id: string }).id
+        ctx.logger.info(`client-connection: invitation redemption requested enrollment=${JSON.stringify(enrollmentId)} ${browserRequestDetails(request, peerAddress)}`)
+        try {
+          const decision = await ctx.authentication.redeemEnrollmentInvitation(
+            authenticationEnrollmentId(enrollmentId),
+            (body as { invitation: string }).invitation,
+            peerAddress,
+          )
+          if (decision.kind === 'accepted') {
+            ctx.logger.info(`client-connection: invitation redemption accepted enrollment=${JSON.stringify(enrollmentId)} grant=${JSON.stringify(decision.value.grantId)} peer=${JSON.stringify(peerAddress ?? '-')}`)
+            return json(decision.value)
+          }
+          ctx.logger.warn(`client-connection: invitation redemption rejected enrollment=${JSON.stringify(enrollmentId)} reason=${JSON.stringify(decision.reason)} peer=${JSON.stringify(peerAddress ?? '-')}`)
+          switch (decision.reason) {
+            case 'rate-limited':
+              return new Response('rate limited', {
+                status: 429,
+                headers: noStoreHeaders({ 'retry-after': String(Math.ceil(decision.retryAfterMs / 1_000)) }),
+              })
+            case 'authentication-unavailable': return text('authentication unavailable', 503)
+            case 'invalid-invitation': return text('invalid invitation', 401)
+            case 'invitation-name': return text('invitation name mismatch', 409)
+            case 'not-found': return text('not found', 404)
+            case 'invitation-kind':
+              return Response.json({ error: 'invitation kind mismatch', expected: decision.expected }, {
+                status: 409,
+                headers: noStoreHeaders(),
+              })
+          }
+        } catch (error) {
+          ctx.logger.warn('client-connection: invitation redemption failed')
+          ctx.logger.warn(error)
+          return text('redemption service failed; see server log', 500)
+        }
+      }
       if (pathname === AUTH_CHALLENGE_PATH && request.method === 'POST') {
         const parsed = await jsonBody(request)
         if (parsed.kind === 'refused') return parsed.response
@@ -310,6 +358,7 @@ export function registerBrowserAuthenticationRoutes(
   for (const path of [
     AUTH_STATUS_PATH,
     AUTH_ENROLLMENT_PATH,
+    AUTH_REDEEM_PATH,
     AUTH_CHALLENGE_PATH,
     AUTH_EXCHANGE_PATH,
     AUTH_TOKEN_PATH,

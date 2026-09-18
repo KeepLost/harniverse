@@ -484,6 +484,51 @@
   line-height: 20px;
 }
 
+.dsh-auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.dsh-auth-divider::before,
+.dsh-auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--dsw-alias-border-l2);
+}
+
+.dsh-auth-invitation {
+  margin-top: 14px;
+}
+
+.dsh-auth-invitation-row {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.dsh-auth-invitation-row .dsh-auth-invitation-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.dsh-auth-invitation-input {
+  font-family: var(--ds-font-family-code);
+}
+
+.dsh-auth-invitation-error {
+  margin: 10px 0 0;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
 .dsh-auth-retry {
   width: 100%;
   margin-top: 12px;

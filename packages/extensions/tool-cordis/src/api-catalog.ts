@@ -511,6 +511,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'non-secret metadata for the committed Grant.',
       },
       {
+        signature: 'abstract redeemEnrollmentInvitation( id: AuthenticationEnrollmentId, invitation: string, peerAddress?: string, ): Promise<AuthenticationInvitationDecision>',
+        description: 'Redeem one pre-issued invitation against a pending enrollment.',
+        parameters: [{ name: 'id', description: 'exact pending enrollment id submitted by the same browser key.' }, { name: 'invitation', description: 'one-time invitation token; possession acts as approval.' }, { name: 'peerAddress', description: 'direct peer used for redemption rate limiting.' }],
+        returns: 'the approved enrollment or a stable rejection reason.',
+      },
+      {
         signature: 'abstract listGrants(): Promise<readonly AuthenticationGrantSummary[]>',
         description: 'List approved Grants without exposing public keys.',
         parameters: [],
@@ -3861,6 +3867,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AuthenticationGrantSummary',
     declaration: 'export interface AuthenticationGrantSummary {\n    id: AuthenticationGrantId;\n    name: string;\n    kind: \'device\' | \'api-client\' | \'temporary\';\n    revision: number;\n    capabilities: readonly AuthenticationCapability[];\n    createdAt: string;\n    expiresAt?: string;\n    idleTimeoutMs?: number;\n    lastUsedAt?: string;\n}',
+  },
+  {
+    name: 'AuthenticationInvitationDecision',
+    declaration: 'export type AuthenticationInvitationDecision = {\n    kind: \'accepted\';\n    value: Extract<AuthenticationEnrollmentStatus, {\n        state: \'approved\';\n    }>;\n} | {\n    kind: \'rejected\';\n    reason: \'authentication-unavailable\';\n} | {\n    kind: \'rejected\';\n    reason: \'rate-limited\';\n    retryAfterMs: number;\n} | {\n    kind: \'rejected\';\n    reason: \'invalid-invitation\' | \'invitation-name\' | \'not-found\';\n} | {\n    kind: \'rejected\';\n    reason: \'invitation-kind\';\n    expected: AuthenticationEnrollmentKind;\n};',
   },
   {
     name: 'AuthenticationMode',

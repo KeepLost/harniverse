@@ -228,7 +228,7 @@ describe('connection node half', () => {
 
   it('registers API and browser-authentication routes plus one upgrade route per downlink', async () => {
     const { routes, upgrades, dispose } = await mounted()
-    expect(routes).toHaveLength(13)
+    expect(routes).toHaveLength(14)
     expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
     expect(upgrades.map(route => route.path)).toEqual([MUX_EVENTS_PATH, HOST_EVENTS_PATH])
     await dispose()
@@ -694,7 +694,7 @@ describe('connection node half', () => {
     provideAuthentication(ctx)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    expect(routes).toHaveLength(13)
+    expect(routes).toHaveLength(14)
     expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
 
     const connection = ctx.get('connection') as HostConnectionHandle
@@ -742,6 +742,7 @@ describe('connection node half', () => {
       API_PATH,
       '/auth/status',
       '/auth/enrollment',
+      '/auth/enrollment/redeem',
       '/auth/challenge',
       '/auth/exchange',
       '/auth/token',

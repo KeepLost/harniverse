@@ -9,7 +9,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { internals as cmdlineInternals, provideCmdline } from '@deepseek-ai/dsh-cmdline'
-import { createEnrollmentRequest } from '@deepseek-ai/dsh-authentication-local'
+import { createEnrollmentRequest, redeemEnrollmentInvitation } from '@deepseek-ai/dsh-authentication-local'
 import { afterEach, describe, expect, it } from 'vitest'
 import { apply as applyRunner, internals as runnerInternals } from '../src/index.ts'
 import { apply as applyStartup, AUTH_STARTUP_SERVICE } from '../src/startup.ts'
@@ -60,6 +60,10 @@ export const apply = (ctx, config) => globalThis.__authAppRunner(ctx, config)
     '    publicKey: !!js ctx.authStartup.publicKey',
     '    profile: !!js ctx.authStartup.profile',
     '    capabilities: !!js ctx.authStartup.capabilities',
+    '    kind: !!js ctx.authStartup.kind',
+    '    bindName: !!js ctx.authStartup.bindName',
+    '    ttl: !!js ctx.authStartup.ttl',
+    '    count: !!js ctx.authStartup.count',
     `    dshHome: ${JSON.stringify(dshHome)}`,
     '- id: auth-startup',
     `  name: ${pathToFileURL(join(fixture, 'startup.mjs')).href}`,
@@ -162,6 +166,88 @@ describe('authentication management app', () => {
     expect(rejected.err).toContain('unknown capability profile "bogus"')
   })
 
+  it('issues a single millisecond-dated invitation by default', async () => {
+    const dshHome = await temporaryDirectory('dsh-auth-app-home-')
+    await approveOwner(dshHome)
+    const issued = await invoke(['code', 'issue', '--profile', 'owner', '--ttl', '90000'], dshHome)
+
+    expect(issued).toMatchObject({ code: 0, err: '' })
+    expect(issued.out.trim().split('\n')).toHaveLength(1)
+    expect(Date.parse(issued.out.trim().split('\t').at(-1)!)).toBeGreaterThan(Date.now())
+  })
+
+  it('issues, lists, and revokes one-time enrollment invitations', async () => {
+    const dshHome = await temporaryDirectory('dsh-auth-app-home-')
+    await approveOwner(dshHome)
+    const issued = await invoke(['code', 'issue', '--profile', 'operator', '--ttl', '30m', '--count', '2'], dshHome)
+
+    expect(issued).toMatchObject({ code: 0, err: '' })
+    const rows = issued.out.trim().split('\n')
+    expect(rows).toHaveLength(2)
+    const fields = rows.map(row => row.split('\t'))
+    for (const [token, id, kind, caps, expiresAt] of fields) {
+      expect(token).toMatch(/^dshi1_[A-Za-z0-9_-]{27}$/)
+      expect(id).toMatch(/^[A-Za-z0-9_][A-Za-z0-9_-]{15}$/)
+      expect(kind).toBe('device')
+      expect(caps).toBe('harniverse.observe,harniverse.operate')
+      expect(Number.isNaN(Date.parse(expiresAt!))).toBe(false)
+    }
+
+    const listed = await invoke(['code', 'list'], dshHome)
+    expect(listed).toMatchObject({ code: 0, err: '' })
+    expect(listed.out.trim().split('\n')).toHaveLength(2)
+    expect(listed.out).toContain('\tdevice\tharniverse.observe,harniverse.operate\t-\t')
+    expect(listed.out).toContain('\tactive\t-\t-\n')
+
+    const revoked = await invoke(['code', 'revoke', fields[0]![1]!], dshHome)
+    expect(revoked).toMatchObject({ code: 0, out: '', err: '' })
+    expect((await invoke(['code', 'list'], dshHome)).out.trim().split('\n')).toHaveLength(1)
+    await expect(invoke(['code', 'revoke', fields[0]![1]!], dshHome)).resolves.toMatchObject({ code: 1 })
+  })
+
+  it('issues bound temporary invitations and records their consumption', async () => {
+    const dshHome = await temporaryDirectory('dsh-auth-app-home-')
+    await approveOwner(dshHome)
+    const issued = await invoke([
+      'code', 'issue', '--capability', 'harniverse.observe', '--ttl', '2h', '--kind', 'temporary', '--bind', '前台公用机',
+    ], dshHome)
+    expect(issued).toMatchObject({ code: 0, err: '' })
+    const [token, id] = issued.out.trim().split('\t')
+
+    const request = await createEnrollmentRequest({ name: '前台公用机', kind: 'temporary', publicKey: publicKey() }, { dshHome })
+    await redeemEnrollmentInvitation(request.id, token!, { dshHome })
+    const listed = await invoke(['code', 'list'], dshHome)
+    expect(listed.out).toContain(`${id}\ttemporary\tharniverse.observe\t前台公用机\t`)
+    expect(listed.out).toContain('\tused\t')
+  })
+
+  it('reports invitation issuance argument failures through bounded exit', async () => {
+    for (const [args, message] of [
+      [['code', 'issue', '--profile', 'operator'], 'code issue requires --ttl'],
+      [['code', 'issue', '--ttl', '5m', '--profile', 'operator', '--capability', 'harniverse.observe'],
+        'code issue requires exactly one of --profile or --capability'],
+    ] as Array<[string[], string]>) {
+      const ctx = new Context()
+      provideCmdline(ctx, { args, exit: () => {} })
+      expect(() => { applyStartup(ctx) }).toThrow(message)
+      await ctx.fiber.dispose()
+    }
+
+    const dshHome = await temporaryDirectory('dsh-auth-app-home-')
+    await approveOwner(dshHome)
+    const badTtl = await invoke(['code', 'issue', '--profile', 'operator', '--ttl', '5w'], dshHome)
+    expect(badTtl.code).toBe(1)
+    expect(badTtl.err).toContain('--ttl')
+
+    const tooMany = await invoke(['code', 'issue', '--profile', 'operator', '--ttl', '5m', '--count', '17'], dshHome)
+    expect(tooMany.code).toBe(1)
+    expect(tooMany.err).toContain('count must be between 1 and 16')
+
+    const badKind = await invoke(['code', 'issue', '--profile', 'operator', '--ttl', '5m', '--kind', 'kiosk'], dshHome)
+    expect(badKind.code).toBe(1)
+    expect(badKind.err).toContain('kind must be device or temporary')
+  })
+
   it('revokes device and management grants by Grant id', async () => {
     const dshHome = await temporaryDirectory('dsh-auth-app-home-')
     await approveOwner(dshHome)
@@ -228,6 +314,28 @@ describe('authentication management app', () => {
       expect(() => { applyStartup(ctx) }).toThrow('client add requires exactly one of --profile or --capability')
       await ctx.fiber.dispose()
     }
+  })
+
+  it('applies runner defaults for omitted invitation options', async () => {
+    const dshHome = await temporaryDirectory('dsh-auth-app-home-')
+    await approveOwner(dshHome)
+
+    const ctx = new Context()
+    let out = ''
+    runnerInternals.stdout = { write: (chunk: string) => { out += chunk; return true } }
+    ctx.provide('appExit', () => {})
+    applyRunner(ctx, { operation: 'code-issue', ttl: '30s', profile: 'owner', dshHome })
+    expect(out.trim().split('\n')).toHaveLength(1)
+    await ctx.fiber.dispose()
+
+    const bare = new Context()
+    let err = ''
+    runnerInternals.stderr = { write: (chunk: string) => { err += chunk; return true } }
+    const exited = new Promise<number>((resolve) => { bare.provide('appExit', resolve) })
+    applyRunner(bare, { operation: 'code-issue', ttl: '30s', dshHome })
+    expect(await exited).toBe(1)
+    expect(err).toContain('must be supported harniverse.* capabilities')
+    await bare.fiber.dispose()
   })
 
   it('fails loud for invalid runner composition', async () => {

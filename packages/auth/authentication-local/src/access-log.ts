@@ -27,6 +27,10 @@ export type AccessEvent =
   | 'challenge-rejected'
   | 'challenge-exchange-accepted'
   | 'challenge-exchange-rejected'
+  | 'invitation-issued'
+  | 'invitation-redeemed'
+  | 'invitation-redeem-rejected'
+  | 'invitation-revoked'
   | 'access-log-failed'
 
 /** One privacy-minimal authentication access record. */

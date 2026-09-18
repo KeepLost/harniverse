@@ -53,6 +53,209 @@ afterEach(async () => {
   vi.useRealTimers()
 })
 
+const INVITATION = `dshi1_${'a'.repeat(27)}`
+
+/** Fetch calls narrowed to their string path and init pair. */
+const fetchCalls = (mock: ReturnType<typeof vi.fn>): Array<[string, RequestInit]> =>
+  mock.mock.calls as Array<[string, RequestInit]>
+const pathsOf = (mock: ReturnType<typeof vi.fn>, path: string): Array<[string, RequestInit]> =>
+  fetchCalls(mock).filter(call => call[0] === path)
+const pendingBody = (): Response => Response.json({
+  state: 'pending', id: 'request-id', approvalCode: 'a1b2c3d4', name: 'tablet', kind: 'device', expiresAt: '2099-01-01T00:00:00.000Z',
+}, { status: 202 })
+const approvedReceipt = (): Response => Response.json({
+  state: 'approved', id: 'request-id', grantId: 'grant-1', grantRevision: 1,
+  capabilities: ['harniverse.observe'], expiresAt: '2099-01-01T00:00:00.000Z',
+})
+
+describe('browser invitation redemption gate', () => {
+  it('renders a masked invitation field that strips copy artifacts', async () => {
+    deviceApi.read.mockResolvedValue(undefined)
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(Response.json({ mode: 'authenticated', sealed: false, authenticated: false })))
+    const view = render(<AuthenticationGate onAuthenticated={() => {}} />)
+    const field = await view.findByLabelText('邀请口令（可选）')
+    expect(field.getAttribute('type')).toBe('password')
+    expect(field.getAttribute('autocomplete')).toBe('off')
+
+    fireEvent.change(field, { target: { value: `\t${INVITATION}\tc-0123456789abcdef\tdevice\n` } })
+    expect((field as HTMLInputElement).value).toBe(INVITATION)
+    await view.findAllByText(/配对个人设备/)
+    await stopBrowserSessionRenewal()
+  })
+
+  it('redeems automatically after enrolling with a well-formed invitation', async () => {
+    deviceApi.read.mockResolvedValue(undefined)
+    deviceApi.generate.mockResolvedValue({ privateKey: { type: 'private' }, publicKey: 'p256-spki' })
+    deviceApi.sign.mockResolvedValue('signature')
+    const authenticated = authenticationSpy()
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ mode: 'authenticated', sealed: true, authenticated: false }))
+      .mockResolvedValueOnce(pendingBody())
+      .mockResolvedValueOnce(approvedReceipt())
+      .mockResolvedValueOnce(Response.json({ id: 'challenge-1', payload: 'payload' }))
+      .mockResolvedValueOnce(Response.json({ authenticated: true, expiresAt: '2099-01-01T00:00:00.000Z' }))
+    vi.stubGlobal('fetch', fetch)
+    const view = render(<AuthenticationGate onAuthenticated={authenticated} />)
+
+    fireEvent.change(await view.findByLabelText('设备名称'), { target: { value: 'tablet' } })
+    fireEvent.change(view.getByLabelText('邀请口令（可选）'), { target: { value: INVITATION } })
+    fireEvent.click(view.getByRole('button', { name: '配对个人设备' }))
+
+    await waitFor(() => { expect(authenticated).toHaveBeenCalledTimes(1) })
+    expect(fetch).toHaveBeenNthCalledWith(3, '/auth/enrollment/redeem', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ id: 'request-id', invitation: INVITATION }),
+    }))
+    expect(deviceApi.write).toHaveBeenCalledWith(expect.objectContaining({ grantId: 'grant-1' }))
+  })
+
+  it('falls back to the pending screen with a format warning and never calls redeem', async () => {
+    deviceApi.read.mockResolvedValue(undefined)
+    deviceApi.generate.mockResolvedValue({ privateKey: { type: 'private' }, publicKey: 'p256-spki' })
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ mode: 'authenticated', sealed: true, authenticated: false }))
+      .mockResolvedValueOnce(pendingBody())
+    vi.stubGlobal('fetch', fetch)
+    const view = render(<AuthenticationGate onAuthenticated={() => {}} />)
+
+    fireEvent.change(await view.findByLabelText('设备名称'), { target: { value: 'tablet' } })
+    fireEvent.change(view.getByLabelText('邀请口令（可选）'), { target: { value: 'not-a-token' } })
+    fireEvent.click(view.getByRole('button', { name: '配对个人设备' }))
+
+    expect(await view.findByText('a1b2c3d4')).toBeTruthy()
+    expect((await view.findByRole('alert')).textContent)
+      .toBe('邀请口令格式不对：请完整复制以 dshi1_ 开头的整段口令')
+    expect(pathsOf(fetch, '/auth/enrollment/redeem')).toHaveLength(0)
+    expect((view.getByLabelText('使用邀请口令立即完成配对') as HTMLInputElement).value).toBe('not-a-token')
+  })
+
+  it('redeems manually from the pending screen and surfaces stable rejections', async () => {
+    deviceApi.read.mockResolvedValue(undefined)
+    deviceApi.generate.mockResolvedValue({ privateKey: { type: 'private' }, publicKey: 'p256-spki' })
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ mode: 'authenticated', sealed: true, authenticated: false }))
+      .mockResolvedValueOnce(pendingBody())
+      .mockResolvedValueOnce(new Response('invalid invitation', { status: 401 }))
+    vi.stubGlobal('fetch', fetch)
+    const view = render(<AuthenticationGate onAuthenticated={() => {}} />)
+
+    fireEvent.click(await view.findByRole('button', { name: '配对个人设备' }))
+    const input = await view.findByLabelText('使用邀请口令立即完成配对')
+    fireEvent.change(input, { target: { value: INVITATION } })
+    fireEvent.click(view.getByRole('button', { name: '凭口令完成配对' }))
+
+    expect((await view.findByRole('alert')).textContent).toBe('邀请口令无效或已被使用')
+    expect((view.getByLabelText('使用邀请口令立即完成配对') as HTMLInputElement).value).toBe(INVITATION)
+    expect(view.queryByRole('button', { name: '重新配对' })).toBeNull()
+
+    fetch.mockResolvedValueOnce(new Response('rate limited', {
+      status: 429, headers: { 'retry-after': '45' },
+    }))
+    fireEvent.click(view.getByRole('button', { name: '凭口令完成配对' }))
+    expect((await view.findByRole('alert')).textContent).toBe('尝试过于频繁，请 45 秒后重试')
+  })
+
+  it('recovers a kind mismatch through re-pairing with the retained key', async () => {
+    deviceApi.read.mockResolvedValue(undefined)
+    deviceApi.generate.mockResolvedValue({ privateKey: { type: 'private' }, publicKey: 'p256-spki' })
+    deviceApi.sign.mockResolvedValue('signature')
+    const authenticated = authenticationSpy()
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ mode: 'authenticated', sealed: true, authenticated: false }))
+      .mockResolvedValueOnce(Response.json({
+        state: 'pending', id: 'request-id', approvalCode: 'a1b2c3d4', name: 'kiosk', kind: 'temporary', expiresAt: '2099-01-01T00:00:00.000Z',
+      }, { status: 202 }))
+      .mockResolvedValueOnce(Response.json({ error: 'invitation kind mismatch', expected: 'device' }, { status: 409 }))
+      .mockResolvedValueOnce(Response.json({
+        state: 'pending', id: 'request-id-2', approvalCode: 'b2c3d4e5', name: 'kiosk', kind: 'device', expiresAt: '2099-01-01T00:00:00.000Z',
+      }, { status: 202 }))
+      .mockResolvedValueOnce(approvedReceipt())
+      .mockResolvedValueOnce(Response.json({ id: 'challenge-1', payload: 'payload' }))
+      .mockResolvedValueOnce(Response.json({ authenticated: true, expiresAt: '2099-01-01T00:00:00.000Z' }))
+    vi.stubGlobal('fetch', fetch)
+    const view = render(<AuthenticationGate onAuthenticated={authenticated} />)
+
+    fireEvent.change(await view.findByLabelText('设备名称'), { target: { value: 'kiosk' } })
+    fireEvent.change(view.getByLabelText('邀请口令（可选）'), { target: { value: INVITATION } })
+    fireEvent.click(view.getByRole('button', { name: '临时使用公用设备' }))
+
+    expect(await view.findByRole('button', { name: '重新配对' })).toBeTruthy()
+    expect((await view.findByRole('alert')).textContent).toContain('个人设备')
+
+    fireEvent.click(view.getByRole('button', { name: '重新配对' }))
+    expect(deviceApi.clear).toHaveBeenCalledTimes(1)
+    const nameField = await view.findByLabelText('设备名称')
+    expect((nameField as HTMLInputElement).value).toBe('kiosk')
+    expect((view.getByLabelText('邀请口令（可选）') as HTMLInputElement).value).toBe(INVITATION)
+
+    fireEvent.click(view.getByRole('button', { name: '配对个人设备' }))
+    await waitFor(() => { expect(authenticated).toHaveBeenCalledTimes(1) })
+    // The retry re-enrolled the retained browser key: one generation, two enrollment posts.
+    expect(deviceApi.generate).toHaveBeenCalledTimes(1)
+    expect(pathsOf(fetch, '/auth/enrollment')).toHaveLength(2)
+    expect(pathsOf(fetch, '/auth/enrollment/redeem').at(-1)?.[1]).toMatchObject({
+      body: JSON.stringify({ id: 'request-id-2', invitation: INVITATION }),
+    })
+  })
+
+  it('offers re-pairing when the pending enrollment is gone', async () => {
+    deviceApi.read.mockResolvedValue(undefined)
+    deviceApi.generate.mockResolvedValue({ privateKey: { type: 'private' }, publicKey: 'p256-spki' })
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(Response.json({ mode: 'authenticated', sealed: true, authenticated: false }))
+      .mockResolvedValueOnce(pendingBody())
+      .mockResolvedValueOnce(new Response('not found', { status: 404 })))
+    const view = render(<AuthenticationGate onAuthenticated={() => {}} />)
+
+    fireEvent.click(await view.findByRole('button', { name: '配对个人设备' }))
+    fireEvent.change(await view.findByLabelText('使用邀请口令立即完成配对'), { target: { value: INVITATION } })
+    fireEvent.click(view.getByRole('button', { name: '凭口令完成配对' }))
+
+    expect((await view.findByRole('alert')).textContent).toBe('配对请求已过期或不存在，请重新配对')
+    expect(view.getByRole('button', { name: '重新配对' })).toBeTruthy()
+  })
+
+  it('ignores a late redemption once polling has already approved the enrollment', async () => {
+    deviceApi.read.mockResolvedValue(undefined)
+    deviceApi.generate.mockResolvedValue({ privateKey: { type: 'private' }, publicKey: 'p256-spki' })
+    deviceApi.sign.mockResolvedValue('signature')
+    const authenticated = authenticationSpy()
+    const lateRedeem = (() => {
+      let resolve!: (value: Response) => void
+      const promise = new Promise<Response>((settle) => { resolve = settle })
+      return { promise, resolve }
+    })()
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ mode: 'authenticated', sealed: true, authenticated: false }))
+      .mockResolvedValueOnce(pendingBody())
+      .mockResolvedValueOnce(lateRedeem.promise)
+    vi.stubGlobal('fetch', fetch)
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const view = render(<AuthenticationGate onAuthenticated={authenticated} />)
+
+    fireEvent.change(await view.findByLabelText('设备名称'), { target: { value: 'tablet' } })
+    fireEvent.change(view.getByLabelText('邀请口令（可选）'), { target: { value: INVITATION } })
+    fireEvent.click(view.getByRole('button', { name: '配对个人设备' }))
+    await waitFor(() => { expect(pathsOf(fetch, '/auth/enrollment/redeem')).toHaveLength(1) })
+
+    // Polling approves while the redemption response is still in flight.
+    fetch.mockImplementation(async (input: RequestInfo | URL) => {
+      const path = input instanceof URL ? input.href : input
+      if (path === '/auth/enrollment?id=request-id') return approvedReceipt()
+      if (path === '/auth/challenge') return Response.json({ id: 'challenge-1', payload: 'payload' })
+      if (path === '/auth/exchange') return Response.json({ authenticated: true, expiresAt: '2099-01-01T00:00:00.000Z' })
+      return new Response('unused', { status: 500 })
+    })
+    await vi.advanceTimersByTimeAsync(2_100)
+    await waitFor(() => { expect(authenticated).toHaveBeenCalledTimes(1) })
+
+    lateRedeem.resolve(new Response('not found', { status: 404 }))
+    await new Promise((resolve) => { setTimeout(resolve, 20) })
+    expect(view.queryByRole('alert')).toBeNull()
+  })
+})
+
 describe('browser authentication gate', () => {
   it('creates and persists a personal-device enrollment before browser plugins load', async () => {
     deviceApi.read.mockResolvedValue(undefined)

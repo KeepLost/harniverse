@@ -363,6 +363,14 @@ export interface Config {
   profile?: string
   /** Explicit automation capabilities. */
   capabilities?: string[]
+  /** Invitation target kind. */
+  kind?: string
+  /** Optional device-name binding for invitations. */
+  bindName?: string
+  /** Invitation lifetime expression. */
+  ttl?: string
+  /** Invitation batch size. */
+  count?: number
   /** Harness home containing the local Grant registry. */
   dshHome?: string
 }
@@ -376,9 +384,12 @@ export type AuthOperation =
   | 'grant-revoke'
   | 'client-add'
   | 'client-revoke'
+  | 'code-issue'
+  | 'code-list'
+  | 'code-revoke'
 ```
 
-来源：[`packages/bundle/auth-app/src/index.ts:27`](../packages/bundle/auth-app/src/index.ts)
+来源：[`packages/bundle/auth-app/src/index.ts:30`](../packages/bundle/auth-app/src/index.ts)
 
 <a id="deepseek-aidsh-authentication-local"></a>
 

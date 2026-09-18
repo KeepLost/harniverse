@@ -101,8 +101,15 @@ describe('local Grant authentication runtime', () => {
     await expect(ctx.authentication.requestEnrollment({
       name: '我的设备', kind: 'device', publicKey,
     })).resolves.toMatchObject({ kind: 'accepted' })
+    // The same browser key re-enrolling supersedes its own pending request.
     await expect(ctx.authentication.requestEnrollment({
       name: '我的设备', kind: 'device', publicKey,
+    })).resolves.toMatchObject({ kind: 'accepted' })
+    const otherKey = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
+      .publicKey.export({ type: 'spki', format: 'der' }).toString('base64url')
+    // Another key still cannot take the occupied name.
+    await expect(ctx.authentication.requestEnrollment({
+      name: '我的设备', kind: 'device', publicKey: otherKey,
     })).resolves.toEqual({ kind: 'rejected', reason: 'name-conflict' })
   })
 
