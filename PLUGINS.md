@@ -20,6 +20,8 @@ Session checkpoint recovery implementation tracking: `0b617df8d6fd04d0f73dba3afd
 
 Exact-config HMR readiness implementation tracking: `7b3ab6ae97595affd9ca12e3bd9ca3a987a98f7e`.
 
+Enrollment invitation implementation tracking: `b33190a76f3a7b6f451dd19d2a1d98b03e57e04f`.
+
 ## Official Plugin Inventory
 
 <!-- official-inventory-start -->
