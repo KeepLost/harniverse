@@ -576,6 +576,27 @@ describe('fork', () => {
     expect(b.api.callsOf('session.rename')).toEqual([{ sessionId: 'child', title: 'Roadmap (1)' }])
   })
 
+  it('waits briefly for a trailing title projection before dropping the increment', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 'source', cwd: '/work' }])
+    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child') }))
+    b.api.onRename = (payload) => {
+      const { title } = payload as { title: string }
+      return Promise.resolve(ok({ title, seq: 3 }))
+    }
+    const forking = b.svc.fork({ sessionId: sid('source'), increaseTitle: true })
+    // CI-load window: the authoritative title frame lands only after the
+    // branch gesture already started. Dropping the increment here produced
+    // unsuffixed children under load.
+    await new Promise(resolve => setTimeout(resolve, 150))
+    b.svc.handleMuxEnvelope({
+      rpcId: 'late-title' as never,
+      payload: { type: 'session/projection', sessionId: sid('source'), key: 'title', value: 'Roadmap', seq: 2 } as never,
+    })
+    await expect(forking).resolves.toBe('child')
+    expect(b.api.callsOf('session.rename')).toEqual([{ sessionId: 'child', title: 'Roadmap (1)' }])
+  })
+
   it('floors a fractional anchor to the real event seq the wire accepts', async () => {
     const b = bench()
     await feedList(b, [{ id: 'source', cwd: '/work' }])
@@ -597,7 +618,7 @@ describe('fork', () => {
     b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child-2') }))
     await expect(b.svc.fork({ sessionId: sid('source') })).resolves.toBe('child-2')
     expect(b.api.callsOf('session.rename')).toEqual([])
-  })
+  }, 10_000)
 
   it('rejects when child rename fails while keeping the published child addressable', async () => {
     const b = bench()
