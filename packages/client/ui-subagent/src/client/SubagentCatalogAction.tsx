@@ -527,13 +527,20 @@ export function SubagentCatalogAction({
     && (presentedCatalog.state === 'error'
       || presentedCatalog.entries.length > 0
       || descendantCount > 0)
+  // An open catalog is user-held: while summaries or catalogs rehydrate, the
+  // evidence above can dip to zero for a store commit and back, and a
+  // transient dip must not yank the menu or its trigger out from under the
+  // pointer. Only the catalog settling empty with the summaries concurring —
+  // so a stale-empty snapshot alone does not count — closes the menu.
+  const settledEmpty = catalog !== undefined && catalog.state === 'ready'
+    && catalog.entries.length === 0 && descendantCount === 0
   useEffect(() => {
-    if (visible || !open) return
+    if (!settledEmpty || !open) return
     setOpen(false)
     closeAllCatalogs()
-  }, [visible, open])
+  }, [settledEmpty, open])
 
-  if (!visible) return null
+  if (!visible && !open) return null
 
   const focusAt = (index: number): void => {
     const items = treeItems(rootRef.current)
@@ -588,7 +595,7 @@ export function SubagentCatalogAction({
         <span className={css.count}>{t(totalCountKey, { count: descendantCount })}</span>
         <IconChevronDownOutline14 className={open ? css.triggerOpen : undefined} />
       </button>
-      {open && (
+      {open && presentedCatalog !== undefined && (
         <div className={css.menu} role="tree" aria-label={t('tree.aria')}>
           <CatalogRows
             parentSessionId={sessionId}
