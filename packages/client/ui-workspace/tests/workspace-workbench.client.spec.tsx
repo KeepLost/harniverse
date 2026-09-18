@@ -43,13 +43,23 @@ function mountWorkbench(
     drawer?: boolean
     rightMode?: 'details' | 'workbench'
     rightOpen?: boolean
+    store?: ReturnType<ReturnType<typeof createWorkspaceWorkbenchStore>['create']>
+    initialSessions?: Record<string, { updatedAt?: number; running?: boolean }>
   } = {},
 ) {
   let current = 'current' in options ? options.current : sid('s-a')
   let rightMode = options.rightMode ?? 'workbench'
   let rightOpen = options.rightOpen ?? true
   const workspaces = options.workspaces ?? [workspace('a', 's-a'), workspace('b', 's-b')]
-  const instance = createWorkspaceWorkbenchStore().create()
+  const sessions: SessionListState['byId'] = {
+    [sid('s-a')]: { id: sid('s-a'), displayTitle: 'A', cwd: '/projects/a', running: false, blank: false, updatedAt: 1 },
+    [sid('s-b')]: { id: sid('s-b'), displayTitle: 'B', cwd: '/projects/b', running: false, blank: false, updatedAt: 1 },
+  }
+  const instance = options.store ?? createWorkspaceWorkbenchStore().create()
+  for (const [sessionId, patch] of Object.entries(options.initialSessions ?? {})) {
+    const summary = sessions[sid(sessionId)]
+    if (summary !== undefined) sessions[sid(sessionId)] = { ...summary, ...patch }
+  }
   const services: Services = {
     listFiles: vi.fn(async (_workspaceId: WorkspaceId, path?: string, _signal?: AbortSignal) => ({ path: path ?? '', entries: [], truncated: false })),
     searchFiles: vi.fn(async (
@@ -70,10 +80,7 @@ function mountWorkbench(
   })
   const sessionState = (): SessionListState => ({
     ids: [sid('s-a'), sid('s-b')],
-    byId: {
-      [sid('s-a')]: { id: sid('s-a'), displayTitle: 'A', cwd: '/projects/a', running: false, blank: false, updatedAt: 1 },
-      [sid('s-b')]: { id: sid('s-b'), displayTitle: 'B', cwd: '/projects/b', running: false, blank: false, updatedAt: 1 },
-    },
+    byId: sessions,
     current, phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined, selectionSeq: 0,
   })
   const element = () => (
@@ -105,6 +112,14 @@ function mountWorkbench(
     instance,
     services,
     switchSession(next: string) { current = sid(next); view.rerender(element()) },
+    mutateSession(sessionId: string, patch: { updatedAt?: number; running?: boolean }) {
+      const summary = sessions[sid(sessionId)]
+      if (summary === undefined) throw new Error(`unknown session ${sessionId}`)
+      sessions[sid(sessionId)] = { ...summary, ...patch }
+      view.rerender(element())
+    },
+    bumpActivity(sessionId: string, updatedAt: number) { this.mutateSession(sessionId, { updatedAt }) },
+    flipRunning(sessionId: string, running: boolean) { this.mutateSession(sessionId, { running }) },
     setRight(next: { mode?: 'details' | 'workbench'; open?: boolean }) {
       rightMode = next.mode ?? rightMode
       rightOpen = next.open ?? rightOpen
@@ -885,4 +900,81 @@ describe('WorkspaceWorkbench', () => {
     expect(account?.activeTabId).toBe('file:README.md')
     expect(view.instance.getSnapshot().byWorkspace.a?.previewOpen).toBe(true)
   })
+})
+
+
+describe('workbench session-activity revalidation', () => {
+  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+  const file = (name: string): WorkspaceFileEntry => ({ name, path: name, kind: 'file' })
+
+  it('revalidates loaded directories and git after same-workspace session activity', async () => {
+    const listFiles = vi.fn()
+      .mockResolvedValueOnce({ path: '', entries: [file('stale.ts')], truncated: false })
+      .mockResolvedValue({ path: '', entries: [file('fresh.ts')], truncated: false })
+    const gitStatus = vi.fn()
+      .mockResolvedValueOnce({ branch: 'main', entries: [], truncated: false })
+      .mockResolvedValue({ branch: 'main', entries: [{ path: 'fresh.ts', indexStatus: '?', worktreeStatus: '?' }], truncated: false })
+    const gitCommits = vi.fn(async () => ({ commits: [], truncated: false }))
+    const view = mountWorkbench({ listFiles, gitStatus, gitCommits })
+
+    await waitFor(() => { expect(view.getByRole('button', { name: /stale\.ts/ })).toBeTruthy() })
+    fireEvent.click(view.getByRole('tab', { name: '变更' }))
+    await waitFor(() => { expect(gitStatus).toHaveBeenCalledTimes(1) })
+    // First data landing stamps the activity watermark; identical activity
+    // must not revalidate even after the debounce window passes.
+    await sleep(650)
+    expect(listFiles).toHaveBeenCalledTimes(1)
+    expect(gitStatus).toHaveBeenCalledTimes(1)
+
+    // A new session event in this workspace's cwd revalidates BOTH surfaces
+    // and swaps in the new data without a manual refresh gesture.
+    view.bumpActivity('s-a', 100)
+    await waitFor(() => { expect(listFiles).toHaveBeenCalledTimes(2) }, { timeout: 2_000 })
+    await waitFor(() => { expect(gitStatus).toHaveBeenCalledTimes(2) }, { timeout: 2_000 })
+    await waitFor(() => { expect(view.getByText('fresh.ts')).toBeTruthy() })
+    fireEvent.click(view.getByRole('tab', { name: '文件' }))
+    await waitFor(() => { expect(view.getByRole('button', { name: /fresh\.ts/ })).toBeTruthy() })
+    expect(view.queryByRole('button', { name: /stale\.ts/ })).toBeNull()
+    view.unmount()
+  }, 10_000)
+
+  it('collapses bursts of activity into one debounced revalidation', async () => {
+    const listFiles = vi.fn(async () => ({ path: '', entries: [], truncated: false }))
+    const view = mountWorkbench({ listFiles })
+    await waitFor(() => { expect(listFiles).toHaveBeenCalledTimes(1) })
+    await sleep(650)
+
+    view.bumpActivity('s-a', 100)
+    await sleep(200)
+    view.bumpActivity('s-a', 200)
+    await sleep(700)
+    expect(listFiles).toHaveBeenCalledTimes(2)
+    view.unmount()
+  }, 10_000)
+
+  it('ignores activity from sessions outside the workspace cwd', async () => {
+    const listFiles = vi.fn(async () => ({ path: '', entries: [], truncated: false }))
+    const view = mountWorkbench({ listFiles })
+    await waitFor(() => { expect(listFiles).toHaveBeenCalledTimes(1) })
+    await sleep(650)
+
+    view.bumpActivity('s-b', 100)
+    await sleep(700)
+    expect(listFiles).toHaveBeenCalledTimes(1)
+    view.unmount()
+  }, 10_000)
+
+  it('refreshes on the next mount when the signal moves while unmounted', async () => {
+    const listFiles = vi.fn(async () => ({ path: '', entries: [], truncated: false }))
+    const instance = createWorkspaceWorkbenchStore().create()
+    const view = mountWorkbench({ listFiles }, { store: instance })
+    await waitFor(() => { expect(listFiles).toHaveBeenCalledTimes(1) })
+    await sleep(50)
+
+    view.mutateSession('s-a', { updatedAt: 100 })
+    view.unmount()
+    const remounted = mountWorkbench({ listFiles }, { store: instance, initialSessions: { 's-a': { updatedAt: 100 } } })
+    await waitFor(() => { expect(listFiles).toHaveBeenCalledTimes(2) }, { timeout: 2_000 })
+    remounted.unmount()
+  }, 10_000)
 })

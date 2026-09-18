@@ -131,7 +131,7 @@ describe('list lifecycle', () => {
     expect(manager.getListSnapshot().items.map(item => item.sessionId)).toEqual([S2, S1])
   })
 
-  it('advances list activity only for direct user messages', async () => {
+  it('advances list activity for settled turn events but not injected or replayed ones', async () => {
     const api = new FakeApiClient()
     api.onList = () => Promise.resolve(ok({ items: [summary(S1)] as never[] }))
     const manager = new SessionManager(api, fakeRemote())
@@ -153,6 +153,7 @@ describe('list lifecycle', () => {
       rpcId: 'assistant' as never,
       payload: { type: 'session/event', sessionId: S1, event: { ...ev.assistant(11, 0, 'reply'), time: 600 } },
     })
+    expect(manager.getListSnapshot().items[0]?.updatedAt).toBe(600)
 
     const injected = ev.user(12, 'context')
     if (injected.type !== 'user/message') throw new Error('user builder returned another event type')
@@ -168,7 +169,26 @@ describe('list lifecycle', () => {
         },
       },
     })
-    expect(manager.getListSnapshot().items[0]?.updatedAt).toBe(500)
+    expect(manager.getListSnapshot().items[0]?.updatedAt).toBe(600)
+
+    // Completed assistant messages, tool round trips, and turn boundaries
+    // advance the recency watermark too (the workspace workbench and the list
+    // row ordering ride it); replayed older events still never move it back.
+    manager.handleMuxEnvelope({
+      rpcId: 'tool' as never,
+      payload: { type: 'session/event', sessionId: S1, event: { ...ev.toolResult(13, 0, 'c1', 'ok'), time: 800 } },
+    })
+    expect(manager.getListSnapshot().items[0]?.updatedAt).toBe(800)
+    manager.handleMuxEnvelope({
+      rpcId: 'turn-end' as never,
+      payload: { type: 'session/event', sessionId: S1, event: { ...ev.turnEnd(14, 0), time: 900 } },
+    })
+    expect(manager.getListSnapshot().items[0]?.updatedAt).toBe(900)
+    manager.handleMuxEnvelope({
+      rpcId: 'replayed-tool' as never,
+      payload: { type: 'session/event', sessionId: S1, event: { ...ev.toolResult(15, 0, 'c2', 'old'), time: 300 } },
+    })
+    expect(manager.getListSnapshot().items[0]?.updatedAt).toBe(900)
   })
 
   it('keeps the error in the list snapshot on failure', async () => {

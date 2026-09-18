@@ -164,6 +164,12 @@ export interface WorkspaceWorkbenchAccount {
   search: WorkbenchSearch
   gitArea: WorkbenchGitArea
   git: WorkbenchGit | null
+  /**
+   * Workspace activity watermark already reflected in the loaded directories
+   * and Git data (null until first data lands). Session activity beyond this
+   * mark revalidates the loaded surfaces; see WorkspaceWorkbench.
+   */
+  syncedActivity: number | null
 }
 
 /** Ephemeral read-only workbench state, explicitly isolated by Workspace id. */
@@ -185,6 +191,7 @@ type WorkspaceWorkbenchActions = {
   setPreviewOpen: (draft: WorkspaceWorkbenchState, workspaceId: string, open: boolean) => void
   setGitArea: (draft: WorkspaceWorkbenchState, workspaceId: string, area: WorkbenchGitArea) => void
   setGit: (draft: WorkspaceWorkbenchState, workspaceId: string, value: WorkbenchGit) => void
+  setSyncedActivity: (draft: WorkspaceWorkbenchState, workspaceId: string, value: number) => void
 }
 
 function defaultWorkbenchAccount(): WorkspaceWorkbenchAccount {
@@ -198,6 +205,7 @@ function defaultWorkbenchAccount(): WorkspaceWorkbenchAccount {
     search: emptyWorkbenchSearch(),
     gitArea: 'worktree',
     git: null,
+    syncedActivity: null,
   }
 }
 
@@ -286,6 +294,7 @@ export function createWorkspaceWorkbenchStore(): EngineStoreHandle<WorkspaceWork
       setPreviewOpen: (d, workspaceId, open) => { workbenchAccount(d, workspaceId).previewOpen = open },
       setGitArea: (d, workspaceId, area) => { workbenchAccount(d, workspaceId).gitArea = area },
       setGit: (d, workspaceId, value) => { workbenchAccount(d, workspaceId).git = value },
+      setSyncedActivity: (d, workspaceId, value) => { workbenchAccount(d, workspaceId).syncedActivity = value },
     },
   })
 }
