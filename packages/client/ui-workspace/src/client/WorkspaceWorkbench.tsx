@@ -24,6 +24,9 @@ const SECTIONS: ReadonlyArray<{ section: WorkbenchSection; labelKey: 'workbench.
   { section: 'search', labelKey: 'workbench.search' },
 ]
 
+/** Debounce for session-activity revalidation: one pass per event burst. */
+const WORKBENCH_REVALIDATE_DEBOUNCE_MS = 500
+
 function basename(path: string): string {
   /* v8 ignore next -- split always returns at least one element, including for an empty string. */
   return path.split('/').pop() ?? path
@@ -350,10 +353,10 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     if (workspaceId !== undefined) props.actions.ensureWorkspace(workspaceId)
   }, [props.actions, workspaceId])
 
-  const loadDirectory = useCallback((path: string) => {
+  const loadDirectory = useCallback((path: string, silent = false) => {
     /* v8 ignore next -- no navigation or root-load effect renders without a resolved Workspace. */
     if (workspaceId === undefined || workspace === undefined) return
-    props.actions.setDirectory(workspaceId, path, { entries: [], truncated: false, loading: true })
+    if (!silent) props.actions.setDirectory(workspaceId, path, { entries: [], truncated: false, loading: true })
     runRequest(
       signal => props.listFiles(workspace.workspaceId, path === '' ? undefined : path, signal),
       (value) => { props.actions.setDirectory(workspaceId, path, { ...value, loading: false }) },
@@ -403,12 +406,14 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     }
   }, [account?.tabs, props.actions, props.readBinaryFile, props.readFile, runRequest, workspace, workspaceId])
 
-  const loadGit = useCallback(() => {
-    /* v8 ignore next -- Git actions render only after a Workspace account resolves. */
+  const loadGit = useCallback((silent = false) => {
+    /* v8 ignore next -- Git actions render only after an initialized Workspace account resolves. */
     if (workspaceId === undefined || workspace === undefined) return
-    props.actions.setGit(workspaceId, {
-      branch: null, entries: [], commits: [], loading: true, truncated: false,
-    })
+    if (!silent) {
+      props.actions.setGit(workspaceId, {
+        branch: null, entries: [], commits: [], loading: true, truncated: false,
+      })
+    }
     runRequest(
       async (signal) => {
         const [status, history] = await Promise.allSettled([
@@ -440,6 +445,50 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
   useEffect(() => {
     if (gitMissing) loadGit()
   }, [gitMissing, loadGit])
+
+  // Session-activity revalidation: every settled turn event (user prompt,
+  // completed assistant message, tool round trip, turn boundary) bumps the
+  // owning summary's updatedAt in the list store, so the latest updatedAt
+  // across sessions whose cwd is this Workspace's path is a cheap O(sessions)
+  // staleness watermark that moves at step granularity — never per streamed
+  // chunk. When it advances past the watermark already reflected in the
+  // loaded directories/Git data, both surfaces re-fetch after a short
+  // debounce. Reloads are silent — the previous entries stay rendered until
+  // the fresh snapshot swaps in.
+  // ponytail: this reacts to session events only; edits made by outside
+  // processes never move the watermark and need the manual refresh buttons.
+  // Upgrade path: a Host-side workspace fs watcher pushing an invalidation
+  // frame over the mux stream.
+  const workspaceActivity = props.useSessions((state) => {
+    if (workspace === undefined) return 0
+    let latest = 0
+    for (const summary of Object.values(state.byId)) {
+      if (summary.cwd === workspace.path && summary.updatedAt > latest) latest = summary.updatedAt
+    }
+    return latest
+  })
+  const refreshLoaded = useCallback(() => {
+    /* v8 ignore next -- revalidation runs only after an account with data resolves. */
+    if (workspaceId === undefined || account === undefined) return
+    for (const path of Object.keys(account.directories)) loadDirectory(path, true)
+    if (account.git !== null) loadGit(true)
+  }, [account, loadDirectory, loadGit, workspaceId])
+  const revalidationReady = account !== undefined
+    && (Object.keys(account.directories).length > 0 || account.git !== null)
+  useEffect(() => {
+    if (workspaceId === undefined || account === undefined || !revalidationReady) return
+    if (account.syncedActivity === null) {
+      // First data landing: record the watermark the loaders just reflected.
+      props.actions.setSyncedActivity(workspaceId, workspaceActivity)
+      return
+    }
+    if (workspaceActivity <= account.syncedActivity) return
+    const timer = setTimeout(() => {
+      refreshLoaded()
+      props.actions.setSyncedActivity(workspaceId, workspaceActivity)
+    }, WORKBENCH_REVALIDATE_DEBOUNCE_MS)
+    return () => { clearTimeout(timer) }
+  }, [account, props.actions, revalidationReady, refreshLoaded, workspaceActivity, workspaceId])
 
   const openDiff = useCallback((entry: { path: string; indexStatus: string; worktreeStatus: string }) => {
     /* v8 ignore next -- diff actions render only from an initialized Workspace account. */
