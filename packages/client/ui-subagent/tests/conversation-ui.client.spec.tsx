@@ -573,6 +573,26 @@ describe('SubagentCatalogAction', () => {
     expect(empty.setCatalogOpen).toHaveBeenCalledWith(PARENT, false)
     expect(empty.setCatalogOpen).toHaveBeenCalledWith(CHILD, false)
   })
+
+  it('keeps an open catalog mounted across a transient evidence dip', () => {
+    const populated = props(catalog())
+    const view = render(<SubagentCatalogAction {...populated} />)
+    fireEvent.click(screen.getByRole('button', { name: /2 个子代理/ }))
+    expect(screen.getByRole('tree')).toBeTruthy()
+
+    // A rehydration commit that momentarily drops both the catalog and the
+    // descendant summaries: the user is still holding the menu open.
+    view.rerender(<SubagentCatalogAction {...props(undefined, {}, {})} />)
+    expect(screen.getByRole('button', { name: /个子代理/ })).toBeTruthy()
+    expect(populated.setCatalogOpen).not.toHaveBeenCalledWith(PARENT, false)
+
+    view.rerender(<SubagentCatalogAction {...props(catalog())} />)
+    expect(screen.getByRole('tree')).toBeTruthy()
+
+    // Settling authoritatively empty still closes it.
+    view.rerender(<SubagentCatalogAction {...props(catalog({ entries: [] }))} />)
+    expect(screen.queryByRole('button')).toBeNull()
+  })
 })
 
 describe('SubagentReadOnlyComposer', () => {
