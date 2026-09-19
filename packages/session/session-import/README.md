@@ -14,7 +14,7 @@ This package is contract-only. Reading foreign artifacts, mapping their history 
 
 #### What the model sees
 
-Nothing directly: an archival session is never resumed, so no imported history reaches a model request. If a future product feature quotes imported history into a live prompt, that feature owns the model-visible wording.
+Nothing directly: a session opening with `import/record` is never resumed (`assertNotResumable`), so no imported history reaches a model request. If a future product feature quotes imported history into a live prompt, that feature owns the model-visible wording.
 
 #### Token effect
 

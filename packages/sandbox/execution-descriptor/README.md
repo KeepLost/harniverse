@@ -14,7 +14,7 @@ This package is contract-only. Publishing descriptors over the transport, reconc
 
 #### What the model sees
 
-The capability inventory a descriptor reports surfaces to the model as the tools and skills of the execution world it is targeting; the descriptor itself is metadata the model never reads.
+The capability inventory a descriptor reports surfaces to the model as the tools and skills of the execution world named by `worldId`; the descriptor itself is metadata the model never reads.
 
 #### Token effect
 

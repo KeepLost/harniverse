@@ -14,7 +14,7 @@ This package is contract-only. The compaction and request projection that applie
 
 #### What the model sees
 
-After an offload decision is appended, later requests render one fixed stub line in place of each offloaded image. The stub states that the original attachment is retained outside the current request and that the image must not be treated as visible. This plugin contributes no prompt, tool, or request of its own.
+After an `image/offload` decision is appended, later requests render the canonical `OFFLOADED_IMAGE_STUB_TEXT` line in place of each offloaded image. The stub states that the original attachment is retained outside the current request and that the image must not be treated as visible. This plugin contributes no prompt, tool, or request of its own.
 
 #### Token effect
 
