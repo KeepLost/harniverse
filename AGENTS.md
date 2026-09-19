@@ -48,7 +48,7 @@ Use [dsh-pre-push-checks](.agents/skills/dsh-pre-push-checks/SKILL.md) before pu
 - Completion includes `pnpm run build`; use `pnpm run test` for build-before-unit ordering. Use `pnpm run test:unit` only for build-dependent gates or focused diagnosis.
 - Build/export changes require `pnpm run clean && pnpm run build`; incremental builds can hide failures behind stale `lib/` artifacts.
 - Match evidence to the surface: focused tests for behavior, snapshots for visible output, `doc-sync` for docs, built checks for published paths, and real-API e2e for providers.
-- Do not default to the full suite or repeat passing checks for commit/push. CI owns exhaustive coverage and the platform matrix; rehearse all only by request, CI diagnosis, or repository-wide change.
+- Never run full-suite gates locally (`doc-sync`, `test`, `test:coverage`, `website:build`), foreground or background: they have starved the owner's live services. CI owns exhaustive checks; full rehearsal only by explicit owner request.
 - `test:coverage`, not `test`, is the CI coverage gate ([testing policy](docs/testing.md)).
 
 ## Secrets and configuration
