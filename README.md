@@ -85,6 +85,25 @@ tail -f "${DSH_HOME:-$HOME/.dsh}/auth/access.jsonl"
 
 The Web profile prints a trust-policy line and connection/authentication events to its server terminal. Each event includes the method or channel, path, peer address, Host, Origin, and the non-secret Grant name/id when known; cookies, Authorization values, public keys, and request bodies are never printed. The owner-only audit file remains the durable privacy-minimal record.
 
+### Pair with an invitation code
+
+Instead of approving the first browser in a terminal, an owner can pre-issue one-time enrollment invitations. Submit the device form on the pairing page, then enter the invitation where the page offers it; pairing completes immediately without the terminal approval.
+
+Issue an invitation on the host (`--profile` and `--capability` are mutually exclusive and exactly one is required):
+
+```sh
+pnpm dsh auth code issue --ttl 30m --profile owner
+```
+
+`--ttl` accepts `30s`, `5m`, `12h`, `7d`, or raw milliseconds, and sets how long the invitation stays redeemable. `--profile` selects the Grant profile the redeemed invitation grants (`observer`, `operator`, `administrator`, or `owner`); `--capability` grants explicit `harniverse.*` capabilities instead, which requires an already-active authorizing Grant, so a fresh installation issues its first invitations with `--profile owner`. `--kind temporary` yields a Grant that expires after a fixed lifetime, goes idle after a fixed timeout, and cannot carry `harniverse.authorize`; the default `device` kind persists like an approved browser. `--bind <name>` requires that exact device name at redemption, and `--count <n>` issues several invitations in one command.
+
+Each invitation prints one tab-separated line: token, id, kind, capabilities, and expiry. The token starts with `dshi1_` and is shown only when issued. List retained invitations, and revoke one before it is redeemed, with:
+
+```sh
+pnpm dsh auth code list
+pnpm dsh auth code revoke <code-id>
+```
+
 ### 5. Configure and select a model
 
 A new installation has no usable model route until you configure one:
@@ -210,6 +229,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change. Contributors s
 
 ## License and attribution
 
-Harniverse is distributed under the [MIT License](LICENSE). It is derived from [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), developed by [DeepSeek AI](https://deepseek.com), and uses [Cordis](https://github.com/cordiverse/cordis), whose design is described in [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper).
+Harniverse as a whole is distributed under the [BSD 3-Clause License](LICENSE). Portions inherited unchanged from [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), developed by [DeepSeek AI](https://deepseek.com), remain under that project's MIT license. Harniverse uses [Cordis](https://github.com/cordiverse/cordis), whose design is described in [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper).
 
 Third-party dependencies and their licenses are disclosed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

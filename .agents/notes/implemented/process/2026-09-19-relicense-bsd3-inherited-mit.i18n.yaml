@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-19-relicense-bsd3-inherited-mit.md
+2026-09-19-relicense-bsd3-inherited-mit.md: b8d48990e5a0f21c21ebb6c387ac70cf9d65f7a1
+2026-09-19-relicense-bsd3-inherited-mit.zh.md: 798e41273fee3d46514be83c6e0d29d82567f814
