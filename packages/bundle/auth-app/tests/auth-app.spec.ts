@@ -29,6 +29,7 @@ interface InvocationResult {
   out: string
   err: string
   authenticationMounted: boolean
+  startupFields: readonly string[]
 }
 
 async function temporaryDirectory(prefix: string): Promise<string> {
@@ -95,8 +96,10 @@ export const apply = (ctx, config) => globalThis.__authAppRunner(ctx, config)
   await ctx.loader.await()
   const code = await exited
   const authenticationMounted = ctx.get('authentication') !== undefined
+  const startup = ctx.get(AUTH_STARTUP_SERVICE) as Record<string, unknown> | undefined
+  const startupFields = Object.keys(startup ?? {})
   await ctx.fiber.dispose()
-  return { code, out, err, authenticationMounted }
+  return { code, out, err, authenticationMounted, startupFields }
 }
 
 function publicKey(): string {
@@ -174,6 +177,26 @@ describe('authentication management app', () => {
     expect(issued).toMatchObject({ code: 0, err: '' })
     expect(issued.out.trim().split('\n')).toHaveLength(1)
     expect(Date.parse(issued.out.trim().split('\t').at(-1)!)).toBeGreaterThan(Date.now())
+  })
+
+  it('ships every startup field through the bundle composition bridge', async () => {
+    const dshHome = await temporaryDirectory('dsh-auth-app-home-')
+    await approveOwner(dshHome)
+    const issued = await invoke([
+      'code', 'issue', '--capability', 'harniverse.observe', '--ttl', '30m', '--count', '2', '--kind', 'temporary', '--bind', 'gate-tablet',
+    ], dshHome)
+    expect(issued).toMatchObject({ code: 0, err: '' })
+    const request = await createEnrollmentRequest({ name: 'bridge-check', kind: 'device', publicKey: publicKey() }, { dshHome })
+    const approved = await invoke(['device', 'approve', request.id, '--profile', 'observer'], dshHome)
+    expect(approved).toMatchObject({ code: 0, err: '' })
+    const fields = new Set([...issued.startupFields, ...approved.startupFields])
+    expect(fields).toContain('ttl')
+
+    const shipped = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+    const runnerRow = shipped.slice(shipped.indexOf('auth-runner'))
+    for (const field of fields) {
+      expect(runnerRow, `cordis.patch.yml must bridge authStartup.${field} into the runner row`).toContain(`!!js ctx.authStartup.${field}`)
+    }
   })
 
   it('issues, lists, and revokes one-time enrollment invitations', async () => {
