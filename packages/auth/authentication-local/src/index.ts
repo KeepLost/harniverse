@@ -22,6 +22,7 @@ import {
   type AuthenticationGrantId,
   type AuthenticationGrantRevision,
   type AuthenticationGrantSummary,
+  type AuthenticationInvitationDecision,
   type AuthenticationMode,
   type AuthenticationPrincipal,
   type AuthenticationStatus,
@@ -39,12 +40,14 @@ import {
   EnrollmentRequestInputError,
   getEnrollmentStatus,
   grantRegistryPath,
+  InvitationRedeemError,
   isAuthenticationGrantActive,
   listAuthenticationGrants,
   listEnrollmentRequests,
   MAX_ENROLLMENT_TTL_MS,
   PendingEnrollmentCapacityError,
   readGrantRegistry,
+  redeemEnrollmentInvitation as redeemInvitation,
   revokeAuthenticationGrant,
   type AuthenticationGrant,
   type GrantRegistry,
@@ -532,6 +535,42 @@ export class LocalAuthentication extends InboundAuthentication {
     return grantSummary(grant)
   }
 
+  override async redeemEnrollmentInvitation(
+    id: AuthenticationEnrollmentId,
+    invitation: string,
+    peerAddress?: string,
+  ): Promise<AuthenticationInvitationDecision> {
+    if (this.mode === 'bypass' || !this.watcherHealthy) {
+      return { kind: 'rejected', reason: 'authentication-unavailable' }
+    }
+    // Only a failed secret match counts: kind or binding corrections by a
+    // holding browser are legitimate retries, not guessing pressure.
+    const key = this.failureKey('invitation-redeem', peerAddress)
+    const limited = this.rateLimited(key)
+    if (limited !== undefined) {
+      await this.recordRedeemRejection(peerAddress, 'rate-limited')
+      return limited
+    }
+    try {
+      const receipt = await redeemInvitation(id, invitation, this.spec)
+      this.authenticationFailures.delete(key)
+      await this.refresh()
+      return { kind: 'accepted', value: receipt }
+    } catch (error) {
+      if (!(error instanceof InvitationRedeemError)) {
+        this.ctx.logger.warn('authentication-local: invitation redemption unavailable')
+        this.ctx.logger.warn(error)
+        return { kind: 'rejected', reason: 'authentication-unavailable' }
+      }
+      if (error.reason === 'invalid-invitation') this.recordAuthenticationFailure(key)
+      await this.recordRedeemRejection(peerAddress, error.reason)
+      if (error.reason === 'invitation-kind') {
+        return { kind: 'rejected', reason: 'invitation-kind', expected: error.expected }
+      }
+      return { kind: 'rejected', reason: error.reason }
+    }
+  }
+
   override async listGrants(): Promise<readonly AuthenticationGrantSummary[]> {
     return (await listAuthenticationGrants(this.spec)).map(grantSummary)
   }
@@ -780,11 +819,14 @@ export class LocalAuthentication extends InboundAuthentication {
     return this.grants.get(grantKey({ grantId: principal.grantId, grantRevision: principal.grantRevision }))
   }
 
-  private failureKey(channel: AuthenticationAttempt['channel'] | 'browser-login', peerAddress: string | undefined): string {
+  private failureKey(
+    channel: AuthenticationAttempt['channel'] | 'browser-login' | 'invitation-redeem',
+    peerAddress: string | undefined,
+  ): string {
     return `${channel}:${peerAddress ?? 'unknown'}`
   }
 
-  private rateLimited(key: string): Extract<AuthenticationDecision, { kind: 'rejected' }> | undefined {
+  private rateLimited(key: string): { kind: 'rejected'; reason: 'rate-limited'; retryAfterMs: number } | undefined {
     const state = this.authenticationFailures.get(key)
     if (state === undefined) return undefined
     const now = Date.now()
@@ -877,6 +919,23 @@ export class LocalAuthentication extends InboundAuthentication {
       })
     } catch (error) {
       this.ctx.logger.warn('authentication-local: capacity rejection record failed')
+      this.ctx.logger.warn(error)
+    }
+  }
+
+  /** Best-effort audit for a rejected redemption; the decision stands regardless. */
+  private async recordRedeemRejection(peer: string | undefined, reasonCode: string): Promise<void> {
+    try {
+      await this.record({
+        event: 'invitation-redeem-rejected',
+        mode: this.mode,
+        channel: 'browser-enrollment',
+        outcome: 'rejected',
+        ...(peer !== undefined && { peer }),
+        reasonCode,
+      })
+    } catch (error) {
+      this.ctx.logger.warn('authentication-local: invitation redemption record failed')
       this.ctx.logger.warn(error)
     }
   }

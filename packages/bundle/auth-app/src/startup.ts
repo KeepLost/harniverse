@@ -22,6 +22,9 @@ export type AuthOperation =
   | 'grant-revoke'
   | 'client-add'
   | 'client-revoke'
+  | 'code-issue'
+  | 'code-list'
+  | 'code-revoke'
 
 /** One parsed authentication management invocation. */
 export interface AuthStartupValues {
@@ -35,6 +38,14 @@ export interface AuthStartupValues {
   profile?: string
   /** Explicit capability list for automation clients. */
   capabilities?: string[]
+  /** Invitation target kind: `device` (default) or `temporary`. */
+  kind?: string
+  /** Optional device-name binding required at invitation redemption. */
+  bindName?: string
+  /** Invitation lifetime, such as `30m`, `12h`, or `7d`. */
+  ttl?: string
+  /** Invitation batch size for one issuance invocation. */
+  count?: number
 }
 
 /**
@@ -90,6 +101,33 @@ function authCommand(ctx: Context): Command {
     })
   client.command('revoke').description('revoke one API client Grant').argument('<grant-id>')
     .action((grantId: string) => { publish('client-revoke', { name: grantId }) })
+
+  const code = program.command('code').description('manage pre-issued enrollment invitations')
+  code.command('issue')
+    .description('issue one-time enrollment invitations')
+    .option('--ttl <duration>', '30s, 5m, 12h, 7d, or milliseconds')
+    .option('--profile <profile>', 'observer, operator, administrator, or owner')
+    .option('--capability <capabilities...>', 'explicit harniverse.* capabilities')
+    .option('--kind <kind>', 'device (default) or temporary')
+    .option('--bind <name>', 'require this device name at redemption')
+    .option('--count <count>', 'issue several invitations', value => Number(value), 1)
+    .action((options: { ttl?: string; profile?: string; capability?: string[]; kind?: string; bind?: string; count: number }) => {
+      if (options.ttl === undefined) throw new Error('code issue requires --ttl')
+      if ((options.profile === undefined) === (options.capability === undefined)) {
+        throw new Error('code issue requires exactly one of --profile or --capability')
+      }
+      publish('code-issue', {
+        ttl: options.ttl,
+        count: options.count,
+        ...(options.profile !== undefined && { profile: options.profile }),
+        ...(options.capability !== undefined && { capabilities: options.capability }),
+        ...(options.kind !== undefined && { kind: options.kind }),
+        ...(options.bind !== undefined && { bindName: options.bind }),
+      })
+    })
+  code.command('list').description('list retained invitations').action(() => { publish('code-list') })
+  code.command('revoke').description('revoke one invitation').argument('<code-id>')
+    .action((codeId: string) => { publish('code-revoke', { name: codeId }) })
   program.action(() => { program.help() })
   return program
 }

@@ -520,6 +520,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   AuthenticationEnrollmentInput: 'authentication.md',
   AuthenticationEnrollmentStatus: 'authentication.md',
   AuthenticationEnrollmentDecision: 'authentication.md',
+  AuthenticationInvitationDecision: 'authentication.md',
   AuthenticationGrantDecision: 'authentication.md',
   AuthenticationGrantId: 'authentication.md',
   AuthenticationGrantSummary: 'authentication.md',
