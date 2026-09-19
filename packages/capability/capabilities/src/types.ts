@@ -13,7 +13,7 @@ export type CapabilityConfigValue = string | number | boolean
 /** Model-discoverable member contributed by one assembled capability. */
 export interface CapabilityMemberDescriptor {
   readonly id: string
-  readonly kind: 'tool' | 'skill' | 'mcp-tool' | 'subagent-provider'
+  readonly kind: 'tool' | 'skill' | 'mcp-tool' | 'mcp-resource' | 'subagent-provider'
   readonly name: string
   readonly description: string
   readonly defaultVisible: boolean

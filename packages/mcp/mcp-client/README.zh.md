@@ -6,6 +6,8 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 
 组装了 `ctx.capabilities` 时，该实例还会注册一个 effect-owned `mcp-server` descriptor，并为当前发现的每个公开工具提供一项不可修改定义的成员。命令参数、环境、header、凭据和任意 server metadata 保持私有。Profile 可以卸载整台 server，或保留显式成员 allowlist；刷新后的 generation 会把同一策略应用到后续发现的工具，而不会断开 Host 共享 server 进程。Profile 自有 MCP 行仍可由 Profile 配方编译器实际选择。
 
+本包还拥有 MCP 身份、可见性与刷新契约：`MCP_SERVER_NAME_PATTERN`/`isMcpServerName`（保留的服务器命名空间）、`McpResourceIdentity`/`isMcpResourceIdentity` 与 `mcpServerCapabilityId`/`mcpResourceMemberId`（服务器与资源的稳定 capability id）、`resolveMcpMemberVisibility`（收窄 Profile 应用的纯规则——未选中的服务器拒绝全部成员；显式成员 allowlist 只允许标记为可见的成员），以及 `classifyMcpRefresh`（重连和工具/资源同步是运行中 Session 已捕获 capability generation 内的 `'topology'` 刷新；只有 Profile 成员或选择编辑才是为后续组装产生新 generation 的 `'composition'` 变更）。
+
 ## 用法
 
 `cordis.yml` 中每个 MCP 服务器使用一个插件实例：

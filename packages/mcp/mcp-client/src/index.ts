@@ -19,11 +19,27 @@ import z from '@deepseek-ai/schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
 import type { ReconnectConfig } from './connection.ts'
+import { MCP_SERVER_NAME_PATTERN } from './resource-contract.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
 
 export type { McpResult } from './tools.ts'
 export type { ReconnectConfig, ResolvedReconnectPolicy } from './connection.ts'
+export {
+  classifyMcpRefresh,
+  isMcpResourceIdentity,
+  isMcpServerName,
+  MCP_SERVER_NAME_PATTERN,
+  mcpResourceMemberId,
+  mcpServerCapabilityId,
+  resolveMcpMemberVisibility,
+} from './resource-contract.ts'
+export type {
+  McpMemberVisibility,
+  McpRefreshKind,
+  McpRefreshTrigger,
+  McpResourceIdentity,
+} from './resource-contract.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'mcp-client'
@@ -33,9 +49,6 @@ export const inject = ['tools']
 
 /** Default timeout for individual MCP tool calls (ms). */
 const DEFAULT_TOOL_CALL_TIMEOUT_MS = 60_000
-
-/** Valid `serverName`, kept below the public tool-name budget. */
-const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
 
 /**
  * Live `serverName` reservations per app and optional owner key. Scoped profile
@@ -111,7 +124,7 @@ const Reconnect: z<ReconnectConfig> = z.object({
 export const Config = z.union([
   z.object({
     transport: z.const('stdio'),
-    serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
+    serverName: z.string().required().pattern(MCP_SERVER_NAME_PATTERN),
     reservationKey: z.string(),
     command: z.string().required(),
     args: z.array(String).default([]),
@@ -123,7 +136,7 @@ export const Config = z.union([
   }),
   z.object({
     transport: z.const('streamable-http'),
-    serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
+    serverName: z.string().required().pattern(MCP_SERVER_NAME_PATTERN),
     reservationKey: z.string(),
     url: z.string().required(),
     headers: z.dict(String).default({}),
