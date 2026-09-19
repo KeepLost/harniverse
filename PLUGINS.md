@@ -387,6 +387,8 @@ Harniverse groups downstream package manifests by complete capability family rat
      is touched) plus, for every non-none claim, `Verify: <command>.` naming the check
      that re-verifies it. `verify-ledger-compat` enforces the tail; the rows above this
      marker are the frozen pre-convention history and are exempt. -->
+| `921cc3f8cf` | Adds the wave-3 first-batch contracts: the `dsh-image-offload-policy` package with the `image/offload` session event and per-image user-turn aging, the `dsh-session-import` package with the `import/record` archival marker, the MCP resource identity/visibility/refresh contract in `dsh-mcp-client` with the `mcp-resource` capability member kind, the `dsh-control-channel` frame/backpressure/lifecycle contract for PTC and SSH, and the `dsh-execution-descriptor` immutable execution-world contract refusing the Host-local `cordis` preset. Compat: v0 additive (new `image/offload` and `import/record` session events; `mcp-resource` member-kind widening). Verify: pnpm run verify-session-contract-digest && pnpm run verify-persistence-catalog && pnpm run verify-ledger-compat. |
+| `921cc3f8cf` | Adds the v0 session-contract digest gate and the ledger compat convention: `gen-session-contract-digest` classifies structural versus additive drift against the committed `docs/session-contract-digest.json` baseline, and `verify-ledger-compat` enforces the `Compat:`/`Verify:` tail on every ledger row after the convention marker; both leaves join `doc-sync`. Compat: none (process gate; no session-serialized type, schema, plugin API face, or wire contract changes). |
 <!-- compat-convention-end -->
 <!-- composition-changes-end -->
 
