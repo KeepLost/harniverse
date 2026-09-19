@@ -34,6 +34,8 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
   'governor/quota',
   'hook/invoked',
   'hook/result',
+  'image/offload',
+  'import/record',
   'llm/retry',
   'llm/retry-started',
   'llm/wire-attempt',

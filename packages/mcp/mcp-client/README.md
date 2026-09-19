@@ -6,6 +6,8 @@ MCP client bridge plugin: connects to external [Model Context Protocol](https://
 
 When `ctx.capabilities` is composed, the instance also registers one effect-owned `mcp-server` descriptor with one immutable member per currently discovered public tool. Command arguments, environment, headers, credentials, and arbitrary server metadata remain private. A Profile may unload the server or retain an explicit member allowlist; refreshed generations apply the same policy to subsequently discovered tools without disconnecting the Host-shared server process. A Profile-owned MCP row can instead be physically selected by the Profile recipe compiler.
 
+The package also owns the MCP identity, visibility, and refresh contract: `MCP_SERVER_NAME_PATTERN`/`isMcpServerName` (the reserved server namespace), `McpResourceIdentity`/`isMcpResourceIdentity` and `mcpServerCapabilityId`/`mcpResourceMemberId` (stable capability ids for servers and resources), `resolveMcpMemberVisibility` (the pure rule a narrowed Profile applies — an unselected server denies every member; an explicit member allowlist admits exactly the members marked visible), and `classifyMcpRefresh` (reconnect and tool/resource sync stay `'topology'` refreshes inside a running Session's captured capability generation; only Profile member or selection edits are `'composition'` changes that produce a new generation for future assemblies).
+
 ## Usage
 
 One plugin instance per MCP server in `cordis.yml`:

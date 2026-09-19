@@ -482,6 +482,51 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:19`](../packages/hooks/hook-
 
 Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-protocol/src/types.ts)
 
+### `image/*`
+
+<a id="imageoffload--log-only"></a>
+
+#### `image/offload` — log-only
+
+```ts persistence-catalog
+/**
+ * Records that the listed image occurrences are offloaded from the model
+ * request projection: later requests render the canonical offload stub
+ * text in place of each image, while the original attachments remain
+ * retained for replay and authorized re-reads. Each target names the
+ * surface event (`user/message` or `tool/result`) carrying the image and
+ * the 0-based index among that event's image blocks. Appended at a
+ * request-assembly decision point after either the configured
+ * `imageOffloadAfterUserTurns` age limit or provider pressure chose the
+ * images; an occurrence settled here or shadowed by a compaction
+ * replacement is never chosen again.
+ */
+'image/offload': ImageOffloadEventData
+```
+
+Source: [`packages/compaction/image-offload-policy/src/types.ts:65`](../packages/compaction/image-offload-policy/src/types.ts)
+
+### `import/*`
+
+<a id="importrecord--log-only"></a>
+
+#### `import/record` — log-only
+
+```ts persistence-catalog
+/**
+ * Marks this session as imported archival data: the first event of a
+ * session mapped lossily from a foreign session log (an official DSH
+ * v1/v2/v3 export). The mapped history is displayable, saveable, and
+ * searchable, and the preserved source artifact is named by
+ * `source.artifactName`. Live machinery must treat a session carrying
+ * this marker as settled: never resumed, queued, approved, or steered —
+ * the exclusion is enforced through `assertNotResumable`.
+ */
+'import/record': ImportRecordEventData
+```
+
+Source: [`packages/session/session-import/src/types.ts:49`](../packages/session/session-import/src/types.ts)
+
 ### `llm/*`
 
 <a id="llmretry--log-only"></a>

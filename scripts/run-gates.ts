@@ -684,6 +684,8 @@ function docSyncLeafGates(options: {
     pnpmScript('api-catalog', 'verify-api-catalog', { label: 'api catalog' }),
     pnpmScript('config-catalog', 'verify-config-catalog', { label: 'config catalog' }),
     pnpmScript('persistence-catalog', 'verify-persistence-catalog', { label: 'persistence catalog' }),
+    pnpmScript('session-contract-digest', 'verify-session-contract-digest', { label: 'session contract digest' }),
+    pnpmScript('ledger-compat', 'verify-ledger-compat', { label: 'ledger compat tails' }),
     pnpmScript('doc-graphs', 'verify-doc-graphs', { label: 'doc graphs' }),
     pnpmScript('scoped-events', 'verify-scoped-events', { label: 'scoped events' }),
     pnpmScript('markdown-wrap', 'verify-md-wrap', { label: 'markdown wrap' }),

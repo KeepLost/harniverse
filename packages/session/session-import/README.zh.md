@@ -1,0 +1,30 @@
+# @deepseek-ai/dsh-session-import
+
+[English](README.md) | 中文
+
+有损外部会话导入契约。它分类存储头的 `version`（`classifyForeignSessionFormatVersion`：本构建自身的 `current`、官方的 `official-v1`/`official-v2`/`official-v3` 世代、或拒绝的 `unknown`），定义导入会话开头的归档 `import/record` 标记事件，校验导入默认姿态（监督模式，默认 supervised、可由用户选择），并拥有排除守卫 `assertNotResumable`。
+
+导入的会话是 v0 格式内的已定归档数据：可保存、可搜索、可展示。标记指明与映射会话一同保留的源工件名。活跃机制从不接管它们——恢复、工作队列准入、审批和引导入口通过守卫拒绝归档日志。导入从不采用官方会话词汇表、也不构建迁移链；映射是单向且有损的。
+
+本包只提供契约。读取外部工件、把其历史映射为 v0 事件、以及持久化/搜索集成，由组合本包的导入运行时完成。
+
+## Model Experience
+
+### 导入的归档会话
+
+#### 模型看到什么
+
+不直接看到任何内容：以 `import/record` 开头的会话从不恢复（`assertNotResumable`），因此导入历史不会进入模型请求。若未来产品特性把导入历史引用进活跃提示词，该特性自行拥有模型可见措辞。
+
+#### Token 效应
+
+无——本契约不贡献请求。
+
+#### KV Cache 效应
+
+无——归档会话从不运行。
+
+## Known Limitations and Deferred Work
+
+- 外部历史映射（官方 v1/v2/v3 事件词汇到 v0 展示事件）、源工件存储、以及搜索索引属于导入运行时；本契约只负责分类、标记、校验和排除。
+- 排除守卫是需要各活跃入口调用的函数；把它接入每个队列、审批和引导调用方是运行时集成工作。
