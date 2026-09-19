@@ -35,13 +35,20 @@ const TRANSITIONS: Readonly<Record<ControlLifecycleState, readonly ControlLifecy
   'cleaned-up': [],
 }
 
-/** Whether one lifecycle transition is legal. */
+/**
+ * Whether one lifecycle transition is legal.
+ * @param from - the current state.
+ * @param to - the proposed next state.
+ * @returns whether the transition table permits the move.
+ */
 export function canTransitionControlLifecycle(from: ControlLifecycleState, to: ControlLifecycleState): boolean {
   return TRANSITIONS[from].includes(to)
 }
 
 /**
  * Assert one lifecycle transition, naming both states in the failure.
+ * @param from - the current state.
+ * @param to - the proposed next state.
  * @throws {@link ControlLifecycleError} when the transition is forbidden.
  */
 export function assertControlTransition(from: ControlLifecycleState, to: ControlLifecycleState): void {
@@ -50,7 +57,11 @@ export function assertControlTransition(from: ControlLifecycleState, to: Control
   }
 }
 
-/** Whether the state records a first terminal outcome (stable, never crossed). */
+/**
+ * Whether the state records a first terminal outcome (stable, never crossed).
+ * @param state - the state to test.
+ * @returns whether the state is one of the four terminal categories.
+ */
 export function isTerminalControlState(state: ControlLifecycleState): boolean {
   return state === 'result-recorded' || state === 'cancelled' || state === 'timed-out' || state === 'channel-closed'
 }

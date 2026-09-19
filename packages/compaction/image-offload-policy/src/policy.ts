@@ -96,7 +96,7 @@ export function resolveImageOffloadDecisions(
   for (const event of events) {
     if (event.type === 'user/message') {
       for (const occurrence of occurrences) {
-        if (occurrence.target.messageSeq < event.seq) occurrence.age += 1
+        occurrence.age += 1
       }
     }
     if (event.type === 'image/offload') {

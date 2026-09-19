@@ -28,7 +28,12 @@ export function classifyForeignSessionFormatVersion(version: unknown): ForeignSe
 /** Default posture applied when the importer is given no explicit choice. */
 export const DEFAULT_IMPORT_SUPERVISION_MODE: SupervisionMode = 'supervised'
 
-/** Validate raw import posture input, refusing unknown supervision modes. */
+/**
+ * Validate raw import posture input, refusing unknown supervision modes.
+ * @param input - the raw posture value, or undefined for the default.
+ * @returns the validated posture.
+ * @throws `TypeError` when `supervisionMode` is present but not a known mode.
+ */
 export function parseImportPosture(input: unknown): { supervisionMode: SupervisionMode } {
   const mode = (input as { supervisionMode?: unknown } | null | undefined)?.supervisionMode
   if (mode === undefined) return { supervisionMode: DEFAULT_IMPORT_SUPERVISION_MODE }
@@ -43,6 +48,7 @@ export function parseImportPosture(input: unknown): { supervisionMode: Supervisi
  * event is the `import/record` marker. Sessions whose marker appears anywhere
  * else violate the package invariant and are not archival by this face.
  * @param events - the durable session log, in seq order.
+ * @returns whether the log opens with the archival marker.
  */
 export function isArchivalSession(events: readonly SessionEvent[]): boolean {
   return events[0]?.type === 'import/record'
@@ -70,7 +76,11 @@ export function assertNotResumable(events: readonly SessionEvent[]): void {
   }
 }
 
-/** Type-safe read of the marker's payload on the first event, or undefined. */
+/**
+ * Type-safe read of the marker's payload on the first event, or undefined.
+ * @param events - the durable session log, in seq order.
+ * @returns the marker's payload on an archival session, else undefined.
+ */
 export function importRecordOf(events: readonly SessionEvent[]): ImportRecordEventData | undefined {
   const first = events[0]
   return first !== undefined && first.type === 'import/record' ? first.data : undefined

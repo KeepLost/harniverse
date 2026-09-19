@@ -58,6 +58,10 @@ function assistantMessage(seq: number): SessionEvent {
   } as unknown as SessionEvent
 }
 
+function turnStart(seq: number): SessionEvent {
+  return { type: 'turn/start', seq, time: 0, data: {} } as SessionEvent
+}
+
 function offload(seq: number, targets: readonly { messageSeq: number; imageIndex: number }[]): SessionEvent {
   return { type: 'image/offload', seq, time: 0, data: { targets } } as unknown as SessionEvent
 }
@@ -148,6 +152,41 @@ describe('resolveImageOffloadDecisions', () => {
     expect(resolveImageOffloadDecisions(aged, { setting: 3, pressureCount: 1 })).toEqual([
       { target: { messageSeq: 1, imageIndex: 0 }, reason: 'age' },
       { target: { messageSeq: 2, imageIndex: 0 }, reason: 'pressure' },
+    ])
+  })
+
+  it('ignores non-image blocks, absent source seqs, non-surface events, and stray offload targets', () => {
+    const mixed = [
+      { ...userMessage(1, 1), data: { ...userMessage(1, 1).data, content: [{ type: 'text', text: 'hi' }, ...images(1)] } } as unknown as SessionEvent,
+      turnStart(2),
+      userMessage(3),
+      userMessage(4),
+    ]
+    expect(resolveImageOffloadDecisions(mixed, { setting: 2 })).toEqual([
+      { target: { messageSeq: 1, imageIndex: 0 }, reason: 'age' },
+    ])
+    const noSourceEvent = {
+      type: 'user/message',
+      seq: 1,
+      time: 0,
+      data: { id: 'm1', role: 'user', content: images(1), source: { kind: 'direct' } },
+      surfaceOp: 'append',
+    } as unknown as SessionEvent
+    const withoutSourceSeqs = [noSourceEvent, userMessage(2), userMessage(3)]
+    expect(resolveImageOffloadDecisions(withoutSourceSeqs, { setting: 2 })).toEqual([
+      { target: { messageSeq: 1, imageIndex: 0 }, reason: 'age' },
+    ])
+    const stray = [userMessage(1, 1), offload(2, [{ messageSeq: 99, imageIndex: 0 }]), userMessage(3), userMessage(4)]
+    expect(resolveImageOffloadDecisions(stray, { setting: 2 })).toEqual([
+      { target: { messageSeq: 1, imageIndex: 0 }, reason: 'age' },
+    ])
+  })
+
+  it('orders same-message pressure decisions by image index', () => {
+    const events = [userMessage(1, 2), userMessage(2)]
+    expect(resolveImageOffloadDecisions(events, { setting: 'unlimited', pressureCount: 2 })).toEqual([
+      { target: { messageSeq: 1, imageIndex: 0 }, reason: 'pressure' },
+      { target: { messageSeq: 1, imageIndex: 1 }, reason: 'pressure' },
     ])
   })
 

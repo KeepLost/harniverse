@@ -125,7 +125,8 @@ export class PendingCallGate {
   /**
    * Admit one call id, refusing it when `maxPendingCalls` replies are
    * already outstanding.
-   * @throws {@link ControlProtocolError} when the pending bound would overflow.
+   * @param id - the call's correlation id.
+   * @throws {@link ControlProtocolError} when the pending bound would overflow or the id is already pending.
    */
   acquire(id: number): void {
     if (this.pending.has(id)) {
@@ -137,7 +138,10 @@ export class PendingCallGate {
     this.pending.add(id)
   }
 
-  /** Release one call id when its reply arrived. */
+  /**
+   * Release one call id when its reply arrived.
+   * @param id - the call's correlation id.
+   */
   release(id: number): void {
     this.pending.delete(id)
   }

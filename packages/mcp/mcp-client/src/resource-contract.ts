@@ -13,7 +13,11 @@ import type { CapabilityCatalogEntry } from '@deepseek-ai/dsh-capabilities'
 /** Valid `serverName`: the namespace every server-qualified identity builds on. */
 export const MCP_SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
 
-/** Whether a candidate server name fits the reserved public namespace budget. */
+/**
+ * Whether a candidate server name fits the reserved public namespace budget.
+ * @param name - the candidate server name.
+ * @returns whether the name matches {@link MCP_SERVER_NAME_PATTERN}.
+ */
 export function isMcpServerName(name: string): boolean {
   return MCP_SERVER_NAME_PATTERN.test(name)
 }
@@ -24,7 +28,11 @@ export interface McpResourceIdentity {
   readonly uri: string
 }
 
-/** Type guard for {@link McpResourceIdentity}: valid server name and non-empty URI. */
+/**
+ * Type guard for {@link McpResourceIdentity}: valid server name and non-empty URI.
+ * @param value - the candidate identity, unvalidated.
+ * @returns whether the value is a well-formed resource identity.
+ */
 export function isMcpResourceIdentity(value: unknown): value is McpResourceIdentity {
   if (typeof value !== 'object' || value === null) return false
   const candidate = value as Partial<McpResourceIdentity>
@@ -32,12 +40,21 @@ export function isMcpResourceIdentity(value: unknown): value is McpResourceIdent
     && typeof candidate.uri === 'string' && candidate.uri.length > 0
 }
 
-/** Stable capability id of one MCP server, matching the adapter's `mcp-server:<hex>` convention. */
+/**
+ * Stable capability id of one MCP server, matching the adapter's `mcp-server:<hex>` convention.
+ * @param serverName - the server's validated public name.
+ * @returns the server's capability id.
+ */
 export function mcpServerCapabilityId(serverName: string): string {
   return `mcp-server:${Buffer.from(serverName).toString('hex')}`
 }
 
-/** Stable capability member id of one MCP resource, mirroring the `mcp-tool:<hex>` convention. */
+/**
+ * Stable capability member id of one MCP resource, mirroring the `mcp-tool:<hex>` convention.
+ * @param serverName - the owning server's validated public name.
+ * @param uri - the server-issued resource URI.
+ * @returns the resource's capability member id.
+ */
 export function mcpResourceMemberId(serverName: string, uri: string): string {
   return `${mcpServerCapabilityId(serverName)}/mcp-resource:${Buffer.from(uri).toString('hex')}`
 }
@@ -66,6 +83,7 @@ export interface McpMemberVisibility {
  * @param entry - the resolved catalog entry of one MCP server capability.
  * @param toolNames - every tool name the server currently reports.
  * @param resourceUris - every resource URI the server currently reports.
+ * @returns the members an assembled Agent may reach and the ones to deny.
  */
 export function resolveMcpMemberVisibility(
   entry: Pick<CapabilityCatalogEntry, 'selected' | 'memberEntries'>,
@@ -121,6 +139,7 @@ export type McpRefreshTrigger = 'reconnect' | 'tool-sync' | 'member-change' | 's
  * generation for future assemblies; running Sessions stay pinned to the
  * generation they captured at start.
  * @param trigger - the observed change.
+ * @returns the refresh kind the trigger belongs to.
  */
 export function classifyMcpRefresh(trigger: McpRefreshTrigger): McpRefreshKind {
   return trigger === 'reconnect' || trigger === 'tool-sync' ? 'topology' : 'composition'

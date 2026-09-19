@@ -45,6 +45,19 @@ describe('session-import invariants', () => {
       .toThrow(/posture\.supervisionMode must be one of/)
   })
 
+  it('rejects a misplaced marker already present when the companion registers late', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1 })
+    session.append('import/record', record('official-v1', 'a.jsonl'))
+    await ctx.plugin(InvariantRegistry, { enabled: true })
+    await expect(ctx.plugin(SessionImportInvariant).then(() => undefined)).rejects.toMatchObject({
+      code: 'INVARIANT',
+      packageName: '@deepseek-ai/dsh-session-import',
+    })
+  })
+
   it('ignores unrelated appends', async () => {
     const { session } = await setup()
     expect(() => session.append('turn/start', { turn: 1 })).not.toThrow()

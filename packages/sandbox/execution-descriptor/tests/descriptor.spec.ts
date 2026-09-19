@@ -67,6 +67,23 @@ describe('parseExecutionWorldDescriptor', () => {
     expect(() => parseExecutionWorldDescriptor(withDigest({}, { credentialRefs: [42] }))).toThrow(ExecutionDescriptorError)
   })
 
+  it('rejects non-object input outright', () => {
+    for (const bad of [null, 42, 'descriptor', true]) {
+      expect(() => parseExecutionWorldDescriptor(bad)).toThrow(/must be an object/)
+    }
+  })
+
+  it('rejects non-array capabilities, presets, and credential refs and non-string presets', () => {
+    for (const bad of [
+      { capabilities: 'nope' },
+      { presets: 7 },
+      { credentialRefs: {} },
+    ]) {
+      expect(() => parseExecutionWorldDescriptor(withDigest({}, bad))).toThrow(ExecutionDescriptorError)
+    }
+    expect(() => parseExecutionWorldDescriptor(withDigest({}, { presets: [42] }))).toThrow(/preset ids must be strings/)
+  })
+
   it('verifies the digest and refuses tampering', () => {
     const tampered = withDigest()
     tampered.revision = 'r2'

@@ -90,6 +90,7 @@ describe('lifecycle state machine', () => {
   it('walks the owned path from starting to cleaned-up', () => {
     for (const transition of lifecyclePairs) {
       expect(canTransitionControlLifecycle(...transition)).toBe(true)
+      expect(() => { assertControlTransition(...transition) }).not.toThrow()
     }
     for (const terminal of ['cancelled', 'timed-out', 'channel-closed'] as const) {
       expect(canTransitionControlLifecycle('running', terminal)).toBe(true)

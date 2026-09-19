@@ -15,9 +15,16 @@ export const inject = ['invariants']
 /* jscpd:ignore-start -- package companions share replay and dispatch plumbing */
 /** Count image blocks of one surface event, 0 for events that carry none. */
 function imageCountOf(event: SessionEvent): number {
-  if (event.type === 'user/message') return event.data.content.filter((block: ContentBlock) => block.type === 'image').length
-  if (event.type === 'tool/result') return (event.data.message.content[0].content).filter((block: ContentBlock) => block.type === 'image').length
-  return 0
+  const blocks: readonly ContentBlock[] = event.type === 'user/message'
+    ? event.data.content
+    : event.type === 'tool/result'
+      ? event.data.message.content[0].content
+      : []
+  let count = 0
+  for (const block of blocks) {
+    if (block.type === 'image') count += 1
+  }
+  return count
 }
 
 /**

@@ -39,6 +39,8 @@ export type ExecutionWorldDescriptorInput = Omit<ExecutionWorldDescriptor, 'dige
 /**
  * Canonical JSON of a descriptor's covered fields: recursively sorted object
  * keys and no insignificant whitespace, so equal content yields equal bytes.
+ * @param descriptor - the covered fields to canonicalize.
+ * @returns the canonical JSON text.
  */
 export function canonicalExecutionWorldJson(descriptor: ExecutionWorldDescriptorInput): string {
   const canonical = (value: unknown): unknown => {
@@ -55,7 +57,11 @@ export function canonicalExecutionWorldJson(descriptor: ExecutionWorldDescriptor
   return JSON.stringify(canonical(descriptor))
 }
 
-/** sha256 hex digest over the canonical form of every covered field. */
+/**
+ * sha256 hex digest over the canonical form of every covered field.
+ * @param descriptor - the covered fields to digest.
+ * @returns the hex digest sealing those fields.
+ */
 export function computeExecutionWorldDigest(descriptor: ExecutionWorldDescriptorInput): string {
   return createHash('sha256').update(canonicalExecutionWorldJson(descriptor)).digest('hex')
 }
@@ -146,6 +152,7 @@ export function parseExecutionWorldDescriptor(input: unknown): ExecutionWorldDes
  * Build a descriptor from trusted field values, computing the digest — the
  * publisher-side helper. The result is frozen like a parsed descriptor.
  * @param covered - every covered field; validation runs exactly as in {@link parseExecutionWorldDescriptor}.
+ * @returns the verified, deeply frozen descriptor.
  */
 export function buildExecutionWorldDescriptor(covered: ExecutionWorldDescriptorInput): ExecutionWorldDescriptor {
   return parseExecutionWorldDescriptor({ ...covered, digest: computeExecutionWorldDigest(covered) })
