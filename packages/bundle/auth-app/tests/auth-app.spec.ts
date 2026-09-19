@@ -21,7 +21,7 @@ afterEach(async () => {
   cmdlineInternals.stderr = process.stderr
   runnerInternals.stdout = process.stdout
   runnerInternals.stderr = process.stderr
-  await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true })))
+  await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })))
 })
 
 interface InvocationResult {

@@ -85,6 +85,25 @@ tail -f "${DSH_HOME:-$HOME/.dsh}/auth/access.jsonl"
 
 Web profile 会把信任策略和连接／认证事件输出到服务器终端。每条事件包含 method 或 channel、path、peer 地址、Host、Origin，以及已知的非机密 Grant 名称／id；不会输出 cookie、Authorization 值、公钥或请求体。owner-only 审计文件仍是持久化的最小隐私记录。
 
+### 使用邀请口令配对
+
+除了在终端批准，owner 也可以预先签发一次性注册邀请。在配对页提交设备表单后，按页面提示输入邀请口令，配对立即完成，无需终端批准。
+
+在主机上签发邀请（`--profile` 与 `--capability` 互斥，必须且只能提供一个）：
+
+```sh
+pnpm dsh auth code issue --ttl 30m --profile owner
+```
+
+`--ttl` 接受 `30s`、`5m`、`12h`、`7d` 或毫秒数，决定口令的可兑换时长。`--profile` 指定兑换后获得的 Grant profile（`observer`、`operator`、`administrator` 或 `owner`）；`--capability` 改为授予显式 `harniverse.*` capability，但它要求已存在可授权的活动 Grant，因此全新安装的首批邀请应使用 `--profile owner`。`--kind temporary` 生成的 Grant 会在固定时限后过期并带空闲超时，且不能携带 `harniverse.authorize`；默认的 `device` 与被批准的浏览器一样持久。`--bind <name>` 要求兑换时使用完全相同的设备名，`--count <n>` 一次签发多份邀请。
+
+每个口令输出一行制表符分隔的字段：token、id、kind、capability 和过期时间。token 以 `dshi1_` 开头，仅在签发时显示一次。已保留的邀请可随时列出，也可在兑换前吊销：
+
+```sh
+pnpm dsh auth code list
+pnpm dsh auth code revoke <code-id>
+```
+
 ### 5. 配置并选择模型
 
 新安装在配置提供方之前没有可用的模型路由：
@@ -210,6 +229,6 @@ Harniverse 继承 DeepSeek Harness、其 `dsh` CLI、`@deepseek-ai/dsh-*` 包命
 
 ## 许可证与归属
 
-Harniverse 按 [MIT License](LICENSE) 分发。它派生自 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)；后者由 [DeepSeek AI](https://deepseek.com) 开发。Harniverse 使用 [Cordis](https://github.com/cordiverse/cordis)，其设计参见论文 [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper)。
+Harniverse 整体按 [BSD 3-Clause License](LICENSE) 分发；自 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（由 [DeepSeek AI](https://deepseek.com) 开发）原样继承的部分，仍保留该项目的 MIT 许可证。Harniverse 使用 [Cordis](https://github.com/cordiverse/cordis)，其设计参见论文 [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper)。
 
 第三方依赖及其许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
