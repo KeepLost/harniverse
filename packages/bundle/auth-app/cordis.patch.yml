@@ -13,4 +13,8 @@
         publicKey: !!js ctx.authStartup.publicKey
         profile: !!js ctx.authStartup.profile
         capabilities: !!js ctx.authStartup.capabilities
+        kind: !!js ctx.authStartup.kind
+        bindName: !!js ctx.authStartup.bindName
+        ttl: !!js ctx.authStartup.ttl
+        count: !!js ctx.authStartup.count
         dshHome: !!js process.env.DSH_HOME
