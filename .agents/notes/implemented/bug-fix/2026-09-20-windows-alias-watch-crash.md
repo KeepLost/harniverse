@@ -12,19 +12,21 @@ GitHub's Windows runners expose `TEMP` through an 8.3 short alias (`C:\Users\RUN
 
 ## Decision
 
-`watchConfig` now resolves the watched file against its deepest existing ancestor before doing anything else: the ancestor goes through `realpathSync` (expanding 8.3 aliases and symlinks to on-disk form), the possibly-missing tail below it stays lexical, and both the chokidar root and the event-equality comparison use that realized target (`realizedPath` in `packages/boot/hmr-coordination/src/index.ts`). The registration key keeps its canonical identity, which the realization makes consistent for the missing-file case too: two callers spelling the same not-yet-created file with and without aliases now collide on one key instead of registering twice.
+`watchConfig` keeps its registration identity and failure broadcast on the lexical-canonical path exactly as before, and realizes only what the watcher needs: the deepest existing ancestor of the watched file goes through `realpathSync.native` — the platform's final-path API, the only one that expands Windows 8.3 aliases, which the JavaScript realpath leaves untouched because aliases are not symlinks — and both the chokidar root and the event-equality comparison use `join(realizedRoot, missingTail)` (`realizedWatchRoot` in `packages/boot/hmr-coordination/src/index.ts`). Restricting the realization to the watcher matters on symlinked temp roots (macOS `/var` → `/private/var`): the failure broadcast, dedup keys, and `watchConfig`'s observable filenames stay in the caller's spelling, while watcher-internal comparisons stay internally consistent in expanded form.
 
 ## Alternatives considered
 
-**Realpath only the watch root, keep the lexical comparison target.** Fixes the abort but leaves short-form inputs comparing unequal against expanded event paths, silently disabling reload on Windows.
+**Realize the whole target including the registration identity.** Fixes the abort but changes every observable filename on symlinked platforms — macOS failure broadcasts and dedup would silently shift from `/var/folders/...` to `/private/var/folders/...`.
 
-**Disable native watching on Windows (`usePolling`).** Trades a process abort for per-watch polling cost everywhere; the alias realization removes the need.
+**JavaScript realpath for the watch root.** Resolves symlinks but not Windows 8.3 aliases, so the abort survives on the runner's `RUNNER~1` temp paths.
+
+**Disable native watching on Windows (`usePolling`).** Trades a process abort for per-watch polling cost everywhere; the root realization removes the need.
 
 **Fix in chokidar or libuv.** The prefix assertion is upstream behavior on non-final paths; callers are expected to pass realized paths.
 
 ## Consequences
 
-Coordinated config watching works unchanged on case-insensitive and symlinked filesystems — `realpathSync` already supplied the on-disk form there. A profile directory deleted and recreated under a differently-cased spelling mid-watch still re-registers by canonical identity.
+Coordinated config watching works unchanged on case-insensitive and symlinked filesystems, and observable coordinator behavior (keys, broadcast filenames, `already registered` diagnostics) is byte-identical to the pre-fix spelling. A profile directory deleted and recreated under a differently-cased spelling mid-watch still re-registers by canonical identity.
 
 ## Testing
 

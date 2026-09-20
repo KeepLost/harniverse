@@ -55,15 +55,23 @@ function canonicalPath(absolute: string): string {
 }
 
 /**
- * Resolve a watched file against its deepest existing ancestor in on-disk
- * form: Windows `TEMP` paths carry 8.3 aliases (`RUNNER~1`) whose expanded
- * form is what directory-change events report, and libuv aborts the process
- * when a watched-directory prefix does not textually match a reported event.
- * The possibly-missing tail below the realized ancestor stays lexical.
+ * Realize the watch root through the platform's final-path API: Windows
+ * `TEMP` paths carry 8.3 aliases (`RUNNER~1`) that the JavaScript realpath
+ * leaves untouched, while `ReadDirectoryChangesW` reports events in expanded
+ * form — libuv aborts the process when the watched-directory prefix does not
+ * textually match a reported event. The possibly-missing tail below the
+ * realized root stays lexical.
  */
-function realizedPath(absolute: string): { root: string; target: string } {
+function realizedWatchRoot(absolute: string): { root: string; target: string } {
   const existing = findWatchRoot(absolute)
-  const root = canonicalPath(existing)
+  let root: string
+  try {
+    root = realpathSync.native(existing)
+  } catch {
+    /* v8 ignore next 1 -- findWatchRoot verified existence; only a concurrent
+     * ancestor removal loses the race, and the lexical root still watches. */
+    root = existing
+  }
   return { root, target: join(root, relative(existing, absolute)) }
 }
 
@@ -125,12 +133,13 @@ export class HmrReloadCoordinator {
    */
   watchConfig(filename: string, refresh: () => Promise<void> | void): () => Promise<void> {
     if (this.#closing) throw new Error('HMR coordination is disposed')
-    const { root: watchRoot, target: absolute } = realizedPath(resolve(filename))
+    const absolute = resolve(filename)
     const canonical = canonicalPath(absolute)
     if (this.#registrations.has(canonical)) {
       throw new Error(`HMR coordination: ${canonical} is already registered`)
     }
-    const depth = relative(watchRoot, absolute).split(sep).length - 1
+    const { root: watchRoot, target: watchTarget } = realizedWatchRoot(absolute)
+    const depth = relative(watchRoot, watchTarget).split(sep).length - 1
     const watcher = watch(watchRoot, { depth, awaitWriteFinish: true })
     const registration: WatchRegistration = { watcher, refresh, running: undefined }
     // `pending` is closure-captured: an event during an in-flight pass reruns
@@ -158,7 +167,7 @@ export class HmrReloadCoordinator {
       })
     }
     const onTargetEvent = (path: string) => {
-      if (resolve(path) !== absolute) return
+      if (resolve(path) !== watchTarget) return
       dispatch()
     }
     watcher.on('add', onTargetEvent)

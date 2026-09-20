@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { createLazyRequire } from '../src/index.ts'
 import { createRequire } from 'node:module'
+import { join } from 'node:path'
 
 describe('createLazyRequire', () => {
   it('resolves the specifier relative to the caller parent URL on first use only', () => {
     const load = createLazyRequire<{ join: (a: string, b: string) => string }>('node:path', import.meta.url)
     const first = load()
-    expect(first.join('a', 'b')).toBe('a/b')
+    expect(first.join('a', 'b')).toBe(join('a', 'b'))
     expect(load()).toBe(first)
   })
 

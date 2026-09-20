@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-20-windows-alias-watch-crash.md
-2026-09-20-windows-alias-watch-crash.md: 070efd56a9188c9113ee1e845cfc40bcbcd40dcb
-2026-09-20-windows-alias-watch-crash.zh.md: 89184b535a005dc2464f3a246c2e0dc005c8b3f1
+2026-09-20-windows-alias-watch-crash.md: a1e416cb444db8d0d48b370c8579afd301b8e782
+2026-09-20-windows-alias-watch-crash.zh.md: 9a975810e7c310e2b78ac8a5ccbe19bb73ae9550

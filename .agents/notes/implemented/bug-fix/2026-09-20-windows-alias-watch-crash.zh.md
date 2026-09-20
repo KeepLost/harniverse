@@ -12,19 +12,21 @@ GitHub 的 Windows 运行器通过 8.3 短别名暴露 `TEMP`（`C:\Users\RUNNER
 
 ## Decision
 
-`watchConfig` 现在先把被监视文件对其到最深的存在祖先：祖先经过 `realpathSync`（把 8.3 别名与符号链接展开为磁盘形式），其下可能缺失的尾部保持词法形态，chokidar 根与事件相等性比较都使用该实现化目标（`packages/boot/hmr-coordination/src/index.ts` 的 `realizedPath`）。注册键保持规范身份，且该实现化让缺失文件场景也一致：以带别名与不带别名两种拼写注册同一个尚未创建的文件，现在会碰撞到同一个键，而不是注册两次。
+`watchConfig` 的注册身份与失败广播保持原有的词法-规范路径不变，只对监视器所需的部分做实现化：被监视文件的最深存在祖先经过 `realpathSync.native`——平台最终的路径 API，唯一能展开 Windows 8.3 别名的机制，因为别名不是符号链接，JavaScript realpath 会原样保留——chokidar 根与事件相等性比较都使用 `join(实现化根, 缺失尾部)`（`packages/boot/hmr-coordination/src/index.ts` 的 `realizedWatchRoot`）。把实现化限制在监视器内部对带符号链接的临时根（macOS `/var` → `/private/var`）至关重要：失败广播、去重键和 `watchConfig` 的可观察文件名保持调用方的拼写，而监视器内部的比较在展开形式上保持自洽。
 
 ## Alternatives considered
 
-**只对监视根做 realpath，比较目标保持词法路径。** 消除了中止，但短形式输入与展开形式的事件路径仍比较不等，Windows 上的重载被静默禁用。
+**连注册身份一起实现化整个目标。** 消除了中止，但改变了符号链接平台上所有可观察文件名——macOS 的失败广播与去重会从 `/var/folders/...` 静默漂移到 `/private/var/folders/...`。
 
-**在 Windows 上禁用原生监视（`usePolling`）。** 用每个监视器的轮询成本换取避免进程中止；别名实现化之后不再需要。
+**对监视根使用 JavaScript realpath。** 解析符号链接但不动 Windows 8.3 别名，运行器 `RUNNER~1` 临时路径上的中止依旧。
+
+**在 Windows 上禁用原生监视（`usePolling`）。** 用每个监视器的轮询成本换取避免进程中止；根实现化之后不再需要。
 
 **在 chokidar 或 libuv 中修复。** 前缀断言是上游对非最终路径的行为；调用方本应传入实现化路径。
 
 ## Consequences
 
-协调式配置监视在大小写不敏感与带符号链接的文件系统上行为不变——`realpathSync` 在这些平台上本就提供磁盘形式。监视期间以不同大小写拼写删除并重建的 profile 目录仍按规范身份重新注册。
+协调式配置监视在大小写不敏感与带符号链接的文件系统上行为不变，协调器的可观察行为（键、广播文件名、`already registered` 诊断）与修复前的拼写逐字节一致。监视期间以不同大小写拼写删除并重建的 profile 目录仍按规范身份重新注册。
 
 ## Testing
 

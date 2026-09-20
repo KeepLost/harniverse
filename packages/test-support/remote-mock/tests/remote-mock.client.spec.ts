@@ -108,6 +108,15 @@ describe('RemoteMockApiClient unary dispatch', () => {
     expect(captured).toBeUndefined()
   })
 
+  it('fails loud on a non-string request body instead of guessing an envelope', async () => {
+    class ExposedMock extends RemoteMockApiClient {
+      fetchRaw = (input: URL, init?: RequestInit) => super.doFetch(input, init)
+    }
+    const mock = new ExposedMock()
+    const url = new URL('http://dsh.internal/api/host.describe')
+    await expect(mock.fetchRaw(url, { method: 'POST', body: new Blob(['{}']) })).rejects.toThrow(SyntaxError)
+  })
+
   it('settles the overridden wire identity on every response', async () => {
     const mock = new RemoteMockApiClient()
     const identity = { kind: 'grant', grantId: 'grant-1', grantRevision: 0 } as never
