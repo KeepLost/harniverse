@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelcontextprotocol.io/) 服务器，把它们的工具注册到 `ctx.tools`，使模型能够通过服务器限定名称（`mcp__<serverName>__<rawName>`）将其作为原生工具使用。
+MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelcontextprotocol.io/) 服务器，把它们的工具注册到 `ctx.tools`，使模型能够通过服务器限定名称（`mcp__<serverName>__<rawName>`）将其作为原生工具使用。组合了 `dsh-mcp-resources` 时，每个连接还会在 `ctx.mcpResources` 上发布其资源、把服务器 instructions 作为提示词小节公开，并向 capability descriptor 贡献资源成员。
 
-组装了 `ctx.capabilities` 时，该实例还会注册一个 effect-owned `mcp-server` descriptor，并为当前发现的每个公开工具提供一项不可修改定义的成员。命令参数、环境、header、凭据和任意 server metadata 保持私有。Profile 可以卸载整台 server，或保留显式成员 allowlist；刷新后的 generation 会把同一策略应用到后续发现的工具，而不会断开 Host 共享 server 进程。Profile 自有 MCP 行仍可由 Profile 配方编译器实际选择。
+组装了 `ctx.capabilities` 时，该实例还会注册一个 effect-owned `mcp-server` descriptor，并为当前发现的每个公开工具或资源 URI 提供一项不可修改定义的成员。命令参数、环境、header、凭据和任意 server metadata 保持私有。Profile 可以卸载整台 server，或保留显式成员 allowlist；刷新后的 generation 会把同一策略应用到后续发现的工具，而不会断开 Host 共享 server 进程。Profile 自有 MCP 行仍可由 Profile 配方编译器实际选择。
 
-本包还拥有 MCP 身份、可见性与刷新契约：`MCP_SERVER_NAME_PATTERN`/`isMcpServerName`（保留的服务器命名空间）、`McpResourceIdentity`/`isMcpResourceIdentity` 与 `mcpServerCapabilityId`/`mcpResourceMemberId`（服务器与资源的稳定 capability id）、`resolveMcpMemberVisibility`（收窄 Profile 应用的纯规则——未选中的服务器拒绝全部成员；显式成员 allowlist 只允许标记为可见的成员），以及 `classifyMcpRefresh`（重连和工具/资源同步是运行中 Session 已捕获 capability generation 内的 `'topology'` 刷新；只有 Profile 成员或选择编辑才是为后续组装产生新 generation 的 `'composition'` 变更）。
+本包还拥有 MCP 身份、可见性与刷新契约：`MCP_SERVER_NAME_PATTERN`/`isMcpServerName`（保留的服务器命名空间）、`McpResourceIdentity`/`isMcpResourceIdentity` 与 `mcpServerCapabilityId`/`mcpResourceMemberId`（服务器与资源的稳定 capability id）、`resolveMcpMemberVisibility`（收窄 Profile 应用的纯规则——未选中的服务器拒绝全部成员；显式成员 allowlist 只允许标记为可见的成员），以及 `classifyMcpRefresh`（重连和工具/资源同步是运行中 Session 已捕获 capability generation 内的 `'topology'` 刷新；只有 Profile 成员或选择编辑才是为后续组装产生新 generation 的 `'composition'` 变更）。可见性在 wire 层强制执行：读取不可见 URI 的 `resources/read` 会抛错，`resources/list` 的结果被过滤为可见 URI，而模板列表不过滤直接透传。
 
 ## 用法
 
@@ -49,6 +49,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 | `url` | http | 是 | MCP 服务器 URL |
 | `headers` | http | 否 | 额外标头（例如认证 token） |
 | `toolCallTimeoutMs` | 两者 | 否 | 每次 `callTool` 调用的超时（默认 60000） |
+| `maxInstructionBytes` | 两者 | 否 | 服务器 instructions 的字节预算，含归属 header（默认 32768） |
 | `failOnStartupError` | 两者 | 否 | 初始连接或工具同步失败时拒绝插件激活（默认 `false`） |
 | `reconnect.enabled` | 两者 | 否 | 连接丢失后自动重新连接（默认 `true`） |
 | `reconnect.initialDelayMs` | 两者 | 否 | 首次重连延迟（毫秒）；每次连续失败尝试翻倍（默认 500） |
@@ -69,6 +70,10 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 - 连接时：插件激活会等待 `listTools()`，并在组合开始首个轮次前通过 `ctx.tools.register()` 以公开名称注册每个工具。初始连接、发现或注册失败始终会记录日志；`failOnStartupError` 为 true 时拒绝激活，否则插件仍会激活但不注册工具。
 - 监听 `notifications/tools/list_changed` → 重新同步；获取阶段失败时保留上一世代的注册，注册冲突则会回滚本次尝试的世代，并且不保留该服务器的任何工具。
 - 工具执行：`client.callTool({ name: rawName, arguments }, { signal })`，支持超时 + 中止；公开名称绝不会发给服务器。
+- 服务器 instructions：连接与工具同步成功后，捕获服务器 initialize 返回的 instructions，修剪并归属（`### MCP server: <serverName>`），再通过 server-context 注册为逐字的 `mcp:<serverName>` 提示词小节。超过 `maxInstructionBytes` 的载荷会像其他同步错误一样使本次尝试失败；重连彻底放弃时会清除该小节。
+- 资源发现：服务器声明 resources 能力时，连接在每次同步后排空分页的 `resources/list` 到排序的 URI 缓存；发现失败被抑制（记录日志、保留旧缓存）。缓存的 URI 供 capability snapshot 的资源成员与触发 generation 刷新的变化检测使用。
+- 分页防护：每个 continuation-cursor 排空（工具、资源）都会把重复 cursor 当作无效分页拒绝，而不是死循环 —— `server repeated continuation cursor "<cursor>"`。
+- 资源请求：`resources.request` 在存活连接上路由 `resources/list`、`resources/templates/list` 与 `resources/read`（connected 守卫、`toolCallTimeoutMs` 超时、支持中止）并返回原始 JSON 值；由 `mcp-resources` 的工具渲染。Profile 成员可见性在该表面强制执行（见上）。
 - 规范成功值是 `{ content: JsonValue[], structuredContent? }`；完整的 JSON MCP 块会保留给编程调用方。受支持且已声明的 `outputSchema` 会验证 `structuredContent`；不受支持的 schema 词汇会回退为不受约束的 `JsonValue`。
 - Native／模型渲染保留现有文本投影：文本块以换行连接，图片、音频、资源和不受支持的块会变成占位符。
 - 断开／崩溃时：supervisor 以指数退避（`reconnect.initialDelayMs` 逐次翻倍，上限 `reconnect.maxDelayMs`）重启原始服务器配置，成功后重新执行发现——恢复的世代会替换前一个，因此工具既不会重复也不会泄漏。中断期间最后一个正常世代保持注册；针对它的调用在恢复前会失败。
@@ -81,6 +86,8 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 |---|---|
 | `ctx.tools` | 注册／注销 MCP 工具 |
 | `ctx.capabilities` | 可选地发布 server identity 并应用 Profile generation 选择 |
+| `ctx.mcpResources` | 可选地发布该服务器的资源提供者（经 `dsh-mcp-resources`） |
+| `ctx.systemPrompt` | 可选地注册归属后的服务器 instructions 小节 |
 
 ## 模型体验
 
@@ -112,9 +119,24 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 
 仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
 
+### 服务器 instructions 与资源成员
+
+#### 模型看到的内容
+
+发送 initialize instructions 的服务器贡献一个逐字的 `### MCP server: <serverName>` 块（服务器文本中的花括号永远不会被插值）。发现的资源 URI 作为服务器 capability descriptor 的 `mcp-resource` 成员出现——可像工具成员一样被 Profile allowlist 收窄——共享的 `list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource` 工具（由 `dsh-mcp-resources` 拥有）按名称到达该服务器。
+
+#### Token 影响
+
+instructions 块受 `maxInstructionBytes`（默认 32 KiB）约束，且仅在服务器连接期间存在。资源成员 URI 消耗目录 token 而非请求 token；读取结果通过共享工具的渲染一次性进入历史（二进制载荷被掩码）。
+
+#### KV Cache 影响
+
+只要 instructions 与可见成员集合不变，前缀就保持稳定。恢复了相同 instructions 的重连会生成相同的小节；Profile 成员编辑是为后续组装重写 descriptor 的 composition 变更。
+
 ## 已知限制与暂缓事项
 
-- **只桥接 MCP 的工具能力**：资源和提示词没有 harness 消费接口，暂缓实现。
+- **不桥接 MCP Prompts**：工具与资源已桥接；服务器自定义 prompts（斜杠命令式）没有 harness 消费接口，暂缓实现。
+- **无资源订阅**：不观察服务器发来的 `resources/listChanged` 通知；URI 缓存仅在连接、工具重同步与重连时刷新。
 - **启动超时继承自 MCP SDK**：DSH 尚未公开连接／发现超时。每次 initialize 请求或分页 `tools/list` 请求都使用 SDK 默认的 60 秒，因此在初始同步完成期间，无响应的 server 或 cursor chain 可能同时延迟激活与 teardown。
 - **重连在传输关闭时触发**：崩溃的 stdio 子进程会触发重连；Streamable HTTP 失败通过每次请求以及 SDK 传输自身的 SSE（Server-Sent Events）流恢复机制暴露，因此不可达的 HTTP 服务器会按调用重试，而非由 supervisor 重新 spawn。
 - **Native 非文本渲染有损**：图片、音频与资源载荷在模型上下文中会变成占位符，即使执行局部的规范值保留了其 JSON 块。更丰富的 Native 多媒体投影暂缓实现。

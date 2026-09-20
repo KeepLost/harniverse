@@ -1255,14 +1255,11 @@ export class SessionStore extends Service {
     const { carrier } = this.liveEntryFor(session)
     const callbackArgs: unknown[] = [session]
     const callbacks = collectSessionCallbacks(this.ctx, [carrier, 'session/flush', session])
-    const results = await Promise.allSettled(callbacks.map((callback) => {
-      try {
-        return callback(...callbackArgs)
-      } catch (error: unknown) {
-        // Preserve the listener's exact rejection value; flush is a caller-owned
-        // failure boundary, and Cordis listeners may throw arbitrary values.
-        return Promise.reject(error)
-      }
+    const results = await Promise.allSettled(callbacks.map(async (callback) => {
+      // The async mapper converts a listener's synchronous throw into a settled
+      // rejection; flush is a caller-owned failure boundary, and Cordis listeners
+      // may throw arbitrary values.
+      return await callback(...callbackArgs)
     }))
     const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
     if (failure !== undefined) throw failure.reason

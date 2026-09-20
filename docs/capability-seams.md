@@ -71,6 +71,8 @@ flowchart LR
   pkg_settings_file["settings-file"]
   pkg_apiproxy["apiproxy"]
   pkg_mcp_user_config["mcp-user-config"]
+  pkg_mcp_resources["mcp-resources"]
+  svc_mcpResources["ctx.mcpResources<br/>Scoped MCP resource seam"]
   svc_mcpUserConfigSettings["ctx.mcpUserConfigSettings<br/>User MCP configuration seam"]
   pkg_model_policy["model-policy"]
   svc_modelPolicy["ctx.modelPolicy<br/>Session model authorization and routing seam"]
@@ -294,6 +296,7 @@ flowchart LR
   pkg_llm_replay --> svc_llm
   pkg_lsp --> svc_lsp
   pkg_lsp_local --> svc_lsp
+  pkg_mcp_resources --> svc_mcpResources
   pkg_mcp_user_config --> svc_mcpUserConfigSettings
   pkg_message_feedback --> svc_messageFeedback
   pkg_model_policy --> svc_modelPolicy
@@ -409,6 +412,7 @@ flowchart LR
   svc_llm --> pkg_compaction_basic
   svc_llm --> pkg_compaction_lossless
   svc_lsp --> pkg_tool_lsp
+  svc_mcpResources --> pkg_mcp_client
   svc_mcpUserConfigSettings --> pkg_mcp_user_config
   svc_modelPolicy --> pkg_apiproxy
   svc_modelPolicy --> pkg_compaction_basic
@@ -530,6 +534,7 @@ flowchart LR
 | `ctx.typertGateway` | `core` | [`api-gateway`](../packages/api/gateway) | - | - | - | Associates generated Remote descriptors with live Cordis services, resolves registered identities, and exposes unary calls through the shared Connection RPC carrier. |
 | `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session/session-persistence) | [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session/session-persistence-sqlite) | [`agent-loop`](../packages/core/agent-loop), [`tool-bash`](../packages/shell/tool-bash), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`message-feedback`](../packages/feedback/message-feedback) | - | Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time. |
 | `ctx.settings` | `seam` | [`settings`](../packages/settings/settings) | [`settings-file`](../packages/settings/settings-file) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy`, [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | Plugins register namespace schemas and resolve layered values; providers store the raw document. The LLM adapters register their entry config as the composition base under the user section; the web gateway serves redacted layered descriptors and writes the user layer. |
+| `ctx.mcpResources` | `seam` | [`mcp-resources`](../packages/mcp/mcp-resources) | [`mcp-resources`](../packages/mcp/mcp-resources) | [`mcp-client`](../packages/mcp/mcp-client) | - | Scoped providers publish server resources; the runtime owns the shared list/template/read tools and a verbatim prompt section naming reachable servers, while mcp-client enforces Profile member visibility on read and list. |
 | `ctx.mcpUserConfigSettings` | `seam` | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | The host-owned provider validates and persists the user server list; profile consumers reconcile isolated mcp-client children without globalizing their tools. |
 | `ctx.modelPolicy` | `seam` | [`model-policy`](../packages/core/model-policy) | [`model-policy`](../packages/core/model-policy) | [`model-policy-fallback`](../packages/core/model-policy-fallback), `apiproxy`, [`compaction-basic`](../packages/compaction/compaction-basic), [`session-title-llm`](../packages/session/session-title-llm), `ui-model-selection` | - | The service snapshots Profile grants and the logical target into each Session; Host and auxiliary consumers enforce the snapshot, while the fallback consumer records ordered cross-model transitions. |
 | `ctx.credentials` | `seam` | [`credentials`](../packages/credentials/credentials) | [`credentials-local`](../packages/credentials/credentials-local) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy` | - | Configuration carries references to secrets; providers own the values. Consumers resolve per operation, so a rotated credential reaches the very next request; the web gateway exposes value-free views and write-only storage. |

@@ -18,7 +18,7 @@ The plugin registers `imageOffloadProjection` — a session message projection o
 
 #### What the model sees
 
-After a decision settles, later requests show the stub text block where the image used to be. The stub is truthful — it names the image as offloaded — and the surrounding text blocks, tool results, and block order are unchanged.
+After a decision settles, later requests show the `image/offload` stub text block where the image used to be. The stub is truthful — it names the image as offloaded — and the surrounding text blocks, tool results, and block order are unchanged.
 
 #### Token effect
 
