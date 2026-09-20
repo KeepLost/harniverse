@@ -11,6 +11,7 @@
 
 import { spawn } from 'node:child_process'
 import { stripTypeScriptTypes } from 'node:module'
+import { isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -53,10 +54,24 @@ export interface Config {
   maxOutputBytes?: number
   /** The child's max old-generation heap in MiB (`--max-old-space-size`); overflow kills the child, surfacing as kind `'worker-exit'`. */
   maxOldGenerationSizeMb?: number
+  /**
+   * Node executable that runs the child; defaults to the current one. Set it
+   * when the host process is not plain Node (an Electron app resolving its
+   * bundled Node, or a deployment whose node lives elsewhere).
+   */
+  nodeExecutable?: string
+  /**
+   * Absolute path to a preinstalled child entry in the execution world.
+   * Defaults to this package's own child entry (source or built, whichever
+   * world this module runs in). Inside a single-file executable there is no
+   * such path: the runtime respawns the executable itself (see
+   * {@link childSpawnPlan}) and its bin routes to the child.
+   */
+  bootstrapPath?: string
 }
 
 /** {@link Config} after schemastery fills the defaults (every field present). */
-type ResolvedConfig = Required<Config>
+type ResolvedConfig = Required<Omit<Config, 'bootstrapPath'>> & Pick<Config, 'bootstrapPath'>
 
 /** Smallest cap that can represent the counted payloads: an empty logs array plus an empty JSON failure message. */
 const MIN_OUTPUT_BYTES = 4
@@ -114,6 +129,37 @@ function messageOf(error: unknown): string {
  */
 /* v8 ignore next -- the './child.cjs' arm is the built-lib world, unreachable unbuilt by construction; the built-lib e2e pins it. */
 const CHILD_PATH = fileURLToPath(new URL(new URL(import.meta.url).pathname.endsWith('.ts') ? './child.ts' : './child.cjs', import.meta.url))
+
+/**
+ * Single-file executables (yao-pkg/pkg) expose a `pkg` marker on the process
+ * object. Inside one there is no child entry file to point Node at — the
+ * package's assets live in the executable's virtual filesystem — so the
+ * runtime respawns the executable itself and its bin entry routes to the
+ * child (the `DSH_PTC_RUNTIME_NODE` variable below).
+ */
+const PACKAGED_RUNTIME = 'pkg' in (process as typeof process & { pkg?: unknown })
+
+/**
+ * The child's spawn argv and environment for one deployment.
+ * @param config - the resolved execution caps plus the deployment's Node and
+ *   optional preinstalled child entry.
+ * @param packaged - whether the host runs inside a single-file executable
+ *   without an explicit `bootstrapPath` (the respawn-self mode).
+ * @returns the argv to spawn (after any sandbox wrap) and the exact child
+ *   environment: empty in the ordinary world; the routing variable plus the
+ *   heap cap through `NODE_OPTIONS` in the respawn-self world, where argv
+ *   flags would reach the executable's own CLI parser instead of Node.
+ */
+export function childSpawnPlan(
+  config: { nodeExecutable: string; bootstrapPath?: string; maxOldGenerationSizeMb: number },
+  packaged: boolean,
+): { argv: string[]; env: NodeJS.ProcessEnv } {
+  const heapFlag = `--max-old-space-size=${config.maxOldGenerationSizeMb}`
+  if (!packaged) {
+    return { argv: [config.nodeExecutable, heapFlag, config.bootstrapPath ?? CHILD_PATH], env: {} }
+  }
+  return { argv: [config.nodeExecutable], env: { DSH_PTC_RUNTIME_NODE: '1', NODE_OPTIONS: heapFlag } }
+}
 
 /** One run's combined outer-output ledger; binding values never enter it. */
 class OutputLedger {
@@ -193,6 +239,8 @@ export class PtcCodeRuntime extends CodeRuntime {
     maxWallMs: z.number().default(600_000),
     maxOutputBytes: z.number().default(67_108_864),
     maxOldGenerationSizeMb: z.number().default(512),
+    nodeExecutable: z.string(),
+    bootstrapPath: z.string(),
   })
 
   readonly language = 'typescript'
@@ -206,9 +254,18 @@ export class PtcCodeRuntime extends CodeRuntime {
     super(ctx)
     // Schemastery filled the defaults; the cast records that. Positivity is a
     // semantic check the schema's plain number type does not carry.
-    this.config = config as ResolvedConfig
+    // Schemastery filled the defaults; the spread records the one default the
+    // schema leaves to the runtime (the executable this process runs on) and
+    // the cast records that every remaining field is present.
+    this.config = { ...config, nodeExecutable: config.nodeExecutable ?? process.execPath } as ResolvedConfig
     for (const [key, value] of Object.entries(this.config)) {
-      if (!(Number.isFinite(value) && value > 0)) throw new Error(`dsh-code-runtime-ptc: config.${key} must be a positive number, got ${String(value)}`)
+      if (typeof value === 'number' && !(Number.isFinite(value) && value > 0)) {
+        throw new Error(`dsh-code-runtime-ptc: config.${key} must be a positive number, got ${String(value)}`)
+      }
+    }
+    if (this.config.nodeExecutable.length === 0) throw new Error('dsh-code-runtime-ptc: config.nodeExecutable must be non-empty')
+    if (this.config.bootstrapPath !== undefined && !isAbsolute(this.config.bootstrapPath)) {
+      throw new Error('dsh-code-runtime-ptc: config.bootstrapPath must be absolute')
     }
     if (!Number.isSafeInteger(this.config.maxOutputBytes) || this.config.maxOutputBytes < MIN_OUTPUT_BYTES) {
       throw new Error(`dsh-code-runtime-ptc: config.maxOutputBytes must be a safe integer of at least ${MIN_OUTPUT_BYTES}, got ${String(this.config.maxOutputBytes)}`)
@@ -321,16 +378,16 @@ export class PtcCodeRuntime extends CodeRuntime {
    * `danger-full-access` runs the raw argv. The resolved policy also fixes
    * the child's cwd (the workspace-write boundary).
    */
-  private spawnPlan(): { argv: string[]; cwd: string } {
+  private spawnPlan(): { argv: string[]; env: NodeJS.ProcessEnv; cwd: string } {
     const policy = this.ctx.sandboxPolicy.resolve()
-    const argv = [process.execPath, `--max-old-space-size=${this.config.maxOldGenerationSizeMb}`, CHILD_PATH]
+    const { argv, env } = childSpawnPlan(this.config, PACKAGED_RUNTIME)
     const mode = policy.mode
-    if (mode === 'danger-full-access') return { argv, cwd: policy.workspaceRoot }
+    if (mode === 'danger-full-access') return { argv, env, cwd: policy.workspaceRoot }
     const sandbox = this.ctx.get('sandbox')
     if (sandbox === undefined) {
       throw new SandboxUnavailableError(mode)
     }
-    return { argv: sandbox.confine(argv, { ...policy, mode }).argv, cwd: policy.workspaceRoot }
+    return { argv: sandbox.confine(argv, { ...policy, mode }).argv, env, cwd: policy.workspaceRoot }
   }
 
   /** Spawn the child for one validated, type-stripped run and drive it to settlement. */
@@ -341,14 +398,16 @@ export class PtcCodeRuntime extends CodeRuntime {
   ): Promise<CodeRunResult> {
     // Sandbox refusal (confined mode without a provider) fails closed here,
     // exactly like the Bash family's spawn path — before any process exists.
-    const { argv, cwd } = this.spawnPlan()
+    const { argv, env, cwd } = this.spawnPlan()
     // Model code gets NO ambient environment — stronger than the scrubbed
     // env the defensive-patterns rule requires for spawned commands — and
     // hermetic flags: the argv is built from scratch (heap cap plus entry),
     // so a test runner's or tsx's loader hooks never leak into the child.
+    // The single exception is the executable respawn mode, whose two
+    // variables route the bin to the child and carry the heap cap.
     const child = spawn(argv[0] as string, argv.slice(1), {
       cwd,
-      env: {},
+      env,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
 

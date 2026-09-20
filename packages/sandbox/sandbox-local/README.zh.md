@@ -8,7 +8,7 @@
 
 不受支持的平台和不可用 runner 会以 `SANDBOX_UNAVAILABLE` 拒绝执行；执行绝不会静默回退为不受限制。每次包装都携带结构化 runner 失败规则，使消费方能够区分损坏的沙箱与命令失败。
 
-策略逐调用传入；提供方只存储机制与缓存的 runner 结论。每次包装都会报告强制执行完整度，以及后端专用的拒绝签名和 runner 失败规则。Landlock 只有在退出码为 125，且仅排除完全匹配的部分强制执行通知后仍存在一行 `landlock-run:` 致命诊断时，才判定 runner 失败；携带该通知的子进程即使以 1、2 或 125 退出，也仍按子进程结果处理。Bubblewrap 和 Seatbelt 仍仅依据签名，因为两者的公开约定均未保留 launcher 失败状态。消费方会直接 spawn 返回的 argv，因此 runner 缺失或不可执行属于带外 spawn 失败，而成功启动的子进程以 126 或 127 退出时仍按普通结果处理。`runnerCommand` 会跳过探测，并要求为自定义 runner 自身的致命方言提供一个或多个非空、单行、不区分大小写的 `runnerFailureSignatures` 条目。由于其机制未知，它会同时携带两种 Linux 拒绝方言。`probeTimeoutMs` 限定功能探测的时长。[沙箱 Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md) 负责说明选择与失败语义。
+策略逐调用传入；提供方只存储机制与缓存的 runner 结论。每次包装都会报告强制执行完整度，以及后端专用的拒绝签名和 runner 失败规则。Landlock 只有在退出码为 125，且仅排除完全匹配的部分强制执行通知后仍存在一行 `landlock-run:` 致命诊断时，才判定 runner 失败；携带该通知的子进程即使以 1、2 或 125 退出，也仍按子进程结果处理。Bubblewrap 和 Seatbelt 仍仅依据签名，因为两者的公开约定均未保留 launcher 失败状态。消费方会直接 spawn 返回的 argv——裸 runner 名会先解析为其在宿主上的绝对路径，因此把子进程环境清空（无可搜索的 PATH）的消费方仍能 spawn 该 runner——所以 runner 缺失或不可执行属于带外 spawn 失败，而成功启动的子进程以 126 或 127 退出时仍按普通结果处理。`runnerCommand` 会跳过探测，并要求为自定义 runner 自身的致命方言提供一个或多个非空、单行、不区分大小写的 `runnerFailureSignatures` 条目。由于其机制未知，它会同时携带两种 Linux 拒绝方言。`probeTimeoutMs` 限定功能探测的时长。[沙箱 Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md) 负责说明选择与失败语义。
 
 bwrap profile 将只读宿主根目录、全新的 `/dev` 与使用私有 PID 命名空间的 `/proc` 组合起来。命令可管理后代进程，但看不到宿主进程；隐藏宿主的 `/proc/<pid>` 条目，可以防止 `root`、`fd` 等魔法链接绕过其挂载约束。`workspace-write` 另加临时的 `/tmp` 与可写工作区绑定挂载。[私有 PID Agent Note](../../../.agents/notes/implemented/bug-fix/2026-08-06-bwrap-private-pid-namespace.md)记录该边界。
 

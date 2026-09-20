@@ -14,9 +14,11 @@
     maxWallMs: 600000             # wall-clock deadline; never pauses for anything
     maxOutputBytes: 67108864      # combined serialized outer-output cap (64 MiB)
     maxOldGenerationSizeMb: 512   # child heap cap (--max-old-space-size)
+    nodeExecutable: /usr/bin/node # Node that runs the child (default: this process's)
+    bootstrapPath: ''             # absolute preinstalled child entry (default: this package's)
 ```
 
-每个字段都经过校验并给默认值；`maxOutputBytes` 是至少 4 字节的安全整数，其余字段为正有限数，`maxWallMs` 另外限制至多 `2147483647`（Node 的最大 `setTimeout` 延迟），除此之外没有其他可调项。
+每个字段都经过校验并给默认值；`maxOutputBytes` 是至少 4 字节的安全整数，其余数值字段为正有限数，`maxWallMs` 另外限制至多 `2147483647`（Node 的最大 `setTimeout` 延迟），`nodeExecutable` 非空，`bootstrapPath`（设置时）必须为绝对路径。在单文件可执行（yao-pkg/pkg）内部不存在子进程入口路径，运行时会改用路由变量 `DSH_PTC_RUNTIME_NODE` 复活可执行文件自身，并把堆上限放在 `NODE_OPTIONS` 中传递；打包 bin 到子进程的路由由可执行文件的入口负责。除此之外没有其他可调项。
 
 ## Design
 

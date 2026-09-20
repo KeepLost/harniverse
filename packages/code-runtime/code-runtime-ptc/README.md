@@ -14,9 +14,11 @@ Fresh-process PTC implementation of the [`@deepseek-ai/dsh-code-runtime`](../cod
     maxWallMs: 600000             # wall-clock deadline; never pauses for anything
     maxOutputBytes: 67108864      # combined serialized outer-output cap (64 MiB)
     maxOldGenerationSizeMb: 512   # child heap cap (--max-old-space-size)
+    nodeExecutable: /usr/bin/node # Node that runs the child (default: this process's)
+    bootstrapPath: ''             # absolute preinstalled child entry (default: this package's)
 ```
 
-Every field is validated and defaulted; `maxOutputBytes` is a safe integer of at least four bytes, the remaining fields are positive finite numbers, `maxWallMs` is additionally at most `2147483647` (Node's maximum `setTimeout` delay), and there are no other tunables.
+Every field is validated and defaulted; `maxOutputBytes` is a safe integer of at least four bytes, the remaining numeric fields are positive finite numbers, `maxWallMs` is additionally at most `2147483647` (Node's maximum `setTimeout` delay), `nodeExecutable` is non-empty, and `bootstrapPath` — when set — is absolute. Inside a single-file executable (yao-pkg/pkg) no child entry path exists, so the runtime respawns the executable itself with the routing variable `DSH_PTC_RUNTIME_NODE` and the heap flag carried as `NODE_OPTIONS`; the packaged bin route to the child is owned by the executable's entry. There are no other tunables.
 
 ## Design
 

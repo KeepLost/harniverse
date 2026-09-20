@@ -576,10 +576,24 @@ export interface Config {
   maxOutputBytes?: number
   /** The child's max old-generation heap in MiB (`--max-old-space-size`); overflow kills the child, surfacing as kind `'worker-exit'`. */
   maxOldGenerationSizeMb?: number
+  /**
+   * Node executable that runs the child; defaults to the current one. Set it
+   * when the host process is not plain Node (an Electron app resolving its
+   * bundled Node, or a deployment whose node lives elsewhere).
+   */
+  nodeExecutable?: string
+  /**
+   * Absolute path to a preinstalled child entry in the execution world.
+   * Defaults to this package's own child entry (source or built, whichever
+   * world this module runs in). Inside a single-file executable there is no
+   * such path: the runtime respawns the executable itself (see
+   * {@link childSpawnPlan}) and its bin routes to the child.
+   */
+  bootstrapPath?: string
 }
 ```
 
-Source: [`packages/code-runtime/code-runtime-ptc/src/index.ts:29`](../packages/code-runtime/code-runtime-ptc/src/index.ts)
+Source: [`packages/code-runtime/code-runtime-ptc/src/index.ts:30`](../packages/code-runtime/code-runtime-ptc/src/index.ts)
 
 <a id="deepseek-aidsh-code-runtime-python"></a>
 

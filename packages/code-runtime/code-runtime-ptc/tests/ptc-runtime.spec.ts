@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { SandboxProvider } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
-import { PtcCodeRuntime } from '../src/index.ts'
+import { childSpawnPlan, PtcCodeRuntime } from '../src/index.ts'
 import type { Config } from '../src/index.ts'
 import type { CodeBindingFunction, CodeBindingNamespace, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 
@@ -23,7 +23,18 @@ async function setup(config: Config = {}, sandbox: SandboxMode = 'raw-danger', w
   if (sandbox === 'confined-fake') {
     await ctx.plugin(class FakeSandboxProvider extends SandboxProvider {
       confine(argv: readonly string[], _policy: SandboxPolicy): ConfinedArgv {
-        return { argv: ['/usr/bin/env', ...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
+        // A cross-platform detour that ALSO proves the host spawned the
+        // wrapped argv rather than the original: a tiny Node passthrough
+        // runs the original argv under a marker variable the program
+        // observes. `/usr/bin/env` would do on POSIX but does not exist on
+        // Windows; Node itself is everywhere the host is.
+        const passthrough = [
+          '-e',
+          'const r=require("node:child_process").spawnSync(process.argv[1],process.argv.slice(2),'
+          + '{stdio:"inherit",env:{...process.env,DSH_TEST_CONFINED:"1"}});'
+          + 'process.exit(r.status ?? (r.error !== undefined ? 1 : 0))',
+        ]
+        return { argv: [process.execPath, ...passthrough, ...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
       }
     })
   }
@@ -168,7 +179,21 @@ describe('PtcCodeRuntime — programs and bindings (real children)', () => {
     const root = process.cwd()
     const { runtime } = await setup({}, 'raw-danger', root)
     const result = await runtime.run({ program: 'return { env: JSON.stringify(process.env), cwd: process.cwd() }', bindings: [] })
-    expect(result.value).toEqual({ env: '{}', cwd: root })
+    // The runtime leaks nothing from the host environment. Two platforms
+    // still mandate variables the spawn cannot refuse: CoreFoundation injects
+    // `__CF_USER_TEXT_ENCODING` into every darwin process, and Node itself
+    // recreates the Windows system set (SystemRoot and kin, plus a computed
+    // PATH) inside a child spawned with an empty env. Both arrive from the
+    // platform below the spawn call, so the contract is "no HOST keys".
+    const mandated = new Set(process.platform === 'win32'
+      ? ['homedrive', 'homepath', 'logonserver', 'path', 'systemdrive', 'systemroot', 'temp', 'tmp', 'userdomain', 'username', 'userprofile', 'windir']
+      : ['__CF_USER_TEXT_ENCODING'])
+    const env = (result.value as { env: string; cwd: string }).env === undefined
+      ? undefined
+      : JSON.parse((result.value as { env: string }).env) as Record<string, string>
+    const leaked = Object.keys(env ?? {}).filter(key => !mandated.has(process.platform === 'win32' ? key.toLowerCase() : key))
+    expect(leaked).toEqual([])
+    expect((result.value as { cwd: string }).cwd).toBe(root)
   })
 
   it('rejects a non-lossless completion instead of replacing it with rendered text', async () => {
@@ -609,7 +634,12 @@ describe('PtcCodeRuntime — hostile programs (real children)', () => {
 describe('PtcCodeRuntime — sandbox parity', () => {
   it('wraps the child argv through ctx.sandbox under a confined policy', async () => {
     const { runtime } = await setup({}, 'confined-fake')
-    const result = await runtime.run({ program: 'return "confined-ok"', bindings: [] })
+    // The fake confine's passthrough sets DSH_TEST_CONFINED for the real
+    // child: the value proves the spawn took the WRAPPED argv.
+    const result = await runtime.run({
+      program: 'return process.env.DSH_TEST_CONFINED === "1" ? "confined-ok" : "unwrapped"',
+      bindings: [],
+    })
     expect(result.value).toBe('confined-ok')
   })
 
@@ -702,6 +732,35 @@ describe('PtcCodeRuntime — seam misuse and lifecycle', () => {
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
     await expect(ctx.plugin(PtcCodeRuntime, { maxOutputBytes: 3 })).rejects.toThrow(/safe integer of at least 4/)
     await expect(ctx.plugin(PtcCodeRuntime, { maxOutputBytes: 4.5 })).rejects.toThrow(/safe integer of at least 4/)
+  })
+
+  it('rejects an empty nodeExecutable and a relative bootstrapPath', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
+    await expect(ctx.plugin(PtcCodeRuntime, { nodeExecutable: '' })).rejects.toThrow(/nodeExecutable must be non-empty/)
+    await expect(ctx.plugin(PtcCodeRuntime, { bootstrapPath: 'relative/child.cjs' })).rejects.toThrow(/bootstrapPath must be absolute/)
+  })
+
+  it('builds the ordinary child argv and an empty env, honoring an explicit node and bootstrap', async () => {
+    const base = { nodeExecutable: '/opt/node/bin/node', maxOldGenerationSizeMb: 256 }
+    expect(childSpawnPlan(base, false)).toEqual({
+      argv: ['/opt/node/bin/node', '--max-old-space-size=256', expect.any(String)],
+      env: {},
+    })
+    expect(childSpawnPlan({ ...base, bootstrapPath: '/opt/preinstalled/child.cjs' }, false)).toEqual({
+      argv: ['/opt/node/bin/node', '--max-old-space-size=256', '/opt/preinstalled/child.cjs'],
+      env: {},
+    })
+  })
+
+  it('respawns a single-file executable as the child, routing and heap cap through the environment', async () => {
+    // argv flags would reach the executable's own CLI parser, so the respawn
+    // carries exactly one argument and moves both facts into the env.
+    const plan = childSpawnPlan({ nodeExecutable: '/opt/bin/dsh-jsonrpc-agent', maxOldGenerationSizeMb: 512 }, true)
+    expect(plan).toEqual({
+      argv: ['/opt/bin/dsh-jsonrpc-agent'],
+      env: { DSH_PTC_RUNTIME_NODE: '1', NODE_OPTIONS: '--max-old-space-size=512' },
+    })
   })
 
   it('keeps runs isolated: no state survives from one run to the next', async () => {

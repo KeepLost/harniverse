@@ -21,9 +21,9 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { accessSync, constants, existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   LAUNCHER_BIN,
@@ -62,6 +62,35 @@ export interface Config {
   runnerFailureSignatures?: string[]
   /** Positive timeout for each functional probe; zero would mean unbounded to Node. */
   probeTimeoutMs?: number
+}
+
+/**
+ * Resolve a bare runner command to its absolute host path. A confined argv is
+ * spawned by consumers that scrub the child environment to an empty env, and
+ * an empty env carries no PATH for the spawn to search — a bare command name
+ * would fail with ENOENT even though the probe (running with the host PATH)
+ * succeeded. Already-absolute or unresolvable commands pass through
+ * unchanged, preserving operator-configured runner commands verbatim.
+ * @param command - the runner's argv[0] as configured, probed, or defaulted.
+ * @returns the absolute path when the host PATH resolves it, else the input.
+ */
+function absoluteCommand(command: string): string {
+  if (isAbsolute(command)) return command
+  const directories = (process.env.PATH ?? '').split(delimiter).filter(dir => dir.length > 0)
+  /* v8 ignore next -- each platform exercises its own extension list in its CI lane. */
+  const extensions = process.platform === 'win32' ? ['', '.exe', '.cmd', '.bat'] : ['']
+  for (const directory of directories) {
+    for (const extension of extensions) {
+      const candidate = join(directory, command + extension)
+      try {
+        accessSync(candidate, constants.X_OK)
+        return candidate
+      } catch {
+        // Not this directory (or not executable): keep walking the PATH.
+      }
+    }
+  }
+  return command
 }
 
 /** Probe whether `bwrap` can create the profile; the provider caches the bounded result. */
@@ -316,7 +345,7 @@ export class LocalSandboxProvider extends SandboxProvider {
   confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
     if (this.runnerCommand !== undefined) {
       return {
-        argv: [...this.runnerCommand, ...bwrapProfileArgs(policy), '--', ...argv],
+        argv: [absoluteCommand(this.runnerCommand[0] as string), ...this.runnerCommand.slice(1), ...bwrapProfileArgs(policy), '--', ...argv],
         enforcement: 'full',
         denialSignatures: DENIAL_SIGNATURES.runnerCommand,
         runnerFailureRules: [{ fatalSignatures: this.configuredRunnerFailureSignatures }],
@@ -335,9 +364,9 @@ export class LocalSandboxProvider extends SandboxProvider {
   /** The selected rung's runner invocation (program + profile arguments) for one policy. */
   private runnerArgv(runner: SelectedRunner['runner'], policy: SandboxPolicy): string[] {
     switch (runner) {
-      case 'bwrap': return ['bwrap', ...bwrapProfileArgs(policy)]
+      case 'bwrap': return [absoluteCommand('bwrap'), ...bwrapProfileArgs(policy)]
       case 'landlock': return [this.landlockLauncher(), ...landlockProfileArgs(policy)]
-      case 'seatbelt': return [this.seatbeltExec(), ...seatbeltProfileArgs(policy)]
+      case 'seatbelt': return [absoluteCommand(this.seatbeltExec()), ...seatbeltProfileArgs(policy)]
       case 'windows-acl': return this.windowsAclRunnerArgv(policy)
       default: return assertNever(runner)
     }

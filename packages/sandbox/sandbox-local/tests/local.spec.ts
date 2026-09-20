@@ -7,7 +7,7 @@
  * are all exercised through the real `confine()` path.
  */
 
-import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -115,7 +115,14 @@ describe('runnerCommand config', () => {
       runnerCommand: ['fake-runner', '--flag'],
       runnerFailureSignatures: ['fake-runner: profile rejected'],
     }, { probeBwrap, probeLandlock, probeSeatbelt })
-    const confined = sandbox.confine(['bash', '-c', 'echo hi'], WW)
+    const previousPath = process.env.PATH
+    process.env.PATH = ''
+    let confined: ReturnType<typeof sandbox.confine>
+    try {
+      confined = sandbox.confine(['bash', '-c', 'echo hi'], WW)
+    } finally {
+      process.env.PATH = previousPath
+    }
     expect(confined).toEqual({
       argv: ['fake-runner', '--flag', ...bwrapProfileArgs(WW), '--', 'bash', '-c', 'echo hi'],
       enforcement: 'full',
@@ -163,14 +170,59 @@ describe('the platform chains', () => {
     const probeBwrap = vi.fn(() => true)
     const probeLandlock = vi.fn(() => 'full' as const)
     const { sandbox } = await setup({}, { platform: 'linux', probeBwrap, probeLandlock })
-    const confined = sandbox.confine(['true'], RO)
-    expect(confined).toEqual({
-      argv: ['bwrap', ...bwrapProfileArgs(RO), '--', 'true'],
-      enforcement: 'full',
-      denialSignatures: ['read-only file system'],
-      runnerFailureRules: [{ fatalSignatures: ['bwrap: '] }],
-    })
+    const previousPath = process.env.PATH
+    process.env.PATH = ''
+    try {
+      const confined = sandbox.confine(['true'], RO)
+      expect(confined).toEqual({
+        argv: ['bwrap', ...bwrapProfileArgs(RO), '--', 'true'],
+        enforcement: 'full',
+        denialSignatures: ['read-only file system'],
+        runnerFailureRules: [{ fatalSignatures: ['bwrap: '] }],
+      })
+    } finally {
+      process.env.PATH = previousPath
+    }
     expect(probeLandlock).not.toHaveBeenCalled()
+  })
+
+  it('resolves the runner to an absolute host path so an empty-env spawn still finds it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-runner-path-'))
+    try {
+      const fake = join(dir, 'bwrap')
+      writeFileSync(fake, '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+      const previousPath = process.env.PATH
+      process.env.PATH = dir
+      try {
+        const { sandbox } = await setup({}, { platform: 'linux', probeBwrap: () => true })
+        expect(sandbox.confine(['true'], RO).argv[0]).toBe(fake)
+      } finally {
+        process.env.PATH = previousPath
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('resolves an operator runner command the same way, keeping its extra arguments', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-runner-cmd-'))
+    try {
+      const fake = join(dir, 'fake-runner')
+      writeFileSync(fake, '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+      const previousPath = process.env.PATH
+      process.env.PATH = dir
+      try {
+        const { sandbox } = await setup({ runnerCommand: ['fake-runner', '--flag'], runnerFailureSignatures: ['fake-runner: '] })
+        const argv = sandbox.confine(['true'], RO).argv
+        expect(argv[0]).toBe(fake)
+        expect(argv[1]).toBe('--flag')
+        expect(argv.slice(2)).toEqual([...bwrapProfileArgs(RO), '--', 'true'])
+      } finally {
+        process.env.PATH = previousPath
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('linux falls back to the launcher when the bwrap probe fails, speaking the landlock dialect', async () => {
@@ -198,7 +250,14 @@ describe('the platform chains', () => {
     // the consumer classify that as a sandbox failure, not a task failure.
     const probeSeatbelt = vi.fn(() => true)
     const { sandbox } = await setup({}, { platform: 'darwin', probeSeatbelt })
-    const confined = sandbox.confine(['bash', '-c', 'echo hi'], RO)
+    const previousPath = process.env.PATH
+    process.env.PATH = ''
+    let confined: ReturnType<typeof sandbox.confine>
+    try {
+      confined = sandbox.confine(['bash', '-c', 'echo hi'], RO)
+    } finally {
+      process.env.PATH = previousPath
+    }
     expect(confined).toEqual({
       argv: ['sandbox-exec', ...seatbeltProfileArgs(RO), '--', 'bash', '-c', 'echo hi'],
       enforcement: 'full',
@@ -399,8 +458,13 @@ describe('the windows-acl probe (runner invocation contract)', () => {
   it('reads a failing probe as unusable and walks to the next rung', async () => {
     const probeWindowsAcl = vi.fn(() => false)
     const { sandbox } = await setup({}, { chain: ['windows-acl', 'bwrap'], probeWindowsAcl, probeBwrap: () => true })
-    const confined = sandbox.confine(['true'], RO)
-    expect(confined.argv[0]).toBe('bwrap')
+    const previousPath = process.env.PATH
+    process.env.PATH = ''
+    try {
+      expect(sandbox.confine(['true'], RO).argv[0]).toBe('bwrap')
+    } finally {
+      process.env.PATH = previousPath
+    }
     expect(probeWindowsAcl).toHaveBeenCalledTimes(1)
   })
 
@@ -412,8 +476,13 @@ describe('the windows-acl probe (runner invocation contract)', () => {
     // either way — the runner cannot init off win32, so the probe reads
     // unusable and the walk falls through to the injected bwrap verdict.
     const { sandbox } = await setup({}, { chain: ['windows-acl', 'bwrap'], probeBwrap: () => true })
-    const confined = sandbox.confine(['true'], RO)
-    expect(confined.argv[0]).toBe('bwrap')
+    const previousPath = process.env.PATH
+    process.env.PATH = ''
+    try {
+      expect(sandbox.confine(['true'], RO).argv[0]).toBe('bwrap')
+    } finally {
+      process.env.PATH = previousPath
+    }
   }, 30_000)
 
   it('falls back to the runner source through tsx when the built entry is absent', async () => {
@@ -434,8 +503,13 @@ describe('the windows-acl probe (runner invocation contract)', () => {
     // windowsAclRunnerInvocation always yields [node, ...] in product; an
     // override returning [] exercises the default probe's empty-argv guard.
     const { sandbox } = await setup({}, { chain: ['windows-acl', 'bwrap'], probeBwrap: () => true, windowsAclRunnerArgs: [] })
-    const confined = sandbox.confine(['true'], RO)
-    expect(confined.argv[0]).toBe('bwrap')
+    const previousPath = process.env.PATH
+    process.env.PATH = ''
+    try {
+      expect(sandbox.confine(['true'], RO).argv[0]).toBe('bwrap')
+    } finally {
+      process.env.PATH = previousPath
+    }
   })
 
   it('prefers the built lib/runner.js entry when the resolved file exists', async () => {
