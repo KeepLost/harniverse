@@ -47,6 +47,7 @@ const EXPECTED_TOOLS = [
   'job_kill',
   'job_list',
   'job_output',
+  'present',
   'queue-history',
   'queue-publish',
   'queue-subscription',

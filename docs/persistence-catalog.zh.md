@@ -740,15 +740,10 @@ Source: [`packages/context/context-reset/src/types.ts:22`](../packages/context/c
  * `user/message` (plugin source `schedule`) exists. `turn` is always
  * `null`: delivery claims the idle maintenance phase between turns.
  */
-'schedule/dispatch': {
-  scheduleId: string
-  dueAt: number
-  targetSessionId: SessionId
-  turn: null
-}
+'schedule/dispatch': ScheduleDispatchEventData
 ```
 
-来源：[`packages/schedule/scheduler/src/index.ts:34`](../packages/schedule/scheduler/src/index.ts)
+来源：[`packages/schedule/scheduler/src/index.ts:36`](../packages/schedule/scheduler/src/index.ts)
 
 ### `session/*`
 

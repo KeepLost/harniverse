@@ -737,12 +737,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
  * `user/message` (plugin source `schedule`) exists. `turn` is always
  * `null`: delivery claims the idle maintenance phase between turns.
  */
-'schedule/dispatch': {
-  scheduleId: string
-  dueAt: number
-  targetSessionId: SessionId
-  turn: null
-}
+'schedule/dispatch': ScheduleDispatchEventData
 ```
 
 Source: [`packages/schedule/scheduler/src/index.ts:36`](../packages/schedule/scheduler/src/index.ts)

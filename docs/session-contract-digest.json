@@ -96,7 +96,7 @@
     "request/header": "{ header: EpochHeader; reason: RequestHeaderReason }",
     "reset/checkpoint": "{ resetId: ResetId; sourceCommandId?: CommandId; turn: null }",
     "sandbox/mode": "{ mode: SandboxMode; source?: 'delegation' }",
-    "schedule/dispatch": "{ scheduleId: string; dueAt: number; targetSessionId: SessionId; turn: null }",
+    "schedule/dispatch": "ScheduleDispatchEventData",
     "session/end-seed": "Record<string, never>",
     "session/title": "SessionTitleEventData",
     "session/title-llm-request": "SessionTitleLlmRequestEventData",
