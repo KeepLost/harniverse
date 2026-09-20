@@ -983,17 +983,18 @@ describe('imported archival sessions never resume', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
-    const failures: unknown[] = []
-    ctx.on('agent-loop/config-start-failed', ({ error }) => { failures.push(error) })
+    const failure = new Promise<unknown>((resolve) => {
+      ctx.on('agent-loop/config-start-failed', ({ error }) => {
+        resolve(error)
+      })
+    })
     await ctx.plugin(AgentLoop, {
       agents: [{ id: 'archival', resumeSessionId: sessionId, provider: 'mock', model: 'mock' }],
     })
     await ctx.plugin(JsonlSessionPersistence, { root })
     ctx.llm.registerAdapter(['mock'], adapter)
-    await new Promise(resolve => setTimeout(resolve, 50))
 
-    expect(failures).toHaveLength(1)
-    expect(failures[0]).toBeInstanceOf(ArchivalSessionError)
+    expect(await failure).toBeInstanceOf(ArchivalSessionError)
     await ctx.fiber.dispose()
   })
 })
