@@ -28,6 +28,7 @@ const BYPASS_IDENTITY: AuthenticationPrincipalIdentity = { kind: 'bypass' }
 
 /** Handler-thrown business error; maps onto the `internal` RpcResult error branch. */
 export class RemoteMockRpcError extends Error {
+  /** Always empty; reserved so the wire shape stays error-details-compatible. */
   readonly details: Record<string, never>
 
   constructor(message: string) {
@@ -143,7 +144,10 @@ export class RemoteMockApiClient extends AbstractApiClient {
     this.#handlers.set(method, handler)
   }
 
-  /** Override the wire identity settled on every response. */
+  /**
+   * Override the wire identity settled on every response.
+   * @param identity - principal identity to stamp on subsequent responses.
+   */
   authenticateAs(identity: AuthenticationPrincipalIdentity): void {
     this.#identity = identity
   }
@@ -236,7 +240,10 @@ async function *pumpAsRpcRequests<F extends MuxFrame | HostFrame>(
   }
 }
 
-/** Bypass-mode client authentication double: ready, never renewing, no network. */
+/**
+ * Bypass-mode client authentication double: ready, never renewing, no network.
+ * @returns A `ClientAuthentication` snapshot source fixed at the bypass state.
+ */
 export function createBypassClientAuthentication(): ClientAuthentication {
   const listeners = new Set<() => void>()
   return {

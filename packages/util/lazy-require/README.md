@@ -20,6 +20,7 @@ const metadata = await requireSharp()(input).metadata()
 
 The generic parameter preserves the caller-supplied module type; keep the `import type` side so the dependency itself stays out of the module graph until first use.
 
-## Scope and limits
+## Known Limitations and Deferred Work
 
-CommonJS-compatible dependencies only — an ESM-only package needs an async `await import()` factory owned by its caller. Static bundlers cannot see through the `createLazyRequire()` call, so a packed/browser build must keep the dependency name discoverable as a literal request; none of the current consumers ship a packed bundle.
+- **CommonJS-compatible dependencies only** — an ESM-only package needs an async `await import()` factory owned by its caller.
+- **Static bundlers cannot see through the `createLazyRequire()` call** — a packed/browser build must keep the dependency name discoverable as a literal request; none of the current consumers ship a packed bundle.

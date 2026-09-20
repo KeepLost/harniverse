@@ -20,6 +20,7 @@ const metadata = await requireSharp()(input).metadata()
 
 泛型参数保留调用方提供的模块类型；请保留 `import type` 一侧，让依赖本身在首次使用前不进入模块图。
 
-## 范围与限制
+## 已知限制与暂缓事项
 
-仅适用于 CommonJS 兼容依赖——ESM-only 的包需要由其调用方自持异步 `await import()` 工厂。静态打包器无法看穿 `createLazyRequire()` 调用，打包/浏览器构建必须让依赖名保持为可发现的字面量请求；当前所有消费者都不发布打包产物。
+- **仅适用于 CommonJS 兼容依赖**——ESM-only 的包需要由其调用方自持异步 `await import()` 工厂。
+- **静态打包器无法看穿 `createLazyRequire()` 调用**——打包/浏览器构建必须让依赖名保持为可发现的字面量请求；当前所有消费者都不发布打包产物。
