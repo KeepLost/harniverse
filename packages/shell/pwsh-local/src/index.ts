@@ -278,7 +278,7 @@ export class PwshLocalExecutor extends ShellExecutor {
 
   // The local launch is synchronous; the async spelling is the executor seam
   // contract, so its rejections — not sync throws — reach awaiting callers.
-  // oxlint-disable-next-line typescript(require-await) -- see above
+  // oxlint-disable-next-line require-await -- see above
   override async start(spec: ShellExecSpec): Promise<ShellProcess> {
     return this.startArgv(spec, this.argv(spec))
   }
