@@ -595,6 +595,10 @@ declare class Session {
 
 Everything else (`turn/*`, `step/*`, plugin-owned `llm/retry`) is structural and does not project into a message. Token accounting reads per-step `assistant/chunk { type: 'usage' }` records and treats `assistant/message.usage` as the committed-step fallback when no usage chunk exists; failed model-request attempts have no assistant message, so their usage chunk is the durable accounting record. Because this unreleased format intentionally has no compatibility promise, seed/load validation rejects request headers and assistant messages that omit provider/model instead of guessing a route for historical data.
 
+### Message projections
+
+`Session.create`/`Session.fromRestore` accept an optional list of [`SessionMessageProjection`](#sessionstore) objects — `{ type, project(event, context) }` — fixed at construction. After the base fold records each node's derived message, each projection re-walks the log tail for its own event type and may return replacement messages keyed by node seq; a changed replacement rebuilds the derived array from the composed map, and a surface rewrite replays the whole projection history. `SessionStore.registerMessageProjection(type, …)` registers projections for store-created sessions (duplicate types throw; the disposer unregisters). [`dsh-compaction-image-offload`](../../packages/compaction/compaction-image-offload/README.md) is the current owner: its `image/offload` projection renders the durable offload stub in place of the targeted image blocks, keeping every other block position — and therefore the KV-cache prefix — stable. Projections change only what `deriveMessages()` returns; `deriveEventMessage(event)` and display surfaces keep the original messages.
+
 ## Live-session fork API
 
 `ctx.sessions.create(id, { seed, meta })` is the low-level replay/fork primitive. For ordinary live-session forks, `SessionStore` exposes one policy API:

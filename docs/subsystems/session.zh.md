@@ -595,6 +595,10 @@ declare class Session {
 
 其余所有事件（`turn/*`、`step/*`、插件所属的 `llm/retry`）均为结构信息，不会投影为消息。token 记账读取每个步骤的 `assistant/chunk { type: 'usage' }` 记录；如果没有用量分片，则将 `assistant/message.usage` 作为已提交步骤的后备。失败的模型请求尝试没有 assistant 消息，因此其用量分片是持久化的记账记录。由于这一尚未发布的格式有意不提供兼容性承诺，seed/load 校验会拒绝没有提供方／模型的请求头和 assistant 消息，而不会猜测历史数据应走的提供方路由。
 
+### 消息投影
+
+`Session.create`/`Session.fromRestore` 接受一个可选的 [`SessionMessageProjection`](#sessionstore) 列表 —— `{ type, project(event, context) }` —— 在构造时固定。基础折叠记录每个节点的派生消息后，各投影针对自己的事件类型重新走一遍日志尾部，可返回按节点 seq 键控的替换消息；替换发生变化时从组合后的映射重建派生数组，surface 重写会重放整个投影历史。`SessionStore.registerMessageProjection(type, …)` 为 store 创建的会话注册投影（类型重复会抛错；disposer 负责注销）。[`dsh-compaction-image-offload`](../../packages/compaction/compaction-image-offload/README.md) 是当前的所有者：其 `image/offload` 投影在目标图片块的位置渲染持久化的卸载占位文本，其余块位置 —— 因而 KV-cache 前缀 —— 保持稳定。投影只改变 `deriveMessages()` 的返回；`deriveEventMessage(event)` 与展示面保留原始消息。
+
 ## 活跃会话 fork API
 
 `ctx.sessions.create(id, { seed, meta })` 是底层的回放/fork 原语。对于普通的活跃会话 fork，`SessionStore` 暴露一个策略 API：

@@ -256,6 +256,7 @@
     { "path": "./packages/compaction/compaction-basic" },
     { "path": "./packages/compaction/compaction-settings" },
     { "path": "./packages/compaction/image-offload-policy" },
+    { "path": "./packages/compaction/compaction-image-offload" },
     { "path": "./packages/compaction/compaction-lossless" },
     { "path": "./packages/compaction/tool-compaction" },
     { "path": "./packages/compaction/tool-compaction-history" },

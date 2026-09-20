@@ -17,6 +17,12 @@ export interface CompactionSettings {
   nudgeThresholdTokens?: number
   /** Growth between context-nudge notices, in estimated framed tokens. */
   nudgeRefireDeltaTokens?: number
+  /**
+   * User-turn age limit after which a retained request image offloads
+   * durably. `'unlimited'` (the default) imposes no age limit; a positive
+   * integer unloads each image once that many later user-message turns exist.
+   */
+  imageOffloadAfterUserTurns?: 'unlimited' | number
 }
 
 /** Stored compaction settings schema. */
@@ -25,6 +31,7 @@ export const Config: z<CompactionSettings> = z.object({
   nudgeEnabled: z.boolean(),
   nudgeThresholdTokens: z.number().min(1).step(1),
   nudgeRefireDeltaTokens: z.number().min(1).step(1),
+  imageOffloadAfterUserTurns: z.union([z.const('unlimited'), z.number().min(1).step(1)]),
 })
 
 /** Cordis plugin name. */
