@@ -298,7 +298,7 @@ watchConfig(filename: string, refresh: () => Promise<void> | void): () => Promis
 async dispose(): Promise<void>
 ```
 
-Source: [`packages/boot/hmr-coordination/src/index.ts:78`](../../packages/boot/hmr-coordination/src/index.ts)
+Source: [`packages/boot/hmr-coordination/src/index.ts:91`](../../packages/boot/hmr-coordination/src/index.ts)
 
 <a id="cordis-events"></a>
 

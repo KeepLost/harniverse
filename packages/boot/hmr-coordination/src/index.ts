@@ -11,7 +11,7 @@
 import { watch, type FSWatcher } from 'chokidar'
 import { existsSync, realpathSync } from 'node:fs'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { dirname, relative, resolve, sep } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 
 declare module '@deepseek-ai/cordis' {
@@ -52,6 +52,19 @@ function canonicalPath(absolute: string): string {
   } catch {
     return absolute
   }
+}
+
+/**
+ * Resolve a watched file against its deepest existing ancestor in on-disk
+ * form: Windows `TEMP` paths carry 8.3 aliases (`RUNNER~1`) whose expanded
+ * form is what directory-change events report, and libuv aborts the process
+ * when a watched-directory prefix does not textually match a reported event.
+ * The possibly-missing tail below the realized ancestor stays lexical.
+ */
+function realizedPath(absolute: string): { root: string; target: string } {
+  const existing = findWatchRoot(absolute)
+  const root = canonicalPath(existing)
+  return { root, target: join(root, relative(existing, absolute)) }
 }
 
 /**
@@ -112,14 +125,12 @@ export class HmrReloadCoordinator {
    */
   watchConfig(filename: string, refresh: () => Promise<void> | void): () => Promise<void> {
     if (this.#closing) throw new Error('HMR coordination is disposed')
-    const absolute = resolve(filename)
+    const { root: watchRoot, target: absolute } = realizedPath(resolve(filename))
     const canonical = canonicalPath(absolute)
     if (this.#registrations.has(canonical)) {
       throw new Error(`HMR coordination: ${canonical} is already registered`)
     }
-    const watchRoot = findWatchRoot(absolute)
-    const targetBelowRoot = relative(watchRoot, absolute)
-    const depth = targetBelowRoot.split(sep).length - 1
+    const depth = relative(watchRoot, absolute).split(sep).length - 1
     const watcher = watch(watchRoot, { depth, awaitWriteFinish: true })
     const registration: WatchRegistration = { watcher, refresh, running: undefined }
     // `pending` is closure-captured: an event during an in-flight pass reruns
