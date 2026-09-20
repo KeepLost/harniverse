@@ -133,6 +133,12 @@
     - id: session-projection
       name: '@deepseek-ai/dsh-session-projection'
 
+    # Lossy foreign-session import contract consumed by the agent loop's
+    # resume guard (archival sessions never execute); the runtime service is
+    # composition-optional, the guard is not.
+    - id: session-import
+      name: '@deepseek-ai/dsh-session-import'
+
     # Session telemetry is mounted but disabled by default. DSH_TELEMETRY_MODE
     # explicitly opts into FULL or FEEDBACK_ONLY reporting; uploading mirrors
     # session-log records onto OTLP/HTTP logs with no session-telemetry/record redaction

@@ -18,6 +18,12 @@
       "path": "../../interaction/supervision"
     },
     {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../session-persistence"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     }
   ]

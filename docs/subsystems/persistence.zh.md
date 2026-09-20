@@ -6,6 +6,10 @@
 
 该 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)：一个抽象服务（[dsh-session-persistence](../../packages/session/session-persistence)，`ctx.sessionPersistence`）在现有 `SessionEvent` 上定义 locate/create/append、可复用的 Session 准备流程、逻辑 load/inspect、物理后缀读取，以及轻量的 list/snapshot 观察——**没有平行的持久化事件类型**——以及两个实现同一约定的可互换后端。见 [session-persistence Agent Note](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)。
 
+## 外部会话导入 —— 接缝之上的归档结算
+
+[dsh-session-import](../../packages/session/session-import) 组合本接缝完成单向归档导入：把官方 v1/v2/v3 导出有损映射为 `import/record` 标记之下的原生事件，经 `create`/`append` 持久化映射会话，并利用 `locate` 把源工件逐字保留在映射会话旁边（`<sessionId>.source.jsonl`）。`locate` 返回 `undefined` 的后端无法保留源件，在导入时被拒绝 —— 工件与映射日志要么一起结算，要么都不结算。
+
 ## flush 检查点
 
 `session/event` 是一个*同步*通知；持久化插件会将事件复制到逐会话控制器，而不阻塞生产方。第一个待处理事件会开启固定批处理窗口，后续事件会加入但不会重置截止时间。窗口到期后会启动一个持久化批次；该次写入期间接纳的事件会获得自己的截止时间，并形成后续批次。`session/flush` 会取消等待并排空至完全停稳，因此循环仍将其用作在领取下一个普通轮次之前的顺序与错误观察检查点。后台写入被拒绝时会保留对应事件并暂停自动重试；新事件会开启新的固定窗口，而显式 flush 会立即重试，并通过 `agent/error` 和 logger 报告失败，绝不会把失败记录成已关闭轮次之后的会话事件。dispose（资源释放）会执行同样的最终排空。配置的最大值只限制有意的批处理等待，不限制事件循环调度或后端完成持久化的延迟（[决策](../../.agents/notes/implemented/architecture/2026-08-08-bounded-session-persistence-write-batching.md)）。
@@ -272,6 +276,27 @@ interface SessionPersistenceSnapshot {
 ## Cordis API
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxsessionimport--sessionimport"></a>
+
+### `ctx.sessionImport` — `SessionImport`
+
+Import foreign session logs as archival native sessions. The service owns the whole settlement — classification refusal, lossy mapping, durable persistence, and source-artifact retention happen together or not at all.
+
+```ts cordis-catalog
+/**
+ * Import one foreign artifact as a settled archival session.
+ * @param options - the artifact path plus optional target id and posture.
+ * @returns the imported session's identity and lossy-mapping counts.
+ * @throws when the artifact cannot be read or parsed, its version is
+ * `current` (native logs restore, not import) or unknown, the posture is
+ * invalid, the target id already exists, or the backend cannot preserve
+ * the source artifact beside the mapped session.
+ */
+async import(options: ImportForeignSessionOptions): Promise<ImportedSession>
+```
+
+Source: [`packages/session/session-import/src/importer.ts:64`](../../packages/session/session-import/src/importer.ts)
 
 <a id="ctxsessionpersistence--sessionpersistence-abstract-seam"></a>
 

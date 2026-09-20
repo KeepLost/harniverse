@@ -13,6 +13,7 @@ import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { ArchivalSessionError } from '@deepseek-ai/dsh-session-import'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
 const dirs: string[] = []
@@ -939,6 +940,60 @@ describe('configured-start failure edges', () => {
     // Ownership deactivated before the failure landed: the report is dropped.
     expect(failures).toEqual([])
     await configured.fiber.dispose()
+    await ctx.fiber.dispose()
+  })
+})
+
+describe('imported archival sessions never resume', () => {
+  const archivalSeed: SessionEvent[] = [{
+    type: 'import/record',
+    seq: 0,
+    time: 1,
+    data: {
+      source: { format: 'official-v3', artifactName: 'legacy.source.jsonl' },
+      posture: { supervisionMode: 'supervised' },
+    },
+  }]
+
+  async function seedArchivalRoot(sessionId: SessionId): Promise<string> {
+    const { ctx, root } = await persistentHarness(new MockAdapter([textResponse('unused')]))
+    const session = ctx.sessions.create(sessionId, { seed: archivalSeed })
+    await ctx.sessions.flush(session)
+    await ctx.fiber.dispose()
+    return root
+  }
+
+  it('refuses a direct resume of an archival session', async () => {
+    const sessionId = SessionId('archival-direct')
+    const root = await seedArchivalRoot(sessionId)
+    const ctx = await mountPersistentHarness(root, new MockAdapter([textResponse('unused')]))
+
+    await expect(ctx.agents.resume({ resumeSessionId: sessionId }))
+      .rejects.toThrow(ArchivalSessionError)
+    await ctx.fiber.dispose()
+  })
+
+  it('contains a configured declarative resume as a startup failure', async () => {
+    const sessionId = SessionId('archival-configured')
+    const root = await seedArchivalRoot(sessionId)
+    const adapter = new MockAdapter([textResponse('unused')])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(AgentRegistry)
+    const failures: unknown[] = []
+    ctx.on('agent-loop/config-start-failed', ({ error }) => { failures.push(error) })
+    await ctx.plugin(AgentLoop, {
+      agents: [{ id: 'archival', resumeSessionId: sessionId, provider: 'mock', model: 'mock' }],
+    })
+    await ctx.plugin(JsonlSessionPersistence, { root })
+    ctx.llm.registerAdapter(['mock'], adapter)
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    expect(failures).toHaveLength(1)
+    expect(failures[0]).toBeInstanceOf(ArchivalSessionError)
     await ctx.fiber.dispose()
   })
 })

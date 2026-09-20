@@ -23,6 +23,7 @@ import { errorChain } from '@deepseek-ai/dsh-llm'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SessionId, SessionPreparation } from '@deepseek-ai/dsh-session'
 import type { Session, SessionHeader } from '@deepseek-ai/dsh-session'
+import { assertNotResumable } from '@deepseek-ai/dsh-session-import'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
@@ -731,6 +732,9 @@ export class AgentLoop extends Service implements AgentFactory {
         }
         ownerCtx.fiber.assertActive()
         if (!this.ownership.isActive()) throw new Error('agent loop is not active')
+        // Imported archival sessions are settled data: resuming one as a live
+        // identity would execute history that was only ever mapped for display.
+        assertNotResumable(preparation.session.events)
         return await this.setupAndPublish(
           ownerCtx,
           id,
