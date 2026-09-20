@@ -100,7 +100,7 @@ export class SandboxPwshExecutor extends PwshLocalExecutor {
       const result = await super.run(spec)
       return { ...result, sandbox: { mode, denied: false } }
     }
-    const confined = this.confine(spec, { ...policy, mode })
+    const confined = await this.confine(spec, { ...policy, mode }, spec.signal)
     let result: ShellRunResult
     try {
       result = await this.runArgv(spec, confined.argv)
@@ -121,13 +121,11 @@ export class SandboxPwshExecutor extends PwshLocalExecutor {
     return { ...result, sandbox: { mode, denied: classifyDenial(result, confined.denialSignatures), enforcement: confined.enforcement } }
   }
 
-  override start(spec: ShellExecSpec): ShellProcess {
+  override async start(spec: ShellExecSpec): Promise<ShellProcess> {
     const policy = spec.sandboxPolicy as SandboxExecutionPolicy
     const { mode } = policy
-    if (mode === 'danger-full-access') return super.start(spec)
-    // Once startArgv returns, install facts synchronously; promise settlement
-    // cannot run before start() returns.
-    const confined = this.confine(spec, { ...policy, mode })
+    if (mode === 'danger-full-access') return await super.start(spec)
+    const confined = await this.confine(spec, { ...policy, mode }, spec.signal)
     let proc: ShellProcess
     try {
       proc = this.startArgv(spec, confined.argv)
@@ -178,10 +176,11 @@ export class SandboxPwshExecutor extends PwshLocalExecutor {
    * executor's subprocess path.
    * @param spec - resolved execution spec whose pwsh argv is confined.
    * @param policy - resolved confined execution policy.
+   * @param signal - cancellation of confinement preparation.
    * @returns the provider's exact argv and settlement-classification facts.
    */
-  private confine(spec: ShellExecSpec, policy: SandboxPolicy): ConfinedArgv {
-    return this.ctx.sandbox.confine(this.argv(spec), policy)
+  private confine(spec: ShellExecSpec, policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
+    return this.ctx.sandbox.confine(this.argv(spec), policy, signal)
   }
 }
 /* jscpd:ignore-end */

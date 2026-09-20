@@ -22,7 +22,7 @@ import type {
 } from '@deepseek-ai/dsh-subprocess'
 
 class EmptySandbox extends SandboxProvider {
-  confine(_argv: readonly string[], _policy: SandboxPolicy): ConfinedArgv {
+  override async confine(_argv: readonly string[], _policy: SandboxPolicy, _signal?: AbortSignal): Promise<ConfinedArgv> {
     return { argv: [], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }
 }
@@ -30,7 +30,7 @@ class EmptySandbox extends SandboxProvider {
 class RecordingSandbox extends SandboxProvider {
   calls: { argv: readonly string[]; policy: SandboxPolicy }[] = []
 
-  confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
+  override async confine(argv: readonly string[], policy: SandboxPolicy, _signal?: AbortSignal): Promise<ConfinedArgv> {
     this.calls.push({ argv, policy })
     return { argv: ['/sandbox', '--', ...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }

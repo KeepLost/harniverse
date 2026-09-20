@@ -100,11 +100,11 @@ export abstract class ShellExecutor extends Service {
   abstract run(spec: ShellExecSpec): Promise<ShellRunResult>
 
   /**
-   * Start a background process and return its handle immediately.
+   * Prepare a background process asynchronously and publish its live handle.
    * @param spec - a resolved spec from {@link resolve}, never a raw request.
-   * @returns the live process handle (reads, kill, quiescence promise).
+   * @returns the live process handle after preparation; cancellation or setup failure rejects.
    */
-  abstract start(spec: ShellExecSpec): ShellProcess
+  abstract start(spec: ShellExecSpec): Promise<ShellProcess>
 }
 
 export default ShellExecutor

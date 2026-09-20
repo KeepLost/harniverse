@@ -378,7 +378,7 @@ export class PtcCodeRuntime extends CodeRuntime {
    * `danger-full-access` runs the raw argv. The resolved policy also fixes
    * the child's cwd (the workspace-write boundary).
    */
-  private spawnPlan(): { argv: string[]; env: NodeJS.ProcessEnv; cwd: string } {
+  private async spawnPlan(signal?: AbortSignal): Promise<{ argv: string[]; env: NodeJS.ProcessEnv; cwd: string }> {
     const policy = this.ctx.sandboxPolicy.resolve()
     const { argv, env } = childSpawnPlan(this.config, PACKAGED_RUNTIME)
     const mode = policy.mode
@@ -387,18 +387,18 @@ export class PtcCodeRuntime extends CodeRuntime {
     if (sandbox === undefined) {
       throw new SandboxUnavailableError(mode)
     }
-    return { argv: sandbox.confine(argv, { ...policy, mode }).argv, env, cwd: policy.workspaceRoot }
+    return { argv: (await sandbox.confine(argv, { ...policy, mode }, signal)).argv, env, cwd: policy.workspaceRoot }
   }
 
   /** Spawn the child for one validated, type-stripped run and drive it to settlement. */
-  private execute(
+  private async execute(
     request: CodeRunRequest,
     code: string,
     bindings: Map<string, CodeBindingNamespace>,
   ): Promise<CodeRunResult> {
     // Sandbox refusal (confined mode without a provider) fails closed here,
     // exactly like the Bash family's spawn path — before any process exists.
-    const { argv, env, cwd } = this.spawnPlan()
+    const { argv, env, cwd } = await this.spawnPlan(request.signal)
     // Model code gets NO ambient environment — stronger than the scrubbed
     // env the defensive-patterns rule requires for spawned commands — and
     // hermetic flags: the argv is built from scratch (heap cap plus entry),

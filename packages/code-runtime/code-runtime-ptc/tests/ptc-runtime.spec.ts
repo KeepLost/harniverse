@@ -22,7 +22,7 @@ async function setup(config: Config = {}, sandbox: SandboxMode = 'raw-danger', w
   })
   if (sandbox === 'confined-fake') {
     await ctx.plugin(class FakeSandboxProvider extends SandboxProvider {
-      confine(argv: readonly string[], _policy: SandboxPolicy): ConfinedArgv {
+      override async confine(argv: readonly string[], _policy: SandboxPolicy, _signal?: AbortSignal): Promise<ConfinedArgv> {
         // A cross-platform detour that ALSO proves the host spawned the
         // wrapped argv rather than the original: a tiny Node passthrough
         // runs the original argv under a marker variable the program

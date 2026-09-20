@@ -26,7 +26,7 @@ afterEach(async () => {
 class PassthroughSandbox extends SandboxProvider {
   calls: { argv: readonly string[]; policy: SandboxPolicy }[] = []
 
-  confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
+  override async confine(argv: readonly string[], policy: SandboxPolicy, _signal?: AbortSignal): Promise<ConfinedArgv> {
     this.calls.push({ argv, policy })
     return { argv: [...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }

@@ -338,11 +338,13 @@ export class LocalSandboxProvider extends SandboxProvider {
    *
    * @param argv - the exact argv the caller is about to spawn.
    * @param policy - the file-effect policy this execution runs under.
+   * @param signal - cancellation before the wrapper is resolved.
    * @returns the wrapped argv plus the selected backend's enforcement completeness, denial
    *   signatures, and structured runner-failure rules; throws the fail-closed
    *   `SANDBOX_UNAVAILABLE` error when the platform has no usable runner.
    */
-  confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
+  override async confine(argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
+    signal?.throwIfAborted()
     if (this.runnerCommand !== undefined) {
       return {
         argv: [absoluteCommand(this.runnerCommand[0] as string), ...this.runnerCommand.slice(1), ...bwrapProfileArgs(policy), '--', ...argv],

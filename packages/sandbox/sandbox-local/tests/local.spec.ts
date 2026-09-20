@@ -117,9 +117,9 @@ describe('runnerCommand config', () => {
     }, { probeBwrap, probeLandlock, probeSeatbelt })
     const previousPath = process.env.PATH
     process.env.PATH = ''
-    let confined: ReturnType<typeof sandbox.confine>
+    let confined: Awaited<ReturnType<typeof sandbox.confine>>
     try {
-      confined = sandbox.confine(['bash', '-c', 'echo hi'], WW)
+      confined = await sandbox.confine(['bash', '-c', 'echo hi'], WW)
     } finally {
       process.env.PATH = previousPath
     }
@@ -139,7 +139,7 @@ describe('runnerCommand config', () => {
   it('an EMPTY runnerCommand means unconfigured: the platform chain still gates the wrap', async () => {
     const probeBwrap = vi.fn(() => false)
     const { sandbox } = await setup({ runnerCommand: [] }, { platform: 'linux', probeBwrap, probeLandlock: () => 'unusable' })
-    expect(() => sandbox.confine(['true'], RO)).toThrow(SandboxUnavailableError)
+    await expect(sandbox.confine(['true'], RO)).rejects.toThrow(SandboxUnavailableError)
     expect(probeBwrap).toHaveBeenCalledTimes(1)
   })
 
@@ -173,7 +173,7 @@ describe('the platform chains', () => {
     const previousPath = process.env.PATH
     process.env.PATH = ''
     try {
-      const confined = sandbox.confine(['true'], RO)
+      const confined = await sandbox.confine(['true'], RO)
       expect(confined).toEqual({
         argv: ['bwrap', ...bwrapProfileArgs(RO), '--', 'true'],
         enforcement: 'full',
@@ -195,7 +195,7 @@ describe('the platform chains', () => {
       process.env.PATH = dir
       try {
         const { sandbox } = await setup({}, { platform: 'linux', probeBwrap: () => true })
-        expect(sandbox.confine(['true'], RO).argv[0]).toBe(fake)
+        expect((await sandbox.confine(['true'], RO)).argv[0]).toBe(fake)
       } finally {
         process.env.PATH = previousPath
       }
@@ -213,7 +213,7 @@ describe('the platform chains', () => {
       process.env.PATH = dir
       try {
         const { sandbox } = await setup({ runnerCommand: ['fake-runner', '--flag'], runnerFailureSignatures: ['fake-runner: '] })
-        const argv = sandbox.confine(['true'], RO).argv
+        const argv = await (await sandbox.confine(['true'], RO)).argv
         expect(argv[0]).toBe(fake)
         expect(argv[1]).toBe('--flag')
         expect(argv.slice(2)).toEqual([...bwrapProfileArgs(RO), '--', 'true'])
@@ -230,7 +230,7 @@ describe('the platform chains', () => {
     const probeLandlock = vi.fn(() => 'full' as const)
     const launcher = fakeLauncher()
     const { sandbox } = await setup({}, { platform: 'linux', probeBwrap, probeLandlock, landlockLauncher: launcher })
-    const confined = sandbox.confine(['bash', '-c', 'echo hi'], WW)
+    const confined = await sandbox.confine(['bash', '-c', 'echo hi'], WW)
     expect(confined).toEqual({
       argv: [launcher, ...landlockProfileArgs(WW), '--', 'bash', '-c', 'echo hi'],
       enforcement: 'full',
@@ -252,9 +252,9 @@ describe('the platform chains', () => {
     const { sandbox } = await setup({}, { platform: 'darwin', probeSeatbelt })
     const previousPath = process.env.PATH
     process.env.PATH = ''
-    let confined: ReturnType<typeof sandbox.confine>
+    let confined: Awaited<ReturnType<typeof sandbox.confine>>
     try {
-      confined = sandbox.confine(['bash', '-c', 'echo hi'], RO)
+      confined = await sandbox.confine(['bash', '-c', 'echo hi'], RO)
     } finally {
       process.env.PATH = previousPath
     }
@@ -272,7 +272,7 @@ describe('the platform chains', () => {
     const probeLandlock = vi.fn(() => 'full' as const)
     const probeSeatbelt = vi.fn(() => true)
     const { sandbox } = await setup({}, { platform: 'freebsd', probeBwrap, probeLandlock, probeSeatbelt })
-    expect(() => sandbox.confine(['true'], RO)).toThrow(expect.objectContaining({ name: 'SandboxUnavailableError', code: SANDBOX_UNAVAILABLE }))
+    await expect(sandbox.confine(['true'], RO)).rejects.toThrow(expect.objectContaining({ name: 'SandboxUnavailableError', code: SANDBOX_UNAVAILABLE }))
     expect(probeBwrap).not.toHaveBeenCalled()
     expect(probeLandlock).not.toHaveBeenCalled()
     expect(probeSeatbelt).not.toHaveBeenCalled()
@@ -295,8 +295,8 @@ describe('the platform chains', () => {
     const probeBwrap = vi.fn(() => false)
     const probeLandlock = vi.fn(() => 'unusable' as const)
     const { sandbox } = await setup({}, { platform: 'linux', probeBwrap, probeLandlock })
-    expect(() => sandbox.confine(['true'], RO)).toThrow(expect.objectContaining({ name: 'SandboxUnavailableError', code: SANDBOX_UNAVAILABLE }))
-    expect(() => sandbox.confine(['true'], RO)).toThrow(SandboxUnavailableError)
+    await expect(sandbox.confine(['true'], RO)).rejects.toThrow(expect.objectContaining({ name: 'SandboxUnavailableError', code: SANDBOX_UNAVAILABLE }))
+    await expect(sandbox.confine(['true'], RO)).rejects.toThrow(SandboxUnavailableError)
     expect(probeBwrap).toHaveBeenCalledTimes(1)
     expect(probeLandlock).toHaveBeenCalledTimes(1)
   })
@@ -308,7 +308,7 @@ describe('the platform chains', () => {
     const exec = fakeSeatbeltExec(0)
     const probeBwrap = vi.fn(() => false)
     const { sandbox } = await setup({}, { chain: ['bwrap', 'seatbelt'], probeBwrap, seatbeltExec: exec })
-    const confined = sandbox.confine(['true'], RO)
+    const confined = await sandbox.confine(['true'], RO)
     expect(confined.argv[0]).toBe(exec)
     expect(confined.enforcement).toBe('full')
     expect(probeBwrap).toHaveBeenCalledTimes(1)
@@ -318,7 +318,7 @@ describe('the platform chains', () => {
     // Same convention as the wrap switch below: the union is closed, so a runner added later
     // fails to compile at the probe switch instead of silently selecting without a probe.
     const { sandbox } = await setup({}, { chain: ['chroot', 'bwrap'] as unknown as readonly ['bwrap'] })
-    expect(() => sandbox.confine(['true'], RO)).toThrow('unreachable variant')
+    await expect(sandbox.confine(['true'], RO)).rejects.toThrow('unreachable variant')
   })
 
   it('a rogue cached runner tag throws via the exhaustiveness guard (closed union)', async () => {
@@ -326,7 +326,7 @@ describe('the platform chains', () => {
     // runner cannot silently use another runner's wrap or denial dialect.
     const { sandbox } = await setup()
     ;(sandbox as unknown as { selectedRunner: unknown }).selectedRunner = { runner: 'chroot', enforcement: 'full' }
-    expect(() => sandbox.confine(['true'], RO)).toThrow('unreachable variant')
+    await expect(sandbox.confine(['true'], RO)).rejects.toThrow('unreachable variant')
   })
 
   it('runs the real default probes on the linux chain when none are injected (usable here or fail closed there)', async () => {
@@ -364,13 +364,13 @@ describe('the platform chains', () => {
 describe('the default landlock probe (launcher CLI contract)', () => {
   it('parses a fully-enforced probe report as full enforcement', async () => {
     const { sandbox } = await setup({}, { platform: 'linux', probeBwrap: () => false, landlockLauncher: fakeLauncher() })
-    expect(sandbox.confine(['true'], RO).enforcement).toBe('full')
+    expect((await sandbox.confine(['true'], RO)).enforcement).toBe('full')
   })
 
   it('parses a partially-enforced (older-ABI) probe report as partial enforcement', async () => {
     const launcher = fakeLauncher('landlock: partially enforced (older ABI)')
     const { sandbox } = await setup({}, { platform: 'linux', probeBwrap: () => false, landlockLauncher: launcher })
-    expect(sandbox.confine(['true'], RO).enforcement).toBe('partial')
+    expect((await sandbox.confine(['true'], RO)).enforcement).toBe('partial')
   })
 
   it('reads a failing launcher as unusable: the chain ends and fails closed', async () => {
@@ -378,7 +378,7 @@ describe('the default landlock probe (launcher CLI contract)', () => {
     const launcher = join(dir, 'landlock-run')
     writeFileSync(launcher, `#!/bin/sh\nexit ${LAUNCHER_FAILURE_EXIT}\n`, { mode: 0o755 })
     const { sandbox } = await setup({}, { platform: 'linux', probeBwrap: () => false, landlockLauncher: launcher })
-    expect(() => sandbox.confine(['true'], RO)).toThrow(expect.objectContaining({ code: SANDBOX_UNAVAILABLE }))
+    await expect(sandbox.confine(['true'], RO)).rejects.toThrow(expect.objectContaining({ code: SANDBOX_UNAVAILABLE }))
   })
 })
 
@@ -403,13 +403,13 @@ describe('probeTimeoutMs config', () => {
       { probeTimeoutMs: 15_000 },
       { platform: 'linux', probeBwrap: () => false, landlockLauncher: launcher },
     )
-    expect(patient.sandbox.confine(['true'], RO).enforcement).toBe('full')
+    expect((await patient.sandbox.confine(['true'], RO)).enforcement).toBe('full')
 
     const impatient = await setup(
       { probeTimeoutMs: 250 },
       { platform: 'linux', probeBwrap: () => false, landlockLauncher: launcher },
     )
-    expect(() => impatient.sandbox.confine(['true'], RO)).toThrow(expect.objectContaining({ code: SANDBOX_UNAVAILABLE }))
+    await expect(impatient.sandbox.confine(['true'], RO)).rejects.toThrow(expect.objectContaining({ code: SANDBOX_UNAVAILABLE }))
   }, 30_000)
 })
 
@@ -420,7 +420,7 @@ describe('the default seatbelt probe (sandbox-exec contract)', () => {
   it('selects the rung when the executable applies the read-only profile and exits 0', async () => {
     const exec = fakeSeatbeltExec(0)
     const { sandbox } = await setup({}, { chain: ['bwrap', 'seatbelt'], probeBwrap: () => false, seatbeltExec: exec })
-    const confined = sandbox.confine(['true'], RO)
+    const confined = await sandbox.confine(['true'], RO)
     expect(confined).toEqual({
       argv: [exec, ...seatbeltProfileArgs(RO), '--', 'true'],
       enforcement: 'full',
@@ -431,7 +431,7 @@ describe('the default seatbelt probe (sandbox-exec contract)', () => {
 
   it('reads a failing executable as unusable: the chain ends and fails closed', async () => {
     const { sandbox } = await setup({}, { chain: ['bwrap', 'seatbelt'], probeBwrap: () => false, seatbeltExec: fakeSeatbeltExec(1) })
-    expect(() => sandbox.confine(['true'], RO)).toThrow(expect.objectContaining({ code: SANDBOX_UNAVAILABLE }))
+    await expect(sandbox.confine(['true'], RO)).rejects.toThrow(expect.objectContaining({ code: SANDBOX_UNAVAILABLE }))
   })
 })
 
@@ -447,7 +447,7 @@ describe('the windows-acl probe (runner invocation contract)', () => {
       probeBwrap: () => false,
       windowsAclRunnerArgs: ['node', 'windows-acl-runner.js'],
     })
-    const confined = sandbox.confine(['true'], RO)
+    const confined = await sandbox.confine(['true'], RO)
     expect(probeWindowsAcl).toHaveBeenCalledTimes(1)
     expect(confined.argv.slice(-4)).toEqual(['--mode', 'read-only', '--', 'true'])
     expect(confined.enforcement).toBe('partial')
@@ -461,7 +461,7 @@ describe('the windows-acl probe (runner invocation contract)', () => {
     const previousPath = process.env.PATH
     process.env.PATH = ''
     try {
-      expect(sandbox.confine(['true'], RO).argv[0]).toBe('bwrap')
+      expect((await sandbox.confine(['true'], RO)).argv[0]).toBe('bwrap')
     } finally {
       process.env.PATH = previousPath
     }
@@ -479,7 +479,7 @@ describe('the windows-acl probe (runner invocation contract)', () => {
     const previousPath = process.env.PATH
     process.env.PATH = ''
     try {
-      expect(sandbox.confine(['true'], RO).argv[0]).toBe('bwrap')
+      expect((await sandbox.confine(['true'], RO)).argv[0]).toBe('bwrap')
     } finally {
       process.env.PATH = previousPath
     }
@@ -494,7 +494,7 @@ describe('the windows-acl probe (runner invocation contract)', () => {
       probeWindowsAcl: () => true,
       windowsAclRunnerEntry: absentRunnerEntry(),
     })
-    const confined = sandbox.confine(['true'], RO)
+    const confined = await sandbox.confine(['true'], RO)
     expect(confined.argv.slice(0, 3)).toEqual([process.execPath, '--import', 'tsx/esm'])
     expect(confined.argv[3]).toMatch(/runner\.ts$/)
   })
@@ -506,7 +506,7 @@ describe('the windows-acl probe (runner invocation contract)', () => {
     const previousPath = process.env.PATH
     process.env.PATH = ''
     try {
-      expect(sandbox.confine(['true'], RO).argv[0]).toBe('bwrap')
+      expect((await sandbox.confine(['true'], RO)).argv[0]).toBe('bwrap')
     } finally {
       process.env.PATH = previousPath
     }
@@ -521,7 +521,7 @@ describe('the windows-acl probe (runner invocation contract)', () => {
       probeWindowsAcl: () => true,
       windowsAclRunnerEntry: builtEntry,
     })
-    const confined = sandbox.confine(['true'], RO)
+    const confined = await sandbox.confine(['true'], RO)
     expect(confined.argv.slice(0, 2)).toEqual([process.execPath, builtEntry])
   })
 })
