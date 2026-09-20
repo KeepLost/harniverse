@@ -458,9 +458,15 @@ declare class Session {
    * @param id - session identity.
    * @param seed - optional borrowed replay or fork events.
    * @param header - optional borrowed storage metadata.
+   * @param projections - pure interpreters for plugin-owned message changes.
    * @returns a detached session.
    */
-  static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;
+  static create(
+    id: SessionId,
+    seed?: readonly SessionEvent[],
+    header?: SessionHeader,
+    projections?: readonly SessionMessageProjection[],
+  ): Session;
   /**
    * Restore a detached session by taking ownership of fresh persistence values.
    * The storage format, event envelopes, sequence continuity, surface transitions,
@@ -470,6 +476,7 @@ declare class Session {
    * @param header - fresh detached metadata whose ownership is transferred.
    * @param history - optional absolute-sequence resolver for a windowed seed.
    * @param surface - optional surface state already folded at the window boundary.
+   * @param projections - pure interpreters for plugin-owned message changes.
    * @returns a restored detached session.
    */
    static fromRestore(
@@ -478,6 +485,7 @@ declare class Session {
      header: SessionHeader,
      history?: SessionHistorySource,
      surface?: { readonly nodes: readonly number[]; readonly replaceGeneration: number },
+     projections?: readonly SessionMessageProjection[],
    ): Session;
   /**
    * An immutable snapshot of the append-only event log. The snapshot is reused
@@ -562,7 +570,11 @@ declare class Session {
    * append records its `surfaceOp`, so a raw event with no marker (a chunk, a
    * turn boundary) is correctly absent, and a compaction `replace` deletes the
    * shadowed nodes from the derivation. The projection rules are
-   * {@link deriveEventMessage}, folded per node.
+   * {@link deriveEventMessage}, folded per node, then the registered
+   * {@link SessionMessageProjection} interpreters rewrite messages named by
+   * plugin-owned decision events (model-visible projections such as
+   * `image/offload`); projections supplied at construction stay fixed for the
+   * session's life.
    *
    * CACHED: each surface node is projected exactly once, when first seen — a
    * call costs O(new nodes), and a surface rewrite (a `replace`;
@@ -597,7 +609,7 @@ declare class Session {
 
 ### 消息投影
 
-`Session.create`/`Session.fromRestore` 接受一个可选的 [`SessionMessageProjection`](#sessionstore) 列表 —— `{ type, project(event, context) }` —— 在构造时固定。基础折叠记录每个节点的派生消息后，各投影针对自己的事件类型重新走一遍日志尾部，可返回按节点 seq 键控的替换消息；替换发生变化时从组合后的映射重建派生数组，surface 重写会重放整个投影历史。`SessionStore.registerMessageProjection(type, …)` 为 store 创建的会话注册投影（类型重复会抛错；disposer 负责注销）。[`dsh-compaction-image-offload`](../../packages/compaction/compaction-image-offload/README.md) 是当前的所有者：其 `image/offload` 投影在目标图片块的位置渲染持久化的卸载占位文本，其余块位置 —— 因而 KV-cache 前缀 —— 保持稳定。投影只改变 `deriveMessages()` 的返回；`deriveEventMessage(event)` 与展示面保留原始消息。
+`Session.create`/`Session.fromRestore` 接受一个可选的 [`SessionMessageProjection`](#ctxsessions--sessionstore) 列表 —— `{ type, project(event, context) }` —— 在构造时固定。基础折叠记录每个节点的派生消息后，各投影针对自己的事件类型重新走一遍日志尾部，可返回按节点 seq 键控的替换消息；替换发生变化时从组合后的映射重建派生数组，surface 重写会重放整个投影历史。`SessionStore.registerMessageProjection(type, …)` 为 store 创建的会话注册投影（类型重复会抛错；disposer 负责注销）。[`dsh-compaction-image-offload`](../../packages/compaction/compaction-image-offload/README.md) 是当前的所有者：其 `image/offload` 投影在目标图片块的位置渲染持久化的卸载占位文本，其余块位置 —— 因而 KV-cache 前缀 —— 保持稳定。投影只改变 `deriveMessages()` 的返回；`deriveEventMessage(event)` 与展示面保留原始消息。
 
 ## 活跃会话 fork API
 

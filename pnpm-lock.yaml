@@ -1344,6 +1344,9 @@ importers:
       '@deepseek-ai/dsh-session-delivery-local':
         specifier: workspace:^
         version: link:../../session-query/session-delivery-local
+      '@deepseek-ai/dsh-session-import':
+        specifier: workspace:^
+        version: link:../../session/session-import
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: workspace:^
         version: link:../../session/session-persistence-jsonl
@@ -10576,6 +10579,9 @@ importers:
       '@deepseek-ai/dsh-session-checkpoint-policy':
         specifier: workspace:^
         version: link:../../packages/session/session-checkpoint-policy
+      '@deepseek-ai/dsh-session-import':
+        specifier: workspace:^
+        version: link:../../packages/session/session-import
       '@deepseek-ai/dsh-session-persistence':
         specifier: workspace:^
         version: link:../../packages/session/session-persistence
