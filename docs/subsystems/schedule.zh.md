@@ -48,8 +48,14 @@ type SchedulerRule =
 派发在定时提示词进入目标会话收件箱之前立即追加一条仅日志事件；`turn` 恒为 `null`，因为投递占用的是轮次之间的空闲维护阶段。
 
 ```ts type-equiv
-/** Durable provenance of one scheduler delivery — log-only, no surfaceOp. */
-interface ScheduleDispatchEvent {
+/**
+ * Durable provenance of one scheduler delivery — log-only, no surfaceOp.
+ * Appended to the target session immediately before the scheduled prompt
+ * enters the inbox, so a transcript can explain why the following
+ * `user/message` (plugin source `schedule`) exists. `turn` is always
+ * `null`: delivery claims the idle maintenance phase between turns.
+ */
+interface ScheduleDispatchEventData {
   readonly scheduleId: string
   readonly dueAt: number
   readonly targetSessionId: SessionId

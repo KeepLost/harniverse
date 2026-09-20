@@ -9,16 +9,20 @@ Caller-relative lazy loading for CommonJS-compatible Host dependencies. One tiny
 `createLazyRequire` builds a zero-argument loader from Node's `createRequire`, pinned to the caller's own `import.meta.url` so published package layout keeps resolving correctly. Only successful loads are cached; a failed load stays uncached, so a corrected installation can be retried by the next call.
 
 ```ts
-import type sharp from 'sharp'
 import { createLazyRequire } from '@deepseek-ai/dsh-lazy-require'
 
-const requireSharp = createLazyRequire<typeof sharp>('sharp', import.meta.url)
+/** Minimal structural stand-in for the native module's call signature. */
+interface SharpLike {
+  (input: Uint8Array): { metadata(): Promise<{ width?: number }> }
+}
+
+const requireSharp = createLazyRequire<SharpLike>('sharp', import.meta.url)
 
 // First use loads the native binding; every later call returns the same module.
-const metadata = await requireSharp()(input).metadata()
+const metadata = await requireSharp()(new Uint8Array(8)).metadata()
 ```
 
-The generic parameter preserves the caller-supplied module type; keep the `import type` side so the dependency itself stays out of the module graph until first use.
+The generic parameter preserves the caller-supplied module type; a consumer with installed types passes `typeof sharp` from an `import type` side, keeping the dependency itself out of the module graph until first use.
 
 ## Known Limitations and Deferred Work
 

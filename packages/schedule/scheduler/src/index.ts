@@ -33,12 +33,7 @@ declare module '@deepseek-ai/dsh-session/types' {
      * `user/message` (plugin source `schedule`) exists. `turn` is always
      * `null`: delivery claims the idle maintenance phase between turns.
      */
-    'schedule/dispatch': {
-      scheduleId: string
-      dueAt: number
-      targetSessionId: SessionId
-      turn: null
-    }
+    'schedule/dispatch': ScheduleDispatchEventData
   }
 }
 import {
@@ -51,6 +46,7 @@ import {
 import type {
   ScheduleCreateInput,
   ScheduleCreateRemoteInput,
+  ScheduleDispatchEventData,
   ScheduleRecord,
   ScheduleRun,
   ScheduleUpdate,
@@ -65,6 +61,7 @@ export type {
   ScheduleUpdate,
   SchedulerRule,
   ScheduleDispatchOutcome,
+  ScheduleDispatchEventData,
 } from './types.ts'
 
 /** Input accepted by {@link SchedulerService.create}. */

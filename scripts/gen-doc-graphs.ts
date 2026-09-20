@@ -646,6 +646,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Composes the __DSH_BOOT__ entry graph from an incremental dsh.client scan, serves plugin bundles, and notifies rebuilt/graph-changed subscribers.',
   },
   {
+    key: 'hmrCoordination',
+    pkg: 'hmr-coordination',
+    title: 'Coordinated boot-layer config reloads',
+    mode: 'core',
+    consumers: ['app-boot'],
+    note: 'Owns the exclusive reload queue and exact-path config watchers for boot layers; app-boot joins user patch-layer refreshes through watchConfig, and reload failures fan out over the hmr-coordination/config-update-failed event.',
+  },
+  {
     key: 'workflowEngine',
     pkg: 'workflow',
     title: 'Workflow script engine',

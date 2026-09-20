@@ -38,7 +38,7 @@ import {
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   DeepSeekAdapter,
 } from './adapter.ts'
-import type { DeepSeekCatalogModel, DeepSeekConnectionOptions, DeepSeekProtocol } from './adapter.ts'
+import type { DeepSeekCatalogModel, DeepSeekConnectionOptions, DeepSeekProtocol } from './common/types.ts'
 import { DEFAULT_MODELS } from './common/models.ts'
 
 export {
