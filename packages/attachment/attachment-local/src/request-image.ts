@@ -3,7 +3,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import sharp from 'sharp'
+import { requireSharp } from './sharp.ts'
 import { AttachmentError, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type {
   ImageAttachmentRef,
@@ -96,7 +96,7 @@ export function requestImageVariantId(
 
 async function metadata(data: Uint8Array): Promise<ImageMetadata> {
   try {
-    const info = await sharp(data, { failOn: 'error', limitInputPixels: false }).metadata()
+    const info = await requireSharp()(data, { failOn: 'error', limitInputPixels: false }).metadata()
     const mediaType = MEDIA_TYPES[info.format]
     if (mediaType === undefined) {
       throw new AttachmentError('Unsupported or malformed image data.', 'INVALID_IMAGE')
@@ -120,7 +120,7 @@ async function encode(
   hasAlpha: boolean,
   quality: number,
 ): Promise<EncodedImage> {
-  const image = sharp(source, { failOn: 'error', limitInputPixels: false })
+  const image = requireSharp()(source, { failOn: 'error', limitInputPixels: false })
     .toColourspace('srgb')
     .resize({ width, height, fit: 'inside', withoutEnlargement: true })
   const output = hasAlpha

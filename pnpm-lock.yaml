@@ -1027,6 +1027,9 @@ importers:
 
   packages/attachment/attachment-local:
     dependencies:
+      '@deepseek-ai/dsh-lazy-require':
+        specifier: workspace:^
+        version: link:../../util/lazy-require
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
@@ -7124,6 +7127,9 @@ importers:
 
   packages/sandbox/sandbox-windows-acl:
     dependencies:
+      '@deepseek-ai/dsh-lazy-require':
+        specifier: workspace:^
+        version: link:../../util/lazy-require
       koffi:
         specifier: ^3.1.0
         version: 3.1.1
@@ -9215,6 +9221,9 @@ importers:
 
   packages/subprocess/subprocess-local:
     dependencies:
+      '@deepseek-ai/dsh-lazy-require':
+        specifier: workspace:^
+        version: link:../../util/lazy-require
       koffi:
         specifier: ^3.1.0
         version: 3.1.1
@@ -9669,6 +9678,15 @@ importers:
         version: link:../../runtime-diagnostics/invariants
 
   packages/util/launch-environment:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+
+  packages/util/lazy-require:
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^

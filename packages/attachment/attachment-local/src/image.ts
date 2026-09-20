@@ -1,6 +1,7 @@
 /** Raster inspection: full decode at admission, header-only probe on verified reads. */
 
-import sharp, { type Sharp } from 'sharp'
+import type { Sharp } from 'sharp'
+import { requireSharp } from './sharp.ts'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 
@@ -37,7 +38,7 @@ async function imageMetadata(image: Sharp): Promise<DetectedImage> {
  */
 export async function probeImage(data: Uint8Array): Promise<DetectedImage> {
   try {
-    return await imageMetadata(sharp(data, { failOn: 'error', limitInputPixels: false }))
+    return await imageMetadata(requireSharp()(data, { failOn: 'error', limitInputPixels: false }))
   } catch (error) {
     if (error instanceof AttachmentError) throw error
     throw new AttachmentError('Unsupported or malformed image data.', 'INVALID_IMAGE', { cause: error })
@@ -52,7 +53,7 @@ export async function probeImage(data: Uint8Array): Promise<DetectedImage> {
  */
 export async function detectImage(data: Uint8Array, maxPixels?: number): Promise<DetectedImage> {
   try {
-    const image = sharp(data, { failOn: 'error', limitInputPixels: false })
+    const image = requireSharp()(data, { failOn: 'error', limitInputPixels: false })
     const detected = await imageMetadata(image)
     if (maxPixels !== undefined && detected.width * detected.height > maxPixels) {
       throw new AttachmentError('Image exceeds the configured decoded-pixel limit.', 'IMAGE_TOO_MANY_PIXELS')

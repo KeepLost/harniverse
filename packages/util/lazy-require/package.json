@@ -1,6 +1,6 @@
 {
-  "name": "@deepseek-ai/dsh-attachment-local",
-  "description": "Private content-addressed DSH_HOME attachment storage",
+  "name": "@deepseek-ai/dsh-lazy-require",
+  "description": "Caller-relative lazy CommonJS loader for native Host dependencies",
   "version": "0.1.0-rc.5",
   "publishConfig": {
     "access": "public"
@@ -8,7 +8,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
-    "directory": "packages/attachment/attachment-local"
+    "directory": "packages/util/lazy-require"
   },
   "type": "module",
   "main": "lib/index.js",
@@ -32,21 +32,11 @@
   ],
   "license": "MIT",
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-attachment": "workspace:^",
-    "@deepseek-ai/dsh-home-paths": "workspace:^",
-    "@deepseek-ai/dsh-invariants": "workspace:^"
-  },
-  "dependencies": {
-    "@deepseek-ai/schemastery": "workspace:^",
-    "sharp": "^0.35.4",
-    "@deepseek-ai/dsh-lazy-require": "workspace:^"
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/cordis": "workspace:^"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-attachment": "workspace:^",
-    "@deepseek-ai/dsh-home-paths": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
-    "@deepseek-ai/dsh-lazy-require": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:^"
   }
 }

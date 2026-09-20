@@ -6,7 +6,11 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import koffi from 'koffi'
+import type koffi from 'koffi'
+import { createLazyRequire } from '@deepseek-ai/dsh-lazy-require'
+
+/** Lazy koffi loader: the addon loads only when Windows process state is first requested. */
+const requireKoffi = createLazyRequire<typeof koffi>('koffi', import.meta.url)
 import type { SubprocessTerminalSignal } from '@deepseek-ai/dsh-subprocess'
 import type { ProcessIdentity, ProcessInspector, ProcessSnapshot } from './process-inspector.ts'
 
@@ -162,13 +166,13 @@ interface Win32Bindings {
   closeHandle(handle: NativePtr): number
 }
 
-const PVOID: ReturnType<typeof koffi.pointer> = koffi.pointer('void')
-
 function win32Structs(): {
   PROCESSENTRY32W: ReturnType<typeof koffi.struct>
   FILETIME: ReturnType<typeof koffi.struct>
 } {
   if (cachedStructs !== undefined) return cachedStructs
+  const koffi = requireKoffi()
+  const PVOID: ReturnType<typeof koffi.pointer> = koffi.pointer('void')
   const PROCESSENTRY32W = koffi.struct('PROCESSENTRY32W', {
     dwSize: 'uint32',
     cntUsage: 'uint32',
@@ -206,6 +210,8 @@ let cachedBindings: Win32Bindings | undefined
 
 function win32Bindings(): Win32Bindings {
   if (cachedBindings !== undefined) return cachedBindings
+  const koffi = requireKoffi()
+  const PVOID: ReturnType<typeof koffi.pointer> = koffi.pointer('void')
   const { PROCESSENTRY32W, FILETIME } = win32Structs()
   let kernel32: ReturnType<typeof koffi.load>
   try {
@@ -236,8 +242,8 @@ function win32Bindings(): Win32Bindings {
   return cachedBindings
 }
 
-function allocNative(type: Parameters<typeof koffi.alloc>[0], count: number): NativePtr {
-  const value: unknown = koffi.alloc(type, count)
+function allocNative(type: Parameters<ReturnType<typeof requireKoffi>['alloc']>[0], count: number): NativePtr {
+  const value: unknown = requireKoffi().alloc(type, count)
   return value as NativePtr
 }
 
@@ -249,10 +255,10 @@ function snapshotWindowsProcesses(bindings: Win32Bindings): ProcessEntry[] {
   const entries: ProcessEntry[] = []
   try {
     const entry = allocNative(PROCESSENTRY32W, 1)
-    koffi.encode(entry, 'uint32', PROCESSENTRY32W.size)
+    requireKoffi().encode(entry, 'uint32', PROCESSENTRY32W.size)
     let ok = bindings.process32FirstW(snapshot, entry)
     while (ok !== 0) {
-      const record = koffi.decode(entry, PROCESSENTRY32W) as {
+      const record = requireKoffi().decode(entry, PROCESSENTRY32W) as {
         th32ProcessID: number
         th32ParentProcessID: number
       }
@@ -276,7 +282,7 @@ function windowsProcessState(bindings: Win32Bindings, pid: number): WindowsProce
     const user = allocNative(FILETIME, 1)
     /* v8 ignore next -- process exit can race a successful OpenProcess. */
     if (bindings.getProcessTimes(handle, creation, exit, kernel, user) === 0) return undefined
-    const record = koffi.decode(creation, FILETIME) as { dwLowDateTime: number; dwHighDateTime: number }
+    const record = requireKoffi().decode(creation, FILETIME) as { dwLowDateTime: number; dwHighDateTime: number }
     const wait = bindings.waitForSingleObject(handle, 0)
     /* v8 ignore next -- unexpected native wait failures are unreadable state. */
     if (wait !== WAIT_OBJECT_0 && wait !== WAIT_TIMEOUT) return undefined

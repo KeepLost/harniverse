@@ -12,7 +12,10 @@ import { constants } from 'node:fs'
 import { access, stat } from 'node:fs/promises'
 import { delimiter, extname, isAbsolute, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
-import * as nodePty from 'node-pty'
+import { createLazyRequire } from '@deepseek-ai/dsh-lazy-require'
+
+/** Lazy PTY loader: startup without a terminal never loads the native binding. */
+const requireNodePty = createLazyRequire<typeof import('node-pty')>('node-pty', import.meta.url)
 import type { IPtyForkOptions } from 'node-pty'
 import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import type {
@@ -45,6 +48,8 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
   internals: SpawnInternals = {}
   /** Test hook for platform process inspection; production resolves lazily on terminal spawn. */
   terminalInspector: ProcessInspector | undefined
+  /** Injectable PTY factory; defaults to the lazy node-pty spawn. Deterministic tests replace it. */
+  ptySpawn: ((file: string, args: string[], options: IPtyForkOptions) => ReturnType<ReturnType<typeof requireNodePty>['spawn']>) | undefined
   /** Whether `prlimit` can front address-space-limited spawns; optimistic until the background probe settles. */
   private prlimitAvailable = process.platform === 'linux'
 
@@ -213,7 +218,9 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
       env: childEnv(spec.env),
     }
     const inspector = this.terminalInspector ?? createProcessInspector()
-    const terminal = nodePty.spawn(file, [...spec.argv.slice(1)], options)
+    const terminal = this.ptySpawn !== undefined
+      ? this.ptySpawn(file, [...spec.argv.slice(1)], options)
+      : requireNodePty().spawn(file, [...spec.argv.slice(1)], options)
     const handle = new LocalTerminalHandle(terminal, inspector, spec.graceMs)
     this.terminals.add(handle)
     if (spec.correlation !== undefined) {

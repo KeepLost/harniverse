@@ -310,7 +310,6 @@ describe('LocalSubprocessRuntime', () => {
       kill: () => {},
     }
     vi.resetModules()
-    vi.doMock('node-pty', () => ({ spawn: () => terminal }))
     vi.doMock('../src/process-inspector.ts', async importOriginal => ({
       ...await importOriginal<typeof import('../src/process-inspector.ts')>(),
       createProcessInspector: () => inspector,
@@ -319,6 +318,7 @@ describe('LocalSubprocessRuntime', () => {
       const { default: IsolatedLocalSubprocessRuntime } = await import('../src/index.ts')
       const ctx = new Context()
       const fiber = await ctx.plugin(IsolatedLocalSubprocessRuntime)
+      ;(ctx.subprocess as InstanceType<typeof IsolatedLocalSubprocessRuntime>).ptySpawn = () => terminal as never
       const service = ctx.subprocess as InstanceType<typeof IsolatedLocalSubprocessRuntime>
       const handle = await ctx.subprocess.spawnTerminal({
         argv: ['shell'], cwd: process.cwd(), rows: 24, cols: 80, graceMs: 1,
@@ -330,7 +330,6 @@ describe('LocalSubprocessRuntime', () => {
       expect((service as unknown as { terminals: Set<SubprocessTerminalHandle> }).terminals.size).toBe(0)
       await fiber.dispose()
     } finally {
-      vi.doUnmock('node-pty')
       vi.doUnmock('../src/process-inspector.ts')
       vi.resetModules()
     }
@@ -349,13 +348,13 @@ describe('LocalSubprocessRuntime', () => {
       kill: () => {},
     }
     vi.resetModules()
-    vi.doMock('node-pty', () => ({ spawn: () => terminal }))
     try {
       const { default: IsolatedLocalSubprocessRuntime } = await import('../src/index.ts')
       const ctx = new Context()
       const disposalErrors: unknown[] = []
       ctx.logger.error = ((error: unknown) => { disposalErrors.push(error) }) as typeof ctx.logger.error
       const fiber = await ctx.plugin(IsolatedLocalSubprocessRuntime)
+      ;(ctx.subprocess as InstanceType<typeof IsolatedLocalSubprocessRuntime>).ptySpawn = () => terminal as never
       const alive = new Set([124])
       ;(ctx.subprocess as InstanceType<typeof IsolatedLocalSubprocessRuntime>).terminalInspector = {
         foregroundPgid: () => 123,
