@@ -344,6 +344,36 @@ describe('scheduler dispatch', () => {
     }
   })
 
+  it('does not re-deliver a slot captured by a stale fire snapshot', async () => {
+    const { test, cleanup } = await harness()
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(0)
+      const script = liveScript(test, 'stale-snapshot')
+      await test.service.create({
+        prompt: 'once is enough',
+        rule: { kind: 'every', intervalMs: 300_000, anchor: new Date(0).toISOString() },
+        target: { kind: 'current' },
+        contextMode: 'continue',
+        createdBy: { kind: 'model', sessionId: script.session.id },
+      })
+      // Two fire passes start before either dispatch advances the record: the
+      // queued snapshot of the second pass must not re-deliver the served slot.
+      const fire = () => (test.service as unknown as { fire: () => Promise<void> }).fire()
+      await Promise.all([fire(), fire()])
+      await waitForDelivery(() => {
+        expect(script.followups).toHaveLength(1)
+      })
+      await Promise.all([fire(), fire()])
+      await vi.advanceTimersByTimeAsync(0)
+      expect(script.followups).toHaveLength(1)
+      const dispatches = script.session.events.filter(event => event.type === 'schedule/dispatch')
+      expect(dispatches).toHaveLength(1)
+    } finally {
+      await cleanup()
+    }
+  })
+
   it('delivers a due prompt through the idle maintenance phase', async () => {
     const { test, cleanup } = await harness()
     vi.useFakeTimers()

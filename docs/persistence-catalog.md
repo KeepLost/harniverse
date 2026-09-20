@@ -710,22 +710,6 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
 
 ### `schedule/*`
 
-<a id="schedulechange--log-only"></a>
-
-#### `schedule/change` — log-only
-
-```ts persistence-catalog
-/**
- * Versioned Schedule mutation. The owning package validates the complete
- * session-local transition stream before accepting a candidate event.
- */
-'schedule/change': ScheduleChange
-```
-
-Types: [ScheduleChange](subsystems/schedule.md)
-
-Source: [`packages/schedule/schedule/src/types.ts:219`](../packages/schedule/schedule/src/types.ts)
-
 <a id="scheduledispatch--log-only"></a>
 
 #### `schedule/dispatch` — log-only

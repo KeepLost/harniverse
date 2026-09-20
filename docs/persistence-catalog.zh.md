@@ -713,22 +713,6 @@ Source: [`packages/context/context-reset/src/types.ts:22`](../packages/context/c
 
 ### `schedule/*`
 
-<a id="schedulechange--log-only"></a>
-
-#### `schedule/change` — log-only
-
-```ts persistence-catalog
-/**
- * Versioned Schedule mutation. The owning package validates the complete
- * session-local transition stream before accepting a candidate event.
- */
-'schedule/change': ScheduleChange
-```
-
-类型：[ScheduleChange](subsystems/schedule.md)
-
-来源：[`packages/schedule/schedule/src/types.ts:219`](../packages/schedule/schedule/src/types.ts)
-
 <a id="scheduledispatch--log-only"></a>
 
 #### `schedule/dispatch` — log-only

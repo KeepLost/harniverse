@@ -458,9 +458,14 @@ export class SchedulerService extends TypertRemoteService {
   /** Deliver one due schedule and advance its durable state. */
   private async dispatch(record: ScheduleRecord): Promise<void> {
     const now = this.now()
-    // v8 ignore next 1 -- fire() only enqueues records with a nextDue
-    const planned = record.nextDue ?? record.createdAt
-    const due = latestMissedDue(record.rule, planned, now)
+    // Re-read the durable record: a queued dispatch may carry a snapshot from
+    // before an in-flight dispatch of the same slot advanced it, and that
+    // already-served slot must not be delivered a second time.
+    const fresh = this.records().find(candidate => candidate.id === record.id)
+    if (fresh === undefined || fresh.status !== 'active'
+      || fresh.nextDue === undefined || fresh.nextDue > now) return
+    const planned = fresh.nextDue
+    const due = latestMissedDue(fresh.rule, planned, now)
     let target: DeliveryTarget | undefined
     let failure: string | undefined
     try {

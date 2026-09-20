@@ -1,13 +1,14 @@
-# schedule/：仅限 Session 内的提醒
+# schedule/ — 宿主级调度器家族
 
 [English](README.md) | 中文
 
-Schedule 家族负责管理提醒，其持久状态保存在原 Session 日志中。进程内 owner 只会在该 Session 拥有 live 根 Agent 时等待；cold Session 再次 live 后会恢复逾期工作，但这不意味着存在外部通知渠道。
+调度器家族负责持久化的定时提示词，其状态保存在一个中心化的宿主级存储中，而不是会话日志里。投递以普通后续对话轮次的形式进入普通会话；会话日志只记录仅日志的 `schedule/dispatch` 溯源事件和投递的插件来源 `user/message`。
 
 | 包 | 职责 | ctx 键 |
 |---|---|---|
-| `schedule/` | 版本化 Schedule 事件与 fold、面向模型的创建／列出／删除工具，以及 live 根 Agent timer owner | 无 |
+| `scheduler/` | `ctx.scheduler` 服务：中心化 storage-domain 记录、at/after/every 规则、墙上时钟计时器、热/冷投递、提示词溯源与持久运行历史 | `ctx.scheduler` |
+| `tool-scheduler/` | 预设作用域的面向模型工具（`schedule_create`、`schedule_list`、`schedule_update`、`schedule_delete`），构建在宿主服务之上 | （注册在 `ctx.tools`） |
 
-本包有意不公开 Schedule service 或可变数据库。工具与 runtime 向 Session stream 追加事件；到期工作通过 Agent 的普通 follow-up 队列进入同一对话。
+服务自身有意不注册任何工具；由预设的插件行决定其 agent 能否调用调度器工具。会话作用域与宿主权威的 Remote 方法把同一存储暴露给浏览器 UI 和全局定时任务管理视图。
 
-有关持久记录、转换、视图与交付约定，请参阅[仅限 Session 内的 Schedule](../../docs/subsystems/schedule.md)。
+有关持久化记录、投递信封与溯源约定，请参阅[调度器](../../docs/subsystems/schedule.md)。

@@ -821,30 +821,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
-    key: 'e2b',
-    summary: 'Creates one lazily consumable E2B SDK handle and deletes the sandbox at timeout or disposal.',
-    description: 'Creates one lazily consumable E2B SDK handle and deletes the sandbox at timeout or disposal. Creation begins at plugin construction; adapters await getSandbox before their first operation.',
-    methods: [
-      {
-        signature: 'readonly cwd: string',
-        description: 'Validated remote working directory shared by provider adapters.',
-        parameters: [],
-      },
-      {
-        signature: 'readonly runtimeRoot: string',
-        description: 'Remote directory reserved for adapter-owned process and terminal state.',
-        parameters: [],
-      },
-      {
-        signature: 'async getSandbox(): Promise<Sandbox>',
-        description: 'Return the shared live SDK handle.',
-        parameters: [],
-        returns: 'the created sandbox after the configured cwd exists.',
-        throws: ['when E2B rejects creation or the service is disposing.'],
-      },
-    ],
-  },
-  {
     key: 'fileReferences',
     summary: 'Host capability for cancellable file-reference discovery.',
     description: 'Host capability for cancellable file-reference discovery.',
@@ -5253,6 +5229,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SaveTextSpill {\n    signal: AbortSignal;\n    owner: SpillOwner;\n    source: SpillSource;\n    suggestedName: string;\n    content: string;\n}',
   },
   {
+    name: 'ScheduleContextMode',
+    declaration: 'export type ScheduleContextMode = \'fresh\' | \'continue\';',
+  },
+  {
     name: 'ScheduleCreateInput',
     declaration: 'export interface ScheduleCreateInput {\n    readonly prompt: string;\n    readonly rule: SchedulerRule;\n    readonly target: ScheduleTarget;\n    readonly contextMode: \'fresh\' | \'continue\';\n    readonly createdBy: {\n        readonly kind: \'user\' | \'model\';\n        readonly sessionId: SessionId;\n    };\n}',
   },
@@ -5261,12 +5241,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ScheduleCreateRemoteInput {\n    readonly prompt: string;\n    readonly rule: SchedulerRule;\n    readonly target: ScheduleTarget;\n    readonly contextMode: \'fresh\' | \'continue\';\n}',
   },
   {
+    name: 'ScheduleCreator',
+    declaration: 'export interface ScheduleCreator {\n    readonly kind: \'user\' | \'model\';\n    readonly sessionId: SessionId;\n}',
+  },
+  {
     name: 'ScheduledToolDispatch',
     declaration: 'export type ScheduledToolDispatch = {\n    kind: \'post-result\';\n    result: ToolExecutionResult;\n} | {\n    kind: \'final-result\';\n    result: ToolExecutionResult;\n};',
   },
   {
     name: 'ScheduledToolPreparation',
     declaration: 'export type ScheduledToolPreparation = {\n    kind: \'dispatch\';\n    exec: ToolRunContext;\n} | {\n    kind: \'post-result\';\n    exec: ToolRunContext;\n    result: ToolExecutionResult;\n} | {\n    kind: \'final-result\';\n    exec: ToolRunContext;\n    result: ToolExecutionResult;\n};',
+  },
+  {
+    name: 'SchedulePromptEdit',
+    declaration: 'export interface SchedulePromptEdit {\n    readonly version: number;\n    readonly prompt: string;\n    readonly editedBy: ScheduleCreator;\n    readonly editedAt: number;\n}',
+  },
+  {
+    name: 'ScheduleRecord',
+    declaration: 'export interface ScheduleRecord {\n    readonly id: string;\n    readonly prompt: string;\n    readonly rule: SchedulerRule;\n    readonly target: ScheduleTarget;\n    readonly contextMode: ScheduleContextMode;\n    readonly createdBy: ScheduleCreator;\n    readonly status: ScheduleStatus;\n    readonly jobSessionId?: SessionId;\n    readonly createdAt: number;\n    readonly promptRevision?: number;\n    readonly lastPromptEdit?: SchedulePromptEdit;\n    readonly nextDue?: number;\n    readonly lastRunAt?: number;\n    readonly lastDue?: number;\n    readonly lastError?: string;\n}',
   },
   {
     name: 'SchedulerRule',

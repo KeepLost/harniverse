@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-20-scheduler-stale-snapshot-double-delivery.md
+2026-09-20-scheduler-stale-snapshot-double-delivery.md: 18c3b0bc29eae2f08a21de6d5e8d53274177b77d
+2026-09-20-scheduler-stale-snapshot-double-delivery.zh.md: a82c79384c8c291b9fd9d1ff1848e0c3c262c98e
