@@ -63,7 +63,7 @@
           default: 2
 
     - id: code-runtime
-      name: '@deepseek-ai/dsh-code-runtime-worker-thread'
+      name: '@deepseek-ai/dsh-code-runtime-ptc'
 
     - id: storage
       name: '@deepseek-ai/dsh-storage'

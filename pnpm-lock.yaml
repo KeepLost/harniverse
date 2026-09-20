@@ -540,9 +540,9 @@ importers:
       '@deepseek-ai/dsh-bash-sandbox':
         specifier: workspace:*
         version: link:../packages/shell/bash-sandbox
-      '@deepseek-ai/dsh-code-runtime-worker-thread':
+      '@deepseek-ai/dsh-code-runtime-ptc':
         specifier: workspace:*
-        version: link:../packages/code-runtime/code-runtime-worker-thread
+        version: link:../packages/code-runtime/code-runtime-ptc
       '@deepseek-ai/dsh-command-feedback':
         specifier: workspace:*
         version: link:../packages/feedback/command-feedback
@@ -1534,9 +1534,9 @@ importers:
       '@deepseek-ai/dsh-cmdline':
         specifier: workspace:^
         version: link:../../boot/cmdline
-      '@deepseek-ai/dsh-code-runtime-worker-thread':
+      '@deepseek-ai/dsh-code-runtime-ptc':
         specifier: workspace:^
-        version: link:../../code-runtime/code-runtime-worker-thread
+        version: link:../../code-runtime/code-runtime-ptc
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
@@ -1706,9 +1706,9 @@ importers:
       '@deepseek-ai/dsh-cmdline':
         specifier: workspace:^
         version: link:../../boot/cmdline
-      '@deepseek-ai/dsh-code-runtime-worker-thread':
+      '@deepseek-ai/dsh-code-runtime-ptc':
         specifier: workspace:^
-        version: link:../../code-runtime/code-runtime-worker-thread
+        version: link:../../code-runtime/code-runtime-ptc
       '@deepseek-ai/dsh-cordis-client-runner':
         specifier: workspace:^
         version: link:../../extensions/cordis-client-runner
@@ -3823,7 +3823,7 @@ importers:
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
 
-  packages/code-runtime/code-runtime-python:
+  packages/code-runtime/code-runtime-ptc:
     dependencies:
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
@@ -3835,9 +3835,18 @@ importers:
       '@deepseek-ai/dsh-code-runtime':
         specifier: workspace:^
         version: link:../code-runtime
+      '@deepseek-ai/dsh-control-channel':
+        specifier: workspace:^
+        version: link:../../subprocess/control-channel
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-sandbox':
+        specifier: workspace:^
+        version: link:../../sandbox/sandbox
+      '@deepseek-ai/dsh-sandbox-policy':
+        specifier: workspace:^
+        version: link:../../sandbox/sandbox-policy
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
@@ -3845,7 +3854,7 @@ importers:
         specifier: workspace:^
         version: link:../../util/timeout
 
-  packages/code-runtime/code-runtime-worker-thread:
+  packages/code-runtime/code-runtime-python:
     dependencies:
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
@@ -8737,9 +8746,9 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
-      '@deepseek-ai/dsh-code-runtime-worker-thread':
+      '@deepseek-ai/dsh-code-runtime-ptc':
         specifier: workspace:^
-        version: link:../../code-runtime/code-runtime-worker-thread
+        version: link:../../code-runtime/code-runtime-ptc
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
@@ -8749,6 +8758,9 @@ importers:
       '@deepseek-ai/dsh-output-retention':
         specifier: workspace:^
         version: link:../../util/output-retention
+      '@deepseek-ai/dsh-sandbox-policy':
+        specifier: workspace:^
+        version: link:../../sandbox/sandbox-policy
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
@@ -10450,9 +10462,9 @@ importers:
       '@deepseek-ai/dsh-code-runtime':
         specifier: workspace:^
         version: link:../../packages/code-runtime/code-runtime
-      '@deepseek-ai/dsh-code-runtime-worker-thread':
+      '@deepseek-ai/dsh-code-runtime-ptc':
         specifier: workspace:^
-        version: link:../../packages/code-runtime/code-runtime-worker-thread
+        version: link:../../packages/code-runtime/code-runtime-ptc
       '@deepseek-ai/dsh-command-goal':
         specifier: workspace:^
         version: link:../../packages/goal/command-goal
@@ -10471,6 +10483,9 @@ importers:
       '@deepseek-ai/dsh-context-snapshot':
         specifier: workspace:^
         version: link:../../packages/context/context-snapshot
+      '@deepseek-ai/dsh-control-channel':
+        specifier: workspace:^
+        version: link:../../packages/subprocess/control-channel
       '@deepseek-ai/dsh-cordis-host-runner':
         specifier: workspace:^
         version: link:../../packages/extensions/cordis-host-runner

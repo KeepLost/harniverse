@@ -167,6 +167,9 @@ function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
     'lib/invariant.js',
     ...manifest.bin ? ['lib/bin.js'] : [],
     ...manifest.exports?.['./worker'] ? ['lib/worker.cjs'] : [],
+    // The PTC runtime's spawned-child entry ships as CommonJS beside the ESM
+    // lib (the pkg VFS loads it synchronously from a deployed bundle).
+    ...manifest.exports?.['./child'] ? ['lib/child.cjs'] : [],
     // UI plugin packages ship their browser bundle beside the node lib
     // (single-artifact ruling: dist/ retired, ./client resolves lib/client.js).
     // Keyed on the artifact path, not the subpath name: apiproxy's ./client is

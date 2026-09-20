@@ -35,7 +35,7 @@ The inventory is grouped by package directory. Every listed package is an offici
 | `boot` | 3 | `app-boot`, `cmdline`, `hmr-coordination` |
 | `bundle` | 3 | `base`, `headless`, `web-app` |
 | `client` | 39 | `connection`, `hmr`, `locale`, `modules`, `runtime`, `schema-form`, `ui-agent-preset`, `ui-attachment`, `ui-commands`, `ui-conversation`, `ui-deliverables`, `ui-directory-picker-browse`, `ui-directory-picker-native`, `ui-goal`, `ui-input-trigger`, `ui-jobs`, `ui-layout`, `ui-message-feedback`, `ui-model-selection`, `ui-permission-presets`, `ui-plan`, `ui-primitives`, `ui-settings`, `ui-settings-general`, `ui-settings-models`, `ui-settings-plugin-inventory`, `ui-settings-plugins`, `ui-sidebar`, `ui-skill`, `ui-slots`, `ui-subagent`, `ui-theme`, `ui-tool`, `ui-trajectory`, `ui-user-questions`, `ui-workflow-run`, `ui-workspace`, `web`, `web-react` |
-| `code-runtime` | 2 | `code-runtime`, `code-runtime-worker-thread` |
+| `code-runtime` | 2 | `code-runtime`, `code-runtime-ptc` |
 | `compaction` | 4 | `command-compact`, `compaction`, `compaction-basic`, `compaction-tool-result-pruner` |
 | `context` | 6 | `agent-instructions`, `command-reset`, `context-reset`, `session-reference`, `time-context`, `tmux-context` |
 | `core` | 10 | `agent`, `agent-default-model`, `agent-loop`, `agent-tool-presentation`, `model-policy`, `model-policy-fallback`, `scope`, `session`, `system-prompt`, `tools` |

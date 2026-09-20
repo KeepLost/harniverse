@@ -340,6 +340,42 @@ describe('error surfaces and bounds', () => {
     await expect(channel.dispose()).resolves.toEqual([])
   })
 
+  it('sends executor done payloads and drops them after termination', async () => {
+    const executorInput = new PassThrough()
+    const executorOutput = new PassThrough()
+    const executor = new ControlChannelTransport({ input: executorInput, output: executorOutput })
+    const controller = new ControlChannelTransport({ input: executorOutput, output: executorInput })
+    executor.sendDone({ value: { answer: 42 } })
+    await expect(controller.outcome()).resolves.toMatchObject({ kind: 'value', value: { answer: 42 } })
+    await executor.dispose()
+    await controller.dispose()
+  })
+
+  it('sends a valueless executor done for value-free completions', async () => {
+    const executorInput = new PassThrough()
+    const executorOutput = new PassThrough()
+    const executor = new ControlChannelTransport({ input: executorInput, output: executorOutput })
+    const controller = new ControlChannelTransport({ input: executorOutput, output: executorInput })
+    executor.sendDone({})
+    await expect(controller.outcome()).resolves.toMatchObject({ kind: 'value', value: undefined })
+    await executor.dispose()
+    await controller.dispose()
+  })
+
+  it('carries executor failures through sendDone with their kind', async () => {
+    const executorInput = new PassThrough()
+    const executorOutput = new PassThrough()
+    const executor = new ControlChannelTransport({ input: executorInput, output: executorOutput })
+    const controller = new ControlChannelTransport({ input: executorOutput, output: executorInput })
+    executor.sendDone({ error: { kind: 'invalid-output', message: 'not lossless JSON' } })
+    await expect(controller.outcome()).resolves.toMatchObject({
+      kind: 'failure',
+      failure: { kind: 'invalid-output', message: 'not lossless JSON' },
+    })
+    await executor.dispose()
+    await controller.dispose()
+  })
+
   it('cancels a pre-aborted signal immediately and sends limit reports', async () => {
     const input = new PassThrough()
     const output = new PassThrough()

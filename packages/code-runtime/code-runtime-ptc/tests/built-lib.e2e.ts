@@ -6,22 +6,24 @@ import { describe, expect, it } from 'vitest'
 
 /**
  * Keyless built-artifact smoke: plain Node imports the package by name through its exports map,
- * then exercises type stripping, sibling `worker.cjs` loading, bindings, and logs. Unit tests use
- * `src/worker.ts`; this pins the downstream `lib/index.js` path. It skips when `lib/` is absent,
+ * then exercises type stripping, sibling `child.cjs` loading, bindings, and logs. Unit tests use
+ * `src/child.ts`; this pins the downstream `lib/index.js` path. It skips when `lib/` is absent,
  * and CI runs it after the build.
  */
 
 const pkgDir = fileURLToPath(new URL('..', import.meta.url))
-const built = ['lib/index.js', 'lib/worker.cjs'].every(file => existsSync(join(pkgDir, file)))
+const built = ['lib/index.js', 'lib/child.cjs'].every(file => existsSync(join(pkgDir, file)))
   && existsSync(join(pkgDir, '../code-runtime/lib/index.js'))
 
 describe.skipIf(!built)('built lib real load path (plain node)', () => {
-  it('runs a TypeScript program with a binding through lib/index.js and its lib/worker.cjs entry', async () => {
+  it('runs a TypeScript program with a binding through lib/index.js and its lib/child.cjs entry', async () => {
     const script = `
       const { Context } = await import('@deepseek-ai/cordis')
-      const { WorkerThreadCodeRuntime } = await import('@deepseek-ai/dsh-code-runtime-worker-thread')
+      const { SandboxPolicyService } = await import('@deepseek-ai/dsh-sandbox-policy')
+      const { PtcCodeRuntime } = await import('@deepseek-ai/dsh-code-runtime-ptc')
       const ctx = new Context()
-      await ctx.plugin(WorkerThreadCodeRuntime, {})
+      await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
+      await ctx.plugin(PtcCodeRuntime, {})
       const result = await ctx.codeRuntime.run({
         program: 'const doubled: number = await tools.double({ n: 21 }); console.log("halfway", doubled); let failure; try { await tools.fail({}) } catch (error) { failure = { typed: error instanceof ToolCallError, name: error.name, toolName: error.toolName, message: error.message } } return { doubled, failure };',
         bindings: [{

@@ -59,6 +59,12 @@ export type ControlFrame =
   | ControlDoneFrame
 
 /**
+ * The executor-side payload of one {@link ControlDoneFrame}: a completion
+ * value or the failure that ended the run — exactly one, never both.
+ */
+export type ControlDonePayload = { readonly value?: unknown } | { readonly error: ControlFailure }
+
+/**
  * Orthogonal failure classification for one controlled execution. Exactly one
  * kind describes the first terminal outcome; cleanup reports separately
  * through the lifecycle states.

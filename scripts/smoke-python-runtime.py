@@ -87,7 +87,7 @@ CUSTOM_CORDIS = """\
     root: !!js process.env.DSH_SESSION_ROOT
     compression: 'none'
 - id: code-runtime
-  name: '@deepseek-ai/dsh-code-runtime-worker-thread'
+  name: '@deepseek-ai/dsh-code-runtime-ptc'
 - id: subagents
   name: '@deepseek-ai/dsh-subagent'
 - id: subagent-spawn-in-process

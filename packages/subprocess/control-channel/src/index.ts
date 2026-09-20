@@ -34,6 +34,7 @@ export type {
   ControlCallFrame,
   ControlChannelLimits,
   ControlDoneFrame,
+  ControlDonePayload,
   ControlFailure,
   ControlFrame,
   ControlLimitFrame,

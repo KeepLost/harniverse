@@ -12,6 +12,7 @@ import type { Readable, Writable } from 'node:stream'
 import type {
   ControlCallFrame,
   ControlChannelLimits,
+  ControlDonePayload,
   ControlFailure,
   ControlFrame,
   ControlLifecycleState,
@@ -27,6 +28,9 @@ import {
   PendingCallGate,
 } from './codec.ts'
 import { assertControlTransition } from './lifecycle.ts'
+
+/** Captured at module load: hostile children may rebind constructors. */
+const intrinsicObjectCreate = Object.create
 
 /** One resolved terminal outcome: a success value or the first failure. */
 export type ControlOutcome =
@@ -104,7 +108,10 @@ export class ControlChannelTransport {
   private readonly decoder = new ControlFrameDecoder()
   private readonly sendQueue: ControlSendQueue
   private readonly gate: PendingCallGate
-  private readonly pending = new Map<number, PendingReply>()
+  // Null-prototype id table via captured create: this transport also runs
+  // inside hostile child processes whose programs may rebind constructors,
+  // and pending-reply accounting must never consult an armed prototype.
+  private pending = intrinsicObjectCreate(null) as Record<number, PendingReply | undefined>
   private readonly cleanupErrors: string[] = []
   private nextCallId = 1
   private state: ControlLifecycleState = 'starting'
@@ -208,19 +215,21 @@ export class ControlChannelTransport {
           resolve,
           reject,
           timer: options.timeoutMs === undefined ? undefined : setTimeout(() => {
-            this.pending.delete(id)
+            // oxlint-disable-next-line typescript/no-dynamic-delete -- null-proto table by design (hostile-child hardening)
+            delete this.pending[id]
             this.gate.release(id)
             reject(new ControlCallError({ kind: 'timeout', message: `call ${id} (${target}) exceeded its ${options.timeoutMs}ms reply window` }))
           }, options.timeoutMs),
         }
-        this.pending.set(id, entry)
+        this.pending[id] = entry
         this.send({ kind: 'call', id, target, args })
       }) as T
     } finally {
-      const entry = this.pending.get(id)
+      const entry = this.pending[id]
       if (entry !== undefined) {
         if (entry.timer !== undefined) clearTimeout(entry.timer)
-        this.pending.delete(id)
+        // oxlint-disable-next-line typescript/no-dynamic-delete -- null-proto table by design (hostile-child hardening)
+        delete this.pending[id]
         this.gate.release(id)
       }
     }
@@ -240,6 +249,23 @@ export class ControlChannelTransport {
    */
   sendLimit(limit: ControlLimitFrame['limit']): void {
     this.send({ kind: 'limit', limit })
+  }
+
+  /**
+   * Send this end's terminal outcome to the peer: the executor side of a
+   * controlled execution reports its completion value or failure as one
+   * `done` frame, which the peer's transport records as its outcome. Sending
+   * does not settle THIS end's own lifecycle — the executor ends through
+   * disposal or peer closure, so the frame is dropped once this end already
+   * terminated.
+   * @param outcome - the completion value, or the failure that ended the run.
+   */
+  sendDone(outcome: ControlDonePayload): void {
+    if ('error' in outcome) {
+      this.send({ kind: 'done', error: outcome.error })
+    } else {
+      this.send(outcome.value === undefined ? { kind: 'done' } : { kind: 'done', value: outcome.value })
+    }
   }
 
   /**
@@ -309,7 +335,7 @@ export class ControlChannelTransport {
           this.terminate({ kind: 'protocol', message: cause.message }, 'channel-closed')
           return
         }
-        this.cleanupErrors.push(`frame handler failed: ${errorMessageOf(cause)}`)
+        this.cleanupErrors[this.cleanupErrors.length] = `frame handler failed: ${errorMessageOf(cause)}`
       }
     }
   }
@@ -337,13 +363,14 @@ export class ControlChannelTransport {
   }
 
   private dispatchReply(frame: ControlReplyFrame): void {
-    const entry = this.pending.get(frame.id)
+    const entry = this.pending[frame.id]
     if (entry === undefined) {
       this.terminate({ kind: 'protocol', message: `reply for unknown call id ${frame.id}` }, 'channel-closed')
       return
     }
     if (entry.timer !== undefined) clearTimeout(entry.timer)
-    this.pending.delete(frame.id)
+    // oxlint-disable-next-line typescript/no-dynamic-delete -- null-proto table by design (hostile-child hardening)
+    delete this.pending[frame.id]
     this.gate.release(frame.id)
     if (frame.ok) entry.resolve(frame.value)
     else entry.reject(new ControlCallError({ kind: 'exception', message: frame.message ?? 'call failed' }))
@@ -365,7 +392,7 @@ export class ControlChannelTransport {
 
   private terminateFromDone(frame: Extract<ControlFrame, { kind: 'done' }>): void {
     if (this.outcomeRecorded) {
-      this.cleanupErrors.push('peer sent a second terminal frame')
+      this.cleanupErrors[this.cleanupErrors.length] = 'peer sent a second terminal frame'
       return
     }
     const outcome: ControlOutcome = frame.error === undefined
@@ -386,14 +413,15 @@ export class ControlChannelTransport {
       this.transition('running')
     }
     this.transition(terminal)
-    for (const [id, entry] of this.pending) {
+    for (const id of Object.keys(this.pending)) {
+      const entry = this.pending[Number(id)] as PendingReply
       if (entry.timer !== undefined) clearTimeout(entry.timer)
       entry.reject(outcome.kind === 'failure'
         ? new ControlCallError(outcome.failure)
         : new ControlCallError({ kind: 'abort', message: `channel recorded its outcome while call ${id} was pending` }))
-      this.gate.release(id)
+      this.gate.release(Number(id))
     }
-    this.pending.clear()
+    this.pending = intrinsicObjectCreate(null) as Record<number, PendingReply | undefined>
     this.outcomeResolve?.(outcome)
     this.outcomeResolve = undefined
     this.beginClose()
@@ -406,7 +434,7 @@ export class ControlChannelTransport {
         try {
           await this.forceTerminate?.()
         } catch (cause) {
-          this.cleanupErrors.push(`forced termination failed: ${errorMessageOf(cause)}`)
+          this.cleanupErrors[this.cleanupErrors.length] = `forced termination failed: ${errorMessageOf(cause)}`
         }
       })()
     }, this.limits.closeGraceMs)

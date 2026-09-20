@@ -541,6 +541,46 @@ export interface Config {
 
 Source: [`packages/client/hmr/src/index.ts:32`](../packages/client/hmr/src/index.ts)
 
+<a id="deepseek-aidsh-code-runtime-ptc"></a>
+
+## `@deepseek-ai/dsh-code-runtime-ptc`
+
+Requires: `sandboxPolicy`
+
+```ts config-catalog
+/** Plugin config: every execution cap, changeable from `cordis.yml` (no hardcoded tunables). */
+export interface Config {
+  /**
+   * Busy-time budget in milliseconds: the run fails with kind `'timeout'`
+   * once the child's MEASURED event-loop active time
+   * (`performance.eventLoopUtilization()`, sampled in-process) exceeds this.
+   * Metering measured busy time — not wall time, not host-side pending-call
+   * bookkeeping — is what makes the budget fair (a program awaiting a slow
+   * tool accrues nothing). A hot synchronous loop starves the child's
+   * sampler; the `maxWallMs` deadline is the backstop that stops it.
+   */
+  computeMs?: number
+  /**
+   * Wall-clock ceiling in milliseconds; never pauses for anything. The
+   * backstop for what busy-time cannot see (a program awaiting a promise
+   * nobody will resolve, or a loop blocking the child's sampling timer).
+   * At most `2_147_483_647` (Node's maximum `setTimeout` delay, about 24.9
+   * days): a longer value is rejected at load because `setTimeout` would
+   * clamp it to 1 ms.
+   */
+  maxWallMs?: number
+  /**
+   * Hard cap for serialized log-array, completion-value, and failure-message payloads;
+   * fixed result-envelope syntax is excluded.
+   */
+  maxOutputBytes?: number
+  /** The child's max old-generation heap in MiB (`--max-old-space-size`); overflow kills the child, surfacing as kind `'worker-exit'`. */
+  maxOldGenerationSizeMb?: number
+}
+```
+
+Source: [`packages/code-runtime/code-runtime-ptc/src/index.ts:29`](../packages/code-runtime/code-runtime-ptc/src/index.ts)
+
 <a id="deepseek-aidsh-code-runtime-python"></a>
 
 ## `@deepseek-ai/dsh-code-runtime-python`
@@ -568,43 +608,6 @@ export interface Config {
 ```
 
 Source: [`packages/code-runtime/code-runtime-python/src/index.ts:23`](../packages/code-runtime/code-runtime-python/src/index.ts)
-
-<a id="deepseek-aidsh-code-runtime-worker-thread"></a>
-
-## `@deepseek-ai/dsh-code-runtime-worker-thread`
-
-```ts config-catalog
-/** Plugin config: every execution cap, changeable from `cordis.yml` (no hardcoded tunables). */
-export interface Config {
-  /**
-   * Busy-time budget in milliseconds: the run fails with kind `'timeout'`
-   * once the worker's MEASURED event-loop active time
-   * (`worker.performance.eventLoopUtilization()`) exceeds this. Metering
-   * measured busy time — not wall time, not host-side pending-call
-   * bookkeeping — is what makes the budget both fair (a program awaiting a
-   * slow tool accrues nothing) and ungameable (a hot loop accrues whether
-   * or not a decoy dispatch is in flight).
-   */
-  computeMs?: number
-  /**
-   * Wall-clock ceiling in milliseconds; never pauses for anything. The
-   * backstop for what busy-time cannot see (a program awaiting a promise
-   * nobody will resolve). At most `2_147_483_647` (Node's maximum
-   * `setTimeout` delay, about 24.9 days): a longer value is rejected at load
-   * because `setTimeout` would clamp it to 1 ms.
-   */
-  maxWallMs?: number
-  /**
-   * Hard cap for serialized log-array, completion-value, and failure-message payloads;
-   * fixed result-envelope syntax is excluded.
-   */
-  maxOutputBytes?: number
-  /** The worker's max old-generation heap in MiB (`resourceLimits`); overflow kills the worker, surfacing as kind `'worker-exit'`. */
-  maxOldGenerationSizeMb?: number
-}
-```
-
-Source: [`packages/code-runtime/code-runtime-worker-thread/src/index.ts:25`](../packages/code-runtime/code-runtime-worker-thread/src/index.ts)
 
 <a id="deepseek-aidsh-compaction-basic"></a>
 

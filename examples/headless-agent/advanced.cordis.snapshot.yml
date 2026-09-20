@@ -40,7 +40,7 @@
           compression: none
       - insert:
           - id: code-runtime
-            name: '@deepseek-ai/dsh-code-runtime-worker-thread'
+            name: '@deepseek-ai/dsh-code-runtime-ptc'
           - id: cordis-host-runner
             name: '@deepseek-ai/dsh-cordis-host-runner'
           - id: tool-cordis
