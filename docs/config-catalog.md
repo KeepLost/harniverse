@@ -694,6 +694,12 @@ export interface CompactionSettings {
   nudgeThresholdTokens?: number
   /** Growth between context-nudge notices, in estimated framed tokens. */
   nudgeRefireDeltaTokens?: number
+  /**
+   * User-turn age limit after which a retained request image offloads
+   * durably. `'unlimited'` (the default) imposes no age limit; a positive
+   * integer unloads each image once that many later user-message turns exist.
+   */
+  imageOffloadAfterUserTurns?: 'unlimited' | number
 }
 ```
 
@@ -3855,6 +3861,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))
 - `@deepseek-ai/dsh-command-reset` — requires `commands` ([`packages/context/command-reset/src/index.ts`](../packages/context/command-reset/src/index.ts))
 - `@deepseek-ai/dsh-commands` ([`packages/interaction/commands/src/index.ts`](../packages/interaction/commands/src/index.ts))
+- `@deepseek-ai/dsh-compaction-image-offload` — requires `sessions` ([`packages/compaction/compaction-image-offload/src/index.ts`](../packages/compaction/compaction-image-offload/src/index.ts))
 - `@deepseek-ai/dsh-context-inspector` — requires `systemPrompt` · `tokenMeter` ([`packages/context/context-inspector/src/index.ts`](../packages/context/context-inspector/src/index.ts))
 - `@deepseek-ai/dsh-context-reset` — requires `sessions` ([`packages/context/context-reset/src/index.ts`](../packages/context/context-reset/src/index.ts))
 - `@deepseek-ai/dsh-context-snapshot` — requires `agents` · `systemPrompt` ([`packages/context/context-snapshot/src/index.ts`](../packages/context/context-snapshot/src/index.ts))
