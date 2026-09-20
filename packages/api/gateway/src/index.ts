@@ -8,6 +8,7 @@ import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 import type { AuthenticationCapability } from '@deepseek-ai/dsh-authentication'
 import {
+  remoteErrorOf,
   remoteMethods,
   TypertLookupFailure,
   type InvocationDescriptor,
@@ -505,6 +506,10 @@ function rpcFailure(error: unknown, reportFailure: (error: unknown) => void): Co
   }
   if (error instanceof TypertLookupFailure) {
     return { ok: false, error: error.failure as ConnectionRpcError }
+  }
+  const remote = remoteErrorOf(error)
+  if (remote !== undefined) {
+    return { ok: false, error: { code: remote.code, message: remote.message, details: remote.details } as ConnectionRpcError }
   }
   if (error instanceof TypertGatewayError || error instanceof TypertRpcRequestError) {
     return { ok: false, error: { code: 'internal', message: error.message, details: {} } }

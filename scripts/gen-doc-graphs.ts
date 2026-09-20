@@ -514,6 +514,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The queue owns Kafka-style durable topics with forced archival and wake-on-deliver fan-out; the four model tools (queue-topic/history/subscription/publish) mount through the separately loadable queue/tool Consumer, and the panel tab polls the queue Remote.',
   },
   {
+    key: 'terminalController',
+    pkg: 'api-terminal-controller',
+    title: 'Browser terminal controller',
+    mode: 'seam',
+    implementations: ['api-terminal-controller'],
+    consumers: [],
+    note: 'The terminal controller owns per-Agent interactive shell sessions over the subprocess PTY seam and serves snapshot-then-output screen frames to browser panels; the browser-panel client integration that will consume the Remote is deferred with the stream transport.',
+  },
+  {
     key: 'governor',
     pkg: 'governor',
     title: 'Resource governor',

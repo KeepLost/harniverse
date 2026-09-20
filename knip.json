@@ -395,6 +395,15 @@
         "src/**/*.ts"
       ]
     },
+    "packages/util/deque": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
     "packages/attachment/attachment": {
       "project": [
         "src/**/*.ts"
@@ -452,6 +461,15 @@
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/api/terminal-controller": {
+      "entry": [
+        "tests/**/*.spec.ts"
       ],
       "project": [
         "src/**/*.ts",

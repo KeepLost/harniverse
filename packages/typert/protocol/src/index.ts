@@ -9,6 +9,8 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 import type { AuthenticationCapability } from '@deepseek-ai/dsh-authentication'
 import type { TypertContextMap } from './types.ts'
 
+export { RemoteError, remoteErrorOf } from './remote-error.ts'
+
 const TYPERT_REMOTE_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
 
 /**

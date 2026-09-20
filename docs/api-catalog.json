@@ -494,6 +494,9 @@
     "subagent-not-resumable",
     "subagent-unauthorized",
     "subagent-delivery-unavailable",
+    "terminal-unavailable",
+    "terminal-control-unavailable",
+    "terminal-limit-reached",
     "internal",
     "idempotency-key-reused",
     "operation-not-found"

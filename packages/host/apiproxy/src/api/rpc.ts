@@ -123,6 +123,12 @@ export interface RpcErrorDetailsMap {
   'subagent-not-resumable': { childSessionId: SessionId }
   'subagent-unauthorized': { childSessionId: SessionId }
   'subagent-delivery-unavailable': { childSessionId: SessionId }
+  /** The terminal identity is missing or has begun process cleanup. */
+  'terminal-unavailable': {}
+  /** Input or resize was refused without invalidating the output attachment. */
+  'terminal-control-unavailable': { reason: 'read-only' | 'not-running' }
+  /** Retained screens and pending allocations consume the Session's terminal quota. */
+  'terminal-limit-reached': { limit: number }
   'internal': {}
   /** The same idempotency key was reused with a different operation payload. */
   'idempotency-key-reused': { key: string }
@@ -190,6 +196,9 @@ export const RPC_ERROR_CODES = [
   'subagent-not-resumable',
   'subagent-unauthorized',
   'subagent-delivery-unavailable',
+  'terminal-unavailable',
+  'terminal-control-unavailable',
+  'terminal-limit-reached',
   'internal',
   'idempotency-key-reused',
   'operation-not-found',
