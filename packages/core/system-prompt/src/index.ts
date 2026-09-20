@@ -66,6 +66,12 @@ export interface PromptSection {
    */
   readonly text: string | ((context: AssembleContext) => string)
   /**
+   * Keep the resolved text verbatim at render time. `false` opts this section
+   * out of `{{variable}}` interpolation — for external content (for example
+   * MCP server instructions) whose braces are not variable references.
+   */
+  readonly interpolate?: boolean
+  /**
    * Treat this contribution as the complete system prompt. Assembly still
    * runs the cooperative waterfall so tools, contexts, and variables can be
    * resolved, then restores this exact section as the sole prompt section.
@@ -90,6 +96,8 @@ export interface AssembledSection {
   name: string
   /** The resolved (but not yet interpolated) section text. */
   text: string
+  /** Present — and `false` — only when the source section opted out of interpolation. */
+  interpolate?: boolean
 }
 
 /** One resolved dynamic context contribution. */
@@ -211,7 +219,8 @@ export interface Config {
 
 /**
  * Interpolate strict `{{variable}}` references, drop empty sections, and join
- * the rest with blank lines. Malformed, unknown, or undefined references throw;
+ * the rest with blank lines. Sections assembled with `interpolate: false`
+ * pass through verbatim. Malformed, unknown, or undefined references throw;
  * a lone `{{` without any later `}}` is literal prose, and substituted values
  * are not scanned again.
  * @param assembly - the assembly whose sections and variables to render.
@@ -219,7 +228,7 @@ export interface Config {
  */
 export function renderPrompt(assembly: PromptAssembly): string {
   return assembly.sections
-    .map(section => interpolate(section, assembly.variables, 'section'))
+    .map(section => section.interpolate === false ? section.text : interpolate(section, assembly.variables, 'section'))
     .filter(text => text.length > 0)
     .join('\n\n')
 }
@@ -517,9 +526,10 @@ export class SystemPrompt extends Service {
     let completeSection: AssembledSection | undefined
     const sections = sectionDefinitions
       .map((section) => {
-        const assembled = {
+        const assembled: AssembledSection = {
           name: section.name,
           text: typeof section.text === 'function' ? section.text(context) : section.text,
+          ...section.interpolate === false ? { interpolate: false } : {},
         }
         if (section.complete === true) completeSection = { ...assembled }
         return assembled

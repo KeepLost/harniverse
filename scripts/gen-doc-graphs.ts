@@ -234,6 +234,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Plugins register namespace schemas and resolve layered values; providers store the raw document. The LLM adapters register their entry config as the composition base under the user section; the web gateway serves redacted layered descriptors and writes the user layer.',
   },
   {
+    key: 'mcpResources',
+    pkg: 'mcp-resources',
+    title: 'Scoped MCP resource seam',
+    mode: 'seam',
+    implementations: ['mcp-resources'],
+    consumers: ['mcp-client'],
+    note: 'Scoped providers publish server resources; the runtime owns the shared list/template/read tools and a verbatim prompt section naming reachable servers, while mcp-client enforces Profile member visibility on read and list.',
+  },
+  {
     key: 'mcpUserConfigSettings',
     pkg: 'mcp-user-config',
     title: 'User MCP configuration seam',

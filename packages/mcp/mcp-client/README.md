@@ -2,11 +2,11 @@
 
 English | [中文](README.zh.md)
 
-MCP client bridge plugin: connects to external [Model Context Protocol](https://modelcontextprotocol.io/) servers and registers their tools on `ctx.tools`, making them available to the model as native tools under server-qualified names (`mcp__<serverName>__<rawName>`).
+MCP client bridge plugin: connects to external [Model Context Protocol](https://modelcontextprotocol.io/) servers and registers their tools on `ctx.tools`, making them available to the model as native tools under server-qualified names (`mcp__<serverName>__<rawName>`). When `dsh-mcp-resources` is composed, each connection also publishes its resources on `ctx.mcpResources`, exposes the server's instructions as a prompt section, and contributes resource members to the capability descriptor.
 
-When `ctx.capabilities` is composed, the instance also registers one effect-owned `mcp-server` descriptor with one immutable member per currently discovered public tool. Command arguments, environment, headers, credentials, and arbitrary server metadata remain private. A Profile may unload the server or retain an explicit member allowlist; refreshed generations apply the same policy to subsequently discovered tools without disconnecting the Host-shared server process. A Profile-owned MCP row can instead be physically selected by the Profile recipe compiler.
+When `ctx.capabilities` is composed, the instance also registers one effect-owned `mcp-server` descriptor with one immutable member per currently discovered public tool or resource URI. Command arguments, environment, headers, credentials, and arbitrary server metadata remain private. A Profile may unload the server or retain an explicit member allowlist; refreshed generations apply the same policy to subsequently discovered tools without disconnecting the Host-shared server process. A Profile-owned MCP row can instead be physically selected by the Profile recipe compiler.
 
-The package also owns the MCP identity, visibility, and refresh contract: `MCP_SERVER_NAME_PATTERN`/`isMcpServerName` (the reserved server namespace), `McpResourceIdentity`/`isMcpResourceIdentity` and `mcpServerCapabilityId`/`mcpResourceMemberId` (stable capability ids for servers and resources), `resolveMcpMemberVisibility` (the pure rule a narrowed Profile applies — an unselected server denies every member; an explicit member allowlist admits exactly the members marked visible), and `classifyMcpRefresh` (reconnect and tool/resource sync stay `'topology'` refreshes inside a running Session's captured capability generation; only Profile member or selection edits are `'composition'` changes that produce a new generation for future assemblies).
+The package also owns the MCP identity, visibility, and refresh contract: `MCP_SERVER_NAME_PATTERN`/`isMcpServerName` (the reserved server namespace), `McpResourceIdentity`/`isMcpResourceIdentity` and `mcpServerCapabilityId`/`mcpResourceMemberId` (stable capability ids for servers and resources), `resolveMcpMemberVisibility` (the pure rule a narrowed Profile applies — an unselected server denies every member; an explicit member allowlist admits exactly the members marked visible), and `classifyMcpRefresh` (reconnect and tool/resource sync stay `'topology'` refreshes inside a running Session's captured capability generation; only Profile member or selection edits are `'composition'` changes that produce a new generation for future assemblies). Visibility is enforced at the wire: `resources/read` of a non-visible URI throws and `resources/list` results are filtered to the visible URIs, while template listings pass through unfiltered.
 
 ## Usage
 
@@ -49,6 +49,7 @@ The model sees `mcp__github__create_issue`, `mcp__web__search`, … — the same
 | `url` | http | yes | MCP server URL |
 | `headers` | http | no | Extra headers (e.g. auth tokens) |
 | `toolCallTimeoutMs` | both | no | Timeout per `callTool` invocation (default 60000) |
+| `maxInstructionBytes` | both | no | Byte budget for the server's captured instructions, attributed header included (default 32768) |
 | `failOnStartupError` | both | no | Reject plugin activation when initial connection or tool synchronization fails (default `false`) |
 | `reconnect.enabled` | both | no | Reconnect automatically after a lost connection (default `true`) |
 | `reconnect.initialDelayMs` | both | no | First reconnect delay in ms; doubles per consecutive failed attempt (default 500) |
@@ -69,6 +70,10 @@ Every MCP tool has two names: the raw MCP name (sent on the wire in `tools/call`
 - On connect: plugin activation awaits `listTools()` and registers each tool via `ctx.tools.register()` under its public name before the composition starts its first turn. Initial connection, discovery, or registration failure is always logged; it rejects activation when `failOnStartupError` is true and otherwise activates with no tools.
 - Listens for `notifications/tools/list_changed` → re-syncs; a fetch-phase failure keeps the previous generation registered, while a registration conflict rolls back the attempted generation and leaves no tools from that server.
 - Tool execute: `client.callTool({ name: rawName, arguments }, { signal })` with timeout + abort support—the public name is never sent to the server.
+- Server instructions: after a successful connect + tool sync, the server's initialize instructions are captured, trimmed, and attributed (`### MCP server: <serverName>`), then exposed as a verbatim `mcp:<serverName>` prompt section through the server-context registration. Payloads larger than `maxInstructionBytes` fail the attempt like any other synchronization error; giving up on reconnection clears the section.
+- Resource discovery: when the server advertises the resources capability, the connection drains paginated `resources/list` into a sorted URI cache after each sync; a discovery failure is contained (logged, previous cache kept). The cached URIs feed the capability snapshot's resource members and the change detection that triggers generation refresh.
+- Pagination guard: every continuation-cursor drain (tools, resources) rejects a repeated cursor as invalid pagination instead of looping — `server repeated continuation cursor "<cursor>"`.
+- Resource requests: `resources.request` routes `resources/list`, `resources/templates/list`, and `resources/read` over the live connection (connected guard, `toolCallTimeoutMs` timeout, abort-aware) and returns the raw JSON value; the `mcp-resources` tools render it. Profile member visibility is enforced on this surface (see above).
 - Canonical success is `{ content: JsonValue[], structuredContent? }`; complete JSON MCP blocks survive for programmatic callers. A supported advertised `outputSchema` validates `structuredContent`; unsupported schema vocabulary falls back to unconstrained `JsonValue`.
 - Native/model rendering keeps the existing text projection: text blocks join with newlines while image, audio, resource, and unsupported blocks become placeholders.
 - On disconnect/crash: the supervisor restarts the original server config with exponential backoff (`reconnect.initialDelayMs` doubling up to `reconnect.maxDelayMs`) and re-runs discovery on success — the recovered generation replaces the previous one, so tools neither duplicate nor leak. During the outage the last good generation stays registered; calls against it fail until recovery.
@@ -81,6 +86,8 @@ Every MCP tool has two names: the raw MCP name (sent on the wire in `tools/call`
 |---|---|
 | `ctx.tools` | Register/unregister MCP tools |
 | `ctx.capabilities` | Optionally publish server identity and apply Profile-generation selection |
+| `ctx.mcpResources` | Optionally publish the server's resource provider (via `dsh-mcp-resources`) |
+| `ctx.systemPrompt` | Optionally register the attributed server-instructions section |
 
 ## Model Experience
 
@@ -112,9 +119,24 @@ Arguments and mapped text are retained until compaction. Binary and resource pay
 
 Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
+### Server instructions and resource members
+
+#### What the model sees
+
+A server that sends initialize instructions contributes one verbatim `### MCP server: <serverName>` block (braces in server text are never interpolated). Discovered resource URIs appear as `mcp-resource` members of the server's capability descriptor — narrowable by Profile allowlists like tool members — and the shared `list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource` tools (owned by `dsh-mcp-resources`) reach this server by name.
+
+#### Token effect
+
+The instructions block is bounded by `maxInstructionBytes` (32 KiB by default) and only present while the server is connected. Resource member URIs cost catalog tokens, not request tokens; read results enter history once through the shared tools' rendering (binary payloads masked).
+
+#### KV Cache effect
+
+Prefix-stable while instructions and the visible member set are unchanged. A reconnect that recovers identical instructions reproduces the same section; a Profile member edit is a composition change that rewrites the descriptor for future assemblies.
+
 ## Known Limitations and Deferred Work
 
-- **Tools are the only bridged MCP capability** — Resources and Prompts have no harness consumer and are deferred.
+- **MCP Prompts are not bridged** — Tools and Resources are; server-defined prompts (slash-command-style) have no harness consumer and are deferred.
+- **No resource subscriptions** — `resources/listChanged` notifications from servers are not observed; the URI cache refreshes on connect, tool re-sync, and reconnect only.
 - **Startup timeout is inherited from the MCP SDK** — DSH does not yet expose a connection/discovery timeout. Each initialize or paginated `tools/list` request uses the SDK's 60-second default, so an unresponsive server or cursor chain can delay both activation and teardown while the initial synchronization settles.
 - **Reconnect triggers on transport close** — a crashed stdio child fires it; Streamable HTTP failures surface per request and through the SDK transport's own SSE-stream recovery, so an unreachable HTTP server is retried per call rather than respawned by the supervisor.
 - **Native non-text rendering is lossy** — image, audio, and resource payloads become placeholders in model context even though the execution-local canonical value preserves their JSON blocks. Richer Native multimedia projection is deferred.

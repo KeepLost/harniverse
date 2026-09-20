@@ -53,6 +53,23 @@ const HASH_LENGTH = 12
 /** Raw result record: the bridge owns JSON-value validation after transport. */
 const RawCallToolResultSchema = z.record(z.string(), z.unknown())
 
+/**
+ * Guard one paginated drain against a server that repeats a continuation
+ * cursor it already issued — otherwise the drain would loop forever.
+ * @param serverName - the configured server, for diagnostics.
+ * @returns a checker that records each seen cursor and rejects a repeat.
+ */
+export function cursorGuard(serverName: string): (cursor: string | undefined) => void {
+  const seen = new Set<string>()
+  return (cursor) => {
+    if (cursor === undefined) return
+    if (seen.has(cursor)) {
+      throw new Error(`mcp-client(${serverName}): server repeated continuation cursor "${cursor}" — invalid pagination`)
+    }
+    seen.add(cursor)
+  }
+}
+
 /** List without mutating the SDK's per-page output-validator cache. */
 function listToolsUncached(client: Client, cursor?: string) {
   return client.request(
@@ -133,9 +150,11 @@ export async function syncTools(
 ): Promise<ToolDisposers> {
   // Phase 1: fetch and build the next generation without touching the registry.
   const definitions = new Map<string, ToolDefinition>()
+  const guard = cursorGuard(opts.serverName)
   let cursor: string | undefined
   do {
     const response = await listToolsUncached(client, cursor)
+    guard(cursor)
     for (const tool of response.tools) {
       const publicName = publicToolName(opts.serverName, tool.name)
       if (definitions.has(publicName)) {

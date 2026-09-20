@@ -723,6 +723,17 @@ Persistence is intentionally not implemented here — persistence plugins subscr
 
 ```ts cordis-catalog
 /**
+ * Register one message-projection interpreter for sessions this store
+ * prepares afterwards. Already-live sessions keep the interpreters they
+ * were constructed with; disposing the contribution removes it from later
+ * preparations only.
+ * @param projection - pure definition owned by the event's plugin.
+ * @returns the fiber-owned disposer.
+ * @throws when another definition already interprets this event type.
+ */
+registerMessageProjection(projection: SessionMessageProjection): () => void
+
+/**
  * Create a session owned by the calling fiber: disposing that fiber stops
  * event notification and removes the session from the store. `options.seed`
  * populates the session with a copy of those events (replay/fork);
@@ -854,7 +865,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](persistence.md) · [PrepareSessionOptions](persistence.md) · [SessionId](core.md)
 
-Source: [`packages/core/session/src/index.ts:912`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:980`](../../packages/core/session/src/index.ts)
 
 <a id="session-events"></a>
 

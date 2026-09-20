@@ -19,7 +19,16 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../core/scope"
+    },
+    {
       "path": "../../core/tools"
+    },
+    {
+      "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../mcp/mcp-resources"
     },
     {
       "path": "../../capability/capabilities"
