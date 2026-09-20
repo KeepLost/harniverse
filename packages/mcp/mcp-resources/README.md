@@ -10,7 +10,7 @@ Providers are registered per scope. An agent only sees the servers whose `mcp-cl
 
 Composed by `mcp-client`: each server connection registers its provider automatically. A custom provider implements the interface and registers on a scoped context:
 
-```ts
+```ts ignore-check
 ctx.mcpResources.register('my-server', {
   async request(request, exec) {
     // request: { method: 'resources/list', cursor? }

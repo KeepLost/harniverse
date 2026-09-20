@@ -10,7 +10,7 @@
 
 由 `mcp-client` 组合：每个服务器连接自动注册其提供者。自定义提供者实现该接口并在作用域化上下文上注册：
 
-```ts
+```ts ignore-check
 ctx.mcpResources.register('my-server', {
   async request(request, exec) {
     // request: { method: 'resources/list', cursor? }

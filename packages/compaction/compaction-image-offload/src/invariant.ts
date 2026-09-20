@@ -1,11 +1,23 @@
 /** Package-owned durable image-offload invariants. @module @deepseek-ai/dsh-compaction-image-offload/invariant */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
-import { imageCarrier } from './project-message.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-compaction-image-offload'
+
+/**
+ * Self-contained copy of the durable event carrier lookup (kept private so
+ * the published `invariant.js` stays a single file with no shared chunk).
+ * @param event - the durable event to inspect.
+ * @returns the block list that may carry image blocks, or undefined.
+ */
+function imageCarrier(event: SessionEvent): readonly ContentBlock[] | undefined {
+  if (event.type === 'user/message') return event.data.content
+  if (event.type === 'tool/result') return event.data.message.content.at(0)?.content
+  return undefined
+}
 
 /** Cordis companion plugin name. */
 export const name = 'compaction-image-offload-invariant'

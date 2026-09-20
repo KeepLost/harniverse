@@ -458,9 +458,15 @@ declare class Session {
    * @param id - session identity.
    * @param seed - optional borrowed replay or fork events.
    * @param header - optional borrowed storage metadata.
+   * @param projections - pure interpreters for plugin-owned message changes.
    * @returns a detached session.
    */
-  static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;
+  static create(
+    id: SessionId,
+    seed?: readonly SessionEvent[],
+    header?: SessionHeader,
+    projections?: readonly SessionMessageProjection[],
+  ): Session;
   /**
    * Restore a detached session by taking ownership of fresh persistence values.
    * The storage format, event envelopes, sequence continuity, surface transitions,
@@ -470,6 +476,7 @@ declare class Session {
    * @param header - fresh detached metadata whose ownership is transferred.
    * @param history - optional absolute-sequence resolver for a windowed seed.
    * @param surface - optional surface state already folded at the window boundary.
+   * @param projections - pure interpreters for plugin-owned message changes.
    * @returns a restored detached session.
    */
    static fromRestore(
@@ -478,6 +485,7 @@ declare class Session {
      header: SessionHeader,
      history?: SessionHistorySource,
      surface?: { readonly nodes: readonly number[]; readonly replaceGeneration: number },
+     projections?: readonly SessionMessageProjection[],
    ): Session;
   /**
    * An immutable snapshot of the append-only event log. The snapshot is reused
@@ -562,7 +570,11 @@ declare class Session {
    * append records its `surfaceOp`, so a raw event with no marker (a chunk, a
    * turn boundary) is correctly absent, and a compaction `replace` deletes the
    * shadowed nodes from the derivation. The projection rules are
-   * {@link deriveEventMessage}, folded per node.
+   * {@link deriveEventMessage}, folded per node, then the registered
+   * {@link SessionMessageProjection} interpreters rewrite messages named by
+   * plugin-owned decision events (model-visible projections such as
+   * `image/offload`); projections supplied at construction stay fixed for the
+   * session's life.
    *
    * CACHED: each surface node is projected exactly once, when first seen — a
    * call costs O(new nodes), and a surface rewrite (a `replace`;
@@ -597,7 +609,7 @@ Everything else (`turn/*`, `step/*`, plugin-owned `llm/retry`) is structural and
 
 ### Message projections
 
-`Session.create`/`Session.fromRestore` accept an optional list of [`SessionMessageProjection`](#sessionstore) objects — `{ type, project(event, context) }` — fixed at construction. After the base fold records each node's derived message, each projection re-walks the log tail for its own event type and may return replacement messages keyed by node seq; a changed replacement rebuilds the derived array from the composed map, and a surface rewrite replays the whole projection history. `SessionStore.registerMessageProjection(type, …)` registers projections for store-created sessions (duplicate types throw; the disposer unregisters). [`dsh-compaction-image-offload`](../../packages/compaction/compaction-image-offload/README.md) is the current owner: its `image/offload` projection renders the durable offload stub in place of the targeted image blocks, keeping every other block position — and therefore the KV-cache prefix — stable. Projections change only what `deriveMessages()` returns; `deriveEventMessage(event)` and display surfaces keep the original messages.
+`Session.create`/`Session.fromRestore` accept an optional list of [`SessionMessageProjection`](#ctxsessions--sessionstore) objects — `{ type, project(event, context) }` — fixed at construction. After the base fold records each node's derived message, each projection re-walks the log tail for its own event type and may return replacement messages keyed by node seq; a changed replacement rebuilds the derived array from the composed map, and a surface rewrite replays the whole projection history. `SessionStore.registerMessageProjection(type, …)` registers projections for store-created sessions (duplicate types throw; the disposer unregisters). [`dsh-compaction-image-offload`](../../packages/compaction/compaction-image-offload/README.md) is the current owner: its `image/offload` projection renders the durable offload stub in place of the targeted image blocks, keeping every other block position — and therefore the KV-cache prefix — stable. Projections change only what `deriveMessages()` returns; `deriveEventMessage(event)` and display surfaces keep the original messages.
 
 ## Live-session fork API
 
