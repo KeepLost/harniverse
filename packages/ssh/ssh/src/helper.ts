@@ -128,6 +128,13 @@ export async function runSshHelper(transport: HelperTransport, options: HelperOp
     if (method === 'process.done') return processes.done(processIdRequest.parse(raw).id)
     if (method === 'process.wait') return processes.wait(processIdRequest.parse(raw).id, signal)
     if (method === 'process.terminate') { await processes.terminate(processIdRequest.parse(raw).id); return null }
+    if (method === 'terminal.resize') {
+      const input = z.object({
+        id: processIdSchema, cols: z.number().int().positive(), rows: z.number().int().positive(),
+      }).strict().parse(raw)
+      await processes.resizeTerminal(input.id, input.cols, input.rows)
+      return null
+    }
     if (method === 'terminal.write' || method === 'terminal.inspect' || method === 'terminal.signal') {
       const input = z.object({ id: processIdSchema, value: z.string().optional() }).strict().parse(raw)
       return processes.terminal(input.id, method === 'terminal.write' ? 'write' : method === 'terminal.inspect' ? 'inspect' : 'signal', input.value)

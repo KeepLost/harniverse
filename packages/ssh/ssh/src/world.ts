@@ -117,6 +117,7 @@ export function deriveWorldId(hostname: string, workspaceRoot: string): string {
   const host = hostname.toLowerCase().replaceAll(/[^a-z0-9-]+/g, '-').replaceAll(/-{2,}/g, '-').replaceAll(/^-+|-+$/g, '').slice(0, 24)
   const workspace = createHash('sha256').update(workspaceRoot).digest('hex').slice(0, 12)
   const candidate = `${host === '' ? 'ssh' : host}-${workspace}`
+  // v8 ignore next 1 -- defensive floor: every candidate exceeds the pattern minimum by construction
   return candidate.length < 3 ? `w-${workspace}` : candidate
 }
 

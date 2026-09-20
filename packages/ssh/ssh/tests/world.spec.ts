@@ -60,6 +60,8 @@ describe('world description', () => {
     expect(worldId).toMatch(WORLD_ID_PATTERN)
     expect(worldId).toBe(deriveWorldId('BOX.example-01..com', '/srv/work'))
     expect(worldId).not.toBe(deriveWorldId('box.example-01.com', '/srv/other'))
+    expect(deriveWorldId('', '/srv/work')).toMatch(/^ssh-[0-9a-f]{12}$/u)
+    expect(deriveWorldId('???', '/srv/work')).toBe(deriveWorldId('', '/srv/work'))
     expect(deriveWorldId('', '/srv/work')).toMatch(WORLD_ID_PATTERN)
   })
 

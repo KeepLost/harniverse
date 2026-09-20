@@ -286,6 +286,7 @@ export class SshSubprocessRuntime extends SubprocessRuntime {
       const handle: SubprocessTerminalHandle = {
         pid: started.pid, output, done,
         write: async (data) => { await ssh.request('terminal.write', { id, value: data }, z.null()) },
+        resize: async (cols, rows) => { await ssh.request('terminal.resize', { id, cols, rows }, z.null()) },
         inspectForeground: async () => await ssh.request('terminal.inspect', { id }, foregroundSchema) ?? undefined,
         signalForeground: (signal: SubprocessTerminalSignal) => ssh.request('terminal.signal', { id, value: signal }, z.number().int().positive()),
         terminate: () => {

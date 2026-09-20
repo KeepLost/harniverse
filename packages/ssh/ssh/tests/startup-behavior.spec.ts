@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { SshRpcPeer } from '../src/protocol.ts'
 import { SshConnection } from '../src/index.ts'
 import type { Config } from '../src/index.ts'
+import { describeExecutionWorld } from '../src/world.ts'
 
 const transport = vi.hoisted(() => ({ spawn: vi.fn(), exec: vi.fn(), connect: vi.fn(), tls: vi.fn(), directory: vi.fn(), remove: vi.fn() }))
 vi.mock('node:child_process', async original => ({ ...await original<typeof import('node:child_process')>(), spawn: transport.spawn, execFile: transport.exec }))
@@ -55,6 +56,8 @@ const config: Config = {
   host: 'test-alias', node: '/remote/node', helper: '/remote/helper.js', helperHash: 'a'.repeat(64), workspace: '/remote/workspace',
   requestTimeoutMs: 1000, maxFrameBytes: 4096, maxPending: 8, leaseMs: 30_000,
 }
+const worldDescription = describeExecutionWorld({ worldId: 'startup-box', workspaceRoot: '/canonical/workspace', revision: 'r1' })
+
 const hello = {
   protocol: 1, hash: 'a'.repeat(64), platform: 'linux', nodeVersion: 'v24.19.0',
   node: '/canonical/node', root: '/tmp/remote-helper', workspace: '/canonical/workspace',
@@ -86,6 +89,7 @@ function setup(options: {
       return { ...hello, ...options.hello }
     }
     if (method === 'held') { requestEntered.resolve(signal); return released.promise }
+    if (method === 'world.describe') return { descriptor: worldDescription.descriptor, hooks: worldDescription.hooks }
     if (method === 'echo') return params
     if (method === 'heartbeat' && options.heartbeatFailure !== undefined) throw options.heartbeatFailure
     if (method === 'heartbeat' || method === 'close') return null
@@ -325,6 +329,14 @@ describe.skipIf(process.platform === 'win32')('SSH connection startup', () => {
     await test.service.dispose()
     expect(test.raw.destroyed).toBe(true)
     expect(test.secure.destroyed).toBe(true)
+  })
+
+  it('describes the remote world through the verified world.describe request', async () => {
+    const test = setup()
+    const description = await test.service.describeWorld()
+    expect(description.descriptor).toEqual(worldDescription.descriptor)
+    expect(description.hooks).toEqual([])
+    expect(test.calls.map(call => call.method)).toContain('world.describe')
   })
 
   it('contains a failed local forwarding-path removal and still disposes the connection', async () => {

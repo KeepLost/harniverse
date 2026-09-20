@@ -74,11 +74,12 @@ function terminal() {
   const write = vi.fn(async (_data: string) => {})
   const inspectForeground = vi.fn<SubprocessTerminalHandle['inspectForeground']>(async () => undefined)
   const signalForeground = vi.fn(async () => 42)
+  const resize = vi.fn(async () => {})
   const terminate = vi.fn(async () => { output.end(); completion.resolve(outcome) })
   const handle: SubprocessTerminalHandle = {
-    pid: 42, output, done: completion.promise, write, inspectForeground, signalForeground, terminate,
+    pid: 42, output, done: completion.promise, write, inspectForeground, signalForeground, resize, terminate,
   }
-  return { handle, completion, output, write, inspectForeground, signalForeground, terminate }
+  return { handle, completion, output, write, inspectForeground, signalForeground, resize, terminate }
 }
 
 describe.skipIf(process.platform === 'win32')('SSH helper process settlement', () => {
@@ -103,6 +104,8 @@ describe.skipIf(process.platform === 'win32')('SSH helper process settlement', (
         expect(await test.owner.terminal(run.id, 'inspect')).toEqual({ processGroupId: 42, inputWaiting: true })
         expect(await test.owner.terminal(run.id, 'signal', 'SIGINT')).toBe(42)
         expect(child.signalForeground).toHaveBeenCalledWith('SIGINT')
+        await test.owner.resizeTerminal(run.id, 100, 30)
+        expect(child.resize).toHaveBeenCalledWith(100, 30)
         expect(await test.owner.wait(run.id)).toBe(true)
         await expect(test.owner.done(run.id)).resolves.toEqual({ outcome, spills: {}, collected: {} })
         await vi.waitFor(async () => { expect(await readdir(test.root)).toEqual([]) })
@@ -111,6 +114,45 @@ describe.skipIf(process.platform === 'win32')('SSH helper process settlement', (
         await test.owner.terminate(run.id)
       }
       await expect(test.owner.done(ids[0]!)).rejects.toThrow('Unknown or expired')
+    } finally { await test.close() }
+  })
+
+  it('answers -1 when neither allocated handle exposes a pid', async () => {
+    const test = await harness()
+    const child = ordinary()
+    test.spawn.mockReturnValue({ ...child.handle, pid: undefined as unknown as number })
+    try {
+      const run = await test.prepare(ordinaryRequest)
+      run.channels.stdout!.end(); run.channels.stdout!.resume()
+      run.channels.stderr!.end(); run.channels.stderr!.resume()
+      expect(await test.owner.start(run.id)).toEqual({ pid: -1 })
+      await test.owner.terminate(run.id)
+    } finally { await test.close() }
+  })
+
+  it('refuses a resize on a reservation that does not own a terminal', async () => {
+    const test = await harness()
+    const child = ordinary()
+    test.spawn.mockReturnValue(child.handle)
+    try {
+      const run = await test.prepare({ ...ordinaryRequest, stdio: { ...ordinaryRequest.stdio, stdin: 'ignore' } })
+      await expect(test.owner.resizeTerminal(run.id, 100, 30)).rejects.toThrow('does not own a terminal')
+      await test.owner.terminate(run.id)
+    } finally { await test.close() }
+  })
+
+  it('terminates a started terminal and retains its completed result', async () => {
+    const test = await harness()
+    const child = terminal()
+    test.spawnTerminal.mockResolvedValue(child.handle)
+    try {
+      const run = await test.prepare(terminalRequest)
+      run.channels.terminal!.end(); run.channels.terminal!.resume()
+      expect(await test.owner.start(run.id)).toEqual({ pid: 42 })
+      await test.owner.terminate(run.id)
+      // Both the terminate request and the settlement join may ask the child to stop.
+      expect(child.terminate).toHaveBeenCalled()
+      expect(await test.owner.done(run.id)).toEqual({ outcome, spills: {}, collected: {} })
     } finally { await test.close() }
   })
 

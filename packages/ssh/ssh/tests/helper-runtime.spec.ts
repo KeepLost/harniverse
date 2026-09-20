@@ -1,10 +1,13 @@
 /** Real helper dispatch over private in-memory transport, without changing the Harness process cwd. */
 import { symlink, writeFile } from 'node:fs/promises'
+import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
+import { LocalSubprocessRuntime } from '@deepseek-ai/dsh-subprocess-local'
+import type { SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 import { z } from 'zod'
 import { createHelperHarness as helper } from './fixtures/helper.ts'
-import { targetSchema, writeResultSchema, editResultSchema, infoSchema, entriesSchema } from '../src/schemas.ts'
+import { targetSchema, writeResultSchema, editResultSchema, infoSchema, entriesSchema, preparedSchema } from '../src/schemas.ts'
 
 
 const policy = (workspaceRoot: string) => ({ mode: 'workspace-write', workspaceRoot })
@@ -81,6 +84,29 @@ describe.skipIf(process.platform === 'win32')('SSH helper runtime', () => {
       await test.client.request('fs.streamClose', { id: early }, z.null())
       await expect(test.client.request('fs.next', { id: early }, nextSchema)).rejects.toThrow('Unknown SSH text stream')
     } finally { await test.close() }
+  })
+
+  it('forwards terminal resize through the dedicated RPC route', async () => {
+    const test = await helper()
+    const resize = vi.fn(async () => {})
+    const output = new PassThrough()
+    const completion = Promise.withResolvers<SubprocessOutcome>()
+    const spawnTerminal = vi.spyOn(LocalSubprocessRuntime.prototype, 'spawnTerminal').mockResolvedValue({
+      pid: 42, output, done: completion.promise,
+      write: async () => {}, resize,
+      inspectForeground: async () => undefined, signalForeground: async () => 0,
+      terminate: async () => { output.end(); completion.resolve({ exitCode: 0, signal: null }) },
+    })
+    try {
+      const prepared = await test.client.request('process.prepare', { argv: ['/bin/sh'], cwd: test.root, graceMs: 1000, terminal: { rows: 24, cols: 80 } }, preparedSchema)
+      const socket = await test.connectStream(prepared.streams.terminal!)
+      try {
+        await test.client.request('process.start', { id: prepared.id }, z.unknown())
+        await test.client.request('terminal.resize', { id: prepared.id, cols: 100, rows: 30 }, z.null())
+        expect(resize).toHaveBeenCalledWith(100, 30)
+        await test.client.request('process.terminate', { id: prepared.id }, z.null())
+      } finally { socket.destroy() }
+    } finally { spawnTerminal.mockRestore(); await test.close() }
   })
 
   it('refuses unconfined sandbox requests and resolves executables in the helper world', async () => {

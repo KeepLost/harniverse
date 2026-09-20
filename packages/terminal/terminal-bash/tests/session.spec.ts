@@ -98,6 +98,8 @@ class FakeTerminal implements SubprocessTerminalHandle {
       : { processGroupId, inputWaiting: this.inspector.isStdinWaiting(processGroupId, this.pid) }
   }
 
+  async resize(_cols: number, _rows: number): Promise<void> {}
+
   async signalForeground(signal: SubprocessTerminalSignal): Promise<number> {
     const foreground = await this.inspectForeground()
     if (foreground === undefined) throw new Error(`cannot resolve foreground process group for terminal ${this.pid}`)

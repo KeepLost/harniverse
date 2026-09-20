@@ -42,7 +42,7 @@ async function setup(options: {
         if (options.terminateFailure !== undefined) throw options.terminateFailure
         finished.resolve(completion)
         value = null
-      } else if (method === 'terminal.write') value = null
+      } else if (method === 'terminal.write' || method === 'terminal.resize') value = null
       else if (method === 'terminal.inspect') value = foreground
       else if (method === 'terminal.signal') value = 321
       else throw new Error(`Unexpected terminal request ${method}`)
@@ -93,6 +93,8 @@ describe('SSH terminal behavior', () => {
     test.setForeground({ processGroupId: 321, inputWaiting: true })
     expect(await handle.inspectForeground()).toEqual({ processGroupId: 321, inputWaiting: true })
     expect(await handle.signalForeground('SIGINT')).toBe(321)
+    await handle.resize(100, 30)
+    expect(test.calls.find(call => call.method === 'terminal.resize')?.params).toEqual({ id, cols: 100, rows: 30 })
     expect(test.calls.find(call => call.method === 'process.prepare')?.params).toEqual({
       argv: ['bash'], cwd: spec.cwd, env: { KEEP: 'value' }, graceMs: 100,
       terminal: { rows: 24, cols: 80 },

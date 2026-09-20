@@ -68,6 +68,7 @@ function terminalHandle(): SubprocessTerminalHandle {
     write: async () => {},
     inspectForeground: async () => ({ processGroupId: 123, inputWaiting: true }),
     signalForeground: async () => 123,
+    resize: async () => {},
     terminate: async () => { output.end() },
   }
 }
@@ -344,6 +345,7 @@ describe('BashTerminalBackend startup rollback', () => {
       write: async () => {},
       inspectForeground: async () => ({ processGroupId: 123, inputWaiting: true }),
       signalForeground: async () => 123,
+      resize: async () => {},
       async terminate() {
         output.end()
         outcome.resolve({ exitCode: null, signal: 'SIGTERM' })
