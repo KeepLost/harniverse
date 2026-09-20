@@ -5,17 +5,17 @@ import { once } from 'node:events'
 import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
-import { runSshHelper } from '../../src/helper.ts'
+import { runSshHelper, type HelperOptions } from '../../src/helper.ts'
 import { SshRpcPeer } from '../../src/protocol.ts'
 import { helloSchema, type SshStreamEndpoint } from '../../src/schemas.ts'
 import { authenticateStream } from '../../src/stream-security.ts'
 
-export async function createHelperHarness(handshake = true, leaseMs = 30_000) {
+export async function createHelperHarness(handshake = true, leaseMs = 30_000, options: HelperOptions = {}) {
   const root = await realpath(await mkdtemp('/tmp/dsh-ssh-rpc-'))
   const input = new PassThrough()
   const output = new PassThrough()
   const controller = new AbortController()
-  const serving = runSshHelper({ input, output, entryPath: fileURLToPath(new URL('../../src/helper-entry.ts', import.meta.url)), signal: controller.signal })
+  const serving = runSshHelper({ input, output, entryPath: fileURLToPath(new URL('../../src/helper-entry.ts', import.meta.url)), signal: controller.signal }, options)
   void serving.catch(() => {})
   const client = new SshRpcPeer(output, input, 64 * 1024 * 1024, 128)
   const sockets = new Set<Socket>()

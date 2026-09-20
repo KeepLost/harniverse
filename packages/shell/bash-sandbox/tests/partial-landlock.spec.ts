@@ -161,7 +161,7 @@ describe('partial Landlock runner-failure classification', () => {
 
       let background: unknown
       try {
-        bash.start(bash.resolve(request))
+        await bash.start(bash.resolve(request))
       } catch (error) {
         background = error
       }

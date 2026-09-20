@@ -2588,7 +2588,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/ssh/ssh/src/index.ts:17`](../packages/ssh/ssh/src/index.ts)
+Source: [`packages/ssh/ssh/src/index.ts:18`](../packages/ssh/ssh/src/index.ts)
 
 <a id="deepseek-aidsh-storage-domain"></a>
 

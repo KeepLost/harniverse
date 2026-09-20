@@ -164,7 +164,7 @@ describe('windows-acl write grants (LocalSandboxProvider)', () => {
       const upgraded = await sandbox.confine(['true'], workspaceWrite)
       expect(flag(upgraded.argv, '--temp-write-sid')).not.toBe(WORKSPACE_SID)
       expect(mockState.grants).toHaveLength(2)
-      sandbox.confine(['true'], readOnly)
+      await sandbox.confine(['true'], readOnly)
       expect(mockState.grants).toHaveLength(2)
       expect(mockState.grants.every(grant => !grant.disposed)).toBe(true)
       expect((await sandbox.confine(['true'], workspaceWrite)).argv).toEqual(upgraded.argv)

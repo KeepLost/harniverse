@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import type { Readable, Writable } from 'node:stream'
+import { hostname } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
 import { FsError, type FsTarget, type FsWriteIntent, type FsVersion } from '@deepseek-ai/dsh-fs'
 import { SandboxedFileSystem } from '@deepseek-ai/dsh-fs-sandbox'
@@ -14,6 +15,7 @@ import type { SandboxExecutionPolicy, SandboxPolicy } from '@deepseek-ai/dsh-san
 import { z } from 'zod'
 import { SshRpcPeer, SSH_MAX_PROCESS_HANDLES, SSH_MAX_TEXT_STREAMS, SSH_PROTOCOL_VERSION } from './protocol.ts'
 import { RemoteProcesses } from './helper-processes.ts'
+import { describeExecutionWorld, deriveWorldId, EMPTY_MACHINE_INVENTORY, type MachineInventoryProvider } from './world.ts'
 import { editSchema, environmentSchema, intentSchema, policySchema, processIdSchema, remotePath, targetSchema, textStreamIdSchema } from './schemas.ts'
 import type { SshTextStreamId } from './schemas.ts'
 
@@ -45,11 +47,22 @@ export interface HelperTransport {
   signal: AbortSignal
 }
 
+/** Machine-owned options for the world this helper describes itself as. */
+export interface HelperOptions {
+  /** Machine inventory source; the default reports an empty, truthful snapshot. */
+  readonly inventory?: MachineInventoryProvider
+  /** Stable world identity; defaults to a host-name and workspace derivation. */
+  readonly worldId?: string
+  /** Remote-execution presets this machine supports. */
+  readonly presets?: readonly string[]
+}
+
 /**
  * Run a helper until its channel closes or its client lease expires.
  * @param transport - private process streams, entry identity, and cancellation.
+ * @param options - machine-owned world identity and inventory.
  */
-export async function runSshHelper(transport: HelperTransport): Promise<void> {
+export async function runSshHelper(transport: HelperTransport, options: HelperOptions = {}): Promise<void> {
   if (process.platform !== 'linux' && process.platform !== 'darwin') throw new Error('SSH helper requires a POSIX host')
   transport.signal.throwIfAborted()
   const runtime = await services()
@@ -62,6 +75,7 @@ export async function runSshHelper(transport: HelperTransport): Promise<void> {
   let leaseMs = 30_000
   let initialized = false
   let workspace = process.cwd()
+  const bootRevision = String(Date.now())
   let cleanup: Promise<void> | undefined
   const close = (): Promise<void> => {
     cleanup ??= (async () => {
@@ -117,6 +131,20 @@ export async function runSshHelper(transport: HelperTransport): Promise<void> {
     if (method === 'terminal.write' || method === 'terminal.inspect' || method === 'terminal.signal') {
       const input = z.object({ id: processIdSchema, value: z.string().optional() }).strict().parse(raw)
       return processes.terminal(input.id, method === 'terminal.write' ? 'write' : method === 'terminal.inspect' ? 'inspect' : 'signal', input.value)
+    }
+    if (method === 'world.describe') {
+      object.parse(raw)
+      const inventory = options.inventory === undefined ? EMPTY_MACHINE_INVENTORY : await options.inventory.snapshot()
+      return {
+        descriptor: describeExecutionWorld({
+          worldId: options.worldId ?? deriveWorldId(hostname(), workspace),
+          workspaceRoot: workspace,
+          revision: bootRevision,
+          ...(options.presets === undefined ? {} : { presets: options.presets }),
+          inventory,
+        }).descriptor,
+        hooks: inventory.hooks,
+      }
     }
     if (method === 'executable') {
       const input = z.object({ command: z.string(), env: environmentSchema.optional() }).strict().parse(raw)

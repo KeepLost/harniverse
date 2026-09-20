@@ -226,7 +226,8 @@ describe('the platform chains', () => {
       process.env.PATH = dir
       try {
         const { sandbox } = await setup({ runnerCommand: ['fake-runner', '--flag'], runnerFailureSignatures: ['fake-runner: '] })
-        const argv = await (await sandbox.confine(['true'], RO)).argv
+        const confined = await sandbox.confine(['true'], RO)
+        const argv = confined.argv
         expect(argv[0]).toBe(fake)
         expect(argv[1]).toBe('--flag')
         expect(argv.slice(2)).toEqual([...bwrapProfileArgs(RO), '--', 'true'])
@@ -299,8 +300,10 @@ describe('the platform chains', () => {
   it('caches the verdict for the provider lifetime: one chain walk across wraps', async () => {
     const probeBwrap = vi.fn(() => true)
     const { sandbox } = await setup({}, { platform: 'linux', probeBwrap })
-    sandbox.confine(['true'], RO)
-    sandbox.confine(['true'], WW)
+    const first = sandbox.confine(['true'], RO)
+    const second = sandbox.confine(['true'], WW)
+    first.catch(() => {})
+    second.catch(() => {})
     expect(probeBwrap).toHaveBeenCalledTimes(1)
   })
 
@@ -347,29 +350,25 @@ describe('the platform chains', () => {
     // spawn run on every host: bwrap answers on a Linux box, ENOENT reads as
     // an unusable rung anywhere else — either way the walk is genuine.
     const { sandbox } = await setup({}, { platform: 'linux' })
-    const verdict = (() => {
-      try {
-        sandbox.confine(['true'], RO)
-        return 'usable'
-      } catch (error: unknown) {
+    const verdict = await sandbox.confine(['true'], RO).then(
+      () => 'usable',
+      (error: unknown) => {
         if (error instanceof SandboxUnavailableError) return 'unavailable'
         throw error
-      }
-    })()
+      },
+    )
     expect(['usable', 'unavailable']).toContain(verdict)
   })
 
   it('walks the real platform chain when nothing is injected (usable here or fail closed there)', async () => {
     const { sandbox } = await setup({}, {})
-    const verdict = (() => {
-      try {
-        sandbox.confine(['true'], RO)
-        return 'usable'
-      } catch (error: unknown) {
+    const verdict = await sandbox.confine(['true'], RO).then(
+      () => 'usable',
+      (error: unknown) => {
         if (error instanceof SandboxUnavailableError) return 'unavailable'
         throw error
-      }
-    })()
+      },
+    )
     expect(['usable', 'unavailable']).toContain(verdict)
   })
 })

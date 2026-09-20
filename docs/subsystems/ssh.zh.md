@@ -26,7 +26,14 @@
 
 headless 通过已挂载的文件系统提供方记录和检查 Session cwd。因此远端 FS、Bash、终端、LSP 及 PTC 消费方可以共享这些坐标。假定可访问主机文件系统的 Web 工作区视图需要单独集成；仅替换提供方并不会使这些视图支持远端。
 
+## 机器清单与 Profile 限制
+
+`describeWorld()` 请求 helper 将其所在机器描述为一段经过摘要校验的执行世界描述符：稳定标识、协商出的 POSIX 工作区根、如实的清单、支持的远端预设，以及按环境变量名引用的凭据。MCP 服务器、Skill 与 Hook 属于机器自有配置：helper 只上报标识行——绝不携带机密——Hook 族随描述符一旁传递，因为它们是配置而非一种能力类别。未挂载任何机器组合的 helper 会如实上报空清单。
+
+主机从不改写机器配置。`restrictWorldToProfile()` 将某个 Agent Profile 固定的能力选择施加到已描述的世界：被卸载的能力连同原因一并排除，成员选择过滤 `mcp-server` 清单，而 Profile 中世界未上报的条目会以 unresolved 形式浮出，使本地专属固定（`cordis` 预设）保持可见而非无声消失。描述符解析器会直接拒绝主机本地预设。
+
 ## 连接 API
+
 
 ```ts type-equiv
 /** Deployment-owned SSH identity and installed helper; no model argument selects these values. */
@@ -84,6 +91,14 @@ declare class SshConnection extends Service {
    * @returns a paused socket; attach a consumer before resuming it.
    */
   async connectStream(endpoint: SshStreamEndpoint, signal?: AbortSignal): Promise<Socket>;
+  /**
+   * Describe the execution machine's immutable world: the digest-verified
+   * descriptor of its identity, workspace, capability inventory and preset
+   * support, plus the machine-owned hook report.
+   * @param signal - cancellation of the administrative request.
+   * @returns the verified world description.
+   */
+  async describeWorld(signal?: AbortSignal): Promise<WorldDescription>;
   /** Tear down the helper's remote managed ranges before releasing the SSH master when reachable. */
   dispose(): Promise<void>;
 }
@@ -123,9 +138,18 @@ async request<T>(method: string, params: unknown, result: z.ZodType<T>, signal?:
  */
 async connectStream(endpoint: SshStreamEndpoint, signal?: AbortSignal): Promise<Socket>
 
+/**
+ * Describe the execution machine's immutable world: the digest-verified
+ * descriptor of its identity, workspace, capability inventory and preset
+ * support, plus the machine-owned hook report.
+ * @param signal - cancellation of the administrative request.
+ * @returns the verified world description.
+ */
+async describeWorld(signal?: AbortSignal): Promise<WorldDescription>
+
 /** Tear down the helper's remote managed ranges before releasing the SSH master when reachable. */
 dispose(): Promise<void>
 ```
 
-Source: [`packages/ssh/ssh/src/index.ts:47`](../../packages/ssh/ssh/src/index.ts)
+Source: [`packages/ssh/ssh/src/index.ts:48`](../../packages/ssh/ssh/src/index.ts)
 <!-- END GENERATED cordis-surface -->

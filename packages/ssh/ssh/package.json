@@ -46,6 +46,7 @@
     "lib/protocol-*.js",
     "lib/schemas-*.js",
     "lib/stream-security-*.js",
+    "lib/world-*.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",
@@ -56,6 +57,9 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-brand": "workspace:^",
+    "@deepseek-ai/dsh-capabilities": "workspace:^",
+    "@deepseek-ai/dsh-credentials": "workspace:^",
+    "@deepseek-ai/dsh-execution-descriptor": "workspace:^",
     "@deepseek-ai/dsh-fs": "workspace:^",
     "@deepseek-ai/dsh-fs-sandbox": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
@@ -69,6 +73,9 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-brand": "workspace:^",
+    "@deepseek-ai/dsh-capabilities": "workspace:^",
+    "@deepseek-ai/dsh-credentials": "workspace:^",
+    "@deepseek-ai/dsh-execution-descriptor": "workspace:^",
     "@deepseek-ai/dsh-fs": "workspace:^",
     "@deepseek-ai/dsh-fs-local": "workspace:^",
     "@deepseek-ai/dsh-fs-sandbox": "workspace:^",

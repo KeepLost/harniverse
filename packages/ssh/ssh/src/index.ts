@@ -10,6 +10,7 @@ import { z } from 'zod'
 import { SshRpcPeer, SSH_PROTOCOL_VERSION } from './protocol.ts'
 import { helloSchema, type SshStreamEndpoint } from './schemas.ts'
 import { authenticateStream } from './stream-security.ts'
+import { parseWorldDescription, type WorldDescription } from './world.ts'
 
 type Hello = z.infer<typeof helloSchema>
 
@@ -130,6 +131,17 @@ export class SshConnection extends Service {
    */
   async connectStream(endpoint: SshStreamEndpoint, signal?: AbortSignal): Promise<Socket> {
     return this.track(this.establishStream(endpoint, signal))
+  }
+
+  /**
+   * Describe the execution machine's immutable world: the digest-verified
+   * descriptor of its identity, workspace, capability inventory and preset
+   * support, plus the machine-owned hook report.
+   * @param signal - cancellation of the administrative request.
+   * @returns the verified world description.
+   */
+  async describeWorld(signal?: AbortSignal): Promise<WorldDescription> {
+    return parseWorldDescription(await this.request('world.describe', {}, z.unknown(), signal))
   }
 
   private async establishStream(endpoint: SshStreamEndpoint, signal?: AbortSignal): Promise<Socket> {
@@ -291,4 +303,26 @@ export class SshConnection extends Service {
   }
 }
 
+export {
+  describeExecutionWorld,
+  deriveWorldId,
+  EMPTY_MACHINE_INVENTORY,
+  parseWorldDescription,
+  restrictWorldToProfile,
+  worldDescribeResponseSchema,
+  machineHookRowSchema,
+} from './world.ts'
+export type {
+  DescribeWorldInput,
+  HelperProviderTruth,
+  MachineConfigSnapshot,
+  MachineHookRow,
+  MachineInventoryProvider,
+  MachineMcpServerRow,
+  MachineSkillRow,
+  RestrictedWorld,
+  WorldDescription,
+  WorldRestrictionEntry,
+  WorldRestrictionReason,
+} from './world.ts'
 export default SshConnection

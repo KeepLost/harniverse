@@ -177,8 +177,9 @@ function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
     // singleton-compatible with the bundled connection entry (RemoteOperationError
     // instanceof), so helper/protocol/schemas build in one multi-entry pass
     // whose shared chunks land in the whitelisted <module>-*.js companions.
+    // oxlint-disable-next-line typescript(no-unnecessary-condition) -- manifest typing declares exports optional
     ...manifest.exports?.['./helper'] && manifest.exports?.['./protocol'] && manifest.exports?.['./schemas']
-      ? ['lib/helper.js', 'lib/protocol.js', 'lib/schemas.js', 'lib/protocol-*.js', 'lib/schemas-*.js', 'lib/stream-security-*.js']
+      ? ['lib/helper.js', 'lib/protocol.js', 'lib/schemas.js', 'lib/protocol-*.js', 'lib/schemas-*.js', 'lib/stream-security-*.js', 'lib/world-*.js']
       : [],
     // UI plugin packages ship their browser bundle beside the node lib
     // (single-artifact ruling: dist/ retired, ./client resolves lib/client.js).

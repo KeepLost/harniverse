@@ -26,7 +26,14 @@ Administrative deadlines bound individual RPC observations; they do not replace 
 
 Headless records and checks Session cwd through the mounted filesystem provider. Remote FS, Bash, terminal and LSP consumers can therefore share those coordinates. Web workspace views that assume host filesystem access need separate integration; replacing providers alone does not make those views remote-aware.
 
+## Machine inventory and Profile restriction
+
+`describeWorld()` asks the helper to describe its machine as a digest-verified execution-world descriptor: stable identity, negotiated POSIX workspace root, truthful capability inventory, supported remote presets and credential references by environment-variable name. MCP servers, Skills and Hooks are machine-owned configuration: the helper reports identity rows only — never secrets — and hook families travel beside the descriptor because they are configuration, not a capability kind. A helper with no machine composition mounted reports the empty inventory truthfully.
+
+The host never rewrites machine configuration. `restrictWorldToProfile()` applies one Agent Profile's pinned capability selections to a described world: unloaded capabilities are excluded with a reason, member selections filter `mcp-server` inventories, and Profile entries the world does not report surface as unresolved so local-only pins (the `cordis` preset) stay visible instead of silently vanishing. The descriptor parser refuses Host-local presets outright.
+
 ## Connection API
+
 
 ```ts type-equiv
 /** Deployment-owned SSH identity and installed helper; no model argument selects these values. */
@@ -84,6 +91,14 @@ declare class SshConnection extends Service {
    * @returns a paused socket; attach a consumer before resuming it.
    */
   async connectStream(endpoint: SshStreamEndpoint, signal?: AbortSignal): Promise<Socket>;
+  /**
+   * Describe the execution machine's immutable world: the digest-verified
+   * descriptor of its identity, workspace, capability inventory and preset
+   * support, plus the machine-owned hook report.
+   * @param signal - cancellation of the administrative request.
+   * @returns the verified world description.
+   */
+  async describeWorld(signal?: AbortSignal): Promise<WorldDescription>;
   /** Tear down the helper's remote managed ranges before releasing the SSH master when reachable. */
   dispose(): Promise<void>;
 }
@@ -123,9 +138,18 @@ async request<T>(method: string, params: unknown, result: z.ZodType<T>, signal?:
  */
 async connectStream(endpoint: SshStreamEndpoint, signal?: AbortSignal): Promise<Socket>
 
+/**
+ * Describe the execution machine's immutable world: the digest-verified
+ * descriptor of its identity, workspace, capability inventory and preset
+ * support, plus the machine-owned hook report.
+ * @param signal - cancellation of the administrative request.
+ * @returns the verified world description.
+ */
+async describeWorld(signal?: AbortSignal): Promise<WorldDescription>
+
 /** Tear down the helper's remote managed ranges before releasing the SSH master when reachable. */
 dispose(): Promise<void>
 ```
 
-Source: [`packages/ssh/ssh/src/index.ts:47`](../../packages/ssh/ssh/src/index.ts)
+Source: [`packages/ssh/ssh/src/index.ts:48`](../../packages/ssh/ssh/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -9,13 +9,19 @@
   ],
   "references": [
     {
-      "path": "../../../vendor/cosmokit"
-    },
-    {
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../../vendor/cosmokit"
+    },
+    {
       "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../capability/capabilities"
+    },
+    {
+      "path": "../../credentials/credentials"
     },
     {
       "path": "../../fs/fs"
@@ -25,6 +31,9 @@
     },
     {
       "path": "../../runtime-diagnostics/invariants"
+    },
+    {
+      "path": "../../sandbox/execution-descriptor"
     },
     {
       "path": "../../sandbox/sandbox"

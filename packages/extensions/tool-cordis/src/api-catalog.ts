@@ -2405,6 +2405,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'a paused socket; attach a consumer before resuming it.',
       },
       {
+        signature: 'async describeWorld(signal?: AbortSignal): Promise<WorldDescription>',
+        description: 'Describe the execution machine\'s immutable world: the digest-verified descriptor of its identity, workspace, capability inventory and preset support, plus the machine-owned hook report.',
+        parameters: [{ name: 'signal', description: 'cancellation of the administrative request.' }],
+        returns: 'the verified world description.',
+      },
+      {
         signature: 'dispose(): Promise<void>',
         description: 'Tear down the helper\'s remote managed ranges before releasing the SSH master when reachable.',
         parameters: [],
@@ -4467,6 +4473,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    adapterDefaults?: LlmCallConfigAdapterDefaults;\n    system?: string;\n    tools?: ToolSchema[];\n}',
   },
   {
+    name: 'ExecutionTransport',
+    declaration: 'export type ExecutionTransport = \'local\' | \'ssh\';',
+  },
+  {
+    name: 'ExecutionWorldDescriptor',
+    declaration: 'export interface ExecutionWorldDescriptor {\n    readonly worldId: string;\n    readonly transport: ExecutionTransport;\n    readonly workspaceRoot: string;\n    readonly capabilities: readonly CapabilityDescriptor[];\n    readonly presets: readonly string[];\n    readonly configOwner: \'machine\';\n    readonly credentialRefs: readonly CredentialRef[];\n    readonly revision: string;\n    readonly digest: string;\n}',
+  },
+  {
     name: 'FileAttachmentLimits',
     declaration: 'export interface FileAttachmentLimits {\n    maxFileBytes: number;\n}',
   },
@@ -4857,6 +4871,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'LspRange',
     declaration: 'export interface LspRange {\n    readonly start: LspPosition;\n    readonly end: LspPosition;\n}',
+  },
+  {
+    name: 'MachineHookRow',
+    declaration: 'export interface MachineHookRow {\n    readonly family: \'claude-code\' | \'codex\';\n    readonly source: string;\n    readonly hooks: number;\n}',
   },
   {
     name: 'ManualCompactAgentContext',
@@ -6545,6 +6563,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkspaceGitApi',
     declaration: 'export interface WorkspaceGitApi {\n    status(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        branch: string | null;\n        entries: WorkspaceGitStatusEntry[];\n        truncated: boolean;\n    }>>;\n    commits(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        limit?: number;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        commits: WorkspaceGitCommit[];\n        truncated: boolean;\n    }>>;\n    diff(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        path?: string;\n        staged?: boolean;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        diff: string;\n        truncated: boolean;\n    }>>;\n}',
+  },
+  {
+    name: 'WorldDescription',
+    declaration: 'export interface WorldDescription {\n    readonly descriptor: ExecutionWorldDescriptor;\n    readonly hooks: readonly MachineHookRow[];\n}',
   },
 ]
 

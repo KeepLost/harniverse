@@ -241,6 +241,7 @@ export const EVENT_WALK_EXEMPTIONS: Record<string, string> = {
  */
 export const LINK_MAP: Readonly<Record<string, string>> = {
   SshStreamEndpoint: 'ssh.md',
+  WorldDescription: 'ssh.md',
   Agent: 'core.md',
   AgentCancelCause: 'core.md',
   AgentCloseIfIdleResult: 'core.md',

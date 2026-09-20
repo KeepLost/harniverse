@@ -64,6 +64,8 @@ Failed startup and process results release their reservations after native quies
 
 The helper starts with `--disable-sigusr1`, so a same-user process signal cannot open its Node debugger.
 
+The helper also answers `world.describe`: it builds its machine's execution-world descriptor — identity, negotiated workspace root, truthful capability inventory, supported remote presets and environment-variable credential references — with the machine-side digest computed over the canonical fields. MCP servers, Skills and Hooks are machine-owned configuration reported as identity rows (hooks travel beside the descriptor, because they are configuration rather than a capability kind); a helper without a mounted machine composition reports the empty inventory truthfully. The host verifies the digest while parsing, never rewrites machine configuration, and applies one Agent Profile's pinned selections through `restrictWorldToProfile()`: unloaded capabilities are excluded with a reason, member selections filter `mcp-server` inventories, and Profile pins the world does not report surface as unresolved instead of silently vanishing.
+
 </details>
 
 -----
