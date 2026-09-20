@@ -234,6 +234,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Plugins register namespace schemas and resolve layered values; providers store the raw document. The LLM adapters register their entry config as the composition base under the user section; the web gateway serves redacted layered descriptors and writes the user layer.',
   },
   {
+    key: 'sessionImport',
+    pkg: 'session-import',
+    title: 'Foreign-session archival import',
+    mode: 'seam',
+    implementations: ['session-import'],
+    consumers: ['agent-loop'],
+    note: 'The runtime maps official v1/v2/v3 logs lossily into archival native sessions with the source artifact retained beside them; the agent loop honors the contract resume guard so imported history never executes.',
+  },
+  {
     key: 'mcpResources',
     pkg: 'mcp-resources',
     title: 'Scoped MCP resource seam',

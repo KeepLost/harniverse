@@ -71,6 +71,8 @@ flowchart LR
   pkg_settings_file["settings-file"]
   pkg_apiproxy["apiproxy"]
   pkg_mcp_user_config["mcp-user-config"]
+  pkg_session_import["session-import"]
+  svc_sessionImport["ctx.sessionImport<br/>Foreign-session archival import"]
   pkg_mcp_resources["mcp-resources"]
   svc_mcpResources["ctx.mcpResources<br/>Scoped MCP resource seam"]
   svc_mcpUserConfigSettings["ctx.mcpUserConfigSettings<br/>User MCP configuration seam"]
@@ -316,6 +318,7 @@ flowchart LR
   pkg_session --> svc_sessions
   pkg_session_delivery --> svc_sessionDelivery
   pkg_session_delivery_local --> svc_sessionDelivery
+  pkg_session_import --> svc_sessionImport
   pkg_session_persistence --> svc_sessionPersistence
   pkg_session_persistence_jsonl --> svc_sessionPersistence
   pkg_session_persistence_sqlite --> svc_sessionPersistence
@@ -428,6 +431,7 @@ flowchart LR
   svc_sandboxPolicy --> pkg_fs_sandbox
   svc_sandboxPolicy --> pkg_terminal_bash
   svc_sessionDelivery --> pkg_tool_session_delivery
+  svc_sessionImport --> pkg_agent_loop
   svc_sessionPersistence --> pkg_agent_loop
   svc_sessionPersistence --> pkg_hooks_claude_code
   svc_sessionPersistence --> pkg_hooks_codex
@@ -534,6 +538,7 @@ flowchart LR
 | `ctx.typertGateway` | `core` | [`api-gateway`](../packages/api/gateway) | - | - | - | Associates generated Remote descriptors with live Cordis services, resolves registered identities, and exposes unary calls through the shared Connection RPC carrier. |
 | `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session/session-persistence) | [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session/session-persistence-sqlite) | [`agent-loop`](../packages/core/agent-loop), [`tool-bash`](../packages/shell/tool-bash), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`message-feedback`](../packages/feedback/message-feedback) | - | Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time. |
 | `ctx.settings` | `seam` | [`settings`](../packages/settings/settings) | [`settings-file`](../packages/settings/settings-file) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy`, [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | Plugins register namespace schemas and resolve layered values; providers store the raw document. The LLM adapters register their entry config as the composition base under the user section; the web gateway serves redacted layered descriptors and writes the user layer. |
+| `ctx.sessionImport` | `seam` | [`session-import`](../packages/session/session-import) | [`session-import`](../packages/session/session-import) | [`agent-loop`](../packages/core/agent-loop) | - | The runtime maps official v1/v2/v3 logs lossily into archival native sessions with the source artifact retained beside them; the agent loop honors the contract resume guard so imported history never executes. |
 | `ctx.mcpResources` | `seam` | [`mcp-resources`](../packages/mcp/mcp-resources) | [`mcp-resources`](../packages/mcp/mcp-resources) | [`mcp-client`](../packages/mcp/mcp-client) | - | Scoped providers publish server resources; the runtime owns the shared list/template/read tools and a verbatim prompt section naming reachable servers, while mcp-client enforces Profile member visibility on read and list. |
 | `ctx.mcpUserConfigSettings` | `seam` | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | The host-owned provider validates and persists the user server list; profile consumers reconcile isolated mcp-client children without globalizing their tools. |
 | `ctx.modelPolicy` | `seam` | [`model-policy`](../packages/core/model-policy) | [`model-policy`](../packages/core/model-policy) | [`model-policy-fallback`](../packages/core/model-policy-fallback), `apiproxy`, [`compaction-basic`](../packages/compaction/compaction-basic), [`session-title-llm`](../packages/session/session-title-llm), `ui-model-selection` | - | The service snapshots Profile grants and the logical target into each Session; Host and auxiliary consumers enforce the snapshot, while the fallback consumer records ordered cross-model transitions. |

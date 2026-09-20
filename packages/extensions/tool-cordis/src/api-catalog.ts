@@ -1751,6 +1751,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'sessionImport',
+    summary: 'Import foreign session logs as archival native sessions.',
+    description: 'Import foreign session logs as archival native sessions. The service owns the whole settlement — classification refusal, lossy mapping, durable persistence, and source-artifact retention happen together or not at all.',
+    methods: [
+      {
+        signature: 'async import(options: ImportForeignSessionOptions): Promise<ImportedSession>',
+        description: 'Import one foreign artifact as a settled archival session.',
+        parameters: [{ name: 'options', description: 'the artifact path plus optional target id and posture.' }],
+        returns: 'the imported session\'s identity and lossy-mapping counts.',
+        throws: ['when the artifact cannot be read or parsed, its version is `current` (native logs restore, not import) or unknown, the posture is invalid, the target id already exists, or the backend cannot preserve the source artifact beside the mapped session.'],
+      },
+    ],
+  },
+  {
     key: 'sessionPersistence',
     summary: 'Durable append-only session storage.',
     description: 'Durable append-only session storage. Implementations preserve contiguous, losslessly JSON-serializable events; append resolves only after durability, and load balances a complete interrupted tail without rewriting committed events.',
@@ -4452,6 +4466,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface FinishReasonMap {\n    \'stop\': {\n        kind: \'stop\';\n    };\n    \'tool-calls\': {\n        kind: \'tool-calls\';\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    \'aborted\': {\n        kind: \'aborted\';\n        failure: LlmFailure;\n    };\n    \'error\': {\n        kind: \'error\';\n        failure: LlmFailure;\n    };\n}',
   },
   {
+    name: 'ForeignSessionFormat',
+    declaration: 'export type ForeignSessionFormat = \'current\' | \'official-v1\' | \'official-v2\' | \'official-v3\' | \'unknown\';',
+  },
+  {
     name: 'FsDirEntry',
     declaration: 'export interface FsDirEntry {\n    name: string;\n    type: \'file\' | \'directory\' | \'other\';\n    target: FsTarget;\n    version?: FsVersion;\n    size?: number;\n}',
   },
@@ -4578,6 +4596,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ImageVariantId',
     declaration: 'export type ImageVariantId = Branded<\'ImageVariantId\'>;',
+  },
+  {
+    name: 'ImportedSession',
+    declaration: 'export interface ImportedSession {\n    readonly sessionId: SessionId;\n    readonly format: Exclude<ForeignSessionFormat, \'current\' | \'unknown\'>;\n    readonly artifactName: string;\n    readonly mappedEvents: number;\n    readonly skippedEvents: number;\n}',
+  },
+  {
+    name: 'ImportForeignSessionOptions',
+    declaration: 'export interface ImportForeignSessionOptions {\n    readonly artifactPath: string;\n    readonly sessionId?: SessionId;\n    readonly posture?: {\n        readonly supervisionMode: SupervisionMode;\n    };\n}',
   },
   {
     name: 'Inbox',
