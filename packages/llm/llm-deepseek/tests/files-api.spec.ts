@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DeepSeekFileId } from '../src/file-id.ts'
+import { DeepSeekFileId } from '../src/common/file-id.ts'
 import {
   DeepSeekFilesClient,
   DeepSeekFilesError,
@@ -7,7 +7,7 @@ import {
   MAX_FILE_EXPIRY_SECONDS,
   MAX_FILE_UPLOAD_BYTES,
   MIN_FILE_EXPIRY_SECONDS,
-} from '../src/files-api.ts'
+} from '../src/common/files-api.ts'
 
 function fileJson(id = 'file-1') {
   return {
@@ -21,12 +21,89 @@ function fileJson(id = 'file-1') {
   }
 }
 
+const wire: { url: string; init: RequestInit }[] = []
+
+describe('DeepSeek Files API client (messages flavor)', () => {
+  const messagesFile = { type: 'file', id: 'file-m1', mime_type: 'image/png', size_bytes: 7, filename: 'm.png', created_at: '2026-01-02T03:04:05.000Z' }
+  function returning(body: unknown, status = 200, headers: Record<string, string> = {}) {
+    return new DeepSeekFilesClient({
+      baseURL: 'https://example.test',
+      apiKey: 'secret',
+      protocol: 'messages',
+      fetch: async (input, init) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+        wire.push({ url, init: init ?? {} })
+        return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } })
+      },
+    })
+  }
+  it('sends anthropic headers and resolves the v1 root', async () => {
+    const client = returning({ ...messagesFile, id: 'file-h' })
+    await client.retrieve(DeepSeekFileId('file-h'))
+    const [hit] = wire
+    expect(hit?.url).toBe('https://example.test/v1/files/file-h')
+    const headers = new Headers(hit?.init.headers)
+    expect(headers.get('x-api-key')).toBe('secret')
+    expect(headers.get('anthropic-version')).toBe('2023-06-01')
+    expect(headers.get('anthropic-beta')).toBe('files-api-2025-04-14')
+    expect(headers.get('authorization')).toBeNull()
+  })
+
+  it('maps anthropic file objects into harness naming', async () => {
+    await expect(returning(messagesFile).retrieve(DeepSeekFileId('file-m1'))).resolves.toEqual({
+      id: DeepSeekFileId('file-m1'), bytes: 7, createdAt: Date.parse('2026-01-02T03:04:05.000Z'), filename: 'm.png', purpose: 'user_data',
+    })
+  })
+
+  it('synthesizes expiry from the requested lifetime on upload', async () => {
+    const client = returning(messagesFile)
+    const created = await client.upload({ data: Uint8Array.of(1), mediaType: 'image/png', filename: 'm.png', expiresAfterSeconds: 3_600 })
+    expect(created.expiresAt).toBe(Date.parse('2026-01-02T03:04:05.000Z') + 3_600_000)
+    const form = wire.at(-1)?.init.body
+    expect(form).toBeInstanceOf(FormData)
+    expect((form as FormData).get('purpose')).toBeNull()
+    expect((form as FormData).get('expires_after[seconds]')).toBe('3600')
+  })
+
+  it('lists with anthropic pagination and ignores chat-only knobs', async () => {
+    wire.length = 0
+    await returning({ data: [messagesFile], has_more: true, first_id: 'file-m1', last_id: 'file-m1' })
+      .list({ after: DeepSeekFileId('file-m1'), limit: 5, order: 'asc' })
+    expect(wire.at(-1)?.url).toBe('https://example.test/v1/files?after_id=file-m1&limit=5')
+    expect(new Headers(wire.at(-1)?.init.headers).get('anthropic-beta')).toBe('files-api-2025-04-14')
+  })
+
+  it('accepts chat-shaped list documents without the object kind', async () => {
+    await expect(returning({ data: [messagesFile], has_more: false }).list()).resolves.toMatchObject({ hasMore: false, data: [expect.objectContaining({ id: DeepSeekFileId('file-m1') })] })
+  })
+
+  it('confirms deletion through the file_deleted marker', async () => {
+    await expect(returning({ type: 'file_deleted', id: 'file-m1' }).delete(DeepSeekFileId('file-m1'))).resolves.toBeUndefined()
+    await expect(returning({ type: 'file', id: 'file-m1' }).delete(DeepSeekFileId('file-m1'))).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+  })
+
+  it.each([
+    ['a null document', null],
+    ['an array document', []],
+    ['a non-string created_at', { ...messagesFile, created_at: 42 }],
+    ['an invalid created_at', { ...messagesFile, created_at: 'not-a-date' }],
+    ['a foreign type', { ...messagesFile, type: 'document' }],
+    ['a missing mime type', { ...messagesFile, mime_type: undefined }],
+    ['a negative size', { ...messagesFile, size_bytes: -1 }],
+    ['an empty id', { ...messagesFile, id: '' }],
+    ['an empty filename', { ...messagesFile, filename: '' }],
+  ])('refuses a messages file with %s', async (_label, body) => {
+    await expect(returning(body).retrieve(DeepSeekFileId('file-m1'))).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+  })
+})
+
 describe('DeepSeek Files API client', () => {
   it('uploads multipart user data with auth and attribution headers', async () => {
     const requests: { url: string; init: RequestInit }[] = []
     const client = new DeepSeekFilesClient({
       baseURL: 'https://example.test///',
       apiKey: 'secret',
+      protocol: 'chat-completions',
       fetch: async (input, init) => {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
         requests.push({ url, init: init ?? {} })
@@ -54,6 +131,7 @@ describe('DeepSeek Files API client', () => {
     const client = new DeepSeekFilesClient({
       baseURL: 'https://example.test',
       apiKey: 'secret',
+      protocol: 'chat-completions',
       fetch: async (input) => {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
         urls.push(url)
@@ -78,6 +156,7 @@ describe('DeepSeek Files API client', () => {
     const quota = new DeepSeekFilesClient({
       baseURL: 'https://example.test',
       apiKey: 'secret',
+      protocol: 'chat-completions',
       fetch: async () => new Response(JSON.stringify({ error: { code: 'storage_quota', message: 'stored files quota exceeded' } }), { status: 400 }),
     })
     try {
@@ -92,6 +171,7 @@ describe('DeepSeek Files API client', () => {
     const malformed = new DeepSeekFilesClient({
       baseURL: 'https://example.test',
       apiKey: 'secret',
+      protocol: 'chat-completions',
       fetch: async () => new Response(JSON.stringify({ nope: true }), { status: 200 }),
     })
     await expect(malformed.list()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
@@ -103,6 +183,7 @@ describe('DeepSeek Files API client', () => {
       return new DeepSeekFilesClient({
         baseURL: 'https://example.test',
         apiKey: 'secret',
+        protocol: 'chat-completions',
         fetch: async () => new Response(JSON.stringify(body), { status }),
       })
     }
@@ -136,6 +217,7 @@ describe('DeepSeek Files API client', () => {
       const client = new DeepSeekFilesClient({
         baseURL: 'https://example.test',
         apiKey: 'secret',
+        protocol: 'chat-completions',
         fetch: async () => new Response(typeof body === 'string' ? body : JSON.stringify(body), { status: 400 }),
       })
       try {
@@ -183,6 +265,7 @@ describe('DeepSeek Files API client', () => {
       const client = new DeepSeekFilesClient({
         baseURL: 'https://example.test',
         apiKey: 'secret',
+        protocol: 'chat-completions',
         fetch: async () => { throw new Error('socket closed') },
       })
 
@@ -194,6 +277,7 @@ describe('DeepSeek Files API client', () => {
       const client = new DeepSeekFilesClient({
         baseURL: 'https://example.test',
         apiKey: 'secret',
+        protocol: 'chat-completions',
         fetch: async () => {
           controller.abort()
           throw new Error('operation aborted')
@@ -211,6 +295,7 @@ describe('DeepSeek Files API client', () => {
       return new DeepSeekFilesClient({
         baseURL: 'https://example.test',
         apiKey: 'secret',
+        protocol: 'chat-completions',
         fetch: async () => new Response(JSON.stringify(body), { status: 200 }),
       })
     }
@@ -317,6 +402,7 @@ describe('DeepSeek Files API client', () => {
       const client = new DeepSeekFilesClient({
         baseURL: 'https://example.test',
         apiKey: 'secret',
+        protocol: 'chat-completions',
         fetch: async (input) => {
           urls.push(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
           return new Response(JSON.stringify({ id: 'file/one', object: 'file', deleted: true }), { status: 200 })
@@ -332,6 +418,7 @@ describe('DeepSeek Files API client', () => {
       const client = new DeepSeekFilesClient({
         baseURL: 'https://example.test',
         apiKey: 'secret',
+        protocol: 'chat-completions',
         fetch: async (input) => {
           urls.push(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
           return new Response(JSON.stringify({ object: 'list', data: [], has_more: false }), { status: 200 })
@@ -353,6 +440,7 @@ describe('DeepSeek Files API client', () => {
       const client = new DeepSeekFilesClient({
         baseURL: 'https://example.test',
         apiKey: 'secret',
+        protocol: 'chat-completions',
         fetch: async () => {
           called = true
           return new Response()
@@ -372,6 +460,7 @@ describe('DeepSeek Files API client', () => {
       const client = new DeepSeekFilesClient({
         baseURL: 'https://example.test',
         apiKey: 'secret',
+        protocol: 'chat-completions',
         fetch: async () => new Response(JSON.stringify(fileJson()), { status: 200 }),
       })
 
@@ -389,6 +478,7 @@ describe('DeepSeek Files API client', () => {
     const client = new DeepSeekFilesClient({
       baseURL: 'https://example.test',
       apiKey: 'secret',
+      protocol: 'chat-completions',
       fetch: async () => {
         called = true
         return new Response()

@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
-import { DeepSeekFileId, DeepSeekFileScope } from '../src/file-id.ts'
-import { DeepSeekUploadIndex, deepSeekFileScope } from '../src/upload-index.ts'
+import { DeepSeekFileId, DeepSeekFileScope } from '../src/common/file-id.ts'
+import { DeepSeekUploadIndex, deepSeekFileScope } from '../src/common/upload-index.ts'
 
 const roots: string[] = []
 
@@ -26,9 +26,11 @@ function record(fileId = 'file-1') {
 
 describe('DeepSeek upload index', () => {
   it('scopes records by normalized endpoint and API key without exposing the key', () => {
-    expect(deepSeekFileScope('https://example.test///', 'key-a'))
-      .not.toBe(deepSeekFileScope('https://example.test', 'key-b'))
-    expect(deepSeekFileScope('https://example.test///', 'key-a'))
+    expect(deepSeekFileScope('https://example.test///', 'key-a', 'chat-completions'))
+      .not.toBe(deepSeekFileScope('https://example.test', 'key-b', 'chat-completions'))
+    expect(deepSeekFileScope('https://example.test', 'key-a', 'chat-completions'))
+      .not.toBe(deepSeekFileScope('https://example.test', 'key-a', 'messages'))
+    expect(deepSeekFileScope('https://example.test///', 'key-a', 'chat-completions'))
       .toMatch(/^[0-9a-f]{64}$/u)
   })
 

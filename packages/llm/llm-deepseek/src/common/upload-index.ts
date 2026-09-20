@@ -9,6 +9,7 @@ import { ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentId, ImageVariantId as ImageVariantIdType } from '@deepseek-ai/dsh-attachment'
 import { DeepSeekFileId, DeepSeekFileScope } from './file-id.ts'
 import type { DeepSeekFileId as DeepSeekFileIdType, DeepSeekFileScope as DeepSeekFileScopeType } from './file-id.ts'
+import type { DeepSeekProtocol } from './types.ts'
 
 /** One provider upload mapping. Times are Unix milliseconds. */
 export interface DeepSeekUploadRecord {
@@ -37,11 +38,15 @@ export interface UploadIndexCommit {
 /** Derive a non-secret scope without persisting or logging the API key.
  * @param baseURL - normalized provider endpoint.
  * @param apiKey - request credential, never returned or persisted.
- * @returns endpoint/API-key scope digest.
+ * @param protocol - wire protocol owning one Files endpoint flavor; ids are
+ * not portable across protocols, so each gets its own namespace.
+ * @returns endpoint/protocol/API-key scope digest.
  */
-export function deepSeekFileScope(baseURL: string, apiKey: string): DeepSeekFileScopeType {
+export function deepSeekFileScope(baseURL: string, apiKey: string, protocol: DeepSeekProtocol): DeepSeekFileScopeType {
   const digest = createHash('sha256')
     .update(baseURL.replace(/\/+$/u, ''))
+    .update('\0')
+    .update(protocol)
     .update('\0')
     .update(apiKey)
     .digest('hex')

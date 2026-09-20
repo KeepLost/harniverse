@@ -4,10 +4,10 @@
  * load: the plugin layers its `cordis.yml` entry config under the optional
  * `llm-deepseek` user-settings section (`ctx.settings`) and resolves the API
  * key through the optional credential seam (`ctx.credentials`), so a changed
- * base URL, catalog, or key reaches the very next request without restarting
- * anything, while an in-flight stream keeps the facts it started with. The
- * one registration-captured fact — the retry policy — re-registers the route
- * in place when it changes.
+ * protocol, base URL, catalog, or key reaches the very next request without
+ * restarting anything, while an in-flight stream keeps the facts it started
+ * with. The one registration-captured fact — the retry policy — re-registers
+ * the route in place when it changes.
  * @module @deepseek-ai/dsh-llm-deepseek
  */
 
@@ -35,15 +35,14 @@ import {
   DEFAULT_MAX_REQUEST_FILES_BYTES,
   DEFAULT_MAX_TOKENS,
   DEFAULT_REQUEST_IMAGE_MAX_BYTES,
-  DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   DeepSeekAdapter,
 } from './adapter.ts'
-import type { DeepSeekCatalogModel, DeepSeekConnectionOptions } from './adapter.ts'
+import type { DeepSeekCatalogModel, DeepSeekConnectionOptions, DeepSeekProtocol } from './adapter.ts'
+import { DEFAULT_MODELS } from './common/models.ts'
 
 export {
   DEFAULT_CONTEXT_WINDOW,
-  DEFAULT_LOW_DETAIL_IMAGE_PIXEL_BUDGET,
   DEFAULT_FILE_EXPIRY_SECONDS,
   DEFAULT_FILE_QUOTA_CLEANUP_BATCH,
   DEFAULT_FILE_REFRESH_MARGIN_SECONDS,
@@ -56,21 +55,24 @@ export {
   DEFAULT_MAX_REQUEST_FILES_BYTES,
   DEFAULT_MAX_TOKENS,
   DEFAULT_REQUEST_IMAGE_MAX_BYTES,
-  DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   DeepSeekAdapter,
 } from './adapter.ts'
-export type { DeepSeekAdapterOptions, DeepSeekCatalogModel, DeepSeekConnectionOptions } from './adapter.ts'
-export { DeepSeekFileStore, MAX_CHAT_IMAGE_BYTES } from './file-store.ts'
-export type { DeepSeekFileConnection, DeepSeekFilePolicy, DeepSeekFileReference } from './file-store.ts'
-export { DeepSeekFilesClient, DeepSeekFilesError, MAX_FILE_EXPIRY_SECONDS, MAX_FILE_UPLOAD_BYTES, MAX_STORED_FILE_BYTES, MAX_STORED_FILE_COUNT, MIN_FILE_EXPIRY_SECONDS } from './files-api.ts'
-export type { DeepSeekFileObject, DeepSeekFilePage } from './files-api.ts'
-export { DeepSeekFileId } from './file-id.ts'
-export type { DeepSeekFileId as DeepSeekFileIdType } from './file-id.ts'
-export { DeepSeekUploadIndex, deepSeekFileScope } from './upload-index.ts'
-export type { DeepSeekUploadRecord } from './upload-index.ts'
-export type { RequestDefaults } from './serialize.ts'
-export type * from './types.ts'
+export {
+  DEFAULT_LOW_DETAIL_IMAGE_PIXEL_BUDGET,
+  DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
+} from './common/defaults.ts'
+export type { DeepSeekAdapterOptions, DeepSeekCatalogModel, DeepSeekConnectionOptions, RequestDefaults } from './adapter.ts'
+export type { DeepSeekProtocol } from './adapter.ts'
+export { DeepSeekFileStore, MAX_CHAT_IMAGE_BYTES } from './common/file-store.ts'
+export type { DeepSeekFileConnection, DeepSeekFilePolicy, DeepSeekFileReference } from './common/file-store.ts'
+export { DeepSeekFilesClient, DeepSeekFilesError, MAX_FILE_EXPIRY_SECONDS, MAX_FILE_UPLOAD_BYTES, MAX_STORED_FILE_BYTES, MAX_STORED_FILE_COUNT, MIN_FILE_EXPIRY_SECONDS } from './common/files-api.ts'
+export type { DeepSeekFileObject, DeepSeekFilePage } from './common/files-api.ts'
+export { DeepSeekFileId } from './common/file-id.ts'
+export type { DeepSeekFileId as DeepSeekFileIdType } from './common/file-id.ts'
+export { DeepSeekUploadIndex, deepSeekFileScope } from './common/upload-index.ts'
+export type { DeepSeekUploadRecord } from './common/upload-index.ts'
+export type { ImageRequestRepresentation, ImageSerializationOptions, ImageWireLocation } from './common/request-images.ts'
 
 export const name = 'llm-deepseek'
 export const inject = ['llm']
@@ -81,11 +83,6 @@ const DEFAULT_API_KEY_ENV = 'DEEPSEEK_API_KEY'
 const PROVIDER = 'deepseek-official'
 const MODEL_MODALITIES = ['text', 'image'] as const satisfies readonly ModelModality[]
 
-const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
-  { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: DEFAULT_CONTEXT_WINDOW },
-  { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', contextWindow: DEFAULT_CONTEXT_WINDOW },
-]
-
 /**
  * Plugin config, validated by the same-named schemastery schema and doubling
  * as the `llm-deepseek` settings-section shape. Every field is optional in
@@ -95,6 +92,8 @@ const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
  * reasoning effort resolves to `high`.
  */
 export interface Config {
+  /** Wire protocol; defaults to messages for the official endpoint and chat-completions behind a custom base URL. */
+  protocol?: DeepSeekProtocol
   /** Credential reference (environment-variable name) resolved per request; defaults to `DEEPSEEK_API_KEY`. */
   apiKeyEnv?: string
   /** Endpoint base; falls back to $DEEPSEEK_BASE_URL from a trusted environment layer, then the public API. */
@@ -102,12 +101,12 @@ export interface Config {
   /** Deployment thinking policy; `disabled` limits every conversation request to `off`. */
   thinking?: 'enabled' | 'disabled'
   /** Default thinking effort (default `high`); `off` disables thinking per request. */
-  reasoningEffort?: 'off' | 'high' | 'max'
+  reasoningEffort?: 'off' | 'low' | 'high' | 'max'
   /** Default per-request output cap (default 256,000); a model's own cap and explicit request values win. */
   maxTokens?: number
   /** Positive context capacity used when the selected model has no exact value (default 1,000,000). */
   defaultContextWindow?: number
-  /** Advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
+  /** Advisory models shown by discovery consumers; defaults to V41 Flash and V4 Pro. */
   models?: DeepSeekCatalogModel[]
   /** Maximum provider idle time while one stream read is outstanding (default five minutes). */
   streamIdleTimeoutMs?: number
@@ -142,16 +141,17 @@ const catalogModel: z<DeepSeekCatalogModel> = z.object({
   contextWindow: z.number().step(1).min(1),
   maxTokens: z.number().step(1).min(1),
   inputModalities: z.array(z.union(['text', 'image'])).min(1).default(['text']),
-  imagePixelBudget: z.number().step(1).min(1),
+  imagePixelBudget: z.union([z.number().step(1).min(1), 'low']),
   imageMaxBytes: z.number().step(1).min(1),
-  imageDetail: z.union(['auto', 'low']),
+  systemPromptUpdate: z.const('in-history'),
 })
 
 export const Config: z<Config> = z.object({
+  protocol: z.union(['chat-completions', 'messages']),
   apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
   baseURL: z.string(),
   thinking: z.union(['enabled', 'disabled']),
-  reasoningEffort: z.union(['off', 'high', 'max']),
+  reasoningEffort: z.union(['off', 'low', 'high', 'max']),
   maxTokens: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(DEFAULT_MAX_TOKENS),
   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
   models: z.array(catalogModel).default(DEFAULT_MODELS),
@@ -169,8 +169,11 @@ export const Config: z<Config> = z.object({
   retryPolicy: RetryPolicySchema,
 })
 
-/** Public API default; the internal endpoint comes from $DEEPSEEK_BASE_URL. */
+/** Public API default for chat-completions; the internal endpoint comes from $DEEPSEEK_BASE_URL. */
 export const PUBLIC_BASE_URL = 'https://api.deepseek.com'
+
+/** Official Messages protocol root. */
+export const MESSAGES_BASE_URL = 'https://api.deepseek.com/anthropic'
 
 /** Environment variable naming this provider's endpoint, honored only from trusted layers. */
 const BASE_URL_ENV = 'DEEPSEEK_BASE_URL'
@@ -195,6 +198,9 @@ function positiveSafe(value: number | undefined, fallback: number, name: string)
 function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): DeepSeekCatalogModel[] {
   const seen = new Set<string>()
   return (models ?? DEFAULT_MODELS).map((model) => {
+    if (Object.hasOwn(model, 'imageDetail')) {
+      throw new Error('llm-deepseek: catalog model imageDetail is no longer supported; use imagePixelBudget')
+    }
     if (model.id.length === 0) throw new Error('llm-deepseek: catalog model ids must be non-empty')
     if (model.name !== undefined && model.name.length === 0) {
       throw new Error(`llm-deepseek: catalog model "${model.id}" has an empty name`)
@@ -215,27 +221,43 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
     if (inputModalities.length === 0 || inputModalities.some(modality => !MODEL_MODALITIES.includes(modality))) {
       throw new Error(`llm-deepseek: catalog model "${model.id}" has invalid input modalities`)
     }
+    if (new Set(inputModalities).size !== inputModalities.length) {
+      throw new Error(`llm-deepseek: catalog model "${model.id}" inputModalities must not contain duplicates`)
+    }
+    const hasImage = inputModalities.includes('image')
+    if (!hasImage && (model.imagePixelBudget !== undefined || model.imageMaxBytes !== undefined)) {
+      throw new Error(`llm-deepseek: text-only catalog model "${model.id}" cannot declare image request limits`)
+    }
     if (model.imagePixelBudget !== undefined
+      && model.imagePixelBudget !== 'low'
       && (!Number.isSafeInteger(model.imagePixelBudget) || model.imagePixelBudget <= 0)) {
-      throw new Error(`llm-deepseek: catalog model "${model.id}" imagePixelBudget must be a positive safe integer`)
+      throw new Error(`llm-deepseek: catalog model "${model.id}" imagePixelBudget must be "low" or a positive safe integer`)
     }
     if (model.imageMaxBytes !== undefined
       && (!Number.isSafeInteger(model.imageMaxBytes) || model.imageMaxBytes <= 0)) {
       throw new Error(`llm-deepseek: catalog model "${model.id}" imageMaxBytes must be a positive safe integer`)
     }
+    // Widened: a dynamic config update reaches this check without schema validation.
+    const systemPromptUpdate: string | undefined = model.systemPromptUpdate
+    if (systemPromptUpdate !== undefined && systemPromptUpdate !== 'in-history') {
+      throw new Error(`llm-deepseek: catalog model "${model.id}" systemPromptUpdate must be "in-history" when present`)
+    }
     if (seen.has(model.id)) throw new Error(`llm-deepseek: duplicate catalog model "${model.id}"`)
     seen.add(model.id)
-    const imageCapable = inputModalities.includes('image')
     return {
       id: model.id,
       ...model.name === undefined ? {} : { name: model.name },
       ...model.description === undefined ? {} : { description: model.description },
       ...model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow },
       ...model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens },
+      ...model.systemPromptUpdate === undefined ? {} : { systemPromptUpdate: model.systemPromptUpdate },
       inputModalities: [...inputModalities],
-      ...imageCapable ? { imagePixelBudget: model.imagePixelBudget ?? DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET } : {},
-      ...imageCapable ? { imageMaxBytes: model.imageMaxBytes ?? DEFAULT_REQUEST_IMAGE_MAX_BYTES } : {},
-      ...model.imageDetail === undefined ? {} : { imageDetail: model.imageDetail },
+      ...hasImage
+        ? {
+          ...model.imagePixelBudget === undefined ? {} : { imagePixelBudget: model.imagePixelBudget },
+          imageMaxBytes: model.imageMaxBytes ?? DEFAULT_REQUEST_IMAGE_MAX_BYTES,
+        }
+        : {},
     }
   })
 }
@@ -253,6 +275,11 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
  * @returns validated connection facts plus the credential reference.
  */
 export function resolveAdapterOptions(config: Config, environment?: LaunchEnvironmentSnapshot): ResolvedDeepSeekOptions {
+  // Settings updates can reach this resolver without schema validation.
+  const explicit: unknown = config.protocol
+  if (explicit !== undefined && explicit !== 'chat-completions' && explicit !== 'messages') {
+    throw new Error('llm-deepseek: protocol must be chat-completions or messages')
+  }
   if (config.thinking === 'disabled'
     && config.reasoningEffort !== undefined
     && config.reasoningEffort !== 'off') {
@@ -296,11 +323,23 @@ export function resolveAdapterOptions(config: Config, environment?: LaunchEnviro
   if (!Number.isSafeInteger(fileQuotaCleanupBatch) || fileQuotaCleanupBatch <= 0 || fileQuotaCleanupBatch > 1_000) {
     throw new Error('llm-deepseek: fileQuotaCleanupBatch must be between 1 and 1000')
   }
+  const customBase = config.baseURL ?? environment?.get(BASE_URL_ENV)?.value
+  // An unconfigured protocol follows the official default only on the official
+  // endpoint; a custom base URL is usually an OpenAI-compatible gateway that
+  // cannot serve the Messages wire, so it keeps chat-completions until the
+  // operator opts in explicitly.
+  const protocol: DeepSeekProtocol = explicit ?? (customBase !== undefined ? 'chat-completions' : 'messages')
+  const baseURL = customBase ?? (protocol === 'messages' ? MESSAGES_BASE_URL : PUBLIC_BASE_URL)
+  if (protocol === 'messages') {
+    const parsed = new URL(baseURL)
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) {
+      throw new Error('llm-deepseek: Messages baseURL must be an HTTP(S) root without credentials, query, or fragment')
+    }
+  }
   return {
+    protocol,
     apiKeyEnv: credentialRef(config.apiKeyEnv ?? DEFAULT_API_KEY_ENV),
-    baseURL: config.baseURL
-      ?? environment?.get(BASE_URL_ENV)?.value
-      ?? PUBLIC_BASE_URL,
+    baseURL,
     defaults: {
       thinking: config.thinking,
       reasoningEffort: config.reasoningEffort,
@@ -374,7 +413,15 @@ export function apply(ctx: Context, config: Config): void {
   let userId: AnonymousUserId | undefined
   const resolveUserId = (): AnonymousUserId => userId ??= getOrCreateAnonymousUserId()
   const resolveAttachments = (): AttachmentStore | undefined => ctx.get('attachments')
-  const adapter = new DeepSeekAdapter({ options, resolveApiKey, resolveUserId, resolveAttachments })
+  const adapter = new DeepSeekAdapter({
+    options,
+    resolveApiKey,
+    resolveUserId,
+    resolveAttachments,
+    onReplayDegrade: ({ provider, model, reason }) => {
+      ctx.logger.warn(`llm-deepseek: discarded ${provider}/${model} replay metadata: ${reason}`)
+    },
+  })
   ctx.llm.registerConfigurableProviders([
     { provider: PROVIDER, displayName: 'DeepSeek', settingsNs: NS, settingsPath: [] },
   ])

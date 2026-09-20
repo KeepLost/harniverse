@@ -4,6 +4,7 @@ import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { DeepSeekFilesClient, isFilesQuotaError } from './files-api.ts'
 import type { DeepSeekFileId } from './file-id.ts'
+import type { DeepSeekProtocol } from './types.ts'
 import { deepSeekFileScope, DeepSeekUploadIndex } from './upload-index.ts'
 import type { DeepSeekUploadRecord } from './upload-index.ts'
 
@@ -17,10 +18,11 @@ export interface DeepSeekFilePolicy {
   quotaCleanupBatch: number
 }
 
-/** Endpoint and credential snapshot used for one Files operation. */
+/** Endpoint, protocol, and credential snapshot used for one Files operation. */
 export interface DeepSeekFileConnection {
   baseURL: string
   apiKey: string
+  protocol: DeepSeekProtocol
 }
 
 /** Cached or newly uploaded provider file mapping. */
@@ -67,6 +69,7 @@ export class DeepSeekFileStore {
     return new DeepSeekFilesClient({
       baseURL: connection.baseURL,
       apiKey: connection.apiKey,
+      protocol: connection.protocol,
       ...this.fetchImpl === undefined ? {} : { fetch: this.fetchImpl },
     })
   }
@@ -88,7 +91,7 @@ export class DeepSeekFileStore {
     if (version.bytes > MAX_CHAT_IMAGE_BYTES) {
       return Promise.reject(new LlmError('DeepSeek chat image exceeds the 32 MiB per-image limit.', 'INVALID_REQUEST'))
     }
-    const scope = deepSeekFileScope(connection.baseURL, connection.apiKey)
+    const scope = deepSeekFileScope(connection.baseURL, connection.apiKey, connection.protocol)
     const key = `${scope}\0${version.variantId}`
     const active = this.inflight.get(key)
     if (active !== undefined) return this.wait(active, signal)

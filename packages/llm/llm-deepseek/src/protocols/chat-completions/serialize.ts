@@ -9,24 +9,22 @@
 
 import { contentHasImage, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
-import type { AttachmentId, ImageAttachmentRef, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
+import type { RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
+import type { RequestDefaults } from '../../common/types.ts'
+import type { ImageSerializationOptions, ImageWireLocation } from '../../common/request-images.ts'
 import type { WireImageContentPart, WireMessage, WireRequest, WireTool, WireUserContentPart, WireTextContentPart } from './types.ts'
 
-/** Adapter-level request defaults (from plugin config). */
-export interface RequestDefaults {
-  thinking?: 'enabled' | 'disabled' | undefined
-  reasoningEffort?: 'off' | 'high' | 'max' | undefined
-}
+export type { ImageRequestRepresentation, ImageSerializationOptions, ImageWireLocation } from '../../common/request-images.ts'
 
 interface ResolvedThinking {
   thinking?: 'enabled' | 'disabled'
-  reasoningEffort?: 'high' | 'max'
+  reasoningEffort?: 'low' | 'high' | 'max'
 }
 
 /** Validate the adapter-owned effort before resolving its DeepSeek wire fields. */
-function reasoningEffort(effort: NonNullable<GenerateOptions['reasoningEffort']>): 'off' | 'high' | 'max' {
-  if (effort === 'off' || effort === 'high' || effort === 'max') {
-    return effort as 'off' | 'high' | 'max'
+function reasoningEffort(effort: NonNullable<GenerateOptions['reasoningEffort']>): 'off' | 'low' | 'high' | 'max' {
+  if (effort === 'off' || effort === 'low' || effort === 'high' || effort === 'max') {
+    return effort as 'off' | 'low' | 'high' | 'max'
   }
   throw new LlmError(
     `DeepSeek does not support reasoning effort "${effort}"`,
@@ -47,7 +45,7 @@ function resolveThinking(options: GenerateOptions, defaults: RequestDefaults): R
     )
   }
   if (effort === 'off') return { thinking: 'disabled' }
-  if (effort === 'high' || effort === 'max') {
+  if (effort === 'low' || effort === 'high' || effort === 'max') {
     return { thinking: 'enabled', reasoningEffort: effort }
   }
   return defaults.thinking === undefined ? {} : { thinking: defaults.thinking }
@@ -139,30 +137,6 @@ export function serializeMessages(messages: Message[]): WireMessage[] {
     }
   }
   return wire
-}
-
-/** Provider representation for one retained request image. */
-export type ImageRequestRepresentation =
-  | {
-    kind: 'file'
-    resolveFileId: (
-      version: RequestImageAttachment,
-      location: ImageWireLocation,
-    ) => Promise<string>
-  }
-  | { kind: 'base64' }
-
-/** Dependencies required when serializing image-bearing messages. */
-export interface ImageSerializationOptions {
-  representation: ImageRequestRepresentation
-  requestImages: ReadonlyMap<ImageAttachmentRef['attachmentId'], RequestImageAttachment>
-  omittedImages?: ReadonlySet<AttachmentId>
-}
-
-/** Position of an image in the original harness message sequence. */
-export interface ImageWireLocation {
-  message: number
-  image: number
 }
 
 const TOOL_RESULT_IMAGE_TEXT = 'Attached image(s) from tool result:'
