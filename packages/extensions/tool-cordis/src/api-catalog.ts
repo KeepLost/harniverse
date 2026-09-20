@@ -3974,7 +3974,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CapabilityMemberDescriptor',
-    declaration: 'export interface CapabilityMemberDescriptor {\n    readonly id: string;\n    readonly kind: \'tool\' | \'skill\' | \'mcp-tool\' | \'subagent-provider\';\n    readonly name: string;\n    readonly description: string;\n    readonly defaultVisible: boolean;\n    readonly available: boolean;\n    readonly requires: readonly string[];\n}',
+    declaration: 'export interface CapabilityMemberDescriptor {\n    readonly id: string;\n    readonly kind: \'tool\' | \'skill\' | \'mcp-tool\' | \'mcp-resource\' | \'subagent-provider\';\n    readonly name: string;\n    readonly description: string;\n    readonly defaultVisible: boolean;\n    readonly available: boolean;\n    readonly requires: readonly string[];\n}',
   },
   {
     name: 'CapabilityObservation',
