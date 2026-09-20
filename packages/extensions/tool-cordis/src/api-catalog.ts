@@ -1590,9 +1590,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Abstract process-sandbox service. confine must return enforcing argv or fail closed at wrap or runner-execution time; silent unconfined passthrough is forbidden. Functional probes arbitrate multi-runner chains and may be skipped for a sole candidate, whose own refusal remains the fail-closed end.',
     methods: [
       {
-        signature: 'abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv',
+        signature: 'abstract confine(argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv>',
         description: 'Wrap `argv` so it executes confined under `policy` on this host; the caller spawns the returned argv in place of its own.',
-        parameters: [{ name: 'argv', description: 'the exact argv the caller is about to spawn (program plus arguments), NOT a shell string — a shell-shaped consumer passes `[\'bash\', \'-c\', command]`.' }, { name: 'policy', description: 'the file-effect policy this execution runs under, carried per call (see {@link SandboxPolicy}).' }],
+        parameters: [{ name: 'argv', description: 'the exact argv the caller is about to spawn (program plus arguments), NOT a shell string — a shell-shaped consumer passes `[\'bash\', \'-c\', command]`.' }, { name: 'policy', description: 'the file-effect policy this execution runs under, carried per call (see {@link SandboxPolicy}).' }, { name: 'signal', description: 'cancellation while the provider resolves the policy and runner.' }],
         returns: 'the argv to spawn instead, plus the enforcement completeness the selected backend achieves for it.',
       },
     ],
@@ -2288,10 +2288,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the outcome; nonzero exits, timeout kills, and abort kills resolve with a descriptive result rather than reject.',
       },
       {
-        signature: 'abstract start(spec: ShellExecSpec): ShellProcess',
-        description: 'Start a background process and return its handle immediately.',
+        signature: 'abstract start(spec: ShellExecSpec): Promise<ShellProcess>',
+        description: 'Prepare a background process asynchronously and publish its live handle.',
         parameters: [{ name: 'spec', description: 'a resolved spec from {@link resolve}, never a raw request.' }],
-        returns: 'the live process handle (reads, kill, quiescence promise).',
+        returns: 'the live process handle after preparation; cancellation or setup failure rejects.',
       },
     ],
   },
@@ -2379,6 +2379,35 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Read one bounded page from a locator produced by this backend.',
         parameters: [{ name: 'input', description: 'opaque locator, optional backend cursor, and page character limit.' }],
         returns: 'bounded text and an opaque continuation cursor when unread text remains.',
+      },
+    ],
+  },
+  {
+    key: 'ssh',
+    summary: 'One non-reconnecting SSH session; loss invalidates all active operations.',
+    description: 'One non-reconnecting SSH session; loss invalidates all active operations.',
+    methods: [
+      {
+        signature: 'readonly ready: Promise<Hello>',
+        description: 'Verified remote helper coordinates; callers must await this before launch.',
+        parameters: [],
+      },
+      {
+        signature: 'async request<T>(method: string, params: unknown, result: z.ZodType<T>, signal?: AbortSignal, wait: boolean = false): Promise<T>',
+        description: 'Send a helper operation; cancellation never replays an ambiguous mutation.',
+        parameters: [{ name: 'method', description: 'the private helper operation.' }, { name: 'params', description: 'JSON request fields validated by the helper.' }, { name: 'result', description: 'response validation before returning provider-visible data.' }, { name: 'signal', description: 'cancellation, which does not undo completed remote effects.' }, { name: 'wait', description: 'allow a process observation to outlast the administrative deadline.' }],
+        returns: 'the validated remote result.',
+      },
+      {
+        signature: 'async connectStream(endpoint: SshStreamEndpoint, signal?: AbortSignal): Promise<Socket>',
+        description: 'Forward one authenticated stream through an independent SSH channel.',
+        parameters: [{ name: 'endpoint', description: 'private coordinates issued by this connection\'s helper.' }, { name: 'signal', description: 'cancellation of allocation and the resulting socket.' }],
+        returns: 'a paused socket; attach a consumer before resuming it.',
+      },
+      {
+        signature: 'dispose(): Promise<void>',
+        description: 'Tear down the helper\'s remote managed ranges before releasing the SSH master when reachable.',
+        parameters: [],
       },
     ],
   },
@@ -5864,6 +5893,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SpillSource',
     declaration: 'export interface SpillSource {\n    toolName: string;\n    callId: CallId;\n    label: string;\n}',
+  },
+  {
+    name: 'SshStreamEndpoint',
+    declaration: 'export type SshStreamEndpoint = z.infer<typeof streamEndpointSchema>;',
   },
   {
     name: 'StorageBackend',

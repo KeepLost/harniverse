@@ -98,6 +98,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   sessionProjections: 'session-projection.md',
   sessions: 'session.md',
   sessionImport: 'persistence.md',
+  ssh: 'ssh.md',
   settings: 'settings.md',
   mcpUserConfigSettings: 'settings.md',
   sessionTitle: 'session-title.md',
@@ -239,6 +240,7 @@ export const EVENT_WALK_EXEMPTIONS: Record<string, string> = {
  * appear on more than one page.
  */
 export const LINK_MAP: Readonly<Record<string, string>> = {
+  SshStreamEndpoint: 'ssh.md',
   Agent: 'core.md',
   AgentCancelCause: 'core.md',
   AgentCloseIfIdleResult: 'core.md',
@@ -628,6 +630,8 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+  'z.ZodType': 'Zod response validation API is owned by https://zod.dev/packages/zod',
+  Socket: 'Node.js byte stream API is owned by https://nodejs.org/api/net.html#class-netsocket',
   z: 'schemastery schema constructor is owned by vendor/schemastery (vendored upstream)',
   BeginCommandRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',
   InsertReferenceRequest: 'event-local request contract is owned by packages/client/ui-input-trigger/src/types.ts',

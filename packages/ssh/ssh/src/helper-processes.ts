@@ -142,9 +142,9 @@ export class RemoteProcesses {
    * Start once all data channels are authenticated; duplicate starts refuse.
    * @param id - the prepared process reservation.
    * @param signal - cancellation of pending process publication.
-   * @returns nothing; the terminal pid is not published on this seam.
+   * @returns the published process id once every channel is connected.
    */
-  async start(id: SshProcessId, signal?: AbortSignal): Promise<{}> {
+  async start(id: SshProcessId, signal?: AbortSignal): Promise<{ pid: number }> {
     const record = this.record(id)
     if (record.start !== undefined) throw new Error('SSH process launch was already requested')
     signal?.throwIfAborted()
@@ -161,7 +161,7 @@ export class RemoteProcesses {
       await this.finishFailed(id, record, failed)
       throw error
     } finally { signal?.removeEventListener('abort', abort) }
-    return {}
+    return { pid: record.ordinary?.pid ?? record.terminal?.pid ?? -1 }
   }
 
   private async startOnce(id: SshProcessId, record: ProcessRecord): Promise<void> {

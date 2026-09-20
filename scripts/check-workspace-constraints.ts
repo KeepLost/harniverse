@@ -173,6 +173,13 @@ function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
     // The shared bounded output collector ships as its own subpath bundle
     // (the SSH helper and process providers consume it without the service).
     ...manifest.exports?.['./output'] ? ['lib/output.js'] : [],
+    // The SSH package's wire protocol and schema subpaths must stay module-
+    // singleton-compatible with the bundled connection entry (RemoteOperationError
+    // instanceof), so helper/protocol/schemas build in one multi-entry pass
+    // whose shared chunks land in the whitelisted <module>-*.js companions.
+    ...manifest.exports?.['./helper'] && manifest.exports?.['./protocol'] && manifest.exports?.['./schemas']
+      ? ['lib/helper.js', 'lib/protocol.js', 'lib/schemas.js', 'lib/protocol-*.js', 'lib/schemas-*.js', 'lib/stream-security-*.js']
+      : [],
     // UI plugin packages ship their browser bundle beside the node lib
     // (single-artifact ruling: dist/ retired, ./client resolves lib/client.js).
     // Keyed on the artifact path, not the subpath name: apiproxy's ./client is

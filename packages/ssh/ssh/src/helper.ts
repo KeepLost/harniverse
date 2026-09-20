@@ -129,7 +129,7 @@ export async function runSshHelper(transport: HelperTransport): Promise<void> {
       const input = z.object({ argv: z.array(z.string()).min(1), policy: policySchema }).strict().parse(raw)
       const resolved = await policy(input.policy, signal)
       if (resolved.mode === 'danger-full-access') throw new Error('Unconfined argv does not need a sandbox wrapper')
-      return ctx.sandbox.confine(input.argv, resolved as SandboxPolicy)
+      return ctx.sandbox.confine(input.argv, resolved as SandboxPolicy, signal)
     }
     if (method === 'fs.resolve' || method === 'fs.lstat') {
       const input = z.object({ path: z.string(), cwd: remotePath.optional() }).strict().parse(raw)
