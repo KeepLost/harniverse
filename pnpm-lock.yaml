@@ -229,6 +229,9 @@ importers:
       '@deepseek-ai/dsh-headless':
         specifier: workspace:^
         version: link:../../packages/bundle/headless
+      '@deepseek-ai/dsh-hmr-coordination':
+        specifier: workspace:^
+        version: link:../../packages/boot/hmr-coordination
       '@deepseek-ai/dsh-home-paths':
         specifier: workspace:^
         version: link:../../packages/util/home-paths
@@ -1108,6 +1111,9 @@ importers:
       '@deepseek-ai/cordis-plugin-timer':
         specifier: workspace:^
         version: link:../../../vendor/timer
+      '@deepseek-ai/dsh-hmr-coordination':
+        specifier: workspace:^
+        version: link:../hmr-coordination
       '@deepseek-ai/dsh-home-paths':
         specifier: workspace:^
         version: link:../../util/home-paths
@@ -1141,6 +1147,19 @@ importers:
       commander:
         specifier: ^15.0.0
         version: 15.0.0
+
+  packages/boot/hmr-coordination:
+    dependencies:
+      chokidar:
+        specifier: ^5.0.0
+        version: 5.0.0
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
 
   packages/bundle/auth-app:
     dependencies:

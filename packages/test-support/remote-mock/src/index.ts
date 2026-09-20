@@ -122,7 +122,7 @@ export class RemoteMockApiClient extends AbstractApiClient {
   readonly calls: { method: string; payload: unknown }[] = []
   /** Every downlink open, in order, with its resumption cursor. */
   readonly downlinks: DownlinkOpenRecord[] = []
-  #handlers = new Map<string, (payload: unknown, context: RemoteMockCallContext) => unknown>()
+  #handlers = new Map<string, unknown>()
   #identity: AuthenticationPrincipalIdentity = BYPASS_IDENTITY
   #mux: DownlinkQueue[] = []
   #host: DownlinkQueue[] = []
@@ -157,7 +157,7 @@ export class RemoteMockApiClient extends AbstractApiClient {
       payload: unknown
     }
     this.calls.push({ method, payload: envelope.payload })
-    const handler = this.#handlers.get(method)
+    const handler = this.#handlers.get(method) as ((payload: unknown, context: RemoteMockCallContext) => unknown) | undefined
     if (handler === undefined) {
       return new Response(`remote-mock: no handler programmed for ${method}`, { status: 500 })
     }

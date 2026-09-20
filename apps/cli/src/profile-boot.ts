@@ -15,6 +15,7 @@ import { writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { FiberState, type Context } from '@deepseek-ai/cordis'
+import { apply as applyHmrCoordination, name as hmrCoordinationName } from '@deepseek-ai/dsh-hmr-coordination'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import {
@@ -281,25 +282,19 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     && ctx.fiber.state === FiberState.ACTIVE
     && ctx.get('loader') !== undefined) {
     try {
-      // Config-only HMR for the live profile patch layer: the web bundle
-      // disables the shared module-reload `hmr` row (its reload lifecycle is
-      // untested), so when the composition leaves no HMR service, mount a
-      // watch-only instance with no module roots — cordis.patch.yml edits stay
-      // live on every long-lived surface. A silent skip would break the
-      // documented hot-reload contract. HMR injects the timer service, which a
-      // bare custom profile may not mount either.
-      if (ctx.get('hmr') === undefined) {
-        if (ctx.get('timer') === undefined) {
-          await ctx.loader.create({ name: '@deepseek-ai/cordis-plugin-timer' })
-        }
-        await ctx.loader.create({ name: '@deepseek-ai/cordis-plugin-hmr', config: { root: [] } })
+      // Config-only reloads for the live profile patch layer run through the
+      // HMR coordination service (an exclusive queue over chokidar exact-path
+      // watchers); the shared module-reload `hmr` row stays a bundle decision.
+      // A silent skip would break the documented hot-reload contract.
+      if (ctx.get('hmrCoordination') === undefined) {
+        await ctx.plugin({ name: hmrCoordinationName, apply: applyHmrCoordination })
       }
-      await watchUserPatches(ctx, {
+      watchUserPatches(ctx, {
         binName: NAME,
         filename: composed.profile.patchPath,
         compose: composeLive,
       })
-      await watchUserPatches(ctx, {
+      watchUserPatches(ctx, {
         binName: NAME,
         filename: homePatchPath(),
         compose: composeLive,

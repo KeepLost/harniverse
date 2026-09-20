@@ -133,6 +133,7 @@ flowchart TD
   subgraph group_boot["packages/boot"]
     pkg_app_boot["app-boot"]
     pkg_cmdline["cmdline"]
+    pkg_hmr_coordination["hmr-coordination"]
   end
   subgraph group_bundle["packages/bundle"]
     pkg_auth_app["auth-app"]
@@ -396,6 +397,7 @@ flowchart TD
   pkg_timeout --> pkg_invariants
   pkg_scope --> pkg_invariants
   pkg_cmdline --> pkg_invariants
+  pkg_hmr_coordination --> pkg_invariants
   pkg_auth_app --> pkg_invariants
   pkg_base --> pkg_invariants
   pkg_client_authentication --> pkg_invariants
@@ -572,6 +574,7 @@ flowchart TD
   pkg_spill --> pkg_invariants
   pkg_spill --> pkg_llm
   pkg_spill --> pkg_session
+  pkg_app_boot --> pkg_hmr_coordination
   pkg_app_boot --> pkg_home_paths
   pkg_app_boot --> pkg_invariants
   pkg_app_boot --> pkg_launch_environment
@@ -1782,6 +1785,7 @@ flowchart TD
 | [`timeout`](../packages/util/timeout) | `util` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`scope`](../packages/core/scope) | `core` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`cmdline`](../packages/boot/cmdline) | `boot` | [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`hmr-coordination`](../packages/boot/hmr-coordination) | `boot` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`auth-app`](../packages/bundle/auth-app) | `bundle` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`base`](../packages/bundle/base) | `bundle` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-authentication`](../packages/client/authentication) | `client` | [`invariants`](../packages/runtime-diagnostics/invariants) |
@@ -1850,7 +1854,7 @@ flowchart TD
 | [`web-search-perplexity`](../packages/web/web-search-perplexity) | `web` | [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`settings`](../packages/settings/settings), [`web`](../packages/web/web) |
 | [`web-search-tavily`](../packages/web/web-search-tavily) | `web` | [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`settings`](../packages/settings/settings), [`web`](../packages/web/web) |
 | [`spill`](../packages/spill/spill) | `spill` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
-| [`app-boot`](../packages/boot/app-boot) | `boot` | [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`system-prompt`](../packages/core/system-prompt) |
+| [`app-boot`](../packages/boot/app-boot) | `boot` | [`hmr-coordination`](../packages/boot/hmr-coordination), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`system-prompt`](../packages/core/system-prompt) |
 | [`code-runtime-python`](../packages/code-runtime/code-runtime-python) | `code-runtime` | [`code-runtime`](../packages/code-runtime/code-runtime), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`code-runtime-worker-thread`](../packages/code-runtime/code-runtime-worker-thread) | `code-runtime` | [`code-runtime`](../packages/code-runtime/code-runtime), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`image-offload-policy`](../packages/compaction/image-offload-policy) | `compaction` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |

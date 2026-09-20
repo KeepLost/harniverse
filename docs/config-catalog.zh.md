@@ -3913,6 +3913,7 @@ export interface Config {
 - `@deepseek-ai/dsh-cmdline`（[`packages/boot/cmdline/src/index.ts`](../packages/boot/cmdline/src/index.ts)）
 - `@deepseek-ai/dsh-control-channel`（[`packages/subprocess/control-channel/src/index.ts`](../packages/subprocess/control-channel/src/index.ts)）
 - `@deepseek-ai/dsh-execution-descriptor`（[`packages/sandbox/execution-descriptor/src/index.ts`](../packages/sandbox/execution-descriptor/src/index.ts)）
+- `@deepseek-ai/dsh-hmr-coordination`（[`packages/boot/hmr-coordination/src/index.ts`](../packages/boot/hmr-coordination/src/index.ts)）
 - `@deepseek-ai/dsh-home-paths`（[`packages/util/home-paths/src/index.ts`](../packages/util/home-paths/src/index.ts)）
 - `@deepseek-ai/dsh-hook-protocol`（[`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts)）
 - `@deepseek-ai/dsh-http-proxy`（[`packages/util/http-proxy/src/index.ts`](../packages/util/http-proxy/src/index.ts)）
