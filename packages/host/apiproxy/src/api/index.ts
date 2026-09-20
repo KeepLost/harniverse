@@ -100,6 +100,7 @@ export type {
 // ---- Errors and ids ----
 export { CONNECTION_AUTHENTICATED_METHOD, RequestId, RpcId, sameAuthenticationPrincipalIdentity, transportError } from './rpc.ts'
 export type { RpcError, RpcErrorCode, RpcErrorDetailsMap, RpcResult } from './rpc.ts'
+export type { AuthenticationPrincipal, AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
 // ---- Fixed session-search product bounds ----
 export {
   SESSION_SEARCH_RESULT_LIMIT,
