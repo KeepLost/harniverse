@@ -47,7 +47,11 @@ export function encodeControlFrame(frame: ControlFrame, limits: ControlChannelLi
 export class ControlFrameDecoder {
   private buffer: Buffer = Buffer.alloc(0)
 
-  constructor(private readonly limits: ControlChannelLimits = DEFAULT_CONTROL_CHANNEL_LIMITS) {}
+  private readonly limits: ControlChannelLimits
+
+  constructor(limits: ControlChannelLimits = DEFAULT_CONTROL_CHANNEL_LIMITS) {
+    this.limits = limits
+  }
 
 
   /**
@@ -90,7 +94,11 @@ export class ControlFrameDecoder {
 export class ControlSendQueue {
   private queued = 0
 
-  constructor(private readonly limits: ControlChannelLimits = DEFAULT_CONTROL_CHANNEL_LIMITS) {}
+  private readonly limits: ControlChannelLimits
+
+  constructor(limits: ControlChannelLimits = DEFAULT_CONTROL_CHANNEL_LIMITS) {
+    this.limits = limits
+  }
 
   /**
    * Reserve space for one encoded frame, refusing the send when it would push
@@ -127,7 +135,11 @@ export class PendingCallGate {
   private readonly pending = intrinsicObjectCreate(null) as Record<number, true>
   private count = 0
 
-  constructor(private readonly limits: ControlChannelLimits = DEFAULT_CONTROL_CHANNEL_LIMITS) {}
+  private readonly limits: ControlChannelLimits
+
+  constructor(limits: ControlChannelLimits = DEFAULT_CONTROL_CHANNEL_LIMITS) {
+    this.limits = limits
+  }
 
   /**
    * Admit one call id, refusing it when `maxPendingCalls` replies are

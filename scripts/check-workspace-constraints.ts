@@ -170,6 +170,9 @@ function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
     // The PTC runtime's spawned-child entry ships as CommonJS beside the ESM
     // lib (the pkg VFS loads it synchronously from a deployed bundle).
     ...manifest.exports?.['./child'] ? ['lib/child.cjs'] : [],
+    // The shared bounded output collector ships as its own subpath bundle
+    // (the SSH helper and process providers consume it without the service).
+    ...manifest.exports?.['./output'] ? ['lib/output.js'] : [],
     // UI plugin packages ship their browser bundle beside the node lib
     // (single-artifact ruling: dist/ retired, ./client resolves lib/client.js).
     // Keyed on the artifact path, not the subpath name: apiproxy's ./client is

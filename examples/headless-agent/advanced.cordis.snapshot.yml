@@ -39,6 +39,12 @@
           # the compression choice or the default zstd frames hide the logs.
           compression: none
       - insert:
+          # The fresh-process code runtime resolves each run's workspace and
+          # confinement from the sandbox-policy seam.
+          - id: sandbox-policy
+            name: '@deepseek-ai/dsh-sandbox-policy'
+            config:
+              mode: danger-full-access
           - id: code-runtime
             name: '@deepseek-ai/dsh-code-runtime-ptc'
           - id: cordis-host-runner

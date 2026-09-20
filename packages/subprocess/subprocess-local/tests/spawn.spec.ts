@@ -1,14 +1,14 @@
 import { spawn as nodeSpawn } from 'node:child_process'
-import { mkdtempSync, readFileSync, statSync, unlinkSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, statSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import {
   killGroup,
-  OutputCollector,
   spawnSubprocess,
   taskkillProcessTree,
 } from '../src/spawn.ts'
+import { OutputCollector, prepareManagedProcessBinding } from '../src/output.ts'
 import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 
@@ -476,6 +476,37 @@ describe('OutputCollector', () => {
     expect(third.lossy).toBe(true)
     expect(third.text).toBe('c'.repeat(10))
     expect(third.spillPath).toBeDefined()
+  })
+
+  it('snapshot copies the retained raw tail with its whole-stream position', () => {
+    const collector = new OutputCollector(10, undefined, 'snapshot', spillDir)
+    collector.push(Buffer.from('aaaaa'))
+    collector.push(Buffer.from('bbbbb'))
+    collector.push(Buffer.from('cc'))
+    const before = collector.snapshot()
+    expect(before.totalBytes).toBe(12)
+    expect(before.bytes.toString('utf8')).toBe('aaabbbbbcc')
+
+    // The snapshot is an independent copy: pushing on does not mutate it.
+    collector.push(Buffer.from('dddd'))
+    const after = collector.snapshot()
+    expect(after.totalBytes).toBe(16)
+    expect(after.bytes.toString('utf8')).toBe('bbbbccdddd')
+    expect(before.bytes.toString('utf8')).toBe('aaabbbbbcc')
+  })
+
+  it('prepareManagedProcessBinding prefers the caller spill directory and lazily defaults', () => {
+    const explicit = mkdtempSync(join(tmpdir(), 'dsh-explicit-spill-'))
+    try {
+      expect(prepareManagedProcessBinding({ spillDir: explicit }).spillDir).toBe(explicit)
+      const bound = prepareManagedProcessBinding().spillDir
+      expect(bound.startsWith(tmpdir())).toBe(true)
+      expect(statSync(bound).isDirectory()).toBe(true)
+      // The default is created once and reused for later bindings.
+      expect(prepareManagedProcessBinding().spillDir).toBe(bound)
+    } finally {
+      rmSync(explicit, { recursive: true, force: true })
+    }
   })
 
   it('contains close failures and drops the spill path', () => {

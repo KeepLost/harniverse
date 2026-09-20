@@ -80,9 +80,13 @@ export interface ControlTransportOptions {
 
 /** Rejection reason for one failed {@link ControlChannelTransport.call}. */
 export class ControlCallError extends Error {
-  constructor(readonly failure: ControlFailure) {
+  /** The orthogonal failure vocabulary entry this rejection carries. */
+  readonly failure: ControlFailure
+
+  constructor(failure: ControlFailure) {
     super(failure.message)
     this.name = 'ControlCallError'
+    this.failure = failure
   }
 }
 

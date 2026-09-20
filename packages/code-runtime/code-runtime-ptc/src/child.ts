@@ -8,9 +8,38 @@
  */
 
 import { Writable } from 'node:stream'
-import { ControlChannelTransport } from '@deepseek-ai/dsh-control-channel'
-import { ensureBoundaryIntrinsics, runChildMain } from './child-exec.ts'
+import { runChildMain, ensureBoundaryIntrinsics } from './child-exec.ts'
 import type { ChildBootData } from './child-exec.ts'
+
+/** What the child needs from the control-channel package to drive its transport. */
+type ControlChannelModule = typeof import('@deepseek-ai/dsh-control-channel')
+
+/**
+ * Load the transport class for this child's world. Built worlds resolve the
+ * workspace package by name (its exports point at `lib/`). Buildless source
+ * worlds — unit lanes that never run the workspace build — have no `lib/`, so
+ * the bare import fails and the dependency's own source entry serves instead
+ * (linked `node_modules`, whether beside this entry or one directory up);
+ * it is erasable-only TypeScript exactly like this entry file itself.
+ */
+const CONTROL_CHANNEL_SOURCE_FALLBACKS = [
+  '../node_modules/@deepseek-ai/dsh-control-channel/src/index.ts',
+  './node_modules/@deepseek-ai/dsh-control-channel/src/index.ts',
+] as const
+
+async function loadControlChannel(): Promise<ControlChannelModule> {
+  try {
+    return await import('@deepseek-ai/dsh-control-channel')
+  } catch {
+    let failure: unknown
+    for (const candidate of CONTROL_CHANNEL_SOURCE_FALLBACKS) {
+      try {
+        return await import(new URL(candidate, import.meta.url).href) as ControlChannelModule
+      } catch (error: unknown) { failure = error }
+    }
+    throw failure
+  }
+}
 
 /**
  * The boot target the host's opening control call names. One target per
@@ -18,8 +47,11 @@ import type { ChildBootData } from './child-exec.ts'
  */
 const RUN_TARGET = 'run'
 
+/** The constructor type from the control-channel package this child drives. */
+type Transport = InstanceType<ControlChannelModule['ControlChannelTransport']>
+
 /** The channel end this child drives, once the stdio pair is wired. */
-let channel: ControlChannelTransport | undefined
+let channel: Transport | undefined
 
 /**
  * Parse and validate the boot call's argument list. The host built it, so a
@@ -42,6 +74,7 @@ function parseBootArgs(args: readonly unknown[]): ChildBootData {
  * — then the program runs to settlement and the child settles with it.
  */
 async function main(): Promise<void> {
+  const { ControlChannelTransport } = await loadControlChannel()
   const intrinsicWrite: (chunk: Buffer | string, encoding?: BufferEncoding, callback?: (error?: Error | null) => void) => boolean
     = process.stdout.write.bind(process.stdout)
   // The wrapper gives the transport a private writable end: patching the
@@ -72,7 +105,7 @@ async function main(): Promise<void> {
         // macrotask so the reply ALWAYS precedes the run's first frame,
         // keeping the host's boot-await deterministic.
         setTimeout(() => {
-          void runChildMain(channel as ControlChannelTransport, data, { stdout: process.stdout, stderr: process.stderr })
+          void runChildMain(channel as Transport, data, { stdout: process.stdout, stderr: process.stderr })
             .catch(() => { process.exitCode = 1 })
           // The program's synchronous prefix has already run by the first
           // suspension inside runChildMain: restore any boundary intrinsics
