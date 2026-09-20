@@ -317,6 +317,7 @@
     { "path": "./packages/notification/notification" },
     { "path": "./packages/notification/notification-http" },
     { "path": "./packages/todo/tool-todo" },
+    { "path": "./packages/deliverables/tool-present" },
     { "path": "./packages/plan/plan-mode" },
     { "path": "./packages/preset/agent-presets" },
     { "path": "./packages/preset/persona" },

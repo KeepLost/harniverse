@@ -18,7 +18,13 @@
       "path": "../../../vendor/schemastery"
     },
     {
-      "path": "../../attachment/attachment"
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/agent-loop"
+    },
+    {
+      "path": "../../fs/fs"
     },
     {
       "path": "../../llm/llm"
@@ -27,25 +33,10 @@
       "path": "../../core/session"
     },
     {
-      "path": "../../session/session-persistence"
-    },
-    {
       "path": "../../session/session-projection"
     },
     {
-      "path": "../../core/system-prompt"
-    },
-    {
       "path": "../../core/tools"
-    },
-    {
-      "path": "../../core/agent"
-    },
-    {
-      "path": "../../core/scope"
-    },
-    {
-      "path": "../../settings/settings"
     },
     {
       "path": "../../runtime-diagnostics/invariants"

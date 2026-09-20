@@ -1071,6 +1071,33 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'hmrCoordination',
+    summary: 'Exclusive reload queue plus exact-path config watchers for boot layers.',
+    description: 'Exclusive reload queue plus exact-path config watchers for boot layers. Module replacement and Include refresh stay with the vendored HMR plugin; this coordinator owns only the reloads Harniverse registers.',
+    methods: [
+      {
+        signature: 'runExclusive<T>(task: () => Promise<T>): Promise<T>',
+        description: 'Run one task on the exclusive queue.',
+        parameters: [{ name: 'task', description: 'reload work; a refresh may await other fibers.' }],
+        returns: 'the task\'s own settlement.',
+        throws: ['when called from inside a queued task, or after disposal.'],
+      },
+      {
+        signature: 'watchConfig(filename: string, refresh: () => Promise<void> | void): () => Promise<void>',
+        description: 'Watch one exact config file and reload it through the exclusive queue. Consecutive writes during a refresh merge into one additional pass.',
+        parameters: [{ name: 'filename', description: 'config file path; missing parents are supported.' }, { name: 'refresh', description: 'reload work for that file.' }],
+        returns: 'an asynchronous disposer; the watcher buffers events until ready.',
+        throws: ['when the canonical path is already registered or the coordinator is disposed.'],
+      },
+      {
+        signature: 'async dispose(): Promise<void>',
+        description: 'Stop accepting reloads, close every watcher, and drain the queue. Calling from inside a queued task skips the self-wait.',
+        parameters: [],
+        returns: 'settlement after in-flight work has drained.',
+      },
+    ],
+  },
+  {
     key: 'invariants',
     summary: 'Package-owned invariant registry with global and regex-based selection.',
     description: 'Package-owned invariant registry with global and regex-based selection.',
@@ -3343,6 +3370,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'One metered command was killed by enforcement.',
     description: 'One metered command was killed by enforcement. Consumers surface the breach on host-level UI; the session sees it through the tool result.',
     parameters: [{ name: 'event', description: 'the recorded breach facts.' }],
+  },
+  {
+    name: 'hmr-coordination/config-update-failed',
+    mode: 'parallel',
+    signature: '\'hmr-coordination/config-update-failed\'(filename: string, error: Error): Promise<void> | void',
+    summary: 'A watched coordination config refresh failed.',
+    description: 'A watched coordination config refresh failed.',
+    parameters: [{ name: 'filename', description: 'Canonical path watched by the coordinator.' }, { name: 'error', description: 'Normalized refresh failure.' }],
   },
   {
     name: 'llm/adapters-updated',

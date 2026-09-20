@@ -43,6 +43,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-jobs` | `job_kill`, `job_list`, `job_output` | `ctx.tools`, `ctx.jobs`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic shell/terminal background-job controller: background bash commands, PowerShell commands, and PTY sends are read, listed, and killed through the same three tools. Subagent Sessions use the separate Session/Invocation controls and never enter this registry. Loading the plugin attaches the controller that arms producers' `ctx.jobs.start()`. |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
+| `@deepseek-ai/dsh-tool-present` | `present` | `ctx.tools`, `ctx.fs`, `ctx.sessionProjections`, `a calling Agent (exec.agent) with an open turn and a workspace` | `tool/call`, `deliverables/presented`, `tool/result` | - | present is the deliverable declaration seam: a successful call appends deliverables/presented to the owning session, which UIs fold per turn. The schema stays fixed regardless of maxFiles; the bound only moves the execute-time acceptance range. |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
 
 <a id="deepseek-aidsh-tool-ask-user"></a>
@@ -2215,6 +2216,49 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
 ```
 
 Source: [`packages/workflow/tool-workflow/src/index.ts`](../packages/workflow/tool-workflow/src/index.ts)
+
+<a id="deepseek-aidsh-tool-present"></a>
+
+## `@deepseek-ai/dsh-tool-present`
+
+### `present`
+
+Declare existing files accessible through the Session filesystem as final deliverables. When a file you create or update is an output the user asked to receive, you must call present after writing it and before your final response, including files created through Bash or code execution. Mentioning its path in your reply does not replace this call. The files must already exist. The user opens the current source files; their contents are not copied or preserved.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path of an existing regular file. Relative paths use the Session working directory."
+          },
+          "description": {
+            "type": "string",
+            "description": "Brief description for the user."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    }
+  },
+  "required": [
+    "files"
+  ]
+}
+```
+
+Source: [`packages/deliverables/tool-present/src/index.ts`](../packages/deliverables/tool-present/src/index.ts)
+
+present is the deliverable declaration seam: a successful call appends deliverables/presented to the owning session, which UIs fold per turn. The schema stays fixed regardless of maxFiles; the bound only moves the execute-time acceptance range.
 
 <a id="deepseek-aidsh-tool-web"></a>
 

@@ -381,6 +381,21 @@ Types: [ContentBlock](subsystems/core.md) · [TokenUsage](subsystems/llm-streami
 
 Source: [`packages/compaction/compaction/src/types.ts:35`](../packages/compaction/compaction/src/types.ts)
 
+### `deliverables/*`
+
+<a id="deliverablespresented--log-only"></a>
+
+#### `deliverables/presented` — log-only
+
+```ts persistence-catalog
+/** Declared filesystem files from a successful final present result, including nested calls. */
+'deliverables/presented': { turn: number; callId: CallId; files: PresentedFile[] }
+```
+
+Types: [CallId](subsystems/core.md)
+
+Source: [`packages/deliverables/tool-present/src/types.ts:15`](../packages/deliverables/tool-present/src/types.ts)
+
 ### `feedback/*`
 
 <a id="feedbackrecord--log-only"></a>

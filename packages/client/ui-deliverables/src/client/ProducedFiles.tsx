@@ -1,14 +1,16 @@
-// ProducedFiles: the produced-file row a finished turn ends with. The paths
-// come pre-matched by the turn-tail chain from the mutation tools'
-// follow-along locations, never from the closing prose. Clicking one goes
-// through the same openFile the tool rows use — the Host's own opener, on the
-// Host machine.
+// ProducedFiles: the deliverables rows a finished turn ends with. Produced
+// paths come pre-matched by the turn-tail chain from the mutation tools'
+// follow-along locations; presented declarations come from the
+// `deliverables/presented` session events. Neither reads the closing prose.
+// Clicking a chip goes through the same openFile the tool rows use — the
+// Host's own opener, on the Host machine.
 
 import { useLayoutEffect, useRef, useState } from 'react'
 import { LinkIcon, classifyLinkPath } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostDescriptionSource } from '@deepseek-ai/dsh-client-connection/client'
 import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { PresentedPath } from './presented.ts'
 import { basename } from './turn-deliverables.ts'
 import type { NS } from './locales.ts'
 import css from './ProducedFiles.module.css'
@@ -57,9 +59,12 @@ export interface ProducedFilesInjected {
   }
 }
 
-/** Matched paths plus the opener, locale, and injected Host capability. */
+/** Matched deliverables plus the opener, locale, and injected Host capability. */
 export type ProducedFilesProps = Pick<TurnTailOwnerProps, 'openFile'> & {
-  matched: readonly string[]
+  matched: {
+    readonly produced: readonly string[]
+    readonly presented: readonly PresentedPath[]
+  }
 } & PropsLocale<typeof NS> & InjectFace<ProducedFilesInjected>
 
 function moreLabel(t: ProducedFilesProps['t'], count: number): string {
@@ -67,12 +72,13 @@ function moreLabel(t: ProducedFilesProps['t'], count: number): string {
 }
 
 /**
- * Render one turn's produced files as openable chips.
- * @param props - selector-matched paths, the chat view's file opener, and the locale seat.
- * @returns The produced-files row.
+ * Render one turn's deliverables as openable chips: the measured produced
+ * lane, then the declared final deliverables when the turn carried them.
+ * @param props - selector-matched deliverables, the chat view's file opener, and the locale seat.
+ * @returns The deliverables rows.
  */
 export function ProducedFiles({
-  matched: paths, openFile, isLoopback, useHostDescription, t,
+  matched: { produced: paths, presented }, openFile, isLoopback, useHostDescription, t,
 }: ProducedFilesProps) {
   const hostCanOpenPath = useHostDescription(description => description?.canOpenPath === true)
   const canOpenPath = isLoopback && hostCanOpenPath
@@ -115,46 +121,71 @@ export function ProducedFiles({
   const hidden = paths.length - shown.length
   return (
     <div className={css.root}>
-      <span className={css.label}>{t('produced.label')}</span>
-      <div ref={rowRef} className={css.row} data-produced-files-row>
-        {shown.map(path => (
-          <button
-            key={path}
-            type="button"
-            className={css.file}
-            // The full path is the disambiguator when two turns produce files
-            // that share a basename; the chip itself stays short.
-            title={path}
-            aria-label={t('produced.open', { name: path })}
-            onClick={() => { openFile(path) }}
-          >
-            <LinkIcon kind={classifyLinkPath(path)} className={css.fileIcon} />
-            <span className={css.fileName}>{basename(path)}</span>
-          </button>
-        ))}
-        {hidden > 0 && <span className={css.more}>{moreLabel(t, hidden)}</span>}
-      </div>
+      {paths.length > 0 && <span className={css.label}>{t('produced.label')}</span>}
+      {paths.length > 0 && (
+        <div ref={rowRef} className={css.row} data-produced-files-row>
+          {shown.map(path => (
+            <button
+              key={path}
+              type="button"
+              className={css.file}
+              // The full path is the disambiguator when two turns produce files
+              // that share a basename; the chip itself stays short.
+              title={path}
+              aria-label={t('produced.open', { name: path })}
+              onClick={() => { openFile(path) }}
+            >
+              <LinkIcon kind={classifyLinkPath(path)} className={css.fileIcon} />
+              <span className={css.fileName}>{basename(path)}</span>
+            </button>
+          ))}
+          {hidden > 0 && <span className={css.more}>{moreLabel(t, hidden)}</span>}
+        </div>
+      )}
+      {presented.length > 0 && (
+        // Declared final deliverables wrap rather than measure: the closing
+        // declaration set is small by the tool's own per-call cap, and its
+        // descriptions ride each chip's title as the longer disambiguator.
+        <div className={css.presented} data-presented-files-row>
+          <span className={css.presentedLabel}>{t('presented.label')}</span>
+          {presented.map(file => (
+            <button
+              key={`${file.seq}:${file.index}:${file.path}`}
+              type="button"
+              className={css.file}
+              title={file.description === undefined ? file.path : `${file.path} — ${file.description}`}
+              aria-label={t('presented.open', { name: file.path })}
+              onClick={() => { openFile(file.path) }}
+            >
+              <LinkIcon kind={classifyLinkPath(file.path)} className={css.fileIcon} />
+              <span className={css.fileName}>{basename(file.path)}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {hidden > 0 && canOpenPath && (
         <button type="button" className={css.showFolder} onClick={() => { openFile('.') }}>
           <LinkIcon kind="folder" className={css.fileIcon} />
           {t('produced.showInFolder')}
         </button>
       )}
-      <div className={css.measure} aria-hidden="true">
-        {paths.slice(0, limit).map((path, index) => (
-          <button
-            key={path}
-            ref={(node) => { chipProbes.current[index] = node }}
-            type="button"
-            tabIndex={-1}
-            className={`${css.file} ${css.probe}`}
-          >
-            <LinkIcon kind={classifyLinkPath(path)} className={css.fileIcon} />
-            <span className={css.fileName}>{basename(path)}</span>
-          </button>
-        ))}
-        <span ref={moreProbe} className={`${css.more} ${css.probe}`} />
-      </div>
+      {paths.length > 0 && (
+        <div className={css.measure} aria-hidden="true">
+          {paths.slice(0, limit).map((path, index) => (
+            <button
+              key={path}
+              ref={(node) => { chipProbes.current[index] = node }}
+              type="button"
+              tabIndex={-1}
+              className={`${css.file} ${css.probe}`}
+            >
+              <LinkIcon kind={classifyLinkPath(path)} className={css.fileIcon} />
+              <span className={css.fileName}>{basename(path)}</span>
+            </button>
+          ))}
+          <span ref={moreProbe} className={`${css.more} ${css.probe}`} />
+        </div>
+      )}
     </div>
   )
 }

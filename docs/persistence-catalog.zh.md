@@ -383,6 +383,21 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/compaction/compaction/src/types.ts:35`](../packages/compaction/compaction/src/types.ts)
 
+### `deliverables/*`
+
+<a id="deliverablespresented--log-only"></a>
+
+#### `deliverables/presented` — log-only
+
+```ts persistence-catalog
+/** Declared filesystem files from a successful final present result, including nested calls. */
+'deliverables/presented': { turn: number; callId: CallId; files: PresentedFile[] }
+```
+
+类型：[CallId](subsystems/core.md)
+
+来源：[`packages/deliverables/tool-present/src/types.ts:15`](../packages/deliverables/tool-present/src/types.ts)
+
 ### `feedback/*`
 
 <a id="feedbackrecord--log-only"></a>

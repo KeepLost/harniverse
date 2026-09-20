@@ -45,6 +45,7 @@
 | `@deepseek-ai/dsh-tool-jobs` | `job_kill`、`job_list`、`job_output` | `ctx.tools`、`ctx.jobs`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`user/message via agent.inject() for background completion notices` | - | 与任务种类无关的 shell/终端后台 job 控制器：后台 bash 命令、PowerShell 命令和 PTY 发送通过相同的 3 个工具读取、列出和终止。Subagent Session 使用独立的 Session/Invocation 控制，不进入此注册表。加载该插件会挂接控制器，从而启用生产方的 `ctx.jobs.start()`。 |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`、`owning Agent session` | `tool/call`、`todo/write`、`tool/result` | - | todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。 |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`、`ctx.workflowEngine`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents the script children)` | `tool/call`、`tool/result` | - | - |
+| `@deepseek-ai/dsh-tool-present` | `present` | `ctx.tools`、`ctx.fs`、`ctx.sessionProjections`、`a calling Agent (exec.agent) with an open turn and a workspace` | `tool/call`、`deliverables/presented`、`tool/result` | - | present 是交付物声明 seam：调用成功会向所属会话追加 deliverables/presented，由 UI 按轮折叠。schema 不随 maxFiles 变化；该上限只移动 execute 时的接受范围。 |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`、`web_search` | `ctx.tools`、`ctx.web`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。 |
 
 <a id="deepseek-aidsh-tool-ask-user"></a>
@@ -2220,6 +2221,49 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
 ```
 
 来源：[`packages/workflow/tool-workflow/src/index.ts`](../packages/workflow/tool-workflow/src/index.ts)
+
+<a id="deepseek-aidsh-tool-present"></a>
+
+## `@deepseek-ai/dsh-tool-present`
+
+### `present`
+
+把 Session 文件系统上既有的文件声明为最终交付物。当你创建或更新的文件是用户要求获得的输出时，必须在写完之后、发出最终响应之前调用 present——包括通过 Bash 或代码执行创建的文件。在回复中提及路径不能替代该调用。文件必须已经存在。用户打开的是当前源文件；内容既不复制也不保留。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path of an existing regular file. Relative paths use the Session working directory."
+          },
+          "description": {
+            "type": "string",
+            "description": "Brief description for the user."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    }
+  },
+  "required": [
+    "files"
+  ]
+}
+```
+
+来源：[`packages/deliverables/tool-present/src/index.ts`](../packages/deliverables/tool-present/src/index.ts)
+
+present 是交付物声明 seam：调用成功会向所属会话追加 deliverables/presented，由 UI 按轮折叠。schema 不随 maxFiles 变化；该上限只移动 execute 时的接受范围。
 
 <a id="deepseek-aidsh-tool-web"></a>
 

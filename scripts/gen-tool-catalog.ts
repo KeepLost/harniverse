@@ -75,6 +75,7 @@ import SessionDelivery, {
 import * as ToolSessionDelivery from '@deepseek-ai/dsh-tool-session-delivery'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
+import * as ToolPresent from '@deepseek-ai/dsh-tool-present'
 import * as ToolResultArtifacts from '@deepseek-ai/dsh-tool-result-artifacts'
 import CompactionEngine from '@deepseek-ai/dsh-compaction'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
@@ -691,6 +692,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(VmWorkflowEngine, { provider: 'mock' })
       await ctx.plugin(ToolWorkflow)
     },
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-present',
+    dir: 'tool-present',
+    source: 'packages/deliverables/tool-present/src/index.ts',
+    requires: ['ctx.tools', 'ctx.fs', 'ctx.sessionProjections', 'a calling Agent (exec.agent) with an open turn and a workspace'],
+    writes: ['tool/call', 'deliverables/presented', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
+      await ctx.plugin(SessionProjectionRegistry)
+      await ctx.plugin(ToolPresent)
+    },
+    note:
+      'present is the deliverable declaration seam: a successful call appends deliverables/presented to the owning session, which UIs fold per turn. The schema stays fixed regardless of maxFiles; the bound only moves the execute-time acceptance range.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-web',

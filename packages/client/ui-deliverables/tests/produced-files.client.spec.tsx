@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
  * ui-deliverables browser half: the derivation contract of
- * `producedForClosing` over engine-published Turn data, the row's rendering
- * and opener wiring, and the plugin registrations' fiber-teardown removal
- * (HMR safety) against the real SlotRegistry.
+ * `producedForClosing`/`presentedForClosing` over engine-published Turn data,
+ * the rows' rendering and opener wiring, and the plugin registrations'
+ * fiber-teardown removal (HMR safety) against the real SlotRegistry.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
@@ -23,9 +23,10 @@ import {
   fitProducedFiles, ProducedFiles, type ProducedFilesProps,
 } from '../src/client/ProducedFiles.tsx'
 import {
-  basename, deliverablesDefinition, producedFileMentions, producedForClosing, selectProducedFiles,
-  type DeliverablesTurnData,
+  basename, deliverablesDefinition, deliverablesFileMentions, producedForClosing,
+  presentedForClosing, selectDeliverables, type DeliverablesTurnData,
 } from '../src/client/turn-deliverables.ts'
+import type { PresentedPath } from '../src/client/presented.ts'
 import { apply, inject } from '../src/client/index.ts'
 import { apply as applyInvariant } from '../src/invariant.ts'
 import { en, zh } from '../src/client/locales.ts'
@@ -68,6 +69,15 @@ const turnLocation = (turn: number, deliverables?: DeliverablesTurnData): TurnLo
 
 const produced = (...values: ReadonlyArray<readonly [seq: number, path: string]>): DeliverablesTurnData => ({
   produced: values.map(([seq, path]) => ({ seq, path })),
+})
+
+const presented = (
+  ...values: ReadonlyArray<readonly [seq: number, path: string, description?: string]>
+): DeliverablesTurnData => ({
+  produced: [],
+  presented: values.map(([seq, path, description]) => ({
+    seq, index: 0, path, ...description !== undefined ? { description } : {},
+  })),
 })
 
 function tailOwner(
@@ -181,9 +191,12 @@ describe('produced-file Turn data', () => {
       [8, 'after.txt'],
     )
     expect(producedForClosing(data, 6)).toEqual(['out/index.html', 'out/app.css'])
-    expect(selectProducedFiles(tailOwner(data, 6))).toEqual(['out/index.html', 'out/app.css'])
+    expect(selectDeliverables(tailOwner(data, 6))).toEqual({
+      produced: ['out/index.html', 'out/app.css'],
+      presented: [],
+    })
     expect(producedForClosing(undefined)).toEqual([])
-    expect(selectProducedFiles(tailOwner(undefined, 9, () => {}, 2))).toBeNull()
+    expect(selectDeliverables(tailOwner(undefined, 9, () => {}, 2))).toBeNull()
   })
 
   it('folds successful diff and generic-edit calls while ignoring reads, failures, and missing locations', () => {
@@ -278,6 +291,73 @@ describe('produced-file Turn data', () => {
   })
 })
 
+describe('presented-file Turn data', () => {
+  it('folds deliverables/presented declarations with their event seq and file index', () => {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'deliverables/presented', {
+        turn: 1,
+        callId: 'call-1',
+        files: [{ path: 'report.pdf', description: 'final' }, { path: 'data.csv' }],
+      }),
+      at(3, 'deliverables/presented', { turn: 1, callId: 'call-2', files: [{ path: 'report.pdf' }] }),
+    ])
+    expect(deliverablesOf(value)).toEqual({
+      produced: [],
+      presented: [
+        { seq: 2, index: 0, path: 'report.pdf', description: 'final' },
+        { seq: 2, index: 1, path: 'data.csv' },
+        { seq: 3, index: 0, path: 'report.pdf' },
+      ],
+    })
+  })
+
+  it('ignores malformed declarations at the match gate', () => {
+    // Null data cannot ride the assembler (the location index reads event.data),
+    // so the null shape is asserted through the definition's own match gate.
+    expect(deliverablesDefinition.match(at(2, 'deliverables/presented', null).event)).toBeNull()
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(3, 'deliverables/presented', { turn: 1, callId: 'call-1', files: [] }),
+      at(4, 'deliverables/presented', { turn: 1, callId: 'call-2', files: [{ path: '' }] }),
+      at(5, 'deliverables/presented', { turn: 0, callId: 'call-3', files: [{ path: 'x.txt' }] }),
+      at(6, 'deliverables/presented', { turn: 1, callId: 42, files: [{ path: 'x.txt' }] }),
+      at(7, 'deliverables/presented', { turn: 1, callId: 'call-5', files: [42] }),
+    ])
+    // The value keeps the produced-only shape while presented stays empty.
+    expect(deliverablesOf(value)).toEqual({ produced: [] })
+  })
+
+  it('keeps the latest declaration per path in first-declared order before the closing seq', () => {
+    const data = presented(
+      [2, 'a.txt', 'first'],
+      [3, 'b.txt'],
+      [4, 'a.txt'],
+      [6, 'c.txt'],
+    )
+    expect(presentedForClosing(data, 5)).toEqual([
+      { seq: 4, index: 0, path: 'a.txt' },
+      { seq: 3, index: 0, path: 'b.txt' },
+    ])
+    expect(presentedForClosing(data)).toEqual([
+      { seq: 4, index: 0, path: 'a.txt' },
+      { seq: 3, index: 0, path: 'b.txt' },
+      { seq: 6, index: 0, path: 'c.txt' },
+    ])
+    expect(presentedForClosing(undefined)).toEqual([])
+    expect(presentedForClosing({ produced: [] })).toEqual([])
+    // A turn with only declarations still claims the tail; produced stays empty.
+    expect(selectDeliverables(tailOwner(data, 7))).toEqual({
+      produced: [],
+      presented: [
+        { seq: 4, index: 0, path: 'a.txt' },
+        { seq: 3, index: 0, path: 'b.txt' },
+        { seq: 6, index: 0, path: 'c.txt' },
+      ],
+    })
+  })
+})
+
 describe('ProducedFiles row', () => {
   const t = makeTranslate(zh)
   const capability = (
@@ -337,7 +417,7 @@ describe('ProducedFiles row', () => {
       })
 
     const view = render(
-      <ProducedFiles matched={paths} openFile={openFile} {...capability(true)} t={t} />,
+      <ProducedFiles matched={{ produced: paths, presented: [] }} openFile={openFile} {...capability(true)} t={t} />,
     )
     expect(view.getByText('产物')).toBeTruthy()
     const row = view.container.querySelector('[data-produced-files-row]')
@@ -371,7 +451,12 @@ describe('ProducedFiles row', () => {
     // shrinks; the replacement observer must skip those stale slots.
     observeNode.mockClear()
     view.rerender(
-      <ProducedFiles matched={paths.slice(0, 1)} openFile={openFile} {...capability(true)} t={t} />,
+      <ProducedFiles
+        matched={{ produced: paths.slice(0, 1), presented: [] }}
+        openFile={openFile}
+        {...capability(true)}
+        t={t}
+      />,
     )
     expect(within(row).getAllByRole('button')).toHaveLength(1)
     expect(observeNode).toHaveBeenCalledTimes(3)
@@ -384,12 +469,24 @@ describe('ProducedFiles row', () => {
   it('keeps the folder action absent without overflow or a local native opener', () => {
     const openFile = vi.fn<(path: string) => void>()
     const view = render(
-      <ProducedFiles matched={['a.md']} openFile={openFile} {...capability(true)} t={t} />,
+      <ProducedFiles
+        matched={{ produced: ['a.md'], presented: [] }}
+        openFile={openFile}
+        {...capability(true)}
+        t={t}
+      />,
     )
     const overflowing = ['a.md', 'b.md', 'c.md', 'd.md', 'e.md', 'f.md', 'g.md']
     expect(view.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
     for (const unavailable of [capability(false), capability(true, false), capability(undefined)]) {
-      view.rerender(<ProducedFiles matched={overflowing} openFile={openFile} {...unavailable} t={t} />)
+      view.rerender(
+        <ProducedFiles
+          matched={{ produced: overflowing, presented: [] }}
+          openFile={openFile}
+          {...unavailable}
+          t={t}
+        />,
+      )
       expect(view.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
     }
   })
@@ -397,7 +494,7 @@ describe('ProducedFiles row', () => {
   it('uses singular English copy when exactly one file is hidden', () => {
     const view = render(
       <ProducedFiles
-        matched={['a.md', 'b.md', 'c.md', 'd.md', 'e.md', 'f.md', 'g.md']}
+        matched={{ produced: ['a.md', 'b.md', 'c.md', 'd.md', 'e.md', 'f.md', 'g.md'], presented: [] }}
         openFile={() => {}}
         {...capability(false)}
         t={makeTranslate(en)}
@@ -407,14 +504,43 @@ describe('ProducedFiles row', () => {
     if (!(row instanceof HTMLElement)) throw new Error('produced row missing')
     expect(within(row).getByText('+ 1 file')).toBeTruthy()
   })
+
+  it('renders declared deliverables as wrapping chips and hides the produced lane when empty', () => {
+    const openFile = vi.fn<(path: string) => void>()
+    const declared: readonly PresentedPath[] = [
+      { seq: 2, index: 0, path: 'out/report.pdf', description: '最终报告' },
+      { seq: 3, index: 0, path: 'out/data.csv' },
+    ]
+    const view = render(
+      <ProducedFiles
+        matched={{ produced: [], presented: declared }}
+        openFile={openFile}
+        {...capability(false)}
+        t={t}
+      />,
+    )
+    expect(view.getByText('交付')).toBeTruthy()
+    expect(view.queryByText('产物')).toBeNull()
+    expect(view.container.querySelector('[data-produced-files-row]')).toBeNull()
+    const lane = view.container.querySelector('[data-presented-files-row]')
+    if (!(lane instanceof HTMLElement)) throw new Error('presented lane missing')
+    expect(within(lane).getAllByRole('button')).toHaveLength(2)
+
+    const chip = view.getByRole('button', { name: '打开 out/report.pdf' })
+    expect(chip.textContent).toBe('report.pdf')
+    expect(chip.getAttribute('title')).toBe('out/report.pdf — 最终报告')
+    expect(view.getByRole('button', { name: '打开 out/data.csv' }).getAttribute('title')).toBe('out/data.csv')
+    fireEvent.click(chip)
+    expect(openFile).toHaveBeenCalledWith('out/report.pdf')
+  })
 })
 
-describe('producedFileMentions resolver', () => {
+describe('deliverablesFileMentions resolver', () => {
   const label = (path: string) => `打开 ${path}`
 
   it('resolves exact paths and unique basenames; ambiguity and unknowns stay unresolved', () => {
     const opened: string[] = []
-    const resolver = producedFileMentions(
+    const resolver = deliverablesFileMentions(
       ['out/index.html', 'a/style.css', 'b/style.css'],
       (path) => { opened.push(path) },
       label,
@@ -489,6 +615,15 @@ describe('plugin registration', () => {
     const mentions = service?.forClosing(owner)
     mentions?.resolve('report.html')?.open()
     expect(opened).toEqual(['site/report.html'])
+    // A declaration-only turn claims the same prose vocabulary over its
+    // presented paths.
+    const declared = tailOwner(
+      { produced: [], presented: [{ seq: 2, index: 0, path: 'final/report.md' }] },
+      3,
+      (path) => { opened.push(path) },
+    )
+    service?.forClosing(declared)?.resolve('report.md')?.open()
+    expect(opened).toEqual(['site/report.html', 'final/report.md'])
     // A turn that produced nothing yields no vocabulary at all.
     expect(service?.forClosing(tailOwner(undefined, 2))).toBeUndefined()
 

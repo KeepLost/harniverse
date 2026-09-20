@@ -14,7 +14,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { ProducedFiles } from './ProducedFiles.tsx'
 import { en, NS, zh, type DeliverablesKey } from './locales.ts'
 import {
-  deliverablesDefinition, producedFileMentions, selectProducedFiles,
+  deliverablesDefinition, deliverablesFileMentions, selectDeliverables,
 } from './turn-deliverables.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -42,7 +42,7 @@ export function apply(ctx: ClientContext): void {
     'conversation.chat.turnTail',
     () => ctx.slots.register({
       name: 'conversation.chat.turnTail',
-      select: selectProducedFiles,
+      select: selectDeliverables,
       locale: NS,
       inject: () => ({
         isLoopback: connection.isLoopback,
@@ -55,11 +55,15 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
   const mentions: ChatFileMentions = {
     forClosing(owner) {
-      // Same claim test the turn-tail chain entry runs: no produced files,
-      // no vocabulary — the two surfaces agree by construction.
-      const paths = selectProducedFiles(owner)
-      if (paths === null) return undefined
-      return producedFileMentions(paths, owner.openFile, path => t('produced.open', { name: path }))
+      // Same claim test the turn-tail chain entry runs: no deliverables, no
+      // vocabulary — the two surfaces agree by construction.
+      const match = selectDeliverables(owner)
+      if (match === null) return undefined
+      const paths = [...new Set([
+        ...match.produced,
+        ...match.presented.map(file => file.path),
+      ])]
+      return deliverablesFileMentions(paths, owner.openFile, path => t('produced.open', { name: path }))
     },
   }
   ctx.provide('chatFileMentions', mentions)
