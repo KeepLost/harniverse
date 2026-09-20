@@ -13,10 +13,9 @@ const PACKAGE_NAME = '@deepseek-ai/dsh-compaction-image-offload'
  * @param event - the durable event to inspect.
  * @returns the block list that may carry image blocks, or undefined.
  */
-function imageCarrier(event: SessionEvent): readonly ContentBlock[] | undefined {
+function imageCarrier(event: Extract<SessionEvent, { type: 'user/message' | 'tool/result' }>): readonly ContentBlock[] | undefined {
   if (event.type === 'user/message') return event.data.content
-  if (event.type === 'tool/result') return event.data.message.content.at(0)?.content
-  return undefined
+  return event.data.message.content.at(0)?.content
 }
 
 /** Cordis companion plugin name. */
