@@ -296,7 +296,7 @@ Import foreign session logs as archival native sessions. The service owns the wh
 async import(options: ImportForeignSessionOptions): Promise<ImportedSession>
 ```
 
-Source: [`packages/session/session-import/src/importer.ts:78`](../../packages/session/session-import/src/importer.ts)
+Source: [`packages/session/session-import/src/importer.ts:79`](../../packages/session/session-import/src/importer.ts)
 
 <a id="ctxsessionpersistence--sessionpersistence-abstract-seam"></a>
 
