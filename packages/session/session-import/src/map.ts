@@ -120,9 +120,9 @@ function mapMarkerEvent(raw: ForeignRawEvent, time: number): PendingImportEvent 
 
 function mapUserMessage(raw: ForeignRawEvent, time: number): PendingImportEvent | undefined {
   if (raw.type !== 'user/message') return undefined
-  /* v8 ignore next -- parseForeignSessionLog validates every supported message envelope before mapping. */
+  /* v8 ignore next -- mapForeignSessionEvents validates message envelopes before calling the mappers. */
   const message = isRecord(raw.data) ? raw.data : undefined
-  /* v8 ignore next -- parseForeignSessionLog validates every supported message envelope before mapping. */
+  /* v8 ignore next -- mapForeignSessionEvents validates message envelopes before calling the mappers. */
   if (message === undefined || !Array.isArray(message.content)) return undefined
   return {
     type: 'user/message',
@@ -137,11 +137,11 @@ function mapUserMessage(raw: ForeignRawEvent, time: number): PendingImportEvent 
 
 function mapAssistantMessage(raw: ForeignRawEvent, time: number): PendingImportEvent | undefined {
   if (raw.type !== 'assistant/message') return undefined
-  /* v8 ignore next -- parseForeignSessionLog validates every supported message envelope before mapping. */
+  /* v8 ignore next -- mapForeignSessionEvents validates message envelopes before calling the mappers. */
   const data = isRecord(raw.data) ? raw.data : undefined
-  /* v8 ignore next -- parseForeignSessionLog validates every supported message envelope before mapping. */
+  /* v8 ignore next -- mapForeignSessionEvents validates message envelopes before calling the mappers. */
   const message = data !== undefined && isRecord(data.message) ? data.message : undefined
-  /* v8 ignore next -- parseForeignSessionLog validates every supported message envelope before mapping. */
+  /* v8 ignore next -- mapForeignSessionEvents validates message envelopes before calling the mappers. */
   if (data === undefined || message === undefined || !Array.isArray(message.content)) return undefined
   const turn = safeTurn(data.turn)
   const step = safeTurn(data.step)
@@ -188,11 +188,11 @@ function mapToolCall(raw: ForeignRawEvent, time: number): PendingImportEvent | u
 
 function mapToolResult(raw: ForeignRawEvent, time: number): PendingImportEvent | undefined {
   if (raw.type !== 'tool/result') return undefined
-  /* v8 ignore next -- parseForeignSessionLog validates every supported message envelope before mapping. */
+  /* v8 ignore next -- mapForeignSessionEvents validates message envelopes before calling the mappers. */
   const data = isRecord(raw.data) ? raw.data : undefined
-  /* v8 ignore next -- parseForeignSessionLog validates every supported message envelope before mapping. */
+  /* v8 ignore next -- mapForeignSessionEvents validates message envelopes before calling the mappers. */
   const message = data !== undefined && isRecord(data.message) ? data.message : undefined
-  /* v8 ignore next -- parseForeignSessionLog validates every supported message envelope before mapping. */
+  /* v8 ignore next -- mapForeignSessionEvents validates message envelopes before calling the mappers. */
   if (data === undefined || message === undefined) return undefined
   const turn = safeTurn(data.turn)
   const step = safeTurn(data.step)
