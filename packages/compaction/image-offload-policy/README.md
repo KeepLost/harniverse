@@ -8,6 +8,8 @@ Aging counts later `user/message` events per image occurrence — assistant mess
 
 This package is contract-only. The compaction and request projection that applies these decisions — including stub rendering and provider pressure signals — composes this package and ships with the image-offload runtime.
 
+Same-message replacements with `surfaceOp: replace` and source provenance carry surviving images' existing ages forward. Provenance on an appended message does not retire its sources. An explicit authorized re-read creates a new message occurrence and starts at age zero, even when its attachment hash matches an older offloaded occurrence.
+
 ## Model Experience
 
 ### Image offload decisions

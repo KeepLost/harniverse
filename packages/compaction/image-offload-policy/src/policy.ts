@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-image-offload-policy
  */
 
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ImageOffloadDecision, ImageOffloadSetting, ImageOffloadTarget } from './types.ts'
 
@@ -33,24 +33,18 @@ export function parseImageOffloadSetting(input: unknown): ImageOffloadSetting {
   throw new TypeError(`imageOffloadAfterUserTurns must be 'unlimited' or a positive integer, got ${JSON.stringify(input)}`)
 }
 
-/** Count the image blocks carried by one surface event, 0 for events that carry none. */
-function imageCount(event: SessionEvent): number {
-  if (event.type === 'user/message') return countImages(event.data.content)
-  if (event.type === 'tool/result') return countImages(event.data.message.content[0].content)
-  return 0
-}
-
-function countImages(blocks: readonly ContentBlock[]): number {
-  let count = 0
-  for (const block of blocks) {
-    if (block.type === 'image') count += 1
-  }
-  return count
+/** Image occurrences in carrier order, independently of attachment reuse. */
+function imagesOf(event: SessionEvent): Extract<ContentBlock, { type: 'image' }>[] {
+  const blocks = event.type === 'user/message' ? event.data.content
+    : event.type === 'tool/result' ? event.data.message.content[0].content : []
+  return blocks.filter((block): block is Extract<ContentBlock, { type: 'image' }> => block.type === 'image')
 }
 
 /** One tracked image occurrence during the log walk. */
 interface Occurrence {
   readonly target: ImageOffloadTarget
+  readonly messageId: MessageId
+  readonly attachmentId: string
   /** Later user-message turns appended after the carrying event. */
   age: number
   /** False once a prior offload or a compaction replacement settled this occurrence. */
@@ -79,9 +73,10 @@ export interface ImageOffloadOptions {
  * compaction boundary — and `pressureCount` additionally takes the oldest
  * still-active occurrences. An occurrence already named by a prior
  * `image/offload`, or whose carrying event was shadowed by a compaction
- * replacement (an event whose `sourceEventSeqs` cites it), is finished and is
+ * replacement (a replace surface operation whose `sourceEventSeqs` cites it), is finished and is
  * never chosen again. Compaction replaces without `sourceEventSeqs` cite
- * nothing and settle no occurrences.
+ * nothing and settle no occurrences. A same-message rewrite inherits surviving
+ * occurrences' ages; only a newly identified read starts at age zero.
  * @param events - the durable session log, in seq order.
  * @param options - the setting and optional pressure demand for this decision.
  * @returns the decisions to append as one `image/offload` event, oldest
@@ -107,17 +102,31 @@ export function resolveImageOffloadDecisions(
       }
       continue
     }
-    const shadowed = event.type === 'user/message' || event.type === 'tool/result' || event.type === 'assistant/message'
+    const shadowed = typeof event.surfaceOp === 'object' && event.surfaceOp.op === 'replace'
       ? event.sourceEventSeqs
       : undefined
+    // A rewrite retaining message identity is the same read occurrence. Only
+    // a new tool result / message starts a fresh age, even with identical bytes.
+    const messageId = event.type === 'user/message' ? event.data.id
+      : event.type === 'tool/result' ? event.data.message.id : undefined
+    const inherited = occurrences.filter(occurrence => occurrence.active
+      && occurrence.messageId === messageId && shadowed?.includes(occurrence.target.messageSeq))
     if (shadowed !== undefined) {
       for (const occurrence of occurrences) {
         if (shadowed.includes(occurrence.target.messageSeq)) occurrence.active = false
       }
     }
-    const images = imageCount(event)
-    for (let imageIndex = 0; imageIndex < images; imageIndex += 1) {
-      occurrences.push({ target: { messageSeq: event.seq, imageIndex }, age: 0, active: true })
+    if (messageId === undefined) continue
+    for (const [imageIndex, image] of imagesOf(event).entries()) {
+      const index = inherited.findIndex(occurrence => occurrence.attachmentId === image.attachment.attachmentId)
+      const previous = index < 0 ? undefined : inherited.splice(index, 1)[0]
+      occurrences.push({
+        target: { messageSeq: event.seq, imageIndex },
+        messageId,
+        attachmentId: image.attachment.attachmentId,
+        age: previous?.age ?? 0,
+        active: true,
+      })
     }
   }
   const active = occurrences.filter(occurrence => occurrence.active)

@@ -24,7 +24,7 @@ import { freezeMessage, type Message } from './message.ts'
 import { resolveRetryPolicy } from './retry-policy.ts'
 import type { ResolvedRetryPolicy } from './retry-policy.ts'
 import type { ProviderRequestId } from './brand.ts'
-import { callConfigEquals, deepFreeze } from './call-config.ts'
+import { callConfigEquals, deepFreeze, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
 import type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
 import { HarnessError, INVALID_CREDENTIAL_CODE } from './error.ts'
 import { normalizeLlmFailure } from './adapter-failure.ts'
@@ -51,6 +51,14 @@ declare module '@deepseek-ai/cordis' {
   }
 
   interface Events {
+    /**
+     * Synchronous durable request projection before stream observers run.
+     * Consumers commit their decisions before returning replacement messages
+     * or request-local callbacks. Routing and model configuration stay fixed.
+     * @param options - the immutable request whose messages are projected from durable history.
+     * @mode waterfall
+     */
+    'llm/project-request'(options: GenerateOptions, next: () => GenerateOptions): GenerateOptions
     /**
      * Waterfall around every streaming model call (retry, replay, routing).
      * Bound to the {@link LlmRuntime}; call `next()` to reach the resolved
@@ -832,7 +840,7 @@ export class LlmRuntime extends Service {
 
   /** Remove replay state whose historical route is owned by another adapter. */
   private forAdapter(options: GenerateOptions, adapter: LlmAdapter): GenerateOptions {
-    const messages: Message[] = options.messages.map((message) => {
+    const filter = (input: readonly Message[]): Message[] => input.map((message) => {
       const source = message.source
       if (message.role !== 'assistant' || source.kind !== 'model' || source.replayState === undefined) return message
       if (this.adapters.get(source.provider)?.adapter === adapter) return message
@@ -841,8 +849,17 @@ export class LlmRuntime extends Service {
         source: { kind: 'model', provider: source.provider, model: source.model },
       })
     })
-    if (messages.every((message, index) => message === options.messages[index])) return options
-    const filtered = { ...options, messages }
+    const messages = filter(options.messages)
+    const onImagesOmitted = options.onImagesOmitted
+    if (onImagesOmitted === undefined && messages.every((message, index) => message === options.messages[index])) return options
+    const filtered: GenerateOptions = {
+      ...options,
+      messages,
+      ...onImagesOmitted === undefined ? {} : {
+        onImagesOmitted: (targets: Parameters<NonNullable<GenerateOptions['onImagesOmitted']>>[0]) =>
+          deepFreeze(filter(onImagesOmitted(targets))),
+      },
+    }
     return Object.isFrozen(options) ? deepFreeze(filtered) : filtered
   }
 
@@ -929,11 +946,16 @@ export class LlmRuntime extends Service {
     options: GenerateOptions,
     prepared?: { registration: AdapterRegistration; config: LlmCallConfig },
   ): AsyncIterable<StreamChunk> {
+    const projected = this.ctx.waterfall(this, 'llm/project-request', options, () => options)
+    if (isAgentLoopRequest(options) && projected !== options) {
+      markAgentLoopRequest(projected)
+      deepFreeze(projected)
+    }
     return this.ctx.waterfall(
       this,
       'llm/stream',
-      options,
-      () => this.adapterStream(options, prepared),
+      projected,
+      () => this.adapterStream(projected, prepared),
     )
   }
 }

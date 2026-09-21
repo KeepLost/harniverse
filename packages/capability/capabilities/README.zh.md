@@ -6,6 +6,8 @@
 
 结构化覆盖持久化在 `capabilities` Settings namespace 中，包括加载选择、可选成员 allowlist 和 owner 声明的配置字段。全局 Agent 值由每个 Profile 继承，Profile 显式值优先，省略时回退到 Profile 原生值。`plan()` 在保留不可变 dry-run 前校验 id、字段类型、硬依赖以及精确的组装／拓扑 revision；`apply()` 只接受未变化且无阻止项的 plan。`dsh-agent-presets` 把选择与配置编译为原生 Loader patch，各 adapter 则在下一个 standing generation 启动时强制 Tool、Skill、MCP 与 provider 成员限制。
 
+Adapter 可通过 `capture(view)` 捕获提供者的私有配置。返回的不含密钥的签名参与世代标识；`mount(ctx, entries)` 在消费者启动前安装捕获状态。目录条目独立于发现过程保留生效的显式 `memberAllowlist` id（包括继承的全局授权），确保新连接不会丢失 Profile 限制。
+
 ## Model Experience
 
 通过选定的 Profile 插件行间接影响模型，这些行决定新 Session 挂载的工具、Skill、提示词与集成，而已有 Session 保持启动时的 generation。

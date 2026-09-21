@@ -121,6 +121,19 @@ function omissions(body: { messages: { content: unknown }[] }): string[] {
 }
 
 describe('bounded multi-image requests', () => {
+  it.each([[1, 2], [2, 1]])('counts repeated attachments per occurrence with quantum %i (%i omissions)', async (quantum, omitted) => {
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const image = imageOf('a', 10)
+    const prepare = vi.fn(async () => image)
+    const body = await requestBody(boundedAdapter({
+      baseURL: server.url, images: [image], prepare,
+      config: { maxImagesPerRequest: 2, imageOffloadCountQuantum: quantum },
+    }), [image, image, image], server)
+    expect(prepare).toHaveBeenCalledTimes(1)
+    expect(omissions(body)).toHaveLength(omitted)
+    expect(JSON.stringify(body).match(/data:image\/png;base64/g)).toHaveLength(3 - omitted)
+  })
+
   it('sends every image that fits inside both budgets', async () => {
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const images = [imageOf('a', 10), imageOf('b', 10)]

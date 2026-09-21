@@ -1,146 +1,110 @@
-import { createContextFixture } from './import-fixture.ts'
+import { describe, expect, it, vi } from 'vitest'
+import { readFile, mkdir, rm } from 'node:fs/promises'
+import { dirname } from 'node:path'
+import { Context } from '@deepseek-ai/cordis'
+import SessionStore, { Session } from '@deepseek-ai/dsh-session'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import { createContextFixture, officialArtifact } from './import-fixture.ts'
 
-import { describe, expect, it } from 'vitest'
-
-describe('SessionImport runtime over the JSONL backend', () => {
-  it('imports a foreign artifact lossily, marks it archival, and retains the source', async () => {
-    const fixture = await createContextFixture()
+describe('archival import settlement', () => {
+  it.each([1, 2, 3] as const)('imports the frozen official v%i recording and cold-reloads it', async (version) => {
+    const f = await createContextFixture()
+    const source = Buffer.from(await officialArtifact(version))
+    const reopened = new Context()
     try {
-      const result = await fixture.importer.import({ artifactPath: fixture.artifactPath })
-      expect(result.format).toBe('official-v3')
-      expect(result.mappedEvents).toBe(7)
-      expect(result.skippedEvents).toBe(1)
-      expect(String(result.sessionId)).toMatch(/^session-/)
+      const result = await f.importer.import({ artifact: source, cwd: f.root, posture: { supervisionMode: 'unsupervised' } })
+      expect(result.format).toBe(`official-v${version}`)
+      expect(await f.readArtifact(result.sessionId, result.artifactName)).toBe(source.toString())
+      expect(f.ctx.sessions.list()).toEqual([])
+      await f.ctx.fiber.dispose()
+      await reopened.plugin(SessionStore)
+      await reopened.plugin(JsonlSessionPersistence, { root: f.root })
+      const loaded = await reopened.sessionPersistence.inspect(result.sessionId)
+      const session = Session.create(result.sessionId, loaded.events, loaded.meta)
+      expect(loaded.meta.cwd).toBe(f.root)
+      expect(session.eventAt(0)).toMatchObject({ type: 'import/record', data: { posture: { supervisionMode: 'unsupervised' } } })
+      const messages = session.deriveMessages()
+      expect(messages.at(-1)).toMatchObject({ source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-session-import' } })
+      expect(JSON.stringify(messages.at(-1))).toContain(`official-v${version}`)
+      expect(JSON.stringify(messages)).toContain(version === 1 ? 'PONG' : 'dsh-sdk-proof-7391')
+      expect(messages.some(message => message.source.kind === 'plugin' && message.source.plugin === '@deepseek-ai/dsh-system-prompt')).toBe(true)
+      if (version !== 1) {
+        const resultMessage = messages.find(message => message.source.kind === 'tool')
+        expect(resultMessage?.content).toEqual([{
+          type: 'tool-result', toolCallId: 'call_00_Ry17evSfTr0uJnHhg3X93070',
+          content: [{ type: 'text', text: 'dsh-sdk-proof-7391\n' }], isError: false,
+        }])
+      }
+      expect((await reopened.sessionPersistence.list()).map(header => header.id)).toContain(result.sessionId)
+      expect(reopened.sessions.list()).toEqual([])
+    } finally { await reopened.fiber.dispose(); await f.dispose() }
+  })
 
-      const inspection = await fixture.persistence.load(result.sessionId)
-      expect(inspection.events[0]).toMatchObject({ type: 'import/record' })
-      if (inspection.events[0]?.type !== 'import/record') return
-      expect(inspection.events[0].data.source).toEqual({
-        format: 'official-v3',
-        artifactName: `${String(result.sessionId)}.source.jsonl`,
+  it('retains exact BOM/CRLF bytes before publishing and rolls back a failed publication for retry', async () => {
+    const f = await createContextFixture()
+    try {
+      const source = Buffer.from('\uFEFF' + f.foreignText.replaceAll('\n', '\r\n') + '\r\n')
+      const id = f.sessionId('retry-import')
+      const append = f.persistence.append.bind(f.persistence)
+      const fault = vi.spyOn(f.persistence, 'append').mockImplementationOnce(async (sessionId, events) => {
+        expect(await f.readArtifact(sessionId, 'retry-import.source.jsonl')).toBe(source.toString())
+        await append(sessionId, events)
+        throw new Error('publication failed')
       })
-      expect(inspection.events[0].data.posture).toEqual({ supervisionMode: 'supervised' })
-      expect(inspection.meta.version).toBe(0)
-      expect(inspection.events.map(event => event.seq)).toEqual(inspection.events.map((_, index) => index))
-      const types = inspection.events.map(event => event.type)
-      expect(types).toContain('user/message')
-      expect(types).toContain('assistant/message')
-      expect(types).toContain('tool/result')
-      expect(types).not.toContain('request/header')
-
-      const artifactText = await fixture.readArtifact(result.sessionId, result.artifactName)
-      expect(artifactText).toBe(fixture.foreignText)
-
-      const listed = await fixture.persistence.list()
-      expect(listed.map(header => header.id)).toContain(result.sessionId)
-    } finally {
-      await fixture.dispose()
-    }
+      await expect(f.importer.import({ artifact: source, cwd: f.root, sessionId: id })).rejects.toThrow('publication failed')
+      expect(await f.persistence.list()).toEqual([])
+      fault.mockRestore()
+      const imported = await f.importer.import({ artifact: source, cwd: f.root, sessionId: id })
+      const before = await f.readArtifact(id, imported.artifactName)
+      await expect(f.importer.import({ artifact: Buffer.from(f.foreignText), cwd: f.root, sessionId: id })).rejects.toThrow()
+      expect(await f.readArtifact(id, imported.artifactName)).toBe(before)
+    } finally { vi.restoreAllMocks(); await f.dispose() }
   })
 
-  it('applies an explicit posture and honors an explicit session id', async () => {
-    const fixture = await createContextFixture()
+  it('leaves an existing source directory untouched and permits retry after the obstruction is removed', async () => {
+    const f = await createContextFixture()
     try {
-      const result = await fixture.importer.import({
-        artifactPath: fixture.artifactPath,
-        sessionId: fixture.sessionId('named-import'),
-        posture: { supervisionMode: 'unsupervised' },
-      })
-      const inspection = await fixture.persistence.load(result.sessionId)
-      const marker = inspection.events[0]
-      if (marker?.type !== 'import/record') throw new Error('missing marker')
-      expect(marker.data.posture).toEqual({ supervisionMode: 'unsupervised' })
-      expect(marker.data.source.artifactName).toBe('named-import.source.jsonl')
-    } finally {
-      await fixture.dispose()
-    }
+      const id = f.sessionId('obstructed')
+      const location = f.persistence.locate({ version: 0, id, createdAt: 1000, cwd: f.root })!
+      await mkdir(dirname(location.path), { recursive: true })
+      await expect(f.importer.import({ artifactPath: f.artifactPath, cwd: f.root, sessionId: id })).rejects.toThrow()
+      expect(await f.persistence.list()).toEqual([])
+      await rm(dirname(location.path), { recursive: true })
+      await f.importer.import({ artifactPath: f.artifactPath, cwd: f.root, sessionId: id })
+      expect((await f.persistence.list()).map(header => header.id)).toContain(id)
+    } finally { await f.dispose() }
   })
 
-  it('refuses a native-version artifact and an unknown version', async () => {
-    const fixture = await createContextFixture()
+  it('uses the destination workspace even when the foreign cwd is missing or Windows-specific', async () => {
+    const f = await createContextFixture()
     try {
-      await expect(fixture.importWithVersion(0, 'current.txt')).rejects.toThrow('restore it instead')
-      await expect(fixture.importWithVersion(9, 'unknown.txt')).rejects.toThrow('unknown session format version 9')
-      const listed = await fixture.persistence.list()
-      expect(listed).toHaveLength(0)
-    } finally {
-      await fixture.dispose()
-    }
+      for (const cwd of [undefined, 'C:\\foreign\\project']) {
+        const [first, ...rest] = f.foreignText.split('\n')
+        const header = { ...JSON.parse(first!), cwd }
+        const artifact = Buffer.from([JSON.stringify(header), ...rest].join('\n'))
+        const imported = await f.importer.import({ artifact, cwd: f.root })
+        expect((await f.persistence.load(imported.sessionId)).meta.cwd).toBe(f.root)
+      }
+    } finally { await f.dispose() }
   })
 
-  it('refuses an invalid posture before touching persistence', async () => {
-    const fixture = await createContextFixture()
+  it('refuses malformed bytes, posture, destination, native versions, and unknown versions without publishing', async () => {
+    const f = await createContextFixture()
     try {
-      await expect(fixture.importer.import({
-        artifactPath: fixture.artifactPath,
-        posture: { supervisionMode: 'nonsense' } as never,
-      })).rejects.toThrow(TypeError)
-    } finally {
-      await fixture.dispose()
-    }
+      await expect(f.importer.import({ artifact: new Uint8Array([0xff]), cwd: f.root })).rejects.toThrow()
+      await expect(f.importer.import({ artifactPath: f.artifactPath, cwd: 'relative' })).rejects.toThrow('destination workspace')
+      await expect(f.importer.import({ artifactPath: f.artifactPath, cwd: f.root, posture: { supervisionMode: 'invalid' } as never })).rejects.toThrow(TypeError)
+      await expect(f.importWithVersion(0, 'native.jsonl')).rejects.toThrow('restore it instead')
+      await expect(f.importWithVersion(9, 'unknown.jsonl')).rejects.toThrow('unknown session format')
+      expect(await f.persistence.list()).toEqual([])
+      expect(await readFile(f.artifactPath, 'utf8')).toBe(f.foreignText)
+    } finally { await f.dispose() }
   })
 
-  it('refuses an unreadable artifact loudly', async () => {
-    const fixture = await createContextFixture()
+  it('refuses a backend without source artifact storage', async () => {
+    const f = await createContextFixture({ locateUndefined: true })
     try {
-      await expect(fixture.importer.import({ artifactPath: fixture.join('missing.jsonl') }))
-        .rejects.toThrow()
-    } finally {
-      await fixture.dispose()
-    }
-  })
-
-  it('refuses to reuse an existing session id', async () => {
-    const fixture = await createContextFixture()
-    try {
-      const id = fixture.sessionId('dup-import')
-      await fixture.importer.import({ artifactPath: fixture.artifactPath, sessionId: id })
-      await expect(fixture.importer.import({ artifactPath: fixture.artifactPath, sessionId: id })).rejects.toThrow()
-    } finally {
-      await fixture.dispose()
-    }
-  })
-
-  it('refuses import when the backend cannot retain the source artifact', async () => {
-    const fixture = await createContextFixture({ locateUndefined: true })
-    try {
-      await expect(fixture.importer.import({ artifactPath: fixture.artifactPath }))
-        .rejects.toThrow('no per-session artifact location')
-    } finally {
-      await fixture.dispose()
-    }
-  })
-
-  it('yields display-compatible derived history through the native fold', async () => {
-    const fixture = await createContextFixture()
-    try {
-      const result = await fixture.importer.import({ artifactPath: fixture.artifactPath })
-      const session = await fixture.loadedSession(result.sessionId)
-      const user = session.events.find(event => event.type === 'user/message')
-      expect(user).toBeDefined()
-      const derived = session.deriveMessages()
-      expect(derived.at(0)?.content).toEqual([{ type: 'text', text: 'Summarize the repo.' }])
-      expect(derived.some(message => message.role === 'assistant')).toBe(true)
-    } finally {
-      await fixture.dispose()
-    }
-  })
-})
-
-describe('importer header fallbacks', () => {
-  it('imports a header without createdAt or cwd using local defaults', async () => {
-    const fixture = await createContextFixture()
-    try {
-      const minimalPath = fixture.join('minimal-export.jsonl')
-      const { writeFile } = await import('node:fs/promises')
-      await writeFile(minimalPath, `${JSON.stringify({ version: 1 })}\n${JSON.stringify({ type: 'turn/start', data: { turn: 1 }, time: 3 })}\n`, 'utf8')
-      const result = await fixture.importer.import({ artifactPath: minimalPath })
-      const inspection = await fixture.persistence.load(result.sessionId)
-      expect(inspection.meta.createdAt).toBeGreaterThan(0)
-      expect(inspection.meta.cwd).toBeUndefined()
-      expect(inspection.events).toHaveLength(3)
-    } finally {
-      await fixture.dispose()
-    }
+      await expect(f.importer.import({ artifactPath: f.artifactPath, cwd: f.root })).rejects.toThrow('no per-session artifact location')
+    } finally { await f.dispose() }
   })
 })

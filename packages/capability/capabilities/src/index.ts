@@ -49,6 +49,16 @@ export interface CapabilityAdapter {
   readonly id: string
   snapshot(view: CapabilityView): Promise<CapabilityObservation> | CapabilityObservation
   restrict?(ctx: Context, entries: readonly CapabilityCatalogEntry[]): void
+  /** Capture private provider configuration for a future immutable generation. */
+  capture?(view: CapabilityView): CapabilityGenerationCapture
+}
+
+/** Provider-owned state retained by one composition, never included in Session metadata. */
+export interface CapabilityGenerationCapture {
+  /** Non-secret identity that changes when the captured configuration changes. */
+  readonly signature: string
+  /** Install the captured state before the generation's consumers mount. */
+  mount(ctx: Context, entries: readonly CapabilityCatalogEntry[]): void
 }
 
 interface CompositionDocument {
@@ -247,11 +257,30 @@ export class Capabilities extends Service {
       const entry = catalogEntry(descriptor, document, target)
       return [descriptor.id, {
         selection: entry.effectiveSelection,
-        members: entry.memberEntries?.filter(member => member.visible).map(member => member.id) ?? [],
+        members: entry.memberAllowlist ?? entry.memberEntries?.filter(member => member.visible).map(member => member.id) ?? [],
         config: entry.effectiveConfig ?? {},
       }]
     }))
     return JSON.stringify(Object.fromEntries(Object.entries(values).sort(([left], [right]) => left.localeCompare(right))))
+  }
+
+  /**
+   * Capture visible providers before asynchronous Profile assembly begins.
+   * @param view - target Profile and scope visibility.
+   * @returns an immutable identity and provider-owned installation callback.
+   */
+  captureGeneration(view: CapabilityView): CapabilityGenerationCapture {
+    const captures = [...this.adapters]
+      .filter(({ scope }) => scopeVisible(scope, view))
+      .flatMap(({ adapter }) => {
+        const capture = adapter.capture?.(view)
+        return capture === undefined ? [] : [{ id: adapter.id, capture }]
+      })
+      .sort((left, right) => left.id.localeCompare(right.id))
+    return {
+      signature: JSON.stringify(captures.map(({ id, capture }) => [id, capture.signature])),
+      mount: (ctx, entries) => { for (const { capture } of captures) capture.mount(ctx, entries) },
+    }
   }
 
   /**
@@ -601,11 +630,14 @@ function catalogEntry(
   const resolved = effectiveSelection(document, target, descriptor)
   const memberIds = effectiveMembers(document, target, descriptor)
   const effectiveConfig = effectiveConfiguration(document, target, descriptor)
+  const memberAllowlist = targetValues(document, target)[descriptor.id]?.members
+    ?? document.global[descriptor.id]?.members
   return {
     ...copyDescriptor(descriptor),
     selection: explicit?.selection ?? 'inherit',
     effectiveSelection: resolved,
     selected: resolved === 'load',
+    ...memberAllowlist === undefined ? {} : { memberAllowlist: [...memberAllowlist] },
     ...descriptor.members === undefined ? {} : {
       memberSelection: explicit?.members === undefined ? 'inherit' : 'custom',
       memberEntries: descriptor.members.map(member => ({ ...copyMember(member), visible: memberIds.has(member.id) })),

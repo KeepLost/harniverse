@@ -22,6 +22,7 @@ import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import { setSupervisionMode } from '@deepseek-ai/dsh-supervision'
 import type {} from '@deepseek-ai/dsh-supervision'
+import { isArchivalSession } from '@deepseek-ai/dsh-session-import'
 import { AttachmentError, AttachmentId, fileHandleText } from '@deepseek-ai/dsh-attachment'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
@@ -3457,6 +3458,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async fork(request) {
         const { sessionId, atSeq } = request.payload
         return serializeSessionLineage(sessionId, async () => {
+          const archived = archivedSessionUnavailable(sessionId)
+          if (archived !== undefined) return err(request, archived.error)
           if (sessionDeletions.has(sessionId)) {
             return err(request, {
               code: 'agent-busy',
@@ -3478,6 +3481,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             })
           }
           const events = source.events
+          if (isArchivalSession(events)) {
+            return err(request, {
+              code: 'agent-busy',
+              message: `session "${sessionId}" is archival and read-only`,
+              details: { reason: 'ARCHIVAL_SESSION' },
+            })
+          }
           // An in-log anchor belongs to the turn containing it and must never
           // clip backward to an earlier completed turn. Omitted and past-end
           // anchors retain the last-completed-turn shortcut.

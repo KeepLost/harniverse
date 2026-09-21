@@ -6,6 +6,8 @@
   },
   "include": ["src"],
   "references": [
+    { "path": "../../capability/capabilities" },
+    { "path": "../../core/scope" },
     {
       "path": "../../../vendor/cosmokit"
     },

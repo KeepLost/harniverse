@@ -33,9 +33,6 @@
       "path": "../../session/session-projection"
     },
     {
-      "path": "../../session/session-import"
-    },
-    {
       "path": "../../core/system-prompt"
     },
     {

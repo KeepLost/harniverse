@@ -43,6 +43,7 @@ agent loop 构造的请求会携带仅限运行时使用的 `wireExchangeId` 与
 | 事件 | 模式 | 用途 |
 |---|---|---|
 | `llm/stream` | waterfall | 拦截／包装每次流式模型调用，用于缓存、日志或路由 |
+| `llm/project-request` | waterfall | 在适配器序列化前提交提供方无关的持久请求投影 |
 | `llm/wire-attempt` | 回调／会话事件 | 在不重复对话历史的情况下记录一次适配器传输尝试 |
 
 ### 扩展点

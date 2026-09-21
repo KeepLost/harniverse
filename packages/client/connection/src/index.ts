@@ -13,6 +13,7 @@ import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES, type FetchHandler } from './htt
 import { authenticateIncoming, rejectUnauthorized } from './inbound-auth.ts'
 import { assertTrustedAuthority, assertTrustedOrigin, describeApiTrustRequest, isTrustedApiRequest } from './api-request-trust.ts'
 import { registerAttachmentRoutes } from './attachment-routes.ts'
+import { registerSessionImportRoute } from './session-import-route.ts'
 import { registerBrowserAuthenticationRoutes } from './browser-auth-routes.ts'
 import { HostConnectionService } from './rpc-host.ts'
 import { rejectUnauthorizedWebSocket, rejectWebSocketUpgrade, WebSocketDownlinks } from './websocket-downlink.ts'
@@ -162,6 +163,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   ctx.effect(() => ctx.webServer.register(route), 'client-connection: /api route')
   registerBrowserAuthenticationRoutes(ctx, trustedHosts, trustedOrigins)
   registerAttachmentRoutes(ctx, trustedHosts, trustedOrigins)
+  registerSessionImportRoute(ctx, trustedHosts, trustedOrigins, maxRequestBodyBytes)
   ctx.inject(['apiProxy'], (apiCtx) => {
     assertImageBodyCapacity(apiCtx, maxRequestBodyBytes)
     const downlinks = new WebSocketDownlinks(apiCtx.apiProxy, (error) => {

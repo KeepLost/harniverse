@@ -587,6 +587,12 @@ declare class Session {
    */
   deriveMessages(): Message[];
   /**
+   * Read a current surface message with all durable projections applied.
+   * @param seq - absolute sequence of the surface event.
+   * @returns the projected message, or undefined for a shadowed or empty node.
+   */
+  projectedMessageAt(seq: number): Message | undefined;
+  /**
    * Instance face of the pure per-node `deriveEventMessage` export from
    * `surface.ts`.
    * @param event - the event to project.
@@ -875,7 +881,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](persistence.md) · [PrepareSessionOptions](persistence.md) · [SessionId](core.md)
 
-Source: [`packages/core/session/src/index.ts:980`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:997`](../../packages/core/session/src/index.ts)
 
 <a id="session-events"></a>
 

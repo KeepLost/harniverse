@@ -164,7 +164,7 @@ export interface Config {
 
 依赖：[`AgentOptions`](subsystems/core.md) · [`SessionId`](subsystems/core.md)
 
-来源：[`packages/core/agent-loop/src/index.ts:259`](../packages/core/agent-loop/src/index.ts)
+来源：[`packages/core/agent-loop/src/index.ts:258`](../packages/core/agent-loop/src/index.ts)
 
 <a id="deepseek-aidsh-agent-presets"></a>
 
@@ -525,7 +525,7 @@ export interface ConnectionConfig {
 }
 ```
 
-来源：[`packages/client/connection/src/index.ts:67`](../packages/client/connection/src/index.ts)
+来源：[`packages/client/connection/src/index.ts:68`](../packages/client/connection/src/index.ts)
 
 <a id="deepseek-aidsh-client-hmr"></a>
 
@@ -1632,7 +1632,7 @@ export interface ReconnectConfig {
 }
 ```
 
-来源：[`packages/mcp/mcp-client/src/index.ts:122`](../packages/mcp/mcp-client/src/index.ts)
+来源：[`packages/mcp/mcp-client/src/index.ts:125`](../packages/mcp/mcp-client/src/index.ts)
 
 <a id="deepseek-aidsh-mcp-user-config"></a>
 
@@ -1654,7 +1654,7 @@ export type McpUserConfigRole = 'provider' | 'consumer'
 
 /** One user-configured MCP server after schema defaults are applied. */
 export interface UserMcpServerConfig {
-  /** Stable key used to reconcile this entry across settings updates. */
+  /** Stable identity within a captured settings generation. */
   id: string
   /** Disabled entries do not create a child plugin or expose tools. */
   enabled: boolean
@@ -1676,6 +1676,8 @@ export interface UserMcpServerConfig {
   headers: Record<string, string>
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
+  /** Attributed instruction budget; omission uses the client's 32 KiB default. */
+  maxInstructionBytes?: number
   /** Whether this child rejects activation after its initial connection fails. */
   failOnStartupError: boolean
   /** Child reconnect policy. */
@@ -1685,7 +1687,7 @@ export interface UserMcpServerConfig {
 
 Depends on: [`ReconnectConfig`](../packages/mcp/mcp-client/src/index.ts)
 
-来源：[`packages/mcp/mcp-user-config/src/index.ts:103`](../packages/mcp/mcp-user-config/src/index.ts)
+来源：[`packages/mcp/mcp-user-config/src/index.ts:109`](../packages/mcp/mcp-user-config/src/index.ts)
 
 <a id="deepseek-aidsh-message-feedback"></a>
 

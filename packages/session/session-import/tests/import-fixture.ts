@@ -8,11 +8,11 @@ import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionImport from '../src/importer.ts'
 
 function foreignLine(type: string, data: unknown, time = 10): string {
-  return JSON.stringify({ seq: 0, type, time, data })
+  return JSON.stringify({ type, time, data, ...['user/message', 'assistant/message', 'tool/result'].includes(type) ? { surfaceOp: 'append' } : {} })
 }
 
 export const FOREIGN_TEXT = [
-  JSON.stringify({ version: 3, id: 'foreign-1', createdAt: 1000, cwd: '/foreign/home' }),
+  JSON.stringify({ type: 'session', version: 3, id: 'foreign-1', createdAt: 1000, cwd: '/foreign/home', isSeeded: false, delegationDepth: 0 }),
   foreignLine('turn/start', { turn: 1 }),
   foreignLine('user/message', {
     id: 'foreign-msg-1',
@@ -39,15 +39,29 @@ export const FOREIGN_TEXT = [
     message: {
       id: 'foreign-msg-3',
       role: 'user',
-      callId: 'call-7',
       content: [{ type: 'tool-result', toolCallId: 'call-7', content: [{ type: 'text', text: 'src/' }] }],
-      isError: false,
-      source: { kind: 'tool' },
+      source: { kind: 'tool', callId: 'call-7' },
     },
   }),
   foreignLine('turn/end', { turn: 1, reason: { kind: 'completed' } }),
   foreignLine('request/header', { header: {}, reason: 'initial' }),
-].join('\n')
+].map((line, index) => index === 0 ? line : JSON.stringify({ ...JSON.parse(line), seq: index - 1 })).join('\n')
+
+/** Materialize seq/time fields intentionally normalized out by upstream snapshots. */
+export async function officialArtifact(version: 1 | 2 | 3): Promise<string> {
+  const text = await readFile(new URL(`fixtures/official-v${version}.jsonl`, import.meta.url), 'utf8')
+  const [header, ...events] = text.trim().split('\n').map(line => JSON.parse(line))
+  let seq = 0
+  const lines = events.map((event) => {
+    if (['reasoning-chunks', 'text-chunks', 'tool-call-chunks'].includes(event.type)) {
+      const row = { ...event, seq0: seq, time0: header.createdAt + seq }
+      seq += (event.data.texts ?? event.data.args).length
+      return row
+    }
+    return { ...event, seq: seq, time: header.createdAt + seq++ }
+  })
+  return [header, ...lines].map(value => JSON.stringify(value)).join('\n') + '\n'
+}
 
 export interface ImportFixture {
   readonly ctx: Context
@@ -93,11 +107,11 @@ export async function createContextFixture(options?: { locateUndefined?: boolean
     join: relative => join(root, relative),
     importWithVersion: (version, fileName) => {
       const path = join(root, fileName)
-      const text = `${JSON.stringify({ version })}\n${foreignLine('turn/start', { turn: 1 })}\n`
-      return writeFile(path, text, 'utf8').then(() => importer.import({ artifactPath: path }))
+      const text = FOREIGN_TEXT.replace('"version":3', `"version":${version}`)
+      return writeFile(path, text, 'utf8').then(() => importer.import({ artifactPath: path, cwd: root }))
     },
     readArtifact: (sessionId, artifactName) => {
-      const location = persistence.locate({ version: 0, id: sessionId, createdAt: 1, cwd: '/foreign/home' })
+      const location = persistence.locate({ version: 0, id: sessionId, createdAt: 1, cwd: root })
       if (location === undefined) return Promise.reject(new Error('no location'))
       return readFile(join(dirname(location.path), artifactName), 'utf8')
     },

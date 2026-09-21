@@ -43,6 +43,7 @@ Exact-model metadata is a separate correctness query, not a catalog decoration o
 | Event | Mode | Purpose |
 |---|---|---|
 | `llm/stream` | waterfall | Intercept/wrap every streaming model call for caching, logging, or routing |
+| `llm/project-request` | waterfall | Commit provider-neutral durable request projections before adapter serialization |
 | `llm/wire-attempt` | callback/session event | Record one adapter transport attempt without duplicating conversation history |
 
 ### Extension points

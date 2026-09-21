@@ -7,14 +7,17 @@
 
 import type { Context, Fiber, Plugin } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import type {} from '@deepseek-ai/dsh-capabilities'
+import { scopeOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import {
   apply as mcpClientApply,
   Config as McpClientConfigSchema,
   inject as mcpClientInject,
   name as mcpClientName,
+  mcpServerCapabilityId,
 } from '@deepseek-ai/dsh-mcp-client'
 import type { Config as McpClientConfig, ReconnectConfig } from '@deepseek-ai/dsh-mcp-client'
-import { deepEqualJson, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -41,7 +44,7 @@ const Reconnect = z.object({
 
 /** One user-configured MCP server after schema defaults are applied. */
 export interface UserMcpServerConfig {
-  /** Stable key used to reconcile this entry across settings updates. */
+  /** Stable identity within a captured settings generation. */
   id: string
   /** Disabled entries do not create a child plugin or expose tools. */
   enabled: boolean
@@ -63,6 +66,8 @@ export interface UserMcpServerConfig {
   headers: Record<string, string>
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
+  /** Attributed instruction budget; omission uses the client's 32 KiB default. */
+  maxInstructionBytes?: number
   /** Whether this child rejects activation after its initial connection fails. */
   failOnStartupError: boolean
   /** Child reconnect policy. */
@@ -90,6 +95,7 @@ const UserMcpServer = z.object({
   url: z.string(),
   headers: z.dict(z.string().role('secret')).default({}),
   toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
+  maxInstructionBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
   failOnStartupError: z.boolean().default(false),
   reconnect: Reconnect,
 })
@@ -115,10 +121,11 @@ export const Config: z<Config> = z.object({
 /** Read/watch-only view of the host-owned `mcp` settings scope. */
 export interface McpUserConfigSettingsService {
   /**
-   * Return the current validated user server list.
-   * @returns the current validated user server list.
+   * Read the private snapshot for a captured generation, or current settings.
+   * @param scope - standing generation key; standalone consumers may omit it.
+   * @returns an independent copy of the validated server list.
    */
-  get(): McpUserConfigSettingsConfig
+  get(scope?: ScopeKey): McpUserConfigSettingsConfig
   /**
    * Subscribe to validated settings replacements and return the disposer.
    * @param callback - invoked after each committed settings replacement.
@@ -136,7 +143,7 @@ declare module '@deepseek-ai/cordis' {
 const CONFIG_KEYS = new Set(['servers'])
 const SERVER_KEYS = new Set([
   'id', 'enabled', 'transport', 'serverName', 'command', 'args', 'env', 'cwd', 'url', 'headers',
-  'toolCallTimeoutMs', 'failOnStartupError', 'reconnect',
+  'toolCallTimeoutMs', 'maxInstructionBytes', 'failOnStartupError', 'reconnect',
 ])
 const RECONNECT_KEYS = new Set(['enabled', 'initialDelayMs', 'maxDelayMs', 'maxAttempts'])
 
@@ -155,6 +162,7 @@ interface ChildRecord {
 }
 
 let consumerReservationCounter = 0
+let settingsGenerationCounter = 0
 const consumerReservationKeys = new WeakMap<Context, string>()
 
 function reservationKeyFor(ctx: Context): string {
@@ -177,6 +185,7 @@ function toMcpClientConfig(entry: UserMcpServerConfig, reservationKey: string): 
     serverName: entry.serverName,
     reservationKey,
     toolCallTimeoutMs: entry.toolCallTimeoutMs,
+    ...entry.maxInstructionBytes === undefined ? {} : { maxInstructionBytes: entry.maxInstructionBytes },
     failOnStartupError: entry.failOnStartupError,
     reconnect: entry.reconnect,
   }
@@ -243,9 +252,55 @@ export function applySettingsProvider(ctx: Context, config: Config): void {
     base: resolvedConfig,
     validate: validateSettingsConfig,
   })
+  const captured = new WeakMap<ScopeKey, McpUserConfigSettingsConfig>()
+  let revision = ++settingsGenerationCounter
+  ctx.effect(() => scope.watch(() => { revision = ++settingsGenerationCounter }), 'mcp-user-config.revision')
   ctx.provide(MCP_USER_CONFIG_SETTINGS_SERVICE, {
-    get: () => scope.get(),
+    get: key => structuredClone(key === undefined ? scope.get() : captured.get(key) ?? scope.get()),
     watch: callback => scope.watch(callback),
+  })
+  ctx.inject(['capabilities'], (inner) => {
+    inner.capabilities.registerAdapter((control) => {
+      inner.effect(() => scope.watch(() => { control.invalidate() }), 'mcp-user-config.catalog')
+      return {
+        id: 'mcp-user-config',
+        snapshot: view => ({
+          complete: true,
+          // Scoped clients own their discovered members; unmounted Profiles only need identities.
+          entries: view.scope !== undefined || view.scopes?.length ? [] : scope.get().servers.filter(entry => entry.enabled).map(entry => ({
+            id: mcpServerCapabilityId(entry.serverName),
+            kind: 'mcp-server' as const,
+            name: entry.serverName,
+            description: `MCP server ${entry.serverName}`,
+            provenance: 'external' as const,
+            assembleable: true,
+            available: true,
+            defaultLoaded: true,
+            manageable: true,
+            owner: '@deepseek-ai/dsh-mcp-client',
+            requires: [],
+          })),
+        }),
+        capture: () => {
+          const value = structuredClone(scope.get())
+          return {
+            signature: String(revision),
+            mount: (generationCtx, entries) => {
+              const key = scopeOf(generationCtx)
+              if (key === undefined) throw new Error('mcp-user-config: generation requires a scope key')
+              const selected = {
+                servers: value.servers.filter(server =>
+                  entries.find(entry => entry.id === mcpServerCapabilityId(server.serverName))?.selected !== false),
+              }
+              generationCtx.effect(() => {
+                captured.set(key, selected)
+                return () => { captured.delete(key) }
+              }, 'mcp-user-config.capture')
+            },
+          }
+        },
+      }
+    })
   })
 }
 
@@ -257,7 +312,7 @@ function logChildFailure(ctx: Context, entry: UserMcpServerConfig, operation: st
   )
 }
 
-/** Mount one child and retain it even when its own startup fails for later updates/removal. */
+/** Retain each child until generation disposal, including failed startup fibers. */
 async function mountChild(ctx: Context, children: Map<string, ChildRecord>, entry: UserMcpServerConfig): Promise<void> {
   const fiber = ctx.plugin(MCP_CLIENT_PLUGIN, toMcpClientConfig(entry, reservationKeyFor(ctx)))
   const record: ChildRecord = { config: entry, fiber }
@@ -269,74 +324,20 @@ async function mountChild(ctx: Context, children: Map<string, ChildRecord>, entr
   }
 }
 
-/** Restart an existing child with a quiescent dispose-then-mount transition. */
-async function restartChild(
-  ctx: Context,
-  children: Map<string, ChildRecord>,
-  record: ChildRecord,
-  entry: UserMcpServerConfig,
-): Promise<void> {
-  await disposeChild(children, record)
-  await mountChild(ctx, children, entry)
-}
-
 /** Dispose one child and remove it from the live stable-id map. */
 async function disposeChild(children: Map<string, ChildRecord>, record: ChildRecord): Promise<void> {
   await record.fiber.dispose()
   children.delete(record.config.id)
 }
 
-/** Reconcile one complete settings snapshot; callers serialize this operation. */
-async function reconcile(
-  ctx: Context,
-  children: Map<string, ChildRecord>,
-  next: McpUserConfigSettingsConfig,
-  stopped: () => boolean,
-): Promise<void> {
-  validateSettingsConfig(next)
-  const desired = new Map(next.servers.filter(entry => entry.enabled).map(entry => [entry.id, entry]))
-
-  await Promise.all([...children.values()]
-    .filter(record => !desired.has(record.config.id))
-    .map(record => disposeChild(children, record)))
-  if (stopped()) return
-
-  await Promise.all([...desired.values()].map(async (entry) => {
-    const current = children.get(entry.id)
-    if (current === undefined) {
-      await mountChild(ctx, children, entry)
-    } else if (!deepEqualJson(current.config, entry)) {
-      await restartChild(ctx, children, current, entry)
-    }
-  }))
-}
-
-/** Consume the host-owned user MCP settings in one profile scope. */
+/** Mount only the settings captured by this Profile generation. */
 async function applyConsumer(ctx: Context, settings: McpUserConfigSettingsService): Promise<void> {
   const children = new Map<string, ChildRecord>()
-  let disposed = false
-  let reconciliation: Promise<void> = Promise.resolve()
-
-  const enqueue = (next: McpUserConfigSettingsConfig): Promise<void> => {
-    if (disposed) return Promise.resolve()
-    const run = reconciliation.then(async () => {
-      if (!disposed) await reconcile(ctx, children, next, () => disposed)
-    })
-    const settled = run.catch((error: unknown) => {
-      const kind = error instanceof Error ? error.name : typeof error
-      ctx.logger.error(`mcp-user-config: reconciliation failed (${kind}); keeping the last good child set`)
-    })
-    reconciliation = settled
-    return settled
-  }
-
+  const snapshot = settings.get(scopeOf(ctx))
+  validateSettingsConfig(snapshot)
   const lifecycle = ctx.effect(async () => {
-    const unwatch = settings.watch(next => enqueue(next))
-    await enqueue(settings.get())
+    await Promise.all(snapshot.servers.filter(entry => entry.enabled).map(entry => mountChild(ctx, children, entry)))
     return async () => {
-      disposed = true
-      unwatch()
-      await reconciliation
       await Promise.all([...children.values()].map(record => disposeChild(children, record)))
     }
   }, 'mcp-user-config.lifecycle')

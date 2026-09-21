@@ -286,7 +286,7 @@ Import foreign session logs as archival native sessions. The service owns the wh
 ```ts cordis-catalog
 /**
  * Import one foreign artifact as a settled archival session.
- * @param options - the artifact path plus optional target id and posture.
+ * @param options - source bytes or path, authorized destination workspace, and optional target/posture.
  * @returns the imported session's identity and lossy-mapping counts.
  * @throws when the artifact cannot be read or parsed, its version is
  * `current` (native logs restore, not import) or unknown, the posture is
@@ -296,7 +296,7 @@ Import foreign session logs as archival native sessions. The service owns the wh
 async import(options: ImportForeignSessionOptions): Promise<ImportedSession>
 ```
 
-Source: [`packages/session/session-import/src/importer.ts:64`](../../packages/session/session-import/src/importer.ts)
+Source: [`packages/session/session-import/src/importer.ts:78`](../../packages/session/session-import/src/importer.ts)
 
 <a id="ctxsessionpersistence--sessionpersistence-abstract-seam"></a>
 

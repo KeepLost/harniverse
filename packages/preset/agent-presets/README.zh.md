@@ -33,6 +33,8 @@
 
 agent 工厂的 `setup(agentCtx)` 钩子是唯一受支持的调用点。只有在那里，认父是在 agent 尚未发布时完成的，因此组装被拒绝会让整次创建回滚，而不会留下一个组装到一半的会话。常驻子树归 roster 服务自己的 fiber 所有——刻意用其未追踪的上下文，因为从被追踪的 `this.ctx` 派生的子树会经调用方的 shadow fiber 解析一切服务、无视各 entry 自己的 inject store——所以它比任何 agent 都活得久，只随整棵树卸载。每个代际记录组装文件 stamp，以及有效选择、可见成员和配置签名。挂载前，roster 会把变化后的选择和 owner 声明的配置编译为完整 `Include` patch：禁用源行、插入规范行、配置 Persona 或激活配置控制的成员；挂载后由原生 adapter 安装其余 scoped 成员 restriction。后续会话发现任一 identity 过期时开启下一个代际，而所有已加入会话保持各自正在运行的代际。
 
+Capability adapter 捕获的提供者私有配置也参与世代标识。Roster 在挂载消费者前安装捕获状态；组装期间配置发生变化时重新尝试目录发现。已有世代保留各自的捕获状态，MCP 凭据与进程设置不序列化到公开签名中。
+
 ### 组装子 agent
 
 subagent 的子 agent 通过 `composeFrom()` 加入其父方的常驻组装，绝不走 `mount()`。所有面向模型的行都在 agent 平面，工具注册表的全局层是空的，因此没有加入任何组装的子 agent 抵达模型时既没有任何工具，也没有父方的任何提示段。

@@ -13,7 +13,7 @@ import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import { ArchivalSessionError } from '@deepseek-ai/dsh-session-import'
+import SessionImport, { ArchivalSessionError } from '@deepseek-ai/dsh-session-import'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
 const dirs: string[] = []
@@ -967,10 +967,31 @@ describe('imported archival sessions never resume', () => {
     const sessionId = SessionId('archival-direct')
     const root = await seedArchivalRoot(sessionId)
     const ctx = await mountPersistentHarness(root, new MockAdapter([textResponse('unused')]))
+    await ctx.plugin(SessionImport)
 
     await expect(ctx.agents.resume({ resumeSessionId: sessionId }))
       .rejects.toThrow(ArchivalSessionError)
     await ctx.fiber.dispose()
+  })
+
+  it('refuses seeded create and fork before setup or live publication', async () => {
+    const { ctx } = await persistentHarness(new MockAdapter([textResponse('must never execute')]))
+    await ctx.plugin(SessionImport)
+    const setup = vi.fn()
+    const publication = vi.fn()
+    ctx.on('agent/created', publication)
+    try {
+      for (const meta of [{}, { parentSession: SessionId('foreign-parent'), seedLength: 1 }]) {
+        await expect(ctx.agents.create({
+          sessionId: SessionId(`archival-fork-${Object.keys(meta).length}`),
+          seed: archivalSeed, meta, setup,
+        })).rejects.toThrow(ArchivalSessionError)
+      }
+      expect(setup).not.toHaveBeenCalled()
+      expect(publication).not.toHaveBeenCalled()
+      expect(ctx.sessions.list()).toEqual([])
+      expect(ctx.agents.list()).toEqual([])
+    } finally { await ctx.fiber.dispose() }
   })
 
   it('contains a configured declarative resume as a startup failure', async () => {
@@ -988,10 +1009,11 @@ describe('imported archival sessions never resume', () => {
         resolve(error)
       })
     })
+    await ctx.plugin(JsonlSessionPersistence, { root })
+    await ctx.plugin(SessionImport)
     await ctx.plugin(AgentLoop, {
       agents: [{ id: 'archival', resumeSessionId: sessionId, provider: 'mock', model: 'mock' }],
     })
-    await ctx.plugin(JsonlSessionPersistence, { root })
     ctx.llm.registerAdapter(['mock'], adapter)
 
     expect(await failure).toBeInstanceOf(ArchivalSessionError)

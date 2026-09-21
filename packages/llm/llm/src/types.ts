@@ -424,4 +424,13 @@ export interface GenerateOptions {
   wireExchangeId?: string
   /** Runtime-only observer for one completed provider-wire attempt. */
   onWireAttempt?: (attempt: LlmWireAttempt) => void
+  /**
+   * Commit provider-pressure omissions before serialization and return the
+   * resulting message projection. Coordinates refer to the current request:
+   * zero-based message position, then zero-based image ordinal within that
+   * message (including tool-result images), after earlier projections.
+   * Adapters invoke this again for additional omissions on fallback attempts.
+   * The owner must retain originals and return a fresh immutable projection.
+   */
+  onImagesOmitted?: (targets: readonly { message: number; image: number }[]) => Message[]
 }

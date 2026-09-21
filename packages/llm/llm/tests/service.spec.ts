@@ -13,6 +13,9 @@ import LlmRuntime, {
   resolveRetryPolicy,
   StreamChunk,
   createMessage,
+  deepFreeze,
+  isAgentLoopRequest,
+  markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
 import type {
   LlmModelContext,
@@ -1103,6 +1106,42 @@ describe('LlmRuntime', () => {
     expect(adapter.lastOptions?.messages[0]?.source).toEqual({
       kind: 'model', provider: 'historical', model: 'old-model', replayState,
     })
+  })
+
+  it('projects before stream observers and filters callback replay state across adapter boundaries', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['historical'], new RecordingAdapter(SCRIPT))
+    const target = new RecordingAdapter(SCRIPT)
+    ctx.llm.registerAdapter(['target'], target)
+    const historical = createMessage({
+      role: 'assistant', content: [{ type: 'text', text: 'retained' }],
+      source: { kind: 'model', provider: 'historical', model: 'old', replayState: { private: 'secret' } },
+    })
+    const dispose = ctx.on('llm/project-request', (_options, next) => ({
+      ...next(), messages: [historical], onImagesOmitted: () => [historical],
+    }))
+    const observer = ctx.on('llm/stream', (options, next) => {
+      expect(options.messages).toEqual([historical])
+      expect(isAgentLoopRequest(options)).toBe(true)
+      expect(Object.isFrozen(options)).toBe(true)
+      return next()
+    })
+    const request: GenerateOptions = { provider: 'target', model: 'new', messages: [] }
+    markAgentLoopRequest(request)
+    deepFreeze(request)
+    for await (const _chunk of ctx.llm.stream(request)) { /* drain */ }
+    const refreshed = target.lastOptions?.onImagesOmitted?.([])
+    expect(refreshed?.[0]?.source).toEqual({ kind: 'model', provider: 'historical', model: 'old' })
+    expect(Object.isFrozen(refreshed)).toBe(true)
+    expect(Object.isFrozen(refreshed?.[0])).toBe(true)
+    expect(historical.source).toHaveProperty('replayState', { private: 'secret' })
+    observer()
+    dispose()
+    for await (const _chunk of ctx.llm.stream({ provider: 'target', model: 'new', messages: [] })) { /* drain */ }
+    expect(target.lastOptions?.onImagesOmitted).toBeUndefined()
+    expect(target.lastOptions?.messages).toEqual([])
+    await ctx.fiber.dispose()
   })
 
   it('strips replay state but preserves provider and model when the target uses a different adapter instance', async () => {

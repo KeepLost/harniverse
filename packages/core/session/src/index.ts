@@ -868,6 +868,11 @@ export class Session {
    * @returns a fresh array of the shared, frozen derived history.
    */
   deriveMessages(): Message[] {
+    this.refreshDerivedMessages()
+    return [...this.derived]
+  }
+
+  private refreshDerivedMessages(): void {
     const surface = this.surface
     const nodes = surface.nodes
     const generation = surface.replaceGeneration
@@ -895,7 +900,6 @@ export class Session {
     }
     this.derivedNodes = nodes.length
     this.applyMessageProjections(nodes)
-    return [...this.derived]
   }
 
   /**
@@ -910,12 +914,14 @@ export class Session {
   private applyMessageProjections(nodes: readonly number[]): void {
     if (this.projectionByType.size === 0) return
     let changed = false
-    while (this.projectionCursor < this.log.length) {
-      // oxlint-disable-next-line typescript/no-non-null-assertion -- bounded by the loop condition
-      const event = this.log[this.projectionCursor]!
-      this.projectionCursor += 1
+    while (this.projectionCursor < this.seq) {
+      const event = this.eventAt(this.projectionCursor)
+      if (event === undefined) throw new Error(`session "${this.id}" has no projection event at seq ${this.projectionCursor}`)
       const projection = this.projectionByType.get(event.type)
-      if (projection === undefined) continue
+      if (projection === undefined) {
+        this.projectionCursor += 1
+        continue
+      }
       const updates = projection.project(event, {
         nodes,
         eventAt: seq => this.eventAt(seq),
@@ -925,6 +931,7 @@ export class Session {
         this.messagesBySeq.set(seq, message)
         changed = true
       }
+      this.projectionCursor += 1
     }
     if (!changed) return
     const composed = this.messagesBySeq
@@ -932,6 +939,16 @@ export class Session {
       const message = composed.get(seq)
       return message === undefined ? [] : [message]
     })
+  }
+
+  /**
+   * Read a current surface message with all durable projections applied.
+   * @param seq - absolute sequence of the surface event.
+   * @returns the projected message, or undefined for a shadowed or empty node.
+   */
+  projectedMessageAt(seq: number): Message | undefined {
+    this.refreshDerivedMessages()
+    return this.messagesBySeq.get(seq)
   }
 
   /**

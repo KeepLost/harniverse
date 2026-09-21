@@ -84,6 +84,8 @@ export interface CapabilityCatalogEntry extends CapabilityDescriptor {
   readonly effectiveSelection: CapabilitySelectionValue
   readonly selected: boolean
   readonly memberSelection?: 'inherit' | 'custom'
+  /** Effective explicit allowlist, including inherited global ids absent from current discovery. */
+  readonly memberAllowlist?: readonly string[]
   readonly memberEntries?: readonly CapabilityMemberCatalogEntry[]
   readonly configOverrides?: Readonly<Record<string, CapabilityConfigValue>>
   readonly effectiveConfig?: Readonly<Record<string, CapabilityConfigValue>>

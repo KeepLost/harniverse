@@ -18,7 +18,7 @@ Disabling or unloading the plugin stops future pruning but does not remove commi
 
 `measureContent(blocks)` counts Unicode code points in `text` blocks. `pruneContent(blocks)` returns the bounded replacement or `null` when content is already within the threshold. Non-text blocks are retained at their original relative positions; text slicing never splits a UTF-16 surrogate pair, though it can split a multi-code-point grapheme cluster.
 
-Every emitted result has exactly the configured head budget, fixed marker, and tail budget in text code points, is no larger than `thresholdChars`, and is strictly smaller than the triggering input. A second pass therefore emits no replacement.
+Pruning reads the current projected message. Image-offload stubs remain whole, including stubs already carried by an earlier replacement. Their text counts against `thresholdChars`; the head and tail shrink to fit the remaining budget. If the retained stubs and marker cannot fit, that result is left for model compaction. Every emitted replacement fits the threshold and is strictly smaller than its input. Surviving images retain their occurrence ages through the same-message replacement.
 
 New tool results follow a separate path: [`ToolRuntime`](../../core/tools/README.md) applies an artifact-backed final cap of 50,000 Unicode code points before the result enters model history or its KV cache. This service only retroactively lowers already durable tool results to its smaller configured threshold.
 
@@ -32,7 +32,7 @@ Unrecognized keys fail at plugin construction. Resolved config is detached and d
 | `headChars` | no (default `4096`) | Leading Unicode code points retained. |
 | `tailChars` | no (default `1024`) | Trailing Unicode code points retained. |
 
-All values are integers; the threshold is positive and head/tail are non-negative. `headChars + marker + tailChars` must fit within `thresholdChars`, so a valid configuration can prune every over-budget result without growth or repeated rewriting.
+All values are integers; the threshold is positive and head/tail are non-negative. `headChars + marker + tailChars` must fit within `thresholdChars`. Whole projected stubs can prevent pruning when they alone exhaust that budget.
 
 ## Usage
 

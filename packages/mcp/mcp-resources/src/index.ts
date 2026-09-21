@@ -10,6 +10,9 @@ import type { ScopeKey, ScopeLayer } from '@deepseek-ai/dsh-scope'
 import type { JsonValue, ToolExecution } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { registerResourceTools } from './tools.ts'
+import { boundedResourceResult } from './limits.ts'
+
+export { boundedResourceResult, MAX_RESOURCE_RESULT_BYTES } from './limits.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -40,8 +43,14 @@ export interface McpResourceProvider {
   request(request: McpResourceRequest, exec: ToolExecution): Promise<JsonValue>
 }
 
+/** Caller-key visibility shared by a server's prompt row and execution authorization. */
+export interface McpResourceRegistration {
+  readonly provider: McpResourceProvider
+  readonly visible?: (scope: ScopeKey | undefined) => boolean
+}
+
 class ResourceLayer implements ScopeLayer {
-  readonly servers = new NamedEntries<McpResourceProvider>(name =>
+  readonly servers = new NamedEntries<McpResourceRegistration>(name =>
     new Error(`MCP resource server "${name}" is already registered in this scope`))
   disposeTools: (() => void | Promise<void>) | undefined
 
@@ -69,7 +78,10 @@ export class McpResourceRuntime extends Service {
         order: MCP_SECTION_ORDER,
         interpolate: false,
         text: ({ scope }) => {
-          const names = [...this.layers.merge(scope, layer => layer.servers).keys()].sort()
+          const names = [...this.layers.merge(scope, layer => layer.servers)]
+            .filter(([, registration]) => registration.visible?.(scope) ?? true)
+            .map(([name]) => name)
+            .sort()
           return names.length === 0 ? '' : '## MCP resource servers\n\n'
             + 'Use list_mcp_resources, list_mcp_resource_templates, or read_mcp_resource with one of these names '
             + `as the server argument: ${JSON.stringify(names)}.`
@@ -82,9 +94,10 @@ export class McpResourceRuntime extends Service {
    * Register one server and expose resource tools while that scope has providers.
    * @param server - configured server name, unique in this scope.
    * @param provider - connection-owned resource operations.
+   * @param options - caller-key authorization shared by discovery and execution.
    * @returns the effect disposer for this exact registration.
    */
-  register(server: string, provider: McpResourceProvider): () => void {
+  register(server: string, provider: McpResourceProvider, options: Omit<McpResourceRegistration, 'provider'> = {}): () => void {
     const ctx = this.ctx
     const scope = scopeOf(ctx)
     const dispose = ctx.effect(function* (this: McpResourceRuntime) {
@@ -93,7 +106,7 @@ export class McpResourceRuntime extends Service {
       yield () => disposal
       yield this.layers.effect(ctx, (layer) => {
         const first = layer.servers.isEmpty()
-        const remove = layer.servers.insert(server, provider)
+        const remove = layer.servers.insert(server, { provider, ...options })
         try {
           if (first) layer.disposeTools = this.registerTools(scope)
         } catch (error) {
@@ -127,9 +140,11 @@ export class McpResourceRuntime extends Service {
 
   /** Resolve the caller-visible server before starting any network operation. */
   private request(server: string, request: McpResourceRequest, exec: ToolExecution): Promise<JsonValue> {
-    const provider = this.layers.merge(exec.agent, layer => layer.servers).get(server)
-    if (!provider) throw new Error(`MCP resource server "${server}" is unavailable in this agent's scope`)
-    return provider.request(request, exec)
+    const registration = this.layers.merge(exec.agent, layer => layer.servers).get(server)
+    if (!registration || !(registration.visible?.(exec.agent) ?? true)) {
+      throw new Error(`MCP resource server "${server}" is unavailable in this agent's scope`)
+    }
+    return registration.provider.request(request, exec).then(boundedResourceResult)
   }
 }
 

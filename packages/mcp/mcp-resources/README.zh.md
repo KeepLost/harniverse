@@ -8,7 +8,7 @@
 
 ## 用法
 
-由 `mcp-client` 组合：每个服务器连接自动注册其提供者。自定义提供者实现该接口并在作用域化上下文上注册：
+Host 挂载一次 `mcp-resources`，作用域内的 `mcp-client` 实例随后注册各自的提供者。自定义提供者实现该接口并在作用域化上下文上注册：
 
 ```ts ignore-check
 ctx.mcpResources.register('my-server', {
@@ -21,7 +21,7 @@ ctx.mcpResources.register('my-server', {
 })
 ```
 
-请求被路由到调用者作用域处生效的提供者；未知的服务器名抛出 `MCP resource server "<name>" is unavailable in this agent's scope`。
+请求使用 Agent 自身的作用域 key 路由。注册时可选的 `visible(scopeKey)` 谓词同时过滤服务器名称提示词，并在调用提供者前检查执行权限。未知或被排除的服务器抛出 `MCP resource server "<name>" is unavailable in this agent's scope`。
 
 ## 模型可见表面
 
@@ -30,7 +30,7 @@ ctx.mcpResources.register('my-server', {
 - `list_mcp_resource_templates(server, cursor?)` —— 列出参数化资源 URI 模板。
 - `read_mcp_resource(server, uri)` —— 按 URI 读取一个资源。
 
-读取结果渲染为一个归属于该服务器的 JSON 文本块：`MCP server: <name>\n<json>`。二进制载荷（`blob` 字符串字段）被掩码为 `[binary resource: N base64 characters; available to programmatic callers]`，base64 内容绝不进入模型上下文。
+结果渲染为归属于该服务器的 JSON 文本块：`MCP server: <name>\n<json>`。二进制载荷（`blob` 字符串字段）变为 `[binary resource: N base64 characters; available to programmatic callers]`，模型文本省略 `_meta` 字段。完整规范结果超过 1 MiB 时拒绝；渲染文本最多 32 KiB UTF-8，包含归属与截断提示且不截断字符。通过大小检查的规范结果为程序调用者保留原始字节。
 
 ## 配置
 
@@ -43,7 +43,7 @@ ctx.mcpResources.register('my-server', {
 | `ctx.tools` | 在插件生命周期内注册三个资源工具 |
 | `ctx.systemPrompt` | 注册 `mcp-resource-servers` 小节（逐字） |
 
-提供：`ctx.mcpResources` —— `register(serverName, provider): () => void`，按插件 fiber 作用域化。
+提供：`ctx.mcpResources` —— `register(serverName, provider, { visible? }?): () => void`，按插件 fiber 作用域化。
 
 ## Model Experience
 
@@ -55,7 +55,7 @@ ctx.mcpResources.register('my-server', {
 
 #### Token 影响
 
-三个 schema 是插件被组合期间的固定成本。小节仅在至少一个服务器可达时输出，并随服务器数量增长。读取结果以渲染文本形式一次性进入历史。
+调用者作用域链中存在提供者时，三个 schema 是固定成本。没有提供者时（包括内置 Minimal Profile），不贡献工具或服务器小节。小节仅列出可达服务器，结果以有界渲染文本一次性进入历史。
 
 #### KV Cache 影响
 
@@ -63,7 +63,7 @@ ctx.mcpResources.register('my-server', {
 
 ## 已知限制与暂缓事项
 
-- **资源模板不做成员过滤** —— `list_mcp_resource_templates` 返回服务器通告的全部模板；只有 `resources/list` 与 `resources/read` 受 Profile 成员可见性收窄（由所属 `mcp-client` 连接强制执行）。
-- **无资源订阅** —— 未桥接 `resources/listChanged` 通知；小节与缓存的 URI 仅在连接、重同步或重连时刷新。
+- **提供者负责成员授权**：`mcp-client` 过滤资源与模板成员，并在网络请求前检查读取权限。自定义提供者须实现自身的成员权限；注册表负责服务器可见性。
+- **无资源内容订阅**：客户端观察列表变更通知，但不订阅单个资源。
 - **读取受所属服务器超时约束** —— 请求走该连接的 `toolCallTimeoutMs`。
 - **作用域解析仅跟随 agent 作用域** —— 注册在非作用域上下文上的提供者处处可见；收窄需要通过作用域化插件组合。共享同一公开名称的两台服务器必须从不同作用域发布 —— 提供者注册表按公开名称路由，同作用域重复是配置错误。

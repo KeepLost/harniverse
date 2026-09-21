@@ -39,7 +39,7 @@ const { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotification
     request = mockRequest
     setNotificationHandler = mockSetNotificationHandler
     getInstructions = () => undefined
-    getServerCapabilities = () => undefined
+    getServerCapabilities = () => ({ tools: {} })
     listResources = () => Promise.resolve({ resources: [] })
     listResourceTemplates = () => Promise.resolve({ resourceTemplates: [] })
     readResource = () => Promise.resolve({ contents: [] })

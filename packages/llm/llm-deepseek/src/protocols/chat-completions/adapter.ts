@@ -39,6 +39,7 @@ import { deepSeekFileScope } from '../../common/upload-index.ts'
 import {
   collectRequestImages,
   imageSerialization,
+  projectImageOmissions,
   staleFileDetail,
 } from '../../common/request-images.ts'
 import { serializeRequest } from './serialize.ts'
@@ -191,25 +192,33 @@ export class ChatCompletionsAdapter extends LlmAdapter {
     onComment: () => void,
   ): AsyncIterable<StreamChunk> {
     const prepared = await collectRequestImages(options, connection, this.config.resolveAttachments, signal)
+    const selectImages = (representation: 'file' | 'base64') => {
+      if (prepared === undefined) throw new Error('image selection requires prepared images')
+      const images = imageSerialization(prepared, connection, this.files, apiKey, signal, representation, 'chat-completions', options.messages)
+      options = projectImageOmissions(options, images)
+      return images
+    }
     let body: WireRequest
     if (prepared === undefined) {
       body = serializeRequest(options, connection.defaults)
     } else {
+      const images = selectImages('file')
       try {
         body = await serializeRequest(
           options,
           connection.defaults,
-          imageSerialization(prepared, connection, this.files, apiKey, signal, 'file', 'chat-completions'),
+          images,
         )
       } catch (error) {
         if (signal.aborted) throw error
         // Files API resolution is an optimization. The same request is retried
         // with one consistent inline representation instead of mixing ids and
         // data URLs from two attempts.
+        const fallbackImages = selectImages('base64')
         body = await serializeRequest(
           options,
           connection.defaults,
-          imageSerialization(prepared, connection, this.files, apiKey, signal, 'base64', 'chat-completions'),
+          fallbackImages,
         )
       }
     }
@@ -314,10 +323,11 @@ export class ChatCompletionsAdapter extends LlmAdapter {
           status: response.status,
         })
         await this.files.clear(deepSeekFileScope(connection.baseURL, apiKey, 'chat-completions'))
+        const fallbackImages = selectImages('base64')
         body = await serializeRequest(
           options,
           connection.defaults,
-          imageSerialization(prepared, connection, this.files, apiKey, signal, 'base64', 'chat-completions'),
+          fallbackImages,
         )
         sent = await send(body)
         response = sent.response

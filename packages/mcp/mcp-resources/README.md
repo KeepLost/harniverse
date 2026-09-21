@@ -8,7 +8,7 @@ Providers are registered per scope. An agent only sees the servers whose `mcp-cl
 
 ## Usage
 
-Composed by `mcp-client`: each server connection registers its provider automatically. A custom provider implements the interface and registers on a scoped context:
+The host composes `mcp-resources` once; scoped `mcp-client` instances then register their providers. A custom provider implements the interface and registers on a scoped context:
 
 ```ts ignore-check
 ctx.mcpResources.register('my-server', {
@@ -21,7 +21,7 @@ ctx.mcpResources.register('my-server', {
 })
 ```
 
-Requests are routed to the provider effective at the caller's scope; an unknown server name throws `MCP resource server "<name>" is unavailable in this agent's scope`.
+Requests are routed with the Agent's scope key. An optional registration `visible(scopeKey)` predicate filters both the server-name prompt and execution before provider dispatch. An unknown or excluded server throws `MCP resource server "<name>" is unavailable in this agent's scope`.
 
 ## Model-visible surfaces
 
@@ -30,7 +30,7 @@ Requests are routed to the provider effective at the caller's scope; an unknown 
 - `list_mcp_resource_templates(server, cursor?)` — list parameterized resource URI templates.
 - `read_mcp_resource(server, uri)` — read one resource by URI.
 
-Read results render as one JSON text block attributed to the server: `MCP server: <name>\n<json>`. Binary payloads (`blob` string fields) are masked to `[binary resource: N base64 characters; available to programmatic callers]` so base64 bodies never enter model context.
+Results render as one JSON text block attributed to the server: `MCP server: <name>\n<json>`. Binary payloads (`blob` string fields) become `[binary resource: N base64 characters; available to programmatic callers]`; `_meta` fields are omitted from model text. Complete canonical results exceeding 1 MiB are rejected. Rendered text is bounded to 32 KiB of UTF-8 including attribution and any truncation notice, without splitting a character. Accepted canonical results retain the original bytes for programmatic callers.
 
 ## Config
 
@@ -43,7 +43,7 @@ None — the plugin takes no configuration.
 | `ctx.tools` | Register the three resource tools for the lifetime of the plugin |
 | `ctx.systemPrompt` | Register the `mcp-resource-servers` section (verbatim) |
 
-Provided: `ctx.mcpResources` — `register(serverName, provider): () => void`, scoped per plugin fiber.
+Provided: `ctx.mcpResources` — `register(serverName, provider, { visible? }?): () => void`, scoped per plugin fiber.
 
 ## Model Experience
 
@@ -55,7 +55,7 @@ Three fixed tool schemas (`list_mcp_resources`, `list_mcp_resource_templates`, `
 
 #### Token effect
 
-The three schemas are a fixed cost while the plugin is composed. The section is emitted only when at least one server is reachable and grows with the server count. Read results enter history once, as rendered text.
+The three schemas are a fixed cost while providers exist in the caller's scope chain. With no providers, including the shipped Minimal Profile, neither tools nor the server section are contributed. The section lists only reachable servers. Results enter history once as bounded rendered text.
 
 #### KV Cache effect
 
@@ -63,7 +63,7 @@ Prefix-stable while the reachable server set is unchanged. A server entering or 
 
 ## Known Limitations and Deferred Work
 
-- **Resource templates are not member-filtered** — `list_mcp_resource_templates` returns whatever the server advertises; only `resources/list` and `resources/read` are narrowed by Profile member visibility (enforced by the owning `mcp-client` connection).
-- **No resource subscriptions** — `resources/listChanged` notifications are not bridged; the section and cached URIs refresh on connect, re-sync, or reconnect only.
+- **Provider-owned member authorization** — `mcp-client` filters resource and template members and checks reads before network dispatch. Custom providers must implement their own member permissions; the registry enforces server visibility.
+- **No resource-content subscriptions** — the client observes list-change notifications but does not subscribe to individual resources.
 - **Reads are bounded by the owning server's timeout** — the request rides the connection's `toolCallTimeoutMs`.
 - **Scoped resolution follows agent scope only** — a provider registered on an unscoped context is visible everywhere; narrowing requires composition through a scoped plugin. Two servers sharing one public name must publish from separate scopes — the provider registry routes by public name, so a same-scope duplicate is a configuration error.

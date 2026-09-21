@@ -169,10 +169,15 @@ export async function summarizeWithLlm(
     content: [{ type: 'text', text: COMPACTION_INSTRUCTION }],
     source: { kind: 'plugin', plugin: 'dsh-compaction-basic' },
   })
-  const messages: Message[] = [
-    ...input.messages,
-    instruction,
-  ]
+  const proposal: GenerateOptions = {
+    provider: target.provider,
+    model: target.model,
+    messages: [...input.messages, instruction],
+    sessionId: agent.session.id,
+    purpose: 'compaction',
+  }
+  // Durable expiry must precede capacity estimation as well as serialization.
+  const { messages } = ctx.waterfall(ctx.llm, 'llm/project-request', proposal, () => proposal)
   const info = await ctx.llm.resolveModelInfo(target.provider, target.model, signal)
   const sameLatestTarget = latest?.provider === target.provider && latest.model === target.model
   const sameAgentTarget = agent.options.provider !== undefined
@@ -189,7 +194,8 @@ export async function summarizeWithLlm(
   }
   const estimatedInputTokens = estimateHeader(header)
     + messages.reduce((total, message) => total + estimateMessage(message), 0)
-  const anchoredInputTokens = input.providerAnchor?.provider === target.provider
+  const projectionChanged = messages.some((message, index) => message !== proposal.messages[index])
+  const anchoredInputTokens = !projectionChanged && input.providerAnchor?.provider === target.provider
     && input.providerAnchor.model === target.model
     ? input.providerAnchor.tokens + estimateMessage(instruction)
     : undefined

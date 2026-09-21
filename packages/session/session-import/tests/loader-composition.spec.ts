@@ -57,9 +57,9 @@ describe('session-import loader composition', () => {
 
     const ctx = await boot(join(root, 'store'))
     try {
-      const service = ctx.get('sessionImport') as { import(options: { artifactPath: string }): Promise<{ mappedEvents: number; skippedEvents: number; sessionId: { toString(): string } }> }
-      const result = await service.import({ artifactPath })
-      expect(result.mappedEvents).toBe(7)
+      const service = ctx.sessionImport
+      const result = await service.import({ artifactPath, cwd: root })
+      expect(result.mappedEvents).toBe(8)
       expect(result.skippedEvents).toBe(1)
 
       const persistence = ctx.get('sessionPersistence') as { list(): Promise<{ id: { toString(): string } }[]> }

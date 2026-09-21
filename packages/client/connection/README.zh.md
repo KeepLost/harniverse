@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-client-connection
 
+Host half 还提供经过认证的 `POST /api/session/import`。它只允许把官方 foreign-session artifact 导入现有 workspace，调用方可以选择 supervised 或 unsupervised 的归档 posture，导入结果不会创建运行中的 Agent。
+
 [English](README.md) | 中文
 
 协议消费层：客户端插件的 apply 会挂载 `ctx.connection`（共享 API 客户端 + 当前页面的 loopback 状态 + 可观察且按 generation 生效的 `hostDescription` + 单消费方流循环启动器）；导出表层携带协议约定类型、`AbstractApiClient` 抽象，以及循环的 sink／配置类型。每次就绪握手成功后，都会在 `onConnected` 之前发布完整的 `host.describe` 值；generation 失效或显式 stop 会清空它。浏览器载体以 HTTP POST 发送 unary／respond，并为 `events.mux` 与 `events.host` 各开一条只下行的 WebSocket；进程内载体满足同一双流抽象。Host half 持有唯一 `/api` route 及其 Fetch bridge；已注册的 Typert interceptor 会先认领自己的 Remote endpoint，未认领请求再回退 API Proxy。Loopback hostname 判定逻辑留在包内部。node 半侧认证每个网络请求，将已接受 principal 传入 HTTP 与 WebSocket 分发，并在选择 handler 前检查每个 legacy 或 Typert endpoint 所需的 capability。未知 endpoint 和缺少 policy 元数据的 endpoint 会被拒绝。认证 bypass 仍仅限回环并携带全部 capability。`POST /api/attachment/upload` 在同一栅栏与认证之后流式接收单个通用文件：额外要求 `harniverse.operate` capability（观察者不能向会话注入内容），先按附件存储的字节上限预检 `Content-Length`，分块请求体一旦越限立即截断，成功返回持久化的 `FileAttachmentRef` 回执；存储准入失败映射为 413／400／500。平台载体与 ConnectionController 循环属于包内部；apply 负责选择并驱动它们。下行边界见 [WebSocket 下行载体 Agent Note](../../../.agents/notes/implemented/architecture/2026-08-04-websocket-downlink-carrier.md)。

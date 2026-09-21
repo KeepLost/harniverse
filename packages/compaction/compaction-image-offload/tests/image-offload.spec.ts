@@ -278,6 +278,39 @@ describe('image/offload message projection', () => {
 })
 
 describe('SessionStore message-projection registration', () => {
+  it('replays pre-window decisions for retained surface nodes, including after another replacement', () => {
+    const source = projectedSession()
+    source.append('user/message', userImages(image('retained')), { surfaceOp: 'append' })
+    source.append('user/message', userImages({ type: 'text', text: 'old text' }), { surfaceOp: 'append' })
+    source.append('image/offload', { targets: [{ messageSeq: 0, imageIndex: 0 }] })
+    const boundary = source.seq
+    const surface = { nodes: [...source.surface.nodes], replaceGeneration: source.surface.replaceGeneration }
+    source.append('user/message', userImages({ type: 'text', text: 'summary' }), {
+      surfaceOp: { op: 'replace', start: 1, end: 1 }, sourceEventSeqs: [1],
+    })
+    const events = source.events
+    const restored = Session.fromRestore(source.id, structuredClone(events.slice(boundary)), structuredClone(source.header), {
+      firstSeq: boundary, eventAt: seq => events[seq],
+    }, surface, [imageOffloadProjection])
+    expect(restored.deriveMessages()).toEqual(source.deriveMessages())
+    expect(restored.projectedMessageAt(0)?.content).toEqual([{ type: 'text', text: OFFLOADED_IMAGE_STUB_TEXT }])
+    expect(restored.projectedMessageAt(1)).toBeUndefined()
+    restored.append('user/message', userImages({ type: 'text', text: 'new summary' }), {
+      surfaceOp: { op: 'replace', start: boundary, end: boundary }, sourceEventSeqs: [boundary],
+    })
+    expect(restored.projectedMessageAt(0)?.content[0]?.type).toBe('text')
+    expect(restored.eventAt(0)?.type).toBe('user/message')
+    expect(restored.deriveEventMessage(restored.eventAt(0)!)?.content[0]?.type).toBe('image')
+  })
+
+  it('does not skip an invalid durable decision on a second derivation', () => {
+    const source = projectedSession()
+    source.append('user/message', userImages(image('a')), { surfaceOp: 'append' })
+    source.append('image/offload', { targets: [{ messageSeq: 0, imageIndex: 2 }] })
+    expect(() => source.deriveMessages()).toThrow(/does not exist/)
+    expect(() => source.deriveMessages()).toThrow(/does not exist/)
+  })
+
   it('rejects a duplicate projection type until its registration is disposed', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

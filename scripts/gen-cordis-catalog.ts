@@ -551,6 +551,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   PluginDiagnosticFinding: 'plugin-diagnostics.md',
   PluginDiagnosticReport: 'plugin-diagnostics.md',
   CapabilityAdapter: 'capabilities.md',
+  CapabilityGenerationCapture: 'capabilities.md',
   CapabilityAdapterControl: 'capabilities.md',
   CapabilityCatalogEntry: 'capabilities.md',
   CapabilityCatalogSnapshot: 'capabilities.md',
@@ -623,6 +624,7 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
   'Promise',
   'Record',
   'Readonly',
+  'ReadonlySet',
   'Uint8Array',
 ])
 
@@ -639,6 +641,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   ContextManifest: 'audit manifest is owned by packages/context/context-inspector/README.md',
   ScheduleRecord: 'scheduler record is owned by packages/schedule/scheduler/README.md',
   McpResourceProvider: 'resource provider contract is owned by packages/mcp/mcp-resources/README.md',
+  McpResourceRegistration: 'resource registration visibility is owned by packages/mcp/mcp-resources/README.md',
   ImportForeignSessionOptions: 'import request contract is owned by packages/session/session-import/README.md',
   ImportedSession: 'import result contract is owned by packages/session/session-import/README.md',
   SubprocessMeteredSpawn: 'metering event contract is owned by packages/monitor/governor/README.md',

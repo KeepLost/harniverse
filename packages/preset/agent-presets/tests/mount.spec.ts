@@ -545,7 +545,9 @@ describe('editing a composition file', () => {
       selected,
     })
     scoped.provide('capabilities', {
-      snapshot: () => Promise.resolve({ entries: [runtimeEntry()] }),
+      snapshot: () => Promise.resolve({ entries: [runtimeEntry()], revision: 0 }),
+      composition: () => ({ revision: 0 }),
+      captureGeneration: () => ({ signature: '', mount: () => {} }),
       compositionSignature: (_agentProfile: string, entries: readonly CapabilityCatalogEntry[]) =>
         JSON.stringify(entries.map(entry => [entry.id, entry.effectiveSelection])),
       mountComposition: () => {},
@@ -739,7 +741,9 @@ describe('editing a composition file', () => {
       },
     ]
     scoped.provide('capabilities', {
-      snapshot: () => Promise.resolve({ entries }),
+      snapshot: () => Promise.resolve({ entries, revision: 0 }),
+      composition: () => ({ revision: 0 }),
+      captureGeneration: () => ({ signature: '', mount: () => {} }),
       compositionSignature: () => 'sig',
       mountComposition: () => undefined,
     } as unknown as Context['capabilities'])

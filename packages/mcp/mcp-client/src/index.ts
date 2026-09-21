@@ -14,6 +14,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { UriTemplate } from '@modelcontextprotocol/sdk/shared/uriTemplate.js'
 import type {} from '@deepseek-ai/dsh-capabilities'
 import z from '@deepseek-ai/schemastery'
 import { scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
@@ -21,7 +22,8 @@ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { JsonValue } from '@deepseek-ai/dsh-tools'
 import { DEFAULT_MAX_INSTRUCTION_BYTES, RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
 import type { ReconnectConfig } from './connection.ts'
-import { MCP_SERVER_NAME_PATTERN, mcpResourceMemberId, resolveMcpMemberVisibility } from './resource-contract.ts'
+import { MCP_SERVER_NAME_PATTERN, mcpResourceMemberId, mcpResourceTemplateMemberId, resolveMcpMemberVisibility } from './resource-contract.ts'
+import type { McpMemberVisibility } from './resource-contract.ts'
 import { registerServerContext } from './server-context.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
@@ -34,6 +36,7 @@ export {
   isMcpServerName,
   MCP_SERVER_NAME_PATTERN,
   mcpResourceMemberId,
+  mcpResourceTemplateMemberId,
   mcpServerCapabilityId,
   resolveMcpMemberVisibility,
 } from './resource-contract.ts'
@@ -170,6 +173,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // construction that bypassed Schemastery) rejects THIS instance before any
   // effect registers.
   const reconnect = resolveReconnectPolicy(config.reconnect, `mcp-client(${config.serverName}): reconnect`)
+  const instructionBytes = config.maxInstructionBytes ?? DEFAULT_MAX_INSTRUCTION_BYTES
+  if (!Number.isSafeInteger(instructionBytes) || instructionBytes < 1) {
+    throw new Error('mcp-client: maxInstructionBytes must be a positive safe integer')
+  }
 
   // Reserve the namespace next: a duplicate `serverName` fails THIS instance
   // at load with an actionable error and leaves the earlier instance intact.
@@ -202,7 +209,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
    * selection records its narrowing here; a scope with no record (including
    * compositions without the capabilities service) reaches every resource.
    */
-  const resourceSelection = new WeakMap<object, ReadonlySet<string>>()
+  const resourceSelection = new WeakMap<object, McpMemberVisibility>()
   const connection = startConnection(ctx, config, reconnect, () => {
     capabilityChanged()
     for (const refresh of restrictionRefreshers) {
@@ -215,7 +222,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
 
   /** Nearest composition record on the caller's scope chain, or undefined when unrestricted. */
-  const nearestResourceRecord = (agent: object | undefined): ReadonlySet<string> | undefined => {
+  const nearestResourceRecord = (agent: object | undefined): McpMemberVisibility | undefined => {
     for (const key of scopeChainOf(agent)) {
       const record = resourceSelection.get(key)
       if (record !== undefined) return record
@@ -227,15 +234,20 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
    * Narrow one resources/list result to the caller-visible URIs; other result
    * shapes pass through untouched.
    */
-  const filterResourceList = (result: JsonValue, visible: ReadonlySet<string>): JsonValue => {
+  const filterResourceList = (result: JsonValue, visible: McpMemberVisibility, templates: boolean): JsonValue => {
     if (typeof result !== 'object' || result === null || Array.isArray(result)) return result
-    const resources = (result as { resources?: unknown }).resources
+    const key = templates ? 'resourceTemplates' : 'resources'
+    const resources = (result as Record<string, unknown>)[key]
     if (!Array.isArray(resources)) return result
-    const kept = resources.filter(item => typeof item === 'object' && item !== null && !Array.isArray(item)
-      && typeof (item as { uri?: unknown }).uri === 'string'
-      && visible.has((item as { uri: string }).uri))
-    return { ...result, resources: kept }
+    const kept = resources.filter((item) => {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) return false
+      const value = templates ? (item as { uriTemplate?: unknown }).uriTemplate : (item as { uri?: unknown }).uri
+      return typeof value === 'string' && (templates ? visible.visibleResourceTemplates.includes(value) : visible.visibleResourceUris.includes(value))
+    })
+    return { ...result, [key]: kept }
   }
+
+  const templateMatches = (template: string, uri: string): boolean => new UriTemplate(template).match(uri) !== null
 
   // Resource requests are enforced at the provider — the composition that
   // made the decision cannot be bypassed by calling the shared tools with a
@@ -244,20 +256,26 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     resources: {
       async request(request, exec): Promise<JsonValue> {
         const record = nearestResourceRecord(exec.agent)
+        if (record !== undefined && !record.serverSelected) {
+          throw new Error(`mcp-client(${config.serverName}): resource server is not visible to this agent`)
+        }
+        if (request.method === 'resources/read' && record !== undefined && !record.unrestrictedResources
+          && !record.visibleResourceUris.includes(request.uri)
+          && !record.visibleResourceTemplates.some(template => templateMatches(template, request.uri))) {
+          throw new Error(`mcp-client(${config.serverName}): resource "${request.uri}" is not visible to this agent`)
+        }
         const result = await connection.resources.request(request, exec)
-        if (record === undefined) return result
+        if (record === undefined || record.unrestrictedResources) return result
         if (request.method === 'resources/read') {
-          if (!record.has(request.uri)) {
-            throw new Error(`mcp-client(${config.serverName}): resource "${request.uri}" is not visible to this agent`)
-          }
           return result
         }
-        if (request.method === 'resources/list') return filterResourceList(result, record)
+        if (request.method === 'resources/list') return filterResourceList(result, record, false)
+        if (request.method === 'resources/templates/list') return filterResourceList(result, record, true)
         return result
       },
     },
     instructions: () => connection.instructions(),
-  })
+  }, scope => nearestResourceRecord(scope)?.serverSelected !== false)
 
   ctx.inject(['capabilities'], (capabilityCtx) => {
     const encodedName = Buffer.from(config.serverName).toString('hex')
@@ -299,6 +317,15 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
                 available: true,
                 requires: [],
               })),
+              ...connection.resourceTemplates().map(uriTemplate => ({
+                id: mcpResourceTemplateMemberId(config.serverName, uriTemplate),
+                kind: 'mcp-resource' as const,
+                name: uriTemplate,
+                description: `MCP resource template ${uriTemplate}`,
+                defaultVisible: true,
+                available: true,
+                requires: [],
+              })),
             ],
           }],
         }),
@@ -312,8 +339,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           const refresh = (): void => {
             const names = connection.toolNames()
             const uris = connection.resourceUris()
-            const visibility = resolveMcpMemberVisibility(entry, names, uris)
-            if (scope !== undefined) resourceSelection.set(scope, new Set(visibility.visibleResourceUris))
+            const templates = connection.resourceTemplates()
+            const visibility = resolveMcpMemberVisibility(entry, names, uris, templates)
+            if (scope !== undefined) resourceSelection.set(scope, visibility)
             const denied = visibility.serverSelected ? visibility.deniedToolNames : names
             const next = denied.length === 0
               ? (): void => {}

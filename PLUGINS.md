@@ -397,6 +397,16 @@ Harniverse groups downstream package manifests by complete capability family rat
 <!-- compat-convention-end -->
 <!-- composition-changes-end -->
 
+## Wave 3 third-batch composition
+
+| Capability | Definition and provider | Consumers and shipped composition |
+|---|---|---|
+| MCP resources and instructions (W07) | `dsh-mcp-resources` owns scoped resource registration; `dsh-mcp-client` provides bounded resource/template discovery, reads, and attributed instructions. `dsh-mcp-user-config` captures private settings per Profile generation through `dsh-capabilities`. | `dsh-base` mounts the resource registry; its three shared tools exist only in scopes containing providers. MCP-enabled Profiles enforce inherited member allowlists before network reads, while existing generations retain their captured settings. |
+| Durable image offload (W12) | `dsh-image-offload-policy` defines per-occurrence age and durable `image/offload` records; `dsh-compaction-image-offload` supplies Session message projections and `llm/project-request` settlement. | `dsh-base` enables offload. Both DeepSeek protocols settle pressure omissions before serialization, including Files-to-inline fallback; compaction and pruning preserve canonical stubs. Attachment bytes remain available to authorized rereads. |
+| Foreign-session archival import (W17) | `dsh-session-import` parses official v1/v2/v3, maps display history into native v0, retains original bytes beside persistence, and registers archival admission policy on `ctx.agents`. | `dsh-base` mounts the service; authenticated `POST /api/session/import` requires `harniverse.operate`, bounds uploaded bytes, and resolves the destination through the Workspace registry. Imported history can be read and searched but cannot become a live Agent or fork for execution. |
+
+Initial implementation commits: W07 `f2100d11a7`, W12 `2db5b0cfd0`, W17 `4056ecc1b1`. The generic admission and request-projection APIs keep import and image policy in their owning plugins. Generated catalogs, bilingual documents, and focused regression fixtures are supporting artifacts.
+
 ## Architecture Refactor Ledger
 
 <!-- refactor-ledger-start -->

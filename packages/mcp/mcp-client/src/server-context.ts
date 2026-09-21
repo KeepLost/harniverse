@@ -27,17 +27,24 @@ export interface ServerContext {
  * @param owner - reservation identity; distinct owners of one public name keep
  * distinct instruction sections instead of colliding in the same scope layer.
  * @param connection - live resource operations and successful instruction snapshot.
+ * @param visible - authorization for the caller's scope key, not its Context.
  */
-export function registerServerContext(ctx: Context, server: string, owner: string, connection: ServerContext): void {
+export function registerServerContext(
+  ctx: Context,
+  server: string,
+  owner: string,
+  connection: ServerContext,
+  visible: (scope: object | undefined) => boolean = () => true,
+): void {
   ctx.inject(['mcpResources'], (inner) => {
-    inner.mcpResources.register(server, connection.resources)
+    inner.mcpResources.register(server, connection.resources, { visible })
   })
   ctx.inject(['systemPrompt'], (inner) => {
     inner.systemPrompt.section({
       name: `mcp:${owner}`,
       order: MCP_SECTION_ORDER,
       interpolate: false,
-      text: () => connection.instructions(),
+      text: ({ scope }) => visible(scope) ? connection.instructions() : '',
     })
   })
 }

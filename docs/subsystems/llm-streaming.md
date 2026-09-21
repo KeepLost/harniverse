@@ -528,6 +528,15 @@ interface GenerateOptions {
   wireExchangeId?: string
   /** Runtime-only observer for one completed provider-wire attempt. */
   onWireAttempt?: (attempt: LlmWireAttempt) => void
+  /**
+   * Commit provider-pressure omissions before serialization and return the
+   * resulting message projection. Coordinates refer to the current request:
+   * zero-based message position, then zero-based image ordinal within that
+   * message (including tool-result images), after earlier projections.
+   * Adapters invoke this again for additional omissions on fallback attempts.
+   * The owner must retain originals and return a fresh immutable projection.
+   */
+  onImagesOmitted?: (targets: readonly { message: number; image: number }[]) => Message[]
 }
 ```
 
@@ -869,7 +878,7 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Source: [`packages/llm/llm/src/index.ts:286`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:294`](../../packages/llm/llm/src/index.ts)
 
 <a id="llm-events"></a>
 
@@ -896,6 +905,25 @@ The provider topology changed: an adapter registered or unregistered routes, or 
 
 Source: [`packages/llm/llm/src/types.ts:23`](../../packages/llm/llm/src/types.ts)
 
+<a id="llmproject-request--waterfall"></a>
+
+#### `llm/project-request` — waterfall
+
+Synchronous durable request projection before stream observers run. Consumers commit their decisions before returning replacement messages or request-local callbacks. Routing and model configuration stay fixed.
+
+```ts cordis-catalog
+/**
+ * Synchronous durable request projection before stream observers run.
+ * Consumers commit their decisions before returning replacement messages
+ * or request-local callbacks. Routing and model configuration stay fixed.
+ * @param options - the immutable request whose messages are projected from durable history.
+ * @mode waterfall
+ */
+'llm/project-request'(options: GenerateOptions, next: () => GenerateOptions): GenerateOptions
+```
+
+Source: [`packages/llm/llm/src/index.ts:61`](../../packages/llm/llm/src/index.ts)
+
 <a id="llmstream--waterfall"></a>
 
 #### `llm/stream` — waterfall
@@ -918,5 +946,5 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 'llm/stream'(this: LlmRuntime, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
 ```
 
-Source: [`packages/llm/llm/src/index.ts:66`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:74`](../../packages/llm/llm/src/index.ts)
 <!-- END GENERATED cordis-surface -->

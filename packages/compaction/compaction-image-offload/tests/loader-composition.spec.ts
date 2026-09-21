@@ -7,11 +7,13 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import { AttachmentId, ImageVariantId, type AttachmentStore, type RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
+import { DeepSeekAdapter, DeepSeekFileStore, DeepSeekUploadIndex, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
+import { TEST_USER_ID, sse, textEvents } from '../../../llm/llm-deepseek/tests/messages/helpers.ts'
 import LlmRuntime, { createUserMessage, type GenerateOptions } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -41,6 +43,7 @@ let root = ''
 let context: Context | undefined
 
 afterEach(async () => {
+  vi.unstubAllGlobals()
   await context?.fiber.dispose()
   context = undefined
   if (root !== '') await rm(root, { recursive: true, force: true })
@@ -70,6 +73,35 @@ function requestImageIds(request: GenerateOptions): string[] {
     .map(block => block.type === 'image' ? String(block.attachment.attachmentId) : '')
 }
 
+function requestImage(): RequestImageAttachment {
+  const attachment = {
+    attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`), mediaType: 'image/png' as const,
+    bytes: 900, width: 1, height: 1, name: 'retained.png',
+  }
+  return {
+    attachment, variantId: ImageVariantId(`sha256:${'b'.repeat(64)}`), data: new Uint8Array(900),
+    bytes: 900, width: 1, height: 1, mediaType: 'image/png', depth: 'uchar', space: 'srgb', hasAlpha: false,
+  }
+}
+
+function uploadReply(protocol: 'messages' | 'chat-completions'): Response {
+  return new Response(JSON.stringify({
+    id: 'file-test', type: 'file', object: 'file', purpose: 'user_data', filename: 'retained.png',
+    bytes: 900, size_bytes: 900, mime_type: 'image/png',
+    created_at: protocol === 'messages' ? new Date().toISOString() : Math.floor(Date.now() / 1000),
+    expires_at: Math.floor(Date.now() / 1000) + 86_400,
+  }), { headers: { 'content-type': 'application/json' } })
+}
+
+function reply(protocol: 'messages' | 'chat-completions'): Response {
+  const body = protocol === 'messages' ? sse(textEvents) : [
+    'data: {"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":null}]}\n\n',
+    'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
+    'data: [DONE]\n\n',
+  ].join('')
+  return new Response(body, { headers: { 'content-type': 'text/event-stream' } })
+}
+
 /**
  * Boot a cordis.yml through the real Loader, optionally carrying the
  * settings-backed compaction rows.
@@ -77,7 +109,7 @@ function requestImageIds(request: GenerateOptions): string[] {
  * `imageOffloadAfterUserTurns: 1` base.
  * @returns the booted context and the adapter the loop will call.
  */
-async function boot(withSettings: boolean): Promise<{ ctx: Context; adapter: MockAdapter }> {
+async function boot(withSettings: boolean | number): Promise<{ ctx: Context; adapter: MockAdapter }> {
   root = await mkdtemp(join(tmpdir(), 'dsh-image-offload-loader-'))
   const configPath = join(root, 'cordis.yml')
   const settingsRows: string[] = []
@@ -86,7 +118,7 @@ async function boot(withSettings: boolean): Promise<{ ctx: Context; adapter: Moc
       "- name: 'image-offload-test-settings'",
       "- name: '@deepseek-ai/dsh-compaction-settings'",
       '  config:',
-      '    imageOffloadAfterUserTurns: 1',
+      `    imageOffloadAfterUserTurns: ${typeof withSettings === 'number' ? withSettings : 1}`,
     )
   }
   await writeFile(configPath, [
@@ -135,6 +167,109 @@ async function boot(withSettings: boolean): Promise<{ ctx: Context; adapter: Moc
 }
 
 describe('compaction-image-offload real Loader composition through cordis.yml', () => {
+  it.each([
+    ['messages', 'stale'], ['chat-completions', 'stale'],
+    ['messages', 'upload'], ['chat-completions', 'upload'],
+  ] as const)('settles per-occurrence pressure again on %s %s fallback', async (protocol, fallback) => {
+    const { ctx } = await boot(false)
+    const session = ctx.sessions.create(SessionId(`pressure-${protocol}`))
+    const version = requestImage()
+    const original = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'image', attachment: version.attachment }] })
+    const seqs = Array.from({ length: 3 }, () => session.append('user/message', createUserMessage({
+      source: { kind: 'user' }, content: original.content,
+    }), { surfaceOp: 'append' }).seq)
+    const wire: string[] = []
+    let uploads = 0
+    const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+      if (String(url).endsWith('/files')) {
+        uploads += 1
+        if (fallback === 'upload') return new Response('files unavailable', { status: 500 })
+        return uploadReply(protocol)
+      }
+      wire.push(String(init?.body))
+      if (fallback === 'stale' && wire.length === 1) return new Response(JSON.stringify({ error: { message: 'file id expired' } }), { status: 400 })
+      return reply(protocol)
+    })
+    vi.stubGlobal('fetch', fetcher)
+    let config = resolveAdapterOptions({
+      protocol, baseURL: 'https://image-policy.invalid',
+      models: [{ id: 'vision', inputModalities: ['text', 'image'] }],
+      // At the ceiling-sized quantum, count pressure retains exactly two.
+      // Inline fallback then removes one more: 2 * 900 bytes exceeds 1000.
+      maxImagesPerRequest: 2, imageOffloadCountQuantum: 2,
+      maxInlineRequestImageBytes: 1000, inlineImageOffloadByteQuantum: 1000,
+    })
+    const files = new DeepSeekFileStore({ index: new DeepSeekUploadIndex(join(root, 'files.json')) })
+    ctx.llm.registerAdapter(['pressure'], new DeepSeekAdapter({
+      options: () => config, resolveApiKey: async () => 'test-key', resolveUserId: () => TEST_USER_ID,
+      resolveAttachments: () => ({ readImageRequest: async () => version }) as unknown as AttachmentStore,
+      resolveFiles: () => files,
+    }))
+    const send = async () => {
+      const chunks = []
+      for await (const chunk of ctx.llm.stream({ provider: 'pressure', model: 'vision', sessionId: session.id, messages: session.deriveMessages() })) chunks.push(chunk)
+      expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'stop' } })
+    }
+    await send()
+    expect(session.events.filter(event => event.type === 'image/offload').map(event => event.data.targets)).toEqual([
+      [{ messageSeq: seqs[0], imageIndex: 0 }], [{ messageSeq: seqs[1], imageIndex: 0 }],
+    ])
+    if (fallback === 'stale') expect(wire[0]?.split(OFFLOADED_IMAGE_STUB_TEXT)).toHaveLength(2)
+    expect(wire.at(-1)?.split(OFFLOADED_IMAGE_STUB_TEXT)).toHaveLength(3)
+    expect(wire.at(-1)).not.toContain('[image omitted:')
+    expect(wire.at(-1)).toContain('base64')
+    expect(uploads).toBe(1)
+    config = { ...config, maxImagesPerRequest: 10, maxInlineRequestImageBytes: 100_000 }
+    await send()
+    expect(session.events.filter(event => event.type === 'image/offload')).toHaveLength(2)
+    expect(wire.at(-1)?.split(OFFLOADED_IMAGE_STUB_TEXT)).toHaveLength(3)
+    for (const seq of seqs) expect(session.deriveEventMessage(session.eventAt(seq)!)?.content).toEqual(original.content)
+  })
+
+  it.each(['messages', 'chat-completions'] as const)('expires before %s attachment and warm-file reuse on the fourth later turn', async (protocol) => {
+    const { ctx } = await boot(4)
+    const session = ctx.sessions.create(SessionId(`age-cache-${protocol}`))
+    const version = requestImage()
+    session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'image', attachment: version.attachment }] }), { surfaceOp: 'append' })
+    const reads = vi.fn(async () => version)
+    let uploads = 0
+    const wire: string[] = []
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (url, init) => {
+      if (String(url).endsWith('/files')) { uploads += 1; return uploadReply(protocol) }
+      wire.push(String(init?.body))
+      return reply(protocol)
+    }))
+    const files = new DeepSeekFileStore({ index: new DeepSeekUploadIndex(join(root, 'files.json')) })
+    ctx.llm.registerAdapter(['pressure'], new DeepSeekAdapter({
+      options: () => resolveAdapterOptions({ protocol, baseURL: 'https://image-policy.invalid', models: [{ id: 'vision', inputModalities: ['text', 'image'] }] }),
+      resolveApiKey: async () => 'test-key', resolveUserId: () => TEST_USER_ID,
+      resolveAttachments: () => ({ readImageRequest: reads }) as unknown as AttachmentStore,
+      resolveFiles: () => files,
+    }))
+    const send = async () => {
+      for await (const _chunk of ctx.llm.stream({ provider: 'pressure', model: 'vision', sessionId: session.id, messages: session.deriveMessages(), purpose: 'compaction' })) { /* consume the real adapter */ }
+    }
+    await send()
+    for (let turn = 0; turn < 4; turn += 1) {
+      session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'next' }] }), { surfaceOp: 'append' })
+    }
+    await send()
+    expect(reads).toHaveBeenCalledTimes(1)
+    expect(uploads).toBe(1)
+    expect(wire).toHaveLength(2)
+    expect(wire[1]).toContain(OFFLOADED_IMAGE_STUB_TEXT)
+    expect(wire[1]).not.toContain('file_id')
+    expect(wire[1]).not.toContain('base64')
+    expect(session.deriveMessages()[0]?.content).toMatchInlineSnapshot(`
+      [
+        {
+          "text": "[image offloaded: the original attachment is retained outside this request; do not treat the image as visible]",
+          "type": "text",
+        },
+      ]
+    `)
+  })
+
   it('offloads an aged image end to end under the configured base setting', async () => {
     const { ctx, adapter } = await boot(true)
     const agent = ctx.agentLoop.create(SessionId('image-offload-loader'), { provider: 'mock', model: 'mock' })

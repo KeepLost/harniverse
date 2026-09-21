@@ -382,7 +382,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [SessionHeader](persistence.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:300`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:299`](../../packages/core/agent-loop/src/index.ts)
 
 <a id="ctxagentpresets--agentpresets"></a>
 
@@ -630,6 +630,19 @@ withoutInitiator<T>(operation: () => T): T
 setFactory(factory: AgentFactory): () => void
 
 /**
+ * Register a synchronous policy checked before a driver adopts a Session.
+ * @param admit - throw to refuse adoption before setup or publication.
+ * @returns the effect-scoped registration disposer.
+ */
+registerAdmission(admit: (session: Session) => void): () => void
+
+/**
+ * Check all installed adoption policies. Factories call before constructing a driver.
+ * @param session - the exact prepared Session, including inherited history.
+ */
+assertAdmission(session: Session): void
+
+/**
  * Create and publish a new agent through the registered factory.
  * Distinct from {@link register} (which records an already-constructed
  * agent): this constructs the agent and its session. Rejects if no factory is
@@ -749,6 +762,8 @@ list(): Agent[]
  */
 roots(): Agent[]
 ```
+
+Types: [Session](session.md)
 
 Source: [`packages/core/agent/src/index.ts:264`](../../packages/core/agent/src/index.ts)
 
@@ -1074,5 +1089,5 @@ A declarative agent entry failed before it could publish a live agent. Consumers
 'agent-loop/config-start-failed'(payload: { sessionId: SessionId; error: unknown }): void
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:185`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:184`](../../packages/core/agent-loop/src/index.ts)
 <!-- END GENERATED cordis-surface -->

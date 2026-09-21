@@ -16,10 +16,12 @@
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js'
+import { UriTemplate } from '@modelcontextprotocol/sdk/shared/uriTemplate.js'
+import { ResourceListChangedNotificationSchema, ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js'
 import type { Context } from '@deepseek-ai/cordis'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-tools'
+import { boundedResourceResult, MAX_RESOURCE_RESULT_BYTES } from '@deepseek-ai/dsh-mcp-resources'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { createTransport } from './transport.ts'
 import { cursorGuard, syncTools } from './tools.ts'
@@ -49,6 +51,9 @@ export const RECONNECT_DEFAULTS: Required<ReconnectConfig> = Object.freeze({
 
 /** Default UTF-8 byte limit for attributed server instructions. */
 export const DEFAULT_MAX_INSTRUCTION_BYTES = 32_768
+
+/** Maximum total resources and templates retained for one connection. */
+export const MAX_RESOURCE_ITEMS = 1_024
 
 // The SDK's stdio transport owns two two-second termination grace periods.
 // Keep one additional second for the process-close event that proves the old
@@ -113,8 +118,10 @@ export interface ConnectionHandle extends ServerContext {
   toolNames(): string[]
   /** Whether a live MCP generation completed its initial synchronization. */
   connected(): boolean
-  /** Sorted resource URIs discovered on the current generation; empty when none or down. */
+  /** Sorted resource URIs from the last successful inventory. */
   resourceUris(): string[]
+  /** Sorted URI templates from the same last successful inventory. */
+  resourceTemplates(): string[]
   /**
    * Stop reconnection, close the live client, wait for the in-flight attempt
    * and queued tool syncs to quiesce, then unregister every tool this server
@@ -158,6 +165,7 @@ export function startConnection(
   let serverInstructions = ''
   /** Sorted resource URIs discovered by the last successful sync; never undefined. */
   let discoveredResourceUris: string[] = []
+  let discoveredResourceTemplates: string[] = []
   /** Current generation: the connecting or connected client; undefined during backoff waits and after final failure. */
   let client: Client | undefined
   /** Close signal paired with {@link client}; captured by dispose before current ownership is cleared. */
@@ -187,10 +195,21 @@ export function startConnection(
       if (!isCurrent(generation)) return
       const previousNames = [...disposers.keys()]
       const previousResources = [...discoveredResourceUris]
-      disposers = await syncTools(generation, ctx, syncOpts, disposers)
+      const previousTemplates = [...discoveredResourceTemplates]
+      if (generation.getServerCapabilities()?.tools === undefined) {
+        for (const dispose of disposers.values()) dispose()
+        disposers = new Map()
+        if (previousNames.length > 0) onToolsChanged()
+      } else {
+        disposers = await syncTools(generation, ctx, syncOpts, disposers, () => isCurrent(generation), (next) => {
+          disposers = next
+          if (JSON.stringify(previousNames) !== JSON.stringify([...next.keys()])) onToolsChanged()
+        })
+      }
       await discoverResources(generation)
-      if (JSON.stringify(previousNames) !== JSON.stringify([...disposers.keys()])
-        || JSON.stringify(previousResources) !== JSON.stringify(discoveredResourceUris)) onToolsChanged()
+      if (!isCurrent(generation)) return
+      if (JSON.stringify(previousResources) !== JSON.stringify(discoveredResourceUris)
+        || JSON.stringify(previousTemplates) !== JSON.stringify(discoveredResourceTemplates)) onToolsChanged()
     })
     // The chain tail must survive a failed sync; the enqueuing caller owns reporting.
     syncChain = run.catch(() => {})
@@ -203,24 +222,51 @@ export function startConnection(
    * keeps the previous cache so a transient failure does not hide members.
    */
   async function discoverResources(generation: Client): Promise<void> {
+    if (!isCurrent(generation)) return
     if (generation.getServerCapabilities()?.resources === undefined) {
       discoveredResourceUris = []
+      discoveredResourceTemplates = []
       return
     }
     try {
       const guard = cursorGuard(config.serverName)
       const uris = new Set<string>()
       let cursor: string | undefined
+      let inventoryBytes = 0
       do {
-        const response = await generation.listResources(
+        guard(cursor)
+        const response = boundedResourceResult(await generation.listResources(
           cursor === undefined ? undefined : { cursor },
           { timeout: config.toolCallTimeoutMs },
-        )
-        guard(cursor)
+        ))
+        if (!isCurrent(generation)) return
+        inventoryBytes += Buffer.byteLength(JSON.stringify(response))
         for (const resource of response.resources) uris.add(resource.uri)
+        if (uris.size > MAX_RESOURCE_ITEMS || inventoryBytes > MAX_RESOURCE_RESULT_BYTES) throw new Error('MCP resource inventory exceeds its limit')
         cursor = response.nextCursor
       } while (cursor !== undefined)
-      discoveredResourceUris = [...uris].sort()
+      const templates = new Set<string>()
+      const templateGuard = cursorGuard(config.serverName)
+      let templateCursor: string | undefined
+      do {
+        templateGuard(templateCursor)
+        const response = boundedResourceResult(await generation.listResourceTemplates(
+          templateCursor === undefined ? undefined : { cursor: templateCursor },
+          { timeout: config.toolCallTimeoutMs },
+        ))
+        if (!isCurrent(generation)) return
+        inventoryBytes += Buffer.byteLength(JSON.stringify(response))
+        for (const resource of response.resourceTemplates) {
+          new UriTemplate(resource.uriTemplate)
+          templates.add(resource.uriTemplate)
+        }
+        if (uris.size + templates.size > MAX_RESOURCE_ITEMS || inventoryBytes > MAX_RESOURCE_RESULT_BYTES) throw new Error('MCP resource inventory exceeds its limit')
+        templateCursor = response.nextCursor
+      } while (templateCursor !== undefined)
+      if (isCurrent(generation)) {
+        discoveredResourceUris = [...uris].sort()
+        discoveredResourceTemplates = [...templates].sort()
+      }
     } catch (error) {
       // v8 ignore next 2 -- after disposal nobody observes the log anyway
       if (!disposed) ctx.logger.error(`${label}: resource discovery failed: ${String(error)}`)
@@ -251,6 +297,7 @@ export function startConnection(
   function scheduleReconnect(): void {
     const lostEstablishedConnection = connectedAt !== undefined
     if (!policy.enabled) {
+      connectedAt = undefined
       const message = lostEstablishedConnection
         ? 'connection lost and reconnect is disabled — registered tools will fail until an HMR reload or Host restart'
         : 'connection failed and reconnect is disabled — no tools were registered; reload the plugin or restart the Host to connect'
@@ -270,6 +317,7 @@ export function startConnection(
         disposers = new Map()
         serverInstructions = ''
         discoveredResourceUris = []
+        discoveredResourceTemplates = []
         onToolsChanged()
       })
       ctx.logger.error(`${label}: giving up after ${policy.maxAttempts} consecutive failed reconnect attempts — tools unregistered; reload the plugin or restart the Host to reconnect`)
@@ -330,6 +378,18 @@ export function startConnection(
         }
       },
     )
+    generation.setNotificationHandler(
+      ResourceListChangedNotificationSchema,
+      async () => {
+        if (!isCurrent(generation)) return
+        ctx.logger.info(`${label}: resource list changed, re-discovering`)
+        try {
+          await enqueueSync(generation)
+        } catch (error) {
+          if (!disposed) ctx.logger.error(`${label}: resource re-sync failed: ${String(error)}`)
+        }
+      },
+    )
     let instructions = ''
     try {
       await generation.connect(createTransport(config))
@@ -338,7 +398,7 @@ export function startConnection(
         generationDown(generation)
         return
       }
-      const serverText = generation.getInstructions()?.trimEnd() ?? ''
+      const serverText = generation.getInstructions() ?? ''
       instructions = serverText ? `### MCP server: ${config.serverName}\n\n${serverText}` : ''
       if (Buffer.byteLength(instructions) > maxInstructionBytes) {
         throw new Error(`${label}: server instructions exceed maxInstructionBytes (${maxInstructionBytes})`)
@@ -398,6 +458,7 @@ export function startConnection(
     connected: () => !disposed && connectedAt !== undefined,
     instructions: () => serverInstructions,
     resourceUris: () => [...discoveredResourceUris],
+    resourceTemplates: () => [...discoveredResourceTemplates],
     resources: {
       async request(request, exec): Promise<JsonValue> {
         const generation = client
@@ -405,15 +466,15 @@ export function startConnection(
         const options = { signal: exec.signal, timeout: config.toolCallTimeoutMs }
         switch (request.method) {
           case 'resources/list':
-            return await generation.listResources(
+            return boundedResourceResult(await generation.listResources(
               request.cursor === undefined ? undefined : { cursor: request.cursor }, options,
-            ) as JsonValue
+            )) as JsonValue
           case 'resources/templates/list':
-            return await generation.listResourceTemplates(
+            return boundedResourceResult(await generation.listResourceTemplates(
               request.cursor === undefined ? undefined : { cursor: request.cursor }, options,
-            ) as JsonValue
+            )) as JsonValue
           case 'resources/read':
-            return await generation.readResource({ uri: request.uri }, options) as JsonValue
+            return boundedResourceResult(await generation.readResource({ uri: request.uri }, options)) as JsonValue
           /* v8 ignore next 2 -- resource requests are the closed, typed tool operation union */
           default:
             return assertNever(request)
@@ -424,6 +485,7 @@ export function startConnection(
       disposed = true
       serverInstructions = ''
       discoveredResourceUris = []
+      discoveredResourceTemplates = []
       if (reconnectTimer !== undefined) {
         clearTimeout(reconnectTimer)
         reconnectTimer = undefined

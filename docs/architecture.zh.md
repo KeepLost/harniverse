@@ -75,7 +75,7 @@ turn/start
      step/start
      append entered messages as user/message
      derive model history from the log
-     agent/request -> llm/stream -> llm/wire-attempt + assistant/chunk* -> assistant/message
+      agent/request -> llm/project-request -> llm/stream -> llm/wire-attempt + assistant/chunk* -> assistant/message
      tool/call* -> tools/pre-execute -> tools/execute -> tools/post-execute -> tools/finalize-result -> tool/result*
      step/end
      tools owe another request, or next-step input arrived -> claim -> next step
@@ -90,6 +90,8 @@ turn/end
 `agent/pre-step` 决定模型看到什么。监听器可以改写已领取的消息，也可以直接拒绝它们；首次领取被拒绝或被改写为空时，仍会关闭一个不含步骤的持久轮次，因此日志会记录这次尝试。每个步骤读取插件注册的提示词片段和工具 schema；`dsh-context-snapshot` 会在这一步将到期的运行时上下文快照 prepend 到已领取的输入之前。
 
 Agent teardown 由 AgentLoop 的单一完全停稳边界持有。它依次拒绝新准入、取消并排空 driver、撤销 Agent scope、在确切 Session 仍附加时 flush，随后 detach Agent 和 Session。消费方通过 `AgentHandle.dispose()` 或 `ctx.agents.close(id)` 保留的工厂自有能力关闭；`ctx.agents.closeIfIdle(id)` 只会从 inbox 为空的真实 idle 状态原子预留 teardown，并把 maintenance 视为 busy。直接移除 SessionStore 条目绝不构成 Agent teardown。
+
+驱动器在发布活跃 Agent 前执行通过 `ctx.agents.registerAdmission()` 注册的策略。策略归插件所有；归档导入通过此注册在创建、恢复和 fork 入口拒绝执行导入的历史。
 
 详情见[时序图](agent-lifecycle.md)、[工具流水线](tool-execution-pipeline.md)和[取消与错误恢复](subsystems/core.md#the-agent-handle)。
 
@@ -126,6 +128,8 @@ seam 正是替换一个提供方就能改变整个产品的原因。文件系统
 | 添加 UI 或编辑器集成 | 驱动 `ctx.agents` 并从 `session/event` 渲染 |
 | 添加 Web Client Chat 节点 | 注册 `ConversationNodeDefinition` + keyed renderer |
 | 添加持久会话状态 | 扩展 `SessionEventMap`；从日志渲染和回放 |
+| 从请求中投影移除已保留的图片 | 注册 Session 消息投影，并通过 `llm/project-request` 持久记录省略结果 |
+| 限制活跃 Agent 准入 | 通过 `ctx.agents.registerAdmission()` 注册策略 |
 | 生成会话标题 | 注册唯一的 `ctx.sessionTitle` 提供方 |
 | 管理同会话目标 | 使用 `ctx.goals`；通过 `agent/*` 续跑 |
 | fork 活跃会话 | `ctx.sessions.fork(source, boundary?, childSessionId?)` |

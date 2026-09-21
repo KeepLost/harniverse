@@ -7,6 +7,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { freezeMessage } from '@deepseek-ai/dsh-llm'
+import { OFFLOADED_IMAGE_STUB_TEXT } from '@deepseek-ai/dsh-image-offload-policy'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, ToolResultMessage } from '@deepseek-ai/dsh-session'
 // Type-only: the `compaction/*` SessionEventMap merges (the shadow-price event).
@@ -78,20 +79,27 @@ export class ToolResultPruner extends Service {
    * Text slicing is by Unicode code point, not UTF-16 code unit, so a retained
    * boundary cannot split a surrogate pair. Grapheme clusters may still split.
    * @param blocks - original tool-result content.
+   * @param preserve - projected rich-block placeholders that must remain whole.
    * @returns pruned content, or `null` when the text is within budget.
    */
-  pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null {
+  pruneContent(blocks: readonly ContentBlock[], preserve: ReadonlySet<ContentBlock> = new Set()): ContentBlock[] | null {
     const totalChars = this.measureContent(blocks)
     if (totalChars <= this.config.thresholdChars) return null
 
-    const removedStart = this.config.headChars
-    const removedEnd = totalChars - this.config.tailChars
+    const preservedChars = this.measureContent([...preserve])
+    const prunableChars = totalChars - preservedChars
+    const available = this.config.thresholdChars - preservedChars - codePointLength(PRUNE_MARKER)
+    if (available < 0) return null
+    const head = Math.min(this.config.headChars, available)
+    const tail = Math.min(this.config.tailChars, available - head)
+    const removedStart = head
+    const removedEnd = prunableChars - tail
     const pruned: ContentBlock[] = []
     let consumed = 0
     let markerInserted = false
 
     for (const block of blocks) {
-      if (block.type !== 'text') {
+      if (block.type !== 'text' || preserve.has(block)) {
         pruned.push(block)
         continue
       }
@@ -136,7 +144,7 @@ export class ToolResultPruner extends Service {
   pruneSession(session: Session): PruneResult {
     const candidates: SnapshotCandidate[] = []
     for (const seq of [...session.surface.nodes]) {
-      const event = session.events[seq]
+      const event = session.eventAt(seq)
       /* v8 ignore next -- surface seqs are validated contiguous log references. */
       if (event?.type === 'tool/result') candidates.push({ seq, event })
     }
@@ -144,8 +152,12 @@ export class ToolResultPruner extends Service {
     const pruned: PrunedEntry[] = []
     let charsRemoved = 0
     for (const { seq, event } of candidates) {
-      const result = event.data.message.content[0]
-      const content = this.pruneContent(result.content)
+      const result = session.projectedMessageAt(seq)?.content[0]
+      if (result?.type !== 'tool-result') continue
+      const original = event.data.message.content[0].content
+      const preserve = new Set(result.content.filter((block, index) =>
+        block.type === 'text' && (original[index]?.type !== 'text' || block.text === OFFLOADED_IMAGE_STUB_TEXT)))
+      const content = this.pruneContent(result.content, preserve)
       if (content === null) continue
       const charsBefore = this.measureContent(result.content)
       const charsAfter = this.measureContent(content)

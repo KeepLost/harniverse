@@ -6,6 +6,8 @@ Generic Agent Profile recipe catalog and composition coordinator. Native subsyst
 
 Structured overrides persist in the `capabilities` Settings namespace: selection, an optional member allowlist, and owner-declared configuration fields. Global Agent values are inherited by every Profile, explicit Profile values override them, and omission falls back to Profile-native values. `plan()` validates ids, field types, hard dependencies, and exact composition/topology revisions before retaining an immutable dry-run. `apply()` accepts only that unchanged, unblocked plan. `dsh-agent-presets` compiles selection and configuration into native Loader patches, while adapters enforce Tool, Skill, MCP, and provider membership when the next standing generation starts.
 
+Adapters may capture private provider configuration through `capture(view)`. The returned non-secret signature participates in generation identity; `mount(ctx, entries)` installs the captured state before consumers start. Catalog entries preserve effective explicit `memberAllowlist` ids independently of discovery, including inherited global grants, so a new connection cannot lose a Profile's restrictions.
+
 ## Model Experience
 
 Indirectly, through selected Profile plugin rows that determine the tools, skills, prompts, and integrations mounted for new Sessions while existing Sessions retain their starting generation.

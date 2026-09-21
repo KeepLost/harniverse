@@ -1,7 +1,7 @@
 /** Shared request-image preparation, budget offload, and Files representation selection. */
 
-import { LlmError } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions } from '@deepseek-ai/dsh-llm'
+import { freezeMessage, LlmError } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type {
   AttachmentId,
   AttachmentStore,
@@ -30,7 +30,9 @@ export type ImageRequestRepresentation =
 export interface ImageSerializationOptions {
   representation: ImageRequestRepresentation
   requestImages: ReadonlyMap<ImageAttachmentRef['attachmentId'], RequestImageAttachment>
+  /** Legacy attachment-wide omissions for direct serializer callers. */
   omittedImages?: ReadonlySet<AttachmentId>
+  omittedOccurrences?: readonly ImageWireLocation[]
 }
 
 /** Position of an image in the original harness message sequence. */
@@ -53,22 +55,12 @@ function collectImageRefs(content: readonly ContentBlock[], refs: Map<Attachment
 }
 
 function limitRequestImages(
-  refs: readonly ImageAttachmentRef[],
-  versions: readonly RequestImageAttachment[],
+  pairs: readonly { ref: ImageAttachmentRef; version: RequestImageAttachment; location: ImageWireLocation }[],
   maxBytes: number,
   maxCount: number,
   byteQuantum: number,
   countQuantum: number,
-): { requestImages: Map<AttachmentId, RequestImageAttachment>; omittedImages: Set<AttachmentId> } {
-  /* v8 ignore next 3 -- collectRequestImages pushes one version per reference,
-     so the lists cannot diverge; this keeps the pairing total for any other caller. */
-  if (refs.length !== versions.length) {
-    throw new LlmError('DeepSeek image preparation returned mismatched references.', 'INVALID_REQUEST')
-  }
-  // Pairing at construction keeps every later index total, so omission reads
-  // one reference beside the exact version prepared for it.
-  const pairs = refs.map((ref, index) => ({ ref, version: versions[index] as RequestImageAttachment }))
-  const omittedImages = new Set<AttachmentId>()
+): { requestImages: Map<AttachmentId, RequestImageAttachment>; omittedOccurrences: ImageWireLocation[] } {
   const targetCount = pairs.length > maxCount && maxCount > countQuantum
     ? maxCount - countQuantum
     : maxCount
@@ -79,14 +71,12 @@ function limitRequestImages(
     : maxBytes
   while (start < pairs.length && total > targetBytes) {
     const pair = pairs[start] as (typeof pairs)[number]
-    omittedImages.add(pair.ref.attachmentId)
     total -= pair.version.bytes
     start += 1
   }
-  for (const pair of pairs.slice(0, start)) omittedImages.add(pair.ref.attachmentId)
   return {
     requestImages: new Map(pairs.slice(start).map(pair => [pair.version.attachment.attachmentId, pair.version])),
-    omittedImages,
+    omittedOccurrences: pairs.slice(0, start).map(pair => pair.location),
   }
 }
 
@@ -136,6 +126,7 @@ export async function collectRequestImages(
  * @param signal - request cancellation.
  * @param representation - file references or inline base64.
  * @param protocol - wire protocol owning the Files endpoint flavor.
+ * @param messages - current projection, excluding previously settled occurrences.
  * @returns serialization options for either protocol.
  */
 export function imageSerialization(
@@ -146,10 +137,29 @@ export function imageSerialization(
   signal: AbortSignal,
   representation: 'file' | 'base64',
   protocol: DeepSeekProtocol,
+  messages: readonly Message[],
 ): ImageSerializationOptions {
+  if (prepared.refs.length !== prepared.versions.length) {
+    throw new LlmError('DeepSeek image preparation returned mismatched references.', 'INVALID_REQUEST')
+  }
+  const versions = new Map(prepared.versions.map(version => [version.attachment.attachmentId, version]))
+  const pairs: { ref: ImageAttachmentRef; version: RequestImageAttachment; location: ImageWireLocation }[] = []
+  for (const [message, entry] of messages.entries()) {
+    let image = 0
+    const visit = (blocks: readonly ContentBlock[]): void => {
+      for (const block of blocks) {
+        if (block.type === 'tool-result') visit(block.content)
+        else if (block.type === 'image') {
+          const version = versions.get(block.attachment.attachmentId)
+          if (version === undefined) throw new LlmError('DeepSeek request image was not prepared.', 'INVALID_REQUEST')
+          pairs.push({ ref: block.attachment, version, location: { message, image: image++ } })
+        }
+      }
+    }
+    visit(entry.content)
+  }
   const limited = limitRequestImages(
-    prepared.refs,
-    prepared.versions,
+    pairs,
     representation === 'file' ? connection.maxRequestFilesBytes : connection.maxInlineRequestImageBytes,
     connection.maxImagesPerRequest,
     representation === 'file' ? connection.imageOffloadByteQuantum : connection.inlineImageOffloadByteQuantum,
@@ -162,7 +172,7 @@ export function imageSerialization(
   }
   return {
     requestImages: limited.requestImages,
-    omittedImages: limited.omittedImages,
+    omittedOccurrences: limited.omittedOccurrences,
     representation: representation === 'base64'
       ? { kind: 'base64' }
       : {
@@ -176,6 +186,31 @@ export function imageSerialization(
         },
       },
   }
+}
+
+/**
+ * Settle the selected occurrences before serializing a provider attempt.
+ * @param options - current request projection, including earlier fallback decisions.
+ * @param images - provider-budget selection for this attempt.
+ * @returns the request with durable stubs supplied by its policy owner, when mounted.
+ */
+export function projectImageOmissions(options: GenerateOptions, images: ImageSerializationOptions): GenerateOptions {
+  const targets = images.omittedOccurrences ?? []
+  if (targets.length === 0) return options
+  if (options.onImagesOmitted !== undefined) return { ...options, messages: options.onImagesOmitted(targets) }
+  const omitted = new Set(targets.map(target => `${target.message}:${target.image}`))
+  const messages = options.messages.map((entry, message) => {
+    let image = 0
+    const visit = (blocks: readonly ContentBlock[]): ContentBlock[] => blocks.map((block) => {
+      if (block.type === 'tool-result') return { ...block, content: visit(block.content) }
+      if (block.type === 'image' && omitted.has(`${message}:${image++}`)) {
+        return { type: 'text', text: `[image omitted: ${block.attachment.attachmentId}]` }
+      }
+      return block
+    })
+    return freezeMessage({ ...entry, content: visit(entry.content) })
+  })
+  return { ...options, messages }
 }
 
 /** Whether a provider error reports an unusable cached file id.

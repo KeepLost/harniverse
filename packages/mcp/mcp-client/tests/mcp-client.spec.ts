@@ -111,6 +111,13 @@ describe('cursorGuard', () => {
     guard('page-1')
     expect(() => { guard('page-1') }).toThrow('mcp-client(srv): server repeated continuation cursor "page-1" — invalid pagination')
   })
+
+  it('bounds distinct cursor streams and rejects invalid cursor types', () => {
+    const guard = cursorGuard('srv')
+    for (let page = 0; page < 128; page++) guard(String(page))
+    expect(() => guard('129')).toThrow('pagination exceeds')
+    expect(() => cursorGuard('srv')(42 as never)).toThrow('invalid continuation cursor')
+  })
 })
 
 describe('syncTools', () => {
@@ -129,6 +136,32 @@ describe('syncTools', () => {
     const client = { ...createMockClient([]), request: vi.fn(async () => pages[calls++]) }
     await expect(syncTools(client as never, ctx, defaultOpts, new Map()))
       .rejects.toThrow('server repeated continuation cursor "loop" — invalid pagination')
+    expect(calls).toBe(2)
+  })
+
+  it('follows an empty opaque tool cursor', async () => {
+    const client = { ...createMockClient([]), request: vi.fn()
+      .mockResolvedValueOnce({ tools: [], nextCursor: '' })
+      .mockResolvedValueOnce({ tools: [{ name: 'second', inputSchema: { type: 'object' } }] }) }
+    const registered = await syncTools(client as never, ctx, defaultOpts, new Map())
+    expect([...registered.keys()]).toEqual(['mcp__srv__second'])
+    expect(client.request.mock.calls[1]?.[0]).toMatchObject({ params: { cursor: '' } })
+    for (const dispose of registered.values()) dispose()
+  })
+
+  it('retains the previous registry when a tool-list generation loses ownership', async () => {
+    const previous = await syncTools(createMockClient([{ name: 'old', inputSchema: { type: 'object' } }]) as never, ctx, defaultOpts, new Map())
+    let current = true
+    const client = { ...createMockClient([]), request: vi.fn(async () => {
+      current = false
+      return { tools: [{ name: 'stale', inputSchema: { type: 'object' } }], nextCursor: 'later' }
+    }) }
+    const result = await syncTools(client as never, ctx, defaultOpts, previous, () => current)
+    expect(result).toBe(previous)
+    expect(client.request).toHaveBeenCalledTimes(1)
+    expect(ctx.tools.get('mcp__srv__old')).toBeDefined()
+    expect(ctx.tools.get('mcp__srv__stale')).toBeUndefined()
+    for (const dispose of previous.values()) dispose()
   })
 
   it('registers tools under server-qualified public names', async () => {

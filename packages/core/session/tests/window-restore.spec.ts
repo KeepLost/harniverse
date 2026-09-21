@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { setImmediate } from 'node:timers/promises'
 import { setFlagsFromString } from 'node:v8'
 import { runInNewContext } from 'node:vm'
-import { CallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
+import { CallId, createToolResultMessage, createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '../src/index.ts'
 import type { SessionEvent, SessionHistorySource } from '../src/types.ts'
+import type { SessionMessageProjection } from '../src/surface.ts'
 
 const id = SessionId('window-boundaries')
 const header = { id, version: SESSION_FORMAT_VERSION, createdAt: 1 }
@@ -16,6 +17,34 @@ function restore(eventAt: SessionHistorySource['eventAt'], nodes: readonly numbe
 }
 
 describe('windowed history boundaries', () => {
+  it('replays historical plugin projections once and exposes the same frozen message by seq', () => {
+    const source = Session.create(id)
+    source.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'original' }] }), { surfaceOp: 'append' })
+    source.append('request/context', { provider: 'mock', model: 'projected' })
+    const boundary = source.seq
+    const surface = { nodes: [...source.surface.nodes], replaceGeneration: source.surface.replaceGeneration }
+    source.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    let applications = 0
+    const projection: SessionMessageProjection<'request/context'> = {
+      type: 'request/context',
+      project(event, context) {
+        applications += 1
+        const original = context.messages.get(0)!
+        return new Map([[0, freezeMessage({ ...original, content: [{ type: 'text', text: event.data.model }] })]])
+      },
+    }
+    const restored = Session.fromRestore(id, structuredClone(source.events.slice(boundary)), structuredClone(source.header), {
+      firstSeq: boundary, eventAt: seq => source.eventAt(seq),
+    }, surface, [projection])
+    const message = restored.projectedMessageAt(0)
+    expect(message?.content).toEqual([{ type: 'text', text: 'projected' }])
+    expect(restored.deriveMessages()[0]).toBe(message)
+    expect(restored.projectedMessageAt(0)).toBe(message)
+    expect(Object.isFrozen(message)).toBe(true)
+    expect(applications).toBe(1)
+    expect(restored.deriveEventMessage(restored.eventAt(0)!)?.content).toEqual([{ type: 'text', text: 'original' }])
+  })
+
   it('owns every event in a requested snapshot independently of the history resolver', () => {
     let open = true
     const session = restore(() => {

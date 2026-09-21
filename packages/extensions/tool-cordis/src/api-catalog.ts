@@ -261,6 +261,17 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the disposer that clears the factory slot. The exact Cordis effect disposer (single-shot): composite (generator) effects may yield it directly — exact identity nests the teardown in order.',
       },
       {
+        signature: 'registerAdmission(admit: (session: Session) => void): () => void',
+        description: 'Register a synchronous policy checked before a driver adopts a Session.',
+        parameters: [{ name: 'admit', description: 'throw to refuse adoption before setup or publication.' }],
+        returns: 'the effect-scoped registration disposer.',
+      },
+      {
+        signature: 'assertAdmission(session: Session): void',
+        description: 'Check all installed adoption policies. Factories call before constructing a driver.',
+        parameters: [{ name: 'session', description: 'the exact prepared Session, including inherited history.' }],
+      },
+      {
         signature: 'async create(options: CreateAgentOptions): Promise<AgentHandle>',
         description: 'Create and publish a new agent through the registered factory. Distinct from register (which records an already-constructed agent): this constructs the agent and its session. Rejects if no factory is registered or creation/setup fails. The resolved AgentHandle lets the owner tear down exactly this agent.',
         parameters: [{ name: 'options', description: 'shared identity, session seed/metadata, and agent options.' }],
@@ -580,6 +591,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Build the stable effective assembly identity included in a Profile generation stamp.',
         parameters: [{ name: 'agentProfile', description: 'Profile whose inherited and explicit values are resolved.' }, { name: 'descriptors', description: 'complete recipe and runtime adapter snapshot for this generation.' }],
         returns: 'sorted JSON identity of selection, visible members, and resolved configuration.',
+      },
+      {
+        signature: 'captureGeneration(view: CapabilityView): CapabilityGenerationCapture',
+        description: 'Capture visible providers before asynchronous Profile assembly begins.',
+        parameters: [{ name: 'view', description: 'target Profile and scope visibility.' }],
+        returns: 'an immutable identity and provider-owned installation callback.',
       },
       {
         signature: 'mountComposition(ctx: Context, entries: readonly CapabilityCatalogEntry[]): void',
@@ -1275,9 +1292,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Scoped resource access plus three tools shared by configured MCP servers.',
     methods: [
       {
-        signature: 'register(server: string, provider: McpResourceProvider): () => void',
+        signature: 'register(server: string, provider: McpResourceProvider, options: Omit<McpResourceRegistration, \'provider\'> = {}): () => void',
         description: 'Register one server and expose resource tools while that scope has providers.',
-        parameters: [{ name: 'server', description: 'configured server name, unique in this scope.' }, { name: 'provider', description: 'connection-owned resource operations.' }],
+        parameters: [{ name: 'server', description: 'configured server name, unique in this scope.' }, { name: 'provider', description: 'connection-owned resource operations.' }, { name: 'options', description: 'caller-key authorization shared by discovery and execution.' }],
         returns: 'the effect disposer for this exact registration.',
       },
     ],
@@ -1288,10 +1305,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Read/watch-only view of the host-owned `mcp` settings scope.',
     methods: [
       {
-        signature: 'get(): McpUserConfigSettingsConfig',
-        description: 'Return the current validated user server list.',
-        parameters: [],
-        returns: 'the current validated user server list.',
+        signature: 'get(scope?: ScopeKey): McpUserConfigSettingsConfig',
+        description: 'Read the private snapshot for a captured generation, or current settings.',
+        parameters: [{ name: 'scope', description: 'standing generation key; standalone consumers may omit it.' }],
+        returns: 'an independent copy of the validated server list.',
       },
       {
         signature: 'watch(callback: (next: McpUserConfigSettingsConfig, prev: McpUserConfigSettingsConfig) => void | Promise<void>): () => void',
@@ -1758,7 +1775,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'async import(options: ImportForeignSessionOptions): Promise<ImportedSession>',
         description: 'Import one foreign artifact as a settled archival session.',
-        parameters: [{ name: 'options', description: 'the artifact path plus optional target id and posture.' }],
+        parameters: [{ name: 'options', description: 'source bytes or path, authorized destination workspace, and optional target/posture.' }],
         returns: 'the imported session\'s identity and lossy-mapping counts.',
         throws: ['when the artifact cannot be read or parsed, its version is `current` (native logs restore, not import) or unknown, the posture is invalid, the target id already exists, or the backend cannot preserve the source artifact beside the mapped session.'],
       },
@@ -2811,9 +2828,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'total Unicode code points across text blocks.',
       },
       {
-        signature: 'pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null',
+        signature: 'pruneContent(blocks: readonly ContentBlock[], preserve: ReadonlySet<ContentBlock> = new Set()): ContentBlock[] | null',
         description: 'Replace an over-budget text middle while retaining rich-block order. Text slicing is by Unicode code point, not UTF-16 code unit, so a retained boundary cannot split a surrogate pair. Grapheme clusters may still split.',
-        parameters: [{ name: 'blocks', description: 'original tool-result content.' }],
+        parameters: [{ name: 'blocks', description: 'original tool-result content.' }, { name: 'preserve', description: 'projected rich-block placeholders that must remain whole.' }],
         returns: 'pruned content, or `null` when the text is within budget.',
       },
       {
@@ -3422,6 +3439,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [],
   },
   {
+    name: 'llm/project-request',
+    mode: 'waterfall',
+    signature: '\'llm/project-request\'(options: GenerateOptions, next: () => GenerateOptions): GenerateOptions',
+    summary: 'Synchronous durable request projection before stream observers run.',
+    description: 'Synchronous durable request projection before stream observers run. Consumers commit their decisions before returning replacement messages or request-local callbacks. Routing and model configuration stay fixed.',
+    parameters: [{ name: 'options', description: 'the immutable request whose messages are projected from durable history.' }],
+  },
+  {
     name: 'llm/stream',
     mode: 'waterfall',
     signature: '\'llm/stream\'(this: LlmRuntime, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>',
@@ -3971,7 +3996,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CapabilityAdapter',
-    declaration: 'export interface CapabilityAdapter {\n    readonly id: string;\n    snapshot(view: CapabilityView): Promise<CapabilityObservation> | CapabilityObservation;\n    restrict?(ctx: Context, entries: readonly CapabilityCatalogEntry[]): void;\n}',
+    declaration: 'export interface CapabilityAdapter {\n    readonly id: string;\n    snapshot(view: CapabilityView): Promise<CapabilityObservation> | CapabilityObservation;\n    restrict?(ctx: Context, entries: readonly CapabilityCatalogEntry[]): void;\n    capture?(view: CapabilityView): CapabilityGenerationCapture;\n}',
   },
   {
     name: 'CapabilityAdapterControl',
@@ -3979,7 +4004,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CapabilityCatalogEntry',
-    declaration: 'export interface CapabilityCatalogEntry extends CapabilityDescriptor {\n    readonly selection: \'inherit\' | CapabilitySelectionValue;\n    readonly effectiveSelection: CapabilitySelectionValue;\n    readonly selected: boolean;\n    readonly memberSelection?: \'inherit\' | \'custom\';\n    readonly memberEntries?: readonly CapabilityMemberCatalogEntry[];\n    readonly configOverrides?: Readonly<Record<string, CapabilityConfigValue>>;\n    readonly effectiveConfig?: Readonly<Record<string, CapabilityConfigValue>>;\n}',
+    declaration: 'export interface CapabilityCatalogEntry extends CapabilityDescriptor {\n    readonly selection: \'inherit\' | CapabilitySelectionValue;\n    readonly effectiveSelection: CapabilitySelectionValue;\n    readonly selected: boolean;\n    readonly memberSelection?: \'inherit\' | \'custom\';\n    readonly memberAllowlist?: readonly string[];\n    readonly memberEntries?: readonly CapabilityMemberCatalogEntry[];\n    readonly configOverrides?: Readonly<Record<string, CapabilityConfigValue>>;\n    readonly effectiveConfig?: Readonly<Record<string, CapabilityConfigValue>>;\n}',
   },
   {
     name: 'CapabilityCatalogSnapshot',
@@ -4008,6 +4033,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CapabilityDescriptor',
     declaration: 'export interface CapabilityDescriptor {\n    readonly id: string;\n    readonly kind: CapabilityKind;\n    readonly name: string;\n    readonly description: string;\n    readonly provenance: CapabilityProvenance;\n    readonly assembleable: boolean;\n    readonly available: boolean;\n    readonly defaultLoaded: boolean;\n    readonly manageable: boolean;\n    readonly selectionManageable?: boolean;\n    readonly owner?: string;\n    readonly requires: readonly string[];\n    readonly members?: readonly CapabilityMemberDescriptor[];\n    readonly customization?: CapabilityCustomizationDescriptor;\n}',
+  },
+  {
+    name: 'CapabilityGenerationCapture',
+    declaration: 'export interface CapabilityGenerationCapture {\n    readonly signature: string;\n    mount(ctx: Context, entries: readonly CapabilityCatalogEntry[]): void;\n}',
   },
   {
     name: 'CapabilityKind',
@@ -4515,7 +4544,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'GenerateOptions',
-    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    messages: Message[];\n    system?: string;\n    tools?: ToolSchema[];\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\' | \'session-title\';\n    wireExchangeId?: string;\n    onWireAttempt?: (attempt: LlmWireAttempt) => void;\n}',
+    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    messages: Message[];\n    system?: string;\n    tools?: ToolSchema[];\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\' | \'session-title\';\n    wireExchangeId?: string;\n    onWireAttempt?: (attempt: LlmWireAttempt) => void;\n    onImagesOmitted?: (targets: readonly {\n        message: number;\n        image: number;\n    }[]) => Message[];\n}',
   },
   {
     name: 'GenericCallView',
@@ -4603,7 +4632,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ImportForeignSessionOptions',
-    declaration: 'export interface ImportForeignSessionOptions {\n    readonly artifactPath: string;\n    readonly sessionId?: SessionId;\n    readonly posture?: {\n        readonly supervisionMode: SupervisionMode;\n    };\n}',
+    declaration: 'export interface ImportForeignSessionOptions {\n    readonly artifactPath?: string;\n    readonly artifact?: Uint8Array;\n    readonly cwd: string;\n    readonly sessionId?: SessionId;\n    readonly posture?: {\n        readonly supervisionMode: SupervisionMode;\n    };\n}',
   },
   {
     name: 'Inbox',
@@ -4836,6 +4865,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'McpResourceProvider',
     declaration: 'export interface McpResourceProvider {\n    request(request: McpResourceRequest, exec: ToolExecution): Promise<JsonValue>;\n}',
+  },
+  {
+    name: 'McpResourceRegistration',
+    declaration: 'export interface McpResourceRegistration {\n    readonly provider: McpResourceProvider;\n    readonly visible?: (scope: ScopeKey | undefined) => boolean;\n}',
   },
   {
     name: 'McpResourceRequest',
@@ -6367,7 +6400,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'UserMcpServerConfig',
-    declaration: 'export interface UserMcpServerConfig {\n    id: string;\n    enabled: boolean;\n    transport: \'stdio\' | \'streamable-http\';\n    serverName: string;\n    command?: string;\n    args: string[];\n    env: Record<string, string>;\n    cwd: string;\n    url?: string;\n    headers: Record<string, string>;\n    toolCallTimeoutMs: number;\n    failOnStartupError: boolean;\n    reconnect: ReconnectConfig;\n}',
+    declaration: 'export interface UserMcpServerConfig {\n    id: string;\n    enabled: boolean;\n    transport: \'stdio\' | \'streamable-http\';\n    serverName: string;\n    command?: string;\n    args: string[];\n    env: Record<string, string>;\n    cwd: string;\n    url?: string;\n    headers: Record<string, string>;\n    toolCallTimeoutMs: number;\n    maxInstructionBytes?: number;\n    failOnStartupError: boolean;\n    reconnect: ReconnectConfig;\n}',
   },
   {
     name: 'UserMessage',

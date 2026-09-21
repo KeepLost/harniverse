@@ -7,6 +7,8 @@ import { bindScopeParent, createScope, type Scope } from '@deepseek-ai/dsh-scope
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import McpResources from '../src/index.ts'
 import type { McpResourceProvider } from '../src/index.ts'
+import { MAX_RESOURCE_TEXT_BYTES, renderResourceResult } from '../src/render.ts'
+import { MAX_RESOURCE_RESULT_BYTES, boundedResourceResult } from '../src/limits.ts'
 
 const resourceToolNames = ['list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource']
 
@@ -45,6 +47,51 @@ function call(ctx: Context, name: string, args: unknown, agent?: Agent) {
 }
 
 describe('MCP resource tools', () => {
+  it('checks visibility with the caller key before invoking the provider', async () => {
+    const ctx = await setup()
+    const owner = {} as Agent
+    const request = vi.fn<McpResourceProvider['request']>().mockResolvedValue({ contents: [{ uri: 'docs://a', text: 'allowed' }] })
+    ctx.mcpResources.register('docs', { request }, { visible: key => key === owner })
+    expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: owner }))).toContain('server argument: ["docs"]')
+    expect(renderPrompt(await ctx.systemPrompt.assemble())).not.toContain('server argument:')
+    expect((await call(ctx, 'read_mcp_resource', { server: 'docs', uri: 'docs://a' })).isError).toBe(true)
+    expect(request).not.toHaveBeenCalled()
+    const allowed = await call(ctx, 'read_mcp_resource', { server: 'docs', uri: 'docs://a' }, owner)
+    expect(allowed.isError).toBe(false)
+    expect(JSON.stringify(allowed.content)).toContain('allowed')
+  })
+
+  it('bounds the complete UTF-8 rendered output and omits protocol metadata', () => {
+    expect(JSON.stringify(renderResourceResult('docs', { text: 'visible', _meta: { secret: 'hidden' } }))).not.toContain('hidden')
+    const contents = [{ uri: 'docs://large', text: '\u4f60'.repeat(MAX_RESOURCE_TEXT_BYTES), blob: 'AQIDBA==' }]
+    const value = { contents, _meta: { secret: 'not-for-model' } }
+    const rendered = renderResourceResult('docs', value)
+    const text = rendered[0]!.type === 'text' ? rendered[0]!.text : ''
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(MAX_RESOURCE_TEXT_BYTES)
+    expect(text).toContain('Resource result truncated')
+    expect(text).not.toContain('\ufffd')
+    expect(text).not.toContain('AQIDBA==')
+    expect(text).not.toContain('not-for-model')
+    const exact = 'MCP server: docs\n{}'
+    // The smallest supported budget must still fit the complete notice.
+    expect(() => renderResourceResult('docs', {}, 1)).toThrow('truncation notice')
+    expect(renderResourceResult('docs', {}, 64)).toEqual([{ type: 'text', text: exact }])
+    const padded = { text: 'x'.repeat(100) }
+    const exactBytes = Buffer.byteLength(`MCP server: docs\n${JSON.stringify(padded)}`)
+    expect(renderResourceResult('docs', padded, exactBytes)).toEqual([{ type: 'text', text: `MCP server: docs\n${JSON.stringify(padded)}` }])
+  })
+
+  it('bounds canonical provider results including the complete JSON envelope', async () => {
+    const overhead = Buffer.byteLength(JSON.stringify({ text: '' }))
+    const exact = { text: 'x'.repeat(MAX_RESOURCE_RESULT_BYTES - overhead) }
+    expect(boundedResourceResult(exact)).toBe(exact)
+    expect(() => boundedResourceResult({ text: exact.text + 'x' })).toThrow('resource result exceeds')
+    const ctx = await setup()
+    ctx.mcpResources.register('docs', { request: async () => ({ contents: [{ uri: 'docs://binary', blob: 'A'.repeat(MAX_RESOURCE_RESULT_BYTES) }] }) })
+    const result = await call(ctx, 'read_mcp_resource', { server: 'docs', uri: 'docs://binary' })
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('resource result exceeds')
+  })
   it('omits every MCP contribution with no servers', async () => {
     const ctx = await setup()
     expect(visibleResourceTools(ctx)).toEqual([])

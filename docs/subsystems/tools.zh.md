@@ -497,12 +497,13 @@ Scoped resource access plus three tools shared by configured MCP servers.
  * Register one server and expose resource tools while that scope has providers.
  * @param server - configured server name, unique in this scope.
  * @param provider - connection-owned resource operations.
+ * @param options - caller-key authorization shared by discovery and execution.
  * @returns the effect disposer for this exact registration.
  */
-register(server: string, provider: McpResourceProvider): () => void
+register(server: string, provider: McpResourceProvider, options: Omit<McpResourceRegistration, 'provider'> = {}): () => void
 ```
 
-Source: [`packages/mcp/mcp-resources/src/index.ts:54`](../../packages/mcp/mcp-resources/src/index.ts)
+Source: [`packages/mcp/mcp-resources/src/index.ts:63`](../../packages/mcp/mcp-resources/src/index.ts)
 
 <a id="ctxtools--toolruntime"></a>
 

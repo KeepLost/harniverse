@@ -6,7 +6,9 @@ English | [中文](capabilities.zh.md)
 
 A `CapabilityTarget` is either the global Agent defaults or one Agent Profile. Omitted values inherit, global structured overrides flow into every Profile, and a Profile value overrides the inherited value. With no stored value, each Profile retains native YAML selection, member, and configuration state. `CapabilityPlan` is an immutable revision-fenced dry-run: it validates member ids and owner-declared primitive fields, adds assembleable hard dependencies, records effective operations and blockers, and is accepted only while composition and adapter topology revisions remain unchanged.
 
-`dsh-agent-presets` reads top-level rows and groups as static recipes, then compiles changed selection and configuration into native `Include` patches when the next standing generation starts. Native Tool and Skill restrictions enforce explicit member allowlists through discovery and execution; config-gated Web/delegation members receive complete row config, and MCP adapters retain Host-shared connections while hiding a server or selected tools. Hard activation failure rolls Session creation back. Running Sessions remain pinned to their original generation, and the Session **Capabilities** view reads immutable recipe status and resolved member visibility captured before publication. The [composition Agent Note](../../.agents/notes/implemented/architecture/2026-08-20-scoped-capability-control-plane.md) owns this boundary.
+`dsh-agent-presets` reads top-level rows and groups as static recipes, then compiles changed selection and configuration into native `Include` patches when the next standing generation starts. Native Tool and Skill restrictions enforce explicit member allowlists through discovery and execution; config-gated Web/delegation members receive complete row config. MCP consumers mount connections from settings captured for that generation and enforce server, tool, resource, and template visibility before execution. Hard activation failure rolls Session creation back. Running Sessions remain pinned to their original generation, and the Session **Capabilities** view reads immutable recipe status and resolved member visibility captured before publication. The [composition Agent Note](../../.agents/notes/implemented/architecture/2026-08-20-scoped-capability-control-plane.md) owns this boundary.
+
+`CapabilityAdapter.capture()` returns a `CapabilityGenerationCapture`: a non-secret signature plus a `mount(ctx, entries)` callback that installs provider-owned configuration before generation consumers start. Private configuration stays outside Session metadata. Assembly retries when settings or composition change during asynchronous discovery; repeated changes reject assembly instead of mixing generations.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -54,6 +56,13 @@ composition(target: CapabilityTarget): CapabilityCompositionSnapshot
 compositionSignature(agentProfile: string, descriptors: readonly CapabilityDescriptor[]): string
 
 /**
+ * Capture visible providers before asynchronous Profile assembly begins.
+ * @param view - target Profile and scope visibility.
+ * @returns an immutable identity and provider-owned installation callback.
+ */
+captureGeneration(view: CapabilityView): CapabilityGenerationCapture
+
+/**
  * Apply current selection and member restrictions through every visible native adapter.
  * @param ctx - scoped standing Profile context that owns the restrictions.
  * @param entries - immutable selections resolved for this generation.
@@ -79,7 +88,7 @@ async plan( target: CapabilityTarget, changes: readonly CapabilityCompositionCha
 async apply(planId: string, expectedRevision: number): Promise<CapabilityCompositionSnapshot>
 ```
 
-Source: [`packages/capability/capabilities/src/index.ts:112`](../../packages/capability/capabilities/src/index.ts)
+Source: [`packages/capability/capabilities/src/index.ts:122`](../../packages/capability/capabilities/src/index.ts)
 
 <a id="agent-presets-events"></a>
 
@@ -113,5 +122,5 @@ Capability topology or composition changed; consumers refetch their target. @mod
 'capabilities/change'(): void
 ```
 
-Source: [`packages/capability/capabilities/src/index.ts:107`](../../packages/capability/capabilities/src/index.ts)
+Source: [`packages/capability/capabilities/src/index.ts:117`](../../packages/capability/capabilities/src/index.ts)
 <!-- END GENERATED cordis-surface -->
