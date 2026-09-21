@@ -251,6 +251,8 @@ export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 
 export const CARRIER_ENDPOINT_CAPABILITIES: Readonly<Record<string, AuthenticationCapability>> = {
   'events.mux': 'harniverse.observe',
   'events.host': 'harniverse.observe',
+  'events.terminal': 'harniverse.observe',
+  'events.hold': 'harniverse.observe',
   'session.export': 'harniverse.observe',
   'respond': 'harniverse.operate',
 }

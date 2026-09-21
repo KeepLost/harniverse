@@ -923,6 +923,13 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
         seen.host = request.principal
         return (async function *() { /* no frames */ })()
       },
+      terminal: () => {
+        return (async function *() { /* no frames */ })()
+      },
+      hold: (request) => {
+        void request
+        return (async function *() { /* no frames */ })()
+      },
     }
     const handler = toFetchHandler(api, principal)
 

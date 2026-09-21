@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { ApiProxy, GoalRef, HostFrame, MuxFrame, RpcMessage, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy'
+import type { TerminalAttachmentId, WebTerminalId } from '@deepseek-ai/dsh-api-terminal-controller/types'
 import { InProcessApiClient, RpcId, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 
 const sid = (id: string): SessionId => id as SessionId
@@ -450,6 +451,29 @@ describe('unary round trip', () => {
     expect(interrupt).toHaveBeenCalledTimes(1)
   })
 
+  it('answers terminal and hold SSE routes: 400 on invalid queries, frames with a principal', async () => {
+    const frames = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close()
+      },
+    }), { status: 200 })
+    const opened = vi.fn(() => frames)
+    const handler = toFetchHandler(scriptedApi({
+      events: {
+        async *terminal(request) { yield { rpcId: request.rpcId, payload: { type: 'retained' as never } } },
+        async *hold(request) { yield { rpcId: request.rpcId, payload: { type: 'retained' } } },
+      },
+    }), undefined, undefined)
+    void opened
+    const badTerminal = await handler.fetch('http://dsh.internal/api/events.terminal?sessionId=&id=x&attachmentId=y', { method: 'GET' })
+    expect(badTerminal.status).toBe(400)
+    const badHold = await handler.fetch('http://dsh.internal/api/events.hold?sessionId=s', { method: 'GET' })
+    expect(badHold.status).toBe(400)
+    const good = await handler.fetch('http://dsh.internal/api/events.hold?sessionId=s1&id=t1', { method: 'GET' })
+    expect(good.status).toBe(200)
+    await good.text()
+  })
+
   it('rejects a method/path mismatch as bad-request', async () => {
     const handler = toFetchHandler(scriptedApi())
     const body = { type: 'client-request', rpcId: 'r1', method: 'session.create', payload: {} }
@@ -633,6 +657,44 @@ describe('SSE stream path', () => {
       seen.push(envelope.payload)
     }
     expect(seen).toEqual(frames)
+  })
+
+  it('streams terminal attachment and window-hold frames through the dedicated SSE routes', async () => {
+    const info = {
+      id: 't1', title: 'bash', shell: { path: '/bin/bash', args: [], name: 'bash' },
+      cwd: '/remote/work', cols: 80, rows: 24, state: 'running' as const, exitCode: null,
+    }
+    const frames = [
+      { type: 'snapshot', sequence: 0, screen: '$ ', info },
+      { type: 'output', sequence: 1, data: 'hi' },
+      { type: 'stream/error', error: { code: 'internal', message: 'x', details: {} } },
+    ]
+    const api = scriptedApi({
+      events: {
+        async *terminal(request) {
+          for (const frame of frames) yield { rpcId: RpcId(`t-${request.rpcId}`), payload: frame }
+        },
+        async *hold(request) {
+          yield { rpcId: RpcId(`h-${request.rpcId}`), payload: { type: 'retained' } }
+        },
+      },
+    })
+    const seen: unknown[] = []
+    for await (const envelope of client(api).events.terminal(
+      { sessionId: sid('s1'), id: 't1' as WebTerminalId, attachmentId: 'a1' as TerminalAttachmentId },
+      new AbortController().signal,
+    )) {
+      seen.push(envelope.payload)
+    }
+    expect(seen).toEqual(frames)
+    const held: unknown[] = []
+    for await (const envelope of client(api).events.hold(
+      { sessionId: sid('s1'), id: 't1' as WebTerminalId },
+      new AbortController().signal,
+    )) {
+      held.push(envelope.payload)
+    }
+    expect(held).toEqual([{ type: 'retained' }])
   })
 
   it('reassembles frames across arbitrary chunk boundaries', async () => {

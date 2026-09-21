@@ -8,7 +8,9 @@ import { RemoteProcesses } from '../src/helper-processes.ts'
 import { authenticateStream } from '../src/stream-security.ts'
 
 describe('SSH TLS cancellation ownership', () => {
-  it('cancels an authenticated stream before closing its underlying socket', async () => {
+  // The endpoint server listens on an AF_UNIX filesystem socket, which
+  // Windows refuses (EACCES on the listen path).
+  it('cancels an authenticated stream before closing its underlying socket', { skip: process.platform === 'win32' }, async () => {
     const root = await mkdtemp('/tmp/dsh-ssh-tls-life-')
     const owner = new RemoteProcesses(new Context(), root, 1, 5000)
     try {

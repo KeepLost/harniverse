@@ -6,7 +6,7 @@
 
 import { z } from 'zod'
 import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-questions/types'
-import type { EventsApi, HostFrame, MuxFrame } from './events.ts'
+import type { EventsApi, HoldStreamFrame, HostFrame, MuxFrame, TerminalStreamFrame } from './events.ts'
 import type { Wire } from './rpc.schema.ts'
 import { rpcErrorSchema, rpcIdSchema } from './rpc.schema.ts'
 import { approvalRequestIdSchema } from './approvals.schema.ts'
@@ -80,6 +80,47 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
 ]) as unknown as z.ZodType<MuxFrame>
+
+/** Terminal attachment payload: session identity plus the terminal and its new attachment claim. */
+export const eventsTerminalRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  id: z.string().regex(/^[\w-]{1,128}$/u),
+  attachmentId: z.string().regex(/^[\w-]{1,128}$/u),
+}) as unknown as z.ZodType<Wire<Parameters<EventsApi['terminal']>[0]['payload']>>
+
+/** Window-hold payload: session identity plus the retained terminal. */
+export const eventsHoldRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  id: z.string().regex(/^[\w-]{1,128}$/u),
+}) as unknown as z.ZodType<Wire<Parameters<EventsApi['hold']>[0]['payload']>>
+
+/** WebTerminalInfo wire form (shell name/args ride the shell descriptor verbatim). */
+const webTerminalInfoSchema = z.object({
+  id: z.string().regex(/^[\w-]{1,128}$/u),
+  title: z.string(),
+  shell: z.object({ path: z.string().min(1), args: z.array(z.string()), name: z.string().min(1) }),
+  cwd: z.string().min(1),
+  cols: z.number().int().min(2),
+  rows: z.number().int().min(1),
+  state: z.union([z.literal('running'), z.literal('exited'), z.literal('failed')]),
+  exitCode: z.number().int().nullable(),
+  error: z.string().optional(),
+  controllerId: z.string().regex(/^[\w-]{1,128}$/u).optional(),
+})
+
+/** Terminal stream frames (screen recovery, output deltas, metadata, error closer). */
+export const terminalStreamFrameSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('snapshot'), sequence: z.number().int().nonnegative(), screen: z.string(), info: webTerminalInfoSchema }),
+  z.object({ type: z.literal('output'), sequence: z.number().int().nonnegative(), data: z.string() }),
+  z.object({ type: z.literal('state'), info: webTerminalInfoSchema }),
+  z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
+]) as unknown as z.ZodType<TerminalStreamFrame>
+
+/** Hold stream frames (retention acknowledgement, error closer). */
+export const holdStreamFrameSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('retained') }),
+  z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
+]) as unknown as z.ZodType<HoldStreamFrame>
 
 /** HostFrame union (payload slot of a host-stream ServerRequest). */
 export const hostFrameSchema = z.discriminatedUnion('type', [

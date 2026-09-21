@@ -35,7 +35,9 @@ describe('SSH filesystem provider', () => {
     ['literal%20name.ts', 'literal%2520name.ts'],
     ['back\\slash.ts', 'back%5Cslash.ts'],
     ['line\nfeed.ts', 'line%0Afeed.ts'],
-  ])('preserves the POSIX filename %j in a file URL', async (name, encoded) => {
+    // Node's pathToFileURL drive-qualifies rooted POSIX paths on Windows
+    // (file:///D:/remote/...), so the exact URL spelling is a POSIX contract.
+  ])('preserves the POSIX filename %j in a file URL', { skip: process.platform === 'win32' }, async (name, encoded) => {
     const { fs } = await setup()
     const path = `/remote/work/${name}`
     const url = fs.fileUrl({ targetKey: FsTargetKey(path), displayPath: path })
@@ -43,7 +45,7 @@ describe('SSH filesystem provider', () => {
     expect(fileURLToPath(url)).toBe(path)
   })
 
-  it('keeps remote canonical paths and sends relative spelling to the remote resolver', async () => {
+  it('keeps remote canonical paths and sends relative spelling to the remote resolver', { skip: process.platform === 'win32' }, async () => {
     const { fs, dispatch } = await setup()
     dispatch.mockResolvedValue({ targetKey: '/remote/physical/file #?.txt', displayPath: 'link/../file #?.txt' })
     const signal = new AbortController().signal

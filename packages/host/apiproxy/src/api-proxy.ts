@@ -47,13 +47,15 @@ import {
 } from '@deepseek-ai/dsh-agent-presets'
 import type { PresetBearingSession } from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-api-terminal-controller'
+import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   ApiProxy, ConfigurableProviderView, CredentialView, GoalRef, HistoryEntry, HostFrame,
   ModelCatalogFailure, ModelProviderGroup,
-  ModelReasoning, MuxFrame, PromptContentPart, PromptReceipt, QuestionResponsePayload,
+  ModelReasoning, MuxFrame, HoldStreamFrame, PromptContentPart, PromptReceipt, QuestionResponsePayload,
   SessionListMetadata, SessionProjectionsBlock, SessionSearchItem,
   QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, JobView, ToolEventView,
-  SessionPendingInteraction, SessionStatusSnapshot, SessionWorkDelivery, SessionWorkStatus, WorkspaceId, WorkspaceView,
+  SessionPendingInteraction, SessionStatusSnapshot, SessionWorkDelivery, SessionWorkStatus, TerminalStreamFrame, WorkspaceId, WorkspaceView,
   ApiContractDescription, OperationView, OperationStatus,
 } from './api/index.ts'
 import { HostBootId } from './api/host.ts'
@@ -858,6 +860,17 @@ async function summarizeCold(
 function directoryError(error: unknown): RpcError {
   if (error instanceof DirectoryPickerError) {
     return { code: error.code, message: error.message, details: { path: error.path } }
+  }
+  return { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} }
+}
+
+/** Map a terminal-controller failure onto the wire error vocabulary (unknown throws stay internal). */
+function terminalStreamError(error: unknown): RpcError {
+  const remote = remoteErrorOf(error)
+  if (remote !== undefined) {
+    // The controller's RemoteError codes are carrier vocabulary members; the
+    // cast collapses the open remote code union onto the wire union.
+    return { code: remote.code, message: remote.message, details: remote.details } as RpcError
   }
   return { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} }
 }
@@ -5224,6 +5237,78 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           hostQueues.delete(queue)
           for (const dispose of disposers) dispose()
         })
+      },
+
+      terminal(request, signal) {
+        const queue = new FrameQueue<RpcRequest<TerminalStreamFrame>>(streamQueueMaxFrames)
+        const controller = ctx.get('terminalController')
+        const { sessionId, id, attachmentId } = request.payload
+        if (controller === undefined) {
+          queue.push(frame({ type: 'stream/error', error: {
+            code: 'terminal-unavailable',
+            message: 'terminal service is absent: the host composition does not mount @deepseek-ai/dsh-api-terminal-controller',
+            details: {},
+          } }))
+          return queue.iterate(signal, () => {})
+        }
+        // Subagent-origin sessions never expose their PTY surface, the same
+        // visibility fence every host handler applies.
+        const agent = ctx.agents.get(sessionId)
+        if (agent === undefined || agent.session.header.origin === 'subagent') {
+          queue.push(frame({ type: 'stream/error', error: {
+            code: 'terminal-unavailable',
+            message: 'Terminal is closing or unavailable',
+            details: {},
+          } }))
+          return queue.iterate(signal, () => {})
+        }
+        // The stream lifetime IS the attachment: abort detaches, and each
+        // follower frame becomes one queue push (SSE backpressure applies).
+        void (async () => {
+          try {
+            for await (const terminalFrame of controller.follow(agent, id, attachmentId, signal)) {
+              queue.push(frame(terminalFrame))
+            }
+          } catch (error) {
+            queue.push(frame({ type: 'stream/error', error: terminalStreamError(error) }))
+          }
+        })()
+        return queue.iterate(signal, () => {})
+      },
+
+      hold(request, signal) {
+        const queue = new FrameQueue<RpcRequest<HoldStreamFrame>>(streamQueueMaxFrames)
+        const controller = ctx.get('terminalController')
+        const { sessionId, id } = request.payload
+        if (controller === undefined) {
+          queue.push(frame({ type: 'stream/error', error: {
+            code: 'terminal-unavailable',
+            message: 'terminal service is absent: the host composition does not mount @deepseek-ai/dsh-api-terminal-controller',
+            details: {},
+          } }))
+          return queue.iterate(signal, () => {})
+        }
+        const agent = ctx.agents.get(sessionId)
+        if (agent === undefined || agent.session.header.origin === 'subagent') {
+          queue.push(frame({ type: 'stream/error', error: {
+            code: 'terminal-unavailable',
+            message: 'Terminal is closing or unavailable',
+            details: {},
+          } }))
+          return queue.iterate(signal, () => {})
+        }
+        // An open stream holds the terminal against idle reclamation; abort
+        // releases the hold through the retention generator's finally.
+        void (async () => {
+          try {
+            for await (const retained of controller.retain(sessionId, id, signal)) {
+              queue.push(frame(retained))
+            }
+          } catch (error) {
+            queue.push(frame({ type: 'stream/error', error: terminalStreamError(error) }))
+          }
+        })()
+        return queue.iterate(signal, () => {})
       },
     },
 
