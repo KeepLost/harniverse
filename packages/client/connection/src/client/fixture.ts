@@ -3235,6 +3235,18 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           muxConns.delete(conn)
         }
       },
+      async *terminal(_request, signal) {
+        // The fixture exposes no live PTY surface; the stream opens and idles until aborted.
+        await new Promise<void>((_, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        })
+      },
+      async *hold(_request, signal) {
+        yield { rpcId: mint(), payload: { type: 'retained' } }
+        await new Promise<void>((_, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        })
+      },
       async *host(_request, signal) {
         const conn = new FxInbox<HostFrame>()
         hostConns.add(conn)

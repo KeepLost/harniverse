@@ -8,8 +8,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { ApiProxy, GoalRef, HostFrame, MuxFrame, RpcMessage, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy'
-import type { TerminalAttachmentId, WebTerminalId } from '@deepseek-ai/dsh-api-terminal-controller/types'
+import type { ApiProxy, GoalRef, HoldStreamFrame, HostFrame, MuxFrame, RpcMessage, RpcRequest, RpcResponse, TerminalStreamFrame } from '@deepseek-ai/dsh-host-apiproxy'
+import type { TerminalAttachmentId, WebTerminalId, WebTerminalInfo } from '@deepseek-ai/dsh-api-terminal-controller/types'
 import { InProcessApiClient, RpcId, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 
 const sid = (id: string): SessionId => id as SessionId
@@ -179,7 +179,13 @@ function scriptedApi(overrides: {
       discoverModels: err,
       ...overrides.llm,
     },
-    events: { mux: () => empty<MuxFrame>(), host: () => empty<HostFrame>(), ...overrides.events },
+    events: {
+      mux: () => empty<MuxFrame>(),
+      host: () => empty<HostFrame>(),
+      terminal: () => empty<TerminalStreamFrame>(),
+      hold: () => empty<HoldStreamFrame>(),
+      ...overrides.events,
+    },
     respond: overrides.respond ?? (() => Promise.resolve({ accepted: false as const, reason: 'not-pending' as const })),
     downloads: { sessionLog: async () => new Response('stub', { status: 404 }) },
   }
@@ -460,8 +466,8 @@ describe('unary round trip', () => {
     const opened = vi.fn(() => frames)
     const handler = toFetchHandler(scriptedApi({
       events: {
-        async *terminal(request) { yield { rpcId: request.rpcId, payload: { type: 'retained' as never } } },
-        async *hold(request) { yield { rpcId: request.rpcId, payload: { type: 'retained' } } },
+        async *terminal(): AsyncGenerator<RpcRequest<TerminalStreamFrame>> { /* no frames */ },
+        async *hold(): AsyncGenerator<RpcRequest<HoldStreamFrame>> { yield { rpcId: RpcId('h-ok'), payload: { type: 'retained' } } },
       },
     }), undefined, undefined)
     void opened
@@ -660,22 +666,22 @@ describe('SSE stream path', () => {
   })
 
   it('streams terminal attachment and window-hold frames through the dedicated SSE routes', async () => {
-    const info = {
-      id: 't1', title: 'bash', shell: { path: '/bin/bash', args: [], name: 'bash' },
-      cwd: '/remote/work', cols: 80, rows: 24, state: 'running' as const, exitCode: null,
+    const info: WebTerminalInfo = {
+      id: 't1' as WebTerminalId, title: 'bash', shell: { path: '/bin/bash', args: [], name: 'bash' },
+      cwd: '/remote/work', cols: 80, rows: 24, state: 'running', exitCode: null,
     }
-    const frames = [
+    const frames: TerminalStreamFrame[] = [
       { type: 'snapshot', sequence: 0, screen: '$ ', info },
       { type: 'output', sequence: 1, data: 'hi' },
       { type: 'stream/error', error: { code: 'internal', message: 'x', details: {} } },
     ]
     const api = scriptedApi({
       events: {
-        async *terminal(request) {
-          for (const frame of frames) yield { rpcId: RpcId(`t-${request.rpcId}`), payload: frame }
+        async *terminal(_request, _signal): AsyncGenerator<RpcRequest<TerminalStreamFrame>> {
+          for (const frame of frames) yield { rpcId: RpcId('t-stream'), payload: frame }
         },
-        async *hold(request) {
-          yield { rpcId: RpcId(`h-${request.rpcId}`), payload: { type: 'retained' } }
+        async *hold(_request, _signal): AsyncGenerator<RpcRequest<HoldStreamFrame>> {
+          yield { rpcId: RpcId('h-stream'), payload: { type: 'retained' } }
         },
       },
     })

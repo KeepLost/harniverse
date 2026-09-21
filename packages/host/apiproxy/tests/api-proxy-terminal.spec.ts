@@ -62,8 +62,16 @@ async function harness(withController = true): Promise<Fixture> {
     await ctx.plugin(TerminalController, {
       shell: { path: '/bin/bash', name: 'bash', args: [] },
       shellCandidates: [],
-      unattendedTimeoutMs: 0,
+      maxTerminals: 8,
+      maxCols: 500,
+      maxRows: 200,
+      scrollback: 1000,
+      maxBufferedBytes: 2 * 1024 * 1024,
+      maxInputBytes: 64 * 1024,
       disposeGraceMs: 50,
+      unattendedTimeoutMs: 0,
+      activityPollIntervalMs: 30_000,
+      cleanupRetryMs: 60_000,
     })
   }
   const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'mock', model: 'mock' }), cwd: '/tmp' })
@@ -105,7 +113,10 @@ function collect<F extends TerminalStreamFrame | HoldStreamFrame>(stream: AsyncI
   }
 }
 
-const defaults = { rpcId: RpcId('r-terminal'), principal: undefined }
+/** Stream-open envelope without a principal (the route layer adds it). */
+function envelope<P extends object>(payload: P): { rpcId: typeof RpcId.prototype; payload: P } {
+  return { rpcId: RpcId('r-terminal'), payload }
+}
 
 describe('events.terminal / events.hold streams', () => {
   it('streams the attachment snapshot then live output, and abort detaches', async () => {
@@ -115,10 +126,9 @@ describe('events.terminal / events.hold streams', () => {
     const id = 'streamed' as WebTerminalId
     await controller.create(agent, { id, cols: 80, rows: 24 }, new AbortController().signal)
     const abort = new AbortController()
-    const log = collect(api.events.terminal({
-      ...defaults,
-      payload: { sessionId: agent.id, id, attachmentId: 'attach-1' as TerminalAttachmentId },
-    }, abort.signal), abort)
+    const log = collect(api.events.terminal(
+      envelope({ sessionId: agent.id, id, attachmentId: 'attach-1' as TerminalAttachmentId }),
+      abort.signal), abort)
     const snapshot = await log.waitFor(frame => frame.type === 'snapshot')
     expect(snapshot).toMatchObject({ type: 'snapshot', info: { id, state: 'running' } })
     output.write('hello from the pty')
@@ -130,10 +140,9 @@ describe('events.terminal / events.hold streams', () => {
   it('answers a stream/error frame for an unknown session', async () => {
     const { api } = await harness()
     const abort = new AbortController()
-    const log = collect(api.events.terminal({
-      ...defaults,
-      payload: { sessionId: SessionId('never-created'), id: 'x' as WebTerminalId, attachmentId: 'a' as TerminalAttachmentId },
-    }, abort.signal), abort)
+    const log = collect(api.events.terminal(
+      envelope({ sessionId: SessionId('never-created'), id: 'x' as WebTerminalId, attachmentId: 'a' as TerminalAttachmentId }),
+      abort.signal), abort)
     const failure = await log.waitFor(frame => frame.type === 'stream/error')
     expect(failure).toMatchObject({ type: 'stream/error', error: { code: 'terminal-unavailable' } })
     abort.abort()
@@ -144,10 +153,9 @@ describe('events.terminal / events.hold streams', () => {
     const controller = ctx.get('terminalController')
     if (controller === undefined) throw new Error('controller missing from harness')
     const abort = new AbortController()
-    const log = collect(api.events.terminal({
-      ...defaults,
-      payload: { sessionId: agent.id, id: 'never-spawned' as WebTerminalId, attachmentId: 'a' as TerminalAttachmentId },
-    }, abort.signal), abort)
+    const log = collect(api.events.terminal(
+      envelope({ sessionId: agent.id, id: 'never-spawned' as WebTerminalId, attachmentId: 'a' as TerminalAttachmentId }),
+      abort.signal), abort)
     const failure = await log.waitFor(frame => frame.type === 'stream/error')
     expect(failure).toMatchObject({ type: 'stream/error', error: { code: 'terminal-unavailable', message: 'Terminal no longer exists in this Session' } })
     abort.abort()
@@ -160,10 +168,9 @@ describe('events.terminal / events.hold streams', () => {
     const id = 'malformed' as WebTerminalId
     await controller.create(agent, { id, cols: 80, rows: 24 }, new AbortController().signal)
     const abort = new AbortController()
-    const log = collect(api.events.terminal({
-      ...defaults,
-      payload: { sessionId: agent.id, id, attachmentId: 'not a valid attachment id!' as TerminalAttachmentId },
-    }, abort.signal), abort)
+    const log = collect(api.events.terminal(
+      envelope({ sessionId: agent.id, id, attachmentId: 'not a valid attachment id!' as TerminalAttachmentId }),
+      abort.signal), abort)
     const failure = await log.waitFor(frame => frame.type === 'stream/error')
     expect(failure).toMatchObject({ type: 'stream/error', error: { code: 'internal', message: 'Invalid terminal attachment identity' } })
     abort.abort()
@@ -172,10 +179,9 @@ describe('events.terminal / events.hold streams', () => {
   it('answers a stream/error frame when the terminal controller is absent', async () => {
     const { api } = await harness(false)
     const abort = new AbortController()
-    const log = collect(api.events.hold({
-      ...defaults,
-      payload: { sessionId: SessionId('any'), id: 'x' as WebTerminalId },
-    }, abort.signal), abort)
+    const log = collect(api.events.hold(
+      envelope({ sessionId: SessionId('any'), id: 'x' as WebTerminalId }),
+      abort.signal), abort)
     const failure = await log.waitFor(frame => frame.type === 'stream/error')
     expect(failure).toMatchObject({ type: 'stream/error', error: { code: 'terminal-unavailable', message: /terminal service is absent/ } })
     abort.abort()
@@ -188,10 +194,9 @@ describe('events.terminal / events.hold streams', () => {
     const id = 'held' as WebTerminalId
     await controller.create(agent, { id, cols: 80, rows: 24 }, new AbortController().signal)
     const abort = new AbortController()
-    const log = collect(api.events.hold({
-      ...defaults,
-      payload: { sessionId: agent.id, id },
-    }, abort.signal), abort)
+    const log = collect(api.events.hold(
+      envelope({ sessionId: agent.id, id }),
+      abort.signal), abort)
     await log.waitFor(frame => frame.type === 'retained')
     abort.abort()
     await vi.waitFor(() => { expect(controller.list(agent.id).length).toBe(1) })

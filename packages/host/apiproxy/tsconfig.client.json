@@ -10,17 +10,44 @@
     "src/fetch/client.ts"
   ],
   "references": [
-    { "path": "../../../vendor/cordis" },
-    { "path": "../../auth/authentication" },
-    { "path": "../../core/session" },
-    { "path": "../../core/tools" },
-    { "path": "../../interaction/user-approval" },
-    { "path": "../../interaction/user-questions" },
-    { "path": "../../interaction/supervision" },
-    { "path": "../../jobs/jobs" },
-    { "path": "../../llm/llm" },
-    { "path": "../../session/session-projection" },
-    { "path": "../../runtime-diagnostics/invariants" },
-    { "path": "../../util/brand" }
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../api/terminal-controller"
+    },
+    {
+      "path": "../../auth/authentication"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../interaction/supervision"
+    },
+    {
+      "path": "../../interaction/user-approval"
+    },
+    {
+      "path": "../../interaction/user-questions"
+    },
+    {
+      "path": "../../jobs/jobs"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../runtime-diagnostics/invariants"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../util/brand"
+    }
   ]
 }
