@@ -284,7 +284,8 @@ export function mapForeignSessionEvents(log: ForeignSessionLog, defaultTime: num
           identities.set(original.id, id)
           // Factories freeze messages; preserve identities across content rewrites.
           if (event.type === 'user/message') event.data = { ...event.data, id }
-          else if (event.type === 'assistant/message' || event.type === 'tool/result') event.data = { ...event.data, message: { ...event.data.message, id } }
+          else if (event.type === 'assistant/message') event.data = { ...event.data, message: { ...event.data.message, id } }
+          else if (event.type === 'tool/result') event.data = { ...event.data, message: { ...event.data.message, id } }
         }
         const op = raw.surfaceOp
         if (op !== undefined && op !== 'append') {

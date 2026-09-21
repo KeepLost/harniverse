@@ -32,7 +32,7 @@ function response(): { value: ServerResponse; state: { status?: number; body?: s
   return {
     value: {
       writeHead: (status: number) => { state.status = status },
-      end: (body?: string) => { state.body = body },
+      end: (body?: string) => { if (body !== undefined) state.body = body },
     } as unknown as ServerResponse,
     state,
   }

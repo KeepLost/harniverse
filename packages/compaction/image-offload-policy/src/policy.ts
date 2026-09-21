@@ -102,8 +102,8 @@ export function resolveImageOffloadDecisions(
       }
       continue
     }
-    const shadowed = typeof event.surfaceOp === 'object' && event.surfaceOp.op === 'replace'
-      ? event.sourceEventSeqs
+    const shadowed = 'surfaceOp' in event && typeof event.surfaceOp === 'object' && event.surfaceOp.op === 'replace'
+      && 'sourceEventSeqs' in event ? event.sourceEventSeqs
       : undefined
     // A rewrite retaining message identity is the same read occurrence. Only
     // a new tool result / message starts a fresh age, even with identical bytes.

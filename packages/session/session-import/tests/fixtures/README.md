@@ -1,5 +1,7 @@
 # Official Source Recordings
 
+English | [中文](README.zh.md)
+
 Copied verbatim from the frozen local upstream `ddefc45fbc`:
 
 - `official-v1.jsonl`: `snapshots/session/text-turn/session.v1.jsonl`
