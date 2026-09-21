@@ -276,7 +276,7 @@ export class PwshLocalExecutor extends ShellExecutor {
     }
   }
 
-  start(spec: ShellExecSpec): ShellProcess {
+  start(spec: ShellExecSpec): ShellProcess | Promise<ShellProcess> {
     return this.startArgv(spec, this.argv(spec))
   }
 

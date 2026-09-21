@@ -245,7 +245,7 @@ export class LocalBashExecutor extends ShellExecutor {
     }
   }
 
-  start(spec: ShellExecSpec): ShellProcess {
+  start(spec: ShellExecSpec): ShellProcess | Promise<ShellProcess> {
     return this.startArgv(spec, ['bash', '-c', spec.command])
   }
 

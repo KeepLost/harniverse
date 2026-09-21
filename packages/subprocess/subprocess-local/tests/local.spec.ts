@@ -161,6 +161,26 @@ describe('LocalSubprocessRuntime', () => {
     }
   })
 
+  it('resizes a live PTY without disturbing the session', async () => {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
+    const handle = await ctx.subprocess.spawnTerminal({
+      argv: ['/bin/sh', '-c', 'sleep 5'],
+      cwd: process.cwd(),
+      rows: 24,
+      cols: 80,
+      graceMs: 1_000,
+    })
+    try {
+      await handle.resize(100, 30)
+      await expect(handle.resize(0, 30)).rejects.toThrow()
+      expect(handle.pid).toBeGreaterThan(0)
+    } finally {
+      await handle.terminate()
+      await fiber.dispose()
+    }
+  })
+
   it('validates terminal allocation inputs before allocating a PTY', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessRuntime)
@@ -184,6 +204,7 @@ describe('LocalSubprocessRuntime', () => {
       write: async () => {},
       inspectForeground: async () => undefined,
       signalForeground: async () => 1,
+      resize: async () => {},
       terminate,
     }
     const terminals = (ctx.subprocess as unknown as { terminals: Set<SubprocessTerminalHandle> }).terminals
@@ -208,6 +229,7 @@ describe('LocalSubprocessRuntime', () => {
       write: async () => {},
       inspectForeground: async () => undefined,
       signalForeground: async () => 1,
+      resize: async () => {},
       terminate: vi.fn(async () => { throw firstFailure }),
     }
     const secondFailedTerminal: SubprocessTerminalHandle = {
@@ -255,6 +277,7 @@ describe('LocalSubprocessRuntime', () => {
       write: async () => {},
       inspectForeground: async () => undefined,
       signalForeground: async () => 1,
+      resize: async () => {},
       terminate: vi.fn(async () => { throw failure }),
     }
     const terminals = (service as unknown as { terminals: Set<SubprocessTerminalHandle> }).terminals

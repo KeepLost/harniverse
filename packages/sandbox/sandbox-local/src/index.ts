@@ -38,7 +38,7 @@ import { SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandb
 import type { ConfinedArgv, ConfinedSandboxMode, RunnerFailureRule, SandboxEnforcement, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { AclWriteGrant, assertTempRootOutsideWorkspace, tempWriteSid, workspaceWriteSid } from '@deepseek-ai/dsh-sandbox-windows-acl'
-import { bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs } from './profiles.ts'
+import { bwrapProfileArgs, landlockProfileArgs, resolveRunnerProgram, seatbeltProfileArgs } from './profiles.ts'
 
 /** Plugin config. All optional — `static Config` supplies the defaults. */
 export interface Config {
@@ -313,7 +313,8 @@ export class LocalSandboxProvider extends SandboxProvider {
    *   signatures, and structured runner-failure rules; throws the fail-closed
    *   `SANDBOX_UNAVAILABLE` error when the platform has no usable runner.
    */
-  confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
+  confine(argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): ConfinedArgv {
+    signal?.throwIfAborted()
     if (this.runnerCommand !== undefined) {
       return {
         argv: [...this.runnerCommand, ...bwrapProfileArgs(policy), '--', ...argv],
@@ -335,9 +336,12 @@ export class LocalSandboxProvider extends SandboxProvider {
   /** The selected rung's runner invocation (program + profile arguments) for one policy. */
   private runnerArgv(runner: SelectedRunner['runner'], policy: SandboxPolicy): string[] {
     switch (runner) {
-      case 'bwrap': return ['bwrap', ...bwrapProfileArgs(policy)]
+      // Absolute runner paths keep the wrap spawnable verbatim under a
+      // caller-built environment with no `PATH` (the fresh-process code
+      // runtime's empty child environment).
+      case 'bwrap': return [resolveRunnerProgram('bwrap'), ...bwrapProfileArgs(policy)]
       case 'landlock': return [this.landlockLauncher(), ...landlockProfileArgs(policy)]
-      case 'seatbelt': return [this.seatbeltExec(), ...seatbeltProfileArgs(policy)]
+      case 'seatbelt': return [resolveRunnerProgram(this.seatbeltExec()), ...seatbeltProfileArgs(policy)]
       case 'windows-acl': return this.windowsAclRunnerArgv(policy)
       default: return assertNever(runner)
     }

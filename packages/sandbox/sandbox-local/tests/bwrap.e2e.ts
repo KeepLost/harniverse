@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
-import { bwrapProfileArgs } from '../src/profiles.ts'
+import { bwrapProfileArgs, resolveRunnerProgram } from '../src/profiles.ts'
 
 /**
  * Keyless backend integration through `confine()` and a real bwrap process. With no rung forced,
@@ -55,7 +55,8 @@ describe.skipIf(!bwrapUsable)('sandbox-local: real bwrap confinement', () => {
     const workdir = await tempDir(tmpdir())
     const sandbox = await provider()
     const confined = sandbox.confine(['true'], { mode: 'read-only', workspaceRoot: workdir })
-    expect(confined.argv[0]).toBe('bwrap')
+    // The confined argv is spawnable verbatim: the runner resolves to an absolute path when the host PATH provides it.
+    expect(confined.argv[0]).toBe(resolveRunnerProgram('bwrap'))
     expect(confined.enforcement).toBe('full')
     expect(confined.denialSignatures).toEqual(['read-only file system'])
   })

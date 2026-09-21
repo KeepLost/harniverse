@@ -1607,9 +1607,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Abstract process-sandbox service. confine must return enforcing argv or fail closed at wrap or runner-execution time; silent unconfined passthrough is forbidden. Functional probes arbitrate multi-runner chains and may be skipped for a sole candidate, whose own refusal remains the fail-closed end.',
     methods: [
       {
-        signature: 'abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv',
+        signature: 'abstract confine(argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): ConfinedArgv | Promise<ConfinedArgv>',
         description: 'Wrap `argv` so it executes confined under `policy` on this host; the caller spawns the returned argv in place of its own.',
-        parameters: [{ name: 'argv', description: 'the exact argv the caller is about to spawn (program plus arguments), NOT a shell string — a shell-shaped consumer passes `[\'bash\', \'-c\', command]`.' }, { name: 'policy', description: 'the file-effect policy this execution runs under, carried per call (see {@link SandboxPolicy}).' }],
+        parameters: [{ name: 'argv', description: 'the exact argv the caller is about to spawn (program plus arguments), NOT a shell string — a shell-shaped consumer passes `[\'bash\', \'-c\', command]`.' }, { name: 'policy', description: 'the file-effect policy this execution runs under, carried per call (see {@link SandboxPolicy}).' }, { name: 'signal', description: 'cancellation while the provider resolves the policy and runner.' }],
         returns: 'the argv to spawn instead, plus the enforcement completeness the selected backend achieves for it.',
       },
     ],
@@ -2305,8 +2305,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the outcome; nonzero exits, timeout kills, and abort kills resolve with a descriptive result rather than reject.',
       },
       {
-        signature: 'abstract start(spec: ShellExecSpec): ShellProcess',
-        description: 'Start a background process and return its handle immediately.',
+        signature: 'abstract start(spec: ShellExecSpec): ShellProcess | Promise<ShellProcess>',
+        description: 'Prepare a background process and publish its handle after provider setup.',
         parameters: [{ name: 'spec', description: 'a resolved spec from {@link resolve}, never a raw request.' }],
         returns: 'the live process handle (reads, kill, quiescence promise).',
       },
@@ -2396,6 +2396,35 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Read one bounded page from a locator produced by this backend.',
         parameters: [{ name: 'input', description: 'opaque locator, optional backend cursor, and page character limit.' }],
         returns: 'bounded text and an opaque continuation cursor when unread text remains.',
+      },
+    ],
+  },
+  {
+    key: 'ssh',
+    summary: 'Loss invalidates this connection.',
+    description: 'Loss invalidates this connection. A new connection captures a new remote revision.',
+    methods: [
+      {
+        signature: 'readonly ready: Promise<Hello>',
+        description: 'Handshake settlement: resolves with the verified helper hello or fails the connection.',
+        parameters: [],
+      },
+      {
+        signature: 'async request<T>(method: string, params: unknown, result: z.ZodType<T>, signal?: AbortSignal, wait: boolean = false): Promise<T>',
+        description: 'Issue one bounded RPC against the connected helper.',
+        parameters: [{ name: 'method', description: 'the protocol method name.' }, { name: 'params', description: 'its validated payload.' }, { name: 'result', description: 'the schema every successful reply body must satisfy.' }, { name: 'signal', description: 'cancellation for this request alone.' }, { name: 'wait', description: 'true to use the connection lifetime instead of the administrative request timeout.' }],
+        returns: 'the parsed reply body.',
+      },
+      {
+        signature: 'async describeWorld(): Promise<WorldDescription>',
+        description: 'This description is pinned for the connection, including the captured Host Profile revision.',
+        parameters: [],
+        returns: 'the immutable world descriptor the helper verified at connect.',
+      },
+      {
+        signature: 'dispose(): Promise<void>',
+        description: 'Join helper cleanup when reachable, then close and join the owned OpenSSH process.',
+        parameters: [],
       },
     ],
   },
@@ -4095,6 +4124,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CapabilityView {\n    readonly scope?: ScopeKey;\n    readonly scopes?: readonly ScopeKey[];\n    readonly cwd?: string;\n    readonly signal?: AbortSignal;\n    readonly agentProfile?: string;\n}',
   },
   {
+    name: 'CapturedRemoteProfile',
+    declaration: 'export type CapturedRemoteProfile = z.infer<typeof capturedProfileSchema>;',
+  },
+  {
     name: 'ChildModelRoute',
     declaration: 'export interface ChildModelRoute {\n    readonly provider: string;\n    readonly model: string;\n    readonly fallbacks?: readonly ChildModelRouteTarget[];\n}',
   },
@@ -4467,6 +4500,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    adapterDefaults?: LlmCallConfigAdapterDefaults;\n    system?: string;\n    tools?: ToolSchema[];\n}',
   },
   {
+    name: 'ExecutionTransport',
+    declaration: 'export type ExecutionTransport = \'local\' | \'ssh\';',
+  },
+  {
+    name: 'ExecutionWorldDescriptor',
+    declaration: 'export interface ExecutionWorldDescriptor {\n    readonly worldId: string;\n    readonly transport: ExecutionTransport;\n    readonly workspaceRoot: string;\n    readonly capabilities: readonly CapabilityDescriptor[];\n    readonly presets: readonly string[];\n    readonly configOwner: \'machine\';\n    readonly credentialRefs: readonly CredentialRef[];\n    readonly revision: string;\n    readonly digest: string;\n}',
+  },
+  {
     name: 'FileAttachmentLimits',
     declaration: 'export interface FileAttachmentLimits {\n    maxFileBytes: number;\n}',
   },
@@ -4601,6 +4642,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'GovernorTier',
     declaration: 'export type GovernorTier = \'cgroup\' | \'rlimit\' | \'observe\';',
+  },
+  {
+    name: 'Hello',
+    declaration: 'export type Hello = z.infer<typeof helloSchema>;',
   },
   {
     name: 'ImageAttachmentLimits',
@@ -4857,6 +4902,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'LspRange',
     declaration: 'export interface LspRange {\n    readonly start: LspPosition;\n    readonly end: LspPosition;\n}',
+  },
+  {
+    name: 'MachineInventory',
+    declaration: 'export type MachineInventory = z.infer<typeof machineInventorySchema>;',
   },
   {
     name: 'ManualCompactAgentContext',
@@ -6068,7 +6117,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubprocessTerminalHandle',
-    declaration: 'export interface SubprocessTerminalHandle {\n    readonly pid: number;\n    readonly output: Readable;\n    readonly done: Promise<SubprocessOutcome>;\n    write(data: string): Promise<void>;\n    inspectForeground(): Promise<SubprocessTerminalForeground | undefined>;\n    signalForeground(signal: SubprocessTerminalSignal): Promise<number>;\n    terminate(): Promise<void>;\n}',
+    declaration: 'export interface SubprocessTerminalHandle {\n    readonly pid: number;\n    readonly output: Readable;\n    readonly done: Promise<SubprocessOutcome>;\n    write(data: string): Promise<void>;\n    resize(cols: number, rows: number): Promise<void>;\n    inspectForeground(): Promise<SubprocessTerminalForeground | undefined>;\n    signalForeground(signal: SubprocessTerminalSignal): Promise<number>;\n    terminate(): Promise<void>;\n}',
   },
   {
     name: 'SubprocessTerminalSignal',
@@ -6545,6 +6594,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkspaceGitApi',
     declaration: 'export interface WorkspaceGitApi {\n    status(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        branch: string | null;\n        entries: WorkspaceGitStatusEntry[];\n        truncated: boolean;\n    }>>;\n    commits(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        limit?: number;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        commits: WorkspaceGitCommit[];\n        truncated: boolean;\n    }>>;\n    diff(request: RpcRequest<{\n        workspaceId: WorkspaceId;\n        path?: string;\n        staged?: boolean;\n    }>, signal: AbortSignal): Promise<RpcResponse<{\n        diff: string;\n        truncated: boolean;\n    }>>;\n}',
+  },
+  {
+    name: 'WorldDescription',
+    declaration: 'export interface WorldDescription {\n    readonly descriptor: ExecutionWorldDescriptor;\n    readonly profile: CapturedRemoteProfile;\n    readonly inventory: MachineInventory;\n}',
   },
 ]
 

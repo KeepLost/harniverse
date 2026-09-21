@@ -22,12 +22,17 @@
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
     },
+    "./output": {
+      "types": "./lib/types/output.d.ts",
+      "default": "./lib/output.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
     "lib/invariant.js",
+    "lib/output.js",
     "scripts/ensure-spawn-helper.mjs",
     "lib/types/**/*.d.ts"
   ],

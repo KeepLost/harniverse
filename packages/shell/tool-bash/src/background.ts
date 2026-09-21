@@ -5,6 +5,36 @@
  */
 
 import type { ShellProcess } from '@deepseek-ai/dsh-shell'
+import type { JobHooks, JobOutcome } from '@deepseek-ai/dsh-jobs'
+
+/**
+ * Keep job cancellation active while a remote shell is preparing its process.
+ * @param start - resolves the process handle, honouring the abort signal when preparation is cancelled.
+ * @param render - renders the process's current output snapshot for `readOutput`.
+ * @returns the `ctx.jobs` hooks wired to the process lifetime.
+ */
+export function processJob(
+  start: (signal: AbortSignal) => ShellProcess | Promise<ShellProcess>,
+  render: (process: ShellProcess) => string,
+): JobHooks {
+  const controller = new AbortController()
+  let process: ShellProcess | undefined
+  const done: Promise<JobOutcome> = (async () => {
+    try {
+      process = await start(controller.signal)
+      if (controller.signal.aborted) process.kill()
+      await process.done
+      return processOutcome(process)
+    } catch (error) {
+      return { status: controller.signal.aborted ? 'killed' : 'failed', detail: error instanceof Error ? error.message : String(error) }
+    }
+  })()
+  return {
+    cancel: (reason) => { controller.abort(reason); process?.kill() },
+    done,
+    readOutput: () => process === undefined ? '' : render(process),
+  }
+}
 
 /**
  * Map a settled background process onto the generic task-outcome vocabulary:

@@ -24,7 +24,7 @@ import { ESCALATION_TARGETS, approveEscalation, canonicalPath, validateEscalatio
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-shell'
 import type { ShellRunResult } from '@deepseek-ai/dsh-shell'
-import { processOutcome } from './background.ts'
+import { processJob } from './background.ts'
 import { parseExitStatus, renderProcessRead, renderResult } from './render.ts'
 
 export const name = 'tool-bash'
@@ -399,14 +399,10 @@ export function apply(ctx: Context, config: Config = {}): void {
           kind: 'bash',
           label: args.command,
           ...exec.agent ? { owner: exec.agent } : {},
-          run: () => {
-            const proc = ctx.shell.start(ctx.shell.resolve(request))
-            return {
-              cancel: () => void proc.kill(),
-              done: proc.done.then(() => processOutcome(proc)),
-              readOutput: () => renderProcessRead(proc.readOutput(), proc.sandbox, escalationModes),
-            }
-          },
+          run: () => processJob(
+            signal => ctx.shell.start(ctx.shell.resolve({ ...request, signal })),
+            proc => renderProcessRead(proc.readOutput(), proc.sandbox, escalationModes),
+          ),
         })
         return { kind: 'background' as const, jobId: id }
       }

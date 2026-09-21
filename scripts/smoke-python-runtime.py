@@ -86,8 +86,12 @@ CUSTOM_CORDIS = """\
   config:
     root: !!js process.env.DSH_SESSION_ROOT
     compression: 'none'
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: danger-full-access
 - id: code-runtime
-  name: '@deepseek-ai/dsh-code-runtime-worker-thread'
+  name: '@deepseek-ai/dsh-code-runtime-ptc'
 - id: subagents
   name: '@deepseek-ai/dsh-subagent'
 - id: subagent-spawn-in-process
