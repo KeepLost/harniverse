@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-session-import",
-  "description": "Contract for lossy foreign-session import: foreign format-version classification, the archival import/record marker event, and the resume exclusion guard live machinery must honor",
+  "description": "Contract and runtime for lossy foreign-session import: foreign format classification, the archival import/record marker, the resume exclusion guard live machinery must honor, and the persistence-backed importer that retains the source artifact beside the mapped session",
   "version": "0.1.0-rc.5",
   "publishConfig": {
     "access": "public"
@@ -32,15 +32,24 @@
   ],
   "license": "MIT",
   "peerDependencies": {
+    "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-session-persistence": "workspace:^",
     "@deepseek-ai/dsh-supervision": "workspace:^"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/cordis-plugin-include": "workspace:^",
+    "@deepseek-ai/cordis-plugin-loader": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-session-persistence": "workspace:^",
+    "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:^",
     "@deepseek-ai/dsh-supervision": "workspace:^"
   }
 }

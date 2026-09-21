@@ -27,6 +27,7 @@ import { MESSAGES_FILES_BETA, messagesApiRoot } from '../../common/messages-api.
 import {
   collectRequestImages,
   imageSerialization,
+  projectImageOmissions,
   staleFileDetail,
 } from '../../common/request-images.ts'
 import type { ImageSerializationOptions } from '../../common/request-images.ts'
@@ -136,15 +137,19 @@ export class DeepSeekMessagesAdapter extends LlmAdapter {
     onComment: () => void,
   ): AsyncIterable<StreamChunk> {
     const prepared = await collectRequestImages(options, connection, this.config.resolveAttachments, signal)
+    let images: ImageSerializationOptions | undefined
+    const selectImages = (preparedImages: NonNullable<typeof prepared>, representation: 'file' | 'base64'): void => {
+      images = imageSerialization(preparedImages, connection, this.files, apiKey, signal, representation, 'messages', options.messages)
+      options = projectImageOmissions(options, images)
+    }
     const onReplayDegrade = (reason: string): void => {
       this.config.onReplayDegrade?.({ provider: options.provider, model: options.model, reason })
     }
     let body: WireRequest
-    let images: ImageSerializationOptions | undefined
     if (prepared === undefined) {
       body = await serialize(options, connection, connection.defaults, options.messages, undefined, onReplayDegrade)
     } else {
-      images = imageSerialization(prepared, connection, this.files, apiKey, signal, 'file', 'messages')
+      selectImages(prepared, 'file')
       try {
         body = await serialize(options, connection, connection.defaults, options.messages, images, onReplayDegrade)
       } catch (error) {
@@ -152,7 +157,7 @@ export class DeepSeekMessagesAdapter extends LlmAdapter {
         // Files API resolution is an optimization. The same request is retried
         // with one consistent inline representation instead of mixing file ids
         // and base64 sources from two attempts.
-        images = imageSerialization(prepared, connection, this.files, apiKey, signal, 'base64', 'messages')
+        selectImages(prepared, 'base64')
         body = await serialize(options, connection, connection.defaults, options.messages, images, onReplayDegrade)
       }
     }
@@ -259,7 +264,7 @@ export class DeepSeekMessagesAdapter extends LlmAdapter {
           status: response.status,
         })
         await this.files.clear(deepSeekFileScope(connection.baseURL, apiKey, 'messages'))
-        images = imageSerialization(prepared, connection, this.files, apiKey, signal, 'base64', 'messages')
+        selectImages(prepared, 'base64')
         body = await serialize(options, connection, connection.defaults, options.messages, images, onReplayDegrade)
         sent = await send(body)
         response = sent.response

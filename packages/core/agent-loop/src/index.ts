@@ -468,6 +468,7 @@ export class AgentLoop extends Service implements AgentFactory {
    * fuses caller cancellation with lifecycle teardown for setup awaits.
    */
   private prepare(ownerCtx: Context, id: SessionId, options: AgentOptions, session: Session, callerSignal?: AbortSignal): PreparedAgent {
+    this.runtime.ctx.agents.assertAdmission(session)
     assertAgentOptions(options)
     ownerCtx.fiber.assertActive()
     // Every caller reaches prepare() synchronously from a service method

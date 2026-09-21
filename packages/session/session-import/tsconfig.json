@@ -8,6 +8,7 @@
     "src"
   ],
   "references": [
+    { "path": "../../core/agent" },
     {
       "path": "../../../vendor/cordis"
     },
@@ -16,6 +17,12 @@
     },
     {
       "path": "../../interaction/supervision"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../session-persistence"
     },
     {
       "path": "../../runtime-diagnostics/invariants"

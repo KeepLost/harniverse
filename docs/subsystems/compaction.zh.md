@@ -285,9 +285,10 @@ measureContent(blocks: readonly ContentBlock[]): number
  * Text slicing is by Unicode code point, not UTF-16 code unit, so a retained
  * boundary cannot split a surrogate pair. Grapheme clusters may still split.
  * @param blocks - original tool-result content.
+ * @param preserve - projected rich-block placeholders that must remain whole.
  * @returns pruned content, or `null` when the text is within budget.
  */
-pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
+pruneContent(blocks: readonly ContentBlock[], preserve: ReadonlySet<ContentBlock> = new Set()): ContentBlock[] | null
 
 /**
  * Prune every over-budget tool result from one stable current-surface snapshot.
@@ -306,7 +307,7 @@ pruneSession(session: Session): PruneResult
 
 Types: [ContentBlock](llm-streaming.md) · [Session](session.md)
 
-Source: [`packages/compaction/compaction-tool-result-pruner/src/index.ts:44`](../../packages/compaction/compaction-tool-result-pruner/src/index.ts)
+Source: [`packages/compaction/compaction-tool-result-pruner/src/index.ts:45`](../../packages/compaction/compaction-tool-result-pruner/src/index.ts)
 
 <a id="compaction-events"></a>
 

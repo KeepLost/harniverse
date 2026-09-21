@@ -73,6 +73,10 @@ flowchart LR
   pkg_settings_file["settings-file"]
   pkg_apiproxy["apiproxy"]
   pkg_mcp_user_config["mcp-user-config"]
+  pkg_session_import["session-import"]
+  svc_sessionImport["ctx.sessionImport<br/>Foreign-session archival import"]
+  pkg_mcp_resources["mcp-resources"]
+  svc_mcpResources["ctx.mcpResources<br/>Scoped MCP resource seam"]
   svc_mcpUserConfigSettings["ctx.mcpUserConfigSettings<br/>User MCP configuration seam"]
   pkg_model_policy["model-policy"]
   svc_modelPolicy["ctx.modelPolicy<br/>Session model authorization and routing seam"]
@@ -296,6 +300,7 @@ flowchart LR
   pkg_llm_replay --> svc_llm
   pkg_lsp --> svc_lsp
   pkg_lsp_local --> svc_lsp
+  pkg_mcp_resources --> svc_mcpResources
   pkg_mcp_user_config --> svc_mcpUserConfigSettings
   pkg_message_feedback --> svc_messageFeedback
   pkg_model_policy --> svc_modelPolicy
@@ -315,6 +320,7 @@ flowchart LR
   pkg_session --> svc_sessions
   pkg_session_delivery --> svc_sessionDelivery
   pkg_session_delivery_local --> svc_sessionDelivery
+  pkg_session_import --> svc_sessionImport
   pkg_session_persistence --> svc_sessionPersistence
   pkg_session_persistence_jsonl --> svc_sessionPersistence
   pkg_session_persistence_sqlite --> svc_sessionPersistence
@@ -411,6 +417,7 @@ flowchart LR
   svc_llm --> pkg_compaction_basic
   svc_llm --> pkg_compaction_lossless
   svc_lsp --> pkg_tool_lsp
+  svc_mcpResources --> pkg_mcp_client
   svc_mcpUserConfigSettings --> pkg_mcp_user_config
   svc_modelPolicy --> pkg_apiproxy
   svc_modelPolicy --> pkg_compaction_basic
@@ -426,6 +433,7 @@ flowchart LR
   svc_sandboxPolicy --> pkg_fs_sandbox
   svc_sandboxPolicy --> pkg_terminal_bash
   svc_sessionDelivery --> pkg_tool_session_delivery
+  svc_sessionImport --> pkg_agent_loop
   svc_sessionPersistence --> pkg_agent_loop
   svc_sessionPersistence --> pkg_hooks_claude_code
   svc_sessionPersistence --> pkg_hooks_codex
@@ -532,6 +540,8 @@ flowchart LR
 | `ctx.typertGateway` | `core` | [`api-gateway`](../packages/api/gateway) | - | - | - | 将生成的 Remote 描述符与实时 Cordis 服务关联，解析已注册的身份，并通过共享的 Connection RPC 载体提供一元调用。 |
 | `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session/session-persistence) | [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session/session-persistence-sqlite) | [`agent-loop`](../packages/core/agent-loop), [`tool-bash`](../packages/shell/tool-bash), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`message-feedback`](../packages/feedback/message-feedback) | - | 各后端持久化同一套 SessionEvent 词汇；应用在组合时选择后端。 |
 | `ctx.settings` | `seam` | [`settings`](../packages/settings/settings) | [`settings-file`](../packages/settings/settings-file) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy`, [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | 插件注册命名空间 schema 并解析分层值；提供方存储原始文档。LLM（大语言模型）适配器在用户分区下将其入口配置注册为组合基础；Web 网关提供经过脱敏的分层描述符，并写入用户层。 |
+| `ctx.sessionImport` | `seam` | [`session-import`](../packages/session/session-import) | [`session-import`](../packages/session/session-import) | [`agent-loop`](../packages/core/agent-loop) | - | 运行时把官方 v1/v2/v3 日志有损映射为归档的原生会话，并把源工件保留在映射会话旁边；agent loop 遵循契约的恢复守卫，导入的历史绝不执行。 |
+| `ctx.mcpResources` | `seam` | [`mcp-resources`](../packages/mcp/mcp-resources) | [`mcp-resources`](../packages/mcp/mcp-resources) | [`mcp-client`](../packages/mcp/mcp-client) | - | 作用域化提供方发布服务器资源；运行时拥有共享的 list/template/read 工具与命名可达服务器的逐字提示词小节，mcp-client 在读取与列表上强制执行 Profile 成员可见性。 |
 | `ctx.mcpUserConfigSettings` | `seam` | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | [`mcp-user-config`](../packages/mcp/mcp-user-config) | - | host 拥有并验证用户 MCP server 列表；Profile consumer 在不将工具全局化的前提下协调隔离的 mcp-client 子插件。 |
 | `ctx.modelPolicy` | `seam` | [`model-policy`](../packages/core/model-policy) | [`model-policy`](../packages/core/model-policy) | [`model-policy-fallback`](../packages/core/model-policy-fallback), `apiproxy`, [`compaction-basic`](../packages/compaction/compaction-basic), [`session-title-llm`](../packages/session/session-title-llm), `ui-model-selection` | - | 服务将 Profile 授权和逻辑目标快照写入每个 Session；Host 与辅助消费方执行该快照，fallback consumer 记录有序的跨模型转移。 |
 | `ctx.credentials` | `seam` | [`credentials`](../packages/credentials/credentials) | [`credentials-local`](../packages/credentials/credentials-local) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy` | - | 配置携带对机密信息的引用；提供方拥有实际值。消费方按操作解析，因此轮换后的凭据会在紧接着的下一次请求中生效；Web 网关提供不含实际值的视图和只写存储。 |

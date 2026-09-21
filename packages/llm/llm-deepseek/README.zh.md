@@ -51,7 +51,7 @@ Harness LLM 接缝的 DeepSeek 适配器，通过直接 `fetch` + SSE（由 `eve
 
 `maxTokens` 是适配器配置的会话请求输出上限，默认 256,000。目录条目可携带自己的 `maxTokens` 并在该模型上胜出；无此字段的条目与任何未列出的透传 id 回退到 profile 值，因此为单个模型加上限只改变该模型而非整条路由。精确模型解析把胜者暴露为 `defaultMaxTokens`；`LlmRuntime` 在 agent 循环写入 `request/header` 前把它物化为 `GenerateOptions.maxTokens`，线请求因此可重建。显式请求或 `AgentOptions.maxTokens` 值胜出并序列化为 `max_tokens`。适配器不依据 `contextWindow` 收紧该请求预算；上下文或提供方输出上限更小的部署必须配置兼容的 `maxTokens`。
 
-目录模型在 `inputModalities` 显式包含 `image` 之前均为纯文本。对具备图片能力的模型，适配器经 `ctx.attachments` 读取持久图片引用，派生有界请求版本，并发送 DeepSeek Files API 引用或单一全内联的回退表示。超出聚合字节或数量预算时先省略较旧的图片；一个请求绝不混合文件引用与内联图片。默认目录的 `deepseek-flash` 条目具备图片能力，因此官方 V41 Flash 路由无需额外配置即可服务请求图片。
+目录模型在 `inputModalities` 显式包含 `image` 之前均为纯文本。对具备图片能力的模型，适配器经 `ctx.attachments` 读取持久图片引用，派生有界请求版本，并发送 DeepSeek Files API 引用或单一全内联的回退表示。超出聚合字节或数量预算时先选择较旧的图片出现;挂载的请求投影消费方会在序列化前收到准确的消息／图片序号并可持久结算。一个请求绝不混合文件引用与内联图片。默认目录的 `deepseek-flash` 条目具备图片能力，因此官方 V41 Flash 路由无需额外配置即可服务请求图片。
 
 同一个精确模型结果还在部署策略允许思考时，为每个透传模型在 `reasoning` 下暴露有序的 `off`、`low`、`high`、`max` 档位。`reasoningEffort` 选择部署默认值，缺省回退为 `high`。`agent/request` 可在每一步会话上替换它；解析值记录于 `request/header`。`low`、`high`、`max` 启用思考 —— chat-completions 把它们序列化为官方顶层 `reasoning_effort`，Messages 序列化为 `output_config.effort`；适配器自有的 `off` 则序列化 `thinking.type: disabled` 并省略档位字段。不支持的值在网络 I/O 之前以 `UNSUPPORTED_REASONING_EFFORT` 失败。
 

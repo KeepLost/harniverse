@@ -538,6 +538,7 @@ export class AgentPresets extends Service {
         const composition = await this.resolveComposition(preset)
         const generation = this.nextGeneration(preset.id)
         const runtimeEntries = composition.entries.map(runtimeEntry)
+        composition.capture?.mount(scope.ctx, composition.entries)
         await mountPreset(scope.ctx, preset, composition.patches, { generation, capabilities: runtimeEntries })
         this.selfCtx.get('capabilities')?.mountComposition(scope.ctx, composition.entries)
         return { key, scope, stamp, composition: composition.signature, generation, capabilities: runtimeEntries }
@@ -555,17 +556,27 @@ export class AgentPresets extends Service {
     readonly signature: string
     readonly entries: readonly CapabilityCatalogEntry[]
     readonly patches: ReturnType<typeof compositionPatches>
+    readonly capture?: import('@deepseek-ai/dsh-capabilities').CapabilityGenerationCapture
   }> {
     const catalog: PresetCompositionCatalog = await readCompositionCatalog(await this.list(), preset.id)
     const capabilities = this.selfCtx.get('capabilities')
     if (capabilities === undefined) return { signature: '', entries: [], patches: [] }
     const target = { kind: 'agent-profile', agentProfile: preset.id } as const
-    const snapshot = await capabilities.snapshot(target, { agentProfile: preset.id })
-    return {
-      signature: capabilities.compositionSignature(preset.id, snapshot.entries),
-      entries: snapshot.entries,
-      patches: compositionPatches(catalog, snapshot.entries),
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const capture = capabilities.captureGeneration({ agentProfile: preset.id })
+      const revision = capabilities.composition(target).revision
+      const snapshot = await capabilities.snapshot(target, { agentProfile: preset.id })
+      // An asynchronous adapter may observe a settings replacement during discovery.
+      if (revision !== snapshot.revision || revision !== capabilities.composition(target).revision
+        || capture.signature !== capabilities.captureGeneration({ agentProfile: preset.id }).signature) continue
+      return {
+        signature: JSON.stringify([capabilities.compositionSignature(preset.id, snapshot.entries), capture.signature]),
+        capture,
+        entries: snapshot.entries,
+        patches: compositionPatches(catalog, snapshot.entries),
+      }
     }
+    throw new PresetMountError(preset.id, 'configuration changed repeatedly during composition; retry assembly')
   }
 
   private nextGeneration(presetId: string): string {

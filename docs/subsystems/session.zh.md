@@ -458,9 +458,15 @@ declare class Session {
    * @param id - session identity.
    * @param seed - optional borrowed replay or fork events.
    * @param header - optional borrowed storage metadata.
+   * @param projections - pure interpreters for plugin-owned message changes.
    * @returns a detached session.
    */
-  static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;
+  static create(
+    id: SessionId,
+    seed?: readonly SessionEvent[],
+    header?: SessionHeader,
+    projections?: readonly SessionMessageProjection[],
+  ): Session;
   /**
    * Restore a detached session by taking ownership of fresh persistence values.
    * The storage format, event envelopes, sequence continuity, surface transitions,
@@ -470,6 +476,7 @@ declare class Session {
    * @param header - fresh detached metadata whose ownership is transferred.
    * @param history - optional absolute-sequence resolver for a windowed seed.
    * @param surface - optional surface state already folded at the window boundary.
+   * @param projections - pure interpreters for plugin-owned message changes.
    * @returns a restored detached session.
    */
    static fromRestore(
@@ -478,6 +485,7 @@ declare class Session {
      header: SessionHeader,
      history?: SessionHistorySource,
      surface?: { readonly nodes: readonly number[]; readonly replaceGeneration: number },
+     projections?: readonly SessionMessageProjection[],
    ): Session;
   /**
    * An immutable snapshot of the append-only event log. The snapshot is reused
@@ -562,7 +570,11 @@ declare class Session {
    * append records its `surfaceOp`, so a raw event with no marker (a chunk, a
    * turn boundary) is correctly absent, and a compaction `replace` deletes the
    * shadowed nodes from the derivation. The projection rules are
-   * {@link deriveEventMessage}, folded per node.
+   * {@link deriveEventMessage}, folded per node, then the registered
+   * {@link SessionMessageProjection} interpreters rewrite messages named by
+   * plugin-owned decision events (model-visible projections such as
+   * `image/offload`); projections supplied at construction stay fixed for the
+   * session's life.
    *
    * CACHED: each surface node is projected exactly once, when first seen — a
    * call costs O(new nodes), and a surface rewrite (a `replace`;
@@ -574,6 +586,12 @@ declare class Session {
    * @returns a fresh array of the shared, frozen derived history.
    */
   deriveMessages(): Message[];
+  /**
+   * Read a current surface message with all durable projections applied.
+   * @param seq - absolute sequence of the surface event.
+   * @returns the projected message, or undefined for a shadowed or empty node.
+   */
+  projectedMessageAt(seq: number): Message | undefined;
   /**
    * Instance face of the pure per-node `deriveEventMessage` export from
    * `surface.ts`.
@@ -594,6 +612,10 @@ declare class Session {
 - `user/message`（注入上下文，即非 `user` 来源）→ 按时间顺序在相应位置生成一条 user-role 消息，并原样承载其 `content`；其类型化 source 标明生产方，并携带所有生产方专用数据。
 
 其余所有事件（`turn/*`、`step/*`、插件所属的 `llm/retry`）均为结构信息，不会投影为消息。token 记账读取每个步骤的 `assistant/chunk { type: 'usage' }` 记录；如果没有用量分片，则将 `assistant/message.usage` 作为已提交步骤的后备。失败的模型请求尝试没有 assistant 消息，因此其用量分片是持久化的记账记录。由于这一尚未发布的格式有意不提供兼容性承诺，seed/load 校验会拒绝没有提供方／模型的请求头和 assistant 消息，而不会猜测历史数据应走的提供方路由。
+
+### 消息投影
+
+`Session.create`/`Session.fromRestore` 接受一个可选的 [`SessionMessageProjection`](#ctxsessions--sessionstore) 列表 —— `{ type, project(event, context) }` —— 在构造时固定。基础折叠记录每个节点的派生消息后，各投影针对自己的事件类型重新走一遍日志尾部，可返回按节点 seq 键控的替换消息；替换发生变化时从组合后的映射重建派生数组，surface 重写会重放整个投影历史。`SessionStore.registerMessageProjection(type, …)` 为 store 创建的会话注册投影（类型重复会抛错；disposer 负责注销）。[`dsh-compaction-image-offload`](../../packages/compaction/compaction-image-offload/README.md) 是当前的所有者：其 `image/offload` 投影在目标图片块的位置渲染持久化的卸载占位文本，其余块位置 —— 因而 KV-cache 前缀 —— 保持稳定。投影只改变 `deriveMessages()` 的返回；`deriveEventMessage(event)` 与展示面保留原始消息。
 
 ## 活跃会话 fork API
 
@@ -718,6 +740,17 @@ In-memory session store (`ctx.sessions`).
 Persistence is intentionally not implemented here — persistence plugins subscribe to `session/event` and flush on `session/flush` / dispose.
 
 ```ts cordis-catalog
+/**
+ * Register one message-projection interpreter for sessions this store
+ * prepares afterwards. Already-live sessions keep the interpreters they
+ * were constructed with; disposing the contribution removes it from later
+ * preparations only.
+ * @param projection - pure definition owned by the event's plugin.
+ * @returns the fiber-owned disposer.
+ * @throws when another definition already interprets this event type.
+ */
+registerMessageProjection(projection: SessionMessageProjection): () => void
+
 /**
  * Create a session owned by the calling fiber: disposing that fiber stops
  * event notification and removes the session from the store. `options.seed`
@@ -850,7 +883,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](persistence.md) · [PrepareSessionOptions](persistence.md) · [SessionId](core.md)
 
-Source: [`packages/core/session/src/index.ts:912`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:997`](../../packages/core/session/src/index.ts)
 
 <a id="session-events"></a>
 

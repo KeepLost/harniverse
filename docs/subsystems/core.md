@@ -630,6 +630,19 @@ withoutInitiator<T>(operation: () => T): T
 setFactory(factory: AgentFactory): () => void
 
 /**
+ * Register a synchronous policy checked before a driver adopts a Session.
+ * @param admit - throw to refuse adoption before setup or publication.
+ * @returns the effect-scoped registration disposer.
+ */
+registerAdmission(admit: (session: Session) => void): () => void
+
+/**
+ * Check all installed adoption policies. Factories call before constructing a driver.
+ * @param session - the exact prepared Session, including inherited history.
+ */
+assertAdmission(session: Session): void
+
+/**
  * Create and publish a new agent through the registered factory.
  * Distinct from {@link register} (which records an already-constructed
  * agent): this constructs the agent and its session. Rejects if no factory is
@@ -749,6 +762,8 @@ list(): Agent[]
  */
 roots(): Agent[]
 ```
+
+Types: [Session](session.md)
 
 Source: [`packages/core/agent/src/index.ts:264`](../../packages/core/agent/src/index.ts)
 

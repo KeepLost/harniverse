@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/compaction/image-offload-policy/README.md
-README.md: 17d802449ebeb50769da482d7ae58f2858c3e5b4
-README.zh.md: 50ba00ae695418f11590073b5da883f42afe1f81
+README.md: 1b3973b96e9abd66005e6b74cc25d62b5ce02f84
+README.zh.md: 96ced32887e504e9948abd1720601d7d0c42abc1

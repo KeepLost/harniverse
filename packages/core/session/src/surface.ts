@@ -9,7 +9,7 @@
  */
 
 import type { Message } from '@deepseek-ai/dsh-llm'
-import type { SessionEvent, SurfaceEvent, SurfaceEventType, SurfaceOp } from './types.ts'
+import type { SessionEvent, SessionEventType, SurfaceEvent, SurfaceEventType, SurfaceOp } from './types.ts'
 
 /** Runtime counterpart of the message-producing event union. */
 const SURFACE_EVENT_TYPES = new Set<string>([
@@ -111,6 +111,44 @@ export function deriveEventMessage(event: SessionEvent): Message | null {
       // no message. Merge-extensible union: no assertNever here.
       return null
   }
+}
+
+/** Context supplied to a message projection interpreting one committed event. */
+export interface SessionMessageProjectionContext {
+  /** Current message-producing event sequences in model-visible order. */
+  readonly nodes: readonly number[]
+  /** Resolve one committed event by seq, including events shadowed off the surface. */
+  eventAt(seq: number): SessionEvent | undefined
+  /**
+   * Messages projected so far keyed by their original event seq: the base
+   * derivation plus overrides from earlier projections. A projection that
+   * rewrites a message starts from the entry here, so consecutive decisions
+   * compose instead of resurrecting each other's changes.
+   */
+  readonly messages: ReadonlyMap<number, Message>
+}
+
+/**
+ * Pure interpretation of one plugin-owned event that changes the content of
+ * messages already on the model-visible surface. Projections never mutate the
+ * durable log: the event records the decision, this interpreter applies it to
+ * the derived request history. Display surfaces that read events directly
+ * (`deriveEventMessage` folds) keep the original content.
+ */
+export interface SessionMessageProjection<K extends SessionEventType = SessionEventType> {
+  /** Event type this definition interprets. */
+  readonly type: K
+  /**
+   * Validate the durable decision and compute the messages it changes.
+   * Preserve message identities and publish immutable copies without
+   * mutating the supplied history.
+   * @param event - the committed event being interpreted.
+   * @param context - the derived history this decision applies to.
+   * @returns changed messages keyed by their original event seq; entries for
+   * seqs no longer on the surface are ignored.
+   * @throws when the durable decision cannot be applied to this history.
+   */
+  project(event: SessionEvent<K>, context: SessionMessageProjectionContext): ReadonlyMap<number, Message>
 }
 
 /** One replacement operation observed while folding a session surface. */

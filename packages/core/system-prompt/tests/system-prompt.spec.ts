@@ -352,6 +352,20 @@ describe('SystemPrompt', () => {
     expect(result).toBe('content')
   })
 
+  it('keeps interpolate:false sections verbatim while others interpolate', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, { includeHarnessIdentity: false })
+    ctx.systemPrompt.variable('mode', () => 'read-only')
+    ctx.systemPrompt.section({ name: 'external', order: 1, interpolate: false, text: 'Server says: {{not a variable}}' })
+    ctx.systemPrompt.section({ name: 'internal', order: 2, text: 'Mode: {{mode}}.' })
+    const assembly = await ctx.systemPrompt.assemble()
+    expect(contributed(assembly)).toEqual([
+      { name: 'external', text: 'Server says: {{not a variable}}', interpolate: false },
+      { name: 'internal', text: 'Mode: {{mode}}.' },
+    ])
+    expect(renderPrompt(assembly)).toBe('Server says: {{not a variable}}\n\nMode: read-only.')
+  })
+
   it('filters empty context, interpolates variables, and returns empty without active context', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)

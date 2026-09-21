@@ -537,17 +537,18 @@ function buildSummarizationInput(
   shadowedTokenCount: number,
 ): SummarizationInput {
   const header = session.requestHeader()
-  const events = session.events
   const regionMessages = shadowedSeqs
-    // shadowedSeqs are current surface seqs, so each is a valid log index.
-    // oxlint-disable-next-line typescript/no-non-null-assertion
-    .map(seq => session.deriveEventMessage(events[seq]!))
-    .filter((message): message is Message => message !== null)
+    .map(seq => session.projectedMessageAt(seq))
+    .filter((message): message is Message => message !== undefined)
+  const projectionChanged = shadowedSeqs.some((seq) => {
+    const event = session.eventAt(seq)
+    return event !== undefined && session.projectedMessageAt(seq) !== session.deriveEventMessage(event)
+  })
   return {
     ...header?.system === undefined ? {} : { system: header.system },
     ...header?.tools === undefined ? {} : { tools: header.tools },
     messages: regionMessages,
-    ...measurement.baseline.kind !== 'usage' || header === undefined
+    ...projectionChanged || measurement.baseline.kind !== 'usage' || header === undefined
       ? {}
       : {
         providerAnchor: {

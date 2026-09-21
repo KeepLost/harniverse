@@ -1,10 +1,12 @@
 /**
- * Child reconciliation lifecycle against a scripted mcp-client: streamable
- * HTTP mapping, mount/dispose failure containment, stop-during-reconcile
- * paths, and reconciliation failure logging with a fake settings service.
+ * Captured-generation lifecycle against a scripted mcp-client: streamable HTTP
+ * mapping, startup failure containment, generation pinning, and quiescent
+ * disposal.
  */
 
 import { Context, type Fiber } from '@deepseek-ai/cordis'
+import Capabilities from '@deepseek-ai/dsh-capabilities'
+import { createScope } from '@deepseek-ai/dsh-scope'
 import { SettingsProvider, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -128,7 +130,46 @@ async function replaceSettings(ctx: Context, servers: UserMcpServerConfig[]): Pr
   await (ctx.get('settings') as MemorySettings).replace(bridgeModule.MCP_SETTINGS_NAMESPACE, { servers })
 }
 
-describe('mcp-user-config child reconciliation lifecycle', () => {
+describe('mcp-user-config captured-generation lifecycle', () => {
+  it('forwards an explicit instruction budget to each child transport', async () => {
+    const ctx = await providerContext()
+    await replaceSettings(ctx, [server('bounded', { maxInstructionBytes: 128 })])
+    await mountBridge(ctx)
+    expect(control.configs).toHaveLength(1)
+    expect(control.configs[0]).toMatchObject({ serverName: 'bounded', maxInstructionBytes: 128 })
+  })
+
+  it('watches committed settings until released and returns independent uncaptured reads', async () => {
+    const ctx = await providerContext()
+    const service = ctx.mcpUserConfigSettings
+    const changes: string[][] = []
+    const release = service.watch((next, previous) => {
+      changes.push([previous.servers[0]?.id ?? 'empty', next.servers[0]!.id])
+    })
+    await replaceSettings(ctx, [server('first')])
+    expect(changes).toEqual([['empty', 'first']])
+    const key = {}
+    const scope = createScope(ctx, key)
+    const snapshot = service.get(key)
+    snapshot.servers.length = 0
+    expect(service.get(key).servers.map(entry => entry.id)).toEqual(['first'])
+    release()
+    await replaceSettings(ctx, [server('second')])
+    expect(changes).toEqual([['empty', 'first']])
+    expect(service.get(key).servers.map(entry => entry.id)).toEqual(['second'])
+    await scope.dispose()
+  })
+
+  it('refuses to mount a captured settings generation without a scope key', async () => {
+    const ctx = await providerContext()
+    await ctx.plugin(Capabilities)
+    await replaceSettings(ctx, [server('captured')])
+    const capture = ctx.capabilities.captureGeneration({})
+    expect(() => { capture.mount(ctx, []) }).toThrow('generation requires a scope key')
+    expect(ctx.mcpUserConfigSettings.get().servers.map(entry => entry.id)).toEqual(['captured'])
+    expect(control.configs).toEqual([])
+  })
+
   it('maps a streamable-http entry to the exact client contract', async () => {
     const ctx = await providerContext()
     const httpEntry = server('http1', {
@@ -159,7 +200,7 @@ describe('mcp-user-config child reconciliation lifecycle', () => {
     expect(mapped).not.toHaveProperty('cwd')
   })
 
-  it('contains a child startup failure and its later disposal failure', async () => {
+  it('contains a child startup failure without leaking transport configuration', async () => {
     const ctx = await providerContext()
     const errors: string[] = []
     ctx.logger.error = ((message: unknown) => { errors.push(String(message)) }) as typeof ctx.logger.error
@@ -171,14 +212,10 @@ describe('mcp-user-config child reconciliation lifecycle', () => {
 
     expect(errors.join('\n')).toContain('startup failed for id "boom" and serverName "boom" (string)')
     expect(control.configs).toHaveLength(0)
-    errors.length = 0
-
-    await replaceSettings(ctx, [])
-
-    expect(errors).toEqual([])
+    expect(errors.filter(message => message.startsWith('mcp-user-config:'))).toHaveLength(1)
   })
 
-  it('stops reconciling after disposal completes its pending removals', async () => {
+  it('waits for child disposal before completing generation teardown', async () => {
     const ctx = await providerContext()
     await replaceSettings(ctx, [server('only')])
     const bridge = mountBridge(ctx)
@@ -187,94 +224,70 @@ describe('mcp-user-config child reconciliation lifecycle', () => {
     const disposeGate = Promise.withResolvers<undefined>()
     control.disposeGate = disposeGate.promise
 
-    const updating = replaceSettings(ctx, [])
-    const disposing = bridge.dispose()
+    let disposed = false
+    const disposing = bridge.dispose().then(() => { disposed = true })
+    await Promise.resolve()
+    expect(disposed).toBe(false)
     disposeGate.resolve(undefined)
-    await updating
+    await disposing
+
+    expect(control.configs).toHaveLength(1)
+  })
+
+  it('pins the captured child set while settings change and after disposal', async () => {
+    const ctx = await providerContext()
+    await replaceSettings(ctx, [server('held')])
+    const bridge = mountBridge(ctx)
+    await bridge
+    expect(control.configs).toHaveLength(1)
+
+    await replaceSettings(ctx, [server('late')])
+    expect(control.configs).toHaveLength(1)
+    expect(control.configs[0]?.serverName).toBe('held')
+
+    const disposing = bridge.dispose()
     await disposing
 
     expect(control.configs).toHaveLength(1)
   })
 
-  it('skips queued reconciliations and late watch events after disposal', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRuntime)
-    await ctx.plugin(MemorySettings)
-    const watchers: Array<(next: { servers: UserMcpServerConfig[] }) => void> = []
-    ctx.provide(bridgeModule.MCP_USER_CONFIG_SETTINGS_SERVICE, {
-      get: () => ({ servers: [server('held')] }),
-      watch: (callback: (next: { servers: UserMcpServerConfig[] }) => void) => {
-        watchers.push(callback)
-        return () => {}
-      },
-    } as never)
-    const bridge = mountBridge(ctx)
-    await bridge
+  it('keeps an existing capture while a new consumer loads replacement settings', async () => {
+    const ctx = await providerContext()
+    await replaceSettings(ctx, [server('keeper')])
+    const existing = mountBridge(ctx)
+    await existing
     expect(control.configs).toHaveLength(1)
 
-    const disposeGate = Promise.withResolvers<undefined>()
-    control.disposeGate = disposeGate.promise
-    watchers[0]!({ servers: [] })
-    watchers[0]!({ servers: [server('late')] })
-    const disposing = bridge.dispose()
-    disposeGate.resolve(undefined)
-    await disposing
-
-    watchers[0]!({ servers: [] })
+    await replaceSettings(ctx, [server('a'), server('b')])
     expect(control.configs).toHaveLength(1)
+
+    const next = mountBridge(ctx)
+    await next
+    expect(control.configs.map(config => config.serverName)).toEqual(['keeper', 'a', 'b'])
   })
 
-  it('logs a reconciliation failure and keeps the last good child set', async () => {
+  it('classifies a non-Error startup failure for a captured generation', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(MemorySettings)
-    const watchers: Array<(next: unknown) => void> = []
-    ctx.provide(bridgeModule.MCP_USER_CONFIG_SETTINGS_SERVICE, {
-      get: () => ({ servers: [server('keeper')] }),
-      watch: (callback: (next: unknown) => void) => {
-        watchers.push(callback)
-        return () => {}
-      },
-    } as never)
     const errors: string[] = []
     ctx.logger.error = ((message: unknown) => { errors.push(String(message)) }) as typeof ctx.logger.error
-    const bridge = mountBridge(ctx)
-    await bridge
-    expect(control.configs).toHaveLength(1)
-
-    watchers[0]!({ servers: [server('a'), server('b', { serverName: 'a' })] })
-
-    await vi.waitFor(() => {
-      expect(errors.join('\n')).toContain('reconciliation failed (TypeError); keeping the last good child set')
-    })
-    expect(control.configs).toHaveLength(1)
-  })
-
-  it('classifies a non-Error reconciliation failure', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRuntime)
-    await ctx.plugin(MemorySettings)
-    const watchers: Array<(next: unknown) => void> = []
-    ctx.provide(bridgeModule.MCP_USER_CONFIG_SETTINGS_SERVICE, {
-      get: () => ({ servers: [] }),
-      watch: (callback: (next: unknown) => void) => {
-        watchers.push(callback)
-        return () => {}
-      },
-    } as never)
-    const errors: string[] = []
-    ctx.logger.error = ((message: unknown) => { errors.push(String(message)) }) as typeof ctx.logger.error
+    settingsOwner = ctx.plugin({
+      name: bridgeModule.name,
+      inject: bridgeModule.inject,
+      Config: bridgeModule.Config,
+      apply: bridgeModule.apply,
+    }, { role: 'provider', servers: [] })
+    await settingsOwner
+    control.configErrorFor = 'broken'
+    control.configErrorValue = 'broken snapshot'
+    await replaceSettings(ctx, [server('broken')])
     const bridge = mountBridge(ctx)
     await bridge
 
-    watchers[0]!({ get servers(): never { throw 'broken snapshot' } })
-
-    await vi.waitFor(() => {
-      expect(errors.join('\n')).toContain('reconciliation failed (string); keeping the last good child set')
-    })
+    expect(errors.join('\n')).toContain('startup failed for id "broken" and serverName "broken" (string)')
+    expect(control.configs).toHaveLength(0)
   })
 
   it('rejects consumer rows carrying servers', async () => {

@@ -6,6 +6,8 @@
 
 本包承担压缩能力的 Service Provider 角色；其约定见 [Service Definition 包](../compaction/README.md)，设计见 [能力 seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)。
 
+摘要使用当前会话消息投影，包括持久化的图片卸载占位文本。通用 `llm/project-request` 边界在容量估算和请求发出前结算到龄图片；热缓存复用不得推迟到期。投影发生变化时，该前缀先前的提供方用量锚点失效。摘要过程中的提供方压力使用与普通对话相同的请求回调结算其他图片出现。
+
 ## 拥有的职责
 
 该后端拥有压缩策略：

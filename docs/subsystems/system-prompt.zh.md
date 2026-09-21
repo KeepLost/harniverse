@@ -59,6 +59,12 @@ interface PromptSection {
    */
   readonly text: string | ((context: AssembleContext) => string)
   /**
+   * Keep the resolved text verbatim at render time. `false` opts this section
+   * out of `{{variable}}` interpolation — for external content (for example
+   * MCP server instructions) whose braces are not variable references.
+   */
+  readonly interpolate?: boolean
+  /**
    * Treat this contribution as the complete system prompt. Assembly still
    * runs the cooperative waterfall so tools, contexts, and variables can be
    * resolved, then restores this exact section as the sole prompt section.
@@ -156,7 +162,7 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:346`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:355`](../../packages/core/system-prompt/src/index.ts)
 
 <a id="system-prompt-events"></a>
 

@@ -132,6 +132,22 @@ describe('resolveImageOffloadDecisions', () => {
     ])
   })
 
+  it('preserves image age through repeated identity-preserving tool-result rewrites', () => {
+    const original = toolResult(0, 2) as SessionEvent<'tool/result'>
+    const replacement = {
+      ...original, seq: 2, sourceEventSeqs: [0], surfaceOp: { op: 'replace', start: 0, end: 0 },
+    } as SessionEvent<'tool/result'>
+    const second = {
+      ...replacement, seq: 4, sourceEventSeqs: [2], surfaceOp: { op: 'replace', start: 2, end: 2 },
+    } as SessionEvent<'tool/result'>
+    const events = [original, userMessage(1), replacement, userMessage(3), second]
+    expect(resolveImageOffloadDecisions(events, { setting: 3 })).toEqual([])
+    expect(resolveImageOffloadDecisions([...events, userMessage(5)], { setting: 3 })).toEqual([
+      { target: { messageSeq: 4, imageIndex: 0 }, reason: 'age' },
+      { target: { messageSeq: 4, imageIndex: 1 }, reason: 'age' },
+    ])
+  })
+
   it('never re-settles an image a prior offload recorded', () => {
     const events = [userMessage(1, 1), userMessage(2), offload(3, [{ messageSeq: 1, imageIndex: 0 }]), userMessage(4), userMessage(5)]
     expect(resolveImageOffloadDecisions(events, { setting: 1 })).toEqual([])

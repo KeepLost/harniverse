@@ -6,7 +6,9 @@
 
 `CapabilityTarget` 是全局 Agent 默认值或某个 Agent Profile。省略值表示继承；全局结构化覆盖流入每个 Profile，Profile 值覆盖继承值。没有存储值时，各 Profile 保持其 YAML 原生选择、成员和配置状态。`CapabilityPlan` 是不可变、受 revision 约束的 dry-run：校验成员 id 与 owner 声明的原始字段，自动加入可组装硬依赖并记录有效操作与阻止项，且只在组装与 adapter 拓扑 revision 都未变化时可应用。
 
-`dsh-agent-presets` 把顶层行与 group 读取为静态配方，并在下一个 standing generation 启动时把变化后的选择和配置编译为原生 `Include` patch。原生 Tool 与 Skill restriction 随后通过发现和执行强制显式成员 allowlist；由配置控制的 Web／委派成员获得完整行配置，MCP adapter 则在保留 Host 共享连接的同时隐藏整台 server 或选定工具。硬激活失败会回滚 Session 创建。运行中 Session 保持固定在原 generation；Session“能力”视图读取发布前捕获的不可变配方状态与解析成员可见性。[组装 Agent Note](../../.agents/notes/implemented/architecture/2026-08-20-scoped-capability-control-plane.md) 记录该边界。
+`dsh-agent-presets` 把顶层行与 group 读取为静态配方，并在下一个 standing generation 启动时把变化后的选择和配置编译为原生 `Include` patch。原生 Tool 与 Skill restriction 通过发现和执行强制显式成员 allowlist；由配置控制的 Web／委派成员获得完整行配置。MCP 消费方从该 generation 捕获的设置挂载连接，并在执行前检查 server、工具、资源和模板的可见性。硬激活失败会回滚 Session 创建。运行中 Session 保持固定在原 generation；Session“能力”视图读取发布前捕获的不可变配方状态与解析成员可见性。[组装 Agent Note](../../.agents/notes/implemented/architecture/2026-08-20-scoped-capability-control-plane.md) 记录该边界。
+
+`CapabilityAdapter.capture()` 返回 `CapabilityGenerationCapture`：不含秘密的签名，以及在 generation 消费方启动前安装提供方配置的 `mount(ctx, entries)` 回调。私有配置不进入 Session 元数据。异步发现期间设置或组装发生变化时会重试；持续变化会拒绝组装，避免混用多个 generation。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -54,6 +56,13 @@ composition(target: CapabilityTarget): CapabilityCompositionSnapshot
 compositionSignature(agentProfile: string, descriptors: readonly CapabilityDescriptor[]): string
 
 /**
+ * Capture visible providers before asynchronous Profile assembly begins.
+ * @param view - target Profile and scope visibility.
+ * @returns an immutable identity and provider-owned installation callback.
+ */
+captureGeneration(view: CapabilityView): CapabilityGenerationCapture
+
+/**
  * Apply current selection and member restrictions through every visible native adapter.
  * @param ctx - scoped standing Profile context that owns the restrictions.
  * @param entries - immutable selections resolved for this generation.
@@ -79,7 +88,7 @@ async plan( target: CapabilityTarget, changes: readonly CapabilityCompositionCha
 async apply(planId: string, expectedRevision: number): Promise<CapabilityCompositionSnapshot>
 ```
 
-Source: [`packages/capability/capabilities/src/index.ts:112`](../../packages/capability/capabilities/src/index.ts)
+Source: [`packages/capability/capabilities/src/index.ts:122`](../../packages/capability/capabilities/src/index.ts)
 
 <a id="agent-presets-events"></a>
 
@@ -113,5 +122,5 @@ Capability topology or composition changed; consumers refetch their target. @mod
 'capabilities/change'(): void
 ```
 
-Source: [`packages/capability/capabilities/src/index.ts:107`](../../packages/capability/capabilities/src/index.ts)
+Source: [`packages/capability/capabilities/src/index.ts:117`](../../packages/capability/capabilities/src/index.ts)
 <!-- END GENERATED cordis-surface -->

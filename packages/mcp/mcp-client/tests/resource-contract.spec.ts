@@ -9,6 +9,7 @@ import {
   isMcpServerName,
   MCP_SERVER_NAME_PATTERN,
   mcpResourceMemberId,
+  mcpResourceTemplateMemberId,
   mcpServerCapabilityId,
   resolveMcpMemberVisibility,
 } from '@deepseek-ai/dsh-mcp-client'
@@ -43,10 +44,13 @@ describe('resolveMcpMemberVisibility', () => {
     const visibility = resolveMcpMemberVisibility({ selected: false }, tools, resources)
     expect(visibility).toEqual({
       serverSelected: false,
+      unrestrictedResources: false,
       visibleToolNames: [],
       visibleResourceUris: [],
+      visibleResourceTemplates: [],
       deniedToolNames: tools,
       deniedResourceUris: resources,
+      deniedResourceTemplates: [],
     })
   })
 
@@ -72,6 +76,28 @@ describe('resolveMcpMemberVisibility', () => {
     expect(visibility.deniedToolNames).toEqual(['write'])
     expect(visibility.visibleResourceUris).toEqual(['file:///a.txt'])
     expect(visibility.deniedResourceUris).toEqual(['file:///b.txt'])
+  })
+
+  it('admits new topology when inherited membership has no explicit allowlist', () => {
+    const visibility = resolveMcpMemberVisibility({ selected: true, memberSelection: 'inherit', memberEntries: [] }, tools, resources)
+    expect(visibility.visibleToolNames).toEqual(tools)
+    expect(visibility.visibleResourceUris).toEqual(resources)
+    expect(visibility.deniedToolNames).toEqual([])
+  })
+
+  it('keeps concrete and template grants distinct even when their names match', () => {
+    const uri = 'docs://search/{query}'
+    const member = { kind: 'mcp-resource' as const, name: uri, description: '', defaultVisible: true, available: true, requires: [] }
+    const members = [
+      { ...member, id: mcpResourceMemberId('files', uri), visible: true },
+      { ...member, id: mcpResourceTemplateMemberId('files', uri), visible: false },
+    ]
+    const concrete = resolveMcpMemberVisibility({ name: 'files', selected: true, memberEntries: members }, [], [uri], [uri])
+    expect(concrete.visibleResourceUris).toEqual([uri])
+    expect(concrete.visibleResourceTemplates).toEqual([])
+    const template = resolveMcpMemberVisibility({ name: 'files', selected: true, memberEntries: members.map(value => ({ ...value, visible: !value.visible })) }, [], [uri], [uri])
+    expect(template.visibleResourceUris).toEqual([])
+    expect(template.visibleResourceTemplates).toEqual([uri])
   })
 })
 

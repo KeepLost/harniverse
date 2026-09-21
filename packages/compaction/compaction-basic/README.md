@@ -6,6 +6,8 @@ The **basic compaction backend**: a `BasicCompactionEngine` implementing the `@d
 
 This package owns the Service Provider role of the compaction capability — see the [Service Definition package](../compaction/README.md) for its contract and the [capability-seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) for the design.
 
+Summarization uses the current session message projection, including durable image-offload stubs. The generic `llm/project-request` boundary settles age expiry before capacity estimation and dispatch; warm-cache reuse never postpones expiry. A changed projection invalidates the earlier provider-usage anchor for that prefix. Provider pressure during summarization settles additional occurrences through the same request callback as conversation requests.
+
 ## What it owns
 
 This backend owns the compaction policy:

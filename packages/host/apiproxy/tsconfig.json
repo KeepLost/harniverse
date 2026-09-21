@@ -63,6 +63,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session/session-import"
+    },
+    {
       "path": "../../core/tools"
     },
     {

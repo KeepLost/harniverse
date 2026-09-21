@@ -356,6 +356,39 @@ describe('Session', () => {
     expect(snapshot.data.content).not.toBe(source.data.content)
   })
 
+  it.each(['assistant/message', 'tool/result'] as const)('adopts and snapshots nested %s messages immutably', (type) => {
+    const source: SessionEvent<'assistant/message' | 'tool/result'> = type === 'assistant/message'
+      ? {
+        type, seq: 0, time: 1,
+        data: { turn: 1, step: 1, message: createMessage({
+          role: 'assistant', source: { kind: 'model', provider: 'mock', model: 'mock' },
+          content: [{ type: 'text', text: 'reply' }],
+        }) },
+      }
+      : {
+        type, seq: 0, time: 1,
+        data: { turn: 1, step: 1, message: createToolResultMessage({
+          callId: CallId('imported'), isError: false, content: [{ type: 'text', text: 'result' }],
+        }) },
+      }
+    const owned = structuredClone(source)
+    expect(Object.isFrozen(owned.data.message)).toBe(false)
+    expect(adoptSessionEvent(owned)).toBe(owned)
+    expect(Object.isFrozen(owned.data.message)).toBe(true)
+    expect(Object.isFrozen(owned.data.message.content[0])).toBe(true)
+    expect(Reflect.set(owned.data.message.content, '0', { type: 'text', text: 'mutation' })).toBe(false)
+
+    const borrowed = structuredClone(source)
+    const snapshot = snapshotSessionEvent(borrowed)
+    expect(Reflect.set(borrowed.data.message.content, 'length', 0)).toBe(true)
+    expect(snapshot).toEqual(source)
+    expect(snapshot.data.message).not.toBe(borrowed.data.message)
+    expect(Object.isFrozen(snapshot.data.message.content)).toBe(true)
+    if (snapshot.type === 'tool/result') {
+      expect(Object.isFrozen(snapshot.data.message.content[0].content[0])).toBe(true)
+    }
+  })
+
   it('validates message shape before adopting ownership', () => {
     const malformed = {
       type: 'user/message',

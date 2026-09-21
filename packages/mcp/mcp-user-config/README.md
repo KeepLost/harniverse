@@ -51,7 +51,7 @@ The shipped Standard, Code, and Cordis profiles mount the consumer; Minimal does
 | Field | Transport | Required | Description |
 |---|---|---|---|
 | `role` | both | no | `provider` registers the shared settings scope; `consumer` reads it and mounts profile-local children; default `consumer` |
-| `id` | both | yes | Stable user-entry identity used for add, remove, and restart reconciliation; `[A-Za-z0-9_-]{1,64}` |
+| `id` | both | yes | Stable identity of a configured server within each generation; `[A-Za-z0-9_-]{1,64}` |
 | `enabled` | both | no | Disabled entries are not mounted and disclose no tools; default `true` |
 | `serverName` | both | yes | Stable `mcp-client` namespace for model-facing names; `[A-Za-z0-9_-]{1,32}` |
 | `transport` | both | yes | `stdio` or `streamable-http` |
@@ -62,6 +62,7 @@ The shipped Standard, Code, and Cordis profiles mount the consumer; Minimal does
 | `url` | streamable-http | yes | MCP endpoint URL |
 | `headers` | streamable-http | no | Request headers; default `{}` and redacted as secret fields |
 | `toolCallTimeoutMs` | both | no | Per-tool-call timeout; default `60000` |
+| `maxInstructionBytes` | both | no | Positive safe-integer UTF-8 budget including server attribution; default `32768` |
 | `failOnStartupError` | both | no | Make this child report startup failure to the bridge; default `false` |
 | `reconnect` | both | no | Existing `mcp-client` reconnect policy; defaults are enabled, 500 ms, 30000 ms, and 10 attempts |
 
@@ -69,19 +70,20 @@ The shipped Standard, Code, and Cordis profiles mount the consumer; Minimal does
 
 ## Lifecycle
 
-- The provider role validates the complete settings snapshot and registers `mcp` exactly once. Each consumer role then mounts all enabled entries through real `ctx.plugin(mcp-client, config)` child fibers.
+- The provider validates and registers `mcp` once. Its capability adapter captures a private settings snapshot before a Profile generation mounts. Consumers mount only enabled, selected entries from that snapshot through real `ctx.plugin(mcp-client, config)` child fibers; secrets never enter generation signatures or catalog descriptors.
 - Each consumer supplies an internal reservation owner key, so simultaneous Standard-family profiles can expose the same configured public `serverName` in separate scoped registries without weakening duplicate detection inside one consumer.
 - One child's connection or startup failure is logged with only its stable identities and error kind; unrelated children continue to start.
 - A disabled entry creates no child and therefore cannot register or disclose namespaced tools.
-- Settings changes are serialized independently in every consumer. New IDs mount children, removed IDs await child disposal, and changed enabled entries await disposal before mounting a fresh child with the same stable ID.
-- Consumer disposal stops its settings watcher, waits for reconciliation to quiesce, and awaits every child disposal. The child `mcp-client` owns process shutdown, tool unregistration, capability updates, and server-name reservation release.
+- Settings changes advance a provider-owned generation identity. The next Profile assembly captures the new settings; existing consumers retain their original clients, instructions, resources, and captured member permissions. Reconnects use that same captured configuration.
+- Consumer disposal awaits every child. The child `mcp-client` owns process shutdown, tool and resource unregistration, capability updates, and server-name reservation release.
 - Both roles declare host-available `settings` and `tools` injections. The provider uses `settings`; a consumer reads the optional `mcpUserConfigSettings` service with `ctx.get()` and uses its injected `tools` scope. Minimal can omit the consumer and therefore receives no MCP tools.
 
 ## Services consumed
 
 | Service | Usage |
 |---|---|
-| `ctx.mcpUserConfigSettings` | Read and watch the host-owned `mcp` namespace |
+| `ctx.mcpUserConfigSettings` | Read the captured generation snapshot, or current settings for a standalone consumer |
+| `ctx.capabilities` | Optional private generation capture and server selection integration |
 | `ctx.tools` | Required by each mounted `mcp-client` child for model-facing tool registration |
 
 ## Model Experience
@@ -90,7 +92,7 @@ The shipped Standard, Code, and Cordis profiles mount the consumer; Minimal does
 
 #### What the model sees
 
-After a child discovers its tools, the model sees the existing namespaced form `mcp__<serverName>__<rawName>` (or the deterministic normalized form defined by `mcp-client`). If capabilities are composed, each child also discloses its `mcp-server` identity and discovered tool members through the existing capability adapter.
+After discovery, the model sees namespaced tools `mcp__<serverName>__<rawName>`, selected server instructions, and the shared resource tools when the host composes `mcp-resources`. Each client discloses concrete resource and template members alongside tool members through its capability adapter.
 
 #### Token effect
 
@@ -98,10 +100,11 @@ Every enabled server contributes the data-dependent schema cost of its discovere
 
 #### KV Cache effect
 
-The prefix stays stable while an enabled server's discovered tool set and schemas stay unchanged. Settings add, remove, disable, or restart changes the affected tool definitions and can invalidate reuse from the first changed schema token; unaffected server namespaces remain stable.
+The prefix stays stable while the captured servers' discovered tools and instructions stay unchanged. Settings edits change future generations; existing Sessions and children joined to their generation retain their original composition.
 
 ## Known Limitations and Deferred Work
 
-- This package bridges only the tool capability exposed by `mcp-client`; MCP resources and prompts remain deferred.
+- MCP server-defined prompts remain deferred. Resources require the host-owned `mcp-resources` service.
+- Superseded Profile generations retain their clients until the owning standing scope is disposed; generation reclamation remains owned by `agent-presets`.
 - Settings descriptors are safe only when a wire consumer requests `ctx.settings.describe({ redactSecrets: true })`; `env` and `headers` values are declared with `role('secret')` for that redaction path.
 - Host/base owns the provider row; Standard, Code, and Cordis own consumer rows. Custom compositions must preserve that one-provider, scoped-consumer split.

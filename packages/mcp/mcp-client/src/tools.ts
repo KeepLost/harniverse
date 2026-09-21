@@ -53,6 +53,26 @@ const HASH_LENGTH = 12
 /** Raw result record: the bridge owns JSON-value validation after transport. */
 const RawCallToolResultSchema = z.record(z.string(), z.unknown())
 
+/**
+ * Guard one paginated drain against a server that repeats a continuation
+ * cursor it already issued — otherwise the drain would loop forever.
+ * @param serverName - the configured server, for diagnostics.
+ * @returns a checker that records each seen cursor and rejects a repeat.
+ */
+export function cursorGuard(serverName: string): (cursor: string | undefined) => void {
+  const seen = new Set<string>()
+  let pages = 0
+  return (cursor) => {
+    if (++pages > 128) throw new Error(`mcp-client(${serverName}): pagination exceeds 128 pages`)
+    if (cursor === undefined) return
+    if (typeof cursor !== 'string') throw new Error(`mcp-client(${serverName}): invalid continuation cursor`)
+    if (seen.has(cursor)) {
+      throw new Error(`mcp-client(${serverName}): server repeated continuation cursor "${cursor}" — invalid pagination`)
+    }
+    seen.add(cursor)
+  }
+}
+
 /** List without mutating the SDK's per-page output-validator cache. */
 function listToolsUncached(client: Client, cursor?: string) {
   return client.request(
@@ -122,6 +142,8 @@ export function publicToolName(serverName: string, rawName: string): string {
  * @param opts - Bridge options: server namespace and per-call timeout.
  * @param previous - Disposer map from the prior sync generation; disposed
  *   during the swap phase (only after the fetch phase succeeded).
+ * @param isCurrent - connection ownership guard checked before every page and publication.
+ * @param published - synchronous observer that installs captured restrictions before yielding.
  * @returns A map of registered public tool names to their unregister
  *   disposers — the exact set of live registrations owned by this server.
  */
@@ -130,12 +152,18 @@ export async function syncTools(
   ctx: Context,
   opts: ToolBridgeOptions,
   previous: ToolDisposers,
+  isCurrent: () => boolean = () => true,
+  published: (next: ToolDisposers) => void = () => {},
 ): Promise<ToolDisposers> {
   // Phase 1: fetch and build the next generation without touching the registry.
   const definitions = new Map<string, ToolDefinition>()
+  const guard = cursorGuard(opts.serverName)
   let cursor: string | undefined
   do {
+    if (!isCurrent()) return previous
+    guard(cursor)
     const response = await listToolsUncached(client, cursor)
+    if (!isCurrent()) return previous
     for (const tool of response.tools) {
       const publicName = publicToolName(opts.serverName, tool.name)
       if (definitions.has(publicName)) {
@@ -152,7 +180,7 @@ export async function syncTools(
       })
     }
     cursor = response.nextCursor
-  } while (cursor)
+  } while (cursor !== undefined)
 
   // Phase 2: swap generations.
   for (const dispose of previous.values()) dispose()
@@ -168,8 +196,11 @@ export async function syncTools(
     for (const dispose of disposers.values()) dispose()
     ctx.logger.error(`mcp-client(${opts.serverName}): tool registration failed, no tools registered: ${String(error)}`)
     if (opts.registrationFailure === 'throw') throw error
-    return new Map()
+    const empty: ToolDisposers = new Map()
+    published(empty)
+    return empty
   }
+  published(disposers)
   return disposers
 }
 

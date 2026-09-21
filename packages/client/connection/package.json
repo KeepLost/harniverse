@@ -46,6 +46,8 @@
     "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-session-import": "workspace:^",
+    "@deepseek-ai/dsh-workspace": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/schemastery": "workspace:^",
     "ws": "^8.21.1"

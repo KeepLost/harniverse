@@ -6,6 +6,10 @@ The **durability seam** for the event log. [session.md](session.md) describes th
 
 The seam is a [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md): one abstract service ([dsh-session-persistence](../../packages/session/session-persistence), `ctx.sessionPersistence`) defining locate/create/append, reusable Session preparation, logical load/inspect, physical suffix reads, and lightweight list/snapshot observation over the existing `SessionEvent` — **no parallel persisted event type** — and two interchangeable backends implementing the same contract. See the [session-persistence Agent Note](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md).
 
+## Foreign-session import — archival settlement over the seam
+
+[dsh-session-import](../../packages/session/session-import) composes this seam for one-way archival imports: it maps an official v1/v2/v3 export lossily into native events under the `import/record` marker, persists the mapped session through `create`/`append`, and uses `locate` to retain the source artifact verbatim beside the mapped session (`<sessionId>.source.jsonl`). A backend whose `locate` returns `undefined` cannot retain the source and is refused at import time — the artifact and the mapped log settle together or not at all.
+
 ## The flush checkpoint
 
 `session/event` is a *synchronous* notification; persistence plugins copy the event into a per-session controller without blocking the producer. The first pending event starts a fixed batching window, and later events join without resetting its deadline. Expiry starts one durable batch; events admitted during that write receive their own deadline and form a follow-up batch. `session/flush` cancels the wait and drains through quiescence, so the loop still uses it as the ordering and error-observation checkpoint before claiming the next ordinary turn. A rejected background write retains its events and pauses automatic retry; a new event starts a fresh window, while explicit flush retries immediately and reports failure through `agent/error` and the logger, never as a session event past the closed turn. Disposal performs the same final drain. The configured maximum bounds only intentional batching wait, not event-loop scheduling or backend durability latency ([decision](../../.agents/notes/implemented/architecture/2026-08-08-bounded-session-persistence-write-batching.md)).
@@ -272,6 +276,27 @@ An initial display-history request can prefer the latest compact-plugin replacem
 ## Cordis API
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxsessionimport--sessionimport"></a>
+
+### `ctx.sessionImport` — `SessionImport`
+
+Import foreign session logs as archival native sessions. The service owns the whole settlement — classification refusal, lossy mapping, durable persistence, and source-artifact retention happen together or not at all.
+
+```ts cordis-catalog
+/**
+ * Import one foreign artifact as a settled archival session.
+ * @param options - source bytes or path, authorized destination workspace, and optional target/posture.
+ * @returns the imported session's identity and lossy-mapping counts.
+ * @throws when the artifact cannot be read or parsed, its version is
+ * `current` (native logs restore, not import) or unknown, the posture is
+ * invalid, the target id already exists, or the backend cannot preserve
+ * the source artifact beside the mapped session.
+ */
+async import(options: ImportForeignSessionOptions): Promise<ImportedSession>
+```
+
+Source: [`packages/session/session-import/src/importer.ts:78`](../../packages/session/session-import/src/importer.ts)
 
 <a id="ctxsessionpersistence--sessionpersistence-abstract-seam"></a>
 

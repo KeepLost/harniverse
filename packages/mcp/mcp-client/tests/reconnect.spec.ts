@@ -38,6 +38,11 @@ const { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotification
     close = mockClose
     request = mockRequest
     setNotificationHandler = mockSetNotificationHandler
+    getInstructions = () => undefined
+    getServerCapabilities = () => ({ tools: {} })
+    listResources = () => Promise.resolve({ resources: [] })
+    listResourceTemplates = () => Promise.resolve({ resourceTemplates: [] })
+    readResource = () => Promise.resolve({ contents: [] })
     constructor() { instances.push(this) }
   }
   const instances: MockClient[] = []

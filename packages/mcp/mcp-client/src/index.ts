@@ -14,12 +14,17 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { UriTemplate } from '@modelcontextprotocol/sdk/shared/uriTemplate.js'
 import type {} from '@deepseek-ai/dsh-capabilities'
 import z from '@deepseek-ai/schemastery'
+import { scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
+import type { JsonValue } from '@deepseek-ai/dsh-tools'
+import { DEFAULT_MAX_INSTRUCTION_BYTES, RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
 import type { ReconnectConfig } from './connection.ts'
-import { MCP_SERVER_NAME_PATTERN } from './resource-contract.ts'
+import { MCP_SERVER_NAME_PATTERN, mcpResourceMemberId, mcpResourceTemplateMemberId, resolveMcpMemberVisibility } from './resource-contract.ts'
+import type { McpMemberVisibility } from './resource-contract.ts'
+import { registerServerContext } from './server-context.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
 
@@ -31,6 +36,7 @@ export {
   isMcpServerName,
   MCP_SERVER_NAME_PATTERN,
   mcpResourceMemberId,
+  mcpResourceTemplateMemberId,
   mcpServerCapabilityId,
   resolveMcpMemberVisibility,
 } from './resource-contract.ts'
@@ -83,6 +89,8 @@ export interface StdioConfig {
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
+  /** UTF-8 byte ceiling for the attributed server instructions (default 32768). */
+  maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
 }
@@ -107,6 +115,8 @@ export interface StreamableHttpConfig {
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
+  /** UTF-8 byte ceiling for the attributed server instructions (default 32768). */
+  maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
 }
@@ -132,6 +142,7 @@ export const Config = z.union([
     cwd: z.string().default(''),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
+    maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
     reconnect: Reconnect,
   }),
   z.object({
@@ -142,6 +153,7 @@ export const Config = z.union([
     headers: z.dict(String).default({}),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
+    maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
     reconnect: Reconnect,
   }),
 ]) as unknown as z<Config>
@@ -161,6 +173,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // construction that bypassed Schemastery) rejects THIS instance before any
   // effect registers.
   const reconnect = resolveReconnectPolicy(config.reconnect, `mcp-client(${config.serverName}): reconnect`)
+  const instructionBytes = config.maxInstructionBytes ?? DEFAULT_MAX_INSTRUCTION_BYTES
+  if (!Number.isSafeInteger(instructionBytes) || instructionBytes < 1) {
+    throw new Error('mcp-client: maxInstructionBytes must be a positive safe integer')
+  }
 
   // Reserve the namespace next: a duplicate `serverName` fails THIS instance
   // at load with an actionable error and leaves the earlier instance intact.
@@ -188,6 +204,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // quiesces in-flight work, and unregisters the current generation.
   let capabilityChanged = (): void => {}
   const restrictionRefreshers = new Set<() => void>()
+  /**
+   * Resource URIs visible per composition scope key. A Profile member
+   * selection records its narrowing here; a scope with no record (including
+   * compositions without the capabilities service) reaches every resource.
+   */
+  const resourceSelection = new WeakMap<object, McpMemberVisibility>()
   const connection = startConnection(ctx, config, reconnect, () => {
     capabilityChanged()
     for (const refresh of restrictionRefreshers) {
@@ -198,6 +220,59 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       }
     }
   })
+
+  /** Nearest composition record on the caller's scope chain, or undefined when unrestricted. */
+  const nearestResourceRecord = (agent: object | undefined): McpMemberVisibility | undefined => {
+    for (const key of scopeChainOf(agent)) {
+      const record = resourceSelection.get(key)
+      if (record !== undefined) return record
+    }
+    return undefined
+  }
+
+  /**
+   * Narrow one resources/list result to the caller-visible URIs; other result
+   * shapes pass through untouched.
+   */
+  const filterResourceList = (result: JsonValue, visible: McpMemberVisibility, templates: boolean): JsonValue => {
+    if (typeof result !== 'object' || result === null || Array.isArray(result)) return result
+    const key = templates ? 'resourceTemplates' : 'resources'
+    const resources = (result as Record<string, unknown>)[key]
+    if (!Array.isArray(resources)) return result
+    const kept = resources.filter((item) => {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) return false
+      const value = templates ? (item as { uriTemplate?: unknown }).uriTemplate : (item as { uri?: unknown }).uri
+      return typeof value === 'string' && (templates ? visible.visibleResourceTemplates.includes(value) : visible.visibleResourceUris.includes(value))
+    })
+    return { ...result, [key]: kept }
+  }
+
+  const templateMatches = (template: string, uri: string): boolean => new UriTemplate(template).match(uri) !== null
+
+  // Resource requests are enforced at the provider — the composition that
+  // made the decision cannot be bypassed by calling the shared tools with a
+  // different server argument.
+  registerServerContext(ctx, config.serverName, config.reservationKey ?? config.serverName, {
+    resources: {
+      async request(request, exec): Promise<JsonValue> {
+        const record = nearestResourceRecord(exec.agent)
+        if (record !== undefined && !record.serverSelected) {
+          throw new Error(`mcp-client(${config.serverName}): resource server is not visible to this agent`)
+        }
+        if (request.method === 'resources/read' && record !== undefined && !record.unrestrictedResources
+          && !record.visibleResourceUris.includes(request.uri)
+          && !record.visibleResourceTemplates.some(template => templateMatches(template, request.uri))) {
+          throw new Error(`mcp-client(${config.serverName}): resource "${request.uri}" is not visible to this agent`)
+        }
+        const result = await connection.resources.request(request, exec)
+        if (record === undefined || record.unrestrictedResources) return result
+        if (request.method === 'resources/list') return filterResourceList(result, record, false)
+        if (request.method === 'resources/templates/list') return filterResourceList(result, record, true)
+        return result
+      },
+    },
+    instructions: () => connection.instructions(),
+  }, scope => nearestResourceRecord(scope)?.serverSelected !== false)
 
   ctx.inject(['capabilities'], (capabilityCtx) => {
     const encodedName = Buffer.from(config.serverName).toString('hex')
@@ -220,15 +295,35 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
             manageable: true,
             owner: '@deepseek-ai/dsh-mcp-client',
             requires: [],
-            members: connection.toolNames().map(name => ({
-              id: `${capabilityId}/mcp-tool:${Buffer.from(name).toString('hex')}`,
-              kind: 'mcp-tool' as const,
-              name,
-              description: `MCP tool ${name}`,
-              defaultVisible: true,
-              available: true,
-              requires: [],
-            })),
+            members: [
+              ...connection.toolNames().map(name => ({
+                id: `${capabilityId}/mcp-tool:${Buffer.from(name).toString('hex')}`,
+                kind: 'mcp-tool' as const,
+                name,
+                description: `MCP tool ${name}`,
+                defaultVisible: true,
+                available: true,
+                requires: [],
+              })),
+              ...connection.resourceUris().map(uri => ({
+                id: mcpResourceMemberId(config.serverName, uri),
+                kind: 'mcp-resource' as const,
+                name: uri,
+                description: `MCP resource ${uri}`,
+                defaultVisible: true,
+                available: true,
+                requires: [],
+              })),
+              ...connection.resourceTemplates().map(uriTemplate => ({
+                id: mcpResourceTemplateMemberId(config.serverName, uriTemplate),
+                kind: 'mcp-resource' as const,
+                name: uriTemplate,
+                description: `MCP resource template ${uriTemplate}`,
+                defaultVisible: true,
+                available: true,
+                requires: [],
+              })),
+            ],
           }],
         }),
         restrict: (compositionCtx, entries) => {
@@ -236,11 +331,15 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           if (entry === undefined) return
           const tools = compositionCtx.get('tools')
           if (tools === undefined) return
+          const scope = scopeOf(compositionCtx)
           let release = (): void => {}
           const refresh = (): void => {
             const names = connection.toolNames()
-            const visible = new Set(entry.memberEntries?.filter(member => member.visible).map(member => member.name) ?? names)
-            const denied = entry.selected ? names.filter(name => !visible.has(name)) : names
+            const uris = connection.resourceUris()
+            const templates = connection.resourceTemplates()
+            const visibility = resolveMcpMemberVisibility(entry, names, uris, templates)
+            if (scope !== undefined) resourceSelection.set(scope, visibility)
+            const denied = visibility.serverSelected ? visibility.deniedToolNames : names
             const next = denied.length === 0
               ? (): void => {}
               : tools.restrict({ deny: denied, includeOwn: true })
@@ -253,6 +352,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
             refresh()
             return () => {
               restrictionRefreshers.delete(refresh)
+              if (scope !== undefined) resourceSelection.delete(scope)
               release()
             }
           }, `mcp-client.capabilityComposition(${JSON.stringify(config.serverName)})`)

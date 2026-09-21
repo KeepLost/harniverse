@@ -8,7 +8,7 @@ import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { SettingsProvider, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { UserMcpServerConfig } from '../src/index.ts'
 
 import * as bridgeModule from '../src/index.ts'
@@ -191,27 +191,16 @@ describe('mcp-user-config plugin', () => {
     expect(ctx.tools.get('mcp__good__add')).toBeDefined()
   })
 
-  it('adds, removes, and restarts children from serialized settings updates', async () => {
+  it('keeps existing children pinned and applies changed settings only to new consumers', async () => {
     await mount([server('one')])
     const settings = ctx.get('settings') as MemorySettings
-
-    await settings.replace(bridgeModule.MCP_SETTINGS_NAMESPACE, { servers: [server('one'), server('two')] })
-    await vi.waitFor(() => {
-      expect(ctx.tools.get('mcp__two__add')).toBeDefined()
-    }, { timeout: 5_000 })
-
     await settings.replace(bridgeModule.MCP_SETTINGS_NAMESPACE, { servers: [server('two')] })
-    await vi.waitFor(() => {
-      expect(ctx.tools.get('mcp__one__add')).toBeUndefined()
-    }, { timeout: 5_000 })
-
-    await settings.replace(bridgeModule.MCP_SETTINGS_NAMESPACE, {
-      servers: [server('two', { serverName: 'two-restarted' })],
-    })
-    await vi.waitFor(() => {
-      expect(ctx.tools.get('mcp__two-restarted__add')).toBeDefined()
-    }, { timeout: 5_000 })
+    expect(ctx.tools.get('mcp__one__add')).toBeDefined()
     expect(ctx.tools.get('mcp__two__add')).toBeUndefined()
+    const next = await mountProfile()
+    expect(next.tools.get('mcp__two__add')).toBeDefined()
+    expect(next.tools.get('mcp__one__add')).toBeUndefined()
+    expect(ctx.tools.get('mcp__one__add')).toBeDefined()
   })
 
   it('rejects duplicate stable ids before mounting any child', async () => {
@@ -276,6 +265,15 @@ describe('mcp-user-config settings validation', () => {
     await expect(settings.replace(bridgeModule.MCP_SETTINGS_NAMESPACE, {
       servers: [{ ...server('odd'), bogus: 1 }],
     })).rejects.toThrow('unknown key "mcp.servers[0].bogus"')
+  })
+
+  it('accepts a positive instruction budget and rejects zero before mounting', async () => {
+    const settings = validationCtx.get('settings') as MemorySettings
+    await settings.replace(bridgeModule.MCP_SETTINGS_NAMESPACE, { servers: [server('budget', { maxInstructionBytes: 128 })] })
+    expect(validationCtx.mcpUserConfigSettings.get().servers[0]?.maxInstructionBytes).toBe(128)
+    await expect(settings.replace(bridgeModule.MCP_SETTINGS_NAMESPACE, { servers: [server('budget', { maxInstructionBytes: 0 })] }))
+      .rejects.toThrow()
+    expect(validationCtx.mcpUserConfigSettings.get().servers[0]?.maxInstructionBytes).toBe(128)
   })
 
   it('rejects duplicate serverName values', async () => {

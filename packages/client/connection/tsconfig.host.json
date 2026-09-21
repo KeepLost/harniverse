@@ -9,6 +9,7 @@
     "src/api-path.ts",
     "src/api-request-trust.ts",
     "src/attachment-routes.ts",
+    "src/session-import-route.ts",
     "src/browser-auth-routes.ts",
     "src/http-bridge.ts",
     "src/inbound-auth.ts",
@@ -20,6 +21,8 @@
     "src/websocket-downlink.ts"
   ],
   "references": [
+    { "path": "../../session/session-import" },
+    { "path": "../../workspace/workspace" },
     {
       "path": "../../attachment/attachment"
     },

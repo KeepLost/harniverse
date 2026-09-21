@@ -133,6 +133,11 @@
     - id: session-projection
       name: '@deepseek-ai/dsh-session-projection'
 
+    # Archival imports own their Agent admission policy and retain source bytes
+    # beside the mapped history in the configured persistence backend.
+    - id: session-import
+      name: '@deepseek-ai/dsh-session-import'
+
     # Session telemetry is mounted but disabled by default. DSH_TELEMETRY_MODE
     # explicitly opts into FULL or FEEDBACK_ONLY reporting; uploading mirrors
     # session-log records onto OTLP/HTTP logs with no session-telemetry/record redaction
@@ -249,6 +254,12 @@
     - id: capabilities
       name: '@deepseek-ai/dsh-capabilities'
 
+    # Shared MCP resource tools are inert until an MCP client provider is
+    # mounted, so Minimal keeps no external server while all MCP-enabled
+    # profiles share one scoped resource consumer.
+    - id: mcp-resources
+      name: '@deepseek-ai/dsh-mcp-resources'
+
     - id: skill-filesystem
       name: '@deepseek-ai/dsh-skill-filesystem'
 
@@ -297,6 +308,9 @@
     # provider. An absent value leaves each Profile's composed threshold intact.
     - id: compaction-settings
       name: '@deepseek-ai/dsh-compaction-settings'
+
+    - id: compaction-image-offload
+      name: '@deepseek-ai/dsh-compaction-image-offload'
 
     - id: compaction-lossless
       name: '@deepseek-ai/dsh-compaction-lossless'

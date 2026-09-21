@@ -5,17 +5,33 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Capabilities from '@deepseek-ai/dsh-capabilities'
-import { createScope } from '@deepseek-ai/dsh-scope'
+import { bindScopeParent, createScope } from '@deepseek-ai/dsh-scope'
 import { SettingsProvider, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import McpResources, { MAX_RESOURCE_RESULT_BYTES } from '@deepseek-ai/dsh-mcp-resources'
+import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Config } from '@deepseek-ai/dsh-mcp-client'
+import { mcpResourceMemberId, mcpResourceTemplateMemberId } from '@deepseek-ai/dsh-mcp-client/src/resource-contract.ts'
+import { MAX_RESOURCE_ITEMS, resolveReconnectPolicy, startConnection } from '../src/connection.ts'
 
 // ---- Mock MCP SDK ----
 
 // vi.mock factories are hoisted above every import/const, so the mock fns and
 // class must be created inside vi.hoisted to exist when the factories run.
-const { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotificationHandler, MockClient } = vi.hoisted(() => {
+const {
+  mockConnect,
+  mockClose,
+  mockListTools,
+  mockCallTool,
+  mockSetNotificationHandler,
+  mockGetInstructions,
+  mockGetServerCapabilities,
+  mockListResources,
+  mockListResourceTemplates,
+  mockReadResource,
+  MockClient,
+} = vi.hoisted(() => {
   const mockConnect = vi.fn<() => Promise<void>>()
   const mockClose = vi.fn<() => Promise<void>>()
   const mockListTools = vi.fn<(_params?: Record<string, unknown>) => Promise<unknown>>()
@@ -23,6 +39,11 @@ const { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotification
     _params?: Record<string, unknown>, _compatibilitySchema?: unknown, _options?: unknown,
   ) => Promise<unknown>>()
   const mockSetNotificationHandler = vi.fn()
+  const mockGetInstructions = vi.fn<() => string | undefined>()
+  const mockGetServerCapabilities = vi.fn<() => Record<string, unknown> | undefined>()
+  const mockListResources = vi.fn<(_params?: Record<string, unknown>) => Promise<unknown>>()
+  const mockListResourceTemplates = vi.fn<(_params?: Record<string, unknown>) => Promise<unknown>>()
+  const mockReadResource = vi.fn<(_params: { uri: string }) => Promise<unknown>>()
   const mockRequest = vi.fn(async (
     request: { method: string; params?: Record<string, unknown> },
     _schema: unknown,
@@ -39,8 +60,25 @@ const { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotification
     callTool = mockCallTool
     request = mockRequest
     setNotificationHandler = mockSetNotificationHandler
+    getInstructions = mockGetInstructions
+    getServerCapabilities = mockGetServerCapabilities
+    listResources = mockListResources
+    listResourceTemplates = mockListResourceTemplates
+    readResource = mockReadResource
   }
-  return { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotificationHandler, MockClient }
+  return {
+    mockConnect,
+    mockClose,
+    mockListTools,
+    mockCallTool,
+    mockSetNotificationHandler,
+    mockGetInstructions,
+    mockGetServerCapabilities,
+    mockListResources,
+    mockListResourceTemplates,
+    mockReadResource,
+    MockClient,
+  }
 })
 
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
@@ -186,6 +224,11 @@ describe('apply (plugin lifecycle)', () => {
       nextCursor: undefined,
     })
     mockCallTool.mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] })
+    mockGetInstructions.mockReturnValue(undefined)
+    mockGetServerCapabilities.mockReturnValue({ tools: {} })
+    mockListResources.mockResolvedValue({ resources: [] })
+    mockListResourceTemplates.mockResolvedValue({ resourceTemplates: [] })
+    mockReadResource.mockResolvedValue({ contents: [] })
     ctx = await mountRegistry()
   })
 
@@ -529,7 +572,7 @@ describe('capability composition edges', () => {
     await managed.fiber.dispose()
   })
 
-  it('contains a failing composition restriction refresh', async () => {
+  it('contains a failing composition restriction refresh without mutating the captured generation', async () => {
     const managed = await mountCapabilityRegistry()
     await apply(managed, stdioConfig)
     const errors: string[] = []
@@ -541,21 +584,18 @@ describe('capability composition edges', () => {
     const catalog = await managed.capabilities.snapshot(target, view)
     const server = catalog.entries.find(entry => entry.kind === 'mcp-server')!
     const plan = await managed.capabilities.plan(target, [
-      { capabilityId: server.id, selection: 'unload' },
+      { capabilityId: server.id, members: [] },
     ], catalog.revision, view)
     expect(plan.blockers).toEqual([])
     await managed.capabilities.apply(plan.id, catalog.revision)
     const entries = (await managed.capabilities.snapshot(target, view)).entries
-    let memberAccesses = 0
-    const composed = entries.find(entry => entry.id === server.id)!
-    Object.defineProperty(composed, 'memberEntries', {
-      get() {
-        memberAccesses += 1
-        if (memberAccesses > 1) throw new Error('restriction broke')
-        return []
-      },
-    })
     managed.capabilities.mountComposition(standing.ctx, entries)
+
+    // The generation entry is immutable. Exercise containment at the actual
+    // refresh boundary instead of mutating the captured catalog after mount.
+    vi.spyOn(managed.tools, 'restrict').mockImplementation(() => {
+      throw new Error('restriction broke')
+    })
 
     mockListTools.mockResolvedValue({
       tools: [{ name: 'updated', inputSchema: { type: 'object' } }],
@@ -566,6 +606,706 @@ describe('capability composition edges', () => {
 
     expect(errors.join('\n')).toContain('composition restriction refresh failed')
     expect(errors.join('\n')).toContain('restriction broke')
+    await managed.fiber.dispose()
+  })
+})
+
+describe('W07 instructions and resource surfaces', () => {
+  const serverEntryId = `mcp-server:${Buffer.from('srv').toString('hex')}`
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    mockConnect.mockResolvedValue(undefined)
+    mockClose.mockImplementation(function (this: { onclose?: () => void }) {
+      this.onclose?.()
+      return Promise.resolve()
+    })
+    mockListTools.mockResolvedValue({
+      tools: [{ name: 'remote', description: 'A remote tool', inputSchema: { type: 'object' } }],
+      nextCursor: undefined,
+    })
+    mockCallTool.mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] })
+    mockGetInstructions.mockReturnValue(undefined)
+    mockGetServerCapabilities.mockReturnValue({ tools: {} })
+    mockListResources.mockResolvedValue({ resources: [] })
+    mockListResourceTemplates.mockResolvedValue({ resourceTemplates: [] })
+    mockReadResource.mockResolvedValue({ contents: [] })
+  })
+
+  async function mountResourceRegistry(): Promise<Context> {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(McpResources)
+    return ctx
+  }
+
+  it('captures attributed instructions verbatim in a connection-owned section', async () => {
+    const registry = await mountResourceRegistry()
+    mockGetInstructions.mockReturnValue('Be careful. Braces {{stay literal}}.')
+    await apply(registry, stdioConfig)
+
+    expect(renderPrompt(await registry.systemPrompt.assemble()))
+      .toContain('### MCP server: srv\n\nBe careful. Braces {{stay literal}}.')
+    await registry.fiber.dispose()
+  })
+
+  it.each([0, -1, 1.5, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid programmatic instruction budget %s before connecting', async (maxInstructionBytes) => {
+      const registry = await mountResourceRegistry()
+      await expect(apply(registry, { ...stdioConfig, maxInstructionBytes }))
+        .rejects.toThrow('maxInstructionBytes must be a positive safe integer')
+      expect(mockConnect).not.toHaveBeenCalled()
+      expect(registry.tools.get('mcp__srv__remote')).toBeUndefined()
+      await registry.fiber.dispose()
+    },
+  )
+
+  it('removes old tools when the server stops advertising the tools capability', async () => {
+    const registry = await mountResourceRegistry()
+    await apply(registry, stdioConfig)
+    expect(registry.tools.get('mcp__srv__remote')).toBeDefined()
+    mockGetServerCapabilities.mockReturnValue({ resources: {} })
+    const handler = mockSetNotificationHandler.mock.calls.at(-1)![1] as () => Promise<void>
+    await handler()
+    expect(registry.tools.get('mcp__srv__remote')).toBeUndefined()
+    const result = await registry.tools.execute({ name: 'list_mcp_resources', arguments: { server: 'srv' },
+      signal: new AbortController().signal, callId: CallId('resource-only-refresh') })
+    expect(result.isError).toBe(false)
+    await registry.fiber.dispose()
+  })
+
+  it('retains the last good tools when resource notification synchronization fails', async () => {
+    const registry = await mountResourceRegistry()
+    const errors: string[] = []
+    registry.logger.error = ((message: unknown) => { errors.push(String(message)) }) as typeof registry.logger.error
+    const fiber = registry.plugin({ name, inject, apply }, stdioConfig)
+    await fiber
+    mockListTools.mockRejectedValueOnce(new Error('notification fetch failed'))
+    const handler = mockSetNotificationHandler.mock.calls.at(-1)![1] as () => Promise<void>
+    await handler()
+    expect(errors).toEqual(['mcp-client(srv): resource re-sync failed: Error: notification fetch failed'])
+    expect(registry.tools.get('mcp__srv__remote')).toBeDefined()
+    await fiber.dispose()
+    mockListTools.mockClear()
+    await handler()
+    expect(mockListTools).not.toHaveBeenCalled()
+    expect(registry.tools.get('mcp__srv__remote')).toBeUndefined()
+    await registry.fiber.dispose()
+  })
+
+  it('quiesces a failing resource notification during disposal without logging a stale failure', async () => {
+    const registry = await mountResourceRegistry()
+    const errors: string[] = []
+    registry.logger.error = ((message: unknown) => { errors.push(String(message)) }) as typeof registry.logger.error
+    const connection = startConnection(registry, stdioConfig, resolveReconnectPolicy({ enabled: false }, 'test'))
+    await connection.ready
+    const entered: PromiseWithResolvers<void> = Promise.withResolvers()
+    const pending: PromiseWithResolvers<unknown> = Promise.withResolvers()
+    mockListTools.mockImplementationOnce(() => { entered.resolve(); return pending.promise })
+    const handler = mockSetNotificationHandler.mock.calls.at(-1)![1] as () => Promise<void>
+    const refreshing = handler()
+    await entered.promise
+    const disposing = connection.dispose()
+    pending.reject(new Error('late notification failure'))
+    await Promise.all([refreshing, disposing])
+    expect(errors).toEqual([])
+    expect(connection.toolNames()).toEqual([])
+    expect(connection.connected()).toBe(false)
+    await registry.fiber.dispose()
+  })
+
+  it('contributes no instruction section when the server sends none', async () => {
+    const registry = await mountResourceRegistry()
+    await apply(registry, stdioConfig)
+
+    expect(renderPrompt(await registry.systemPrompt.assemble()))
+      .not.toContain('### MCP server: srv')
+    await registry.fiber.dispose()
+  })
+
+  it('fails startup when attributed instructions exceed maxInstructionBytes', async () => {
+    const registry = await mountResourceRegistry()
+    mockGetInstructions.mockReturnValue('x'.repeat(64))
+    const failure = apply(registry, { ...stdioConfig, maxInstructionBytes: 8, failOnStartupError: true })
+    await expect(failure).rejects.toThrow('initial connection or tool synchronization failed')
+    const error = await failure.catch((reason: unknown) => reason)
+    expect(String((error as Error & { cause?: unknown }).cause))
+      .toContain('server instructions exceed maxInstructionBytes (8)')
+    expect(registry.tools.get('mcp__srv__remote')).toBeUndefined()
+    await registry.fiber.dispose()
+  })
+
+  it('defaults maxInstructionBytes to 32768 and accepts multibyte budgets by bytes', async () => {
+    const registry = await mountResourceRegistry()
+    // 3 bytes per CJK character: the server text costs 12 bytes on top of
+    // the 21-byte attribution header — a 33-byte budget admits it by bytes.
+    mockGetInstructions.mockReturnValue('你好你好')
+    await expect(apply(registry, { ...stdioConfig, maxInstructionBytes: 33, failOnStartupError: true }))
+      .resolves.toBeUndefined()
+    await registry.fiber.dispose()
+  })
+
+  it('advertises discovered resource members alongside tool members', async () => {
+    const managed = await mountCapabilityRegistry()
+    mockGetServerCapabilities.mockReturnValue({ tools: {}, resources: { listChanged: false } })
+    mockListResources.mockResolvedValue({
+      resources: [{ uri: 'docs://a', name: 'A' }, { uri: 'docs://b', name: 'B' }],
+    })
+    await apply(managed, stdioConfig)
+
+    const target = { kind: 'agent-profile', agentProfile: 'resource-members' } as const
+    const view = { scope: { profile: 'resource-members' } }
+    const catalog = await managed.capabilities.snapshot(target, view)
+    const server = catalog.entries.find(entry => entry.id === serverEntryId)!
+    expect(server.memberEntries?.map(member => [member.kind, member.name])).toEqual([
+      ['mcp-tool', 'mcp__srv__remote'],
+      ['mcp-resource', 'docs://a'],
+      ['mcp-resource', 'docs://b'],
+    ])
+    expect(server.memberEntries?.map(member => member.id)).toEqual([
+      `${serverEntryId}/mcp-tool:${Buffer.from('mcp__srv__remote').toString('hex')}`,
+      mcpResourceMemberId('srv', 'docs://a'),
+      mcpResourceMemberId('srv', 'docs://b'),
+    ])
+    await managed.fiber.dispose()
+  })
+
+  it('bounds reads and lists to the Profile-visible resources of a narrowed agent', async () => {
+    const managed = new Context()
+    await managed.plugin(SystemPrompt)
+    await managed.plugin(ToolRuntime)
+    await managed.plugin(McpResources)
+    await managed.plugin(MemorySettings)
+    await managed.plugin(Capabilities)
+    mockGetServerCapabilities.mockReturnValue({ resources: { listChanged: false } })
+    mockListResources.mockResolvedValue({
+      resources: [{ uri: 'docs://a', name: 'A' }, { uri: 'docs://b', name: 'B' }],
+    })
+    mockReadResource.mockResolvedValue({ contents: [{ uri: 'docs://a', mimeType: 'text/plain', text: 'A body.' }] })
+    await apply(managed, stdioConfig)
+
+    const standingKey = { profile: 'narrowed-resources' }
+    const standing = createScope(managed, standingKey)
+    const target = { kind: 'agent-profile', agentProfile: 'narrowed-resources' } as const
+    const view = { scope: standingKey }
+    const catalog = await managed.capabilities.snapshot(target, view)
+    const server = catalog.entries.find(entry => entry.id === serverEntryId)!
+    const resourceA = server.memberEntries?.find(member => member.name === 'docs://a')
+    const plan = await managed.capabilities.plan(target, [{
+      capabilityId: server.id,
+      members: [resourceA!.id],
+    }], catalog.revision, view)
+    expect(plan.blockers).toEqual([])
+    await managed.capabilities.apply(plan.id, catalog.revision)
+    managed.capabilities.mountComposition(standing.ctx, (await managed.capabilities.snapshot(target, view)).entries)
+
+    const agent = {} as object
+    bindScopeParent(agent, standingKey)
+    const allowed = await managed.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('read-allowed'),
+      name: 'read_mcp_resource',
+      arguments: { server: 'srv', uri: 'docs://a' },
+      agent: agent as never,
+    })
+    expect(allowed.isError).toBe(false)
+    expect(JSON.stringify(allowed.content)).toContain('A body.')
+    mockReadResource.mockClear()
+
+    const denied = await managed.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('read-denied'),
+      name: 'read_mcp_resource',
+      arguments: { server: 'srv', uri: 'docs://b' },
+      agent: agent as never,
+    })
+    expect(denied.isError).toBe(true)
+    expect(JSON.stringify(denied.content)).toContain('not visible to this agent')
+    expect(mockReadResource).not.toHaveBeenCalled()
+
+    const listed = await managed.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('list-narrowed'),
+      name: 'list_mcp_resources',
+      arguments: { server: 'srv' },
+      agent: agent as never,
+    })
+    expect(listed.isError).toBe(false)
+    expect(JSON.stringify(listed.content)).toContain('docs://a')
+    expect(JSON.stringify(listed.content)).not.toContain('docs://b')
+
+    // An agent outside the narrowed composition reaches everything.
+    const outsider = await managed.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('read-outsider'),
+      name: 'read_mcp_resource',
+      arguments: { server: 'srv', uri: 'docs://b' },
+      agent: {} as never,
+    })
+    expect(outsider.isError).toBe(false)
+    await managed.fiber.dispose()
+  })
+
+  it('denies every resource of an unloaded server', async () => {
+    const managed = new Context()
+    await managed.plugin(SystemPrompt)
+    await managed.plugin(ToolRuntime)
+    await managed.plugin(McpResources)
+    await managed.plugin(MemorySettings)
+    await managed.plugin(Capabilities)
+    mockGetServerCapabilities.mockReturnValue({ resources: { listChanged: false } })
+    mockListResources.mockResolvedValue({
+      resources: [{ uri: 'docs://a', name: 'A' }],
+    })
+    mockGetInstructions.mockReturnValue('private server instruction')
+    const register = vi.spyOn(managed.mcpResources, 'register')
+    await apply(managed, stdioConfig)
+    const provider = register.mock.calls.find(([server]) => server === 'srv')![1]
+
+    const standingKey = { profile: 'unloaded-resources' }
+    const standing = createScope(managed, standingKey)
+    const target = { kind: 'agent-profile', agentProfile: 'unloaded-resources' } as const
+    const view = { scope: standingKey }
+    const catalog = await managed.capabilities.snapshot(target, view)
+    const server = catalog.entries.find(entry => entry.id === serverEntryId)!
+    const plan = await managed.capabilities.plan(target, [
+      { capabilityId: server.id, selection: 'unload' },
+    ], catalog.revision, view)
+    await managed.capabilities.apply(plan.id, catalog.revision)
+    managed.capabilities.mountComposition(standing.ctx, (await managed.capabilities.snapshot(target, view)).entries)
+
+    const agent = {} as object
+    bindScopeParent(agent, standingKey)
+    mockListResources.mockClear()
+    mockListResourceTemplates.mockClear()
+    await expect(provider.request({ method: 'resources/read', uri: 'docs://a' }, {
+      agent, signal: new AbortController().signal, callId: CallId('direct-unloaded'),
+    } as never)).rejects.toThrow('resource server is not visible to this agent')
+    expect(renderPrompt(await managed.systemPrompt.assemble({ scope: agent }))).not.toContain('private server instruction')
+    expect(renderPrompt(await managed.systemPrompt.assemble({ scope: agent }))).not.toContain('server argument:')
+    const denied = await managed.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('read-unloaded'),
+      name: 'read_mcp_resource',
+      arguments: { server: 'srv', uri: 'docs://a' },
+      agent: agent as never,
+    })
+    expect(denied.isError).toBe(true)
+    expect(JSON.stringify(denied.content)).toContain('unavailable in this agent')
+
+    const listed = await managed.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('list-unloaded'),
+      name: 'list_mcp_resources',
+      arguments: { server: 'srv' },
+      agent: agent as never,
+    })
+    expect(listed.isError).toBe(true)
+    expect(JSON.stringify(listed.content)).not.toContain('docs://a')
+    expect(mockReadResource).not.toHaveBeenCalled()
+    expect(mockListResources).not.toHaveBeenCalled()
+    const templates = await managed.tools.execute({
+      signal: new AbortController().signal, callId: CallId('templates-unloaded'),
+      name: 'list_mcp_resource_templates', arguments: { server: 'srv' }, agent: agent as never,
+    })
+    expect(templates.isError).toBe(true)
+    expect(mockListResourceTemplates).not.toHaveBeenCalled()
+    await managed.fiber.dispose()
+  })
+
+  it('passes non-list result shapes through the narrowing untouched', async () => {
+    const managed = new Context()
+    await managed.plugin(SystemPrompt)
+    await managed.plugin(ToolRuntime)
+    await managed.plugin(McpResources)
+    await managed.plugin(MemorySettings)
+    await managed.plugin(Capabilities)
+    mockGetServerCapabilities.mockReturnValue({ resources: { listChanged: false } })
+    mockListResources.mockResolvedValue({ resources: [{ uri: 'docs://a', name: 'A' }] })
+    await apply(managed, stdioConfig)
+
+    const standingKey = { profile: 'narrowed-shapes' }
+    const standing = createScope(managed, standingKey)
+    const target = { kind: 'agent-profile', agentProfile: 'narrowed-shapes' } as const
+    const view = { scope: standingKey }
+    const catalog = await managed.capabilities.snapshot(target, view)
+    const server = catalog.entries.find(entry => entry.id === serverEntryId)!
+    const resourceA = server.memberEntries?.find(member => member.name === 'docs://a')
+    const plan = await managed.capabilities.plan(target, [{
+      capabilityId: server.id,
+      members: [resourceA!.id],
+    }], catalog.revision, view)
+    await managed.capabilities.apply(plan.id, catalog.revision)
+    managed.capabilities.mountComposition(standing.ctx, (await managed.capabilities.snapshot(target, view)).entries)
+    const agent = {} as object
+    bindScopeParent(agent, standingKey)
+
+    // A scalar/array result or one without a resources array passes as-is.
+    const markers: [unknown, string][] = [[[], '[]'], ['plain', 'plain'], [{ note: 'no resources here' }, 'no resources here']]
+    for (const [shape, marker] of markers) {
+      mockListResources.mockResolvedValue(shape)
+      const listed = await managed.tools.execute({
+        signal: new AbortController().signal,
+        callId: CallId('list-shape'),
+        name: 'list_mcp_resources',
+        arguments: { server: 'srv' },
+        agent: agent as never,
+      })
+      expect(listed.isError).toBe(false)
+      expect(JSON.stringify(listed.content)).toContain(marker)
+    }
+
+    mockListResources.mockResolvedValue({ resources: [null, [], 'invalid', { uri: 42 },
+      { uri: 'docs://a', name: 'Allowed' }, { uri: 'docs://b', name: 'Hidden' }] })
+    const malformed = await managed.tools.execute({
+      signal: new AbortController().signal, callId: CallId('malformed-members'),
+      name: 'list_mcp_resources', arguments: { server: 'srv' }, agent: agent as never,
+    })
+    expect(malformed.isError).toBe(false)
+    expect(malformed).toHaveProperty('value', { resources: [{ uri: 'docs://a', name: 'Allowed' }] })
+
+    // An explicit concrete-resource grant does not also grant templates.
+    mockListResourceTemplates.mockResolvedValue({ resourceTemplates: [{ uriTemplate: 'docs://x/{q}', name: 'x' }] })
+    const templates = await managed.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('templates-narrowed'),
+      name: 'list_mcp_resource_templates',
+      arguments: { server: 'srv' },
+      agent: agent as never,
+    })
+    expect(templates.isError).toBe(false)
+    expect(JSON.stringify(templates.content)).not.toContain('docs://x/{q}')
+    await managed.fiber.dispose()
+  })
+
+  it('supports an unscoped composition and disposes it without a scope record', async () => {
+    const managed = await mountCapabilityRegistry()
+    mockGetServerCapabilities.mockReturnValue({ tools: {}, resources: { listChanged: false } })
+    mockListResources.mockResolvedValue({ resources: [{ uri: 'docs://a', name: 'A' }] })
+    await apply(managed, stdioConfig)
+    const entry = { id: serverEntryId, kind: 'mcp-server', selected: true }
+
+    const plain = new Context()
+    await plain.plugin(SystemPrompt)
+    await plain.plugin(ToolRuntime)
+    managed.capabilities.mountComposition(plain, [entry as never])
+    // The unscoped composition records no visibility, and its disposal skips
+    // the per-scope record cleanup without touching the live registry.
+    await plain.fiber.dispose()
+    expect(managed.tools.schemas().map(tool => tool.name)).toContain('mcp__srv__remote')
+    await managed.fiber.dispose()
+  })
+
+  it('contains a failed resource discovery and keeps the previous cache', async () => {
+    const registry = await mountResourceRegistry()
+    mockGetServerCapabilities.mockReturnValue({ resources: { listChanged: false } })
+    const errors: string[] = []
+    registry.logger.error = ((message: unknown) => { errors.push(String(message)) }) as typeof registry.logger.error
+    mockListResources.mockResolvedValue({
+      resources: [{ uri: 'docs://a', name: 'A' }],
+    })
+    await apply(registry, stdioConfig)
+
+    mockListResources.mockRejectedValue(new Error('resource backend down'))
+    const handler = mockSetNotificationHandler.mock.calls.at(-1)![1] as () => Promise<void>
+    await handler()
+    await vi.waitFor(() => { expect(errors.join('\n')).toContain('resource discovery failed') })
+    expect(errors.join('\n')).not.toContain('repeated continuation cursor')
+
+    // The read surface keeps working and the stale URI stays resolvable.
+    mockReadResource.mockResolvedValue({ contents: [{ uri: 'docs://a', mimeType: 'text/plain', text: 'A body.' }] })
+    const read = await registry.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('read-stale-cache'),
+      name: 'read_mcp_resource',
+      arguments: { server: 'srv', uri: 'docs://a' },
+    })
+    expect(read.isError).toBe(false)
+    await registry.fiber.dispose()
+  })
+
+  it('treats a repeated continuation cursor as invalid pagination', async () => {
+    const registry = await mountResourceRegistry()
+    const errors: string[] = []
+    registry.logger.error = ((message: unknown) => { errors.push(String(message)) }) as typeof registry.logger.error
+    mockGetServerCapabilities.mockReturnValue({ tools: {}, resources: { listChanged: false } })
+    mockListResources.mockResolvedValue({
+      resources: [{ uri: 'docs://a', name: 'A' }],
+      nextCursor: 'same-page',
+    })
+    await apply(registry, stdioConfig)
+
+    expect(errors.join('\n')).toContain('repeated continuation cursor "same-page"')
+    expect(mockListResources).toHaveBeenCalledTimes(2)
+    expect(registry.tools.get('mcp__srv__remote')).toBeDefined()
+    await registry.fiber.dispose()
+  })
+
+  it('routes the three resource operations through the live generation', async () => {
+    const registry = await mountResourceRegistry()
+    mockGetServerCapabilities.mockReturnValue({ resources: { listChanged: false } })
+    mockListResources.mockResolvedValue({ resources: [] })
+    mockListResourceTemplates.mockResolvedValue({ resourceTemplates: [{ uriTemplate: 'docs://q/{term}', name: 'q' }] })
+    mockReadResource.mockResolvedValue({ contents: [{ uri: 'docs://t', mimeType: 'text/plain', text: 'T.' }] })
+    await apply(registry, stdioConfig)
+
+    await registry.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('route-list'),
+      name: 'list_mcp_resources',
+      arguments: { server: 'srv', cursor: 'page-7' },
+    })
+    expect(mockListResources).toHaveBeenCalledWith({ cursor: 'page-7' }, expect.anything())
+    await registry.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('route-templates'),
+      name: 'list_mcp_resource_templates',
+      arguments: { server: 'srv', cursor: 'tpl-page' },
+    })
+    expect(mockListResourceTemplates).toHaveBeenCalledWith({ cursor: 'tpl-page' }, expect.anything())
+    const read = await registry.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('route-read'),
+      name: 'read_mcp_resource',
+      arguments: { server: 'srv', uri: 'docs://t' },
+    })
+    expect(mockReadResource).toHaveBeenCalledWith({ uri: 'docs://t' }, expect.anything())
+    expect(JSON.stringify(read.content)).toContain('T.')
+    await registry.fiber.dispose()
+  })
+
+  it('requests resources and instructions only from a connected generation', async () => {
+    const registry = await mountResourceRegistry()
+    mockGetServerCapabilities.mockReturnValue({ resources: { listChanged: false } })
+    mockConnect.mockRejectedValue(new Error('connection refused'))
+    await apply(registry, stdioConfig)
+
+    const offline = await registry.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('read-offline-mock'),
+      name: 'read_mcp_resource',
+      arguments: { server: 'srv', uri: 'docs://t' },
+    })
+    expect(offline.isError).toBe(true)
+    expect(JSON.stringify(offline.content)).toContain('server is disconnected')
+    expect(mockReadResource).not.toHaveBeenCalled()
+    await registry.fiber.dispose()
+  })
+
+  it('connects a resource-only server without invoking tools/list', async () => {
+    const registry = await mountResourceRegistry()
+    mockGetServerCapabilities.mockReturnValue({ resources: {} })
+    mockListTools.mockRejectedValue(new Error('tools capability not supported'))
+    await apply(registry, { ...stdioConfig, failOnStartupError: true })
+    expect(mockListTools).not.toHaveBeenCalled()
+    const result = await registry.tools.execute({
+      signal: new AbortController().signal, callId: CallId('resource-only'),
+      name: 'list_mcp_resources', arguments: { server: 'srv' },
+    })
+    expect(result.isError).toBe(false)
+    await registry.fiber.dispose()
+  })
+
+  it('uses native URI templates and preserves explicit inherited grants without discovery entries', async () => {
+    const managed = await mountCapabilityRegistry()
+    await managed.plugin(McpResources)
+    mockGetServerCapabilities.mockReturnValue({ resources: {} })
+    const template = 'docs://search{?query}'
+    mockListResourceTemplates.mockResolvedValue({ resourceTemplates: [{ name: 'search', uriTemplate: template }] })
+    await apply(managed, stdioConfig)
+    const key = {}
+    const standing = createScope(managed, key)
+    const catalog = await managed.capabilities.snapshot({ kind: 'agent-profile', agentProfile: 'search' })
+    const server = catalog.entries.find(entry => entry.id === serverEntryId)!
+    managed.capabilities.mountComposition(standing.ctx, [{
+      ...server, memberEntries: [], memberSelection: 'inherit',
+      memberAllowlist: [mcpResourceTemplateMemberId('srv', template)],
+    }])
+    const agent = {}
+    bindScopeParent(agent, key)
+    for (const [uri, allowed] of [['docs://search?query=a%20b', true], ['docs://private', false]] as const) {
+      mockReadResource.mockClear()
+      mockReadResource.mockResolvedValue({ contents: [{ uri, text: 'query result' }] })
+      const result = await managed.tools.execute({
+        signal: new AbortController().signal, callId: CallId(uri),
+        name: 'read_mcp_resource', arguments: { server: 'srv', uri }, agent: agent as never,
+      })
+      expect(result.isError).toBe(!allowed)
+      expect(mockReadResource).toHaveBeenCalledTimes(allowed ? 1 : 0)
+      if (allowed) expect(JSON.stringify(result.content)).toContain('query result')
+    }
+    // Refresh does not widen the captured grant, even with a new template.
+    mockListResourceTemplates.mockResolvedValue({ resourceTemplates: [
+      { name: 'search', uriTemplate: template }, { name: 'private', uriTemplate: 'docs://private/{id}' },
+    ] })
+    const handler = mockSetNotificationHandler.mock.calls.at(-1)![1] as () => Promise<void>
+    await handler()
+    const list = await managed.tools.execute({
+      signal: new AbortController().signal, callId: CallId('filtered-templates'),
+      name: 'list_mcp_resource_templates', arguments: { server: 'srv' }, agent: agent as never,
+    })
+    expect(JSON.stringify(list.content)).toContain(template)
+    expect(JSON.stringify(list.content)).not.toContain('docs://private')
+    await managed.fiber.dispose()
+  })
+
+  it('bounds raw reads before returning a tool value, including binary and metadata', async () => {
+    const registry = await mountResourceRegistry()
+    mockGetServerCapabilities.mockReturnValue({ resources: {} })
+    await apply(registry, stdioConfig)
+    for (const content of [
+      { uri: 'docs://large', blob: 'A'.repeat(MAX_RESOURCE_RESULT_BYTES) },
+      { uri: 'docs://large', text: 'small', _meta: { data: 'x'.repeat(MAX_RESOURCE_RESULT_BYTES) } },
+    ]) {
+      mockReadResource.mockResolvedValue({ contents: [content] })
+      const result = await registry.tools.execute({
+        signal: new AbortController().signal, callId: CallId('oversized-resource'),
+        name: 'read_mcp_resource', arguments: { server: 'srv', uri: 'docs://large' },
+      })
+      expect(result.isError).toBe(true)
+      expect(JSON.stringify(result.content)).toContain('resource result exceeds')
+      expect('value' in result).toBe(false)
+    }
+    await registry.fiber.dispose()
+  })
+
+  it('follows an empty opaque resource cursor', async () => {
+    const registry = await mountResourceRegistry()
+    mockGetServerCapabilities.mockReturnValue({ resources: {} })
+    mockListResources.mockResolvedValueOnce({ resources: [], nextCursor: '' })
+      .mockResolvedValueOnce({ resources: [{ uri: 'docs://second', name: 'Second' }] })
+    await apply(registry, stdioConfig)
+    expect(mockListResources).toHaveBeenCalledTimes(2)
+    expect(mockListResources).toHaveBeenLastCalledWith({ cursor: '' }, expect.anything())
+    await registry.fiber.dispose()
+  })
+
+  it('publishes resource and template inventory atomically on resource notifications', async () => {
+    const managed = await mountCapabilityRegistry()
+    mockGetServerCapabilities.mockReturnValue({ resources: { listChanged: true } })
+    mockListResources.mockResolvedValue({ resources: [{ uri: 'docs://old', name: 'Old' }] })
+    mockListResourceTemplates.mockResolvedValue({ resourceTemplates: [{ uriTemplate: 'docs://old/{id}', name: 'Old template' }] })
+    await apply(managed, stdioConfig)
+    const names = async () => (await managed.capabilities.snapshot({ kind: 'global-agent' })).entries
+      .find(entry => entry.id === serverEntryId)!.memberEntries!.map(member => member.name)
+    const handler = mockSetNotificationHandler.mock.calls.at(-1)![1] as () => Promise<void>
+    mockListResources.mockResolvedValue({ resources: [{ uri: 'docs://new', name: 'New' }] })
+    mockListResourceTemplates.mockRejectedValueOnce(new Error('template discovery failed'))
+    await handler()
+    expect(await names()).toEqual(['docs://old', 'docs://old/{id}'])
+    mockListResourceTemplates.mockResolvedValue({ resourceTemplates: [{ uriTemplate: 'docs://new/{id}', name: 'New template' }] })
+    await handler()
+    expect(await names()).toEqual(['docs://new', 'docs://new/{id}'])
+    await managed.fiber.dispose()
+  })
+
+  it('follows opaque template cursors and publishes the complete sorted inventory', async () => {
+    const registry = await mountResourceRegistry()
+    mockGetServerCapabilities.mockReturnValue({ resources: {} })
+    mockListResourceTemplates.mockResolvedValueOnce({
+      resourceTemplates: [{ name: 'Z', uriTemplate: 'docs://z/{id}' }], nextCursor: '',
+    }).mockResolvedValueOnce({ resourceTemplates: [{ name: 'A', uriTemplate: 'docs://a/{id}' }] })
+    const connection = startConnection(registry, stdioConfig, resolveReconnectPolicy({ enabled: false }, 'test'))
+    await connection.ready
+    expect(connection.resourceTemplates()).toEqual(['docs://a/{id}', 'docs://z/{id}'])
+    expect(mockListResourceTemplates).toHaveBeenLastCalledWith({ cursor: '' }, expect.anything())
+    await connection.dispose()
+    await registry.fiber.dispose()
+  })
+
+  it.each(['resources', 'templates'] as const)('discards %s discovery completed after disposal', async (stage) => {
+    const registry = await mountResourceRegistry()
+    mockGetServerCapabilities.mockReturnValue({ resources: {} })
+    const connection = startConnection(registry, stdioConfig, resolveReconnectPolicy({ enabled: false }, 'test'))
+    await connection.ready
+    const entered: PromiseWithResolvers<void> = Promise.withResolvers()
+    const pending: PromiseWithResolvers<unknown> = Promise.withResolvers()
+    const listing = stage === 'resources' ? mockListResources : mockListResourceTemplates
+    listing.mockImplementationOnce(() => { entered.resolve(); return pending.promise })
+    const handler = mockSetNotificationHandler.mock.calls.at(-1)![1] as () => Promise<void>
+    const refreshing = handler()
+    await entered.promise
+    const disposing = connection.dispose()
+    pending.resolve(stage === 'resources'
+      ? { resources: [{ name: 'Late', uri: 'docs://late' }] }
+      : { resourceTemplates: [{ name: 'Late', uriTemplate: 'docs://late/{id}' }] })
+    await Promise.all([refreshing, disposing])
+    expect(connection.resourceUris()).toEqual([])
+    expect(connection.resourceTemplates()).toEqual([])
+    expect(connection.connected()).toBe(false)
+    await registry.fiber.dispose()
+  })
+
+  it.each(['resource-count', 'template-count', 'resource-bytes', 'template-bytes'] as const)(
+    'keeps both last-good inventories when discovery exceeds %s', async (limit) => {
+      const registry = await mountResourceRegistry()
+      mockGetServerCapabilities.mockReturnValue({ resources: {} })
+      mockListResources.mockResolvedValue({ resources: [{ name: 'Old', uri: 'docs://old' }] })
+      mockListResourceTemplates.mockResolvedValue({ resourceTemplates: [{ name: 'Old', uriTemplate: 'docs://old/{id}' }] })
+      const errors: string[] = []
+      registry.logger.error = ((message: unknown) => { errors.push(String(message)) }) as typeof registry.logger.error
+      const connection = startConnection(registry, stdioConfig, resolveReconnectPolicy({ enabled: false }, 'test'))
+      await connection.ready
+      if (limit === 'resource-count') {
+        mockListResources.mockResolvedValue({ resources: Array.from({ length: MAX_RESOURCE_ITEMS + 1 }, (_, index) => ({ name: 'New', uri: `docs://${index}` })) })
+      } else if (limit === 'template-count') {
+        mockListResourceTemplates.mockResolvedValue({ resourceTemplates: Array.from({ length: MAX_RESOURCE_ITEMS }, (_, index) => ({ name: 'New', uriTemplate: `docs://${index}/{id}` })) })
+      } else {
+        const metadata = 'x'.repeat(Math.floor(MAX_RESOURCE_RESULT_BYTES / 2))
+        if (limit === 'resource-bytes') {
+          mockListResources.mockResolvedValueOnce({ resources: [], _meta: { metadata }, nextCursor: 'second' })
+            .mockResolvedValueOnce({ resources: [], _meta: { metadata } })
+        } else {
+          mockListResources.mockResolvedValue({ resources: [], _meta: { metadata } })
+          mockListResourceTemplates.mockResolvedValue({ resourceTemplates: [], _meta: { metadata } })
+        }
+      }
+      const handler = mockSetNotificationHandler.mock.calls.at(-1)![1] as () => Promise<void>
+      await handler()
+      expect(errors).toEqual(['mcp-client(srv): resource discovery failed: Error: MCP resource inventory exceeds its limit'])
+      expect(connection.resourceUris()).toEqual(['docs://old'])
+      expect(connection.resourceTemplates()).toEqual(['docs://old/{id}'])
+      await connection.dispose()
+      await registry.fiber.dispose()
+    },
+  )
+
+  it('reapplies captured tool grants before awaiting refreshed resource discovery', async () => {
+    const managed = await mountCapabilityRegistry()
+    mockGetServerCapabilities.mockReturnValue({ tools: {}, resources: {} })
+    mockListTools.mockResolvedValue({ tools: [{ name: 'allowed', inputSchema: { type: 'object' } }] })
+    await apply(managed, stdioConfig)
+    const key = { profile: 'tool-refresh' }
+    const standing = createScope(managed, key)
+    const target = { kind: 'agent-profile', agentProfile: 'tool-refresh' } as const
+    const view = { scope: key }
+    const snapshot = await managed.capabilities.snapshot(target, view)
+    const entry = snapshot.entries.find(candidate => candidate.id === serverEntryId)!
+    const allowed = entry.memberEntries!.find(member => member.name === 'mcp__srv__allowed')!
+    const plan = await managed.capabilities.plan(target, [{ capabilityId: entry.id, members: [allowed.id] }], snapshot.revision, view)
+    await managed.capabilities.apply(plan.id, snapshot.revision)
+    managed.capabilities.mountComposition(standing.ctx, (await managed.capabilities.snapshot(target, view)).entries)
+    const agent = {} as object
+    bindScopeParent(agent, key)
+    mockListTools.mockResolvedValue({ tools: [
+      { name: 'allowed', inputSchema: { type: 'object' } },
+      { name: 'new_tool', inputSchema: { type: 'object' } },
+    ] })
+    let names: string[] = []
+    let denied: boolean | undefined
+    mockListResources.mockImplementationOnce(async () => {
+      names = managed.tools.schemas(agent as never).map(tool => tool.name)
+      denied = (await managed.tools.execute({ agent: agent as never, name: 'mcp__srv__new_tool', arguments: {},
+        callId: CallId('during-discovery'), signal: new AbortController().signal })).isError
+      return { resources: [] }
+    })
+    const handler = mockSetNotificationHandler.mock.calls[0]![1] as () => Promise<void>
+    await handler()
+    expect(names).toContain('mcp__srv__allowed')
+    expect(names).not.toContain('mcp__srv__new_tool')
+    expect(denied).toBe(true)
+    expect(mockCallTool).not.toHaveBeenCalled()
     await managed.fiber.dispose()
   })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { CallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
+import { CallId , createMessage, createToolResultMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import SessionStore, {
   Session,
@@ -159,6 +159,25 @@ describe('ToolResultPruner content transform', () => {
 })
 
 describe('ToolResultPruner session transaction', () => {
+  it('leaves a tool result already projected into a text notice untouched', () => {
+    const session = Session.create(SessionId('projected-result'), undefined, undefined, [{
+      type: 'request/context',
+      project(_event, context) {
+        return new Map([...context.messages].filter(([, message]) => message.source.kind === 'tool')
+          .map(([seq, message]) => [seq, freezeMessage({ ...message, content: [{ type: 'text', text: 'result withheld' }] })]))
+      },
+    }])
+    const seq = appendToolStep(session, 1, 'withheld', [{ type: 'text', text: 'x'.repeat(100) }])
+    session.append('request/context', { provider: 'mock', model: 'mock' })
+    const before = session.events
+    expect(service().pruneSession(session)).toEqual({ pruned: [], charsRemoved: 0 })
+    expect(session.events).toBe(before)
+    expect(session.projectedMessageAt(seq)?.content).toEqual([{ type: 'text', text: 'result withheld' }])
+    expect(session.eventAt(seq)).toMatchObject({ data: { message: { content: [{
+      type: 'tool-result', content: [{ type: 'text', text: 'x'.repeat(100) }],
+    }] } } })
+  })
+
   it('prunes a stable snapshot, preserves all data, and cites the replaced result', () => {
     const session = Session.create(SessionId('preserve'))
     const originalSeq = appendToolStep(session, 1, 'one', [{

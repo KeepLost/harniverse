@@ -71,7 +71,7 @@ turn/start
      step/start
      append entered messages as user/message
      derive model history from the log
-     agent/request -> llm/stream -> llm/wire-attempt + assistant/chunk* -> assistant/message
+      agent/request -> llm/project-request -> llm/stream -> llm/wire-attempt + assistant/chunk* -> assistant/message
      tool/call* -> tools/pre-execute -> tools/execute -> tools/post-execute -> tools/finalize-result -> tool/result*
      step/end
      tools owe another request, or next-step input arrived -> claim -> next step
@@ -86,6 +86,8 @@ Input reaches the driver through one inbox. Some messages wake it immediately; i
 `agent/pre-step` decides what the model sees. Listeners may rewrite the claimed messages or reject them outright; a rejected or empty first claim still closes a durable turn that spent no step, so the log records the attempt. Each step reads the prompt sections and tool schemas that plugins registered; `dsh-context-snapshot` prepends a due runtime-context snapshot ahead of the claimed input here.
 
 Agent teardown is one AgentLoop-owned quiescence boundary. It rejects new admission, cancels and drains the driver, unwinds the Agent scope, flushes the exact Session while it remains attached, then detaches the Agent and Session. Consumers close through `AgentHandle.dispose()` or the factory-owned capabilities retained by `ctx.agents.close(id)`; `ctx.agents.closeIfIdle(id)` atomically reserves teardown only from true idle with an empty inbox and treats maintenance as busy. Removing a SessionStore entry directly is never Agent teardown.
+
+Before publishing a live Agent, the driver runs policies registered through `ctx.agents.registerAdmission()`. Plugins own those policies; archival import uses this registration to reject execution of imported history across creation, restoration, and fork entry points.
 
 Details: the [sequence diagram](agent-lifecycle.md), the [tool pipeline](tool-execution-pipeline.md), and [cancellation and error recovery](subsystems/core.md#the-agent-handle).
 
@@ -122,6 +124,8 @@ New behavior attaches to a documented extension point. Changing the loop itself 
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
 | Add a Web Client Chat node | register a `ConversationNodeDefinition` + keyed renderer |
 | Add durable session state | extend `SessionEventMap`; render and replay from the log |
+| Project retained images out of requests | register a Session message projection and settle durable omissions through `llm/project-request` |
+| Restrict live Agent admission | register a policy on `ctx.agents.registerAdmission()` |
 | Generate session titles | register the sole `ctx.sessionTitle` provider |
 | Manage a same-session objective | use `ctx.goals`; continue through `agent/*` |
 | Fork a live session | `ctx.sessions.fork(source, boundary?, childSessionId?)` |

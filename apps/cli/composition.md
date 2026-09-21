@@ -58,6 +58,8 @@ flowchart LR
   cfg --> plugin_dsh_base_session_delivery
   plugin_dsh_base_session_projection["session-projection<br/>@deepseek-ai/dsh-session-projection"]
   cfg --> plugin_dsh_base_session_projection
+  plugin_dsh_base_session_import["session-import<br/>@deepseek-ai/dsh-session-import"]
+  cfg --> plugin_dsh_base_session_import
   plugin_dsh_base_session_telemetry_otel["session-telemetry-otel<br/>@deepseek-ai/dsh-session-telemetry-otel"]
   cfg --> plugin_dsh_base_session_telemetry_otel
   plugin_dsh_base_subprocess["subprocess<br/>@deepseek-ai/dsh-subprocess-local"]
@@ -94,6 +96,8 @@ flowchart LR
   cfg --> plugin_dsh_base_skill
   plugin_dsh_base_capabilities["capabilities<br/>@deepseek-ai/dsh-capabilities"]
   cfg --> plugin_dsh_base_capabilities
+  plugin_dsh_base_mcp_resources["mcp-resources<br/>@deepseek-ai/dsh-mcp-resources"]
+  cfg --> plugin_dsh_base_mcp_resources
   plugin_dsh_base_skill_filesystem["skill-filesystem<br/>@deepseek-ai/dsh-skill-filesystem"]
   cfg --> plugin_dsh_base_skill_filesystem
   plugin_dsh_base_skill_badge["skill-badge<br/>@deepseek-ai/dsh-skill-badge"]
@@ -116,6 +120,8 @@ flowchart LR
   cfg --> plugin_dsh_base_token_meter
   plugin_dsh_base_compaction_settings["compaction-settings<br/>@deepseek-ai/dsh-compaction-settings"]
   cfg --> plugin_dsh_base_compaction_settings
+  plugin_dsh_base_compaction_image_offload["compaction-image-offload<br/>@deepseek-ai/dsh-compaction-image-offload"]
+  cfg --> plugin_dsh_base_compaction_image_offload
   plugin_dsh_base_compaction_lossless["compaction-lossless<br/>@deepseek-ai/dsh-compaction-lossless"]
   cfg --> plugin_dsh_base_compaction_lossless
   plugin_dsh_base_tool_compaction_history["tool-compaction-history<br/>@deepseek-ai/dsh-tool-compaction-history"]
@@ -235,6 +241,7 @@ flowchart LR
 | `session-query-sqlite` | `@deepseek-ai/dsh-session-query-sqlite` |
 | `session-delivery` | `@deepseek-ai/dsh-session-delivery-local` |
 | `session-projection` | `@deepseek-ai/dsh-session-projection` |
+| `session-import` | `@deepseek-ai/dsh-session-import` |
 | `session-telemetry-otel` | `@deepseek-ai/dsh-session-telemetry-otel` |
 | `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
 | `sandbox` | `@deepseek-ai/dsh-sandbox-local` |
@@ -253,6 +260,7 @@ flowchart LR
 | `agent-instructions` | `@deepseek-ai/dsh-agent-instructions` |
 | `skill` | `@deepseek-ai/dsh-skill` |
 | `capabilities` | `@deepseek-ai/dsh-capabilities` |
+| `mcp-resources` | `@deepseek-ai/dsh-mcp-resources` |
 | `skill-filesystem` | `@deepseek-ai/dsh-skill-filesystem` |
 | `skill-badge` | `@deepseek-ai/dsh-skill-badge` |
 | `tool-skill` | `@deepseek-ai/dsh-tool-skill` |
@@ -264,6 +272,7 @@ flowchart LR
 | `plan-mode` | `@deepseek-ai/dsh-plan-mode` |
 | `token-meter` | `@deepseek-ai/dsh-token-meter` |
 | `compaction-settings` | `@deepseek-ai/dsh-compaction-settings` |
+| `compaction-image-offload` | `@deepseek-ai/dsh-compaction-image-offload` |
 | `compaction-lossless` | `@deepseek-ai/dsh-compaction-lossless` |
 | `tool-compaction-history` | `@deepseek-ai/dsh-tool-compaction-history` |
 | `tool-compaction` | `@deepseek-ai/dsh-tool-compaction` |

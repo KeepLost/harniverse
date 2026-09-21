@@ -177,10 +177,11 @@ Read/watch-only view of the host-owned `mcp` settings scope.
 
 ```ts cordis-catalog
 /**
- * Return the current validated user server list.
- * @returns the current validated user server list.
+ * Read the private snapshot for a captured generation, or current settings.
+ * @param scope - standing generation key; standalone consumers may omit it.
+ * @returns an independent copy of the validated server list.
  */
-get(): McpUserConfigSettingsConfig
+get(scope?: ScopeKey): McpUserConfigSettingsConfig
 
 /**
  * Subscribe to validated settings replacements and return the disposer.
@@ -190,7 +191,9 @@ get(): McpUserConfigSettingsConfig
 watch(callback: (next: McpUserConfigSettingsConfig, prev: McpUserConfigSettingsConfig) => void | Promise<void>): () => void
 ```
 
-Source: [`packages/mcp/mcp-user-config/src/index.ts:116`](../../packages/mcp/mcp-user-config/src/index.ts)
+Types: [ScopeKey](scope.md)
+
+Source: [`packages/mcp/mcp-user-config/src/index.ts:122`](../../packages/mcp/mcp-user-config/src/index.ts)
 
 <a id="ctxsettings--settingsprovider-abstract-seam"></a>
 

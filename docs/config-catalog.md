@@ -523,7 +523,7 @@ export interface ConnectionConfig {
 }
 ```
 
-Source: [`packages/client/connection/src/index.ts:67`](../packages/client/connection/src/index.ts)
+Source: [`packages/client/connection/src/index.ts:68`](../packages/client/connection/src/index.ts)
 
 <a id="deepseek-aidsh-client-hmr"></a>
 
@@ -694,6 +694,12 @@ export interface CompactionSettings {
   nudgeThresholdTokens?: number
   /** Growth between context-nudge notices, in estimated framed tokens. */
   nudgeRefireDeltaTokens?: number
+  /**
+   * User-turn age limit after which a retained request image offloads
+   * durably. `'unlimited'` (the default) imposes no age limit; a positive
+   * integer unloads each image once that many later user-message turns exist.
+   */
+  imageOffloadAfterUserTurns?: 'unlimited' | number
 }
 ```
 
@@ -1578,6 +1584,8 @@ export interface StdioConfig {
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
+  /** UTF-8 byte ceiling for the attributed server instructions (default 32768). */
+  maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
 }
@@ -1602,6 +1610,8 @@ export interface StreamableHttpConfig {
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
+  /** UTF-8 byte ceiling for the attributed server instructions (default 32768). */
+  maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
 }
@@ -1619,7 +1629,7 @@ export interface ReconnectConfig {
 }
 ```
 
-Source: [`packages/mcp/mcp-client/src/index.ts:115`](../packages/mcp/mcp-client/src/index.ts)
+Source: [`packages/mcp/mcp-client/src/index.ts:125`](../packages/mcp/mcp-client/src/index.ts)
 
 <a id="deepseek-aidsh-mcp-user-config"></a>
 
@@ -1641,7 +1651,7 @@ export type McpUserConfigRole = 'provider' | 'consumer'
 
 /** One user-configured MCP server after schema defaults are applied. */
 export interface UserMcpServerConfig {
-  /** Stable key used to reconcile this entry across settings updates. */
+  /** Stable identity within a captured settings generation. */
   id: string
   /** Disabled entries do not create a child plugin or expose tools. */
   enabled: boolean
@@ -1663,6 +1673,8 @@ export interface UserMcpServerConfig {
   headers: Record<string, string>
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
+  /** Attributed instruction budget; omission uses the client's 32 KiB default. */
+  maxInstructionBytes?: number
   /** Whether this child rejects activation after its initial connection fails. */
   failOnStartupError: boolean
   /** Child reconnect policy. */
@@ -1672,7 +1684,7 @@ export interface UserMcpServerConfig {
 
 Depends on: [`ReconnectConfig`](../packages/mcp/mcp-client/src/index.ts)
 
-Source: [`packages/mcp/mcp-user-config/src/index.ts:103`](../packages/mcp/mcp-user-config/src/index.ts)
+Source: [`packages/mcp/mcp-user-config/src/index.ts:109`](../packages/mcp/mcp-user-config/src/index.ts)
 
 <a id="deepseek-aidsh-message-feedback"></a>
 
@@ -2833,7 +2845,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:194`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:202`](../packages/core/system-prompt/src/index.ts)
 
 <a id="deepseek-aidsh-terminal-bash"></a>
 
@@ -3855,6 +3867,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))
 - `@deepseek-ai/dsh-command-reset` — requires `commands` ([`packages/context/command-reset/src/index.ts`](../packages/context/command-reset/src/index.ts))
 - `@deepseek-ai/dsh-commands` ([`packages/interaction/commands/src/index.ts`](../packages/interaction/commands/src/index.ts))
+- `@deepseek-ai/dsh-compaction-image-offload` — requires `sessions` ([`packages/compaction/compaction-image-offload/src/index.ts`](../packages/compaction/compaction-image-offload/src/index.ts))
 - `@deepseek-ai/dsh-context-inspector` — requires `systemPrompt` · `tokenMeter` ([`packages/context/context-inspector/src/index.ts`](../packages/context/context-inspector/src/index.ts))
 - `@deepseek-ai/dsh-context-reset` — requires `sessions` ([`packages/context/context-reset/src/index.ts`](../packages/context/context-reset/src/index.ts))
 - `@deepseek-ai/dsh-context-snapshot` — requires `agents` · `systemPrompt` ([`packages/context/context-snapshot/src/index.ts`](../packages/context/context-snapshot/src/index.ts))
@@ -3868,6 +3881,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-host-plugin-inventory` — requires `loader` · `pluginDiagnostics` ([`packages/host/plugin-inventory/src/index.ts`](../packages/host/plugin-inventory/src/index.ts))
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-lsp` ([`packages/lsp/lsp/src/index.ts`](../packages/lsp/lsp/src/index.ts))
+- `@deepseek-ai/dsh-mcp-resources` — requires `tools` ([`packages/mcp/mcp-resources/src/index.ts`](../packages/mcp/mcp-resources/src/index.ts))
 - `@deepseek-ai/dsh-plugin-diagnostics` ([`packages/runtime-diagnostics/plugin-diagnostics/src/index.ts`](../packages/runtime-diagnostics/plugin-diagnostics/src/index.ts))
 - `@deepseek-ai/dsh-plugin-diagnostics-cordis` — requires `pluginDiagnostics` · `loader` ([`packages/runtime-diagnostics/plugin-diagnostics-cordis/src/index.ts`](../packages/runtime-diagnostics/plugin-diagnostics-cordis/src/index.ts))
 - `@deepseek-ai/dsh-scheduler` — requires `agents` · `sessions` · `storageDomain` ([`packages/schedule/scheduler/src/index.ts`](../packages/schedule/scheduler/src/index.ts))

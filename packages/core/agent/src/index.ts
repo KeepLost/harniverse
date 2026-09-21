@@ -11,7 +11,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { isPromise } from 'node:util/types'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { TypertContext, TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
 import type { Agent, AgentOptions } from './runtime-types.ts'
 
@@ -264,6 +264,7 @@ interface FactorySlot {
 export class AgentRegistry extends Service {
   private store = new Map<SessionId, AgentEntry>()
   private factory: FactorySlot | undefined
+  private readonly admissions = new Set<(session: Session) => void>()
   private readonly initiators = new AsyncLocalStorage<Agent | undefined>()
   private readonly initiatorRuns = new AsyncLocalStorage<InitiatorRun>()
   private initiatorState: 'active' | 'closing' | 'disposed' = 'active'
@@ -399,6 +400,27 @@ export class AgentRegistry extends Service {
   private requireFactory(): FactorySlot {
     if (this.factory === undefined) throw new Error(NO_FACTORY_MESSAGE)
     return this.factory
+  }
+
+  /**
+   * Register a synchronous policy checked before a driver adopts a Session.
+   * @param admit - throw to refuse adoption before setup or publication.
+   * @returns the effect-scoped registration disposer.
+   */
+  registerAdmission(admit: (session: Session) => void): () => void {
+    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; preserve the Cordis disposer identity
+    return this.ctx.effect(() => {
+      this.admissions.add(admit)
+      return () => { this.admissions.delete(admit) }
+    }, 'agents.registerAdmission()')
+  }
+
+  /**
+   * Check all installed adoption policies. Factories call before constructing a driver.
+   * @param session - the exact prepared Session, including inherited history.
+   */
+  assertAdmission(session: Session): void {
+    for (const admit of this.admissions) admit(session)
   }
 
   /**
