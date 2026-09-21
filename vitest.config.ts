@@ -31,6 +31,10 @@ const windowsUnsupportedPackages = process.platform === 'win32'
       'packages/hooks/*',
       'packages/terminal/terminal-bash',
       'packages/sandbox/sandbox-local',
+      // The SSH execution world is POSIX-only by contract: its helper
+      // integrity chain, OpenSSH transport, and PTY machinery assume a POSIX
+      // host, so the Windows lane cannot execute its suites.
+      'packages/ssh/*',
     ]
   : []
 

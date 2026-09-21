@@ -19,7 +19,7 @@ import {
   LocalSandboxProvider,
 } from '@deepseek-ai/dsh-sandbox-local'
 import type { Config } from '@deepseek-ai/dsh-sandbox-local'
-import { bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs } from '../src/profiles.ts'
+import { bwrapProfileArgs, landlockProfileArgs, resolveRunnerProgram, seatbeltProfileArgs } from '../src/profiles.ts'
 
 const RO: SandboxPolicy = { mode: 'read-only', workspaceRoot: '/ws' }
 const WW: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: '/ws' }
@@ -178,7 +178,7 @@ describe('the platform chains', () => {
     const { sandbox } = await setup({}, { platform: 'linux', probeBwrap, probeLandlock })
     const confined = sandbox.confine(['true'], RO)
     expect(confined).toEqual({
-      argv: ['bwrap', ...bwrapProfileArgs(RO), '--', 'true'],
+      argv: [resolveRunnerProgram('bwrap'), ...bwrapProfileArgs(RO), '--', 'true'],
       enforcement: 'full',
       denialSignatures: ['read-only file system'],
       runnerFailureRules: [{ fatalSignatures: ['bwrap: '] }],
@@ -213,7 +213,7 @@ describe('the platform chains', () => {
     const { sandbox } = await setup({}, { platform: 'darwin', probeSeatbelt })
     const confined = sandbox.confine(['bash', '-c', 'echo hi'], RO)
     expect(confined).toEqual({
-      argv: ['sandbox-exec', ...seatbeltProfileArgs(RO), '--', 'bash', '-c', 'echo hi'],
+      argv: [resolveRunnerProgram('sandbox-exec'), ...seatbeltProfileArgs(RO), '--', 'bash', '-c', 'echo hi'],
       enforcement: 'full',
       denialSignatures: ['operation not permitted'],
       runnerFailureRules: [{ fatalSignatures: ['sandbox-exec: '] }],
@@ -413,7 +413,7 @@ describe('the windows-acl probe (runner invocation contract)', () => {
     const probeWindowsAcl = vi.fn(() => false)
     const { sandbox } = await setup({}, { chain: ['windows-acl', 'bwrap'], probeWindowsAcl, probeBwrap: () => true })
     const confined = sandbox.confine(['true'], RO)
-    expect(confined.argv[0]).toBe('bwrap')
+    expect(confined.argv[0]).toBe(resolveRunnerProgram('bwrap'))
     expect(probeWindowsAcl).toHaveBeenCalledTimes(1)
   })
 
@@ -426,7 +426,7 @@ describe('the windows-acl probe (runner invocation contract)', () => {
     // unusable and the walk falls through to the injected bwrap verdict.
     const { sandbox } = await setup({}, { chain: ['windows-acl', 'bwrap'], probeBwrap: () => true })
     const confined = sandbox.confine(['true'], RO)
-    expect(confined.argv[0]).toBe('bwrap')
+    expect(confined.argv[0]).toBe(resolveRunnerProgram('bwrap'))
   }, 30_000)
 
   it('falls back to the runner source through tsx when the built entry is absent', async () => {
@@ -448,7 +448,7 @@ describe('the windows-acl probe (runner invocation contract)', () => {
     // override returning [] exercises the default probe's empty-argv guard.
     const { sandbox } = await setup({}, { chain: ['windows-acl', 'bwrap'], probeBwrap: () => true, windowsAclRunnerArgs: [] })
     const confined = sandbox.confine(['true'], RO)
-    expect(confined.argv[0]).toBe('bwrap')
+    expect(confined.argv[0]).toBe(resolveRunnerProgram('bwrap'))
   })
 
   it('prefers the built lib/runner.js entry when the resolved file exists', async () => {

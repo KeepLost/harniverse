@@ -210,7 +210,7 @@ describe('machine-owned configuration and captured Profile', () => {
     await ctx.plugin(LocalSubprocess)
     await ctx.plugin(Skills)
     const machine = new MachineRuntime(ctx, { revision: '1', mcp: [], skillDirectories: [], hooks: [
-      { id: 'allower', event: 'pre-tool', argv: ['/bin/true'], cwd: tmpdir(), timeoutMs: 5000 },
+      { id: 'allower', event: 'pre-tool', argv: [process.execPath, '-e', 'process.exit(0)'], cwd: tmpdir(), timeoutMs: 5000 },
     ] }, { id: 'ssh', revision: '2', mcp: {}, skills: [], hooks: ['allower'] })
     try {
       await machine.hook({ event: 'pre-tool', payload: {} }, AbortSignal.timeout(5000))
@@ -220,7 +220,7 @@ describe('machine-owned configuration and captured Profile', () => {
     const blocking = new Context()
     await blocking.plugin(LocalSubprocess)
     const blocked = new MachineRuntime(blocking, { revision: '1', mcp: [], skillDirectories: [], hooks: [
-      { id: 'sleeper', event: 'pre-tool', argv: ['/bin/sh', '-c', 'sleep 2'], cwd: tmpdir(), timeoutMs: 3000 },
+      { id: 'sleeper', event: 'pre-tool', argv: [process.execPath, '-e', 'setTimeout(() => {}, 2000)'], cwd: tmpdir(), timeoutMs: 3000 },
     ] }, { id: 'ssh', revision: '2', mcp: {}, skills: [], hooks: ['sleeper'] })
     try {
       const running = blocked.hook({ event: 'pre-tool', payload: {} }, AbortSignal.timeout(5000))
