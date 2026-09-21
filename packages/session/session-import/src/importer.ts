@@ -59,7 +59,6 @@ function artifactNameFor(sessionId: SessionId): string {
 /** Flush directory entries before publishing a log referring to the source. */
 async function syncDirectory(path: string): Promise<void> {
   // Windows file handles support FlushFileBuffers; directory fsync is POSIX-only.
-  /* v8 ignore next -- directory fsync is intentionally skipped on Windows, whose directory handles do not support this POSIX operation. */
   if (process.platform === 'win32') return
   const handle = await open(path, 'r')
   try { await handle.sync() } finally { await handle.close() }
