@@ -110,6 +110,12 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   { file: 'apps/web/tests/cordis-tool-round.e2e.ts', upstream: ['cordis'] },
   { file: 'packages/preset/agent-presets/tests/session.spec.ts', upstream: ['cordis'] },
   { file: 'packages/preset/agent-presets/tests/composition.spec.ts', upstream: ['cordis'] },
+  // The execution-world contract names the `cordis` preset id as its
+  // Host-local exclusion, and the MCP generation-composition roster loops
+  // preset ids — product data, not package specifiers.
+  { file: 'packages/sandbox/execution-descriptor/src/descriptor.ts', upstream: ['cordis'] },
+  { file: 'packages/sandbox/execution-descriptor/tests/descriptor.spec.ts', upstream: ['cordis'] },
+  { file: 'packages/mcp/mcp-user-config/tests/generation-composition.spec.ts', upstream: ['cordis'] },
   // Diagnostic registry ids use their own stable lowercase grammar.
   { file: 'packages/runtime-diagnostics/plugin-diagnostics-cordis/src/index.ts', upstream: ['cordis'] },
   {

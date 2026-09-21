@@ -39,6 +39,9 @@ const WORKSPACE_CLOSURE = [
   'packages/typert/protocol',
   'packages/auth/authentication',
   'packages/attachment/attachment',
+  // sandbox-windows-acl loads this caller-relative native loader even on
+  // Linux, because npm installs the complete packed dependency graph.
+  'packages/util/lazy-require',
   'packages/util/brand',
   'packages/util/timeout',
   'packages/runtime-diagnostics/invariants',
@@ -136,7 +139,7 @@ describe.skipIf(!packable)('sandbox-local: packed-tarball distribution (publish-
       const out = { launcher, launcherExists: existsSync(launcher), enforcing: probe.status === 0 }
       const workdir = process.argv[2]
       if (out.enforcing) {
-        const confined = sandbox.confine(['bash', '-c', \`echo hi > \${workdir}/denied.txt\`], { mode: 'read-only', workspaceRoot: workdir })
+        const confined = await sandbox.confine(['bash', '-c', \`echo hi > \${workdir}/denied.txt\`], { mode: 'read-only', workspaceRoot: workdir })
         out.wrapArgv0 = confined.argv[0]
         out.enforcement = confined.enforcement
         const run = spawnSync(confined.argv[0], confined.argv.slice(1), { encoding: 'utf8', timeout: 30000 })
@@ -144,7 +147,7 @@ describe.skipIf(!packable)('sandbox-local: packed-tarball distribution (publish-
         out.stderrHasDialect = /permission denied/i.test(run.stderr)
       } else {
         try {
-          sandbox.confine(['true'], { mode: 'read-only', workspaceRoot: workdir })
+          await sandbox.confine(['true'], { mode: 'read-only', workspaceRoot: workdir })
           out.confineOutcome = 'wrapped'
         } catch (error) {
           out.confineOutcome = error?.code === 'SANDBOX_UNAVAILABLE' ? 'fail-closed' : String(error)
