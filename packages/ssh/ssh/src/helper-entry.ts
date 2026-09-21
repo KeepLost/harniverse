@@ -1,4 +1,5 @@
 /** Private installed entry; OpenSSH carries stdin/stdout and owns the process lifetime. */
+/* v8 ignore file -- launched through plain Node over OpenSSH; the helper module's behavior is covered through its explicit streams. */
 import { fileURLToPath } from 'node:url'
 import { runSshHelper } from './helper.ts'
 

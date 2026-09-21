@@ -4,9 +4,37 @@
  * @module @deepseek-ai/dsh-sandbox-local/profiles
  */
 
+import { accessSync, constants as fsConstants } from 'node:fs'
+import { delimiter, isAbsolute, join } from 'node:path'
 import { grantArgs as landlockGrantArgs } from '@deepseek-ai/node-addon-landlock-run'
 import { writableRoots } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
+
+/**
+ * Resolve a runner program to an absolute path, so the confined argv is
+ * spawnable verbatim even under a caller-built environment with no `PATH`
+ * (the fresh-process code runtime's empty child environment). Absolute
+ * inputs pass through; an unresolvable name falls through unchanged and the
+ * functional probe decides usability.
+ * @param program - the runner program name or override path.
+ * @returns the absolute path when the program is executable on the launch
+ * `PATH`, else the input unchanged.
+ */
+export function resolveRunnerProgram(program: string): string {
+  if (isAbsolute(program)) return program
+  const searchPath = process.env.PATH ?? ''
+  for (const dir of searchPath.split(delimiter)) {
+    if (dir === '') continue
+    const candidate = join(dir, program)
+    try {
+      accessSync(candidate, fsConstants.X_OK)
+      return candidate
+    } catch {
+      continue
+    }
+  }
+  return program
+}
 
 /**
  * Build the bwrap profile arguments for one file-effect policy.

@@ -30,6 +30,12 @@ export class RemoteProcesses {
 
   constructor(private readonly ctx: Context) {}
 
+  /**
+   * Allocate one managed process or terminal under the capacity bound; aborted allocations roll back.
+   * @param raw - wire spawn spec; validated against `spawnSchema`.
+   * @param signal - aborts the allocation before or during spawn.
+   * @returns the allocated handle id and pid.
+   */
   async spawn(raw: unknown, signal: AbortSignal): Promise<{ id: string; pid: number }> {
     signal.throwIfAborted()
     if (this.closing || this.records.size + this.allocations.size >= SSH_MAX_PROCESS_HANDLES) throw new Error('SSH process capacity exhausted')
@@ -62,6 +68,13 @@ export class RemoteProcesses {
     try { return await allocation } finally { this.allocations.delete(allocation) }
   }
 
+  /**
+   * Route one `process.*`/`terminal.*` method to its handle: lifecycle, reads, writes, and terminal control.
+   * @param method - the remote operation name.
+   * @param raw - id plus operation-specific arguments.
+   * @param signal - aborts the underlying wait or read.
+   * @returns the operation's validated reply value.
+   */
   async dispatch(method: string, raw: unknown, signal: AbortSignal): Promise<unknown> {
     const args = z.object({ id: processIdSchema, stream: z.enum(['stdout', 'stderr', 'terminal']).optional(),
       data: z.string().max(48 * 1024).nullable().optional(),
@@ -126,6 +139,7 @@ export class RemoteProcesses {
     return record.cleanup
   }
 
+  /** Wait for in-flight allocations, terminate the full process range, and fail on unjoined survivors. */
   async close(): Promise<void> {
     this.closing = true
     await Promise.allSettled([...this.allocations])
@@ -156,6 +170,7 @@ async function readChunk(stream: Readable, signal: AbortSignal): Promise<string 
       }
       stream.once('readable', ready); stream.once('end', ready); stream.once('close', ready); stream.once('error', failed)
       signal.addEventListener('abort', aborted, { once: true })
+      /* v8 ignore next -- reaching the synchronous check already aborted requires landing between listener registration and this line */
       if (signal.aborted) aborted()
     })
   }

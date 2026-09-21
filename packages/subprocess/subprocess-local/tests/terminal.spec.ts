@@ -40,6 +40,10 @@ class FakePty {
 
   write(data: string): void { this.writes.push(data) }
 
+  readonly resizes: Array<[number, number]> = []
+
+  resize(cols: number, rows: number): void { this.resizes.push([cols, rows]) }
+
   kill(signal?: string): void {
     if (this.throwKill) throw new Error('process raced')
     this.kills.push(signal ?? 'SIGHUP')
@@ -227,6 +231,23 @@ describe('LocalTerminalHandle', () => {
     expect(await handle.done).toEqual({ exitCode: 3, signal: null })
     await handle.terminate()
     await expect(handle.write('late')).rejects.toThrow('has exited')
+  })
+
+  it('resizes with validated dimensions and rejects resizes after exit', async () => {
+    const pty = new FakePty()
+    const inspector = new FakeInspector()
+    const handle = makeHandle(pty, inspector, 10)
+
+    await handle.resize(120, 40)
+    expect(pty.resizes).toEqual([[120, 40]])
+    await expect(handle.resize(0, 40)).rejects.toThrow('invalid terminal dimensions')
+    await expect(handle.resize(120, 1.5)).rejects.toThrow('invalid terminal dimensions')
+    await expect(handle.resize(120, 65536)).rejects.toThrow('invalid terminal dimensions')
+
+    pty.emitExit(3)
+    expect(await handle.done).toEqual({ exitCode: 3, signal: null })
+    await handle.terminate()
+    await expect(handle.resize(120, 40)).rejects.toThrow('has exited')
   })
 
   it('keeps the shell alive until forced descendants leave', async () => {

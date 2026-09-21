@@ -1,5 +1,5 @@
 import { PassThrough } from 'node:stream'
-import { mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, writeFile, rm, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -11,7 +11,9 @@ import { parseWorldDescription } from '../src/world.ts'
 
 describe('real machine helper providers', () => {
   it('reads remote files, executes and cleans processes, and reports the captured machine inventory', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'w10-helper-'))
+    // macOS reports temp paths through the /var → /private/var symlink the
+    // helper realpath-normalizes; anchor every expectation on the resolved root.
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'w10-helper-')))
     const entry = join(root, 'helper.js')
     await writeFile(entry, 'fixture helper identity')
     await writeFile(`${entry}.machine.json`, JSON.stringify({ revision: 'machine-1', mcp: [], skillDirectories: [], hooks: [] }))

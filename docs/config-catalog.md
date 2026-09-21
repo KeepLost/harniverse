@@ -2585,6 +2585,7 @@ export interface Config {
   leaseMs?: number
 }
 
+/** The Host Profile capture as the machine sees it: selected MCP members, Skills, and Hooks. */
 export type CapturedRemoteProfile = z.infer<typeof capturedProfileSchema>
 ```
 

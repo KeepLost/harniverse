@@ -4,6 +4,7 @@ import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-ssh'
 import { z } from 'zod'
 
+/** Resolves confinement on the execution machine; unresolvable runners fail closed as unavailable. */
 export class SshSandboxProvider extends SandboxProvider {
   static inject = ['ssh']
   override async confine(argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {

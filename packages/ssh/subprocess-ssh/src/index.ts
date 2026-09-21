@@ -129,6 +129,7 @@ export class SshSubprocessRuntime extends SubprocessRuntime {
       waitForExit: async (bound) => {
         if (bound?.aborted) return false
         if (bound === undefined) return treeExited
+        /* v8 ignore next -- the executor below reassigns abort synchronously before any invocation */
         let abort = (): void => {}
         const cancelled = new Promise<false>((resolve) => { abort = () => { resolve(false) }; bound.addEventListener('abort', abort, { once: true }) })
         try { return await Promise.race([treeExited, cancelled]) }

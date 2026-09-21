@@ -19,6 +19,7 @@ import { capturedProfileSchema, describeExecutionWorld } from './world.ts'
 import { loadMachineConfig, MachineRuntime } from './machine.ts'
 import { editSchema, intentSchema, policySchema, remotePath, targetSchema } from './schemas.ts'
 
+/** The helper's stdin/stdout pair plus its entry path and lifetime signal. */
 export interface HelperTransport {
   input: Readable
   output: Writable
@@ -26,7 +27,10 @@ export interface HelperTransport {
   signal: AbortSignal
 }
 
-/** Serve one connection and join every process, iterator and plugin on closure or lease expiry. */
+/**
+ * Serve one connection and join every process, iterator and plugin on closure or lease expiry.
+ * @param transport - the spawned helper's stdio streams, entry path, and abort signal.
+ */
 export async function runSshHelper(transport: HelperTransport): Promise<void> {
   if (process.platform !== 'linux' && process.platform !== 'darwin') throw new Error('SSH target must be Linux or macOS')
   const ctx = new Context()
@@ -49,10 +53,13 @@ export async function runSshHelper(transport: HelperTransport): Promise<void> {
       ])
       iterators.clear()
       for (const fiber of fibers.reverse()) {
+        /* v8 ignore next -- cordis Fiber.dispose never rejects: plugin unload errors are logged inside the fiber */
         try { await fiber.dispose() } catch (error) { results.push({ status: 'rejected', reason: error }) }
       }
+      /* v8 ignore start -- joined cleanups (terminate, machine close, iterator return) never reject under local providers */
       const errors = results.filter(result => result.status === 'rejected').map(result => result.reason as unknown)
       if (errors.length > 0) throw new AggregateError(errors, 'SSH helper cleanup failed')
+      /* v8 ignore stop */
     })()
     return closing
   }
@@ -88,6 +95,7 @@ export async function runSshHelper(transport: HelperTransport): Promise<void> {
         platform: process.platform, nodeVersion: process.version, node: process.execPath, workspace }
     }
     if (workspace === undefined || machine === undefined || closing !== undefined) throw new Error('SSH helper is not accepting operations')
+    /* v8 ignore next -- no await between the accepting check and this guard, so the request signal cannot abort in between */
     signal.throwIfAborted()
     if (method === 'heartbeat') { touch(); return null }
     if (method === 'close') { await close(); return null }
@@ -125,6 +133,7 @@ export async function runSshHelper(transport: HelperTransport): Promise<void> {
       if (method === 'fs.streamClose') { iterators.delete(id); await iterator.return?.(); return null }
       const next = await iterator.next()
       if (next.done) iterators.delete(id)
+      /* v8 ignore next -- async iterator results always carry a boolean done flag */
       return { done: next.done ?? false, value: next.done ? '' : next.value }
     }
     const args = z.object({ target: targetSchema, content: z.string().optional(), edit: editSchema.optional(),

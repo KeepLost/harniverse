@@ -28,9 +28,14 @@ const machineSchema = z.object({
     argv: z.array(z.string()).min(1), cwd: remotePath,
     timeoutMs: z.number().int().min(1).max(60_000).default(10_000) }).strict()).default([]),
 }).strict()
+/** The machine manifest shape: MCP servers, skill directories, and hooks, all under machine paths. */
 export type MachineConfig = z.infer<typeof machineSchema>
 
-/** Explicit machine manifest lives beside the installed helper and is read only on that machine. */
+/**
+ * Explicit machine manifest lives beside the installed helper and is read only on that machine.
+ * @param path - manifest file path on the execution machine; bounded to 1 MiB.
+ * @returns the parsed, strict-validated machine configuration.
+ */
 export async function loadMachineConfig(path: string): Promise<MachineConfig> {
   const info = await stat(path)
   if (info.size > 1024 * 1024) throw new Error('SSH machine configuration exceeds 1 MiB')
@@ -39,7 +44,9 @@ export async function loadMachineConfig(path: string): Promise<MachineConfig> {
 
 /** One immutable discovery generation. Reconnect creates a new instance and re-applies the captured grant. */
 export class MachineRuntime {
+  /** The captured permission selection this generation enforces. */
   readonly profile: CapturedRemoteProfile
+  /** The discovered machine inventory; frozen facts, not live handles. */
   readonly inventory: MachineInventory = { mcp: [], skills: [], hooks: [] }
   private readonly clients = new Map<string, Client>()
   private readonly children = new Set<SubprocessHandle>()
@@ -51,6 +58,11 @@ export class MachineRuntime {
     this.profile = capturedProfileSchema.parse(rawProfile)
   }
 
+  /**
+   * Connect selected MCP servers, resolve member visibility, and collect the frozen inventory.
+   * @param signal - aborts server connects and listing calls.
+   * @param workspace - absolute skill-discovery root on the execution machine.
+   */
   async discover(signal: AbortSignal, workspace: string): Promise<void> {
     for (const config of this.config.mcp) {
       if (this.inventory.mcp.some(server => server.serverName === config.serverName)) throw new Error('Duplicate machine MCP server name')
@@ -93,6 +105,12 @@ export class MachineRuntime {
       id: hook.id, event: hook.event, selected: this.profile.hooks.includes(hook.id) }))
   }
 
+  /**
+   * Serve one captured-Profile-gated MCP request; excluded members fail closed.
+   * @param raw - wire request naming the server, method, and member.
+   * @param signal - aborts the underlying client call.
+   * @returns the member's reply value.
+   */
   async request(raw: unknown, signal: AbortSignal): Promise<unknown> {
     if (this.closed) throw new Error('SSH machine generation is closed')
     const request = z.object({ server: z.string(), method: z.enum(['tools/call', 'resources/list', 'resources/templates/list', 'resources/read']),
@@ -115,6 +133,11 @@ export class MachineRuntime {
     return client.callTool({ name: tool.rawName, arguments: request.arguments ?? {} }, undefined, { signal })
   }
 
+  /**
+   * Return a selected Skill's definition body; unselected Skills fail closed.
+   * @param name - the Skill's inventory name.
+   * @returns the frozen Skill definition.
+   */
   skill(name: string): unknown {
     if (this.closed) throw new Error('SSH machine generation is closed')
     const definition = this.skillBodies.get(name)
@@ -122,6 +145,11 @@ export class MachineRuntime {
     return definition
   }
 
+  /**
+   * Run selected hooks for one event; a nonzero hook exit denies the operation.
+   * @param raw - wire request naming the event and carrying the payload.
+   * @param signal - aborts hook execution and fails the operation.
+   */
   async hook(raw: unknown, signal: AbortSignal): Promise<void> {
     if (this.closed) throw new Error('SSH machine generation is closed')
     const request = z.object({ event: z.enum(['pre-tool', 'post-tool']), payload: z.unknown() }).strict().parse(raw)
@@ -142,6 +170,7 @@ export class MachineRuntime {
     }
   }
 
+  /** Close MCP clients and join every machine-owned child process. */
   async close(): Promise<void> {
     this.closed = true
     await Promise.allSettled([...this.clients.values()].map(client => client.close()))
@@ -170,7 +199,10 @@ export class MachineRuntime {
             buffer.append(chunk)
             let message
             while ((message = buffer.readMessage()) !== null) transport.onmessage?.(message)
-          } catch (error) { transport.onerror?.(error instanceof Error ? error : new Error(String(error))) }
+          } catch (error) {
+            /* v8 ignore next -- the data handler only throws Error values (frame guards and schema parses) */
+            transport.onerror?.(error instanceof Error ? error : new Error(String(error)))
+          }
         })
         void child.done.then(() => {
           transport.onclose?.()

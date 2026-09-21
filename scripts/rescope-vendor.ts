@@ -116,6 +116,10 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   { file: 'packages/sandbox/execution-descriptor/src/descriptor.ts', upstream: ['cordis'] },
   { file: 'packages/sandbox/execution-descriptor/tests/descriptor.spec.ts', upstream: ['cordis'] },
   { file: 'packages/mcp/mcp-user-config/tests/generation-composition.spec.ts', upstream: ['cordis'] },
+  // The SSH execution-world profile schema rejects the `cordis` member id as
+  // its Host-local exclusion — the id is product data, not a package specifier.
+  { file: 'packages/ssh/ssh/src/world.ts', upstream: ['cordis'] },
+  { file: 'packages/ssh/ssh/tests/world.spec.ts', upstream: ['cordis'] },
   // Diagnostic registry ids use their own stable lowercase grammar.
   { file: 'packages/runtime-diagnostics/plugin-diagnostics-cordis/src/index.ts', upstream: ['cordis'] },
   {

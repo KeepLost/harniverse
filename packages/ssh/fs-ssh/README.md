@@ -11,3 +11,9 @@ Indirectly, through [`dsh-tool-fs`](../../fs/tool-fs/README.md), which renders t
 #### KV Cache effect
 
 No direct invalidation; the named consumer owns any request-prefix changes.
+
+## Known Limitations and Deferred Work
+
+- **`readText` is bounded at 8 MiB** — larger text must use `streamText`; the bound is a transport contract, not a tuning knob.
+- **Binary reads clamp to 512 KiB per call** — `readBytes` truncates its `maxBytes` request to the per-frame bound; no chunked binary streaming seam exists yet.
+- **No metadata mutation** — the seam carries stat/list/read/write/edit only; directory creation, rename, delete, and permission changes stay deployment-side.

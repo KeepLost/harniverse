@@ -11,3 +11,8 @@ Indirectly, through [`dsh-bash-sandbox`](../../shell/bash-sandbox/README.md) and
 #### KV Cache effect
 
 No direct invalidation; the named consumers own any request-prefix changes.
+
+## Known Limitations and Deferred Work
+
+- **Verdicts only** — the provider resolves argv and reports enforcement and denial dialect; installing, upgrading, or verifying the remote sandbox runner stays deployment-owned, and an unresolvable runner fails closed.
+- **POSIX remotes only** — it inherits the `dsh-ssh` helper's exec, signal, and pty assumptions; Windows execution machines are out of scope.

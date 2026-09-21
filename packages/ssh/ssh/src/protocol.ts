@@ -4,8 +4,11 @@ import type { Readable, Writable } from 'node:stream'
 import { ControlChannelTransport, DEFAULT_CONTROL_CHANNEL_LIMITS } from '@deepseek-ai/dsh-control-channel'
 import { z } from 'zod'
 
+/** Wire protocol version; a mismatch fails the handshake closed. */
 export const SSH_PROTOCOL_VERSION = 1
+/** Concurrent remote process handles one connection may own. */
 export const SSH_MAX_PROCESS_HANDLES = 32
+/** Concurrent remote filesystem text streams one connection may own. */
 export const SSH_MAX_TEXT_STREAMS = 64
 
 /** A remote operation preserves the owning filesystem/sandbox error code. */
@@ -61,7 +64,15 @@ export class SshRpcPeer extends EventEmitter {
     output.once('close', () => { this.close() })
   }
 
-  /** Validate each reply before handing it to a provider. Cancellation invalidates this connection. */
+  /**
+   * Validate each reply before handing it to a provider. Cancellation invalidates this connection.
+   * @param method - remote method name.
+   * @param params - request payload; the helper validates it against the method's schema.
+   * @param schema - expected successful-reply shape.
+   * @param signal - aborting closes the whole connection; completed remote mutations are not rolled back.
+   * @param signal - aborting closes the whole connection; completed remote mutations are not rolled back.
+   * @returns the schema-validated reply value.
+   */
   async request<T>(method: string, params: unknown, schema: z.ZodType<T>, signal?: AbortSignal): Promise<T> {
     signal?.throwIfAborted()
     if (this.failure !== undefined) throw this.failure
@@ -74,7 +85,10 @@ export class SshRpcPeer extends EventEmitter {
     } finally { signal?.removeEventListener('abort', abort) }
   }
 
-  /** Record the first transport failure and revoke every in-flight handler. */
+  /**
+   * Record the first transport failure and revoke every in-flight handler.
+   * @param error - the failure every subsequent operation reports.
+   */
   close(error = new Error('SSH disconnected; remote outcome is unknown')): void {
     if (this.failure !== undefined) return
     this.failure = error

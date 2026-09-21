@@ -10,6 +10,7 @@ import { RemoteOperationError } from '@deepseek-ai/dsh-ssh/protocol'
 import { editResultSchema, entriesSchema, infoSchema, pathInfoSchema, targetSchema, writeResultSchema } from '@deepseek-ai/dsh-ssh/schemas'
 import { z } from 'zod'
 
+/** Serves the `FileSystem` seam over the SSH execution world's bounded RPC. */
 export class SshFileSystem extends FileSystem {
   static inject = ['ssh', 'sandboxPolicy']
   override get sandboxMode(): SandboxMode { return this.ctx.sandboxPolicy.defaultMode }
@@ -58,11 +59,30 @@ export class SshFileSystem extends FileSystem {
   override async listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]> {
     return await this.call('fs.list', { target }, entriesSchema, signal) as FsDirEntry[]
   }
+  /**
+   * Write text through the remote backend under the machine-resolved policy.
+   * @param target - resolved remote target.
+   * @param content - the full new text.
+   * @param expected - the write intent guarding the write; omit for unconditional.
+   * @param signal - aborts the remote request; a completed remote write is not rolled back.
+   * @param policy - the per-call sandbox policy; omit to use the machine's resolved default.
+   * @returns the write outcome from the remote backend.
+   */
   override async writeText(
     target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, policy?: SandboxExecutionPolicy,
   ): Promise<FsWriteOutcome> {
     return await this.call('fs.write', { target, content, expected, policy: policy ?? this.ctx.sandboxPolicy.resolve() }, writeResultSchema, signal) as FsWriteOutcome
   }
+
+  /**
+   * Apply an in-place edit through the remote backend under the machine-resolved policy.
+   * @param target - resolved remote target.
+   * @param edit - the old/new strings and replaceAll selection.
+   * @param expected - the version guard for the edit; omit for unconditional.
+   * @param signal - aborts the remote request; a completed remote edit is not rolled back.
+   * @param policy - the per-call sandbox policy; omit to use the machine's resolved default.
+   * @returns the edit outcome from the remote backend.
+   */
   override async editText(
     target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, policy?: SandboxExecutionPolicy,
   ): Promise<FsEditOutcome> {

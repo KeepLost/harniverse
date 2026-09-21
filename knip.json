@@ -850,18 +850,30 @@
       ]
     },
     "packages/ssh/fs-ssh": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
       "project": [
-        "src/**/*.ts"
+        "src/**/*.ts",
+        "tests/**/*.ts"
       ]
     },
     "packages/ssh/subprocess-ssh": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
       "project": [
-        "src/**/*.ts"
+        "src/**/*.ts",
+        "tests/**/*.ts"
       ]
     },
     "packages/ssh/sandbox-ssh": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
       "project": [
-        "src/**/*.ts"
+        "src/**/*.ts",
+        "tests/**/*.ts"
       ]
     }
   }

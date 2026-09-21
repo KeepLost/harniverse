@@ -2405,6 +2405,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Loss invalidates this connection. A new connection captures a new remote revision.',
     methods: [
       {
+        signature: 'readonly ready: Promise<Hello>',
+        description: 'Handshake settlement: resolves with the verified helper hello or fails the connection.',
+        parameters: [],
+      },
+      {
         signature: 'async request<T>(method: string, params: unknown, result: z.ZodType<T>, signal?: AbortSignal, wait: boolean = false): Promise<T>',
         description: 'Issue one bounded RPC against the connected helper.',
         parameters: [{ name: 'method', description: 'the protocol method name.' }, { name: 'params', description: 'its validated payload.' }, { name: 'result', description: 'the schema every successful reply body must satisfy.' }, { name: 'signal', description: 'cancellation for this request alone.' }, { name: 'wait', description: 'true to use the connection lifetime instead of the administrative request timeout.' }],
@@ -4637,6 +4642,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'GovernorTier',
     declaration: 'export type GovernorTier = \'cgroup\' | \'rlimit\' | \'observe\';',
+  },
+  {
+    name: 'Hello',
+    declaration: 'export type Hello = z.infer<typeof helloSchema>;',
   },
   {
     name: 'ImageAttachmentLimits',

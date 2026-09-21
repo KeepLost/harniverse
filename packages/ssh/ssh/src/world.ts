@@ -13,6 +13,7 @@ export const capturedProfileSchema = z.object({
   skills: z.array(z.string()),
   hooks: z.array(z.string()),
 }).strict()
+/** The Host Profile capture as the machine sees it: selected MCP members, Skills, and Hooks. */
 export type CapturedRemoteProfile = z.infer<typeof capturedProfileSchema>
 
 /** No remote command, header, credential value, or local Host path is in this wire shape. */
@@ -28,14 +29,23 @@ export const machineInventorySchema = z.object({
   skills: z.array(z.object({ name: z.string(), description: z.string(), path: z.string(), selected: z.boolean() }).strict()),
   hooks: z.array(z.object({ id: z.string(), event: z.enum(['pre-tool', 'post-tool']), selected: z.boolean() }).strict()),
 }).strict()
+/** The machine-owned MCP/Skill/Hook inventory discovered at execution time. */
 export type MachineInventory = z.infer<typeof machineInventorySchema>
+/** The immutable world facts a Host learns: signed descriptor plus captured profile and inventory. */
 export interface WorldDescription {
   readonly descriptor: ExecutionWorldDescriptor
   readonly profile: CapturedRemoteProfile
   readonly inventory: MachineInventory
 }
 
-/** Build the machine descriptor from actual discovery, separate from the Host Profile revision. */
+/**
+ * Build the machine descriptor from actual discovery, separate from the Host Profile revision.
+ * @param workspaceRoot - absolute workspace root on the execution machine; seeds the world id.
+ * @param revision - the Host Profile revision this world was captured from.
+ * @param profile - the captured permission selection.
+ * @param inventory - the discovered machine inventory.
+ * @returns the frozen, digest-verified world description.
+ */
 export function describeExecutionWorld(
   workspaceRoot: string, revision: string, profile: CapturedRemoteProfile, inventory: MachineInventory,
 ): WorldDescription {
@@ -60,7 +70,11 @@ export function describeExecutionWorld(
   })
 }
 
-/** Verify the descriptor digest and detach every permission/inventory value from its input. */
+/**
+ * Verify the descriptor digest and detach every permission/inventory value from its input.
+ * @param input - untrusted wire value carrying descriptor, profile, and inventory.
+ * @returns the deep-frozen world description.
+ */
 export function parseWorldDescription(input: unknown): WorldDescription {
   const parsed = z.object({
     descriptor: z.unknown(), profile: capturedProfileSchema, inventory: machineInventorySchema,

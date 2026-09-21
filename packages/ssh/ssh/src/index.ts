@@ -60,6 +60,7 @@ export class SshConnection extends Service {
     bootstrapPath: schema.string(), bootstrapHash: schema.string(),
     profile: schema.any().required(), requestTimeoutMs: schema.number().default(30_000), leaseMs: schema.number().default(30_000),
   })
+  /** Handshake settlement: resolves with the verified helper hello or fails the connection. */
   readonly ready: Promise<Hello>
   private readonly config: z.infer<typeof configSchema>
   private readonly child: ChildProcessWithoutNullStreams
@@ -89,6 +90,7 @@ export class SshConnection extends Service {
     this.child.once('close', () => { this.fail(new Error('SSH helper disconnected; remote outcome is unknown')) })
     this.peer.once('closed', (error: Error) => { this.fail(error) })
     this.ready = this.start()
+    /* v8 ignore next -- start() only rejects with Error values (digest mismatch, zod, RPC failures) */
     void this.ready.catch((error: unknown) => { this.fail(error instanceof Error ? error : new Error(String(error))) })
     ctx.effect(() => () => this.dispose())
   }
@@ -185,6 +187,7 @@ export class SshConnection extends Service {
     this.heartbeat = setInterval(() => {
       if (pending) return
       pending = true
+      /* v8 ignore next -- peer heartbeats reject only with Error values (RPC and timeout failures) */
       void this.peer.request('heartbeat', {}, z.null(), AbortSignal.timeout(this.config.leaseMs / 2))
         .catch((error: unknown) => { this.fail(error instanceof Error ? error : new Error(String(error))) })
         .finally(() => { pending = false })

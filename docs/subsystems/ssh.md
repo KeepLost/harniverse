@@ -59,6 +59,7 @@ interface Config {
 ```
 
 ```ts type-equiv
+/** The immutable world facts a Host learns: signed descriptor plus captured profile and inventory. */
 interface WorldDescription {
   readonly descriptor: ExecutionWorldDescriptor
   readonly profile: CapturedRemoteProfile
@@ -70,6 +71,7 @@ interface WorldDescription {
 /** Loss invalidates this connection. A new connection captures a new remote revision. */
 declare class SshConnection extends Service {
   static Config: schema<Config>;
+  /** Handshake settlement: resolves with the verified helper hello or fails the connection. */
   readonly ready: Promise<Hello>;
   constructor(ctx: Context, config: Config);
   /**

@@ -7,7 +7,12 @@
 import type { ShellProcess } from '@deepseek-ai/dsh-shell'
 import type { JobHooks, JobOutcome } from '@deepseek-ai/dsh-jobs'
 
-/** Keep job cancellation active while a remote shell is preparing its process. */
+/**
+ * Keep job cancellation active while a remote shell is preparing its process.
+ * @param start - resolves the process handle, honouring the abort signal when preparation is cancelled.
+ * @param render - renders the process's current output snapshot for `readOutput`.
+ * @returns the `ctx.jobs` hooks wired to the process lifetime.
+ */
 export function processJob(
   start: (signal: AbortSignal) => ShellProcess | Promise<ShellProcess>,
   render: (process: ShellProcess) => string,

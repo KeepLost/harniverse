@@ -11,3 +11,9 @@ Indirectly, through [`dsh-tool-bash`](../../shell/tool-bash/README.md) and the t
 #### KV Cache effect
 
 No direct invalidation; the named consumers own any request-prefix changes.
+
+## Known Limitations and Deferred Work
+
+- **The process range is connection-scoped** — every remote child joins the helper lease; transport loss or disposal kills the range, and no detached survival past the connection exists.
+- **Output streaming is polled** — chunks are pulled over bounded RPC frames on a fixed cadence rather than pushed; latency-heavy consumers needing push frames are deferred.
+- **No remote shell profile loading** — spawned argv runs without a login shell; PATH enrichment and shell initialization files stay the consumer's explicit env concern.
