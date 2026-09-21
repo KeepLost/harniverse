@@ -30,6 +30,7 @@ async function composed(workspaces: readonly Workspace[] = []): Promise<Context>
   await ctx.plugin(UserQuestionService)
   const pendingSessionDeletionIds = new Set<SessionId>()
   ctx.provide('workspaceRegistry', {
+    archivedSessionIds: [],
     list: () => workspaces,
     get pendingSessionDeletionIds() { return [...pendingSessionDeletionIds] },
     beginSessionDeletion: (id: SessionId) => {
