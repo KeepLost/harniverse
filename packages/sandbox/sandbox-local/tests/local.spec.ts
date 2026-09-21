@@ -7,9 +7,9 @@
  * are all exercised through the real `confine()` path.
  */
 
-import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { LAUNCHER_FAILURE_EXIT } from '@deepseek-ai/node-addon-landlock-run'
@@ -146,6 +146,27 @@ describe('runnerCommand config', () => {
     } finally {
       if (previousPath === undefined) delete process.env.PATH
       else process.env.PATH = previousPath
+    }
+  })
+
+  it('resolves runner programs against the launch PATH, skipping empty segments', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-resolve-runner-'))
+    const program = join(dir, 'fake-runner')
+    writeFileSync(program, '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+    const previousPath = process.env.PATH
+    try {
+      // The trailing delimiter keeps an empty PATH segment in the scan.
+      process.env.PATH = `${dir}${delimiter}`
+      expect(resolveRunnerProgram('fake-runner')).toBe(program)
+      expect(resolveRunnerProgram(program)).toBe(program)
+      process.env.PATH = '/nonexistent-dsh-w10'
+      expect(resolveRunnerProgram('fake-runner')).toBe('fake-runner')
+      delete process.env.PATH
+      expect(resolveRunnerProgram('fake-runner')).toBe('fake-runner')
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH
+      else process.env.PATH = previousPath
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 
