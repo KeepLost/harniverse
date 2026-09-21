@@ -14,7 +14,7 @@ import { join, resolve } from 'node:path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import koffi from 'koffi'
 
-import { PROCESS_INFORMATION } from '../src/ffi.ts'
+import { win32Layout } from '../src/ffi.ts'
 import type { NativePtr, Win32Bindings } from '../src/ffi.ts'
 import { Win32Error } from '../src/errors.ts'
 import { AclSandbox } from '../src/index.ts'
@@ -132,7 +132,8 @@ function happyStubs(): HappyStubs {
     _token: unknown, _app: unknown, _cmd: unknown, _pa: unknown, _ta: unknown,
     _inherit: unknown, _flags: unknown, _env: unknown, _cwd: unknown, _si: unknown, processInfo: NativePtr,
   ) => {
-    koffi.encode(processInfo, PROCESS_INFORMATION, { hProcess: fresh(), hThread: fresh(), dwProcessId: 1234, dwThreadId: 5678 })
+    const processInfoStruct = win32Layout().PROCESS_INFORMATION
+    koffi.encode(processInfo, processInfoStruct, { hProcess: fresh(), hThread: fresh(), dwProcessId: 1234, dwThreadId: 5678 })
     return 1
   })
   const peekNamedPipe = vi.fn(() => 0)

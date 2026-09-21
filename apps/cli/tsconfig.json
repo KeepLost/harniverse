@@ -21,6 +21,9 @@
       "path": "../../packages/boot/app-boot"
     },
     {
+      "path": "../../packages/boot/hmr-coordination"
+    },
+    {
       "path": "../../packages/boot/cmdline"
     },
     {

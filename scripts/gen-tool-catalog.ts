@@ -60,7 +60,6 @@ import TerminalSessionService from '@deepseek-ai/dsh-terminal'
 import * as ToolPty from '@deepseek-ai/dsh-tool-terminal'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
 import * as ToolScheduler from '@deepseek-ai/dsh-tool-scheduler'
-import * as ToolSchedule from '@deepseek-ai/dsh-schedule'
 import Lsp from '@deepseek-ai/dsh-lsp'
 import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -76,6 +75,7 @@ import SessionDelivery, {
 import * as ToolSessionDelivery from '@deepseek-ai/dsh-tool-session-delivery'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
+import * as ToolPresent from '@deepseek-ai/dsh-tool-present'
 import * as ToolResultArtifacts from '@deepseek-ai/dsh-tool-result-artifacts'
 import CompactionEngine from '@deepseek-ai/dsh-compaction'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
@@ -449,27 +449,6 @@ const TOOL_PACKAGES: ToolPackage[] = [
       'create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds.',
   },
   {
-    pkg: '@deepseek-ai/dsh-schedule',
-    dir: 'schedule',
-    source: 'packages/schedule/schedule/src/tools.ts',
-    requires: ['ctx.tools', 'ctx.sessions', 'Session persistence', 'a future live root Agent'],
-    writes: ['tool/call', 'schedule/change create or delete', 'tool/result'],
-    async mount(ctx) {
-      await ctx.plugin(SessionStore)
-      const session = ctx.sessions.create(SessionId('tool-catalog-schedule'))
-      const agent = { id: session.id, session } as Agent
-      await mountCatalogChildScope(ctx, (childCtx) => {
-        ToolSchedule.registerScheduleTools(ctx, childCtx, agent, () => {})
-      }, agent, ['tools', 'systemPrompt'])
-    },
-    scope: ctx => catalogChildScopes.get(ctx) as Agent,
-    note:
-      'Registered only inside live root Agent scopes created after the opt-in Schedule plugin loads. '
-      + 'Version 1 accepts after_seconds, explicit absolute at, and bounded fixed-rate every_seconds, '
-      + 'and discloses session-local delivery; '
-      + 'management reads and mutations require the shared Session persistence barrier.',
-  },
-  {
     pkg: '@deepseek-ai/dsh-tool-scheduler',
     dir: 'tool-scheduler',
     source: 'packages/schedule/tool-scheduler/src/index.ts',
@@ -713,6 +692,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(VmWorkflowEngine, { provider: 'mock' })
       await ctx.plugin(ToolWorkflow)
     },
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-present',
+    dir: 'tool-present',
+    source: 'packages/deliverables/tool-present/src/index.ts',
+    requires: ['ctx.tools', 'ctx.fs', 'ctx.sessionProjections', 'a calling Agent (exec.agent) with an open turn and a workspace'],
+    writes: ['tool/call', 'deliverables/presented', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
+      await ctx.plugin(SessionProjectionRegistry)
+      await ctx.plugin(ToolPresent)
+    },
+    note:
+      'present is the deliverable declaration seam: a successful call appends deliverables/presented to the owning session, which UIs fold per turn. The schema stays fixed regardless of maxFiles; the bound only moves the execute-time acceptance range.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-web',

@@ -284,3 +284,6 @@
 
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
+
+- id: tool-present
+  name: '@deepseek-ai/dsh-tool-present'

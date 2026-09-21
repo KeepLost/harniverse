@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
-import { DeepSeekFileId } from '../src/file-id.ts'
-import { DeepSeekFileStore } from '../src/file-store.ts'
-import { DeepSeekUploadIndex, deepSeekFileScope } from '../src/upload-index.ts'
+import { DeepSeekFileId } from '../src/common/file-id.ts'
+import { DeepSeekFileStore } from '../src/common/file-store.ts'
+import { DeepSeekUploadIndex, deepSeekFileScope } from '../src/common/upload-index.ts'
 import type { RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 
 const roots: string[] = []
@@ -60,7 +60,7 @@ describe('DeepSeek file store', () => {
         return fileResponse('file-1')
       },
     })
-    const connection = { baseURL: 'https://example.test', apiKey: 'secret' }
+    const connection = { baseURL: 'https://example.test', apiKey: 'secret', protocol: 'chat-completions' as const }
     const policy = { expiresAfterSeconds: 3_600, refreshMarginSeconds: 1, quotaCleanupBatch: 10 }
     const first = await store.ensureUploaded(image(), connection, policy)
     const second = await store.ensureUploaded(image(), connection, policy)
@@ -88,7 +88,7 @@ describe('DeepSeek file store', () => {
         return fileResponse('file-1')
       },
     })
-    const connection = { baseURL: 'https://example.test', apiKey: 'secret' }
+    const connection = { baseURL: 'https://example.test', apiKey: 'secret', protocol: 'chat-completions' as const }
     const policy = { expiresAfterSeconds: 3_600, refreshMarginSeconds: 1, quotaCleanupBatch: 10 }
     const first = store.ensureUploaded(image(), connection, policy)
     const controller = new AbortController()
@@ -128,18 +128,18 @@ describe('DeepSeek file store', () => {
         return new Response(JSON.stringify({ id: 'old-file', object: 'file', deleted: true }), { status: 200 })
       },
     })
-    await store.ensureUploaded(image(), { baseURL: 'https://example.test', apiKey: 'secret' }, {
+    await store.ensureUploaded(image(), { baseURL: 'https://example.test', apiKey: 'secret', protocol: 'chat-completions' as const }, {
       expiresAfterSeconds: 3_600, refreshMarginSeconds: 1, quotaCleanupBatch: 10,
     })
     expect(uploadAttempts).toBe(2)
     expect(methods.filter(method => method.startsWith('DELETE'))).toHaveLength(1)
-    expect(deepSeekFileScope('https://example.test', 'secret')).toMatch(/^[0-9a-f]{64}$/u)
+    expect(deepSeekFileScope('https://example.test', 'secret', 'chat-completions')).toMatch(/^[0-9a-f]{64}$/u)
   })
 
   it('rejects oversized images and mismatched upload responses', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-file-store-'))
     roots.push(root)
-    const connection = { baseURL: 'https://example.test', apiKey: 'secret' }
+    const connection = { baseURL: 'https://example.test', apiKey: 'secret', protocol: 'chat-completions' as const }
     const policy = { expiresAfterSeconds: 3_600, refreshMarginSeconds: 1, quotaCleanupBatch: 10 }
     const store = new DeepSeekFileStore({
       index: new DeepSeekUploadIndex(join(root, 'files-v1.json')),
@@ -174,7 +174,7 @@ describe('DeepSeek file store', () => {
 
     await store.ensureUploaded(
       { ...image(), mediaType },
-      { baseURL: 'https://example.test', apiKey: 'secret' },
+      { baseURL: 'https://example.test', apiKey: 'secret', protocol: 'chat-completions' as const },
       { expiresAfterSeconds: 3_600, refreshMarginSeconds: 1, quotaCleanupBatch: 10 },
     )
     expect(filenames).toEqual([expect.stringMatching(new RegExp(`\\.${extension}$`, 'u'))])
@@ -211,7 +211,7 @@ describe('DeepSeek file store', () => {
       },
     })
 
-    await store.ensureUploaded(image(), { baseURL: 'https://example.test', apiKey: 'secret' }, {
+    await store.ensureUploaded(image(), { baseURL: 'https://example.test', apiKey: 'secret', protocol: 'chat-completions' as const }, {
       expiresAfterSeconds: 3_600, refreshMarginSeconds: 1, quotaCleanupBatch: 10,
     })
     // Only this deployment's own `dsh-` uploads are reclaimable.
@@ -232,7 +232,7 @@ describe('DeepSeek file store', () => {
     // The refusal is synchronous: no transport is opened at all.
     expect(() => store.ensureUploaded(
       image(),
-      { baseURL: 'https://example.test', apiKey: 'secret' },
+      { baseURL: 'https://example.test', apiKey: 'secret', protocol: 'chat-completions' as const },
       { expiresAfterSeconds: 3_600, refreshMarginSeconds: 1, quotaCleanupBatch: 10 },
       controller.signal,
     )).toThrow('cancelled before start')
@@ -250,7 +250,7 @@ describe('DeepSeek file store', () => {
         return fileResponse('file-1')
       },
     })
-    const connection = { baseURL: 'https://example.test', apiKey: 'secret' }
+    const connection = { baseURL: 'https://example.test', apiKey: 'secret', protocol: 'chat-completions' as const }
     const policy = { expiresAfterSeconds: 3_600, refreshMarginSeconds: 1, quotaCleanupBatch: 10 }
     const first = store.ensureUploaded(image(), connection, policy)
     const controller = new AbortController()
@@ -274,7 +274,7 @@ describe('DeepSeek file store', () => {
     // An Error keeps its own identity rather than being rewrapped.
     await expect(store.ensureUploaded(
       image(),
-      { baseURL: 'https://example.test', apiKey: 'secret' },
+      { baseURL: 'https://example.test', apiKey: 'secret', protocol: 'chat-completions' as const },
       { expiresAfterSeconds: 3_600, refreshMarginSeconds: 1, quotaCleanupBatch: 10 },
       new AbortController().signal,
     )).rejects.toThrow('index commit refused')
@@ -290,7 +290,7 @@ describe('DeepSeek file store', () => {
 
     await expect(store.ensureUploaded(
       image(),
-      { baseURL: 'https://example.test', apiKey: 'secret' },
+      { baseURL: 'https://example.test', apiKey: 'secret', protocol: 'chat-completions' as const },
       { expiresAfterSeconds: 3_600, refreshMarginSeconds: 1, quotaCleanupBatch: 10 },
       new AbortController().signal,
     )).rejects.toThrow('DeepSeek file wait failed')
@@ -305,7 +305,7 @@ describe('DeepSeek file store', () => {
     // an unroutable host proves it was the one used.
     await expect(store.ensureUploaded(
       image(),
-      { baseURL: 'http://127.0.0.1:1', apiKey: 'secret' },
+      { baseURL: 'http://127.0.0.1:1', apiKey: 'secret', protocol: 'chat-completions' as const },
       { expiresAfterSeconds: 3_600, refreshMarginSeconds: 1, quotaCleanupBatch: 10 },
     )).rejects.toThrow()
   })
@@ -318,7 +318,7 @@ describe('DeepSeek file store', () => {
     try {
       // No index supplied: the store owns one under the Harness home.
       const store = new DeepSeekFileStore({ fetch: async () => fileResponse('file-home') })
-      const connection = { baseURL: 'https://example.test', apiKey: 'secret' }
+      const connection = { baseURL: 'https://example.test', apiKey: 'secret', protocol: 'chat-completions' as const }
       const policy = { expiresAfterSeconds: 3_600, refreshMarginSeconds: 1, quotaCleanupBatch: 10 }
       await store.ensureUploaded(image(), connection, policy)
 
@@ -361,7 +361,7 @@ describe('DeepSeek file store', () => {
     })
 
     const controller = new AbortController()
-    await store.ensureUploaded(image(), { baseURL: 'https://example.test', apiKey: 'secret' }, {
+    await store.ensureUploaded(image(), { baseURL: 'https://example.test', apiKey: 'secret', protocol: 'chat-completions' as const }, {
       expiresAfterSeconds: 3_600, refreshMarginSeconds: 1, quotaCleanupBatch: 10,
     }, controller.signal)
     expect(uploadAttempts).toBe(2)
@@ -375,10 +375,10 @@ describe('DeepSeek file store', () => {
     roots.push(root)
     const index = new DeepSeekUploadIndex(join(root, 'files-v1.json'))
     const store = new DeepSeekFileStore({ index, fetch: async () => fileResponse('file-1') })
-    const connection = { baseURL: 'https://example.test', apiKey: 'secret' }
+    const connection = { baseURL: 'https://example.test', apiKey: 'secret', protocol: 'chat-completions' as const }
     const policy = { expiresAfterSeconds: 3_600, refreshMarginSeconds: 1, quotaCleanupBatch: 10 }
     const result = await store.ensureUploaded(image(), connection, policy)
-    const scope = deepSeekFileScope(connection.baseURL, connection.apiKey)
+    const scope = deepSeekFileScope(connection.baseURL, connection.apiKey, 'chat-completions')
     await store.invalidate(scope, image().variantId, result.record.fileId)
     await expect(index.get(scope, image().variantId, Date.now(), 0)).resolves.toBeUndefined()
     await store.clear(scope)

@@ -20,7 +20,7 @@ import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekAdapter, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekFileStore } from '@deepseek-ai/dsh-llm-deepseek'
 import type { LlmWireAttempt, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { httpErrorCode } from '../src/adapter.ts'
+import { httpErrorCode } from '../src/protocols/chat-completions/adapter.ts'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 import type { Behavior } from './mock-server.ts'
@@ -117,7 +117,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     const chunks: StreamChunk[] = []
     for await (const chunk of adapterOf({ baseURL: server.url }).stream({
       provider: 'deepseek-official',
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       messages: [createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })],
       wireExchangeId: 'deepseek-exchange',
       onWireAttempt: record => records.push(record),
@@ -187,7 +187,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     const ctx = await harness(server.url)
 
     const result = await assemble(ctx, {
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       messages: [createUserMessage({
         content: [{ type: 'text', text: 'hi' }],
         source: { kind: 'plugin', plugin: 'test' },
@@ -199,7 +199,7 @@ describe('DeepSeekAdapter against a mock server', () => {
 
     // The wire request carried the auth header contents we configured.
     expect(server.requests[0]).toMatchObject({
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       max_tokens: 256_000,
       reasoning_effort: 'high',
       stream: true,
@@ -222,7 +222,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     const kinds: string[] = []
     for await (const chunk of ctx.llm.stream({
       provider: 'deepseek-official',
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       messages: [createUserMessage({
         content: [{ type: 'text', text: 'hi' }],
         source: { kind: 'plugin', plugin: 'test' },
@@ -238,7 +238,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     const ctx = await harness(server.url)
 
     await assemble(ctx, {
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       messages: [createUserMessage({
         content: [{ type: 'text', text: 'hi' }],
         source: { kind: 'plugin', plugin: 'test' },
@@ -255,7 +255,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     const ctx = await harness(server.url)
 
     await assemble(ctx, {
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       messages: [createUserMessage({
         content: [{ type: 'text', text: 'hi' }],
         source: { kind: 'plugin', plugin: 'test' },
@@ -275,14 +275,14 @@ describe('DeepSeekAdapter against a mock server', () => {
     const ctx = await harness(server.url, { thinking: 'enabled', reasoningEffort: 'high' })
 
     await assemble(ctx,{
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       messages: [createUserMessage({
         content: [{ type: 'text', text: 'hi' }],
         source: { kind: 'plugin', plugin: 'test' },
       })],
     })
     await assemble(ctx,{
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       reasoningEffort: ReasoningEffortId('off'),
       messages: [createUserMessage({
         content: [{ type: 'text', text: 'hi again' }],
@@ -290,7 +290,7 @@ describe('DeepSeekAdapter against a mock server', () => {
       })],
     })
     await assemble(ctx,{
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       reasoningEffort: ReasoningEffortId('max'),
       messages: [createUserMessage({
         content: [{ type: 'text', text: 'one more time' }],
@@ -318,8 +318,8 @@ describe('DeepSeekAdapter against a mock server', () => {
     ])
     const ctx = await harness(server.url, { maxTokens: 32_000 })
 
-    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
-    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], maxTokens: 8_192 })
+    await assemble(ctx, { model: 'deepseek-flash', messages: [] })
+    await assemble(ctx, { model: 'deepseek-flash', messages: [], maxTokens: 8_192 })
 
     expect(server.requests[0]).toMatchObject({ max_tokens: 32_000 })
     expect(server.requests[1]).toMatchObject({ max_tokens: 8_192 })
@@ -330,7 +330,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     const ctx = await harness(server.url, { thinking: 'disabled' })
 
     await assemble(ctx,{
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       messages: [createUserMessage({
         content: [{ type: 'text', text: 'hi' }],
         source: { kind: 'plugin', plugin: 'test' },
@@ -340,7 +340,7 @@ describe('DeepSeekAdapter against a mock server', () => {
       thinking: { type: 'disabled' },
     })
     expect(server.requests[0]).not.toHaveProperty('reasoning_effort')
-    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'deepseek-v4-flash'))
+    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'deepseek-flash'))
       .resolves.toMatchObject({
         reasoning: {
           efforts: [{ id: ReasoningEffortId('off'), name: 'Off' }],
@@ -354,7 +354,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     const ctx = await harness(server.url, { thinking: 'disabled' })
 
     const result = await assemble(ctx, {
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       reasoningEffort: ReasoningEffortId('high'),
       messages: [createUserMessage({
         content: [{ type: 'text', text: 'hi' }],
@@ -376,7 +376,7 @@ describe('DeepSeekAdapter against a mock server', () => {
 
       const stream = adapter.stream({
         provider: 'deepseek-official',
-        model: 'deepseek-v4-flash',
+        model: 'deepseek-flash',
         reasoningEffort: ReasoningEffortId(effort),
         messages: [createUserMessage({
           content: [{ type: 'text', text: 'hi' }],
@@ -405,7 +405,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     }
     const server = await mockServer([behavior])
     const ctx = await harness(server.url)
-    const result = await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
+    const result = await assemble(ctx,{ model: 'deepseek-flash', messages: [] })
     expect(result.finish).toEqual({
       kind: 'error',
       failure: { message: `failed with ${status}`, code, status },
@@ -425,7 +425,7 @@ describe('DeepSeekAdapter against a mock server', () => {
       }),
     }])
     const ctx = await harness(server.url)
-    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    const result = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
     expect(result.finish).toMatchObject({
       kind: 'error',
       failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE },
@@ -440,7 +440,7 @@ describe('DeepSeekAdapter against a mock server', () => {
       headers: { 'retry-after': '2', 'x-request-id': 'req-429' },
     }])
     const ctx = await harness(server.url)
-    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    const result = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
     expect(result.finish).toEqual({
       kind: 'error',
       failure: {
@@ -467,7 +467,7 @@ describe('DeepSeekAdapter against a mock server', () => {
         },
       }])
       const ctx = await harness(server.url)
-      const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+      const result = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
       expect(result.finish).toEqual({
         kind: 'error',
         failure: {
@@ -498,7 +498,7 @@ describe('DeepSeekAdapter against a mock server', () => {
         headers: { 'retry-after': value },
       }])
       const ctx = await harness(server.url)
-      const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+      const result = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
       expect(result.finish).toEqual({
         kind: 'error',
         failure: { message: 'retry later', code: 'RATE_LIMIT', status: 429 },
@@ -523,7 +523,7 @@ describe('DeepSeekAdapter against a mock server', () => {
   it('keeps the status-line message for JSON error bodies without a message', async () => {
     const server = await mockServer([{ kind: 'http-error', status: 500, body: '{"error":{"type":"x"}}' }])
     const ctx = await harness(server.url)
-    const result = await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
+    const result = await assemble(ctx,{ model: 'deepseek-flash', messages: [] })
     expect(result.finish.kind).toBe('error')
     if (result.finish.kind !== 'error') throw new Error('expected an error finish')
     expect(result.finish.failure.code).toBe('SERVER')
@@ -533,7 +533,7 @@ describe('DeepSeekAdapter against a mock server', () => {
   it('keeps the status-line message for non-JSON error bodies', async () => {
     const server = await mockServer([{ kind: 'http-error', status: 502, body: 'Bad Gateway', contentType: 'text/plain' }])
     const ctx = await harness(server.url)
-    const result = await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
+    const result = await assemble(ctx,{ model: 'deepseek-flash', messages: [] })
     expect(result.finish.kind).toBe('error')
     if (result.finish.kind !== 'error') throw new Error('expected an error finish')
     expect(result.finish.failure.code).toBe('SERVER')
@@ -547,7 +547,7 @@ describe('DeepSeekAdapter against a mock server', () => {
   it('reports a transport failure with the endpoint in the message', async () => {
     // Port 1 is reserved/unbound, so the service normalizes the fetch failure.
     const ctx = await harness('http://127.0.0.1:1')
-    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    const result = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
     expect(result.finish).toMatchObject({
       kind: 'error',
       failure: {
@@ -562,7 +562,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     controller.abort()
     const ctx = await harness('http://127.0.0.1:1')
     const result = await assemble(ctx, {
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       messages: [],
       signal: controller.signal,
     })
@@ -590,7 +590,7 @@ describe('DeepSeekAdapter against a mock server', () => {
       events: ['{"choices":[{"delta":{"content":"par"}}]}'],
     }])
     const ctx = await harness(server.url)
-    const result = await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
+    const result = await assemble(ctx,{ model: 'deepseek-flash', messages: [] })
     expect(result.finish.kind).toBe('error')
     if (result.finish.kind !== 'error') throw new Error('expected an error finish')
     expect(result.finish.failure.code).toBe('TRANSPORT')
@@ -606,7 +606,7 @@ describe('DeepSeekAdapter against a mock server', () => {
       const chunks = []
       for await (const chunk of ctx.llm.stream({
         provider: 'deepseek-official',
-        model: 'deepseek-v4-flash',
+        model: 'deepseek-flash',
         messages: [],
         signal: controller.signal,
       })) {
@@ -783,19 +783,26 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmDeepSeek, { baseURL: 'http://127.0.0.1:1' })
     expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
-      { provider: 'deepseek-official', id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', inputModalities: ['text'] },
-      { provider: 'deepseek-official', id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', inputModalities: ['text'] },
+      { provider: 'deepseek-official', id: 'deepseek-flash', name: 'DeepSeek-V41-Flash', inputModalities: ['text', 'image'] },
+      {
+        provider: 'deepseek-official',
+        id: 'deepseek-v4-pro',
+        name: 'DeepSeek-V4-Pro',
+        description: 'Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost.',
+        inputModalities: ['text'],
+      },
     ])
-    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'deepseek-v4-flash'))
+    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'deepseek-flash'))
       .resolves.toMatchObject({
         provider: 'deepseek-official',
-        id: 'deepseek-v4-flash',
-        name: 'DeepSeek-V4-Flash',
+        id: 'deepseek-flash',
+        name: 'DeepSeek-V41-Flash',
         context: { contextWindow: 1_000_000 },
         defaultMaxTokens: 256_000,
         reasoning: {
           efforts: [
             { id: ReasoningEffortId('off'), name: 'Off' },
+            { id: ReasoningEffortId('low'), name: 'Low' },
             { id: ReasoningEffortId('high'), name: 'High' },
             { id: ReasoningEffortId('max'), name: 'Max' },
           ],
@@ -816,6 +823,7 @@ describe('plugin registration and config', () => {
         reasoning: {
           efforts: [
             { id: ReasoningEffortId('off'), name: 'Off' },
+            { id: ReasoningEffortId('low'), name: 'Low' },
             { id: ReasoningEffortId('high'), name: 'High' },
             { id: ReasoningEffortId('max'), name: 'Max' },
           ],
@@ -878,8 +886,14 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmRuntime)
     LlmDeepSeek.apply(ctx, { baseURL: 'http://127.0.0.1:1' })
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
-      { provider: 'deepseek-official', id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', inputModalities: ['text'] },
-      { provider: 'deepseek-official', id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', inputModalities: ['text'] },
+      { provider: 'deepseek-official', id: 'deepseek-flash', name: 'DeepSeek-V41-Flash', inputModalities: ['text', 'image'] },
+      {
+        provider: 'deepseek-official',
+        id: 'deepseek-v4-pro',
+        name: 'DeepSeek-V4-Pro',
+        description: 'Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost.',
+        inputModalities: ['text'],
+      },
     ])
   })
 
@@ -919,7 +933,7 @@ describe('plugin registration and config', () => {
   it('advertises image capability only for explicitly opted-in models', async () => {
     const adapter = adapterOf({ models: [
       { id: 'text-model' },
-      { id: 'vision-model', inputModalities: ['text', 'image'], imageDetail: 'low' },
+      { id: 'vision-model', inputModalities: ['text', 'image'] },
     ] })
     await expect(adapter.listModels('deepseek-official')).resolves.toEqual([
       { provider: 'deepseek-official', id: 'text-model', name: 'text-model', inputModalities: ['text'] },
@@ -1065,10 +1079,10 @@ describe('plugin registration and config', () => {
     // only the request itself needs a key.
     expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toHaveLength(2)
-    const first = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    const first = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
     expect(first.finish).toMatchObject({ kind: 'error', failure: { code: 'MISSING_CREDENTIAL' } })
     // The guidance leads with the managed credential store.
-    const second = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    const second = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
     expect(second.finish.kind).toBe('error')
     if (second.finish.kind !== 'error') throw new Error('expected an error finish')
     // The guidance names both places a credential can come from, and nothing
@@ -1085,7 +1099,7 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmDeepSeek, { baseURL: server.url })
-    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    await assemble(ctx, { model: 'deepseek-flash', messages: [] })
     expect(server.headers[0]?.authorization).toBe('Bearer ambient-key')
   })
 
@@ -1094,7 +1108,7 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmDeepSeek, { baseURL: 'http://127.0.0.1:1' })
-    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    const result = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
     expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'MISSING_CREDENTIAL' } })
   })
 
@@ -1103,7 +1117,7 @@ describe('plugin registration and config', () => {
     vi.stubEnv('DEEPSEEK_BASE_URL', 'http://env-host:1')
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const ctx = await harness(server.url) // harness passes explicit config
-    await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
+    await assemble(ctx,{ model: 'deepseek-flash', messages: [] })
     expect(server.requests).toHaveLength(1) // hit the explicit URL, not env
   })
 
@@ -1114,7 +1128,7 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmDeepSeek, {})
-    await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
+    await assemble(ctx,{ model: 'deepseek-flash', messages: [] })
     expect(server.requests).toHaveLength(1)
   })
 

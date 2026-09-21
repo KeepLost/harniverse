@@ -21,7 +21,7 @@
       "path": "../../../vendor/group"
     },
     {
-      "path": "../../../vendor/hmr"
+      "path": "../hmr-coordination"
     },
     {
       "path": "../../runtime-diagnostics/invariants"

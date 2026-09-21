@@ -8,7 +8,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import koffi from 'koffi'
 
-import { PROCESS_INFORMATION, getTempPath } from '../src/ffi.ts'
+import { getTempPath, win32Layout } from '../src/ffi.ts'
 import type { NativePtr, Win32Bindings } from '../src/ffi.ts'
 import { Win32Error } from '../src/errors.ts'
 import { drainPipe, spawnSandboxed, spawnSandboxedInherited, waitForExit } from '../src/spawn.ts'
@@ -56,7 +56,7 @@ function resumeFailureApi(): { api: Win32Bindings; closed: bigint[]; closeHandle
       _token: unknown, _app: unknown, _cmd: unknown, _pa: unknown, _ta: unknown,
       _inherit: unknown, _flags: unknown, _env: unknown, _cwd: unknown, _si: unknown, processInfo: NativePtr,
     ) => {
-      koffi.encode(processInfo, PROCESS_INFORMATION, { hProcess: 200n, hThread: 201n, dwProcessId: 1234, dwThreadId: 5678 })
+      koffi.encode(processInfo, win32Layout().PROCESS_INFORMATION, { hProcess: 200n, hThread: 201n, dwProcessId: 1234, dwThreadId: 5678 })
       return 1
     }),
     assignProcessToJobObject: vi.fn(() => 1),
@@ -161,7 +161,7 @@ function pipeOkApi(overrides: Partial<Win32Bindings> = {}): {
       _token: unknown, _app: unknown, _cmd: unknown, _pa: unknown, _ta: unknown,
       _inherit: unknown, _flags: unknown, _env: unknown, _cwd: unknown, _si: unknown, processInfo: NativePtr,
     ) => {
-      koffi.encode(processInfo, PROCESS_INFORMATION, { hProcess: 200n, hThread: 201n, dwProcessId: 1234, dwThreadId: 5678 })
+      koffi.encode(processInfo, win32Layout().PROCESS_INFORMATION, { hProcess: 200n, hThread: 201n, dwProcessId: 1234, dwThreadId: 5678 })
       return 1
     }),
     getLastError: vi.fn(() => 5),
@@ -217,7 +217,7 @@ describe('spawn pipe failures close their handles', () => {
         _token: unknown, _app: unknown, _cmd: unknown, _pa: unknown, _ta: unknown,
         _inherit: unknown, _flags: unknown, _env: unknown, _cwd: unknown, _si: unknown, processInfo: NativePtr,
       ) => {
-        koffi.encode(processInfo, PROCESS_INFORMATION, { hProcess: null, hThread: null, dwProcessId: 1234, dwThreadId: 5678 })
+        koffi.encode(processInfo, win32Layout().PROCESS_INFORMATION, { hProcess: null, hThread: null, dwProcessId: 1234, dwThreadId: 5678 })
         return 1
       }),
     })
@@ -250,7 +250,7 @@ describe('spawnSandboxedInherited failure paths', () => {
         _token: unknown, _app: unknown, _cmd: unknown, _pa: unknown, _ta: unknown,
         _inherit: unknown, _flags: unknown, _env: unknown, _cwd: unknown, _si: unknown, processInfo: NativePtr,
       ) => {
-        koffi.encode(processInfo, PROCESS_INFORMATION, { hProcess: 200n, hThread: 201n, dwProcessId: 1234, dwThreadId: 5678 })
+        koffi.encode(processInfo, win32Layout().PROCESS_INFORMATION, { hProcess: 200n, hThread: 201n, dwProcessId: 1234, dwThreadId: 5678 })
         return 1
       }),
       assignProcessToJobObject: vi.fn(() => 1),
@@ -307,7 +307,7 @@ describe('spawnSandboxedInherited failure paths', () => {
         _token: unknown, _app: unknown, _cmd: unknown, _pa: unknown, _ta: unknown,
         _inherit: unknown, _flags: unknown, _env: unknown, _cwd: unknown, _si: unknown, processInfo: NativePtr,
       ) => {
-        koffi.encode(processInfo, PROCESS_INFORMATION, { hProcess: null, hThread: null, dwProcessId: 1234, dwThreadId: 5678 })
+        koffi.encode(processInfo, win32Layout().PROCESS_INFORMATION, { hProcess: null, hThread: null, dwProcessId: 1234, dwThreadId: 5678 })
         return 1
       }),
     })

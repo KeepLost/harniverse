@@ -1,4 +1,4 @@
-/** Keyless assembled-Web evidence for conversational Schedule delivery. */
+/** Keyless assembled-Web evidence for scheduler-driven conversational delivery. */
 
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,13 +9,6 @@ import type { AgentHandle } from '@deepseek-ai/dsh-agent'
 import { CallId, createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import {
-  ScheduleId,
-  createEveryScheduleRecord,
-  foldScheduleEvents,
-  resolveEveryOccurrence,
-  type EveryScheduleRecord,
-} from '@deepseek-ai/dsh-schedule'
 import {
   assertFixtureInventory,
   captureStableAria,
@@ -28,7 +21,7 @@ import {
 import { connectFreshWorkspace, conversationContextKey, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
-const OVERLAY = fileURLToPath(new URL('../../../examples/web-schedule/cordis.yml', import.meta.url))
+const OVERLAY = fileURLToPath(new URL('./schedule-after.overlay.yml', import.meta.url))
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/schedule-after', import.meta.url))
 const AFTER_EXPECTED = join(SNAPSHOT_DIR, 'conversation.expected.md')
 const AT_EXPECTED = join(SNAPSHOT_DIR, 'at-conversation.expected.md')
@@ -45,10 +38,13 @@ const AT_PROMPT = 'Review the release window'
 const AT_READY = 'Ready for a browser-local reminder request.'
 const AT_ACK = 'Scheduled in your browser time zone.'
 const AT_REPLY = 'Reminder: Review the release window.'
-const EVERY_PROMPTS = ['Check primary metrics', 'Check secondary metrics'] as const
-const EVERY_REPLY = 'Reminders: Check primary metrics; Check secondary metrics.'
-const EVERY_INTERVAL_SECONDS = 60 * 60
-const EVERY_FIXTURE_AGE_MS = 90 * 60 * 1_000
+const EVERY_PRIMARY_PROMPT = 'Check primary metrics'
+const EVERY_SECONDARY_PROMPT = 'Check secondary metrics'
+const EVERY_REPLY_PRIMARY = 'Reminder: Check primary metrics.'
+const EVERY_REPLY_SECONDARY = 'Reminder: Check secondary metrics.'
+const EVERY_INTERVAL_MS = 5 * 60_000
+const EVERY_PRIMARY_AGE_MS = 90 * 60_000
+const EVERY_SECONDARY_DELAY_MS = 6_000
 
 /** Emit one complete assistant text response. */
 function textResponse(text: string): StreamChunk[] {
@@ -59,33 +55,49 @@ function textResponse(text: string): StreamChunk[] {
   ]
 }
 
-/** Deterministic model seam that turns one due reminder into ordinary assistant prose. */
+/** Deterministic model seam that turns one due delivery into ordinary assistant prose. */
 class ReminderAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
 
+  constructor(private readonly reply: string) {
+    super()
+  }
+
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(options)
-    yield * textResponse(AFTER_REPLY)
+    yield * textResponse(this.reply)
   }
 }
 
-/** Deterministic model seam for one multi-record fixed-rate batch. */
-class EveryReminderAdapter extends LlmAdapter {
+/** Deterministic model seam mapping each delivered schedule prompt to its own reply. */
+class EveryPromptAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
+
+  constructor(private readonly replies: Map<string, string>) {
+    super()
+  }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(options)
-    yield * textResponse(EVERY_REPLY)
+    const deliveries = options.messages.filter(message => (
+      message.source.kind === 'plugin' && message.source.plugin === 'schedule'
+    ))
+    const latest = deliveries.at(-1)
+    const prompt = [...this.replies.keys()].find(key => (
+      latest?.content.some(block => block.type === 'text' && block.text.includes(key))
+    ))
+    if (prompt === undefined) throw new Error('no delivered schedule prompt matched a scripted reply')
+    yield * textResponse(this.replies.get(prompt) ?? '')
   }
 }
 
 interface LocalAt {
   readonly date: string
   readonly time: string
-  readonly time_zone: string
+  readonly offset: string
 }
 
-/** Render one future epoch as exact local calendar fields in an explicit zone. */
+/** Render one future epoch as exact local calendar fields with a normalized UTC offset. */
 function localAt(epoch: number, timeZone: string): LocalAt {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
     timeZone,
@@ -96,19 +108,20 @@ function localAt(epoch: number, timeZone: string): LocalAt {
     minute: '2-digit',
     second: '2-digit',
     hourCycle: 'h23',
+    timeZoneName: 'longOffset',
   }).formatToParts(epoch).map(part => [part.type, part.value])) as Record<string, string>
+  const offset = (parts['timeZoneName'] ?? 'GMT+00:00').replace(/^GMT/, '')
   return {
     date: `${parts['year']}-${parts['month']}-${parts['day']}`,
     time: `${parts['hour']}:${parts['minute']}:${parts['second']}`,
-    time_zone: timeZone,
+    offset: offset === '' || offset === '+00:00' ? 'Z' : offset,
   }
 }
 
-/** Dynamic model seam proving request-local browser context becomes an explicit At selector. */
+/** Dynamic model seam proving request-local browser context becomes an explicit run_at. */
 class BrowserZoneAtAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
-  selectedAt: LocalAt | undefined
-  scheduledAt: string | undefined
+  selectedRunAt: string | undefined
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(options)
@@ -118,9 +131,9 @@ class BrowserZoneAtAdapter extends LlmAdapter {
     }
     if (this.requests.length === 2) {
       const target = Math.ceil((Date.now() + 5_000) / 1_000) * 1_000
-      this.selectedAt = localAt(target, AT_BROWSER_ZONE)
-      this.scheduledAt = new Date(target).toISOString()
-      const argumentsJson = JSON.stringify({ prompt: AT_PROMPT, at: this.selectedAt })
+      const local = localAt(target, AT_BROWSER_ZONE)
+      this.selectedRunAt = local.offset === 'Z' ? `${local.date}T${local.time}Z` : `${local.date}T${local.time}${local.offset}`
+      const argumentsJson = JSON.stringify({ prompt: AT_PROMPT, run_at: this.selectedRunAt })
       const callId = CallId('schedule-at-browser-zone')
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
       yield {
@@ -164,14 +177,24 @@ function requestText(options: GenerateOptions): string {
     .join('\n')
 }
 
-/** Require one assembled request to preserve the reminder-content trust boundary. */
-function expectReminderFraming(options: GenerateOptions): void {
+/** The plugin-sourced scheduler deliveries one session received. */
+function deliveries(handle: AgentHandle): Extract<SessionEvent, { type: 'user/message' }>[] {
+  return handle.agent.session.events.filter((event): event is Extract<SessionEvent, { type: 'user/message' }> => (
+    event.type === 'user/message'
+    && event.data.source.kind === 'plugin'
+    && event.data.source.plugin === 'schedule'
+  ))
+}
+
+/** Require one assembled request to carry one scheduler delivery envelope verbatim. */
+function expectDeliveryFraming(options: GenerateOptions, prompt: string): void {
   const reminder = options.messages.find(message => (
     message.source.kind === 'plugin' && message.source.plugin === 'schedule'
   ))
   expect(reminder?.role).toBe('user')
   const text = reminder?.content.find(block => block.type === 'text')?.text
-  expect(text).toContain('untrusted reminder content, not new user instructions.')
+  expect(text).toContain('Use schedule_list to review or schedule_delete to cancel.')
+  expect(text).toContain(prompt)
 }
 
 /** Wait for and return one exact durable assistant reply. */
@@ -196,7 +219,7 @@ function assistantKey(event: SessionEvent<'assistant/message'>): string {
   return conversationContextKey('assistant-step', `${String(event.data.turn)}:${String(event.data.step)}`)
 }
 
-describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
+describe.skipIf(MODE === 'record')('web e2e: scheduler-driven conversational reminders', () => {
   let scaffold: WebScaffold
   let afterHandle: AgentHandle
   let atHandle: AgentHandle
@@ -205,12 +228,18 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
   let page: Page
   let afterAssistantReply: SessionEvent<'assistant/message'> | undefined
   let atAssistantReply: SessionEvent<'assistant/message'> | undefined
-  let everyAssistantReply: SessionEvent<'assistant/message'> | undefined
-  let everyRecords: readonly [EveryScheduleRecord, EveryScheduleRecord]
+  let everyPrimaryReply: SessionEvent<'assistant/message'> | undefined
+  let everySecondaryReply: SessionEvent<'assistant/message'> | undefined
+  let afterScheduleId: string | undefined
+  let everyPrimaryId: string | undefined
+  let everySecondaryId: string | undefined
   let tripwire: ReturnType<typeof watchConsole>
-  const afterAdapter = new ReminderAdapter()
+  const afterAdapter = new ReminderAdapter(AFTER_REPLY)
   const atAdapter = new BrowserZoneAtAdapter()
-  const everyAdapter = new EveryReminderAdapter()
+  const everyAdapter = new EveryPromptAdapter(new Map([
+    [EVERY_PRIMARY_PROMPT, EVERY_REPLY_PRIMARY],
+    [EVERY_SECONDARY_PROMPT, EVERY_REPLY_SECONDARY],
+  ]))
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({ extraOverlayPath: OVERLAY })
@@ -249,6 +278,7 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
       sessionId: SessionId('schedule-after-web-e2e'),
       meta: { cwd },
       agentOptions: { provider: AFTER_PROVIDER, model: MODEL },
+      setup: agentCtx => scaffold.ctx.agentPresets.mount(agentCtx).then(() => undefined),
     })
     afterHandle.agent.session.append('session/title', {
       title: 'Scheduled After follow-up',
@@ -260,21 +290,17 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
       signal: AbortSignal.timeout(10_000),
       callId: CallId('schedule-after-create'),
       name: 'schedule_create',
-      arguments: { prompt: AFTER_PROMPT, after_seconds: 1 },
+      arguments: {
+        prompt: AFTER_PROMPT,
+        run_at: new Date(Date.now() + 4_000).toISOString(),
+      },
       agent: afterHandle.agent,
     })
     if (afterCreated.isError) {
-      throw new Error(`Schedule After create failed: ${JSON.stringify(afterCreated.value)}`)
+      throw new Error(`Schedule After create failed: ${JSON.stringify(afterCreated.content)}`)
     }
-    expect(afterCreated.value).toMatchObject({
-      id: 'schedule-1',
-      kind: 'after',
-      prompt: AFTER_PROMPT,
-      afterSeconds: 1,
-      state: 'scheduled',
-      deliveryMode: 'session-local',
-    })
-    afterAssistantReply = await waitForReply(afterHandle, AFTER_REPLY, 15_000)
+    afterScheduleId = (afterCreated.value as { scheduleId: string }).scheduleId
+    afterAssistantReply = await waitForReply(afterHandle, AFTER_REPLY, 30_000)
     await afterHandle.agent.whenIdle()
     await expect(scaffold.ctx.sessions.flush(afterHandle.agent.session)).resolves.toBe(true)
 
@@ -282,52 +308,52 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
       sessionId: SessionId('schedule-every-web-e2e'),
       meta: { cwd },
       agentOptions: { provider: EVERY_PROVIDER, model: MODEL },
+      setup: agentCtx => scaffold.ctx.agentPresets.mount(agentCtx).then(() => undefined),
     })
     everyHandle.agent.session.append('session/title', {
-      title: 'Fixed-rate reminder batch',
+      title: 'Fixed-rate reminder pair',
       messageSeqs: [],
       source: { kind: 'user' },
     })
     const seededAt = Date.now()
-    everyRecords = [
-      createEveryScheduleRecord(
-        ScheduleId('schedule-every-primary'),
-        EVERY_PROMPTS[0],
-        EVERY_INTERVAL_SECONDS,
-        seededAt - EVERY_FIXTURE_AGE_MS,
-      ),
-      createEveryScheduleRecord(
-        ScheduleId('schedule-every-secondary'),
-        EVERY_PROMPTS[1],
-        EVERY_INTERVAL_SECONDS,
-        seededAt - EVERY_FIXTURE_AGE_MS,
-      ),
-    ]
-    for (const record of everyRecords) {
-      everyHandle.agent.session.append('schedule/change', {
-        version: 1,
-        operation: 'create',
-        schedule: record,
-      })
-    }
-    await expect(scaffold.ctx.sessions.flush(everyHandle.agent.session)).resolves.toBe(true)
-    await workspace.attachSession(everyHandle.agent.id)
-    const everyListed = await scaffold.ctx.tools.execute({
-      signal: AbortSignal.timeout(10_000),
-      callId: CallId('schedule-every-list'),
-      name: 'schedule_list',
-      arguments: {},
-      agent: everyHandle.agent,
-    })
-    expect(everyListed.isError).toBe(false)
-    everyAssistantReply = await waitForReply(everyHandle, EVERY_REPLY, 15_000)
+    const everyRecords = await Promise.all([
+      scaffold.ctx.scheduler.create({
+        prompt: EVERY_PRIMARY_PROMPT,
+        rule: {
+          kind: 'every',
+          intervalMs: EVERY_INTERVAL_MS,
+          anchor: new Date(seededAt - EVERY_PRIMARY_AGE_MS).toISOString(),
+        },
+        target: { kind: 'current' },
+        contextMode: 'continue',
+        createdBy: { kind: 'model', sessionId: everyHandle.agent.session.id },
+      }),
+      scaffold.ctx.scheduler.create({
+        prompt: EVERY_SECONDARY_PROMPT,
+        rule: {
+          kind: 'every',
+          intervalMs: EVERY_INTERVAL_MS,
+          anchor: new Date(seededAt + EVERY_SECONDARY_DELAY_MS).toISOString(),
+        },
+        target: { kind: 'current' },
+        contextMode: 'continue',
+        createdBy: { kind: 'model', sessionId: everyHandle.agent.session.id },
+      }),
+    ])
+    everyPrimaryId = everyRecords[0]?.id
+    everySecondaryId = everyRecords[1]?.id
+    everyPrimaryReply = await waitForReply(everyHandle, EVERY_REPLY_PRIMARY, 30_000)
+    await everyHandle.agent.whenIdle()
+    everySecondaryReply = await waitForReply(everyHandle, EVERY_REPLY_SECONDARY, 30_000)
     await everyHandle.agent.whenIdle()
     await expect(scaffold.ctx.sessions.flush(everyHandle.agent.session)).resolves.toBe(true)
+    await workspace.attachSession(everyHandle.agent.id)
 
     atHandle = await scaffold.ctx.agents.create({
       sessionId: SessionId('schedule-at-web-e2e'),
       meta: { cwd },
       agentOptions: { provider: AT_PROVIDER, model: MODEL },
+      setup: agentCtx => scaffold.ctx.agentPresets.mount(agentCtx).then(() => undefined),
     })
     atHandle.agent.session.append('session/title', {
       title: 'Explicit local-time reminder',
@@ -363,7 +389,7 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
     await page.getByRole('button', { name: 'Send message', exact: true }).click()
     expect(await settled).toBe(atHandle.agent.id)
     await page.getByText(AT_ACK, { exact: true }).waitFor({ timeout: 15_000 })
-    atAssistantReply = await waitForReply(atHandle, AT_REPLY, 20_000)
+    atAssistantReply = await waitForReply(atHandle, AT_REPLY, 30_000)
     await atHandle.agent.whenIdle()
     await expect(scaffold.ctx.sessions.flush(atHandle.agent.session)).resolves.toBe(true)
   }, 120_000)
@@ -379,11 +405,20 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
     if (failures.length > 1) throw new AggregateError(failures, 'Schedule Web evidence teardown failed')
   })
 
-  it('renders After as an ordinary assistant follow-up', async () => {
+  it('renders one delivered after-rule as an ordinary assistant follow-up', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-schedule-after'))
+    const dispatches = afterHandle.agent.session.events.filter(event => (
+      event.type === 'schedule/dispatch' && event.data.scheduleId === afterScheduleId
+    ))
+    expect(dispatches).toHaveLength(1)
+    const delivered = deliveries(afterHandle)
+    expect(delivered).toHaveLength(1)
+    const text = delivered[0]?.data.content.find(block => block.type === 'text')?.text
+    expect(text).toContain(`Scheduled task ${afterScheduleId ?? ''} fired`)
+    expect(text).toContain(AFTER_PROMPT)
     const reminderRequest = afterAdapter.requests[0]
-    if (reminderRequest === undefined) throw new Error('model did not receive the After reminder')
-    expectReminderFraming(reminderRequest)
+    if (reminderRequest === undefined) throw new Error('model did not receive the scheduler delivery')
+    expectDeliveryFraming(reminderRequest, AFTER_PROMPT)
     const session = page.getByRole('treeitem', { name: /Scheduled After follow-up/ })
     await session.click()
     if (afterAssistantReply === undefined) throw new Error('After assistant reply was not captured')
@@ -397,71 +432,55 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
       await captureStableAria(page, selector, scaffold.workspaceCwd),
       MODE,
     )
-    expect(await page.locator('[data-schedule-reminder]').count()).toBe(0)
   }, 60_000)
 
-  it('batches one latest occurrence per overdue Every record into an ordinary follow-up', async () => {
+  it('delivers each overdue every-rule as its own ordinary follow-up', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-schedule-every'))
-    const ids = new Set(everyRecords.map(record => record.id))
     const dispatches = everyHandle.agent.session.events.filter(event => (
-      event.type === 'schedule/change'
-      && event.data.operation === 'dispatch'
-      && ids.has(event.data.id)
+      event.type === 'schedule/dispatch'
+      && (event.data.scheduleId === everyPrimaryId || event.data.scheduleId === everySecondaryId)
     ))
     expect(dispatches).toHaveLength(2)
-    const acceptedAt = dispatches.map((event) => {
-      if (event.type !== 'schedule/change' || event.data.operation !== 'dispatch'
-        || !('acceptedAt' in event.data)) throw new Error('expected Every dispatch')
-      return event.data.acceptedAt
-    })
-    expect(new Set(acceptedAt).size).toBe(1)
-    const decision = acceptedAt[0]
-    if (decision === undefined) throw new Error('missing Every decision time')
-
-    const batch = everyHandle.agent.session.events.find(event => (
-      event.type === 'user/message'
-      && event.data.source.kind === 'plugin'
-      && event.data.source.plugin === 'schedule'
-      && event.data.content.some(block => block.type === 'text'
-        && block.text.startsWith('[SCHEDULE REMINDER BATCH]'))
-    ))
-    if (batch?.type !== 'user/message') throw new Error('missing Every batch message')
-    const batchBlock = batch.data.content.find(block => block.type === 'text')
-    if (batchBlock?.type !== 'text') throw new Error('missing Every batch text')
-    for (const record of everyRecords) {
-      const occurrenceAt = resolveEveryOccurrence(record, Date.parse(decision)).occurrenceAt
-      expect(batchBlock.text).toContain(JSON.stringify({
-        schedule_id: record.id,
-        occurrence_at: occurrenceAt,
-        reminder_prompt: record.prompt,
-      }).slice(1, -1))
+    const delivered = deliveries(everyHandle)
+    expect(delivered).toHaveLength(2)
+    const deliveredText = delivered
+      .map(event => event.data.content.find(block => block.type === 'text')?.text ?? '')
+      .join('\n')
+    expect(deliveredText).toContain(EVERY_PRIMARY_PROMPT)
+    expect(deliveredText).toContain(EVERY_SECONDARY_PROMPT)
+    const seen = new Set(everyAdapter.requests.map(options => (
+      options.messages.find(message => (
+        message.source.kind === 'plugin' && message.source.plugin === 'schedule'
+      ))
+    )))
+    seen.delete(undefined)
+    expect(seen.size).toBeGreaterThanOrEqual(1)
+    const records = scaffold.ctx.scheduler.listForSession(everyHandle.agent.session.id)
+    for (const record of records) {
+      expect(record.status).toBe('active')
+      expect(record.nextDue).toBeDefined()
+      expect(record.nextDue).toBeGreaterThan(Date.now())
     }
-    expect(everyAdapter.requests).toHaveLength(1)
-    const reminderRequest = everyAdapter.requests[0]
-    if (reminderRequest === undefined) throw new Error('model did not receive the Every batch')
-    expect(requestText(reminderRequest)).toContain(batchBlock.text)
-    expectReminderFraming(reminderRequest)
-    const active = foldScheduleEvents(everyHandle.agent.session.events).active
-    expect(active).toHaveLength(2)
-    expect(active.every(record => Date.parse(record.scheduledAt) > Date.parse(decision))).toBe(true)
+    expect(records.every(record => record.lastError === undefined)).toBe(true)
 
-    const session = page.getByRole('treeitem', { name: /Fixed-rate reminder batch/ })
+    const session = page.getByRole('treeitem', { name: /Fixed-rate reminder pair/ })
     await session.click()
-    if (everyAssistantReply === undefined) throw new Error('Every assistant reply was not captured')
-    const selector = `[data-chat-anchor-key="${assistantKey(everyAssistantReply)}"]`
+    if (everyPrimaryReply === undefined || everySecondaryReply === undefined) {
+      throw new Error('Every assistant replies were not captured')
+    }
+    const selector = `[data-chat-anchor-key="${assistantKey(everyPrimaryReply)}"]`
     const row = page.locator(selector)
     await row.waitFor({ timeout: 15_000 })
     expect(await row.getAttribute('data-chat-flow-kind')).toBe('assistant-step')
-    expect(await row.textContent()).toContain(EVERY_REPLY)
+    expect(await row.textContent()).toContain(EVERY_REPLY_PRIMARY)
     await compareOrRefreshGolden(
       EVERY_EXPECTED,
       await captureStableAria(page, selector, scaffold.workspaceCwd),
       MODE,
     )
-    expect(await page.locator('[data-schedule-reminder]').count()).toBe(0)
   }, 60_000)
 
-  it('uses request-local browser context to create an explicit local At reminder', async () => {
+  it('uses request-local browser context to create an explicit local run_at reminder', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-schedule-at'))
     const user = atHandle.agent.session.events.find(event => (
       event.type === 'user/message'
@@ -481,41 +500,26 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
       + 'Interpret otherwise-unqualified dates and times in this zone.',
     )
     expect(firstRequest.tools?.some(tool => tool.name === 'schedule_create')).toBe(true)
-    const selectedAt = atAdapter.selectedAt
-    const scheduledAt = atAdapter.scheduledAt
-    if (selectedAt === undefined || scheduledAt === undefined) {
-      throw new Error('model did not choose an explicit local At target')
+    const selectedRunAt = atAdapter.selectedRunAt
+    if (selectedRunAt === undefined) {
+      throw new Error('model did not choose an explicit local run_at target')
     }
-    expect(selectedAt.time_zone).toBe(AT_BROWSER_ZONE)
 
     const toolCall = atHandle.agent.session.events.find(event => (
       event.type === 'tool/call' && event.data.name === 'schedule_create'
     ))
     if (toolCall?.type !== 'tool/call') throw new Error('missing schedule_create tool call')
-    expect(JSON.parse(toolCall.data.arguments)).toEqual({ prompt: AT_PROMPT, at: selectedAt })
-    const created = atHandle.agent.session.events.find(event => (
-      event.type === 'schedule/change'
-      && event.data.operation === 'create'
-      && event.data.schedule.kind === 'at'
+    expect(JSON.parse(toolCall.data.arguments)).toEqual({ prompt: AT_PROMPT, run_at: selectedRunAt })
+    const dispatches = atHandle.agent.session.events.filter(event => (
+      event.type === 'schedule/dispatch'
     ))
-    if (created?.type !== 'schedule/change' || created.data.operation !== 'create') {
-      throw new Error('explicit local At call did not create a durable record')
-    }
-    const schedule = created.data.schedule
-    expect(schedule).toMatchObject({
-      kind: 'at',
-      prompt: AT_PROMPT,
-      scheduledAt,
-    })
-    expect(atHandle.agent.session.events.filter(event => (
-      event.type === 'schedule/change'
-      && event.data.operation === 'dispatch'
-      && event.data.id === schedule.id
-    ))).toHaveLength(1)
+    expect(dispatches).toHaveLength(1)
+    const delivered = deliveries(atHandle)
+    expect(delivered).toHaveLength(1)
     expect(atAdapter.requests).toHaveLength(4)
     const reminderRequest = atAdapter.requests[3]
-    if (reminderRequest === undefined) throw new Error('model did not receive the At reminder')
-    expectReminderFraming(reminderRequest)
+    if (reminderRequest === undefined) throw new Error('model did not receive the run_at reminder')
+    expectDeliveryFraming(reminderRequest, AT_PROMPT)
 
     const session = page.getByRole('treeitem', { name: /Explicit local-time reminder/ })
     await session.click()
@@ -530,7 +534,6 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
       await captureStableAria(page, selector, scaffold.workspaceCwd),
       MODE,
     )
-    expect(await page.locator('[data-schedule-reminder]').count()).toBe(0)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   }, 60_000)

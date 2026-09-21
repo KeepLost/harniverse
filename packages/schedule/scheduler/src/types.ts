@@ -55,6 +55,20 @@ export interface ScheduleRun {
   readonly error?: string
 }
 
+/**
+ * Durable provenance of one scheduler delivery — log-only, no surfaceOp.
+ * Appended to the target session immediately before the scheduled prompt
+ * enters the inbox, so a transcript can explain why the following
+ * `user/message` (plugin source `schedule`) exists. `turn` is always
+ * `null`: delivery claims the idle maintenance phase between turns.
+ */
+export interface ScheduleDispatchEventData {
+  readonly scheduleId: string
+  readonly dueAt: number
+  readonly targetSessionId: SessionId
+  readonly turn: null
+}
+
 /** One durable scheduled prompt. */
 export interface ScheduleRecord {
   readonly id: string

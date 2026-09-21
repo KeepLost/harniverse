@@ -265,6 +265,41 @@ Types: [Agent](core.md)
 
 Source: [`packages/extensions/cordis-host-runner/src/index.ts:124`](../../packages/extensions/cordis-host-runner/src/index.ts)
 
+<a id="ctxhmrcoordination--hmrreloadcoordinator"></a>
+
+### `ctx.hmrCoordination` — `HmrReloadCoordinator`
+
+Exclusive reload queue plus exact-path config watchers for boot layers. Module replacement and Include refresh stay with the vendored HMR plugin; this coordinator owns only the reloads Harniverse registers.
+
+```ts cordis-catalog
+/**
+ * Run one task on the exclusive queue.
+ * @param task - reload work; a refresh may await other fibers.
+ * @returns the task's own settlement.
+ * @throws when called from inside a queued task, or after disposal.
+ */
+runExclusive<T>(task: () => Promise<T>): Promise<T>
+
+/**
+ * Watch one exact config file and reload it through the exclusive queue.
+ * Consecutive writes during a refresh merge into one additional pass.
+ * @param filename - config file path; missing parents are supported.
+ * @param refresh - reload work for that file.
+ * @returns an asynchronous disposer; the watcher buffers events until ready.
+ * @throws when the canonical path is already registered or the coordinator is disposed.
+ */
+watchConfig(filename: string, refresh: () => Promise<void> | void): () => Promise<void>
+
+/**
+ * Stop accepting reloads, close every watcher, and drain the queue.
+ * Calling from inside a queued task skips the self-wait.
+ * @returns settlement after in-flight work has drained.
+ */
+async dispose(): Promise<void>
+```
+
+Source: [`packages/boot/hmr-coordination/src/index.ts:99`](../../packages/boot/hmr-coordination/src/index.ts)
+
 <a id="cordis-events"></a>
 
 ### `cordis/*` events
@@ -370,4 +405,26 @@ A pending Client activation request left the answerable state.
 ```
 
 Source: [`packages/extensions/cordis-host-runner/src/types.ts:373`](../../packages/extensions/cordis-host-runner/src/types.ts)
+
+<a id="hmr-coordination-events"></a>
+
+### `hmr-coordination/*` events
+
+<a id="hmr-coordinationconfig-update-failed--parallel"></a>
+
+#### `hmr-coordination/config-update-failed` — parallel
+
+A watched coordination config refresh failed.
+
+```ts cordis-catalog
+/**
+ * A watched coordination config refresh failed.
+ * @param filename - Canonical path watched by the coordinator.
+ * @param error - Normalized refresh failure.
+ * @mode parallel
+ */
+'hmr-coordination/config-update-failed'(filename: string, error: Error): Promise<void> | void
+```
+
+Source: [`packages/boot/hmr-coordination/src/index.ts:29`](../../packages/boot/hmr-coordination/src/index.ts)
 <!-- END GENERATED cordis-surface -->

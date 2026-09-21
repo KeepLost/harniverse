@@ -27,6 +27,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { ReactLoopAgent } from './agent.ts'
+import { turnBoundaryProjectionDefinition } from './projection.ts'
 import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
 
 /** Fiber states that cannot own or serve a new lifecycle. */
@@ -185,6 +186,8 @@ declare module '@deepseek-ai/cordis' {
 }
 
 export { DEFAULT_MAX_PARALLEL_TOOL_CALLS }
+export { turnBoundaryProjectionDefinition } from './projection.ts'
+export type { TurnBoundaryProjection } from './projection-types.ts'
 
 /**
  * One launcher-selected session identity for a configured agent. `resume`
@@ -344,6 +347,14 @@ export class AgentLoop extends Service implements AgentFactory {
       onChange: () => {},
     })
     validateConfiguredAgents(this.config.agents)
+    // Register only after every config validation above has passed, so a
+    // rejected constructor leaves no projection unit behind. The injection is
+    // optional: a composition without the projection registry keeps the loop
+    // itself fully working — only projection consumers (scoped tools reading
+    // `turnBoundary`) lose their unit.
+    ctx.inject(['sessionProjections'], (projectionCtx) => {
+      projectionCtx.sessionProjections.register(turnBoundaryProjectionDefinition)
+    })
     this.ownership = new FactoryOwnership(ctx.fiber)
     this.runtime = { ctx }
     ctx.effect(() => () => this.ownership.dispose(), 'agentLoop.transactions()')

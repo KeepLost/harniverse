@@ -115,7 +115,7 @@ describe('llm-deepseek real dynamic composition', () => {
     const { ctx, settingsPath, credentialsPath } = await loadComposition({ withDynamic: true, baseURL: serverA.url })
 
     expect(ctx.get('settings')!.describe().map(entry => entry.ns)).toEqual([NS])
-    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    await assemble(ctx, { model: 'deepseek-flash', messages: [] })
     expect(serverA.headers[0]?.authorization).toBe('Bearer boot-key')
     expect(serverA.headers[0]?.['x-deepseek-harness-user-id']).toBe(getOrCreateAnonymousUserId())
 
@@ -129,7 +129,7 @@ describe('llm-deepseek real dynamic composition', () => {
       expect(await ctx.get('credentials')!.resolve(KEY_REF)).toEqual({ value: 'rotated-key', source: 'file' })
     }, { timeout: 5000 })
 
-    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    await assemble(ctx, { model: 'deepseek-flash', messages: [] })
     expect(serverA.requests).toHaveLength(1)
     expect(serverB.headers[0]?.authorization).toBe('Bearer rotated-key')
   })
@@ -145,7 +145,7 @@ describe('llm-deepseek real dynamic composition', () => {
     await boot.ctx.get('credentials')!.set(KEY_REF, 'stored-by-ui')
     expect(await boot.ctx.get('credentials')!.describe(KEY_REF))
       .toEqual({ configured: true, source: 'file', writable: true })
-    await assemble(boot.ctx, { model: 'deepseek-v4-flash', messages: [] })
+    await assemble(boot.ctx, { model: 'deepseek-flash', messages: [] })
     expect(first.headers[0]?.authorization).toBe('Bearer stored-by-ui')
     await boot.ctx.fiber.dispose()
     context = undefined
@@ -159,7 +159,7 @@ describe('llm-deepseek real dynamic composition', () => {
     expect(await credentials.describe(KEY_REF)).toEqual({ configured: true, source: 'file', writable: true })
     // Rotation still works after the restart, and the next request uses it.
     await credentials.set(KEY_REF, 'rotated-after-restart')
-    await assemble(restarted.ctx, { model: 'deepseek-v4-flash', messages: [] })
+    await assemble(restarted.ctx, { model: 'deepseek-flash', messages: [] })
     expect(second.headers[0]?.authorization).toBe('Bearer rotated-after-restart')
   })
 
@@ -172,7 +172,7 @@ describe('llm-deepseek real dynamic composition', () => {
 
     expect(ctx.get('settings')).toBeUndefined()
     expect(ctx.get('credentials')).toBeUndefined()
-    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    await assemble(ctx, { model: 'deepseek-flash', messages: [] })
     expect(server.headers[0]?.authorization).toBe('Bearer entry-key')
   })
 
@@ -182,7 +182,7 @@ describe('llm-deepseek real dynamic composition', () => {
     const { ctx } = await loadComposition({ withDynamic: false, baseURL: server.url })
 
     await assemble(ctx, {
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       messages: [createMessage({
         role: 'assistant',
         content: [{ type: 'reasoning', text: 'stable upstream thought' }, { type: 'text', text: 'answer' }],

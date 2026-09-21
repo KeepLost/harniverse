@@ -1,0 +1,5 @@
+# The scheduler family ships in the default composition; this overlay adds
+# only the request-local browser time context the At scenario needs.
+- insert:
+    - id: time-context
+      name: '@deepseek-ai/dsh-time-context'

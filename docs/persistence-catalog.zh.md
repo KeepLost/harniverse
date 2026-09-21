@@ -383,6 +383,21 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/compaction/compaction/src/types.ts:35`](../packages/compaction/compaction/src/types.ts)
 
+### `deliverables/*`
+
+<a id="deliverablespresented--log-only"></a>
+
+#### `deliverables/presented` — log-only
+
+```ts persistence-catalog
+/** Declared filesystem files from a successful final present result, including nested calls. */
+'deliverables/presented': { turn: number; callId: CallId; files: PresentedFile[] }
+```
+
+类型：[CallId](subsystems/core.md)
+
+来源：[`packages/deliverables/tool-present/src/types.ts:15`](../packages/deliverables/tool-present/src/types.ts)
+
 ### `feedback/*`
 
 <a id="feedbackrecord--log-only"></a>
@@ -713,22 +728,6 @@ Source: [`packages/context/context-reset/src/types.ts:22`](../packages/context/c
 
 ### `schedule/*`
 
-<a id="schedulechange--log-only"></a>
-
-#### `schedule/change` — log-only
-
-```ts persistence-catalog
-/**
- * Versioned Schedule mutation. The owning package validates the complete
- * session-local transition stream before accepting a candidate event.
- */
-'schedule/change': ScheduleChange
-```
-
-类型：[ScheduleChange](subsystems/schedule.md)
-
-来源：[`packages/schedule/schedule/src/types.ts:219`](../packages/schedule/schedule/src/types.ts)
-
 <a id="scheduledispatch--log-only"></a>
 
 #### `schedule/dispatch` — log-only
@@ -741,15 +740,10 @@ Source: [`packages/context/context-reset/src/types.ts:22`](../packages/context/c
  * `user/message` (plugin source `schedule`) exists. `turn` is always
  * `null`: delivery claims the idle maintenance phase between turns.
  */
-'schedule/dispatch': {
-  scheduleId: string
-  dueAt: number
-  targetSessionId: SessionId
-  turn: null
-}
+'schedule/dispatch': ScheduleDispatchEventData
 ```
 
-来源：[`packages/schedule/scheduler/src/index.ts:34`](../packages/schedule/scheduler/src/index.ts)
+来源：[`packages/schedule/scheduler/src/index.ts:36`](../packages/schedule/scheduler/src/index.ts)
 
 ### `session/*`
 

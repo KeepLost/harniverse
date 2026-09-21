@@ -336,10 +336,11 @@ describe('config-driven session id', () => {
 
     const resumeEffect = loopFiber.getEffects().find(effect => effect.label === 'agentLoop.resume(main)')
     expect(resumeEffect?.children.map(child => child.label)).toEqual(['ctx.plugin()'])
-    // Exactly one plugin effect sits at the fiber's own level — the optional
-    // settings wiring, whose `ctx.inject` cordis labels like any other plugin.
-    // A resumed agent joining it there is the regression this pins.
-    expect(loopFiber.getEffects().filter(effect => effect.label === 'ctx.plugin()')).toHaveLength(1)
+    // Exactly two plugin effects sit at the fiber's own level — the optional
+    // settings and turn-boundary-projection wirings, whose `ctx.inject` cordis
+    // labels like any other plugin. A resumed agent joining them there is the
+    // regression this pins.
+    expect(loopFiber.getEffects().filter(effect => effect.label === 'ctx.plugin()')).toHaveLength(2)
 
     await loopFiber.dispose()
   })

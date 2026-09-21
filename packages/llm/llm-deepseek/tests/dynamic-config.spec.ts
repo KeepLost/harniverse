@@ -56,7 +56,7 @@ async function boot(dir: string, config: object): Promise<Harness> {
 }
 
 function prompt(ctx: Context) {
-  return assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+  return assemble(ctx, { model: 'deepseek-flash', messages: [] })
 }
 
 describe('request-level dynamic configuration', () => {

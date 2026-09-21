@@ -25,6 +25,34 @@ describe('resolveAdapterOptions', () => {
       fileQuotaCleanupBatch: expect.any(Number),
     })
     expect(options.models.length).toBeGreaterThan(0)
+    expect(options.protocol).toBe('messages')
+    expect(options.baseURL).toBe('https://api.deepseek.com/anthropic')
+  })
+
+  it('keeps chat-completions behind a custom base URL until protocol is explicit', () => {
+    expect(resolveAdapterOptions({ baseURL: 'https://gateway.example' })).toMatchObject({
+      protocol: 'chat-completions',
+      baseURL: 'https://gateway.example',
+    })
+    expect(resolveAdapterOptions({ protocol: 'messages', baseURL: 'https://gateway.example/v1' }))
+      .toMatchObject({ protocol: 'messages', baseURL: 'https://gateway.example/v1' })
+  })
+
+  it('keeps the public chat-completions endpoint under an explicit protocol', () => {
+    expect(resolveAdapterOptions({ protocol: 'chat-completions' })).toMatchObject({
+      protocol: 'chat-completions',
+      baseURL: 'https://api.deepseek.com',
+    })
+  })
+
+  it('rejects an unknown protocol and credential-bearing Messages roots', () => {
+    expect(() => resolveAdapterOptions({ protocol: 'responses' as never })).toThrow(/protocol must be chat-completions or messages/)
+    expect(() => resolveAdapterOptions({ protocol: 'messages', baseURL: 'https://u:p@api.example' }))
+      .toThrow(/Messages baseURL must be an HTTP\(S\) root/)
+    expect(() => resolveAdapterOptions({ protocol: 'messages', baseURL: 'https://api.example?x=1' }))
+      .toThrow(/Messages baseURL must be an HTTP\(S\) root/)
+    expect(() => resolveAdapterOptions({ models: [{ id: 'dupe-mod', inputModalities: ['text', 'text'] }] }))
+      .toThrow(/must not contain duplicates/)
   })
 
   describe('reasoning', () => {
@@ -120,10 +148,18 @@ describe('resolveAdapterOptions', () => {
       ['fractional max tokens', model({ maxTokens: 1.5 }), /maxTokens must be a positive integer/],
       ['no modalities', model({ inputModalities: [] }), /has invalid input modalities/],
       ['a foreign modality', model({ inputModalities: ['audio'] }), /has invalid input modalities/],
-      ['a zero pixel budget', model({ imagePixelBudget: 0 }), /imagePixelBudget must be a positive safe integer/],
-      ['a fractional pixel budget', model({ imagePixelBudget: 1.5 }), /imagePixelBudget must be a positive safe integer/],
+      ['a zero pixel budget', model({ inputModalities: ['text', 'image'], imagePixelBudget: 0 }), /imagePixelBudget must be "low" or a positive safe integer/],
+      ['a fractional pixel budget', model({ inputModalities: ['text', 'image'], imagePixelBudget: 1.5 }), /imagePixelBudget must be "low" or a positive safe integer/],
     ] as const)('refuses a catalog model with %s', (_label, entry, message) => {
       expect(() => resolveAdapterOptions({ models: [entry] })).toThrow(message)
+    })
+
+    it('accepts the low pixel-budget preset and rejects retired imageDetail', () => {
+      expect(resolveAdapterOptions({
+        models: [model({ inputModalities: ['text', 'image'], imagePixelBudget: 'low' })],
+      }).models[0]).toMatchObject({ imagePixelBudget: 'low', imageMaxBytes: expect.any(Number) })
+      expect(() => resolveAdapterOptions({ models: [model({ imageDetail: 'low' })] }))
+        .toThrow(/imageDetail is no longer supported/)
     })
 
     it('accepts an image-capable model with a pixel budget', () => {

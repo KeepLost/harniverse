@@ -74,6 +74,22 @@ export interface ConnectionAuthenticationSource {
 /** Shared bootstrap authentication is available before any protected carrier opens. */
 export const inject = ['clientAuthentication']
 
+/**
+ * Optional carrier override consumed by test-support boots (remote-mock): when
+ * the service `connectionCarrier` is provided, the connection plugin runs its
+ * real handle/controller assembly over the supplied programmable carrier
+ * instead of the fixture or Web transport. Production compositions never
+ * provide it.
+ */
+export interface ConnectionCarrierOverride {
+  /** Programmable unary + downlink carrier. */
+  readonly api: IApiClient
+  /** Optional logical-channel carrier; defaults to the web RPC transport. */
+  readonly rpc?: ClientConnectionRpc
+  /** Optional upload transport; defaults to the web upload transport. */
+  readonly upload?: FileUploadTransport
+}
+
 /** Transport/authentication projection consumed by the read-only status seat. */
 export type ConnectionHealthState = 'connecting' | 'connected' | 'reconnecting' | 'renewing' | 'recovering' | 'required' | 'bypass'
 
@@ -184,14 +200,16 @@ export function apply(ctx: Context): void {
     publishDescription(undefined)
     controller?.invalidate()
   }
-  const api: IApiClient = fixtureClient ?? new WebApiClient(
+  const carrier = ctx.get('connectionCarrier') as ConnectionCarrierOverride | undefined
+  const api: IApiClient = carrier?.api ?? fixtureClient ?? new WebApiClient(
     undefined,
     () => authentication,
     invalidateAuthentication,
     browserAuthentication,
   )
-  const rpc = fixtureClient?.rpc ?? createWebConnectionRpc((input, init) => browserAuthentication.fetch(input, init))
-  const upload: FileUploadTransport = fixtureClient?.upload ?? createWebFileUploadTransport(resolveBase, browserAuthentication)
+  const rpc = carrier?.rpc ?? fixtureClient?.rpc ?? createWebConnectionRpc((input, init) => browserAuthentication.fetch(input, init))
+  const upload: FileUploadTransport = carrier?.upload ?? fixtureClient?.upload
+    ?? createWebFileUploadTransport(resolveBase, browserAuthentication)
   ctx.effect(() => browserAuthentication.subscribe(() => {
     if (health.getSnapshot() === 'required') {
       controller?.stop()

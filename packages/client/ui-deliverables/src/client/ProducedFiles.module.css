@@ -1,5 +1,6 @@
-/* Turn-tail produced-files summary: one measured chip lane plus an optional
-   native-folder action below it. */
+/* Turn-tail deliverables summary: one measured produced-file lane, the
+   wrapping declared-deliverables lane, and an optional native-folder action
+   below them. */
 
 .root {
   position: relative;
@@ -93,9 +94,24 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* Declared final deliverables: a wrapping lane under the produced row. The
+   chips reuse the produced chip language; the leading label carries the
+   vocabulary so the lane reads as its own row. */
+.presented {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+
+.presentedLabel {
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .showFolder {
   grid-column: 2;
-  grid-row: 2;
   justify-self: start;
   display: inline-flex;
   align-items: center;

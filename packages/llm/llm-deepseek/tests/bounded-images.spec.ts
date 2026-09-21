@@ -279,15 +279,13 @@ describe('bounded multi-image requests', () => {
     expect(reads).toBe(1)
   })
 
-  it('applies a low-detail pixel budget when the model declares no explicit one', async () => {
+  it('applies the low pixel-budget preset declared by the model', async () => {
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const image = imageOf('a', 10)
     const budgets: number[] = []
-    // resolveAdapterOptions fills a budget for every image-capable model, so a
-    // budget-less model reaches the adapter only from a direct caller.
     const connection = {
       ...resolveAdapterOptions({ baseURL: server.url }),
-      models: [{ id: 'vision', inputModalities: ['text', 'image'] as ('text' | 'image')[], imageDetail: 'low' as const }],
+      models: [{ id: 'vision', inputModalities: ['text', 'image'] as ('text' | 'image')[], imagePixelBudget: 'low' as const, imageMaxBytes: 10 * 1024 * 1024 }],
     }
     const attachments = {
       readImageRequest: async (_ref: ImageAttachmentRef, policy: { maxPixels: number }) => {
@@ -329,7 +327,7 @@ describe('bounded multi-image requests', () => {
     await expect((async () => {
       for await (const _chunk of adapter.stream({
         provider: 'deepseek-official',
-        model: 'deepseek-v4-flash',
+        model: 'deepseek-v4-pro',
         messages: [createUserMessage({
           content: [{ type: 'image', attachment: image.attachment }],
           source: { kind: 'plugin', plugin: 'test' },
@@ -376,7 +374,7 @@ describe('bounded multi-image requests', () => {
     await expect((async () => {
       for await (const _chunk of adapter.stream({
         provider: 'deepseek-official',
-        model: 'deepseek-v4-flash',
+        model: 'deepseek-v4-pro',
         messages: [createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })],
         onWireAttempt: record => records.push(record),
       })) { /* the transport fails before any chunk */ }
@@ -399,7 +397,7 @@ describe('bounded multi-image requests', () => {
       resolveUserId: () => TEST_USER_ID,
     }).stream({
       provider: 'deepseek-official',
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       messages: [createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })],
       onWireAttempt: record => records.push(record),
     })
@@ -524,7 +522,7 @@ describe('bounded multi-image requests', () => {
     await expect((async () => {
       for await (const _chunk of adapter.stream({
         provider: 'deepseek-official',
-        model: 'deepseek-v4-flash',
+        model: 'deepseek-v4-pro',
         messages: [createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })],
         onWireAttempt: record => records.push(record),
       })) { /* the malformed payload fails the stream */ }
