@@ -17,6 +17,28 @@ function restore(eventAt: SessionHistorySource['eventAt'], nodes: readonly numbe
 }
 
 describe('windowed history boundaries', () => {
+  it('requires restoration for a seed that begins after seq zero', () => {
+    expect(() => Session.create(id, tail, header)).toThrow('only a restore may adopt a window')
+    const session = Session.fromRestore(id, tail, header)
+    expect(session.surface.nodes).toEqual([])
+    expect(session.surface.replaceGeneration).toBe(0)
+    expect(session.eventsFrom(1).map(event => event.seq)).toEqual([1, 2])
+    expect(session.append('turn/start', { turn: 2 }).seq).toBe(3)
+    expect(session.deriveMessages()).toEqual([])
+  })
+
+  it('refuses a missing historical projection event even when no surface node refers to it', () => {
+    const projection: SessionMessageProjection<'request/context'> = {
+      type: 'request/context',
+      project: () => new Map(),
+    }
+    const session = Session.fromRestore(id, tail, header,
+      { firstSeq: 1, eventAt: () => undefined }, undefined, [projection])
+    expect(session.surface.nodes).toEqual([])
+    expect(() => session.deriveMessages()).toThrow('has no projection event at seq 0')
+    expect(session.eventsFrom(1)).toHaveLength(2)
+  })
+
   it('replays historical plugin projections once and exposes the same frozen message by seq', () => {
     const source = Session.create(id)
     source.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'original' }] }), { surfaceOp: 'append' })

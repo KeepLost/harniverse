@@ -192,9 +192,8 @@ export class ChatCompletionsAdapter extends LlmAdapter {
     onComment: () => void,
   ): AsyncIterable<StreamChunk> {
     const prepared = await collectRequestImages(options, connection, this.config.resolveAttachments, signal)
-    const selectImages = (representation: 'file' | 'base64') => {
-      if (prepared === undefined) throw new Error('image selection requires prepared images')
-      const images = imageSerialization(prepared, connection, this.files, apiKey, signal, representation, 'chat-completions', options.messages)
+    const selectImages = (preparedImages: NonNullable<typeof prepared>, representation: 'file' | 'base64') => {
+      const images = imageSerialization(preparedImages, connection, this.files, apiKey, signal, representation, 'chat-completions', options.messages)
       options = projectImageOmissions(options, images)
       return images
     }
@@ -202,7 +201,7 @@ export class ChatCompletionsAdapter extends LlmAdapter {
     if (prepared === undefined) {
       body = serializeRequest(options, connection.defaults)
     } else {
-      const images = selectImages('file')
+      const images = selectImages(prepared, 'file')
       try {
         body = await serializeRequest(
           options,
@@ -214,7 +213,7 @@ export class ChatCompletionsAdapter extends LlmAdapter {
         // Files API resolution is an optimization. The same request is retried
         // with one consistent inline representation instead of mixing ids and
         // data URLs from two attempts.
-        const fallbackImages = selectImages('base64')
+        const fallbackImages = selectImages(prepared, 'base64')
         body = await serializeRequest(
           options,
           connection.defaults,
@@ -323,7 +322,7 @@ export class ChatCompletionsAdapter extends LlmAdapter {
           status: response.status,
         })
         await this.files.clear(deepSeekFileScope(connection.baseURL, apiKey, 'chat-completions'))
-        const fallbackImages = selectImages('base64')
+        const fallbackImages = selectImages(prepared, 'base64')
         body = await serializeRequest(
           options,
           connection.defaults,

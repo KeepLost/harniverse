@@ -37,7 +37,9 @@ function parseRecord(line: RecordLine, label: string): unknown {
 }
 
 function isSessionHeader(value: unknown): boolean {
-  return value !== null && typeof value === 'object' && (value as { type?: unknown }).type === 'session'
+  return value !== null && typeof value === 'object'
+    && (value as { type?: unknown }).type === 'session'
+    && (value as { version?: unknown }).version === 0
 }
 
 function decodeBody(lines: readonly RecordLine[], label: string): SessionEvent[] {
@@ -61,7 +63,7 @@ function renderFixture(headerLine: string, events: readonly SessionEvent[]): str
 }
 
 /**
- * Canonicalize one JSONL document when its first record is a session header.
+ * Canonicalize one JSONL document when its first record is a native v0 session header.
  * The header line remains byte-identical; body records decode to logical events
  * and re-encode with {@link packChunkRuns}. Non-session JSONL returns undefined.
  *
@@ -114,7 +116,7 @@ function discoverJsonlFiles(root: string): string[] {
 }
 
 /**
- * Inspect every repository JSONL whose first record is a session header.
+ * Inspect every repository JSONL whose first record is a native v0 session header.
  *
  * @param root - repository root.
  * @returns Session fixtures with current and canonical text.

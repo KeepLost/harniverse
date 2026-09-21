@@ -62,6 +62,30 @@ async function boot(entries: readonly CapabilityDescriptor[]) {
 }
 
 describe('Capabilities adapter registry', () => {
+  it('orders captured providers by identity and mounts the captured values', async () => {
+    const { ctx } = await boot([])
+    let revision = 'original'
+    const mounted: string[] = []
+    for (const id of ['z-provider', 'a-provider']) {
+      ctx.capabilities.registerAdapter(() => ({
+        ...emptyAdapter(id),
+        capture: () => {
+          const value = revision
+          return { signature: value, mount: () => { mounted.push(`${id}:${value}`) } }
+        },
+      }))
+    }
+    const capture = ctx.capabilities.captureGeneration({})
+    expect(JSON.parse(capture.signature)).toEqual([
+      ['a-provider', 'original'], ['z-provider', 'original'],
+    ])
+    revision = 'replacement'
+    capture.mount(ctx, [])
+    expect(mounted).toEqual(['a-provider:original', 'z-provider:original'])
+    expect(ctx.capabilities.captureGeneration({}).signature).not.toBe(capture.signature)
+    await ctx.fiber.dispose()
+  })
+
   it('treats invalidation before registration and after disposal as a no-op', async () => {
     const { ctx } = await boot([])
     let early!: CapabilityAdapterControl

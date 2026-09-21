@@ -80,7 +80,7 @@ describe('archival import settlement', () => {
     try {
       for (const cwd of [undefined, 'C:\\foreign\\project']) {
         const [first, ...rest] = f.foreignText.split('\n')
-        const header = { ...JSON.parse(first!), cwd }
+        const header = { ...JSON.parse(first!) as Record<string, unknown>, cwd }
         const artifact = Buffer.from([JSON.stringify(header), ...rest].join('\n'))
         const imported = await f.importer.import({ artifact, cwd: f.root })
         expect((await f.persistence.load(imported.sessionId)).meta.cwd).toBe(f.root)

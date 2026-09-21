@@ -266,9 +266,6 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         }
         const result = await connection.resources.request(request, exec)
         if (record === undefined || record.unrestrictedResources) return result
-        if (request.method === 'resources/read') {
-          return result
-        }
         if (request.method === 'resources/list') return filterResourceList(result, record, false)
         if (request.method === 'resources/templates/list') return filterResourceList(result, record, true)
         return result

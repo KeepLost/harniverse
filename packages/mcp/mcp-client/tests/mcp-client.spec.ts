@@ -115,8 +115,8 @@ describe('cursorGuard', () => {
   it('bounds distinct cursor streams and rejects invalid cursor types', () => {
     const guard = cursorGuard('srv')
     for (let page = 0; page < 128; page++) guard(String(page))
-    expect(() => guard('129')).toThrow('pagination exceeds')
-    expect(() => cursorGuard('srv')(42 as never)).toThrow('invalid continuation cursor')
+    expect(() => { guard('129') }).toThrow('pagination exceeds')
+    expect(() => { cursorGuard('srv')(42 as never) }).toThrow('invalid continuation cursor')
   })
 })
 
@@ -147,6 +147,17 @@ describe('syncTools', () => {
     expect([...registered.keys()]).toEqual(['mcp__srv__second'])
     expect(client.request.mock.calls[1]?.[0]).toMatchObject({ params: { cursor: '' } })
     for (const dispose of registered.values()) dispose()
+  })
+
+  it('preserves the previous registry without fetching when synchronization is already cancelled', async () => {
+    const previous = await syncTools(createMockClient([{ name: 'old', inputSchema: { type: 'object' } }]) as never, ctx, defaultOpts, new Map())
+    const client = createMockClient([{ name: 'stale', inputSchema: { type: 'object' } }])
+    expect(await syncTools(client as never, ctx, defaultOpts, previous, () => false)).toBe(previous)
+    expect(client.request).not.toHaveBeenCalled()
+    expect(ctx.tools.get('mcp__srv__old')).toBeDefined()
+    expect(ctx.tools.get('mcp__srv__stale')).toBeUndefined()
+    for (const dispose of previous.values()) dispose()
+    await ctx.fiber.dispose()
   })
 
   it('retains the previous registry when a tool-list generation loses ownership', async () => {

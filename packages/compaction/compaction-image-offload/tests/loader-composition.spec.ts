@@ -181,12 +181,12 @@ describe('compaction-image-offload real Loader composition through cordis.yml', 
     const wire: string[] = []
     let uploads = 0
     const fetcher = vi.fn<typeof fetch>(async (url, init) => {
-      if (String(url).endsWith('/files')) {
+      if ((url instanceof Request ? url.url : url.toString()).endsWith('/files')) {
         uploads += 1
         if (fallback === 'upload') return new Response('files unavailable', { status: 500 })
         return uploadReply(protocol)
       }
-      wire.push(String(init?.body))
+      wire.push(await new Response(init?.body).text())
       if (fallback === 'stale' && wire.length === 1) return new Response(JSON.stringify({ error: { message: 'file id expired' } }), { status: 400 })
       return reply(protocol)
     })
@@ -235,8 +235,8 @@ describe('compaction-image-offload real Loader composition through cordis.yml', 
     let uploads = 0
     const wire: string[] = []
     vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (url, init) => {
-      if (String(url).endsWith('/files')) { uploads += 1; return uploadReply(protocol) }
-      wire.push(String(init?.body))
+      if ((url instanceof Request ? url.url : url.toString()).endsWith('/files')) { uploads += 1; return uploadReply(protocol) }
+      wire.push(await new Response(init?.body).text())
       return reply(protocol)
     }))
     const files = new DeepSeekFileStore({ index: new DeepSeekUploadIndex(join(root, 'files.json')) })

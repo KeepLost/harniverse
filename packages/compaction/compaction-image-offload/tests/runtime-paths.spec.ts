@@ -1,5 +1,8 @@
 /** Actual compaction and pruning consumers of durable request projection. */
 import { afterEach, describe, expect, it } from 'vitest'
+import { setImmediate } from 'node:timers/promises'
+import { setFlagsFromString } from 'node:v8'
+import { runInNewContext } from 'node:vm'
 import { Context } from '@deepseek-ai/cordis'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import LlmRuntime, { CallId, createMessage, createToolResultMessage, createUserMessage, type ContentBlock, type GenerateOptions } from '@deepseek-ai/dsh-llm'
@@ -32,6 +35,116 @@ async function setup(setting: number | 'unlimited' = 'unlimited') {
 }
 
 describe('image offload across compaction consumers', () => {
+  it.each([undefined, SessionId('not-loaded')])('preserves requests without a loaded session (%s)', async (sessionId) => {
+    const { ctx, session } = await setup()
+    const options: GenerateOptions = { provider: 'mock', model: 'mock', sessionId, messages: [
+      createUserMessage({ source: { kind: 'user' }, content: [image('standalone')] }),
+    ] }
+    expect(ctx.waterfall(ctx.llm, 'llm/project-request', options, () => options)).toBe(options)
+    expect(session.events).toEqual([])
+  })
+
+  it('ignores empty assistant nodes and maps non-leading image ordinals without counting text', async () => {
+    const { ctx, session } = await setup()
+    session.append('assistant/message', {
+      turn: 1, step: 1,
+      message: createMessage({ role: 'assistant', source: { kind: 'model', provider: 'mock', model: 'mock' }, content: [] }),
+    }, { surfaceOp: 'append' })
+    const source = session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [
+      { type: 'text', text: 'before' }, image('same'), { type: 'text', text: 'between' }, image('same'),
+    ] }), { surfaceOp: 'append' })
+    const options: GenerateOptions = { provider: 'mock', model: 'mock', sessionId: session.id, messages: session.deriveMessages() }
+    const request = ctx.waterfall(ctx.llm, 'llm/project-request', options, () => options)
+    expect(request.messages).toHaveLength(1)
+    expect(request.onImagesOmitted?.([{ message: 0, image: 1 }, { message: 0, image: 1 }])[0]?.content).toEqual([
+      { type: 'text', text: 'before' }, image('same'), { type: 'text', text: 'between' },
+      { type: 'text', text: OFFLOADED_IMAGE_STUB_TEXT },
+    ])
+    expect(session.events.filter(event => event.type === 'image/offload').map(event => event.data.targets)).toEqual([
+      [{ messageSeq: source.seq, imageIndex: 1 }],
+    ])
+    expect(source.data.content.at(-1)).toEqual(image('same'))
+  })
+
+  it('rejects an invalid omission batch atomically', async () => {
+    const { ctx, session } = await setup()
+    session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [image('durable')] }), { surfaceOp: 'append' })
+    session.append('assistant/message', {
+      turn: 1, step: 1,
+      message: createMessage({ role: 'assistant', source: { kind: 'model', provider: 'mock', model: 'mock' }, content: [{ type: 'text', text: 'answer' }] }),
+    }, { surfaceOp: 'append' })
+    const options: GenerateOptions = { provider: 'mock', model: 'mock', sessionId: session.id, messages: [
+      ...session.deriveMessages(), createUserMessage({ source: { kind: 'plugin', plugin: 'request-only' }, content: [image('transient')] }),
+    ] }
+    const request = ctx.waterfall(ctx.llm, 'llm/project-request', options, () => options)
+    const before = session.events
+    for (const message of [2, 3]) {
+      expect(() => request.onImagesOmitted?.([{ message: 0, image: 0 }, { message, image: 0 }]))
+        .toThrow('image pressure target is not a durable session occurrence')
+    }
+    for (const target of [{ message: 0, image: 1 }, { message: 1, image: 0 }]) {
+      expect(() => request.onImagesOmitted?.([{ message: 0, image: 0 }, target]))
+        .toThrow('image pressure target is not a visible image')
+    }
+    expect(session.events).toBe(before)
+    expect(session.deriveMessages()).toEqual(options.messages.slice(0, 2))
+  })
+
+  it('rejects pressure for a source replaced after request assembly and preserves its attempt snapshot', async () => {
+    const { ctx, session } = await setup()
+    const source = session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [image('compacted')] }), { surfaceOp: 'append' })
+    const options: GenerateOptions = { provider: 'mock', model: 'mock', sessionId: session.id, messages: session.deriveMessages() }
+    const request = ctx.waterfall(ctx.llm, 'llm/project-request', options, () => options)
+    const summary = session.append('user/message', createUserMessage({ source: { kind: 'plugin', plugin: 'compact' }, content: [{ type: 'text', text: 'summary' }] }), {
+      surfaceOp: { op: 'replace', start: source.seq, end: source.seq }, sourceEventSeqs: [source.seq],
+    })
+    expect(() => request.onImagesOmitted?.([{ message: 0, image: 0 }]))
+      .toThrow('image pressure source was replaced during the request')
+    const refreshed = request.onImagesOmitted?.([])
+    expect(refreshed).toEqual(options.messages)
+    expect(Object.isFrozen(refreshed)).toBe(true)
+    expect(session.deriveMessages()).toEqual([summary.data])
+    expect(session.events.filter(event => event.type === 'image/offload')).toEqual([])
+  })
+
+  it('refuses pressure settlement when an evicted historical source can no longer be read', async () => {
+    const { ctx, session: source } = await setup()
+    source.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [image('historical')] }), { surfaceOp: 'append' })
+    source.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    let available = true
+    const id = SessionId('evicted-image-source')
+    const restored = ctx.sessions.prepare(id, {
+      seedSource: 'persistence',
+      seed: structuredClone(source.events.slice(1)),
+      meta: { ...source.header, id },
+      history: { firstSeq: 1, eventAt: seq => available ? structuredClone(source.eventAt(seq)) : undefined },
+      surface: { nodes: [0], replaceGeneration: 0 },
+    })
+    const detach = ctx.sessions.enter(restored)
+    try {
+      const options: GenerateOptions = { provider: 'mock', model: 'mock', sessionId: id, messages: restored.deriveMessages() }
+      const request = ctx.waterfall(ctx.llm, 'llm/project-request', options, () => options)
+      const historical = new WeakRef(restored.eventAt(0)!)
+      const before = restored.eventsFrom(1)
+      available = false
+      // Historical payloads are weakly held; keep the in-flight message alive across real collection.
+      setFlagsFromString('--expose-gc')
+      const collect = runInNewContext('gc') as () => void
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        await setImmediate()
+        collect()
+        if (historical.deref() === undefined) break
+      }
+      expect(historical.deref()).toBeUndefined()
+      expect(() => request.onImagesOmitted?.([{ message: 0, image: 0 }]))
+        .toThrow('image pressure target has no source event')
+      expect(restored.eventsFrom(1)).toEqual(before)
+      expect(request.messages[0]?.content).toEqual([image('historical')])
+    } finally {
+      detach()
+    }
+  })
+
   it('settles mixed-age expiry before pressure selects the remaining occurrences', async () => {
     const { ctx, session } = await setup(2)
     const sources = ['aged', 'young', 'newest'].map(id => session.append('user/message', createUserMessage({

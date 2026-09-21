@@ -34,9 +34,8 @@ export function parseImageOffloadSetting(input: unknown): ImageOffloadSetting {
 }
 
 /** Image occurrences in carrier order, independently of attachment reuse. */
-function imagesOf(event: SessionEvent): Extract<ContentBlock, { type: 'image' }>[] {
-  const blocks = event.type === 'user/message' ? event.data.content
-    : event.type === 'tool/result' ? event.data.message.content[0].content : []
+function imagesOf(event: Extract<SessionEvent, { type: 'user/message' | 'tool/result' }>): Extract<ContentBlock, { type: 'image' }>[] {
+  const blocks = event.type === 'user/message' ? event.data.content : event.data.message.content[0].content
   return blocks.filter((block): block is Extract<ContentBlock, { type: 'image' }> => block.type === 'image')
 }
 
@@ -102,7 +101,7 @@ export function resolveImageOffloadDecisions(
       }
       continue
     }
-    const shadowed = 'surfaceOp' in event && typeof event.surfaceOp === 'object' && event.surfaceOp.op === 'replace'
+    const shadowed = 'surfaceOp' in event && typeof event.surfaceOp === 'object'
       && 'sourceEventSeqs' in event ? event.sourceEventSeqs
       : undefined
     // A rewrite retaining message identity is the same read occurrence. Only
@@ -117,6 +116,8 @@ export function resolveImageOffloadDecisions(
       }
     }
     if (messageId === undefined) continue
+    /* v8 ignore next -- messageId is defined only for these two carrier event types. */
+    if (event.type !== 'user/message' && event.type !== 'tool/result') continue
     for (const [imageIndex, image] of imagesOf(event).entries()) {
       const index = inherited.findIndex(occurrence => occurrence.attachmentId === image.attachment.attachmentId)
       const previous = index < 0 ? undefined : inherited.splice(index, 1)[0]

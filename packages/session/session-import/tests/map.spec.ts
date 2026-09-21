@@ -6,10 +6,9 @@ import { FOREIGN_TEXT, officialArtifact } from './import-fixture.ts'
 
 const marker = { type: 'import/record', time: 1, data: { source: { format: 'official-v3', artifactName: 'source.jsonl' }, posture: { supervisionMode: 'supervised' } } } as const
 const map = (text: string) => mapForeignSessionEvents(parseForeignSessionLog(text), 1)
-// oxlint-disable-next-line typescript/no-explicit-any -- malformed nested JSON exercises boundary rejection
-function mutate(edit: (records: Record<string, any>[]) => void): string {
+function mutate(edit: (records: Record<string, unknown>[]) => void): string {
   // Foreign fixtures deliberately model an untrusted JSON boundary.
-  const records = FOREIGN_TEXT.split('\n').map(line => JSON.parse(line))
+  const records = FOREIGN_TEXT.split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
   edit(records)
   return records.map((record: unknown) => JSON.stringify(record)).join('\n')
 }
@@ -35,7 +34,7 @@ describe('official foreign parsing and native display mapping', () => {
     expect(mapped.skipped).toBeGreaterThan(0)
     const session = Session.create(SessionId(`v${version}`), scheduleImportEvents(marker, mapped.events))
     expect(JSON.stringify(session.deriveMessages())).toContain(version === 1 ? 'PONG' : 'dsh-sdk-proof-7391')
-    expect(mapped.events.some(event => String(event.type).startsWith('agent/inbox'))).toBe(false)
+    expect(mapped.events.some(event => event.type.startsWith('agent/inbox'))).toBe(false)
     expect(mapped.events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
     if (version === 1) {
       expect(log.events.filter(event => event.type === 'assistant/chunk').length).toBeGreaterThan(20)
@@ -55,7 +54,7 @@ describe('official foreign parsing and native display mapping', () => {
     { kind: 'aborted', reason: { kind: 'user' } },
     { kind: 'error', error: { message: 'provider failed', code: 'AUTH' } },
   ])('preserves a settled $kind turn', (reason) => {
-    const result = map(mutate((rows) => { rows[7]!.data.reason = reason }))
+    const result = map(mutate((rows) => { (rows[7]!.data as Record<string, unknown>).reason = reason }))
     expect(result.events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason } })
   })
 
@@ -65,9 +64,10 @@ describe('official foreign parsing and native display mapping', () => {
       replacement.seq = 6
       replacement.surfaceOp = { op: 'replace', startSeq: 5, endSeq: 5 }
       replacement.sourceEventSeqs = [5]
-      replacement.data.message.content[0].content[0].text = 'rewritten'
+      const data = replacement.data as { message: { content: { content: { text: string }[] }[] } }
+      data.message.content[0]!.content[0]!.text = 'rewritten'
       rows.splice(7, 0, replacement)
-      rows.slice(8).forEach((row) => { row.seq++ })
+      rows.slice(8).forEach((row) => { row.seq = (row.seq as number) + 1 })
     })
     const mapped = map(text)
     const messages = Session.create(SessionId('replacement'), scheduleImportEvents(marker, mapped.events)).deriveMessages()
@@ -78,8 +78,9 @@ describe('official foreign parsing and native display mapping', () => {
 
   it('keeps unsupported blocks visibly lossy and plugin messages attributed to plugins', () => {
     const mapped = map(mutate((rows) => {
-      rows[2]!.data.source = { kind: 'plugin', plugin: 'foreign-context' }
-      rows[2]!.data.content.push({ type: 'image', url: 'file:///secret' })
+      const data = rows[2]!.data as { source: unknown; content: unknown[] }
+      data.source = { kind: 'plugin', plugin: 'foreign-context' }
+      data.content.push({ type: 'image', url: 'file:///secret' })
     }))
     expect(mapped.events[1]).toMatchObject({ data: { source: { kind: 'plugin', plugin: 'foreign-context' }, content: [
       { type: 'text', text: 'Summarize the repo.' }, { type: 'text', text: '[imported image block omitted]' },
@@ -92,9 +93,9 @@ describe('official foreign parsing and native display mapping', () => {
     mutate((rows) => { delete rows[1]!.time }),
     mutate((rows) => { rows[2]!.surfaceOp = null }),
     mutate((rows) => { rows[2]!.sourceEventSeqs = [[5, 4]] }),
-    mutate((rows) => { rows[6]!.data.message.source.callId = 'wrong' }),
-    mutate((rows) => { rows[3]!.data.step = 4 }),
-    mutate((rows) => { rows[2]!.data.content = 'not an array' }),
+    mutate((rows) => { (rows[6]!.data as { message: { source: { callId: string } } }).message.source.callId = 'wrong' }),
+    mutate((rows) => { (rows[3]!.data as Record<string, unknown>).step = 4 }),
+    mutate((rows) => { (rows[2]!.data as Record<string, unknown>).content = 'not an array' }),
   ])('refuses malformed foreign input %#', (text) => {
     expect(() => map(text)).toThrow(ForeignLogError)
   })

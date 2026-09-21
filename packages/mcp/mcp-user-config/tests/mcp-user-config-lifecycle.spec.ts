@@ -5,6 +5,8 @@
  */
 
 import { Context, type Fiber } from '@deepseek-ai/cordis'
+import Capabilities from '@deepseek-ai/dsh-capabilities'
+import { createScope } from '@deepseek-ai/dsh-scope'
 import { SettingsProvider, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -129,6 +131,45 @@ async function replaceSettings(ctx: Context, servers: UserMcpServerConfig[]): Pr
 }
 
 describe('mcp-user-config captured-generation lifecycle', () => {
+  it('forwards an explicit instruction budget to each child transport', async () => {
+    const ctx = await providerContext()
+    await replaceSettings(ctx, [server('bounded', { maxInstructionBytes: 128 })])
+    await mountBridge(ctx)
+    expect(control.configs).toHaveLength(1)
+    expect(control.configs[0]).toMatchObject({ serverName: 'bounded', maxInstructionBytes: 128 })
+  })
+
+  it('watches committed settings until released and returns independent uncaptured reads', async () => {
+    const ctx = await providerContext()
+    const service = ctx.mcpUserConfigSettings
+    const changes: string[][] = []
+    const release = service.watch((next, previous) => {
+      changes.push([previous.servers[0]?.id ?? 'empty', next.servers[0]!.id])
+    })
+    await replaceSettings(ctx, [server('first')])
+    expect(changes).toEqual([['empty', 'first']])
+    const key = {}
+    const scope = createScope(ctx, key)
+    const snapshot = service.get(key)
+    snapshot.servers.length = 0
+    expect(service.get(key).servers.map(entry => entry.id)).toEqual(['first'])
+    release()
+    await replaceSettings(ctx, [server('second')])
+    expect(changes).toEqual([['empty', 'first']])
+    expect(service.get(key).servers.map(entry => entry.id)).toEqual(['second'])
+    await scope.dispose()
+  })
+
+  it('refuses to mount a captured settings generation without a scope key', async () => {
+    const ctx = await providerContext()
+    await ctx.plugin(Capabilities)
+    await replaceSettings(ctx, [server('captured')])
+    const capture = ctx.capabilities.captureGeneration({})
+    expect(() => { capture.mount(ctx, []) }).toThrow('generation requires a scope key')
+    expect(ctx.mcpUserConfigSettings.get().servers.map(entry => entry.id)).toEqual(['captured'])
+    expect(control.configs).toEqual([])
+  })
+
   it('maps a streamable-http entry to the exact client contract', async () => {
     const ctx = await providerContext()
     const httpEntry = server('http1', {

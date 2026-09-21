@@ -408,6 +408,7 @@ export class AgentRegistry extends Service {
    * @returns the effect-scoped registration disposer.
    */
   registerAdmission(admit: (session: Session) => void): () => void {
+    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; preserve the Cordis disposer identity
     return this.ctx.effect(() => {
       this.admissions.add(admit)
       return () => { this.admissions.delete(admit) }

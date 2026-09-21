@@ -13,6 +13,7 @@ import McpResources, { MAX_RESOURCE_RESULT_BYTES } from '@deepseek-ai/dsh-mcp-re
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Config } from '@deepseek-ai/dsh-mcp-client'
 import { mcpResourceMemberId, mcpResourceTemplateMemberId } from '@deepseek-ai/dsh-mcp-client/src/resource-contract.ts'
+import { MAX_RESOURCE_ITEMS, resolveReconnectPolicy, startConnection } from '../src/connection.ts'
 
 // ---- Mock MCP SDK ----
 
@@ -649,6 +650,71 @@ describe('W07 instructions and resource surfaces', () => {
     await registry.fiber.dispose()
   })
 
+  it.each([0, -1, 1.5, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid programmatic instruction budget %s before connecting', async (maxInstructionBytes) => {
+      const registry = await mountResourceRegistry()
+      await expect(apply(registry, { ...stdioConfig, maxInstructionBytes }))
+        .rejects.toThrow('maxInstructionBytes must be a positive safe integer')
+      expect(mockConnect).not.toHaveBeenCalled()
+      expect(registry.tools.get('mcp__srv__remote')).toBeUndefined()
+      await registry.fiber.dispose()
+    },
+  )
+
+  it('removes old tools when the server stops advertising the tools capability', async () => {
+    const registry = await mountResourceRegistry()
+    await apply(registry, stdioConfig)
+    expect(registry.tools.get('mcp__srv__remote')).toBeDefined()
+    mockGetServerCapabilities.mockReturnValue({ resources: {} })
+    const handler = mockSetNotificationHandler.mock.calls.at(-1)![1] as () => Promise<void>
+    await handler()
+    expect(registry.tools.get('mcp__srv__remote')).toBeUndefined()
+    const result = await registry.tools.execute({ name: 'list_mcp_resources', arguments: { server: 'srv' },
+      signal: new AbortController().signal, callId: CallId('resource-only-refresh') })
+    expect(result.isError).toBe(false)
+    await registry.fiber.dispose()
+  })
+
+  it('retains the last good tools when resource notification synchronization fails', async () => {
+    const registry = await mountResourceRegistry()
+    const errors: string[] = []
+    registry.logger.error = ((message: unknown) => { errors.push(String(message)) }) as typeof registry.logger.error
+    const fiber = registry.plugin({ name, inject, apply }, stdioConfig)
+    await fiber
+    mockListTools.mockRejectedValueOnce(new Error('notification fetch failed'))
+    const handler = mockSetNotificationHandler.mock.calls.at(-1)![1] as () => Promise<void>
+    await handler()
+    expect(errors).toEqual(['mcp-client(srv): resource re-sync failed: Error: notification fetch failed'])
+    expect(registry.tools.get('mcp__srv__remote')).toBeDefined()
+    await fiber.dispose()
+    mockListTools.mockClear()
+    await handler()
+    expect(mockListTools).not.toHaveBeenCalled()
+    expect(registry.tools.get('mcp__srv__remote')).toBeUndefined()
+    await registry.fiber.dispose()
+  })
+
+  it('quiesces a failing resource notification during disposal without logging a stale failure', async () => {
+    const registry = await mountResourceRegistry()
+    const errors: string[] = []
+    registry.logger.error = ((message: unknown) => { errors.push(String(message)) }) as typeof registry.logger.error
+    const connection = startConnection(registry, stdioConfig, resolveReconnectPolicy({ enabled: false }, 'test'))
+    await connection.ready
+    const entered: PromiseWithResolvers<void> = Promise.withResolvers()
+    const pending: PromiseWithResolvers<unknown> = Promise.withResolvers()
+    mockListTools.mockImplementationOnce(() => { entered.resolve(); return pending.promise })
+    const handler = mockSetNotificationHandler.mock.calls.at(-1)![1] as () => Promise<void>
+    const refreshing = handler()
+    await entered.promise
+    const disposing = connection.dispose()
+    pending.reject(new Error('late notification failure'))
+    await Promise.all([refreshing, disposing])
+    expect(errors).toEqual([])
+    expect(connection.toolNames()).toEqual([])
+    expect(connection.connected()).toBe(false)
+    await registry.fiber.dispose()
+  })
+
   it('contributes no instruction section when the server sends none', async () => {
     const registry = await mountResourceRegistry()
     await apply(registry, stdioConfig)
@@ -793,7 +859,9 @@ describe('W07 instructions and resource surfaces', () => {
       resources: [{ uri: 'docs://a', name: 'A' }],
     })
     mockGetInstructions.mockReturnValue('private server instruction')
+    const register = vi.spyOn(managed.mcpResources, 'register')
     await apply(managed, stdioConfig)
+    const provider = register.mock.calls.find(([server]) => server === 'srv')![1]
 
     const standingKey = { profile: 'unloaded-resources' }
     const standing = createScope(managed, standingKey)
@@ -811,6 +879,9 @@ describe('W07 instructions and resource surfaces', () => {
     bindScopeParent(agent, standingKey)
     mockListResources.mockClear()
     mockListResourceTemplates.mockClear()
+    await expect(provider.request({ method: 'resources/read', uri: 'docs://a' }, {
+      agent, signal: new AbortController().signal, callId: CallId('direct-unloaded'),
+    } as never)).rejects.toThrow('resource server is not visible to this agent')
     expect(renderPrompt(await managed.systemPrompt.assemble({ scope: agent }))).not.toContain('private server instruction')
     expect(renderPrompt(await managed.systemPrompt.assemble({ scope: agent }))).not.toContain('server argument:')
     const denied = await managed.tools.execute({
@@ -884,6 +955,15 @@ describe('W07 instructions and resource surfaces', () => {
       expect(listed.isError).toBe(false)
       expect(JSON.stringify(listed.content)).toContain(marker)
     }
+
+    mockListResources.mockResolvedValue({ resources: [null, [], 'invalid', { uri: 42 },
+      { uri: 'docs://a', name: 'Allowed' }, { uri: 'docs://b', name: 'Hidden' }] })
+    const malformed = await managed.tools.execute({
+      signal: new AbortController().signal, callId: CallId('malformed-members'),
+      name: 'list_mcp_resources', arguments: { server: 'srv' }, agent: agent as never,
+    })
+    expect(malformed.isError).toBe(false)
+    expect(malformed).toHaveProperty('value', { resources: [{ uri: 'docs://a', name: 'Allowed' }] })
 
     // An explicit concrete-resource grant does not also grant templates.
     mockListResourceTemplates.mockResolvedValue({ resourceTemplates: [{ uriTemplate: 'docs://x/{q}', name: 'x' }] })
@@ -1119,6 +1199,77 @@ describe('W07 instructions and resource surfaces', () => {
     expect(await names()).toEqual(['docs://new', 'docs://new/{id}'])
     await managed.fiber.dispose()
   })
+
+  it('follows opaque template cursors and publishes the complete sorted inventory', async () => {
+    const registry = await mountResourceRegistry()
+    mockGetServerCapabilities.mockReturnValue({ resources: {} })
+    mockListResourceTemplates.mockResolvedValueOnce({
+      resourceTemplates: [{ name: 'Z', uriTemplate: 'docs://z/{id}' }], nextCursor: '',
+    }).mockResolvedValueOnce({ resourceTemplates: [{ name: 'A', uriTemplate: 'docs://a/{id}' }] })
+    const connection = startConnection(registry, stdioConfig, resolveReconnectPolicy({ enabled: false }, 'test'))
+    await connection.ready
+    expect(connection.resourceTemplates()).toEqual(['docs://a/{id}', 'docs://z/{id}'])
+    expect(mockListResourceTemplates).toHaveBeenLastCalledWith({ cursor: '' }, expect.anything())
+    await connection.dispose()
+    await registry.fiber.dispose()
+  })
+
+  it.each(['resources', 'templates'] as const)('discards %s discovery completed after disposal', async (stage) => {
+    const registry = await mountResourceRegistry()
+    mockGetServerCapabilities.mockReturnValue({ resources: {} })
+    const connection = startConnection(registry, stdioConfig, resolveReconnectPolicy({ enabled: false }, 'test'))
+    await connection.ready
+    const entered: PromiseWithResolvers<void> = Promise.withResolvers()
+    const pending: PromiseWithResolvers<unknown> = Promise.withResolvers()
+    const listing = stage === 'resources' ? mockListResources : mockListResourceTemplates
+    listing.mockImplementationOnce(() => { entered.resolve(); return pending.promise })
+    const handler = mockSetNotificationHandler.mock.calls.at(-1)![1] as () => Promise<void>
+    const refreshing = handler()
+    await entered.promise
+    const disposing = connection.dispose()
+    pending.resolve(stage === 'resources'
+      ? { resources: [{ name: 'Late', uri: 'docs://late' }] }
+      : { resourceTemplates: [{ name: 'Late', uriTemplate: 'docs://late/{id}' }] })
+    await Promise.all([refreshing, disposing])
+    expect(connection.resourceUris()).toEqual([])
+    expect(connection.resourceTemplates()).toEqual([])
+    expect(connection.connected()).toBe(false)
+    await registry.fiber.dispose()
+  })
+
+  it.each(['resource-count', 'template-count', 'resource-bytes', 'template-bytes'] as const)(
+    'keeps both last-good inventories when discovery exceeds %s', async (limit) => {
+      const registry = await mountResourceRegistry()
+      mockGetServerCapabilities.mockReturnValue({ resources: {} })
+      mockListResources.mockResolvedValue({ resources: [{ name: 'Old', uri: 'docs://old' }] })
+      mockListResourceTemplates.mockResolvedValue({ resourceTemplates: [{ name: 'Old', uriTemplate: 'docs://old/{id}' }] })
+      const errors: string[] = []
+      registry.logger.error = ((message: unknown) => { errors.push(String(message)) }) as typeof registry.logger.error
+      const connection = startConnection(registry, stdioConfig, resolveReconnectPolicy({ enabled: false }, 'test'))
+      await connection.ready
+      if (limit === 'resource-count') {
+        mockListResources.mockResolvedValue({ resources: Array.from({ length: MAX_RESOURCE_ITEMS + 1 }, (_, index) => ({ name: 'New', uri: `docs://${index}` })) })
+      } else if (limit === 'template-count') {
+        mockListResourceTemplates.mockResolvedValue({ resourceTemplates: Array.from({ length: MAX_RESOURCE_ITEMS }, (_, index) => ({ name: 'New', uriTemplate: `docs://${index}/{id}` })) })
+      } else {
+        const metadata = 'x'.repeat(Math.floor(MAX_RESOURCE_RESULT_BYTES / 2))
+        if (limit === 'resource-bytes') {
+          mockListResources.mockResolvedValueOnce({ resources: [], _meta: { metadata }, nextCursor: 'second' })
+            .mockResolvedValueOnce({ resources: [], _meta: { metadata } })
+        } else {
+          mockListResources.mockResolvedValue({ resources: [], _meta: { metadata } })
+          mockListResourceTemplates.mockResolvedValue({ resourceTemplates: [], _meta: { metadata } })
+        }
+      }
+      const handler = mockSetNotificationHandler.mock.calls.at(-1)![1] as () => Promise<void>
+      await handler()
+      expect(errors).toEqual(['mcp-client(srv): resource discovery failed: Error: MCP resource inventory exceeds its limit'])
+      expect(connection.resourceUris()).toEqual(['docs://old'])
+      expect(connection.resourceTemplates()).toEqual(['docs://old/{id}'])
+      await connection.dispose()
+      await registry.fiber.dispose()
+    },
+  )
 
   it('reapplies captured tool grants before awaiting refreshed resource discovery', async () => {
     const managed = await mountCapabilityRegistry()

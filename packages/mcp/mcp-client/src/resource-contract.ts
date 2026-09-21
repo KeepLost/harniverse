@@ -156,11 +156,11 @@ export function resolveMcpMemberVisibility(
     serverSelected: true,
     unrestrictedResources,
     visibleToolNames: visibleTools,
-    visibleResourceUris: unrestrictedResources ? [...resourceUris] : visibleResources,
-    visibleResourceTemplates: unrestrictedResources ? [...resourceTemplates] : visibleTemplates,
+    visibleResourceUris: visibleResources,
+    visibleResourceTemplates: visibleTemplates,
     deniedToolNames: toolNames.filter(name => !visibleTools.includes(name)),
-    deniedResourceUris: unrestrictedResources ? [] : resourceUris.filter(uri => !visibleResources.includes(uri)),
-    deniedResourceTemplates: unrestrictedResources ? [] : resourceTemplates.filter(uri => !visibleTemplates.includes(uri)),
+    deniedResourceUris: resourceUris.filter(uri => !visibleResources.includes(uri)),
+    deniedResourceTemplates: resourceTemplates.filter(uri => !visibleTemplates.includes(uri)),
   }
 }
 

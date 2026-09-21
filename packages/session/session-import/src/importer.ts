@@ -59,6 +59,7 @@ function artifactNameFor(sessionId: SessionId): string {
 /** Flush directory entries before publishing a log referring to the source. */
 async function syncDirectory(path: string): Promise<void> {
   // Windows file handles support FlushFileBuffers; directory fsync is POSIX-only.
+  /* v8 ignore next -- directory fsync is intentionally skipped on Windows, whose directory handles do not support this POSIX operation. */
   if (process.platform === 'win32') return
   const handle = await open(path, 'r')
   try { await handle.sync() } finally { await handle.close() }
@@ -105,7 +106,7 @@ export class SessionImport extends Service {
     }
     // oxlint-disable-next-line typescript/no-non-null-assertion -- the exclusive-source check above requires a path without uploaded bytes
     const bytes = options.artifact === undefined ? await readFile(options.artifactPath!) : Buffer.from(options.artifact)
-    const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    const decoded = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
     const text = decoded.startsWith('\uFEFF') ? decoded.slice(1) : decoded
     const log = parseForeignSessionLog(text)
     const classification = classifyForeignSessionFormatVersion(log.header.version)
@@ -118,7 +119,7 @@ export class SessionImport extends Service {
 
     const sessionId = options.sessionId ?? SessionId(`session-imported-${randomUUID()}`)
     const artifactName = artifactNameFor(sessionId)
-    const createdAt = log.header.createdAt ?? Date.now()
+    const createdAt = log.header.createdAt
     const mapping = mapForeignSessionEvents(log, createdAt)
     const marker: PendingImportEvent = {
       type: 'import/record',

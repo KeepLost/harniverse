@@ -39,6 +39,10 @@ describe('canonicalSessionFixture', () => {
     expect(canonicalSessionFixture('{"type":"session_event"}\n{"value":1}\n')).toBeUndefined()
   })
 
+  it.each([1, 2, 3])('leaves official v%i import recordings byte-owned by their foreign codec', (version) => {
+    expect(canonicalSessionFixture(`{"type":"session","version":${version}}\n{"type":"text-chunks"}\n`)).toBeUndefined()
+  })
+
   it('is idempotent for an already packed fixture', () => {
     const packed = canonicalSessionFixture(unpackedFixture())
     expect(packed).toBeDefined()

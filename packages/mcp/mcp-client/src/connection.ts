@@ -263,10 +263,8 @@ export function startConnection(
         if (uris.size + templates.size > MAX_RESOURCE_ITEMS || inventoryBytes > MAX_RESOURCE_RESULT_BYTES) throw new Error('MCP resource inventory exceeds its limit')
         templateCursor = response.nextCursor
       } while (templateCursor !== undefined)
-      if (isCurrent(generation)) {
-        discoveredResourceUris = [...uris].sort()
-        discoveredResourceTemplates = [...templates].sort()
-      }
+      discoveredResourceUris = [...uris].sort()
+      discoveredResourceTemplates = [...templates].sort()
     } catch (error) {
       // v8 ignore next 2 -- after disposal nobody observes the log anyway
       if (!disposed) ctx.logger.error(`${label}: resource discovery failed: ${String(error)}`)

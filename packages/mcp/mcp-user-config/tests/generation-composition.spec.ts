@@ -162,6 +162,29 @@ describe('shipped MCP Profile composition', () => {
     expect((await call(ctx, nextAgent, 'replacement', 'docs://guide')).isError).toBe(false)
   }, 30_000)
 
+  it('rejects continuously changing settings and recovers once discovery stabilizes', async () => {
+    const ctx = await boot()
+    const settings = ctx.get('settings') as MemorySettings
+    let discoveries = 0
+    const release = ctx.capabilities.registerAdapter(() => ({
+      id: 'test:settings-churn',
+      async snapshot() {
+        discoveries += 1
+        await settings.replace(Bridge.MCP_SETTINGS_NAMESPACE, {
+          servers: [{ ...server(`revision-${discoveries}`), enabled: false }],
+        })
+        return { complete: true, entries: [] }
+      },
+    }))
+    await expect(ctx.agentPresets.standingKeyFor('standard'))
+      .rejects.toThrow('configuration changed repeatedly during composition; retry assembly')
+    expect(discoveries).toBe(3)
+    release()
+    const key = await ctx.agentPresets.standingKeyFor('standard')
+    expect(await ctx.agentPresets.standingKeyFor('standard')).toBe(key)
+    expect(ctx.tools.schemas(caller(key)).map(tool => tool.name)).not.toContain('read_mcp_resource')
+  })
+
   it('retries a settings replacement during asynchronous catalog discovery', async () => {
     const ctx = await boot()
     const settings = ctx.get('settings') as MemorySettings

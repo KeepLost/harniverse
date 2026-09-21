@@ -120,7 +120,9 @@ function mapMarkerEvent(raw: ForeignRawEvent, time: number): PendingImportEvent 
 
 function mapUserMessage(raw: ForeignRawEvent, time: number): PendingImportEvent | undefined {
   if (raw.type !== 'user/message') return undefined
+  /* v8 ignore next -- parseForeignSessionLog validates every supported message envelope before mapping. */
   const message = isRecord(raw.data) ? raw.data : undefined
+  /* v8 ignore next -- parseForeignSessionLog validates every supported message envelope before mapping. */
   if (message === undefined || !Array.isArray(message.content)) return undefined
   return {
     type: 'user/message',
@@ -135,13 +137,17 @@ function mapUserMessage(raw: ForeignRawEvent, time: number): PendingImportEvent 
 
 function mapAssistantMessage(raw: ForeignRawEvent, time: number): PendingImportEvent | undefined {
   if (raw.type !== 'assistant/message') return undefined
+  /* v8 ignore next -- parseForeignSessionLog validates every supported message envelope before mapping. */
   const data = isRecord(raw.data) ? raw.data : undefined
+  /* v8 ignore next -- parseForeignSessionLog validates every supported message envelope before mapping. */
   const message = data !== undefined && isRecord(data.message) ? data.message : undefined
+  /* v8 ignore next -- parseForeignSessionLog validates every supported message envelope before mapping. */
   if (data === undefined || message === undefined || !Array.isArray(message.content)) return undefined
   const turn = safeTurn(data.turn)
   const step = safeTurn(data.step)
   if (turn === undefined || step === undefined) return undefined
   const usage = mapUsage(data.usage)
+  /* v8 ignore next -- parsed assistant messages always carry an object source. */
   const provenance = isRecord(message.source) ? message.source : {}
   return {
     type: 'assistant/message',
@@ -182,12 +188,16 @@ function mapToolCall(raw: ForeignRawEvent, time: number): PendingImportEvent | u
 
 function mapToolResult(raw: ForeignRawEvent, time: number): PendingImportEvent | undefined {
   if (raw.type !== 'tool/result') return undefined
+  /* v8 ignore next -- parseForeignSessionLog validates every supported message envelope before mapping. */
   const data = isRecord(raw.data) ? raw.data : undefined
+  /* v8 ignore next -- parseForeignSessionLog validates every supported message envelope before mapping. */
   const message = data !== undefined && isRecord(data.message) ? data.message : undefined
+  /* v8 ignore next -- parseForeignSessionLog validates every supported message envelope before mapping. */
   if (data === undefined || message === undefined) return undefined
   const turn = safeTurn(data.turn)
   const step = safeTurn(data.step)
   if (turn === undefined || step === undefined) return undefined
+  /* v8 ignore next -- parsed tool results always carry an object source. */
   const source = isRecord(message.source) ? message.source : undefined
   const block = Array.isArray(message.content) && message.content.length === 1 && isRecord(message.content[0])
     ? message.content[0] : undefined
@@ -275,16 +285,22 @@ export function mapForeignSessionEvents(log: ForeignSessionLog, defaultTime: num
         }
       }
       if (event.surfaceOp !== undefined) {
+        /* v8 ignore next -- parsed surface-bearing messages always carry object data. */
         const payload = isRecord(raw.data) ? raw.data : {}
+        /* v8 ignore next -- parsed surface-bearing messages always carry an object message. */
         const original = raw.type === 'user/message' ? payload : isRecord(payload.message) ? payload.message : {}
+        /* v8 ignore start -- surface operations are emitted only for user, assistant, and tool-result messages. */
         const message = event.type === 'user/message' ? event.data
           : event.type === 'assistant/message' || event.type === 'tool/result' ? event.data.message : undefined
+        /* v8 ignore stop */
+        /* v8 ignore next -- parsed surface-bearing messages always have a source identity. */
         if (message !== undefined && typeof original.id === 'string') {
           const id = identities.get(original.id) ?? message.id
           identities.set(original.id, id)
           // Factories freeze messages; preserve identities across content rewrites.
           if (event.type === 'user/message') event.data = { ...event.data, id }
           else if (event.type === 'assistant/message') event.data = { ...event.data, message: { ...event.data.message, id } }
+          /* v8 ignore next -- the mapper union has no other surface-bearing event after the two cases above. */
           else if (event.type === 'tool/result') event.data = { ...event.data, message: { ...event.data.message, id } }
         }
         const op = raw.surfaceOp
@@ -324,5 +340,5 @@ export function scheduleImportEvents(
   marker: PendingImportEvent,
   mapped: readonly PendingImportEvent[],
 ): SessionEvent[] {
-  return [marker, ...mapped].map((event, seq) => ({ ...event, seq })) as SessionEvent[]
+  return [marker, ...mapped].map((event, seq) => ({ ...event, seq }))
 }

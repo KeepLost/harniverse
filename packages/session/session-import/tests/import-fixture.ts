@@ -50,12 +50,14 @@ export const FOREIGN_TEXT = [
 /** Materialize seq/time fields intentionally normalized out by upstream snapshots. */
 export async function officialArtifact(version: 1 | 2 | 3): Promise<string> {
   const text = await readFile(new URL(`fixtures/official-v${version}.jsonl`, import.meta.url), 'utf8')
-  const [header, ...events] = text.trim().split('\n').map(line => JSON.parse(line))
+  const [headerLine, ...eventLines] = text.trim().split('\n')
+  const header = JSON.parse(headerLine!) as { createdAt: number }
+  const events = eventLines.map(line => JSON.parse(line) as { type: string; data: { texts?: unknown[]; args?: unknown[] } })
   let seq = 0
   const lines = events.map((event) => {
     if (['reasoning-chunks', 'text-chunks', 'tool-call-chunks'].includes(event.type)) {
       const row = { ...event, seq0: seq, time0: header.createdAt + seq }
-      seq += (event.data.texts ?? event.data.args).length
+      seq += (event.data.texts ?? event.data.args!).length
       return row
     }
     return { ...event, seq: seq, time: header.createdAt + seq++ }
@@ -75,6 +77,7 @@ export interface ImportFixture {
   importWithVersion(version: number, fileName: string): Promise<unknown>
   readArtifact(sessionId: SessionId, artifactName: string): Promise<string>
   loadedSession(sessionId: SessionId): Promise<Session>
+  disposeImporter(): Promise<void>
   dispose(): Promise<void>
 }
 
@@ -93,7 +96,7 @@ export async function createContextFixture(options?: { locateUndefined?: boolean
     await ctx.plugin(JsonlSessionPersistence, { root })
     persistence = ctx.get('sessionPersistence') as SessionPersistence
   }
-  await ctx.plugin(SessionImport)
+  const importerFiber = await ctx.plugin(SessionImport)
   const importer = ctx.get('sessionImport') as SessionImport
 
   return {
@@ -123,6 +126,7 @@ export async function createContextFixture(options?: { locateUndefined?: boolean
         preparation[Symbol.dispose]()
       }
     },
+    disposeImporter: async () => { await importerFiber.dispose() },
     dispose: async () => {
       await ctx.fiber.dispose()
       await rm(root, { recursive: true, force: true })
