@@ -136,6 +136,19 @@ describe('runnerCommand config', () => {
     expect(probeBwrap).toHaveBeenCalledTimes(1)
   })
 
+  it('resolves runner names against an UNDEFINED PATH without throwing', async () => {
+    const { sandbox } = await setup({ runnerCommand: ['fake-runner', '--ro'], runnerFailureSignatures: ['fake-runner: profile rejected'] })
+    const previousPath = process.env.PATH
+    delete process.env.PATH
+    try {
+      const confined = sandbox.confine(['true'], RO)
+      expect(confined.argv[0]).toBe('fake-runner')
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH
+      else process.env.PATH = previousPath
+    }
+  })
+
   it('requires an operator-owned failure dialect for every configured runner', async () => {
     await expect(setup({ runnerCommand: ['fake-runner'] })).rejects.toThrow(
       'runnerCommand requires at least one runnerFailureSignatures entry',

@@ -93,7 +93,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
       const result = await super.run(spec)
       return { ...result, sandbox: { mode, denied: false } }
     }
-    const confined = this.confine(spec.command, { ...policy, mode })
+    const confined = await this.confine(spec.command, { ...policy, mode }, spec.signal)
     let result: ShellRunResult
     try {
       result = await this.runArgv(spec, confined.argv)
@@ -114,13 +114,11 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     return { ...result, sandbox: { mode, denied: classifyDenial(result, confined.denialSignatures), enforcement: confined.enforcement } }
   }
 
-  override start(spec: ShellExecSpec): ShellProcess {
+  override async start(spec: ShellExecSpec): Promise<ShellProcess> {
     const policy = spec.sandboxPolicy as SandboxExecutionPolicy
     const { mode } = policy
     if (mode === 'danger-full-access') return super.start(spec)
-    // Once startArgv returns, install facts synchronously; promise settlement
-    // cannot run before start() returns.
-    const confined = this.confine(spec.command, { ...policy, mode })
+    const confined = await this.confine(spec.command, { ...policy, mode }, spec.signal)
     let proc: ShellProcess
     try {
       proc = this.startArgv(spec, confined.argv)
@@ -175,8 +173,8 @@ export class SandboxBashExecutor extends LocalBashExecutor {
    * @param policy - resolved confined execution policy.
    * @returns the provider's exact argv and settlement-classification facts.
    */
-  private confine(command: string, policy: SandboxPolicy): ConfinedArgv {
-    return this.ctx.sandbox.confine(commandShellArgv(command), policy)
+  private async confine(command: string, policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
+    return await this.ctx.sandbox.confine(commandShellArgv(command), policy, signal)
   }
 }
 

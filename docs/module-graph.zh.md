@@ -195,8 +195,8 @@ flowchart TD
   end
   subgraph group_code_runtime["packages/code-runtime"]
     pkg_code_runtime["code-runtime"]
+    pkg_code_runtime_ptc["code-runtime-ptc"]
     pkg_code_runtime_python["code-runtime-python"]
-    pkg_code_runtime_worker_thread["code-runtime-worker-thread"]
   end
   subgraph group_compaction["packages/compaction"]
     pkg_command_compact["command-compact"]
@@ -350,6 +350,12 @@ flowchart TD
     pkg_tool_bash_persistent["tool-bash-persistent"]
     pkg_tool_pwsh["tool-pwsh"]
     pkg_tool_pwsh_persistent["tool-pwsh-persistent"]
+  end
+  subgraph group_ssh["packages/ssh"]
+    pkg_fs_ssh["fs-ssh"]
+    pkg_sandbox_ssh["sandbox-ssh"]
+    pkg_ssh["ssh"]
+    pkg_subprocess_ssh["subprocess-ssh"]
   end
   subgraph group_storage["packages/storage"]
     pkg_storage["storage"]
@@ -588,10 +594,6 @@ flowchart TD
   pkg_code_runtime_python --> pkg_invariants
   pkg_code_runtime_python --> pkg_session
   pkg_code_runtime_python --> pkg_timeout
-  pkg_code_runtime_worker_thread --> pkg_code_runtime
-  pkg_code_runtime_worker_thread --> pkg_invariants
-  pkg_code_runtime_worker_thread --> pkg_session
-  pkg_code_runtime_worker_thread --> pkg_timeout
   pkg_image_offload_policy --> pkg_invariants
   pkg_image_offload_policy --> pkg_llm
   pkg_image_offload_policy --> pkg_session
@@ -779,6 +781,13 @@ flowchart TD
   pkg_headless --> pkg_invariants
   pkg_headless --> pkg_llm
   pkg_headless --> pkg_session
+  pkg_code_runtime_ptc --> pkg_code_runtime
+  pkg_code_runtime_ptc --> pkg_control_channel
+  pkg_code_runtime_ptc --> pkg_invariants
+  pkg_code_runtime_ptc --> pkg_sandbox
+  pkg_code_runtime_ptc --> pkg_sandbox_policy
+  pkg_code_runtime_ptc --> pkg_session
+  pkg_code_runtime_ptc --> pkg_timeout
   pkg_compaction --> pkg_brand
   pkg_compaction --> pkg_commands
   pkg_compaction --> pkg_invariants
@@ -1461,6 +1470,25 @@ flowchart TD
   pkg_sdk_jsonrpc_server --> pkg_sdk_protocol
   pkg_sdk_jsonrpc_server --> pkg_session
   pkg_sdk_jsonrpc_server --> pkg_subagent
+  pkg_ssh --> pkg_agent
+  pkg_ssh --> pkg_capabilities
+  pkg_ssh --> pkg_control_channel
+  pkg_ssh --> pkg_execution_descriptor
+  pkg_ssh --> pkg_fs
+  pkg_ssh --> pkg_fs_sandbox
+  pkg_ssh --> pkg_invariants
+  pkg_ssh --> pkg_mcp_client
+  pkg_ssh --> pkg_mcp_resources
+  pkg_ssh --> pkg_sandbox
+  pkg_ssh --> pkg_sandbox_local
+  pkg_ssh --> pkg_sandbox_policy
+  pkg_ssh --> pkg_session_projection
+  pkg_ssh --> pkg_skill
+  pkg_ssh --> pkg_skill_filesystem
+  pkg_ssh --> pkg_subprocess
+  pkg_ssh --> pkg_subprocess_local
+  pkg_ssh --> pkg_system_prompt
+  pkg_ssh --> pkg_tools
   pkg_remote_mock --> pkg_client_authentication
   pkg_remote_mock --> pkg_client_connection
   pkg_remote_mock --> pkg_host_apiproxy
@@ -1487,6 +1515,17 @@ flowchart TD
   pkg_acp_demo --> pkg_session_query
   pkg_acp_demo --> pkg_session_query_sqlite
   pkg_acp_demo --> pkg_tools
+  pkg_fs_ssh --> pkg_fs
+  pkg_fs_ssh --> pkg_invariants
+  pkg_fs_ssh --> pkg_sandbox
+  pkg_fs_ssh --> pkg_sandbox_policy
+  pkg_fs_ssh --> pkg_ssh
+  pkg_sandbox_ssh --> pkg_invariants
+  pkg_sandbox_ssh --> pkg_sandbox
+  pkg_sandbox_ssh --> pkg_ssh
+  pkg_subprocess_ssh --> pkg_invariants
+  pkg_subprocess_ssh --> pkg_ssh
+  pkg_subprocess_ssh --> pkg_subprocess
   pkg_client_ui_settings --> pkg_api_remotes
   pkg_client_ui_settings --> pkg_client_connection
   pkg_client_ui_settings --> pkg_client_runtime
@@ -1888,7 +1927,6 @@ flowchart TD
 | [`spill`](../packages/spill/spill) | `spill` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`app-boot`](../packages/boot/app-boot) | `boot` | [`hmr-coordination`](../packages/boot/hmr-coordination), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`system-prompt`](../packages/core/system-prompt) |
 | [`code-runtime-python`](../packages/code-runtime/code-runtime-python) | `code-runtime` | [`code-runtime`](../packages/code-runtime/code-runtime), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
-| [`code-runtime-worker-thread`](../packages/code-runtime/code-runtime-worker-thread) | `code-runtime` | [`code-runtime`](../packages/code-runtime/code-runtime), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`image-offload-policy`](../packages/compaction/image-offload-policy) | `compaction` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`harness-source`](../packages/context/harness-source) | `context` | [`invariants`](../packages/runtime-diagnostics/invariants), [`system-prompt`](../packages/core/system-prompt) |
 | [`persona`](../packages/preset/persona) | `preset` | [`invariants`](../packages/runtime-diagnostics/invariants), [`system-prompt`](../packages/core/system-prompt) |
@@ -1933,6 +1971,7 @@ flowchart TD
 | [`skill-filesystem`](../packages/skill/skill-filesystem) | `skill` | [`fs`](../packages/fs/fs), [`home-paths`](../packages/util/home-paths), [`invariants`](../packages/runtime-diagnostics/invariants), [`skill`](../packages/skill/skill) |
 | [`hook-protocol`](../packages/hooks/hook-protocol) | `hooks` | [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`shell`](../packages/shell/shell) |
 | [`headless`](../packages/bundle/headless) | `bundle` | [`agent`](../packages/core/agent), [`agent-default-model`](../packages/core/agent-default-model), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
+| [`code-runtime-ptc`](../packages/code-runtime/code-runtime-ptc) | `code-runtime` | [`code-runtime`](../packages/code-runtime/code-runtime), [`control-channel`](../packages/subprocess/control-channel), [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`compaction`](../packages/compaction/compaction) | `compaction` | [`brand`](../packages/util/brand), [`commands`](../packages/interaction/commands), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`command-context`](../packages/context/command-context) | `context` | [`commands`](../packages/interaction/commands), [`context-inspector`](../packages/context/context-inspector), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`context-reset`](../packages/context/context-reset) | `context` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`commands`](../packages/interaction/commands), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
@@ -2036,10 +2075,14 @@ flowchart TD
 | [`mcp-user-config`](../packages/mcp/mcp-user-config) | `mcp` | [`capabilities`](../packages/capability/capabilities), [`invariants`](../packages/runtime-diagnostics/invariants), [`mcp-client`](../packages/mcp/mcp-client), [`scope`](../packages/core/scope), [`settings`](../packages/settings/settings), [`timeout`](../packages/util/timeout) |
 | [`sdk-client`](../packages/sdk/client) | `sdk` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`sdk-protocol`](../packages/sdk/protocol), [`session`](../packages/core/session) |
 | [`sdk-jsonrpc-server`](../packages/sdk/server) | `sdk` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`llm-deepseek`](../packages/llm/llm-deepseek), [`scope`](../packages/core/scope), [`sdk-protocol`](../packages/sdk/protocol), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent) |
+| [`ssh`](../packages/ssh/ssh) | `ssh` | [`agent`](../packages/core/agent), [`capabilities`](../packages/capability/capabilities), [`control-channel`](../packages/subprocess/control-channel), [`execution-descriptor`](../packages/sandbox/execution-descriptor), [`fs`](../packages/fs/fs), [`fs-sandbox`](../packages/fs/fs-sandbox), [`invariants`](../packages/runtime-diagnostics/invariants), [`mcp-client`](../packages/mcp/mcp-client), [`mcp-resources`](../packages/mcp/mcp-resources), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-local`](../packages/sandbox/sandbox-local), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session-projection`](../packages/session/session-projection), [`skill`](../packages/skill/skill), [`skill-filesystem`](../packages/skill/skill-filesystem), [`subprocess`](../packages/subprocess/subprocess), [`subprocess-local`](../packages/subprocess/subprocess-local), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`remote-mock`](../packages/test-support/remote-mock) | `test-support` | [`client-authentication`](../packages/client/authentication), [`client-connection`](../packages/client/connection), [`host-apiproxy`](../packages/host/apiproxy), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`subagent-dsh-sdk`](../packages/subagent/subagent-dsh-sdk) | `subagent` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`sdk-client`](../packages/sdk/client), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subprocess`](../packages/subprocess/subprocess) |
 | [`client-runtime`](../packages/client/runtime) | `client` | [`api-remotes`](../packages/api/remotes), [`compaction`](../packages/compaction/compaction), [`invariants`](../packages/runtime-diagnostics/invariants), [`typert-protocol`](../packages/typert/protocol), [`typert-registry`](../packages/typert/registry) |
 | [`acp-demo`](../packages/examples/acp-demo) | `examples` | [`acp`](../packages/acp/acp), [`agent-instructions`](../packages/context/agent-instructions), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/boot/app-boot), [`invariants`](../packages/runtime-diagnostics/invariants), [`session-checkpoint-policy`](../packages/session/session-checkpoint-policy), [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`tools`](../packages/core/tools) |
+| [`fs-ssh`](../packages/ssh/fs-ssh) | `ssh` | [`fs`](../packages/fs/fs), [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`ssh`](../packages/ssh/ssh) |
+| [`sandbox-ssh`](../packages/ssh/sandbox-ssh) | `ssh` | [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`ssh`](../packages/ssh/ssh) |
+| [`subprocess-ssh`](../packages/ssh/subprocess-ssh) | `ssh` | [`invariants`](../packages/runtime-diagnostics/invariants), [`ssh`](../packages/ssh/ssh), [`subprocess`](../packages/subprocess/subprocess) |
 | [`client-ui-settings`](../packages/client/ui-settings) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-runtime`](../packages/client/runtime), [`client-schema-form`](../packages/client/schema-form), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/runtime-diagnostics/invariants), [`settings`](../packages/settings/settings) |
 | [`client-ui-settings-models`](../packages/client/ui-settings-models) | `client` | [`api-remotes`](../packages/api/remotes), [`client-connection`](../packages/client/connection), [`client-runtime`](../packages/client/runtime), [`client-schema-form`](../packages/client/schema-form), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`client-web-react`](../packages/client/web-react), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`client-test-runtime`](../packages/test-support/client-runtime) | `test-support` | [`client-runtime`](../packages/client/runtime), [`client-ui-slots`](../packages/client/ui-slots), [`client-web-react`](../packages/client/web-react), [`host-apiproxy`](../packages/host/apiproxy), [`invariants`](../packages/runtime-diagnostics/invariants) |

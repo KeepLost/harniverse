@@ -313,7 +313,8 @@ export class LocalSandboxProvider extends SandboxProvider {
    *   signatures, and structured runner-failure rules; throws the fail-closed
    *   `SANDBOX_UNAVAILABLE` error when the platform has no usable runner.
    */
-  confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
+  confine(argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): ConfinedArgv {
+    signal?.throwIfAborted()
     if (this.runnerCommand !== undefined) {
       return {
         argv: [...this.runnerCommand, ...bwrapProfileArgs(policy), '--', ...argv],

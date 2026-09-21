@@ -1,0 +1,4 @@
+{
+  "extends": "../../../tsconfig.base.json", "compilerOptions": { "rootDir": "src", "outDir": "lib/types" }, "include": ["src"],
+  "references": [{ "path": "../../../vendor/cordis" }, { "path": "../../fs/fs" }, { "path": "../../sandbox/sandbox" }, { "path": "../../sandbox/sandbox-policy" }, { "path": "../ssh" }, { "path": "../../runtime-diagnostics/invariants" }]
+}

@@ -498,7 +498,7 @@
         "src/**/*.ts"
       ]
     },
-    "packages/code-runtime/code-runtime-worker-thread": {
+    "packages/code-runtime/code-runtime-ptc": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
@@ -828,12 +828,40 @@
     },
     "packages/bundle/headless": {
       "ignoreDependencies": [
-        "@deepseek-ai/dsh-code-runtime-worker-thread"
+        "@deepseek-ai/dsh-code-runtime-ptc"
       ]
     },
     "packages/bundle/web-app": {
       "ignoreDependencies": [
         "@deepseek-ai/.+"
+      ]
+    },
+    "packages/ssh/ssh": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "ignoreBinaries": [
+        "ssh-keygen"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/ssh/fs-ssh": {
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "packages/ssh/subprocess-ssh": {
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "packages/ssh/sandbox-ssh": {
+      "project": [
+        "src/**/*.ts"
       ]
     }
   }

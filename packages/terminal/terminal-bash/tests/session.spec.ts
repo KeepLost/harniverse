@@ -91,6 +91,8 @@ class FakeTerminal implements SubprocessTerminalHandle {
     this.writes.push(data)
   }
 
+  async resize(_cols: number, _rows: number): Promise<void> {}
+
   async inspectForeground() {
     const processGroupId = this.inspector.foregroundPgid()
     return processGroupId === undefined
