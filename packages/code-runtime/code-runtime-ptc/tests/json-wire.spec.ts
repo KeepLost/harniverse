@@ -1,7 +1,7 @@
 import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
-import { decodeWorkerJson, encodeWorkerJson, snapshotCodeJsonValue } from '../src/worker-json.ts'
+import { decodeWorkerJson, encodeWorkerJson, snapshotCodeJsonValue } from '../src/json-wire.ts'
 
 describe('snapshotCodeJsonValue', () => {
   it('matches the canonical scalar boundary', () => {

@@ -1,9 +1,10 @@
 import { defineConfig } from 'tsdown'
 
 /**
- * Build the index and worker as separate single-entry bundles. The sibling `worker.cjs` is loaded
- * by file and must be CommonJS for pkg's VFS Worker hook. A multi-entry build emits an unlisted
- * shared chunk omitted by the package's exact `files` whitelist; separate builds inline it.
+ * Build the index and child as separate single-entry bundles. The sibling `child.cjs` is loaded
+ * by file path in a fresh process and must be CommonJS for pkg's VFS child-process hook. A
+ * multi-entry build emits an unlisted shared chunk omitted by the package's exact `files`
+ * whitelist; separate builds inline it.
  */
 export default defineConfig([
   {
@@ -17,7 +18,7 @@ export default defineConfig([
     clean: false,
   },
   {
-    entry: ['lib/types/worker.js'],
+    entry: ['lib/types/child.js'],
     outDir: 'lib',
     format: ['cjs'],
     platform: 'node',

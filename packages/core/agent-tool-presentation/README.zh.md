@@ -12,7 +12,7 @@ preset 能拥有的是这份注册表的**呈现方式**。`ctx.tools.presentAs(
 
 ## 它做什么
 
-`native` 立即生效。code 类模式则等待 `ctx.codeRuntime`——这是一个宿主平面服务（[`dsh-code-runtime-worker-thread`](../../code-runtime/code-runtime-worker-thread/README.md)）：若某个 preset 在未组装运行时的部署上选择 Code Mode，本行就停在 pending，`dsh-agent-presets` 会指名此 id 拒绝挂载。另一种做法——先乐观应用——会把失败推迟到该会话的第一次请求，那时操作者对 preset 和组装都已无从下手。
+`native` 立即生效。code 类模式则等待 `ctx.codeRuntime`——这是一个宿主平面服务（[`dsh-code-runtime-ptc`](../../code-runtime/code-runtime-ptc/README.md)）：若某个 preset 在未组装运行时的部署上选择 Code Mode，本行就停在 pending，`dsh-agent-presets` 会指名此 id 拒绝挂载。另一种做法——先乐观应用——会把失败推迟到该会话的第一次请求，那时操作者对 preset 和组装都已无从下手。
 
 `mode` 是必填而非有默认值：不带这一行的 preset 本来就会拿到部署默认值，省略它等于这一行白组装了。
 

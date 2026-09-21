@@ -17,7 +17,8 @@ import * as BashEnvPlugin from '@deepseek-ai/dsh-shell-env'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
-import { WorkerThreadCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker-thread'
+import { PtcCodeRuntime } from '@deepseek-ai/dsh-code-runtime-ptc'
+import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as WorkspaceContext from '@deepseek-ai/dsh-agent-instructions'
@@ -42,7 +43,7 @@ let workdir: string | undefined
 afterEach(async () => {
   // Always dispose, even on failure/retry/timeout: agent-loop teardown stops
   // the loop, the executor kills stray processes, and the code runtime's
-  // dispose awaits worker exits.
+  // dispose awaits child exits.
   await ctx?.fiber.dispose()
   ctx = undefined
   if (workdir !== undefined) await rm(workdir, { recursive: true, force: true })
@@ -62,7 +63,8 @@ async function codeModeHarness(cwd: string): Promise<Context> {
   await harness.plugin(BashEnvPlugin)
   await harness.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await harness.plugin(ToolBash)
-  await harness.plugin(WorkerThreadCodeRuntime, {})
+  await harness.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
+  await harness.plugin(PtcCodeRuntime, {})
   return harness
 }
 
@@ -78,7 +80,8 @@ async function workspaceCodeModeHarness(): Promise<Context> {
   await harness.plugin(WorkspaceContext, { maxBytes: 65536 })
   await harness.plugin(AgentLoop, { agents: [] })
   await harness.plugin(LlmDeepSeek, { models: [{ id: 'deepseek-v4-flash' }] })
-  await harness.plugin(WorkerThreadCodeRuntime, {})
+  await harness.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
+  await harness.plugin(PtcCodeRuntime, {})
   return harness
 }
 
@@ -116,7 +119,8 @@ async function typedCodeModeHarness(): Promise<Context> {
   const harness = new Context()
   await harness.plugin(SystemPrompt)
   await harness.plugin(ToolRuntime, { mode: 'code' })
-  await harness.plugin(WorkerThreadCodeRuntime, {})
+  await harness.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
+  await harness.plugin(PtcCodeRuntime, {})
   return harness
 }
 

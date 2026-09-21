@@ -198,6 +198,15 @@ export default defineConfig({
         'packages/*/*/src/types.ts',
         'packages/*/*/src/bin.ts',
         'packages/*/*/src/worker.ts',
+        // The PTC child entry executes exclusively as a spawned process
+        // (source or built); v8 coverage never measures child processes. Its
+        // behavior is pinned end-to-end by tests/source-child.compat.spec.ts
+        // and the real-process suites, which spawn the true entry.
+        'packages/code-runtime/code-runtime-ptc/src/child.ts',
+        // The packaged executable's process entry executes exclusively inside
+        // the yao-pkg binary (the python smoke and release-shaped lane cover
+        // it end-to-end); unit coverage can never import it.
+        'packages/examples/jsonrpc-demo/src/packaged-bin.ts',
         // The dsh-base bundle's module is a doc-comment placeholder (`export {}`);
         // its substance is cordis.patch.yml, pinned by tests/base.spec.ts. The
         // Windows v8 provider still emits a zero-coverage entry for the empty

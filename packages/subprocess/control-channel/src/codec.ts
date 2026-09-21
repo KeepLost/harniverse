@@ -47,7 +47,11 @@ export function encodeControlFrame(frame: ControlFrame, limits: ControlChannelLi
 export class ControlFrameDecoder {
   private buffer: Buffer = Buffer.alloc(0)
 
-  constructor(private readonly limits: ControlChannelLimits = DEFAULT_CONTROL_CHANNEL_LIMITS) {}
+  private readonly limits: ControlChannelLimits
+
+  constructor(limits: ControlChannelLimits = DEFAULT_CONTROL_CHANNEL_LIMITS) {
+    this.limits = limits
+  }
 
 
   /**
@@ -67,7 +71,7 @@ export class ControlFrameDecoder {
       if (this.buffer.length < PREFIX_BYTES + declared) break
       const body = this.buffer.subarray(PREFIX_BYTES, PREFIX_BYTES + declared)
       this.buffer = this.buffer.subarray(PREFIX_BYTES + declared)
-      frames.push(this.parse(body))
+      frames[frames.length] = this.parse(body)
     }
     return frames
   }
@@ -90,7 +94,11 @@ export class ControlFrameDecoder {
 export class ControlSendQueue {
   private queued = 0
 
-  constructor(private readonly limits: ControlChannelLimits = DEFAULT_CONTROL_CHANNEL_LIMITS) {}
+  private readonly limits: ControlChannelLimits
+
+  constructor(limits: ControlChannelLimits = DEFAULT_CONTROL_CHANNEL_LIMITS) {
+    this.limits = limits
+  }
 
   /**
    * Reserve space for one encoded frame, refusing the send when it would push
@@ -116,11 +124,22 @@ export class ControlSendQueue {
   }
 }
 
+/** Captured at module load: this library also runs INSIDE hostile child
+ *  processes whose programs may rebind or delete the global constructors —
+ *  accounting must never consult a prototype the program armed. */
+const intrinsicObjectCreate = Object.create
+
 /** Pending-reply accounting with a bounded call count. */
 export class PendingCallGate {
-  private readonly pending = new Set<number>()
+  // Null-prototype membership table: plain property semantics, no Set.
+  private readonly pending = intrinsicObjectCreate(null) as Record<number, true>
+  private count = 0
 
-  constructor(private readonly limits: ControlChannelLimits = DEFAULT_CONTROL_CHANNEL_LIMITS) {}
+  private readonly limits: ControlChannelLimits
+
+  constructor(limits: ControlChannelLimits = DEFAULT_CONTROL_CHANNEL_LIMITS) {
+    this.limits = limits
+  }
 
   /**
    * Admit one call id, refusing it when `maxPendingCalls` replies are
@@ -129,13 +148,14 @@ export class PendingCallGate {
    * @throws {@link ControlProtocolError} when the pending bound would overflow or the id is already pending.
    */
   acquire(id: number): void {
-    if (this.pending.has(id)) {
+    if (this.pending[id] === true) {
       throw new ControlProtocolError(`call id ${id} is already pending`)
     }
-    if (this.pending.size >= this.limits.maxPendingCalls) {
+    if (this.count >= this.limits.maxPendingCalls) {
       throw new ControlProtocolError(`${this.limits.maxPendingCalls} calls await replies, above maxPendingCalls`)
     }
-    this.pending.add(id)
+    this.pending[id] = true
+    this.count += 1
   }
 
   /**
@@ -143,11 +163,15 @@ export class PendingCallGate {
    * @param id - the call's correlation id.
    */
   release(id: number): void {
-    this.pending.delete(id)
+    if (this.pending[id] === true) {
+      // oxlint-disable-next-line typescript/no-dynamic-delete -- null-proto table by design (hostile-child hardening)
+      delete this.pending[id]
+      this.count -= 1
+    }
   }
 
   /** Calls currently awaiting a reply. */
   get size(): number {
-    return this.pending.size
+    return this.count
   }
 }

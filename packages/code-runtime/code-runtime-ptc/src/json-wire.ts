@@ -1,11 +1,11 @@
 /**
- * Lossless-JSON snapshots for the dependency-free source worker closure.
- * @module @deepseek-ai/dsh-code-runtime-worker-thread/worker-json
+ * Lossless-JSON snapshots for the dependency-free source child closure.
+ * @module @deepseek-ai/dsh-code-runtime-ptc/json-wire
  */
 
 import type { CodeJsonValue } from '@deepseek-ai/dsh-code-runtime'
 
-/* jscpd:ignore-start -- the source worker mirrors session JSON helpers without workspace runtime imports */
+/* jscpd:ignore-start -- the source child mirrors session JSON helpers without workspace runtime imports */
 type IntrinsicCallable = (this: unknown, ...args: unknown[]) => unknown
 
 const intrinsicFunctionToString = Reflect.get(Function.prototype, 'toString') as IntrinsicCallable

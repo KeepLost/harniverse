@@ -1,22 +1,22 @@
 /**
- * Package-owned invariant companion for `@deepseek-ai/dsh-code-runtime-worker-thread`.
- * @module @deepseek-ai/dsh-code-runtime-worker-thread/invariant
+ * Package-owned invariant companion for `@deepseek-ai/dsh-code-runtime-ptc`.
+ * @module @deepseek-ai/dsh-code-runtime-ptc/invariant
  */
 
 /* jscpd:ignore-start */
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-code-runtime-worker-thread'
+const PACKAGE_NAME = '@deepseek-ai/dsh-code-runtime-ptc'
 
 /** Cordis companion plugin name. */
-export const name = 'code-runtime-worker-thread-invariant'
+export const name = 'code-runtime-ptc-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
 /**
  * No runtime invariant: this process-boundary implementation exposes no same-process event relation;
- * worker protocol and built-worker tests cover it.
+ * child protocol and built-child tests cover it.
  */
 const install: InvariantInstaller = () => {}
 

@@ -21,7 +21,8 @@ import type { PostToolDecision, ToolExecution, ToolExecutionToken } from '@deeps
 import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
 import type { ReadTextSpill, ReadTextSpillPage, SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
-import { WorkerThreadCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker-thread'
+import { PtcCodeRuntime } from '@deepseek-ai/dsh-code-runtime-ptc'
+import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 
 const testToolSignal = new AbortController().signal
 
@@ -197,7 +198,8 @@ describe('outer Code Mode failure capture', () => {
     await ctx.plugin(ToolRuntime, { mode: 'code' })
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes: 200 })
-    await ctx.plugin(WorkerThreadCodeRuntime, { maxOutputBytes: 500 })
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
+    await ctx.plugin(PtcCodeRuntime, { maxOutputBytes: 500 })
     const events: unknown[] = []
     const agent = {
       session: {
@@ -246,7 +248,8 @@ describe('the durable dispatch-log arm', () => {
     await ctx.plugin(ToolRuntime, { mode: 'code' })
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes })
-    await ctx.plugin(WorkerThreadCodeRuntime, {})
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
+    await ctx.plugin(PtcCodeRuntime, {})
     const events: { type: string; data: unknown }[] = []
     const agent = {
       session: {
@@ -320,7 +323,8 @@ describe('the durable dispatch-log arm', () => {
     await ctx.plugin(ToolRuntime, { mode: 'code' })
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes: 100 })
-    await ctx.plugin(WorkerThreadCodeRuntime, {})
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
+    await ctx.plugin(PtcCodeRuntime, {})
     // A spill backend that hangs until released.
     let releaseSave!: () => void
     const gate = new Promise<void>((resolve) => { releaseSave = resolve })
@@ -384,7 +388,8 @@ describe('the durable dispatch-log arm', () => {
     await ctx.plugin(ToolRuntime, { mode: 'code', maxParallelSubCalls: 1 })
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes: 100 })
-    await ctx.plugin(WorkerThreadCodeRuntime, {})
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
+    await ctx.plugin(PtcCodeRuntime, {})
     const store = ctx.spillStore as StubStore
     const releases: (() => void)[] = []
     store.gate = () => new Promise<void>((resolve) => { releases.push(resolve) })
@@ -437,7 +442,8 @@ describe('the durable dispatch-log arm', () => {
     await ctx.plugin(ToolRuntime, { mode: 'code' })
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes: 100 })
-    await ctx.plugin(WorkerThreadCodeRuntime, {})
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
+    await ctx.plugin(PtcCodeRuntime, {})
     ;(ctx.spillStore as StubStore).fail = true
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const events: { type: string; data: unknown }[] = []

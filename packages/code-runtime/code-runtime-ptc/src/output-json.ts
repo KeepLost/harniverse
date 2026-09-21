@@ -1,4 +1,4 @@
-/** JSON string-prefix accounting for the outer-output ledger. @module @deepseek-ai/dsh-code-runtime-worker-thread/output-json */
+/** JSON string-prefix accounting for the outer-output ledger. @module @deepseek-ai/dsh-code-runtime-ptc/output-json */
 
 import type { CodeJsonValue } from '@deepseek-ai/dsh-code-runtime'
 

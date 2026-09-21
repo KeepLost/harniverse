@@ -1,18 +1,45 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { WorkerThreadCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker-thread'
-import type { Config } from '@deepseek-ai/dsh-code-runtime-worker-thread'
+import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
+import { SandboxProvider } from '@deepseek-ai/dsh-sandbox'
+import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
+import { childSpawnPlan, PtcCodeRuntime } from '../src/index.ts'
+import type { Config } from '../src/index.ts'
 import type { CodeBindingFunction, CodeBindingNamespace, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 
 /**
- * Integration suite over REAL worker threads (no mocks — workers are cheap
- * and local, per docs/testing.md's real-over-mock policy). Each test builds
- * a fresh context so budgets can be tuned per case.
+ * Integration suite over REAL fresh child processes (no mocks — processes are
+ * cheap and local, per docs/testing.md's real-over-mock policy). Each test
+ * builds a fresh context so budgets and sandbox modes can be tuned per case.
  */
-async function setup(config: Config = {}) {
+type SandboxMode = 'raw-danger' | 'confined-fake' | 'confined-missing'
+
+async function setup(config: Config = {}, sandbox: SandboxMode = 'raw-danger', workspaceRoot?: string) {
   const ctx = new Context()
-  await ctx.plugin(WorkerThreadCodeRuntime, config)
-  const runtime = ctx.codeRuntime as WorkerThreadCodeRuntime
+  await ctx.plugin(SandboxPolicyService, {
+    ...(sandbox === 'raw-danger' ? { mode: 'danger-full-access' as const } : { mode: 'read-only' as const }),
+    ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
+  })
+  if (sandbox === 'confined-fake') {
+    await ctx.plugin(class FakeSandboxProvider extends SandboxProvider {
+      override async confine(argv: readonly string[], _policy: SandboxPolicy, _signal?: AbortSignal): Promise<ConfinedArgv> {
+        // A cross-platform detour that ALSO proves the host spawned the
+        // wrapped argv rather than the original: a tiny Node passthrough
+        // runs the original argv under a marker variable the program
+        // observes. `/usr/bin/env` would do on POSIX but does not exist on
+        // Windows; Node itself is everywhere the host is.
+        const passthrough = [
+          '-e',
+          'const r=require("node:child_process").spawnSync(process.argv[1],process.argv.slice(2),'
+          + '{stdio:"inherit",env:{...process.env,DSH_TEST_CONFINED:"1"}});'
+          + 'process.exit(r.status ?? (r.error !== undefined ? 1 : 0))',
+        ]
+        return { argv: [process.execPath, ...passthrough, ...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
+      }
+    })
+  }
+  await ctx.plugin(PtcCodeRuntime, config)
+  const runtime = ctx.codeRuntime as PtcCodeRuntime
   return { ctx, runtime }
 }
 
@@ -25,11 +52,11 @@ function tools(functions: Record<string, (args: unknown) => Promise<unknown>>): 
   }]
 }
 
-describe('WorkerThreadCodeRuntime — programs and bindings (real workers)', () => {
+describe('PtcCodeRuntime — programs and bindings (real children)', () => {
   it('registers with the seam descriptors', async () => {
     const { runtime } = await setup()
     expect(runtime.language).toBe('typescript')
-    expect(runtime.isolation).toBe('worker-thread')
+    expect(runtime.isolation).toBe('process')
   })
 
   it('runs TypeScript (erasable syntax), captures output in order, returns the value', async () => {
@@ -76,6 +103,15 @@ describe('WorkerThreadCodeRuntime — programs and bindings (real workers)', () 
       caughtRaw: { name: 'ToolCallError', toolName: 'failRaw', message: 'raw-nope' },
     })
     expect(calls).toEqual([{ n: 1 }])
+  })
+
+  it('answers a binding name the consumer never declared with a typed failure', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({
+      program: 'try { await tools.missing({}) } catch (error) { return { name: error.name, toolName: error.toolName, message: error.message } }',
+      bindings: tools({ real: async () => 'present' }),
+    })
+    expect(result.value).toMatchObject({ name: 'ToolCallError', toolName: 'missing', message: /unknown binding/ })
   })
 
   it('materializes a typed rejection from a generic namespace descriptor', async () => {
@@ -125,7 +161,7 @@ describe('WorkerThreadCodeRuntime — programs and bindings (real workers)', () 
     expect(cursor).toBe('leaf')
   }, 15_000)
 
-  it('reports non-erasable syntax as an exception without spawning a worker', async () => {
+  it('reports non-erasable syntax as an exception without spawning a child', async () => {
     const { runtime } = await setup()
     const result = await runtime.run({ program: 'enum E { A }\nreturn 1', bindings: [] })
     expect(result.error?.kind).toBe('exception')
@@ -139,10 +175,25 @@ describe('WorkerThreadCodeRuntime — programs and bindings (real workers)', () 
     expect(result.error?.message).toContain('kaboom')
   })
 
-  it('gives the program an EMPTY environment', async () => {
-    const { runtime } = await setup()
-    const result = await runtime.run({ program: 'return JSON.stringify(process.env)', bindings: [] })
-    expect(result.value).toBe('{}')
+  it('gives the program an EMPTY environment and the policy workspace as cwd', async () => {
+    const root = process.cwd()
+    const { runtime } = await setup({}, 'raw-danger', root)
+    const result = await runtime.run({ program: 'return { env: JSON.stringify(process.env), cwd: process.cwd() }', bindings: [] })
+    // The runtime leaks nothing from the host environment. Two platforms
+    // still mandate variables the spawn cannot refuse: CoreFoundation injects
+    // `__CF_USER_TEXT_ENCODING` into every darwin process, and Node itself
+    // recreates the Windows system set (SystemRoot and kin, plus a computed
+    // PATH) inside a child spawned with an empty env. Both arrive from the
+    // platform below the spawn call, so the contract is "no HOST keys".
+    const mandated = new Set(process.platform === 'win32'
+      ? ['homedrive', 'homepath', 'logonserver', 'path', 'systemdrive', 'systemroot', 'temp', 'tmp', 'userdomain', 'username', 'userprofile', 'windir']
+      : ['__CF_USER_TEXT_ENCODING'])
+    const env = (result.value as { env: string; cwd: string }).env === undefined
+      ? undefined
+      : JSON.parse((result.value as { env: string }).env) as Record<string, string>
+    const leaked = Object.keys(env ?? {}).filter(key => !mandated.has(process.platform === 'win32' ? key.toLowerCase() : key))
+    expect(leaked).toEqual([])
+    expect((result.value as { cwd: string }).cwd).toBe(root)
   })
 
   it('rejects a non-lossless completion instead of replacing it with rendered text', async () => {
@@ -170,23 +221,19 @@ describe('WorkerThreadCodeRuntime — programs and bindings (real workers)', () 
   })
 })
 
-describe('WorkerThreadCodeRuntime — budgets and containment (real workers)', () => {
-  it('ends a hot loop at the compute budget — including behind a pending decoy dispatch', async () => {
-    const { runtime } = await setup({ computeMs: 300, maxWallMs: 30_000 })
-    const result = await runtime.run({
-      // The decoy: fire a call at a never-resolving binding WITHOUT awaiting,
-      // then spin. Host-side pending-call bookkeeping would pause a naive
-      // budget here; measured busy time cannot be fooled.
-      program: 'void tools.slow({}); for (;;) {}',
-      bindings: tools({ slow: () => new Promise(() => {}) }),
-    })
+describe('PtcCodeRuntime — budgets and containment (real children)', () => {
+  it('ends a hot loop at the wall-clock ceiling when its busy-time sampler is starved', async () => {
+    // A hot synchronous loop blocks the child's own sampling timer, so the
+    // host-owned wall deadline is the budget that fires.
+    const { runtime } = await setup({ computeMs: 30_000, maxWallMs: 800 })
+    const result = await runtime.run({ program: 'for (;;) {}', bindings: [] })
     expect(result.error?.kind).toBe('timeout')
-    expect(result.error?.message).toContain('compute budget')
+    expect(result.error?.message).toMatch(/deadline|wall/)
   }, 15_000)
 
   it('does not charge time spent awaiting a slow binding against the compute budget', async () => {
     // Keep the binding delay above the compute allowance while leaving enough
-    // headroom for worker bootstrap on loaded CI hosts.
+    // headroom for child startup on loaded CI hosts.
     const { runtime } = await setup({ computeMs: 1_000, maxWallMs: 30_000 })
     const result = await runtime.run({
       program: 'return await tools.slow({})',
@@ -203,10 +250,10 @@ describe('WorkerThreadCodeRuntime — budgets and containment (real workers)', (
       bindings: tools({ never: () => new Promise(() => {}) }),
     })
     expect(result.error?.kind).toBe('timeout')
-    expect(result.error?.message).toContain('wall-clock ceiling')
+    expect(result.error?.message).toContain('deadline')
   }, 15_000)
 
-  it('reports an abort mid-run and stops the worker', async () => {
+  it('reports an abort mid-run and stops the child', async () => {
     const { runtime } = await setup()
     const controller = new AbortController()
     setTimeout(() => { controller.abort('user-cancel') }, 150)
@@ -222,7 +269,7 @@ describe('WorkerThreadCodeRuntime — budgets and containment (real workers)', (
     expect(result.error).toEqual({ kind: 'abort', message: 'too-late' })
   })
 
-  it('applies the outer-output cap to failures before worker startup', async () => {
+  it('applies the outer-output cap to failures before child startup', async () => {
     const capped = await setup({ maxOutputBytes: 64 })
     const controller = new AbortController()
     controller.abort('A'.repeat(1_000))
@@ -258,7 +305,7 @@ describe('WorkerThreadCodeRuntime — budgets and containment (real workers)', (
     await replyDelivered
   }, 15_000)
 
-  it('contains an OOM under resourceLimits as worker-exit, host process healthy', async () => {
+  it('contains an OOM under the heap cap as worker-exit, host process healthy', async () => {
     const { runtime } = await setup({ maxOldGenerationSizeMb: 32 })
     const result = await runtime.run({
       // One fill already exceeds the whole old-generation cap, so V8 hits
@@ -274,14 +321,75 @@ describe('WorkerThreadCodeRuntime — budgets and containment (real workers)', (
     expect(after.value).toBe('alive')
   }, 60_000)
 
-  it('reports a worker that exits before publishing a completion', async () => {
+  it('reports a child that exits before publishing a completion', async () => {
     const { runtime } = await setup()
     const result = await runtime.run({ program: 'process.exit(7)', bindings: [] })
     expect(result).toEqual({
       logs: [],
-      error: { kind: 'worker-exit', message: 'worker exited with code 7 before completing' },
+      error: { kind: 'worker-exit', message: 'peer closed the channel without a terminal frame' },
     })
   })
+
+  it('contains a raw fd-1 write that corrupts the control channel', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({
+      // JS-level writes are captured, but a native-style prototype write
+      // reaches fd 1 directly and corrupts the frame stream; the run fails
+      // contained instead of hanging or crashing the host.
+      program: `
+        const write = (text) => Object.getPrototypeOf(process.stdout).write.call(process.stdout, text);
+        write('not-a-frame');
+        await new Promise(resolve => setTimeout(resolve, 200));
+        return 1;
+      `,
+      bindings: [],
+    })
+    expect(result.error?.kind).toBe('worker-exit')
+  }, 15_000)
+
+  it('captures native stderr writes as stray logs in the same outer ledger', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 200_000 })
+    const result = await runtime.run({
+      program: `
+        const write = text => Object.getPrototypeOf(process.stderr).write.call(process.stderr, text);
+        write('stray-stderr');
+        await new Promise(resolve => setTimeout(resolve, 100));
+        return 'done';
+      `,
+      bindings: [],
+    })
+    expect(result.value).toBe('done')
+    expect(result.logs).toContain('stray-stderr')
+  }, 15_000)
+
+  it('surfaces the pending-calls bound when a program floods concurrent binding calls', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({
+      program: `
+        await Promise.all(Array.from({ length: 128 }, (_, i) => tools.echo({ n: i })));
+        return 'never';
+      `,
+      bindings: tools({ echo: async args => args }),
+    })
+    expect(result.value).toBeUndefined()
+    expect(result.error?.kind).toBe('exception')
+    expect(result.error?.message).toMatch(/maxPendingCalls/)
+  }, 15_000)
+
+  it('fails the run with output-limit when stray stderr crosses the outer ledger', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 2_000 })
+    const result = await runtime.run({
+      program: `
+        const write = text => Object.getPrototypeOf(process.stderr).write.call(process.stderr, text);
+        write('x'.repeat(4_096));
+        await new Promise(resolve => setTimeout(resolve, 100));
+        return 'never lands';
+      `,
+      bindings: [],
+    })
+    expect(result.error?.kind).toBe('output-limit')
+    expect(result.value).toBeUndefined()
+  }, 15_000)
 
   it('fails runaway log output explicitly while retaining a bounded prefix', async () => {
     const { runtime } = await setup({ maxOutputBytes: 300 })
@@ -339,8 +447,7 @@ describe('WorkerThreadCodeRuntime — budgets and containment (real workers)', (
     expect(Buffer.byteLength(JSON.stringify(result.logs), 'utf8') + Buffer.byteLength(JSON.stringify(result.error?.message), 'utf8')).toBeLessThanOrEqual(10)
   })
 
-  it('accounts logs and exception diagnostics before the worker port boundary', async () => {
-    // JSON(["abc"]) is seven bytes and JSON("xy") is four.
+  it('accounts logs and exception diagnostics before the channel boundary', async () => {
     const exact = await setup({ maxOutputBytes: 11 })
     expect(await exact.runtime.run({ program: 'console.log("abc"); throw "xy"', bindings: [] }))
       .toEqual({ logs: ['abc'], error: { kind: 'exception', message: 'xy' } })
@@ -352,7 +459,7 @@ describe('WorkerThreadCodeRuntime — budgets and containment (real workers)', (
       + Buffer.byteLength(JSON.stringify(result.error?.message), 'utf8')).toBeLessThanOrEqual(10)
   })
 
-  it('does not send a giant Error stack across the worker port', async () => {
+  it('does not send a giant Error stack across the channel', async () => {
     const { runtime } = await setup({ maxOutputBytes: 64 })
     const result = await runtime.run({
       program: 'throw new Error("x".repeat(1_000_000))',
@@ -365,10 +472,7 @@ describe('WorkerThreadCodeRuntime — budgets and containment (real workers)', (
   })
 
   it('completes a program that awaits its write callback, capturing the chunk', async () => {
-    // Node's write(chunk[, encoding][, callback]) contract: dropping the
-    // callback would leave this promise pending until the wall ceiling and
-    // misreport a completed program as a timeout.
-    const { runtime } = await setup({ maxWallMs: 2_000 })
+    const { runtime } = await setup({ maxWallMs: 5_000 })
     const result = await runtime.run({
       program: 'await new Promise(resolve => process.stdout.write("flushed", resolve)); return "done"',
       bindings: [],
@@ -385,215 +489,16 @@ describe('WorkerThreadCodeRuntime — budgets and containment (real workers)', (
     expect(result.value).toEqual(new Array(50_000).fill(7))
   })
 
-  // Windows structured-clones the exact 64 MiB success payload considerably
-  // slower than the failure case, which rejects before transferring it.
-  it('returns an exact completion at the default 64 MiB combined boundary', async () => {
+  it('fails a program whose boot frame exceeds the channel frame bound', async () => {
     const { runtime } = await setup()
-    // [] costs two bytes and the JSON string contributes two quotes, leaving
-    // exactly this many payload bytes under the 67_108_864-byte default.
-    const result = await runtime.run({ program: 'return "x".repeat(67_108_860)', bindings: [] })
-    expect(result.error).toBeUndefined()
-    expect(result.logs).toEqual([])
-    expect(result.value).toHaveLength(67_108_860)
-  }, process.platform === 'win32' ? 180_000 : 60_000)
-
-  it('fails one byte over the default 64 MiB combined boundary', async () => {
-    const { runtime } = await setup()
-    const result = await runtime.run({ program: 'return "x".repeat(67_108_861)', bindings: [] })
+    const result = await runtime.run({ program: `return "${'x'.repeat(2 << 20)}"`, bindings: [] })
     expect(result.value).toBeUndefined()
-    expect(result.error).toEqual({ kind: 'output-limit', message: 'outer output exceeded 67108864 bytes' })
-  }, 60_000)
-
-  it('accounts pipe writes that bypass the patched write slot in the same outer ledger', async () => {
-    const { runtime } = await setup({ maxOutputBytes: 80 })
-    const result = await runtime.run({
-      // The prototype write bypasses the patched instance and reaches the real pipe. Pauses keep
-      // writes in separate chunks and let both reach the host before settlement.
-      program: `
-        const write = (text) => Object.getPrototypeOf(process.stdout).write.call(process.stdout, text);
-        write('a'.repeat(20));
-        await new Promise(resolve => setTimeout(resolve, 150));
-        write('b'.repeat(100));
-        await new Promise(resolve => setTimeout(resolve, 100));
-        return 1;
-      `,
-      bindings: [],
-    })
-    expect(result.error?.kind).toBe('output-limit')
-    expect(result.logs).toContain('a'.repeat(20))
-    expect(result.logs[1]?.length).toBeGreaterThan(0)
-    expect('b'.repeat(100).startsWith(result.logs[1] ?? '')).toBe(true)
-  }, 15_000)
-
-  it('drains pipe output queued before terminal worker teardown completes', async () => {
-    const { runtime } = await setup({ maxOutputBytes: 200_000 })
-    const payload = `late-pipe-${'x'.repeat(100_000)}`
-    const result = await runtime.run({
-      program: `
-        const { parentPort } = await import('node:worker_threads');
-        const write = (text) => Object.getPrototypeOf(process.stdout).write.call(process.stdout, text);
-        write('late-pipe-' + 'x'.repeat(100_000));
-        parentPort.postMessage({ type: 'done', value: ['done'] });
-        for (;;) {}
-      `,
-      bindings: [],
-    })
-    expect(result.error).toBeUndefined()
-    expect(result.value).toBe('done')
-    expect(result.logs.join('') === payload).toBe(true)
-  }, 15_000)
+    expect(result.error?.kind).toBe('worker-exit')
+    expect(result.error?.message).toMatch(/maxFrameBytes/)
+  })
 })
 
-describe('WorkerThreadCodeRuntime — hostile programs (real workers)', () => {
-  it('survives forged port traffic: unknown binding names, duplicate ids, junk shapes', async () => {
-    const { runtime } = await setup()
-    const result = await runtime.run({
-      program: `
-        const { parentPort } = await import('node:worker_threads');
-        parentPort.postMessage({ type: 'call', id: 7777, global: 'tools', name: 'missing', args: {} });
-        parentPort.postMessage({ type: 'call', id: 7777, global: 'tools', name: 'missing', args: {} });
-        parentPort.postMessage({ type: 'call', id: 7778, global: 'tools', name: 'constructor', args: {} });
-        parentPort.postMessage({ type: 'junk' });
-        return await tools.real({});
-      `,
-      bindings: tools({ real: async () => 'still-works' }),
-    })
-    expect(result.error).toBeUndefined()
-    expect(result.value).toBe('still-works')
-  })
-
-  it('survives arbitrary junk on the port: non-objects, junk types, malformed calls, logs, and dones', async () => {
-    const { runtime } = await setup()
-    const result = await runtime.run({
-      program: `
-        const { parentPort } = await import('node:worker_threads');
-        for (const junk of [
-          null, 42, 'junk', [],
-          { type: 'nope' },
-          { type: 'call' },
-          { type: 'call', id: 'x', global: 'tools', name: 'real', args: {} },
-          { type: 'call', id: 1e9, global: 7, name: 'real', args: {} },
-          { type: 'call', id: 1e9, global: 'tools', name: 7, args: {} },
-          { type: 'log' },
-          { type: 'log', text: null },
-          { type: 'log', text: 7 },
-          { type: 'log', text: {} },
-          { type: 'done', error: 5 },
-          { type: 'done', error: { kind: 'exception', message: 5 } },
-          { type: 'done', error: { kind: 'invented', message: 'bad kind' } },
-        ]) parentPort.postMessage(junk);
-        return await tools.real({});
-      `,
-      bindings: tools({ real: async () => 'still-works' }),
-    })
-    expect(result.error).toBeUndefined()
-    expect(result.value).toBe('still-works')
-    expect(result.logs).toEqual([])
-  })
-
-  it('fails forged log floods and forged done values through the same outer cap', async () => {
-    const { runtime } = await setup({ maxOutputBytes: 200 })
-    const result = await runtime.run({
-      // Forged messages bypass the worker-side LogBuffer and completion check
-      // entirely — only the host-side ledger and re-cap stand between model
-      // code and an unbounded result.
-      program: `
-        const { parentPort } = await import('node:worker_threads');
-        for (let i = 0; i < 50; i++) parentPort.postMessage({ type: 'log', text: 'F'.repeat(100), forged: true });
-        parentPort.postMessage({ type: 'done', value: ['V'.repeat(100000)] });
-        for (;;) {}
-      `,
-      bindings: [],
-    })
-    expect(result.value).toBeUndefined()
-    expect(result.error).toEqual({ kind: 'output-limit', message: 'outer output exceeded 200 bytes' })
-    expect(Buffer.byteLength(JSON.stringify(result.logs), 'utf8')).toBeLessThan(200)
-  })
-
-  it('re-caps an oversized forged done value at the host boundary', async () => {
-    const { runtime } = await setup({ maxOutputBytes: 64 })
-    const result = await runtime.run({
-      program: `
-        const { parentPort } = await import('node:worker_threads');
-        parentPort.postMessage({ type: 'done', value: ['V'.repeat(100_000)] });
-        for (;;) {}
-      `,
-      bindings: [],
-    })
-    expect(result).toEqual({
-      logs: [],
-      error: { kind: 'output-limit', message: 'outer output exceeded 64 bytes' },
-    })
-  })
-
-  it('bounds one oversized forged log while retaining its fitting escaped prefix', async () => {
-    const { runtime } = await setup({ maxOutputBytes: 96 })
-    const result = await runtime.run({
-      program: `
-        const { parentPort } = await import('node:worker_threads');
-        parentPort.postMessage({ type: 'log', text: '"'.repeat(1_000_000) });
-        for (;;) {}
-      `,
-      bindings: [],
-    })
-    expect(result.error).toEqual({ kind: 'output-limit', message: 'outer output exceeded 96 bytes' })
-    expect(result.logs).toHaveLength(1)
-    expect(result.logs[0]).toMatch(/^"+$/)
-    expect(Buffer.byteLength(JSON.stringify(result.logs), 'utf8') + Buffer.byteLength(JSON.stringify('outer output exceeded 96 bytes'), 'utf8')).toBeLessThanOrEqual(96)
-  })
-
-  it('drops a malformed forged done carrying both value and error', async () => {
-    const { runtime } = await setup()
-    const result = await runtime.run({
-      program: `
-        const { parentPort } = await import('node:worker_threads');
-        parentPort.postMessage({ type: 'done', value: 'lied', error: { kind: 'exception', message: 'fake failure' } });
-        return 'honest';
-      `,
-      bindings: [],
-    })
-    expect(result).toEqual({ logs: [], error: { kind: 'exception', message: 'fake failure' } })
-  })
-
-  it('contains a deeply nested forged completion without overflowing the host meter', async () => {
-    const { runtime } = await setup()
-    const result = await runtime.run({
-      program: `
-        const { parentPort } = await import('node:worker_threads');
-        const value = [];
-        for (let depth = 0; depth < 3_000; depth++) value.push({ kind: 'array', length: 1 });
-        value.push(null);
-        setTimeout(() => { parentPort.postMessage({ type: 'done', value }) }, 25);
-        // Prevent bootstrap's normal undefined completion from racing the forged terminal.
-        await new Promise(() => {});
-      `,
-      bindings: [],
-    })
-    expect(result.error).toBeUndefined()
-    let value = result.value
-    let depth = 0
-    while (Array.isArray(value)) {
-      expect(value).toHaveLength(1)
-      value = value[0]
-      depth += 1
-    }
-    expect(depth).toBe(3_000)
-    expect(value).toBeNull()
-  }, 15_000)
-
-  it('turns forged over-limit error text into output-limit at the host', async () => {
-    const { runtime } = await setup({ maxOutputBytes: 64 })
-    const result = await runtime.run({
-      program: `
-        const { parentPort } = await import('node:worker_threads');
-        parentPort.postMessage({ type: 'done', error: { kind: 'exception', message: '€'.repeat(1000) } });
-        for (;;) {}
-      `,
-      bindings: [],
-    })
-    expect(result.error).toEqual({ kind: 'output-limit', message: 'outer output exceeded 64 bytes' })
-  })
-
+describe('PtcCodeRuntime — hostile programs (real children)', () => {
   it('answers a binding whose resolution is not lossless JSON with a typed failure reply', async () => {
     const { runtime } = await setup()
     const result = await runtime.run({
@@ -603,7 +508,7 @@ describe('WorkerThreadCodeRuntime — hostile programs (real workers)', () => {
     expect(result.value).toEqual({ name: 'ToolCallError', toolName: 'bad', message: 'binding resolution must be lossless JSON' })
   })
 
-  it('rejects lossy binding arguments in the worker before invoking the host binding', async () => {
+  it('rejects lossy binding arguments in the child before invoking the host binding', async () => {
     const { runtime } = await setup()
     let calls = 0
     const result = await runtime.run({
@@ -705,41 +610,6 @@ describe('WorkerThreadCodeRuntime — hostile programs (real workers)', () => {
     })
   })
 
-  it('rejects forged lossy binding arguments again at the host boundary', async () => {
-    const { runtime } = await setup()
-    let calls = 0
-    const result = await runtime.run({
-      program: `
-        const { parentPort } = await import('node:worker_threads');
-        const forged = (id, args) => new Promise((resolve) => {
-          const receive = (message) => {
-            if (message?.type !== 'reply' || message.id !== id) return;
-            parentPort.off('message', receive);
-            resolve(message);
-          };
-          parentPort.on('message', receive);
-          parentPort.postMessage({ type: 'call', id, global: 'tools', name: 'never', args });
-        });
-        const sparse = []; sparse.length = 1;
-        const cycle = {}; cycle.self = cycle;
-        return await Promise.all([
-          forged(8001, new Date()),
-          forged(8002, -0),
-          forged(8003, sparse),
-          forged(8004, cycle),
-        ]);
-      `,
-      bindings: tools({ never: async () => { calls += 1; return null } }),
-    })
-    expect(calls).toBe(0)
-    expect(result.value).toEqual([8001, 8002, 8003, 8004].map(id => ({
-      type: 'reply',
-      id,
-      ok: false,
-      message: 'binding arguments must be lossless JSON',
-    })))
-  })
-
   it('contains throwing getters while snapshotting binding resolutions', async () => {
     const { runtime } = await setup()
     const result = await runtime.run({
@@ -747,32 +617,6 @@ describe('WorkerThreadCodeRuntime — hostile programs (real workers)', () => {
       bindings: tools({ bad: async () => Object.defineProperty({}, 'bad', { enumerable: true, get() { throw new Error('getter exploded') } }) }),
     })
     expect(result.value).toEqual({ name: 'ToolCallError', toolName: 'bad', message: 'binding resolution must be lossless JSON' })
-  })
-
-  it('revalidates a forged lossy completion at the host boundary', async () => {
-    const { runtime } = await setup()
-    const result = await runtime.run({
-      program: `
-        const { parentPort } = await import('node:worker_threads');
-        parentPort.postMessage({ type: 'done', value: -0 });
-        for (;;) {}
-      `,
-      bindings: [],
-    })
-    expect(result).toEqual({ logs: [], error: { kind: 'invalid-output', message: 'program completion must be lossless JSON' } })
-  })
-
-  it('honors a forged worker-side output-limit signal', async () => {
-    const { runtime } = await setup()
-    const result = await runtime.run({
-      program: `
-        const { parentPort } = await import('node:worker_threads');
-        parentPort.postMessage({ type: 'output-limit' });
-        for (;;) {}
-      `,
-      bindings: [],
-    })
-    expect(result).toEqual({ logs: [], error: { kind: 'output-limit', message: 'outer output exceeded 67108864 bytes' } })
   })
 
   it('exposes binding names that collide with Object.prototype as ordinary functions', async () => {
@@ -787,7 +631,25 @@ describe('WorkerThreadCodeRuntime — hostile programs (real workers)', () => {
   })
 })
 
-describe('WorkerThreadCodeRuntime — seam misuse and lifecycle', () => {
+describe('PtcCodeRuntime — sandbox parity', () => {
+  it('wraps the child argv through ctx.sandbox under a confined policy', async () => {
+    const { runtime } = await setup({}, 'confined-fake')
+    // The fake confine's passthrough sets DSH_TEST_CONFINED for the real
+    // child: the value proves the spawn took the WRAPPED argv.
+    const result = await runtime.run({
+      program: 'return process.env.DSH_TEST_CONFINED === "1" ? "confined-ok" : "unwrapped"',
+      bindings: [],
+    })
+    expect(result.value).toBe('confined-ok')
+  })
+
+  it('fails closed when a confined policy has no sandbox provider', async () => {
+    const { runtime } = await setup({}, 'confined-missing')
+    await expect(runtime.run({ program: 'return 1', bindings: [] })).rejects.toThrow(/sandbox/)
+  })
+})
+
+describe('PtcCodeRuntime — seam misuse and lifecycle', () => {
   it('rejects invalid and duplicate binding globals loudly', async () => {
     const { runtime } = await setup()
     const cases: [string, RegExp][] = [
@@ -800,7 +662,7 @@ describe('WorkerThreadCodeRuntime — seam misuse and lifecycle', () => {
       // `[A-Za-z0-9_$]*` would have accepted a `$` after the first character.
       ['a$b', /not a usable identifier/],
       // `lambda` is a Python keyword, refused here directly (not just
-      // transitively) so the worker's adoption of PORTABLE_RESERVED_WORDS is
+      // transitively) so the child's adoption of PORTABLE_RESERVED_WORDS is
       // its own regression, symmetric with the `$tools` case.
       ['lambda', /not a usable identifier/],
       ['console', /reserved binding global/],
@@ -850,23 +712,55 @@ describe('WorkerThreadCodeRuntime — seam misuse and lifecycle', () => {
 
   it('rejects config values that are not positive numbers', async () => {
     const ctx = new Context()
-    await expect(ctx.plugin(WorkerThreadCodeRuntime, { computeMs: -1 })).rejects.toThrow(/positive number/)
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
+    await expect(ctx.plugin(PtcCodeRuntime, { computeMs: -1 })).rejects.toThrow(/positive number/)
   })
 
   it('rejects a maxWallMs above Node\'s maximum timer delay', async () => {
     // setTimeout clamps a delay past 2^31-1 ms to 1 ms, so the positivity check
     // alone would accept a 25-day ceiling that expires on the first tick.
     const ctx = new Context()
-    await expect(ctx.plugin(WorkerThreadCodeRuntime, { maxWallMs: 2_147_483_648 }))
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
+    await expect(ctx.plugin(PtcCodeRuntime, { maxWallMs: 2_147_483_648 }))
       .rejects.toThrow(/maxWallMs must be at most 2147483647/)
     // The boundary itself is usable.
-    await expect(ctx.plugin(WorkerThreadCodeRuntime, { maxWallMs: 2_147_483_647 })).resolves.toBeTruthy()
+    await expect(ctx.plugin(PtcCodeRuntime, { maxWallMs: 2_147_483_647 })).resolves.toBeTruthy()
   })
 
   it('requires maxOutputBytes to fit the smallest counted outer payloads', async () => {
     const ctx = new Context()
-    await expect(ctx.plugin(WorkerThreadCodeRuntime, { maxOutputBytes: 3 })).rejects.toThrow(/safe integer of at least 4/)
-    await expect(ctx.plugin(WorkerThreadCodeRuntime, { maxOutputBytes: 4.5 })).rejects.toThrow(/safe integer of at least 4/)
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
+    await expect(ctx.plugin(PtcCodeRuntime, { maxOutputBytes: 3 })).rejects.toThrow(/safe integer of at least 4/)
+    await expect(ctx.plugin(PtcCodeRuntime, { maxOutputBytes: 4.5 })).rejects.toThrow(/safe integer of at least 4/)
+  })
+
+  it('rejects an empty nodeExecutable and a relative bootstrapPath', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
+    await expect(ctx.plugin(PtcCodeRuntime, { nodeExecutable: '' })).rejects.toThrow(/nodeExecutable must be non-empty/)
+    await expect(ctx.plugin(PtcCodeRuntime, { bootstrapPath: 'relative/child.cjs' })).rejects.toThrow(/bootstrapPath must be absolute/)
+  })
+
+  it('builds the ordinary child argv and an empty env, honoring an explicit node and bootstrap', async () => {
+    const base = { nodeExecutable: '/opt/node/bin/node', maxOldGenerationSizeMb: 256 }
+    expect(childSpawnPlan(base, false)).toEqual({
+      argv: ['/opt/node/bin/node', '--max-old-space-size=256', expect.any(String)],
+      env: {},
+    })
+    expect(childSpawnPlan({ ...base, bootstrapPath: '/opt/preinstalled/child.cjs' }, false)).toEqual({
+      argv: ['/opt/node/bin/node', '--max-old-space-size=256', '/opt/preinstalled/child.cjs'],
+      env: {},
+    })
+  })
+
+  it('respawns a single-file executable as the child, routing and heap cap through the environment', async () => {
+    // argv flags would reach the executable's own CLI parser, so the respawn
+    // carries exactly one argument and moves both facts into the env.
+    const plan = childSpawnPlan({ nodeExecutable: '/opt/bin/dsh-jsonrpc-agent', maxOldGenerationSizeMb: 512 }, true)
+    expect(plan).toEqual({
+      argv: ['/opt/bin/dsh-jsonrpc-agent'],
+      env: { DSH_PTC_RUNTIME_NODE: '1', NODE_OPTIONS: '--max-old-space-size=512' },
+    })
   })
 
   it('keeps runs isolated: no state survives from one run to the next', async () => {
@@ -876,12 +770,13 @@ describe('WorkerThreadCodeRuntime — seam misuse and lifecycle', () => {
     expect(second.value).toBe('undefined')
   })
 
-  it('disposal aborts in-flight runs, awaits worker exit, and rejects later runs', async () => {
+  it('disposal aborts in-flight runs, awaits child exit, and rejects later runs', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(WorkerThreadCodeRuntime)
-    const runtime = ctx.codeRuntime as WorkerThreadCodeRuntime
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
+    const fiber = await ctx.plugin(PtcCodeRuntime)
+    const runtime = ctx.codeRuntime as PtcCodeRuntime
     const inflight: Promise<CodeRunResult> = runtime.run({ program: 'for (;;) {}', bindings: [] })
-    // Give the worker a moment to actually start spinning.
+    // Give the child a moment to actually start spinning.
     await new Promise(resolve => setTimeout(resolve, 200))
     await fiber.dispose()
     const result = await inflight
@@ -891,8 +786,9 @@ describe('WorkerThreadCodeRuntime — seam misuse and lifecycle', () => {
 
   it('removes ctx.codeRuntime when the providing fiber disposes (HMR safety)', async () => {
     const ctx = new Context()
-    const fiber = await ctx.plugin(WorkerThreadCodeRuntime)
-    expect(ctx.get('codeRuntime')).toBeInstanceOf(WorkerThreadCodeRuntime)
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
+    const fiber = await ctx.plugin(PtcCodeRuntime)
+    expect(ctx.get('codeRuntime')).toBeInstanceOf(PtcCodeRuntime)
     await fiber.dispose()
     expect(ctx.get('codeRuntime')).toBeUndefined()
   })

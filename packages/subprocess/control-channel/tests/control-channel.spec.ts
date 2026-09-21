@@ -83,6 +83,10 @@ describe('send queue and pending-call backpressure', () => {
     gate.release(2)
     expect(() => { gate.acquire(3) }).not.toThrow()
     expect(gate.size).toBe(2)
+    // Releasing an id that never was pending is a stable no-op (late timers
+    // race cleanup), never a corruption of the count.
+    gate.release(99)
+    expect(gate.size).toBe(2)
   })
 })
 

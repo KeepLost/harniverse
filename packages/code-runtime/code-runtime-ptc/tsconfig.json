@@ -27,6 +27,15 @@
       "path": "../../runtime-diagnostics/invariants"
     },
     {
+      "path": "../../sandbox/sandbox"
+    },
+    {
+      "path": "../../sandbox/sandbox-policy"
+    },
+    {
+      "path": "../../subprocess/control-channel"
+    },
+    {
       "path": "../../util/timeout"
     }
   ]

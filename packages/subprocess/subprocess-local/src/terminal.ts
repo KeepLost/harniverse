@@ -79,6 +79,13 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
     this.terminal.write(data)
   }
 
+  // oxlint-disable-next-line typescript/require-await -- async converts node-pty throws to remote-compatible rejections.
+  async resize(cols: number, rows: number): Promise<void> {
+    if (this.exited) throw new Error('terminal process has exited')
+    if (![cols, rows].every(value => Number.isInteger(value) && value > 0 && value <= 65535)) throw new Error('invalid terminal dimensions')
+    this.terminal.resize(cols, rows)
+  }
+
   // oxlint-disable-next-line typescript/require-await -- async converts inspector throws to remote-compatible rejections.
   async inspectForeground(): Promise<SubprocessTerminalForeground | undefined> {
     this.descendants(this.inspector.snapshot())
