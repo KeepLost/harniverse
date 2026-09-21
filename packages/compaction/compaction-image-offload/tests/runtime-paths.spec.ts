@@ -37,9 +37,9 @@ async function setup(setting: number | 'unlimited' = 'unlimited') {
 describe('image offload across compaction consumers', () => {
   it.each([undefined, SessionId('not-loaded')])('preserves requests without a loaded session (%s)', async (sessionId) => {
     const { ctx, session } = await setup()
-    const options: GenerateOptions = { provider: 'mock', model: 'mock', sessionId, messages: [
+    const options: GenerateOptions = { provider: 'mock', model: 'mock', messages: [
       createUserMessage({ source: { kind: 'user' }, content: [image('standalone')] }),
-    ] }
+    ], ...(sessionId === undefined ? {} : { sessionId }) }
     expect(ctx.waterfall(ctx.llm, 'llm/project-request', options, () => options)).toBe(options)
     expect(session.events).toEqual([])
   })

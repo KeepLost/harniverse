@@ -21,8 +21,8 @@ export interface ForeignSessionHeader {
   readonly id: string
   /** The stored format version, unvalidated until classification. */
   readonly version: unknown
-  /** Unix epoch milliseconds when present as a safe integer. */
-  readonly createdAt: number | undefined
+  /** Unix epoch milliseconds from the validated foreign header. */
+  readonly createdAt: number
   /** Foreign working directory, retained as provenance rather than authority. */
   readonly cwd: string | undefined
 }
@@ -84,8 +84,9 @@ export function parseForeignSessionLog(text: string): ForeignSessionLog {
     throw new ForeignLogError('foreign session header must be a JSON object')
   }
   const headerRecord = headerJson as Record<string, unknown>
+  const createdAt = safeTime(headerRecord.createdAt)
   if (headerRecord.type !== 'session' || typeof headerRecord.id !== 'string' || headerRecord.id.length === 0
-    || safeTime(headerRecord.createdAt) === undefined || safeTime(headerRecord.delegationDepth) === undefined
+    || createdAt === undefined || safeTime(headerRecord.delegationDepth) === undefined
     || (headerRecord.cwd !== undefined && typeof headerRecord.cwd !== 'string')
     || ((headerRecord.version === 2 || headerRecord.version === 3) && typeof headerRecord.isSeeded !== 'boolean')) {
     throw new ForeignLogError('invalid foreign session header')
@@ -93,7 +94,7 @@ export function parseForeignSessionLog(text: string): ForeignSessionLog {
   const header: ForeignSessionHeader = {
     id: headerRecord.id,
     version: headerRecord.version,
-    createdAt: safeTime(headerRecord.createdAt),
+    createdAt,
     cwd: typeof headerRecord.cwd === 'string' ? headerRecord.cwd : undefined,
   }
 
