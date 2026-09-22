@@ -85,17 +85,17 @@
   flex: 1;
   min-width: 0;
   height: 30px;
-  border: 1px solid var(--dsw-alias-separator, rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--dsw-alias-border-l3);
   border-radius: 8px;
   background: transparent;
   color: var(--dsw-alias-label-primary);
-  font-family: var(--dsw-alias-font-mono, monospace);
+  font-family: var(--ds-font-family-code);
   font-size: 13px;
   padding: 2px 10px;
 }
 
 .urlInput:focus-visible {
-  outline: 2px solid var(--dsw-alias-accent, var(--dsw-alias-label-primary));
+  outline: 2px solid var(--dsw-alias-state-business-primary);
   outline-offset: 1px;
 }
 
@@ -105,14 +105,14 @@
   gap: 4px;
   flex: none;
   padding: 10px 12px;
-  border: 1px solid var(--dsw-alias-danger, #e5484d);
+  border: 1px solid var(--dsw-alias-state-error-primary);
   border-radius: 8px;
 }
 
 .noticeTitle {
   font-size: 13px;
   font-weight: 600;
-  color: var(--dsw-alias-danger, #e5484d);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .noticeBody {
@@ -124,7 +124,7 @@
 .noticeRaw {
   display: block;
   margin-top: 4px;
-  font-family: var(--dsw-alias-font-mono, monospace);
+  font-family: var(--ds-font-family-code);
   font-size: 12px;
   color: var(--dsw-alias-label-secondary);
   word-break: break-all;
@@ -134,7 +134,7 @@
   flex: 1;
   min-height: 0;
   width: 100%;
-  border: 1px solid var(--dsw-alias-separator, rgba(0, 0, 0, 0.1));
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
   background: var(--dsw-alias-interactive-bg-hover);
 }

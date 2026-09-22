@@ -15,9 +15,12 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: pulls the ui-theme Context merge (ctx.theme).
+import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import { TerminalPanelView } from './TerminalPanelView.tsx'
 import { TerminalSidebarAction } from './TerminalSidebarAction.tsx'
-import { TerminalPanelController } from './controller.ts'
+import { TerminalPanelController, type TerminalAppearance } from './controller.ts'
 import { createTerminalViewStore } from './view-store.ts'
 import { en, NS, zh, type TerminalKey } from './locales.ts'
 
@@ -34,8 +37,11 @@ export type {
 } from './TerminalPanelView.tsx'
 export type { TerminalSidebarActionProps, TerminalSidebarFace } from './TerminalSidebarAction.tsx'
 
-/** Required services for locale registration, the slots, the connection, and the layout exit. */
-export const inject = ['slots', 'locale', 'layout', 'connection']
+/**
+ * Required services for locale registration, the slots, the connection, the
+ * layout exit, and the theme revision the xterm.js presentation re-reads on.
+ */
+export const inject = ['slots', 'locale', 'layout', 'connection', 'theme']
 
 /**
  * Client plugin body: register the dictionaries, the sidebar footer trigger,
@@ -50,6 +56,13 @@ export function apply(ctx: ClientContext): void {
   const connection = ctx.get('connection') as ConnectionHandle
   const controller = new TerminalPanelController({ rpc: connection.rpc, events: connection.api.events })
   ctx.effect(() => () => { controller.dispose() }, 'ui-terminal: panel controller')
+  // xterm.js renders from JavaScript values, so a palette or content
+  // font-size change has to be pushed into it; the revision counter is the
+  // panel's notification that the declared presentation must be re-read.
+  const appearance = createSnapshotStore<TerminalAppearance>({ revision: ctx.theme.getTheme().revision })
+  ctx.on('theme/change', (snapshot) => {
+    appearance.set({ revision: snapshot.revision })
+  })
   const viewStore = createTerminalViewStore()
   ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
     name: 'sidebar.footer.action',
@@ -69,7 +82,7 @@ export function apply(ctx: ClientContext): void {
     store: viewStore,
     inject: () => ({
       closeView: () => { ctx.layout.clearCenterView() },
-      hooks: { terminals: controller.state },
+      hooks: { terminals: controller.state, appearance },
       bindSession: (sessionId: Parameters<TerminalPanelController['bindSession']>[0]) => {
         controller.bindSession(sessionId)
       },

@@ -8,14 +8,17 @@ User-facing terminal panel for the Web app: one xterm.js surface over the authen
 
 | Aspect | Behavior |
 |---|---|
-| Injection | `slots`, `locale`, `layout`, `connection`. |
+| Injection | `slots`, `locale`, `layout`, `connection`, `theme`. |
 | Trigger slot | `sidebar.footer.action`, id `terminal-view`, order 40 (after the browser trigger); calls `ctx.layout.setCenterView('terminal')`. |
 | View slot | `center.view`, id `terminal`; covers the center column while the layout names it, and closes through `ctx.layout.clearCenterView()` (a session switch also clears it). |
 | Store | One shared `createTerminalViewStore` instance: the center view writes occupancy on mount/unmount, the footer trigger mirrors it as its pressed affordance. |
 | Controller | `TerminalPanelController` (plugin-fiber lifetime, DOM-free) owns the terminal list, the follow stream for the active tab, window holds for every running terminal, and the bounded slow-follower ladder; the panel state publishes through the inject `hooks` compartment and survives view remounts. |
 | Wire surface | Unary verbs ride the shared `/api` logical channel (`terminal/environment|shells|list|create|write|resize|rename|close`); streams ride the api-client `terminal` (attachment) and `hold` (window retention) event faces. |
 | Input ownership | Opening the follow stream claims the exclusive input attachment; a demoted attachment sees `controllerId` mismatch in snapshot/state frames, renders read-only, and can take input back by re-attaching. |
-| Resize | Container resize → FitAddon → clamped dimensions (host ceilings from the environment) → `terminal/resize`; the local clamp is optimistic, the host validates authoritatively. |
+| Resize | Container resize, `visualViewport` change (a soft keyboard shrinks the visual viewport without resizing the layout viewport), and `document.fonts.ready` all refit → FitAddon → clamped dimensions (host ceilings from the environment) → `terminal/resize`; the local clamp is optimistic, the host validates authoritatively. |
+| Surface mounting | The xterm surface and the placeholder are alternatives, never siblings: with no session or no terminal the view renders only the hint, and the surface mounts when the first terminal appears and retires with the last. A surface mounted behind the hint paints over it, and a hidden container makes FitAddon measure a collapsed parent. |
+| Presentation | xterm takes colors and metrics as JavaScript options, so the CSS declares `--dsh-terminal-{bg,fg,cursor,selection,font-family,font-size}` on the surface and the component reads the computed values back into the terminal options. A `theme/change` publication bumps an appearance revision through the inject `hooks` compartment, which re-resolves the properties and refits. |
+| Touch and phone form | `@media (pointer: coarse)` reveals a control-key bar (Esc, Tab, Ctrl C/D/Z, arrows) that writes the escape sequences a soft keyboard cannot produce, keeping focus so the keyboard stays open; `[data-viewport='phone']` drops the titles, raises every control to a 44 px target, and shrinks the cell to 12 px. |
 
 ## Model Experience
 
@@ -40,4 +43,6 @@ None; the package never assembles or sends provider requests.
 - Input exclusivity: taking input demotes the previous holder without notice beyond its own read-only banner; there is no negotiation or multi-writer arbitration.
 - Retention visibility: the host hold stream exposes only the one-shot `retained` frame, so the panel renders no retention countdown or reclaim notice.
 - Rename validation mirrors the host bounds (1–120 characters after trimming); invalid drafts are silently dropped rather than field-validated.
-- xterm in jsdom: the real terminal mounts in tests, but jsdom has no font metrics, so fitted-dimension reporting is covered through a stubbed `proposeDimensions` (a test-only seam); browser layout itself is exercised by e2e lanes.
+- xterm in jsdom: the real terminal mounts in the component specs, but jsdom has no layout engine and does not apply CSS, so fitted-dimension reporting is covered through a stubbed `proposeDimensions` (a test-only seam) and appearance resolves to the fallbacks. Everything about size and looks is asserted in `apps/web/tests/terminal-panel.e2e.ts` instead, against a real browser and a real PTY.
+- Control-key coverage: the key bar carries the nine sequences an on-screen keyboard cannot type; anything else (function keys, Alt combinations, Ctrl with another letter) still needs a physical keyboard.
+- Touch selection: xterm's own hidden-textarea model makes drag-selection and copy unreliable under a coarse pointer, and the panel adds no gesture layer of its own.

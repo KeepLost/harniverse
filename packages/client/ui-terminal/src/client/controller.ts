@@ -40,6 +40,17 @@ const TITLE_MAX = 120
 /** Slow-follower failure marker in the host's stream error message. */
 const BUFFER_EXCEEDED = 'exceeded its buffer'
 
+/**
+ * Appearance revision the view re-resolves its xterm.js presentation on.
+ * xterm.js takes colors and metrics as JavaScript values rather than CSS, so a
+ * palette or content-font-size change cannot reach the rendered screen through
+ * the cascade alone; the revision is the notification that it must be re-read.
+ */
+export interface TerminalAppearance {
+  /** Monotonic counter of theme snapshots published since the panel loaded. */
+  readonly revision: number
+}
+
 /** The xterm.js-facing frame sink the panel view registers. */
 export interface TerminalSurface {
   /** Replace the rendered screen with a recovery snapshot. */

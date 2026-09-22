@@ -14,6 +14,8 @@ Global style sheets belong in `ui-theme/src/styles/`. Component styles live besi
 
 - Use CSS Modules and `clsx`; do not add a component library or Tailwind.
 - Use `--dsw-alias-*` semantic tokens in feature components. Do not copy static palette values or write literal colors there.
+- Consume a token that exists. `var(--dsw-alias-x, #000)` behind an undefined `--dsw-alias-x` ships the literal in both palettes and leaves the theme owner nothing to change, so [`verify-client-css-tokens`](../scripts/verify-client-css-tokens.ts) rejects the fallback form too. A genuinely new role gets a token in the owning theme sheet.
+- A component that hands a value to JavaScript rather than the cascade still declares it in CSS: xterm.js takes its palette and cell metrics as options, so the terminal surface declares `--dsh-terminal-*` locals and the component reads the computed values back. The presentation contract stays where the form factor and the palette can reach it.
 - Keep theme selectors out of feature component CSS. Light/dark overrides belong to the theme owner.
 - Pair font sizes with line heights and use the theme typography variables when an existing role matches.
 - Keep source text, terminal output, and diff lines unwrapped when their component contract requires column preservation; use the shared scrollbar styles rather than component-specific scrollbar selectors.

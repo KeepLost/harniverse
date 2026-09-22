@@ -22,7 +22,10 @@ interface CapturedRegistration { options: Record<string, unknown>; component: un
 
 /** The inject face the center view receives (verbs + panel state source). */
 interface TerminalFace {
-  hooks: { terminals: { getSnapshot: () => { session: unknown } } }
+  hooks: {
+    terminals: { getSnapshot: () => { session: unknown } }
+    appearance: { getSnapshot: () => { revision: number } }
+  }
   closeView: () => void
   bindSession: (sessionId: unknown) => void
 }
@@ -34,6 +37,7 @@ async function bench(): Promise<{
   captured: CapturedRegistration[]
   layoutCalls: string[]
   rpcCalls: Array<{ channel: string; endpoint: string }>
+  publishTheme: (revision: number) => void
 }> {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
@@ -60,6 +64,14 @@ async function bench(): Promise<{
   } as never)
   ctx.provide('remote', { $on: () => () => {} } as never)
   ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
+  // xterm.js renders from JavaScript values, so the panel re-reads its
+  // declared presentation whenever the theme publishes a new revision.
+  let themeRevision = 7
+  ctx.provide('theme', { getTheme: () => ({ revision: themeRevision }) } as never)
+  const publishTheme = (revision: number): void => {
+    themeRevision = revision
+    ;(ctx.emit as (event: string, snapshot: unknown) => void)('theme/change', { revision })
+  }
   const layoutCalls: string[] = []
   ctx.provide('layout', {
     setCenterView: (id: string | undefined) => { layoutCalls.push(id === undefined ? 'clear' : `set:${id}`) },
@@ -82,12 +94,12 @@ async function bench(): Promise<{
     },
   })
   await fiber.await()
-  return { ctx, fiber, captured, layoutCalls, rpcCalls }
+  return { ctx, fiber, captured, layoutCalls, rpcCalls, publishTheme }
 }
 
 describe('ui-terminal browser half', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slots', 'locale', 'layout', 'connection'])
+    expect(inject).toEqual(['slots', 'locale', 'layout', 'connection', 'theme'])
   })
 
   it('registers both slots after their targets, and fiber teardown removes them (HMR safety)', async () => {
@@ -139,6 +151,16 @@ describe('ui-terminal browser half', () => {
     const viewFace = view!.options['inject'] as () => TerminalFace
     viewFace().closeView()
     expect(layoutCalls).toEqual(['set:terminal', 'clear'])
+  })
+
+  it('publishes the theme revision the panel re-reads its xterm presentation on', async () => {
+    const { captured, publishTheme } = await bench()
+    const view = captured.find(({ options }) => options['id'] === 'terminal')
+    const face = view!.options['inject'] as () => TerminalFace
+    const { appearance } = face().hooks
+    expect(appearance.getSnapshot().revision).toBe(7)
+    publishTheme(8)
+    expect(appearance.getSnapshot().revision).toBe(8)
   })
 
   it('wires the panel controller over the connection handle inside apply', async () => {

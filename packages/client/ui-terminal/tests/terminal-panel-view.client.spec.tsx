@@ -2,11 +2,17 @@
 /**
  * The terminal panel center view as a user sees it: occupancy follows
  * mount/unmount, the session binds through the inject verb, the real xterm.js
- * surface mounts into the container (snapshot frames land in the DOM), the
- * tab bar and shell picker drive the controller verbs, and every status
- * banner (read-only takeover, reconnecting, exhausted retries, RPC errors)
- * renders from the published panel state. FitAddon dimension reporting is
- * stubbed only where jsdom has no layout engine.
+ * surface mounts into the container (snapshot frames land in the DOM) only
+ * once there is a terminal to render, the tab bar and shell picker drive the
+ * controller verbs, the touch key bar sends the sequences a soft keyboard
+ * cannot, and every status banner (read-only takeover, reconnecting,
+ * exhausted retries, RPC errors) renders from the published panel state.
+ *
+ * jsdom has no layout engine and does not resolve the surface's declared
+ * presentation properties, so FitAddon dimensions are stubbed and the
+ * appearance contract itself is asserted against the real browser in
+ * apps/web/tests/terminal-panel.e2e.ts — a jsdom assertion about colors or
+ * columns would only be asserting the fallback path.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -80,6 +86,9 @@ function info(id: string, overrides: Partial<WebTerminalInfo> = {}): WebTerminal
   }
 }
 
+/** One running terminal: the state that mounts the xterm surface. */
+const ONE_TERMINAL = { terminals: [info('t1')], activeId: 't1' as WebTerminalId }
+
 /** The environment fixture the panel state carries. */
 const environment: TerminalEnvironment = { cwd: '/tmp', maxInputBytes: 4096, maxCols: 500, maxRows: 200, scrollback: 2000 }
 
@@ -88,6 +97,7 @@ function mount(options: { session?: SessionId; panel?: Partial<TerminalPanelStat
   const instance = createTerminalViewStore().create()
   const panelStore = createSnapshotStore<TerminalPanelState>({ ...INITIAL, ...options.panel })
   const sessions = staticStore({ current: options.session })
+  const appearanceStore = staticStore({ revision: 1 })
   const verbs = {
     closeView: vi.fn(), bindSession: vi.fn(), activate: vi.fn(), create: vi.fn(), close: vi.fn(),
     rename: vi.fn(), write: vi.fn(), resize: vi.fn(), takeInput: vi.fn(),
@@ -103,6 +113,7 @@ function mount(options: { session?: SessionId; panel?: Partial<TerminalPanelStat
         useStore: hookOf(instance),
         actions: instance.actions,
         useTerminals: hookOf(panelStore),
+        useAppearance: hookOf(appearanceStore),
         t,
         ...verbs,
         bindSurface,
@@ -112,7 +123,7 @@ function mount(options: { session?: SessionId; panel?: Partial<TerminalPanelStat
   const setPanel = (patch: Partial<TerminalPanelState>): void => {
     act(() => { panelStore.set({ ...panelStore.getSnapshot(), ...patch }) })
   }
-  return { container, instance, sessions, setPanel, surfaces, bindSurface, ...verbs }
+  return { container, instance, sessions, appearanceStore, setPanel, surfaces, bindSurface, ...verbs }
 }
 
 /** The mounted xterm surface element, once the effect has attached it. */
@@ -131,17 +142,32 @@ describe('TerminalPanelView', () => {
     expect(screen.getByText(zh['view.no-session'])).toBeDefined()
     expect(screen.getByRole('button', { name: zh['tab.new'] })).toHaveProperty('disabled', true)
     expect(screen.getByLabelText(zh['shell.label'])).toHaveProperty('disabled', true)
-    expect(container.querySelector('.xterm')).not.toBeNull()
+    // xterm paints an opaque screen over whatever shares its box, so the
+    // guidance and the surface are alternatives, never siblings.
+    expect(container.querySelector('.xterm')).toBeNull()
   })
 
-  it('renders the empty hint for a session without terminals', () => {
-    mount({ session: 's1' as SessionId })
+  it('renders the empty hint for a session without terminals and no surface behind it', () => {
+    const { container } = mount({ session: 's1' as SessionId })
     expect(screen.getByText(zh['view.empty'])).toBeDefined()
     expect(screen.getByRole('button', { name: zh['tab.new'] })).toHaveProperty('disabled', false)
+    expect(container.querySelector('.xterm')).toBeNull()
+    expect(screen.queryByLabelText(zh['surface.label'])).toBeNull()
+  })
+
+  it('mounts the surface when the first terminal appears and retires it with the last', async () => {
+    const harness = mount({ session: 's1' as SessionId })
+    harness.setPanel(ONE_TERMINAL)
+    await xtermSurface(harness.container)
+    expect(screen.queryByText(zh['view.empty'])).toBeNull()
+    harness.setPanel({ terminals: [], activeId: undefined })
+    expect(harness.container.querySelector('.xterm')).toBeNull()
+    expect(screen.getByText(zh['view.empty'])).toBeDefined()
+    expect(harness.bindSurface).toHaveBeenLastCalledWith(undefined)
   })
 
   it('claims occupancy on mount, releases it on unmount, and rebinds the session', () => {
-    const harness = mount({ session: 's1' as SessionId })
+    const harness = mount({ session: 's1' as SessionId, panel: ONE_TERMINAL })
     expect(harness.instance.getSnapshot().open).toBe(true)
     expect(harness.bindSession).toHaveBeenCalledWith('s1' as SessionId)
     act(() => { harness.sessions.set({ current: 's2' as SessionId }) })
@@ -154,7 +180,7 @@ describe('TerminalPanelView', () => {
   })
 
   it('mounts the xterm surface and renders snapshot frames into it', async () => {
-    const { container, surfaces } = mount({ session: 's1' as SessionId })
+    const { container, surfaces } = mount({ session: 's1' as SessionId, panel: ONE_TERMINAL })
     const surface = await xtermSurface(container)
     const panel = surfaces[0]
     if (panel === undefined) throw new Error('surface not registered')
@@ -165,7 +191,7 @@ describe('TerminalPanelView', () => {
   })
 
   it('focuses the xterm textarea when the wrapper gains focus', async () => {
-    const { container } = mount({ session: 's1' as SessionId })
+    const { container } = mount({ session: 's1' as SessionId, panel: ONE_TERMINAL })
     await xtermSurface(container)
     const wrapper = screen.getByLabelText(zh['surface.label'])
     fireEvent.focus(wrapper)
@@ -175,7 +201,7 @@ describe('TerminalPanelView', () => {
   })
 
   it('routes typed keys from the xterm textarea into the write verb', async () => {
-    const { container, write } = mount({ session: 's1' as SessionId })
+    const { container, write } = mount({ session: 's1' as SessionId, panel: ONE_TERMINAL })
     await xtermSurface(container)
     const textarea = container.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement
     fireEvent.focus(textarea)
@@ -188,7 +214,7 @@ describe('TerminalPanelView', () => {
   it('reports fitted dimensions through the resize verb', async () => {
     const propose = vi.spyOn(FitAddon.prototype, 'proposeDimensions')
       .mockReturnValue({ cols: 90, rows: 30 })
-    const harness = mount({ session: 's1' as SessionId })
+    const harness = mount({ session: 's1' as SessionId, panel: ONE_TERMINAL })
     await xtermSurface(harness.container)
     expect(harness.resize).toHaveBeenCalledWith(90, 30)
     propose.mockReturnValue({ cols: Number.NaN, rows: 30 })
@@ -203,14 +229,14 @@ describe('TerminalPanelView', () => {
       unobserve(): void {}
       disconnect(): void {}
     })
-    const harness = mount({ session: 's1' as SessionId })
+    const harness = mount({ session: 's1' as SessionId, panel: ONE_TERMINAL })
     await xtermSurface(harness.container)
     expect(harness.surfaces).toHaveLength(1)
     expect(typeof harness.surfaces[0]?.reset).toBe('function')
   })
 
   it('applies the host scrollback setting to the mounted terminal', async () => {
-    const harness = mount({ session: 's1' as SessionId })
+    const harness = mount({ session: 's1' as SessionId, panel: ONE_TERMINAL })
     await xtermSurface(harness.container)
     act(() => { harness.setPanel({ environment }) })
     // The terminal instance is view-private; the effect is smoke-asserted by
@@ -337,6 +363,34 @@ describe('TerminalPanelView', () => {
     expect(screen.getByText(zh['reconnect.failed'])).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: zh['reconnect.retry'] }))
     expect(harness.takeInput).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends the control sequences a soft keyboard cannot produce', async () => {
+    const harness = mount({ session: 's1' as SessionId, panel: ONE_TERMINAL })
+    await xtermSurface(harness.container)
+    const bar = screen.getByRole('group', { name: zh['keys.label'] })
+    const keys = [...bar.querySelectorAll('button')].map(button => button.textContent)
+    expect(keys).toEqual(['Esc', 'Tab', 'Ctrl C', 'Ctrl D', 'Ctrl Z', '↑', '↓', '←', '→'])
+    fireEvent.click(screen.getByRole('button', { name: 'Ctrl C' }))
+    expect(harness.write).toHaveBeenCalledWith('\u0003')
+    fireEvent.click(screen.getByRole('button', { name: 'Tab' }))
+    expect(harness.write).toHaveBeenCalledWith('\t')
+    fireEvent.click(screen.getByRole('button', { name: '↑' }))
+    expect(harness.write).toHaveBeenCalledWith('\u001B[A')
+    // The key bar is useless if pressing it dismisses the soft keyboard, so
+    // the press must not take focus from the surface.
+    const textarea = harness.container.querySelector('.xterm-helper-textarea')
+    expect(document.activeElement).toBe(textarea)
+  })
+
+  it('keeps rendering frames across an appearance revision', async () => {
+    const harness = mount({ session: 's1' as SessionId, panel: ONE_TERMINAL })
+    const surface = await xtermSurface(harness.container)
+    act(() => { harness.appearanceStore.set({ revision: 2 }) })
+    const sink = harness.surfaces[0]
+    if (sink === undefined) throw new Error('surface not registered')
+    act(() => { sink.write('after retheme') })
+    await waitFor(() => { expect(surface.textContent).toContain('after retheme') })
   })
 
   it('renders the read-only banner with the takeover verb while another window holds input', () => {

@@ -27,6 +27,7 @@ export const zh = {
   'reconnect.failed': '与终端的连接已中断，自动重连未成功。',
   'reconnect.retry': '重试',
   'surface.label': '终端输出',
+  'keys.label': '控制键',
 } as const
 
 /** Terminal panel dictionary key set. */
@@ -56,4 +57,5 @@ export const en: Record<TerminalKey, string> = {
   'reconnect.failed': 'The terminal connection broke and automatic reattach did not succeed.',
   'reconnect.retry': 'Retry',
   'surface.label': 'Terminal output',
+  'keys.label': 'Control keys',
 }

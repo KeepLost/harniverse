@@ -6,8 +6,15 @@
  * bounded slow-follower recovery surfaces as a reconnecting banner; the
  * terminal list, shell discovery, create/rename/close verbs, and container
  * resize all ride the panel controller through the inject face.
+ *
+ * xterm.js paints its own opaque screen and takes colors and metrics as
+ * JavaScript values, so the surface declares them as local custom properties
+ * in its stylesheet and this component reads the computed values back: the
+ * presentation contract (tokens, per-form font size) stays in CSS, and the
+ * appearance revision published by the theme service re-resolves them when the
+ * palette or the content font size changes.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
@@ -19,7 +26,7 @@ import {
   IconPlusOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { createTerminalViewStore } from './view-store.ts'
-import type { TerminalPanelState, TerminalSurface } from './controller.ts'
+import type { TerminalAppearance, TerminalPanelState, TerminalSurface } from './controller.ts'
 import { NS } from './locales.ts'
 import css from './TerminalPanelView.module.css'
 import './xterm-base.module.css'
@@ -29,6 +36,8 @@ export interface TerminalPanelInjected {
   hooks: {
     /** Panel controller state bound by the renderer as useTerminals. */
     terminals: SnapshotStore<TerminalPanelState>
+    /** Theme revision bound by the renderer as useAppearance. */
+    appearance: SnapshotStore<TerminalAppearance>
   }
   /** Release the center column back to the conversation. */
   closeView: () => void
@@ -67,6 +76,74 @@ const CHIP_KEYS = {
 } as const
 
 /**
+ * Keys a soft keyboard cannot produce, as the raw sequences a PTY expects.
+ * Without them a touch surface cannot interrupt a command, complete a path,
+ * or leave a full-screen editor. The bar is a touch affordance: its stylesheet
+ * reveals it in the phone form and on coarse pointers.
+ */
+const KEY_BAR = [
+  { id: 'esc', label: 'Esc', data: '\u001B' },
+  { id: 'tab', label: 'Tab', data: '\t' },
+  { id: 'ctrl-c', label: 'Ctrl C', data: '\u0003' },
+  { id: 'ctrl-d', label: 'Ctrl D', data: '\u0004' },
+  { id: 'ctrl-z', label: 'Ctrl Z', data: '\u001A' },
+  { id: 'up', label: '↑', data: '\u001B[A' },
+  { id: 'down', label: '↓', data: '\u001B[B' },
+  { id: 'left', label: '←', data: '\u001B[D' },
+  { id: 'right', label: '→', data: '\u001B[C' },
+] as const
+
+/** Local custom properties the surface stylesheet declares for xterm.js. */
+const PRESENTATION_PROPERTIES = {
+  background: '--dsh-terminal-bg',
+  foreground: '--dsh-terminal-fg',
+  cursor: '--dsh-terminal-cursor',
+  selection: '--dsh-terminal-selection',
+  fontFamily: '--dsh-terminal-font-family',
+  fontSize: '--dsh-terminal-font-size',
+} as const
+
+/** Resolved xterm.js presentation read back from the surface element. */
+interface TerminalPresentation {
+  /** Font stack for the rendered cells. */
+  fontFamily: string
+  /** Cell font size in px. */
+  fontSize: number
+  /** Screen, text, cursor, and selection paints. */
+  theme: { background: string; foreground: string; cursor: string; selectionBackground: string }
+}
+
+/** Fallback metrics when the stylesheet has not resolved (no layout engine). */
+const FALLBACK_FONT_SIZE = 13
+
+/**
+ * Read the surface's declared presentation contract.
+ * @param element - the mounted surface element carrying the properties.
+ * @returns the resolved presentation, or undefined when the sheet resolved nothing.
+ */
+function resolvePresentation(element: HTMLElement): TerminalPresentation | undefined {
+  const style = getComputedStyle(element)
+  const read = (name: string): string => style.getPropertyValue(name).trim()
+  const background = read(PRESENTATION_PROPERTIES.background)
+  const foreground = read(PRESENTATION_PROPERTIES.foreground)
+  if (background === '' || foreground === '') return undefined
+  const cursor = read(PRESENTATION_PROPERTIES.cursor)
+  const selectionBackground = read(PRESENTATION_PROPERTIES.selection)
+  const size = Number.parseFloat(read(PRESENTATION_PROPERTIES.fontSize))
+  const fontFamily = read(PRESENTATION_PROPERTIES.fontFamily)
+  return {
+    fontFamily: fontFamily === '' ? 'monospace' : fontFamily,
+    fontSize: Number.isFinite(size) && size > 0 ? size : FALLBACK_FONT_SIZE,
+    theme: {
+      background,
+      foreground,
+      cursor: cursor === '' ? foreground : cursor,
+      selectionBackground: selectionBackground === '' ? foreground : selectionBackground,
+    },
+  }
+}
+
+/**
  * The panel shell: header with the active terminal's state chip and rename
  * form, the tab bar over the session's terminals, the shell picker with the
  * create verb, status banners, and the fitted xterm.js surface. Terminal
@@ -75,18 +152,20 @@ const CHIP_KEYS = {
  * @returns the panel shell.
  */
 export function TerminalPanelView({
-  useSessions, actions, useTerminals, closeView, bindSession, activate, create, close, rename,
+  useSessions, actions, useTerminals, useAppearance, closeView, bindSession, activate, create, close, rename,
   write, resize, takeInput, bindSurface, t,
 }: TerminalPanelViewProps) {
   useEffect(() => { actions.setOpen(true); return () => { actions.setOpen(false) } }, [actions])
   const session = useSessions(state => state.current)
   const panel = useTerminals(state => state)
+  const appearance = useAppearance(state => state.revision)
   const active = panel.terminals.find(info => info.id === panel.activeId)
 
-  // Latest-verb refs keep the xterm effect mounted once per panel lifetime.
+  // Latest-verb refs keep the xterm effect mounted once per surface lifetime.
   const verbs = useRef({ write, resize, bindSurface })
   verbs.current = { write, resize, bindSurface }
   const terminalRef = useRef<Terminal | undefined>(undefined)
+  const refitRef = useRef<(() => void) | undefined>(undefined)
   const containerRef = useRef<HTMLDivElement | null>(null)
 
   const [shellPath, setShellPath] = useState<string>('')
@@ -95,12 +174,27 @@ export function TerminalPanelView({
 
   useEffect(() => { bindSession(session) }, [bindSession, session])
 
+  // The surface only mounts with a terminal to render: xterm paints an opaque
+  // screen over whatever shares its box, so a placeholder and the surface are
+  // alternatives, never siblings.
+  const placeholder = useMemo(() => {
+    if (session === undefined) return 'view.no-session' as const
+    if (panel.terminals.length === 0) return 'view.empty' as const
+    return undefined
+  }, [panel.terminals.length, session])
+  const mounted = placeholder === undefined
+
   useEffect(() => {
+    if (!mounted) return
     const container = containerRef.current
     // The surface div renders in the same commit that runs this effect.
     /* v8 ignore next -- the ref is always attached here */
     if (container === null) return
-    const terminal = new Terminal({ scrollback: 1000 })
+    const presentation = resolvePresentation(container)
+    const terminal = new Terminal({
+      scrollback: 1000,
+      ...(presentation === undefined ? {} : presentation),
+    })
     terminalRef.current = terminal
     const fit = new FitAddon()
     terminal.loadAddon(fit)
@@ -112,26 +206,53 @@ export function TerminalPanelView({
       if (dims === undefined || !Number.isFinite(dims.cols) || !Number.isFinite(dims.rows)) return
       verbs.current.resize(dims.cols, dims.rows)
     }
+    refitRef.current = applyFit
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(applyFit) : undefined
     observer?.observe(container)
+    // A soft keyboard shrinks the visual viewport without resizing the layout
+    // viewport, so the frame's own box never changes and only this listener
+    // reports the usable height.
+    const viewport = window.visualViewport
+    viewport?.addEventListener('resize', applyFit)
+    viewport?.addEventListener('scroll', applyFit)
     applyFit()
+    // The first fit measures fallback-font metrics; the real column count is
+    // only knowable once the declared font stack has loaded.
+    let live = true
+    void document.fonts?.ready.then(() => { if (live) applyFit() })
     const surface: TerminalSurface = {
       reset: (screen) => { terminal.reset(); terminal.write(screen) },
       write: (data) => { terminal.write(data) },
     }
     verbs.current.bindSurface(surface)
     return () => {
+      live = false
       observer?.disconnect()
+      viewport?.removeEventListener('resize', applyFit)
+      viewport?.removeEventListener('scroll', applyFit)
       verbs.current.bindSurface(undefined)
       terminal.dispose()
       terminalRef.current = undefined
+      refitRef.current = undefined
     }
-  }, [])
+  }, [mounted])
+
+  useEffect(() => {
+    const terminal = terminalRef.current
+    const container = containerRef.current
+    if (terminal === undefined || container === null) return
+    const presentation = resolvePresentation(container)
+    if (presentation === undefined) return
+    terminal.options.theme = presentation.theme
+    terminal.options.fontFamily = presentation.fontFamily
+    terminal.options.fontSize = presentation.fontSize
+    refitRef.current?.()
+  }, [appearance, mounted])
 
   useEffect(() => {
     if (terminalRef.current === undefined || panel.environment === undefined) return
     terminalRef.current.options.scrollback = panel.environment.scrollback
-  }, [panel.environment])
+  }, [mounted, panel.environment])
 
   const beginRename = () => {
     // The rename control only renders with an active terminal, so the title
@@ -274,19 +395,37 @@ export function TerminalPanelView({
           <button type="button" className={css.button} onClick={takeInput}>{t('readonly.take')}</button>
         </p>
       ) : null}
-      <div
-        ref={containerRef}
-        className={css.surface}
-        aria-label={t('surface.label')}
-        tabIndex={0}
-        onFocus={() => { terminalRef.current?.focus() }}
-      >
-        {session === undefined ? (
-          <p className={css.empty}>{t('view.no-session')}</p>
-        ) : panel.terminals.length === 0 ? (
-          <p className={css.empty}>{t('view.empty')}</p>
-        ) : null}
-      </div>
+      {mounted ? (
+        <>
+          <div
+            ref={containerRef}
+            className={css.surface}
+            aria-label={t('surface.label')}
+            tabIndex={0}
+            onFocus={() => { terminalRef.current?.focus() }}
+          />
+          <div className={css.keyBar} aria-label={t('keys.label')} role="group">
+            {KEY_BAR.map(key => (
+              <button
+                key={key.id}
+                type="button"
+                className={css.keyButton}
+                // Keeping focus on the surface is what makes the bar usable:
+                // a soft keyboard closes the moment its input loses focus.
+                onMouseDown={(event) => { event.preventDefault() }}
+                onClick={() => {
+                  write(key.data)
+                  terminalRef.current?.focus()
+                }}
+              >
+                {key.label}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <p className={css.empty}>{t(placeholder)}</p>
+      )}
     </section>
   )
 }
