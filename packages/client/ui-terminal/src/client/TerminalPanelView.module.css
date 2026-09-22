@@ -1,0 +1,265 @@
+/** Terminal panel (终端) center view: a header and tab bar over the fitted
+ * xterm.js surface filling the remaining height. The xterm base rules live
+ * in xterm-base.module.css; this sheet owns the panel chrome only. */
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 20px 24px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.button {
+  border: none;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.iconButton:disabled,
+.shellSelect:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.chip {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 18px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.chip_running {
+  color: var(--dsw-alias-accent, var(--dsw-alias-label-primary));
+}
+
+.chip_failed {
+  color: var(--dsw-alias-danger, #e5484d);
+}
+
+.chipError {
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--dsw-alias-danger, #e5484d);
+}
+
+.renameForm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.renameInput {
+  box-sizing: border-box;
+  height: 28px;
+  min-width: 160px;
+  border: 1px solid var(--dsw-alias-separator, rgba(0, 0, 0, 0.2));
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 2px 10px;
+}
+
+.renameInput:focus-visible {
+  outline: 2px solid var(--dsw-alias-accent, var(--dsw-alias-label-primary));
+  outline-offset: 1px;
+}
+
+.shellLabel {
+  flex: none;
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.shellSelect {
+  box-sizing: border-box;
+  height: 28px;
+  border: 1px solid var(--dsw-alias-separator, rgba(0, 0, 0, 0.2));
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 2px 6px;
+}
+
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  overflow-x: auto;
+}
+
+.tab,
+.tabActive {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  box-sizing: border-box;
+  flex: none;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+
+.tabActive {
+  border-color: var(--dsw-alias-separator, rgba(0, 0, 0, 0.2));
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.tabButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  padding: 4px 6px 4px 10px;
+  cursor: pointer;
+  max-width: 220px;
+}
+
+.tabTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabState {
+  flex: none;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.tabClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.tabClose:hover,
+.tabClose:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.notice,
+.error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.notice {
+  border: 1px solid var(--dsw-alias-separator, rgba(0, 0, 0, 0.2));
+  color: var(--dsw-alias-label-primary);
+}
+
+.error {
+  border: 1px solid var(--dsw-alias-danger, #e5484d);
+  color: var(--dsw-alias-danger, #e5484d);
+}
+
+/* The terminal output surface: the xterm viewport paints an opaque screen,
+ * so the panel keeps the token surface color behind it. */
+.surface {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-separator, rgba(0, 0, 0, 0.1));
+  border-radius: 8px;
+  background: var(--dsw-alias-terminal-bg, #000);
+  overflow: hidden;
+}
+
+.surface:focus-visible {
+  outline: 2px solid var(--dsw-alias-accent, var(--dsw-alias-label-primary));
+  outline-offset: 1px;
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary);
+}

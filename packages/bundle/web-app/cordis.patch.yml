@@ -142,6 +142,14 @@
     - id: capability-management
       name: '@deepseek-ai/dsh-host-capability-management'
 
+    # Session-scoped interactive USER terminals for the browser panel: a Host
+    # Remote over the subprocess PTY seam (never sandbox-confined, never
+    # model-visible), exposed through the gateway's terminal/* endpoints and
+    # the events.terminal / events.hold SSE streams. Panel terminals run with
+    # the full harness environment and login-shell startup.
+    - id: terminal-controller
+      name: '@deepseek-ai/dsh-api-terminal-controller'
+
     # The API gateway: the transport-agnostic dispatch face every client shape
     # shares. The base layer's agent-default-model service owns the default model.
     - id: api-gateway
@@ -323,6 +331,16 @@
     # with per-session memory quota adjustment.
     - id: ui-governor
       name: '@deepseek-ai/dsh-client-ui-governor'
+
+    # Embedded browser carrier panel: URL-bar-driven sandboxed iframe with
+    # app-owned history and navigation-time URL policy.
+    - id: ui-browser
+      name: '@deepseek-ai/dsh-client-ui-browser'
+
+    # 用户终端面板：xterm.js 渲染的交互式 Shell 面板，经 terminal Remote 与
+    # EventsApi terminal/hold 流驱动，不对模型可见。
+    - id: ui-terminal
+      name: '@deepseek-ai/dsh-client-ui-terminal'
 
     # Message-queue tab of the panel (会话看板) over the queue Remote.
     - id: ui-queue
