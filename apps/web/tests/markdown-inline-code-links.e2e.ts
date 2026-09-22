@@ -122,16 +122,20 @@ describe('web e2e: Markdown inline-code links', () => {
     await inlineCodeLink.focus()
     expect(await inlineCodeLink.evaluate(element => document.activeElement === element)).toBe(true)
 
-    const popupPromise = page.waitForEvent('popup')
+    // The shipped Web surface mounts the browser panel, so a plain click hands
+    // the destination to it instead of opening a tab: the page is then fetched
+    // by the host, not by this browser. The markup keeps `target="_blank"` so
+    // modified clicks and assistive technology still reach a real tab.
     await inlineCodeLink.click()
-    const popup = await popupPromise
-    await popup.waitForURL(linkUrl, { timeout: 15_000 })
-    expect(popup.url()).toBe(linkUrl)
-    await popup.close()
+    const panel = page.getByRole('region', { name: 'Browser', exact: true })
+    await panel.waitFor({ timeout: 15_000 })
+    await expect.poll(() => panel.getByLabel('Address').inputValue(), { timeout: 10_000 }).toBe(linkUrl)
+    await panel.getByRole('button', { name: 'Back to conversation' }).click()
+    await expect.poll(() => panel.count(), { timeout: 10_000 }).toBe(0)
 
     expect(await page.getByText(`curl ${linkUrl}`, { exact: true }).locator('a').count()).toBe(0)
     expect(await page.getByText('javascript:alert(1)', { exact: true }).locator('a').count()).toBe(0)
-    // Closing the app popup can leave the original tab's session projections refreshing.
+    // Leaving the panel can leave the session projections refreshing.
     await page.getByRole('navigation', { name: 'Session hierarchy' })
       .getByRole('button', { name: 'Inline code links', exact: true, disabled: true }).waitFor()
     await page.getByRole('button', { name: 'Access mode, current: Workspace Write', exact: true }).waitFor()

@@ -354,6 +354,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       host: (_request, signal) => stream(hostFrames, signal),
       terminal: (_request, signal) => stream([], signal) as AsyncIterable<RpcRequest<import('@deepseek-ai/dsh-host-apiproxy/api').TerminalStreamFrame>>,
       hold: (_request, signal) => stream([], signal) as AsyncIterable<RpcRequest<import('@deepseek-ai/dsh-host-apiproxy/api').HoldStreamFrame>>,
+      browser: (_request, signal) => stream([], signal) as AsyncIterable<RpcRequest<import('@deepseek-ai/dsh-host-apiproxy/api').BrowserStreamFrame>>,
     },
     async respond(message: ClientResponse): Promise<RpcReceipt> {
       return message.rpcId === 'known' ? { accepted: true } : { accepted: false, reason: 'not-pending' }
@@ -930,6 +931,9 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       },
       hold: (request) => {
         void request
+        return (async function *() { /* no frames */ })()
+      },
+      browser: () => {
         return (async function *() { /* no frames */ })()
       },
     }

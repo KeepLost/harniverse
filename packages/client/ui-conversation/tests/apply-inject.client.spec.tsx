@@ -15,6 +15,7 @@
 // chat-toolview-slot.spec.tsx.
 
 import { describe, expect, it, vi } from 'vitest'
+import type { Context } from '@deepseek-ai/cordis'
 import { SlotTestRuntime, usePinnedBrowserLanguages, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionBehaviorOverrides } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
@@ -57,7 +58,7 @@ async function bench() {
     summary: { title: 'R', displayTitle: 'R', cwd: '/proj' },
     session: sessionFake,
   })
-  const layoutFake = { openDetails: vi.fn(), closeDetails: vi.fn() }
+  const layoutFake = { openDetails: vi.fn(), closeDetails: vi.fn(), setCenterView: vi.fn() }
   runtime.provide('layout', layoutFake)
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.provide('locale', locale)
@@ -68,6 +69,9 @@ async function bench() {
   await runtime.root.declare({
     'conversation': { kind: 'single', scope: 'session-maybe' },
     'details': { kind: 'single', scope: 'session' },
+    // The AppFrame's center-view list: the link router reads it to decide
+    // whether a host browser panel exists to open a page in.
+    'center.view': { kind: 'list', scope: 'root' },
   }, (_p: { renderSlot?: unknown }) => null)
 
   const feature = await runtime.mount({ inject: [...inject], apply })
@@ -217,6 +221,29 @@ describe('conversation slot inject API', () => {
     const stop = injectFn(ROOT).stop!
     await b.feature.dispose()
     expect(() => { stop() }).toThrow(/unavailable through the session scope/)
+    await b.runtime.dispose()
+  })
+
+  it('routes a prose link to the host browser panel when the shell composed one in', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(ROOT)
+    // No browser center view registered: the link keeps the new-tab behavior.
+    const opened: unknown[] = []
+    vi.stubGlobal('open', (...args: unknown[]) => { opened.push(args) })
+    injected.externalLinks.open('https://example.test/a')
+    expect(b.layoutFake.setCenterView).not.toHaveBeenCalled()
+    expect(opened).toEqual([['https://example.test/a', '_blank', 'noopener,noreferrer']])
+    // With the panel composed in, the page loads from the HOST instead.
+    const panel = await b.runtime.mount({
+      inject: ['slots'],
+      apply: (ctx: Context) => {
+        ctx.slots.register({ name: 'center.view', id: 'browser' }, () => null)
+      },
+    })
+    injected.externalLinks.open('https://example.test/b')
+    expect(b.layoutFake.setCenterView).toHaveBeenCalledExactlyOnceWith('browser', 'https://example.test/b')
+    expect(opened).toHaveLength(1)
+    await panel.dispose()
     await b.runtime.dispose()
   })
 

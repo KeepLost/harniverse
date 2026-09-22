@@ -95,7 +95,7 @@ describe('web e2e: terminal panel', () => {
     // cursor. Hit-testing its own center is the only assertion that catches it.
     const onTop = await page.evaluate(() => {
       const node = [...document.querySelectorAll('p')]
-        .find(candidate => candidate.textContent?.includes('No terminals yet') === true)
+        .find(candidate => candidate.textContent?.includes('No terminals yet') ?? false)
       if (node === undefined) throw new Error('empty hint not found')
       const box = node.getBoundingClientRect()
       const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)

@@ -29,6 +29,7 @@ describe('createLayoutStore', () => {
       narrow: false,
       narrowExpanded: false,
       centerView: undefined,
+      centerViewRequest: undefined,
     })
   })
 
@@ -38,6 +39,15 @@ describe('createLayoutStore', () => {
     expect(store.getSnapshot().centerView).toBe('schedules')
     actions.setCenterView(undefined)
     expect(store.getSnapshot().centerView).toBeUndefined()
+  })
+
+  it('remembers an opening request only for as long as that view occupies the column', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.setCenterView('browser', 'https://example.test/')
+    expect(store.getSnapshot()).toMatchObject({ centerView: 'browser', centerViewRequest: 'https://example.test/' })
+    // Opening the same view bare drops the stale destination.
+    actions.setCenterView('browser')
+    expect(store.getSnapshot().centerViewRequest).toBeUndefined()
   })
 
   it('each create() is an independent instance (factory is not a singleton)', () => {

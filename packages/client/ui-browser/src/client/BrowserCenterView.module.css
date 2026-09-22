@@ -1,5 +1,5 @@
-/** Browser panel (浏览器) center view: a header over the URL form and the
- * sandboxed frame filling the remaining height. */
+/** Browser panel (浏览器) center view: a header and address bar over the
+ * streamed host page surface filling the remaining height. */
 
 .view {
   display: flex;
@@ -17,6 +17,7 @@
   justify-content: space-between;
   gap: 12px;
   flex: none;
+  flex-wrap: wrap;
 }
 
 .title {
@@ -33,7 +34,24 @@
   flex: none;
 }
 
-.navButton {
+.button {
+  border: none;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.iconButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -45,24 +63,15 @@
   border-radius: 8px;
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1;
   cursor: pointer;
 }
 
-.navButton:disabled {
+.iconButton:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-.button {
-  border: none;
-  border-radius: 8px;
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 20px;
-  padding: 4px 10px;
-  cursor: pointer;
 }
 
 .addressBar {
@@ -99,44 +108,98 @@
   outline-offset: 1px;
 }
 
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.tab[data-active] {
+  outline: 1px solid var(--dsw-alias-state-business-primary);
+}
+
+.tabButton {
+  max-width: 220px;
+  overflow: hidden;
+  border: none;
+  border-radius: 8px 0 0 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  padding: 4px 4px 4px 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tabClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
 .notice {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
   flex: none;
-  padding: 10px 12px;
+  margin: 0;
+  padding: 8px 12px;
   border: 1px solid var(--dsw-alias-state-error-primary);
   border-radius: 8px;
-}
-
-.noticeTitle {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--dsw-alias-state-error-primary);
-}
-
-.noticeBody {
-  margin: 0;
   font-size: 13px;
   color: var(--dsw-alias-label-primary);
 }
 
-.noticeRaw {
-  display: block;
-  margin-top: 4px;
-  font-family: var(--ds-font-family-code);
-  font-size: 12px;
-  color: var(--dsw-alias-label-secondary);
-  word-break: break-all;
-}
-
-.frame {
+/* The surface is the page's own picture: it owns the focus ring (keyboard
+ * input is forwarded from here) and clips the image to the panel box. */
+.surface {
+  position: relative;
+  display: flex;
   flex: 1;
   min-height: 0;
-  width: 100%;
+  overflow: hidden;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
   background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.surface:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: -2px;
+}
+
+/* The host renders at the surface's own size, so the image is displayed at
+ * its natural scale; object-fit keeps a stale frame undistorted while a
+ * resize is in flight. */
+.image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: top left;
+  touch-action: none;
+  user-select: none;
 }
 
 .empty {
@@ -145,6 +208,42 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  text-align: center;
   font-size: 13px;
   color: var(--dsw-alias-label-secondary);
+}
+
+/* Phone form: the panel is the whole screen, so the chrome shrinks to the
+ * address bar plus touch-sized controls and the page keeps the rest. */
+:global([data-viewport='phone']) .view {
+  gap: 8px;
+  padding: 8px 8px 12px;
+}
+
+:global([data-viewport='phone']) .title {
+  display: none;
+}
+
+:global([data-viewport='phone']) .urlLabel {
+  display: none;
+}
+
+:global([data-viewport='phone']) .button,
+:global([data-viewport='phone']) .iconButton {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+:global([data-viewport='phone']) .urlInput {
+  height: 44px;
+}
+
+:global([data-viewport='phone']) .tabButton {
+  max-width: 140px;
+  min-height: 44px;
+}
+
+:global([data-viewport='phone']) .tabClose {
+  width: 44px;
+  height: 44px;
 }

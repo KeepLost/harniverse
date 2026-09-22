@@ -180,6 +180,8 @@ flowchart LR
   pkg_client_ui_queue["client-ui-queue"]
   pkg_api_terminal_controller["api-terminal-controller"]
   svc_terminalController["ctx.terminalController<br/>Browser terminal controller"]
+  pkg_api_browser_controller["api-browser-controller"]
+  svc_browserController["ctx.browserController<br/>Host browser controller"]
   svc_governor["ctx.governor<br/>Resource governor"]
   pkg_client_ui_governor["client-ui-governor"]
   pkg_shell["shell"]
@@ -262,6 +264,7 @@ flowchart LR
   pkg_agent_default_model --> svc_agentDefaultModel
   pkg_agent_loop --> svc_agentLoop
   pkg_agent_presets --> svc_agentPresets
+  pkg_api_browser_controller --> svc_browserController
   pkg_api_gateway --> svc_typertGateway
   pkg_api_terminal_controller --> svc_terminalController
   pkg_apiproxy --> svc_apiProxy
@@ -590,6 +593,7 @@ flowchart LR
 | `ctx.subprocess` | `seam` | [`subprocess`](../packages/subprocess/subprocess) | [`subprocess-local`](../packages/subprocess/subprocess-local), [`subprocess-ssh`](../packages/ssh/subprocess-ssh) | [`bash-local`](../packages/shell/bash-local), [`bash-sandbox`](../packages/shell/bash-sandbox), [`terminal-bash`](../packages/terminal/terminal-bash), [`lsp-stdio`](../packages/lsp/lsp-stdio), [`subagent-acp`](../packages/subagent/subagent-acp), [`subagent-codex`](../packages/subagent/subagent-codex), [`subagent-claude-code`](../packages/subagent/subagent-claude-code), [`governor`](../packages/monitor/governor) | - | Bash 执行器、PTY shell 后端、LSP Host，以及进程外 ACP、Codex 和 Claude Code subagent 后端都通过 ctx.subprocess 执行 spawn；该服务负责进程坐标、进程树／会话生命周期、stdio 处置、终端机制和 kill 升级。 |
 | `ctx.queue` | `seam` | [`queue`](../packages/queue/queue) | [`queue`](../packages/queue/queue) | [`client-ui-queue`](../packages/client/ui-queue) | - | 队列拥有 Kafka 语义的持久 topic、强制归档与投递即唤醒的扇出;四个模型工具(queue-topic/history/subscription/publish)经可分离装载的 queue/tool Consumer 挂载,面板 tab 轮询 queue Remote。 |
 | `ctx.terminalController` | `seam` | [`api-terminal-controller`](../packages/api/terminal-controller) | [`api-terminal-controller`](../packages/api/terminal-controller) | - | - | 终端控制器拥有构建于 subprocess PTY 接缝之上的按 Session 交互式用户 Shell(完整 harness 环境、登录启动、从不施加沙箱约束、对模型不可见),并通过 gateway terminal/* Remote 端点与 apiproxy events.terminal / events.hold SSE 流向浏览器面板提供先快照后输出的屏幕帧。 |
+| `ctx.browserController` | `seam` | [`api-browser-controller`](../packages/api/browser-controller) | [`api-browser-controller`](../packages/api/browser-controller) | - | - | 浏览器控制器通过 subprocess 生成接缝按 Session 运行真实的 Chromium 进程，并用 Chrome DevTools Protocol 驱动它，因此面板页面流量从宿主网络位置发出（脱敏环境、一次性 profile、运维拥有导航策略、对模型不可见）；页面以录屏图像帧的形式，通过 gateway browser/* Remote 端点与 apiproxy events.browser SSE 流抵达浏览器面板。 |
 | `ctx.governor` | `seam` | [`governor`](../packages/monitor/governor) | [`governor`](../packages/monitor/governor) | [`tool-bash`](../packages/shell/tool-bash), [`client-ui-governor`](../packages/client/ui-governor) | - | The governor meters correlated shell/terminal spawns from /proc (plus ss TCP attribution), enforces the global memory budget in tiers (cgroup-v2, prlimit plus watchdog, observe), and arbitrates shared-pool session quotas; the bash tool stamps correlations and merges breach facts into result meta, and the board consumes the governor Remote. |
 | `ctx.shell` | `seam` | [`shell`](../packages/shell/shell) | [`bash-local`](../packages/shell/bash-local), [`bash-sandbox`](../packages/shell/bash-sandbox), [`pwsh-local`](../packages/shell/pwsh-local) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex) | - | 面向模型的 shell 工具和钩子桥接消费此 seam；沙箱、远程或 PowerShell 执行器可以替换 bash-local，而无需改动这些消费方。 |
 | `ctx.shellEnv` | `core` | [`shell-env`](../packages/shell/shell-env) | - | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh) | - | 插件声明限定于 effect 作用域的 DSH_* 事实；每个 shell 工具在每次执行时收集一份可信快照，其执行器据此重建命名空间。 |

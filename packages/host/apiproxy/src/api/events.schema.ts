@@ -6,7 +6,7 @@
 
 import { z } from 'zod'
 import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-questions/types'
-import type { EventsApi, HoldStreamFrame, HostFrame, MuxFrame, TerminalStreamFrame } from './events.ts'
+import type { BrowserStreamFrame, EventsApi, HoldStreamFrame, HostFrame, MuxFrame, TerminalStreamFrame } from './events.ts'
 import type { Wire } from './rpc.schema.ts'
 import { rpcErrorSchema, rpcIdSchema } from './rpc.schema.ts'
 import { approvalRequestIdSchema } from './approvals.schema.ts'
@@ -121,6 +121,43 @@ export const holdStreamFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('retained') }),
   z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
 ]) as unknown as z.ZodType<HoldStreamFrame>
+
+/** Browser attachment payload: session identity plus the page and its new control claim. */
+export const eventsBrowserRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  id: z.string().regex(/^[\w-]{1,128}$/u),
+  attachmentId: z.string().regex(/^[\w-]{1,128}$/u),
+}) as unknown as z.ZodType<Wire<Parameters<EventsApi['browser']>[0]['payload']>>
+
+/** HostBrowserPageInfo wire form. */
+const hostBrowserPageInfoSchema = z.object({
+  id: z.string().regex(/^[\w-]{1,128}$/u),
+  url: z.string(),
+  title: z.string(),
+  width: z.number().int().min(1),
+  height: z.number().int().min(1),
+  loading: z.boolean(),
+  state: z.union([z.literal('ready'), z.literal('failed'), z.literal('closed')]),
+  error: z.string().optional(),
+  controllerId: z.string().regex(/^[\w-]{1,128}$/u).optional(),
+  canGoBack: z.boolean(),
+  canGoForward: z.boolean(),
+})
+
+/** One base64 screencast image; the frame carries no data-URL prefix. */
+const browserImageFrameSchema = z.object({
+  data: z.string(),
+  width: z.number().int().min(1),
+  height: z.number().int().min(1),
+})
+
+/** Browser stream frames (page recovery, images, metadata, error closer). */
+export const browserStreamFrameSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('snapshot'), info: hostBrowserPageInfoSchema, image: browserImageFrameSchema.optional() }),
+  z.object({ type: z.literal('image'), image: browserImageFrameSchema }),
+  z.object({ type: z.literal('state'), info: hostBrowserPageInfoSchema }),
+  z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
+]) as unknown as z.ZodType<BrowserStreamFrame>
 
 /** HostFrame union (payload slot of a host-stream ServerRequest). */
 export const hostFrameSchema = z.discriminatedUnion('type', [

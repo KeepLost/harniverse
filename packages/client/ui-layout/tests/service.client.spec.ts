@@ -54,8 +54,18 @@ describe('LayoutController', () => {
     service.setCenterView('schedules')
     service.clearCenterView()
 
-    expect(panels.setCenterView).toHaveBeenNthCalledWith(1, 'schedules')
+    expect(panels.setCenterView).toHaveBeenNthCalledWith(1, 'schedules', undefined)
     expect(panels.setCenterView).toHaveBeenNthCalledWith(2, undefined)
+  })
+
+  it('carries an opener request to the view it names', () => {
+    const service = new LayoutController()
+    const panels = fakePanels()
+    service.attachPanels(panels)
+
+    service.setCenterView('browser', 'https://example.test/')
+
+    expect(panels.setCenterView).toHaveBeenNthCalledWith(1, 'browser', 'https://example.test/')
   })
 
   it('fails loud before the root entry wired its actions', () => {

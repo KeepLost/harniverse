@@ -2,29 +2,31 @@
 /**
  * ui-browser plugin halves: the browser entry's dictionary and slot
  * registrations against the real SlotRegistry (with fiber teardown proving
- * removal — HMR safety), the node entry against the real settings Service
- * Definition, and the invariant companion's ownership reservation.
+ * removal — HMR safety), the panel controller wiring inside apply over the
+ * connection handle, the inert node entry, and the invariant companion's
+ * ownership reservation.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
-import SettingsProvider, { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
-import { BROWSER_SETTINGS_NAMESPACE, apply as applyNode, inject as nodeInject } from '../src/index.ts'
+import { apply as applyNode } from '../src/index.ts'
 import * as BrowserInvariant from '../src/invariant.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 
 /** One registration captured while the plugin applies. */
 interface CapturedRegistration { options: Record<string, unknown>; component: unknown }
 
-/** Minimal in-memory provider: the smallest real SettingsProvider subclass. */
-class MemorySettings extends SettingsProvider {
-  get writable(): boolean { return true }
-  protected load(): Promise<Record<string, unknown>> { return Promise.resolve({}) }
-  protected persist(): Promise<void> { return Promise.resolve() }
+/** The inject face the center view receives (verbs + panel state source). */
+interface BrowserFace {
+  hooks: {
+    panel: { getSnapshot: () => { session: unknown } }
+  }
+  closeView: () => void
+  bindSession: (sessionId: unknown) => void
 }
 
 /** Boot the browser half over a real slot tree declaring both contributions. */
@@ -33,7 +35,7 @@ async function bench(): Promise<{
   fiber: ReturnType<Context['plugin']>
   captured: CapturedRegistration[]
   layoutCalls: string[]
-  configStub: ReturnType<typeof stubSettingsScope>
+  rpcCalls: Array<{ channel: string; endpoint: string }>
 }> {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
@@ -45,12 +47,29 @@ async function bench(): Promise<{
     },
   } as never, () => null)
   ctx.provide('sessions', {})
-  // The locale plugin binds a settings scope over the connection handle and
-  // subscribes through the remote event surface.
-  ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+  // The locale plugin binds a settings scope, which reads the connection
+  // handle; the browser panel's controller rides the same handle's RPC face
+  // and its `browser` event stream.
+  const rpcCalls: Array<{ channel: string; endpoint: string }> = []
+  ctx.provide('connection', {
+    api: {
+      settings: {},
+      events: {
+        browser: () => ({
+          [Symbol.asyncIterator]: () => ({ next: async () => ({ value: undefined, done: true }) }),
+        }),
+      },
+    },
+    isLoopback: false,
+    rpc: {
+      call: async (channel: string, endpoint: string) => {
+        rpcCalls.push({ channel, endpoint })
+        return { ok: true, value: endpoint === 'browser/list' ? [] : undefined }
+      },
+    },
+  } as never)
   ctx.provide('remote', { $on: () => () => {} } as never)
-  const configStub = stubSettingsScope()
-  ctx.provide('settingsScope', { bind: () => configStub.scope } as never)
+  ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   const layoutCalls: string[] = []
   ctx.provide('layout', {
     setCenterView: (id: string | undefined) => { layoutCalls.push(id === undefined ? 'clear' : `set:${id}`) },
@@ -73,12 +92,12 @@ async function bench(): Promise<{
     },
   })
   await fiber.await()
-  return { ctx, fiber, captured, layoutCalls, configStub }
+  return { ctx, fiber, captured, layoutCalls, rpcCalls }
 }
 
 describe('ui-browser browser half', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slots', 'locale', 'settingsScope', 'layout'])
+    expect(inject).toEqual(['slots', 'locale', 'layout', 'connection'])
   })
 
   it('registers both slots after their targets, and fiber teardown removes them (HMR safety)', async () => {
@@ -99,7 +118,7 @@ describe('ui-browser browser half', () => {
     expect(trigger!.options['store']).toBe(view!.options['store'])
   })
 
-  it('orders the footer trigger after the schedules and governor triggers', async () => {
+  it('orders the footer trigger after the governor board', async () => {
     const { captured } = await bench()
     const trigger = captured.find(({ options }) => options['id'] === 'browser-view')
     expect(trigger!.options['order']).toBe(30)
@@ -127,63 +146,33 @@ describe('ui-browser browser half', () => {
     const view = captured.find(({ options }) => options['id'] === 'browser')
     const triggerFace = trigger!.options['inject'] as () => { openView: () => void }
     triggerFace().openView()
-    const viewFace = view!.options['inject'] as () => { closeView: () => void }
+    const viewFace = view!.options['inject'] as () => BrowserFace
     viewFace().closeView()
     expect(layoutCalls).toEqual(['set:browser', 'clear'])
   })
 
-  it('binds the panel to the browser settings scope and the harness origin', async () => {
-    const { captured, configStub } = await bench()
+  it('wires the panel controller over the connection handle inside apply', async () => {
+    const { captured, rpcCalls } = await bench()
     const view = captured.find(({ options }) => options['id'] === 'browser')
     expect(view).toBeDefined()
-    const face = view!.options['inject'] as () => {
-      hooks: { config: unknown }
-      selfOrigin: string
-      closeView: () => void
-    }
+    const face = view!.options['inject'] as () => BrowserFace
     const injected = face()
-    expect(injected.hooks.config).toBe(configStub.scope)
-    expect(injected.selfOrigin).toBe(location.origin)
+    expect(typeof injected.hooks.panel.getSnapshot).toBe('function')
+    // The panel state source publishes the bound session through the verbs.
+    injected.bindSession('session-z')
+    expect(injected.hooks.panel.getSnapshot().session).toBe('session-z')
+    // The session load rides the shared /api logical channel.
+    await new Promise<void>((resolve) => { queueMicrotask(resolve) })
+    expect(rpcCalls.map(call => [call.channel, call.endpoint])).toEqual([
+      ['/api', 'browser/environment'],
+      ['/api', 'browser/list'],
+    ])
   })
 })
 
 describe('ui-browser node half', () => {
-  it('declares the settings service injection and the section namespace', () => {
-    expect(nodeInject).toEqual(['settings'])
-    expect(BROWSER_SETTINGS_NAMESPACE).toBe(settingsNamespace('browser'))
-  })
-
-  it('registers the section over the real settings service and withdraws with the fiber', async () => {
-    const ctx = new Context()
-    await ctx.plugin(MemorySettings).await()
-    const fiber = ctx.plugin({
-      inject: [...nodeInject],
-      apply: (nodeCtx) => { applyNode(nodeCtx, { allowedHosts: ['example.com'] }) },
-    })
-    await fiber.await()
-    expect(ctx.settings.get(BROWSER_SETTINGS_NAMESPACE)).toEqual({ allowedHosts: ['example.com'] })
-    await fiber.dispose()
-    expect(ctx.settings.get(BROWSER_SETTINGS_NAMESPACE)).toBeUndefined()
-  })
-
-  it('accepts an omitted config: the resolver materializes the empty allowlist', async () => {
-    const ctx = new Context()
-    await ctx.plugin(MemorySettings).await()
-    const fiber = ctx.plugin({ inject: [...nodeInject], apply: (nodeCtx) => { applyNode(nodeCtx) } })
-    await fiber.await()
-    // Absent arrays resolve to [] (schemastery materializes them); the panel's
-    // settings seam lifts an empty allowlist back to open browsing.
-    expect(ctx.settings.get(BROWSER_SETTINGS_NAMESPACE)).toEqual({ allowedHosts: [] })
-  })
-
-  it('fails loudly on allowlist entries that are not bare hostnames', () => {
-    const fakeCtx = { settings: { register: () => () => {} } }
-    const entries = [
-      '', 'example.com/path', 'example.com?q=1', 'example.com#f', 'user@example.com', 'example.com:8080', 'two words',
-    ]
-    for (const entry of entries) {
-      expect(() => { applyNode(fakeCtx as never, { allowedHosts: [entry] }) }).toThrow(/bare hostnames/)
-    }
+  it('is inert: the node entry exists only so the plugin appears in the Loader tree', () => {
+    expect(applyNode).not.toThrow()
   })
 })
 

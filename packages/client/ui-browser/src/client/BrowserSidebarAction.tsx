@@ -1,6 +1,6 @@
 import { IconBrowseOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { createBrowserViewStore } from './history.ts'
+import type { createBrowserViewStore } from './view-store.ts'
 import { NS } from './locales.ts'
 import css from './BrowserSidebarAction.module.css'
 

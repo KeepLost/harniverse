@@ -244,7 +244,7 @@ export const RPC_METHOD_EFFECTS: { readonly [K in keyof RpcMethodMap]: 'read' | 
 
 /**
  * Required effect capability for the carrier-owned endpoints that are not
- * unary methods: the two SSE streams, the GET session-log download, and the
+ * unary methods: the SSE streams, the GET session-log download, and the
  * client-response carrier. `connection.authenticated` precedes authentication
  * and is therefore absent (it is transport control, not a business surface).
  */
@@ -253,6 +253,7 @@ export const CARRIER_ENDPOINT_CAPABILITIES: Readonly<Record<string, Authenticati
   'events.host': 'harniverse.observe',
   'events.terminal': 'harniverse.observe',
   'events.hold': 'harniverse.observe',
+  'events.browser': 'harniverse.observe',
   'session.export': 'harniverse.observe',
   'respond': 'harniverse.operate',
 }

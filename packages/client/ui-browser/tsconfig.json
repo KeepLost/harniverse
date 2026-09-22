@@ -12,7 +12,10 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../../../vendor/schemastery"
+      "path": "../../api/browser-controller"
+    },
+    {
+      "path": "../connection/tsconfig.client.json"
     },
     {
       "path": "../locale"
@@ -27,16 +30,10 @@
       "path": "../ui-sidebar"
     },
     {
-      "path": "../ui-settings"
-    },
-    {
       "path": "../ui-primitives"
     },
     {
       "path": "../ui-slots"
-    },
-    {
-      "path": "../../settings/settings"
     },
     {
       "path": "../../runtime-diagnostics/invariants"

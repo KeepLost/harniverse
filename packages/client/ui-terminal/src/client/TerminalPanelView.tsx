@@ -217,9 +217,11 @@ export function TerminalPanelView({
     viewport?.addEventListener('scroll', applyFit)
     applyFit()
     // The first fit measures fallback-font metrics; the real column count is
-    // only knowable once the declared font stack has loaded.
+    // only knowable once the declared font stack has loaded. The declared type
+    // overstates availability: jsdom and older engines ship no FontFaceSet.
+    const fonts = (document as { fonts: FontFaceSet | undefined }).fonts
     let live = true
-    void document.fonts?.ready.then(() => { if (live) applyFit() })
+    void fonts?.ready.then(() => { if (live) applyFit() })
     const surface: TerminalSurface = {
       reset: (screen) => { terminal.reset(); terminal.write(screen) },
       write: (data) => { terminal.write(data) },

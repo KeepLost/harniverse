@@ -156,6 +156,18 @@
         "@deepseek-ai/dsh-api-gateway"
       ]
     },
+    "packages/api/browser-controller": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "zod"
+      ]
+    },
     "packages/api/terminal-controller": {
       "entry": [
         "tests/**/*.spec.ts"

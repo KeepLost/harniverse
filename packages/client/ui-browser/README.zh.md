@@ -2,41 +2,42 @@
 
 [English](README.md) | 中文
 
-Web 应用的内嵌浏览器载具面板：用户驱动的 URL 栏加沙箱 iframe，配合应用自有的内存历史（后退/前进/重载），历史在同一次应用会话内跨越视图重挂载存活，且从不触碰浏览器历史。侧栏底部触发器打开 center 视图；导航时 URL 策略会在 iframe 导航之前拒绝非 http(s) 协议、内嵌凭据的 URL 以及应用自身的 origin。面板为人类的浏览行为服务：无工具、无会话事件、不对模型可见。
+Web 应用的浏览器面板：URL 栏、历史控件与标签条，其页面运行在 harness 宿主上的真实浏览器进程中，而不是用户的浏览器里。像素通过 `events.browser` 流以录屏图像抵达，指针、滚轮与键盘事件以页面空间输入回传，因此该面板是宿主页面的远程视图，而不是嵌入式框架。宿主侧的 [browser-controller](../../api/browser-controller/README.md) 拥有页面、导航策略与进程生命周期；本包拥有界面。侧栏底部触发器打开中央视图，并且在该面板被组合进来时，对话中的链接会在此打开而不是新标签页。该面板是给人使用的载体：没有工具，没有会话事件，对模型不可见。
 
 ## 组合
 
 | 方面 | 行为 |
 |---|---|
-| 注入 | `slots`、`locale`、`settingsScope`、`layout`。 |
-| 触发器插槽 | `sidebar.footer.action`，id `browser-view`，order 30（后于 scheduler 与 governor 触发器）；调用 `ctx.layout.setCenterView('browser')`。 |
-| 视图插槽 | `center.view`，id `browser`；被布局指名时覆盖中心栏，通过 `ctx.layout.clearCenterView()` 关闭（切换会话同样会清除）。 |
-| 存储 | 一个共享的 `createBrowserViewStore` 实例：中心视图在挂载/卸载时写入占用事实，底部触发器把它镜像为按下态；访问过的 URL（连续重复合并、上限 50 条、超出丢最旧）存于 store，因此重挂载可恢复浏览轨迹。 |
-| URL 策略 | `reviewNavigation` 是纯模块，在导航时强制执行：仅允许 `http`/`https`；内嵌 `user:pass@` 凭据、应用自身 origin（带端口归一化比较）、以及配置了允许列表时不在此列的主机均被拒绝并给出内联提示——iframe 绝不导航。 |
-| 配置 | node 半区注册 `browser` 设置命名空间（`allowedHosts?: string[]`，裸主机名在加载时校验）；browser 半区通过 `settingsScope` 绑定，并在每次导航时重新读取取值。 |
-| 沙箱 | iframe 以 `sandbox="allow-scripts allow-forms allow-popups allow-downloads"` 运行且不带 `allow-same-origin`，因此被嵌入页面获得不透明 origin，永远无法触及 harness 的 cookie、存储或 DOM；`referrerpolicy="no-referrer"` 使出站请求不携带 harness origin。 |
+| 注入 | `slots`、`locale`、`layout`、`connection`。 |
+| 触发槽位 | `sidebar.footer.action`，id 为 `browser-view`，order 30（在调度器与治理面板触发器之后）；调用 `ctx.layout.setCenterView('browser')`。 |
+| 视图槽位 | `center.view`，id 为 `browser`；在布局指名它期间覆盖中央列，并通过 `ctx.layout.clearCenterView()` 关闭（切换会话也会清除）。 |
+| 链接路由 | 当本面板已注册时，`ui-conversation` 会把助手消息中的链接路由到 `ctx.layout.setCenterView('browser', url)`，面板对该请求导航一次。带修饰键的点击（中键、Ctrl/Cmd/Shift/Alt）保留锚点自身的 `target="_blank"`，因此真实标签页仍只差一个手势。 |
+| 存储 | 一个共享的占位存储：中央视图在挂载/卸载时写入占位，底部触发器将其镜像为按下态。页面状态本身由宿主拥有并通过流抵达，因此重新挂载恢复的是实时画面，而不是重放客户端侧的轨迹。 |
+| 控制器 | `BrowserPanelController` 持有 Session 绑定、页面列表、活动页面与控制附着；流失败后以有界退避阶梯重新附着，阶梯耗尽时给出重试。 |
+| 输入控制 | 同一时刻一个附着控制一个页面。第二个客户端会接过控制权，本面板随即显示只读提示与“取得控制”操作；被降级附着的导航与输入在宿主侧被拒绝。 |
+| 界面 | 命令式图像落点：帧在 React 状态之外被赋给一个 `<img>`，面板发布自身尺寸，使宿主把页面视口调整为一致。 |
 
-## Model Experience
+## 模型体验
 
-### 浏览器载具面板
+### 浏览器面板
 
-#### What the model sees
+#### 模型看到什么
 
-无：面板是挂载为名为 `browser` 的 `center.view` 的纯浏览器端载具。它不注册任何工具、不发出任何会话事件，用户在 URL 栏输入或在框架中访问的内容都不会进入 prompt、消息或工具结果。
+什么都看不到：该面板是挂载为 `center.view`（名为 `browser`）的面向人的载体。它不注册任何工具，不产生任何会话事件，用户在 URL 栏输入或在页面中访问的任何内容都不会进入提示词、消息或工具结果。
 
-#### Token effect
+#### Token 影响
 
-无；本包从不组装或发送提供方请求，浏览状态留在浏览器端 store。
+无；本包从不组装或发送 provider 请求。
 
-#### KV Cache effect
+#### KV 缓存影响
 
-无；本包从不组装或发送提供方请求。
+无；本包从不组装或发送 provider 请求。
 
-## Known Limitations and Deferred Work（已知限制与延后工作）
+## 已知限制与后续工作
 
-- 不透明 origin 沙箱：没有 `allow-same-origin`，依赖自身 cookie 或存储的被嵌入页面（部分 SSO 流程）无法工作；授予该能力会让页面读取 harness origin 的状态，因此保持关闭。
-- 拒绝被嵌入的远端页面（`X-Frame-Options`/CSP `frame-ancestors`）呈现为空白框架；该拒绝无法从 JavaScript 探测，因此面板无法给出原因。
-- 除沙箱授权外无下载管理：下载交给浏览器自身的处理器；面板既不列出也不清理下载项。
-- 设置物化：设置 schema 会把缺失的 `allowedHosts` 解析为 `[]`；面板把空列表视为开放浏览（用户主动导航仍是守卫），因此需要锁定的部署必须显式列出主机——而剥离设置行的部署会完全失去允许列表。
-- 无凭据录入辅助：内嵌 `user:pass@` 的 URL 被拒绝；面板绝不提示、存储或填充凭据。
-- 仅接受绝对 URL：相对或无协议的输入按 malformed 拒绝（面板没有可用于解析的 base 文档）。
+- 录屏保真度：帧是宿主所配质量下的 JPEG 图像，因此文字比原生页面更柔和，快速动画抵达时会掉帧。选择、原生滚动条与浏览器 chrome 相关的可用性属于宿主页面，而不属于这一界面。
+- 复制粘贴需人工跨越边界：面板会把合成文本作为输入转发，但宿主页面的剪贴板不是用户的剪贴板，因此目前无法从页面中复制内容出来。
+- 链接路由覆盖助手消息的 markdown。压缩摘要卡片或网页搜索引用卡片中的链接仍会打开新标签页，因为没有 owner 作用域的路由能到达那些渲染器。
+- 没有文件上传、下载、打印或权限提示界面：打开其中任一项的页面会在宿主侧等待，面板只显示导航仍在进行中。
+- 每个标签一个页面：页面打开的弹窗不会被接管为新标签，因此依赖 `window.open` 的流程无法在此跟进。
+- 面板显示的是宿主报告的内容；导航被宿主策略拒绝的页面会以提示形式呈现拒绝原因，而修正策略是运维操作，不是用户操作。

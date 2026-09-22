@@ -291,6 +291,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     forkAt,
     // Absent-service default; mention tests override with a real resolver.
     fileMentions: () => undefined,
+    externalLinks: { open: () => {} },
     // Mirrors the real lookup chain (conversation namespace, then common).
     t,
   }

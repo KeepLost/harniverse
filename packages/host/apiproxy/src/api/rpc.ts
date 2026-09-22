@@ -129,6 +129,14 @@ export interface RpcErrorDetailsMap {
   'terminal-control-unavailable': { reason: 'read-only' | 'not-running' }
   /** Retained screens and pending allocations consume the Session's terminal quota. */
   'terminal-limit-reached': { limit: number }
+  /** The page identity is missing, closed, or the host has no usable browser. */
+  'browser-unavailable': {}
+  /** Navigation or input was refused without invalidating the page attachment. */
+  'browser-control-unavailable': { reason: 'read-only' | 'not-running' }
+  /** Open pages and pending allocations consume the Session's browser quota. */
+  'browser-limit-reached': { limit: number }
+  /** The operator's navigation policy refused the requested destination. */
+  'browser-navigation-refused': {}
   'internal': {}
   /** The same idempotency key was reused with a different operation payload. */
   'idempotency-key-reused': { key: string }
@@ -199,6 +207,10 @@ export const RPC_ERROR_CODES = [
   'terminal-unavailable',
   'terminal-control-unavailable',
   'terminal-limit-reached',
+  'browser-unavailable',
+  'browser-control-unavailable',
+  'browser-limit-reached',
+  'browser-navigation-refused',
   'internal',
   'idempotency-key-reused',
   'operation-not-found',

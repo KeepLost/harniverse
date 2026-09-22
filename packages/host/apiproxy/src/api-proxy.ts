@@ -49,9 +49,10 @@ import {
 import type { PresetBearingSession } from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-api-terminal-controller'
+import type {} from '@deepseek-ai/dsh-api-browser-controller'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type {
-  ApiProxy, ConfigurableProviderView, CredentialView, GoalRef, HistoryEntry, HostFrame,
+  ApiProxy, BrowserStreamFrame, ConfigurableProviderView, CredentialView, GoalRef, HistoryEntry, HostFrame,
   ModelCatalogFailure, ModelProviderGroup,
   ModelReasoning, MuxFrame, HoldStreamFrame, PromptContentPart, PromptReceipt, QuestionResponsePayload,
   SessionListMetadata, SessionProjectionsBlock, SessionSearchItem,
@@ -865,11 +866,14 @@ function directoryError(error: unknown): RpcError {
   return { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} }
 }
 
-/** Map a terminal-controller failure onto the wire error vocabulary (unknown throws stay internal). */
-function terminalStreamError(error: unknown): RpcError {
+/**
+ * Map a panel controller's failure onto the wire error vocabulary, shared by
+ * every controller-backed stream (unknown throws stay internal).
+ */
+function controllerStreamError(error: unknown): RpcError {
   const remote = remoteErrorOf(error)
   if (remote !== undefined) {
-    // The controller's RemoteError codes are carrier vocabulary members; the
+    // A controller's RemoteError codes are carrier vocabulary members; the
     // cast collapses the open remote code union onto the wire union.
     return { code: remote.code, message: remote.message, details: remote.details } as RpcError
   }
@@ -5280,7 +5284,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               queue.push(frame(terminalFrame))
             }
           } catch (error) {
-            queue.push(frame({ type: 'stream/error', error: terminalStreamError(error) }))
+            queue.push(frame({ type: 'stream/error', error: controllerStreamError(error) }))
           }
         })()
         return queue.iterate(signal, () => {})
@@ -5315,7 +5319,44 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               queue.push(frame(retained))
             }
           } catch (error) {
-            queue.push(frame({ type: 'stream/error', error: terminalStreamError(error) }))
+            queue.push(frame({ type: 'stream/error', error: controllerStreamError(error) }))
+          }
+        })()
+        return queue.iterate(signal, () => {})
+      },
+
+      browser(request, signal) {
+        const queue = new FrameQueue<RpcRequest<BrowserStreamFrame>>(streamQueueMaxFrames)
+        const controller = ctx.get('browserController')
+        const { sessionId, id, attachmentId } = request.payload
+        if (controller === undefined) {
+          queue.push(frame({ type: 'stream/error', error: {
+            code: 'browser-unavailable',
+            message: 'browser service is absent: the host composition does not mount @deepseek-ai/dsh-api-browser-controller',
+            details: {},
+          } }))
+          return queue.iterate(signal, () => {})
+        }
+        // Subagent-origin sessions never expose their browser surface, the same
+        // visibility fence every host handler applies.
+        const agent = ctx.agents.get(sessionId)
+        if (agent === undefined || agent.session.header.origin === 'subagent') {
+          queue.push(frame({ type: 'stream/error', error: {
+            code: 'browser-unavailable',
+            message: 'The page no longer exists in this Session',
+            details: {},
+          } }))
+          return queue.iterate(signal, () => {})
+        }
+        // The stream lifetime IS the attachment: abort detaches, and each
+        // follower frame becomes one queue push (SSE backpressure applies).
+        void (async () => {
+          try {
+            for await (const browserFrame of controller.follow(agent, id, attachmentId, signal)) {
+              queue.push(frame(browserFrame))
+            }
+          } catch (error) {
+            queue.push(frame({ type: 'stream/error', error: controllerStreamError(error) }))
           }
         })()
         return queue.iterate(signal, () => {})

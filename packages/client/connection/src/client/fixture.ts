@@ -3243,6 +3243,14 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           }, { once: true })
         })
       },
+      async *browser(_request, signal) {
+        // The fixture runs no host browser process; the stream opens and idles until aborted.
+        await new Promise<void>((_, reject) => {
+          signal.addEventListener('abort', () => {
+            reject(signal.reason instanceof Error ? signal.reason : new Error('browser fixture stream aborted'))
+          }, { once: true })
+        })
+      },
       async *hold(_request, signal) {
         yield { rpcId: mint(), payload: { type: 'retained' } }
         await new Promise<void>((_, reject) => {

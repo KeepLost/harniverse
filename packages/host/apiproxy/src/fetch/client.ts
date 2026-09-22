@@ -7,7 +7,7 @@
 
 import type { z } from 'zod'
 import type { AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
-import type { ApiProxy, HoldStreamFrame, HostFrame, MuxFrame, TerminalStreamFrame } from '../api/index.ts'
+import type { ApiProxy, BrowserStreamFrame, HoldStreamFrame, HostFrame, MuxFrame, TerminalStreamFrame } from '../api/index.ts'
 import { isMutatingRpcMethod, type RequestPayload, type ResponseValue, type RpcMethodMap } from '../api/rpc-map.ts'
 import type { ClientRequest, ClientResponse, RpcMessage, RpcReceipt, RpcRequest, RpcResponse, ServerRequest } from '../api/rpc.ts'
 import { CONNECTION_AUTHENTICATED_METHOD, RequestId, RpcId, sameAuthenticationPrincipalIdentity } from '../api/rpc.ts'
@@ -15,7 +15,9 @@ import type { Wire } from '../api/rpc.schema.ts'
 import {
   authenticationPrincipalIdentitySchema, rpcReceiptSchema, serverRequestSchema, serverResponseSchema,
 } from '../api/rpc.schema.ts'
-import { holdStreamFrameSchema, hostFrameSchema, muxFrameSchema, terminalStreamFrameSchema } from '../api/events.schema.ts'
+import {
+  browserStreamFrameSchema, holdStreamFrameSchema, hostFrameSchema, muxFrameSchema, terminalStreamFrameSchema,
+} from '../api/events.schema.ts'
 import {
   hostCreateDirectoryValueSchema, hostDescribeValueSchema,
   hostListDirectoryValueSchema, hostOpenPathValueSchema, hostPickDirectoryValueSchema,
@@ -181,6 +183,7 @@ export interface IApiClient {
     host(payload: Parameters<ApiProxy['events']['host']>[0]['payload'], signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void): AsyncIterable<RpcRequest<HostFrame>>
     terminal(payload: Parameters<ApiProxy['events']['terminal']>[0]['payload'], signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void): AsyncIterable<RpcRequest<TerminalStreamFrame>>
     hold(payload: Parameters<ApiProxy['events']['hold']>[0]['payload'], signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void): AsyncIterable<RpcRequest<HoldStreamFrame>>
+    browser(payload: Parameters<ApiProxy['events']['browser']>[0]['payload'], signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void): AsyncIterable<RpcRequest<BrowserStreamFrame>>
   }
   goals: {
     create(payload: RequestPayload<'goal.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.create'>>>
@@ -471,6 +474,12 @@ export abstract class AbstractApiClient implements IApiClient {
     return this.readSse(path, signal, holdStreamFrameSchema, onOpen, onAuthenticated)
   }
 
+  /** Host browser page stream opener; virtual. */
+  protected openBrowser(payload: Parameters<ApiProxy['events']['browser']>[0]['payload'], signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: AuthenticationPrincipalIdentity) => void): AsyncIterable<RpcRequest<BrowserStreamFrame>> {
+    const path = `/api/events.browser?${new URLSearchParams({ sessionId: payload.sessionId, id: payload.id, attachmentId: payload.attachmentId }).toString()}`
+    return this.readSse(path, signal, browserStreamFrameSchema, onOpen, onAuthenticated)
+  }
+
   /**
    * SSE protocol path: streaming fetch (not EventSource), '\n\n' framing, ServerRequest envelope +
    * frame-schema parse, tap, narrow yield. onOpen fires once the response headers are in and the
@@ -478,7 +487,7 @@ export abstract class AbstractApiClient implements IApiClient {
    * either parse level is reported and skipped (one corrupt frame must not kill the stream; the
    * client's gap detection covers whatever the frame carried).
    */
-  protected async *readSse<F extends MuxFrame | HostFrame | TerminalStreamFrame | HoldStreamFrame>(
+  protected async *readSse<F extends MuxFrame | HostFrame | TerminalStreamFrame | HoldStreamFrame | BrowserStreamFrame>(
     path: string,
     signal: AbortSignal,
     frameSchema: z.ZodType<F>,
@@ -650,6 +659,7 @@ export abstract class AbstractApiClient implements IApiClient {
     host: (payload, signal, onOpen, onAuthenticated) => this.openHost(payload, signal, onOpen, onAuthenticated),
     terminal: (payload, signal, onOpen, onAuthenticated) => this.openTerminal(payload, signal, onOpen, onAuthenticated),
     hold: (payload, signal, onOpen, onAuthenticated) => this.openHold(payload, signal, onOpen, onAuthenticated),
+    browser: (payload, signal, onOpen, onAuthenticated) => this.openBrowser(payload, signal, onOpen, onAuthenticated),
   }
 
   async respond(message: ClientResponse, signal?: AbortSignal): Promise<RpcReceipt> {

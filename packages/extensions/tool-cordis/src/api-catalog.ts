@@ -564,6 +564,67 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'browserController',
+    summary: 'Typed Remote control of Session-owned host browser pages.',
+    description: 'Typed Remote control of Session-owned host browser pages.',
+    methods: [
+      {
+        signature: '@Remote({ exportName: \'environment\', requiredCapability: \'harniverse.observe\' }) async environment(agent: Agent, signal: AbortSignal): Promise<HostBrowserEnvironment>',
+        description: 'Report the panel\'s bounds and the operator\'s navigation policy, and whether a browser executable exists at all (`harniverse.observe`).',
+        parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'signal', description: 'request cancellation.' }],
+        returns: 'the viewport bounds, page limit, and navigation policy.',
+      },
+      {
+        signature: '@Remote({ exportName: \'list\', requiredCapability: \'harniverse.observe\' }) list(sessionId: SessionId): HostBrowserPageInfo[]',
+        description: 'List retained pages without resolving or activating an Agent (`harniverse.observe`).',
+        parameters: [{ name: 'sessionId', description: 'displayed Session identity, including offline history.' }],
+        returns: 'pages retained for this Host lifetime.',
+      },
+      {
+        signature: '@Remote({ exportName: \'create\', requiredCapability: \'harniverse.operate\' }) async create(agent: Agent, request: BrowserCreateRequest, signal: AbortSignal): Promise<HostBrowserPageInfo>',
+        description: 'Open a page once for a caller-generated identity, launching the Session\'s browser process on first use (`harniverse.operate`).',
+        parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'request', description: 'initial viewport and idempotency identity.' }, { name: 'signal', description: 'allocation cancellation; committed pages survive disconnection.' }],
+        returns: 'the existing or newly committed page.',
+      },
+      {
+        signature: 'follow( agent: Agent, id: HostBrowserPageId, attachmentId: BrowserAttachmentId, signal: AbortSignal, ): AsyncIterable<BrowserFrame>',
+        description: 'Attach to a page without binding its lifetime to the transport. Not a Remote invocation: harniverse\'s Gateway surface is request/response, so the screencast transport broadcasts the follower frames the EventsApi browser stream drives.',
+        parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'id', description: 'page identity.' }, { name: 'attachmentId', description: 'new exclusive control attachment.' }, { name: 'signal', description: 'attachment stream cancellation.' }],
+        returns: 'the current page image and metadata, then later frames.',
+      },
+      {
+        signature: '@Remote({ exportName: \'navigate\', requiredCapability: \'harniverse.operate\' }) async navigate( agent: Agent, id: HostBrowserPageId, attachmentId: BrowserAttachmentId, url: string, ): Promise<HostBrowserPageInfo>',
+        description: 'Navigate one page to a host-reviewed destination (`harniverse.operate`).',
+        parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'id', description: 'page identity.' }, { name: 'attachmentId', description: 'current controlling attachment.' }, { name: 'url', description: 'requested destination as the panel supplied it.' }],
+        returns: 'the page metadata after the navigation is dispatched.',
+      },
+      {
+        signature: '@Remote({ exportName: \'act\', requiredCapability: \'harniverse.operate\' }) async act( agent: Agent, id: HostBrowserPageId, attachmentId: BrowserAttachmentId, action: BrowserNavigationAction, ): Promise<HostBrowserPageInfo>',
+        description: 'Move one page through history, reload it, or stop loading (`harniverse.operate`).',
+        parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'id', description: 'page identity.' }, { name: 'attachmentId', description: 'current controlling attachment.' }, { name: 'action', description: 'requested navigation move.' }],
+        returns: 'the page metadata after the move is dispatched.',
+      },
+      {
+        signature: '@Remote({ exportName: \'input\', requiredCapability: \'harniverse.operate\' }) async input( agent: Agent, id: HostBrowserPageId, attachmentId: BrowserAttachmentId, event: BrowserInputEvent, ): Promise<void>',
+        description: 'Forward one input event to a page (`harniverse.operate`).',
+        parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'id', description: 'page identity.' }, { name: 'attachmentId', description: 'current controlling attachment.' }, { name: 'event', description: 'page-space input event.' }],
+        returns: 'after the browser accepts the event.',
+      },
+      {
+        signature: '@Remote({ exportName: \'resize\', requiredCapability: \'harniverse.operate\' }) async resize( agent: Agent, id: HostBrowserPageId, attachmentId: BrowserAttachmentId, width: number, height: number, ): Promise<HostBrowserPageInfo>',
+        description: 'Resize one page\'s emulated viewport (`harniverse.operate`).',
+        parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'id', description: 'page identity.' }, { name: 'attachmentId', description: 'current controlling attachment.' }, { name: 'width', description: 'CSS-pixel width.' }, { name: 'height', description: 'CSS-pixel height.' }],
+        returns: 'the page metadata with the new viewport.',
+      },
+      {
+        signature: '@Remote({ exportName: \'close\', requiredCapability: \'harniverse.operate\' }) async close(agent: Agent, id: HostBrowserPageId): Promise<void>',
+        description: 'Close an identity to future creation and close its page; repeated closes succeed (`harniverse.operate`).',
+        parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'id', description: 'page identity.' }],
+        returns: 'after the page is gone. A failure retains the page for retry.',
+      },
+    ],
+  },
+  {
     key: 'capabilities',
     summary: 'Generic capability recipe registry, composition store, planner, and Profile generation installer.',
     description: 'Generic capability recipe registry, composition store, planner, and Profile generation installer.',
@@ -4078,12 +4139,36 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type Branded<B extends string> = string & {\n    readonly [BRAND]: B;\n};',
   },
   {
+    name: 'BrowserAttachmentId',
+    declaration: 'export type BrowserAttachmentId = Branded<\'BrowserAttachmentId\'>;',
+  },
+  {
     name: 'BrowserAuthenticationDecision',
     declaration: 'export type BrowserAuthenticationDecision = {\n    kind: \'accepted\';\n    session: BrowserAuthenticationSession;\n} | Extract<AuthenticationDecision, {\n    kind: \'rejected\';\n}>;',
   },
   {
     name: 'BrowserAuthenticationSession',
     declaration: 'export interface BrowserAuthenticationSession {\n    value: string;\n    expiresAt: string;\n    principal: AuthenticationPrincipal;\n}',
+  },
+  {
+    name: 'BrowserCreateRequest',
+    declaration: 'export interface BrowserCreateRequest {\n    readonly id: HostBrowserPageId;\n    readonly width: number;\n    readonly height: number;\n}',
+  },
+  {
+    name: 'BrowserFrame',
+    declaration: 'export type BrowserFrame = {\n    readonly type: \'snapshot\';\n    readonly info: HostBrowserPageInfo;\n    readonly image?: BrowserImageFrame;\n} | {\n    readonly type: \'image\';\n    readonly image: BrowserImageFrame;\n} | {\n    readonly type: \'state\';\n    readonly info: HostBrowserPageInfo;\n};',
+  },
+  {
+    name: 'BrowserImageFrame',
+    declaration: 'export interface BrowserImageFrame {\n    readonly data: string;\n    readonly width: number;\n    readonly height: number;\n}',
+  },
+  {
+    name: 'BrowserInputEvent',
+    declaration: 'export type BrowserInputEvent = {\n    readonly kind: \'mouse\';\n    readonly type: \'mousePressed\' | \'mouseReleased\' | \'mouseMoved\';\n    readonly x: number;\n    readonly y: number;\n    readonly button: \'none\' | \'left\' | \'middle\' | \'right\';\n    readonly clickCount?: number;\n    readonly modifiers?: number;\n} | {\n    readonly kind: \'wheel\';\n    readonly x: number;\n    readonly y: number;\n    readonly deltaX: number;\n    readonly deltaY: number;\n    readonly modifiers?: number;\n} | {\n    readonly kind: \'key\';\n    readonly type: \'keyDown\' | \'keyUp\';\n    readonly key: string;\n    readonly code: string;\n    readonly modifiers?: number;\n    readonly windowsVirtualKeyCode?: number;\n    readonly text?: string;\n} | {\n    readonly kind: \'text\';\n    readonly text: string;\n};',
+  },
+  {
+    name: 'BrowserNavigationAction',
+    declaration: 'export type BrowserNavigationAction = \'back\' | \'forward\' | \'reload\' | \'stop\';',
   },
   {
     name: 'CancelOptions',
@@ -4712,6 +4797,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'Hello',
     declaration: 'export type Hello = z.infer<typeof helloSchema>;',
+  },
+  {
+    name: 'HostBrowserEnvironment',
+    declaration: 'export interface HostBrowserEnvironment {\n    readonly available: boolean;\n    readonly unavailableReason?: string;\n    readonly maxPages: number;\n    readonly maxWidth: number;\n    readonly maxHeight: number;\n    readonly allowedHosts: readonly string[];\n    readonly allowPrivateAddresses: boolean;\n}',
+  },
+  {
+    name: 'HostBrowserPageId',
+    declaration: 'export type HostBrowserPageId = Branded<\'HostBrowserPageId\'>;',
+  },
+  {
+    name: 'HostBrowserPageInfo',
+    declaration: 'export interface HostBrowserPageInfo {\n    readonly id: HostBrowserPageId;\n    readonly url: string;\n    readonly title: string;\n    readonly width: number;\n    readonly height: number;\n    readonly loading: boolean;\n    readonly state: \'ready\' | \'failed\' | \'closed\';\n    readonly error?: string;\n    readonly controllerId?: BrowserAttachmentId;\n    readonly canGoBack: boolean;\n    readonly canGoForward: boolean;\n}',
   },
   {
     name: 'ImageAttachmentLimits',

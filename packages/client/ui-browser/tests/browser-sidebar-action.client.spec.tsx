@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import { createBrowserViewStore } from '../src/client/history.ts'
+import { createBrowserViewStore } from '../src/client/view-store.ts'
 import { BrowserSidebarAction, type BrowserSidebarActionProps } from '../src/client/BrowserSidebarAction.tsx'
 import { zh } from '../src/client/locales.ts'
 

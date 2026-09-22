@@ -52,6 +52,41 @@
       "source": "packages/attachment/attachment/src/types.ts"
     },
     {
+      "doc": "docs/subsystems/browser-controller.md",
+      "symbol": "HostBrowserPageInfo",
+      "source": "packages/api/browser-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/browser-controller.md",
+      "symbol": "BrowserFrame",
+      "source": "packages/api/browser-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/browser-controller.md",
+      "symbol": "BrowserImageFrame",
+      "source": "packages/api/browser-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/browser-controller.md",
+      "symbol": "BrowserCreateRequest",
+      "source": "packages/api/browser-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/browser-controller.md",
+      "symbol": "HostBrowserEnvironment",
+      "source": "packages/api/browser-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/browser-controller.md",
+      "symbol": "BrowserNavigationAction",
+      "source": "packages/api/browser-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/browser-controller.md",
+      "symbol": "BrowserInputEvent",
+      "source": "packages/api/browser-controller/src/types.ts"
+    },
+    {
       "doc": "docs/subsystems/client-modules.md",
       "symbol": "WebBootEntry",
       "source": "packages/client/modules/src/client/manifest.ts"

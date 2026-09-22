@@ -46,6 +46,7 @@
   "dependencies": {
     "@deepseek-ai/cordis-plugin-logger-console": "workspace:^",
     "@deepseek-ai/dsh-agent-presets": "workspace:^",
+    "@deepseek-ai/dsh-api-browser-controller": "workspace:^",
     "@deepseek-ai/dsh-api-remotes": "workspace:^",
     "@deepseek-ai/dsh-api-terminal-controller": "workspace:^",
     "@deepseek-ai/dsh-authentication": "workspace:^",

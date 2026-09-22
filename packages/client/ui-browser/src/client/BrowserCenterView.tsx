@@ -1,40 +1,59 @@
 /**
- * The browser carrier panel (浏览器) center view: an app-owned navigation
- * surface over a sandboxed iframe. The URL bar is the single navigation
- * entry point and every submission passes the pure policy module first — a
- * rejected URL renders an inline notice and never reaches the frame. The
- * frame is deliberately sandboxed without `allow-same-origin`, so the
- * embedded page gets an opaque origin and can never touch harness cookies,
- * storage, or DOM. History is app-owned (the declared store), not browser
- * history: back/forward/reload act on the panel's own trail.
+ * The browser panel (浏览器) center view: an address bar and a live picture of
+ * a page running on the harness host. The image is a JPEG screencast of a real
+ * browser process, so the page's own network traffic leaves the host rather
+ * than the user's device, and embedding refusals (`X-Frame-Options`,
+ * `frame-ancestors`) cannot apply — there is no frame.
+ *
+ * Two rules the mounting follows deliberately. The surface and the empty state
+ * are alternatives, never siblings, because an imperatively-driven surface
+ * paints over any sibling placeholder. And pixels never pass through React
+ * state: the controller pushes each frame into the `<img>` through the
+ * registered sink, so the frame rate cannot become a render rate.
  */
-import { useEffect, useState } from 'react'
-import type { SnapshotStore, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   IconChevronLeftOutline14,
   IconChevronRightOutline14,
+  IconCloseFill14,
   IconRefreshOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { createBrowserViewStore } from './history.ts'
-import { reviewNavigation, type NavigationPolicyOptions, type NavigationRejectReason } from './policy.ts'
-import { NS, type BrowserKey } from './locales.ts'
+import type {
+  BrowserInputEvent, BrowserNavigationAction, HostBrowserPageId,
+} from '@deepseek-ai/dsh-api-browser-controller/types'
+import type { BrowserPanelState, BrowserSurface } from './controller.ts'
+import type { createBrowserViewStore } from './view-store.ts'
+import { NS } from './locales.ts'
 import css from './BrowserCenterView.module.css'
 
-/** The `browser` settings section value the panel reads its allowlist from. */
-export interface BrowserPanelSettings {
-  /** Exact hostnames the panel may navigate to; unset means open browsing. */
-  allowedHosts?: string[]
-}
-
 /** Injected business face of the panel shell. */
-export interface BrowserCenterInjected {
+export interface BrowserPanelInjected {
   hooks: {
-    /** Browser settings scope snapshot bound by the renderer as useConfig. */
-    config: SnapshotStore<SettingsScopeSnapshot<BrowserPanelSettings>>
+    /** Panel controller snapshot bound by the renderer as usePanel. */
+    panel: SnapshotStore<BrowserPanelState>
   }
-  /** The harness's own origin; policy refuses framing it. */
-  selfOrigin: string
+  /** Bind the panel to the displayed session (undefined clears it). */
+  bindSession: (sessionId: BrowserPanelState['session']) => void
+  /** Make one page the rendered one. */
+  activate: (id: HostBrowserPageId | undefined) => void
+  /** Open a page for this session. */
+  create: () => void
+  /** Close one page. */
+  close: (id: HostBrowserPageId) => void
+  /** Navigate the active page, opening one when the panel is empty. */
+  navigate: (url: string) => void
+  /** Move through history, reload, or stop loading. */
+  act: (action: BrowserNavigationAction) => void
+  /** Forward one page-space input event. */
+  input: (event: BrowserInputEvent) => void
+  /** Publish the measured surface size. */
+  resize: (width: number, height: number) => void
+  /** Reclaim the control attachment. */
+  takeInput: () => void
+  /** Register or release the image sink. */
+  bindSurface: (surface: BrowserSurface | undefined) => void
   /** Release the center column back to the conversation. */
   closeView: () => void
 }
@@ -43,66 +62,169 @@ export interface BrowserCenterInjected {
 export type BrowserCenterViewProps =
   PropsRuntime<'center.view'>
   & PropsStore<ReturnType<typeof createBrowserViewStore>>
-  & InjectFace<BrowserCenterInjected>
+  & InjectFace<BrowserPanelInjected>
   & PropsLocale<typeof NS>
 
-/** Locale key of each refusal reason. */
-const REJECTION_KEYS: Record<NavigationRejectReason, BrowserKey> = {
-  empty: 'reject.empty',
-  malformed: 'reject.malformed',
-  scheme: 'reject.scheme',
-  credentials: 'reject.credentials',
-  'self-origin': 'reject.self-origin',
-  'host-not-allowed': 'reject.host-not-allowed',
+/** CDP modifier bitmask: Alt 1, Control 2, Meta 4, Shift 8. */
+function modifiersOf(event: { altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }): number {
+  return (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0)
 }
 
-/** One refused submission as rendered by the notice. */
-interface Rejection {
-  raw: string
-  reason: NavigationRejectReason
+/** CDP mouse-button name for one DOM button index. */
+function buttonOf(button: number): 'left' | 'middle' | 'right' | 'none' {
+  if (button === 0) return 'left'
+  if (button === 1) return 'middle'
+  if (button === 2) return 'right'
+  return 'none'
 }
 
 /**
- * The panel shell: header with history controls and the URL form, the
- * inline refusal notice, and the sandboxed frame over the current entry.
- * The address draft and any refusal follow the current entry: every trail
- * movement (visit, back, forward) resolves the bar and dismisses the
- * notice.
- * @param props - center slot currency, the shared store, the config hook, the harness origin, the exit verb, and the translator.
+ * Keys that produce no text but need a virtual key code for the page to see
+ * them as editing or navigation commands.
+ */
+const VIRTUAL_KEY_CODES: Readonly<Record<string, number>> = {
+  Backspace: 8,
+  Tab: 9,
+  Enter: 13,
+  Escape: 27,
+  PageUp: 33,
+  PageDown: 34,
+  End: 35,
+  Home: 36,
+  ArrowLeft: 37,
+  ArrowUp: 38,
+  ArrowRight: 39,
+  ArrowDown: 40,
+  Delete: 46,
+}
+
+/**
+ * The panel shell: the address bar with history controls, the page tab strip,
+ * and the streamed page surface.
+ * @param props - center slot currency, the occupancy store, the panel hooks and verbs, and the translator.
  * @returns the panel shell.
  */
 export function BrowserCenterView({
-  actions, useStore, useConfig, selfOrigin, closeView, t,
+  request, actions, useSessions, usePanel, bindSession, activate, create, close, navigate, act, input,
+  resize, takeInput, bindSurface, closeView, t,
 }: BrowserCenterViewProps) {
   useEffect(() => { actions.setOpen(true); return () => { actions.setOpen(false) } }, [actions])
-  const entries = useStore(state => state.entries)
-  const cursor = useStore(state => state.cursor)
-  const scope = useConfig(snapshot => snapshot)
-  // The settings layer materializes an absent array field as [], so an empty
-  // allowlist here means the section never set one: open browsing.
-  const listed = scope.status === 'ready' ? scope.value?.allowedHosts : undefined
-  const allowedHosts = listed !== undefined && listed.length > 0 ? listed : undefined
-  const current = entries[cursor]
+  const session = useSessions(state => state.current)
+  useEffect(() => { bindSession(session) }, [bindSession, session])
+
+  const pages = usePanel(state => state.pages)
+  const activeId = usePanel(state => state.activeId)
+  const ready = usePanel(state => state.ready)
+  const attached = usePanel(state => state.attached)
+  const inputOwned = usePanel(state => state.inputOwned)
+  const environment = usePanel(state => state.environment)
+  const error = usePanel(state => state.error)
+  const navigationError = usePanel(state => state.navigationError)
+  const reattachFailed = usePanel(state => state.reattachFailed)
+
+  const active = useMemo(() => pages.find(page => page.id === activeId), [pages, activeId])
   const [draft, setDraft] = useState('')
-  const [rejection, setRejection] = useState<Rejection | undefined>(undefined)
-  const [nonce, setNonce] = useState(0)
+  const imageRef = useRef<HTMLImageElement | null>(null)
+  const surfaceRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => { setDraft(active?.url ?? '') }, [active?.id, active?.url])
+
+  // An opener (a conversation link) asked for a destination: honour it once per
+  // request. The controller parks it until a page and its control attachment
+  // exist, so this runs before any page is open.
+  useEffect(() => {
+    if (request === undefined) return
+    setDraft(request)
+    navigate(request)
+  }, [navigate, request])
+
+  const placeholder = session === undefined
+    ? 'view.no-session'
+    : environment?.available === false
+      ? 'view.unavailable'
+      : pages.length === 0
+        ? 'view.empty'
+        : undefined
+  const mounted = placeholder === undefined
+
+  // The sink is imperative on purpose: one assignment per frame, no render.
+  useEffect(() => {
+    if (!mounted) return
+    const surface: BrowserSurface = {
+      render: (image) => {
+        const element = imageRef.current
+        if (element === null) return
+        element.src = `data:image/jpeg;base64,${image.data}`
+      },
+    }
+    bindSurface(surface)
+    return () => { bindSurface(undefined) }
+  }, [bindSurface, mounted])
 
   useEffect(() => {
-    setDraft(current ?? '')
-    setRejection(undefined)
-  }, [current])
-
-  /** Review one submission and either navigate or surface the refusal. */
-  const navigate = (raw: string) => {
-    const options: NavigationPolicyOptions = { selfOrigin }
-    if (allowedHosts !== undefined) options.allowedHosts = allowedHosts
-    const review = reviewNavigation(raw, options)
-    if (!review.ok) {
-      setRejection({ raw: raw.trim(), reason: review.reason })
-      return
+    const element = surfaceRef.current
+    if (!mounted || element === null || typeof ResizeObserver === 'undefined') return
+    const publish = (): void => {
+      const rect = element.getBoundingClientRect()
+      if (rect.width < 1 || rect.height < 1) return
+      resize(Math.round(rect.width), Math.round(rect.height))
     }
-    setRejection(undefined)
-    actions.visit(review.url)
+    publish()
+    const observer = new ResizeObserver(publish)
+    observer.observe(element)
+    return () => { observer.disconnect() }
+  }, [mounted, resize])
+
+  /** Project one pointer event into the page's coordinate space. */
+  const pointOf = useCallback((
+    element: HTMLImageElement,
+    clientX: number,
+    clientY: number,
+  ): { x: number; y: number } | undefined => {
+    const rect = element.getBoundingClientRect()
+    if (rect.width < 1 || rect.height < 1) return undefined
+    const width = element.naturalWidth > 0 ? element.naturalWidth : rect.width
+    const height = element.naturalHeight > 0 ? element.naturalHeight : rect.height
+    return {
+      x: Math.round((clientX - rect.left) * (width / rect.width)),
+      y: Math.round((clientY - rect.top) * (height / rect.height)),
+    }
+  }, [])
+
+  /** Forward one pointer event as a CDP mouse event. */
+  const onPointer = (type: 'mousePressed' | 'mouseReleased' | 'mouseMoved') =>
+    (event: React.PointerEvent<HTMLImageElement>) => {
+      const point = pointOf(event.currentTarget, event.clientX, event.clientY)
+      if (point === undefined) return
+      if (type === 'mousePressed') surfaceRef.current?.focus()
+      input({
+        kind: 'mouse',
+        type,
+        x: point.x,
+        y: point.y,
+        button: type === 'mouseMoved' ? 'none' : buttonOf(event.button),
+        clickCount: type === 'mouseMoved' ? 0 : 1,
+        modifiers: modifiersOf(event),
+      })
+    }
+
+  /** Forward one keyboard event, carrying text for printable keys. */
+  const onKey = (type: 'keyDown' | 'keyUp') => (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!inputOwned) return
+    // The page owns these keys once it has focus; letting the browser also act
+    // on Tab or Backspace would move focus or navigate the harness itself.
+    event.preventDefault()
+    const printable = event.key.length === 1 && !event.ctrlKey && !event.metaKey
+    const code = VIRTUAL_KEY_CODES[event.key]
+    input({
+      kind: 'key',
+      type,
+      key: event.key,
+      code: event.code,
+      modifiers: modifiersOf(event),
+      ...(code === undefined ? {} : { windowsVirtualKeyCode: code }),
+      ...(printable && type === 'keyDown' ? { text: event.key } : {}),
+    })
   }
 
   return (
@@ -112,37 +234,38 @@ export function BrowserCenterView({
         <div className={css.headerActions}>
           <button
             type="button"
-            className={css.navButton}
+            className={css.iconButton}
             aria-label={t('nav.back')}
             title={t('nav.back')}
-            disabled={cursor <= 0}
-            onClick={() => { actions.back() }}
+            disabled={active?.canGoBack !== true || !inputOwned}
+            onClick={() => { act('back') }}
           >
             <IconChevronLeftOutline14 />
           </button>
           <button
             type="button"
-            className={css.navButton}
+            className={css.iconButton}
             aria-label={t('nav.forward')}
             title={t('nav.forward')}
-            disabled={cursor >= entries.length - 1}
-            onClick={() => { actions.forward() }}
+            disabled={active?.canGoForward !== true || !inputOwned}
+            onClick={() => { act('forward') }}
           >
             <IconChevronRightOutline14 />
           </button>
           <button
             type="button"
-            className={css.navButton}
-            aria-label={t('nav.reload')}
-            title={t('nav.reload')}
-            disabled={current === undefined}
-            onClick={() => { setNonce(value => value + 1) }}
+            className={css.iconButton}
+            aria-label={active?.loading === true ? t('nav.stop') : t('nav.reload')}
+            title={active?.loading === true ? t('nav.stop') : t('nav.reload')}
+            disabled={active === undefined || !inputOwned}
+            onClick={() => { act(active?.loading === true ? 'stop' : 'reload') }}
           >
             <IconRefreshOutline16 />
           </button>
           <button type="button" className={css.button} onClick={closeView}>{t('view.close')}</button>
         </div>
       </header>
+
       <form
         className={css.addressBar}
         onSubmit={(event) => { event.preventDefault(); navigate(draft) }}
@@ -157,30 +280,95 @@ export function BrowserCenterView({
           autoComplete="off"
           autoCapitalize="off"
           spellCheck={false}
+          disabled={session === undefined}
           onChange={(event) => { setDraft(event.target.value) }}
         />
-        <button type="submit" className={css.button}>{t('url.go')}</button>
+        <button type="submit" className={css.button} disabled={session === undefined}>{t('url.go')}</button>
       </form>
-      {rejection !== undefined ? (
-        <div className={css.notice} role="alert">
-          <strong className={css.noticeTitle}>{t('reject.title')}</strong>
-          <p className={css.noticeBody}>
-            <span>{t(REJECTION_KEYS[rejection.reason])}</span>
-            {rejection.raw !== '' ? <code className={css.noticeRaw}>{rejection.raw}</code> : null}
-          </p>
+
+      {pages.length > 0 ? (
+        <div className={css.tabs} role="tablist" aria-label={t('tabs.label')}>
+          {pages.map(page => (
+            <span key={page.id} className={css.tab} data-active={page.id === activeId || undefined}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={page.id === activeId}
+                className={css.tabButton}
+                onClick={() => { activate(page.id) }}
+              >
+                {page.title === '' ? (page.url === '' ? t('tabs.blank') : page.url) : page.title}
+              </button>
+              <button
+                type="button"
+                className={css.tabClose}
+                aria-label={t('tabs.close')}
+                title={t('tabs.close')}
+                onClick={() => { close(page.id) }}
+              >
+                <IconCloseFill14 />
+              </button>
+            </span>
+          ))}
+          <button type="button" className={css.iconButton} aria-label={t('tabs.new')} title={t('tabs.new')} onClick={create}>+</button>
         </div>
       ) : null}
-      {current !== undefined ? (
-        <iframe
-          key={`browser-frame-${String(nonce)}`}
-          className={css.frame}
-          src={current}
-          title={t('frame.title')}
-          sandbox="allow-scripts allow-forms allow-popups allow-downloads"
-          referrerPolicy="no-referrer"
-        />
+
+      {navigationError !== undefined ? (
+        <p className={css.notice} role="alert">{navigationError}</p>
+      ) : null}
+      {active?.error !== undefined ? (
+        <p className={css.notice} role="alert">{active.error}</p>
+      ) : null}
+      {error !== undefined ? <p className={css.notice} role="alert">{error}</p> : null}
+      {reattachFailed ? (
+        <p className={css.notice} role="alert">
+          {t('recover.failed')}
+          <button type="button" className={css.button} onClick={takeInput}>{t('recover.retry')}</button>
+        </p>
+      ) : null}
+      {mounted && attached && !inputOwned ? (
+        <p className={css.notice}>
+          {t('control.readonly')}
+          <button type="button" className={css.button} onClick={takeInput}>{t('control.take')}</button>
+        </p>
+      ) : null}
+
+      {mounted ? (
+        <div
+          className={css.surface}
+          ref={surfaceRef}
+          tabIndex={0}
+          role="application"
+          aria-label={t('surface.label')}
+          onKeyDown={onKey('keyDown')}
+          onKeyUp={onKey('keyUp')}
+        >
+          <img
+            ref={imageRef}
+            className={css.image}
+            alt={active?.title === undefined || active.title === '' ? t('surface.label') : active.title}
+            draggable={false}
+            onPointerDown={onPointer('mousePressed')}
+            onPointerUp={onPointer('mouseReleased')}
+            onPointerMove={onPointer('mouseMoved')}
+            onContextMenu={(event) => { event.preventDefault() }}
+            onWheel={(event) => {
+              const point = pointOf(event.currentTarget, event.clientX, event.clientY)
+              if (point === undefined) return
+              input({
+                kind: 'wheel',
+                x: point.x,
+                y: point.y,
+                deltaX: event.deltaX,
+                deltaY: event.deltaY,
+                modifiers: modifiersOf(event),
+              })
+            }}
+          />
+        </div>
       ) : (
-        <p className={css.empty}>{t('view.empty')}</p>
+        <p className={css.empty}>{ready || session === undefined ? t(placeholder) : t('view.loading')}</p>
       )}
     </section>
   )

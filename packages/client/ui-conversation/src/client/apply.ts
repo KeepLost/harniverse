@@ -10,6 +10,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type { MarkdownExternalLinks } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ViewTab } from './contract/views.ts'
 import type {
   ApprovalWait, ChatNodeTurnDataInjected, ChatScrollPosition, ChatViewInjected, ComposerBarInjected,
@@ -122,6 +123,20 @@ export function apply(ctx: Context): void {
   const workspaces = ctx.workspaces
   const layout = ctx.layout
   const slots = ctx.slots
+
+  // Where a link in assistant prose opens. The host browser panel, when the
+  // shell composed one in: the page then loads from the harness host's network
+  // position, which is what makes a link to a host-local dev server or an
+  // intranet address reachable at all. Without that panel the link keeps the
+  // ordinary new-tab behavior. One stable identity: a fresh object per render
+  // would discard the markdown render cache.
+  const externalLinks: MarkdownExternalLinks = {
+    open: (url) => {
+      const panel = slots.entries('center.view').some(entry => entry.options.id === 'browser')
+      if (panel) layout.setCenterView('browser', url)
+      else window.open(url, '_blank', 'noopener,noreferrer')
+    },
+  }
 
   registerConversationNodes(ctx)
   registerChatNodeRenderers(ctx)
@@ -395,6 +410,7 @@ export function apply(ctx: Context): void {
           layout.openDetails()
         },
         fileMentions: owner => ctx.get('chatFileMentions')?.forClosing(owner),
+        externalLinks,
         openFile: (path) => {
           const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
           void workspaces.openPath(resolveWorkspacePath(cwd, path)).catch(() => {

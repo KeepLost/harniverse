@@ -529,3 +529,73 @@ describe('JsonBlock', () => {
     expect(body).toContain('截断')
   })
 })
+
+describe('MarkdownText external links', () => {
+  it('hands a plain click on an http(s) link to the owner instead of the browser', () => {
+    const opened: string[] = []
+    render(
+      <MarkdownText
+        text={'Read [the page](https://example.com/a) and `https://example.com/b`.'}
+        externalLinks={{ open: (url) => { opened.push(url) } }}
+      />,
+    )
+    const anchor = screen.getByRole('link', { name: 'the page' })
+    // The href stays: hover, copy-link, and modified clicks keep working.
+    expect(anchor.getAttribute('href')).toBe('https://example.com/a')
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })
+    anchor.dispatchEvent(click)
+    expect(click.defaultPrevented).toBe(true)
+    expect(opened).toEqual(['https://example.com/a'])
+    // An inline-code URL is the same anchor, so it routes the same way.
+    screen.getByRole('link', { name: 'https://example.com/b' })
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }))
+    expect(opened).toEqual(['https://example.com/a', 'https://example.com/b'])
+  })
+
+  it('leaves modified and non-primary clicks to the browser', () => {
+    const opened: string[] = []
+    render(
+      <MarkdownText text="[page](https://example.com/a)" externalLinks={{ open: (url) => { opened.push(url) } }} />,
+    )
+    const anchor = screen.getByRole('link', { name: 'page' })
+    for (const init of [
+      { ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 },
+    ]) {
+      const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ...init })
+      anchor.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(false)
+    }
+    expect(opened).toEqual([])
+  })
+
+  it('routes reference links too, and never routes a streaming render', () => {
+    const opened: string[] = []
+    const links = { open: (url: string) => { opened.push(url) } }
+    const source = '[ref][target]\n\n[target]: https://example.com/ref'
+    const { unmount } = render(<MarkdownText text={source} externalLinks={links} />)
+    screen.getByRole('link', { name: 'ref' })
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }))
+    expect(opened).toEqual(['https://example.com/ref'])
+    unmount()
+    // Streaming renders cache frozen elements, so they keep the native anchor
+    // until the message settles (the fileMentions gate, for the same reason).
+    render(<MarkdownText text={source} streaming externalLinks={links} />)
+    const streamed = screen.getByRole('link', { name: 'ref' })
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })
+    streamed.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+    expect(opened).toEqual(['https://example.com/ref'])
+  })
+
+  it('leaves a non-http destination unrouted', () => {
+    const opened: string[] = []
+    render(
+      <MarkdownText text="[mail](mailto:nobody@example.com)" externalLinks={{ open: (url) => { opened.push(url) } }} />,
+    )
+    const anchor = screen.getByRole('link', { name: 'mail' })
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })
+    anchor.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+    expect(opened).toEqual([])
+  })
+})

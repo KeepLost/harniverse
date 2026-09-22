@@ -523,6 +523,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The terminal controller owns per-Session interactive USER shells over the subprocess PTY seam (full harness environment, login startup, never sandbox-confined, never model-visible) and serves snapshot-then-output screen frames to browser panels through the gateway terminal/* Remote endpoints and the apiproxy events.terminal / events.hold SSE streams.',
   },
   {
+    key: 'browserController',
+    pkg: 'api-browser-controller',
+    title: 'Host browser controller',
+    mode: 'seam',
+    implementations: ['api-browser-controller'],
+    consumers: [],
+    note: 'The browser controller runs a real Chromium process per Session over the subprocess spawn seam and drives it through the Chrome DevTools Protocol, so panel page traffic leaves the HOST network position (scrubbed environment, throwaway profile, operator-owned navigation policy, never model-visible); pages reach browser panels as screencast image frames through the gateway browser/* Remote endpoints and the apiproxy events.browser SSE stream.',
+  },
+  {
     key: 'governor',
     pkg: 'governor',
     title: 'Resource governor',

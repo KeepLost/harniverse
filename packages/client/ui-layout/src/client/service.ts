@@ -32,7 +32,7 @@ export interface ILayout {
   /** Close the workspace workbench while retaining its width. */
   closeWorkbench(): void
   /** Occupy the center column with one registered center view. */
-  setCenterView(id: string): void
+  setCenterView(id: string, request?: string): void
   /** Return to the conversation in the center column. */
   clearCenterView(): void
 }
@@ -81,9 +81,11 @@ export class LayoutController implements ILayout {
    * Occupy the center column with one registered center view; the
    * conversation stays mounted underneath, inert.
    * @param id - registrant id of the center view ('schedules', …).
+   * @param request - what the view should show, for an opener that asks for
+   * something specific (a URL for the browser panel); omitted opens it bare.
    */
-  setCenterView(id: string): void {
-    this.#require().setCenterView(id)
+  setCenterView(id: string, request?: string): void {
+    this.#require().setCenterView(id, request)
   }
 
   /** Return to the conversation in the center column. */

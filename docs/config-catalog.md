@@ -318,6 +318,55 @@ Depends on: [`ToolPresentationMode`](subsystems/tools.md)
 
 Source: [`packages/core/agent-tool-presentation/src/index.ts:38`](../packages/core/agent-tool-presentation/src/index.ts)
 
+<a id="deepseek-aidsh-api-browser-controller"></a>
+
+## `@deepseek-ai/dsh-api-browser-controller`
+
+Requires: `subprocess` · `sandboxPolicy`
+
+```ts config-catalog
+/** Deployment limits, executable selection, and the navigation policy. */
+export interface Config {
+  /** Explicit browser executable; omission probes {@link DEFAULT_BROWSER_CANDIDATES}. */
+  readonly executablePath?: string | undefined
+  /** Executable names or paths probed when no path is configured. */
+  readonly browserCandidates: string[]
+  /**
+   * Whether Chromium keeps its own sandbox. `'none'` passes `--no-sandbox`,
+   * which Chromium requires when the harness runs as root — a deliberate
+   * operator decision for such deployments, never a default.
+   */
+  readonly sandbox: 'chromium' | 'none'
+  /** Permitted hosts; empty means every host the privacy rule allows. */
+  readonly allowedHosts: string[]
+  /**
+   * Whether the panel may reach loopback, link-local, and private-range
+   * destinations. Enabling it is what makes a workspace dev server on the
+   * host's own localhost visible to the user, and it is off by default because
+   * the same reachability covers the host's internal network.
+   */
+  readonly allowPrivateAddresses: boolean
+  /** Maximum retained pages and pending allocations per Session. */
+  readonly maxPages: number
+  /** Maximum viewport width in CSS pixels. */
+  readonly maxWidth: number
+  /** Maximum viewport height in CSS pixels. */
+  readonly maxHeight: number
+  /** Screencast JPEG quality (1–100). */
+  readonly screencastQuality: number
+  /** Deliver every Nth composited frame. */
+  readonly screencastEveryNthFrame: number
+  /** How long a navigation may stay in flight before the panel is told it failed. */
+  readonly navigationTimeoutMs: number
+  /** How long to wait for the browser's DevTools endpoint at launch. */
+  readonly launchTimeoutMs: number
+  /** Browser process-termination grace period in milliseconds. */
+  readonly disposeGraceMs: number
+}
+```
+
+Source: [`packages/api/browser-controller/src/index.ts:46`](../packages/api/browser-controller/src/index.ts)
+
 <a id="deepseek-aidsh-api-terminal-controller"></a>
 
 ## `@deepseek-ai/dsh-api-terminal-controller`
@@ -585,22 +634,6 @@ export interface Config {
 ```
 
 Source: [`packages/client/hmr/src/index.ts:32`](../packages/client/hmr/src/index.ts)
-
-<a id="deepseek-aidsh-client-ui-browser"></a>
-
-## `@deepseek-ai/dsh-client-ui-browser`
-
-Requires: `settings`
-
-```ts config-catalog
-/** Entry config of the browser panel: the durable navigation policy. */
-export interface BrowserPanelConfig {
-  /** Exact hostnames the panel may navigate to; unset means open browsing. */
-  allowedHosts?: string[]
-}
-```
-
-Source: [`packages/client/ui-browser/src/index.ts:15`](../packages/client/ui-browser/src/index.ts)
 
 <a id="deepseek-aidsh-code-runtime-ptc"></a>
 
@@ -3944,6 +3977,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-modules` — requires `webServer` · `loader` · `connection` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
 - `@deepseek-ai/dsh-client-runtime` ([`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-agent-preset` ([`packages/client/ui-agent-preset/src/index.ts`](../packages/client/ui-agent-preset/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-browser` ([`packages/client/ui-browser/src/index.ts`](../packages/client/ui-browser/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-commands` ([`packages/client/ui-commands/src/index.ts`](../packages/client/ui-commands/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-connection-status` ([`packages/client/ui-connection-status/src/index.ts`](../packages/client/ui-connection-status/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-conversation` ([`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts))

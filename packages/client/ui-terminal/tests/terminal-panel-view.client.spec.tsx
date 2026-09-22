@@ -126,6 +126,39 @@ function mount(options: { session?: SessionId; panel?: Partial<TerminalPanelStat
   return { container, instance, sessions, appearanceStore, setPanel, surfaces, bindSurface, ...verbs }
 }
 
+/** The pristine implementation, captured before any spy wraps it. */
+const nativeComputedStyle = window.getComputedStyle.bind(window)
+
+/**
+ * Serve the surface's declared presentation properties, which jsdom resolves
+ * to the empty string because it applies no stylesheet. Everything else keeps
+ * the real declaration, so xterm's own measurements are untouched.
+ */
+function stubPresentation(values: Record<string, string>): void {
+  vi.spyOn(window, 'getComputedStyle').mockImplementation((element: Element, pseudo?: string | null) => {
+    const declaration = nativeComputedStyle(element, pseudo)
+    return new Proxy(declaration, {
+      get: (target, key) => key === 'getPropertyValue'
+        ? (name: string): string => values[name] ?? target.getPropertyValue(name)
+        : Reflect.get(target, key) as unknown,
+    })
+  })
+}
+
+/** The scroll element xterm paints the resolved theme background onto. */
+function viewport(surface: HTMLElement): HTMLElement {
+  const element = surface.querySelector<HTMLElement>('.xterm-scrollable-element')
+  if (element === null) throw new Error('xterm scroll element not mounted')
+  return element
+}
+
+/** The cell metrics xterm resolved, readable from its measurement element. */
+function cells(surface: HTMLElement): { fontFamily: string; fontSize: string } {
+  const element = surface.querySelector<HTMLElement>('.xterm-char-measure-element')
+  if (element === null) throw new Error('xterm measurement element not mounted')
+  return { fontFamily: element.style.fontFamily, fontSize: element.style.fontSize }
+}
+
 /** The mounted xterm surface element, once the effect has attached it. */
 async function xtermSurface(container: HTMLElement): Promise<HTMLElement> {
   return waitFor(() => {
@@ -233,6 +266,81 @@ describe('TerminalPanelView', () => {
     await xtermSurface(harness.container)
     expect(harness.surfaces).toHaveLength(1)
     expect(typeof harness.surfaces[0]?.reset).toBe('function')
+  })
+
+  it('renders the cells with the presentation the surface declares', async () => {
+    stubPresentation({
+      '--dsh-terminal-bg': ' #101014 ',
+      '--dsh-terminal-fg': '#e6e6e6',
+      '--dsh-terminal-cursor': '#4d6bfe',
+      '--dsh-terminal-selection': '#2b2b33',
+      '--dsh-terminal-font-family': "'SF Mono', monospace",
+      '--dsh-terminal-font-size': '13px',
+    })
+    const harness = mount({ session: 's1' as SessionId, panel: ONE_TERMINAL })
+    const surface = await xtermSurface(harness.container)
+    expect(cells(surface).fontFamily).toContain('SF Mono')
+    expect(cells(surface).fontSize).toBe('13px')
+    expect(viewport(surface).style.backgroundColor).toBe('rgb(16, 16, 20)')
+  })
+
+  it('falls back to a monospace stack and the default size when only the paints resolve', async () => {
+    stubPresentation({ '--dsh-terminal-bg': 'rgb(255, 255, 255)', '--dsh-terminal-fg': '#101014' })
+    const harness = mount({ session: 's1' as SessionId, panel: ONE_TERMINAL })
+    const surface = await xtermSurface(harness.container)
+    expect(cells(surface).fontFamily).toBe('monospace')
+    expect(cells(surface).fontSize).toBe('13px')
+    expect(viewport(surface).style.backgroundColor).toBe('rgb(255, 255, 255)')
+  })
+
+  it('re-resolves the presentation when the theme revision changes', async () => {
+    stubPresentation({
+      '--dsh-terminal-bg': 'rgb(16, 16, 20)', '--dsh-terminal-fg': '#e6e6e6', '--dsh-terminal-font-size': '13px',
+    })
+    const harness = mount({ session: 's1' as SessionId, panel: ONE_TERMINAL })
+    const surface = await xtermSurface(harness.container)
+    stubPresentation({
+      '--dsh-terminal-bg': 'rgb(255, 255, 255)', '--dsh-terminal-fg': '#101014', '--dsh-terminal-font-size': '16px',
+    })
+    act(() => { harness.appearanceStore.set({ revision: 2 }) })
+    await waitFor(() => { expect(cells(surface).fontSize).toBe('16px') })
+    expect(viewport(surface).style.backgroundColor).toBe('rgb(255, 255, 255)')
+  })
+
+  it('leaves the terminal on its own defaults while the stylesheet resolves nothing', async () => {
+    const harness = mount({ session: 's1' as SessionId, panel: ONE_TERMINAL })
+    const surface = await xtermSurface(harness.container)
+    // jsdom applies no stylesheet, so the declared properties read empty and
+    // the view must not invent a palette of its own.
+    expect(viewport(surface).style.backgroundColor).toBe('rgb(0, 0, 0)')
+    act(() => { harness.appearanceStore.set({ revision: 2 }) })
+    expect(viewport(surface).style.backgroundColor).toBe('rgb(0, 0, 0)')
+  })
+
+  it('refits once the declared font stack has loaded', async () => {
+    let settle = (): void => {}
+    const ready = new Promise<void>((resolve) => { settle = resolve })
+    Object.defineProperty(document, 'fonts', { configurable: true, value: { ready } })
+    const propose = vi.spyOn(FitAddon.prototype, 'proposeDimensions').mockReturnValue({ cols: 100, rows: 40 })
+    const harness = mount({ session: 's1' as SessionId, panel: ONE_TERMINAL })
+    await xtermSurface(harness.container)
+    harness.resize.mockClear()
+    // The first fit measured fallback metrics; the loaded stack fits narrower.
+    propose.mockReturnValue({ cols: 96, rows: 40 })
+    await act(async () => { settle(); await ready })
+    expect(harness.resize).toHaveBeenCalledWith(96, 40)
+  })
+
+  it('abandons the font-load refit when the surface is already gone', async () => {
+    let settle = (): void => {}
+    const ready = new Promise<void>((resolve) => { settle = resolve })
+    Object.defineProperty(document, 'fonts', { configurable: true, value: { ready } })
+    const harness = mount({ session: 's1' as SessionId, panel: ONE_TERMINAL })
+    await xtermSurface(harness.container)
+    act(() => { harness.setPanel({ terminals: [], activeId: undefined }) })
+    harness.resize.mockClear()
+    await act(async () => { settle(); await ready })
+    expect(harness.resize).not.toHaveBeenCalled()
   })
 
   it('applies the host scrollback setting to the mounted terminal', async () => {
@@ -371,6 +479,7 @@ describe('TerminalPanelView', () => {
     const bar = screen.getByRole('group', { name: zh['keys.label'] })
     const keys = [...bar.querySelectorAll('button')].map(button => button.textContent)
     expect(keys).toEqual(['Esc', 'Tab', 'Ctrl C', 'Ctrl D', 'Ctrl Z', '↑', '↓', '←', '→'])
+    fireEvent.mouseDown(screen.getByRole('button', { name: 'Ctrl C' }))
     fireEvent.click(screen.getByRole('button', { name: 'Ctrl C' }))
     expect(harness.write).toHaveBeenCalledWith('\u0003')
     fireEvent.click(screen.getByRole('button', { name: 'Tab' }))
