@@ -12,6 +12,7 @@ import type { ApiProxy, BrowserStreamFrame, GoalRef, HoldStreamFrame, HostFrame,
 import type { AuthenticationPrincipal } from '@deepseek-ai/dsh-host-apiproxy'
 import { ALL_AUTHENTICATION_CAPABILITIES } from '@deepseek-ai/dsh-authentication'
 import type { TerminalAttachmentId, WebTerminalId, WebTerminalInfo } from '@deepseek-ai/dsh-api-terminal-controller/types'
+import type { BrowserAttachmentId, HostBrowserPageId } from '@deepseek-ai/dsh-api-browser-controller/types'
 import { InProcessApiClient, RpcId, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 
 const sid = (id: string): SessionId => id as SessionId
@@ -475,6 +476,7 @@ describe('unary round trip', () => {
       events: {
         async *terminal(): AsyncGenerator<RpcRequest<TerminalStreamFrame>> { /* no frames */ },
         async *hold(): AsyncGenerator<RpcRequest<HoldStreamFrame>> { yield { rpcId: RpcId('h-ok'), payload: { type: 'retained' } } },
+        async *browser(): AsyncGenerator<RpcRequest<BrowserStreamFrame>> { /* no frames */ },
       },
     }), principal, undefined)
     void opened
@@ -482,12 +484,17 @@ describe('unary round trip', () => {
     expect(badTerminal.status).toBe(400)
     const badHold = await handler.fetch('http://dsh.internal/api/events.hold?sessionId=s', { method: 'GET' })
     expect(badHold.status).toBe(400)
+    const badBrowser = await handler.fetch('http://dsh.internal/api/events.browser?sessionId=s1&id=b1', { method: 'GET' })
+    expect(badBrowser.status).toBe(400)
     const goodTerminal = await handler.fetch('http://dsh.internal/api/events.terminal?sessionId=s1&id=t1&attachmentId=a1', { method: 'GET' })
     expect(goodTerminal.status).toBe(200)
     await goodTerminal.text()
     const good = await handler.fetch('http://dsh.internal/api/events.hold?sessionId=s1&id=t1', { method: 'GET' })
     expect(good.status).toBe(200)
     await good.text()
+    const goodBrowser = await handler.fetch('http://dsh.internal/api/events.browser?sessionId=s1&id=b1&attachmentId=a1', { method: 'GET' })
+    expect(goodBrowser.status).toBe(200)
+    await goodBrowser.text()
   })
 
   it('rejects a method/path mismatch as bad-request', async () => {
@@ -693,6 +700,12 @@ describe('SSE stream path', () => {
         async *hold(_request, _signal): AsyncGenerator<RpcRequest<HoldStreamFrame>> {
           yield { rpcId: RpcId('h-stream'), payload: { type: 'retained' } }
         },
+        async *browser(_request, _signal): AsyncGenerator<RpcRequest<BrowserStreamFrame>> {
+          yield { rpcId: RpcId('b-stream'), payload: { type: 'snapshot', info: {
+            id: 'b1' as HostBrowserPageId, url: 'https://example.test/', title: 'Example', width: 800, height: 600,
+            loading: false, state: 'ready', canGoBack: false, canGoForward: false,
+          } } }
+        },
       },
     })
     const seen: unknown[] = []
@@ -711,6 +724,17 @@ describe('SSE stream path', () => {
       held.push(envelope.payload)
     }
     expect(held).toEqual([{ type: 'retained' }])
+    const browsed: unknown[] = []
+    for await (const envelope of client(api).events.browser(
+      { sessionId: sid('s1'), id: 'b1' as HostBrowserPageId, attachmentId: 'a1' as BrowserAttachmentId },
+      new AbortController().signal,
+    )) {
+      browsed.push(envelope.payload)
+    }
+    expect(browsed).toEqual([{ type: 'snapshot', info: {
+      id: 'b1', url: 'https://example.test/', title: 'Example', width: 800, height: 600,
+      loading: false, state: 'ready', canGoBack: false, canGoForward: false,
+    } }])
   })
 
   it('reassembles frames across arbitrary chunk boundaries', async () => {
