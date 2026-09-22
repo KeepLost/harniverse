@@ -11,6 +11,7 @@
   ],
   "references": [
     { "path": "../../../vendor/cordis" },
+    { "path": "../../api/terminal-controller" },
     { "path": "../../auth/authentication" },
     { "path": "../../core/session" },
     { "path": "../../core/tools" },

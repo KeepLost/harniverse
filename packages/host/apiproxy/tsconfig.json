@@ -30,6 +30,9 @@
       "path": "../../api/remotes/tsconfig.host.json"
     },
     {
+      "path": "../../api/terminal-controller"
+    },
+    {
       "path": "../../util/brand"
     },
     {

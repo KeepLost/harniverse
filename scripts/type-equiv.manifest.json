@@ -1975,6 +1975,31 @@
       "symbol": "SshConnection",
       "source": "packages/ssh/ssh/src/index.ts",
       "projection": "public-api"
+    },
+    {
+      "doc": "docs/subsystems/terminal-controller.md",
+      "symbol": "WebTerminalInfo",
+      "source": "packages/api/terminal-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/terminal-controller.md",
+      "symbol": "TerminalFrame",
+      "source": "packages/api/terminal-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/terminal-controller.md",
+      "symbol": "TerminalCreateRequest",
+      "source": "packages/api/terminal-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/terminal-controller.md",
+      "symbol": "TerminalShell",
+      "source": "packages/api/terminal-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/terminal-controller.md",
+      "symbol": "TerminalEnvironment",
+      "source": "packages/api/terminal-controller/src/types.ts"
     }
   ]
 }

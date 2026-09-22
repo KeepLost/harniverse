@@ -2724,6 +2724,72 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'terminalController',
+    summary: 'Typed Remote control of transient Session-owned user terminal processes.',
+    description: 'Typed Remote control of transient Session-owned user terminal processes.',
+    methods: [
+      {
+        signature: '@Remote({ exportName: \'environment\', requiredCapability: \'harniverse.observe\' }) environment(agent: Agent, signal: AbortSignal): TerminalEnvironment',
+        description: 'Read the Session working directory and terminal limits without resolving a shell (`harniverse.observe`).',
+        parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'signal', description: 'request cancellation.' }],
+        returns: 'the Session workspace directory and terminal limits.',
+      },
+      {
+        signature: '@Remote({ exportName: \'shells\', requiredCapability: \'harniverse.observe\' }) shells(agent: Agent, signal: AbortSignal): Promise<TerminalShell[]>',
+        description: 'Discover installed shells in the Session\'s execution environment (`harniverse.observe`).',
+        parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'signal', description: 'request cancellation.' }],
+        returns: 'verified profiles, with the configured or system default first.',
+      },
+      {
+        signature: '@Remote({ exportName: \'list\', requiredCapability: \'harniverse.observe\' }) list(sessionId: SessionId): WebTerminalInfo[]',
+        description: 'List retained terminals without resolving or activating an Agent (`harniverse.observe`).',
+        parameters: [{ name: 'sessionId', description: 'displayed Session identity, including offline history.' }],
+        returns: 'terminals retained for this Host lifetime.',
+      },
+      {
+        signature: '@Remote({ exportName: \'create\', requiredCapability: \'harniverse.operate\' }) async create(agent: Agent, request: TerminalCreateRequest, signal: AbortSignal): Promise<WebTerminalInfo>',
+        description: 'Allocate a user shell once for a caller-generated identity, without Agent sandbox or approval restrictions (`harniverse.operate`).',
+        parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'request', description: 'initial dimensions and idempotency identity.' }, { name: 'signal', description: 'allocation cancellation; committed terminals survive disconnection.' }],
+        returns: 'the existing or newly committed terminal.',
+      },
+      {
+        signature: 'retain(sessionId: SessionId, id: WebTerminalId, signal: AbortSignal): AsyncIterable<TerminalRetentionFrame>',
+        description: 'Retain an existing terminal for a window without activating its Agent or taking input control. Not a Remote invocation: harniverse\'s Gateway surface is request/response, so the window-hold transport wraps this generator with the EventsApi hold stream.',
+        parameters: [{ name: 'sessionId', description: 'owning Session identity, including an inactive saved layout.' }, { name: 'id', description: 'retained Host terminal identity.' }, { name: 'signal', description: 'physical window stream cancellation.' }],
+        returns: 'a hold acknowledgement followed by an open lifetime stream.',
+      },
+      {
+        signature: 'follow(agent: Agent, id: WebTerminalId, attachmentId: TerminalAttachmentId, signal: AbortSignal): AsyncIterable<TerminalFrame>',
+        description: 'Attach to a terminal without binding its process lifetime to the transport. Not a Remote invocation: harniverse\'s Gateway surface is request/response, so the output transport broadcasts the follower frames the EventsApi terminal stream drives.',
+        parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'id', description: 'terminal identity.' }, { name: 'attachmentId', description: 'new exclusive input attachment.' }, { name: 'signal', description: 'attachment stream cancellation.' }],
+        returns: 'screen recovery followed by output and metadata changes.',
+      },
+      {
+        signature: '@Remote({ exportName: \'write\', requiredCapability: \'harniverse.operate\' }) async write(agent: Agent, id: WebTerminalId, attachmentId: TerminalAttachmentId, data: string): Promise<void>',
+        description: 'Deliver raw input, including Tab completion and control characters (`harniverse.operate`).',
+        parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'id', description: 'terminal identity.' }, { name: 'attachmentId', description: 'current writable attachment.' }, { name: 'data', description: 'input bytes represented as UTF-8 text.' }],
+        returns: 'after provider input acceptance.',
+      },
+      {
+        signature: '@Remote({ exportName: \'resize\', requiredCapability: \'harniverse.operate\' }) async resize(agent: Agent, id: WebTerminalId, attachmentId: TerminalAttachmentId, cols: number, rows: number): Promise<void>',
+        description: 'Update the dimensions of the PTY and recovery screen (`harniverse.operate`).',
+        parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'id', description: 'terminal identity.' }, { name: 'attachmentId', description: 'current writable attachment.' }, { name: 'cols', description: 'column count.' }, { name: 'rows', description: 'row count.' }],
+        returns: 'after the resize completes.',
+      },
+      {
+        signature: '@Remote({ exportName: \'rename\', requiredCapability: \'harniverse.operate\' }) rename(agent: Agent, id: WebTerminalId, title: string): void',
+        description: 'Rename a terminal without changing its shell (`harniverse.operate`).',
+        parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'id', description: 'terminal identity.' }, { name: 'title', description: 'nonempty display title, at most 120 characters.' }],
+      },
+      {
+        signature: '@Remote({ exportName: \'close\', requiredCapability: \'harniverse.operate\' }) async close(agent: Agent, id: WebTerminalId): Promise<void>',
+        description: 'Close an identity to future creation and kill its process range; repeated closes succeed (`harniverse.operate`).',
+        parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'id', description: 'terminal identity.' }],
+        returns: 'after provider cleanup succeeds. A failure retains the terminal for retry.',
+      },
+    ],
+  },
+  {
     key: 'terminals',
     summary: 'In-process registry for replaceable PTY backends and exact-Agent sessions.',
     description: 'In-process registry for replaceable PTY backends and exact-Agent sessions.',
@@ -6101,7 +6167,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubprocessSpawnSpec',
-    declaration: 'export interface SubprocessSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    stdio: SubprocessStdio;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n    env?: NodeJS.ProcessEnv | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n    limits?: SubprocessLimits | undefined;\n}',
+    declaration: 'export interface SubprocessSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    stdio: SubprocessStdio;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n    env?: NodeJS.ProcessEnv | undefined;\n    ambientEnv?: \'full\' | \'scrubbed\' | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n    limits?: SubprocessLimits | undefined;\n}',
   },
   {
     name: 'SubprocessStdinMode',
@@ -6125,7 +6191,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubprocessTerminalSpawnSpec',
-    declaration: 'export interface SubprocessTerminalSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    env?: Record<string, string> | undefined;\n    rows: number;\n    cols: number;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n}',
+    declaration: 'export interface SubprocessTerminalSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    env?: Record<string, string> | undefined;\n    ambientEnv?: \'full\' | \'scrubbed\' | undefined;\n    rows: number;\n    cols: number;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n}',
   },
   {
     name: 'SupervisionMode',
@@ -6156,6 +6222,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type TableValueOf<S extends DomainSpec, N extends keyof S[\'tables\']> = S[\'tables\'][N] extends DomainTableSpec<string, infer V> ? V : never;',
   },
   {
+    name: 'TerminalAttachmentId',
+    declaration: 'export type TerminalAttachmentId = Branded<\'TerminalAttachmentId\'>;',
+  },
+  {
     name: 'TerminalBackend',
     declaration: 'export interface TerminalBackend {\n    readonly type: string;\n    spawn(spec: TerminalBackendSpawnSpec): Promise<TerminalBackendSession>;\n}',
   },
@@ -6172,6 +6242,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TerminalCallView {\n    card: \'terminal\';\n    title: string;\n    description?: string;\n    cwd?: string;\n}',
   },
   {
+    name: 'TerminalCreateRequest',
+    declaration: 'export interface TerminalCreateRequest {\n    readonly shellPath?: string;\n    readonly id: WebTerminalId;\n    readonly cols: number;\n    readonly rows: number;\n}',
+  },
+  {
+    name: 'TerminalEnvironment',
+    declaration: 'export interface TerminalEnvironment {\n    readonly cwd: string;\n    readonly maxInputBytes: number;\n    readonly maxCols: number;\n    readonly maxRows: number;\n    readonly scrollback: number;\n}',
+  },
+  {
+    name: 'TerminalFrame',
+    declaration: 'export type TerminalFrame = {\n    readonly type: \'snapshot\';\n    readonly sequence: number;\n    readonly screen: string;\n    readonly info: WebTerminalInfo;\n} | {\n    readonly type: \'output\';\n    readonly sequence: number;\n    readonly data: string;\n} | {\n    readonly type: \'state\';\n    readonly info: WebTerminalInfo;\n};',
+  },
+  {
     name: 'TerminalReadRequest',
     declaration: 'export interface TerminalReadRequest {\n    offset?: number;\n    count?: number;\n}',
   },
@@ -6182,6 +6264,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TerminalResultView',
     declaration: 'export interface TerminalResultView {\n    card: \'terminal\';\n    title?: string;\n    output?: string;\n    exitCode?: number;\n    signal?: string;\n}',
+  },
+  {
+    name: 'TerminalRetentionFrame',
+    declaration: 'export interface TerminalRetentionFrame {\n    readonly type: \'retained\';\n}',
   },
   {
     name: 'TerminalSendOperation',
@@ -6214,6 +6300,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TerminalSessionStatus',
     declaration: 'export type TerminalSessionStatus = {\n    kind: \'running\';\n} | {\n    kind: \'exited\';\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n};',
+  },
+  {
+    name: 'TerminalShell',
+    declaration: 'export interface TerminalShell {\n    readonly path: string;\n    readonly args: readonly string[];\n    readonly name: string;\n}',
   },
   {
     name: 'TerminalSignal',
@@ -6534,6 +6624,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WebSource',
     declaration: 'export interface WebSource {\n    url: string;\n    title?: string;\n    snippet?: string;\n    publishedAt?: string;\n}',
+  },
+  {
+    name: 'WebTerminalId',
+    declaration: 'export type WebTerminalId = Branded<\'WebTerminalId\'>;',
+  },
+  {
+    name: 'WebTerminalInfo',
+    declaration: 'export interface WebTerminalInfo {\n    readonly id: WebTerminalId;\n    readonly title: string;\n    readonly shell: TerminalShell;\n    readonly cwd: string;\n    readonly cols: number;\n    readonly rows: number;\n    readonly state: \'running\' | \'exited\' | \'failed\';\n    readonly exitCode: number | null;\n    readonly error?: string;\n    readonly controllerId?: TerminalAttachmentId;\n}',
   },
   {
     name: 'WebUpgradeRoute',

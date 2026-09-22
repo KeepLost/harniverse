@@ -2,8 +2,8 @@
 // data source on a real clock; behavior tests need per-case responses and
 // deferred-controlled timing). Streams are hand pumps: pushMux/pushHost.
 import type {
-  HostFrame, IApiClient, MessageId, ModelSelection, MuxFrame,
-  RpcRequest, RpcResponse, SessionId, SessionModels, SessionSearchItem, SkillEntry, WorkspaceId,
+  HoldStreamFrame, HostFrame, IApiClient, MessageId, ModelSelection, MuxFrame,
+  RpcRequest, RpcResponse, SessionId, SessionModels, SessionSearchItem, SkillEntry, TerminalStreamFrame, WorkspaceId,
 } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
 import type { AuthenticationPrincipalIdentity } from '@deepseek-ai/dsh-authentication'
@@ -128,6 +128,8 @@ export class FakeApiClient implements IApiClient {
 
   private readonly muxConns: StreamConn<MuxFrame>[] = []
   private readonly hostConns: StreamConn<HostFrame>[] = []
+  private readonly terminalConns: StreamConn<TerminalStreamFrame>[] = []
+  private readonly holdConns: StreamConn<HoldStreamFrame>[] = []
   lastSearchSignal: AbortSignal | undefined
 
   // Parameter annotations below are local structural types on purpose: the CI
@@ -309,6 +311,10 @@ export class FakeApiClient implements IApiClient {
     },
     host: (_payload: unknown, signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: TestAuthenticationIdentity) => void) =>
       this.openStream(this.hostConns, signal, onOpen, onAuthenticated, this.hostAuthentication),
+    terminal: (_, signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: TestAuthenticationIdentity) => void) =>
+      this.openStream(this.terminalConns, signal, onOpen, onAuthenticated, BYPASS_IDENTITY),
+    hold: (_, signal: AbortSignal, onOpen?: () => void, onAuthenticated?: (identity: TestAuthenticationIdentity) => void) =>
+      this.openStream(this.holdConns, signal, onOpen, onAuthenticated, BYPASS_IDENTITY),
   }
 
   respond(): Promise<{ accepted: false; reason: 'not-pending' }> {

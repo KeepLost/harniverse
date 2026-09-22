@@ -337,5 +337,5 @@ Resolve strict generated definitions or conservative SRC markers against current
 async invoke(request: InvokeRemoteRequest): Promise<unknown>
 ```
 
-Source: [`packages/api/gateway/src/index.ts:94`](../../packages/api/gateway/src/index.ts)
+Source: [`packages/api/gateway/src/index.ts:95`](../../packages/api/gateway/src/index.ts)
 <!-- END GENERATED cordis-surface -->

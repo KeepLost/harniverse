@@ -8,6 +8,7 @@ The application-facing Remote stack. `remotes` owns BFF policy and the selected 
 |---|---|---|
 | [`remotes/`](remotes/README.md) | Host Agent/Session lookup policy and Client Remote contribution assembly | no service; configures `ctx.typert` and consumes `ctx.remote` |
 | [`gateway/`](gateway/README.md) | Host Typert dispatcher and Client Remote endpoint | `ctx.typertGateway` / `ctx.remote` |
+| [`terminal-controller/`](terminal-controller/README.md) | Host browser-terminal Remote over the subprocess PTY seam | `ctx.terminalController` |
 
 The runtime dependency direction is `remotes → gateway → connection → webserver`: the BFF consumes the shared `TypertClientRemote` contract, Gateway delegates transport to Connection, and Connection mounts on the HTTP server. Cordis service injection and Client module metadata preserve this order without importing the concrete Gateway from the Remotes Client entry.
 

@@ -176,6 +176,8 @@ flowchart LR
   pkg_queue["queue"]
   svc_queue["ctx.queue<br/>Session message queue"]
   pkg_client_ui_queue["client-ui-queue"]
+  pkg_api_terminal_controller["api-terminal-controller"]
+  svc_terminalController["ctx.terminalController<br/>Browser terminal controller"]
   svc_governor["ctx.governor<br/>Resource governor"]
   pkg_client_ui_governor["client-ui-governor"]
   pkg_shell["shell"]
@@ -259,6 +261,7 @@ flowchart LR
   pkg_agent_loop --> svc_agentLoop
   pkg_agent_presets --> svc_agentPresets
   pkg_api_gateway --> svc_typertGateway
+  pkg_api_terminal_controller --> svc_terminalController
   pkg_apiproxy --> svc_apiProxy
   pkg_approval --> svc_approval
   pkg_attachment --> svc_attachments
@@ -584,6 +587,7 @@ flowchart LR
 | `ctx.ssh` | `seam` | [`ssh`](../packages/ssh/ssh) | [`ssh`](../packages/ssh/ssh) | [`fs-ssh`](../packages/ssh/fs-ssh), [`subprocess-ssh`](../packages/ssh/subprocess-ssh), [`sandbox-ssh`](../packages/ssh/sandbox-ssh) | - | The connection owns the OpenSSH process, helper digest verification, the bounded control-channel transport, and helper lease cleanup; the remote filesystem, subprocess, and sandbox providers ride that transport and implement their seams on the SSH host under a captured machine-owned inventory. |
 | `ctx.subprocess` | `seam` | [`subprocess`](../packages/subprocess/subprocess) | [`subprocess-local`](../packages/subprocess/subprocess-local), [`subprocess-ssh`](../packages/ssh/subprocess-ssh) | [`bash-local`](../packages/shell/bash-local), [`bash-sandbox`](../packages/shell/bash-sandbox), [`terminal-bash`](../packages/terminal/terminal-bash), [`lsp-stdio`](../packages/lsp/lsp-stdio), [`subagent-acp`](../packages/subagent/subagent-acp), [`subagent-codex`](../packages/subagent/subagent-codex), [`subagent-claude-code`](../packages/subagent/subagent-claude-code), [`governor`](../packages/monitor/governor) | - | The bash executors, the PTY shell backend, the LSP host, and the out-of-process ACP, Codex, and Claude Code subagent backends spawn through ctx.subprocess; the service owns process coordinates, tree/session lifetime, stdio dispositions, terminal mechanics, and kill escalation. Correlated spawns additionally feed the governor through the subprocess/spawned metering events. |
 | `ctx.queue` | `seam` | [`queue`](../packages/queue/queue) | [`queue`](../packages/queue/queue) | [`client-ui-queue`](../packages/client/ui-queue) | - | The queue owns Kafka-style durable topics with forced archival and wake-on-deliver fan-out; the four model tools (queue-topic/history/subscription/publish) mount through the separately loadable queue/tool Consumer, and the panel tab polls the queue Remote. |
+| `ctx.terminalController` | `seam` | [`api-terminal-controller`](../packages/api/terminal-controller) | [`api-terminal-controller`](../packages/api/terminal-controller) | - | - | The terminal controller owns per-Session interactive USER shells over the subprocess PTY seam (full harness environment, login startup, never sandbox-confined, never model-visible) and serves snapshot-then-output screen frames to browser panels through the gateway terminal/* Remote endpoints and the apiproxy events.terminal / events.hold SSE streams. |
 | `ctx.governor` | `seam` | [`governor`](../packages/monitor/governor) | [`governor`](../packages/monitor/governor) | [`tool-bash`](../packages/shell/tool-bash), [`client-ui-governor`](../packages/client/ui-governor) | - | The governor meters correlated shell/terminal spawns from /proc (plus ss TCP attribution), enforces the global memory budget in tiers (cgroup-v2, prlimit plus watchdog, observe), and arbitrates shared-pool session quotas; the bash tool stamps correlations and merges breach facts into result meta, and the board consumes the governor Remote. |
 | `ctx.shell` | `seam` | [`shell`](../packages/shell/shell) | [`bash-local`](../packages/shell/bash-local), [`bash-sandbox`](../packages/shell/bash-sandbox), [`pwsh-local`](../packages/shell/pwsh-local) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex) | - | The model-facing shell tools and hook bridges consume this seam; sandboxed, remote, or PowerShell executors replace bash-local without touching them. |
 | `ctx.shellEnv` | `core` | [`shell-env`](../packages/shell/shell-env) | - | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh) | - | Plugins declare effect-scoped DSH_* facts; each shell tool collects one trusted snapshot per execution and its executor rebuilds the namespace. |
