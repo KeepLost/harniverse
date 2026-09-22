@@ -238,6 +238,10 @@ export class PwshLocalExecutor extends ShellExecutor {
       graceMs: this.config.graceMs,
       signal,
       env: { ...ENV_OVERRIDES, ...spec.env, ...spec.dshEnv },
+      // Full-access commands inherit the harness's complete environment so the
+      // user's credential/proxy/toolchain variables reach the child exactly as
+      // in their interactive PowerShell; confined modes keep the scrubbed base.
+      ...(spec.sandboxPolicy?.mode === 'danger-full-access' ? { ambientEnv: 'full' as const } : {}),
     }
   }
 

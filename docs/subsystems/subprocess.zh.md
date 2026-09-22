@@ -119,13 +119,23 @@ interface SubprocessSpawnSpec {
    */
   signal?: AbortSignal | undefined
   /**
-   * Explicit environment entries merged onto the implementation's scrubbed
+   * Explicit environment entries merged onto the implementation's ambient
    * parent base (see `scrubbedParentEnv`), with no namespace validation. A
    * string is a deliberate caller opt-in, so a forwarded credential-shaped
    * entry or current `DSH_*` fact survives the scrub; `undefined` is a
    * tombstone that removes an ordinary ambient entry from the child.
    */
   env?: NodeJS.ProcessEnv | undefined
+  /**
+   * Which ambient environment the child inherits. `'scrubbed'` (the default)
+   * starts from the credential-and-`DSH_*`-scrubbed parent environment;
+   * `'full'` starts from the harness's own `process.env` verbatim — reserved
+   * for callers whose execution mode already grants the child full-access
+   * trust (e.g. a `danger-full-access` shell policy or a user terminal), where
+   * silently dropping credential-shaped variables breaks the user's tools.
+   * Explicit {@link env} entries merge on top in either mode.
+   */
+  ambientEnv?: 'full' | 'scrubbed' | undefined
   /**
    * Metering identity: stamps the spawn as belonging to one session command.
    * Present spawns are reported through `subprocess/spawned` / `subprocess/exited`

@@ -298,6 +298,33 @@ describe('danger-full-access', () => {
     expect(calls).toHaveLength(0)
   })
 
+  it('inherits the harness environment verbatim (full-access trust keeps the user\'s variables intact)', async () => {
+    const { bash, calls } = await setup({ mode: 'danger-full-access' })
+    const previous = process.env.DSH_TEST_TOKEN
+    process.env.DSH_TEST_TOKEN = 'full-inheritance'
+    try {
+      const result = await bash.run(bash.resolve({ command: 'echo "${DSH_TEST_TOKEN:-unset}"' }))
+      expect(result.stdout.text).toBe('full-inheritance\n')
+      expect(calls).toHaveLength(0)
+    } finally {
+      if (previous === undefined) delete process.env.DSH_TEST_TOKEN
+      else process.env.DSH_TEST_TOKEN = previous
+    }
+  })
+
+  it('confined modes keep credential-shaped ambient variables out of the child', async () => {
+    const { bash } = await setup()
+    const previous = process.env.DSH_TEST_TOKEN
+    process.env.DSH_TEST_TOKEN = 'must-not-leak'
+    try {
+      const result = await bash.run(bash.resolve({ command: 'echo "${DSH_TEST_TOKEN:-unset}"' }))
+      expect(result.stdout.text).toBe('unset\n')
+    } finally {
+      if (previous === undefined) delete process.env.DSH_TEST_TOKEN
+      else process.env.DSH_TEST_TOKEN = previous
+    }
+  })
+
   it('start() passes through unwrapped and stamps nothing at settle', async () => {
     const { bash, calls } = await setup({ mode: 'danger-full-access' })
     const task = await bash.start(bash.resolve({ command: 'echo free-bg' }))

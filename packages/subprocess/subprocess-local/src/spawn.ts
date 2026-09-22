@@ -29,15 +29,18 @@ type SpawnProcess = (
 ) => ChildProcess
 
 /**
- * Build a child environment: explicit caller entries override the scrubbed
- * parent base using the target platform's environment-key semantics. A string
- * deliberately restores or overrides an entry; an explicit `undefined`
+ * Build a child environment: explicit caller entries override the chosen
+ * ambient base using the target platform's environment-key semantics. The
+ * default base is the scrubbed parent environment; `'full'` bases the child on
+ * the harness's own `process.env` verbatim for full-access-trust callers. A
+ * string deliberately restores or overrides an entry; an explicit `undefined`
  * tombstone removes an ordinary ambient entry.
- * @param extra - explicit caller entries and tombstones, merged after the scrub.
+ * @param extra - explicit caller entries and tombstones, merged after the base.
+ * @param ambient - which parent environment to inherit (default `'scrubbed'`).
  * @returns the environment to hand to `spawn` for the child process.
  */
-export function childEnv(extra?: Readonly<NodeJS.ProcessEnv>): NodeJS.ProcessEnv {
-  const env = scrubbedParentEnv()
+export function childEnv(extra?: Readonly<NodeJS.ProcessEnv>, ambient: 'full' | 'scrubbed' = 'scrubbed'): NodeJS.ProcessEnv {
+  const env = ambient === 'full' ? { ...process.env } : scrubbedParentEnv()
   if (process.platform !== 'win32') return { ...env, ...extra }
   let entries: [string, string | undefined][] = Object.entries(env)
   for (const [key, value] of Object.entries(extra ?? {})) {
@@ -185,7 +188,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   const errMode = spec.stdio.stderr
   const stdinMode = spec.stdio.stdin
 
-  const env = childEnv(spec.env)
+  const env = childEnv(spec.env, spec.ambientEnv)
   const child = spawnProcess(program, args, {
     cwd: spec.cwd,
     env,

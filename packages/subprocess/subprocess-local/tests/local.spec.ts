@@ -181,6 +181,37 @@ describe('LocalSubprocessRuntime', () => {
     }
   })
 
+  it('honors ambientEnv on terminal allocation', async () => {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
+    const previous = process.env.DSH_TEST_TOKEN
+    process.env.DSH_TEST_TOKEN = 'full-inheritance'
+    let handle: SubprocessTerminalHandle | undefined
+    try {
+      handle = await ctx.subprocess.spawnTerminal({
+        argv: ['/bin/sh'],
+        cwd: process.cwd(),
+        rows: 24,
+        cols: 80,
+        graceMs: 1_000,
+        ambientEnv: 'full',
+      })
+      const seen: string[] = []
+      handle.output.on('data', (chunk: Buffer) => { seen.push(chunk.toString('utf8')) })
+      await handle.write('printf "%s\\n" "${DSH_TEST_TOKEN:-unset}"\n')
+      const deadline = Date.now() + 5_000
+      while (Date.now() < deadline && !seen.join('').includes('full-inheritance')) {
+        await new Promise((resolve) => { setTimeout(resolve, 50) })
+      }
+      expect(seen.join('')).toContain('full-inheritance')
+    } finally {
+      if (previous === undefined) delete process.env.DSH_TEST_TOKEN
+      else process.env.DSH_TEST_TOKEN = previous
+      await handle?.terminate()
+      await fiber.dispose()
+    }
+  }, 10_000)
+
   it('validates terminal allocation inputs before allocating a PTY', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessRuntime)

@@ -196,8 +196,13 @@ export class LocalBashExecutor extends ShellExecutor {
       signal,
       // One explicit env map for the seam, layered so the trusted dshEnv
       // snapshot beats both the caller's env and the terminal overrides; the
-      // subprocess service merges the whole map after its ambient scrub.
+      // subprocess service merges the whole map after its ambient base.
       env: { ...ENV_OVERRIDES, ...spec.env, ...spec.dshEnv },
+      // Full-access commands inherit the harness's complete environment: the
+      // user's credential/proxy/toolchain variables must reach the child the
+      // same way they reach the user's interactive shell. Confined modes keep
+      // the scrubbed base so sandboxed children cannot exfiltrate secrets.
+      ...(spec.sandboxPolicy?.mode === 'danger-full-access' ? { ambientEnv: 'full' as const } : {}),
       ...spec.correlation !== undefined ? { correlation: spec.correlation } : {},
       ...spec.limits !== undefined ? { limits: spec.limits } : {},
     }

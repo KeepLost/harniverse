@@ -215,7 +215,7 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
       rows: spec.rows,
       cols: spec.cols,
       cwd: spec.cwd,
-      env: childEnv(spec.env),
+      env: childEnv(spec.env, spec.ambientEnv),
     }
     const inspector = this.terminalInspector ?? createProcessInspector()
     const terminal = this.ptySpawn !== undefined
