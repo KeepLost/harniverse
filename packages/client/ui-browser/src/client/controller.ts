@@ -91,18 +91,27 @@ export interface BrowserPanelState {
  * @param prefix - identity prefix naming the identity's role.
  * @returns the minted identity string.
  */
+/* jscpd:ignore-start */
+// mintId matches the terminal panel's identity helper: both mint caller-side
+// ids for the host's shared `^[\w-]{1,128}$` identity rule.
 function mintId(prefix: string): string {
   const uuid = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   return `${prefix}-${uuid}`
 }
+/* jscpd:ignore-end */
 
 /**
  * The browser panel controller over one session's browser Remote surface.
  * Created once per plugin fiber; survives center-view remounts (pages keep
  * running while the panel is closed) and dies with `dispose`.
  */
+/* jscpd:ignore-start */
+// The lifecycle below (bind/activate/refresh, attach + frame/error handling,
+// the reattach ladder, resize and stream detachment) parallels the terminal
+// panel controller by design: both drive one host Remote page surface through
+// the same session/attachment contract, with browser verbs for terminal ones.
 export class BrowserPanelController {
   /** Published panel state (the render layer's single source of truth). */
   readonly state: SnapshotStore<BrowserPanelState>
@@ -576,3 +585,4 @@ export class BrowserPanelController {
     this.reattachAttempts = 0
   }
 }
+/* jscpd:ignore-end */

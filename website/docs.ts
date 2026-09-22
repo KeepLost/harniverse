@@ -305,6 +305,8 @@ const subsystemGroups = [
   ['平台与接入', 'Platform and access', [
     ['web-server.md', 'HTTP 服务器', 'HTTP server'],
     ['typert.md', 'Typert', 'Typert'],
+    ['terminal-controller.md', '浏览器终端', 'Browser terminal'],
+    ['browser-controller.md', '宿主浏览器', 'Host browser'],
     ['client-modules.md', '客户端模块', 'Client modules'],
     ['storage.md', '存储', 'Storage'],
     ['workspace.md', '工作区', 'Workspaces'],

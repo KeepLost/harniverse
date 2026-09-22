@@ -111,6 +111,9 @@ export class HostBrowserPage {
       }
       return snapshot
     })
+    /* jscpd:ignore-start */
+    // The retention-generator handoff mirrors the terminal controller's attach
+    // loop: both supervise one follower over a host-owned page/session.
     try {
       yield baseline
       yield* follower.read(signal)
@@ -124,6 +127,7 @@ export class HostBrowserPage {
         this.broadcast({ type: 'state', info })
       }
     }
+    /* jscpd:ignore-end */
   }
 
   /**

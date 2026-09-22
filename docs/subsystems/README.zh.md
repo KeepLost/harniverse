@@ -36,6 +36,7 @@
 | [sandbox.md](sandbox.md) | 每会话策略解析与进程约束 seam：文件效果模式、执行/提供方策略、`ConfinedArgv`、强制执行与故障关闭错误 |
 | [ssh.md](ssh.md) | SSH 提供方家族：部署方持有的 OpenSSH 连接、TLS 认证的转发流、远端辅助租约与清理归属 |
 | [terminal-controller.md](terminal-controller.md) | 浏览器终端 Remote：身份与屏幕帧、附着控制、窗口持有与 Shell 发现 |
+| [browser-controller.md](browser-controller.md) | 宿主浏览器 Remote：会话级 Chromium 归属、导航策略、屏幕帧与 CDP 输入分发 |
 | [code-runtime.md](code-runtime.md) | 代码执行 seam：`CodeRunRequest`/`Result`、绑定命名空间、捕获日志、`CodeRunFailure` 分类体系 |
 | [extensions.md](extensions.md) | 带版本的动态 Cordis Plugin 与 Package、Host/Client 激活、审批、运行时检查和生命周期撤销 |
 | [filesystem.md](filesystem.md) | 文件系统 seam：`FsTarget`、读/写/编辑结果、观测到的文件状态、`FsErrorCode` |

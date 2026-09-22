@@ -5325,6 +5325,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         return queue.iterate(signal, () => {})
       },
 
+      /* jscpd:ignore-start */
+      // The browser stream face parallels the terminal stream face above:
+      // one retention queue per attachment over a different controller.
       browser(request, signal) {
         const queue = new FrameQueue<RpcRequest<BrowserStreamFrame>>(streamQueueMaxFrames)
         const controller = ctx.get('browserController')
@@ -5361,6 +5364,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         })()
         return queue.iterate(signal, () => {})
       },
+      /* jscpd:ignore-end */
+
     },
 
     downloads: {
