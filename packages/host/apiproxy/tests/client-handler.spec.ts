@@ -9,6 +9,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { ApiProxy, GoalRef, HoldStreamFrame, HostFrame, MuxFrame, RpcMessage, RpcRequest, RpcResponse, TerminalStreamFrame } from '@deepseek-ai/dsh-host-apiproxy'
+import type { AuthenticationPrincipal } from '@deepseek-ai/dsh-host-apiproxy'
+import { ALL_AUTHENTICATION_CAPABILITIES } from '@deepseek-ai/dsh-authentication'
 import type { TerminalAttachmentId, WebTerminalId, WebTerminalInfo } from '@deepseek-ai/dsh-api-terminal-controller/types'
 import { InProcessApiClient, RpcId, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 
@@ -464,17 +466,24 @@ describe('unary round trip', () => {
       },
     }), { status: 200 })
     const opened = vi.fn(() => frames)
+    const principal: AuthenticationPrincipal = {
+      kind: 'bypass',
+      capabilities: ALL_AUTHENTICATION_CAPABILITIES,
+    }
     const handler = toFetchHandler(scriptedApi({
       events: {
         async *terminal(): AsyncGenerator<RpcRequest<TerminalStreamFrame>> { /* no frames */ },
         async *hold(): AsyncGenerator<RpcRequest<HoldStreamFrame>> { yield { rpcId: RpcId('h-ok'), payload: { type: 'retained' } } },
       },
-    }), undefined, undefined)
+    }), principal, undefined)
     void opened
     const badTerminal = await handler.fetch('http://dsh.internal/api/events.terminal?sessionId=&id=x&attachmentId=y', { method: 'GET' })
     expect(badTerminal.status).toBe(400)
     const badHold = await handler.fetch('http://dsh.internal/api/events.hold?sessionId=s', { method: 'GET' })
     expect(badHold.status).toBe(400)
+    const goodTerminal = await handler.fetch('http://dsh.internal/api/events.terminal?sessionId=s1&id=t1&attachmentId=a1', { method: 'GET' })
+    expect(goodTerminal.status).toBe(200)
+    await goodTerminal.text()
     const good = await handler.fetch('http://dsh.internal/api/events.hold?sessionId=s1&id=t1', { method: 'GET' })
     expect(good.status).toBe(200)
     await good.text()
