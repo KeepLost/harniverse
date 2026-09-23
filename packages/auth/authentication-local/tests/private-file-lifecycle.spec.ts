@@ -16,6 +16,7 @@ const failures = vi.hoisted(() => ({
   statMode: undefined as { path: string; mode: number } | undefined,
   statFailure: undefined as { path: string; code: string } | undefined,
   readdirFailure: undefined as { path: string; code: string; once: boolean } | undefined,
+  readdirHits: 0,
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -49,6 +50,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     readdir: async (...args: Parameters<typeof actual.readdir>): Promise<ReturnType<typeof actual.readdir>> => {
       const failure = failures.readdirFailure
       if (failure && failure.path === String(args[0])) {
+        failures.readdirHits += 1
         if (failure.once) failures.readdirFailure = undefined
         throw Object.assign(new Error('simulated readdir failure'), { code: failure.code })
       }
@@ -86,6 +88,7 @@ afterEach(async () => {
   failures.statMode = undefined
   failures.statFailure = undefined
   failures.readdirFailure = undefined
+  failures.readdirHits = 0
   Object.defineProperty(process, 'platform', platformDescriptor)
   vi.restoreAllMocks()
   while (roots.length > 0) await rm(roots.pop()!, { recursive: true, force: true })
@@ -274,7 +277,15 @@ describe('stale writer lock reclamation', () => {
     // release finishes and the plant is disarmed.
     failures.readdirFailure = { path: lockPath, code: 'EPERM', once: false }
     const acquisition = withPrivateFileLock(target, async () => 'waited out')
-    await new Promise(resolve => setTimeout(resolve, 60))
+    // Wait until the waiter has actually observed the planted EPERM (and so
+    // entered the retry arm) before releasing the lock: a fixed sleep races
+    // against slow runners, where the acquisition may not reach its first
+    // owner read before the disarm and the retry arm stays uncovered.
+    const disarmDeadline = Date.now() + 5_000
+    while (failures.readdirHits === 0) {
+      if (Date.now() >= disarmDeadline) throw new Error('planted EPERM was never observed by the waiter')
+      await new Promise(resolve => setTimeout(resolve, 5))
+    }
     await rm(join(lockPath, `owner-${hex('b')}.json`), { force: true })
     await rmdir(lockPath).catch(() => {})
     failures.readdirFailure = undefined

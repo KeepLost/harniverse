@@ -13,8 +13,14 @@
  * (product) and `--dsl-*` (primitive-local) prefixes and are out of scope,
  * since their definitions live beside their consumers.
  *
- * A reference carrying a fallback (`var(--dsw-x, 12px)`) is permitted: it is a
- * deliberate optional read with a defined outcome.
+ * A fallback does not make an undefined governed token acceptable. `var(--dsw-x,
+ * #000)` compiles and renders, so the literal silently becomes the shipped
+ * value in both palettes — the token never participates in the cascade, the
+ * theme owner cannot change it, and a light-mode-authored fallback goes
+ * illegible in dark mode. A fallback is only a deliberate optional read when
+ * the token it names exists; behind an undefined one it is a hardcoded value
+ * wearing a token's clothes, so both forms are violations and only the
+ * `kind` differs.
  *
  * Run directly:
  *   pnpm exec tsx scripts/verify-client-css-tokens.ts
@@ -33,7 +39,7 @@ const GOVERNED = /^--(?:dsw|ds)-/
 const SEARCH_ROOTS = ['packages', 'apps']
 
 /** One undefined governed reference. */
-interface Violation { file: string; line: number; token: string; kind: 'declaration' | 'reference' }
+interface Violation { file: string; line: number; token: string; kind: 'declaration' | 'reference' | 'fallback' }
 
 /** Remove comments while retaining newlines so diagnostics keep source lines. */
 function withoutComments(text: string): string {
@@ -104,10 +110,9 @@ export function findCssTokenViolations(path: string, text: string, defined: Set<
   for (const match of source.matchAll(/var\(\s*(--[a-zA-Z0-9_-]+)\s*([,)])/gu)) {
     const token = match[1]
     if (token === undefined || !GOVERNED.test(token)) continue
-    if (match[2] === ',') continue
     if (defined.has(token)) continue
     const line = source.slice(0, match.index).split('\n').length
-    violations.push({ file: path, line, token, kind: 'reference' })
+    violations.push({ file: path, line, token, kind: match[2] === ',' ? 'fallback' : 'reference' })
   }
   return violations
 }
@@ -121,13 +126,17 @@ function main(): void {
   const violations = consumerStylesheets().flatMap(path => checkStylesheet(path, defined))
 
   if (violations.length > 0) {
-    console.error(`verify-client-css-tokens: ${violations.length} undefined governed token declaration(s) or reference(s):`)
+    console.error(`verify-client-css-tokens: ${violations.length} undefined governed token declaration(s), reference(s), or fallback-hidden read(s):`)
     for (const violation of violations) {
-      const detail = violation.kind === 'declaration' ? `${violation.token}:` : `var(${violation.token})`
+      const detail = violation.kind === 'declaration'
+        ? `${violation.token}:`
+        : violation.kind === 'fallback'
+          ? `var(${violation.token}, …) — the fallback is the shipped value`
+          : `var(${violation.token})`
       console.error(`  ${violation.file}:${violation.line} -> ${detail}`)
     }
     console.error('Map each reference onto a token defined in packages/client/ui-theme/src/styles,')
-    console.error('or give it an explicit fallback when the read is deliberately optional.')
+    console.error('or define the token there when the role it names is genuinely new.')
     process.exit(1)
   }
   console.log(`verify-client-css-tokens: ${String(defined.size)} theme tokens, every client reference resolves.`)

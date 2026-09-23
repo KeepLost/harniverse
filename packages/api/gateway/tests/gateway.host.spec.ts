@@ -14,6 +14,7 @@ import type { WebServer, WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import {
   bindTypertRemote,
   Remote,
+  RemoteError,
   RemoteScope,
   TypertLookupFailure,
   type InvocationDescriptor,
@@ -1060,6 +1061,22 @@ describe('TypertGatewayService', () => {
     )).resolves.toEqual({
       ok: false,
       error: { code: 'internal', message: 'Remote invocation failed', details: {} },
+    })
+
+    // A structural RemoteError keeps its own code/message/details on the wire
+    // instead of collapsing to internal.
+    service.businessError = new RemoteError('terminal-unavailable', 'Terminal is closing or unavailable', { reason: 'fixture' })
+    await expect(invokeConnection(handler,
+      'goals/fail',
+      { args: { request: null } },
+      new AbortController().signal,
+    )).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'terminal-unavailable',
+        message: 'Terminal is closing or unavailable',
+        details: { reason: 'fixture' },
+      },
     })
 
     // A business rejection observed while the carrier signal is already aborted

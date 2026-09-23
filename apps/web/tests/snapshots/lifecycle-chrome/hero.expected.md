@@ -26,6 +26,12 @@
 - button "Open the panel":
   - img
   - text: Panel
+- button "Open the browser panel":
+  - img
+  - text: Browser
+- button "Open the terminal panel":
+  - img
+  - text: Terminal
 - button "Settings":
   - img
   - text: Settings

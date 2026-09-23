@@ -11,7 +11,7 @@
 
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -186,6 +186,23 @@ describe('spawn construction (pure, every platform)', () => {
     expect(argv[5]).toBe(`${ENCODING_PREAMBLE}Write-Output 你好`)
     expect(ENCODING_PREAMBLE).toContain('[Console]::OutputEncoding')
     expect(ENCODING_PREAMBLE).toContain('$OutputEncoding')
+  })
+
+  it('stamps ambientEnv "full" only for danger-full-access policies', async () => {
+    const ctx = new Context()
+    const subprocess = new CapturingSubprocessRuntime(ctx)
+    await ctx.plugin(PwshLocalExecutor)
+    const root = resolve(process.cwd())
+    await ctx.shell.run(ctx.shell.resolve({ command: 'Write-Output plain' }))
+    await ctx.shell.run(ctx.shell.resolve({
+      command: 'Write-Output confined',
+      sandboxPolicy: { mode: 'workspace-write', workspaceRoot: root },
+    }))
+    await ctx.shell.run(ctx.shell.resolve({
+      command: 'Write-Output free',
+      sandboxPolicy: { mode: 'danger-full-access', workspaceRoot: root },
+    }))
+    expect(subprocess.specs.map(spec => spec.ambientEnv)).toEqual([undefined, undefined, 'full'])
   })
 })
 

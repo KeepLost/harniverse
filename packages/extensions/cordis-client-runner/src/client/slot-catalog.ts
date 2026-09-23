@@ -106,7 +106,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       },
     ],
     ownerProps: [
-      '/**\n * Center-view owner share: the occupancy fact the frame alone resolves. The\n * frame renders only the named entry, so `active` is always true at the\n * render site — it exists so an entry can treat its mount as activation.\n */\nexport interface CenterViewOwnerProps {\n  /** True while this view occupies the center column. */\n  active: boolean\n}',
+      '/**\n * Center-view owner share: the occupancy fact the frame alone resolves. The\n * frame renders only the named entry, so `active` is always true at the\n * render site — it exists so an entry can treat its mount as activation.\n */\nexport interface CenterViewOwnerProps {\n  /** True while this view occupies the center column. */\n  active: boolean\n  /**\n   * What the opener asked this view to show, when it asked for something\n   * specific (the browser panel\'s destination URL is the shipped case). The\n   * layout carries the string verbatim and never interprets it; a view opened\n   * from its own trigger receives undefined and shows its default state.\n   */\n  request?: string\n}',
     ],
     ownerPropsReferences: [],
     standardProps: [
@@ -118,8 +118,10 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     slotInject: '',
     declaredBy: 'an entry in \'root\' (client-ui-layout), so it exists while that entry is mounted',
     occupants: [
+      'client-ui-browser BrowserCenterView id \'browser\'',
       'client-ui-governor GovernorCenterView id \'governor\'',
       'client-ui-scheduler ScheduleCenterView id \'schedules\'',
+      'client-ui-terminal TerminalPanelView id \'terminal\'',
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'center.view\', () => ctx.slots.register(\n      { name: \'center.view\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
@@ -262,10 +264,11 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       },
     ],
     ownerProps: [
-      '/** Stable owner currency delivered to one keyed Chat business renderer. */\nexport interface ChatNodeOwnerProps {\n  /** Selected Tool call, when the shared details store names one. */\n  selectedCallId?: CallId | undefined\n  /** Session workspace root; Tool summaries display paths relative to it. */\n  cwd?: string | undefined\n  openFile: (path: string) => void\n  inspectCall: (callId: CallId) => void\n  forkAt: (seq: number) => void\n  /** Resolve a session-authorized historical image for inline display. */\n  loadImage: (attachment: ImageAttachmentRef) => Promise<string>\n  fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined\n}',
+      '/** Stable owner currency delivered to one keyed Chat business renderer. */\nexport interface ChatNodeOwnerProps {\n  /** Selected Tool call, when the shared details store names one. */\n  selectedCallId?: CallId | undefined\n  /** Session workspace root; Tool summaries display paths relative to it. */\n  cwd?: string | undefined\n  openFile: (path: string) => void\n  inspectCall: (callId: CallId) => void\n  forkAt: (seq: number) => void\n  /** Resolve a session-authorized historical image for inline display. */\n  loadImage: (attachment: ImageAttachmentRef) => Promise<string>\n  fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined\n  /** Where a link in assistant prose opens. */\n  externalLinks: MarkdownExternalLinks\n}',
     ],
     ownerPropsReferences: [
       'ImageAttachmentRef',
+      'MarkdownExternalLinks',
       'MarkdownFileMentions',
       'TurnTailOwnerProps',
     ],
@@ -1309,6 +1312,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-locale LanguageRow id \'language\'',
       'client-ui-agent-preset AgentPresetRow id \'agent-preset\'',
       'client-ui-conversation EnterBehaviorRow id \'composer-enter\'',
+      'client-ui-conversation LinkDestinationRow id \'conversation-links\'',
       'client-ui-permission-presets PermissionRow id \'permission\'',
       'client-ui-theme AppearanceRow id \'appearance\'',
       'client-ui-theme FontSizeRow id \'font-size\'',
@@ -1669,8 +1673,10 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     slotInject: '',
     declaredBy: 'an entry in \'sidebar\' (client-ui-sidebar), so it exists while that entry is mounted',
     occupants: [
+      'client-ui-browser BrowserSidebarAction id \'browser-view\'',
       'client-ui-governor GovernorSidebarAction id \'governor-view\'',
       'client-ui-scheduler ScheduleSidebarAction id \'schedule-view\'',
+      'client-ui-terminal TerminalSidebarAction id \'terminal-view\'',
       'client-ui-cordis CordisPanel id \'cordis-panel\'',
     ],
     replaceRisk: 'none',

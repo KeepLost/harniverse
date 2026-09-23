@@ -165,6 +165,30 @@ describe('spawnSubprocess', () => {
     expect(result.stdout.text).toBe('callers-choice\n')
   })
 
+  it('inherits the harness environment verbatim under ambientEnv "full"', async () => {
+    const previous = process.env.DSH_TEST_TOKEN
+    process.env.DSH_TEST_TOKEN = 'full-inheritance'
+    try {
+      const result = await finish(spawnSubprocess(spec('echo "${DSH_TEST_TOKEN:-unset}"', { ambientEnv: 'full' })))
+      expect(result.stdout.text).toBe('full-inheritance\n')
+    } finally {
+      if (previous === undefined) delete process.env.DSH_TEST_TOKEN
+      else process.env.DSH_TEST_TOKEN = previous
+    }
+  })
+
+  it('keeps credential-shaped ambient variables out of the default scrubbed child', async () => {
+    const previous = process.env.DSH_TEST_TOKEN
+    process.env.DSH_TEST_TOKEN = 'must-not-leak'
+    try {
+      const result = await finish(spawnSubprocess(spec('echo "${DSH_TEST_TOKEN:-unset}"')))
+      expect(result.stdout.text).toBe('unset\n')
+    } finally {
+      if (previous === undefined) delete process.env.DSH_TEST_TOKEN
+      else process.env.DSH_TEST_TOKEN = previous
+    }
+  })
+
   it('runs in the requested cwd', async () => {
     const result = await finish(spawnSubprocess(spec('pwd', { cwd: '/tmp' })))
     expect(result.stdout.text.trim()).toMatch(/\/tmp$/)

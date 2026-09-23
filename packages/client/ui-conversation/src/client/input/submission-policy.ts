@@ -9,10 +9,10 @@ import {
 import type {
   BusyEnterBehavior, ComposerSubmitGesture, InputSubmitMode,
 } from '../contract/composer-submission.ts'
-import { BUSY_ENTER_FIELD, DEFAULT_BUSY_ENTER_BEHAVIOR } from '../../submission-settings.ts'
-import type { ConversationSettings } from '../../submission-settings.ts'
+import { BUSY_ENTER_FIELD, DEFAULT_BUSY_ENTER_BEHAVIOR } from '../../conversation-settings.ts'
+import type { ConversationSettings } from '../../conversation-settings.ts'
 
-export { DEFAULT_BUSY_ENTER_BEHAVIOR } from '../../submission-settings.ts'
+export { DEFAULT_BUSY_ENTER_BEHAVIOR } from '../../conversation-settings.ts'
 
 /**
  * Busy-Enter policy used by both the composer inject face and its Settings row.

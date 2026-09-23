@@ -143,7 +143,7 @@ export class SshSubprocessRuntime extends SubprocessRuntime {
     spec.signal?.throwIfAborted()
     const ssh = this.ctx.ssh
     const ready = ssh.request('process.spawn', { argv: spec.argv, cwd: spec.cwd, env: spec.env, graceMs: spec.graceMs,
-      terminal: { rows: spec.rows, cols: spec.cols } }, allocationSchema)
+      terminal: { rows: spec.rows, cols: spec.cols, term: spec.term } }, allocationSchema)
     this.allocations.add(ready)
     let allocation: z.infer<typeof allocationSchema>
     try { allocation = await ready } finally { this.allocations.delete(ready) }

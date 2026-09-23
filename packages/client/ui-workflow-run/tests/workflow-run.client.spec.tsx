@@ -299,6 +299,7 @@ function panelProps(data: WorkflowRunChatData, sessions = listState(), openSessi
     forkAt: () => {},
     loadImage: () => Promise.reject(new Error('unused')),
     fileMentions: () => undefined,
+    externalLinks: { open: () => true },
     openSession,
     setCatalogOpen: vi.fn(),
     t: makeTranslate(zh),

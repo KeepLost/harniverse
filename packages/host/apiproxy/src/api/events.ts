@@ -13,6 +13,8 @@ import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { JsonValue, SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
+import type { TerminalAttachmentId, TerminalFrame, TerminalRetentionFrame, WebTerminalId } from '@deepseek-ai/dsh-api-terminal-controller/types'
+import type { BrowserAttachmentId, BrowserFrame, HostBrowserPageId } from '@deepseek-ai/dsh-api-browser-controller/types'
 import type { RpcError, RpcId, RpcRequest } from './rpc.ts'
 import type { JobView } from './jobs.ts'
 import type { WorkspaceView } from './workspace.ts'
@@ -62,6 +64,49 @@ export interface EventsApi {
    * agent failures with no turn position. Empty payload uses `{}`.
    */
   host(request: RpcRequest<{}>, signal: AbortSignal): AsyncIterable<RpcRequest<HostFrame>>
+
+  /**
+   * Terminal attachment stream: opening claims the exclusive input attachment
+   * (the payload's attachmentId) and emits the screen recovery snapshot, then
+   * output and metadata frames until the attachment detaches. Stream abort is
+   * the detach; the open lifetime equals the attachment lifetime.
+   */
+  terminal(request: RpcRequest<TerminalStreamBinding>, signal: AbortSignal): AsyncIterable<RpcRequest<TerminalStreamFrame>>
+
+  /**
+   * Terminal window-hold stream: opening retains the terminal against idle
+   * reclamation while the stream stays open (the hold acknowledgement is the
+   * first frame); abort releases the hold.
+   */
+  hold(request: RpcRequest<TerminalHoldBinding>, signal: AbortSignal): AsyncIterable<RpcRequest<HoldStreamFrame>>
+
+  /**
+   * Host browser page stream: opening claims the exclusive control attachment
+   * (the payload's attachmentId) and emits the page's current metadata with the
+   * newest image the host holds, then images and metadata until the attachment
+   * detaches. Stream abort is the detach and never closes the page.
+   */
+  browser(request: RpcRequest<BrowserStreamBinding>, signal: AbortSignal): AsyncIterable<RpcRequest<BrowserStreamFrame>>
+}
+
+/** Attachment identity for a terminal stream open. */
+export interface TerminalStreamBinding {
+  sessionId: SessionId
+  id: WebTerminalId
+  attachmentId: TerminalAttachmentId
+}
+
+/** Window-hold identity for a hold stream open. */
+export interface TerminalHoldBinding {
+  sessionId: SessionId
+  id: WebTerminalId
+}
+
+/** Attachment identity for a host browser page stream open. */
+export interface BrowserStreamBinding {
+  sessionId: SessionId
+  id: HostBrowserPageId
+  attachmentId: BrowserAttachmentId
 }
 
 /**
@@ -163,3 +208,18 @@ export type HostFrame =
    */
   | { type: 'host/remote-event'; event: string; args: JsonValue[] }
   | { type: 'stream/error'; error: RpcError }
+
+/**
+ * Terminal stream frames: the controller's follower frames verbatim, plus the
+ * shared stream/error closer.
+ */
+export type TerminalStreamFrame = TerminalFrame | { type: 'stream/error'; error: RpcError }
+
+/** Hold stream frames: the retention acknowledgement, plus the shared stream/error closer. */
+export type HoldStreamFrame = TerminalRetentionFrame | { type: 'stream/error'; error: RpcError }
+
+/**
+ * Browser stream frames: the controller's follower frames verbatim, plus the
+ * shared stream/error closer.
+ */
+export type BrowserStreamFrame = BrowserFrame | { type: 'stream/error'; error: RpcError }

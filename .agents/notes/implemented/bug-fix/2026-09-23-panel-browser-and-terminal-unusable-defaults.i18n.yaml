@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-23-panel-browser-and-terminal-unusable-defaults.md
+2026-09-23-panel-browser-and-terminal-unusable-defaults.md: 239f8cc4a1009f9700321b778b498b1046d80667
+2026-09-23-panel-browser-and-terminal-unusable-defaults.zh.md: 61d66c72bf1f06403340377aea3224861eae766c

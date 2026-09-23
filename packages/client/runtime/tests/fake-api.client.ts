@@ -2,9 +2,9 @@
 // data source on a real clock; behavior tests need per-case responses and
 // deferred-controlled timing). Streams are hand pumps: pushMux/pushHost.
 import type {
-  ClientResponse, HostFrame, IApiClient, MessageId, ModelSelection, MuxFrame,
+  BrowserStreamFrame, ClientResponse, HoldStreamFrame, HostFrame, IApiClient, MessageId, ModelSelection, MuxFrame,
   RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SessionModels, SessionSearchItem, SkillEntry,
-  WorkspaceId, WorkspaceView,
+  TerminalStreamFrame, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { SessionRemotes } from '../src/client/sessions/remotes.ts'
@@ -156,6 +156,9 @@ export class FakeApiClient implements IApiClient {
 
   private readonly muxConns: StreamConn<MuxFrame>[] = []
   private readonly hostConns: StreamConn<HostFrame>[] = []
+  private readonly terminalConns: StreamConn<TerminalStreamFrame>[] = []
+  private readonly holdConns: StreamConn<HoldStreamFrame>[] = []
+  private readonly browserConns: StreamConn<BrowserStreamFrame>[] = []
   lastSearchSignal: AbortSignal | undefined
   lastHistorySignal: AbortSignal | undefined
 
@@ -357,6 +360,9 @@ export class FakeApiClient implements IApiClient {
   readonly events: IApiClient['events'] = {
     mux: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) => this.openStream(this.muxConns, signal, onOpen),
     host: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) => this.openStream(this.hostConns, signal, onOpen),
+    terminal: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) => this.openStream(this.terminalConns, signal, onOpen),
+    hold: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) => this.openStream(this.holdConns, signal, onOpen),
+    browser: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) => this.openStream(this.browserConns, signal, onOpen),
   }
 
   onRespond: (message: ClientResponse) => Promise<RpcReceipt> = () => Promise.resolve({ accepted: true })

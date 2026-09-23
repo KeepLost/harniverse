@@ -10,7 +10,7 @@ import type {
   ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock,
   TurnLocation, WorkspaceId,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MarkdownExternalLinks, MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MessageId } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerBlock } from '../input/blocks.ts'
@@ -369,6 +369,8 @@ export interface ChatNodeOwnerProps {
   /** Resolve a session-authorized historical image for inline display. */
   loadImage: (attachment: ImageAttachmentRef) => Promise<string>
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
+  /** Where a link in assistant prose opens. */
+  externalLinks: MarkdownExternalLinks
 }
 
 /** Full props of one registered keyed Chat business renderer. */
@@ -714,6 +716,12 @@ export interface ChatViewInjected {
    * absent or the turn produced nothing worth linking.
    */
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
+  /**
+   * Where a link in assistant prose opens: the host browser panel when that
+   * panel is composed in, otherwise a new browser tab. Conversation code never
+   * decides between them — the shell's own composition does.
+   */
+  externalLinks: MarkdownExternalLinks
 }
 
 /** Full chat-view component props: runtime & its Tool/command/tail render shares & store & injected & locale seat. */

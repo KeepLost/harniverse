@@ -431,6 +431,24 @@
       "requiredCapability": "harniverse.observe"
     },
     {
+      "endpoint": "events.terminal",
+      "kind": "stream",
+      "method": "POST",
+      "requiredCapability": "harniverse.observe"
+    },
+    {
+      "endpoint": "events.hold",
+      "kind": "stream",
+      "method": "POST",
+      "requiredCapability": "harniverse.observe"
+    },
+    {
+      "endpoint": "events.browser",
+      "kind": "stream",
+      "method": "POST",
+      "requiredCapability": "harniverse.observe"
+    },
+    {
       "endpoint": "session.export",
       "kind": "download",
       "method": "GET",
@@ -494,6 +512,13 @@
     "subagent-not-resumable",
     "subagent-unauthorized",
     "subagent-delivery-unavailable",
+    "terminal-unavailable",
+    "terminal-control-unavailable",
+    "terminal-limit-reached",
+    "browser-unavailable",
+    "browser-control-unavailable",
+    "browser-limit-reached",
+    "browser-navigation-refused",
     "internal",
     "idempotency-key-reused",
     "operation-not-found"

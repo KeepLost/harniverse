@@ -156,6 +156,30 @@
         "@deepseek-ai/dsh-api-gateway"
       ]
     },
+    "packages/api/browser-controller": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "zod"
+      ]
+    },
+    "packages/api/terminal-controller": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "zod"
+      ]
+    },
     "packages/client/ui-primitives": {
       "entry": [
         "tests/**/*.spec.tsx"
@@ -393,6 +417,15 @@
     "packages/util/brand": {
       "project": [
         "src/**/*.ts"
+      ]
+    },
+    "packages/util/deque": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
       ]
     },
     "packages/attachment/attachment": {

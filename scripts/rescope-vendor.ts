@@ -120,6 +120,9 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   // its Host-local exclusion — the id is product data, not a package specifier.
   { file: 'packages/ssh/ssh/src/world.ts', upstream: ['cordis'] },
   { file: 'packages/ssh/ssh/tests/world.spec.ts', upstream: ['cordis'] },
+  // The helper-runtime handshake matrix exercises the same Host-local
+  // profile-id exclusion with the literal `cordis` id — product data.
+  { file: 'packages/ssh/ssh/tests/helper-runtime.spec.ts', upstream: ['cordis'] },
   // Diagnostic registry ids use their own stable lowercase grammar.
   { file: 'packages/runtime-diagnostics/plugin-diagnostics-cordis/src/index.ts', upstream: ['cordis'] },
   {

@@ -118,13 +118,23 @@ export interface SubprocessSpawnSpec {
    */
   signal?: AbortSignal | undefined
   /**
-   * Explicit environment entries merged onto the implementation's scrubbed
+   * Explicit environment entries merged onto the implementation's ambient
    * parent base (see `scrubbedParentEnv`), with no namespace validation. A
    * string is a deliberate caller opt-in, so a forwarded credential-shaped
    * entry or current `DSH_*` fact survives the scrub; `undefined` is a
    * tombstone that removes an ordinary ambient entry from the child.
    */
   env?: NodeJS.ProcessEnv | undefined
+  /**
+   * Which ambient environment the child inherits. `'scrubbed'` (the default)
+   * starts from the credential-and-`DSH_*`-scrubbed parent environment;
+   * `'full'` starts from the harness's own `process.env` verbatim — reserved
+   * for callers whose execution mode already grants the child full-access
+   * trust (e.g. a `danger-full-access` shell policy or a user terminal), where
+   * silently dropping credential-shaped variables breaks the user's tools.
+   * Explicit {@link env} entries merge on top in either mode.
+   */
+  ambientEnv?: 'full' | 'scrubbed' | undefined
   /**
    * Metering identity: stamps the spawn as belonging to one session command.
    * Present spawns are reported through `subprocess/spawned` / `subprocess/exited`
@@ -240,12 +250,28 @@ export interface SubprocessTerminalSpawnSpec {
   argv: readonly string[]
   /** Working directory in this subprocess provider's execution world. */
   cwd: string
-  /** Explicit environment layered after the provider's ambient scrub. */
+  /** Explicit environment layered after the provider's ambient base. */
   env?: Record<string, string> | undefined
+  /**
+   * Which ambient environment the terminal inherits (`'scrubbed'` default;
+   * see {@link SubprocessSpawnSpec.ambientEnv}). A user terminal runs with the
+   * full harness environment so the user's own tools and startup files behave
+   * exactly as in their interactive shell.
+   */
+  ambientEnv?: 'full' | 'scrubbed' | undefined
   /** Initial terminal row count. */
   rows: number
   /** Initial terminal column count. */
   cols: number
+  /**
+   * Terminal type published as `TERM`, naming the terminfo entry programs in
+   * the terminal read their capabilities from. The default `'dumb'` advertises
+   * no capabilities at all, which is what a model-facing PTY wants: no colour,
+   * no cursor addressing, no full-screen redraw in the transcript. A terminal a
+   * person drives needs the opposite — `'xterm-256color'` is what makes clear,
+   * colour, and full-screen programs work.
+   */
+  term?: string | undefined
   /** TERM-to-KILL cleanup grace for the complete terminal session. */
   graceMs: number
   /** Cancellation of terminal allocation; a published handle owns its later lifetime. */

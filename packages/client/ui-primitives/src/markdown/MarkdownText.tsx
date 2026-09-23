@@ -19,17 +19,20 @@ import {
   collectReferenceTargets, createReferenceTargets, renderBlocks, renderFootnoteSection,
   wrapBlockChildren,
 } from './render.tsx'
-import type { MarkdownCodeLabels, MarkdownFileMentions, MarkdownRenderContext, ReferenceTargets } from './render.tsx'
+import type {
+  MarkdownCodeLabels, MarkdownExternalLinks, MarkdownFileMentions, MarkdownRenderContext, ReferenceTargets,
+} from './render.tsx'
 import 'katex/dist/katex.min.css'
 import css from './MarkdownText.module.css'
 
-export type { MarkdownCodeLabels, MarkdownFileMentions } from './render.tsx'
+export type { MarkdownCodeLabels, MarkdownExternalLinks, MarkdownFileMentions } from './render.tsx'
 
 /** One settled full render: parse with math, resolve references, append the footnote section. */
 function renderSettled(
   text: string,
   codeLabels: MarkdownCodeLabels | undefined,
   fileMentions: MarkdownFileMentions | undefined,
+  externalLinks: MarkdownExternalLinks | undefined,
 ): ReactNode[] {
   const root = parseGfmWithMath(text)
   const targets = createReferenceTargets()
@@ -38,6 +41,7 @@ function renderSettled(
     streaming: false,
     codeLabels,
     fileMentions,
+    ...(externalLinks === undefined ? {} : { externalLinks }),
     targets,
     footnoteOrder: [],
     footnoteCounts: new Map(),
@@ -148,29 +152,34 @@ class StreamingRenderer {
  * links inline-code tokens its resolver recognizes as real files; this is
  * the single streaming gate — it applies to settled renders only, because a
  * streaming message's vocabulary is not final and frozen cached elements
- * must not bake in handlers that could go stale.
+ * must not bake in handlers that could go stale. `externalLinks` follows the
+ * same gate for the same reason: it routes a plain click on an http(s) anchor
+ * to the owner (the browser panel) instead of a new browser tab.
  * @returns A GFM document with TeX math rendered through KaTeX; raw HTML,
  * relative links, and unsafe protocols are disabled, while absolute HTTP(S)
  * images render directly.
  */
-export const MarkdownText = memo(function MarkdownText({ text, streaming = false, codeLabels, fileMentions }: {
+export const MarkdownText = memo(function MarkdownText({
+  text, streaming = false, codeLabels, fileMentions, externalLinks,
+}: {
   text: string
   streaming?: boolean
   codeLabels?: MarkdownCodeLabels | undefined
   fileMentions?: MarkdownFileMentions | undefined
+  externalLinks?: MarkdownExternalLinks | undefined
 }) {
   const streamRef = useRef<StreamingRenderer | null>(null)
   const streamLabelsRef = useRef<MarkdownCodeLabels | undefined>(codeLabels)
   const children = useMemo(() => {
     if (!streaming) {
       streamRef.current = null
-      return renderSettled(text, codeLabels, fileMentions)
+      return renderSettled(text, codeLabels, fileMentions, externalLinks)
     }
     if (streamRef.current === null || streamLabelsRef.current !== codeLabels) {
       streamRef.current = new StreamingRenderer(codeLabels)
       streamLabelsRef.current = codeLabels
     }
     return streamRef.current.render(text)
-  }, [text, streaming, codeLabels, fileMentions])
+  }, [text, streaming, codeLabels, fileMentions, externalLinks])
   return <div className={css.markdown}>{children}</div>
 })

@@ -476,7 +476,11 @@ export function AppFrame({
           </FrameRegion>
           {centerView !== undefined && (
             <FrameRegion className={css.centerViewLayer} blocked={rightDrawer}>
-              {renderSlot('center.view', { active: true }, { only: centerView })}
+              {renderSlot(
+                'center.view',
+                { active: true, ...(panels.centerViewRequest === undefined ? {} : { request: panels.centerViewRequest }) },
+                { only: centerView },
+              )}
             </FrameRegion>
           )}
         </FrameRegion>

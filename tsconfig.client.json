@@ -83,6 +83,8 @@
     { "path": "./packages/client/ui-jobs" },
     { "path": "./packages/client/ui-scheduler" },
     { "path": "./packages/client/ui-governor" },
+    { "path": "./packages/client/ui-browser" },
+    { "path": "./packages/client/ui-terminal" },
     { "path": "./packages/client/ui-queue" },
     { "path": "./packages/monitor/governor" },
     { "path": "./packages/client/ui-directory-picker-browse" },

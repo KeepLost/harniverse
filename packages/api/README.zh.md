@@ -8,6 +8,7 @@
 |---|---|---|
 | [`remotes/`](remotes/README.md) | Host Agent/Session lookup 策略与 Client Remote contribution 装配 | 无服务；配置 `ctx.typert` 并消费 `ctx.remote` |
 | [`gateway/`](gateway/README.md) | Host Typert 分发器与 Client Remote endpoint | `ctx.typertGateway` / `ctx.remote` |
+| [`terminal-controller/`](terminal-controller/README.md) | 构建于 subprocess PTY 接缝之上的 Host 浏览器终端 Remote | `ctx.terminalController` |
 
 运行时依赖方向为 `remotes → gateway → connection → webserver`：BFF 消费共享的 `TypertClientRemote` 约定，Gateway 把传输交给 Connection，Connection 再挂载到 HTTP server。Cordis 服务注入与 Client 模块元数据在不让 Remotes Client 入口导入具体 Gateway 实现的前提下维持该顺序。
 

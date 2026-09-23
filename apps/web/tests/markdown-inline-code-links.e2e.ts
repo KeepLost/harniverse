@@ -122,16 +122,20 @@ describe('web e2e: Markdown inline-code links', () => {
     await inlineCodeLink.focus()
     expect(await inlineCodeLink.evaluate(element => document.activeElement === element)).toBe(true)
 
-    const popupPromise = page.waitForEvent('popup')
+    // The shipped Web surface mounts the browser panel, so a plain click hands
+    // the destination to it instead of opening a tab: the page is then fetched
+    // by the host, not by this browser. The markup keeps `target="_blank"` so
+    // modified clicks and assistive technology still reach a real tab.
     await inlineCodeLink.click()
-    const popup = await popupPromise
-    await popup.waitForURL(linkUrl, { timeout: 15_000 })
-    expect(popup.url()).toBe(linkUrl)
-    await popup.close()
+    const panel = page.getByRole('region', { name: 'Browser', exact: true })
+    await panel.waitFor({ timeout: 15_000 })
+    await expect.poll(() => panel.getByLabel('Address').inputValue(), { timeout: 10_000 }).toBe(linkUrl)
+    await panel.getByRole('button', { name: 'Back to conversation' }).click()
+    await expect.poll(() => panel.count(), { timeout: 10_000 }).toBe(0)
 
     expect(await page.getByText(`curl ${linkUrl}`, { exact: true }).locator('a').count()).toBe(0)
     expect(await page.getByText('javascript:alert(1)', { exact: true }).locator('a').count()).toBe(0)
-    // Closing the app popup can leave the original tab's session projections refreshing.
+    // Leaving the panel can leave the session projections refreshing.
     await page.getByRole('navigation', { name: 'Session hierarchy' })
       .getByRole('button', { name: 'Inline code links', exact: true, disabled: true }).waitFor()
     await page.getByRole('button', { name: 'Access mode, current: Workspace Write', exact: true }).waitFor()
@@ -143,5 +147,34 @@ describe('web e2e: Markdown inline-code links', () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, ['ui.expected.md'])
+  }, 60_000)
+
+  it.skipIf(MODE === 'record')('opens the link in this browser once the reader moves it off the host', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-markdown-link-destination'))
+    // The host browser is the shipped destination, but a deployment whose host
+    // has no browser program leaves the panel unable to load anything. The
+    // reader's own browser is the escape, and it is a Settings choice.
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Settings' })
+    await dialog.waitFor({ timeout: 10_000 })
+    await dialog.getByText('Where links open', { exact: true }).waitFor({ timeout: 10_000 })
+    await dialog.getByRole('button', { name: /Host browser/ }).click()
+    // The selector's menu renders in a portal, outside the dialog element.
+    await page.getByRole('menuitem', { name: 'Your browser' }).click()
+    await expect.poll(() => dialog.getByRole('button', { name: /Your browser/ }).count(), { timeout: 10_000 }).toBe(1)
+    await page.keyboard.press('Escape')
+    await expect.poll(() => dialog.count(), { timeout: 10_000 }).toBe(0)
+
+    // The anchor keeps the click now: a real tab in the reader's own browser,
+    // which is the only place a link can open when the host has no browser.
+    const inlineCodeLink = page.locator('[class*="markdown"] code a')
+    const [opened] = await Promise.all([
+      page.context().waitForEvent('page', { timeout: 15_000 }),
+      inlineCodeLink.click(),
+    ])
+    expect(opened.url()).toBe(linkUrl)
+    await opened.close()
+    expect(await page.getByRole('region', { name: 'Browser', exact: true }).count()).toBe(0)
+    expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 })

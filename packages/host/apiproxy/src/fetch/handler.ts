@@ -82,7 +82,10 @@ import {
   subagentPromptRequestSchema,
   subagentProfilesRequestSchema,
 } from '../api/subagents.schema.ts'
-import { eventsMuxRequestSchema } from '../api/events.schema.ts'
+import {
+  eventsBrowserRequestSchema, eventsHoldRequestSchema, eventsMuxRequestSchema, eventsTerminalRequestSchema,
+} from '../api/events.schema.ts'
+import type { BrowserStreamFrame, HoldStreamFrame, TerminalStreamFrame } from '../api/events.ts'
 import { apiDescribeRequestSchema } from '../api/contract.schema.ts'
 import { operationGetRequestSchema } from '../api/operations.schema.ts'
 import {
@@ -269,7 +272,7 @@ async function handleUnary<K extends keyof RpcMethodMap>(
 }
 
 /** SSE frame: complete the narrow RpcRequest<frame> into a ServerRequest full form (method = frame type). */
-function fullFrame(narrow: RpcRequest<MuxFrame | HostFrame>): ServerRequest {
+function fullFrame(narrow: RpcRequest<BrowserStreamFrame | MuxFrame | HostFrame | TerminalStreamFrame | HoldStreamFrame>): ServerRequest {
   return { type: 'server-request', rpcId: narrow.rpcId, method: narrow.payload.type, payload: narrow.payload }
 }
 
@@ -278,7 +281,7 @@ function fullFrame(narrow: RpcRequest<MuxFrame | HostFrame>): ServerRequest {
  * impl throw mid-stream emits one stream/error frame and then closes.
  */
 function sseResponse(
-  frames: AsyncIterable<RpcRequest<MuxFrame | HostFrame>>,
+  frames: AsyncIterable<RpcRequest<BrowserStreamFrame | MuxFrame | HostFrame | TerminalStreamFrame | HoldStreamFrame>>,
   operation: string,
   principal?: AuthenticationPrincipal,
   reportFailure?: ApiProxyFailureReporter,
@@ -306,7 +309,7 @@ function sseResponse(
         // the failure instead of a silent end (which reads as a normal disconnect). A fresh
         // rpcId is minted — this is a server-initiated push like any other frame.
         reportFailure?.(operation, error)
-        const failure: MuxFrame | HostFrame = {
+        const failure: BrowserStreamFrame | MuxFrame | HostFrame | TerminalStreamFrame | HoldStreamFrame = {
           type: 'stream/error',
           error: { code: 'internal', message: 'event stream failed', details: {} },
         }
@@ -409,6 +412,43 @@ export function toFetchHandler(
           payload: {},
           ...(principal !== undefined && { principal }),
         }, req.signal), 'events.host', principal, reportFailure)
+      }
+      // Brand casts collapse after schema validation, the same posture as the
+      // mux `since` carrier: the domain schemas own the only SessionId cast.
+      if (path === '/api/events.terminal' && req.method === 'GET') {
+        const sessionId = url.searchParams.get('sessionId')
+        const id = url.searchParams.get('id')
+        const attachmentId = url.searchParams.get('attachmentId')
+        const parsed = eventsTerminalRequestSchema.safeParse({ sessionId, id, attachmentId })
+        if (!parsed.success) return new Response('invalid terminal stream query parameters', { status: 400 })
+        return sseResponse(api.events.terminal({
+          rpcId: RpcId(randomUUID()),
+          payload: parsed.data as Parameters<ApiProxy['events']['terminal']>[0]['payload'],
+          ...(principal !== undefined && { principal }),
+        }, req.signal), 'events.terminal', principal, reportFailure)
+      }
+      if (path === '/api/events.hold' && req.method === 'GET') {
+        const sessionId = url.searchParams.get('sessionId')
+        const id = url.searchParams.get('id')
+        const parsed = eventsHoldRequestSchema.safeParse({ sessionId, id })
+        if (!parsed.success) return new Response('invalid hold stream query parameters', { status: 400 })
+        return sseResponse(api.events.hold({
+          rpcId: RpcId(randomUUID()),
+          payload: parsed.data as Parameters<ApiProxy['events']['hold']>[0]['payload'],
+          ...(principal !== undefined && { principal }),
+        }, req.signal), 'events.hold', principal, reportFailure)
+      }
+      if (path === '/api/events.browser' && req.method === 'GET') {
+        const sessionId = url.searchParams.get('sessionId')
+        const id = url.searchParams.get('id')
+        const attachmentId = url.searchParams.get('attachmentId')
+        const parsed = eventsBrowserRequestSchema.safeParse({ sessionId, id, attachmentId })
+        if (!parsed.success) return new Response('invalid browser stream query parameters', { status: 400 })
+        return sseResponse(api.events.browser({
+          rpcId: RpcId(randomUUID()),
+          payload: parsed.data as Parameters<ApiProxy['events']['browser']>[0]['payload'],
+          ...(principal !== undefined && { principal }),
+        }, req.signal), 'events.browser', principal, reportFailure)
       }
       if (path === '/api/session.export' && (req.method === 'GET' || req.method === 'HEAD')) {
         // Query params are a different boundary from the POST envelope, but

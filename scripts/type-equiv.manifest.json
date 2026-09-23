@@ -52,6 +52,41 @@
       "source": "packages/attachment/attachment/src/types.ts"
     },
     {
+      "doc": "docs/subsystems/browser-controller.md",
+      "symbol": "HostBrowserPageInfo",
+      "source": "packages/api/browser-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/browser-controller.md",
+      "symbol": "BrowserFrame",
+      "source": "packages/api/browser-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/browser-controller.md",
+      "symbol": "BrowserImageFrame",
+      "source": "packages/api/browser-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/browser-controller.md",
+      "symbol": "BrowserCreateRequest",
+      "source": "packages/api/browser-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/browser-controller.md",
+      "symbol": "HostBrowserEnvironment",
+      "source": "packages/api/browser-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/browser-controller.md",
+      "symbol": "BrowserNavigationAction",
+      "source": "packages/api/browser-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/browser-controller.md",
+      "symbol": "BrowserInputEvent",
+      "source": "packages/api/browser-controller/src/types.ts"
+    },
+    {
       "doc": "docs/subsystems/client-modules.md",
       "symbol": "WebBootEntry",
       "source": "packages/client/modules/src/client/manifest.ts"
@@ -1975,6 +2010,31 @@
       "symbol": "SshConnection",
       "source": "packages/ssh/ssh/src/index.ts",
       "projection": "public-api"
+    },
+    {
+      "doc": "docs/subsystems/terminal-controller.md",
+      "symbol": "WebTerminalInfo",
+      "source": "packages/api/terminal-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/terminal-controller.md",
+      "symbol": "TerminalFrame",
+      "source": "packages/api/terminal-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/terminal-controller.md",
+      "symbol": "TerminalCreateRequest",
+      "source": "packages/api/terminal-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/terminal-controller.md",
+      "symbol": "TerminalShell",
+      "source": "packages/api/terminal-controller/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/terminal-controller.md",
+      "symbol": "TerminalEnvironment",
+      "source": "packages/api/terminal-controller/src/types.ts"
     }
   ]
 }

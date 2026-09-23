@@ -206,6 +206,12 @@ describe('AppFrame', () => {
     const call = slotCalls.find(c => c.key === 'center.view')
     expect(call?.props).toEqual({ active: true })
 
+    // An opener's request rides the same owner share.
+    act(() => { instance.actions.setCenterView('schedules', 'https://example.test/') })
+    rerenderFrame()
+    expect(slotCalls.filter(c => c.key === 'center.view').at(-1)?.props)
+      .toEqual({ active: true, request: 'https://example.test/' })
+
     // Clearing returns to the live conversation.
     act(() => { instance.actions.setCenterView(undefined) })
     rerenderFrame()

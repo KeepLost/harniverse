@@ -72,7 +72,11 @@ export type { WorkspaceFileEntry, WorkspaceFilesApi } from './workspace-files.ts
 export type { WorkspaceGitApi, WorkspaceGitCommit, WorkspaceGitStatusEntry } from './workspace-git.ts'
 export type { SkillsApi, SkillEntry } from './skills.ts'
 export type { AgentPresetsApi, AgentPresetEntry } from './agent-presets.ts'
-export type { EventsApi, MuxFrame, HostFrame, QueuedInboxItem, ToolCallView, ToolEventView, ToolResultView } from './events.ts'
+export type {
+  BrowserStreamBinding, BrowserStreamFrame,
+  EventsApi, HoldStreamFrame, MuxFrame, HostFrame, QueuedInboxItem, TerminalHoldBinding, TerminalStreamBinding,
+  TerminalStreamFrame, ToolCallView, ToolEventView, ToolResultView,
+} from './events.ts'
 export type { GoalsApi, GoalId, GoalRef } from './goals.ts'
 export type { SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView } from './settings.ts'
 export type { CredentialsApi, CredentialView } from './credentials.ts'

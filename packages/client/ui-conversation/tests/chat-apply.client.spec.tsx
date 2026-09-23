@@ -93,7 +93,7 @@ describe('apply wiring', () => {
     // screen precedes the session either would belong to.
     expect(b.slots.spec('conversation.hero.workspace')).toEqual({ kind: 'single', scope: 'root' })
     expect(b.slots.spec('conversation.hero.agentPreset')).toEqual({ kind: 'single', scope: 'root' })
-    expect(b.slots.entries('settings.general.item').map(entry => entry.options.id)).toEqual(['composer-enter'])
+    expect(b.slots.entries('settings.general.item').map(entry => entry.options.id)).toEqual(['composer-enter', 'conversation-links'])
     await b.runtime.dispose()
   })
 

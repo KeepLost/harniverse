@@ -15,6 +15,7 @@
 // chat-toolview-slot.spec.tsx.
 
 import { describe, expect, it, vi } from 'vitest'
+import type { Context } from '@deepseek-ai/cordis'
 import { SlotTestRuntime, usePinnedBrowserLanguages, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionBehaviorOverrides } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
@@ -25,6 +26,8 @@ import type {
   ConversationSessionInjected, DetailsInjected,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { createChatStore } from '../src/client/stores.ts'
+import type { ConversationSettings } from '../src/conversation-settings.ts'
+import type { LinkDestinationRowInjected } from '../src/client/settings/LinkDestinationRow.tsx'
 
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
@@ -50,14 +53,17 @@ async function bench() {
   runtime.provide('connection', { api: { settings: {} }, isLoopback: false })
   // The plugin injects both; these specs exercise no settings path.
   runtime.provide('remote', { $on: () => () => {} })
-  runtime.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
+  // One publishable scope: the durable conversation section (Enter behavior and
+  // link destination) is what the plugin adopts at apply time.
+  const settings = stubSettingsScope<ConversationSettings>()
+  runtime.provide('settingsScope', { bind: () => settings.scope } as never)
   const sessionFake = sessionFakeFor()
   await runtime.sessions.add({
     id: ROOT,
     summary: { title: 'R', displayTitle: 'R', cwd: '/proj' },
     session: sessionFake,
   })
-  const layoutFake = { openDetails: vi.fn(), closeDetails: vi.fn() }
+  const layoutFake = { openDetails: vi.fn(), closeDetails: vi.fn(), setCenterView: vi.fn() }
   runtime.provide('layout', layoutFake)
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.provide('locale', locale)
@@ -68,6 +74,11 @@ async function bench() {
   await runtime.root.declare({
     'conversation': { kind: 'single', scope: 'session-maybe' },
     'details': { kind: 'single', scope: 'session' },
+    // The AppFrame's center-view list: the link router reads it to decide
+    // whether a host browser panel exists to open a page in.
+    'center.view': { kind: 'list', scope: 'root' },
+    // The General Settings list: the link destination row contributes into it.
+    'settings.general.item': { kind: 'list', scope: 'root' },
   }, (_p: { renderSlot?: unknown }) => null)
 
   const feature = await runtime.mount({ inject: [...inject], apply })
@@ -77,6 +88,12 @@ async function bench() {
   runtime.renderRoot()
   const entryOf = (key: 'conversation' | 'conversation.session' | 'conversation.session.header' | 'conversation.composer.bar' | 'conversation.view' | 'details') =>
     runtime.slots.entries(key)[0]!
+  /** The link destination row's inject face, resolved the way the outlet would. */
+  const linkRowApi = () => {
+    const entry = runtime.slots.entries('settings.general.item')
+      .find(candidate => candidate.options.id === 'conversation-links')!
+    return (entry.inject as unknown as () => LinkDestinationRowInjected)()
+  }
   /** Resolve store instance + call the inject the way the outlet would. */
   const conversationApi = (id: SessionId) => {
     const entry = entryOf('conversation.session')
@@ -123,8 +140,8 @@ async function bench() {
   }
   return {
     runtime, feature, slots: runtime.slots, entryOf,
-    conversationApi, conversationHeaderApi, residentApi, composerApi, chatViewApi, inputApi,
-    sessionFake, layoutFake,
+    conversationApi, conversationHeaderApi, residentApi, composerApi, chatViewApi, inputApi, linkRowApi,
+    sessionFake, layoutFake, settings,
   }
 }
 
@@ -217,6 +234,72 @@ describe('conversation slot inject API', () => {
     const stop = injectFn(ROOT).stop!
     await b.feature.dispose()
     expect(() => { stop() }).toThrow(/unavailable through the session scope/)
+    await b.runtime.dispose()
+  })
+
+  it('routes a prose link to the host browser panel when the shell composed one in', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(ROOT)
+    // No browser center view registered: declining leaves the anchor's own
+    // new-tab behavior, which opens the link on the reader's machine.
+    expect(injected.externalLinks.open('https://example.test/a')).toBe(false)
+    expect(b.layoutFake.setCenterView).not.toHaveBeenCalled()
+    // With the panel composed in, the page loads from the HOST instead.
+    const panel = await b.runtime.mount({
+      inject: ['slots'],
+      apply: (ctx: Context) => {
+        ctx.slots.register({ name: 'center.view', id: 'browser' }, () => null)
+      },
+    })
+    expect(injected.externalLinks.open('https://example.test/b')).toBe(true)
+    expect(b.layoutFake.setCenterView).toHaveBeenCalledExactlyOnceWith('browser', 'https://example.test/b')
+    await panel.dispose()
+    await b.runtime.dispose()
+  })
+
+  it('sends prose links to the reader\u2019s own browser once they ask for it', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(ROOT)
+    const panel = await b.runtime.mount({
+      inject: ['slots'],
+      apply: (ctx: Context) => {
+        ctx.slots.register({ name: 'center.view', id: 'browser' }, () => null)
+      },
+    })
+    const row = b.linkRowApi()
+    expect(row.hooks.linkDestination.getSnapshot()).toBe('panel')
+    row.setLinkDestination('device')
+    // The live value leads the durable write, so the very next click honours it.
+    expect(row.hooks.linkDestination.getSnapshot()).toBe('device')
+    expect(b.settings.set).toHaveBeenCalledExactlyOnceWith('linkDestination', 'device')
+    // A composed panel is no longer the answer: the anchor keeps the click.
+    expect(injected.externalLinks.open('https://example.test/c')).toBe(false)
+    expect(b.layoutFake.setCenterView).not.toHaveBeenCalled()
+    // Re-selecting the standing choice writes nothing.
+    row.setLinkDestination('device')
+    expect(b.settings.set).toHaveBeenCalledOnce()
+    await panel.dispose()
+    await b.runtime.dispose()
+  })
+
+  it('adopts the reader\u2019s stored link destination when the Host publishes it', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(ROOT)
+    const panel = await b.runtime.mount({
+      inject: ['slots'],
+      apply: (ctx: Context) => {
+        ctx.slots.register({ name: 'center.view', id: 'browser' }, () => null)
+      },
+    })
+    b.settings.publish({
+      status: 'ready', value: { busyEnter: 'queue', linkDestination: 'device' }, revision: 1, writable: true,
+    })
+    expect(injected.externalLinks.open('https://example.test/d')).toBe(false)
+    // Republishing the same section adopts nothing further and writes nothing.
+    b.settings.publish({ value: { busyEnter: 'queue', linkDestination: 'device' }, revision: 2 })
+    expect(b.linkRowApi().hooks.linkDestination.getSnapshot()).toBe('device')
+    expect(b.settings.set).not.toHaveBeenCalled()
+    await panel.dispose()
     await b.runtime.dispose()
   })
 

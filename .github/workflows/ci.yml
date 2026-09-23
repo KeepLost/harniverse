@@ -369,19 +369,30 @@ jobs:
 
       # Runner provisioning only — a developer machine installs Wine through
       # its own package manager; the gate script assumes a wine binary and
-      # fails loud without one. Wine from the apt cache when present; else
-      # download the full dependency closure once and keep it for the next
-      # run. The `wine` dispatcher package (not bare `wine64`) is what puts a
-      # binary on PATH.
+      # fails loud without one. The image's baked apt lists can name package
+      # versions the pools have already dropped, and installing the cached
+      # closure still resolves its dependencies against that index, so the
+      # refresh comes first on both paths. A closure the current index can no
+      # longer satisfy is discarded rather than retried. The `wine` dispatcher
+      # package (not bare `wine64`) is what puts a binary on PATH.
       - name: Install Wine
         run: |
-          if compgen -G "$HOME/wine-debs/*.deb" > /dev/null; then
-            sudo apt-get install -y --no-install-recommends "$HOME"/wine-debs/*.deb
-          else
-            sudo apt-get update
+          sudo apt-get update
+          deb_dir="$HOME/wine-debs"
+          mapfile -t debs < <(find "$deb_dir" -name '*.deb' 2>/dev/null)
+          installed=0
+          if [ "${#debs[@]}" -gt 0 ]; then
+            if sudo apt-get install -y --no-install-recommends "${debs[@]}"; then
+              installed=1
+            else
+              echo "the cached wine closure no longer installs against the current index; downloading a fresh one"
+              rm -rf "$deb_dir"
+            fi
+          fi
+          if [ "$installed" -eq 0 ]; then
             sudo apt-get install -y --no-install-recommends --download-only wine
-            mkdir -p "$HOME/wine-debs"
-            cp /var/cache/apt/archives/*.deb "$HOME/wine-debs/" 2>/dev/null || true
+            mkdir -p "$deb_dir"
+            cp /var/cache/apt/archives/*.deb "$deb_dir/" 2>/dev/null || true
             sudo apt-get install -y --no-install-recommends wine
           fi
 

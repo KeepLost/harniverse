@@ -34,6 +34,9 @@ export interface ApiCatalog {
 const CARRIER_ENDPOINT_KINDS: Readonly<Record<string, Exclude<CarrierEndpointRow['kind'], 'transport-control'>>> = {
   'events.mux': 'stream',
   'events.host': 'stream',
+  'events.terminal': 'stream',
+  'events.hold': 'stream',
+  'events.browser': 'stream',
   'session.export': 'download',
   'respond': 'client-response',
 }

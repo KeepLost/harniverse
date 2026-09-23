@@ -136,6 +136,13 @@ export interface ConvOwnerProps {}
 export interface CenterViewOwnerProps {
   /** True while this view occupies the center column. */
   active: boolean
+  /**
+   * What the opener asked this view to show, when it asked for something
+   * specific (the browser panel's destination URL is the shipped case). The
+   * layout carries the string verbatim and never interprets it; a view opened
+   * from its own trigger receives undefined and shows its default state.
+   */
+  request?: string
 }
 
 /** Details owner share: empty — sessionId arrives as a framework-standard prop. */

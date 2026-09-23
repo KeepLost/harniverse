@@ -181,6 +181,76 @@ describe('LocalSubprocessRuntime', () => {
     }
   })
 
+  it('honors ambientEnv on terminal allocation', async () => {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
+    const previous = process.env.DSH_TEST_TOKEN
+    process.env.DSH_TEST_TOKEN = 'full-inheritance'
+    let handle: SubprocessTerminalHandle | undefined
+    try {
+      handle = await ctx.subprocess.spawnTerminal({
+        argv: ['/bin/sh'],
+        cwd: process.cwd(),
+        rows: 24,
+        cols: 80,
+        graceMs: 1_000,
+        ambientEnv: 'full',
+      })
+      const seen: string[] = []
+      handle.output.on('data', (chunk: Buffer) => { seen.push(chunk.toString('utf8')) })
+      await handle.write('printf "%s\\n" "${DSH_TEST_TOKEN:-unset}"\n')
+      const deadline = Date.now() + 5_000
+      while (Date.now() < deadline && !seen.join('').includes('full-inheritance')) {
+        await new Promise((resolve) => { setTimeout(resolve, 50) })
+      }
+      expect(seen.join('')).toContain('full-inheritance')
+    } finally {
+      if (previous === undefined) delete process.env.DSH_TEST_TOKEN
+      else process.env.DSH_TEST_TOKEN = previous
+      await handle?.terminate()
+      await fiber.dispose()
+    }
+  }, 10_000)
+
+  it('publishes the terminal type the consumer asked for, capability-free by default', async () => {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
+    /**
+     * Read TERM as the program inside the PTY sees it.
+     * @param term - requested terminal type, or undefined for the default.
+     * @returns the value of TERM in the allocated terminal.
+     */
+    const publishedTerm = async (term: string | undefined): Promise<string> => {
+      const handle = await ctx.subprocess.spawnTerminal({
+        argv: ['/bin/sh'], cwd: process.cwd(), rows: 24, cols: 80, graceMs: 1_000, term,
+      })
+      try {
+        const seen: string[] = []
+        handle.output.on('data', (chunk: Buffer) => { seen.push(chunk.toString('utf8')) })
+        // The PTY echoes the command line too, so the marker is split in the
+        // source and only the shell's own output carries it whole.
+        await handle.write('printf "TERM""IS:%s:END\\n" "${TERM:-unset}"\n')
+        const answer = /TERMIS:([^:]*):END/u
+        const deadline = Date.now() + 5_000
+        while (Date.now() < deadline && !answer.test(seen.join(''))) {
+          await new Promise((resolve) => { setTimeout(resolve, 50) })
+        }
+        return answer.exec(seen.join(''))?.[1] ?? ''
+      } finally {
+        await handle.terminate()
+      }
+    }
+    try {
+      // The default describes a terminal with no capabilities, which is what a
+      // model-facing PTY wants; a person's terminal needs a real terminfo entry
+      // or clear, colour, and full-screen programs do nothing at all.
+      expect(await publishedTerm(undefined)).toBe('dumb')
+      expect(await publishedTerm('xterm-256color')).toBe('xterm-256color')
+    } finally {
+      await fiber.dispose()
+    }
+  }, 20_000)
+
   it('validates terminal allocation inputs before allocating a PTY', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessRuntime)

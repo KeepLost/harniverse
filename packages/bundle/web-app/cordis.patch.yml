@@ -142,6 +142,23 @@
     - id: capability-management
       name: '@deepseek-ai/dsh-host-capability-management'
 
+    # Session-scoped interactive USER terminals for the browser panel: a Host
+    # Remote over the subprocess PTY seam (never sandbox-confined, never
+    # model-visible), exposed through the gateway's terminal/* endpoints and
+    # the events.terminal / events.hold SSE streams. Panel terminals run with
+    # the full harness environment and login-shell startup.
+    - id: terminal-controller
+      name: '@deepseek-ai/dsh-api-terminal-controller'
+
+    # Session-scoped HOST browser pages for the browser panel: a real browser
+    # process driven over CDP, so a page's own traffic leaves the harness host
+    # instead of the user's device. Exposed through the gateway's browser/*
+    # endpoints and the events.browser screencast stream; never model-visible.
+    # The navigation policy (scheme, host allowlist, private ranges) is this
+    # row's config, not a client decision.
+    - id: browser-controller
+      name: '@deepseek-ai/dsh-api-browser-controller'
+
     # The API gateway: the transport-agnostic dispatch face every client shape
     # shares. The base layer's agent-default-model service owns the default model.
     - id: api-gateway
@@ -323,6 +340,16 @@
     # with per-session memory quota adjustment.
     - id: ui-governor
       name: '@deepseek-ai/dsh-client-ui-governor'
+
+    # 浏览器面板：地址栏驱动宿主机上的真实浏览器页面，画面经 events.browser
+    # 截屏流下发、输入回传，出网位置在宿主机；导航策略由宿主侧控制器裁决。
+    - id: ui-browser
+      name: '@deepseek-ai/dsh-client-ui-browser'
+
+    # 用户终端面板：xterm.js 渲染的交互式 Shell 面板，经 terminal Remote 与
+    # EventsApi terminal/hold 流驱动，不对模型可见。
+    - id: ui-terminal
+      name: '@deepseek-ai/dsh-client-ui-terminal'
 
     # Message-queue tab of the panel (会话看板) over the queue Remote.
     - id: ui-queue
