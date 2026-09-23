@@ -22,4 +22,4 @@ ui-layout 声明两个列表槽 `workbench.section.tab` 与 `workbench.section.p
 
 ## Testing
 
-`pnpm run test:gui`（5257 个测试）；ui-layout、ui-workspace、ui-browser、ui-terminal 的 per-file 覆盖门；`pnpm run typecheck`；`DSH_SNAPSHOT=replay pnpm run test:web`——终端、浏览器、markdown 链接、lifecycle-chrome 与 workspace-workbench 场景全绿（`smoke-real` 的传输重试用例在干净 HEAD 上同样失败，属既有环境问题）。
+`pnpm run test:gui`（5259 个通过，一个跳过）；ui-layout、ui-workspace、ui-browser、ui-terminal 的 per-file 覆盖门；`pnpm run typecheck`；终端、浏览器、markdown 链接、lifecycle-chrome 与 workspace-workbench 定向场景通过。PR #144 CI 的两组 Web E2E 与覆盖率任务均通过。本地 `smoke-real` 传输重试用例在准备阶段超时，原因尚未查明，此前的对照没有重新构建基线产物。

@@ -3,6 +3,7 @@ import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/clien
 import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import { assistantStepReading } from './turn-metrics.ts'
 
+/** Turn, step, and timing totals for the currently loaded conversation window. */
 export interface WindowStats {
   turns: number
   steps: number
@@ -159,6 +160,7 @@ export function billedInputTokens(usage: TokenUsageProjection): number {
   return usage.uncachedInputTokens + usage.cacheReadTokens + usage.cacheWriteTokens
 }
 
+/** Estimated context utilization with the token count and capacity used to derive it. */
 export interface ContextOccupancy {
   percent: number
   usedTokens: number

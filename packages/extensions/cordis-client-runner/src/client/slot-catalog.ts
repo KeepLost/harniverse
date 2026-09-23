@@ -662,6 +662,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-ui-conversation QueueDock id \'queue\'',
       'client-ui-conversation TodoDock id \'todo\'',
       'client-ui-goal GoalDock id \'goal\'',
+      'client-ui-workspace WorkbenchDockAction id \'workspace-workbench\'',
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.input.dock\', () => ctx.slots.register(\n      { name: \'conversation.input.dock\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
@@ -1884,7 +1885,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     doc: 'Workspace-oriented root surface sharing the physical right region with\ndetails. The occupant receives the frame\'s resolved occupancy mode so a\nsurface of its own can pick between a frame-wide overlay (docked: the\ncenter column still exists) and an in-column presentation (drawer: the\nregion covers the frame and the overlay layer is inert).',
     registerOptions: [],
     ownerProps: [
-      'export interface WorkbenchOwnerProps {\n  /**\n   * True when the region covers the frame as a modal drawer (narrow viewport or\n   * a fully conceded column). While true the frame\'s `shell.overlay` layer is\n   * inert, so a companion surface must render inside this column instead.\n   */\n  drawer: boolean\n  /** Section showing in the workbench: a shipped id or a contributed section\'s id. */\n  section: string\n  /** Switch the workbench to a section; an opener may hand that section a request. */\n  select: (section: string, request?: string) => void\n  /**\n   * What an opener asked the showing section to display, when it asked for\n   * something specific (the browser section\'s destination URL). Carried\n   * verbatim; the layout never interprets it.\n   */\n  request: string | undefined\n}',
+      '/** Frame-owned presentation and section selection passed to the workbench. */\nexport interface WorkbenchOwnerProps {\n  /**\n   * True when the region covers the frame as a modal drawer (narrow viewport or\n   * a fully conceded column). While true the frame\'s `shell.overlay` layer is\n   * inert, so a companion surface must render inside this column instead.\n   */\n  drawer: boolean\n  /** Section showing in the workbench: a shipped id or a contributed section\'s id. */\n  section: string\n  /** Switch the workbench to a section; an opener may hand that section a request. */\n  select: (section: string, request?: string) => void\n  /**\n   * What an opener asked the showing section to display, when it asked for\n   * something specific (the browser section\'s destination URL). Carried\n   * verbatim; the layout never interprets it.\n   */\n  request: string | undefined\n}',
     ],
     ownerPropsReferences: [],
     standardProps: [

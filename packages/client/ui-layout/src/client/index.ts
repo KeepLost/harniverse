@@ -206,6 +206,7 @@ export interface WorkbenchSectionOwnerProps {
   request: string | undefined
 }
 
+/** Frame-owned presentation and section selection passed to the workbench. */
 export interface WorkbenchOwnerProps {
   /**
    * True when the region covers the frame as a modal drawer (narrow viewport or

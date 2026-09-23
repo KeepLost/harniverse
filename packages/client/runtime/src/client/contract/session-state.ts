@@ -109,6 +109,7 @@ export interface SessionBinding {
   readonly ctx: AgentContext
 }
 
+/** Observable hooks and stable props resolved for one session's standard kit. */
 export interface SessionProvideContribution {
   /** Bare observable sources, keyed by hook base name ('input' → useInput). */
   hooks?: Record<string, HostObservable<unknown>>

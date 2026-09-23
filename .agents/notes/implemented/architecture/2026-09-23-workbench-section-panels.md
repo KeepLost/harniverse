@@ -22,4 +22,4 @@ The two panels are workbench sections: their tabs sit beside Files/Changes/Searc
 
 ## Testing
 
-`pnpm run test:gui` (5257 tests); per-file coverage gates on ui-layout, ui-workspace, ui-browser, and ui-terminal; `pnpm run typecheck`; `DSH_SNAPSHOT=replay pnpm run test:web` — the terminal, browser, markdown-link, lifecycle-chrome, and workspace-workbench scenarios green (the `smoke-real` transport-retry case fails identically on a clean HEAD and is a pre-existing environment failure).
+`pnpm run test:gui` (5259 passed, one skipped); per-file coverage gates on ui-layout, ui-workspace, ui-browser, and ui-terminal; `pnpm run typecheck`; focused terminal, browser, markdown-link, lifecycle-chrome, and workspace-workbench scenarios pass. Both Web E2E shards and the coverage job pass in PR #144 CI. The local `smoke-real` transport-retry case times out during setup; its cause remains unresolved, and the earlier comparison did not rebuild baseline artifacts.
