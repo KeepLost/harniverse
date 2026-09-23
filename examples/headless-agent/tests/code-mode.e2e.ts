@@ -17,7 +17,7 @@ import * as BashEnvPlugin from '@deepseek-ai/dsh-shell-env'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
-import { PtcCodeRuntime } from '@deepseek-ai/dsh-code-runtime-ptc'
+import { NodePtcRuntime } from '@deepseek-ai/dsh-ptc-runtime-node'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
@@ -28,7 +28,7 @@ import CordisHostRunner from '@deepseek-ai/dsh-cordis-host-runner'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 
 /**
- * With-key Code Mode proof: a real model receives only `run_code`, composes two
+ * With-key PTC proof: a real model receives only `run_code`, composes two
  * sub-calls, writes a file, and returns curated output while the log records
  * each `tool/code-dispatch`. The keyless Loader smoke is in the sibling test.
  */
@@ -64,11 +64,11 @@ async function codeModeHarness(cwd: string): Promise<Context> {
   await harness.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await harness.plugin(ToolBash)
   await harness.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
-  await harness.plugin(PtcCodeRuntime, {})
+  await harness.plugin(NodePtcRuntime, {})
   return harness
 }
 
-async function workspaceCodeModeHarness(): Promise<Context> {
+async function workspacePtcHarness(): Promise<Context> {
   const harness = new Context()
   await harness.plugin(LlmRuntime)
   await harness.plugin(SessionStore)
@@ -81,14 +81,14 @@ async function workspaceCodeModeHarness(): Promise<Context> {
   await harness.plugin(AgentLoop, { agents: [] })
   await harness.plugin(LlmDeepSeek, { models: [{ id: 'deepseek-v4-flash' }] })
   await harness.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
-  await harness.plugin(PtcCodeRuntime, {})
+  await harness.plugin(NodePtcRuntime, {})
   return harness
 }
 
 let keylessCall = 0
 const testToolSignal = new AbortController().signal
 
-/** Execute one outer Code Mode call through the real registry and worker. */
+/** Execute one outer PTC call through the real registry and child process. */
 function runCode(
   harness: Context,
   code: string,
@@ -115,18 +115,18 @@ function completion(result: ToolExecutionResult): unknown {
 }
 
 /** Keyless real-worker harness for direct typed-binding acceptance tests. */
-async function typedCodeModeHarness(): Promise<Context> {
+async function typedPtcHarness(): Promise<Context> {
   const harness = new Context()
   await harness.plugin(SystemPrompt)
   await harness.plugin(ToolRuntime, { mode: 'code' })
   await harness.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
-  await harness.plugin(PtcCodeRuntime, {})
+  await harness.plugin(NodePtcRuntime, {})
   return harness
 }
 
 /** Keyless real-worker harness with the task-owned bash lifecycle. */
-async function backgroundCodeModeHarness(cwd: string): Promise<Context> {
-  const harness = await typedCodeModeHarness()
+async function backgroundPtcHarness(cwd: string): Promise<Context> {
+  const harness = await typedPtcHarness()
   await harness.plugin(LocalJobRegistry)
   await harness.plugin(ToolTasks, {})
   await harness.plugin(LocalSubprocessRuntime)
@@ -136,9 +136,9 @@ async function backgroundCodeModeHarness(cwd: string): Promise<Context> {
   return harness
 }
 
-describe('Code Mode typed values: keyless real-worker contracts', () => {
+describe('PTC typed values: keyless real-process contracts', () => {
   it('crosses a large intermediate value intact and exposes only typed tool failure fields', async () => {
-    ctx = await typedCodeModeHarness()
+    ctx = await typedPtcHarness()
     ctx.tools.register(defineTool({
       name: 'large_value',
       description: 'Return a large canonical string.',
@@ -192,7 +192,7 @@ describe('Code Mode typed values: keyless real-worker contracts', () => {
 
   it('returns a background job id, settles the outer run, and polls that id to completion', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-code-mode-background-'))
-    ctx = await backgroundCodeModeHarness(workdir)
+    ctx = await backgroundPtcHarness(workdir)
 
     const jobId = completion(await runCode(ctx, `
       const started = await tools.bash({
@@ -215,7 +215,7 @@ describe('Code Mode typed values: keyless real-worker contracts', () => {
 
   it('pre-abort spawns nothing; post-publication abort leaves job_kill as the cancellation owner', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-code-mode-task-cancel-'))
-    ctx = await backgroundCodeModeHarness(workdir)
+    ctx = await backgroundPtcHarness(workdir)
 
     const pre = new AbortController()
     pre.abort('pre-aborted')
@@ -252,7 +252,7 @@ describe('Code Mode typed values: keyless real-worker contracts', () => {
 
   it('keeps foreground bash coupled to the outer signal', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-code-mode-foreground-cancel-'))
-    ctx = await backgroundCodeModeHarness(workdir)
+    ctx = await backgroundPtcHarness(workdir)
     const controller = new AbortController()
     const startedAt = Date.now()
     const pending = runCode(ctx, `
@@ -266,7 +266,7 @@ describe('Code Mode typed values: keyless real-worker contracts', () => {
   }, 15_000)
 
   it('uses versioned Cordis DTO ids directly for running and pending Plugins, then confirms removal', async () => {
-    ctx = await typedCodeModeHarness()
+    ctx = await typedPtcHarness()
     await ctx.plugin(CordisHostRunner)
     await ctx.plugin(ToolCordis)
     const agent = {
@@ -353,7 +353,7 @@ function waitForIdle(harness: Context, agent: Agent): Promise<void> {
   })
 }
 
-describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a program over real tools', () => {
+describe.skipIf(!process.env.DEEPSEEK_API_KEY)('PTC: real model writes a program over real tools', () => {
   it('collapses the wire tool list to [run_code], bridges sub-calls, and returns curated output', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-code-mode-e2e-'))
     ctx = await codeModeHarness(workdir)
@@ -403,9 +403,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     workdir = await mkdtemp(join(tmpdir(), 'dsh-code-mode-workspace-e2e-'))
     await mkdir(join(workdir, '.git'), { recursive: true })
     await mkdir(join(workdir, 'pkg/deep'), { recursive: true })
-    await writeFile(join(workdir, 'pkg/AGENTS.md'), `If asked for the Code Mode workspace handshake, reply with exactly ${WORKSPACE_PROBE} and nothing else.\n`)
+    await writeFile(join(workdir, 'pkg/AGENTS.md'), `If asked for the PTC workspace handshake, reply with exactly ${WORKSPACE_PROBE} and nothing else.\n`)
     await writeFile(join(workdir, 'pkg/deep/task.txt'), 'Touch this file to discover the nested instructions.\n')
-    ctx = await workspaceCodeModeHarness()
+    ctx = await workspacePtcHarness()
     const handle = await ctx.agents.create({
       sessionId: SessionId('e2e-code-mode-workspace-session'),
       meta: { cwd: workdir },
@@ -415,7 +415,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     handle.agent.followup(createUserMessage({
       content: [{
         type: 'text',
-        text: 'Use one run_code program to call tools.read on pkg/deep/task.txt. After it finishes, answer: Code Mode workspace handshake?',
+        text: 'Use one run_code program to call tools.read on pkg/deep/task.txt. After it finishes, answer: PTC workspace handshake?',
       }], source: { kind: 'user' } }))
     await waitForIdle(ctx, handle.agent)
 

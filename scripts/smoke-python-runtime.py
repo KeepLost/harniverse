@@ -90,8 +90,8 @@ CUSTOM_CORDIS = """\
   name: '@deepseek-ai/dsh-sandbox-policy'
   config:
     mode: danger-full-access
-- id: code-runtime
-  name: '@deepseek-ai/dsh-code-runtime-ptc'
+- id: ptc-runtime
+  name: '@deepseek-ai/dsh-ptc-runtime-node'
 - id: subagents
   name: '@deepseek-ai/dsh-subagent'
 - id: subagent-spawn-in-process

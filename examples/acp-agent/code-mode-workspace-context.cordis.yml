@@ -1,4 +1,4 @@
-# Code Mode agent-instructions snapshot recording overlay. The default filesystem
+# PTC agent-instructions snapshot recording overlay. The default filesystem
 # tools trigger nested instruction discovery after a read.
 - id: base
   name: '@deepseek-ai/cordis-plugin-include'
@@ -21,5 +21,5 @@
 
             Verify your work by running the code or tests. Keep answers brief and factual.
       - insert:
-          - id: code-runtime
-            name: '@deepseek-ai/dsh-code-runtime-ptc'
+          - id: ptc-runtime
+            name: '@deepseek-ai/dsh-ptc-runtime-node'

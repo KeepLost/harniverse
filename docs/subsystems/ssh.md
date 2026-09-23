@@ -18,7 +18,7 @@ Deployment authentication, installed artifact verification and the captured-Prof
 
 ## Process lifetime and cancellation
 
-A process handle reports its direct outcome through `done`; `waitForExit` observes the remote managed range after it. Terminal operations retain the asynchronous shared API, including remote resize. Administrative deadlines bound individual RPC observations; they do not replace the execution deadline chosen by a Bash or code-runtime consumer. Remote waits can remain pending while other requests progress. SSH loss invalidates pending operations; helper EOF, signals and lease expiry start remote cleanup. The client reports unconfirmed outcomes honestly and never reconnects to replay a possibly executed action.
+A process handle reports its direct outcome through `done`; `waitForExit` observes the remote managed range after it. Terminal operations retain the asynchronous shared API, including remote resize. Administrative deadlines bound individual RPC observations; they do not replace the execution deadline chosen by a Bash or PTC runtime consumer. Remote waits can remain pending while other requests progress. SSH loss invalidates pending operations; helper EOF, signals and lease expiry start remote cleanup. The client reports unconfirmed outcomes honestly and never reconnects to replay a possibly executed action.
 
 ## Machine-owned inventory and Profile restriction
 

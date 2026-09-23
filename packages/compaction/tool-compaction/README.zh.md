@@ -4,7 +4,7 @@
 
 `ctx.compaction` 的 model-facing Consumer。它注册 direct `context_compact` 工具，让模型能在继续新阶段前压缩一段安全的较早会话前缀。
 
-base 与 standalone headless 组合会在选定的 compaction Provider 旁加载它。Web 将它移入 standard 和 Cordis Agent preset；Code preset 会省略它，因为 Code Mode 只能通过 nested dispatch 访问原生工具。
+base 与 standalone headless 组合会在选定的 compaction Provider 旁加载它。Web 将它移入 standard 和 Cordis Agent preset；`code` preset 会省略它，因为 PTC 只能通过 nested dispatch 访问原生工具。
 
 ## 约定
 
@@ -39,6 +39,6 @@ schema 增加固定 request token。调用会追加其理由和简短结果；�
 
 ## Known Limitations and Deferred Work
 
-- **仅 direct 调用**：nested 与 Code Mode sub-dispatch 会失败；Code preset 会省略该 Consumer。
+- **仅 direct 调用**：nested 与 PTC sub-dispatch 会失败；`code` preset 会省略该 Consumer。
 - **无范围控制**：模型不能选择事件边界或提供摘要文本；选择与摘要都由 Provider policy 负责。
 - **需要已路由容量**：保留尾部策略需要最新持久 provider/model route 的 context metadata。

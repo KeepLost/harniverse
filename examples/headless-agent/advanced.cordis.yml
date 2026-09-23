@@ -1,4 +1,4 @@
-# Add Code Mode and Cordis tools to the headless spawn/workflow stack.
+# Add PTC and Cordis tools to the headless spawn/workflow stack.
 - id: base
   name: '@deepseek-ai/cordis-plugin-include'
   config:
@@ -32,8 +32,8 @@
             name: '@deepseek-ai/dsh-sandbox-policy'
             config:
               mode: danger-full-access
-          - id: code-runtime
-            name: '@deepseek-ai/dsh-code-runtime-ptc'
+          - id: ptc-runtime
+            name: '@deepseek-ai/dsh-ptc-runtime-node'
           - id: cordis-host-runner
             name: '@deepseek-ai/dsh-cordis-host-runner'
           - id: tool-cordis

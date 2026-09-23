@@ -1,7 +1,7 @@
 /**
  * The row an agent preset carries to pick its tool presentation. What it owes
  * its caller: the choice reaches THIS agent and no other, it unwinds with the
- * agent, and a code mode composed against a deployment with no code runtime
+ * agent, and PTC composed against a deployment with no PTC runtime
  * stops at mount — where a preset's activation audit can name it — rather
  * than at the first prompt assembly.
  */
@@ -10,15 +10,15 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
-import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
+import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-ptc-runtime'
 import ToolRuntime, { RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { apply, Config, inject, name } from '@deepseek-ai/dsh-agent-tool-presentation'
 
 /** A runtime that never runs anything: presentation never dispatches. */
-class StubRuntime extends CodeRuntime {
+class StubRuntime extends PtcRuntime {
   readonly language = 'typescript'
   readonly isolation = 'stub'
 
@@ -63,7 +63,7 @@ describe('the tool-presentation row', () => {
     expect(inject).toEqual(['tools'])
   })
 
-  it('gives its own agent Code Mode and leaves the rest native', async () => {
+  it('gives its own agent PTC and leaves the rest native', async () => {
     const ctx = await host()
     const coded = await mount(ctx, { mode: 'code' }, 'coded')
     const plain = await mount(ctx, { mode: 'native' }, 'plain')
@@ -106,7 +106,7 @@ describe('the tool-presentation row', () => {
     // Pending, not applied: `dsh-agent-presets` rejects a mount holding a row
     // that never reached a usable state, naming this id — so the preset fails
     // where the operator can act, instead of at the first request.
-    expect(row.ctx.get('codeRuntime')).toBeUndefined()
+    expect(row.ctx.get('ptcRuntime')).toBeUndefined()
     const assembly = await ctx.systemPrompt.assemble({ scope: agent })
     expect(assembly.tools.map(tool => tool.name)).toEqual(['echo'])
   })

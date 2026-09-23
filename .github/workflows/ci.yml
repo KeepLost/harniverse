@@ -65,6 +65,86 @@ jobs:
           DSH_ARCHIVE_BASE_REF: ${{ github.event.pull_request.base.sha }}
         run: pnpm run check:ci:static
 
+  desktop-platform:
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 45
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            name: Linux x64
+            arch: x64
+          - runner: windows-latest
+            name: Windows x64
+            arch: x64
+          - runner: macos-latest
+            name: macOS arm64
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    name: desktop / ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v5
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare Linux graphical runtime
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth libgtk-3-0 libnss3 libasound2t64 libgbm1
+          if sysctl kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Build the complete production workspace
+        run: pnpm run build
+
+      - name: Build the shell and owned Host
+        run: pnpm run build:desktop
+
+      - name: Run desktop lifecycle and packaging contracts
+        run: pnpm run test:desktop
+
+      - name: Check packaging TypeScript
+        run: node node_modules/typescript/bin/tsc -p apps/desktop/tsconfig.packaging.json
+
+      - name: Provision pinned Electron build binary
+        run: node apps/desktop/scripts/packaging-ci.ts --provision-electron --provision-browser
+
+      # Windows uses the native pwsh default; the Node driver owns portable argv.
+      - name: Package native installer and verify final offline desktop
+        run: node apps/desktop/scripts/packaging-ci.ts --output-dir "${{ runner.temp }}/harniverse-desktop" --pnpm-dir "${{ runner.temp }}/setup-pnpm" --arch ${{ matrix.arch }}
+
+      - name: Upload qualified native artifacts and manifests
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ runner.os }}-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/harniverse-desktop/*/artifacts/*.AppImage
+            ${{ runner.temp }}/harniverse-desktop/*/artifacts/*.exe
+            ${{ runner.temp }}/harniverse-desktop/*/artifacts/*.dmg
+            ${{ runner.temp }}/harniverse-desktop/*/artifacts/*.manifest.json
+            ${{ runner.temp }}/harniverse-desktop/*/artifacts/*-unpacked.tar
+            ${{ runner.temp }}/harniverse-desktop/*/artifacts/qualification.json
+
   node-24-coverage:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -498,7 +578,7 @@ jobs:
   all-checks-passed:
     name: all checks passed
     runs-on: ubuntu-latest
-    needs: [node-24, node-24-coverage, node-24-consumers, node-24-web-snapshot, node-compat, python-sdk, python-runtime, windows]
+    needs: [node-24, desktop-platform, node-24-coverage, node-24-consumers, node-24-web-snapshot, node-compat, python-sdk, python-runtime, windows]
     if: always() && github.event_name == 'pull_request'
     steps:
       - name: Fail if any needed job did not succeed

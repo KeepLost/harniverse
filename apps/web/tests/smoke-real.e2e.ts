@@ -438,12 +438,12 @@ describe('dsh web keyless CLI smoke', () => {
     requireDist()
     const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-code-mode-'))
 
-    interface CodeModeProviderRequest {
+    interface PtcProviderRequest {
       messages?: { role?: string; content?: string }[]
       tools?: { function?: { name?: string } }[]
     }
-    let resolveProviderRequest!: (request: CodeModeProviderRequest) => void
-    const providerRequest = new Promise<CodeModeProviderRequest>((resolve) => {
+    let resolveProviderRequest!: (request: PtcProviderRequest) => void
+    const providerRequest = new Promise<PtcProviderRequest>((resolve) => {
       resolveProviderRequest = resolve
     })
     const provider = createServer((request, response) => {
@@ -451,7 +451,7 @@ describe('dsh web keyless CLI smoke', () => {
       request.setEncoding('utf8')
       request.on('data', (chunk: string) => { body += chunk })
       request.on('end', () => {
-        resolveProviderRequest(JSON.parse(body) as CodeModeProviderRequest)
+        resolveProviderRequest(JSON.parse(body) as PtcProviderRequest)
         response.writeHead(200, { 'content-type': 'text/event-stream' })
         response.end([
           'data: {"choices":[{"delta":{"role":"assistant","content":null,"reasoning_content":""}}]}',

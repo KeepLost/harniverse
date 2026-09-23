@@ -1,4 +1,4 @@
-# Add Code Mode and Cordis tools to the base spawn/workflow stack, exercising
+# Add PTC and Cordis tools to the base spawn/workflow stack, exercising
 # all four boundaries in one ACP snapshot.
 - id: base
   name: '@deepseek-ai/cordis-plugin-include'
@@ -21,8 +21,8 @@
 
             Verify your work by running the code or tests. Keep answers brief and factual.
       - insert:
-          - id: code-runtime
-            name: '@deepseek-ai/dsh-code-runtime-ptc'
+          - id: ptc-runtime
+            name: '@deepseek-ai/dsh-ptc-runtime-node'
           - id: cordis-host-runner
             name: '@deepseek-ai/dsh-cordis-host-runner'
           - id: tool-cordis

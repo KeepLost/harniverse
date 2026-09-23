@@ -19,4 +19,4 @@ pnpm dsh --profile headless "fix the failing test in this workspace"
 
 ## 高级配置
 
-[`advanced.cordis.yml`](advanced.cordis.yml) 在测试组装中添加 Code Mode 和 Cordis 工具。
+[`advanced.cordis.yml`](advanced.cordis.yml) 在测试组装中添加 PTC 和 Cordis 工具。

@@ -43,7 +43,7 @@
 - id: tools
   config:
     # TEMPORARY workaround: DSH_TOOLS_MODE (native|code|both) opts a whole dsh
-    # process into Code Mode while per-session tool-presentation selection is being
+    # process into PTC while per-session tool-presentation selection is being
     # designed; unset keeps the schema default (native). Remove the env seam
     # once the web UI owns the choice per session.
     mode: !!js process.env.DSH_TOOLS_MODE
@@ -62,8 +62,8 @@
         levels:
           default: 2
 
-    - id: code-runtime
-      name: '@deepseek-ai/dsh-code-runtime-ptc'
+    - id: ptc-runtime
+      name: '@deepseek-ai/dsh-ptc-runtime-node'
 
     - id: storage
       name: '@deepseek-ai/dsh-storage'

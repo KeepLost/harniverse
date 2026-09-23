@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 Model-facing Consumer for `ctx.compaction`. It registers the direct `context_compact` tool so a model can condense one safe older conversation prefix before continuing with a new phase.
 
-The base and standalone headless compositions load it beside the selected compaction Provider. Web moves it into the standard and Cordis Agent presets; the Code preset omits it because Code Mode reaches native tools only through nested dispatch.
+The base and standalone headless compositions load it beside the selected compaction Provider. Web moves it into the standard and Cordis Agent presets; the `code` preset omits it because PTC reaches native tools only through nested dispatch.
 
 ## Contract
 
@@ -39,6 +39,6 @@ Tool discovery is stable while composition is unchanged. A no-op only appends th
 
 ## Known Limitations and Deferred Work
 
-- **Direct calls only** — nested and Code Mode sub-dispatches fail; the Code preset omits this Consumer.
+- **Direct calls only** — nested and PTC sub-dispatches fail; the `code` preset omits this Consumer.
 - **No range controls** — the model cannot choose event boundaries or provide summary text; Provider policy owns both selection and summarization.
 - **Routed capacity required** — retained-tail policy needs context metadata for the latest durable provider/model route.

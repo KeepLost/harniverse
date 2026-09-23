@@ -21,7 +21,7 @@ import type { PostToolDecision, ToolExecution, ToolExecutionToken } from '@deeps
 import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
 import type { ReadTextSpill, ReadTextSpillPage, SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
-import { PtcCodeRuntime } from '@deepseek-ai/dsh-code-runtime-ptc'
+import { NodePtcRuntime } from '@deepseek-ai/dsh-ptc-runtime-node'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 
 const testToolSignal = new AbortController().signal
@@ -191,7 +191,7 @@ describe('oversized plain-text replacement', () => {
   })
 })
 
-describe('outer Code Mode failure capture', () => {
+describe('outer PTC failure capture', () => {
   it('spills the bounded output-limit diagnostic through the ordinary outer-result policy', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -199,7 +199,7 @@ describe('outer Code Mode failure capture', () => {
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes: 200 })
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
-    await ctx.plugin(PtcCodeRuntime, { maxOutputBytes: 500 })
+    await ctx.plugin(NodePtcRuntime, { maxOutputBytes: 500 })
     const events: unknown[] = []
     const agent = {
       session: {
@@ -241,7 +241,7 @@ describe('read skip', () => {
 })
 
 describe('the durable dispatch-log arm', () => {
-  /** Boot code mode + the policy + the worker runtime; run one program via the real bridge. */
+  /** Boot PTC + the policy + the Node runtime; run one program via the real bridge. */
   async function runCodeWith(program: string, maxInlineBytes: number, extraTools: ToolDefinition[] = []) {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -249,7 +249,7 @@ describe('the durable dispatch-log arm', () => {
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes })
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
-    await ctx.plugin(PtcCodeRuntime, {})
+    await ctx.plugin(NodePtcRuntime, {})
     const events: { type: string; data: unknown }[] = []
     const agent = {
       session: {
@@ -324,7 +324,7 @@ describe('the durable dispatch-log arm', () => {
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes: 100 })
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
-    await ctx.plugin(PtcCodeRuntime, {})
+    await ctx.plugin(NodePtcRuntime, {})
     // A spill backend that hangs until released.
     let releaseSave!: () => void
     const gate = new Promise<void>((resolve) => { releaseSave = resolve })
@@ -389,7 +389,7 @@ describe('the durable dispatch-log arm', () => {
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes: 100 })
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
-    await ctx.plugin(PtcCodeRuntime, {})
+    await ctx.plugin(NodePtcRuntime, {})
     const store = ctx.spillStore as StubStore
     const releases: (() => void)[] = []
     store.gate = () => new Promise<void>((resolve) => { releases.push(resolve) })
@@ -443,7 +443,7 @@ describe('the durable dispatch-log arm', () => {
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes: 100 })
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access' })
-    await ctx.plugin(PtcCodeRuntime, {})
+    await ctx.plugin(NodePtcRuntime, {})
     ;(ctx.spillStore as StubStore).fail = true
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const events: { type: string; data: unknown }[] = []

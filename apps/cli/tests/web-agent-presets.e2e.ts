@@ -486,7 +486,7 @@ describe('the shipped Web composition', () => {
     }
   })
 
-  it('presents `code` as Code Mode without tool-result pruning or disturbing a native session', async () => {
+  it('presents `code` as PTC without tool-result pruning or disturbing a native session', async () => {
     const coded = await ctx.agents.create({
       sessionId: SessionId('preset-code'),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'code').then(() => undefined),
@@ -497,7 +497,7 @@ describe('the shipped Web composition', () => {
     })
     try {
       // One tool reaches the MODEL: the transport. The registry's catalog for
-      // this agent is unchanged — a code mode collapses the presentation, not
+      // this agent is unchanged — PTC collapses the presentation, not
       // the capabilities — so the assembly is what carries the claim.
       const assembly = await ctx.systemPrompt.assemble({ scope: coded.agent })
       expect(assembly.tools.map(tool => tool.name)).toEqual(['run_code'])

@@ -6,10 +6,10 @@ Automation-oriented [Agent Client Protocol](https://agentclientprotocol.com) ser
 
 ```sh
 pnpm run demo:acp             # needs DEEPSEEK_API_KEY (repo-root .env or env)
-pnpm run demo:code-mode       # same protocol with the Code Mode tool transport
+pnpm run demo:ptc             # same protocol with the PTC tool transport
 ```
 
-The leaf loads the ACP app, DeepSeek adapter, sandboxed bash and filesystem stacks, one-shot approval policy, compaction, subagents, workflows, hooks, a derived session-query index, and repeat guard. The app creates one fresh agent per `session/new`, persists sessions to JSONL, and keeps stdout protocol-pure. Optional overlays add session queries, filesystem spill storage, Code Mode, web fetching, or outbound notifications. `notification-http.cordis.yml` requires a deployment-owned `DSH_NOTIFICATION_HTTP_URL`, persists its outbox under `DSH_NOTIFICATION_STORAGE_ROOT` or `./.notification-storage`, and never accepts an endpoint from the model.
+The leaf loads the ACP app, DeepSeek adapter, sandboxed bash and filesystem stacks, one-shot approval policy, compaction, subagents, workflows, hooks, a derived session-query index, and repeat guard. The app creates one fresh agent per `session/new`, persists sessions to JSONL, and keeps stdout protocol-pure. Optional overlays add session queries, filesystem spill storage, PTC, web fetching, or outbound notifications. `notification-http.cordis.yml` requires a deployment-owned `DSH_NOTIFICATION_HTTP_URL`, persists its outbox under `DSH_NOTIFICATION_STORAGE_ROOT` or `./.notification-storage`, and never accepts an endpoint from the model.
 
 ## Protocol channel
 

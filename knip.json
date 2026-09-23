@@ -531,7 +531,7 @@
         "src/**/*.ts"
       ]
     },
-    "packages/code-runtime/code-runtime-ptc": {
+    "packages/ptc-runtime/ptc-runtime-node": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
@@ -541,7 +541,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/code-runtime/code-runtime-python": {
+    "packages/ptc-runtime/ptc-runtime-python": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
@@ -794,6 +794,21 @@
         "tests/**/*.ts"
       ]
     },
+    "apps/desktop": {
+      "entry": [
+        "renderer/shell.js",
+        "scripts/packaging*.ts",
+        "scripts/packaging*.cjs",
+        "tests/**/*.spec.ts",
+        "tests/**/*.test.ts"
+      ],
+      "project": ["src/**/*.ts", "scripts/**/*.{ts,cjs}", "renderer/*.js", "tests/**/*.ts"]
+    },
+    "apps/desktop-host": {
+      "entry": ["tests/**/*.spec.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"],
+      "ignoreDependencies": ["@deepseek-ai/dsh"]
+    },
     "apps/web": {
       "entry": [
         "tests/**/*.e2e.ts",
@@ -861,7 +876,7 @@
     },
     "packages/bundle/headless": {
       "ignoreDependencies": [
-        "@deepseek-ai/dsh-code-runtime-ptc"
+        "@deepseek-ai/dsh-ptc-runtime-node"
       ]
     },
     "packages/bundle/web-app": {

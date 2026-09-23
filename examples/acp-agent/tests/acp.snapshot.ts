@@ -29,7 +29,7 @@ const AGENT = {
   tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
 }
 
-// The Code Mode overlay configs (include-patched variants of cordis.yml; the
+// The PTC overlay configs (include-patched variants of cordis.yml; the
 // replay swap resolves each one's sibling `*cordis.snapshot.yml`).
 const CODE_MODE_CONFIG = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
 const CODE_MODE_WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../code-mode-workspace-context.cordis.yml', import.meta.url))
@@ -567,8 +567,8 @@ const SCENARIOS: Scenario[] = [
   // child fixture), and the tool result carries the script's return value.
   { name: 'workflow-run', hasModelTurn: true, recorded: true },
   // Authored counterpart to the packaged Python SDK snapshot: define a host-half marker package and
-  // run it, inspect this session's dynamic packages through Code Mode, run direct and workflow
-  // children, then undefine it. The extra Code Mode and
+  // run it, inspect this session's dynamic packages through PTC, run direct and workflow
+  // children, then undefine it. The extra PTC and
   // Cordis plugins require their own request-header pin; the fixture tests deterministic composition.
   {
     name: 'advanced-toolchain',
@@ -613,7 +613,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'hook-codex-posttool-block', hasModelTurn: true, recorded: true },
   { name: 'hook-codex-posttool-context', hasModelTurn: true, recorded: true },
   { name: 'hook-codex-stop-continue', hasModelTurn: true, recorded: false, overridden: true },
-  // Code Mode: the registry in `mode: code` — the wire tool list collapses to [run_code], the
+  // PTC: the registry in `mode: code` — the wire tool list collapses to [run_code], the
   // tools:sdk section rides in the prompt, and the program's tool calls land as
   // tool/code-dispatch events. Each overlay composes and pins its own header class.
   { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configPath: CODE_MODE_CONFIG },

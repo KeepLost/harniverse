@@ -59,7 +59,7 @@ async function setup(script: Script, options: SetupOptions = {}) {
     tools: { mode: options.toolMode ?? 'native' },
   })
   if (options.toolMode === 'code' || options.toolMode === 'both') {
-    ctx.provide('codeRuntime', {
+    ctx.provide('ptcRuntime', {
       language: 'typescript',
       isolation: 'test',
       run: options.codeRun ?? (() => Promise.resolve({ logs: [] })),
@@ -382,7 +382,7 @@ describe('in-process structured output', () => {
     await run.dispose()
   })
 
-  it('keeps pure Code Mode at one wire tool and exposes structured capture through the SDK only', async () => {
+  it('keeps pure PTC at one wire tool and exposes structured capture through the SDK only', async () => {
     const { ctx, parent, adapter } = await setup([
       toolCallResponse('c1', RUN_CODE_NAME, { code: 'return await tools.structured_output({ answer: 12 })', description: 'Capture the structured answer' }),
     ], {

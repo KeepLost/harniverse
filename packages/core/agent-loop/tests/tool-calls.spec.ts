@@ -13,8 +13,8 @@ import ToolRuntime, { defineContentToolFixture, ToolOutputError, TOOL_ABORTED_BE
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
-import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
-import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
+import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-ptc-runtime'
 
 async function harness(adapter: MockAdapter, maxParallelToolCalls?: number) {
   const ctx = new Context()
@@ -732,9 +732,9 @@ describe('tool-call scheduler: failure quiescence', () => {
   })
 })
 
-describe('code-mode native-tool denial through the agent loop', () => {
+describe('PTC native-tool denial through the agent loop', () => {
   /** A minimal in-process code runtime for test purposes — never actually runs. */
-  class FakeCodeRuntime extends CodeRuntime {
+  class FakePtcRuntime extends PtcRuntime {
     readonly language = 'typescript'
     readonly isolation = 'fake' as const
     async run(_request: CodeRunRequest): Promise<CodeRunResult> {
@@ -748,15 +748,15 @@ describe('code-mode native-tool denial through the agent loop', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(SystemPrompt, { persona: '' })
     await ctx.plugin(ToolRuntime, { mode: 'code' })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FakeCodeRuntime is an internal test helper with an opaque type shape
-    await ctx.plugin(FakeCodeRuntime as any)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FakePtcRuntime is an internal test helper with an opaque type shape
+    await ctx.plugin(FakePtcRuntime as any)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
     ctx.llm.registerAdapter(['mock'], adapter)
     return ctx
   }
 
-  it('denies a model-direct native-tool call under code mode: tool body never runs and session records UNKNOWN_TOOL', async () => {
+  it('denies a model-direct native-tool call under PTC: tool body never runs and session records UNKNOWN_TOOL', async () => {
     let toolInvoked = false
     const tool = defineContentToolFixture({
       name: 'write',
@@ -771,7 +771,7 @@ describe('code-mode native-tool denial through the agent loop', () => {
       },
     })
 
-    // Scripted model emits a native tool call under code mode — the wire
+    // Scripted model emits a native tool call under PTC — the wire
     // never advertised it, but a non-compliant provider may still emit one.
     const adapter = new MockAdapter([
       [
