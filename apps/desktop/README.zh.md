@@ -16,7 +16,7 @@ Electron 外壳展示共用且启用身份认证的 Harniverse Web 应用。业�
 
 ## 发行包参考
 
-[package.json](package.json) 固定 Electron 与 electron-builder 的版本，并声明 `com.keeplost.harniverse` 应用标识。主要 CI 矩阵构建 Linux x64 AppImage、Windows x64 NSIS、macOS arm64 DMG，以及各自的解包目录。工具接受其他 x64/arm64 组合，但此矩阵不证明它们具备发行资格。安装包须在目标操作系统上构建，使用兼容的原生依赖和预先准备的 Electron；构建期间可以获取安装器工具。这些命令生成未签名的资格验证产物。当前源码品牌使用同一个 Harniverse 蓝色 H 图案作为原生窗口、托盘以及生成的 PNG、ICO 和 ICNS 图标，Electron 默认图标已固定到这一资源系列；新的品牌产物仍在构建和测试。macOS 保留 Electron 原有的可执行文件签名，验证 runAsNode fuse 而不改写它。发布者签名和公证需要单独的发行门禁，并校验最终签名运行时的资源清单。
+[package.json](package.json) 固定 Electron 与 electron-builder 的版本，并声明 `com.keeplost.harniverse` 应用标识。主要 CI 矩阵构建 Linux x64 AppImage、Windows x64 NSIS、macOS arm64 DMG，以及各自的解包目录。工具接受其他 x64/arm64 组合，但此矩阵不证明它们具备发行资格。安装包须在目标操作系统上构建，使用兼容的原生依赖和预先准备的 Electron；构建期间可以获取安装器工具。这些命令生成未签名的资格验证产物。当前源码品牌使用同一个 Harniverse 蓝色 H 图案作为原生窗口、托盘以及生成的 PNG、ICO 和 ICNS 图标，Electron 默认图标已固定到这一资源系列；品牌化 Linux x64 产物已通过本地资格验证。macOS 保留 Electron 原有的可执行文件签名，验证 runAsNode fuse 而不改写它。发布者签名和公证需要单独的发行门禁，并校验最终签名运行时的资源清单。
 
 组装器读取已构建、按冻结锁文件安装依赖的工作区，复制桌面入口、预加载脚本、渲染资源、`apps/desktop-host/lib/index.js`、CLI 配置、Web `dist`，以及已安装的生产依赖和 peer 依赖闭包。工作区发布清单选择构建产物和许可证；第三方 JavaScript、原生载荷和辅助可执行文件予以保留。pnpm 链接转为物理文件，版本冲突转为嵌套依赖，兼容的依赖环通过祖先包解析，无法用无链接布局表达的循环版本冲突明确报错。输出可迁移，不依赖工作区或包存储目录。构建和依赖准备在组装前完成，可以访问软件仓库；组装与启动不会安装依赖。
 
@@ -81,7 +81,7 @@ node apps/desktop/scripts/packaging-smoke.ts --app-dir /absolute/unpacked/resour
 
 macOS 的应用目录位于 `Harniverse.app/Contents/Resources/app`，Windows 使用打包后的 `.exe`。只检查模式验证资源和可执行文件是否存在，不启动应用。实际冒烟运行使用全新的主目录和用户配置目录，排除提供方凭证，清空 `PATH`，并传入 `--harniverse-clean-install-smoke`。应用须在本地启动并完成身份认证、等待自有 Host 退出后，向 `HARNIVERSE_DESKTOP_SMOKE_REPORT` 指定的位置写入 JSON 回执，再于 120 秒内成功退出。回执要求 `schemaVersion: 1`，`offlineAssetsLoaded`、`authenticated`、`ownedHostStopped` 为 true，`systemNodeUsed`、`systemPackageManagerUsed`、`networkInstallUsed` 为 false；证据必须标识资源清单的 SHA-256 与固定的 Electron 版本。不支持此回执协议的发行包会检查失败。运行器在失败时终止自己创建的进程组，并移除临时配置目录。无显示器的 Linux 使用 `xvfb-run -a`；`--no-sandbox` 仅供明确以 Linux root 运行的冒烟检查。此冒烟检查不能替代各目标平台上的安装升级、签名、系统集成和原生 ABI 测试。
 
-最终本地 Linux x64 AppImage 与解包目录产物通过了认证 Host／CDP 浏览器检查、空命令路径的全新安装冒烟和原生资格检查。浏览器产生了 12,079 字节 JPEG 帧，标题正确、一次本地请求、关闭后零页面且确认退出状态为 0。全新安装回执还记录了认证前 401、签名交换、插件引导、UI 渲染、Session 列表、重启后复用设备密钥、Host 存活时关闭／隐藏、重开和两次确认 Host 关闭。这是 Linux 本地资格证据；Windows／macOS 资格、CI 结果和发行签名仍是独立门禁。
+最终品牌化本地 Linux x64 AppImage 与解包目录产物通过了认证 Host／CDP 浏览器检查、空命令路径的全新安装冒烟和原生资格检查。其资源清单 SHA-256 为 `0acb0a809a1433abc933c47862604401b2c911cb68548654fd4204c86db7518f`。浏览器产生了 12,079 字节 JPEG 帧，标题正确、一次本地请求、关闭后零页面且确认退出状态为 0。全新安装回执还记录了认证前 401、签名交换、插件引导、UI 渲染、Session 列表、重启后复用设备密钥、Host 存活时关闭／隐藏、重开和两次确认 Host 关闭。这是 Linux 本地资格证据；Windows／macOS 资格、CI 结果和发行签名仍是独立门禁。
 
 ## 更新与恢复参考
 
