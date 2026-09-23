@@ -378,8 +378,19 @@ jobs:
           if compgen -G "$HOME/wine-debs/*.deb" > /dev/null; then
             sudo apt-get install -y --no-install-recommends "$HOME"/wine-debs/*.deb
           else
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends --download-only wine
+            # An Ubuntu index can name a package version the mirror pool has
+            # not published yet, which 404s the download. Refresh and retry so
+            # a mirror lag cannot fail the gate.
+            for attempt in 1 2 3; do
+              sudo apt-get update
+              sudo apt-get install -y --no-install-recommends --download-only wine && break
+              if [ "$attempt" = 3 ]; then
+                echo "::error::downloading wine failed after 3 attempts"
+                exit 1
+              fi
+              echo "downloading wine failed (attempt $attempt); retrying in 20s"
+              sleep 20
+            done
             mkdir -p "$HOME/wine-debs"
             cp /var/cache/apt/archives/*.deb "$HOME/wine-debs/" 2>/dev/null || true
             sudo apt-get install -y --no-install-recommends wine
