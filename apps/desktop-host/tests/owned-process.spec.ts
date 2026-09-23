@@ -1,6 +1,6 @@
 import { fork } from 'node:child_process'
 import { generateKeyPairSync, sign } from 'node:crypto'
-import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,7 +14,9 @@ it('boots the installed web profile with private IPC and stops its actual proces
   const anchor = fileURLToPath(new URL('../../cli/package.json', import.meta.url))
   // Relocate the built app beside the normal CLI dependency closure, without installing packages.
   healProfilesModuleFallback(anchor, root)
-  const entry = join(root, 'profiles', 'desktop-host.mjs')
+  const profileAlias = join(root, 'profile-alias')
+  await symlink(join(root, 'profiles'), profileAlias, process.platform === 'win32' ? 'junction' : 'dir')
+  const entry = join(profileAlias, 'desktop-host.mjs')
   await copyFile(fileURLToPath(new URL('../lib/index.js', import.meta.url)), entry)
   await mkdir(home, { mode: 0o700 })
   const child = fork(entry, [home, anchor, '--port', '0'], { cwd: home, execArgv: ['--expose-internals'],

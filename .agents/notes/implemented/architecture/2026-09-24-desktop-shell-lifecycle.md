@@ -30,6 +30,8 @@ The main process atomically persists the journal before effects. A writable runn
 
 ## Alternatives considered
 
+The private Host uses Node's `import.meta.main` to recognize process entry. Comparing the module URL with the argument path misclassifies macOS `/var` aliases and directory junctions after the module loader resolves them. The built-process regression launches through a directory alias and still requires normal authenticated readiness and acknowledged exit; ownership tests compare canonical paths and shell tests derive native file URLs.
+
 An independent desktop business UI duplicates plugin composition and authentication behavior. Loading the shared Web entry keeps these capabilities under their existing owners.
 
 Address-based filesystem locality misclassifies loopback tunnels. Explicit child ownership provides the authority required for a local native picker and process shutdown.

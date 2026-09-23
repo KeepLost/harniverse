@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const electron = vi.hoisted(() => {
@@ -72,6 +73,8 @@ import { DesktopShell, launchDesktopShell, type OwnedDesktopHost, type OwnedHost
 import { DESKTOP_IPC } from '../src/ipc.ts'
 import type { UpdateConnection } from '../src/update.ts'
 
+const rendererURL = pathToFileURL('/app/renderer/index.html').href
+
 function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
   let settle: ((value: T) => void) | undefined
   const promise = new Promise<T>((resolve) => { settle = resolve })
@@ -130,7 +133,7 @@ describe('desktop window and connection lifecycle', () => {
     expect(window.options.webPreferences).toMatchObject({
       sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true, webviewTag: false,
     })
-    expect(window.loaded).toEqual(['file:///app/renderer/index.html'])
+    expect(window.loaded).toEqual([rendererURL])
     expect(window.visible).toBe(true)
     expect(electron.trays).toHaveLength(1)
     expect(window.options.title).toBe('Harniverse')
@@ -236,7 +239,7 @@ describe('desktop quit and failures', () => {
     const { shell, host, window, invoke } = await fixture()
     host.start.mockRejectedValue(new Error('secret boot diagnostic'))
     await expect(shell.connect({ kind: 'local' })).rejects.toThrow('connection failed')
-    expect(window.loaded.at(-1)).toBe('file:///app/renderer/index.html')
+    expect(window.loaded.at(-1)).toBe(rendererURL)
     expect(await invoke(DESKTOP_IPC.state)).toMatchObject({ phase: 'failed', ownership: 'owned' })
     expect(JSON.stringify(await invoke(DESKTOP_IPC.state))).not.toContain('secret')
     electron.dialog.showMessageBox.mockResolvedValue({ response: 1 })
@@ -282,7 +285,7 @@ describe('desktop quit and failures', () => {
     const { shell, host, window, invoke, fail } = await fixture()
     await shell.connect({ kind: 'local' })
     window.webContents.emit('render-process-gone')
-    await vi.waitFor(() => { expect(window.loaded.at(-1)).toBe('file:///app/renderer/index.html') })
+    await vi.waitFor(() => { expect(window.loaded.at(-1)).toBe(rendererURL) })
     expect(await invoke(DESKTOP_IPC.state)).toMatchObject({ phase: 'failed', message: expect.stringContaining('window stopped') as unknown })
     expect(host.stop).not.toHaveBeenCalled()
     fail()

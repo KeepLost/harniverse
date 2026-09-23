@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { generateKeyPairSync } from 'node:crypto'
@@ -45,9 +45,10 @@ describe('desktop home ownership', () => {
   })
   it('recognizes its marked home and preserves durable home contents', async () => {
     const path = await home()
-    expect(await claimDesktopHome(path)).toBe(path)
+    const canonical = await realpath(path)
+    expect(await claimDesktopHome(path)).toBe(canonical)
     await writeFile(join(path, 'sessions.json'), 'durable')
-    expect(await claimDesktopHome(path)).toBe(path)
+    expect(await claimDesktopHome(path)).toBe(canonical)
     expect(await readFile(join(path, 'sessions.json'), 'utf8')).toBe('durable')
   })
 })

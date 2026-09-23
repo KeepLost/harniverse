@@ -1,6 +1,5 @@
 /** Private child entry. Arguments are the shell-owned home and installed CLI manifest. */
-import { isAbsolute, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { isAbsolute } from 'node:path'
 import { serveOwnedHost, type HostChannel } from './ipc.ts'
 import { startDesktopProfile } from './profile.ts'
 
@@ -45,7 +44,6 @@ export async function main(): Promise<void> {
   await lifecycle.ready
 }
 
-const entry = process.argv.at(1)
-if (entry !== undefined && fileURLToPath(import.meta.url) === resolve(entry)) {
+if (import.meta.main) {
   void main().catch((error: unknown) => { console.error(error); process.exitCode = 1 })
 }
