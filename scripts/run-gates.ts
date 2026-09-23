@@ -315,6 +315,7 @@ function ciPrimaryGates(): Gate[] {
       docTypecheckScript: 'doc-typecheck:contracts-ready',
     }),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
+    pnpmScript('client-domain-graph', 'verify-client-domain-graph', { label: 'client domain graph' }),
     pnpmScript('knip', 'knip'),
     // The prepared typecheck and build both drive Client tsc, while build also
     // repeats the Host contract pass. Wait for all three consumers so build
@@ -414,6 +415,7 @@ function ciStaticGates(options: { ownsBuild: boolean }): Gate[] {
       docsBuildScript: 'docs:build:mpa',
     }),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
+    pnpmScript('client-domain-graph', 'verify-client-domain-graph', { label: 'client domain graph' }),
     pnpmScript('knip', 'knip'),
   ]
 }

@@ -432,6 +432,14 @@ describe('BrowserController launch failures', () => {
     await expect(controller.create(agent, request, signal())).resolves.toMatchObject({ id: pageId })
   })
 
+  it('waits for the whole endpoint line when the stream delivers it in two reads', async () => {
+    const { controller, agent, subprocess } = await fixture()
+    // The browser's own session id is the tail of that line. Connecting to a
+    // half-read one reaches no target, and the browser refuses the socket.
+    subprocess.splitEndpointTail = 14
+    await expect(controller.create(agent, request, signal())).resolves.toMatchObject({ id: pageId })
+  })
+
   it('reports a launch whose signal aborted before the browser started', async () => {
     const { controller, agent } = await fixture({}, 'absent')
     const abort = new AbortController()

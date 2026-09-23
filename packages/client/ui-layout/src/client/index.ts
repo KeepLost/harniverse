@@ -77,6 +77,24 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'center.view': { kind: 'list'; scope: 'root'; owner: CenterViewOwnerProps }
     /**
+     * One contributed section tab in the workspace workbench, beside the
+     * shipped files/changes/search tabs (rendered by the workbench entry's
+     * children). Each registrant renders its own tab button: role="tab",
+     * id `workspace-workbench-section-<id>`, aria-controls
+     * "workspace-workbench-navigation", roving tabIndex, and `data-active`
+     * while showing — the workbench's tablist owns arrow-key navigation over
+     * its DOM tabs.
+     */
+    'workbench.section.tab': { kind: 'list'; scope: 'root'; owner: WorkbenchSectionOwnerProps }
+    /**
+     * One contributed section body inside the workbench's tabpanel (rendered
+     * by the workbench entry's children). Registrants render null while
+     * another section shows and their own surface otherwise; `request`
+     * carries an opener's ask (the browser section's destination URL)
+     * verbatim.
+     */
+    'workbench.section.panel': { kind: 'list'; scope: 'root'; owner: WorkbenchSectionOwnerProps }
+    /**
      * The right details column, shown when the layout opens it. OCCUPIED by
      * ui-conversation's DetailsPanel, which declares the tool-details seat
      * inside it — registering here replaces the column and takes that seat
@@ -172,6 +190,23 @@ export interface ShellOverlayOwnerProps {
  * width as the `--dsh-frame-right-width` custom property on the frame element,
  * which is how an overlay entry aligns its edge with this column.
  */
+/**
+ * Owner share both workbench-section holes hand their registrants: which
+ * section is showing, how to switch to one's own, and an opener's verbatim
+ * request. A registrant self-identifies by its registration id — `current`
+ * and `select` are the workbench's, `request` is whatever an opener asked
+ * the showing section to display.
+ */
+export interface WorkbenchSectionOwnerProps {
+  /** Section id currently showing ('files' | 'changes' | 'search' | a contributed id). */
+  current: string
+  /** Switch the workbench to a section (the registrant passes its own id). */
+  select: (section: string) => void
+  /** What an opener asked the showing section to display; undefined when opened bare. */
+  request: string | undefined
+}
+
+/** Frame-owned presentation and section selection passed to the workbench. */
 export interface WorkbenchOwnerProps {
   /**
    * True when the region covers the frame as a modal drawer (narrow viewport or
@@ -179,6 +214,16 @@ export interface WorkbenchOwnerProps {
    * inert, so a companion surface must render inside this column instead.
    */
   drawer: boolean
+  /** Section showing in the workbench: a shipped id or a contributed section's id. */
+  section: string
+  /** Switch the workbench to a section; an opener may hand that section a request. */
+  select: (section: string, request?: string) => void
+  /**
+   * What an opener asked the showing section to display, when it asked for
+   * something specific (the browser section's destination URL). Carried
+   * verbatim; the layout never interprets it.
+   */
+  request: string | undefined
 }
 
 /** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */

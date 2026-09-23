@@ -15,6 +15,12 @@
         - tab "Search":
           - img
           - text: Search
+        - tab "Browser":
+          - img
+          - text: Browser
+        - tab "Terminal":
+          - img
+          - text: Terminal
       - button "Refresh file tree":
         - img
     - tabpanel "Files":

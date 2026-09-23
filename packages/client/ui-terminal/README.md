@@ -2,16 +2,15 @@
 
 English | [中文](README.zh.md)
 
-User-facing terminal panel for the Web app: one xterm.js surface over the authenticated terminal-controller streams. A sidebar footer trigger opens the center view with the session's terminal tabs — create (with the discovered shell choice), rename, close, and a fitted resize — while the exclusive input attachment decides per terminal whether this window types or renders read-only with a takeover affordance. Output follows the snapshot-then-deltas stream with sequence checking; a slow-follower failure climbs a bounded reattach ladder and ends in a manual retry banner. The panel is a carrier for a human: no tools, no session events, nothing model-visible.
+User-facing terminal panel for the Web app: one xterm.js surface over the authenticated terminal-controller streams. A workspace-workbench section (its tab sits beside the shipped files/changes/search tabs) with the session's terminal tabs — create (with the discovered shell choice), rename, close, and a fitted resize — while the exclusive input attachment decides per terminal whether this window types or renders read-only with a takeover affordance. Output follows the snapshot-then-deltas stream with sequence checking; a slow-follower failure climbs a bounded reattach ladder and ends in a manual retry banner. The panel is a carrier for a human: no tools, no session events, nothing model-visible.
 
 ## Composition
 
 | Aspect | Behavior |
 |---|---|
 | Injection | `slots`, `locale`, `layout`, `connection`, `theme`. |
-| Trigger slot | `sidebar.footer.action`, id `terminal-view`, order 40 (after the browser trigger); calls `ctx.layout.setCenterView('terminal')`. |
-| View slot | `center.view`, id `terminal`; covers the center column while the layout names it, and closes through `ctx.layout.clearCenterView()` (a session switch also clears it). |
-| Store | One shared `createTerminalViewStore` instance: the center view writes occupancy on mount/unmount, the footer trigger mirrors it as its pressed affordance. |
+| Section tab | `workbench.section.tab`, id `terminal`, order 20 (after the browser section tab); self-identifies against the workbench's `current`/`select` owner share. |
+| Section body | `workbench.section.panel`, id `terminal`; mounts only while the workbench shows the terminal section, and closes through `ctx.layout.closeWorkbench()`. |
 | Controller | `TerminalPanelController` (plugin-fiber lifetime, DOM-free) owns the terminal list, the follow stream for the active tab, window holds for every running terminal, and the bounded slow-follower ladder; the panel state publishes through the inject `hooks` compartment and survives view remounts. |
 | Wire surface | Unary verbs ride the shared `/api` logical channel (`terminal/environment|shells|list|create|write|resize|rename|close`); streams ride the api-client `terminal` (attachment) and `hold` (window retention) event faces. |
 | Input ownership | Opening the follow stream claims the exclusive input attachment; a demoted attachment sees `controllerId` mismatch in snapshot/state frames, renders read-only, and can take input back by re-attaching. |
@@ -26,7 +25,7 @@ User-facing terminal panel for the Web app: one xterm.js surface over the authen
 
 #### What the model sees
 
-Nothing: the panel is a pure browser-side carrier mounted as the `center.view` named `terminal`. It registers no tools and emits no session events, and nothing a user types into a terminal or reads from its output ever reaches a prompt, message, or tool result.
+Nothing: the panel is a pure browser-side carrier mounted as the `workbench.section.panel` named `terminal`. It registers no tools and emits no session events, and nothing a user types into a terminal or reads from its output ever reaches a prompt, message, or tool result.
 
 #### Token effect
 

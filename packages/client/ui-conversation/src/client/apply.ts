@@ -17,12 +17,12 @@ import type {
   ComposerChainProps, ConversationInjected, ConversationSessionHeaderInjected, ConversationSessionInjected,
   DetailsInjected,
 } from './contract/slots.ts'
-import type { ComposerFileDraft, InputNotice } from './input/contract.ts'
+import type { ComposerFileDraft, InputNotice } from './contract/input.ts'
 import { createChatStore } from './stores.ts'
 import { ConversationController, UnsupportedImageMediaTypeError } from './service.ts'
 import type { IConversation } from './service.ts'
-import { ComposerBlockRegistry } from './input/blocks.ts'
-import type { ComposerBlock } from './input/blocks.ts'
+import { ComposerBlockRegistry } from './contract/input-blocks.ts'
+import type { ComposerBlock } from './contract/input-blocks.ts'
 import { InputHub } from './input/hub.ts'
 import { ComposerSubmissionPolicy } from './input/submission-policy.ts'
 import { InputBar } from './skeleton/InputBar.tsx'
@@ -158,9 +158,9 @@ export function apply(ctx: Context): void {
   const externalLinks: MarkdownExternalLinks = {
     open: (url) => {
       if (linkDestination.getSnapshot() === 'device') return false
-      const panel = slots.entries('center.view').some(entry => entry.options.id === 'browser')
-      if (!panel) return false
-      layout.setCenterView('browser', url)
+      const section = slots.entries('workbench.section.panel').some(entry => entry.options.id === 'browser')
+      if (!section) return false
+      layout.openWorkbenchSection('browser', url)
       return true
     },
   }

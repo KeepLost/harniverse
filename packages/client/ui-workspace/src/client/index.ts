@@ -21,6 +21,7 @@ import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, zh, type WorkspaceKey } from './locales.ts'
 import { WorkspaceWorkbench, WorkspaceWorkbenchPreviewOverlay } from './WorkspaceWorkbench.tsx'
 import { WorkspaceWorkbenchButton } from './WorkspaceWorkbenchButton.tsx'
+import { WorkbenchDockAction } from './WorkbenchDockAction.tsx'
 
 export type {
   DirectoryFlowOwnerProps, DirectoryFlowSlotName, DirectoryPickingHooks, DirectoryPickingInjected,
@@ -152,6 +153,12 @@ export function apply(ctx: ClientContext): void {
       store: workbenchStore,
       inject: workbenchInjected,
       locale: NS,
+      // Contributed sections (browser, terminal, …): one tab beside the
+      // shipped files/changes/search tabs, one body inside the tabpanel.
+      children: {
+        'workbench.section.tab': { kind: 'list', scope: 'root' },
+        'workbench.section.panel': { kind: 'list', scope: 'root' },
+      },
     },
     WorkspaceWorkbench,
   ))
@@ -177,5 +184,18 @@ export function apply(ctx: ClientContext): void {
       inject: workbenchInjected,
     },
     WorkspaceWorkbenchButton,
+  ))
+  // Blank sessions hide the session header (and with it the header button)
+  // and suppress the composer.dock band: the input-dock chip keeps the
+  // workbench reachable until the first turn brings the header back.
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register(
+    {
+      name: 'conversation.input.dock',
+      id: 'workspace-workbench',
+      order: 10,
+      locale: NS,
+      inject: workbenchInjected,
+    },
+    WorkbenchDockAction,
   ))
 }

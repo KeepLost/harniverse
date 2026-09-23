@@ -26,8 +26,8 @@ import type {} from '@deepseek-ai/dsh-goal/client'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import type { CommandToggleContext } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { ComposerAttachment, ComposerBarProps } from '../contract/slots.ts'
-import { deriveDecorations } from '../input/decorations.ts'
-import type { DraftDecorations } from '../input/decorations.ts'
+import { deriveDecorations } from './decorations.ts'
+import type { DraftDecorations } from './decorations.ts'
 import {
   attachmentErrorText, attachmentRailLabels, dropOverlayLabels, fileChipLabels, imageSizeText,
   lightboxLabels,

@@ -5,7 +5,6 @@ describe('createWorkspaceWorkbenchStore', () => {
   it('isolates navigation, documents, search, and Git state by Workspace', () => {
     const { store, actions } = createWorkspaceWorkbenchStore().create()
     actions.ensureWorkspace('a')
-    actions.setSection('a', 'search')
     actions.setDirectory('a', '', { entries: [], truncated: false, loading: false })
     actions.openTab('a', { id: 'file:a.ts', path: 'a.ts', title: 'a.ts', kind: 'code', loading: false, content: 'a' })
     actions.setSearch('a', {
@@ -17,11 +16,11 @@ describe('createWorkspaceWorkbenchStore', () => {
     actions.ensureWorkspace('b')
 
     expect(store.getSnapshot().byWorkspace.a).toMatchObject({
-      section: 'search', activeTabId: 'file:a.ts', previewOpen: true,
+      activeTabId: 'file:a.ts', previewOpen: true,
       search: { query: 'a', include: '*.ts', exclude: 'dist/', filtersOpen: true }, git: { branch: 'main' },
     })
     expect(store.getSnapshot().byWorkspace.b).toMatchObject({
-      section: 'files', tabs: [], activeTabId: null, previewOpen: false, git: null,
+      tabs: [], activeTabId: null, previewOpen: false, git: null,
     })
   })
 

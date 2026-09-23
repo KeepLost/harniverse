@@ -1,6 +1,6 @@
 /**
- * The browser panel (浏览器) center view: an address bar and a live picture of
- * a page running on the harness host. The image is a JPEG screencast of a real
+ * The browser panel (浏览器) workbench section: an address bar and a live
+ * picture of a page running on the harness host. The image is a JPEG screencast of a real
  * browser process, so the page's own network traffic leaves the host rather
  * than the user's device, and embedding refusals (`X-Frame-Options`,
  * `frame-ancestors`) cannot apply — there is no frame.
@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import type { InjectFace, PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   IconChevronLeftOutline14,
   IconChevronRightOutline14,
@@ -24,9 +24,8 @@ import type {
   BrowserInputEvent, BrowserNavigationAction, HostBrowserPageId,
 } from '@deepseek-ai/dsh-api-browser-controller/types'
 import type { BrowserPanelState, BrowserSurface } from './controller.ts'
-import type { createBrowserViewStore } from './view-store.ts'
 import { NS } from './locales.ts'
-import css from './BrowserCenterView.module.css'
+import css from './BrowserPanelView.module.css'
 
 /** Injected business face of the panel shell. */
 export interface BrowserPanelInjected {
@@ -54,14 +53,13 @@ export interface BrowserPanelInjected {
   takeInput: () => void
   /** Register or release the image sink. */
   bindSurface: (surface: BrowserSurface | undefined) => void
-  /** Release the center column back to the conversation. */
+  /** Close the workbench column; the controller keeps pages alive. */
   closeView: () => void
 }
 
-/** Full props composed by the center-view slot. */
-export type BrowserCenterViewProps =
-  PropsRuntime<'center.view'>
-  & PropsStore<ReturnType<typeof createBrowserViewStore>>
+/** Full props composed by the workbench section-panel slot. */
+export type BrowserPanelViewProps =
+  PropsRuntime<'workbench.section.panel'>
   & InjectFace<BrowserPanelInjected>
   & PropsLocale<typeof NS>
 
@@ -104,11 +102,23 @@ const VIRTUAL_KEY_CODES: Readonly<Record<string, number>> = {
  * @param props - center slot currency, the occupancy store, the panel hooks and verbs, and the translator.
  * @returns the panel shell.
  */
-export function BrowserCenterView({
-  request, actions, useSessions, usePanel, bindSession, activate, create, close, navigate, act, input,
+export function BrowserPanelView(props: BrowserPanelViewProps) {
+  // The workbench renders every contributed section body; only the showing
+  // one mounts, so the panel's whole lifecycle (page surface, control
+  // attachment) rides the section's own activation.
+  if (props.current !== 'browser') return null
+  return <BrowserPanelBody {...props} />
+}
+
+/**
+ * The panel body: mounted only while the browser section shows.
+ * @param props - section slot currency, the panel hooks and verbs, and the translator.
+ * @returns the panel shell.
+ */
+function BrowserPanelBody({
+  request, useSessions, usePanel, bindSession, activate, create, close, navigate, act, input,
   resize, takeInput, bindSurface, closeView, t,
-}: BrowserCenterViewProps) {
-  useEffect(() => { actions.setOpen(true); return () => { actions.setOpen(false) } }, [actions])
+}: BrowserPanelViewProps) {
   const session = useSessions(state => state.current)
   useEffect(() => { bindSession(session) }, [bindSession, session])
 
@@ -227,7 +237,7 @@ export function BrowserCenterView({
     })
   }
 
-  // The center-view header (title plus icon-button row) follows the governor
+  // The section header (title plus icon-button row) follows the governor
   // view's skeleton; the shared shape is the panel affordance, not the content.
   /* jscpd:ignore-start */
   return (

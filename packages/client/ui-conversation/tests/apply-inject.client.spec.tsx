@@ -63,7 +63,7 @@ async function bench() {
     summary: { title: 'R', displayTitle: 'R', cwd: '/proj' },
     session: sessionFake,
   })
-  const layoutFake = { openDetails: vi.fn(), closeDetails: vi.fn(), setCenterView: vi.fn() }
+  const layoutFake = { openDetails: vi.fn(), closeDetails: vi.fn(), openWorkbenchSection: vi.fn() }
   runtime.provide('layout', layoutFake)
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.provide('locale', locale)
@@ -74,9 +74,9 @@ async function bench() {
   await runtime.root.declare({
     'conversation': { kind: 'single', scope: 'session-maybe' },
     'details': { kind: 'single', scope: 'session' },
-    // The AppFrame's center-view list: the link router reads it to decide
+    // The workbench section list: the link router reads it to decide
     // whether a host browser panel exists to open a page in.
-    'center.view': { kind: 'list', scope: 'root' },
+    'workbench.section.panel': { kind: 'list', scope: 'root' },
     // The General Settings list: the link destination row contributes into it.
     'settings.general.item': { kind: 'list', scope: 'root' },
   }, (_p: { renderSlot?: unknown }) => null)
@@ -240,19 +240,19 @@ describe('conversation slot inject API', () => {
   it('routes a prose link to the host browser panel when the shell composed one in', async () => {
     const b = await bench()
     const { injected } = b.chatViewApi(ROOT)
-    // No browser center view registered: declining leaves the anchor's own
+    // No browser section registered: declining leaves the anchor's own
     // new-tab behavior, which opens the link on the reader's machine.
     expect(injected.externalLinks.open('https://example.test/a')).toBe(false)
-    expect(b.layoutFake.setCenterView).not.toHaveBeenCalled()
+    expect(b.layoutFake.openWorkbenchSection).not.toHaveBeenCalled()
     // With the panel composed in, the page loads from the HOST instead.
     const panel = await b.runtime.mount({
       inject: ['slots'],
       apply: (ctx: Context) => {
-        ctx.slots.register({ name: 'center.view', id: 'browser' }, () => null)
+        ctx.slots.register({ name: 'workbench.section.panel', id: 'browser' }, () => null)
       },
     })
     expect(injected.externalLinks.open('https://example.test/b')).toBe(true)
-    expect(b.layoutFake.setCenterView).toHaveBeenCalledExactlyOnceWith('browser', 'https://example.test/b')
+    expect(b.layoutFake.openWorkbenchSection).toHaveBeenCalledExactlyOnceWith('browser', 'https://example.test/b')
     await panel.dispose()
     await b.runtime.dispose()
   })
@@ -263,7 +263,7 @@ describe('conversation slot inject API', () => {
     const panel = await b.runtime.mount({
       inject: ['slots'],
       apply: (ctx: Context) => {
-        ctx.slots.register({ name: 'center.view', id: 'browser' }, () => null)
+        ctx.slots.register({ name: 'workbench.section.panel', id: 'browser' }, () => null)
       },
     })
     const row = b.linkRowApi()
@@ -274,7 +274,7 @@ describe('conversation slot inject API', () => {
     expect(b.settings.set).toHaveBeenCalledExactlyOnceWith('linkDestination', 'device')
     // A composed panel is no longer the answer: the anchor keeps the click.
     expect(injected.externalLinks.open('https://example.test/c')).toBe(false)
-    expect(b.layoutFake.setCenterView).not.toHaveBeenCalled()
+    expect(b.layoutFake.openWorkbenchSection).not.toHaveBeenCalled()
     // Re-selecting the standing choice writes nothing.
     row.setLinkDestination('device')
     expect(b.settings.set).toHaveBeenCalledOnce()
@@ -288,7 +288,7 @@ describe('conversation slot inject API', () => {
     const panel = await b.runtime.mount({
       inject: ['slots'],
       apply: (ctx: Context) => {
-        ctx.slots.register({ name: 'center.view', id: 'browser' }, () => null)
+        ctx.slots.register({ name: 'workbench.section.panel', id: 'browser' }, () => null)
       },
     })
     b.settings.publish({

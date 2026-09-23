@@ -88,6 +88,10 @@ export type LayoutState = {
   centerView: string | undefined
   /** Opening request handed to that view; undefined when it was opened bare. */
   centerViewRequest: string | undefined
+  /** Section showing in the workspace workbench: a shipped id or a contributed section's id. */
+  workbenchSection: string
+  /** Opening request handed to that workbench section (the browser panel's URL). */
+  workbenchSectionRequest: string | undefined
 }
 
 /**
@@ -107,6 +111,7 @@ type LayoutActions = {
   openWorkbench: (draft: LayoutState) => void
   closeWorkbench: (draft: LayoutState) => void
   setCenterView: (draft: LayoutState, id: string | undefined, request?: string) => void
+  setWorkbenchSection: (draft: LayoutState, section: string, request?: string) => void
 }
 
 /**
@@ -128,6 +133,8 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
       narrowExpanded: false,
       centerView: undefined,
       centerViewRequest: undefined,
+      workbenchSection: 'files',
+      workbenchSectionRequest: undefined,
     }),
     persist: {
       name: RIGHT_PERSIST_KEY,
@@ -206,6 +213,13 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
       setCenterView: (d, id: string | undefined, request?: string) => {
         d.centerView = id
         d.centerViewRequest = request
+      },
+      // Workbench sections are transient viewing state beside the shipped
+      // files/changes/search tabs; an opener may hand the section a request
+      // (the browser section's destination URL) it carries verbatim.
+      setWorkbenchSection: (d, section: string, request?: string) => {
+        d.workbenchSection = section
+        d.workbenchSectionRequest = request
       },
     },
   })

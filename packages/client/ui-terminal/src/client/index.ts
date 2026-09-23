@@ -1,6 +1,6 @@
 /**
- * Terminal panel, browser half: a sidebar footer trigger that occupies the
- * center column with the user's shell surface. The panel controller owns the
+ * Terminal panel, browser half: a workspace-workbench section (its tab beside
+ * the shipped files/changes/search tabs) with the user's shell surface. The panel controller owns the
  * terminal list, the exclusive input attachment over the active terminal
  * (snapshot-then-deltas over the EventsApi terminal stream, bounded
  * slow-follower reattach), window holds for every running terminal, and the
@@ -9,19 +9,16 @@
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
-// Type-only: pulls the ui-layout SlotMap merge (the center view list).
+// Type-only: pulls the ui-layout Context merge (ctx.layout).
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-// Type-only: pulls the ui-sidebar SlotMap merge (the footer action list).
-import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the ui-theme Context merge (ctx.theme).
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import { TerminalPanelView } from './TerminalPanelView.tsx'
-import { TerminalSidebarAction } from './TerminalSidebarAction.tsx'
+import { TerminalSectionTab } from './TerminalSectionTab.tsx'
 import { TerminalPanelController, type TerminalAppearance } from './controller.ts'
-import { createTerminalViewStore } from './view-store.ts'
 import { en, NS, zh, type TerminalKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -35,7 +32,7 @@ export type {
   TerminalPanelInjected,
   TerminalPanelViewProps,
 } from './TerminalPanelView.tsx'
-export type { TerminalSidebarActionProps, TerminalSidebarFace } from './TerminalSidebarAction.tsx'
+export type { TerminalSectionTabProps } from './TerminalSectionTab.tsx'
 
 /**
  * Required services for locale registration, the slots, the connection, the
@@ -44,11 +41,10 @@ export type { TerminalSidebarActionProps, TerminalSidebarFace } from './Terminal
 export const inject = ['slots', 'locale', 'layout', 'connection', 'theme']
 
 /**
- * Client plugin body: register the dictionaries, the sidebar footer trigger,
- * and the center terminal view. One occupancy store is shared by the trigger
- * and the view; the panel controller (list, follow stream, holds) lives as
- * long as the plugin fiber, so terminals keep running while the view is
- * closed and the controller's snapshot re-binds on remount.
+ * Client plugin body: register the dictionaries, the workbench section tab,
+ * and the workbench section body. The panel controller (list, follow stream,
+ * holds) lives as long as the plugin fiber, so terminals keep running while
+ * another section shows and the controller's snapshot re-binds on remount.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
@@ -63,25 +59,18 @@ export function apply(ctx: ClientContext): void {
   ctx.on('theme/change', (snapshot) => {
     appearance.set({ revision: snapshot.revision })
   })
-  const viewStore = createTerminalViewStore()
-  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
-    name: 'sidebar.footer.action',
-    id: 'terminal-view',
-    // After the browser trigger: interactive shell follows deliberate browsing.
-    order: 40,
+  ctx.slots.inject('workbench.section.tab', () => ctx.slots.register({
+    name: 'workbench.section.tab',
+    id: 'terminal',
+    order: 20,
     locale: NS,
-    store: viewStore,
-    inject: () => ({
-      openView: () => { ctx.layout.setCenterView('terminal') },
-    }),
-  }, TerminalSidebarAction))
-  ctx.slots.inject('center.view', () => ctx.slots.register({
-    name: 'center.view',
+  }, TerminalSectionTab))
+  ctx.slots.inject('workbench.section.panel', () => ctx.slots.register({
+    name: 'workbench.section.panel',
     id: 'terminal',
     locale: NS,
-    store: viewStore,
     inject: () => ({
-      closeView: () => { ctx.layout.clearCenterView() },
+      closeView: () => { ctx.layout.closeWorkbench() },
       hooks: { terminals: controller.state, appearance },
       bindSession: (sessionId: Parameters<TerminalPanelController['bindSession']>[0]) => {
         controller.bindSession(sessionId)

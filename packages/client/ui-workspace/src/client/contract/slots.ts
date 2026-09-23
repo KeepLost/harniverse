@@ -196,6 +196,7 @@ export type WorkspaceWorkbenchInjected = {
 /** Full top-level workbench props: session runtime, shared store, callbacks, and locale. */
 export type WorkspaceWorkbenchProps =
   PropsRuntime<'workbench'>
+  & PropsRenderSlots<'workbench.section.tab' | 'workbench.section.panel'>
   & PropsStore<ReturnType<typeof createWorkspaceWorkbenchStore>>
   & InjectFace<WorkspaceWorkbenchInjected>
   & PropsLocale<'workspace'>

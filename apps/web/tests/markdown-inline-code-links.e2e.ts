@@ -130,7 +130,7 @@ describe('web e2e: Markdown inline-code links', () => {
     const panel = page.getByRole('region', { name: 'Browser', exact: true })
     await panel.waitFor({ timeout: 15_000 })
     await expect.poll(() => panel.getByLabel('Address').inputValue(), { timeout: 10_000 }).toBe(linkUrl)
-    await panel.getByRole('button', { name: 'Back to conversation' }).click()
+    await panel.getByRole('button', { name: 'Close the workspace panel' }).click()
     await expect.poll(() => panel.count(), { timeout: 10_000 }).toBe(0)
 
     expect(await page.getByText(`curl ${linkUrl}`, { exact: true }).locator('a').count()).toBe(0)

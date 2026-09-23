@@ -228,13 +228,16 @@ export function AppFrame({
 }: AppFrameProps) {
   const panels = useStore(s => s)
   const centerView = panels.centerView
+  const workbenchSection = panels.workbenchSection
   const currentSession = useSessions(s => s.current)
   // The selection gesture, not the resulting id: re-selecting the current
   // session must also exit a center view, and `current` does not change there.
   const selectionSeq = useSessions(s => s.selectionSeq)
   const detailsSession = useSessions((s) => {
     const current = s.current
-    return current !== undefined && s.byId[current]?.blank === false ? current : undefined
+    // Blank sessions keep the right region reachable: the workbench (and its
+    // contributed sections) must serve a just-connected session too.
+    return current !== undefined && s.byId[current] !== undefined ? current : undefined
   })
   const detailsCwd = useSessions(s => detailsSession === undefined ? undefined : s.byId[detailsSession]?.cwd)
   const rightAccount = useWorkspaces((state) => {
@@ -490,7 +493,14 @@ export function AppFrame({
           label={t(right.mode === 'workbench' ? 'drawer.workbench' : 'drawer.details')}
           onDismiss={closeRight}
         >
-          {right.mode === 'workbench' ? renderSlot('workbench', { drawer: rightDrawer }) : renderSlot('details', {})}
+          {right.mode === 'workbench'
+            ? renderSlot('workbench', {
+              drawer: rightDrawer,
+              section: workbenchSection,
+              select: (section: string, request?: string) => { actions.setWorkbenchSection(section, request) },
+              request: panels.workbenchSectionRequest,
+            })
+            : renderSlot('details', {})}
         </DetailsColumn>
       </>
       <FrameRegion className={css.overlayLayer} blocked={rightDrawer || sidebarDrawer} overlay>

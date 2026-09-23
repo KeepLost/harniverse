@@ -22,6 +22,7 @@ function fakePanels(): PanelActions {
     openWorkbench: vi.fn(),
     closeWorkbench: vi.fn(),
     setCenterView: vi.fn(),
+    setWorkbenchSection: vi.fn(),
   }
 }
 
@@ -56,6 +57,17 @@ describe('LayoutController', () => {
 
     expect(panels.setCenterView).toHaveBeenNthCalledWith(1, 'schedules', undefined)
     expect(panels.setCenterView).toHaveBeenNthCalledWith(2, undefined)
+  })
+
+  it('opens the workbench on one section with an opener request', () => {
+    const service = new LayoutController()
+    const panels = fakePanels()
+    service.attachPanels(panels)
+
+    service.openWorkbenchSection('browser', 'https://example.test/')
+
+    expect(panels.openWorkbench).toHaveBeenCalledExactlyOnceWith()
+    expect(panels.setWorkbenchSection).toHaveBeenCalledExactlyOnceWith('browser', 'https://example.test/')
   })
 
   it('carries an opener request to the view it names', () => {

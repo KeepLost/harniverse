@@ -1,5 +1,5 @@
 /**
- * The terminal panel (终端) center view: the authenticated user's shell
+ * The terminal panel (终端) workbench section: the authenticated user's shell
  * surface over the terminal-controller streams. One xterm.js terminal renders
  * the active tab; opening a tab claims the exclusive input attachment, and a
  * demoted attachment renders read-only with a takeover affordance. The
@@ -19,13 +19,12 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { WebTerminalId } from '@deepseek-ai/dsh-api-terminal-controller/types'
-import type { InjectFace, PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   IconCloseFill14,
   IconEditOutline16,
   IconPlusOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { createTerminalViewStore } from './view-store.ts'
 import type { TerminalAppearance, TerminalPanelState, TerminalSurface } from './controller.ts'
 import { NS } from './locales.ts'
 import css from './TerminalPanelView.module.css'
@@ -39,7 +38,7 @@ export interface TerminalPanelInjected {
     /** Theme revision bound by the renderer as useAppearance. */
     appearance: SnapshotStore<TerminalAppearance>
   }
-  /** Release the center column back to the conversation. */
+  /** Close the workbench column; the controller keeps terminals alive. */
   closeView: () => void
   /** Bind the controller to the current session (undefined clears it). */
   bindSession: (sessionId: TerminalPanelState['session']) => void
@@ -61,10 +60,9 @@ export interface TerminalPanelInjected {
   bindSurface: (surface: TerminalSurface | undefined) => void
 }
 
-/** Full props composed by the center-view slot. */
+/** Full props composed by the workbench section-panel slot. */
 export type TerminalPanelViewProps =
-  PropsRuntime<'center.view'>
-  & PropsStore<ReturnType<typeof createTerminalViewStore>>
+  PropsRuntime<'workbench.section.panel'>
   & InjectFace<TerminalPanelInjected>
   & PropsLocale<typeof NS>
 
@@ -151,11 +149,23 @@ function resolvePresentation(element: HTMLElement): TerminalPresentation | undef
  * @param props - center slot currency, the shared store, the panel verbs, and the translator.
  * @returns the panel shell.
  */
-export function TerminalPanelView({
-  useSessions, actions, useTerminals, useAppearance, closeView, bindSession, activate, create, close, rename,
+export function TerminalPanelView(props: TerminalPanelViewProps) {
+  // The workbench renders every contributed section body; only the showing
+  // one mounts, so the panel's whole lifecycle (xterm surface, input
+  // attachment) rides the section's own activation.
+  if (props.current !== 'terminal') return null
+  return <TerminalPanelBody {...props} />
+}
+
+/**
+ * The panel shell: mounted only while the terminal section shows.
+ * @param props - section slot currency, the panel verbs, and the translator.
+ * @returns the panel shell.
+ */
+function TerminalPanelBody({
+  useSessions, useTerminals, useAppearance, closeView, bindSession, activate, create, close, rename,
   write, resize, takeInput, bindSurface, t,
 }: TerminalPanelViewProps) {
-  useEffect(() => { actions.setOpen(true); return () => { actions.setOpen(false) } }, [actions])
   const session = useSessions(state => state.current)
   const panel = useTerminals(state => state)
   const appearance = useAppearance(state => state.revision)

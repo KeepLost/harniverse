@@ -5,10 +5,9 @@ export const NS = 'browser'
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
-  'view.open': '打开浏览器面板',
   'view.nav': '浏览器',
   'view.title': '浏览器',
-  'view.close': '返回会话',
+  'view.close': '关闭工作区',
   'view.empty': '在上方输入网址，回车即可在宿主机上打开。',
   'view.loading': '正在加载浏览器页面…',
   'view.no-session': '请先选择一个会话，再使用浏览器面板。',
@@ -36,10 +35,9 @@ export type BrowserKey = keyof typeof zh
 
 /** English dictionary (key-identical to the Chinese source of truth). */
 export const en: Record<BrowserKey, string> = {
-  'view.open': 'Open the browser panel',
   'view.nav': 'Browser',
   'view.title': 'Browser',
-  'view.close': 'Back to conversation',
+  'view.close': 'Close the workspace panel',
   'view.empty': 'Type a URL above and press Enter to open it on the host.',
   'view.loading': 'Loading browser pages\u2026',
   'view.no-session': 'Select a session to use the browser panel.',

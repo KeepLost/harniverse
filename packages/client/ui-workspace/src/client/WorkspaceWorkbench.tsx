@@ -328,7 +328,7 @@ export function ChangesPanel(props: {
 export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
   const sessionId = props.useSessions((state) => {
     const current = state.current
-    return current !== undefined && state.byId[current]?.blank === false ? current : undefined
+    return current !== undefined && state.byId[current] !== undefined ? current : undefined
   })
   const sessionCwd = props.useSessions(state => sessionId === undefined ? undefined : state.byId[sessionId]?.cwd)
   const workspace = props.useWorkspaces(state => (
@@ -441,7 +441,7 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     )
   }, [props.actions, props.gitCommits, props.gitStatus, runRequest, workspace, workspaceId])
 
-  const gitMissing = account !== undefined && account.section === 'changes' && account.git === null
+  const gitMissing = props.section === 'changes' && account !== undefined && account.git === null
   useEffect(() => {
     if (gitMissing) loadGit()
   }, [gitMissing, loadGit])
@@ -524,7 +524,7 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
   const requestKey = `${query}\u0000${include}\u0000${exclude}`
   const deferredKey = useDeferredValue(requestKey)
   useEffect(() => {
-    if (workspaceId === undefined || workspace === undefined || account?.section !== 'search' || requestKey !== deferredKey) return
+    if (workspaceId === undefined || workspace === undefined || account === undefined || props.section !== 'search' || requestKey !== deferredKey) return
     const needle = query.trim()
     if (needle === '') return
     props.actions.setSearch(workspaceId, {
@@ -554,23 +554,11 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
     }, 180)
     return () => { window.clearTimeout(timer); cancel() }
   }, [
-    account?.search.filtersOpen, account?.section, deferredKey, exclude, include, props.actions,
+    account?.search.filtersOpen, props.section, deferredKey, exclude, include, props.actions,
     props.searchFiles, query, requestKey, runRequest, workspace, workspaceId,
   ])
 
-  if (workspace === undefined || workspaceId === undefined) {
-    return (
-      <aside className={css.root} aria-label={props.t('workbench.aria')}>
-        <header className={css.header}>
-          <strong className={css.headerTitle}>{props.t('workbench.label')}</strong>
-          <button type="button" className={css.iconButton} aria-label={props.t('workbench.close')} onClick={props.closeWorkbench}><IconCloseOutline16 /></button>
-        </header>
-        <div className={css.emptyState}>{props.t('workbench.noWorkspace')}</div>
-      </aside>
-    )
-  }
-
-  const section = account?.section ?? 'files'
+  const section = props.section
   const directories = account?.directories ?? {}
   const expanded = account?.expandedDirectories ?? { '': true }
   const searchAccount: WorkbenchSearch = search
@@ -580,22 +568,54 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
   const gitArea = account?.gitArea ?? 'worktree'
   const drawerPreviewOpen = props.drawer && account?.previewOpen === true
   const setSearchField = (patch: Partial<WorkbenchSearch>): void => {
+    /* v8 ignore next -- the search panel renders only with a resolved Workspace. */
+    if (workspaceId === undefined) return
     const next = { ...searchAccount, entries: [], truncated: false, loading: false, ...patch }
     delete next.error
     props.actions.setSearch(workspaceId, next)
   }
+  // Workspace data sections need a resolved Workspace; contributed sections
+  // (browser, terminal, …) are session-bound and render either way.
+  const hasWorkspace = workspace !== undefined && workspaceId !== undefined
+  const builtinSection = section === 'files' || section === 'search' || section === 'changes'
   return (
     <aside className={css.root} data-preview={drawerPreviewOpen || undefined} aria-label={props.t('workbench.aria')}>
       <header className={css.header}>
         <div className={css.headerText}>
           <span className={css.headerLabel}>{props.t('workbench.label')}</span>
-          <strong className={css.headerTitle} title={workspace.path}>{workspace.title}</strong>
+          <strong className={css.headerTitle} title={workspace?.path}>{workspace?.title ?? props.t('workbench.label')}</strong>
         </div>
         <button type="button" className={css.iconButton} aria-label={props.t('workbench.close')} onClick={props.closeWorkbench}><IconCloseOutline16 /></button>
       </header>
       <nav className={css.sectionTabs} aria-label={props.t('workbench.tools')}>
-        <div className={css.sectionTabList} role="tablist">
-          {SECTIONS.map((entry, index) => (
+        {/*
+          Arrow/Home/End live on the tablist so navigation covers contributed
+          section tabs beside the shipped ones: the handler walks the tablist's
+          DOM tabs and activates the destination by click, which every tab
+          (shipped or contributed) wires to its own selection.
+        */}
+        <div
+          className={css.sectionTabList}
+          role="tablist"
+          onKeyDown={(event) => {
+            const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]'))
+            const index = tabs.indexOf(event.target as HTMLElement)
+            if (index === -1) return
+            let next = index
+            if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length
+            else if (event.key === 'ArrowRight') next = (index + 1) % tabs.length
+            else if (event.key === 'Home') next = 0
+            else if (event.key === 'End') next = tabs.length - 1
+            else return
+            event.preventDefault()
+            const target = tabs[next]
+            /* v8 ignore next -- navigation derives an in-range index from the non-empty DOM tab list. */
+            if (target === undefined) throw new Error('section navigation produced an invalid index')
+            target.focus()
+            target.click()
+          }}
+        >
+          {hasWorkspace && SECTIONS.map(entry => (
             <button
               key={entry.section}
               type="button"
@@ -607,21 +627,7 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
               aria-selected={section === entry.section}
               tabIndex={section === entry.section ? 0 : -1}
               title={props.t(entry.labelKey)}
-              onClick={() => { props.actions.setSection(workspaceId, entry.section) }}
-              onKeyDown={(event) => {
-                let next = index
-                if (event.key === 'ArrowLeft') next = (index + SECTIONS.length - 1) % SECTIONS.length
-                else if (event.key === 'ArrowRight') next = (index + 1) % SECTIONS.length
-                else if (event.key === 'Home') next = 0
-                else if (event.key === 'End') next = SECTIONS.length - 1
-                else return
-                event.preventDefault()
-                const nextSection = SECTIONS[next]
-                /* v8 ignore next -- navigation derives an in-range index from the fixed non-empty section list. */
-                if (nextSection === undefined) throw new Error('section navigation produced an invalid index')
-                props.actions.setSection(workspaceId, nextSection.section)
-                event.currentTarget.closest('[role="tablist"]')?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus()
-              }}
+              onClick={() => { props.select(entry.section) }}
             >
               {entry.section === 'files' && <IconFolderOpen16 size={14} />}
               {entry.section === 'search' && <IconSearchOutline16 size={14} />}
@@ -629,8 +635,9 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
               <span>{props.t(entry.labelKey)}</span>
             </button>
           ))}
+          {props.renderSlot('workbench.section.tab', { current: section, select: props.select, request: props.request })}
         </div>
-        {section === 'files' && (
+        {hasWorkspace && section === 'files' && (
           <button
             type="button"
             className={clsx(css.iconButton, css.sectionTabSpacer)}
@@ -646,7 +653,10 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
         aria-labelledby={`workspace-workbench-section-${section}`}
       >
         <div className={css.navigatorBody}>
-          {section === 'files' && (
+          {!hasWorkspace && builtinSection && (
+            <div className={css.emptyState}>{props.t('workbench.noWorkspace')}</div>
+          )}
+          {hasWorkspace && section === 'files' && (
             <DirectoryChildren
               path=""
               depth={0}
@@ -662,7 +672,7 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
               onOpen={openFile}
             />
           )}
-          {section === 'search' && (
+          {hasWorkspace && section === 'search' && (
             <SearchPanel
               {...searchAccount}
               t={props.t}
@@ -675,7 +685,7 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
               onOpen={openFile}
             />
           )}
-          {section === 'changes' && (
+          {hasWorkspace && section === 'changes' && (
             <ChangesPanel
               area={gitArea}
               branch={git?.branch ?? null}
@@ -691,11 +701,12 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
               onOpenFile={openFile}
             />
           )}
+          {props.renderSlot('workbench.section.panel', { current: section, select: props.select, request: props.request })}
         </div>
       </section>
       {/* Drawer mode: the region already covers the frame and the shell's
           overlay layer is inert, so preview renders here instead of there. */}
-      {props.drawer && (
+      {props.drawer && workspaceId !== undefined && (
         <WorkbenchPreview
           tabs={account?.tabs ?? []}
           activeTabId={account?.activeTabId ?? null}
@@ -724,7 +735,7 @@ export function WorkspaceWorkbench(props: WorkspaceWorkbenchProps) {
 export function WorkspaceWorkbenchPreviewOverlay(props: WorkspacePreviewOverlayProps) {
   const sessionId = props.useSessions((state) => {
     const current = state.current
-    return current !== undefined && state.byId[current]?.blank === false ? current : undefined
+    return current !== undefined && state.byId[current] !== undefined ? current : undefined
   })
   const sessionCwd = props.useSessions(state => sessionId === undefined ? undefined : state.byId[sessionId]?.cwd)
   const workspaceId = props.useWorkspaces(state => (

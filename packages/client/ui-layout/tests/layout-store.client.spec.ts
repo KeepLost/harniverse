@@ -30,6 +30,8 @@ describe('createLayoutStore', () => {
       narrowExpanded: false,
       centerView: undefined,
       centerViewRequest: undefined,
+      workbenchSection: 'files',
+      workbenchSectionRequest: undefined,
     })
   })
 
@@ -39,6 +41,14 @@ describe('createLayoutStore', () => {
     expect(store.getSnapshot().centerView).toBe('schedules')
     actions.setCenterView(undefined)
     expect(store.getSnapshot().centerView).toBeUndefined()
+  })
+
+  it('setWorkbenchSection names the showing section and carries an opener request', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.setWorkbenchSection('browser', 'https://example.test/')
+    expect(store.getSnapshot()).toMatchObject({ workbenchSection: 'browser', workbenchSectionRequest: 'https://example.test/' })
+    actions.setWorkbenchSection('files')
+    expect(store.getSnapshot()).toMatchObject({ workbenchSection: 'files', workbenchSectionRequest: undefined })
   })
 
   it('remembers an opening request only for as long as that view occupies the column', () => {

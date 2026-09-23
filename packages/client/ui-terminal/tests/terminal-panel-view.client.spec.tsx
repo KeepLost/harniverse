@@ -22,7 +22,6 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type { TerminalEnvironment, TerminalShell, WebTerminalId, WebTerminalInfo } from '@deepseek-ai/dsh-api-terminal-controller/types'
-import { createTerminalViewStore } from '../src/client/view-store.ts'
 import { TerminalPanelView, type TerminalPanelViewProps } from '../src/client/TerminalPanelView.tsx'
 import type { TerminalPanelState, TerminalSurface } from '../src/client/controller.ts'
 import { zh } from '../src/client/locales.ts'
@@ -92,9 +91,8 @@ const ONE_TERMINAL = { terminals: [info('t1')], activeId: 't1' as WebTerminalId 
 /** The environment fixture the panel state carries. */
 const environment: TerminalEnvironment = { cwd: '/tmp', maxInputBytes: 4096, maxCols: 500, maxRows: 200, scrollback: 2000 }
 
-/** Mount the panel over a real view store, a driven panel store, and spies. */
+/** Mount the showing section over a driven panel store and spies. */
 function mount(options: { session?: SessionId; panel?: Partial<TerminalPanelState> } = {}) {
-  const instance = createTerminalViewStore().create()
   const panelStore = createSnapshotStore<TerminalPanelState>({ ...INITIAL, ...options.panel })
   const sessions = staticStore({ current: options.session })
   const appearanceStore = staticStore({ revision: 1 })
@@ -109,9 +107,9 @@ function mount(options: { session?: SessionId; panel?: Partial<TerminalPanelStat
   const { container } = render(
     <TerminalPanelView
       {...{
+        current: 'terminal',
+        select: () => {},
         useSessions: hookOf(sessions),
-        useStore: hookOf(instance),
-        actions: instance.actions,
         useTerminals: hookOf(panelStore),
         useAppearance: hookOf(appearanceStore),
         t,
@@ -123,7 +121,7 @@ function mount(options: { session?: SessionId; panel?: Partial<TerminalPanelStat
   const setPanel = (patch: Partial<TerminalPanelState>): void => {
     act(() => { panelStore.set({ ...panelStore.getSnapshot(), ...patch }) })
   }
-  return { container, instance, sessions, appearanceStore, setPanel, surfaces, bindSurface, ...verbs }
+  return { container, sessions, appearanceStore, setPanel, surfaces, bindSurface, ...verbs }
 }
 
 /** The pristine implementation, captured before any spy wraps it. */
@@ -199,17 +197,24 @@ describe('TerminalPanelView', () => {
     expect(harness.bindSurface).toHaveBeenLastCalledWith(undefined)
   })
 
-  it('claims occupancy on mount, releases it on unmount, and rebinds the session', () => {
+  it('rebinds the session on switch and releases the surface on unmount', () => {
     const harness = mount({ session: 's1' as SessionId, panel: ONE_TERMINAL })
-    expect(harness.instance.getSnapshot().open).toBe(true)
     expect(harness.bindSession).toHaveBeenCalledWith('s1' as SessionId)
     act(() => { harness.sessions.set({ current: 's2' as SessionId }) })
     expect(harness.bindSession).toHaveBeenCalledWith('s2' as SessionId)
     act(() => { harness.sessions.set({ current: undefined }) })
     expect(harness.bindSession).toHaveBeenCalledWith(undefined)
     cleanup()
-    expect(harness.instance.getSnapshot().open).toBe(false)
     expect(harness.bindSurface).toHaveBeenLastCalledWith(undefined)
+  })
+
+  it('renders nothing while another section shows', () => {
+    const { container } = render(
+      <TerminalPanelView
+        {...{ current: 'files', select: () => {}, useSessions: hookOf(staticStore({ current: undefined })), t } as unknown as TerminalPanelViewProps}
+      />,
+    )
+    expect(container.firstChild).toBeNull()
   })
 
   it('mounts the xterm surface and renders snapshot frames into it', async () => {

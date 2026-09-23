@@ -31,6 +31,13 @@ export interface ILayout {
   openWorkbench(): void
   /** Close the workspace workbench while retaining its width. */
   closeWorkbench(): void
+  /**
+   * Open the workspace workbench on one section, handing it an optional
+   * request (the browser section's destination URL).
+   * @param section - section id: a shipped tab ('files', 'changes', 'search') or a contributed section's id.
+   * @param request - what the section should show, when the opener asks for something specific.
+   */
+  openWorkbenchSection(section: string, request?: string): void
   /** Occupy the center column with one registered center view. */
   setCenterView(id: string, request?: string): void
   /** Return to the conversation in the center column. */
@@ -75,6 +82,17 @@ export class LayoutController implements ILayout {
   /** Close the workspace workbench while retaining its width. */
   closeWorkbench(): void {
     this.#require().closeWorkbench()
+  }
+
+  /**
+   * Open the workspace workbench on one section with an optional request.
+   * @param section - section id: a shipped tab or a contributed section's id.
+   * @param request - what the section should show, when the opener asks.
+   */
+  openWorkbenchSection(section: string, request?: string): void {
+    const panels = this.#require()
+    panels.openWorkbench()
+    panels.setWorkbenchSection(section, request)
   }
 
   /**

@@ -36,6 +36,19 @@ const MARKER = 'HOST-EGRESS-OK'
 /** iPhone-class portrait viewport: the narrowest width the phone form claims. */
 const PHONE = { width: 390, height: 844 }
 
+/**
+ * Make the seeded session current: a fresh page starts session-less, and the
+ * workbench chip renders only with a resident session.
+ * @param page - page under test.
+ */
+async function selectSeededSession(page: Page): Promise<void> {
+  const sessionRow = page.locator('[role="treeitem"]').nth(1)
+  await sessionRow.waitFor({ timeout: 15_000 })
+  await sessionRow.click()
+  // The drawer covers the composer (and its workbench chip) until closed.
+  await page.keyboard.press('Escape')
+}
+
 /** A served origin that records what reached it. */
 interface Origin {
   /** Absolute `http://127.0.0.1:<port>/` base. */
@@ -131,7 +144,9 @@ describe('web e2e: host browser panel', () => {
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
-    await page.getByRole('button', { name: 'Open the browser panel' }).click()
+    await page.getByRole('button', { name: 'Open workspace workbench' }).click()
+    const workbench = page.getByRole('complementary', { name: 'Workspace workbench' })
+    await workbench.getByRole('tab', { name: 'Browser' }).click()
   }, 180_000)
 
   afterAll(async () => {
@@ -214,7 +229,10 @@ describe('web e2e: host browser panel', () => {
       phone = await browser.newPage({ viewport: PHONE, locale: 'en-US' })
       await phone.goto(scaffold.baseUrl, { waitUntil: 'load' })
       await phone.getByRole('button', { name: 'Open sidebar' }).click()
-      await phone.getByRole('button', { name: 'Open the browser panel' }).click()
+      await selectSeededSession(phone)
+      await phone.getByRole('button', { name: 'Open workspace workbench' }).click()
+      const workbench = phone.getByRole('complementary', { name: 'Workspace workbench' })
+      await workbench.getByRole('tab', { name: 'Browser' }).click()
     }, 120_000)
 
     afterAll(async () => { await phone?.close() })
