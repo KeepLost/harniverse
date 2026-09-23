@@ -372,27 +372,36 @@ jobs:
       # fails loud without one. Wine from the apt cache when present; else
       # download the full dependency closure once and keep it for the next
       # run. The `wine` dispatcher package (not bare `wine64`) is what puts a
-      # binary on PATH.
+      # binary on PATH. The runner's mirror list can advertise a package
+      # version whose file its pool has already dropped, which 404s the
+      # download from every mirror in that list; the canonical archive carries
+      # index and pool together, so a failed attempt falls back to it. The deb
+      # directory is listed on a miss because a silently empty cache would
+      # otherwise look like a network fault.
       - name: Install Wine
         run: |
-          if compgen -G "$HOME/wine-debs/*.deb" > /dev/null; then
-            sudo apt-get install -y --no-install-recommends "$HOME"/wine-debs/*.deb
+          deb_dir="$HOME/wine-debs"
+          mapfile -t debs < <(find "$deb_dir" -name '*.deb' 2>/dev/null)
+          if [ "${#debs[@]}" -gt 0 ]; then
+            sudo apt-get install -y --no-install-recommends "${debs[@]}"
           else
-            # An Ubuntu index can name a package version the mirror pool has
-            # not published yet, which 404s the download. Refresh and retry so
-            # a mirror lag cannot fail the gate.
+            echo "no cached wine debs under $deb_dir; its contents are:"
+            ls -la "$deb_dir" 2>/dev/null || echo "(absent)"
             for attempt in 1 2 3; do
               sudo apt-get update
-              sudo apt-get install -y --no-install-recommends --download-only wine && break
+              if sudo apt-get install -y --no-install-recommends --download-only wine; then
+                break
+              fi
               if [ "$attempt" = 3 ]; then
-                echo "::error::downloading wine failed after 3 attempts"
+                echo "::error::downloading the wine dependency closure failed after 3 attempts"
                 exit 1
               fi
-              echo "downloading wine failed (attempt $attempt); retrying in 20s"
-              sleep 20
+              echo "downloading wine failed (attempt $attempt); falling back to the canonical Ubuntu archive"
+              sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|http://archive.ubuntu.com/ubuntu|g' \
+                /etc/apt/sources.list.d/ubuntu.sources
             done
-            mkdir -p "$HOME/wine-debs"
-            cp /var/cache/apt/archives/*.deb "$HOME/wine-debs/" 2>/dev/null || true
+            mkdir -p "$deb_dir"
+            cp /var/cache/apt/archives/*.deb "$deb_dir/" 2>/dev/null || true
             sudo apt-get install -y --no-install-recommends wine
           fi
 
