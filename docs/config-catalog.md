@@ -332,11 +332,11 @@ export interface Config {
   /** Executable names or paths probed when no path is configured. */
   readonly browserCandidates: string[]
   /**
-   * Whether Chromium keeps its own sandbox. `'none'` passes `--no-sandbox`,
-   * which Chromium requires when the harness runs as root — a deliberate
-   * operator decision for such deployments, never a default.
+   * Whether Chromium keeps its own sandbox. The default `'auto'` keeps it
+   * except where Chromium cannot start with it — a harness running as root —
+   * while `'chromium'` demands it everywhere and `'none'` always drops it.
    */
-  readonly sandbox: 'chromium' | 'none'
+  readonly sandbox: BrowserSandbox
   /** Permitted hosts; empty means every host the privacy rule allows. */
   readonly allowedHosts: string[]
   /**
@@ -363,9 +363,15 @@ export interface Config {
   /** Browser process-termination grace period in milliseconds. */
   readonly disposeGraceMs: number
 }
+
+/**
+ * Sandbox selection. `'auto'` resolves against the harness's own privilege,
+ * `'chromium'` demands the sandbox, and `'none'` always passes `--no-sandbox`.
+ */
+export type BrowserSandbox = 'auto' | 'chromium' | 'none'
 ```
 
-Source: [`packages/api/browser-controller/src/index.ts:46`](../packages/api/browser-controller/src/index.ts)
+Source: [`packages/api/browser-controller/src/index.ts:49`](../packages/api/browser-controller/src/index.ts)
 
 <a id="deepseek-aidsh-api-terminal-controller"></a>
 

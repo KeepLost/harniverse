@@ -37,7 +37,9 @@ export const spawnSchema = z.object({
     stdout: z.union([z.literal('pipe'), z.literal('inherit'), collection]),
     stderr: z.union([z.literal('pipe'), z.literal('inherit'), collection]),
   }).strict().optional(),
-  terminal: z.object({ rows: z.number().int().positive(), cols: z.number().int().positive() }).strict().optional(),
+  terminal: z.object({
+    rows: z.number().int().positive(), cols: z.number().int().positive(), term: z.string().min(1).optional(),
+  }).strict().optional(),
 }).strict().refine(value => (value.stdio === undefined) !== (value.terminal === undefined), 'select ordinary or terminal execution')
 /** Server-assigned process identifier. */
 export const processIdSchema = z.uuid()

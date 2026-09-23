@@ -149,7 +149,7 @@ type BrowserInputEvent =
 
 ## 进程生命周期
 
-一个 Session 最多启动一个浏览器：启动过程被记忆化，第一个页面将其拉起，释放最后一个页面时将其关停，因此一直关闭的面板不产生任何成本。该进程以 `ambientEnv: 'scrubbed'` 生成——与用户终端不同，它永不继承 harness 凭据——并使用一次性 profile 目录，在浏览器消失时删除。无法观察到退出的浏览器，其 profile 会被记住并在下一次尝试时删除，因此无响应的进程树不会静默泄漏字节。除非运维放弃，Chromium 自身的沙箱保持开启；当 harness 以 root 运行时必须放弃。
+一个 Session 最多启动一个浏览器：启动过程被记忆化，第一个页面将其拉起，释放最后一个页面时将其关停，因此一直关闭的面板不产生任何成本。该进程以 `ambientEnv: 'scrubbed'` 生成——与用户终端不同，它永不继承 harness 凭据——并使用一次性 profile 目录，在浏览器消失时删除。无法观察到退出的浏览器，其 profile 会被记住并在下一次尝试时删除，因此无响应的进程树不会静默泄漏字节。只要沙箱能够启动，Chromium 自身的沙箱就保持开启：其 zygote 拒绝以 root 运行，因此默认值 `sandbox: 'auto'` 仅在该处放弃沙箱。运维可以固定该选择——`'chromium'` 即使浏览器因此无法启动也强制要求沙箱，`'none'` 则始终放弃。始终未报告 DevTools 端点的启动会带着浏览器打印在 stderr 上的内容失败，因此拒绝浏览器的环境会直说原因，而不是抛出不透明的内部错误。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -256,5 +256,5 @@ follow( agent: Agent, id: HostBrowserPageId, attachmentId: BrowserAttachmentId, 
 
 Types: [Agent](core.md) · [SessionId](core.md)
 
-Source: [`packages/api/browser-controller/src/index.ts:114`](../../packages/api/browser-controller/src/index.ts)
+Source: [`packages/api/browser-controller/src/index.ts:117`](../../packages/api/browser-controller/src/index.ts)
 <!-- END GENERATED cordis-surface -->

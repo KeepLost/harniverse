@@ -149,7 +149,7 @@ type BrowserInputEvent =
 
 ## Process lifetime
 
-One Session launches at most one browser: the launch is memoized, the first page starts it, and releasing the last page shuts it down, so a panel left closed costs nothing. The process spawns with `ambientEnv: 'scrubbed'` — unlike the user's terminals it never inherits harness credentials — under a throwaway profile directory that is removed when the browser goes away. A profile whose browser cannot be observed exiting is remembered and removed on the next attempt, so an unresponsive process tree cannot leak bytes silently. Chromium's own sandbox stays on unless the operator waives it, which is required when the harness runs as root.
+One Session launches at most one browser: the launch is memoized, the first page starts it, and releasing the last page shuts it down, so a panel left closed costs nothing. The process spawns with `ambientEnv: 'scrubbed'` — unlike the user's terminals it never inherits harness credentials — under a throwaway profile directory that is removed when the browser goes away. A profile whose browser cannot be observed exiting is remembered and removed on the next attempt, so an unresponsive process tree cannot leak bytes silently. Chromium's own sandbox stays on wherever it can start: its zygote refuses to run as root, so the default `sandbox: 'auto'` waives it there and nowhere else. An operator can pin the choice — `'chromium'` demands the sandbox even where the browser then cannot start, `'none'` always waives it. A launch that never reports its DevTools endpoint fails with what the browser printed on stderr, so an environment that refuses the browser says so instead of surfacing an opaque internal error.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -256,5 +256,5 @@ follow( agent: Agent, id: HostBrowserPageId, attachmentId: BrowserAttachmentId, 
 
 Types: [Agent](core.md) · [SessionId](core.md)
 
-Source: [`packages/api/browser-controller/src/index.ts:114`](../../packages/api/browser-controller/src/index.ts)
+Source: [`packages/api/browser-controller/src/index.ts:117`](../../packages/api/browser-controller/src/index.ts)
 <!-- END GENERATED cordis-surface -->

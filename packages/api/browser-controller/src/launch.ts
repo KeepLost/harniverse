@@ -22,6 +22,43 @@ export const DEFAULT_BROWSER_CANDIDATES = [
 /** The line Chromium prints on stderr once its DevTools endpoint is listening. */
 const ENDPOINT_PATTERN = /^DevTools listening on (ws:\/\/\S+)$/mu
 
+/** How many trailing diagnostic characters a failed launch reports. */
+const DIAGNOSTIC_LIMIT = 800
+
+/**
+ * Sandbox selection. `'auto'` resolves against the harness's own privilege,
+ * `'chromium'` demands the sandbox, and `'none'` always passes `--no-sandbox`.
+ */
+export type BrowserSandbox = 'auto' | 'chromium' | 'none'
+
+/**
+ * Decide whether this launch must pass `--no-sandbox`.
+ *
+ * Chromium's zygote refuses to start as root unless the flag is present, so a
+ * root harness has no sandboxed alternative to fall back on: `'auto'` disables
+ * the sandbox exactly there and keeps it everywhere else.
+ * @param sandbox - operator selection.
+ * @param uid - effective user id, or undefined where the platform has none.
+ * @returns whether `--no-sandbox` belongs on the command line.
+ */
+export function sandboxDisabled(sandbox: BrowserSandbox, uid: number | undefined): boolean {
+  if (sandbox === 'none') return true
+  if (sandbox === 'chromium') return false
+  return uid === 0
+}
+
+/** A launch that never reported a DevTools endpoint, with what the browser said. */
+export class BrowserLaunchFailure extends Error {
+  /**
+   * @param message - what the launch failed to reach.
+   * @param diagnostics - trailing browser diagnostic output, possibly empty.
+   */
+  constructor(message: string, readonly diagnostics: string) {
+    super(diagnostics === '' ? message : `${message}: ${diagnostics}`)
+    this.name = 'BrowserLaunchFailure'
+  }
+}
+
 /** One launched browser process and the endpoint that drives it. */
 export interface LaunchedBrowser {
   /** `ws://` DevTools endpoint of the browser target. */
@@ -41,12 +78,10 @@ export interface BrowserLaunchSpec {
   readonly profileDir: string
   readonly width: number
   readonly height: number
-  /**
-   * Whether Chromium's own sandbox stays enabled. `'none'` passes
-   * `--no-sandbox`, which Chromium requires when the harness itself runs as
-   * root — an operator decision, never a default.
-   */
-  readonly sandbox: 'chromium' | 'none'
+  /** Whether Chromium's own sandbox stays enabled; see {@link sandboxDisabled}. */
+  readonly sandbox: BrowserSandbox
+  /** Effective user id of the harness, or undefined where the platform has none. */
+  readonly uid: number | undefined
   /** Termination grace for the browser process tree. */
   readonly graceMs: number
   /** Metering identity of the owning Session. */
@@ -106,7 +141,7 @@ export function browserArgv(spec: BrowserLaunchSpec): string[] {
     '--disable-gpu',
     '--hide-scrollbars',
     '--mute-audio',
-    ...(spec.sandbox === 'none' ? ['--no-sandbox'] : []),
+    ...(sandboxDisabled(spec.sandbox, spec.uid) ? ['--no-sandbox'] : []),
     'about:blank',
   ]
 }
@@ -147,12 +182,19 @@ export async function launchBrowser(spec: BrowserLaunchSpec): Promise<LaunchedBr
  */
 function readEndpoint(handle: SubprocessHandle, timeoutMs: number, signal: AbortSignal): Promise<string> {
   const stderr = handle.stderr
-  if (stderr === undefined) return Promise.reject(new Error('The browser process exposed no diagnostic stream'))
+  if (stderr === undefined) {
+    return Promise.reject(new BrowserLaunchFailure('The browser process exposed no diagnostic stream', ''))
+  }
   return new Promise<string>((resolve, reject) => {
     let buffered = ''
+    // A refused launch explains itself on stderr and nowhere else, so the tail
+    // of that stream is the only actionable part of the failure the user sees.
+    const diagnostics = (): string => buffered.trim().slice(-DIAGNOSTIC_LIMIT)
     const timer = setTimeout(() => {
       settle()
-      reject(new Error(`The browser did not report a DevTools endpoint within ${timeoutMs}ms`))
+      reject(new BrowserLaunchFailure(
+        `The browser did not report a DevTools endpoint within ${timeoutMs}ms`, diagnostics(),
+      ))
     }, timeoutMs)
     const onData = (chunk: Buffer | string): void => {
       buffered += typeof chunk === 'string' ? chunk : chunk.toString('utf8')
@@ -163,11 +205,13 @@ function readEndpoint(handle: SubprocessHandle, timeoutMs: number, signal: Abort
     }
     const onEnd = (): void => {
       settle()
-      reject(new Error('The browser process exited before reporting a DevTools endpoint'))
+      reject(new BrowserLaunchFailure(
+        'The browser process exited before reporting a DevTools endpoint', diagnostics(),
+      ))
     }
     const onAbort = (): void => {
       settle()
-      reject(new Error('The browser launch was aborted'))
+      reject(new BrowserLaunchFailure('The browser launch was aborted', ''))
     }
     const settle = (): void => {
       clearTimeout(timer)

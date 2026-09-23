@@ -4,7 +4,7 @@
 
 Host 侧浏览器终端 Remote。`ctx.terminalController` 拥有构建于 subprocess provider [`spawnTerminal`](../../subprocess/subprocess/README.md) PTY 接缝之上的按 Session 交互式 Shell 会话,并通过 headless xterm 终端渲染的先快照后输出屏幕帧将其提供给浏览器面板。[子系统页面](../../../docs/subsystems/terminal-controller.md) 拥有线上形状以及保持、控制与 Shell 发现语义。
 
-这些是用户自己的 system-user 终端,而非模型 PTY:每个终端以完整 harness 环境生成(`ambientEnv: 'full'`,并叠加 `TERM=xterm-256color` 与 `DSH_SESSION_ID`),以常规登录+交互会话方式启动 Shell(bash/zsh `-l -i`、fish `-i`、PowerShell `-NoLogo`、cmd 无参数),从不施加沙箱约束,其流量对模型不可见——控制器是由认证 API 把关的 Host Remote,终端内容不产生任何 session-log 事件。
+这些是用户自己的 system-user 终端,而非模型 PTY:每个终端以完整 harness 环境生成(`ambientEnv: 'full'`,并叠加 `DSH_SESSION_ID`),并向 PTY 接缝请求 `xterm-256color` 终端类型(`term`,并镜像到 `TERM`),使 `clear`、颜色与全屏程序可用,以常规登录+交互会话方式启动 Shell(bash/zsh `-l -i`、fish `-i`、PowerShell `-NoLogo`、cmd 无参数),从不施加沙箱约束,其流量对模型不可见——控制器是由认证 API 把关的 Host Remote,终端内容不产生任何 session-log 事件。
 
 ## 服务:`TerminalController`(ctx 键:`terminalController`)
 

@@ -1,16 +1,16 @@
-# The host-browser panel lane relaxes exactly two shipped defaults, because
-# both defaults are correct for a deployment and impossible for this scenario.
-#
-# `sandbox: none` passes `--no-sandbox` to the page process: Chromium refuses to
-# start its own sandbox as root, and CI containers run as root. A deployment
-# keeps the shipped `chromium` value.
+# The host-browser panel lane relaxes exactly one shipped default, because it is
+# correct for a deployment and impossible for this scenario.
 #
 # `allowPrivateAddresses: true` permits loopback destinations. The scenario
 # serves its page from a throwaway `127.0.0.1` server so the request itself is
 # the evidence of where the traffic came from; the shipped default refuses
 # private and loopback hosts so that a page cannot reach the deployment's own
 # network from the panel.
+#
+# The sandbox is deliberately NOT relaxed: containers run this suite as root,
+# where Chromium cannot start its own sandbox, so the shipped `sandbox: auto`
+# default is what has to carry the launch. Pinning `none` here would hide a
+# default that leaves every root deployment with an unusable panel.
 - id: browser-controller
   config:
-    sandbox: none
     allowPrivateAddresses: true

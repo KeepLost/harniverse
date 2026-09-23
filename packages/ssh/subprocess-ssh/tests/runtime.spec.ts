@@ -307,9 +307,14 @@ describe('SSH subprocess provider', () => {
 
   it('drives terminals through writes, resize, foreground control, and cleanup', async () => {
     const state = await mount()
-    const handle = await state.runtime.spawnTerminal({ argv: ['/bin/sh'], cwd: '/machine/work', rows: 24, cols: 80 } as unknown as SubprocessTerminalSpawnSpec)
+    const handle = await state.runtime.spawnTerminal({
+      argv: ['/bin/sh'], cwd: '/machine/work', rows: 24, cols: 80, term: 'xterm-256color',
+    } as unknown as SubprocessTerminalSpawnSpec)
     const record = [...state.processes.values()].at(-1)!
     expect(record.terminal).toBe(true)
+    // The terminal type belongs to the consumer, so it has to survive the hop.
+    expect(state.calls.find(call => call.method === 'process.spawn')?.params)
+      .toMatchObject({ terminal: { rows: 24, cols: 80, term: 'xterm-256color' } })
     record.reads.terminal = [Buffer.from('prompt').toString('base64'), null]
     const collected: string[] = []
     for await (const chunk of handle.output) collected.push(`${chunk}`)

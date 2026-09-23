@@ -355,6 +355,10 @@ export class TerminalController extends TypertRemoteService {
     const handle = await subprocess.spawnTerminal({
       argv: [shell.path, ...shell.args], cwd: environment.cwd, cols: request.cols, rows: request.rows,
       ambientEnv: 'full',
+      // A person drives this PTY, so it advertises a full terminfo entry: the
+      // provider default describes a capability-free terminal, where clear,
+      // colour, and full-screen programs silently do nothing.
+      term: 'xterm-256color',
       env: { TERM: 'xterm-256color', DSH_SESSION_ID: agent.id },
       graceMs: this.config.disposeGraceMs, signal,
     })

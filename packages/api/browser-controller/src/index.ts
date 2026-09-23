@@ -17,7 +17,10 @@ import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typer
 import { CdpConnection } from './cdp.ts'
 import { HostBrowserPage } from './page.ts'
 import type { BrowserNavigationPolicy } from './policy.ts'
-import { DEFAULT_BROWSER_CANDIDATES, launchBrowser, resolveBrowserExecutable } from './launch.ts'
+import {
+  DEFAULT_BROWSER_CANDIDATES, launchBrowser, resolveBrowserExecutable, sandboxDisabled,
+  type BrowserSandbox,
+} from './launch.ts'
 import type {
   BrowserAttachmentId, BrowserCreateRequest, BrowserFrame, BrowserInputEvent, BrowserNavigationAction,
   HostBrowserEnvironment, HostBrowserPageId, HostBrowserPageInfo,
@@ -31,8 +34,8 @@ export {
   isPrivateHost, reviewNavigation, type BrowserNavigationPolicy, type BrowserNavigationReview,
 } from './policy.ts'
 export {
-  browserArgv, launchBrowser, resolveBrowserExecutable, DEFAULT_BROWSER_CANDIDATES,
-  type BrowserLaunchSpec, type LaunchedBrowser,
+  browserArgv, launchBrowser, resolveBrowserExecutable, sandboxDisabled, BrowserLaunchFailure,
+  DEFAULT_BROWSER_CANDIDATES, type BrowserLaunchSpec, type BrowserSandbox, type LaunchedBrowser,
 } from './launch.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -49,11 +52,11 @@ export interface Config {
   /** Executable names or paths probed when no path is configured. */
   readonly browserCandidates: string[]
   /**
-   * Whether Chromium keeps its own sandbox. `'none'` passes `--no-sandbox`,
-   * which Chromium requires when the harness runs as root — a deliberate
-   * operator decision for such deployments, never a default.
+   * Whether Chromium keeps its own sandbox. The default `'auto'` keeps it
+   * except where Chromium cannot start with it — a harness running as root —
+   * while `'chromium'` demands it everywhere and `'none'` always drops it.
    */
-  readonly sandbox: 'chromium' | 'none'
+  readonly sandbox: BrowserSandbox
   /** Permitted hosts; empty means every host the privacy rule allows. */
   readonly allowedHosts: string[]
   /**
@@ -117,7 +120,8 @@ export class BrowserController extends TypertRemoteService {
   static Config: z<Config> = z.object({
     executablePath: z.union([z.string().min(1), z.const(undefined)]),
     browserCandidates: z.array(z.string().min(1)).default([...DEFAULT_BROWSER_CANDIDATES]),
-    sandbox: z.union([z.const('chromium' as const), z.const('none' as const)]).default('chromium'),
+    sandbox: z.union([z.const('auto' as const), z.const('chromium' as const), z.const('none' as const)])
+      .default('auto'),
     allowedHosts: z.array(z.string().min(1)).default([]),
     allowPrivateAddresses: z.boolean().default(false),
     maxPages: z.number().step(1).min(1).default(4),
@@ -450,6 +454,12 @@ export class BrowserController extends TypertRemoteService {
         )
       }
       const profileDir = await mkdtemp(join(tmpdir(), 'dsh-browser-'))
+      const uid = process.getuid?.()
+      if (sandboxDisabled(this.config.sandbox, uid) && this.config.sandbox === 'auto') {
+        this.ctx.logger.warn(
+          'Running the panel browser without its own sandbox: Chromium cannot start as root with one',
+        )
+      }
       const launched = await launchBrowser({
         subprocess,
         executablePath: executable,
@@ -458,6 +468,7 @@ export class BrowserController extends TypertRemoteService {
         width: this.config.maxWidth,
         height: this.config.maxHeight,
         sandbox: this.config.sandbox,
+        uid,
         graceMs: this.config.disposeGraceMs,
         sessionId: agent.id,
         launchTimeoutMs: this.config.launchTimeoutMs,
@@ -477,7 +488,7 @@ export class BrowserController extends TypertRemoteService {
     return launching.catch((error: unknown) => {
       // A failed launch is not remembered, so the next create retries it.
       delete owner.browser
-      throw error
+      throw browserUnavailable(error)
     })
   }
 
@@ -531,6 +542,22 @@ export class BrowserController extends TypertRemoteService {
     await page.start()
     return page
   }
+}
+
+/**
+ * Present a launch or control-connection failure as a panel-readable error.
+ *
+ * Only a Remote failure keeps its message on the way to the browser panel;
+ * anything else arrives as an opaque internal error and hides the one part the
+ * user can act on — what the browser said when it refused to start. An
+ * abandoned launch reports the same way: its caller is already gone.
+ * @param error - failure raised while launching or connecting to the browser.
+ * @returns the failure to report to the caller.
+ */
+function browserUnavailable(error: unknown): unknown {
+  if (error instanceof RemoteError) return error
+  const detail = error instanceof Error ? error.message : String(error)
+  return new RemoteError('browser-unavailable', `The Session browser could not start: ${detail}`, {})
 }
 
 /** Host browser page service plugin. */

@@ -211,7 +211,9 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     }
     spec.signal?.throwIfAborted()
     const options: IPtyForkOptions = {
-      name: 'dumb',
+      // node-pty publishes this as TERM; the consumer owns the choice and a
+      // capability-free terminal stays the default.
+      name: spec.term ?? 'dumb',
       rows: spec.rows,
       cols: spec.cols,
       cwd: spec.cwd,

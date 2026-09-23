@@ -118,6 +118,25 @@ describe('web e2e: terminal panel', () => {
       .toContain('harniverse-terminal-ok')
   })
 
+  // A capability-free TERM makes clear, colour, and every full-screen program
+  // silently do nothing, and nothing in a unit suite can see that: the shell
+  // reads its capabilities from the PTY the host allocated.
+  it('gives the shell a terminal whose capabilities work', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-terminal-capabilities'))
+    await page.getByLabel('Terminal output').click()
+    // The value is fenced in a marker because the screen carries the prompt and
+    // the echoed command right up against the answer.
+    await page.keyboard.type('echo "colors=[$(tput colors)]"')
+    await page.keyboard.press('Enter')
+    await expect.poll(() => screenText(page), { timeout: 15_000 }).toContain('colors=[256]')
+    await page.keyboard.type('echo harniverse-clear-marker')
+    await page.keyboard.press('Enter')
+    await expect.poll(() => screenText(page), { timeout: 15_000 }).toContain('harniverse-clear-marker')
+    await page.keyboard.type('clear')
+    await page.keyboard.press('Enter')
+    await expect.poll(() => screenText(page), { timeout: 15_000 }).not.toContain('harniverse-clear-marker')
+  })
+
   it('takes its cells from the theme rather than xterm defaults', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-terminal-appearance'))
     const appearance = await page.evaluate(() => {

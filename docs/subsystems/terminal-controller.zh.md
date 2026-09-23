@@ -2,7 +2,7 @@
 
 [English](terminal-controller.md) | 中文
 
-[terminal-controller 包](../../packages/api/terminal-controller/README.md) 向浏览器面板提供交互式用户 Shell:一个 `ctx.terminalController` Remote 拥有构建于 subprocess provider PTY 接缝之上的按 Session 终端会话,并通过 headless xterm 屏幕报告每个终端,使重连的客户端能够恢复完整的可见状态。这些是用户自己的 system-user 终端,而非模型 PTY:它们以完整 harness 环境生成(叠加 `TERM=xterm-256color` 与 `DSH_SESSION_ID`),默认启动登录+交互式 Shell,从不施加沙箱约束,其流量对模型不可见——控制器不注册任何工具,也不产生任何会话事件。[terminal 子系统](terminal.md) 仍是面向模型的持久 PTY surface;本页面拥有来自 [`packages/api/terminal-controller/src/types.ts`](../../packages/api/terminal-controller/src/types.ts) 的浏览器面板线上形状,而 host `apiproxy` 在单参 `terminal/*` gateway 端点之外承载两个流 surface(`events.terminal` / `events.hold` SSE)。
+[terminal-controller 包](../../packages/api/terminal-controller/README.md) 向浏览器面板提供交互式用户 Shell:一个 `ctx.terminalController` Remote 拥有构建于 subprocess provider PTY 接缝之上的按 Session 终端会话,并通过 headless xterm 屏幕报告每个终端,使重连的客户端能够恢复完整的可见状态。这些是用户自己的 system-user 终端,而非模型 PTY:它们以完整 harness 环境生成(叠加 `DSH_SESSION_ID`),并向 PTY 接缝请求 `xterm-256color` 终端类型(`term`,并镜像到 `TERM`),使 `clear`、颜色与全屏程序的行为与任何终端一致,默认启动登录+交互式 Shell,从不施加沙箱约束,其流量对模型不可见——控制器不注册任何工具,也不产生任何会话事件。[terminal 子系统](terminal.md) 仍是面向模型的持久 PTY surface;本页面拥有来自 [`packages/api/terminal-controller/src/types.ts`](../../packages/api/terminal-controller/src/types.ts) 的浏览器面板线上形状,而 host `apiproxy` 在单参 `terminal/*` gateway 端点之外承载两个流 surface(`events.terminal` / `events.hold` SSE)。
 
 ## 终端身份与屏幕帧
 

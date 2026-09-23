@@ -6288,7 +6288,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubprocessTerminalSpawnSpec',
-    declaration: 'export interface SubprocessTerminalSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    env?: Record<string, string> | undefined;\n    ambientEnv?: \'full\' | \'scrubbed\' | undefined;\n    rows: number;\n    cols: number;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n}',
+    declaration: 'export interface SubprocessTerminalSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    env?: Record<string, string> | undefined;\n    ambientEnv?: \'full\' | \'scrubbed\' | undefined;\n    rows: number;\n    cols: number;\n    term?: string | undefined;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n    correlation?: SubprocessCorrelation | undefined;\n}',
   },
   {
     name: 'SupervisionMode',

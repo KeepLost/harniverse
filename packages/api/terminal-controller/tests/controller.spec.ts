@@ -72,6 +72,11 @@ describe('TerminalController', () => {
     // The user terminal's default profile starts a login+interactive session: startup files load.
     expect(created.shell.args).toEqual(['-l', '-i'])
     expect(subprocess.spawnTerminal).toHaveBeenCalledWith(expect.objectContaining({ argv: [interactive.path, '-l', '-i'] }))
+    // A person drives this PTY: without a real terminfo entry clear, colour, and
+    // full-screen programs silently do nothing.
+    expect(subprocess.spawnTerminal).toHaveBeenCalledWith(expect.objectContaining({
+      term: 'xterm-256color', env: expect.objectContaining({ TERM: 'xterm-256color' }) as unknown as object,
+    }))
     expect(await controller.create(agent, request, signal())).toBe(created)
     expect(subprocess.spawnTerminal).toHaveBeenCalledOnce()
   })

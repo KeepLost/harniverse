@@ -263,6 +263,15 @@ export interface SubprocessTerminalSpawnSpec {
   rows: number
   /** Initial terminal column count. */
   cols: number
+  /**
+   * Terminal type published as `TERM`, naming the terminfo entry programs in
+   * the terminal read their capabilities from. The default `'dumb'` advertises
+   * no capabilities at all, which is what a model-facing PTY wants: no colour,
+   * no cursor addressing, no full-screen redraw in the transcript. A terminal a
+   * person drives needs the opposite — `'xterm-256color'` is what makes clear,
+   * colour, and full-screen programs work.
+   */
+  term?: string | undefined
   /** TERM-to-KILL cleanup grace for the complete terminal session. */
   graceMs: number
   /** Cancellation of terminal allocation; a published handle owns its later lifetime. */

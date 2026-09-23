@@ -16,6 +16,9 @@ import { fakeSubprocess, startFakeBrowser, type FakeBrowser } from './fake-brows
 const roots: Context[] = []
 const browsers: FakeBrowser[] = []
 afterEach(async () => {
+  // The suite spies on process.getuid; leaving it stubbed would decide the
+  // sandbox for every later case in this file.
+  vi.restoreAllMocks()
   await Promise.all(roots.splice(0).map(ctx => ctx.fiber.dispose()))
   await Promise.all(browsers.splice(0).map(browser => browser.close()))
 })
@@ -168,6 +171,49 @@ describe('BrowserController page lifecycle', () => {
     const { controller, agent, subprocess } = await fixture({ sandbox: 'none' })
     await controller.create(agent, request, signal())
     expect(subprocess.spawns[0]?.argv).toContain('--no-sandbox')
+  })
+
+  it('drops the sandbox by default exactly where Chromium cannot start with one', async () => {
+    // Chromium's zygote refuses to start as root unless the flag is present, so
+    // a root deployment on the shipped default would have no usable panel.
+    vi.spyOn(process, 'getuid').mockReturnValue(0)
+    const asRoot = await fixture({ sandbox: 'auto' })
+    await asRoot.controller.create(asRoot.agent, request, signal())
+    expect(asRoot.subprocess.spawns[0]?.argv).toContain('--no-sandbox')
+    vi.spyOn(process, 'getuid').mockReturnValue(1000)
+    const asUser = await fixture({ sandbox: 'auto' })
+    await asUser.controller.create(asUser.agent, request, signal())
+    expect(asUser.subprocess.spawns[0]?.argv).not.toContain('--no-sandbox')
+  })
+
+  it('keeps the sandbox as root when the operator demands it', async () => {
+    vi.spyOn(process, 'getuid').mockReturnValue(0)
+    const { controller, agent, subprocess } = await fixture({ sandbox: 'chromium' })
+    await controller.create(agent, request, signal())
+    expect(subprocess.spawns[0]?.argv).not.toContain('--no-sandbox')
+  })
+
+  it('reports a launch that fails without raising an error value', async () => {
+    const { controller, agent, subprocess } = await fixture()
+    vi.spyOn(subprocess.runtime, 'spawn').mockImplementation(() => { throw 'the provider refused' })
+    await expect(controller.create(agent, request, signal())).rejects.toMatchObject({
+      code: 'browser-unavailable',
+      message: 'The Session browser could not start: the provider refused',
+    })
+  })
+
+  it('reports what the browser said when it refused to start', async () => {
+    // Without this the panel shows the gateway's opaque internal failure and
+    // the one actionable line — the browser's own refusal — is lost.
+    const { controller, agent, subprocess } = await fixture({}, 'absent')
+    subprocess.prelude = 'ERROR:zygote_host_impl_linux.cc(101) Running as root without --no-sandbox is not supported'
+    const creating = controller.create(agent, request, signal())
+    await vi.waitFor(() => { expect(subprocess.handles).toHaveLength(1) })
+    subprocess.handles[0]?.endStderr()
+    await expect(creating).rejects.toMatchObject({
+      code: 'browser-unavailable',
+      message: expect.stringContaining('Running as root without --no-sandbox is not supported') as unknown as string,
+    })
   })
 
   it('returns the same page for a repeated identity and joins an in-flight open', async () => {

@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 Host-side browser-terminal Remote. `ctx.terminalController` owns per-Session interactive shells built on the subprocess provider's [`spawnTerminal`](../../subprocess/subprocess/README.md) PTY seam and serves them to browser panels through snapshot-then-output screen frames rendered by a headless xterm terminal. The [subsystems page](../../../docs/subsystems/terminal-controller.md) owns the wire shapes and the retention, control and shell-discovery semantics.
 
-These are the USER's own system-user terminals, not model PTYs: each spawns with the full harness environment (`ambientEnv: 'full'`, with `TERM=xterm-256color` and `DSH_SESSION_ID` layered on top), starts its shell as a normal login+interactive session (bash/zsh `-l -i`, fish `-i`, PowerShell `-NoLogo`, cmd bare), is never sandbox-confined, and its traffic is never model-visible — the controller is a Host Remote gated by the authenticated API, and terminal content emits no session-log events.
+These are the USER's own system-user terminals, not model PTYs: each spawns with the full harness environment (`ambientEnv: 'full'`, with `DSH_SESSION_ID` layered on top) and asks the PTY seam for the `xterm-256color` terminal type (`term`, mirrored in `TERM`) so `clear`, colour, and full-screen programs work, starts its shell as a normal login+interactive session (bash/zsh `-l -i`, fish `-i`, PowerShell `-NoLogo`, cmd bare), is never sandbox-confined, and its traffic is never model-visible — the controller is a Host Remote gated by the authenticated API, and terminal content emits no session-log events.
 
 ## Service: `TerminalController` (ctx key: `terminalController`)
 
