@@ -29,12 +29,26 @@ const SESSION_ID = 'terminal-panel-web-e2e'
 const PROMPT_TIMEOUT = 30_000
 
 /**
- * Open the terminal panel from the sidebar footer trigger.
+ * Make the seeded session current: a fresh page starts session-less, and the
+ * workbench chip renders only with a resident session.
  * @param page - page under test.
- * @param label - accessible name of the trigger in the page's locale.
  */
-async function openPanel(page: Page, label: string): Promise<void> {
-  await page.getByRole('button', { name: label }).click()
+async function selectSeededSession(page: Page): Promise<void> {
+  const sessionRow = page.locator('[role="treeitem"]').nth(1)
+  await sessionRow.waitFor({ timeout: 15_000 })
+  await sessionRow.click()
+  // The drawer covers the composer (and its workbench chip) until closed.
+  await page.keyboard.press('Escape')
+}
+
+/**
+ * Open the terminal panel as a workspace-workbench section.
+ * @param page - page under test.
+ */
+async function openPanel(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Open workspace workbench' }).click()
+  const workbench = page.getByRole('complementary', { name: 'Workspace workbench' })
+  await workbench.getByRole('tab', { name: 'Terminal' }).click()
 }
 
 /**
@@ -75,7 +89,7 @@ describe('web e2e: terminal panel', () => {
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
-    await openPanel(page, 'Open the terminal panel')
+    await openPanel(page)
   }, 180_000)
 
   afterAll(async () => {
@@ -211,7 +225,8 @@ describe('web e2e: terminal panel', () => {
       await phone.goto(scaffold.baseUrl, { waitUntil: 'load' })
       await phone.waitForSelector('[data-viewport]', { timeout: 30_000 })
       await phone.getByRole('button', { name: 'Open sidebar' }).click()
-      await openPanel(phone, 'Open the terminal panel')
+      await selectSeededSession(phone)
+      await openPanel(phone)
     }, 120_000)
 
     afterAll(async () => {

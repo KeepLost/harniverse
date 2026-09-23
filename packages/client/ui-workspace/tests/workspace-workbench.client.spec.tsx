@@ -43,11 +43,14 @@ function mountWorkbench(
     drawer?: boolean
     rightMode?: 'details' | 'workbench'
     rightOpen?: boolean
+    section?: string
     store?: ReturnType<ReturnType<typeof createWorkspaceWorkbenchStore>['create']>
     initialSessions?: Record<string, { updatedAt?: number; running?: boolean }>
   } = {},
 ) {
   let current = 'current' in options ? options.current : sid('s-a')
+  let section = options.section ?? 'files'
+  const sections: string[] = []
   let rightMode = options.rightMode ?? 'workbench'
   let rightOpen = options.rightOpen ?? true
   const workspaces = options.workspaces ?? [workspace('a', 's-a'), workspace('b', 's-b')]
@@ -83,6 +86,11 @@ function mountWorkbench(
     byId: sessions,
     current, phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined, selectionSeq: 0,
   })
+  function selectSection(next: string): void {
+    section = next
+    sections.push(next)
+    view.rerender(element())
+  }
   const element = () => (
     <>
       <WorkspaceWorkbench
@@ -91,6 +99,10 @@ function mountWorkbench(
         useStore={bindSnapshotSelector(instance)}
         actions={instance.actions}
         drawer={options.drawer ?? false}
+        section={section}
+        select={selectSection}
+        request={undefined}
+        renderSlot={() => null}
         t={t}
         {...services}
       />
@@ -111,6 +123,8 @@ function mountWorkbench(
     ...view,
     instance,
     services,
+    section: () => section,
+    sections,
     switchSession(next: string) { current = sid(next); view.rerender(element()) },
     mutateSession(sessionId: string, patch: { updatedAt?: number; running?: boolean }) {
       const summary = sessions[sid(sessionId)]
@@ -738,22 +752,24 @@ describe('WorkspaceWorkbench', () => {
   })
 
   it('retains failed Git sibling requests under the Workspace cancellation fence', async () => {
-    let historySignal: AbortSignal | undefined
+    const historySignals: AbortSignal[] = []
     const gitStatus = vi.fn().mockRejectedValue(new Error('status failed'))
     const gitCommits = vi.fn((
       _workspaceId: WorkspaceId, _limit?: number, signal?: AbortSignal,
     ) => new Promise<{ commits: []; truncated: false }>((_resolve, reject) => {
-      historySignal = signal
+      if (signal !== undefined) historySignals.push(signal)
       signal?.addEventListener('abort', () => { reject(new Error('history cancelled')) }, { once: true })
     }))
     const view = mountWorkbench({ gitStatus, gitCommits })
 
     fireEvent.click(view.getByRole('tab', { name: '变更' }))
-    await waitFor(() => { expect(historySignal).toBeDefined() })
+    await waitFor(() => { expect(historySignals.length).toBeGreaterThanOrEqual(1) })
     expect(view.queryByText('status failed')).toBeNull()
 
+    // The section selection is frame-global, so the switched-to Workspace
+    // starts its own Git request while the prior generation's is cancelled.
     act(() => { view.switchSession('s-b') })
-    expect(historySignal?.aborted).toBe(true)
+    expect(historySignals[0]?.aborted).toBe(true)
     await act(async () => { await Promise.resolve() })
     expect(view.queryByText('status failed')).toBeNull()
   })
@@ -844,33 +860,39 @@ describe('WorkspaceWorkbench', () => {
     files.focus()
     fireEvent.keyDown(files, { key: 'Enter' })
     expect(document.activeElement).toBe(files)
-    expect(view.instance.getSnapshot().byWorkspace.a?.section).toBe('files')
+    expect(view.section()).toBe('files')
 
     fireEvent.keyDown(files, { key: 'ArrowRight' })
     expect(document.activeElement).toBe(changes)
     expect(changes.getAttribute('aria-selected')).toBe('true')
     expect(files.getAttribute('aria-selected')).toBe('false')
-    expect(view.instance.getSnapshot().byWorkspace.a?.section).toBe('changes')
+    expect(view.section()).toBe('changes')
 
     fireEvent.keyDown(changes, { key: 'ArrowRight' })
     expect(document.activeElement).toBe(search)
-    expect(view.instance.getSnapshot().byWorkspace.a?.section).toBe('search')
+    expect(view.section()).toBe('search')
 
     fireEvent.keyDown(search, { key: 'ArrowRight' })
     expect(document.activeElement).toBe(files)
-    expect(view.instance.getSnapshot().byWorkspace.a?.section).toBe('files')
+    expect(view.section()).toBe('files')
 
     fireEvent.keyDown(files, { key: 'ArrowLeft' })
     expect(document.activeElement).toBe(search)
-    expect(view.instance.getSnapshot().byWorkspace.a?.section).toBe('search')
+    expect(view.section()).toBe('search')
 
     fireEvent.keyDown(search, { key: 'Home' })
     expect(document.activeElement).toBe(files)
-    expect(view.instance.getSnapshot().byWorkspace.a?.section).toBe('files')
+    expect(view.section()).toBe('files')
 
     fireEvent.keyDown(files, { key: 'End' })
     expect(document.activeElement).toBe(search)
-    expect(view.instance.getSnapshot().byWorkspace.a?.section).toBe('search')
+    expect(view.section()).toBe('search')
+
+    // A keydown that reaches the list itself (focus on the container, not a
+    // tab) is a no-op: no crash, no selection change.
+    fireEvent.keyDown(tablist, { key: 'ArrowRight' })
+    expect(document.activeElement).toBe(search)
+    expect(view.section()).toBe('search')
   })
 
   it('selects and closes tabs through the in-column drawer preview', async () => {

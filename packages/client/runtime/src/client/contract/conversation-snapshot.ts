@@ -18,7 +18,7 @@ import type { PendingInteraction } from './pending.ts'
 import type { ContextProvenanceView, KnownContextForm } from './context-provenance.ts'
 import type {
   ChatConversationViewNode, ConversationTimelineSnapshot, ConversationViewSnapshotStore,
-} from '../contract/conversation.ts'
+} from './conversation.ts'
 export type { TodoItem }
 
 /** Request configuration recorded for one provider call. */

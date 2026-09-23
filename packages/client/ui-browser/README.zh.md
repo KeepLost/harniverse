@@ -2,17 +2,17 @@
 
 [English](README.md) | 中文
 
-Web 应用的浏览器面板：URL 栏、历史控件与标签条，其页面运行在 harness 宿主上的真实浏览器进程中，而不是用户的浏览器里。像素通过 `events.browser` 流以录屏图像抵达，指针、滚轮与键盘事件以页面空间输入回传，因此该面板是宿主页面的远程视图，而不是嵌入式框架。宿主侧的 [browser-controller](../../api/browser-controller/README.md) 拥有页面、导航策略与进程生命周期；本包拥有界面。侧栏底部触发器打开中央视图，并且在该面板被组合进来时，对话中的链接会在此打开而不是新标签页。该面板是给人使用的载体：没有工具，没有会话事件，对模型不可见。
+Web 应用的浏览器面板：URL 栏、历史控件与标签条，其页面运行在 harness 宿主上的真实浏览器进程中，而不是用户的浏览器里。像素通过 `events.browser` 流以录屏图像抵达，指针、滚轮与键盘事件以页面空间输入回传，因此该面板是宿主页面的远程视图，而不是嵌入式框架。宿主侧的 [browser-controller](../../api/browser-controller/README.md) 拥有页面、导航策略与进程生命周期；本包拥有界面。该面板是工作区工作台的一个区段（标签与自带的文件/变更/搜索并列），并且在该区段被组合进来时，对话中的链接会在此打开而不是新标签页。该面板是给人使用的载体：没有工具，没有会话事件，对模型不可见。
 
 ## 组合
 
 | 方面 | 行为 |
 |---|---|
 | 注入 | `slots`、`locale`、`layout`、`connection`。 |
-| 触发槽位 | `sidebar.footer.action`，id 为 `browser-view`，order 30（在调度器与治理面板触发器之后）；调用 `ctx.layout.setCenterView('browser')`。 |
-| 视图槽位 | `center.view`，id 为 `browser`；在布局指名它期间覆盖中央列，并通过 `ctx.layout.clearCenterView()` 关闭（切换会话也会清除）。 |
-| 链接路由 | 当本面板已注册时，`ui-conversation` 会把助手消息中的链接路由到 `ctx.layout.setCenterView('browser', url)`，面板对该请求导航一次。带修饰键的点击（中键、Ctrl/Cmd/Shift/Alt）保留锚点自身的 `target="_blank"`，因此真实标签页仍只差一个手势。 |
-| 存储 | 一个共享的占位存储：中央视图在挂载/卸载时写入占位，底部触发器将其镜像为按下态。页面状态本身由宿主拥有并通过流抵达，因此重新挂载恢复的是实时画面，而不是重放客户端侧的轨迹。 |
+| 区段标签 | `workbench.section.tab`，id 为 `browser`，order 10（先于终端区段标签）；对照工作台的 `current`/`select` 属主份额自我标识。 |
+| 区段主体 | `workbench.section.panel`，id 为 `browser`；仅在工作台显示浏览器区段时挂载，并通过 `ctx.layout.closeWorkbench()` 关闭。 |
+| 链接路由 | 当本区段已注册时，`ui-conversation` 会把助手消息中的链接路由到 `ctx.layout.openWorkbenchSection('browser', url)`，面板对该请求导航一次。带修饰键的点击（中键、Ctrl/Cmd/Shift/Alt）保留锚点自身的 `target="_blank"`，因此真实标签页仍只差一个手势。 |
+| 存储 | 页面状态由宿主拥有并通过流抵达，因此重新挂载恢复的是实时画面，而不是重放客户端侧的轨迹。 |
 | 控制器 | `BrowserPanelController` 持有 Session 绑定、页面列表、活动页面与控制附着；流失败后以有界退避阶梯重新附着，阶梯耗尽时给出重试。 |
 | 输入控制 | 同一时刻一个附着控制一个页面。第二个客户端会接过控制权，本面板随即显示只读提示与“取得控制”操作；被降级附着的导航与输入在宿主侧被拒绝。 |
 | 界面 | 命令式图像落点：帧在 React 状态之外被赋给一个 `<img>`，面板发布自身尺寸，使宿主把页面视口调整为一致。 |
@@ -23,7 +23,7 @@ Web 应用的浏览器面板：URL 栏、历史控件与标签条，其页面运
 
 #### 模型看到什么
 
-什么都看不到：该面板是挂载为 `center.view`（名为 `browser`）的面向人的载体。它不注册任何工具，不产生任何会话事件，用户在 URL 栏输入或在页面中访问的任何内容都不会进入提示词、消息或工具结果。
+什么都看不到：该面板是挂载为 `workbench.section.panel`（名为 `browser`）的面向人的载体。它不注册任何工具，不产生任何会话事件，用户在 URL 栏输入或在页面中访问的任何内容都不会进入提示词、消息或工具结果。
 
 #### Token 影响
 

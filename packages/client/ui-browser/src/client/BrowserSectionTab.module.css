@@ -1,0 +1,29 @@
+/* Mirrors the workbench's shipped section-tab rules (the workbench's own
+   module is package-private); the shared --dsw-* tokens keep the two in
+   step visually. */
+
+.tab {
+  display: inline-flex;
+  height: 34px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  font: var(--dsw-font-xs-13);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.tab[data-active] {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-active);
+  font: var(--dsw-font-xs-strong-13);
+}

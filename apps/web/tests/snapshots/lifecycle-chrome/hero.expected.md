@@ -26,12 +26,6 @@
 - button "Open the panel":
   - img
   - text: Panel
-- button "Open the browser panel":
-  - img
-  - text: Browser
-- button "Open the terminal panel":
-  - img
-  - text: Terminal
 - button "Settings":
   - img
   - text: Settings
@@ -44,6 +38,9 @@
   - img
   - text: Standard mode
   - img
+- button "Open workspace workbench":
+  - img
+  - text: Workspace
 - textbox "Describe what you want to build"
 - button "Commands":
   - img

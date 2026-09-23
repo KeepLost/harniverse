@@ -272,7 +272,9 @@ describe('AppFrame', () => {
     selectedSession.current = 's-blank' as SessionId
     selectedSessionBlank.current = true
     act(() => { rerenderFrame() })
-    expect(tracks(frame)).toEqual([280, 0])
+    // Blank sessions keep the right region: the workbench (and its sections)
+    // serves a just-connected session too.
+    expect(tracks(frame)).toEqual([280, 360])
     expect(instance.getSnapshot().rightByAccount['']?.widths.details).toBe(360)
 
     selectedSession.current = 's-next' as SessionId
@@ -404,7 +406,9 @@ describe('AppFrame', () => {
     expect(getByTestId('workbench-content')).toBeTruthy()
     expect(queryByTestId('details-content')).toBeNull()
     expect(frame.getAttribute('data-right-mode')).toBe('workbench')
-    expect(slotCalls.filter(call => call.key === 'workbench').at(-1)?.props).toEqual({ drawer: false })
+    expect(slotCalls.filter(call => call.key === 'workbench').at(-1)?.props).toEqual({
+      drawer: false, section: 'files', select: expect.any(Function) as (section: string) => void, request: undefined,
+    })
     expect(slotCalls.filter(call => call.key === 'shell.overlay').at(-1)?.props).toEqual({
       rightMode: 'workbench',
       rightOpen: true,
@@ -497,7 +501,9 @@ describe('AppFrame', () => {
     expect(frame.hasAttribute('data-right-drawer')).toBe(true)
     expect(getByTestId('workbench-content').parentElement?.hasAttribute('data-right-drawer')).toBe(true)
     expect(instance.getSnapshot().rightByAccount['']?.widths.workbench).toBe(760)
-    expect(slotCalls.filter(call => call.key === 'workbench').at(-1)?.props).toEqual({ drawer: true })
+    expect(slotCalls.filter(call => call.key === 'workbench').at(-1)?.props).toEqual({
+      drawer: true, section: 'files', select: expect.any(Function) as (section: string) => void, request: undefined,
+    })
     expect(slotCalls.filter(call => call.key === 'shell.overlay').at(-1)?.props).toEqual({
       rightMode: 'workbench',
       rightOpen: true,

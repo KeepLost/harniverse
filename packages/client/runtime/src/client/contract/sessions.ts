@@ -12,15 +12,14 @@ import type {
   RpcResult, SessionId, SubagentAddress,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { HostObservable, SessionMaybeProvideInfo } from '@deepseek-ai/dsh-client-ui-slots'
-import type { AgentContext } from '../agents/scope.ts'
-import type { SessionSearchResultItem } from '../sessions/manager.ts'
+import type { AgentContext } from '../agent-scope.ts'
 import type {
-  SessionBinding, SessionListState, SessionProvideDescriptor,
-} from '../sessions/service.ts'
+  SessionBinding, SessionListState, SessionProvideDescriptor, SessionSearchResultItem,
+} from './session-state.ts'
 import type { SessionFace } from './session.ts'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 
-export type { AgentContext } from '../agents/scope.ts'
+export type { AgentContext } from '../agent-scope.ts'
 
 /** The sessions-service face injected as `ctx.sessions`. */
 export interface ISessions {
@@ -66,9 +65,9 @@ export interface ISessions {
   /** Clear the current selection into the no-session view state. */
   clear(): void
   /** Read one archived Session without changing current navigation or resuming an Agent. */
-  openArchive(sessionId: SessionId): Promise<RpcResult<{ snapshot: import('../sessions/conversation.ts').ConversationSnapshot }>>
+  openArchive(sessionId: SessionId): Promise<RpcResult<{ snapshot: import('./conversation-snapshot.ts').ConversationSnapshot }>>
   /** Load one older page for an archived Session preview. */
-  loadArchiveOlder(sessionId: SessionId): Promise<RpcResult<{ snapshot: import('../sessions/conversation.ts').ConversationSnapshot }>>
+  loadArchiveOlder(sessionId: SessionId): Promise<RpcResult<{ snapshot: import('./conversation-snapshot.ts').ConversationSnapshot }>>
   /** Permanently delete one Session through the Host deletion transaction. */
   deleteSession(sessionId: SessionId): Promise<RpcResult<{ deleted: true; attachmentsRetained: true }>>
   /**

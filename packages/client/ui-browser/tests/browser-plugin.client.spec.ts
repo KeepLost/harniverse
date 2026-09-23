@@ -42,8 +42,8 @@ async function bench(): Promise<{
   ctx.slots.register({
     name: 'root',
     children: {
-      'sidebar.footer.action': { kind: 'list', scope: 'global' },
-      'center.view': { kind: 'list', scope: 'global' },
+      'workbench.section.tab': { kind: 'list', scope: 'global' },
+      'workbench.section.panel': { kind: 'list', scope: 'global' },
     },
   } as never, () => null)
   ctx.provide('sessions', {})
@@ -72,8 +72,8 @@ async function bench(): Promise<{
   ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   const layoutCalls: string[] = []
   ctx.provide('layout', {
-    setCenterView: (id: string | undefined) => { layoutCalls.push(id === undefined ? 'clear' : `set:${id}`) },
-    clearCenterView: () => { layoutCalls.push('clear') },
+    openWorkbench: () => { layoutCalls.push('open') },
+    closeWorkbench: () => { layoutCalls.push('close') },
   } as never)
   await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
   const captured: CapturedRegistration[] = []
@@ -102,26 +102,17 @@ describe('ui-browser browser half', () => {
 
   it('registers both slots after their targets, and fiber teardown removes them (HMR safety)', async () => {
     const { ctx, fiber } = await bench()
-    expect(ctx.slots.entries('sidebar.footer.action').map(entry => entry.options.id)).toContain('browser-view')
-    expect(ctx.slots.entries('center.view').map(entry => entry.options.id)).toContain('browser')
+    expect(ctx.slots.entries('workbench.section.tab').map(entry => entry.options.id)).toContain('browser')
+    expect(ctx.slots.entries('workbench.section.panel').map(entry => entry.options.id)).toContain('browser')
     await fiber.dispose()
-    expect(ctx.slots.entries('sidebar.footer.action')).toEqual([])
-    expect(ctx.slots.entries('center.view')).toEqual([])
+    expect(ctx.slots.entries('workbench.section.tab')).toEqual([])
+    expect(ctx.slots.entries('workbench.section.panel')).toEqual([])
   })
 
-  it('shares one view store between the footer trigger and the panel', async () => {
+  it('orders the section tab before the terminal section tab', async () => {
     const { captured } = await bench()
-    const trigger = captured.find(({ options }) => options['id'] === 'browser-view')
-    const view = captured.find(({ options }) => options['id'] === 'browser')
-    expect(trigger).toBeDefined()
-    expect(view).toBeDefined()
-    expect(trigger!.options['store']).toBe(view!.options['store'])
-  })
-
-  it('orders the footer trigger after the governor board', async () => {
-    const { captured } = await bench()
-    const trigger = captured.find(({ options }) => options['id'] === 'browser-view')
-    expect(trigger!.options['order']).toBe(30)
+    const tab = captured.find(({ options }) => options['name'] === 'workbench.section.tab')
+    expect(tab!.options['order']).toBe(10)
   })
 
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {
@@ -140,20 +131,17 @@ describe('ui-browser browser half', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
   })
 
-  it('binds the trigger to occupying the center column and the panel to releasing it', async () => {
+  it('binds the section body to closing the workbench', async () => {
     const { captured, layoutCalls } = await bench()
-    const trigger = captured.find(({ options }) => options['id'] === 'browser-view')
-    const view = captured.find(({ options }) => options['id'] === 'browser')
-    const triggerFace = trigger!.options['inject'] as () => { openView: () => void }
-    triggerFace().openView()
+    const view = captured.find(({ options }) => options['name'] === 'workbench.section.panel')
     const viewFace = view!.options['inject'] as () => BrowserFace
     viewFace().closeView()
-    expect(layoutCalls).toEqual(['set:browser', 'clear'])
+    expect(layoutCalls).toEqual(['close'])
   })
 
   it('wires the panel controller over the connection handle inside apply', async () => {
     const { captured, rpcCalls } = await bench()
-    const view = captured.find(({ options }) => options['id'] === 'browser')
+    const view = captured.find(({ options }) => options['name'] === 'workbench.section.panel')
     expect(view).toBeDefined()
     const face = view!.options['inject'] as () => BrowserFace
     const injected = face()

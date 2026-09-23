@@ -22,8 +22,15 @@ export const DEFAULT_BROWSER_CANDIDATES = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
 ] as const
 
-/** The line Chromium prints on stderr once its DevTools endpoint is listening. */
-const ENDPOINT_PATTERN = /^DevTools listening on (ws:\/\/\S+)$/mu
+/**
+ * The line Chromium prints on stderr once its DevTools endpoint is listening.
+ * The terminator is part of the pattern on purpose: `$` under `m` also matches
+ * the end of the input, so an unterminated pattern accepts whatever prefix of
+ * the endpoint the current stderr chunk happens to carry. The tail of that URL
+ * is the browser's own session id, so a half-read endpoint addresses no target
+ * and the browser refuses the socket.
+ */
+const ENDPOINT_PATTERN = /^DevTools listening on (ws:\/\/\S+)\r?\n/mu
 
 /** How many trailing diagnostic characters a failed launch reports. */
 const DIAGNOSTIC_LIMIT = 800

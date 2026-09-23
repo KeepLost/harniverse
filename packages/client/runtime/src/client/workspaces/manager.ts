@@ -3,13 +3,11 @@
 import type {
   HostFrame, IApiClient, RpcError, RpcRequest, RpcResult, SessionId, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
+import type { WorkspaceListPhase } from '../contract/workspaces.ts'
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { Notifier } from '../sessions/notifier.ts'
+import { Notifier } from '../notifier.ts'
 import { markClientStartup, measureClientStartup } from '../startup-timing.ts'
 import { Workspace, type WorkspaceCreateInput } from './workspace.ts'
-
-/** Monotone workspace-list arrival lifecycle. */
-export type WorkspaceListPhase = 'pending' | 'ready'
 
 /** Immutable workspace-list snapshot. */
 export interface WorkspaceListSnapshot {

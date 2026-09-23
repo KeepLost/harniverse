@@ -5,7 +5,7 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { SessionInputShell } from '../src/client/input/facade.ts'
 import { stubFileUploads } from './input-file-uploads.client.ts'
-import type { DraftAttachmentId } from '../src/client/input/contract.ts'
+import type { DraftAttachmentId } from '../src/client/contract/input.ts'
 
 function deferred<T>() {
   let resolve!: (value: T) => void

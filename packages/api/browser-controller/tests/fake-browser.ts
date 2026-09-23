@@ -68,7 +68,12 @@ export async function startFakeBrowser(): Promise<FakeBrowser> {
   await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve) })
   const address = server.address()
   if (address === null || typeof address === 'string') throw new Error('fake browser did not bind a port')
-  const sockets = new WebSocketServer({ server })
+  const browserPath = '/devtools/browser/fake'
+  // A real browser routes the DevTools socket by path: the tail is its own
+  // session id, and an unknown one is refused rather than served. Matching that
+  // is what makes a half-read endpoint observable here instead of silently
+  // connecting to a permissive test double.
+  const sockets = new WebSocketServer({ server, path: browserPath })
   const commands: RecordedCommand[] = []
   const replies = new Map<string, (params: Record<string, unknown>) => Record<string, unknown>>()
   const failures = new Map<string, string>()
@@ -115,7 +120,7 @@ export async function startFakeBrowser(): Promise<FakeBrowser> {
   })
 
   return {
-    endpoint: `ws://127.0.0.1:${String(address.port)}/devtools/browser/fake`,
+    endpoint: `ws://127.0.0.1:${String(address.port)}${browserPath}`,
     commands,
     replies,
     failures,
@@ -176,6 +181,13 @@ export interface FakeSubprocess {
   stringChunks: boolean
   /** Diagnostic noise written before the endpoint line. */
   prelude: string | undefined
+  /**
+   * Bytes of the endpoint line withheld from the first stderr chunk, mimicking
+   * a pipe that delivers the line in two reads. A real browser's endpoint line
+   * arrives split whenever the preceding diagnostic noise lands the boundary
+   * mid-line.
+   */
+  splitEndpointTail: number | undefined
 }
 
 /**
@@ -197,6 +209,7 @@ export function fakeSubprocess(endpoint: string | undefined): FakeSubprocess {
     withoutStderr: false,
     stringChunks: false,
     prelude: undefined,
+    splitEndpointTail: undefined,
     runtime: {
       resolveExecutable: (command: string) => {
         probes.push(command)
@@ -228,7 +241,16 @@ export function fakeSubprocess(endpoint: string | undefined): FakeSubprocess {
         })
         if (fake.prelude !== undefined) setTimeout(() => { stderr.write(`${String(fake.prelude)}\n`) }, 0)
         if (fake.endpoint !== undefined) {
-          setTimeout(() => { stderr.write(`DevTools listening on ${String(fake.endpoint)}\n`) }, 0)
+          const line = `DevTools listening on ${fake.endpoint}\n`
+          const withheld = fake.splitEndpointTail
+          setTimeout(() => {
+            if (withheld === undefined) {
+              stderr.write(line)
+              return
+            }
+            stderr.write(line.slice(0, line.length - withheld))
+            setTimeout(() => { stderr.write(line.slice(line.length - withheld)) }, 0)
+          }, 0)
         }
         return handle
       },

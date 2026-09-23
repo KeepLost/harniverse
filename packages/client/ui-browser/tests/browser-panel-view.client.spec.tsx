@@ -21,8 +21,7 @@ import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type {
   BrowserInputEvent, HostBrowserEnvironment, HostBrowserPageId, HostBrowserPageInfo,
 } from '@deepseek-ai/dsh-api-browser-controller/types'
-import { createBrowserViewStore } from '../src/client/view-store.ts'
-import { BrowserCenterView, type BrowserCenterViewProps } from '../src/client/BrowserCenterView.tsx'
+import { BrowserPanelView, type BrowserPanelViewProps } from '../src/client/BrowserPanelView.tsx'
 import type { BrowserPanelState, BrowserSurface } from '../src/client/controller.ts'
 import { zh } from '../src/client/locales.ts'
 
@@ -32,7 +31,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-const t: BrowserCenterViewProps['t'] = makeTranslate(zh)
+const t: BrowserPanelViewProps['t'] = makeTranslate(zh)
 
 /** The empty panel state every mount starts from. */
 const INITIAL: BrowserPanelState = {
@@ -106,9 +105,8 @@ function stubResizeObserver(): { observed: Element[]; trigger: () => void } {
   return { observed, trigger: () => { callback?.() } }
 }
 
-/** Mount the panel over a real view store, a driven panel store, and spies. */
+/** Mount the showing section over a driven panel store and spies. */
 function mount(options: { session?: SessionId; panel?: Partial<BrowserPanelState>; request?: string } = {}) {
-  const instance = createBrowserViewStore().create()
   const panelStore = createSnapshotStore<BrowserPanelState>({ ...INITIAL, ...options.panel })
   const sessions = staticStore({ current: options.session })
   const verbs = {
@@ -121,17 +119,17 @@ function mount(options: { session?: SessionId; panel?: Partial<BrowserPanelState
     if (surface !== undefined) surfaces.push(surface)
   })
   const view = render(
-    <BrowserCenterView
+    <BrowserPanelView
       {...{
+        current: 'browser',
+        select: () => {},
         ...(options.request === undefined ? {} : { request: options.request }),
         useSessions: hookOf(sessions),
-        useStore: hookOf(instance),
-        actions: instance.actions,
         usePanel: hookOf(panelStore),
         t,
         ...verbs,
         bindSurface,
-      } as unknown as BrowserCenterViewProps}
+      } as unknown as BrowserPanelViewProps}
     />,
   )
   /** The page image sink element. */
@@ -140,15 +138,17 @@ function mount(options: { session?: SessionId; panel?: Partial<BrowserPanelState
     if (element === null) throw new Error('the panel surface is not mounted')
     return element
   }
-  return { ...view, instance, panelStore, sessions, verbs, bindSurface, surfaces, image }
+  return { ...view, panelStore, sessions, verbs, bindSurface, surfaces, image }
 }
 
-describe('BrowserCenterView occupancy and session binding', () => {
-  it('claims the center column while mounted and releases it on unmount', () => {
-    const { instance, unmount } = mount({ session })
-    expect(instance.getSnapshot().open).toBe(true)
-    unmount()
-    expect(instance.getSnapshot().open).toBe(false)
+describe('BrowserPanelView section gating and session binding', () => {
+  it('renders nothing while another section shows', () => {
+    const { container } = render(
+      <BrowserPanelView
+        {...{ current: 'files', select: () => {}, useSessions: hookOf(staticStore({ current: session })), t } as unknown as BrowserPanelViewProps}
+      />,
+    )
+    expect(container.firstChild).toBeNull()
   })
 
   it('binds the displayed session and rebinds when the user switches', () => {
@@ -159,20 +159,20 @@ describe('BrowserCenterView occupancy and session binding', () => {
   })
 })
 
-describe('BrowserCenterView opener request', () => {
+describe('BrowserPanelView opener request', () => {
   it('opens the destination an opener asked for, and shows it in the address bar', () => {
     const { verbs } = mount({ session, request: 'https://asked.test/page', panel: { ready: true, environment } })
     expect(verbs.navigate).toHaveBeenCalledExactlyOnceWith('https://asked.test/page')
     expect(screen.getByLabelText<HTMLInputElement>(zh['url.label']).value).toBe('https://asked.test/page')
   })
 
-  it('opens nothing when the panel was opened from its own trigger', () => {
+  it('opens nothing when the section was opened bare', () => {
     const { verbs } = mount({ session, panel: ONE_PAGE })
     expect(verbs.navigate).not.toHaveBeenCalled()
   })
 })
 
-describe('BrowserCenterView placeholders', () => {
+describe('BrowserPanelView placeholders', () => {
   it('asks for a session before anything else, and mounts no surface', () => {
     const { container } = mount()
     expect(screen.getByText(zh['view.no-session'])).toBeTruthy()
@@ -221,7 +221,7 @@ describe('BrowserCenterView placeholders', () => {
   })
 })
 
-describe('BrowserCenterView page surface', () => {
+describe('BrowserPanelView page surface', () => {
   it('renders each screencast image into the sink without a re-render', () => {
     const { surfaces, image } = mount({ session, panel: ONE_PAGE })
     const sink = surfaces[0]
@@ -268,7 +268,7 @@ describe('BrowserCenterView page surface', () => {
   })
 })
 
-describe('BrowserCenterView input forwarding', () => {
+describe('BrowserPanelView input forwarding', () => {
   /** Mount with geometry and a natural image size so scaling is exercised. */
   function interactive(natural = { width: 1280, height: 800 }) {
     stubGeometry(640, 400)
@@ -368,7 +368,7 @@ describe('BrowserCenterView input forwarding', () => {
   })
 })
 
-describe('BrowserCenterView address bar and history', () => {
+describe('BrowserPanelView address bar and history', () => {
   it('opens the typed destination and keeps the field in step with the page', () => {
     const { verbs, panelStore } = mount({ session, panel: { ...ONE_PAGE, pages: [page('p1', { url: '' })] } })
     const field = screen.getByLabelText<HTMLInputElement>(zh['url.label'])
@@ -418,7 +418,7 @@ describe('BrowserCenterView address bar and history', () => {
   })
 })
 
-describe('BrowserCenterView tab strip', () => {
+describe('BrowserPanelView tab strip', () => {
   it('names each page, marks the rendered one, and switches on click', () => {
     const { verbs } = mount({
       session,
@@ -448,7 +448,7 @@ describe('BrowserCenterView tab strip', () => {
   })
 })
 
-describe('BrowserCenterView notices', () => {
+describe('BrowserPanelView notices', () => {
   it('shows a refused destination and a page failure', () => {
     mount({
       session,

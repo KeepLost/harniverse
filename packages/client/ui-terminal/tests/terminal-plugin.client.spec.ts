@@ -20,7 +20,7 @@ import { en, NS, zh } from '../src/client/locales.ts'
 /** One registration captured while the plugin applies. */
 interface CapturedRegistration { options: Record<string, unknown>; component: unknown }
 
-/** The inject face the center view receives (verbs + panel state source). */
+/** The inject face the section body receives (verbs + panel state source). */
 interface TerminalFace {
   hooks: {
     terminals: { getSnapshot: () => { session: unknown } }
@@ -44,8 +44,8 @@ async function bench(): Promise<{
   ctx.slots.register({
     name: 'root',
     children: {
-      'sidebar.footer.action': { kind: 'list', scope: 'global' },
-      'center.view': { kind: 'list', scope: 'global' },
+      'workbench.section.tab': { kind: 'list', scope: 'global' },
+      'workbench.section.panel': { kind: 'list', scope: 'global' },
     },
   } as never, () => null)
   ctx.provide('sessions', {})
@@ -74,8 +74,8 @@ async function bench(): Promise<{
   }
   const layoutCalls: string[] = []
   ctx.provide('layout', {
-    setCenterView: (id: string | undefined) => { layoutCalls.push(id === undefined ? 'clear' : `set:${id}`) },
-    clearCenterView: () => { layoutCalls.push('clear') },
+    openWorkbench: () => { layoutCalls.push('open') },
+    closeWorkbench: () => { layoutCalls.push('close') },
   } as never)
   await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
   const captured: CapturedRegistration[] = []
@@ -104,26 +104,17 @@ describe('ui-terminal browser half', () => {
 
   it('registers both slots after their targets, and fiber teardown removes them (HMR safety)', async () => {
     const { ctx, fiber } = await bench()
-    expect(ctx.slots.entries('sidebar.footer.action').map(entry => entry.options.id)).toContain('terminal-view')
-    expect(ctx.slots.entries('center.view').map(entry => entry.options.id)).toContain('terminal')
+    expect(ctx.slots.entries('workbench.section.tab').map(entry => entry.options.id)).toContain('terminal')
+    expect(ctx.slots.entries('workbench.section.panel').map(entry => entry.options.id)).toContain('terminal')
     await fiber.dispose()
-    expect(ctx.slots.entries('sidebar.footer.action')).toEqual([])
-    expect(ctx.slots.entries('center.view')).toEqual([])
+    expect(ctx.slots.entries('workbench.section.tab')).toEqual([])
+    expect(ctx.slots.entries('workbench.section.panel')).toEqual([])
   })
 
-  it('shares one view store between the footer trigger and the panel', async () => {
+  it('orders the section tab after the browser section tab', async () => {
     const { captured } = await bench()
-    const trigger = captured.find(({ options }) => options['id'] === 'terminal-view')
-    const view = captured.find(({ options }) => options['id'] === 'terminal')
-    expect(trigger).toBeDefined()
-    expect(view).toBeDefined()
-    expect(trigger!.options['store']).toBe(view!.options['store'])
-  })
-
-  it('orders the footer trigger after the browser trigger', async () => {
-    const { captured } = await bench()
-    const trigger = captured.find(({ options }) => options['id'] === 'terminal-view')
-    expect(trigger!.options['order']).toBe(40)
+    const tab = captured.find(({ options }) => options['name'] === 'workbench.section.tab')
+    expect(tab!.options['order']).toBe(20)
   })
 
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {
@@ -142,20 +133,17 @@ describe('ui-terminal browser half', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
   })
 
-  it('binds the trigger to occupying the center column and the panel to releasing it', async () => {
+  it('binds the section body to closing the workbench', async () => {
     const { captured, layoutCalls } = await bench()
-    const trigger = captured.find(({ options }) => options['id'] === 'terminal-view')
-    const view = captured.find(({ options }) => options['id'] === 'terminal')
-    const triggerFace = trigger!.options['inject'] as () => { openView: () => void }
-    triggerFace().openView()
+    const view = captured.find(({ options }) => options['name'] === 'workbench.section.panel')
     const viewFace = view!.options['inject'] as () => TerminalFace
     viewFace().closeView()
-    expect(layoutCalls).toEqual(['set:terminal', 'clear'])
+    expect(layoutCalls).toEqual(['close'])
   })
 
   it('publishes the theme revision the panel re-reads its xterm presentation on', async () => {
     const { captured, publishTheme } = await bench()
-    const view = captured.find(({ options }) => options['id'] === 'terminal')
+    const view = captured.find(({ options }) => options['name'] === 'workbench.section.panel')
     const face = view!.options['inject'] as () => TerminalFace
     const { appearance } = face().hooks
     expect(appearance.getSnapshot().revision).toBe(7)
@@ -165,7 +153,7 @@ describe('ui-terminal browser half', () => {
 
   it('wires the panel controller over the connection handle inside apply', async () => {
     const { captured, rpcCalls } = await bench()
-    const view = captured.find(({ options }) => options['id'] === 'terminal')
+    const view = captured.find(({ options }) => options['name'] === 'workbench.section.panel')
     expect(view).toBeDefined()
     const face = view!.options['inject'] as () => TerminalFace
     const injected = face()

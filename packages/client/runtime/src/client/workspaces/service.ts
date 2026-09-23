@@ -9,28 +9,8 @@ import type {
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionsPort, SessionsPortList } from '../contract/sessions-port.ts'
-import type { IWorkspaces, WorkspaceSearchFilters } from '../contract/workspaces.ts'
-import { WorkspaceManager, type WorkspaceListPhase } from './manager.ts'
-
-/** Workspace list plus the two-baseline readiness and default-target projection. */
-export interface WorkspaceListState {
-  items: readonly WorkspaceView[]
-  /**
-   * Registry-global archive set in Host order: grouping surfaces hide these
-   * sessions everywhere (workspace groups and the ungrouped bucket) while
-   * their session logs and workspace accounting slots remain. A plain array
-   * (store-engine vocabulary; immer drafts reject Sets) — membership lookups
-   * build their own transient Set.
-   */
-  archivedSessionIds: readonly SessionId[]
-  state: 'idle' | 'loading' | 'error'
-  phase: WorkspaceListPhase
-  error: RpcError | null
-  /** True only after both workspace.list and session.list have succeeded. */
-  baselinesReady: boolean
-  /** Most recently active Workspace, derived without changing `items` order. */
-  recentWorkspaceId: WorkspaceId | undefined
-}
+import type { IWorkspaces, WorkspaceListState, WorkspaceSearchFilters } from '../contract/workspaces.ts'
+import { WorkspaceManager } from './manager.ts'
 
 /** Structured create failure for UI flows that distinguish Host business errors. */
 export class WorkspaceCreateError extends Error {

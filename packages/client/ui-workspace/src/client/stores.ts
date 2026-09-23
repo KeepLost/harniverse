@@ -151,7 +151,6 @@ export interface WorkbenchGit {
 
 /** Complete ephemeral viewing account for one Workspace id. */
 export interface WorkspaceWorkbenchAccount {
-  section: WorkbenchSection
   directories: Record<string, WorkbenchDirectory>
   expandedDirectories: Record<string, boolean>
   tabs: WorkbenchTab[]
@@ -180,7 +179,6 @@ export interface WorkspaceWorkbenchState {
 type WorkspaceWorkbenchActions = {
   ensureWorkspace: (draft: WorkspaceWorkbenchState, workspaceId: string) => void
   retainWorkspaces: (draft: WorkspaceWorkbenchState, workspaceIds: readonly string[]) => void
-  setSection: (draft: WorkspaceWorkbenchState, workspaceId: string, section: WorkbenchSection) => void
   setDirectory: (draft: WorkspaceWorkbenchState, workspaceId: string, path: string, value: WorkbenchDirectory) => void
   setDirectoryExpanded: (draft: WorkspaceWorkbenchState, workspaceId: string, path: string, expanded: boolean) => void
   openTab: (draft: WorkspaceWorkbenchState, workspaceId: string, tab: WorkbenchTab) => void
@@ -196,7 +194,6 @@ type WorkspaceWorkbenchActions = {
 
 function defaultWorkbenchAccount(): WorkspaceWorkbenchAccount {
   return {
-    section: 'files',
     directories: {},
     expandedDirectories: { '': true },
     tabs: [],
@@ -254,7 +251,6 @@ export function createWorkspaceWorkbenchStore(): EngineStoreHandle<WorkspaceWork
         if (Object.keys(d.byWorkspace).every(key => retained.has(key))) return
         d.byWorkspace = Object.fromEntries(Object.entries(d.byWorkspace).filter(([key]) => retained.has(key)))
       },
-      setSection: (d, workspaceId, section) => { workbenchAccount(d, workspaceId).section = section },
       setDirectory: (d, workspaceId, path, value) => { workbenchAccount(d, workspaceId).directories[path] = value },
       setDirectoryExpanded: (d, workspaceId, path, expanded) => {
         workbenchAccount(d, workspaceId).expandedDirectories[path] = expanded
