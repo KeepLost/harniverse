@@ -9,16 +9,34 @@ import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { BrowserController, type Config } from '../src/index.ts'
+import { BrowserController, sandboxDisabled, type Config } from '../src/index.ts'
 import type { BrowserAttachmentId, BrowserFrame, HostBrowserPageId } from '../src/types.ts'
 import { fakeSubprocess, startFakeBrowser, type FakeBrowser } from './fake-browser.ts'
 
 const roots: Context[] = []
 const browsers: FakeBrowser[] = []
+const uidRestores: (() => void)[] = []
+
+/**
+ * Presents the privilege a deployment runs under. `process.getuid` is absent on
+ * Windows, so the property is installed rather than spied on: a spy would
+ * demand a POSIX-only property exist on every platform running this suite.
+ */
+function runningAsUid(uid: number | undefined): void {
+  const original = Object.getOwnPropertyDescriptor(process, 'getuid')
+  Object.defineProperty(process, 'getuid', {
+    configurable: true, writable: true,
+    value: uid === undefined ? undefined : () => uid,
+  })
+  uidRestores.push(() => {
+    if (original === undefined) delete (process as { getuid?: unknown }).getuid
+    else Object.defineProperty(process, 'getuid', original)
+  })
+}
+
 afterEach(async () => {
-  // The suite spies on process.getuid; leaving it stubbed would decide the
-  // sandbox for every later case in this file.
   vi.restoreAllMocks()
+  for (const restore of uidRestores.splice(0).reverse()) restore()
   await Promise.all(roots.splice(0).map(ctx => ctx.fiber.dispose()))
   await Promise.all(browsers.splice(0).map(browser => browser.close()))
 })
@@ -141,6 +159,25 @@ describe('BrowserController environment', () => {
   })
 })
 
+describe('sandbox resolution', () => {
+  // Chromium's zygote exits immediately when it runs as root without
+  // `--no-sandbox`, so the shipped default has to read the harness's privilege
+  // instead of assuming an unprivileged deployment.
+  it('drops the sandbox under the default only for a root harness', () => {
+    expect(sandboxDisabled('auto', 0)).toBe(true)
+    expect(sandboxDisabled('auto', 1000)).toBe(false)
+  })
+
+  it('keeps the sandbox under the default where the platform has no uid', () => {
+    expect(sandboxDisabled('auto', undefined)).toBe(false)
+  })
+
+  it('obeys an explicit choice at any privilege', () => {
+    expect(sandboxDisabled('none', 1000)).toBe(true)
+    expect(sandboxDisabled('chromium', 0)).toBe(false)
+  })
+})
+
 describe('BrowserController page lifecycle', () => {
   it('launches one browser for the Session and opens a page in it', async () => {
     const { controller, agent, browser, subprocess } = await fixture()
@@ -173,22 +210,31 @@ describe('BrowserController page lifecycle', () => {
     expect(subprocess.spawns[0]?.argv).toContain('--no-sandbox')
   })
 
-  it('drops the sandbox by default exactly where Chromium cannot start with one', async () => {
-    // Chromium's zygote refuses to start as root unless the flag is present, so
-    // a root deployment on the shipped default would have no usable panel.
-    vi.spyOn(process, 'getuid').mockReturnValue(0)
-    const asRoot = await fixture({ sandbox: 'auto' })
-    await asRoot.controller.create(asRoot.agent, request, signal())
-    expect(asRoot.subprocess.spawns[0]?.argv).toContain('--no-sandbox')
-    vi.spyOn(process, 'getuid').mockReturnValue(1000)
-    const asUser = await fixture({ sandbox: 'auto' })
-    await asUser.controller.create(asUser.agent, request, signal())
-    expect(asUser.subprocess.spawns[0]?.argv).not.toContain('--no-sandbox')
+  it('keeps the sandbox when the operator demands it', async () => {
+    const { controller, agent, subprocess } = await fixture({ sandbox: 'chromium' })
+    await controller.create(agent, request, signal())
+    expect(subprocess.spawns[0]?.argv).not.toContain('--no-sandbox')
   })
 
-  it('keeps the sandbox as root when the operator demands it', async () => {
-    vi.spyOn(process, 'getuid').mockReturnValue(0)
-    const { controller, agent, subprocess } = await fixture({ sandbox: 'chromium' })
+  it('drops the sandbox under the shipped default for a root harness', async () => {
+    // The container deployments run as root, where Chromium's zygote exits
+    // instead of starting, so the default has to reach the running privilege.
+    runningAsUid(0)
+    const { controller, agent, subprocess } = await fixture({ sandbox: 'auto' })
+    await controller.create(agent, request, signal())
+    expect(subprocess.spawns[0]?.argv).toContain('--no-sandbox')
+  })
+
+  it('keeps the sandbox under the shipped default for an unprivileged harness', async () => {
+    runningAsUid(1000)
+    const { controller, agent, subprocess } = await fixture({ sandbox: 'auto' })
+    await controller.create(agent, request, signal())
+    expect(subprocess.spawns[0]?.argv).not.toContain('--no-sandbox')
+  })
+
+  it('keeps the sandbox under the shipped default where the platform has no uid', async () => {
+    runningAsUid(undefined)
+    const { controller, agent, subprocess } = await fixture({ sandbox: 'auto' })
     await controller.create(agent, request, signal())
     expect(subprocess.spawns[0]?.argv).not.toContain('--no-sandbox')
   })
