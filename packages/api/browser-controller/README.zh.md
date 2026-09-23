@@ -12,6 +12,8 @@
 
 导航在宿主侧先经审查，之后才要求浏览器移动：仅允许 `http`/`https`，不允许内嵌凭据，并且除非设置 `allowPrivateAddresses`，回环、链路本地与私有网段都会被拒绝。非空的 `allowedHosts` 会进一步收窄范围，按精确主机或子域匹配。拒绝会以 `browser-navigation-refused` 这一 Remote 错误呈现，绝不表现为静默的空白页面。
 
+浏览器程序在该 Session 自己的执行环境中解析：设置了 `executablePath` 就用它，否则按顺序探测 `browserCandidates`（Chrome、Chromium 与 Edge 的 Linux 名称，以及它们在 macOS 与 Windows 上的安装路径）。宿主机上没有这类程序是受支持的状态，而非缺陷：`environment` 会回答 `available: false`，并给出一条指明「探测了什么」的原因，`create` 也以同样的文本以 `browser-unavailable` 失败，因此面板能告诉运维应满足哪个名称、或该配置哪条路径。客户端那一半则改为把对话链接交给读者自己的浏览器。
+
 同一时刻只有一个附着持有控制权；后来的附着会接过控制权，先前的附着降级为观看，因此过期附着的导航与输入会以 `browser-control-unavailable` 失败，而不是争夺页面。帧是完整图像，所以每个跟随者只保留最新的图像与最新的元数据，而不是有序积压——慢速消费者丢失中间帧，永不使自己的流失败。
 
 `follow` 生成器是普通的宿主方法而非 `@Remote` 声明：harniverse 的 Gateway 派发是一问一答，因此宿主 `apiproxy` 将其包装为 EventsApi 界面上的 `events.browser` SSE 流。

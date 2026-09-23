@@ -167,7 +167,7 @@ export class BrowserController extends TypertRemoteService {
     return {
       available: executable !== undefined,
       ...(executable === undefined
-        ? { unavailableReason: 'No browser executable was found in this execution environment' }
+        ? { unavailableReason: noBrowserReason(this.config.executablePath, this.config.browserCandidates) }
         : {}),
       maxPages: this.config.maxPages,
       maxWidth: this.config.maxWidth,
@@ -450,7 +450,7 @@ export class BrowserController extends TypertRemoteService {
       const executable = await this.executable(agent, signal)
       if (executable === undefined) {
         throw new RemoteError(
-          'browser-unavailable', 'No browser executable was found in this execution environment', {},
+          'browser-unavailable', noBrowserReason(this.config.executablePath, this.config.browserCandidates), {},
         )
       }
       const profileDir = await mkdtemp(join(tmpdir(), 'dsh-browser-'))
@@ -542,6 +542,20 @@ export class BrowserController extends TypertRemoteService {
     await page.start()
     return page
   }
+}
+
+/**
+ * What the panel reports when this execution environment has no browser,
+ * naming what was probed: the remedy is a path, and only the operator who owns
+ * the machine can tell which one.
+ * @param configured - operator-configured path, or undefined while probing.
+ * @param candidates - executable names probed when no path is configured.
+ * @returns the reason, listing what the probe looked for.
+ */
+function noBrowserReason(configured: string | undefined, candidates: readonly string[]): string {
+  const probed = configured === undefined ? candidates.join(', ') : configured
+  return 'No browser executable was found in this execution environment '
+    + `(probed ${probed}; set the browser-controller executablePath to one that exists here)`
 }
 
 /**

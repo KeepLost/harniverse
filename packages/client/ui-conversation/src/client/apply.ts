@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  resolveWorkspacePath, type ISessions, type SessionId,
+  createSnapshotStore, resolveWorkspacePath, type ISessions, type SessionId,
 } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: the ctx.settingsScope Context merge. Cross-plugin collaboration
 // goes through the service, never a value import (client bundle purity gate).
@@ -28,6 +28,8 @@ import { ComposerSubmissionPolicy } from './input/submission-policy.ts'
 import { InputBar } from './skeleton/InputBar.tsx'
 import { EnterBehaviorRow } from './settings/EnterBehaviorRow.tsx'
 import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow.tsx'
+import { LinkDestinationRow } from './settings/LinkDestinationRow.tsx'
+import type { LinkDestinationRowInjected } from './settings/LinkDestinationRow.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { StatsLine } from './chat/StatsLine.tsx'
 import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
@@ -39,7 +41,10 @@ import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 import { en, NS, zh, type ConversationKey } from './locales.ts'
 import { registerConversationNodes } from './conversation-nodes/register.ts'
 import { registerChatNodeRenderers } from './chat/register-node-renderers.ts'
-import { CONVERSATION_SETTINGS_NAMESPACE, type ConversationSettings } from '../submission-settings.ts'
+import {
+  CONVERSATION_SETTINGS_NAMESPACE, DEFAULT_LINK_DESTINATION, LINK_DESTINATION_FIELD,
+  type ConversationSettings, type LinkDestination,
+} from '../conversation-settings.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -124,17 +129,39 @@ export function apply(ctx: Context): void {
   const layout = ctx.layout
   const slots = ctx.slots
 
+  // One durable section, one scope: the composer's Enter preference and the
+  // link destination are fields of the same document.
+  const settingsScope = ctx.settingsScope.bind<ConversationSettings>({
+    namespace: CONVERSATION_SETTINGS_NAMESPACE,
+  })
+  // The live link destination. The opener reads it inside a click, so it stays
+  // a snapshot source rather than a value captured at apply time.
+  const linkDestination = createSnapshotStore<LinkDestination>(DEFAULT_LINK_DESTINATION)
+  const adoptLinkDestination = (): void => {
+    const stored = settingsScope.getSnapshot().value?.linkDestination
+    if (stored === undefined || stored === linkDestination.getSnapshot()) return
+    linkDestination.set(stored)
+  }
+  // The subscription shares the scope's plugin lifetime: a disposed scope never
+  // publishes again, so there is nothing to release here.
+  settingsScope.subscribe(adoptLinkDestination)
+  adoptLinkDestination()
+
   // Where a link in assistant prose opens. The host browser panel, when the
-  // shell composed one in: the page then loads from the harness host's network
-  // position, which is what makes a link to a host-local dev server or an
-  // intranet address reachable at all. Without that panel the link keeps the
-  // ordinary new-tab behavior. One stable identity: a fresh object per render
-  // would discard the markdown render cache.
+  // shell composed one in and the reader has not asked for their own browser:
+  // the page then loads from the harness host's network position, which is what
+  // makes a link to a host-local dev server or an intranet address reachable at
+  // all. Declining hands the destination back to the anchor, whose ordinary
+  // new-tab behavior opens it on the reader's own machine — the only place it
+  // can open when the host has no browser program. One stable identity: a fresh
+  // object per render would discard the markdown render cache.
   const externalLinks: MarkdownExternalLinks = {
     open: (url) => {
+      if (linkDestination.getSnapshot() === 'device') return false
       const panel = slots.entries('center.view').some(entry => entry.options.id === 'browser')
-      if (panel) layout.setCenterView('browser', url)
-      else window.open(url, '_blank', 'noopener,noreferrer')
+      if (!panel) return false
+      layout.setCenterView('browser', url)
+      return true
     },
   }
 
@@ -150,9 +177,7 @@ export function apply(ctx: Context): void {
 
   // Apply-time construction keeps store identity bound to this fiber.
   const chatStore = createChatStore()
-  const submissionPolicy = new ComposerSubmissionPolicy(
-    ctx.settingsScope.bind<ConversationSettings>({ namespace: CONVERSATION_SETTINGS_NAMESPACE }),
-  )
+  const submissionPolicy = new ComposerSubmissionPolicy(settingsScope)
 
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({
     name: 'settings.general.item',
@@ -164,6 +189,24 @@ export function apply(ctx: Context): void {
       setBusyEnter: (behavior) => { submissionPolicy.setBusyEnter(behavior) },
     }),
   }, EnterBehaviorRow))
+
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'conversation-links',
+    // After the composer row: both are reading-and-writing preferences.
+    order: 22,
+    locale: NS,
+    inject: (): LinkDestinationRowInjected => ({
+      hooks: { linkDestination },
+      setLinkDestination: (destination) => {
+        if (linkDestination.getSnapshot() === destination) return
+        // The live value publishes before the durable write starts, so the
+        // next click honours the choice even while the write is in flight.
+        linkDestination.set(destination)
+        void settingsScope.set(LINK_DESTINATION_FIELD, destination)
+      },
+    }),
+  }, LinkDestinationRow))
 
   // Chat semantic reader positions by session, surviving view switches and
   // width reflow when the tab ring remounts the view. Deliberately not

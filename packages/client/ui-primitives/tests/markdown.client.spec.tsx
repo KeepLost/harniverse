@@ -536,7 +536,7 @@ describe('MarkdownText external links', () => {
     render(
       <MarkdownText
         text={'Read [the page](https://example.com/a) and `https://example.com/b`.'}
-        externalLinks={{ open: (url) => { opened.push(url) } }}
+        externalLinks={{ open: (url) => { opened.push(url); return true } }}
       />,
     )
     const anchor = screen.getByRole('link', { name: 'the page' })
@@ -552,10 +552,25 @@ describe('MarkdownText external links', () => {
     expect(opened).toEqual(['https://example.com/a', 'https://example.com/b'])
   })
 
+  it('leaves the anchor alone when the owner declines the destination', () => {
+    // Declining is how a reader's own browser gets the link: the anchor keeps
+    // its native new-tab behavior, inside the very click that asked for it.
+    const seen: string[] = []
+    render(
+      <MarkdownText text="[page](https://example.com/a)" externalLinks={{ open: (url) => { seen.push(url); return false } }} />,
+    )
+    const anchor = screen.getByRole('link', { name: 'page' })
+    expect(anchor.getAttribute('target')).toBe('_blank')
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })
+    anchor.dispatchEvent(click)
+    expect(seen).toEqual(['https://example.com/a'])
+    expect(click.defaultPrevented).toBe(false)
+  })
+
   it('leaves modified and non-primary clicks to the browser', () => {
     const opened: string[] = []
     render(
-      <MarkdownText text="[page](https://example.com/a)" externalLinks={{ open: (url) => { opened.push(url) } }} />,
+      <MarkdownText text="[page](https://example.com/a)" externalLinks={{ open: (url) => { opened.push(url); return true } }} />,
     )
     const anchor = screen.getByRole('link', { name: 'page' })
     for (const init of [
@@ -570,7 +585,7 @@ describe('MarkdownText external links', () => {
 
   it('routes reference links too, and never routes a streaming render', () => {
     const opened: string[] = []
-    const links = { open: (url: string) => { opened.push(url) } }
+    const links = { open: (url: string) => { opened.push(url); return true } }
     const source = '[ref][target]\n\n[target]: https://example.com/ref'
     const { unmount } = render(<MarkdownText text={source} externalLinks={links} />)
     screen.getByRole('link', { name: 'ref' })
@@ -590,7 +605,7 @@ describe('MarkdownText external links', () => {
   it('leaves a non-http destination unrouted', () => {
     const opened: string[] = []
     render(
-      <MarkdownText text="[mail](mailto:nobody@example.com)" externalLinks={{ open: (url) => { opened.push(url) } }} />,
+      <MarkdownText text="[mail](mailto:nobody@example.com)" externalLinks={{ open: (url) => { opened.push(url); return true } }} />,
     )
     const anchor = screen.getByRole('link', { name: 'mail' })
     const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })

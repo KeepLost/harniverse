@@ -180,7 +180,18 @@ describe('BrowserCenterView placeholders', () => {
     expect(screen.queryByRole('application')).toBeNull()
   })
 
-  it('reports a host without a browser program', () => {
+  it('reports a host without a browser program, and what the host probed for', () => {
+    const reason = 'No browser executable was found in this execution environment (probed chromium)'
+    mount({ session, panel: {
+      ready: true, environment: { ...environment, available: false, unavailableReason: reason },
+    } })
+    expect(screen.getByText(zh['view.unavailable'])).toBeTruthy()
+    // The remedy lives on the host machine, so the host's own probe result is
+    // the only actionable part of this notice.
+    expect(screen.getByText(reason)).toBeTruthy()
+  })
+
+  it('reports a host without a browser program that said nothing further', () => {
     mount({ session, panel: { ready: true, environment: { ...environment, available: false } } })
     expect(screen.getByText(zh['view.unavailable'])).toBeTruthy()
   })

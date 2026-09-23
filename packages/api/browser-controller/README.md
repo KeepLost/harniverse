@@ -12,6 +12,8 @@ The service extends `TypertRemoteService` under the `browser` namespace. `enviro
 
 Navigation is reviewed on the host before the browser is asked to move: only `http`/`https`, no embedded credentials, and loopback, link-local and private ranges are refused unless `allowPrivateAddresses` is set. A non-empty `allowedHosts` narrows the surface further, matching a host exactly or as a subdomain. Refusals surface as the `browser-navigation-refused` Remote error, never as a silent blank page.
 
+The executable is resolved in the Session's own execution environment: `executablePath` when set, otherwise `browserCandidates` probed in order (Chrome, Chromium, and Edge under their Linux names and their macOS and Windows install paths). A deployment whose host has no such program is a supported state, not a defect: `environment` answers `available: false` with a reason naming exactly what was probed, and `create` fails `browser-unavailable` with the same text, so the panel can tell the operator which name to satisfy or which path to configure. The client half offers the reader their own browser for conversation links instead.
+
 One attachment at a time holds control; a later attachment takes it and the earlier one is demoted to watching, so navigation and input from a stale attachment fail `browser-control-unavailable` rather than fighting for the page. Frames are complete images, so each follower keeps the newest image and the newest metadata instead of an ordered backlog — a slow consumer loses intermediate frames and never fails its stream.
 
 The `follow` generator is a plain host method rather than an `@Remote` declaration: harniverse's Gateway dispatch is unary, so the host `apiproxy` wraps it as the `events.browser` SSE stream on the EventsApi surface.

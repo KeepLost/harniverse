@@ -129,9 +129,12 @@ describe('BrowserController environment', () => {
   it('probes every candidate and reports an unusable surface when none resolves', async () => {
     const { controller, agent, subprocess } = await fixture()
     subprocess.resolvable.clear()
+    // Naming what was probed is the whole diagnostic: the operator is the only
+    // one who can say which browser this machine actually has.
     expect(await controller.environment(agent, signal())).toMatchObject({
       available: false,
-      unavailableReason: 'No browser executable was found in this execution environment',
+      unavailableReason: 'No browser executable was found in this execution environment '
+        + '(probed google-chrome, chromium; set the browser-controller executablePath to one that exists here)',
     })
     expect(subprocess.probes).toEqual(['google-chrome', 'chromium'])
   })
@@ -141,6 +144,15 @@ describe('BrowserController environment', () => {
     subprocess.resolvable.add('/opt/brave')
     expect(await controller.environment(agent, signal())).toMatchObject({ available: true })
     expect(subprocess.probes).toEqual(['/opt/brave'])
+  })
+
+  it('names the configured path rather than the candidates when one is set', async () => {
+    const { controller, agent } = await fixture({ executablePath: '/opt/brave' })
+    expect(await controller.environment(agent, signal())).toMatchObject({
+      available: false,
+      unavailableReason: 'No browser executable was found in this execution environment '
+        + '(probed /opt/brave; set the browser-controller executablePath to one that exists here)',
+    })
   })
 
   it('requires the Session execution providers', async () => {
@@ -341,7 +353,8 @@ describe('BrowserController launch failures', () => {
     subprocess.resolvable.clear()
     await expect(controller.create(agent, request, signal())).rejects.toMatchObject({
       code: 'browser-unavailable',
-      message: 'No browser executable was found in this execution environment',
+      message: 'No browser executable was found in this execution environment '
+        + '(probed google-chrome, chromium; set the browser-controller executablePath to one that exists here)',
     })
   })
 

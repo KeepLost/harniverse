@@ -118,10 +118,15 @@ export interface MarkdownFileMentions {
 /** Where the owner opens an external link a reader clicks. */
 export interface MarkdownExternalLinks {
   /**
-   * Open one http(s) destination.
+   * Open one http(s) destination, or decline it.
+   *
+   * Declining leaves the anchor's own new-tab behavior in place, which is what
+   * sends the destination to the reader's own browser: the decision happens
+   * inside the click, so no popup heuristic sees a detached window request.
    * @param url - the sanitized absolute URL.
+   * @returns whether the owner took the destination.
    */
-  open(url: string): void
+  open(url: string): boolean
 }
 
 /**
@@ -493,8 +498,10 @@ function renderSafeLink(
           // A modified or non-primary click is an explicit "elsewhere": leave
           // the new tab, window, and download gestures to the browser.
           if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-          event.preventDefault()
-          opener.open(safeHref)
+          // Ask before suppressing: an owner that declines leaves this a plain
+          // anchor, so the destination opens the way the reader's browser opens
+          // any link.
+          if (opener.open(safeHref)) event.preventDefault()
         },
       })}
     >

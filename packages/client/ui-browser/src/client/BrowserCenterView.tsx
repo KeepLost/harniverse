@@ -371,7 +371,14 @@ export function BrowserCenterView({
           />
         </div>
       ) : (
-        <p className={css.empty}>{ready || session === undefined ? t(placeholder) : t('view.loading')}</p>
+        <div className={css.empty}>
+          <p>{ready || session === undefined ? t(placeholder) : t('view.loading')}</p>
+          {/* What the host probed for: the operator needs the machine's own
+              facts to fix this, and only the host knows them. */}
+          {placeholder === 'view.unavailable' && environment?.unavailableReason !== undefined && (
+            <p className={css.emptyDetail}>{environment.unavailableReason}</p>
+          )}
+        </div>
       )}
     </section>
   )

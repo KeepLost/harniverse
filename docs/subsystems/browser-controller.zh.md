@@ -149,6 +149,8 @@ type BrowserInputEvent =
 
 ## 进程生命周期
 
+在任何启动之前，浏览器程序先在该 Session 自己的执行环境中解析：运维设置了 `executablePath` 就用它，否则按顺序探测 `browserCandidates`——Chrome、Chromium 与 Edge 的 Linux 名称，加上它们在 macOS 与 Windows 上的安装路径。三者皆无的宿主机是受支持的部署，而非失败：`environment` 报告 `available: false`，并给出一条准确指明探测目标的原因，`create` 也带着同样的文本以 `browser-unavailable` 失败，因此面板可以指出补救办法，而不是显示一个不透明的失败。在该状态下，客户端会改为把对话链接交给读者自己的浏览器。
+
 一个 Session 最多启动一个浏览器：启动过程被记忆化，第一个页面将其拉起，释放最后一个页面时将其关停，因此一直关闭的面板不产生任何成本。该进程以 `ambientEnv: 'scrubbed'` 生成——与用户终端不同，它永不继承 harness 凭据——并使用一次性 profile 目录，在浏览器消失时删除。无法观察到退出的浏览器，其 profile 会被记住并在下一次尝试时删除，因此无响应的进程树不会静默泄漏字节。只要沙箱能够启动，Chromium 自身的沙箱就保持开启：其 zygote 拒绝以 root 运行，因此默认值 `sandbox: 'auto'` 仅在该处放弃沙箱。运维可以固定该选择——`'chromium'` 即使浏览器因此无法启动也强制要求沙箱，`'none'` 则始终放弃。始终未报告 DevTools 端点的启动会带着浏览器打印在 stderr 上的内容失败，因此拒绝浏览器的环境会直说原因，而不是抛出不透明的内部错误。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
