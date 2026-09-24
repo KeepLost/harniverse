@@ -19,9 +19,16 @@ void test('browser snapshot shares immutable payloads but patches a private poli
     writeFileSync(join(app, 'browser/chrome'), 'immutable browser payload')
     chmodSync(join(app, 'browser/chrome'), 0o755)
     const evidence = await prepareBrowserSnapshot(app, snapshot, new AbortController().signal)
-    assert.equal(evidence.linkedFiles, 1)
-    assert.equal(evidence.copiedFiles, 1)
-    assert.equal(statSync(join(app, 'browser/chrome')).ino, statSync(join(snapshot, 'browser/chrome')).ino)
+    if (process.platform === 'win32') {
+      assert.equal(evidence.bulkCopied, true)
+      assert.equal(evidence.linkedFiles, 0)
+      assert.equal(evidence.copiedFiles, 0)
+    } else {
+      assert.equal(evidence.bulkCopied, false)
+      assert.equal(evidence.linkedFiles, 1)
+      assert.equal(evidence.copiedFiles, 1)
+      assert.equal(statSync(join(app, 'browser/chrome')).ino, statSync(join(snapshot, 'browser/chrome')).ino)
+    }
     assert.notEqual(statSync(join(app, policy)).ino, statSync(join(snapshot, policy)).ino)
     assert.equal(statSync(join(snapshot, 'browser/chrome')).mode, statSync(join(app, 'browser/chrome')).mode)
     assert.match(readFileSync(join(snapshot, policy), 'utf8'), /allowPrivateAddresses: true/)
