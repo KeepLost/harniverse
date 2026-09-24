@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { fork, spawnSync, type ChildProcess } from 'node:child_process'
 import { generateKeyPairSync, randomUUID, sign } from 'node:crypto'
-import { constants, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { constants, cpSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
 import { copyFile, link, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -111,7 +111,7 @@ export async function prepareBrowserSnapshot(
       + `\n\n    - id: browser-qualification-observer\n      name: ${JSON.stringify(pathToFileURL(observer).href)}`))
     signal.throwIfAborted()
     return evidence
-  } catch (error) { await rm(runtime, { recursive: true, force: true }); throw error }
+  } catch (error) { await rm(runtime, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); throw error }
 }
 
 /**
@@ -301,6 +301,7 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
   let snapshot: Awaited<ReturnType<typeof prepareBrowserSnapshot>> | undefined
   let operationStarted: number | undefined
   let browserProcess: unknown
+  let qualificationError: Error | undefined
   let originHits = 0
   const origin = createServer((_request, response) => {
     originHits++
@@ -444,8 +445,9 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
       operationMs: operationStarted === undefined ? null : Math.round(performance.now() - operationStarted), timedOut,
       snapshot, originHits, hostExitCode: child?.exitCode ?? null, hostSignal: child?.signalCode ?? null,
       phases, browserProcess, spawnError, fatal, stdout, stderr }
-    throw new Error(`Packaged browser qualification failed: ${error instanceof Error ? error.message : String(error)}\n${JSON.stringify(diagnostics)}`,
+    qualificationError = new Error(`Packaged browser qualification failed: ${error instanceof Error ? error.message : String(error)}\n${JSON.stringify(diagnostics)}`,
       { cause: error })
+    throw qualificationError
   } finally {
     clearTimeout(deadline)
     stream.abort()
@@ -455,7 +457,10 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
     } finally {
       origin.closeAllConnections()
       await new Promise<void>((accept) => { origin.close(() => { accept() }) })
-      rmSync(root, { recursive: true, force: true })
+      try { await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) } catch (error) {
+        throw new Error(`${qualificationError ? `${qualificationError.message}\n` : ''}Browser cleanup after ${phase} failed: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error })
+      }
       assert.deepEqual(checkRuntime(app, process.platform, process.arch).errors, [], 'sealed runtime changed during browser qualification')
     }
   }

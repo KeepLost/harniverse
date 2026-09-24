@@ -1,7 +1,8 @@
 /** Clean-profile executable smoke. The distribution must emit a receipt after authenticated offline boot and owned-host teardown. */
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -117,7 +118,7 @@ async function smoke(): Promise<void> {
       if (escalation) clearTimeout(escalation)
       terminate('SIGKILL')
     }
-  } finally { rmSync(home, { recursive: true, force: true }) }
+  } finally { await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

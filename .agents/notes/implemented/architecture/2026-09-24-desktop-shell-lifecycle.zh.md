@@ -60,6 +60,8 @@ macOS 一次性 Chromium profile 使用 `--use-mock-keychain`，与 Chromium 文
 
 `dae21af75a` 上的 [CI 运行 35969980689](https://github.com/KeepLost/harniverse/actions/runs/35969980689) 通过了修正后的 lint 检查，但暴露出 Windows 原生探测配置目录删除 `EPERM` 和 macOS spill 校验／修剪竞态。异步清理修正通过 28 项聚焦打包测试及真实 Linux 原生资格检查。[spill 修正](../process/2026-09-06-absorb-batch-2-spill-identity-projection-discovery.md)通过 76 项包测试，变更源码覆盖率为 100%。这些修正仍需新的原生 CI 验证。
 
+`d47e5c75e0` 上的 [CI 运行 35975011556](https://github.com/KeepLost/harniverse/actions/runs/35975011556) 在安装器构建前后均通过 Windows 原生资格检查，随后因浏览器夹具根目录仍走同步清理路径而删除失败。浏览器、clean-install smoke 和外层组装清理现也等待异步删除完成，最多重试五次，间隔按 100ms 递增。浏览器清理失败保留此前的资格检查错误与阶段。全部 45 项打包测试通过，现有封存 Linux 产物也通过修正后的浏览器资格检查和 clean-install smoke；原生 Windows 确认仍待完成。
+
 外壳保留较小的本机信任边界，并依赖 Host 的实际退出和认证注册约定。其浏览器设备适配器共享 Web 客户端的持久化格式，因此修改该辅助函数时需要联合验证桌面引导与 Web 认证入口。
 
 聚焦的[生命周期](../../../../apps/desktop/tests/main.spec.ts)、[IPC](../../../../apps/desktop/tests/ipc.spec.ts)和[预加载](../../../../apps/desktop/tests/preload.spec.ts)测试在 Electron 模块边界替换实现，无需模型提供方即可验证所有权、拒绝行为、崩溃恢复和关闭完成。最终品牌化 Linux x64 AppImage 与解包目录产物已经通过真实 Electron Host 认证和 CDP 浏览器验证，资源清单 SHA-256 为 `0acb0a809a1433abc933c47862604401b2c911cb68548654fd4204c86db7518f`：12,079 字节 JPEG 帧、正确标题、一次本地请求、关闭后零页面以及确认退出状态 0。同一资格检查还通过了未认证 401、签名交换、插件引导、UI 渲染、Session 列表、重启后复用设备密钥、Host 存活时关闭／隐藏、重开、两次确认 Host 关闭和空命令路径运行。原生资格检查通过 Electron 43.4.0、内嵌 Node 24.18.1、Koffi、sharp、PTY、PTC、SQLite 和 pnpm 11.7.0，资源清单无错误或警告。

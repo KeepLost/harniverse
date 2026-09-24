@@ -1,7 +1,8 @@
 /** Packaging CLI: check is read-only; production artifacts require pre-provisioned target tools. */
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { createReadStream, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createReadStream, existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { basename, dirname, extname, join, resolve } from 'node:path'
@@ -114,7 +115,7 @@ async function main(): Promise<void> {
         const input = assembleRuntime({ workspace: values.workspace, output: join(temporary, 'runtime'),
           pnpmDirectory: values['pnpm-dir'], platform: values.platform, arch: values.arch })
         stage = prepareRuntime(input, output, values.platform, values.arch)
-      } finally { rmSync(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
+      } finally { await rm(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
     }
     console.log(`Prepared offline runtime: ${stage}`)
     return
