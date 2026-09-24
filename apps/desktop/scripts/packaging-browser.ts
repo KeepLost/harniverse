@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { fork, spawnSync, type ChildProcess } from 'node:child_process'
 import { generateKeyPairSync, randomUUID, sign } from 'node:crypto'
-import { constants, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { constants, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { copyFile, link, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -48,40 +48,47 @@ export function apply(ctx) {
  * @param app - sealed physical payload already validated by checkRuntime.
  * @param runtime - fresh disposable destination; removed on failure.
  * @param signal - preparation lifetime; all in-flight filesystem work settles before rejection.
- * @returns hardlink and copy counts, including a copy fallback across filesystems.
+ * @returns hardlink and copy counts, including whether the Windows-compatible bulk copy was used.
  */
 export async function prepareBrowserSnapshot(
   app: string, runtime: string, signal: AbortSignal,
-): Promise<{ linkedFiles: number; copiedFiles: number }> {
+): Promise<{ linkedFiles: number; copiedFiles: number; bulkCopied: boolean }> {
   signal.throwIfAborted()
   await mkdir(runtime, { mode: 0o700 })
   const policy = 'node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml'
-  const evidence = { linkedFiles: 0, copiedFiles: 0 }
+  const evidence = { linkedFiles: 0, copiedFiles: 0, bulkCopied: false }
   try {
-    const entries = await readdir(app, { recursive: true, withFileTypes: true })
-    const files: string[] = []
-    for (const entry of entries) {
-      signal.throwIfAborted()
-      const path = relative(app, join(entry.parentPath, entry.name)).replaceAll('\\', '/')
-      if (entry.isDirectory()) await mkdir(join(runtime, path), { recursive: true })
-      else if (entry.isFile()) files.push(path)
-      else throw new Error(`Browser qualification requires a physical sealed file: ${path}`)
-    }
-    for (let index = 0; index < files.length; index += 32) {
-      signal.throwIfAborted()
-      const outcomes = await Promise.allSettled(files.slice(index, index + 32).map(async (path) => {
+    if (process.platform === 'win32') {
+      // Windows junctions in the assembled pnpm tree must be traversed by the native copier;
+      // flattening them through recursive Dirent enumeration can leave a Host that never boots.
+      cpSync(app, runtime, { recursive: true, mode: constants.COPYFILE_FICLONE })
+      evidence.bulkCopied = true
+    } else {
+      const entries = await readdir(app, { recursive: true, withFileTypes: true })
+      const files: string[] = []
+      for (const entry of entries) {
         signal.throwIfAborted()
-        const source = join(app, path)
-        const destination = join(runtime, path)
-        if (path !== policy) {
-          try { await link(source, destination); evidence.linkedFiles++; return } catch (error) {
-            if (!['EXDEV', 'ENOTSUP', 'EOPNOTSUPP', 'EPERM', 'EACCES', 'EMLINK'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error
+        const path = relative(app, join(entry.parentPath, entry.name)).replaceAll('\\', '/')
+        if (entry.isDirectory()) await mkdir(join(runtime, path), { recursive: true })
+        else if (entry.isFile()) files.push(path)
+        else throw new Error(`Browser qualification requires a physical sealed file: ${path}`)
+      }
+      for (let index = 0; index < files.length; index += 32) {
+        signal.throwIfAborted()
+        const outcomes = await Promise.allSettled(files.slice(index, index + 32).map(async (path) => {
+          signal.throwIfAborted()
+          const source = join(app, path)
+          const destination = join(runtime, path)
+          if (path !== policy) {
+            try { await link(source, destination); evidence.linkedFiles++; return } catch (error) {
+              if (!['EXDEV', 'ENOTSUP', 'EOPNOTSUPP', 'EPERM', 'EACCES', 'EMLINK'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error
+            }
           }
-        }
-        await copyFile(source, destination, constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL)
-        evidence.copiedFiles++
-      }))
-      for (const outcome of outcomes) if (outcome.status === 'rejected') throw outcome.reason
+          await copyFile(source, destination, constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL)
+          evidence.copiedFiles++
+        }))
+        for (const outcome of outcomes) if (outcome.status === 'rejected') throw outcome.reason
+      }
     }
     signal.throwIfAborted()
     const patch = join(runtime, policy)
