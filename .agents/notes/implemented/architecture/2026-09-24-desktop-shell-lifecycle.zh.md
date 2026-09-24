@@ -30,7 +30,7 @@ Status: implemented
 
 ## Alternatives considered
 
-macOS 一次性 Chromium profile 使用 `--use-mock-keychain`，与 Chromium 文档中避免 Keychain 阻塞对话框的自动化开关一致。原生失败已得到空白渲染帧，但没有导航请求；仍需原生资格验证确认此修正的效果。浏览器资格测试在可用时对不可变载荷文件使用硬链接，并在修改策略文件前将其复制到私有 inode；结束后重新核验封存源清单。文件系统准备有独立的 60 秒生命周期，Host／浏览器操作仍保留 60 秒生命周期和 30 秒 IPC／RPC 上限。这将暂存成本与运行时进度分开，并保留有界的 Host stdout、stderr、致命消息和退出诊断。
+macOS 一次性 Chromium profile 使用 `--use-mock-keychain`，与 Chromium 文档中避免 Keychain 阻塞对话框的自动化开关一致。原生失败已得到空白渲染帧，但没有导航请求；仍需原生资格验证确认此修正的效果。浏览器资格测试在可用时对不可变载荷文件使用硬链接，并在修改策略文件前将其复制到私有 inode；结束后重新核验封存源清单。文件系统准备有独立的 60 秒生命周期，Host／浏览器操作在 POSIX 上保留 60 秒、在经过物理暂存的 Windows 冷启动路径上保留 120 秒，IPC／RPC 仍为 30 秒上限。这将暂存成本与运行时进度分开，并保留有界的 Host stdout、stderr、致命消息和退出诊断。
 
 浏览器资格检查并发消费帧和导航响应，并保留有界、仅测试夹具使用的 Chromium stderr 与退出观察。命令待完成时仍能记录渲染进度；已渲染的帧不能免除导航确认。对于普通和经检查的 Windows 进程树，本地子进程 Provider 均使用绝对路径 `SystemRoot\System32\taskkill.exe`：否则空 `PATH` 会在导航和渲染成功后仍阻止进程终止。原生回归要求根进程及其后代均消失，并保留现有升级与等待退出约定。
 

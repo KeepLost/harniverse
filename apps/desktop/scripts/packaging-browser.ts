@@ -13,7 +13,8 @@ import { checkRuntime, type RuntimeInput } from './packaging-runtime.ts'
 
 type Message = Record<string, unknown>
 const PREPARATION_MS = 60000
-const OPERATION_MS = 60000
+const OPERATION_MS = process.platform === 'win32' ? 120000 : 60000
+const HOST_READY_MS = process.platform === 'win32' ? 60000 : 30000
 const REQUEST_MS = 30000
 const CLEANUP_MS = 5000
 
@@ -101,9 +102,10 @@ export async function prepareBrowserSnapshot(
  * @param child - owned Host with an IPC channel.
  * @param type - expected protocol message.
  * @param signal - cancellation shared by every operation in the qualification.
+ * @param timeoutMs - bounded wait; Windows Host startup has a larger cold-start budget after physical staging.
  * @returns the expected message; fatal, exit, disconnect and cancellation reject immediately.
  */
-export function waitForHostMessage(child: ChildProcess, type: string, signal: AbortSignal): Promise<Message> {
+export function waitForHostMessage(child: ChildProcess, type: string, signal: AbortSignal, timeoutMs = REQUEST_MS): Promise<Message> {
   return new Promise((accept, reject) => {
     const cleanup = () => {
       clearTimeout(timer)
@@ -118,7 +120,7 @@ export function waitForHostMessage(child: ChildProcess, type: string, signal: Ab
       if (value.type === 'fatal') failed(new Error(`Host fatal before ${type}: ${String(value.message).slice(-2000)}`))
       if (value.type === type) { cleanup(); accept(value) }
     }
-    const timer = setTimeout(() => { failed(new Error(`Host did not report ${type} within ${REQUEST_MS}ms`)) }, REQUEST_MS)
+    const timer = setTimeout(() => { failed(new Error(`Host did not report ${type} within ${timeoutMs}ms`)) }, timeoutMs)
     child.on('message', message).once('exit', closed).once('close', closed).once('error', failed).once('disconnect', disconnected)
     signal.addEventListener('abort', aborted, { once: true })
     if (signal.aborted) aborted()
@@ -252,7 +254,8 @@ export async function qualifyBrowserFrames(
 
 /**
  * Exercise a sealed runtime in a disposable snapshot, allowing only the test's loopback origin.
- * Preparation has a separate 60s budget; Host/browser operations share 60s, with 30s IPC/RPC caps.
+ * Preparation has a separate 60s budget; Host/browser operations share a bounded platform budget
+ * (120s on Windows after physical staging, 60s elsewhere), with 30s IPC/RPC caps.
  * @param app - assembled or packaged resources/app directory.
  * @param executable - target Electron executable providing the Host's embedded Node.
  * @returns authenticated navigation, JPEG frame and settled teardown evidence.
@@ -345,7 +348,7 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
     host.stderr?.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-12000) })
     host.on('error', (error) => { spawnError = error.message.slice(-2000); stream.abort(error) })
     exited = new Promise((accept) => { host.once('close', accept) })
-    const ready = await waitForHostMessage(child, 'ready', stream.signal)
+    const ready = await waitForHostMessage(child, 'ready', stream.signal, HOST_READY_MS)
     const url = new URL(String(ready.url))
     assert.equal(url.hostname, '127.0.0.1')
     enter('unauthenticated-denial')

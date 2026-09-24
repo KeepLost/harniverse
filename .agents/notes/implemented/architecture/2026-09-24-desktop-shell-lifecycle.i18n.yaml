@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-24-desktop-shell-lifecycle.md
-2026-09-24-desktop-shell-lifecycle.md: cba719baadee44d3562ef2d006dd9539b74a33b6
-2026-09-24-desktop-shell-lifecycle.zh.md: 78edb349c0b7976db1f340b0fe7ec5d75537fcde
+2026-09-24-desktop-shell-lifecycle.md: d70a55cde9c033597ad58345cf55a5fd2ba915da
+2026-09-24-desktop-shell-lifecycle.zh.md: 0844fcc9503a327b2c6efd1cc133e329be6e1d6c
