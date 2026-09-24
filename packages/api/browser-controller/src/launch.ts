@@ -151,6 +151,9 @@ export function browserArgv(spec: BrowserLaunchSpec): string[] {
     '--disable-gpu',
     '--hide-scrollbars',
     '--mute-audio',
+    // The disposable macOS profile uses a mock keychain instead of prompting
+    // for access to the user's Keychain; its cookies are not Keychain-protected.
+    ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : []),
     ...(sandboxDisabled(spec.sandbox, spec.uid) ? ['--no-sandbox'] : []),
     'about:blank',
   ]

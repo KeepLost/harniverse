@@ -8,6 +8,8 @@
 
 ## 服务：`BrowserController`（ctx 键：`browserController`）
 
+在 macOS 上，一次性 profile 使用 `--use-mock-keychain`，避免导航期间出现系统 Keychain 访问提示。此临时 profile 中的 Cookie 不受用户 Keychain 保护；目录生命周期与 Chromium 沙箱策略保持不变。
+
 该服务在 `browser` 命名空间下扩展 `TypertRemoteService`。`environment` 与 `list` 需要 `harniverse.observe`；`create`、`navigate`、`act`、`input`、`resize` 与 `close` 需要 `harniverse.operate`。在一个 Session 的注册表内，create 对处于打开状态的标识是幂等的，已关闭的标识不能重建，每个 Session 的页面数量受 `maxPages` 约束。一个 Session 最多启动一个浏览器：启动过程被记忆化，第一个页面将其拉起，最后一个页面释放时将其关停，因此一直关闭的面板不产生任何成本。
 
 导航在宿主侧先经审查，之后才要求浏览器移动：仅允许 `http`/`https`，不允许内嵌凭据，并且除非设置 `allowPrivateAddresses`，回环、链路本地与私有网段都会被拒绝。非空的 `allowedHosts` 会进一步收窄范围，按精确主机或子域匹配。拒绝会以 `browser-navigation-refused` 这一 Remote 错误呈现，绝不表现为静默的空白页面。

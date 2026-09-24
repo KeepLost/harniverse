@@ -216,6 +216,32 @@ describe('BrowserController page lifecycle', () => {
     expect(controller.list(agent.id).map(page => page.id)).toEqual([pageId, 'page-two'])
   })
 
+  it.each(['darwin', 'linux', 'win32'] as const)(
+    'isolates the ephemeral profile from macOS Keychain prompts only on darwin (running on %s)',
+    async (platform) => {
+      const original = Object.getOwnPropertyDescriptor(process, 'platform')
+      if (original === undefined) throw new Error('process.platform descriptor is required')
+      Object.defineProperty(process, 'platform', { ...original, value: platform })
+      try {
+        const { controller, agent, subprocess } = await fixture()
+        const page = await controller.create(agent, request, signal())
+        expect(page.state).toBe('ready')
+        const argv = subprocess.spawns[0]?.argv ?? []
+        expect(argv.includes('--use-mock-keychain')).toBe(platform === 'darwin')
+        expect(argv).not.toContain('--password-store=basic')
+        expect(argv).not.toContain('--no-sandbox')
+        expect(argv).toContain('--headless=new')
+        const profile = profileOf(argv)
+        expect(existsSync(profile)).toBe(true)
+        await controller.close(agent, pageId)
+        expect(controller.list(agent.id)).toEqual([])
+        expect(existsSync(profile)).toBe(false)
+      } finally {
+        Object.defineProperty(process, 'platform', original)
+      }
+    },
+  )
+
   it('passes --no-sandbox only when the operator selects it', async () => {
     const { controller, agent, subprocess } = await fixture({ sandbox: 'none' })
     await controller.create(agent, request, signal())

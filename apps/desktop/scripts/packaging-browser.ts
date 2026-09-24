@@ -2,15 +2,20 @@
 import assert from 'node:assert/strict'
 import { fork, spawnSync, type ChildProcess } from 'node:child_process'
 import { generateKeyPairSync, randomUUID, sign } from 'node:crypto'
-import { constants, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { constants, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { copyFile, link, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { checkRuntime, type RuntimeInput } from './packaging-runtime.ts'
 
 type Message = Record<string, unknown>
+const PREPARATION_MS = 60000
+const OPERATION_MS = 60000
+const REQUEST_MS = 30000
+const CLEANUP_MS = 5000
 
 /** Fixture-only Cordis observer: retain Chromium diagnostics after its DevTools endpoint becomes ready. */
 export const BROWSER_OBSERVER_PLUGIN = `
@@ -37,31 +42,111 @@ export function apply(ctx) {
 }
 `
 
-function messageFrom(child: ChildProcess, type: string): Promise<Message> {
+/**
+ * Snapshot a checked, immutable runtime; only the policy file gets a writable private inode.
+ * @param app - sealed physical payload already validated by checkRuntime.
+ * @param runtime - fresh disposable destination; removed on failure.
+ * @param signal - preparation lifetime; all in-flight filesystem work settles before rejection.
+ * @returns hardlink and copy counts, including a copy fallback across filesystems.
+ */
+export async function prepareBrowserSnapshot(
+  app: string, runtime: string, signal: AbortSignal,
+): Promise<{ linkedFiles: number; copiedFiles: number }> {
+  signal.throwIfAborted()
+  await mkdir(runtime, { mode: 0o700 })
+  const policy = 'node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml'
+  const evidence = { linkedFiles: 0, copiedFiles: 0 }
+  try {
+    const entries = await readdir(app, { recursive: true, withFileTypes: true })
+    const files: string[] = []
+    for (const entry of entries) {
+      signal.throwIfAborted()
+      const path = relative(app, join(entry.parentPath, entry.name)).replaceAll('\\', '/')
+      if (entry.isDirectory()) await mkdir(join(runtime, path), { recursive: true })
+      else if (entry.isFile()) files.push(path)
+      else throw new Error(`Browser qualification requires a physical sealed file: ${path}`)
+    }
+    for (let index = 0; index < files.length; index += 32) {
+      signal.throwIfAborted()
+      const outcomes = await Promise.allSettled(files.slice(index, index + 32).map(async (path) => {
+        signal.throwIfAborted()
+        const source = join(app, path)
+        const destination = join(runtime, path)
+        if (path !== policy) {
+          try { await link(source, destination); evidence.linkedFiles++; return } catch (error) {
+            if (!['EXDEV', 'ENOTSUP', 'EOPNOTSUPP', 'EPERM', 'EACCES', 'EMLINK'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error
+          }
+        }
+        await copyFile(source, destination, constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL)
+        evidence.copiedFiles++
+      }))
+      for (const outcome of outcomes) if (outcome.status === 'rejected') throw outcome.reason
+    }
+    signal.throwIfAborted()
+    const patch = join(runtime, policy)
+    const source = await readFile(patch, 'utf8')
+    const row = "      name: '@deepseek-ai/dsh-api-browser-controller'"
+    assert.equal(source.split(row).length, 2, 'one shipped browser-controller row is required')
+    const observer = join(runtime, 'browser-observer.mjs')
+    await writeFile(observer, BROWSER_OBSERVER_PLUGIN, { flag: 'wx', mode: 0o600 })
+    await writeFile(patch, source.replace(row, `${row}\n      config:\n        allowPrivateAddresses: true\n        allowedHosts: ['127.0.0.1']`
+      + `\n\n    - id: browser-qualification-observer\n      name: ${JSON.stringify(observer)}`))
+    signal.throwIfAborted()
+    return evidence
+  } catch (error) { await rm(runtime, { recursive: true, force: true }); throw error }
+}
+
+/**
+ * Wait for private Host IPC within the request budget and the enclosing operation lifetime.
+ * @param child - owned Host with an IPC channel.
+ * @param type - expected protocol message.
+ * @param signal - cancellation shared by every operation in the qualification.
+ * @returns the expected message; fatal, exit, disconnect and cancellation reject immediately.
+ */
+export function waitForHostMessage(child: ChildProcess, type: string, signal: AbortSignal): Promise<Message> {
   return new Promise((accept, reject) => {
-    const cleanup = () => { clearTimeout(timer); child.off('message', message); child.off('close', closed); child.off('error', failed) }
+    const cleanup = () => {
+      clearTimeout(timer)
+      child.off('message', message).off('exit', closed).off('close', closed).off('error', failed).off('disconnect', disconnected)
+      signal.removeEventListener('abort', aborted)
+    }
     const failed = (error: Error) => { cleanup(); reject(error) }
-    const closed = (code: number | null) => { failed(new Error(`Host closed before ${type}: ${code}`)) }
+    const closed = (code: number | null, reason: NodeJS.Signals | null) => { failed(new Error(`Host exited before ${type}: code=${code}, signal=${reason}`)) }
+    const disconnected = () => { failed(new Error(`Host IPC disconnected before ${type}`)) }
+    const aborted = () => { cleanup(); reject(signal.reason) }
     const message = (value: Message) => {
-      if (value.type === 'fatal') failed(new Error(String(value.message)))
+      if (value.type === 'fatal') failed(new Error(`Host fatal before ${type}: ${String(value.message).slice(-2000)}`))
       if (value.type === type) { cleanup(); accept(value) }
     }
-    const timer = setTimeout(() => { failed(new Error(`Host did not report ${type}`)) }, 30000)
-    child.on('message', message).once('close', closed).once('error', failed)
+    const timer = setTimeout(() => { failed(new Error(`Host did not report ${type} within ${REQUEST_MS}ms`)) }, REQUEST_MS)
+    child.on('message', message).once('exit', closed).once('close', closed).once('error', failed).once('disconnect', disconnected)
+    signal.addEventListener('abort', aborted, { once: true })
+    if (signal.aborted) aborted()
+    else if (child.exitCode !== null || child.signalCode !== null) closed(child.exitCode, child.signalCode)
+    else if (!child.connected) disconnected()
   })
 }
 
-async function post(url: URL, path: string, body: object, cookie?: string): Promise<Response> {
+function withinLifetime<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((accept, reject) => {
+    const abort = () => { signal.removeEventListener('abort', abort); reject(signal.reason) }
+    signal.addEventListener('abort', abort, { once: true })
+    if (signal.aborted) abort()
+    void pending.then(accept, reject).finally(() => { signal.removeEventListener('abort', abort) })
+  })
+}
+
+async function post(url: URL, path: string, body: object, signal: AbortSignal, cookie?: string): Promise<Response> {
   const response = await fetch(new URL(path, url), { method: 'POST',
     headers: { 'content-type': 'application/json', origin: url.origin, ...(cookie ? { cookie } : {}) },
-    body: JSON.stringify(body), signal: AbortSignal.timeout(30000) })
+    body: JSON.stringify(body), signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_MS)]) })
   assert.equal(response.status, 200, `${path}: ${await response.clone().text()}`)
   return response
 }
 
-async function rpc(url: URL, cookie: string, method: string, payload: object): Promise<unknown> {
+async function rpc(url: URL, cookie: string, method: string, payload: object, signal: AbortSignal): Promise<unknown> {
   const response = await post(url, `/api/${method}`, { type: 'client-request', method,
-    rpcId: randomUUID(), requestId: randomUUID(), payload: { args: payload } }, cookie)
+    rpcId: randomUUID(), requestId: randomUUID(), payload: { args: payload } }, signal, cookie)
   const value = await response.json() as { result: { ok: boolean; value?: unknown; error?: unknown } }
   assert.equal(value.result.ok, true, `${method}: ${JSON.stringify(value.result.error)}`)
   return value.result.value
@@ -73,6 +158,7 @@ async function* frames(response: Response, signal: AbortSignal): AsyncGenerator<
   const reader = response.body.getReader()
   const cancel = () => { void reader.cancel().catch(() => { /* The stream's read reports transport failures. */ }) }
   signal.addEventListener('abort', cancel, { once: true })
+  if (signal.aborted) cancel()
   const decoder = new TextDecoder()
   let pending = ''
   try {
@@ -102,13 +188,15 @@ async function* frames(response: Response, signal: AbortSignal): AsyncGenerator<
  * Qualify navigation and the rendered JPEG on one attached Gateway browser stream.
  * @param response - authenticated EventsApi browser response; owned and cancelled by this function.
  * @param navigate - dispatch navigation on the attachment after it becomes ready.
+ * @param signal - optional enclosing qualification lifetime, including pending navigation.
  * @returns the rendered frame size and the destination title.
  */
 export async function qualifyBrowserFrames(
-  response: Response, navigate: () => Promise<unknown>,
+  response: Response, navigate: () => Promise<unknown>, signal?: AbortSignal,
 ): Promise<{ frameBytes: number; title: string }> {
   const lifetime = new AbortController()
-  const iterator = frames(response, lifetime.signal)
+  const operation = signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal
+  const iterator = frames(response, operation)
   let frameBytes = 0
   let blankFrame = ''
   let title = ''
@@ -153,7 +241,7 @@ export async function qualifyBrowserFrames(
         }
       }
     })()
-    await Promise.all([navigation, rendering])
+    await withinLifetime(Promise.all([navigation, rendering]), operation)
     return { frameBytes, title }
   } catch (error) {
     const evidence = { phase, framesSeen, imagesSeen, largestImageBytes, lastType, frameBytes, title: title.slice(0, 120) }
@@ -163,7 +251,8 @@ export async function qualifyBrowserFrames(
 }
 
 /**
- * Exercise a sealed runtime in a disposable copy, allowing only the test's loopback origin.
+ * Exercise a sealed runtime in a disposable snapshot, allowing only the test's loopback origin.
+ * Preparation has a separate 60s budget; Host/browser operations share 60s, with 30s IPC/RPC caps.
  * @param app - assembled or packaged resources/app directory.
  * @param executable - target Electron executable providing the Host's embedded Node.
  * @returns authenticated navigation, JPEG frame and settled teardown evidence.
@@ -185,7 +274,12 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
   const home = join(root, 'home')
   let child: ChildProcess | undefined
   let exited: Promise<number | null> | undefined
+  let stdout = ''
   let stderr = ''
+  let fatal = ''
+  let spawnError = ''
+  let snapshot: Awaited<ReturnType<typeof prepareBrowserSnapshot>> | undefined
+  let operationStarted: number | undefined
   let browserProcess: unknown
   let originHits = 0
   const origin = createServer((_request, response) => {
@@ -196,9 +290,15 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
   })
   const terminate = () => {
     if (!child?.pid) return
-    if (process.platform === 'win32' && process.env.SystemRoot) {
-      spawnSync(join(process.env.SystemRoot, 'System32/taskkill.exe'), ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' })
-    } else if (process.platform !== 'win32') {
+    if (process.platform === 'win32') {
+      if (child.exitCode !== null || child.signalCode !== null) return
+      const systemRoot = Object.entries(process.env).find(([key]) => key.toUpperCase() === 'SYSTEMROOT')?.[1]
+      assert(systemRoot, 'SystemRoot is required to terminate the owned Windows Host tree')
+      const result = spawnSync(join(systemRoot, 'System32/taskkill.exe'), ['/pid', String(child.pid), '/t', '/f'], {
+        stdio: 'ignore', windowsHide: true, timeout: CLEANUP_MS,
+      })
+      if (result.error) throw result.error
+    } else {
       try { process.kill(-child.pid, 'SIGKILL') } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
       }
@@ -206,83 +306,92 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
   }
   const stream = new AbortController()
   let timedOut = false
-  const deadline = setTimeout(() => {
+  const timeout = () => {
     timedOut = true
     stream.abort(new Error(`browser qualification timed out during ${phase}`))
-    terminate()
-  }, 60000)
+  }
+  let deadline = setTimeout(timeout, Math.max(1, PREPARATION_MS - (performance.now() - started)))
   try {
-    enter('copy-runtime')
-    cpSync(app, runtime, { recursive: true, mode: constants.COPYFILE_FICLONE })
+    enter('snapshot-runtime')
+    snapshot = await prepareBrowserSnapshot(app, runtime, stream.signal)
     enter('prepare-profile')
-    // The production profile forbids private navigation. Only this disposable fixture permits localhost.
-    const patch = join(runtime, 'node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml')
-    const source = readFileSync(patch, 'utf8')
-    const row = "      name: '@deepseek-ai/dsh-api-browser-controller'"
-    assert.equal(source.split(row).length, 2, 'one shipped browser-controller row is required')
-    const observer = join(runtime, 'browser-observer.mjs')
-    writeFileSync(observer, BROWSER_OBSERVER_PLUGIN)
-    writeFileSync(patch, source.replace(row, `${row}\n      config:\n        allowPrivateAddresses: true\n        allowedHosts: ['127.0.0.1']`
-      + `\n\n    - id: browser-qualification-observer\n      name: ${JSON.stringify(observer)}`))
     mkdirSync(home, { mode: 0o700 })
     mkdirSync(join(root, 'empty-path'))
     const env: NodeJS.ProcessEnv = { PATH: join(root, 'empty-path'), HOME: root, USERPROFILE: root,
       TMPDIR: root, TMP: root, TEMP: root, XDG_CONFIG_HOME: root, XDG_CACHE_HOME: root,
       APPDATA: root, LOCALAPPDATA: root, ELECTRON_RUN_AS_NODE: '1' }
-    for (const key of ['SystemRoot', 'WINDIR']) if (process.env[key]) env[key] = process.env[key]
+    for (const key of ['SystemRoot', 'WINDIR']) {
+      const value = Object.entries(process.env).find(([name]) => name.toUpperCase() === key.toUpperCase())?.[1]
+      if (value) env[key] = value
+    }
+    stream.signal.throwIfAborted()
+    clearTimeout(deadline)
+    operationStarted = performance.now()
+    deadline = setTimeout(timeout, OPERATION_MS)
     enter('host-ready')
     const host = fork(join(runtime, 'lib/desktop-host.js'), [home, join(runtime, 'node_modules/@deepseek-ai/dsh/package.json'), '--port', '0'], {
       execPath: resolve(executable), execArgv: ['--expose-internals'], env, cwd: home,
-      stdio: ['ignore', 'ignore', 'pipe', 'ipc'], detached: process.platform !== 'win32',
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'], detached: process.platform !== 'win32',
     })
     child = host
     host.on('message', (value: Message) => {
       if (value.type === 'browser-qualification-observation') browserProcess = value.observation
+      if (value.type === 'fatal') {
+        fatal = String(value.message).slice(-2000)
+        stream.abort(new Error(`Host fatal: ${fatal}`))
+      }
     })
+    host.stdout?.on('data', (chunk: Buffer) => { stdout = (stdout + chunk.toString()).slice(-12000) })
     host.stderr?.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-12000) })
+    host.on('error', (error) => { spawnError = error.message.slice(-2000); stream.abort(error) })
     exited = new Promise((accept) => { host.once('close', accept) })
-    const ready = await messageFrom(child, 'ready')
+    const ready = await waitForHostMessage(child, 'ready', stream.signal)
     const url = new URL(String(ready.url))
     assert.equal(url.hostname, '127.0.0.1')
     enter('unauthenticated-denial')
-    assert.equal((await fetch(new URL('/api/browser/environment', url), { method: 'POST' })).status, 401)
+    assert.equal((await fetch(new URL('/api/browser/environment', url), {
+      method: 'POST', signal: AbortSignal.any([stream.signal, AbortSignal.timeout(REQUEST_MS)]),
+    })).status, 401)
     enter('device-enrollment')
     const device = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
-    const enrolled = messageFrom(child, 'enrolled')
+    const enrolled = waitForHostMessage(child, 'enrolled', stream.signal)
     child.send({ type: 'enroll', requestId: 1, publicKey: device.publicKey.export({ type: 'spki', format: 'der' }).toString('base64url') })
     const enrollment = (await enrolled).enrollment as { grant: { id: string } }
     enter('authentication-challenge')
-    const challenge = await (await post(url, '/auth/challenge', { grantId: enrollment.grant.id, purpose: 'browser-session' })).json() as { id: string; payload: string }
+    const challenge = await (await post(url, '/auth/challenge', { grantId: enrollment.grant.id, purpose: 'browser-session' }, stream.signal)).json() as { id: string; payload: string }
     enter('authentication-exchange')
     const exchange = await post(url, '/auth/exchange', { challengeId: challenge.id,
-      signature: sign('sha256', Buffer.from(challenge.payload), { key: device.privateKey, dsaEncoding: 'ieee-p1363' }).toString('base64url') })
+      signature: sign('sha256', Buffer.from(challenge.payload), { key: device.privateKey, dsaEncoding: 'ieee-p1363' }).toString('base64url') }, stream.signal)
     assert.equal((await exchange.json() as { authenticated?: boolean }).authenticated, true)
     const cookie = exchange.headers.get('set-cookie')?.split(';')[0]
     assert(cookie)
     enter('session-principal')
     const principalProbe = await post(url, '/api/session.list', { type: 'client-request', method: 'session.list',
-      rpcId: randomUUID(), requestId: randomUUID(), payload: {} }, cookie)
+      rpcId: randomUUID(), requestId: randomUUID(), payload: {} }, stream.signal, cookie)
     const principal = (await principalProbe.json() as { authentication: unknown }).authentication
     assert(principal)
     enter('session-create')
     const sessionResponse = await post(url, '/api/session.create', { type: 'client-request', method: 'session.create',
-      rpcId: randomUUID(), requestId: randomUUID(), payload: { cwd: home }, expectedPrincipal: principal }, cookie)
+      rpcId: randomUUID(), requestId: randomUUID(), payload: { cwd: home }, expectedPrincipal: principal }, stream.signal, cookie)
     const sessionEnvelope = await sessionResponse.json() as { result: { ok: boolean; value?: { sessionId: string }; error?: unknown } }
     assert.equal(sessionEnvelope.result.ok, true, JSON.stringify(sessionEnvelope.result.error))
     assert(sessionEnvelope.result.value)
     const { sessionId } = sessionEnvelope.result.value
     enter('browser-environment')
-    const environment = await rpc(url, cookie, 'browser/environment', { agentId: sessionId }) as { available: boolean }
+    const environment = await rpc(url, cookie, 'browser/environment', { agentId: sessionId }, stream.signal) as { available: boolean }
     assert.equal(environment.available, true)
     enter('local-origin')
-    await new Promise<void>((accept) => { origin.listen(0, '127.0.0.1', accept) })
+    await withinLifetime(new Promise<void>((accept, reject) => {
+      origin.once('error', reject)
+      origin.listen(0, '127.0.0.1', () => { origin.off('error', reject); accept() })
+    }), stream.signal)
     const address = origin.address()
     assert(address && typeof address === 'object')
     const destination = `http://127.0.0.1:${address.port}/`
     const id = randomUUID()
     const attachmentId = randomUUID()
     enter('browser-create')
-    await rpc(url, cookie, 'browser/create', { agentId: sessionId, request: { id, width: 800, height: 600 } })
+    await rpc(url, cookie, 'browser/create', { agentId: sessionId, request: { id, width: 800, height: 600 } }, stream.signal)
     enter('stream-headers')
     const response = await fetch(new URL(`/api/events.browser?${new URLSearchParams({ sessionId, id, attachmentId })}`, url), {
       headers: { cookie, origin: url.origin }, signal: stream.signal,
@@ -290,39 +399,45 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
     enter('stream-attachment')
     const { frameBytes, title } = await qualifyBrowserFrames(response, async () => {
       enter('browser-navigate')
-      await rpc(url, cookie, 'browser/navigate', { agentId: sessionId, id, attachmentId, url: destination })
+      await rpc(url, cookie, 'browser/navigate', { agentId: sessionId, id, attachmentId, url: destination }, stream.signal)
       enter('rendered-frame')
-    })
+    }, stream.signal)
     assert(originHits > 0, 'Host Chromium must fetch the local origin')
     enter('browser-close')
-    await rpc(url, cookie, 'browser/close', { agentId: sessionId, id })
-    assert.deepEqual(await rpc(url, cookie, 'browser/list', { sessionId }), [])
+    await rpc(url, cookie, 'browser/close', { agentId: sessionId, id }, stream.signal)
+    assert.deepEqual(await rpc(url, cookie, 'browser/list', { sessionId }, stream.signal), [])
     enter('host-shutdown')
-    const stopped = messageFrom(child, 'shutdown-complete')
+    const stopped = waitForHostMessage(child, 'shutdown-complete', stream.signal)
     child.send({ type: 'shutdown' })
     await stopped
-    assert.equal(await exited, 0)
+    assert.equal(await withinLifetime(exited, stream.signal), 0)
     assert(browserProcess, 'qualification must observe the actual Host browser process')
-    await assert.rejects(fetch(url))
+    await assert.rejects(fetch(url, { signal: AbortSignal.any([stream.signal, AbortSignal.timeout(REQUEST_MS)]) }))
     stream.signal.throwIfAborted()
     enter('complete')
     const { browser } = JSON.parse(readFileSync(join(app, 'offline-assets.json'), 'utf8')) as RuntimeInput
     return { target: `${process.platform}-${process.arch}`, browser, authenticated: true,
       fixturePolicy: { allowPrivateAddresses: true, allowedHosts: ['127.0.0.1'] },
-      frameBytes, title, originHits, pagesAfterClose: 0, shutdown: 'acknowledged-and-exited', phases }
+      frameBytes, title, originHits, pagesAfterClose: 0, shutdown: 'acknowledged-and-exited', snapshot, phases }
   } catch (error) {
     const diagnostics = { phase, elapsedMs: Math.round(performance.now() - started), phaseMs: Math.round(performance.now() - phaseStarted),
-      timedOut, originHits, hostExitCode: child?.exitCode ?? null, hostSignal: child?.signalCode ?? null, phases, browserProcess }
-    throw new Error(`Packaged browser qualification failed: ${error instanceof Error ? error.message : String(error)}\n${JSON.stringify(diagnostics)}\n${stderr}`,
+      operationMs: operationStarted === undefined ? null : Math.round(performance.now() - operationStarted), timedOut,
+      snapshot, originHits, hostExitCode: child?.exitCode ?? null, hostSignal: child?.signalCode ?? null,
+      phases, browserProcess, spawnError, fatal, stdout, stderr }
+    throw new Error(`Packaged browser qualification failed: ${error instanceof Error ? error.message : String(error)}\n${JSON.stringify(diagnostics)}`,
       { cause: error })
   } finally {
     clearTimeout(deadline)
     stream.abort()
-    terminate()
-    if (exited) await exited
-    origin.closeAllConnections()
-    await new Promise<void>((accept) => { origin.close(() => { accept() }) })
-    rmSync(root, { recursive: true, force: true })
+    try {
+      terminate()
+      if (exited) await withinLifetime(exited, AbortSignal.timeout(CLEANUP_MS))
+    } finally {
+      origin.closeAllConnections()
+      await new Promise<void>((accept) => { origin.close(() => { accept() }) })
+      rmSync(root, { recursive: true, force: true })
+      assert.deepEqual(checkRuntime(app, process.platform, process.arch).errors, [], 'sealed runtime changed during browser qualification')
+    }
   }
 }
 

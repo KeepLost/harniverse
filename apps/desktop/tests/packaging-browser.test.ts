@@ -1,7 +1,65 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
-import { BROWSER_OBSERVER_PLUGIN, qualifyBrowserFrames } from '../scripts/packaging-browser.ts'
+import { BROWSER_OBSERVER_PLUGIN, prepareBrowserSnapshot, qualifyBrowserFrames, waitForHostMessage } from '../scripts/packaging-browser.ts'
+
+void test('browser snapshot shares immutable payloads but patches a private policy inode and leaves the sealed source intact', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'browser-snapshot-test-'))
+  const app = join(root, 'sealed')
+  const snapshot = join(root, 'snapshot')
+  const policy = 'node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml'
+  const original = "    - id: browser-controller\n      name: '@deepseek-ai/dsh-api-browser-controller'\n"
+  try {
+    mkdirSync(join(app, 'node_modules/@deepseek-ai/dsh-web-app'), { recursive: true })
+    mkdirSync(join(app, 'browser'))
+    writeFileSync(join(app, policy), original)
+    writeFileSync(join(app, 'browser/chrome'), 'immutable browser payload')
+    chmodSync(join(app, 'browser/chrome'), 0o755)
+    const evidence = await prepareBrowserSnapshot(app, snapshot, new AbortController().signal)
+    assert.equal(evidence.linkedFiles, 1)
+    assert.equal(evidence.copiedFiles, 1)
+    assert.equal(statSync(join(app, 'browser/chrome')).ino, statSync(join(snapshot, 'browser/chrome')).ino)
+    assert.notEqual(statSync(join(app, policy)).ino, statSync(join(snapshot, policy)).ino)
+    assert.equal(statSync(join(snapshot, 'browser/chrome')).mode, statSync(join(app, 'browser/chrome')).mode)
+    assert.match(readFileSync(join(snapshot, policy), 'utf8'), /allowPrivateAddresses: true/)
+    assert.match(readFileSync(join(snapshot, policy), 'utf8'), /allowedHosts: \['127.0.0.1'\]/)
+    writeFileSync(join(snapshot, policy), 'fixture-only replacement')
+    rmSync(snapshot, { recursive: true })
+    assert.equal(readFileSync(join(app, policy), 'utf8'), original)
+    assert.equal(readFileSync(join(app, 'browser/chrome'), 'utf8'), 'immutable browser payload')
+    const cancelled = AbortSignal.abort(new Error('preparation cancelled'))
+    await assert.rejects(prepareBrowserSnapshot(app, snapshot, cancelled), /preparation cancelled/)
+    assert(!existsSync(snapshot))
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+void test('Host message wait observes cancellation immediately and releases its child listeners', async () => {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] })
+  const closed = new Promise<void>((accept) => { child.once('close', () => { accept() }) })
+  const lifetime = new AbortController()
+  const listeners = child.listenerCount('close')
+  try {
+    const waiting = waitForHostMessage(child, 'ready', lifetime.signal)
+    lifetime.abort(new Error('operation lifetime ended'))
+    await assert.rejects(waiting, /operation lifetime ended/)
+    assert.equal(child.listenerCount('message'), 0)
+    assert.equal(child.listenerCount('close'), listeners)
+    assert.equal(child.listenerCount('error'), 0)
+  } finally { child.kill(); await closed }
+})
+
+void test('Host message wait surfaces a private fatal message before its request deadline', async () => {
+  const child = spawn(process.execPath, ['-e', "setTimeout(() => process.send?.({ type: 'fatal', message: 'sealed boot failed' }), 10)"], {
+    stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+  })
+  const closed = new Promise<void>((accept) => { child.once('close', () => { accept() }) })
+  try {
+    await assert.rejects(waitForHostMessage(child, 'ready', new AbortController().signal), /Host fatal before ready: sealed boot failed/)
+  } finally { child.kill(); await closed }
+})
 
 function event(payload: object): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify({ payload })}\n\n`)
