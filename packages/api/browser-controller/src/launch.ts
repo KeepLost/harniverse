@@ -99,6 +99,8 @@ export interface BrowserLaunchSpec {
   /** How long to wait for the DevTools endpoint line. */
   readonly launchTimeoutMs: number
   readonly signal: AbortSignal
+  /** Retain the tree before endpoint discovery, including when cleanup cannot confirm its exit. */
+  readonly onSpawn: (handle: SubprocessHandle) => void
 }
 
 /**
@@ -160,7 +162,8 @@ export function browserArgv(spec: BrowserLaunchSpec): string[] {
 }
 
 /**
- * Launch one browser process and wait for its DevTools endpoint.
+ * Launch one browser process and wait for its DevTools endpoint. Failure stops
+ * and drains the tree; the caller retains its handle for a failed exit wait.
  * @param spec - resolved launch parameters.
  * @returns the endpoint and the owning process handle.
  */
@@ -177,11 +180,24 @@ export async function launchBrowser(spec: BrowserLaunchSpec): Promise<LaunchedBr
     ambientEnv: 'scrubbed',
     correlation: { sessionId: spec.sessionId, commandId: 'browser-controller', kind: 'other' },
   })
+  // A spawn-level failure can settle done before endpoint discovery observes stderr.
+  void handle.done.catch(() => undefined)
   try {
+    spec.onSpawn(handle)
     const endpoint = await readEndpoint(handle, spec.launchTimeoutMs, spec.signal)
     return { endpoint, handle }
   } catch (error) {
     handle.terminate()
+    // The caller retains the handle through onSpawn if tree quiescence fails.
+    let exited: boolean
+    try {
+      exited = await handle.waitForExit()
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError],
+        `${String(error)}; browser cleanup failed: ${String(cleanupError)}`)
+    }
+    if (!exited) throw new AggregateError([error], `${String(error)}; browser tree did not exit`)
+    await handle.done.catch(() => undefined)
     throw error
   }
 }

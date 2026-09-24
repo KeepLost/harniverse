@@ -4,7 +4,7 @@
 
 宿主侧浏览器 Remote。`ctx.browserController` 在 harness 旁运行真实的 Chromium 进程，按 Session 持有其页面，并以录屏图像加页面元数据的形式提供给浏览器面板。因此页面流量从**宿主**的网络位置发出，而不是用户设备：宿主自身 localhost 上的工作区开发服务器可达，目标看到的是宿主地址，而拒绝被嵌入的页面（`X-Frame-Options`、CSP `frame-ancestors`）也能正常渲染，因为这里根本没有嵌入行为。[子系统页面](../../../docs/subsystems/browser-controller.md)负责线上形状、控制与策略语义，以及 CDP 命令词汇。
 
-这一界面是给人使用的载体，而不是模型接缝：控制器是受认证 API 把关的 Host Remote，页面内容不产生任何会话日志事件，模型自身的抓取仍留在 [`web-fetch-http`](../../web/web-fetch-http/README.md) 及其独立的锁定解析策略中。浏览器进程以 `ambientEnv: 'scrubbed'` 运行——与用户终端不同，页面永不继承 harness 凭据——并使用每个 Session 一份的一次性 profile 目录，在该 Session 的 fiber 释放时删除。
+这一界面是给人使用的载体，而不是模型接缝：控制器是受认证 API 把关的 Host Remote，页面内容不产生任何会话日志事件，模型自身的抓取仍留在 [`web-fetch-http`](../../web/web-fetch-http/README.md) 及其独立的锁定解析策略中。浏览器进程以 `ambientEnv: 'scrubbed'` 运行——与用户终端不同，页面永不继承 harness 凭据——并使用每个 Session 一份的一次性 profile 目录。无论启动失败、最后一个页面关闭，还是 Session 释放，目录都在浏览器进程树退出且进程完成后删除；清理失败时继续保留进程和目录的所有权，以供重试。
 
 ## 服务：`BrowserController`（ctx 键：`browserController`）
 
@@ -15,6 +15,8 @@
 导航在宿主侧先经审查，之后才要求浏览器移动：仅允许 `http`/`https`，不允许内嵌凭据，并且除非设置 `allowPrivateAddresses`，回环、链路本地与私有网段都会被拒绝。非空的 `allowedHosts` 会进一步收窄范围，按精确主机或子域匹配。拒绝会以 `browser-navigation-refused` 这一 Remote 错误呈现，绝不表现为静默的空白页面。
 
 浏览器程序在该 Session 自己的执行环境中解析：设置了 `executablePath` 就用它，否则按顺序探测 `browserCandidates`（Chrome、Chromium 与 Edge 的 Linux 名称，以及它们在 macOS 与 Windows 上的安装路径）。宿主机上没有这类程序是受支持的状态，而非缺陷：`environment` 会回答 `available: false`，并给出一条指明「探测了什么」的原因，`create` 也以同样的文本以 `browser-unavailable` 失败，因此面板能告诉运维应满足哪个名称、或该配置哪条路径。客户端那一半则改为把对话链接交给读者自己的浏览器。
+
+启动预算也约束初始 DevTools 套接字握手与目标发现响应。如果其中任一步失败，`create` 会以 `browser-unavailable` 报告 DevTools 故障，并在删除 profile 前等待其拥有的进程树停止。若无法确认进程树已退出，错误会同时报告原始故障和清理失败；Session 保留句柄和 profile，供后续关闭或释放时重试，清理成功前不会用新进程取代这棵进程树。
 
 同一时刻只有一个附着持有控制权；后来的附着会接过控制权，先前的附着降级为观看，因此过期附着的导航与输入会以 `browser-control-unavailable` 失败，而不是争夺页面。帧是完整图像，所以每个跟随者只保留最新的图像与最新的元数据，而不是有序积压——慢速消费者丢失中间帧，永不使自己的流失败。
 

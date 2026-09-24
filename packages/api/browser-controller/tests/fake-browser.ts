@@ -141,7 +141,10 @@ export async function startFakeBrowser(): Promise<FakeBrowser> {
     kill: () => {
       client?.terminate()
     },
-    close: () => new Promise<void>((resolve) => { sockets.close(() => { server.close(() => { resolve() }) }) }),
+    close: () => new Promise<void>((resolve) => {
+      for (const socket of sockets.clients) socket.terminate()
+      sockets.close(() => { server.close(() => { resolve() }) })
+    }),
   }
 }
 
@@ -161,6 +164,15 @@ function defaultResult(method: string, mintTarget: () => string): Record<string,
 }
 
 /** A fake subprocess provider whose spawn reports the fake browser's endpoint. */
+interface FakeBrowserHandle {
+  terminate: () => void
+  exit: () => void
+  fail: () => void
+  endStderr: () => void
+  readonly terminated: boolean
+  releaseTree: () => void
+}
+
 export interface FakeSubprocess {
   readonly runtime: SubprocessRuntime
   /** Spawn specs the controller submitted. */
@@ -168,13 +180,17 @@ export interface FakeSubprocess {
   /** Executables the controller probed. */
   readonly probes: string[]
   /** Handles the provider returned. */
-  readonly handles: { terminate: () => void; exit: () => void; fail: () => void; endStderr: () => void }[]
+  readonly handles: FakeBrowserHandle[]
   /** Executables that resolve; every other probe fails. */
   resolvable: Set<string>
   /** Endpoint line written to the child's stderr; undefined writes nothing. */
   endpoint: string | undefined
   /** When true, awaiting a spawned tree's exit fails. */
   failWaitForExit: boolean
+  /** When true, the tree waiter reports cancellation without confirming exit. */
+  incompleteWaitForExit: boolean
+  /** Keep the tree running after termination until a test releases it. */
+  holdTreeExit: boolean
   /** When true, the spawned handle exposes no diagnostic stream. */
   withoutStderr: boolean
   /** When true, stderr is decoded to strings before the launcher reads it. */
@@ -198,7 +214,7 @@ export interface FakeSubprocess {
 export function fakeSubprocess(endpoint: string | undefined): FakeSubprocess {
   const spawns: SubprocessSpawnSpec[] = []
   const probes: string[] = []
-  const handles: { terminate: () => void; exit: () => void; fail: () => void; endStderr: () => void }[] = []
+  const handles: FakeSubprocess['handles'][number][] = []
   const fake: FakeSubprocess = {
     spawns,
     probes,
@@ -206,6 +222,8 @@ export function fakeSubprocess(endpoint: string | undefined): FakeSubprocess {
     resolvable: new Set(['google-chrome']),
     endpoint,
     failWaitForExit: false,
+    incompleteWaitForExit: false,
+    holdTreeExit: false,
     withoutStderr: false,
     stringChunks: false,
     prelude: undefined,
@@ -221,6 +239,8 @@ export function fakeSubprocess(endpoint: string | undefined): FakeSubprocess {
         spawns.push(spec)
         const stderr = fake.stringChunks ? new PassThrough({ encoding: 'utf8' }) : new PassThrough()
         const exit = Promise.withResolvers<{ exitCode: number; signal: null }>()
+        const tree = Promise.withResolvers<boolean>()
+        let terminated = false
         const handle = {
           pid: 4321,
           stdin: undefined,
@@ -228,16 +248,24 @@ export function fakeSubprocess(endpoint: string | undefined): FakeSubprocess {
           stderr: fake.withoutStderr ? undefined : stderr,
           collected: {},
           done: exit.promise,
-          terminate: () => { exit.resolve({ exitCode: 0, signal: null }) },
+          terminate: () => {
+            terminated = true
+            if (!fake.holdTreeExit) {
+              exit.resolve({ exitCode: 0, signal: null })
+              tree.resolve(true)
+            }
+          },
           waitForExit: () => fake.failWaitForExit
             ? Promise.reject(new Error('the browser tree never quiesced'))
-            : exit.promise.then(() => true),
+            : fake.incompleteWaitForExit ? Promise.resolve(false) : tree.promise,
         } as unknown as SubprocessHandle
         handles.push({
           terminate: () => { handle.terminate() },
-          exit: () => { exit.resolve({ exitCode: 1, signal: null }) },
-          fail: () => { exit.reject(new Error('the browser process could not be observed')) },
+          exit: () => { exit.resolve({ exitCode: 1, signal: null }); tree.resolve(true) },
+          fail: () => { exit.reject(new Error('the browser process could not be observed')); tree.resolve(true) },
           endStderr: () => { stderr.end() },
+          get terminated() { return terminated },
+          releaseTree: () => { exit.resolve({ exitCode: 0, signal: null }); tree.resolve(true) },
         })
         if (fake.prelude !== undefined) setTimeout(() => { stderr.write(`${String(fake.prelude)}\n`) }, 0)
         if (fake.endpoint !== undefined) {
