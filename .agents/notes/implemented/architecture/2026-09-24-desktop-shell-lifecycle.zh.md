@@ -56,25 +56,23 @@ macOS 一次性 Chromium profile 使用 `--use-mock-keychain`，与 Chromium 文
 
 ## Consequences
 
-原生资格检查等待探测配置目录和 PTY 临时目录的异步删除完成，最多重试五次，重试间隔按 100ms 线性递增。Node 24.20 的[同步删除实现](https://github.com/nodejs/node/blob/v24.20.0/src/node_file.cc)先将 Windows `permission_denied` 排除在重试条件之外，再映射为 `EPERM`；Windows 上不足一秒的重试休眠也会被截断为零。异步删除采用 `EPERM` 重试路径，在资格检查返回前完成。瞬态和持续竞争回归通过注入文件系统故障验证真实重试路径；持续失败仍会使检查失败。原始 CI 日志未标明占用目录的进程。
+资格检查等待原生探测配置目录、PTY 临时目录、浏览器夹具、全新安装配置目录和外层组装目录的异步删除完成，最多重试五次，重试间隔按 100ms 线性递增。Node 24.20 的[同步删除实现](https://github.com/nodejs/node/blob/v24.20.0/src/node_file.cc)先将 Windows `permission_denied` 排除在重试条件之外，再映射为 `EPERM`；Windows 上不足一秒的重试休眠也会被截断为零。异步删除采用 `EPERM` 重试路径，在资格检查返回前完成。瞬态和持续竞争回归通过注入文件系统故障验证真实重试路径；持续失败仍会使检查失败。浏览器清理失败保留此前的资格检查错误与阶段。原始 CI 日志未标明占用目录的进程。
 
-`dae21af75a` 上的 [CI 运行 35969980689](https://github.com/KeepLost/harniverse/actions/runs/35969980689) 通过了修正后的 lint 检查，但暴露出 Windows 原生探测配置目录删除 `EPERM` 和 macOS spill 校验／修剪竞态。异步清理修正通过 28 项聚焦打包测试及真实 Linux 原生资格检查。[spill 修正](../process/2026-09-06-absorb-batch-2-spill-identity-projection-discovery.md)通过 76 项包测试，变更源码覆盖率为 100%。这些修正仍需新的原生 CI 验证。
-
-`d47e5c75e0` 上的 [CI 运行 35975011556](https://github.com/KeepLost/harniverse/actions/runs/35975011556) 在安装器构建前后均通过 Windows 原生资格检查，随后因浏览器夹具根目录仍走同步清理路径而删除失败。浏览器、clean-install smoke 和外层组装清理现也等待异步删除完成，最多重试五次，间隔按 100ms 递增。浏览器清理失败保留此前的资格检查错误与阶段。全部 45 项打包测试通过，现有封存 Linux 产物也通过修正后的浏览器资格检查和 clean-install smoke；原生 Windows 确认仍待完成。
+本地验证通过全部 45 项打包测试、打包类型检查、完整构建、类型感知 lint，以及真实 Linux 原生、浏览器和全新安装资格检查。[spill 修正](../process/2026-09-06-absorb-batch-2-spill-identity-projection-discovery.md)通过 76 项包测试，变更源码覆盖率为 100%，其中包括在目录创建和校验之间运行真实清扫的回归。这些测试证明有界清理及目录重建行为；下述平台资格检查证明打包后的行为。
 
 外壳保留较小的本机信任边界，并依赖 Host 的实际退出和认证注册约定。其浏览器设备适配器共享 Web 客户端的持久化格式，因此修改该辅助函数时需要联合验证桌面引导与 Web 认证入口。
 
 聚焦的[生命周期](../../../../apps/desktop/tests/main.spec.ts)、[IPC](../../../../apps/desktop/tests/ipc.spec.ts)和[预加载](../../../../apps/desktop/tests/preload.spec.ts)测试在 Electron 模块边界替换实现，无需模型提供方即可验证所有权、拒绝行为、崩溃恢复和关闭完成。最终品牌化 Linux x64 AppImage 与解包目录产物已经通过真实 Electron Host 认证和 CDP 浏览器验证，资源清单 SHA-256 为 `0acb0a809a1433abc933c47862604401b2c911cb68548654fd4204c86db7518f`：12,079 字节 JPEG 帧、正确标题、一次本地请求、关闭后零页面以及确认退出状态 0。同一资格检查还通过了未认证 401、签名交换、插件引导、UI 渲染、Session 列表、重启后复用设备密钥、Host 存活时关闭／隐藏、重开、两次确认 Host 关闭和空命令路径运行。原生资格检查通过 Electron 43.4.0、内嵌 Node 24.18.1、Koffi、sharp、PTY、PTC、SQLite 和 pnpm 11.7.0，资源清单无错误或警告。
 
-最低桌面验证矩阵为 Linux x64、Windows x64 和 macOS arm64。`b5f066181e` 上的 [CI 运行 35967557709](https://github.com/KeepLost/harniverse/actions/runs/35967557709) 已完整通过三个桌面作业，包括安装包构建和产物上传。每个目标均通过 Electron 43.4.0／内嵌 Node 24.18.1 原生探测、具有正确标题和一次本地请求的认证 Host/CDP 导航、关闭后零页面以及获确认的 Host 退出。空命令路径的全新安装回执记录了初始 401、签名交换、插件引导、UI 渲染、Session 列表、重启后保留设备密钥、Host 存活时隐藏／重开以及两次获确认的 Host 关闭。
+最低桌面验证矩阵为 Linux x64、Windows x64 和 macOS arm64。`b270498d25` 上的 [CI 运行 35976981181](https://github.com/KeepLost/harniverse/actions/runs/35976981181) 已完整通过三个桌面作业，包括安装包构建、有界异步清理和产物上传。每个目标均通过 Electron 43.4.0／内嵌 Node 24.18.1 原生探测、具有正确标题和一次本地请求的认证 Host/CDP 导航、关闭后零页面以及获确认的 Host 退出。空命令路径的全新安装回执记录了初始 401、签名交换、插件引导、UI 渲染、Session 列表、重启后保留设备密钥、Host 存活时隐藏／重开以及两次获确认的 Host 关闭。
 
 | 目标 | 安装包 | 浏览器 JPEG 字节数 | 全新安装资源清单 SHA-256 |
 |---|---|---:|---|
-| Linux x64 | AppImage | 18,909 | `f32d1b74359230ef27960e53a79dba40247fe729376e23aa06af37f53f28dc9f` |
-| Windows x64 | NSIS | 18,612 | `37ba08326341cadd506b5aa226787b9936cd179eb6f0d217df5e21940451be9a` |
-| macOS arm64 | DMG | 20,283 | `a09591046bb305d4d6fa8061e6c6a1fcb215bb67517e4fce461c7338f0f507df` |
+| Linux x64 | AppImage | 18,909 | `ae64abd1e0b63d6c360fe4f2657addac33cd23285c8f1392bba207b00a440930` |
+| Windows x64 | NSIS | 18,612 | `91d3403ba32f0fc20b4367b90d145676d17a100d5370d333534b83d716e738a7` |
+| macOS arm64 | DMG | 20,283 | `7abfca6a44da2d9bb70f9ad929e8b617ddd2d4d8dee1f533a64673a49ff88c74` |
 
-使用观察插件文件 URL 后，Windows 浏览器 Host 在启动约 10 秒后就绪，解决了此前 120 秒的就绪失败。此运行的快照通过，但快照／产物合并作业因新观察插件回归中的多余断言未通过类型感知 lint；该断言已替换为显式捕获内容检查。桌面资格检查证明打包运行时与外壳行为，不证明交互式安装器升级或原生更新中断／恢复。
+同一 CI 运行通过汇总门禁、静态检查、覆盖率、快照／产物检查、两个 Web E2E 分片、Windows 完整原生与 Wine 测试、macOS 原生测试、Node 兼容性和 Python 检查。使用观察插件文件 URL 后，Windows 浏览器 Host 在启动约 10 秒后就绪。桌面资格检查证明打包运行时与外壳行为。交互式安装器升级和原生更新中断／恢复需要单独的实际验证证据。
 
 保留的 `5a754836b1` 认证清理修正已有扩充后的本地证据：27 项清理测试和 16 项租约／日志测试，所测租约源码达到逐文件 100% 覆盖率。它们覆盖 `EPERM` 或 `ENOENT` 后保留存活的替代所有者、64 次尝试上限、并发删除后成功获取租约，以及 `EIO` 向上传播。原生 Windows 完整测试已在 35967557709 和 35969980689 两次运行中通过。
 
