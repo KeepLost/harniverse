@@ -1,6 +1,6 @@
 /** Native CI entry: provision build tools explicitly, assemble, package and qualify the final executable. */
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { basename, delimiter, dirname, join, resolve } from 'node:path'
@@ -35,12 +35,12 @@ export function findPnpmDirectory(explicit?: string): string {
   ].filter((value): value is string => Boolean(value))
   for (const location of locations) {
     if (!existsSync(location)) continue
-    let current = realpathSync(location)
+    let current = resolve(location)
     if (!statSync(current).isDirectory()) current = dirname(current)
     for (let depth = 0; depth < (explicit ? 1 : 4); depth++, current = dirname(current)) {
       for (const candidate of [current, join(current, 'node_modules/pnpm'), join(current, 'lib/node_modules/pnpm'),
         join(current, 'global/5/node_modules/pnpm')]) {
-        if (completePnpm(candidate)) return realpathSync(candidate)
+        if (completePnpm(candidate)) return candidate
       }
     }
   }

@@ -1,3 +1,4 @@
+// Built Host lifecycle qualification runs after build:desktop in the desktop lane.
 import { fork } from 'node:child_process'
 import { generateKeyPairSync, sign } from 'node:crypto'
 import { copyFile, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'

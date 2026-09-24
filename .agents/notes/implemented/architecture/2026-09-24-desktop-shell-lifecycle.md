@@ -30,6 +30,8 @@ The main process atomically persists the journal before effects. A writable runn
 
 ## Alternatives considered
 
+Built Host qualification uses `vitest.desktop.config.ts` after an explicit Host build in `test:desktop`. These `.e2e.ts` cases cannot join the source-only unit/coverage inventory: their subprocess entry and shared Web runtime are build artifacts. Authentication availability recovery does not invalidate an in-flight authorized activity sample; unavailability and revocation do, and the final Grant checks remain mandatory. Packaging resolves staging aliases before creating directories and rejects output inside the input runtime; POSIX executable-mode checks apply only on hosts that expose those bits.
+
 The private Host uses Node's `import.meta.main` to recognize process entry. Comparing the module URL with the argument path misclassifies macOS `/var` aliases and directory junctions after the module loader resolves them. The built-process regression launches through a directory alias and still requires normal authenticated readiness and acknowledged exit; ownership tests compare canonical paths and shell tests derive native file URLs.
 
 An independent desktop business UI duplicates plugin composition and authentication behavior. Loading the shared Web entry keeps these capabilities under their existing owners.

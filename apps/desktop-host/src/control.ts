@@ -33,7 +33,10 @@ export default class DesktopControl extends Service {
     super(ctx, 'desktopControl')
     if (typeof config.home !== 'string' || !isAbsolute(config.home)) throw new Error('Desktop control requires its private home.')
     ctx.on('authentication/unavailable', () => { this.available = false; this.generation++ })
-    ctx.on('authentication/available', () => { this.available = true; this.generation++ })
+    // Availability recovery is safe to fold into an in-flight sample: the
+    // final Grant and status reads still authorize the result. Unavailability
+    // and revocation remain generation changes and invalidate the sample.
+    ctx.on('authentication/available', () => { this.available = true })
     ctx.on('authentication/revoked', () => { this.generation++ })
   }
 

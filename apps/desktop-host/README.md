@@ -36,6 +36,7 @@ From this directory, after workspace dependencies and their runtime artifacts ar
 ```sh
 node ../../node_modules/tsdown/dist/run.mjs
 node ../../node_modules/vitest/vitest.mjs run apps/desktop-host/tests --root ../.. --maxWorkers=1
+node ../../node_modules/vitest/vitest.mjs run --root ../.. --config vitest.desktop.config.ts
 ```
 
 The built-process tests relocate this app beside the CLI dependency closure, boot isolated real profiles with no model credentials (including an empty PATH), complete device enrollment and browser-session challenge exchange, call the authenticated `session.list` API, and verify actual process close. A second process test exercises the production parent adapter's enrollment, update admission and shutdown replies. Unit and Loader tests cover strict validation, deadlines, home preservation, disabled profile rows, device restoration and revocation, native picker correlation, and a real scheduler waiting on Agent idle. Tests close every owned instance and remove only their temporary homes.

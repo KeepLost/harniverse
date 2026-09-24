@@ -36,7 +36,7 @@ async function composition(existingHome?: string) {
     { id: 'control', name: 'cordis:control', config: { home } },
     { id: 'http', name: 'cordis:http' },
   ]))
-  const state = { running: false, terminal: false, schedule: false }
+  const state = { running: false, terminal: false, schedule: false, emitAvailable: false }
   const teardown = deferred<undefined>()
   const ctx = await boot('desktop-loader-test', config, undefined, async (ctx) => {
     await ctx.plugin(CallbackDesktopShell, async () => '/selected-by-shell')
@@ -47,9 +47,15 @@ async function composition(existingHome?: string) {
         // Only runtime projections are deterministic fixtures; auth, HTTP, Loader and Providers are real.
         ctx.provide('sessions', { list: () => [{ id: 'one' }] })
         ctx.provide('agents', { list: () => [], close: async () => false })
-        ctx.provide('apiProxy', { sessions: { status: async () => ({ result: { ok: true, value: {
-          running: state.running, closing: false, queue: [], jobs: [], interactions: [],
-        } } }) } })
+        ctx.provide('apiProxy', { sessions: { status: async () => {
+          if (state.emitAvailable) {
+            state.emitAvailable = false
+            ctx.emit('authentication/available')
+          }
+          return { result: { ok: true, value: {
+            running: state.running, closing: false, queue: [], jobs: [], interactions: [],
+          } } }
+        } } })
         ctx.provide('terminalController', { list: () => state.terminal ? [{ state: 'running' }] : [] })
         ctx.provide('scheduler', { listAll: () => state.schedule ? [{ status: 'active' }] : [] })
         ctx.effect(() => () => teardown.promise)
@@ -135,5 +141,12 @@ describe('Loader desktop composition', () => {
     await disposal
     expect(ctx.get('desktopControl')).toBeUndefined()
     await expect(fetch(`${url}/protected`)).rejects.toThrow()
+  })
+
+  it('keeps a valid lock result when availability recovery arrives during observation', async () => {
+    const { ctx, state } = await composition()
+    await ctx.desktopControl.enroll(key().publicKey)
+    state.emitAvailable = true
+    expect(await ctx.desktopControl.updateTasks('lock')).toEqual({ status: 'idle', sessions: 0, tasks: 0 })
   })
 })

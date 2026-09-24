@@ -41,6 +41,11 @@ export function targetName(platform: string, arch: string): string {
   return `${platform}-${arch}`
 }
 
+/** POSIX executable bits are meaningful only when the checking host has them. */
+export function targetUsesPosixExecutableMode(platform: string, hostPlatform = process.platform): boolean {
+  return platform !== 'win32' && hostPlatform !== 'win32'
+}
+
 /** Retain dependency source used as JavaScript runtime and all native/helper payloads. */
 export function runtimeFileAllowed(path: string): boolean {
   const parts = path.replaceAll('\\', '/').split('/')
@@ -64,6 +69,19 @@ export function runtimeFileAllowed(path: string): boolean {
 function inside(root: string, path: string): boolean {
   const rel = relative(root, path)
   return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`))
+}
+
+/** Resolve an output path through existing aliases without creating missing path components. */
+function plannedRealpath(path: string): string {
+  const missing: string[] = []
+  let current = path
+  while (!existsSync(current)) {
+    const parent = dirname(current)
+    if (parent === current) throw new Error(`cannot resolve staging output parent: ${path}`)
+    missing.push(relative(parent, current))
+    current = parent
+  }
+  return resolve(realpathSync(current), ...missing.reverse())
 }
 
 function assetPath(value: unknown): string {
@@ -244,11 +262,15 @@ export function prepareRuntime(inputDirectory: string, outputDirectory: string, 
   const target = targetName(platform, arch)
   const root = realpathSync(inputDirectory)
   const targetRoot = resolve(outputDirectory, target)
-  if (inside(root, targetRoot)) throw new Error('staging output must be outside the runtime input')
+  if (inside(root, plannedRealpath(targetRoot))) throw new Error('staging output must be outside the runtime input')
   const input = runtimeInput(readObject(join(root, 'runtime-input.json')))
   if (targetName(input.platform, input.arch) !== target) throw new Error(`runtime target mismatch: expected ${target}`)
   mkdirSync(targetRoot, { recursive: true })
-  if (realpathSync(targetRoot) !== targetRoot) throw new Error('staging output must not traverse a symlink')
+  // macOS exposes /var through the canonical /private/var alias. Compare the
+  // resolved target after creation so aliasing is harmless, while an output
+  // link into the input runtime remains rejected.
+  const canonicalTargetRoot = realpathSync(targetRoot)
+  if (inside(root, canonicalTargetRoot)) throw new Error('staging output must be outside the runtime input')
   const final = join(targetRoot, 'app')
   if (existsSync(final)) throw new Error(`stage already exists: ${final}; use a fresh output directory`)
   const temporary = mkdtempSync(join(targetRoot, '.prepare-'))
@@ -312,7 +334,9 @@ export function checkRuntime(directory: string, platform: string, arch: string):
       if (!byPath.has(path)) errors.push(`missing required runtime asset: ${path}`)
     }
     const browser = byPath.get(input.browser.executable)
-    if (browser && platform !== 'win32' && (browser.mode & 0o111) === 0) errors.push('packaged browser is not executable')
+    if (browser && targetUsesPosixExecutableMode(platform) && (browser.mode & 0o111) === 0) {
+      errors.push('packaged browser is not executable')
+    }
     for (const file of actual.filter(file => file.path.startsWith('browser/'))) {
       if (!input.requiredFiles.includes(file.path)) errors.push(`browser asset must be required: ${file.path}`)
     }

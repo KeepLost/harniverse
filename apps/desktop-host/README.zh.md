@@ -36,6 +36,7 @@ Host home 必须为空，或携带 `.desktop-owned` 标记；它必须是真实�
 ```sh
 node ../../node_modules/tsdown/dist/run.mjs
 node ../../node_modules/vitest/vitest.mjs run apps/desktop-host/tests --root ../.. --maxWorkers=1
+node ../../node_modules/vitest/vitest.mjs run --root ../.. --config vitest.desktop.config.ts
 ```
 
 构建进程测试会把应用移到 CLI 依赖闭包旁，使用无模型凭据的隔离 Profile 启动真实进程（包括空 PATH），完成设备 enrollment 与 browser-session challenge exchange，调用带认证的 `session.list` API，并验证真实进程关闭。另一项进程测试通过生产父进程适配器验证 enrollment、update admission 和关闭响应。单元测试与 Loader 测试覆盖严格校验、期限、home 保留、禁用的 Profile 行、设备恢复与撤销、原生目录选择关联，以及真实 scheduler 对 Agent idle 的等待。所有测试都会关闭自有实例，并且只删除临时 home。

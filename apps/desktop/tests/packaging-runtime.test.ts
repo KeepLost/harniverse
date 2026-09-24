@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { prepareRuntime, checkRuntime, runtimeFileAllowed, targetName } from '../scripts/packaging-runtime.ts'
+import { prepareRuntime, checkRuntime, runtimeFileAllowed, targetName, targetUsesPosixExecutableMode } from '../scripts/packaging-runtime.ts'
 import { assembleDependencyClosure } from '../scripts/packaging-assembly.ts'
 
 interface InventoryManifest {
@@ -57,6 +57,28 @@ void test('staging preserves dependency runtime, native helpers, and an exact SH
     writeFileSync(join(stage, 'lib/main.js'), 'tampered')
     assert.match(checkRuntime(stage, 'linux', 'x64').errors.join('\n'), /digest mismatch.*lib\/main.js/)
     assert.match(checkRuntime(stage, 'win32', 'x64').errors.join('\n'), /target mismatch/)
+  } finally { rmSync(f.root, { recursive: true, force: true }) }
+})
+
+void test('cross-platform checks do not interpret POSIX executable bits on a Windows host', () => {
+  assert.equal(targetUsesPosixExecutableMode('linux', 'win32'), false)
+  assert.equal(targetUsesPosixExecutableMode('linux', 'linux'), true)
+  const f = fixture()
+  try {
+    const stage = prepareRuntime(f.input, f.output, 'linux', 'x64')
+    assert.deepEqual(checkRuntime(stage, 'linux', 'x64').errors, [])
+  } finally { rmSync(f.root, { recursive: true, force: true }) }
+})
+
+void test('staging accepts a canonical system alias while rejecting an output redirect into input', () => {
+  const f = fixture()
+  try {
+    const alias = join(f.root, 'alias')
+    symlinkSync(f.input, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    assert.throws(() => prepareRuntime(f.input, join(alias, 'output'), 'linux', 'x64'), /staging output must be outside/)
+    assert.equal(existsSync(join(f.input, 'output')), false)
+    const stage = prepareRuntime(f.input, join(f.root, 'safe-output'), 'linux', 'x64')
+    assert.equal(existsSync(join(stage, 'offline-assets.json')), true)
   } finally { rmSync(f.root, { recursive: true, force: true }) }
 })
 
