@@ -83,7 +83,7 @@ macOS 的应用目录位于 `Harniverse.app/Contents/Resources/app`，Windows �
 
 最终品牌化本地 Linux x64 AppImage 与解包目录产物通过了认证 Host／CDP 浏览器检查、空命令路径的全新安装冒烟和原生资格检查。其资源清单 SHA-256 为 `0acb0a809a1433abc933c47862604401b2c911cb68548654fd4204c86db7518f`。浏览器产生了 12,079 字节 JPEG 帧，标题正确、一次本地请求、关闭后零页面且确认退出状态为 0。全新安装回执还记录了认证前 401、签名交换、插件引导、UI 渲染、Session 列表、重启后复用设备密钥、Host 存活时关闭／隐藏、重开和两次确认 Host 关闭。
 
-Linux x64 和 macOS arm64 桌面 CI 作业已完整通过。Windows 是剩余的平台资格缺口：桌面资格检查在等待 Host-ready 120 秒后失败，完整原生 Windows 作业在删除陈旧租约所有者文件时因 `EPERM` 失败。这些修正必须由新的 Windows CI 运行验证；[桌面架构记录](../../.agents/notes/implemented/architecture/2026-09-24-desktop-shell-lifecycle.md#consequences)保留运行与本地回归证据。发行签名和公证仍是独立的发行门禁。
+Linux x64、Windows x64 和 macOS arm64 已在 CI 中通过原生安装包构建、打包运行时探测、认证 Host/CDP 浏览器资格检查和空命令路径的全新安装冒烟。[桌面架构记录](../../.agents/notes/implemented/architecture/2026-09-24-desktop-shell-lifecycle.md#consequences)保留精确版本与各平台证据。此资格检查覆盖打包运行时与外壳生命周期；交互式安装器升级、原生更新中断与恢复仍需单独的平台演练。发行签名和公证仍是独立的发行门禁。
 
 ## 更新与恢复参考
 

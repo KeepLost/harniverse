@@ -33,9 +33,9 @@ void test('browser snapshot shares immutable payloads but patches a private poli
     assert.equal(statSync(join(snapshot, 'browser/chrome')).mode, statSync(join(app, 'browser/chrome')).mode)
     assert.match(readFileSync(join(snapshot, policy), 'utf8'), /allowPrivateAddresses: true/)
     assert.match(readFileSync(join(snapshot, policy), 'utf8'), /allowedHosts: \['127.0.0.1'\]/)
-    const observerRow = readFileSync(join(snapshot, policy), 'utf8').match(/id: browser-qualification-observer\s+name: (.+)/)
+    const observerRow = readFileSync(join(snapshot, policy), 'utf8').match(/id: browser-qualification-observer\s+name: (.+)/)?.[1]
     assert(observerRow, 'snapshot must register the observer plugin')
-    const observerSpecifier = JSON.parse(observerRow[1]!) as string
+    const observerSpecifier = JSON.parse(observerRow) as string
     const observer = await import(observerSpecifier) as { name: string }
     assert.equal(observer.name, 'desktop-browser-qualification-observer')
     assert.equal(new URL(observerSpecifier).protocol, 'file:')

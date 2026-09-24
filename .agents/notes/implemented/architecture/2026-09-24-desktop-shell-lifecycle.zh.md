@@ -60,7 +60,15 @@ macOS 一次性 Chromium profile 使用 `--use-mock-keychain`，与 Chromium 文
 
 聚焦的[生命周期](../../../../apps/desktop/tests/main.spec.ts)、[IPC](../../../../apps/desktop/tests/ipc.spec.ts)和[预加载](../../../../apps/desktop/tests/preload.spec.ts)测试在 Electron 模块边界替换实现，无需模型提供方即可验证所有权、拒绝行为、崩溃恢复和关闭完成。最终品牌化 Linux x64 AppImage 与解包目录产物已经通过真实 Electron Host 认证和 CDP 浏览器验证，资源清单 SHA-256 为 `0acb0a809a1433abc933c47862604401b2c911cb68548654fd4204c86db7518f`：12,079 字节 JPEG 帧、正确标题、一次本地请求、关闭后零页面以及确认退出状态 0。同一资格检查还通过了未认证 401、签名交换、插件引导、UI 渲染、Session 列表、重启后复用设备密钥、Host 存活时关闭／隐藏、重开、两次确认 Host 关闭和空命令路径运行。原生资格检查通过 Electron 43.4.0、内嵌 Node 24.18.1、Koffi、sharp、PTY、PTC、SQLite 和 pnpm 11.7.0，资源清单无错误或警告。
 
-最低发行验证矩阵为 Linux x64、Windows x64 和 macOS arm64。`4ce331fd1a` 上的 [CI 运行 35960976764](https://github.com/KeepLost/harniverse/actions/runs/35960976764) 已完整通过 Linux x64 和 macOS arm64 桌面作业。Windows 桌面因 `Host did not report ready within 120000ms` 失败；完整原生 Windows 作业在删除陈旧租约所有者文件时因 `EPERM` 失败。其他作业通过，汇总检查 `all checks passed` 失败。Windows 资格仍待新的 CI 运行验证这些修正。
+最低桌面验证矩阵为 Linux x64、Windows x64 和 macOS arm64。`b5f066181e` 上的 [CI 运行 35967557709](https://github.com/KeepLost/harniverse/actions/runs/35967557709) 已完整通过三个桌面作业，包括安装包构建和产物上传。每个目标均通过 Electron 43.4.0／内嵌 Node 24.18.1 原生探测、具有正确标题和一次本地请求的认证 Host/CDP 导航、关闭后零页面以及获确认的 Host 退出。空命令路径的全新安装回执记录了初始 401、签名交换、插件引导、UI 渲染、Session 列表、重启后保留设备密钥、Host 存活时隐藏／重开以及两次获确认的 Host 关闭。
+
+| 目标 | 安装包 | 浏览器 JPEG 字节数 | 全新安装资源清单 SHA-256 |
+|---|---|---:|---|
+| Linux x64 | AppImage | 18,909 | `f32d1b74359230ef27960e53a79dba40247fe729376e23aa06af37f53f28dc9f` |
+| Windows x64 | NSIS | 18,612 | `37ba08326341cadd506b5aa226787b9936cd179eb6f0d217df5e21940451be9a` |
+| macOS arm64 | DMG | 20,283 | `a09591046bb305d4d6fa8061e6c6a1fcb215bb67517e4fce461c7338f0f507df` |
+
+使用观察插件文件 URL 后，Windows 浏览器 Host 在启动约 10 秒后就绪，解决了此前 120 秒的就绪失败。此运行的快照通过，但快照／产物合并作业因新观察插件回归中的多余断言未通过类型感知 lint；该断言已替换为显式捕获内容检查。桌面资格检查证明打包运行时与外壳行为，不证明交互式安装器升级或原生更新中断／恢复。
 
 保留的 `5a754836b1` 认证清理修正已有扩充后的本地证据：27 项清理测试和 16 项租约／日志测试，所测租约源码达到逐文件 100% 覆盖率。它们覆盖 `EPERM` 或 `ENOENT` 后保留存活的替代所有者、64 次尝试上限、并发删除后成功获取租约，以及 `EIO` 向上传播。这些本地回归不能证明原生 Windows 已通过。
 
