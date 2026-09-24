@@ -1,6 +1,6 @@
 /** Offline qualification of the packaged Host browser through its authenticated Gateway and frame stream. */
 import assert from 'node:assert/strict'
-import { fork, spawnSync, type ChildProcess } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { generateKeyPairSync, randomUUID, sign } from 'node:crypto'
 import { constants, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { copyFile, link, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
@@ -153,6 +153,15 @@ function withinLifetime<T>(pending: Promise<T>, signal: AbortSignal): Promise<T>
     signal.addEventListener('abort', abort, { once: true })
     if (signal.aborted) abort()
     void pending.then(accept, reject).finally(() => { signal.removeEventListener('abort', abort) })
+  })
+}
+
+/** Launch the packaged Electron Host with the same explicit Node/IPC contract as the desktop shell. */
+export function spawnPackagedHost(runtime: string, executable: string, home: string, env: NodeJS.ProcessEnv): ChildProcess {
+  return spawn(resolve(executable), ['--expose-internals', join(runtime, 'lib/desktop-host.js'), home,
+    join(runtime, 'node_modules/@deepseek-ai/dsh/package.json'), '--port', '0'], {
+    env, cwd: home, stdio: ['ignore', process.platform === 'win32' ? 'ignore' : 'pipe', 'pipe', 'ipc'],
+    detached: process.platform !== 'win32',
   })
 }
 
@@ -350,12 +359,7 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
     operationStarted = performance.now()
     deadline = setTimeout(timeout, OPERATION_MS)
     enter('host-ready')
-    const host = fork(join(runtime, 'lib/desktop-host.js'), [home, join(runtime, 'node_modules/@deepseek-ai/dsh/package.json'), '--port', '0'], {
-      execPath: resolve(executable), execArgv: ['--expose-internals'], env, cwd: home,
-      // The packaged Windows Electron RunAsNode path boots reliably with no stdout pipe;
-      // stderr and private IPC retain the actionable diagnostics needed by this qualifier.
-      stdio: ['ignore', process.platform === 'win32' ? 'ignore' : 'pipe', 'pipe', 'ipc'], detached: process.platform !== 'win32',
-    })
+    const host = spawnPackagedHost(runtime, executable, home, env)
     child = host
     host.on('message', (value: Message) => {
       if (value.type === 'browser-qualification-observation') browserProcess = value.observation
