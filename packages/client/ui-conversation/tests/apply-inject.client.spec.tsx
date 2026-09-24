@@ -63,7 +63,7 @@ async function bench() {
     summary: { title: 'R', displayTitle: 'R', cwd: '/proj' },
     session: sessionFake,
   })
-  const layoutFake = { openDetails: vi.fn(), closeDetails: vi.fn(), openWorkbenchSection: vi.fn() }
+  const layoutFake = { openDetails: vi.fn(), closeDetails: vi.fn(), openWorkbench: vi.fn(), openWorkbenchSection: vi.fn() }
   runtime.provide('layout', layoutFake)
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.provide('locale', locale)
@@ -146,6 +146,13 @@ async function bench() {
 }
 
 describe('conversation slot inject API', () => {
+  it('opens the existing layout workbench through the resident callback', async () => {
+    const b = await bench()
+    b.residentApi(ROOT).openWorkbench()
+    expect(b.layoutFake.openWorkbench).toHaveBeenCalledOnce()
+    await b.runtime.dispose()
+  })
+
   it('assembles the thin API side-effect-free', async () => {
     const b = await bench()
     const { injected } = b.conversationApi(ROOT)

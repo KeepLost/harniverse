@@ -28,39 +28,52 @@ export function workspaceLabel(cwd: string): string {
 }
 
 /**
- * The workspace chip (folder + label + chevron), always interactive: before
- * the first message the workspace stays switchable — picking another one
- * moves the New Session flow to that workspace's blank session. Without a
- * label the chip renders its placeholder state: closed folder + the
- * "Choose workspace" call to action.
+ * Split workspace chip: the name opens the workbench only for the resolved
+ * session Workspace; the arrow keeps the blank-session picker accessible.
  * @param props.label - chip label (see {@link workspaceLabel}); omitted → placeholder.
  * @param props.menuOpen - menu expansion echo.
- * @param props.onClick - menu toggle.
- * @returns the chip button element.
+ * @param props.openDisabled - no resolved session Workspace or a switch is pending.
+ * @param props.onPick - menu toggle.
+ * @param props.onOpen - workbench opener.
+ * @returns the two-button chip.
  */
-export function WorkspaceChip({ buttonRef, label, menuOpen = false, onClick, t }: {
+export function WorkspaceChip({ buttonRef, label, menuOpen = false, openDisabled, onPick, onOpen, t }: {
   buttonRef?: RefObject<HTMLButtonElement>
   label?: string | undefined
   menuOpen?: boolean
-  onClick?: () => void
+  openDisabled: boolean
+  onPick: () => void
+  onOpen: () => void
   t: HeroTranslate
 }) {
   return (
-    <button
-      ref={buttonRef}
-      type="button"
-      className={css.workspace}
-      aria-label={t('hero.chooseWorkspace')}
-      aria-haspopup="menu"
-      aria-expanded={menuOpen}
-      onClick={onClick}
-    >
-      {label === undefined
-        ? <IconFolderClose16 className={css.folder} size={16} />
-        : <IconFolderOpen16 className={css.folder} size={16} />}
-      <span className={css.workspaceLabel}>{label ?? t('hero.chooseWorkspace')}</span>
-      <IconChevronDownOutline14 className={css.chevron} size={12} />
-    </button>
+    <div className={css.workspace}>
+      <button
+        type="button"
+        className={css.workspaceName}
+        aria-label={t('hero.openWorkbench')}
+        title={t('hero.openWorkbench')}
+        disabled={openDisabled}
+        onClick={onOpen}
+      >
+        {label === undefined
+          ? <IconFolderClose16 className={css.folder} size={16} />
+          : <IconFolderOpen16 className={css.folder} size={16} />}
+        <span className={css.workspaceLabel}>{label ?? t('hero.chooseWorkspace')}</span>
+      </button>
+      <button
+        ref={buttonRef}
+        type="button"
+        className={css.workspacePicker}
+        aria-label={t('hero.chooseWorkspace')}
+        title={t('hero.chooseWorkspace')}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onClick={onPick}
+      >
+        <IconChevronDownOutline14 className={css.chevron} size={12} />
+      </button>
+    </div>
   )
 }
 

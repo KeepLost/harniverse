@@ -124,32 +124,68 @@
   padding-left: 8px;
 }
 
-/* Folder + label + chevron — transparent at rest; fill only on hover / open. */
+/* One chip, two native actions: name opens the workbench, arrow picks a Workspace. */
 .workspace {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
   max-width: min(100%, 360px);
   min-height: 28px;
-  padding: 0 8px;
-  border: none;
   border-radius: 16px;
-  background: transparent;
   color: var(--dsw-alias-label-primary);
   font-size: 13px;
   line-height: 20px;
   font-weight: 500;
+}
+
+.workspaceName,
+.workspacePicker {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   cursor: pointer;
 }
 
-.workspace:not(:disabled):hover,
-.workspace[aria-expanded='true'] {
+.workspaceName {
+  gap: 4px;
+  min-width: 0;
+  padding: 0 6px 0 8px;
+  border-radius: 16px 0 0 16px;
+}
+
+.workspacePicker {
+  position: relative;
+  justify-content: center;
+  width: 28px;
+  flex: none;
+  border-radius: 0 16px 16px 0;
+}
+
+.workspacePicker::before {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  border-left: 1px solid var(--dsw-alias-border-l2);
+  content: '';
+}
+
+.workspaceName:not(:disabled):hover,
+.workspacePicker:hover,
+.workspacePicker[aria-expanded='true'] {
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-/* Locked form (bound guidance state): a static echo — no hover feedback, no
-   pointer affordance; label keeps full contrast. */
-.workspace:disabled {
+.workspaceName:focus-visible,
+.workspacePicker:focus-visible {
+  outline: 2px solid var(--dsw-alias-label-primary-bluish);
+  outline-offset: -2px;
+}
+
+.workspaceName:disabled {
   cursor: default;
 }
 

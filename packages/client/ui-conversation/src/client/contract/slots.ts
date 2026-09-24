@@ -418,6 +418,8 @@ export type ChatStore = ReturnType<typeof createChatStore>
 
 /** Business callbacks injected into the conversation slot. */
 export interface ConversationInjected {
+  /** Open the existing layout workbench for the resolved blank-session Workspace. */
+  openWorkbench: () => void
   /**
    * Connect the selected Workspace and open its reusable/new blank session.
    * When a blank session is already current, carry its draft to the target.
