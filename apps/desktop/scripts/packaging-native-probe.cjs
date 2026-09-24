@@ -1,7 +1,8 @@
 /** Executed only by the target Electron in run-as-Node mode against the staged closure. */
 const assert = require('node:assert/strict')
 const { spawn, spawnSync } = require('node:child_process')
-const { mkdtempSync, readFileSync, rmSync, writeFileSync } = require('node:fs')
+const { mkdtempSync, readFileSync, writeFileSync } = require('node:fs')
+const { rm } = require('node:fs/promises')
 const { createRequire } = require('node:module')
 const { join, resolve, win32 } = require('node:path')
 const { pathToFileURL } = require('node:url')
@@ -88,7 +89,7 @@ async function qualifyPty(appRequire) {
         await exit
       } finally { exitSubscription.dispose() }
     }
-  } finally { rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
+  } finally { await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
 }
 
 async function qualifyPtc(appRequire) {

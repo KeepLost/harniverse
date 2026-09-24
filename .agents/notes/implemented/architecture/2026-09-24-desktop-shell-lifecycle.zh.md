@@ -34,7 +34,7 @@ macOS 一次性 Chromium profile 使用 `--use-mock-keychain`，与 Chromium 文
 
 浏览器资格检查使用 `fork`，指定目标 Electron 可执行文件、`--expose-internals`、空 `PATH` 和私有 IPC。注入的观察插件通过 `pathToFileURL(observer).href` 注册：原始 Windows 驱动器路径会被解释为不受支持的 ESM `c:` 协议，而路径中的 `#` 和 `%` 需要 URL 编码。真实导入回归使用同时包含这两个字符的临时路径，检查导入的观察插件标识和 `file:` 协议；原始路径版本会因 `ERR_MODULE_NOT_FOUND` 失败。用 `spawn` 包装层替换 `fork` 无法解决此导入缺陷；该包装层及其依赖 Electron 的测试均已移除。
 
-浏览器资格快照在 Windows 上使用私有物理副本，在支持硬链接的 POSIX 上对不可变文件使用硬链接，并在修改前私有复制策略文件。组装运行时已经是物理文件布局。结束后重新核验封存源清单。文件系统准备有独立的 60 秒生命周期。Host／浏览器操作在 POSIX 上保留 60 秒、Windows 上保留 180 秒，Host-ready 等待分别为 30 秒和 120 秒，IPC／RPC 上限为 30 秒。Windows 临时组装清理会在失败前重试瞬态 EPERM 句柄。这将暂存成本与运行时进度分开，并保留有界的 Host stderr、致命消息和退出诊断；平台流可用时才捕获 stdout。
+浏览器资格快照在 Windows 上使用私有物理副本，在支持硬链接的 POSIX 上对不可变文件使用硬链接，并在修改前私有复制策略文件。组装运行时已经是物理文件布局。结束后重新核验封存源清单。文件系统准备有独立的 60 秒生命周期。Host／浏览器操作在 POSIX 上保留 60 秒、Windows 上保留 180 秒，Host-ready 等待分别为 30 秒和 120 秒，IPC／RPC 上限为 30 秒。这将暂存成本与运行时进度分开，并保留有界的 Host stderr、致命消息和退出诊断；平台流可用时才捕获 stdout。
 
 陈旧认证租约所有者文件的删除将 `EPERM` 和 `ENOENT` 视为清理竞争并予以容忍。每次重试都会重新读取所有权，保留仍存活的替代所有者；获取租约最多尝试 64 次，`EIO` 等无关错误继续向上传播。这在允许并发清理完成的同时保留单实例所有权。
 
@@ -56,6 +56,10 @@ macOS 一次性 Chromium profile 使用 `--use-mock-keychain`，与 Chromium 文
 
 ## Consequences
 
+原生资格检查等待探测配置目录和 PTY 临时目录的异步删除完成，最多重试五次，重试间隔按 100ms 线性递增。Node 24.20 的[同步删除实现](https://github.com/nodejs/node/blob/v24.20.0/src/node_file.cc)先将 Windows `permission_denied` 排除在重试条件之外，再映射为 `EPERM`；Windows 上不足一秒的重试休眠也会被截断为零。异步删除采用 `EPERM` 重试路径，在资格检查返回前完成。瞬态和持续竞争回归通过注入文件系统故障验证真实重试路径；持续失败仍会使检查失败。原始 CI 日志未标明占用目录的进程。
+
+`dae21af75a` 上的 [CI 运行 35969980689](https://github.com/KeepLost/harniverse/actions/runs/35969980689) 通过了修正后的 lint 检查，但暴露出 Windows 原生探测配置目录删除 `EPERM` 和 macOS spill 校验／修剪竞态。异步清理修正通过 28 项聚焦打包测试及真实 Linux 原生资格检查。[spill 修正](../process/2026-09-06-absorb-batch-2-spill-identity-projection-discovery.md)通过 76 项包测试，变更源码覆盖率为 100%。这些修正仍需新的原生 CI 验证。
+
 外壳保留较小的本机信任边界，并依赖 Host 的实际退出和认证注册约定。其浏览器设备适配器共享 Web 客户端的持久化格式，因此修改该辅助函数时需要联合验证桌面引导与 Web 认证入口。
 
 聚焦的[生命周期](../../../../apps/desktop/tests/main.spec.ts)、[IPC](../../../../apps/desktop/tests/ipc.spec.ts)和[预加载](../../../../apps/desktop/tests/preload.spec.ts)测试在 Electron 模块边界替换实现，无需模型提供方即可验证所有权、拒绝行为、崩溃恢复和关闭完成。最终品牌化 Linux x64 AppImage 与解包目录产物已经通过真实 Electron Host 认证和 CDP 浏览器验证，资源清单 SHA-256 为 `0acb0a809a1433abc933c47862604401b2c911cb68548654fd4204c86db7518f`：12,079 字节 JPEG 帧、正确标题、一次本地请求、关闭后零页面以及确认退出状态 0。同一资格检查还通过了未认证 401、签名交换、插件引导、UI 渲染、Session 列表、重启后复用设备密钥、Host 存活时关闭／隐藏、重开、两次确认 Host 关闭和空命令路径运行。原生资格检查通过 Electron 43.4.0、内嵌 Node 24.18.1、Koffi、sharp、PTY、PTC、SQLite 和 pnpm 11.7.0，资源清单无错误或警告。
@@ -70,6 +74,6 @@ macOS 一次性 Chromium profile 使用 `--use-mock-keychain`，与 Chromium 文
 
 使用观察插件文件 URL 后，Windows 浏览器 Host 在启动约 10 秒后就绪，解决了此前 120 秒的就绪失败。此运行的快照通过，但快照／产物合并作业因新观察插件回归中的多余断言未通过类型感知 lint；该断言已替换为显式捕获内容检查。桌面资格检查证明打包运行时与外壳行为，不证明交互式安装器升级或原生更新中断／恢复。
 
-保留的 `5a754836b1` 认证清理修正已有扩充后的本地证据：27 项清理测试和 16 项租约／日志测试，所测租约源码达到逐文件 100% 覆盖率。它们覆盖 `EPERM` 或 `ENOENT` 后保留存活的替代所有者、64 次尝试上限、并发删除后成功获取租约，以及 `EIO` 向上传播。这些本地回归不能证明原生 Windows 已通过。
+保留的 `5a754836b1` 认证清理修正已有扩充后的本地证据：27 项清理测试和 16 项租约／日志测试，所测租约源码达到逐文件 100% 覆盖率。它们覆盖 `EPERM` 或 `ENOENT` 后保留存活的替代所有者、64 次尝试上限、并发删除后成功获取租约，以及 `EIO` 向上传播。原生 Windows 完整测试已在 35967557709 和 35969980689 两次运行中通过。
 
 其他声明的 CPU 目标在验证前不作支持承诺。Electron UI 本身不提供 Session 绑定的 Host-CDP 浏览器；打包 Chromium 载荷是单独要求的运行时资源。发行签名／公证（包括公开安装器的 Windows EV 签名）属于公开发行门禁，不阻止源码实现或本地产物验证。

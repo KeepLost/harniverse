@@ -2,10 +2,22 @@
 const assert = require('node:assert/strict')
 const { existsSync, mkdtempSync, readFileSync, rmSync } = require('node:fs')
 const { tmpdir } = require('node:os')
-const { join, win32 } = require('node:path')
+const { dirname, join, win32 } = require('node:path')
 const { runInNewContext } = require('node:vm')
+const fs = require('node:fs')
 
 const outcome = process.argv[2]
+const cleanupFault = outcome.startsWith('cleanup-')
+let removalAttempts = 0
+const permissionError = () => Object.assign(new Error('EPERM: fixture directory is busy'), { code: 'EPERM' })
+const originalRmdir = fs.rmdir
+// Exercise Node's real asynchronous rimraf retry path with a busy directory.
+fs.rmdir = (path, ...args) => {
+  if (cleanupFault && String(path).includes('pty-') &&
+      (++removalAttempts <= 2 || outcome === 'cleanup-failure')) {
+    queueMicrotask(() => args.at(-1)(permissionError()))
+  } else originalRmdir(path, ...args)
+}
 const scratch = mkdtempSync(join(tmpdir(), 'harniverse-pty-fixture-'))
 const executable = 'C:\\Program Files\\Harniverse & Tools!%PATH%\\Harniverse.exe'
 const environment = { SystemRoot: 'C:\\Windows', PATH: '', ELECTRON_RUN_AS_NODE: '1', ComSpec: 'C:\\untrusted.exe' }
@@ -45,7 +57,10 @@ const pty = { spawn(file, args, options) {
 // The actual qualification script remains unchanged inside this platform simulation.
 const probeModule = { exports: {} }
 runInNewContext(readFileSync(join(__dirname, '../../scripts/packaging-native-probe.cjs'), 'utf8'), {
-  require, module: probeModule, console,
+  require: name => name === 'node:fs' ? { ...fs, rmSync: (...args) => {
+    if (cleanupFault) throw permissionError()
+    return rmSync(...args)
+  } } : require(name), module: probeModule, console,
   process: { platform: 'win32', execPath: executable, env: environment, cwd: () => scratch, versions: { electron: '43.4.0' } },
   setTimeout: (callback, milliseconds) => {
     assert.equal(milliseconds, 10000, 'the PTY deadline stays unchanged')
@@ -57,22 +72,25 @@ runInNewContext(readFileSync(join(__dirname, '../../scripts/packaging-native-pro
 
 async function run() {
   const qualification = probeModule.exports.qualifyPty(name => { assert.equal(name, 'node-pty'); return pty })
-  if (outcome === 'success') await qualification
+  if (outcome === 'success' || outcome === 'cleanup-retry') await qualification
   else await assert.rejects(qualification, {
     message: outcome === 'missing-output' ? /did not execute bundled Electron/
-      : outcome === 'nonzero' ? /child failed/ : outcome === 'signal' ? /signal/ : /10 seconds/,
+      : outcome === 'nonzero' ? /child failed/ : outcome === 'signal' ? /signal/
+        : outcome === 'cleanup-failure' ? /EPERM/ : /10 seconds/,
   })
   assert.equal(launch.file, win32.join(environment.SystemRoot, 'System32', 'cmd.exe'))
   assert.equal(launch.args, '/d /s /v:off /c ""%HARNIVERSE_PTY_EXECUTABLE%" "%HARNIVERSE_PTY_SCRIPT%""')
   assert.equal(launch.options.env.HARNIVERSE_PTY_EXECUTABLE, executable)
   assert.equal(launch.options.env.PATH, '')
   assert.equal(launch.options.env.ELECTRON_RUN_AS_NODE, '1')
-  assert.equal(existsSync(launch.options.env.HARNIVERSE_PTY_SCRIPT), false, 'private payload is removed after exit')
+  assert.equal(existsSync(dirname(launch.options.env.HARNIVERSE_PTY_SCRIPT)), outcome === 'cleanup-failure', 'cleanup settles before qualification')
+  if (cleanupFault) assert.ok(removalAttempts > 2 && removalAttempts <= 12, 'cleanup retries contention within its finite budget')
   assert.equal(workerStopped, true, 'natural Windows exit must release the ConPTY worker')
   assert.deepEqual([...disposals].sort(), ['data', 'exit'])
   process.once('beforeExit', () => console.log(JSON.stringify({ outcome, workerStopped, subscriptionsDisposed: true })))
 }
 
 run().catch(error => { console.error(error); process.exitCode = 1 }).finally(() => {
+  fs.rmdir = originalRmdir
   rmSync(scratch, { recursive: true, force: true })
 })

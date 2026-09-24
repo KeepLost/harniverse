@@ -1,6 +1,7 @@
 /** Target-native qualification using Electron's embedded Node, never a system Node child. */
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -86,7 +87,7 @@ export async function qualifyNative(app: string, executable: string, platform: s
       if (process.platform !== 'win32' || timedOut) terminate()
       if (cleanupError) throw cleanupError
     }
-  } finally { rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
+  } finally { await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
