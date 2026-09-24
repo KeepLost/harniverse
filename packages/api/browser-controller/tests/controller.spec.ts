@@ -468,6 +468,16 @@ describe('BrowserController launch failures', () => {
     expect(existsSync(profileOf(subprocess.spawns[0]?.argv ?? []))).toBe(false)
   })
 
+  it('gives the handshake the full launch budget after a slow spawn', async () => {
+    const { controller, agent, browser, subprocess } = await fixture({ launchTimeoutMs: 500 })
+    // The endpoint line eats most of the budget; a shared deadline would leave
+    // the loopback handshake too little to survive a busy host.
+    subprocess.endpointDelayMs = 350
+    browser.delays.set('Target.setDiscoverTargets', 250)
+    await expect(controller.create(agent, request, signal())).resolves.toMatchObject({ id: pageId })
+    expect(subprocess.handles).toHaveLength(1)
+  })
+
   it('reports an unavailable surface when no executable resolves', async () => {
     const { controller, agent, subprocess } = await fixture()
     subprocess.resolvable.clear()

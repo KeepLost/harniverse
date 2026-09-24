@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-进程所有权从 spawn 开始，而非从连接开始。`launchBrowser` 在 endpoint 探测之前就通过 `onSpawn` 回调把 `SubprocessHandle` 交给调用方，控制器的 `owner.live` 持有该 spawn 状态——profile 目录在 `mkdtemp` 返回的那一刻就已记入 Session 的 discard 列表。launch 预算（`launchTimeoutMs`）覆盖完整序列——spawn、endpoint 行、socket 握手、discovery 应答——剩余时间被复用为握手期限。
+进程所有权从 spawn 开始，而非从连接开始。`launchBrowser` 在 endpoint 探测之前就通过 `onSpawn` 回调把 `SubprocessHandle` 交给调用方，控制器的 `owner.live` 持有该 spawn 状态——profile 目录在 `mkdtemp` 返回的那一刻就已记入 Session 的 discard 列表。launch 预算（`launchTimeoutMs`）以完整窗口逐阶段约束启动——先是 spawn 到 endpoint 行的等待，随后 socket 握手与 discovery 应答——慢启动不会饿死回环握手。
 
 该窗口内的任何失败都汇入一个幂等的 `shutdownBrowser`：终止进程树、等待退出与进程结算，然后删除 profile 目录。清理无法确认进程树退出或无法删除目录时，把原始失败与清理失败一并上报并保留所有权，后续 close 或 disposal 会重试删除，任何新 launch 都不能替换未确认的进程树。错误信息区分“浏览器已启动但 DevTools 连接失败”（预算耗尽时明确指出超时）与启动期失败；`CdpConnection.open` 将握手期间被关闭与握手期间出错分开报告，并把中止原因作为 cause 携带。
 

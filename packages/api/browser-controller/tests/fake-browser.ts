@@ -40,6 +40,8 @@ export interface FakeBrowser {
   readonly bare: Set<string>
   /** Methods answered with an error object carrying neither code nor message. */
   readonly vagueFailures: Set<string>
+  /** Milliseconds to hold back each method's reply, keyed by method name. */
+  readonly delays: Map<string, number>
   /** Push one protocol event to the connected client. */
   emit: (method: string, params: Record<string, unknown>, sessionId?: string) => void
   /** Send one raw text frame (malformed-input material). */
@@ -80,6 +82,7 @@ export async function startFakeBrowser(): Promise<FakeBrowser> {
   const silent = new Set<string>()
   const bare = new Set<string>()
   const vagueFailures = new Set<string>()
+  const delays = new Map<string, number>()
   const waiters = new Map<string, (command: RecordedCommand) => void>()
   let client: WebSocket | undefined
   let targets = 0
@@ -96,18 +99,26 @@ export async function startFakeBrowser(): Promise<FakeBrowser> {
       commands.push(record)
       waiters.get(message.method)?.(record)
       waiters.delete(message.method)
+      const reply = (payload: string): void => {
+        const delay = delays.get(message.method)
+        if (delay === undefined) {
+          socket.send(payload)
+          return
+        }
+        setTimeout(() => { socket.send(payload) }, delay)
+      }
       if (silent.has(message.method)) return
       if (bare.has(message.method)) {
-        socket.send(JSON.stringify({ id: message.id }))
+        reply(JSON.stringify({ id: message.id }))
         return
       }
       if (vagueFailures.has(message.method)) {
-        socket.send(JSON.stringify({ id: message.id, error: {} }))
+        reply(JSON.stringify({ id: message.id, error: {} }))
         return
       }
       const failure = failures.get(message.method)
       if (failure !== undefined) {
-        socket.send(JSON.stringify({ id: message.id, error: { code: -32000, message: failure } }))
+        reply(JSON.stringify({ id: message.id, error: { code: -32000, message: failure } }))
         return
       }
       const override = replies.get(message.method)
@@ -115,7 +126,7 @@ export async function startFakeBrowser(): Promise<FakeBrowser> {
         targets += 1
         return `${TARGET_PREFIX}${String(targets)}`
       })
-      socket.send(JSON.stringify({ id: message.id, result }))
+      reply(JSON.stringify({ id: message.id, result }))
     })
   })
 
@@ -127,6 +138,7 @@ export async function startFakeBrowser(): Promise<FakeBrowser> {
     silent,
     bare,
     vagueFailures,
+    delays,
     emit: (method, params, sessionId) => {
       client?.send(JSON.stringify({ method, params, ...(sessionId === undefined ? {} : { sessionId }) }))
     },
@@ -204,6 +216,8 @@ export interface FakeSubprocess {
    * mid-line.
    */
   splitEndpointTail: number | undefined
+  /** Milliseconds before the endpoint line reaches the launcher's stderr read. */
+  endpointDelayMs: number | undefined
 }
 
 /**
@@ -228,6 +242,7 @@ export function fakeSubprocess(endpoint: string | undefined): FakeSubprocess {
     stringChunks: false,
     prelude: undefined,
     splitEndpointTail: undefined,
+    endpointDelayMs: undefined,
     runtime: {
       resolveExecutable: (command: string) => {
         probes.push(command)
@@ -278,7 +293,7 @@ export function fakeSubprocess(endpoint: string | undefined): FakeSubprocess {
             }
             stderr.write(line.slice(0, line.length - withheld))
             setTimeout(() => { stderr.write(line.slice(line.length - withheld)) }, 0)
-          }, 0)
+          }, fake.endpointDelayMs ?? 0)
         }
         return handle
       },

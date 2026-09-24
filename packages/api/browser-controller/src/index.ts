@@ -78,7 +78,10 @@ export interface Config {
   readonly screencastEveryNthFrame: number
   /** How long a navigation may stay in flight before the panel is told it failed. */
   readonly navigationTimeoutMs: number
-  /** Maximum time from browser spawn through DevTools endpoint discovery, handshake, and initial reply. */
+  /**
+   * Maximum time from browser spawn to the DevTools endpoint line, and again from there through
+   * the socket handshake and initial discovery reply.
+   */
   readonly launchTimeoutMs: number
   /** Browser process-termination grace period in milliseconds. */
   readonly disposeGraceMs: number
@@ -490,7 +493,6 @@ export class BrowserController extends TypertRemoteService {
             'Running the panel browser without its own sandbox: Chromium cannot start as root with one',
           )
         }
-        const deadline = performance.now() + this.config.launchTimeoutMs
         const launched = await launchBrowser({
           subprocess,
           executablePath: executable,
@@ -506,8 +508,9 @@ export class BrowserController extends TypertRemoteService {
           signal,
           onSpawn: (handle) => { owner.live = { handle, profileDir } },
         })
-        const remaining = Math.max(1, Math.ceil(deadline - performance.now()))
-        const handshakeTimeout = AbortSignal.timeout(remaining)
+        // A slow spawn must not starve the loopback handshake: the endpoint
+        // wait and the handshake each get the full launch budget.
+        const handshakeTimeout = AbortSignal.timeout(this.config.launchTimeoutMs)
         const handshakeSignal = AbortSignal.any([signal, handshakeTimeout])
         let connection: CdpConnection
         try {
