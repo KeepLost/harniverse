@@ -21,7 +21,9 @@ it('boots the installed web profile with private IPC and stops its actual proces
   await copyFile(fileURLToPath(new URL('../lib/index.js', import.meta.url)), entry)
   await mkdir(home, { mode: 0o700 })
   const child = fork(entry, [home, anchor, '--port', '0'], { cwd: home, execArgv: ['--expose-internals'],
-    env: { PATH: '', HOME: root, ...process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot } : {} }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] })
+    env: { PATH: '', HOME: root, USERPROFILE: root, TEMP: root, TMP: root, APPDATA: join(root, 'appdata'),
+      LOCALAPPDATA: join(root, 'localappdata'), XDG_CONFIG_HOME: root, XDG_CACHE_HOME: root,
+      ...process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot } : {} }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] })
   const messages: Record<string, unknown>[] = []
   let stderr = ''
   child.stderr?.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-12000) })
