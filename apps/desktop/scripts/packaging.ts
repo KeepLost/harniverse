@@ -114,7 +114,7 @@ async function main(): Promise<void> {
         const input = assembleRuntime({ workspace: values.workspace, output: join(temporary, 'runtime'),
           pnpmDirectory: values['pnpm-dir'], platform: values.platform, arch: values.arch })
         stage = prepareRuntime(input, output, values.platform, values.arch)
-      } finally { rmSync(temporary, { recursive: true, force: true }) }
+      } finally { rmSync(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
     }
     console.log(`Prepared offline runtime: ${stage}`)
     return
