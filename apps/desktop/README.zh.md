@@ -81,7 +81,9 @@ node apps/desktop/scripts/packaging-smoke.ts --app-dir /absolute/unpacked/resour
 
 macOS 的应用目录位于 `Harniverse.app/Contents/Resources/app`，Windows 使用打包后的 `.exe`。只检查模式验证资源和可执行文件是否存在，不启动应用。实际冒烟运行使用全新的主目录和用户配置目录，排除提供方凭证，清空 `PATH`，并传入 `--harniverse-clean-install-smoke`。应用须在本地启动并完成身份认证、等待自有 Host 退出后，向 `HARNIVERSE_DESKTOP_SMOKE_REPORT` 指定的位置写入 JSON 回执，再于 120 秒内成功退出。回执要求 `schemaVersion: 1`，`offlineAssetsLoaded`、`authenticated`、`ownedHostStopped` 为 true，`systemNodeUsed`、`systemPackageManagerUsed`、`networkInstallUsed` 为 false；证据必须标识资源清单的 SHA-256 与固定的 Electron 版本。不支持此回执协议的发行包会检查失败。运行器在失败时终止自己创建的进程组，并移除临时配置目录。无显示器的 Linux 使用 `xvfb-run -a`；`--no-sandbox` 仅供明确以 Linux root 运行的冒烟检查。此冒烟检查不能替代各目标平台上的安装升级、签名、系统集成和原生 ABI 测试。
 
-最终品牌化本地 Linux x64 AppImage 与解包目录产物通过了认证 Host／CDP 浏览器检查、空命令路径的全新安装冒烟和原生资格检查。其资源清单 SHA-256 为 `0acb0a809a1433abc933c47862604401b2c911cb68548654fd4204c86db7518f`。浏览器产生了 12,079 字节 JPEG 帧，标题正确、一次本地请求、关闭后零页面且确认退出状态为 0。全新安装回执还记录了认证前 401、签名交换、插件引导、UI 渲染、Session 列表、重启后复用设备密钥、Host 存活时关闭／隐藏、重开和两次确认 Host 关闭。这是 Linux 本地资格证据；Windows／macOS 资格、CI 结果和发行签名仍是独立门禁。
+最终品牌化本地 Linux x64 AppImage 与解包目录产物通过了认证 Host／CDP 浏览器检查、空命令路径的全新安装冒烟和原生资格检查。其资源清单 SHA-256 为 `0acb0a809a1433abc933c47862604401b2c911cb68548654fd4204c86db7518f`。浏览器产生了 12,079 字节 JPEG 帧，标题正确、一次本地请求、关闭后零页面且确认退出状态为 0。全新安装回执还记录了认证前 401、签名交换、插件引导、UI 渲染、Session 列表、重启后复用设备密钥、Host 存活时关闭／隐藏、重开和两次确认 Host 关闭。
+
+Linux x64 和 macOS arm64 桌面 CI 作业已完整通过。Windows 是剩余的平台资格缺口：桌面资格检查在等待 Host-ready 120 秒后失败，完整原生 Windows 作业在删除陈旧租约所有者文件时因 `EPERM` 失败。这些修正必须由新的 Windows CI 运行验证；[桌面架构记录](../../.agents/notes/implemented/architecture/2026-09-24-desktop-shell-lifecycle.md#consequences)保留运行与本地回归证据。发行签名和公证仍是独立的发行门禁。
 
 ## 更新与恢复参考
 
@@ -101,4 +103,4 @@ node node_modules/typescript/bin/tsc -p apps/desktop/tsconfig.packaging.json
 node --check apps/desktop/scripts/packaging-after-pack.cjs
 ```
 
-纯逻辑测试和语法检查不需要 Electron 可执行文件、图形会话、提供方或网络访问，也不会生成安装包或证明二进制打包成功。
+这些测试和语法检查不需要 Electron 可执行文件、图形会话、提供方或网络访问。快照回归使用 Node，通过记录的文件 URL，从包含 `#` 和 `%` 的临时路径真实导入生成的观察插件。这些检查不会生成安装包，也不能证明二进制打包成功。

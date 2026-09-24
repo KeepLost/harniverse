@@ -1,13 +1,13 @@
 /** Offline qualification of the packaged Host browser through its authenticated Gateway and frame stream. */
 import assert from 'node:assert/strict'
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { fork, spawnSync, type ChildProcess } from 'node:child_process'
 import { generateKeyPairSync, randomUUID, sign } from 'node:crypto'
 import { constants, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { copyFile, link, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { checkRuntime, type RuntimeInput } from './packaging-runtime.ts'
 
@@ -70,8 +70,7 @@ export async function prepareBrowserSnapshot(
   const evidence = { linkedFiles: 0, copiedFiles: 0, bulkCopied: false }
   try {
     if (process.platform === 'win32') {
-      // Windows junctions in the assembled pnpm tree must be traversed by the native copier;
-      // flattening them through recursive Dirent enumeration can leave a Host that never boots.
+      // Keep the Windows qualification copy independent of the sealed payload's inodes.
       cpSync(app, runtime, { recursive: true, mode: constants.COPYFILE_FICLONE })
       evidence.bulkCopied = true
     } else {
@@ -109,7 +108,7 @@ export async function prepareBrowserSnapshot(
     const observer = join(runtime, 'browser-observer.mjs')
     await writeFile(observer, BROWSER_OBSERVER_PLUGIN, { flag: 'wx', mode: 0o600 })
     await writeFile(patch, source.replace(row, `${row}\n      config:\n        allowPrivateAddresses: true\n        allowedHosts: ['127.0.0.1']`
-      + `\n\n    - id: browser-qualification-observer\n      name: ${JSON.stringify(observer)}`))
+      + `\n\n    - id: browser-qualification-observer\n      name: ${JSON.stringify(pathToFileURL(observer).href)}`))
     signal.throwIfAborted()
     return evidence
   } catch (error) { await rm(runtime, { recursive: true, force: true }); throw error }
@@ -153,15 +152,6 @@ function withinLifetime<T>(pending: Promise<T>, signal: AbortSignal): Promise<T>
     signal.addEventListener('abort', abort, { once: true })
     if (signal.aborted) abort()
     void pending.then(accept, reject).finally(() => { signal.removeEventListener('abort', abort) })
-  })
-}
-
-/** Launch the packaged Electron Host with the same explicit Node/IPC contract as the desktop shell. */
-export function spawnPackagedHost(runtime: string, executable: string, home: string, env: NodeJS.ProcessEnv): ChildProcess {
-  return spawn(resolve(executable), ['--expose-internals', join(runtime, 'lib/desktop-host.js'), home,
-    join(runtime, 'node_modules/@deepseek-ai/dsh/package.json'), '--port', '0'], {
-    env, cwd: home, stdio: ['ignore', process.platform === 'win32' ? 'ignore' : 'pipe', 'pipe', 'ipc'],
-    detached: process.platform !== 'win32',
   })
 }
 
@@ -359,7 +349,10 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
     operationStarted = performance.now()
     deadline = setTimeout(timeout, OPERATION_MS)
     enter('host-ready')
-    const host = spawnPackagedHost(runtime, executable, home, env)
+    const host = fork(join(runtime, 'lib/desktop-host.js'), [home, join(runtime, 'node_modules/@deepseek-ai/dsh/package.json'), '--port', '0'], {
+      execPath: resolve(executable), execArgv: ['--expose-internals'], env, cwd: home,
+      stdio: ['ignore', process.platform === 'win32' ? 'ignore' : 'pipe', 'pipe', 'ipc'], detached: process.platform !== 'win32',
+    })
     child = host
     host.on('message', (value: Message) => {
       if (value.type === 'browser-qualification-observation') browserProcess = value.observation

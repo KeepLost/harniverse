@@ -1,16 +1,13 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { BROWSER_OBSERVER_PLUGIN, prepareBrowserSnapshot, qualifyBrowserFrames, spawnPackagedHost, waitForHostMessage } from '../scripts/packaging-browser.ts'
-
-const require = createRequire(import.meta.url)
+import { BROWSER_OBSERVER_PLUGIN, prepareBrowserSnapshot, qualifyBrowserFrames, waitForHostMessage } from '../scripts/packaging-browser.ts'
 
 void test('browser snapshot shares immutable payloads but patches a private policy inode and leaves the sealed source intact', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'browser-snapshot-test-'))
+  const root = mkdtempSync(join(tmpdir(), 'browser-snapshot-#%-test-'))
   const app = join(root, 'sealed')
   const snapshot = join(root, 'snapshot')
   const policy = 'node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml'
@@ -36,6 +33,12 @@ void test('browser snapshot shares immutable payloads but patches a private poli
     assert.equal(statSync(join(snapshot, 'browser/chrome')).mode, statSync(join(app, 'browser/chrome')).mode)
     assert.match(readFileSync(join(snapshot, policy), 'utf8'), /allowPrivateAddresses: true/)
     assert.match(readFileSync(join(snapshot, policy), 'utf8'), /allowedHosts: \['127.0.0.1'\]/)
+    const observerRow = readFileSync(join(snapshot, policy), 'utf8').match(/id: browser-qualification-observer\s+name: (.+)/)
+    assert(observerRow, 'snapshot must register the observer plugin')
+    const observerSpecifier = JSON.parse(observerRow[1]!) as string
+    const observer = await import(observerSpecifier) as { name: string }
+    assert.equal(observer.name, 'desktop-browser-qualification-observer')
+    assert.equal(new URL(observerSpecifier).protocol, 'file:')
     writeFileSync(join(snapshot, policy), 'fixture-only replacement')
     rmSync(snapshot, { recursive: true })
     assert.equal(readFileSync(join(app, policy), 'utf8'), original)
@@ -69,39 +72,6 @@ void test('Host message wait surfaces a private fatal message before its request
   try {
     await assert.rejects(waitForHostMessage(child, 'ready', new AbortController().signal), /Host fatal before ready: sealed boot failed/)
   } finally { child.kill(); await closed }
-})
-
-void test('packaged Host launcher uses Electron-compatible spawn IPC', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'browser-host-launcher-'))
-  const runtime = join(root, 'runtime')
-  const home = join(root, 'home')
-  const executable = require('electron') as string
-  mkdirSync(join(runtime, 'lib'), { recursive: true })
-  mkdirSync(home)
-  writeFileSync(join(runtime, 'lib/desktop-host.js'), `
-    if (!process.connected || process.send === undefined) throw new Error('IPC channel missing')
-    process.send({ type: 'ready', url: 'http://127.0.0.1:1/', authentication: 'authenticated' })
-    process.on('message', value => {
-      if (value?.type === 'shutdown') process.send({ type: 'shutdown-complete' }, () => process.disconnect())
-    })
-  `)
-  const child = spawnPackagedHost(runtime, executable, home, {
-    ...process.env, ELECTRON_RUN_AS_NODE: '1', HOME: root, USERPROFILE: root,
-    TMPDIR: root, TMP: root, TEMP: root, APPDATA: root, LOCALAPPDATA: root,
-  })
-  const closed = new Promise<number | null>((accept) => { child.once('close', accept) })
-  try {
-    const signal = new AbortController().signal
-    await waitForHostMessage(child, 'ready', signal, 5000)
-    const stopped = waitForHostMessage(child, 'shutdown-complete', signal, 5000)
-    child.send({ type: 'shutdown' })
-    await stopped
-    assert.equal(await closed, 0)
-  } finally {
-    if (child.exitCode === null && child.signalCode === null) child.kill()
-    await closed
-    rmSync(root, { recursive: true, force: true })
-  }
 })
 
 function event(payload: object): Uint8Array {

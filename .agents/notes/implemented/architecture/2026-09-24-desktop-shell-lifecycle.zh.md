@@ -30,7 +30,13 @@ Status: implemented
 
 ## Alternatives considered
 
-macOS 一次性 Chromium profile 使用 `--use-mock-keychain`，与 Chromium 文档中避免 Keychain 阻塞对话框的自动化开关一致。原生失败已得到空白渲染帧，但没有导航请求；仍需原生资格验证确认此修正的效果。回环资格页面提供确定性的高熵静态文本，并使用短 CSS 背景动画，使渲染 JPEG 证明在各平台编码器下都保持超过 10KB 阈值，不依赖内联脚本执行或导航后的额外重绘。浏览器资格测试在可用时对不可变载荷文件使用硬链接，并在修改策略文件前将其复制到私有 inode；Windows 使用原生递归复制器，以保持组装 pnpm junction 可正常启动。结束后重新核验封存源清单。文件系统准备有独立的 60 秒生命周期，Host／浏览器操作在 POSIX 上保留 60 秒、在经过物理暂存的 Windows 路径上保留 180 秒，IPC／RPC 仍为 30 秒上限；Windows 临时组装清理会在失败前重试瞬态 EPERM 句柄。这将暂存成本与运行时进度分开，并保留有界的 Host stderr、致命消息和退出诊断；平台流可用时才捕获 stdout。
+macOS 一次性 Chromium profile 使用 `--use-mock-keychain`，与 Chromium 文档中避免 Keychain 阻塞对话框的自动化开关一致。回环资格页面提供确定性静态文本，并通过短 CSS 背景动画触发重绘；文本每 16 个字符重复一次。渲染证明仍要求超过 10KB 的 JPEG，不依赖内联脚本执行。
+
+浏览器资格检查使用 `fork`，指定目标 Electron 可执行文件、`--expose-internals`、空 `PATH` 和私有 IPC。注入的观察插件通过 `pathToFileURL(observer).href` 注册：原始 Windows 驱动器路径会被解释为不受支持的 ESM `c:` 协议，而路径中的 `#` 和 `%` 需要 URL 编码。真实导入回归使用同时包含这两个字符的临时路径，检查导入的观察插件标识和 `file:` 协议；原始路径版本会因 `ERR_MODULE_NOT_FOUND` 失败。用 `spawn` 包装层替换 `fork` 无法解决此导入缺陷；该包装层及其依赖 Electron 的测试均已移除。
+
+浏览器资格快照在 Windows 上使用私有物理副本，在支持硬链接的 POSIX 上对不可变文件使用硬链接，并在修改前私有复制策略文件。组装运行时已经是物理文件布局。结束后重新核验封存源清单。文件系统准备有独立的 60 秒生命周期。Host／浏览器操作在 POSIX 上保留 60 秒、Windows 上保留 180 秒，Host-ready 等待分别为 30 秒和 120 秒，IPC／RPC 上限为 30 秒。Windows 临时组装清理会在失败前重试瞬态 EPERM 句柄。这将暂存成本与运行时进度分开，并保留有界的 Host stderr、致命消息和退出诊断；平台流可用时才捕获 stdout。
+
+陈旧认证租约所有者文件的删除将 `EPERM` 和 `ENOENT` 视为清理竞争并予以容忍。每次重试都会重新读取所有权，保留仍存活的替代所有者；获取租约最多尝试 64 次，`EIO` 等无关错误继续向上传播。这在允许并发清理完成的同时保留单实例所有权。
 
 浏览器资格检查并发消费帧和导航响应，并保留有界、仅测试夹具使用的 Chromium stderr 与退出观察。命令待完成时仍能记录渲染进度；已渲染的帧不能免除导航确认。对于普通和经检查的 Windows 进程树，本地子进程 Provider 均使用绝对路径 `SystemRoot\System32\taskkill.exe`：否则空 `PATH` 会在导航和渲染成功后仍阻止进程终止。原生回归要求根进程及其后代均消失，并保留现有升级与等待退出约定。
 
@@ -52,6 +58,10 @@ macOS 一次性 Chromium profile 使用 `--use-mock-keychain`，与 Chromium 文
 
 外壳保留较小的本机信任边界，并依赖 Host 的实际退出和认证注册约定。其浏览器设备适配器共享 Web 客户端的持久化格式，因此修改该辅助函数时需要联合验证桌面引导与 Web 认证入口。
 
-聚焦的[生命周期](../../../../apps/desktop/tests/main.spec.ts)、[IPC](../../../../apps/desktop/tests/ipc.spec.ts)和[预加载](../../../../apps/desktop/tests/preload.spec.ts)测试在 Electron 模块边界替换实现，无需模型提供方即可验证所有权、拒绝行为、崩溃恢复和关闭完成。最终品牌化 Linux x64 AppImage 与解包目录产物已经通过真实 Electron Host 认证和 CDP 浏览器验证，资源清单 SHA-256 为 `0acb0a809a1433abc933c47862604401b2c911cb68548654fd4204c86db7518f`：12,079 字节 JPEG 帧、正确标题、一次本地请求、关闭后零页面以及确认退出状态 0。同一资格检查还通过了未认证 401、签名交换、插件引导、UI 渲染、Session 列表、重启后复用设备密钥、Host 存活时关闭／隐藏、重开、两次确认 Host 关闭和空命令路径运行。原生资格检查通过 Electron 43.4.0、内嵌 Node 24.18.1、Koffi、sharp、PTY、PTC、SQLite 和 pnpm 11.7.0，资源清单无错误或警告。Windows 和 macOS 已安装产物、对应 CI 门禁及发行签名仍是独立资格门禁。
+聚焦的[生命周期](../../../../apps/desktop/tests/main.spec.ts)、[IPC](../../../../apps/desktop/tests/ipc.spec.ts)和[预加载](../../../../apps/desktop/tests/preload.spec.ts)测试在 Electron 模块边界替换实现，无需模型提供方即可验证所有权、拒绝行为、崩溃恢复和关闭完成。最终品牌化 Linux x64 AppImage 与解包目录产物已经通过真实 Electron Host 认证和 CDP 浏览器验证，资源清单 SHA-256 为 `0acb0a809a1433abc933c47862604401b2c911cb68548654fd4204c86db7518f`：12,079 字节 JPEG 帧、正确标题、一次本地请求、关闭后零页面以及确认退出状态 0。同一资格检查还通过了未认证 401、签名交换、插件引导、UI 渲染、Session 列表、重启后复用设备密钥、Host 存活时关闭／隐藏、重开、两次确认 Host 关闭和空命令路径运行。原生资格检查通过 Electron 43.4.0、内嵌 Node 24.18.1、Koffi、sharp、PTY、PTC、SQLite 和 pnpm 11.7.0，资源清单无错误或警告。
 
-最低发行验证矩阵为 Linux x64、Windows x64 和 macOS arm64。其他声明的 CPU 目标在验证前不作支持承诺。品牌化 Linux x64 含浏览器载荷的产物资格已在本地完成；Windows／macOS 产物资格和三操作系统 CI 验证仍在进行。Electron UI 本身不提供 Session 绑定的 Host-CDP 浏览器；打包 Chromium 载荷是单独要求的运行时资源。发行签名／公证（包括公开安装器的 Windows EV 签名）属于公开发行门禁，不阻止源码实现或本地产物验证。
+最低发行验证矩阵为 Linux x64、Windows x64 和 macOS arm64。`4ce331fd1a` 上的 [CI 运行 35960976764](https://github.com/KeepLost/harniverse/actions/runs/35960976764) 已完整通过 Linux x64 和 macOS arm64 桌面作业。Windows 桌面因 `Host did not report ready within 120000ms` 失败；完整原生 Windows 作业在删除陈旧租约所有者文件时因 `EPERM` 失败。其他作业通过，汇总检查 `all checks passed` 失败。Windows 资格仍待新的 CI 运行验证这些修正。
+
+保留的 `5a754836b1` 认证清理修正已有扩充后的本地证据：27 项清理测试和 16 项租约／日志测试，所测租约源码达到逐文件 100% 覆盖率。它们覆盖 `EPERM` 或 `ENOENT` 后保留存活的替代所有者、64 次尝试上限、并发删除后成功获取租约，以及 `EIO` 向上传播。这些本地回归不能证明原生 Windows 已通过。
+
+其他声明的 CPU 目标在验证前不作支持承诺。Electron UI 本身不提供 Session 绑定的 Host-CDP 浏览器；打包 Chromium 载荷是单独要求的运行时资源。发行签名／公证（包括公开安装器的 Windows EV 签名）属于公开发行门禁，不阻止源码实现或本地产物验证。
