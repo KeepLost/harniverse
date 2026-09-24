@@ -51,7 +51,7 @@ function qualificationPage(): string {
     state = (state * 1664525 + 1013904223) >>> 0
     text += alphabet[state & 0xf]
   }
-  return `<!doctype html><title>Packaged Host browser</title><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}body{background:repeating-linear-gradient(45deg,#073 0 10px,#c40 10px 20px);color:white;font:14px monospace}pre{margin:0;white-space:pre-wrap;word-break:break-all}</style><pre>${text}</pre>`
+  return `<!doctype html><title>Packaged Host browser</title><style>@keyframes proof{from{background-position:0 0}to{background-position:37px 37px}}html,body{margin:0;width:100%;height:100%;overflow:hidden}body{animation:proof 120ms steps(2,end) infinite;background:repeating-linear-gradient(45deg,#073 0 10px,#c40 10px 20px);color:white;font:14px monospace}pre{margin:0;white-space:pre-wrap;word-break:break-all}</style><pre>${text}</pre>`
 }
 
 /**
