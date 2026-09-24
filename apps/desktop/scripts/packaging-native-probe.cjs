@@ -1,9 +1,9 @@
 /** Executed only by the target Electron in run-as-Node mode against the staged closure. */
 const assert = require('node:assert/strict')
 const { spawn, spawnSync } = require('node:child_process')
-const { readFileSync } = require('node:fs')
+const { mkdtempSync, readFileSync, rmSync, writeFileSync } = require('node:fs')
 const { createRequire } = require('node:module')
-const { join, resolve } = require('node:path')
+const { join, resolve, win32 } = require('node:path')
 const { pathToFileURL } = require('node:url')
 
 async function qualify() {
@@ -39,19 +39,56 @@ async function qualify() {
     runAsNode: true, koffi: true, sharp: true, pty: true, ptc: true, sqlite: true, pnpm: pm.version }))
 }
 
+/**
+ * Qualify the staged terminal with the current embedded Electron runtime.
+ * @param {NodeRequire} appRequire - resolver anchored at the staged app manifest.
+ * @returns {Promise<void>} resolves after output, exit, and owned terminal teardown.
+ */
 async function qualifyPty(appRequire) {
   const pty = appRequire('node-pty')
-  const terminal = pty.spawn(process.execPath, ['-e', "process.stdout.write('HARNIVERSE_PTY_' + process.versions.electron)"], {
-    env: process.env, cwd: process.cwd(), cols: 80, rows: 24,
-  })
-  let output = ''
-  terminal.onData(data => { output += data })
-  const timer = setTimeout(() => terminal.kill(), 10000)
+  const scratch = mkdtempSync(join(process.cwd(), 'pty-'))
   try {
-    const exit = await new Promise(accept => terminal.onExit(accept))
-    assert.equal(exit.exitCode, 0, 'node-pty child failed')
-    assert.ok(output.includes(`HARNIVERSE_PTY_${process.versions.electron}`), 'node-pty did not execute bundled Electron')
-  } finally { clearTimeout(timer) }
+    const script = join(scratch, 'probe.cjs')
+    writeFileSync(script, "process.stdout.write('HARNIVERSE_PTY_' + process.versions.electron + '\\n')\n", { flag: 'wx', mode: 0o600 })
+    let executable = process.execPath
+    let args = [script]
+    const env = { ...process.env }
+    if (process.platform === 'win32') {
+      assert.ok(env.SystemRoot && win32.isAbsolute(env.SystemRoot), 'Windows PTY qualification requires an absolute SystemRoot')
+      // GUI Electron needs a console owner in ConPTY. cmd waits for its /c child.
+      executable = win32.join(env.SystemRoot, 'System32', 'cmd.exe')
+      env.HARNIVERSE_PTY_EXECUTABLE = process.execPath
+      env.HARNIVERSE_PTY_SCRIPT = script
+      // Raw cmd syntax avoids argv escaping; one expansion preserves %, !, &, and spaces in paths.
+      args = '/d /s /v:off /c ""%HARNIVERSE_PTY_EXECUTABLE%" "%HARNIVERSE_PTY_SCRIPT%""'
+    }
+    const terminal = pty.spawn(executable, args, { env, cwd: process.cwd(), cols: 80, rows: 24 })
+    let output = ''
+    let exited = false
+    let exitSubscription
+    const exit = new Promise(accept => {
+      exitSubscription = terminal.onExit(event => { exited = true; accept(event) })
+    })
+    const dataSubscription = terminal.onData(data => { output += data })
+    let timer
+    try {
+      const deadline = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('node-pty did not exit within 10 seconds')), 10000)
+      })
+      const result = await Promise.race([exit, deadline])
+      assert.ok(result.signal === undefined || result.signal === 0, 'node-pty child exited with a signal')
+      assert.equal(result.exitCode, 0, 'node-pty child failed')
+      assert.ok(output.includes(`HARNIVERSE_PTY_${process.versions.electron}`), 'node-pty did not execute bundled Electron')
+    } finally {
+      clearTimeout(timer)
+      dataSubscription.dispose()
+      try {
+        // Windows natural exit drains output; kill still owns the ConPTY worker and handles.
+        if (!exited || process.platform === 'win32') terminal.kill()
+        await exit
+      } finally { exitSubscription.dispose() }
+    }
+  } finally { rmSync(scratch, { recursive: true, force: true }) }
 }
 
 async function qualifyPtc(appRequire) {
@@ -81,4 +118,5 @@ async function qualifyPtc(appRequire) {
   }
 }
 
-qualify().catch(error => { console.error(error); process.exitCode = 1 })
+module.exports = { qualifyPty }
+if (require.main === module) qualify().catch(error => { console.error(error); process.exitCode = 1 })

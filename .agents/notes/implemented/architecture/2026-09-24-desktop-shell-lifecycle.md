@@ -30,6 +30,8 @@ The main process atomically persists the journal before effects. A writable runn
 
 ## Alternatives considered
 
+Browser artifact qualification navigates after the attachment snapshot grants control, even when the snapshot has no image yet. Waiting for a blank-page image before navigating can stall a valid attachment. The rendered proof still requires a substantial JPEG, the destination title and an observed local-origin request; bounded phase diagnostics distinguish attachment, navigation and teardown failures. Windows PTY qualification gives GUI Electron a console-owning `cmd.exe` parent and releases the ConPTY worker after natural exit, while retaining empty `PATH`, embedded-runtime output and successful-exit checks.
+
 Built Host qualification uses `vitest.desktop.config.ts` after an explicit Host build in `test:desktop`. These `.e2e.ts` cases cannot join the source-only unit/coverage inventory: their subprocess entry and shared Web runtime are build artifacts. Authentication availability recovery does not invalidate an in-flight authorized activity sample; unavailability and revocation do, and the final Grant checks remain mandatory. Packaging resolves staging aliases before creating directories and rejects output inside the input runtime; POSIX executable-mode checks apply only on hosts that expose those bits.
 
 The private Host uses Node's `import.meta.main` to recognize process entry. Comparing the module URL with the argument path misclassifies macOS `/var` aliases and directory junctions after the module loader resolves them. The built-process regression launches through a directory alias and still requires normal authenticated readiness and acknowledged exit; ownership tests compare canonical paths and shell tests derive native file URLs.

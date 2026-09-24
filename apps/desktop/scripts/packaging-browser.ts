@@ -68,12 +68,81 @@ async function* frames(response: Response): AsyncGenerator<Message> {
 }
 
 /**
+ * Qualify navigation and the rendered JPEG on one attached Gateway browser stream.
+ * @param response - authenticated EventsApi browser response; owned and cancelled by this function.
+ * @param navigate - dispatch navigation on the attachment after it becomes ready.
+ * @returns the rendered frame size and the destination title.
+ */
+export async function qualifyBrowserFrames(
+  response: Response, navigate: () => Promise<unknown>,
+): Promise<{ frameBytes: number; title: string }> {
+  const iterator = frames(response)
+  let frameBytes = 0
+  let blankFrame = ''
+  let title = ''
+  let phase = 'attachment'
+  let framesSeen = 0
+  let imagesSeen = 0
+  let largestImageBytes = 0
+  let lastType = ''
+  const next = async () => {
+    const frame = await iterator.next()
+    assert.equal(frame.done, false, `browser stream closed during ${phase}`)
+    framesSeen++
+    lastType = String(frame.value.type).slice(0, 40)
+    const image = frame.value.image as { data: string } | undefined
+    if (image) { imagesSeen++; largestImageBytes = Math.max(largestImageBytes, Buffer.from(image.data, 'base64').length) }
+    const info = frame.value.info as { title: string; error?: string } | undefined
+    if (info?.error) throw new Error(info.error)
+    return frame.value
+  }
+  try {
+    while (true) {
+      const frame = await next()
+      if (frame.type !== 'snapshot') continue
+      // The snapshot grants control. Its image is optional until Chromium first paints.
+      blankFrame = (frame.image as { data: string } | undefined)?.data ?? ''
+      break
+    }
+    phase = 'navigation'
+    await navigate()
+    phase = 'rendering'
+    // The striped fixture produces a substantial JPEG; a blank pre-navigation frame cannot satisfy this.
+    while (frameBytes < 10000 || title !== 'Packaged Host browser') {
+      const frame = await next()
+      const image = frame.image as { data: string } | undefined
+      const info = frame.info as { title: string } | undefined
+      if (info) title = info.title
+      if (image && image.data !== blankFrame) {
+        const jpeg = Buffer.from(image.data, 'base64')
+        assert.equal(jpeg.readUInt16BE(0), 0xffd8, 'browser frame must be a JPEG')
+        frameBytes = jpeg.length
+      }
+    }
+    return { frameBytes, title }
+  } catch (error) {
+    const evidence = { phase, framesSeen, imagesSeen, largestImageBytes, lastType, frameBytes, title: title.slice(0, 120) }
+    throw new Error(`Browser frame qualification failed: ${error instanceof Error ? error.message : String(error)}; ${JSON.stringify(evidence)}`,
+      { cause: error })
+  } finally { await iterator.return(undefined) }
+}
+
+/**
  * Exercise a sealed runtime in a disposable copy, allowing only the test's loopback origin.
  * @param app - assembled or packaged resources/app directory.
  * @param executable - target Electron executable providing the Host's embedded Node.
  * @returns authenticated navigation, JPEG frame and settled teardown evidence.
  */
 export async function qualifyBrowser(app: string, executable: string): Promise<object> {
+  const started = performance.now()
+  const phases: { name: string; atMs: number }[] = []
+  let phase = 'inventory'
+  let phaseStarted = started
+  const enter = (name: string) => {
+    phase = name
+    phaseStarted = performance.now()
+    phases.push({ name, atMs: Math.round(phaseStarted - started) })
+  }
   const checked = checkRuntime(app, process.platform, process.arch)
   assert.deepEqual(checked.errors, [])
   const root = mkdtempSync(join(tmpdir(), 'harniverse-browser-'))
@@ -100,9 +169,16 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
     }
   }
   const stream = new AbortController()
-  const deadline = setTimeout(() => { stream.abort(new Error('browser qualification timed out')); terminate() }, 60000)
+  let timedOut = false
+  const deadline = setTimeout(() => {
+    timedOut = true
+    stream.abort(new Error(`browser qualification timed out during ${phase}`))
+    terminate()
+  }, 60000)
   try {
+    enter('copy-runtime')
     cpSync(app, runtime, { recursive: true, mode: constants.COPYFILE_FICLONE })
+    enter('prepare-profile')
     // The production profile forbids private navigation. Only this disposable fixture permits localhost.
     const patch = join(runtime, 'node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml')
     const source = readFileSync(patch, 'utf8')
@@ -115,6 +191,7 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
       TMPDIR: root, TMP: root, TEMP: root, XDG_CONFIG_HOME: root, XDG_CACHE_HOME: root,
       APPDATA: root, LOCALAPPDATA: root, ELECTRON_RUN_AS_NODE: '1' }
     for (const key of ['SystemRoot', 'WINDIR']) if (process.env[key]) env[key] = process.env[key]
+    enter('host-ready')
     const host = fork(join(runtime, 'lib/desktop-host.js'), [home, join(runtime, 'node_modules/@deepseek-ai/dsh/package.json'), '--port', '0'], {
       execPath: resolve(executable), execArgv: ['--expose-internals'], env, cwd: home,
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'], detached: process.platform !== 'win32',
@@ -125,82 +202,76 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
     const ready = await messageFrom(child, 'ready')
     const url = new URL(String(ready.url))
     assert.equal(url.hostname, '127.0.0.1')
+    enter('unauthenticated-denial')
     assert.equal((await fetch(new URL('/api/browser/environment', url), { method: 'POST' })).status, 401)
+    enter('device-enrollment')
     const device = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
     const enrolled = messageFrom(child, 'enrolled')
     child.send({ type: 'enroll', requestId: 1, publicKey: device.publicKey.export({ type: 'spki', format: 'der' }).toString('base64url') })
     const enrollment = (await enrolled).enrollment as { grant: { id: string } }
+    enter('authentication-challenge')
     const challenge = await (await post(url, '/auth/challenge', { grantId: enrollment.grant.id, purpose: 'browser-session' })).json() as { id: string; payload: string }
+    enter('authentication-exchange')
     const exchange = await post(url, '/auth/exchange', { challengeId: challenge.id,
       signature: sign('sha256', Buffer.from(challenge.payload), { key: device.privateKey, dsaEncoding: 'ieee-p1363' }).toString('base64url') })
     assert.equal((await exchange.json() as { authenticated?: boolean }).authenticated, true)
     const cookie = exchange.headers.get('set-cookie')?.split(';')[0]
     assert(cookie)
+    enter('session-principal')
     const principalProbe = await post(url, '/api/session.list', { type: 'client-request', method: 'session.list',
       rpcId: randomUUID(), requestId: randomUUID(), payload: {} }, cookie)
     const principal = (await principalProbe.json() as { authentication: unknown }).authentication
     assert(principal)
+    enter('session-create')
     const sessionResponse = await post(url, '/api/session.create', { type: 'client-request', method: 'session.create',
       rpcId: randomUUID(), requestId: randomUUID(), payload: { cwd: home }, expectedPrincipal: principal }, cookie)
     const sessionEnvelope = await sessionResponse.json() as { result: { ok: boolean; value?: { sessionId: string }; error?: unknown } }
     assert.equal(sessionEnvelope.result.ok, true, JSON.stringify(sessionEnvelope.result.error))
     assert(sessionEnvelope.result.value)
     const { sessionId } = sessionEnvelope.result.value
+    enter('browser-environment')
     const environment = await rpc(url, cookie, 'browser/environment', { agentId: sessionId }) as { available: boolean }
     assert.equal(environment.available, true)
+    enter('local-origin')
     await new Promise<void>((accept) => { origin.listen(0, '127.0.0.1', accept) })
     const address = origin.address()
     assert(address && typeof address === 'object')
     const destination = `http://127.0.0.1:${address.port}/`
     const id = randomUUID()
     const attachmentId = randomUUID()
+    enter('browser-create')
     await rpc(url, cookie, 'browser/create', { agentId: sessionId, request: { id, width: 800, height: 600 } })
+    enter('stream-headers')
     const response = await fetch(new URL(`/api/events.browser?${new URLSearchParams({ sessionId, id, attachmentId })}`, url), {
       headers: { cookie, origin: url.origin }, signal: stream.signal,
     })
-    const iterator = frames(response)
-    let frameBytes = 0
-    let blankFrame = ''
-    let title = ''
-    try {
-      while (!blankFrame) {
-        const frame = await iterator.next()
-        assert.equal(frame.done, false, 'browser stream closed before attachment')
-        const image = frame.value.image as { data: string } | undefined
-        if (image) blankFrame = image.data
-      }
+    enter('stream-attachment')
+    const { frameBytes, title } = await qualifyBrowserFrames(response, async () => {
+      enter('browser-navigate')
       await rpc(url, cookie, 'browser/navigate', { agentId: sessionId, id, attachmentId, url: destination })
-      // The striped fixture produces a substantial JPEG; a blank pre-navigation frame cannot satisfy this.
-      while (frameBytes < 10000 || title !== 'Packaged Host browser') {
-        const frame = await iterator.next()
-        assert.equal(frame.done, false, 'browser stream closed before rendering')
-        const image = frame.value.image as { data: string } | undefined
-        const info = frame.value.info as { title: string; error?: string } | undefined
-        if (info?.error) throw new Error(info.error)
-        if (info) title = info.title
-        if (image && image.data !== blankFrame) {
-          const jpeg = Buffer.from(image.data, 'base64')
-          assert.equal(jpeg.readUInt16BE(0), 0xffd8, 'browser frame must be a JPEG')
-          frameBytes = jpeg.length
-        }
-      }
-    } finally {
-      await iterator.return(undefined)
-    }
+      enter('rendered-frame')
+    })
     assert(originHits > 0, 'Host Chromium must fetch the local origin')
+    enter('browser-close')
     await rpc(url, cookie, 'browser/close', { agentId: sessionId, id })
     assert.deepEqual(await rpc(url, cookie, 'browser/list', { sessionId }), [])
+    enter('host-shutdown')
     const stopped = messageFrom(child, 'shutdown-complete')
     child.send({ type: 'shutdown' })
     await stopped
     assert.equal(await exited, 0)
     await assert.rejects(fetch(url))
+    stream.signal.throwIfAborted()
+    enter('complete')
     const { browser } = JSON.parse(readFileSync(join(app, 'offline-assets.json'), 'utf8')) as RuntimeInput
     return { target: `${process.platform}-${process.arch}`, browser, authenticated: true,
       fixturePolicy: { allowPrivateAddresses: true, allowedHosts: ['127.0.0.1'] },
-      frameBytes, title, originHits, pagesAfterClose: 0, shutdown: 'acknowledged-and-exited' }
+      frameBytes, title, originHits, pagesAfterClose: 0, shutdown: 'acknowledged-and-exited', phases }
   } catch (error) {
-    throw new Error(`Packaged browser qualification failed: ${error instanceof Error ? error.message : String(error)}\n${stderr}`, { cause: error })
+    const diagnostics = { phase, elapsedMs: Math.round(performance.now() - started), phaseMs: Math.round(performance.now() - phaseStarted),
+      timedOut, originHits, hostExitCode: child?.exitCode ?? null, hostSignal: child?.signalCode ?? null, phases }
+    throw new Error(`Packaged browser qualification failed: ${error instanceof Error ? error.message : String(error)}\n${JSON.stringify(diagnostics)}\n${stderr}`,
+      { cause: error })
   } finally {
     clearTimeout(deadline)
     stream.abort()
