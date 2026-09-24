@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-Harness 的**进程级出站代理策略**：从启动环境（`HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`，任意大小写）解析出唯一一份策略，安装到 Node 全局 `fetch` 所解析的 dispatcher 符号之后，并向其余所有表面——子进程、web-fetch 传输——给出同一个路由答案。
+Harness 的**进程级出站代理策略**：从启动环境（`HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`，任意大小写）解析出唯一一份策略，安装到 Node 全局 `fetch` 与 `WebSocket` 所解析的 dispatcher 符号之后，并向其余所有表面——子进程、web-fetch 传输——给出同一个路由答案。
 
 Node 内置的 `fetch` 自身忽略代理环境变量，因此无论用户导出什么，每个 harness 请求都会直连。一次安装即可覆盖 LLM 适配器、web 搜索以及任何普通的 `fetch()` 调用者，而无需改动它们的代码：启动器（`dsh` profile boot）在第一个插件挂载之前完成解析与安装，且从启动环境快照而非 `process.env` 解析——这正是让声明在 `.env` 层中的代理得以生效的原因；`NODE_USE_ENV_PROXY` 做不到这一点，因为 Node 在进程启动时就采样了环境。
 
-这是一个**库而非插件**：传输策略在进程内只有一个答案，没有可供组合挂载、替换或作用域化的东西。Harniverse 以**原生方式**承载它——不依赖 `undici`：安装的 dispatcher 讲的就是全局 `fetch` 已经在使用的分发契约，且所有代理跳都经由唯一的共享隧道构建器。
+这是一个**库而非插件**：传输策略在进程内只有一个答案，没有可供组合挂载、替换或作用域化的东西。Harniverse 以**原生方式**承载它——不依赖 `undici`：安装的 dispatcher 遵循 Node 的分发约定，使用原生 HTTP 与 TLS 传输处理请求和升级。
 
 ## API
 
@@ -34,6 +34,7 @@ import {
 - **诊断不携带值**：代理 URL 可能内嵌 `user:password`，因此消息只点名变量。
 - **回环永不走代理**（`localhost`、`127.0.0.0/8`、`::1`、IPv4 映射形式），且每份旁路名单都会并入这些条目。
 - **`NO_PROXY` 匹配**：逗号/空白分隔；条目匹配主机及其全部子域；可选的 `:port` 必须等于有效端口；`*` 旁路一切；不匹配 CIDR。
+- **WebSocket 路由**：Node 全局 `WebSocket` 对 `ws:` 使用 HTTP 策略，对 `wss:` 使用 HTTPS 策略。回环与旁路升级交给被替换的 dispatcher；若不存在，则使用原生直连。代理升级使用 `CONNECT`；`wss:` 另加源站 TLS，并正常校验证书。代理凭据仅发送给代理。握手失败或取消会关闭尚未交付的连接；dispose（资源释放）等待未完成的握手，成功升级后的 socket 由调用者拥有并关闭。
 - **未导出任何代理**：不安装任何东西、不触碰任何环境变量名——全局 `fetch` 逐字节保持 Node 内部默认传输。
 
 ## 消费者
@@ -53,7 +54,6 @@ import {
 
 ## Known Limitations and Deferred Work
 
-- **无连接池**——每个代理跳自开 socket（按请求建隧道；`agent: false`）；在未替换任何 dispatcher 时，活跃策略下未代理的直连 URL 同样按请求开 socket。未安装策略时，Node 内部默认传输保持其连接池。
+- **无连接池**——每个代理跳自开 socket；在未替换任何 dispatcher 时，活跃策略下未代理的直连 URL 同样按请求开 socket。未安装策略时，Node 内部默认传输保持其连接池。
 - **隧道仅 HTTP/1.1**——CONNECT 臂不协商 ALPN，因此要求 HTTP/2 多路复用的源站暂无法走代理。
-- **代理路由上的升级请求会被拒绝**——WebSocket 式升级不会来自 `fetch`；为其建隧道需要专门的协议处理。
 - **不服务 worker 线程**——worker 拥有各自的 `globalThis` 与 dispatcher；在此安装无法触达，且模型脚本的运行时不得接收可能携带凭据的代理 URL。

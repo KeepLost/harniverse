@@ -4,13 +4,13 @@
 
 /**
  * Native transport for an installed proxy policy: a hand-rolled dispatcher speaking the contract
- * Node's global `fetch` resolves through its global-dispatcher symbol, plus the one proxy-hop
+ * Node's global `fetch` and `WebSocket` resolve through their global-dispatcher symbol, plus the proxy-hop
  * builder (`requestViaProxy`) every native consumer reuses.
  *
  * Node bundles no importable `undici`, so this module IS the tunnel: `http:` targets are sent to
  * the proxy in absolute form, `https:` targets are tunnelled through `CONNECT` and then spoken
- * over TLS with the origin's server name. No connection is pooled — each hop opens its own socket
- * and closes it when the response ends (see the README's Known Limitations).
+ * over TLS with the origin's server name. WebSocket upgrades use CONNECT for both schemes. No
+ * connection is pooled; upgraded sockets belong to callers (see the README's Known Limitations).
  * @module @deepseek-ai/dsh-http-proxy/dispatcher
  */
 
@@ -20,6 +20,7 @@ import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { isIP } from 'node:net'
 import type { Socket } from 'node:net'
+import type { Duplex } from 'node:stream'
 import { connect as tlsConnect } from 'node:tls'
 import { proxyForUrl, type ProxyPolicy } from './policy.ts'
 
@@ -31,8 +32,7 @@ import { proxyForUrl, type ProxyPolicy } from './policy.ts'
 export const GLOBAL_DISPATCHER_SYMBOL = Symbol.for('undici.globalDispatcher.1')
 
 /**
- * The part of undici's dispatch options the native transport consumes. Global `fetch` supplies
- * exactly these fields; `headers` is the flat `[name, value, …]` array undici passes down.
+ * The part of undici's dispatch options used by global `fetch` and `WebSocket`.
  */
 export interface DispatchOptions {
   /** Request target as `pathname + search`; the origin it resolves against. */
@@ -41,13 +41,13 @@ export interface DispatchOptions {
   readonly origin: string | URL
   /** HTTP method. */
   readonly method: string
-  /** Flat `[name, value, …]` request headers. */
-  readonly headers: readonly (string | Buffer)[]
+  /** Flat `[name, value, …]` headers from fetch, or a header object from WebSocket. */
+  readonly headers: readonly (string | Buffer)[] | Record<string, string | string[]>
   /** Request body chunks, or `undefined`/`null` when the request carries none. */
   readonly body?: AsyncIterable<Uint8Array> | null
   /** Abort signal the caller (global `fetch`) ties to this one request. */
   readonly signal?: AbortSignal | undefined
-  /** Present on an upgrade request, which no proxy route in this package serves. */
+  /** The protocol requested by an HTTP upgrade, such as `websocket`. */
   readonly upgrade?: unknown
 }
 
@@ -66,6 +66,8 @@ export interface DispatchHandlers {
   onComplete(): void
   /** Called once on any failure; no other callback may follow it. */
   onError(error: Error): void
+  /** Transfers ownership of an upgraded socket, including any buffered first frame, to the caller. */
+  onUpgrade?(status: number, rawHeaders: Buffer[], socket: Duplex): void
 }
 
 /** A dispatcher global `fetch` can drive: the interface undici's own agents present here. */
@@ -87,8 +89,8 @@ export interface ProxyHop {
 export interface ProxyRequestOptions {
   /** HTTP method. */
   readonly method: string
-  /** Flat `[name, value, …]` request headers (the `host` header is added when absent). */
-  readonly headers: readonly (string | Buffer)[]
+  /** Flat `[name, value, …]` or object headers; the target supplies the `host` header. */
+  readonly headers: readonly (string | Buffer)[] | Record<string, string | string[]>
   /** Request body chunks, or `undefined`/`null` when the request carries none. */
   readonly body?: AsyncIterable<Uint8Array> | null
   /** Aborts the hop at any phase. */
@@ -98,9 +100,7 @@ export interface ProxyRequestOptions {
 /**
  * Send one request to `url` through the proxy at `proxyUrl`.
  *
- * This is the one tunnel implementation: the installed dispatcher, `dsh-web-fetch-http`, and any
- * later native consumer route through it so no two transports can disagree about how a proxied
- * request is spoken.
+ * The installed dispatcher and `dsh-web-fetch-http` share this HTTP response transport.
  *
  * @param proxyUrl - the validated `http(s):` proxy URL the policy resolved.
  * @param url - the request target; `http:` is sent in absolute form, `https:` through CONNECT.
@@ -236,15 +236,13 @@ export class ProxyDispatcher implements Dispatcher {
       queueMicrotask(() => { handlers.onError(toError(error)) })
       return false
     }
-    if (options.upgrade !== undefined) {
-      // WebSocket-style upgrades never arrive from `fetch`; refusing beats silently bypassing the
-      // policy a URL was classified under.
-      queueMicrotask(() => { handlers.onError(new Error('upgrade requests are not supported through the proxy dispatcher')) })
-      return false
-    }
     const proxy = proxyForUrl(this.#policy, url)
     const delegate = this.delegate
     if (proxy === undefined && delegate !== undefined) return delegate.dispatch(options, handlers)
+    if (options.upgrade !== undefined) {
+      void this.#serveUpgrade(proxy, url, options, handlers)
+      return false
+    }
     const build = (requestOptions: ProxyRequestOptions): Promise<ProxyHop> =>
       proxy === undefined ? requestDirect(url, requestOptions) : requestViaProxy(proxy, url, requestOptions)
     void this.#serve(build, options, handlers)
@@ -310,6 +308,142 @@ export class ProxyDispatcher implements Dispatcher {
       this.#pending.delete(pending)
     }
   }
+
+  /** Route a WebSocket upgrade after classifying its URL, including loopback direct paths. */
+  async #serveUpgrade(
+    proxy: string | undefined,
+    url: URL,
+    options: DispatchOptions,
+    handlers: DispatchHandlers,
+  ): Promise<void> {
+    const pending = (async () => {
+      const abort = new AbortController()
+      let socket: Duplex | undefined
+      const onAbort = (reason?: unknown): void => {
+        const error = toError(reason ?? 'aborted')
+        if (!abort.signal.aborted) abort.abort(error)
+      }
+      this.#aborts.add(abort)
+      try {
+        try { handlers.onConnect(onAbort) } catch (error: unknown) {
+          handlers.onError(toError(error))
+          return
+        }
+        const signal = options.signal === undefined ? abort.signal : AbortSignal.any([options.signal, abort.signal])
+        try {
+          if (handlers.onUpgrade === undefined) throw new Error('upgrade requests require an onUpgrade handler')
+          const upgraded = await requestUpgrade(proxy, url, options, signal)
+          socket = upgraded.socket
+          signal.throwIfAborted()
+          handlers.onUpgrade(upgraded.status, upgraded.rawHeaders, upgraded.socket)
+        } catch (error: unknown) {
+          socket?.destroy()
+          handlers.onError(toError(error))
+        }
+      } finally {
+        this.#aborts.delete(abort)
+      }
+    })()
+    this.#pending.add(pending)
+    try { await pending } finally { this.#pending.delete(pending) }
+  }
+}
+
+interface UpgradeHop {
+  readonly status: number
+  readonly rawHeaders: Buffer[]
+  readonly socket: Duplex
+}
+
+/** Own every connection until the HTTP upgrade succeeds; the recipient then owns the socket. */
+function requestUpgrade(proxyUrl: string | undefined, url: URL, options: DispatchOptions, signal: AbortSignal): Promise<UpgradeHop> {
+  return new Promise<UpgradeHop>((resolve, reject) => {
+    let settled = false
+    let request: ClientRequest | undefined
+    let connect: ClientRequest | undefined
+    let tunnel: Socket | undefined
+    let transport: Socket | undefined
+    const cleanup = (): void => {
+      signal.removeEventListener('abort', onAbort)
+      transport?.removeListener('error', fail)
+    }
+    const fail = (error: unknown): void => {
+      if (settled) return
+      settled = true
+      cleanup()
+      request?.destroy()
+      connect?.destroy()
+      transport?.destroy()
+      tunnel?.destroy()
+      reject(toError(error))
+    }
+    const onAbort = (): void => { fail(signal.reason) }
+    signal.addEventListener('abort', onAbort, { once: true })
+    const handshake = (socket?: Socket): void => {
+      const base = {
+        hostname: stripBrackets(url.hostname), port: effectivePort(url),
+        path: `${url.pathname}${url.search}`, method: options.method,
+        signal,
+        headers: { ...foldHeaders(options.headers), host: url.host, connection: 'Upgrade', upgrade: String(options.upgrade) },
+      }
+      // A custom connection must omit `agent`: `agent: false` discards the CONNECT socket.
+      request = socket !== undefined
+        ? httpRequest({ ...base, createConnection: () => socket })
+        : url.protocol === 'https:'
+          ? httpsRequest({ ...base, agent: false, servername: sniOf(url) })
+          : httpRequest({ ...base, agent: false })
+      request.once('error', fail)
+      request.once('upgrade', (response, upgradedSocket, head) => {
+        if (settled) { upgradedSocket.destroy(); return }
+        settled = true
+        cleanup()
+        // Undici's onUpgrade has no head argument; preserve bytes coalesced with the headers.
+        if (head.length > 0) upgradedSocket.unshift(head)
+        resolve({
+          status: response.statusCode ?? 0,
+          rawHeaders: response.rawHeaders.map(header => Buffer.from(header)),
+          socket: upgradedSocket,
+        })
+      })
+      request.once('response', (response) => {
+        response.resume()
+        fail(new Error(`WebSocket upgrade returned HTTP ${response.statusCode ?? 0}`))
+      })
+      pipeBody(request, options.body)
+    }
+    try {
+      signal.throwIfAborted()
+      if (proxyUrl === undefined) { handshake(); return }
+      const proxy = new URL(proxyUrl)
+      const authority = `${url.hostname}:${effectivePort(url)}`
+      connect = proxyTransportRequest(proxy, {
+        method: 'CONNECT', path: authority,
+        headers: { host: authority, ...proxyAuthorization(proxy) }, signal,
+      })
+      connect.once('error', fail)
+      connect.once('connect', (response, socket, head) => {
+        if (settled) { socket.destroy(); return }
+        tunnel = socket
+        if (response.statusCode !== 200) {
+          fail(new Error(`Proxy CONNECT returned HTTP ${response.statusCode ?? 0}`))
+          return
+        }
+        try {
+          if (head.length > 0) socket.unshift(head)
+          transport = url.protocol === 'https:'
+            ? tlsConnect({ socket, host: stripBrackets(url.hostname), servername: sniOf(url) })
+            : socket
+          transport.once('error', fail)
+          handshake(transport)
+        } catch (error: unknown) {
+          fail(error)
+        }
+      })
+      connect.end()
+    } catch (error: unknown) {
+      fail(error)
+    }
+  })
 }
 
 /** Connect the response events to the dispatcher callbacks, honoring backpressure both ways. */
@@ -335,7 +469,7 @@ function bridgeResponse(request: { destroy(error?: Error): void }, response: Inc
 /** Send one request to the proxy itself, over plain HTTP or TLS as the proxy URL's scheme says. */
 function proxyTransportRequest(
   proxy: URL,
-  options: { method: string; path: string; headers: Record<string, string>; signal?: AbortSignal },
+  options: { method: string; path: string; headers: Record<string, string | string[]>; signal?: AbortSignal },
 ): ClientRequest {
   const requestOptions = {
     protocol: proxy.protocol,
@@ -385,11 +519,12 @@ function proxyAuthorization(proxy: URL): Record<string, string> {
   return { 'proxy-authorization': `Basic ${credentials}` }
 }
 
-/** Fold undici's flat header array into the object Node's request options take. */
-function foldHeaders(flat: readonly (string | Buffer)[]): Record<string, string> {
+/** Normalize undici's two header forms to case-insensitive Node request headers. */
+function foldHeaders(flat: readonly (string | Buffer)[] | Record<string, string | string[]>): Record<string, string | string[]> {
+  if (!Array.isArray(flat)) return Object.fromEntries(Object.entries(flat).map(([name, value]) => [name.toLowerCase(), value]))
   const headers: Record<string, string> = {}
   for (let index = 0; index + 1 < flat.length; index += 2) {
-    const name = String(flat[index])
+    const name = String(flat[index]).toLowerCase()
     const value = String(flat[index + 1])
     headers[name] = headers[name] === undefined ? value : `${headers[name]}, ${value}`
   }
