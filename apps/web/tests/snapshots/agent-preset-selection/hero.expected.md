@@ -1,6 +1,7 @@
-- button "Choose workspace":
+- button "Open workbench":
   - img
   - text: workspace
+- button "Choose workspace":
   - img
 - button "Standard mode":
   - img

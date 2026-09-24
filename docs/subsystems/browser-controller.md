@@ -258,5 +258,5 @@ follow( agent: Agent, id: HostBrowserPageId, attachmentId: BrowserAttachmentId, 
 
 Types: [Agent](core.md) · [SessionId](core.md)
 
-Source: [`packages/api/browser-controller/src/index.ts:117`](../../packages/api/browser-controller/src/index.ts)
+Source: [`packages/api/browser-controller/src/index.ts:123`](../../packages/api/browser-controller/src/index.ts)
 <!-- END GENERATED cordis-surface -->

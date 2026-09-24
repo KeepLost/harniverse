@@ -30,17 +30,15 @@
   - img
   - text: Settings
 - text: Into the Unknown Preview
-- button "Choose workspace":
+- button "Open workbench":
   - img
   - text: workspace
+- button "Choose workspace":
   - img
 - button "Standard mode":
   - img
   - text: Standard mode
   - img
-- button "Open workspace workbench":
-  - img
-  - text: Workspace
 - textbox "Describe what you want to build"
 - button "Commands":
   - img
