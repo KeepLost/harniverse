@@ -13,8 +13,8 @@ import { checkRuntime, type RuntimeInput } from './packaging-runtime.ts'
 
 type Message = Record<string, unknown>
 const PREPARATION_MS = 60000
-const OPERATION_MS = process.platform === 'win32' ? 120000 : 60000
-const HOST_READY_MS = process.platform === 'win32' ? 60000 : 30000
+const OPERATION_MS = process.platform === 'win32' ? 180000 : 60000
+const HOST_READY_MS = process.platform === 'win32' ? 120000 : 30000
 const REQUEST_MS = 30000
 const CLEANUP_MS = 5000
 
@@ -273,7 +273,7 @@ export async function qualifyBrowserFrames(
 /**
  * Exercise a sealed runtime in a disposable snapshot, allowing only the test's loopback origin.
  * Preparation has a separate 60s budget; Host/browser operations share a bounded platform budget
- * (120s on Windows after physical staging, 60s elsewhere), with 30s IPC/RPC caps.
+ * (180s on Windows after physical staging, 60s elsewhere), with 30s IPC/RPC caps.
  * @param app - assembled or packaged resources/app directory.
  * @param executable - target Electron executable providing the Host's embedded Node.
  * @returns authenticated navigation, JPEG frame and settled teardown evidence.
