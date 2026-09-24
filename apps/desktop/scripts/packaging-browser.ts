@@ -43,6 +43,17 @@ export function apply(ctx) {
 }
 `
 
+function qualificationPage(): string {
+  const alphabet = '0123456789abcdef'
+  let state = 0x9e3779b9
+  let text = ''
+  for (let index = 0; index < 12000; index++) {
+    state = (state * 1664525 + 1013904223) >>> 0
+    text += alphabet[state & 0xf]
+  }
+  return `<!doctype html><title>Packaged Host browser</title><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}body{background:repeating-linear-gradient(45deg,#073 0 10px,#c40 10px 20px);color:white;font:14px monospace}pre{margin:0;white-space:pre-wrap;word-break:break-all}</style><pre>${text}</pre>`
+}
+
 /**
  * Snapshot a checked, immutable runtime; only the policy file gets a writable private inode.
  * @param app - sealed physical payload already validated by checkRuntime.
@@ -295,8 +306,8 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
   const origin = createServer((_request, response) => {
     originHits++
     response.writeHead(200, { 'content-type': 'text/html', 'x-frame-options': 'DENY',
-      'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'none'" })
-      .end('<!doctype html><title>Packaged Host browser</title><style>html,body,canvas{margin:0;width:100%;height:100%;overflow:hidden}body{background:#073;color:white;font:48px sans-serif}canvas{display:block}</style><canvas id="proof" width="800" height="600"></canvas><script>const c=document.getElementById(\'proof\'),x=c.getContext(\'2d\'),p=x.createImageData(c.width,c.height);let s=0x9e3779b9;for(let i=0;i<p.data.length;i+=4){s=(s*1664525+1013904223)>>>0;p.data[i]=s&255;p.data[i+1]=(s>>>8)&255;p.data[i+2]=(s>>>16)&255;p.data[i+3]=255}x.putImageData(p,0,0)</script>')
+      'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'" })
+      .end(qualificationPage())
   })
   const terminate = () => {
     if (!child?.pid) return
