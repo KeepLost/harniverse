@@ -27,6 +27,12 @@ const control = vi.hoisted(() => ({
   /** Remaining rename calls that raise; undefined raises indefinitely. */
   renameCount: undefined as number | undefined,
   renameCalls: 0,
+  /** Error code removal of a stale owner file raises, or undefined to pass through. */
+  rmCode: undefined as string | undefined,
+  /** Remaining stale-owner removals that raise; undefined raises indefinitely. */
+  rmCount: undefined as number | undefined,
+  rmCalls: 0,
+  rmFailures: 0,
   /** Runs after a denied publication, modelling what the competitor did next. */
   onRenameFailure: undefined as (() => Promise<void>) | undefined,
 }))
@@ -57,6 +63,17 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       }
       await actual.rename(...args)
     },
+    rm: async (...args: Parameters<typeof actual.rm>): Promise<void> => {
+      const path = String(args[0])
+      if (control.rmCode !== undefined && path.includes(`${LEASE_LEAF}/owner-`)) {
+        control.rmCalls += 1
+        if (control.rmCount === undefined || control.rmCalls <= control.rmCount) {
+          control.rmFailures += 1
+          throw Object.assign(new Error(`simulated ${control.rmCode}`), { code: control.rmCode })
+        }
+      }
+      await actual.rm(...args)
+    },
   }
 })
 
@@ -72,6 +89,10 @@ afterEach(async () => {
   control.renameCode = undefined
   control.renameCount = undefined
   control.renameCalls = 0
+  control.rmCode = undefined
+  control.rmCount = undefined
+  control.rmCalls = 0
+  control.rmFailures = 0
   control.onRenameFailure = undefined
   await Promise.all(homes.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
@@ -111,6 +132,16 @@ describe('instance lease cleanup contention', () => {
     // The first removal loses the race; the retry acquires the lease.
     const lease = await acquireAuthenticationLease({ dshHome, mode: 'authenticated' })
     expect(control.rmdirFailures).toBe(1)
+    await lease.release()
+  })
+
+  it('retries when a competing stale-owner cleanup holds the owner file open', async () => {
+    const dshHome = await homeWithStaleOwner()
+    control.rmCode = 'EPERM'
+    control.rmCount = 1
+
+    const lease = await acquireAuthenticationLease({ dshHome, mode: 'authenticated' })
+    expect(control.rmFailures).toBe(1)
     await lease.release()
   })
 
