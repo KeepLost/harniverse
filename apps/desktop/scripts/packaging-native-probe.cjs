@@ -88,7 +88,7 @@ async function qualifyPty(appRequire) {
         await exit
       } finally { exitSubscription.dispose() }
     }
-  } finally { rmSync(scratch, { recursive: true, force: true }) }
+  } finally { rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
 }
 
 async function qualifyPtc(appRequire) {

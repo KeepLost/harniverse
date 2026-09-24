@@ -86,7 +86,7 @@ export async function qualifyNative(app: string, executable: string, platform: s
       if (process.platform !== 'win32' || timedOut) terminate()
       if (cleanupError) throw cleanupError
     }
-  } finally { rmSync(home, { recursive: true, force: true }) }
+  } finally { rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
