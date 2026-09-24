@@ -341,7 +341,9 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
     enter('host-ready')
     const host = fork(join(runtime, 'lib/desktop-host.js'), [home, join(runtime, 'node_modules/@deepseek-ai/dsh/package.json'), '--port', '0'], {
       execPath: resolve(executable), execArgv: ['--expose-internals'], env, cwd: home,
-      stdio: ['ignore', 'pipe', 'pipe', 'ipc'], detached: process.platform !== 'win32',
+      // The packaged Windows Electron RunAsNode path boots reliably with no stdout pipe;
+      // stderr and private IPC retain the actionable diagnostics needed by this qualifier.
+      stdio: ['ignore', process.platform === 'win32' ? 'ignore' : 'pipe', 'pipe', 'ipc'], detached: process.platform !== 'win32',
     })
     child = host
     host.on('message', (value: Message) => {
