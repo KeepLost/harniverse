@@ -38,7 +38,8 @@
         "@deepseek-ai/dsh-client-ui-input-trigger",
         "@deepseek-ai/dsh-client-ui-conversation"
       ],
-      "platform": "web"
+      "platform": "web",
+      "startup": "critical"
     }
   },
   "scripts": {

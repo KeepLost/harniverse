@@ -8,6 +8,8 @@ The surface is a carrier for a human, not a model seam: the controller is a Host
 
 ## Service: `BrowserController` (ctx key: `browserController`)
 
+On macOS the disposable profile uses `--use-mock-keychain` to avoid OS Keychain access prompts during navigation. Cookies in this temporary profile are not protected by the user's Keychain; its directory lifetime and Chromium sandbox policy remain unchanged.
+
 The service extends `TypertRemoteService` under the `browser` namespace. `environment` and `list` need `harniverse.observe`; `create`, `navigate`, `act`, `input`, `resize` and `close` need `harniverse.operate`. Create is idempotent for an open identity within one Session's registry, closed identities cannot be recreated, and the per-Session page count is bounded by `maxPages`. One Session launches at most one browser: the launch is memoized, the first page starts it and the last page released shuts it down, so a panel left closed costs nothing.
 
 Navigation is reviewed on the host before the browser is asked to move: only `http`/`https`, no embedded credentials, and loopback, link-local and private ranges are refused unless `allowPrivateAddresses` is set. A non-empty `allowedHosts` narrows the surface further, matching a host exactly or as a subdomain. Refusals surface as the `browser-navigation-refused` Remote error, never as a silent blank page.

@@ -7,10 +7,11 @@
  */
 
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { localLocator, readTextFile, saveTextFile, sessionDir } from '../src/store.ts'
+import { sweepSpillRoot } from '../src/cleanup.ts'
 
 interface FakeStat {
   isDirectory: () => boolean
@@ -31,6 +32,7 @@ const script = vi.hoisted(() => ({
   fileAfter: undefined as { path: string; calls: number } | undefined,
   lstatCalls: new Map<string, number>(),
   enoentOnce: undefined as string | undefined,
+  beforeLstat: undefined as { path: string; run: () => Promise<void> } | undefined,
   mkdirError: undefined as { pathIncludes: string; error: NodeJS.ErrnoException } | undefined,
   openHandle: undefined as object | undefined,
   openErrorOnce: undefined as { pathIncludes: string; error: NodeJS.ErrnoException } | undefined,
@@ -61,6 +63,9 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     lstat: async (...args: Parameters<typeof actual.lstat>) => {
       const path = String(args[0])
       script.lstatPaths.push(path)
+      if (script.beforeLstat !== undefined && darwinAlias(path) === darwinAlias(script.beforeLstat.path)) {
+        await script.beforeLstat.run()
+      }
       if (script.lstatError !== undefined) throw script.lstatError
       if (script.fakeDirFor !== undefined && darwinAlias(path) === darwinAlias(script.fakeDirFor)) {
         return dirStat(script.fakeDirUid ?? process.getuid?.() ?? 0) as never
@@ -118,6 +123,7 @@ afterEach(() => {
   script.fileAfter = undefined
   script.lstatCalls = new Map()
   script.enoentOnce = undefined
+  script.beforeLstat = undefined
   script.mkdirError = undefined
   script.openHandle = undefined
   script.openErrorOnce = undefined
@@ -196,6 +202,84 @@ describe('spill store fault injection', () => {
     script.openErrorOnce = { pathIncludes: 'session-', error: ioError('ENOENT') }
     const saved = await saveTextFile({ signal: TEST_SIGNAL, root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'x' })
     expect(readFileSync(saved.path, 'utf8')).toBe('x')
+  })
+
+  it('saves a readable artifact when startup cleanup prunes the directory during validation', async () => {
+    const dir = sessionDir(root, 'sess-1')
+    const warn = vi.fn()
+    script.beforeLstat = { path: dir, run: async () => {
+      script.beforeLstat = undefined
+      await sweepSpillRoot({ root, cutoffMs: Date.now() - 86_400_000, warn })
+      expect(existsSync(dir)).toBe(false)
+    } }
+    const saved = await saveTextFile({ signal: TEST_SIGNAL, root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'héllo' })
+    expect(saved.bytes).toBe(6)
+    await expect(readTextFile({ signal: TEST_SIGNAL, root, locator: localLocator(root, saved.path), maxChars: 10 }))
+      .resolves.toEqual({ text: 'héllo' })
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('propagates non-missing validation errors without retrying', async () => {
+    const failure = ioError('EACCES')
+    const run = vi.fn(async () => { throw failure })
+    script.beforeLstat = { path: sessionDir(root, 'sess-1'), run }
+    await expect(saveTextFile({ signal: TEST_SIGNAL, root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'x' }))
+      .rejects.toBe(failure)
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a symlink replacing the session directory on retry', async () => {
+    const dir = sessionDir(root, 'sess-1')
+    const outside = mkdtempSync(join(tmpdir(), 'dsh-spill-outside-'))
+    extras.push(outside)
+    let probes = 0
+    script.beforeLstat = { path: dir, run: async () => {
+      rmdirSync(dir)
+      if (++probes === 2) symlinkSync(outside, dir, 'dir')
+    } }
+    await expect(saveTextFile({ signal: TEST_SIGNAL, root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'x' }))
+      .rejects.toThrow('spill storage path component must be a real directory')
+    expect(readdirSync(outside)).toEqual([])
+  })
+
+  it('honors cancellation before recreating a pruned session directory', async () => {
+    const dir = sessionDir(root, 'sess-1')
+    const controller = new AbortController()
+    const reason = new Error('cancel spill save')
+    script.beforeLstat = { path: dir, run: async () => {
+      script.beforeLstat = undefined
+      rmdirSync(dir)
+      controller.abort(reason)
+    } }
+    await expect(saveTextFile({ signal: controller.signal, root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'x' }))
+      .rejects.toBe(reason)
+    expect(existsSync(dir)).toBe(false)
+  })
+
+  it('stops after one retry when validation keeps losing the session directory', async () => {
+    const dir = sessionDir(root, 'sess-1')
+    let probes = 0
+    script.beforeLstat = { path: dir, run: async () => {
+      if (++probes > 2) throw new Error('unexpected third attempt')
+      rmdirSync(dir)
+    } }
+    await expect(saveTextFile({ signal: TEST_SIGNAL, root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'x' }))
+      .rejects.toMatchObject({ code: 'ENOENT' })
+    expect(probes).toBe(2)
+    expect(existsSync(dir)).toBe(false)
+  })
+
+  it('shares one retry budget across validation and exclusive open failures', async () => {
+    const dir = sessionDir(root, 'sess-1')
+    const failure = ioError('ENOENT')
+    script.beforeLstat = { path: dir, run: async () => {
+      script.beforeLstat = undefined
+      rmdirSync(dir)
+      script.openErrorOnce = { pathIncludes: 'session-', error: failure }
+    } }
+    await expect(saveTextFile({ signal: TEST_SIGNAL, root, sessionId: 'sess-1', suggestedName: 'r.txt', content: 'x' }))
+      .rejects.toBe(failure)
+    expect(readdirSync(dir)).toEqual([])
   })
 
   it('propagates a non-ENOENT failure from the exclusive open', async () => {

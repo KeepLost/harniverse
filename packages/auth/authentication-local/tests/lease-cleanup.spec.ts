@@ -4,9 +4,9 @@
  * tolerated and retried while an unremovable directory still fails loudly.
  */
 
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const LEASE_LEAF = 'inbound-authentication.lease'
@@ -27,6 +27,14 @@ const control = vi.hoisted(() => ({
   /** Remaining rename calls that raise; undefined raises indefinitely. */
   renameCount: undefined as number | undefined,
   renameCalls: 0,
+  /** Error code removal of a stale owner file raises, or undefined to pass through. */
+  rmCode: undefined as string | undefined,
+  /** Remaining stale-owner removals that raise; undefined raises indefinitely. */
+  rmCount: undefined as number | undefined,
+  rmCalls: 0,
+  rmFailures: 0,
+  /** Runs before a stale-owner removal fails, modelling a concurrent cleanup. */
+  onRmFailure: undefined as ((path: string) => Promise<void>) | undefined,
   /** Runs after a denied publication, modelling what the competitor did next. */
   onRenameFailure: undefined as (() => Promise<void>) | undefined,
 }))
@@ -57,6 +65,21 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       }
       await actual.rename(...args)
     },
+    rm: async (...args: Parameters<typeof actual.rm>): Promise<void> => {
+      const path = String(args[0])
+      if (control.rmCode !== undefined
+        && basename(dirname(path)) === LEASE_LEAF
+        && basename(path).startsWith('owner-')) {
+        control.rmCalls += 1
+        if (control.rmCount === undefined || control.rmCalls <= control.rmCount) {
+          control.rmFailures += 1
+          const code = control.rmCode
+          await control.onRmFailure?.(path)
+          throw Object.assign(new Error(`simulated ${code}`), { code })
+        }
+      }
+      await actual.rm(...args)
+    },
   }
 })
 
@@ -72,6 +95,11 @@ afterEach(async () => {
   control.renameCode = undefined
   control.renameCount = undefined
   control.renameCalls = 0
+  control.rmCode = undefined
+  control.rmCount = undefined
+  control.rmCalls = 0
+  control.rmFailures = 0
+  control.onRmFailure = undefined
   control.onRenameFailure = undefined
   await Promise.all(homes.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
@@ -112,6 +140,103 @@ describe('instance lease cleanup contention', () => {
     const lease = await acquireAuthenticationLease({ dshHome, mode: 'authenticated' })
     expect(control.rmdirFailures).toBe(1)
     await lease.release()
+  })
+
+  it('retries when a competing stale-owner cleanup holds the owner file open', async () => {
+    const dshHome = await homeWithStaleOwner()
+    control.rmCode = 'EPERM'
+    control.rmCount = 1
+
+    const lease = await acquireAuthenticationLease({ dshHome, mode: 'authenticated' })
+    expect(control.rmFailures).toBe(1)
+    await lease.release()
+  })
+
+  it('bounds acquisition when stale-owner removal always reports EPERM', async () => {
+    const dshHome = await homeWithStaleOwner()
+    const runtime = join(dshHome, 'runtime')
+    const root = join(runtime, LEASE_LEAF)
+    const filename = `owner-${'1'.repeat(32)}.json`
+    const original = await readFile(join(root, filename), 'utf8')
+    control.rmCode = 'EPERM'
+
+    await expect(acquireAuthenticationLease({ dshHome, mode: 'authenticated' }))
+      .rejects.toThrow(/could not acquire the instance lease in 64 attempts/)
+    expect(control.rmCalls).toBe(64)
+    expect(control.rmFailures).toBe(64)
+    expect(await readdir(runtime)).toEqual([LEASE_LEAF])
+    expect(await readdir(root)).toEqual([filename])
+    expect(await readFile(join(root, filename), 'utf8')).toBe(original)
+  })
+
+  it.each(['EPERM', 'ENOENT'])('re-reads and preserves a live owner after stale-owner removal reports %s', async (code) => {
+    const dshHome = await homeWithStaleOwner()
+    const runtime = join(dshHome, 'runtime')
+    const root = join(runtime, LEASE_LEAF)
+    const nonce = '2'.repeat(32)
+    const filename = `owner-${nonce}.json`
+    const liveOwner = `${JSON.stringify({
+      version: 1,
+      mode: 'bypass',
+      pid: process.pid,
+      nonce,
+      startedAt: new Date().toISOString(),
+    })}\n`
+    control.rmCode = code
+    control.rmCount = 1
+    control.onRmFailure = async (path) => {
+      await unlink(path)
+      await writeFile(join(root, filename), liveOwner, { mode: 0o600 })
+    }
+
+    await expect(acquireAuthenticationLease({ dshHome, mode: 'authenticated' }))
+      .rejects.toThrow(`Harniverse network instance already running in bypass mode with pid ${String(process.pid)}`)
+    expect(control.rmCalls).toBe(1)
+    expect(control.rmFailures).toBe(1)
+    expect(await readdir(runtime)).toEqual([LEASE_LEAF])
+    expect(await readdir(root)).toEqual([filename])
+    expect(await readFile(join(root, filename), 'utf8')).toBe(liveOwner)
+  })
+
+  it('acquires the lease when a concurrent stale-owner deletion reports ENOENT', async () => {
+    const dshHome = await homeWithStaleOwner()
+    const runtime = join(dshHome, 'runtime')
+    const root = join(runtime, LEASE_LEAF)
+    const staleFilename = `owner-${'1'.repeat(32)}.json`
+    control.rmCode = 'ENOENT'
+    control.rmCount = 1
+    control.onRmFailure = async (path) => { await unlink(path) }
+
+    const lease = await acquireAuthenticationLease({ dshHome, mode: 'authenticated' })
+    expect(control.rmCalls).toBe(1)
+    expect(control.rmFailures).toBe(1)
+    expect(await readdir(runtime)).toEqual([LEASE_LEAF])
+    const entries = await readdir(root)
+    expect(entries).toHaveLength(1)
+    expect(entries).not.toContain(staleFilename)
+    expect(JSON.parse(await readFile(join(root, entries[0] ?? ''), 'utf8'))).toMatchObject({
+      mode: 'authenticated',
+      pid: process.pid,
+    })
+    await lease.release()
+    expect(await readdir(runtime)).toEqual([])
+  })
+
+  it('propagates a non-contention stale-owner removal failure without deleting the lease', async () => {
+    const dshHome = await homeWithStaleOwner()
+    const runtime = join(dshHome, 'runtime')
+    const root = join(runtime, LEASE_LEAF)
+    const filename = `owner-${'1'.repeat(32)}.json`
+    const original = await readFile(join(root, filename), 'utf8')
+    control.rmCode = 'EIO'
+
+    await expect(acquireAuthenticationLease({ dshHome, mode: 'authenticated' }))
+      .rejects.toMatchObject({ code: 'EIO', message: 'simulated EIO' })
+    expect(control.rmCalls).toBe(1)
+    expect(control.rmFailures).toBe(1)
+    expect(await readdir(runtime)).toEqual([LEASE_LEAF])
+    expect(await readdir(root)).toEqual([filename])
+    expect(await readFile(join(root, filename), 'utf8')).toBe(original)
   })
 
   it.each(['ENOTEMPTY', 'EPERM'])('retries a vacant lease cleanup reporting %s once', async (code) => {

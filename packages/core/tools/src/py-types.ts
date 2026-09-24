@@ -1,8 +1,8 @@
 /**
- * Code Mode codegen — Python flavor. The pure projection from registered tool schemas to the
+ * PTC codegen — Python flavor. The pure projection from registered tool schemas to the
  * Python SDK text the model programs against under `runtime.language === 'python'`. Sibling of
  * {@link ./ts-types.ts | ts-types.ts}; the two files are two projections of the same registry
- * store, keyed by the loaded {@link @deepseek-ai/dsh-code-runtime#CodeRuntime.language | code
+ * store, keyed by the loaded {@link @deepseek-ai/dsh-ptc-runtime#PtcRuntime.language | PTC
  * runtime's language}.
  *
  * Under `mode: 'code'` the native tool schemas are omitted from the request, so this generated
@@ -236,7 +236,7 @@ function describe(schema: object): string | undefined {
  * Backslashes are doubled first, every quote is escaped, and a trailing
  * backslash cannot survive: a description ending in `"` or an odd backslash
  * would otherwise merge with (or escape) the closing triple quote and make
- * the generated block — Code Mode's only SDK — syntactically invalid Python.
+ * the generated block — PTC's only SDK — syntactically invalid Python.
  */
 function docLines(description: unknown, indent: number): string[] {
   const collapsed = describe({ description })

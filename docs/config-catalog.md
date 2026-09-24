@@ -641,88 +641,6 @@ export interface Config {
 
 Source: [`packages/client/hmr/src/index.ts:32`](../packages/client/hmr/src/index.ts)
 
-<a id="deepseek-aidsh-code-runtime-ptc"></a>
-
-## `@deepseek-ai/dsh-code-runtime-ptc`
-
-Requires: `sandboxPolicy`
-
-```ts config-catalog
-/** Plugin config: every execution cap, changeable from `cordis.yml` (no hardcoded tunables). */
-export interface Config {
-  /**
-   * Busy-time budget in milliseconds: the run fails with kind `'timeout'`
-   * once the child's MEASURED event-loop active time
-   * (`performance.eventLoopUtilization()`, sampled in-process) exceeds this.
-   * Metering measured busy time — not wall time, not host-side pending-call
-   * bookkeeping — is what makes the budget fair (a program awaiting a slow
-   * tool accrues nothing). A hot synchronous loop starves the child's
-   * sampler; the `maxWallMs` deadline is the backstop that stops it.
-   */
-  computeMs?: number
-  /**
-   * Wall-clock ceiling in milliseconds; never pauses for anything. The
-   * backstop for what busy-time cannot see (a program awaiting a promise
-   * nobody will resolve, or a loop blocking the child's sampling timer).
-   * At most `2_147_483_647` (Node's maximum `setTimeout` delay, about 24.9
-   * days): a longer value is rejected at load because `setTimeout` would
-   * clamp it to 1 ms.
-   */
-  maxWallMs?: number
-  /**
-   * Hard cap for serialized log-array, completion-value, and failure-message payloads;
-   * fixed result-envelope syntax is excluded.
-   */
-  maxOutputBytes?: number
-  /** The child's max old-generation heap in MiB (`--max-old-space-size`); overflow kills the child, surfacing as kind `'worker-exit'`. */
-  maxOldGenerationSizeMb?: number
-  /**
-   * Node executable that runs the child; defaults to the current one. Set it
-   * when the host process is not plain Node (an Electron app resolving its
-   * bundled Node, or a deployment whose node lives elsewhere).
-   */
-  nodeExecutable?: string
-  /**
-   * Absolute path to a preinstalled child entry in the execution world.
-   * Defaults to this package's own child entry (source or built, whichever
-   * world this module runs in). Inside a single-file executable there is no
-   * such path: the runtime respawns the executable itself (see
-   * {@link childSpawnPlan}) and its bin routes to the child.
-   */
-  bootstrapPath?: string
-}
-```
-
-Source: [`packages/code-runtime/code-runtime-ptc/src/index.ts:30`](../packages/code-runtime/code-runtime-ptc/src/index.ts)
-
-<a id="deepseek-aidsh-code-runtime-python"></a>
-
-## `@deepseek-ai/dsh-code-runtime-python`
-
-```ts config-catalog
-/** Validated deployment limits and Python executable selection. */
-export interface Config {
-  /**
-   * Python interpreter resolved at plugin load: an absolute or relative path
-   * to an executable regular file, or a bare name searched on the Host `PATH`.
-   * The resolved file must report CPython 3.10 or newer in an isolated probe.
-   */
-  pythonExecutable?: string
-  /** Per-process `RLIMIT_CPU` soft limit in whole seconds where supported. */
-  cpuSeconds?: number
-  /** Host wall-clock ceiling for one complete process run. */
-  maxWallMs?: number
-  /** Per-process `RLIMIT_AS` soft limit in MiB where supported. */
-  maxAddressSpaceMb?: number
-  /** Combined serialized logs/value/diagnostic cap. */
-  maxOutputBytes?: number
-  /** Maximum bytes in one control frame, including binding payloads. */
-  maxControlBytes?: number
-}
-```
-
-Source: [`packages/code-runtime/code-runtime-python/src/index.ts:23`](../packages/code-runtime/code-runtime-python/src/index.ts)
-
 <a id="deepseek-aidsh-compaction-basic"></a>
 
 ## `@deepseek-ai/dsh-compaction-basic`
@@ -2060,6 +1978,89 @@ export interface PlanModeConfig {
 ```
 
 Source: [`packages/plan/plan-mode/src/index.ts:71`](../packages/plan/plan-mode/src/index.ts)
+
+<a id="deepseek-aidsh-ptc-runtime-node"></a>
+
+## `@deepseek-ai/dsh-ptc-runtime-node`
+
+Requires: `sandboxPolicy`
+
+```ts config-catalog
+/** Plugin config: every execution cap, changeable from `cordis.yml` (no hardcoded tunables). */
+export interface Config {
+  /**
+   * Busy-time budget in milliseconds: the run fails with kind `'timeout'`
+   * once the child's MEASURED event-loop active time
+   * (`performance.eventLoopUtilization()`, sampled in-process) exceeds this.
+   * Metering measured busy time — not wall time, not host-side pending-call
+   * bookkeeping — is what makes the budget fair (a program awaiting a slow
+   * tool accrues nothing). A hot synchronous loop starves the child's
+   * sampler; the `maxWallMs` deadline is the backstop that stops it.
+   */
+  computeMs?: number
+  /**
+   * Wall-clock ceiling in milliseconds; never pauses for anything. The
+   * backstop for what busy-time cannot see (a program awaiting a promise
+   * nobody will resolve, or a loop blocking the child's sampling timer).
+   * At most `2_147_483_647` (Node's maximum `setTimeout` delay, about 24.9
+   * days): a longer value is rejected at load because `setTimeout` would
+   * clamp it to 1 ms.
+   */
+  maxWallMs?: number
+  /**
+   * Hard cap for serialized log-array, completion-value, and failure-message payloads;
+   * fixed result-envelope syntax is excluded.
+   */
+  maxOutputBytes?: number
+  /** The child's max old-generation heap in MiB (`--max-old-space-size`); overflow kills the child, surfacing as kind `'worker-exit'`. */
+  maxOldGenerationSizeMb?: number
+  /**
+   * Node executable that runs the child; defaults to the current one. An
+   * Electron self executable uses ELECTRON_RUN_AS_NODE at bootstrap; a
+   * separately configured Node executable receives no Electron variables.
+   */
+  nodeExecutable?: string
+  /**
+   * Absolute path to a preinstalled child entry in the execution world.
+   * Defaults to this package's own child entry (source or built, whichever
+   * world this module runs in). Inside a single-file executable there is no
+   * such path by default: the runtime respawns the executable itself (see
+   * {@link childSpawnPlan}) and its bin routes to the child. An explicit
+   * bootstrap path bypasses that route for a separately installed Node/entry.
+   */
+  bootstrapPath?: string
+}
+```
+
+Source: [`packages/ptc-runtime/ptc-runtime-node/src/index.ts:30`](../packages/ptc-runtime/ptc-runtime-node/src/index.ts)
+
+<a id="deepseek-aidsh-ptc-runtime-python"></a>
+
+## `@deepseek-ai/dsh-ptc-runtime-python`
+
+```ts config-catalog
+/** Validated deployment limits and Python executable selection. */
+export interface Config {
+  /**
+   * Python interpreter resolved at plugin load: an absolute or relative path
+   * to an executable regular file, or a bare name searched on the Host `PATH`.
+   * The resolved file must report CPython 3.10 or newer in an isolated probe.
+   */
+  pythonExecutable?: string
+  /** Per-process `RLIMIT_CPU` soft limit in whole seconds where supported. */
+  cpuSeconds?: number
+  /** Host wall-clock ceiling for one complete process run. */
+  maxWallMs?: number
+  /** Per-process `RLIMIT_AS` soft limit in MiB where supported. */
+  maxAddressSpaceMb?: number
+  /** Combined serialized logs/value/diagnostic cap. */
+  maxOutputBytes?: number
+  /** Maximum bytes in one control frame, including binding payloads. */
+  maxControlBytes?: number
+}
+```
+
+Source: [`packages/ptc-runtime/ptc-runtime-python/src/index.ts:23`](../packages/ptc-runtime/ptc-runtime-python/src/index.ts)
 
 <a id="deepseek-aidsh-pwsh-local"></a>
 
@@ -3625,7 +3626,7 @@ export interface Config {
    * sends only `run_code` plus a generated SDK prompt and collapses the
    * executor to the same surface (a model-direct call may only name
    * `run_code`; `run_code` SDK sub-dispatches keep every visible tool); `both`
-   * sends both forms. Code modes require a `ctx.codeRuntime` whose `language`
+   * sends both forms. PTC modes require a `ctx.ptcRuntime` whose `language`
    * has a registered SDK renderer (TypeScript or Python) and fail prompt
    * assembly when it is absent or has no renderer. Under `code`, native names
    * in `toolOrder` are invalid.
@@ -4073,7 +4074,6 @@ Abstract service classes — a deployment loads a concrete implementation packag
 
 - `@deepseek-ai/dsh-attachment` — abstract `AttachmentStore` ([`packages/attachment/attachment/src/index.ts`](../packages/attachment/attachment/src/index.ts))
 - `@deepseek-ai/dsh-authentication` — abstract `InboundAuthentication` ([`packages/auth/authentication/src/index.ts`](../packages/auth/authentication/src/index.ts))
-- `@deepseek-ai/dsh-code-runtime` — abstract `CodeRuntime` ([`packages/code-runtime/code-runtime/src/index.ts`](../packages/code-runtime/code-runtime/src/index.ts))
 - `@deepseek-ai/dsh-compaction` — abstract `CompactionEngine` ([`packages/compaction/compaction/src/index.ts`](../packages/compaction/compaction/src/index.ts))
 - `@deepseek-ai/dsh-credentials` — abstract `CredentialProvider` ([`packages/credentials/credentials/src/index.ts`](../packages/credentials/credentials/src/index.ts))
 - `@deepseek-ai/dsh-file-reference` — abstract `FileReferenceService` ([`packages/context/file-reference/src/index.ts`](../packages/context/file-reference/src/index.ts))
@@ -4081,6 +4081,7 @@ Abstract service classes — a deployment loads a concrete implementation packag
 - `@deepseek-ai/dsh-host-directory-picker` — abstract `DirectoryPicker` ([`packages/host/directory-picker/src/index.ts`](../packages/host/directory-picker/src/index.ts))
 - `@deepseek-ai/dsh-jobs` — abstract `JobRegistry` ([`packages/jobs/jobs/src/index.ts`](../packages/jobs/jobs/src/index.ts))
 - `@deepseek-ai/dsh-notification` — abstract `NotificationBackend` ([`packages/notification/notification/src/index.ts`](../packages/notification/notification/src/index.ts))
+- `@deepseek-ai/dsh-ptc-runtime` — abstract `PtcRuntime` ([`packages/ptc-runtime/ptc-runtime/src/index.ts`](../packages/ptc-runtime/ptc-runtime/src/index.ts))
 - `@deepseek-ai/dsh-sandbox` — abstract `SandboxProvider` ([`packages/sandbox/sandbox/src/index.ts`](../packages/sandbox/sandbox/src/index.ts))
 - `@deepseek-ai/dsh-session-delivery` — abstract `SessionDelivery` ([`packages/session-query/session-delivery/src/index.ts`](../packages/session-query/session-delivery/src/index.ts))
 - `@deepseek-ai/dsh-session-persistence` — abstract `SessionPersistence` ([`packages/session/session-persistence/src/index.ts`](../packages/session/session-persistence/src/index.ts))

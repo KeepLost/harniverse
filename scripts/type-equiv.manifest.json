@@ -97,39 +97,39 @@
       "source": "packages/client/modules/src/client/manifest.ts"
     },
     {
-      "doc": "docs/subsystems/code-runtime.md",
+      "doc": "docs/subsystems/ptc-runtime.md",
       "symbol": "CodeBindingErrorClass",
-      "source": "packages/code-runtime/code-runtime/src/types.ts"
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/code-runtime.md",
+      "doc": "docs/subsystems/ptc-runtime.md",
       "symbol": "CodeBindingFunction",
-      "source": "packages/code-runtime/code-runtime/src/types.ts"
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/code-runtime.md",
+      "doc": "docs/subsystems/ptc-runtime.md",
       "symbol": "CodeBindingNamespace",
-      "source": "packages/code-runtime/code-runtime/src/types.ts"
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/code-runtime.md",
+      "doc": "docs/subsystems/ptc-runtime.md",
       "symbol": "CodeJsonValue",
-      "source": "packages/code-runtime/code-runtime/src/types.ts"
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/code-runtime.md",
+      "doc": "docs/subsystems/ptc-runtime.md",
       "symbol": "CodeRunFailure",
-      "source": "packages/code-runtime/code-runtime/src/types.ts"
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/code-runtime.md",
+      "doc": "docs/subsystems/ptc-runtime.md",
       "symbol": "CodeRunRequest",
-      "source": "packages/code-runtime/code-runtime/src/types.ts"
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/code-runtime.md",
+      "doc": "docs/subsystems/ptc-runtime.md",
       "symbol": "CodeRunResult",
-      "source": "packages/code-runtime/code-runtime/src/types.ts"
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
     },
     {
       "doc": "docs/subsystems/commands.md",

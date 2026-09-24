@@ -132,7 +132,7 @@ const processBoundTests = [
   'packages/llm/llm-pi-ai/tests/adapter.spec.ts',
   'packages/boot/app-boot/tests/app-boot.spec.ts',
   'packages/workflow/workflow-worker-thread/tests/session.spec.ts',
-  'packages/code-runtime/code-runtime-python/tests/runtime.spec.ts',
+  'packages/ptc-runtime/ptc-runtime-python/tests/runtime.spec.ts',
 ]
 
 const platformTestTimeoutMs = process.platform === 'win32' ? 600_000 : 5_000
@@ -206,7 +206,7 @@ export default defineConfig({
         // (source or built); v8 coverage never measures child processes. Its
         // behavior is pinned end-to-end by tests/source-child.compat.spec.ts
         // and the real-process suites, which spawn the true entry.
-        'packages/code-runtime/code-runtime-ptc/src/child.ts',
+        'packages/ptc-runtime/ptc-runtime-node/src/child.ts',
         // The packaged executable's process entry executes exclusively inside
         // the yao-pkg binary (the python smoke and release-shaped lane cover
         // it end-to-end); unit coverage can never import it.

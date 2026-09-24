@@ -53,6 +53,8 @@ const releaseMemberDirectory = /^(?:packages\/[^/]+\/[^/]+|apps\/[^/]+|vendor\/[
 const localArtifactDirs = new Set(['node_modules'])
 const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh': ['lib/*.js', 'config'],
+  '@deepseek-ai/dsh-desktop': ['lib/*.js', 'lib/*.cjs', 'renderer'],
+  '@deepseek-ai/dsh-desktop-host': ['lib'],
   // The Web build emits sourcemaps for browser debugging; publishing them is
   // what the payload policy forbids, so the bundle ships without them.
   '@deepseek-ai/dsh-web-frontend': ['dist', '!dist/**/*.map'],
@@ -131,7 +133,7 @@ function workspaceManifests(): WorkspaceManifest[] {
 }
 
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
-  '@deepseek-ai/dsh-code-runtime-python': ['py/**/*.py'],
+  '@deepseek-ai/dsh-ptc-runtime-python': ['py/**/*.py'],
   // Shared read rendering is a public runtime subpath consumed by the
   // string-replace editor without loading the filesystem tool plugin.
   '@deepseek-ai/dsh-tool-fs': ['lib/read-render.js'],

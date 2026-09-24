@@ -33,6 +33,8 @@ Files survive plugin disposal, process restart, and service restart. Replay can 
 
 Session close, service disposal, and runtime shutdown do not delete files, and there is no deletion API. Reclamation is a single best-effort sweep right after activation: across the root, regular files whose `mtime` is strictly older than `cleanupPeriodDays` days are deleted, session directories left empty are pruned, and the root itself is never removed. The sweep never delays activation (it is owned by the plugin fiber and awaited on disposal), never follows symlinks, skips directories that fail the same private-admission checks as reads and writes, and contains every filesystem failure as a warning instead of an error. Retention is deliberate — the window keeps a resumed or forked session's recorded locators valid until they age out.
 
+If the sweep prunes an empty session directory during a save's validation or exclusive open, the writer recreates the directory and repeats all safety checks before retrying. Each save allows one retry across these operations; a second ENOENT or any other storage failure rejects the save. Cancellation is checked before directory recreation and before the exclusive open.
+
 ## Model Experience
 
 Indirectly, through `dsh-tool-result-artifacts`, which shows an opaque local locator in its bounded full-result marker and registers `artifact_read`; the model never receives the host path.

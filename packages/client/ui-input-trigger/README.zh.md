@@ -12,6 +12,8 @@ MenuView 把菜单 store 渲染进 `conversation.input.overlay` slot（列表类
 
 带引号的 `@"path with spaces` token 会通过 candidate request 传递，分组候选在同一个 source 分组中渲染，目录继续使用现有输入事务重新跟踪光标。
 
+本插件声明 `dsh.client.startup: "critical"`，使触发 Provider 参与可交互外壳的启动屏障。各 source 保留自己的启动声明；命令 source 同样加入此屏障，可选 source 则可稍后通过现有的存活 controller 预热路径注册。
+
 ## 模型体验
 
 无。触发流水线只是浏览器呈现——pick 产出 `CommandClaim`／`ReferenceInsert` 数据，其模型可见后果（宿主命令执行；插入的引用文本随普通提示词发送）由负责消费这些数据的宿主包与输入状态机包负责。

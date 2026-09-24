@@ -16,6 +16,8 @@ Menu queries fuzzy-match ordered, case-insensitive subsequences of command names
 
 The `/client` entrypoint exports the plugin body (`apply`/`inject`), `CommandUiRuntime`, the directory and popup classes with their state types, and the fixed contract types; the shell component itself is internal to the overlay registration.
 
+The plugin declares `dsh.client.startup: "critical"`, together with the input-trigger Provider, so its `/` source is registered before the composer becomes interactive. Command-directory fetching can still be pending; `matchEnter` awaits it before dispatch. Optional command presentation can mount later without turning an early command into an ordinary prompt.
+
 ## Model Experience
 
 Indirectly, through the host `command.execute` RPC this package's dispatch and `claim.submit` paths trigger: a matched command's handler mutates host domain state that other packages project into the next request (the `/plan` handler flips plan mode, whose owning package injects its `plan:policy` system-prompt section), while the command line itself, the detached result, and every menu/notice rendering stay client-side and never enter the session log.

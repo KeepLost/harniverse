@@ -1,4 +1,4 @@
-# Keyless Code Mode combines the runtime/registry patch with the DeepSeek-to-replay
+# Keyless PTC combines the runtime/registry patch with the DeepSeek-to-replay
 # swap. Include patches cannot target entries behind a nested include, so this file
 # applies both overlays directly to `cordis.yml`.
 - id: base
@@ -25,8 +25,8 @@
 
             Verify your work by running the code or tests. Keep answers brief and factual.
       - insert:
-          - id: code-runtime
-            name: '@deepseek-ai/dsh-code-runtime-ptc'
+          - id: ptc-runtime
+            name: '@deepseek-ai/dsh-ptc-runtime-node'
           - id: llm-replay
             name: '@deepseek-ai/dsh-llm-replay'
             config:

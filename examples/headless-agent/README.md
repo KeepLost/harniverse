@@ -19,4 +19,4 @@ Snapshot suites run this directory's configuration through [`tests/fixtures/head
 
 ## Advanced configuration
 
-[`advanced.cordis.yml`](advanced.cordis.yml) adds Code Mode and the Cordis tools to the test composition.
+[`advanced.cordis.yml`](advanced.cordis.yml) adds PTC and the Cordis tools to the test composition.

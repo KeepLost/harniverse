@@ -188,7 +188,7 @@ export interface RunOptions {
   /**
    * Alternate LIVE config path for the boot (absolute), overriding
    * {@link AgentUnderTest.configPath} for this run. A scenario needing a
-   * differently-composed tree (the Code Mode scenarios) ships an overlay
+   * differently-composed tree (the PTC scenarios) ships an overlay
    * whose basename still ends in `cordis.yml`, so the bin's replay swap
    * resolves the sibling `*cordis.snapshot.yml` the same way it does for
    * the default.

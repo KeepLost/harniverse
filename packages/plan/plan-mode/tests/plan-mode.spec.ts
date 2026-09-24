@@ -10,7 +10,7 @@ import UserQuestionService, {
   UserQuestionError, type AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-questions'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
-import { CodeRuntime, type CodeRunRequest, type CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import { PtcRuntime, type CodeRunRequest, type CodeRunResult } from '@deepseek-ai/dsh-ptc-runtime'
 import PlanModeController, { EXIT_PLAN_MODE, foldPlanMode, resolveConfig } from '../src/index.ts'
 import type { PlanModeConfig } from '../src/index.ts'
 
@@ -131,7 +131,7 @@ function registerNamedTools(ctx: Context, names: string[]): void {
   }
 }
 
-/** Assert the mapped Code Mode SDK includes the stable plan exit binding and test tools. */
+/** Assert the mapped PTC SDK includes the stable plan exit binding and test tools. */
 function expectPlanCodeSdkBindings(sdk: string): void {
   expect(sdk).toContain('interface ToolArgsMap {')
   expect(sdk).toContain('read: Record<string, JsonValue>;')
@@ -462,10 +462,10 @@ describe('the soft layer', () => {
       .toEqual(['exit_plan_mode', 'read', 'added-later'])
   })
 
-  it('keeps run_code the only wire tool in plan mode under the registry Code Mode; the SDK gains the exit binding', async () => {
-    // Minimal scriptable runtime: the SDK section resolves ctx.codeRuntime at
+  it('keeps run_code the only wire tool in plan mode under the registry PTC; the SDK gains the exit binding', async () => {
+    // Minimal scriptable runtime: the SDK section resolves ctx.ptcRuntime at
     // assembly time (the code-mode.spec fake's shape).
-    class FakeRuntime extends CodeRuntime {
+    class FakeRuntime extends PtcRuntime {
       readonly language = 'typescript'
       readonly isolation = 'fake'
       run(_request: CodeRunRequest): Promise<CodeRunResult> { return Promise.resolve({ logs: [] }) }
@@ -486,7 +486,7 @@ describe('the soft layer', () => {
   })
 
   it('keeps native wire schemas and the SDK in step under mode both', async () => {
-    class FakeRuntime extends CodeRuntime {
+    class FakeRuntime extends PtcRuntime {
       readonly language = 'typescript'
       readonly isolation = 'fake'
       run(_request: CodeRunRequest): Promise<CodeRunResult> { return Promise.resolve({ logs: [] }) }
@@ -506,8 +506,8 @@ describe('the soft layer', () => {
     expectPlanCodeSdkBindings(sdk)
   })
 
-  it('keeps the Code Mode SDK byte-identical across mode switches', async () => {
-    class FakeRuntime extends CodeRuntime {
+  it('keeps the PTC SDK byte-identical across mode switches', async () => {
+    class FakeRuntime extends PtcRuntime {
       readonly language = 'typescript'
       readonly isolation = 'fake'
       run(_request: CodeRunRequest): Promise<CodeRunResult> { return Promise.resolve({ logs: [] }) }
@@ -883,9 +883,9 @@ describe('exit_plan_mode', () => {
     expect(asked[0]?.questions[0]?.options?.map(option => option.label)).toEqual(['Approve', 'Keep planning'])
   })
 
-  it('carries the exact plan through a Code Mode review and logs the nested dispatch', async () => {
-    const plan = '# Code Mode plan\n\nUse the existing seam.'
-    class ExitRuntime extends CodeRuntime {
+  it('carries the exact plan through a PTC review and logs the nested dispatch', async () => {
+    const plan = '# PTC plan\n\nUse the existing seam.'
+    class ExitRuntime extends PtcRuntime {
       readonly language = 'typescript'
       readonly isolation = 'fake'
       async run(request: CodeRunRequest): Promise<CodeRunResult> {

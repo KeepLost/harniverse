@@ -290,9 +290,10 @@ export async function readTextFile(options: {
  * sanitized `suggestedName`, so it is unpredictable (defeats symlink planting in
  * a shared root) AND stays readable. The open is exclusive + owner-only
  * (`'wx', 0o600`): it fails on any existing path — symlink or not — so a
- * pre-planted target cannot redirect the write. When the startup cleanup sweep
- * prunes the session directory between validation and the exclusive open, the
- * write recreates the directory and retries.
+ * pre-planted target cannot redirect the write. An ENOENT during validation or
+ * exclusive open permits one retry after recreating and fully revalidating the
+ * session directory, covering a concurrent startup prune. Cancellation stops
+ * retries; unsafe directories, other I/O errors, and a second ENOENT reject.
  *
  * @param options The resolved root and request fields required to save the file.
  * @returns The written file path and UTF-8 byte length.
@@ -306,17 +307,18 @@ export async function saveTextFile(options: SaveTextOptions): Promise<SavedText>
   const path = join(dir, `${randomBytes(6).toString('hex')}-${safeName}`)
   const bytes = Buffer.byteLength(options.content, 'utf8')
   let handle
-  for (;;) {
+  for (let attempt = 0; ; attempt++) {
+    options.signal.throwIfAborted()
     await mkdir(dir, { mode: 0o700 }).catch((error: unknown) => {
       if (!isErrno(error, 'EEXIST')) throw error
     })
-    await validateStoragePath(options.root, dir)
-    options.signal.throwIfAborted()
     try {
+      await validateStoragePath(options.root, dir)
+      options.signal.throwIfAborted()
       handle = await open(path, 'wx', 0o600)
       break
     } catch (error: unknown) {
-      if (isErrno(error, 'ENOENT')) continue
+      if (isErrno(error, 'ENOENT') && attempt === 0) continue
       throw error
     }
   }

@@ -1,4 +1,4 @@
-// Web e2e scenario: a Code Mode round trip. The scaffold boots the SAME
+// Web e2e scenario: a PTC round trip. The scaffold boots the SAME
 // shipped tree with the tools row patched to mode: code (the run_code-only
 // wire), a real chromium sends a prompt engineered to elicit one run_code
 // program with several sub-calls, and the UI must render the code-variant
@@ -30,7 +30,7 @@ const MODE = webSnapshotMode()
 const PROMPT = 'Using ONE run_code program: run bash `echo CODE_ROUND_OK`, then read the file missing.txt '
   + 'catching its error in the program. Return an object with both outcomes. Then reply DONE and stop.'
 
-describe('web e2e: Code Mode round renders nested sub-calls', () => {
+describe('web e2e: PTC round renders nested sub-calls', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
@@ -75,7 +75,7 @@ describe('web e2e: Code Mode round renders nested sub-calls', () => {
   }, 200_000)
 
   it.skipIf(MODE === 'record')('the durable log carries run_code with full-content sub-dispatches', () => {
-    // Wire discipline: code mode collapsed the call surface to run_code.
+    // Wire discipline: PTC collapsed the call surface to run_code.
     const calls = sessionEvents.filter(event => event.type === 'tool/call')
     expect(calls.length).toBeGreaterThanOrEqual(1)
     expect(new Set(calls.map(call => (call.data as { name: string }).name))).toEqual(new Set(['run_code']))

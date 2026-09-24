@@ -8,7 +8,7 @@ Status: implemented
 
 Code Mode 只生成一种 SDK 形态：TypeScript。`ToolRuntime` 为 `tools:sdk` 段硬编码了 `renderToolsSdk`，且 `requireCodeRuntime` 会拒绝任何 `ctx.codeRuntime.language !== 'typescript'`。引入 CPython 后端后，程序的源语言不再固定：同一个可见工具注册表在加载 Python 运行时时必须投射出 Python SDK，而面向模型的 `run_code` schema 字符串（"Execute a Python program …"）也必须与 SDK 段的语言一致，模型才不会在 Python 运行时下看到 TypeScript 指令。
 
-这是多语言 Code Mode 拆分中面向工具的那一半；[代码运行时 seam](../../../../packages/code-runtime/code-runtime/README.md) 已经携带 `CodeRuntime.language`。本 Note 只负责 `dsh-tools` 如何在该字段上分发。实现 `language: 'python'` 的后端由它自己的 Note 负责，单独交付。
+这是多语言 PTC 拆分中面向工具的那一半；[PTC 运行时 seam](../../../../packages/ptc-runtime/ptc-runtime/README.md) 已经携带 `PtcRuntime.language`。本 Note 只负责 `dsh-tools` 如何在该字段上分发。实现 `language: 'python'` 的后端由它自己的 Note 负责，单独交付。
 
 ## 决策
 
@@ -39,7 +39,7 @@ Code Mode 只生成一种 SDK 形态：TypeScript。`ToolRuntime` 为 `tools:sdk
 
 新增一门后端语言是三处并列编辑——一个 `CodeSdkLanguage` 成员、一个 `SDK_RENDERERS` 表项、一个 `RUN_CODE_FLAVORS` 表项——再加第二处所指向的渲染器函数，不动 `agent-loop`，也不动注册表结构。两张表（`SDK_RENDERERS`、`RUN_CODE_FLAVORS`）必须同步，且这条不变式由静态检查把关，而非交给 review：两张表都以 `satisfies` 对上述同一个 union 校验，因此只加其一而漏掉另一会在 `typecheck` 处失败。这正是该漂移风险应有的机械形式——运行时的 `Object.hasOwn` 守卫同样能捕获，但要等到有后端报告该语言之后：触发点在消费方的集成处而非漂移引入处——而只要不存在第二个后端，就永远不会触发。两张表的声明类型仍是 `Record<string, …>`，因为 `CodeRuntime.language` 是不受约束的 `string`：union 钉住 harness 交付了什么，守卫拒绝运行时报告了什么。落在这条检查之外的是点名已知值而非从中派生的散文：seam 侧的 `dsh-code-runtime` README 双语对、它的 `CodeRuntime.language` JSDoc 与 `docs/subsystems/code-runtime.md` 双语对，再加本包自己的 README 双语对与它的 `Config.mode` JSDoc。更早的 note 点名这些值时记的是当时的状态，不在此列。让它无 gate 的是两条独立理由。其一，散文根本不受类型检查，union 放在哪里都一样。其二，类型级替代在这里也不可用：Service Definition 包不得 import 其消费方的表，而 `CodeRuntime.language` 按设计保持不受约束的 `string`，即便把 union 迁进 Service Definition 也不会作用到它。用一个断言两张表键集相等的 unit test 的方案被否决：它买到的是同一条检查，代价却是把两张私有表做测试专用导出，且运行时机晚于编译器。对两张表都缺席的语言，两种运行时失败中报出哪一条随入口而异：组装路径报缺渲染器，因为 `wireSchemas` 在投影前先调 `requireCodeRuntime`；而公共 `schemas()` 先经过 `run_code` 的语言感知 getter，报的是缺 flavor 表项。工具层不依赖任何具体后端，因此它能先于 Python 协议和后端交付并可测。
 
-显式挂载 [`dsh-code-runtime-python`](../../../../packages/code-runtime/code-runtime-python/README.md) 提供方时，两张表的 Python 分支都可到达。其真实进程、协议 mirror 与构建后入口测试钉住提供方路径，而已交付的 Profile 继续选择 TypeScript。在已交付 Profile 中选择 Python 之前，仍需补充 keyless 的组装模型 transcript；包级进程覆盖不能替代该组合证据。
+显式挂载 [`dsh-ptc-runtime-python`](../../../../packages/ptc-runtime/ptc-runtime-python/README.md) 提供方时，两张表的 Python 分支都可到达。其真实进程、协议 mirror 与构建后入口测试钉住提供方路径，而已交付 Profile 继续选择 TypeScript。在已交付 Profile 中选择 Python 之前，仍需补充 keyless 的组装模型 transcript；包级进程覆盖不能替代该组合证据。
 
 Python 提供方通过只注入已声明绑定命名空间与可选错误类、绝不注入仅存在于提示词中的 `TypedDict` 声明来兑现 SDK 文本。语言切换竞态仍然存在：schema 投射与 `run_code` 执行会分别解析服务，因此在两点之间把一个后端热替换为另一个，可能让代码在不同于请求所呈现语言的运行时下执行。已交付组合不执行这种替换，但未来的动态提供方切换需要请求作用域的运行时身份，而不是再次查找。
 

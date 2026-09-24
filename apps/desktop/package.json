@@ -1,0 +1,63 @@
+{
+  "name": "@deepseek-ai/dsh-desktop",
+  "version": "0.1.0-rc.5",
+  "description": "Harniverse desktop workspace for local and remote AI agents",
+  "author": "Harniverse contributors",
+  "desktopName": "harniverse.desktop",
+  "license": "MIT",
+  "publishConfig": { "access": "public" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "apps/desktop"
+  },
+  "type": "module",
+  "files": ["lib/*.js", "lib/*.cjs", "renderer"],
+  "main": "lib/entry.js",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsdown",
+    "prepare:desktop": "node scripts/packaging.ts prepare",
+    "package:desktop": "node scripts/packaging.ts package",
+    "check:bundle": "node scripts/packaging.ts check",
+    "smoke:clean-install": "node scripts/packaging-smoke.ts",
+    "test:packaging": "node --test tests/packaging*.test.ts",
+    "typecheck:packaging": "tsc -p tsconfig.packaging.json"
+  },
+  "devDependencies": {
+    "electron": "43.4.0",
+    "electron-builder": "26.15.7",
+    "fake-indexeddb": "^6.2.5",
+    "sharp": "^0.35.4",
+    "tsdown": "^0.22.2",
+    "typescript": "^6.0.3"
+  },
+  "build": {
+    "appId": "com.keeplost.harniverse",
+    "productName": "Harniverse",
+    "executableName": "harniverse",
+    "artifactName": "Harniverse-${version}-${os}-${arch}.${ext}",
+    "asar": false,
+    "npmRebuild": false,
+    "nodeGypRebuild": false,
+    "electronFuses": { "runAsNode": true },
+    "publish": null,
+    "files": ["**/*", "!**/*.map", "!**/*.d.ts", "!**/.DS_Store"],
+    "icon": "icon.png",
+    "linux": { "target": ["AppImage", "dir"], "category": "Development", "icon": "icons", "syncDesktopName": true },
+    "win": { "target": ["nsis", "dir"], "icon": "icon.ico" },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "Harniverse-${version}-${arch}-Setup.${ext}"
+    },
+    "mac": {
+      "target": ["dmg", "dir"],
+      "icon": "icon.icns",
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true
+    }
+  }
+}

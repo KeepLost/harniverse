@@ -37,7 +37,7 @@ One page per subsystem of the DeepSeek Harness: what it is, the data structures 
 | [ssh.md](ssh.md) | the SSH provider family: deployment-owned OpenSSH connection, TLS-authenticated forwarded streams, remote helper lease and cleanup ownership |
 | [terminal-controller.md](terminal-controller.md) | the browser-terminal Remote: identity and screen frames, attachment control, window holds and shell discovery |
 | [browser-controller.md](browser-controller.md) | the host-browser Remote: session-scoped Chromium ownership, navigation policy, screencast frames and input dispatch over CDP |
-| [code-runtime.md](code-runtime.md) | the code-execution seam: `CodeRunRequest`/`Result`, binding namespaces, captured logs, the `CodeRunFailure` taxonomy |
+| [ptc-runtime.md](ptc-runtime.md) | the PTC runtime seam: `CodeRunRequest`/`Result`, binding namespaces, captured logs, the `CodeRunFailure` taxonomy |
 | [extensions.md](extensions.md) | versioned dynamic Cordis Plugins and Packages, Host/Client activation, approval, runtime inspection, and lifecycle teardown |
 | [filesystem.md](filesystem.md) | the filesystem seam: `FsTarget`, read/write/edit outcomes, observed-file state, `FsErrorCode` |
 | [lsp.md](lsp.md) | the LSP navigation seam: `LspQueryRequest`/`Result`, `LspProvider`/`Service`, four operations, `LspError` |

@@ -7,7 +7,7 @@
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 
-/** Payload recorded when one nested Code Mode Tool dispatch starts. */
+/** Payload recorded when one nested PTC Tool dispatch starts. */
 export interface CodeDispatchStartEventData {
   rootCallId: CallId
   parentCallId: CallId
@@ -16,7 +16,7 @@ export interface CodeDispatchStartEventData {
   arguments: unknown
 }
 
-/** Payload recorded when one nested Code Mode Tool dispatch settles. */
+/** Payload recorded when one nested PTC Tool dispatch settles. */
 export interface CodeDispatchEventData extends CodeDispatchStartEventData {
   isError: boolean
   content: ContentBlock[]

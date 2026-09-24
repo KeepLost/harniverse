@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+    <title>Harniverse</title>
+    <link rel="stylesheet" href="./shell.css">
+    <script src="./shell.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Harniverse</p>
+      <h1>Your workspace, connected.</h1>
+      <p>Choose the Host that runs your work. The connected app uses Harniverse authentication.</p>
+      <p id="status" role="status" aria-live="polite">Loading connection status…</p>
+      <section aria-labelledby="local-title">
+        <h2 id="local-title">On this computer</h2>
+        <p>Start a local Host managed by this app. Closing the window keeps it running in the tray or menu bar.</p>
+        <button id="local" type="button" disabled>Start local Host</button>
+      </section>
+      <section aria-labelledby="existing-title">
+        <h2 id="existing-title">Connect to an existing Host</h2>
+        <p>Enter an HTTPS address, or a loopback address for a local connection or tunnel. Files and tasks stay on that Host.</p>
+        <form id="existing">
+          <label for="host-url">Host address</label>
+          <input id="host-url" name="url" type="url" placeholder="https://host.example" autocomplete="url" required disabled>
+          <button id="connect" type="submit" disabled>Connect</button>
+        </form>
+      </section>
+      <footer>
+        <button id="disconnect" type="button" disabled>Disconnect Host</button>
+        <button id="quit" type="button">Quit Harniverse</button>
+        <p>Use the tray or application menu to reopen the connected app.</p>
+      </footer>
+    </main>
+  </body>
+</html>

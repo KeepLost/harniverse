@@ -6,6 +6,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
+import { win32 } from 'node:path'
 import type koffi from 'koffi'
 import { createLazyRequire } from '@deepseek-ai/dsh-lazy-require'
 
@@ -130,9 +131,20 @@ export function createWindowsProcessInspector(
   return new WindowsProcessInspector(internals)
 }
 
-function taskkillTree(pid: number, force: boolean): void {
+/**
+ * Signal a Windows tree through SystemRoot's utility, independent of cwd and PATH.
+ * Missing/relative SystemRoot and utility failures remain contained like an absent tree.
+ * @param pid - process-tree root; non-positive ids are ignored.
+ * @param force - whether to request taskkill's forced `/F` termination.
+ */
+export function taskkillTree(pid: number, force: boolean): void {
   if (pid <= 0) return
-  spawnSync('taskkill', ['/PID', String(pid), '/T', ...(force ? ['/F'] : [])], { stdio: 'ignore' })
+  const systemRoot = Object.entries(process.env).find(([key]) => key.toUpperCase() === 'SYSTEMROOT')?.[1]
+  // A root-relative path (\Windows) still depends on the current drive.
+  if (systemRoot === undefined || !win32.isAbsolute(systemRoot) || win32.parse(systemRoot).root.length <= 1) return
+  spawnSync(win32.join(systemRoot, 'System32', 'taskkill.exe'), ['/PID', String(pid), '/T', ...(force ? ['/F'] : [])], {
+    stdio: 'ignore', windowsHide: true,
+  })
 }
 
 declare const nativePtr: unique symbol

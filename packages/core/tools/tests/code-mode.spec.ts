@@ -4,8 +4,8 @@ import { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
-import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
+import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-ptc-runtime'
 import ToolRuntime, { CodeRunFailedError, RUN_CODE_NAME, TOOL_ABORTED_BEFORE_DISPATCH, defineContentToolFixture, defineTool } from '@deepseek-ai/dsh-tools'
 import type { Config, JsonSchemaNode, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -15,15 +15,15 @@ import type { JsonValue, SessionEventMap } from '@deepseek-ai/dsh-session'
 const testToolSignal = new AbortController().signal
 
 /**
- * Code Mode unit tier (per the Agent Note's plan): provider contribution per mode,
+ * PTC unit tier (per the Agent Note's plan): provider contribution per mode,
  * misconfiguration rejections, the run_code dispatch bridge (serialization,
  * abort, JSON normalization, error mapping, events, quiescence), and HMR
  * safety — all against an in-repo fake runtime, exactly the
  * Service Definition / Service Provider / Consumer roles the seam promises.
  */
 
-/** A scriptable in-repo CodeRuntime: each test sets `behavior` to drive the bindings however it needs. */
-class FakeRuntime extends CodeRuntime {
+/** A scriptable in-repo PtcRuntime: each test sets `behavior` to drive the bindings however it needs. */
+class FakeRuntime extends PtcRuntime {
   readonly language: string
   readonly isolation = 'fake'
   behavior: (request: CodeRunRequest) => Promise<CodeRunResult> = () => Promise.resolve({ logs: [] })
@@ -54,7 +54,7 @@ async function setup(options: SetupOptions = {}) {
   let runtime: FakeRuntime | undefined
   if (options.runtime !== false) {
     await ctx.plugin(FakeRuntime, options.runtime ?? {})
-    runtime = ctx.codeRuntime as FakeRuntime
+    runtime = ctx.ptcRuntime as FakeRuntime
   }
   return { ctx, tools: ctx.tools, systemPrompt: ctx.systemPrompt, runtime: runtime! }
 }
@@ -161,7 +161,7 @@ describe('mode-aware wire contribution', () => {
     expect(assembly.tools.map(tool => tool.name)).toContain('echo')
   })
 
-  it('projects deeply nested output schemas into the Code Mode SDK without structured-clone recursion', async () => {
+  it('projects deeply nested output schemas into the PTC SDK without structured-clone recursion', async () => {
     const { ctx, systemPrompt } = await setup({ mode: 'code' })
     let output: JsonSchemaNode = { type: 'string' }
     for (let depth = 0; depth < 5_000; depth++) {
@@ -286,10 +286,10 @@ describe('mode-aware wire contribution', () => {
       execute: () => Promise.resolve([{ type: 'text' as const, text: 'impostor' }]),
     })
 
-    expect(() => scope.ctx.tools.register(impostor)).toThrow(/reserved for the Code Mode presentation transport/)
-    expect(() => ctx.tools.register(impostor)).toThrow(/reserved for the Code Mode presentation transport/)
-    expect(() => scope.ctx.tools.restrict({ allow: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
-    expect(() => scope.ctx.tools.restrict({ deny: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
+    expect(() => scope.ctx.tools.register(impostor)).toThrow(/reserved for the PTC presentation transport/)
+    expect(() => ctx.tools.register(impostor)).toThrow(/reserved for the PTC presentation transport/)
+    expect(() => scope.ctx.tools.restrict({ allow: [RUN_CODE_NAME] })).toThrow(/cannot name reserved PTC presentation transport/)
+    expect(() => scope.ctx.tools.restrict({ deny: [RUN_CODE_NAME] })).toThrow(/cannot name reserved PTC presentation transport/)
     scope.ctx.systemPrompt.section({ name: 'scoped-note', order: 149, text: 'safe note' })
     scope.ctx.tools.register(defineContentToolFixture({
       name: 'scoped_safe',
@@ -358,7 +358,7 @@ describe('mode-aware wire contribution', () => {
 
   it('rejects every assembly when a non-native mode has no code runtime', async () => {
     const { systemPrompt } = await setup({ mode: 'code', runtime: false })
-    await expect(systemPrompt.assemble()).rejects.toThrow(/requires a code runtime/)
+    await expect(systemPrompt.assemble()).rejects.toThrow(/requires a PTC runtime/)
   })
 
   it('rejects every assembly when the runtime language has no registered SDK renderer', async () => {
@@ -377,7 +377,7 @@ describe('mode-aware wire contribution', () => {
   })
 
   it("assembles under a python runtime in mode 'both' as well, SDK and schema together", async () => {
-    // `both` reaches the same wireSchemas/requireCodeRuntime/SDK-section code
+    // `both` reaches the same wireSchemas/requirePtcRuntime/SDK-section code
     // as `code`, so this pins the mode-by-language matrix rather than a
     // separate path — including that the `wireSchemas` projection behind
     // `assembly.tools` picks the Python flavor under `both` instead of hitting
@@ -422,12 +422,12 @@ describe('mode-aware wire contribution', () => {
 
   it('resolves the run_code schema flavor lazily and fails loud on a language absent from the flavor table', async () => {
     // The flavor getter reads the runtime directly (peekRuntime), so it — not
-    // requireCodeRuntime — owns the flavor-table guard. Keeping
+    // requirePtcRuntime — owns the flavor-table guard. Keeping
     // RUN_CODE_FLAVORS in step with SDK_RENDERERS is the compiler's job (both
     // are `satisfies`-checked against CodeSdkLanguage), so what the guard
     // covers is a mounted runtime naming a language absent from both tables,
     // which throws when the schema is projected. Assembly's
-    // requireCodeRuntime rejects such a language earlier; this reaches the
+    // requirePtcRuntime rejects such a language earlier; this reaches the
     // guard on its own.
     const { ctx } = await setup({ mode: 'code', runtime: { language: 'ruby' } })
     const definition = ctx.tools.get(RUN_CODE_NAME)
@@ -1224,7 +1224,7 @@ describe('the run_code dispatch bridge', () => {
     await ctx.plugin(ToolRuntime, { mode: 'code' })
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(true)
-    expect((result.content[0] as { text: string }).text).toContain('requires a code runtime')
+    expect((result.content[0] as { text: string }).text).toContain('requires a PTC runtime')
   })
 
   it('presents the model-authored description as the execute-card title over the program input', async () => {
@@ -1577,7 +1577,7 @@ describe('the run_code dispatch bridge', () => {
       .toThrow('maxParallelSubCalls must be a positive integer')
   })
 
-  it('direct construction in code mode defaults the parallel sub-call cap', async () => {
+  it('direct construction in PTC defaults the parallel sub-call cap', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt, {})
     const registry = new ToolRuntime(ctx, { mode: 'code' })
@@ -1592,7 +1592,7 @@ describe('the run_code dispatch bridge', () => {
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.some(section => section.name === 'tools:sdk')).toBe(false)
   })
-  it('denies a model-direct native-tool call under code mode as UNKNOWN_TOOL', async () => {
+  it('denies a model-direct native-tool call under PTC as UNKNOWN_TOOL', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt, {})
     const registry = new ToolRuntime(ctx, { mode: 'code' })
@@ -1633,12 +1633,12 @@ describe('the run_code dispatch bridge', () => {
 
 /**
  * Presentation is per agent, because an agent preset composes it: one
- * deployment runs a Code Mode agent beside native ones, and neither may see
+ * deployment runs a PTC agent beside native ones, and neither may see
  * the other's catalog. The deployment `mode` is the default those agents
  * shadow, not a process-wide fact.
  */
 describe('per-agent presentation', () => {
-  it('gives one agent Code Mode while the deployment stays native', async () => {
+  it('gives one agent PTC while the deployment stays native', async () => {
     const { ctx, systemPrompt } = await setup({ mode: 'native' })
     const calls = registerEcho(ctx)
     const { scope, agent } = await mintAgentScope(ctx)
@@ -1732,7 +1732,7 @@ describe('per-agent presentation', () => {
     expect(ctx.tools.get(RUN_CODE_NAME)).toBeUndefined()
   })
 
-  it('lets an agent opt out of a code-mode deployment', async () => {
+  it('lets an agent opt out of a PTC deployment', async () => {
     const { ctx, systemPrompt } = await setup({ mode: 'code' })
     registerEcho(ctx)
     const { scope, agent } = await mintAgentScope(ctx)
@@ -1792,6 +1792,6 @@ describe('per-agent presentation', () => {
     scope.ctx.tools.presentAs('both')
 
     await expect(systemPrompt.assemble({ scope: agent }))
-      .rejects.toThrow('mode "both" requires a code runtime')
+      .rejects.toThrow('mode "both" requires a PTC runtime')
   })
 })

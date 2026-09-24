@@ -1,4 +1,4 @@
-# The `code` agent preset: the standard coding agent, presented as Code Mode.
+# The `code` agent preset: the standard coding agent, presented as PTC.
 #
 # Everything in `standard` is here unchanged. What is added is the `tool-presentation`
 # row: instead of one tool call per action, the model writes a TypeScript
@@ -283,7 +283,7 @@
 
 # ── presentation ────────────────────────────────────────────────────────────
 
-# Code Mode for this agent alone. The row waits for the host's `codeRuntime`
+# PTC for this agent alone. The row waits for the host's `ptcRuntime`
 # rather than assuming it: a deployment that composes no TypeScript runtime
 # fails this preset at mount, naming this id, instead of at the first request.
 - id: tool-presentation

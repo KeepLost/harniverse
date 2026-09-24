@@ -20,7 +20,7 @@ npm scope 为 `@deepseek-ai/dsh-*`；Cordis `Service` 子类和函数插件通�
 | [`subprocess/`](subprocess/README.md) | 子进程能力系列：Service Definition + 本地进程树提供方 | 产品：稳定 API |
 | [`shell/`](shell/README.md) | Bash 能力系列：执行器 seam、本地实现、面向模型的工具 | 产品：稳定 API |
 | [`terminal/`](terminal/README.md) | 持久 PTY 能力系列：限定所有者范围的会话、本地实现和面向模型的工具 | 产品：稳定 API |
-| [`code-runtime/`](code-runtime/README.md) | 代码执行能力系列：Service Definition + worker 线程／Python 提供方 + Code Mode Consumer | 产品：稳定 API |
+| [`ptc-runtime/`](ptc-runtime/README.md) | PTC 能力系列：Service Definition + Node／Python 进程提供方 + 工具注册表 Consumer | 产品：稳定 API |
 | [`sandbox/`](sandbox/README.md) | 进程限制 seam；bwrap/Landlock/Seatbelt 后端 | 产品：稳定 API |
 | [`ssh/`](ssh/README.md) | POSIX SSH 提供方家族：共享连接、远端文件系统、子进程与沙箱提供方 | 产品 — 稳定 API |
 | [`fs/`](fs/README.md) | 文件系统能力系列：seam、本地实现、面向模型的文件工具、由 bash 支持的发现工具 | 产品：稳定 API |

@@ -136,7 +136,14 @@ export async function acquireAuthenticationLease(options: AuthenticationLeaseOpt
     if (isProcessAlive(current.owner.pid)) {
       throw new Error(`authentication-local: Harniverse network instance already running in ${current.owner.mode} mode with pid ${String(current.owner.pid)}`)
     }
-    await rm(join(root, current.filename), { force: true })
+    try {
+      await rm(join(root, current.filename), { force: true })
+    } catch (error) {
+      // Concurrent stale-owner cleanup can still hold this file open on Windows;
+      // the following directory removal/retry observes whichever owner wins.
+      const code = (error as NodeJS.ErrnoException | null)?.code
+      if (!isMissing(error) && code !== 'EPERM') throw error
+    }
     await removeVacatedLease(root)
   }
 

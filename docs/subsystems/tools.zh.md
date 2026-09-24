@@ -157,7 +157,7 @@ type InferArgs<S> = InferProperties<S, []>
 ```ts type-equiv
 /**
  * Per-scope filter over inherited tools. Restrictions intersect and do not
- * affect the reserved Code Mode transport. A standing Profile composition may opt
+ * affect the reserved PTC transport. A standing Profile composition may opt
  * into filtering registrations owned by that same scope; descendant-owned
  * protocol tools remain exempt.
  */
@@ -256,7 +256,7 @@ type ToolExecutionMode =
   | { kind: 'exclusive' }
 ```
 
-Code Mode 的桥接层还会把每个已结算的子分派暴露给 `tools/code-dispatch-log` waterfall，该 waterfall 可以更改持久事件所存的内容副本（程序取得的值和模型可见结果均不受影响）：
+PTC 的桥接层还会把每个已结算的子分派暴露给 `tools/code-dispatch-log` waterfall，该 waterfall 可以更改持久事件所存的内容副本（程序取得的值和模型可见结果均不受影响）：
 
 ```ts type-equiv
 /**
@@ -518,7 +518,7 @@ Tool registry and execution pipeline. Scoped registrations shadow globals; one v
  * declaration covers every agent joined under it.
  *
  * Scoped only, and one declaration per scope: this is how an agent preset
- * composes Code Mode agents beside native ones in the same process, and a
+ * composes PTC agents beside native ones in the same process, and a
  * process-global override would be the `mode` config field instead.
  * @param mode - the presentation the covered agents' models see.
  * @returns the exact disposer that restores the deployment default.
