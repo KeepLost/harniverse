@@ -37,12 +37,14 @@ const MARKER = 'HOST-EGRESS-OK'
 const PHONE = { width: 390, height: 844 }
 
 /**
- * Make the seeded session current: a fresh page starts session-less, and the
- * workbench chip renders only with a resident session.
+ * Make the Workspace's blank session current: the hero chip's name button
+ * opens the workbench only for a resolved session Workspace, so the phone
+ * picks the connected Workspace's resident blank session, not the detached
+ * seeded one.
  * @param page - page under test.
  */
-async function selectSeededSession(page: Page): Promise<void> {
-  const sessionRow = page.locator('[role="treeitem"]').nth(1)
+async function selectWorkspaceBlankSession(page: Page): Promise<void> {
+  const sessionRow = page.getByRole('treeitem', { name: 'New Session', exact: true })
   await sessionRow.waitFor({ timeout: 15_000 })
   await sessionRow.click()
   // The drawer covers the composer (and its workbench chip) until closed.
@@ -144,7 +146,7 @@ describe('web e2e: host browser panel', () => {
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
-    await page.getByRole('button', { name: 'Open workspace workbench' }).click()
+    await page.getByRole('button', { name: 'Open workbench' }).click()
     const workbench = page.getByRole('complementary', { name: 'Workspace workbench' })
     await workbench.getByRole('tab', { name: 'Browser' }).click()
   }, 180_000)
@@ -229,8 +231,8 @@ describe('web e2e: host browser panel', () => {
       phone = await browser.newPage({ viewport: PHONE, locale: 'en-US' })
       await phone.goto(scaffold.baseUrl, { waitUntil: 'load' })
       await phone.getByRole('button', { name: 'Open sidebar' }).click()
-      await selectSeededSession(phone)
-      await phone.getByRole('button', { name: 'Open workspace workbench' }).click()
+      await selectWorkspaceBlankSession(phone)
+      await phone.getByRole('button', { name: 'Open workbench' }).click()
       const workbench = phone.getByRole('complementary', { name: 'Workspace workbench' })
       await workbench.getByRole('tab', { name: 'Browser' }).click()
     }, 120_000)
