@@ -24,17 +24,24 @@ describe('web e2e: goal bar clear convergence', () => {
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
+  const deferredBootstrap = Promise.withResolvers<undefined>()
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({ extraOverlayPath: OVERLAY, welcomeNoticePending: true })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
+    await page.route('**/plugins/bootstrap-deferred.js?*', async (route) => {
+      await deferredBootstrap.promise
+      await route.continue()
+    })
     await page.goto(`${scaffold.baseUrl}?fixture`, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
   }, 120_000)
 
   afterAll(async () => {
+    deferredBootstrap.resolve(undefined)
+    await page?.unrouteAll({ behavior: 'wait' })
     await browser?.close()
     await scaffold?.close()
   })
@@ -48,10 +55,16 @@ describe('web e2e: goal bar clear convergence', () => {
     await input.fill('/goal guard rapid clear clicks')
     await input.press('Enter')
 
+    // Command dispatch is available while optional presentation is still loading.
+    await expect.poll(() => page.locator('textarea').first().inputValue()).toBe('')
+    expect(await page.locator('[data-chat-flow-kind="user"]').count()).toBe(0)
+    deferredBootstrap.resolve(undefined)
+
     const bar = page.locator('[data-goal-bar]')
-    // Command → session event → SSE → render spans several hops; CI load can
-    // push first paint past a 10s budget even though the bar is imminent.
     await bar.waitFor({ timeout: 30_000 })
+    const commandInput = page.locator('[data-command-input]')
+    await commandInput.waitFor({ timeout: 10_000 })
+    expect(await commandInput.textContent()).toBe('/goal guard rapid clear clicks')
     const snapshot = await captureStableAria(page, '[data-goal-bar]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(ACTIVE_EXPECTED, snapshot, MODE)
 

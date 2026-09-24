@@ -461,6 +461,8 @@ Desktop qualification evidence: [CI run 35976981181](https://github.com/KeepLost
 
 The current browser-snapshot correction registers the observer with `pathToFileURL(observer).href`: raw Windows drive paths produce an unsupported ESM `c:` scheme, and `#`/`%` need URL encoding. A real-import regression uses a temporary path containing `#` and `%`, verifies the observer identity and `file:` protocol, and fails with `ERR_MODULE_NOT_FOUND` under the original raw-path implementation. The qualifier retains `fork`, the Windows 180-second operation budget and 120-second Host-ready wait. Its page uses deterministic text plus CSS repaint; snapshots use a private physical Windows copy and POSIX hardlinks with a private policy-file copy. The [owning Agent Note](.agents/notes/implemented/architecture/2026-09-24-desktop-shell-lifecycle.md) records the rationale and verification limits.
 
+The shared Web command source and input-trigger Provider declare critical startup so the composer cannot submit before command recognition is registered. Optional presentation remains deferred. The assembled goal-bar regression holds deferred bootstrap delivery and proves the first `/goal` creates command/goal output without an ordinary user-message node; the original declarations fail this assertion. The [owning Agent Note](.agents/notes/implemented/architecture/2026-09-24-desktop-shell-lifecycle.md) records the startup contract and the limits of attributing the earlier intermittent CI timeout.
+
 ## Wave 3 third-batch composition
 
 | Capability | Definition and provider | Consumers and shipped composition |

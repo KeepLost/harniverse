@@ -16,6 +16,8 @@
 
 `/client` 入口导出插件主体（`apply`／`inject`）、`CommandUiRuntime`、目录类和 popup 类及其状态类型，以及固定的约定类型；外层组件本身是 overlay 注册的内部实现。
 
+本插件与输入触发 Provider 一同声明 `dsh.client.startup: "critical"`，确保 composer 可交互前已经注册 `/` source。命令目录仍可处于拉取中；`matchEnter` 会等待目录后再分发。可选的命令呈现可以稍后挂载，不会把启动时提交的命令变成普通提示词。
+
 ## 模型体验
 
 间接影响，途径是本包的派发与 `claim.submit` 路径触发的 host `command.execute` RPC：匹配命中的命令，其 handler 会修改 host 领域状态，其他包再把该状态投影进下一个请求（`/plan` 的 handler 翻转 plan 模式，其归属包注入 `plan:policy` 系统提示词 section），而命令行本身、detached result 与所有菜单／notice 渲染都留在客户端，永不进入会话日志。

@@ -12,6 +12,8 @@ The `/client` exports are the plugin body (`apply`/`inject`), `InputTriggerServi
 
 Quoted `@"path with spaces` tokens are carried through candidate requests, sectioned candidates render in one source group, and a continuation text outcome re-tracks the existing input transaction for directory descent.
 
+The plugin declares `dsh.client.startup: "critical"` so the trigger Provider participates in the interactive shell's startup barrier. Sources retain their own startup declarations; the command source also joins this barrier, while optional sources may register later through the existing live-controller warming path.
+
 ## Model Experience
 
 None, as the trigger pipeline is browser presentation only — picks produce `CommandClaim`/`ReferenceInsert` data whose model-visible consequences (host command execution; inserted reference text riding an ordinary prompt) are owned by the consuming host and input-machine packages.

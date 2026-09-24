@@ -35,7 +35,8 @@
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-locale"
       ],
-      "platform": "web"
+      "platform": "web",
+      "startup": "critical"
     }
   },
   "scripts": {

@@ -48,6 +48,8 @@ The private Host uses Node's `import.meta.main` to recognize process entry. Comp
 
 An independent desktop business UI duplicates plugin composition and authentication behavior. Loading the shared Web entry keeps these capabilities under their existing owners.
 
+The shared Web composition marks the input-trigger Provider and command source as critical startup plugins. Without either registration, the interactive composer can treat an initial `/goal` as an ordinary prompt; loading the deferred plugins afterward cannot recover that command. The package-owned startup declarations preserve the existing Loader barrier without adding command logic to the shell. Optional presentation remains deferred, and command-directory readiness stays under the command source's existing awaited dispatch contract.
+
 Address-based filesystem locality misclassifies loopback tunnels. Explicit child ownership provides the authority required for a local native picker and process shutdown.
 
 Unconditional close-to-quit interrupts background work, while invisible background operation removes the user's return path. The retained tray and explicit activity-aware Quit preserve both work and control.
@@ -55,6 +57,8 @@ Unconditional close-to-quit interrupts background work, while invisible backgrou
 Mutating a shared CLI profile or installing executable plugins into Desktop would give multiple owners control over one application closure. A dedicated profile and whole-unit updates keep the runtime reproducible. Treating manifest checksums as publisher authentication or promising automatic native-installer rollback would exceed the mechanism's guarantees; local selection and explicit consent expose those limits.
 
 ## Consequences
+
+The assembled goal-bar regression holds the deferred bootstrap response, immediately submits `/goal`, and requires no ordinary user-message node. After releasing optional presentation it requires the command bubble, active goal snapshot and convergent double-clear behavior. The original declarations fail with one ordinary user-message node; the two critical declarations pass this regression and the adjacent command-presentation scenario. This reproduces a startup hazard consistent with the intermittent goal-bar CI timeout; the original failed run did not capture enough browser state to establish its exact cause.
 
 Qualification awaits asynchronous removal of native-probe profiles, PTY scratch directories, browser fixtures, clean-install profiles and outer assembly directories, with five retries and a 100ms linear retry increment. Node 24.20's [synchronous removal implementation](https://github.com/nodejs/node/blob/v24.20.0/src/node_file.cc) maps Windows `permission_denied` to `EPERM` after excluding it from its retry predicate; its subsecond Windows retry sleeps also truncate to zero. The asynchronous remover uses the `EPERM` retry path and settles before qualification returns. Transient and permanent contention regressions exercise that real retry path with injected filesystem failures; permanent failure still rejects. Browser cleanup failures retain the preceding qualification error and phase. The original CI logs do not identify the process holding the directory.
 
