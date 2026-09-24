@@ -15,6 +15,8 @@
 - **先终止再等待退出的 dispose（资源释放）**：服务保留存活句柄，使自身的 dispose 能对每个仍在运行的进程树执行升级并等待其退出；完全停稳与 spawn 失败的句柄会在整棵进程树或 terminal session 清理完成后离开存活集合。
 - **同步宿主退出最终清理**：服务 effect 仍有效时，Node `exit` listener 会强制终止同一组存活集合中仍存在的每棵普通进程树和可观察 terminal session。这些仅供本地实现使用的操作会向受管 POSIX 进程组发送 SIGKILL、在 Windows 运行 `taskkill /T /F`，并在终止 PTY root 前后同步向已捕获及当前可观察的 terminal 身份发送信号；它们不会创建 Promise 或 timer，不改变宿主退出码与诊断，会分别包含每个目标的失败，也不会声称已经完全停稳。正常 dispose 仍使用上面的须等待温和路径。参见[宿主退出清理决策](../../../.agents/notes/implemented/bug-fix/2026-08-11-synchronous-subprocess-exit-cleanup.md)。
 
+Windows 进程树终止以大小写不敏感的方式解析 `SystemRoot`，通过绝对路径调用其 `System32\taskkill.exe`，不依赖当前目录或 `PATH`。这适用于普通子进程、终端检查与同步宿主退出清理。缺失或非绝对路径的 `SystemRoot` 不会回退到可执行文件查找。
+
 ## 模型体验
 
 通过 Consumer 间接影响（目前是 `dsh-tool-bash` 背后的 bash 执行器家族）；进程输出与生命周期面向模型的全部渲染归 Consumer 所有。

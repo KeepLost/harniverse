@@ -12,6 +12,31 @@ import { checkRuntime, type RuntimeInput } from './packaging-runtime.ts'
 
 type Message = Record<string, unknown>
 
+/** Fixture-only Cordis observer: retain Chromium diagnostics after its DevTools endpoint becomes ready. */
+export const BROWSER_OBSERVER_PLUGIN = `
+export const name = 'desktop-browser-qualification-observer'
+export function apply(ctx) {
+  ctx.on('subprocess/spawned', ({ correlation, handle }) => {
+    if (correlation.commandId !== 'browser-controller') return
+    let stderr = ''
+    const report = (state, outcome) => {
+      if (process.connected) process.send({ type: 'browser-qualification-observation',
+        observation: { pid: handle.pid, state, stderr, ...outcome } }, () => {})
+    }
+    const read = chunk => { stderr = (stderr + String(chunk)).slice(-8000); report('running') }
+    const stop = ctx.effect(() => {
+      handle.stderr?.on('data', read)
+      return () => { handle.stderr?.off('data', read) }
+    })
+    report('running')
+    void handle.done.then(
+      outcome => { report('exited', outcome); stop() },
+      error => { report('failed', { error: String(error).slice(-1000) }); stop() },
+    )
+  })
+}
+`
+
 function messageFrom(child: ChildProcess, type: string): Promise<Message> {
   return new Promise((accept, reject) => {
     const cleanup = () => { clearTimeout(timer); child.off('message', message); child.off('close', closed); child.off('error', failed) }
@@ -42,15 +67,18 @@ async function rpc(url: URL, cookie: string, method: string, payload: object): P
   return value.result.value
 }
 
-async function* frames(response: Response): AsyncGenerator<Message> {
+async function* frames(response: Response, signal: AbortSignal): AsyncGenerator<Message> {
   assert.equal(response.status, 200)
   assert(response.body)
   const reader = response.body.getReader()
+  const cancel = () => { void reader.cancel().catch(() => { /* The stream's read reports transport failures. */ }) }
+  signal.addEventListener('abort', cancel, { once: true })
   const decoder = new TextDecoder()
   let pending = ''
   try {
     while (true) {
       const { done, value } = await reader.read()
+      signal.throwIfAborted()
       if (done) return
       pending += decoder.decode(value, { stream: true })
       let end: number
@@ -64,7 +92,10 @@ async function* frames(response: Response): AsyncGenerator<Message> {
         yield envelope.payload
       }
     }
-  } finally { await reader.cancel(); reader.releaseLock() }
+  } finally {
+    signal.removeEventListener('abort', cancel)
+    try { await reader.cancel() } finally { reader.releaseLock() }
+  }
 }
 
 /**
@@ -76,7 +107,8 @@ async function* frames(response: Response): AsyncGenerator<Message> {
 export async function qualifyBrowserFrames(
   response: Response, navigate: () => Promise<unknown>,
 ): Promise<{ frameBytes: number; title: string }> {
-  const iterator = frames(response)
+  const lifetime = new AbortController()
+  const iterator = frames(response, lifetime.signal)
   let frameBytes = 0
   let blankFrame = ''
   let title = ''
@@ -105,26 +137,29 @@ export async function qualifyBrowserFrames(
       break
     }
     phase = 'navigation'
-    await navigate()
-    phase = 'rendering'
-    // The striped fixture produces a substantial JPEG; a blank pre-navigation frame cannot satisfy this.
-    while (frameBytes < 10000 || title !== 'Packaged Host browser') {
-      const frame = await next()
-      const image = frame.image as { data: string } | undefined
-      const info = frame.info as { title: string } | undefined
-      if (info) title = info.title
-      if (image && image.data !== blankFrame) {
-        const jpeg = Buffer.from(image.data, 'base64')
-        assert.equal(jpeg.readUInt16BE(0), 0xffd8, 'browser frame must be a JPEG')
-        frameBytes = jpeg.length
+    const navigation = navigate().then(() => { phase = 'rendering' })
+    // A browser panel keeps consuming its stream while navigation is in flight.
+    const rendering = (async () => {
+      // The striped fixture produces a substantial JPEG; a blank frame cannot satisfy this.
+      while (frameBytes < 10000 || title !== 'Packaged Host browser') {
+        const frame = await next()
+        const image = frame.image as { data: string } | undefined
+        const info = frame.info as { title: string } | undefined
+        if (info) title = info.title
+        if (image && image.data !== blankFrame) {
+          const jpeg = Buffer.from(image.data, 'base64')
+          assert.equal(jpeg.readUInt16BE(0), 0xffd8, 'browser frame must be a JPEG')
+          frameBytes = jpeg.length
+        }
       }
-    }
+    })()
+    await Promise.all([navigation, rendering])
     return { frameBytes, title }
   } catch (error) {
     const evidence = { phase, framesSeen, imagesSeen, largestImageBytes, lastType, frameBytes, title: title.slice(0, 120) }
     throw new Error(`Browser frame qualification failed: ${error instanceof Error ? error.message : String(error)}; ${JSON.stringify(evidence)}`,
       { cause: error })
-  } finally { await iterator.return(undefined) }
+  } finally { lifetime.abort(); await iterator.return(undefined) }
 }
 
 /**
@@ -151,6 +186,7 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
   let child: ChildProcess | undefined
   let exited: Promise<number | null> | undefined
   let stderr = ''
+  let browserProcess: unknown
   let originHits = 0
   const origin = createServer((_request, response) => {
     originHits++
@@ -184,7 +220,10 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
     const source = readFileSync(patch, 'utf8')
     const row = "      name: '@deepseek-ai/dsh-api-browser-controller'"
     assert.equal(source.split(row).length, 2, 'one shipped browser-controller row is required')
-    writeFileSync(patch, source.replace(row, `${row}\n      config:\n        allowPrivateAddresses: true\n        allowedHosts: ['127.0.0.1']`))
+    const observer = join(runtime, 'browser-observer.mjs')
+    writeFileSync(observer, BROWSER_OBSERVER_PLUGIN)
+    writeFileSync(patch, source.replace(row, `${row}\n      config:\n        allowPrivateAddresses: true\n        allowedHosts: ['127.0.0.1']`
+      + `\n\n    - id: browser-qualification-observer\n      name: ${JSON.stringify(observer)}`))
     mkdirSync(home, { mode: 0o700 })
     mkdirSync(join(root, 'empty-path'))
     const env: NodeJS.ProcessEnv = { PATH: join(root, 'empty-path'), HOME: root, USERPROFILE: root,
@@ -197,6 +236,9 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'], detached: process.platform !== 'win32',
     })
     child = host
+    host.on('message', (value: Message) => {
+      if (value.type === 'browser-qualification-observation') browserProcess = value.observation
+    })
     host.stderr?.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-12000) })
     exited = new Promise((accept) => { host.once('close', accept) })
     const ready = await messageFrom(child, 'ready')
@@ -260,6 +302,7 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
     child.send({ type: 'shutdown' })
     await stopped
     assert.equal(await exited, 0)
+    assert(browserProcess, 'qualification must observe the actual Host browser process')
     await assert.rejects(fetch(url))
     stream.signal.throwIfAborted()
     enter('complete')
@@ -269,7 +312,7 @@ export async function qualifyBrowser(app: string, executable: string): Promise<o
       frameBytes, title, originHits, pagesAfterClose: 0, shutdown: 'acknowledged-and-exited', phases }
   } catch (error) {
     const diagnostics = { phase, elapsedMs: Math.round(performance.now() - started), phaseMs: Math.round(performance.now() - phaseStarted),
-      timedOut, originHits, hostExitCode: child?.exitCode ?? null, hostSignal: child?.signalCode ?? null, phases }
+      timedOut, originHits, hostExitCode: child?.exitCode ?? null, hostSignal: child?.signalCode ?? null, phases, browserProcess }
     throw new Error(`Packaged browser qualification failed: ${error instanceof Error ? error.message : String(error)}\n${JSON.stringify(diagnostics)}\n${stderr}`,
       { cause: error })
   } finally {

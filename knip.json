@@ -12,7 +12,6 @@
     "sandbox-exec",
     "ss",
     "tar",
-    "taskkill",
     "where.exe"
   ],
   "ignoreWorkspaces": [

@@ -7,7 +7,7 @@
  * @module dsh-subprocess-local/spawn
  */
 
-import { type ChildProcess, type SpawnOptions, spawn, spawnSync } from 'node:child_process'
+import { type ChildProcess, type SpawnOptions, spawn } from 'node:child_process'
 import type { Readable } from 'node:stream'
 import { setTimeout as sleepMs } from 'node:timers/promises'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
@@ -21,6 +21,7 @@ import type {
 } from '@deepseek-ai/dsh-subprocess'
 import { OutputCollector, privateSpillDir } from './output.ts'
 import { linuxProcessGroupHasLiveMembers } from './process-inspector.ts'
+import { taskkillTree } from './windows-inspector.ts'
 
 type SpawnProcess = (
   program: string,
@@ -105,21 +106,15 @@ export function killGroup(pid: number, sig: NodeJS.Signals): void {
 }
 
 /**
- * Terminate one Windows process tree with `taskkill /T /F`. Contained like
+ * Terminate one Windows process tree with SystemRoot's `taskkill.exe /T /F`,
+ * without relying on cwd or PATH. Contained like
  * POSIX group signalling — delivery races tree exit, so an absent tree, a
  * nonzero status, or a missing taskkill binary must not break idempotent
  * teardown.
  * @param pid - root process id; non-positive is a no-op.
  */
 export function taskkillProcessTree(pid: number): void {
-  if (pid <= 0) return
-  // Outcome deliberately unchecked: an already-absent tree (status 128), exit
-  // races, and a missing taskkill binary (spawnSync reports, never throws) are
-  // as tolerable here as ESRCH is for a POSIX group signal.
-  spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
-    stdio: 'ignore',
-    windowsHide: true,
-  })
+  taskkillTree(pid, true)
 }
 
 /**

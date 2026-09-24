@@ -15,6 +15,8 @@ Local Service Provider for the [`@deepseek-ai/dsh-subprocess`](../subprocess/REA
 - **Terminate-and-join disposal** — the service retains live handles so its own disposal can escalate every running tree and await its exit; quiescent and spawn-failed handles leave the live set after whole-tree or terminal-session cleanup finishes.
 - **Synchronous host-exit finalization** — while the service effect is active, a Node `exit` listener force-terminates every ordinary tree and observable terminal session still in the same live sets. The local-only operations send POSIX SIGKILL to the managed group, run Windows `taskkill /T /F`, and synchronously signal captured/current terminal identities around the PTY root kill; they create no promise or timer, preserve the host's exit code and diagnostic, contain each target's failure, and do not claim quiescence. Normal disposal keeps the awaited graceful path above. See the [host-exit cleanup decision](../../../.agents/notes/implemented/bug-fix/2026-08-11-synchronous-subprocess-exit-cleanup.md).
 
+Windows tree termination resolves `SystemRoot` case-insensitively and invokes its absolute `System32\taskkill.exe`, independent of the current directory and `PATH`. This applies to ordinary children, terminal inspection and synchronous host-exit cleanup. Missing or non-absolute `SystemRoot` never falls back to executable lookup.
+
 ## Model Experience
 
 Indirectly, through Consumers (today the bash executor family behind `dsh-tool-bash`), which own all model-facing rendering of process output and lifecycle.
