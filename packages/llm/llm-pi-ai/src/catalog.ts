@@ -498,6 +498,25 @@ export interface RouteCatalog {
 }
 
 /**
+ * The base one model's requests leave from, named in the deployment-facing
+ * convention and served in the protocol's own: a custom endpoint carries its
+ * version segment — `https://gw.example/v1`, the spelling OpenCode and every
+ * OpenAI-compatible gateway publish — while the OpenAI SDKs join their
+ * resource paths (`/chat/completions`, `/responses`) onto it directly and the
+ * Anthropic SDK's paths already begin with `/v1` (`/v1/messages`). The
+ * trailing slashes and one trailing `/v1` therefore come off for the protocol
+ * that re-adds them, so both the deployment standard and the official
+ * endpoints' own root spelling serve unchanged.
+ * @param api - the protocol the resolved model speaks.
+ * @param baseUrl - the configured base, treated as a prefix.
+ * @returns the base the model's SDK joins its paths against.
+ */
+function wireBase(api: string, baseUrl: string): string {
+  const base = baseUrl.replace(/\/+$/, '')
+  return api === 'anthropic-messages' && base.endsWith('/v1') ? base.slice(0, -3) : baseUrl
+}
+
+/**
  * Materialize one route's catalog by merging the installed catalog defaults
  * under the configured entries. A route with no configured `models` serves the
  * installed catalog unchanged, which is what keeps an existing
@@ -566,10 +585,11 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
       invalid(provider, `model "${entry.id}" needs an api; the installed catalog does not describe it, so set the`
         + ' route\'s api to the wire protocol its endpoint speaks')
     }
-    const baseUrl = request.baseURL ?? base?.baseUrl ?? providerBaseUrl
-    if (baseUrl === undefined) {
+    const configured = request.baseURL ?? base?.baseUrl ?? providerBaseUrl
+    if (configured === undefined) {
       invalid(provider, `model "${entry.id}" needs a baseURL; the installed catalog does not describe this route`)
     }
+    const baseUrl = wireBase(api, configured)
     // Capacities fall back to the route's own defaults, so a model listing that
     // discloses nothing but ids still yields a serviceable route. The fallback
     // is a guess by construction, which is why it is a configurable route field

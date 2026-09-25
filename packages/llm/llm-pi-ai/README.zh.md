@@ -105,7 +105,7 @@ profile 的 `models` 列表是*替换*该路由已安装 catalog，而不是扩�
 
 路由完全无法服务时解析仍会失败得响亮，并点名出问题的路由与模型：catalog 未提供的路由需要 `api`、`baseURL`，以及一个由唯一标识的模型组成的非空 `models` 列表。该解析在分节 schema 内部运行，因此无法服务的 profile 会在**写入之处**被拒绝——`settings.mutate` 以 `settings-rejected` 点名路由与模型——而不是先存下来、再悄悄让该 namespace 下每条路由失效。对于已经存下的、在此失败的分节，settings seam 会保留该 namespace 上一份可用值，因此这不会把部署卡死。`api` 接受 `supportedProtocols()` 中的协议。每个模型按以下顺序解析自己的协议格式：自身条目的 `api` 优先，其次是路由的，再次是已安装 catalog 条目的，最后是其同门模型一致同意的那一个——因此向单协议 catalog 路由添加模型无需重述任何内容；一个条目可以把单个模型指到路由其余部分不说的协议上；而 catalog 未描述的模型，其协议必须来自路由或它自己的条目。解析结果与已安装条目自身协议不同即为改指（repoint）：该条目的协议专属字段（compat 推理开关、思考拼写）不再适用于该模型，正因如此，这些字段只在协议仍然匹配时才被继承。
 
-`baseURL` 设定该路由下每个模型的端点，因此仍支持 `https://proxy.example.com:8443` 等私有 proxy；省略它的 catalog 路由会保留每个 catalog 模型自己的端点。在 catalog 路由上点名 `api` 会把每个未自带 `api` 的模型都改指到该协议，这正是部署把某个提供方在 Responses 与 Chat Completions 之间迁移的方式——也是一条路由服务混合协议 façade 的方式：路由写下多数模型所说的协议，例外者在各自的条目上点名。
+`baseURL` 设定该路由下每个模型的端点，因此仍支持 `https://proxy.example.com:8443` 等私有 proxy；省略它的 catalog 路由会保留每个 catalog 模型自己的端点。自定义端点以其版本段命名——`https://gw.example/v1`，即 OpenCode 与一切 OpenAI 兼容网关公布的拼写——且这一个地址就能服务路由混用的任何协议：OpenAI 系 SDK 把自己的路径直接拼在其上，而 `anthropic-messages` 模型在解析时会剥掉结尾的 `/v1`，因为 Anthropic SDK 自己的路径会补回它（`/v1/messages`），请求因此落到 `{baseURL}/messages`，与 OpenCode 发出的完全一致；官方端点的根拼写（`https://api.anthropic.com`）也原样可用。在 catalog 路由上点名 `api` 会把每个未自带 `api` 的模型都改指到该协议，这正是部署把某个提供方在 Responses 与 Chat Completions 之间迁移的方式——也是一条路由服务混合协议 façade 的方式：路由写下多数模型所说的协议，例外者在各自的条目上点名。
 
 `supportedProtocols()` 刻意窄于 pi-ai 的完整流式 API 集合：它只保留 profile 能用密钥、端点与标头**完整描述**的那些协议。Bedrock 要用 AWS 凭据与 region 做 SigV4 签名，Vertex 需要 project、location 与应用默认凭据，Azure 需要提供方环境外加 api-version，Codex 走 OAuth——提供它们只会交回一个无法完成认证的路由。catalog 路由仍可经自己的 provider 抵达这些协议；被拒绝的只有显式覆盖。
 

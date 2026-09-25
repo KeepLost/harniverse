@@ -115,9 +115,9 @@ function label(...candidates: readonly unknown[]): string | undefined {
  * of losing them to `URL` resolution. OpenAI protocols list at
  * `{baseURL}/models`. Anthropic lists at `{root}/v1/models`, where the root is
  * the base without trailing slashes and without one trailing `/v1` segment:
- * gateway documentation publishes both spellings of the same root. Only this
- * listing URL normalizes that segment; model requests receive the configured
- * `baseURL` unchanged.
+ * gateway documentation publishes both spellings of the same root, and model
+ * resolution drops the same segment for the same protocol, so a base that
+ * lists also serves.
  * @param baseURL - the configured base, treated as a prefix.
  * @param api - the listing's wire protocol.
  * @param lastId - the previous page's last id, when following `has_more`.

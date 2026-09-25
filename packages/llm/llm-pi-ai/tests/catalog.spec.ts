@@ -562,6 +562,61 @@ describe('catalog routes with per-model configuration', () => {
     expect(models.every(model => model.baseUrl === 'https://api.openai.com/v1')).toBe(true)
   })
 
+  it('serves one versioned base from both wire protocols it carries', () => {
+    // The deployment standard names a custom endpoint with its version
+    // segment, OpenCode-style: one gateway base serves a route mixing
+    // protocols, and each protocol's SDK joins its own paths onto the base it
+    // expects — so the anthropic entry's base drops the segment its paths
+    // re-add, while the openai siblings keep it.
+    const resolved = resolveProfiles({
+      'acme-gateway': {
+        apiKeyEnv: KEY_ENV,
+        api: 'openai-completions',
+        baseURL: 'https://gw.example/v1',
+        models: [
+          { id: 'acme-large', name: 'Acme Large', contextWindow: 65_536, maxTokens: 4096 },
+          {
+            id: 'acme-claude',
+            name: 'Acme Claude',
+            api: 'anthropic-messages',
+            contextWindow: 200_000,
+            maxTokens: 8192,
+          },
+        ],
+      },
+    })
+    const models = resolved.get('acme-gateway')?.piProvider.getModels() ?? []
+    expect(models.find(model => model.id === 'acme-large')?.baseUrl).toBe('https://gw.example/v1')
+    expect(models.find(model => model.id === 'acme-claude')?.baseUrl).toBe('https://gw.example')
+  })
+
+  it('accepts both spellings of an anthropic base and the catalog root untouched', () => {
+    const route = (baseURL: string) => resolveProfiles({
+      'acme-gateway': {
+        apiKeyEnv: KEY_ENV,
+        api: 'anthropic-messages',
+        baseURL,
+        models: [{ id: 'acme-claude', name: 'Acme Claude', contextWindow: 200_000, maxTokens: 8192 }],
+      },
+    })
+    const base = (baseURL: string): string => {
+      const model = route(baseURL).get('acme-gateway')?.piProvider.getModels()[0]
+      if (model === undefined) throw new Error('the anthropic route resolved no models')
+      return model.baseUrl
+    }
+    // The versioned spelling drops its trailing slashes and segment; the
+    // root spelling names the server the SDK's own `/v1`-carrying paths
+    // expect, so it stays as written.
+    expect(base('https://gw.example/v1')).toBe('https://gw.example')
+    expect(base('https://gw.example/v1/')).toBe('https://gw.example')
+    expect(base('https://gw.example')).toBe('https://gw.example')
+    // A catalog route keeps each model's installed endpoint, root-spelled.
+    const catalog = resolveProfiles({ anthropic: {} })
+    const native = catalog.get('anthropic')?.piProvider.getModels() ?? []
+    expect(native.length).toBeGreaterThan(0)
+    expect(native.every(model => model.baseUrl === 'https://api.anthropic.com')).toBe(true)
+  })
+
   it('repoints a catalog route at another wire protocol', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness({
