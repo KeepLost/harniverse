@@ -49,6 +49,7 @@
           - text: https://gateway.acme.example/v1
         - text: API 协议
         - combobox "API 协议":
+          - option "未选择"
           - option "openai-completions" [selected]
           - option "openai-responses"
           - option "anthropic-messages"
@@ -56,6 +57,7 @@
           - text: 模型目录 已自定义模型目录
           - button "恢复默认模型"
           - button "获取可用模型"
+          - button "查询端点"
           - textbox "模型 ID 1":
             - /placeholder: 模型 ID
             - text: acme-large
